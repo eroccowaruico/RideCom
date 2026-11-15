@@ -3957,6 +3957,17 @@
         }
       }
     },
+    "Only direct invitations save a person here. Removing a saved user also removes their direct group and ends a call with them. Regular groups keep them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直接招待した相手だけを保存します。ユーザーを削除すると、その相手のダイレクトグループも消え、その相手との通話は切断されます。通常のグループには残ります。"
+          }
+        }
+      }
+    },
     "Only direct invitations save a person here. Removing a saved user keeps your existing groups and calls." : {
       "extractionState" : "manual",
       "localizations" : {

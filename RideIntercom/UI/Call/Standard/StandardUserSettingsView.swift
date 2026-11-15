@@ -17,6 +17,8 @@ struct StandardUserSettingsView: View {
     }
 
     private var current: SavedUser { viewModel.savedUsers.first { $0.id == user.id } ?? user }
+    /// Deleting the person ends a call with them, so the confirmation says so.
+    private var endsCall: Bool { viewModel.isInCall(with: .user(user.id)) }
     private var typed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -45,11 +47,13 @@ struct StandardUserSettingsView: View {
             .navigationTitle("User Settings")
             .accessibilityIdentifier("userSettingsView")
             .alert("Delete \(current.resolvedDisplayName)?", isPresented: $confirmsDelete) {
-                Button("Delete", role: .destructive) {
+                Button(endsCall ? "Disconnect and Delete" : "Delete", role: .destructive) {
                     if viewModel.removeSavedUser(user.id) { dismiss() }
                 }
                 .accessibilityIdentifier("confirmDeleteUserButton")
                 Button("Cancel", role: .cancel) { }
+            } message: {
+                if endsCall { Text("The current connection ends.") }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

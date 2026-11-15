@@ -27,14 +27,15 @@ struct AdvancedUsersView: View {
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardUser-\(user.id)")
                     .advancedDestinationRowActions("User Settings", settings: { settings = .user(user.id) },
-                                           pending: $pendingDelete, name: user.resolvedDisplayName) {
+                                           pending: $pendingDelete, name: user.resolvedDisplayName,
+                                           endsCall: viewModel.isInCall(with: .user(user.id))) {
                         _ = viewModel.removeSavedUser(user.id)
                     }
                 }
             } header: {
                 Text(verbatim: "Saved Users \(viewModel.savedRemoteUsers.count)")
             } footer: {
-                Text("Only direct invitations save a person here. Removing a saved user keeps your existing groups and calls.")
+                Text("Only direct invitations save a person here. Removing a saved user also removes their direct group and ends a call with them. Regular groups keep them.")
             }
             AdvancedInvitationsSection(viewModel: viewModel)
             CallErrorSection(viewModel: viewModel)

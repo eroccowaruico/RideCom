@@ -112,11 +112,12 @@ struct StandardContactInvitationDetail: View {
         }
         .formStyle(.grouped)
         .alert(outgoing ? "Cancel This Invitation?" : "Delete \(person)?", isPresented: $confirmsCancellation) {
-            Button(outgoing ? "Cancel Invitation" : "Delete", role: .destructive, action: cancel)
+            Button(outgoing ? "Cancel Invitation" : endsCall ? "Disconnect and Delete" : "Delete", role: .destructive, action: cancel)
                 .accessibilityIdentifier("confirmCancelContactInvitationButton")
             Button(outgoing ? "Keep Invitation" : "Cancel", role: .cancel) {}
         } message: {
             if outgoing { Text("An invitation already sent may still be accepted until it expires.") }
+            else if endsCall { Text("The current connection ends.") }
         }
         // Keeps listening for, or delivering, the reply while the detail is open.
         .onAppear { if !isExpired { viewModel.retryPresentedContactInvitation(record.id) } }
@@ -189,11 +190,19 @@ struct StandardContactInvitationDetail: View {
         viewModel.setContactInvitationNickname(record.id, typed)
     }
 
-    /// A sent invitation is cancelled; for a received one, the person it saved is deleted too.
-    private func cancel() {
-        let user = record.peerMemberID.flatMap { peer in
+    /// The person a received invitation saved; deleting them is part of declining it.
+    private var savedPerson: SavedUser? {
+        record.peerMemberID.flatMap { peer in
             outgoing ? nil : viewModel.savedRemoteUsers.first { $0.memberIDs.contains(peer) }
         }
+    }
+
+    /// Deleting the person ends a call with them, so the confirmation says so.
+    private var endsCall: Bool { savedPerson.map { viewModel.isInCall(with: .user($0.id)) } ?? false }
+
+    /// A sent invitation is cancelled; for a received one, the person it saved is deleted too.
+    private func cancel() {
+        let user = savedPerson
         guard viewModel.cancelPresentedContactInvitation(record.id), let user else { return }
         _ = viewModel.removeSavedUser(user.id)
     }

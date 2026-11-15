@@ -351,26 +351,27 @@ final class RideIntercomUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["directCallHelpLabel"].waitForExistence(timeout: 3))
         if app.buttons["connectButton"].exists { app.buttons["connectButton"].tap() }
         XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 3))
-        // Removing the directory entry leaves the selected call and its stop control available.
-        // Deleting the saved user from the Users list, which asks first.
+        // Deleting the person you are talking with asks to disconnect, then removes
+        // the person, their direct group and the call together.
+        openGroupsTab()
+        let directGroupCount = try advancedDirectGroupCount()
+        XCTAssertGreaterThan(directGroupCount, 0)
         openUsersTab()
-        let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "standardUser-")).firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 3))
-        let entryRow = app.buttons[entry.identifier].firstMatch
-        entryRow.swipeLeft()
+        XCTAssertTrue(userRow.waitForExistence(timeout: 3))
+        userRow.swipeLeft()
         app.buttons["Delete"].firstMatch.tap()
         let confirmDelete = app.buttons["confirmDeleteDestinationButton"].firstMatch
-        XCTAssertTrue(confirmDelete.waitForExistence(timeout: 3)); confirmDelete.tap()
-        XCTAssertTrue(entryRow.waitForNonExistence(timeout: 3))
-        openUsersTab()
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: 3))
+        XCTAssertEqual(confirmDelete.label, "Disconnect and Delete")
+        XCTAssertTrue(app.alerts.staticTexts["The current connection ends."].exists)
+        attachScreen("Deleting the Connected User Asks to Disconnect")
+        confirmDelete.tap()
+        XCTAssertTrue(userRow.waitForNonExistence(timeout: 3))
         XCTAssertFalse(user.exists)
-        XCTAssertFalse(userRow.exists, "Removed users cannot open User Settings")
-        app.buttons["standardCurrentCallButton"].tap()
-        XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["inviteButton"].exists)
-        XCTAssertTrue(app.staticTexts["directCallHelpLabel"].label.contains("removed from Saved Users"))
-        attachScreen("Individual Call Retained after User Removal")
-        app.buttons["disconnectButton"].tap()
+        openGroupsTab()
+        XCTAssertFalse(app.buttons["standardCurrentCallButton"].exists, "The call with the deleted person ended")
+        XCTAssertEqual(try advancedDirectGroupCount(), directGroupCount - 1, "The person's direct group is deleted with them")
+        attachScreen("User and Direct Group Removed Together")
         try checkGroupDeletionCanBeExercisedFromUI()
     }
 
@@ -1247,6 +1248,17 @@ final class RideIntercomUITests: XCTestCase {
             button.tap()
         }
         XCTAssertTrue(app.descendants(matching: .any)[root].firstMatch.waitForExistence(timeout: 3))
+    }
+
+    /// The count in Advanced Groups' "Direct Groups N" header, scrolled into view.
+    /// The section is left out when there are none.
+    @MainActor
+    private func advancedDirectGroupCount() throws -> Int {
+        let header = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Direct Groups ")).firstMatch
+        let list = app.descendants(matching: .any)["standardGroupsList"].firstMatch
+        for _ in 0..<8 where !header.waitForExistence(timeout: 1) { list.swipeUp() }
+        guard header.exists else { return 0 }
+        return try XCTUnwrap(Int(header.label.dropFirst("Direct Groups ".count)))
     }
 
     private func openGroupsTab() {
