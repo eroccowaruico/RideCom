@@ -132,10 +132,12 @@ struct CallAccessory: View {
 /// `CallSurfaceStatusIcon`.
 struct CallStatusSymbol: View {
     let status: StandardCallStatus
+    var progressSize: ControlSize = .mini
 
     var body: some View {
         if status == .connecting {
-            ProgressView().controlSize(.mini).tint(AppColorPalette.warning)
+            // Only the progress carries the warning color; the words keep the label color.
+            ProgressView().controlSize(progressSize).tint(AppColorPalette.warning)
         } else {
             Image(systemName: symbol).foregroundStyle(color)
         }

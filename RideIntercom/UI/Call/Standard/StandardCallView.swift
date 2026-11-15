@@ -277,13 +277,9 @@ struct StandardCallView: View {
         return (String(localized: .init(stringLiteral: status.title)), status.detail.map { String(localized: .init(stringLiteral: $0)) })
     }
 
-    @ViewBuilder private var statusSymbolView: some View {
-        if viewModel.standardCallStatus == .connecting {
-            // Only the progress carries the warning color; the words keep the label color.
-            ProgressView().controlSize(.small).tint(AppColorPalette.warning)
-        } else {
-            Image(systemName: statusSymbol).foregroundStyle(statusColor)
-        }
+    /// The shared state symbol; the hero's larger type takes the larger progress.
+    private var statusSymbolView: some View {
+        CallStatusSymbol(status: viewModel.standardCallStatus, progressSize: .small)
     }
 
     private var statusTitle: some View {
@@ -308,25 +304,6 @@ struct StandardCallView: View {
             Text(verbatim: detail)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    private var statusSymbol: String {
-        switch viewModel.standardCallStatus {
-        case .chooseDestination, .ready: "phone"
-        case .connecting: "hourglass"
-        case .inCall: "waveform"
-        case .audioPaused: "headphones"
-        case .audioUnavailable: "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var statusColor: Color {
-        switch viewModel.standardCallStatus {
-        case .inCall: AppColorPalette.success
-        case .connecting, .audioPaused: AppColorPalette.warning
-        case .audioUnavailable: AppColorPalette.danger
-        case .chooseDestination, .ready: AppColorPalette.neutral
         }
     }
 
