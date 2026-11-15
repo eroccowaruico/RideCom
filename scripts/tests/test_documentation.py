@@ -31,10 +31,10 @@ class DocumentationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); self.fixture(root)
             settings = root / 'RideIntercom/UI/Settings'
-            settings.mkdir(parents=True)
-            (settings / 'SettingsView.swift').write_text('.accessibilityIdentifier("rootSetting")')
-            (settings / 'SettingsPanels.swift').write_text('.accessibilityIdentifier("panelSetting")')
-            (settings / 'StandardSettingsView.swift').write_text('.accessibilityIdentifier("standardSetting")')
+            for mode in ('Common', 'Standard'): (settings / mode).mkdir(parents=True)
+            (settings / 'Common/SettingsView.swift').write_text('.accessibilityIdentifier("rootSetting")')
+            (settings / 'Common/SettingsPanels.swift').write_text('.accessibilityIdentifier("panelSetting")')
+            (settings / 'Standard/StandardSettingsView.swift').write_text('.accessibilityIdentifier("standardSetting")')
             other = root / 'RideIntercom/UI/Call'
             other.mkdir(parents=True)
             (other / 'CallView.swift').write_text('.accessibilityIdentifier("otherFeature")')

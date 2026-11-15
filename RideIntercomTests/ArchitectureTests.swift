@@ -60,8 +60,8 @@ struct ArchitectureTests {
     @Test func uiSourcesAreSplitByScreenResponsibility() throws {
         let contentView = try AppTestSupport.source("RideIntercom/UI/ContentView.swift")
         let callView = try AppTestSupport.source("RideIntercom/UI/Call/Advanced/CallView.swift")
-        let settingsView = try AppTestSupport.source("RideIntercom/UI/Settings/SettingsView.swift")
-        let settingsPanels = try AppTestSupport.source("RideIntercom/UI/Settings/SettingsPanels.swift")
+        let settingsView = try AppTestSupport.source("RideIntercom/UI/Settings/Common/SettingsView.swift")
+        let settingsPanels = try AppTestSupport.source("RideIntercom/UI/Settings/Common/SettingsPanels.swift")
         let diagnosticsView = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsView.swift")
         let transmitPipelineView = try ["LiveTransmitPipelineView", "TransmitPipelinePresentation", "PipelineComponents"].map {
             try AppTestSupport.source("RideIntercom/UI/Diagnostics/" + $0 + ".swift")

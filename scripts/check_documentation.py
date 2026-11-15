@@ -68,7 +68,7 @@ def check(root):
     specification = root / 'docs/spec/App/UI/Settings.md'
     if ui.exists() and specification.exists():
         content = specification.read_text()
-        identifiers = {identifier for source in ui.glob('*.swift')
+        identifiers = {identifier for source in ui.rglob('*.swift')
                        for identifier in UI_ID.findall(source.read_text())}
         for identifier in sorted(identifiers):
             if f'`{identifier}`' not in content:

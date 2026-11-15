@@ -24,10 +24,10 @@ Settings はアカウントのサインアウトと削除、通信経路、Audio
 | 設定画面 | `settingsScrollView` | 通話前後の調整、確認、自己診断を行う | `SettingsView` | 常時 | `Form` |
 | 通信設定 | `communicationPanel` | RTC package に渡す有効 route を選択する | `CommunicationPanel` | 常時 | `Communication` section |
 | Internet接続設定 | なし（子IDを使用） | サービスURLと端末資格の保存 | `StandardInternetConnectionSection`／`AdvancedInternetConnectionPanel` | 常時 | `Internet Connection` section |
-| Audio Session設定 | `audioSessionPanel` | SessionManager の mode、speaker、echo cancellation、Duck Other Audio の組み合わせを選択する | `AudioSessionPanel` | 常時 | `Audio Session` section |
+| Audio Session設定 | `audioSessionPanel` | SessionManager の mode、speaker、echo cancellation、Duck Other Audio の組み合わせを選択する | `AdvancedAudioSessionPanel` | 常時 | `Audio Session` section |
 | 音声I/O設定 | `audioIOPanel` | 入出力ポートと effect chain の有効/無効を選択する | `AudioIOPanel` | 常時 | `Audio I/O` section |
 | オーディオチェック設定 | `audioCheckPanel` | 自己録音/再生で経路確認する | `StandardAudioCheckSection`／`AdvancedAudioCheckPanel` | 常時 | `Audio Check` section |
-| 送信コーデック設定 | `transmitCodecPanel` | 送信 codec と bitrate を選ぶ | `TransmitCodecPanel` | 常時 | `Transmit Codec` section |
+| 送信コーデック設定 | `transmitCodecPanel` | 送信 codec と bitrate を選ぶ | `AdvancedTransmitCodecPanel` | 常時 | `Transmit Codec` section |
 | Voice Activity設定 | `voiceActivityPanel` | 発話検出の感度を調整する | `VoiceActivityPanel` | 常時 | `Voice Activity` section |
 | 設定リセット | `resetSettingsPanel` | 調整値だけを既定へ戻す | `ResetSettingsPanel` | 常時 | 最下部 |
 
@@ -230,4 +230,4 @@ Internetログインの再試行案内は、待ち時間を数値のままString
 
 ## モードごとの画面構成と共通部品
 
-`UI/Settings`内の`StandardSettingsView`と`AdvancedSettingsView`が各モードのSection構成と順序を持つ。`SettingsView`は共通のFormとInternet設定sheetの状態を所有し、`SettingsPanels`は両画面で意味の同じ設定部品を提供する。設定値と実処理は既存のIntercomViewModelへ集約し、モードごとに複製しない。アクセシビリティIDと設定の保存・反映・リセットの契約は共通で維持する。
+`UI/Settings`は[画面コードの配置](全体構成.md#画面コードの配置)に従い`Common/`・`Standard/`・`Advanced/`に分ける。`Standard/StandardSettingsView`と`Advanced/AdvancedSettingsView`が各モードのSection構成と順序を持つ。`Common/SettingsView`は共通のFormとInternet設定sheetの状態を所有し、`Common/SettingsPanels`は両画面で同一の設定部品（自動切断、Communication、Audio I/O、Voice Activity、リセット）を提供する。両モードの差は既定値の印だけで、部品は`interfaceMode`を読まず、Advancedの画面が`marksDefault`で指定する。Audio Sessionと送信codecはAdvancedだけが表示するため`Advanced/AdvancedAudioPanels`に置く。設定値と実処理は既存のIntercomViewModelへ集約し、モードごとに複製しない。アクセシビリティIDと設定の保存・反映・リセットの契約は共通で維持する。
