@@ -51,7 +51,10 @@ struct RideIntercomApp: App {
                 .onAppear {
                     SingleWindowPolicy.enforce()
                 }
+                .frame(minWidth: AppSize.macWindowMinimum.width, minHeight: AppSize.macWindowMinimum.height)
         }
+        .defaultSize(AppSize.macWindowDefault)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {
                 EmptyView()

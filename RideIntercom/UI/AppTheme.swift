@@ -68,6 +68,11 @@ enum AppSize {
     /// One focused group: sign-in, name input, an empty state.
     static let focusedMaxWidth: CGFloat = 420
     static let callColumnMaxWidth: CGFloat = 560
+    /// The Mac window's smallest size: the sidebar (about 200pt), a list (360pt) and the call
+    /// column (320pt) side by side. The sidebar cannot be collapsed by the app, so it is counted.
+    static let macWindowMinimum = CGSize(width: 880, height: 520)
+    /// The Mac window's first size; later launches restore the size it was closed at.
+    static let macWindowDefault = CGSize(width: 1100, height: 720)
     static let tapPrimary = CGSize(width: 44, height: 44)
     static let buttonPrimaryMinHeight: CGFloat = 44
     static let buttonSecondaryMinHeight: CGFloat = 36
