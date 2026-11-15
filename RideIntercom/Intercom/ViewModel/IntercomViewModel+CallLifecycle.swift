@@ -186,6 +186,7 @@ extension IntercomViewModel {
         stopWatchAudioLink()
         callDisconnectDeadline = nil
         callTicker.stop()
+        // The access state ends before media stops, so the last report to peers carries no access.
         callAccessState = CallAccessState()
         lastCallAccessSaveAttempt = nil
         let disconnectingGroupID = activeGroupID
@@ -204,21 +205,7 @@ extension IntercomViewModel {
         internetFailureDetail = nil
         audioRouteNotice = nil
         isAudioPausedForDeviceChange = false
-        connectionState = .idle
-        isVoiceActive = false
-        remoteVoiceReceivedAt.removeAll()
-        resetVoiceLevelWindows()
-        connectedPeerIDs = []
-        authenticatedPeerIDs = []
-        peerProfiles.removeAll()
-        localNetworkStatus = .idle
-        lastLocalNetworkPeerID = nil
-        lastLocalNetworkEventAt = nil
-        lastReceivedAudioAt = nil
-        droppedAudioPacketCount = 0
-        jitterQueuedFrameCount = 0
-        remoteRuntimeStatuses.removeAll()
-        resetAudioDebugCounters()
+        resetConnectionRuntimeState()
         activeGroupID = disconnectingGroupID
         markMembers(.offline)
         activeGroupID = nil

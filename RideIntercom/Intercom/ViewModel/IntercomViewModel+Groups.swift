@@ -68,6 +68,8 @@ extension IntercomViewModel {
         return !authenticatedPeerIDs.isEmpty
     }
 
+    /// Everything one connection observed about its peers and audio. A new call and the end of a
+    /// call both return it to the same empty state here, so neither can leave a field behind.
     func resetConnectionRuntimeState() {
         callAccessState = CallAccessState()
         lastCallAccessSaveAttempt = nil
@@ -79,6 +81,8 @@ extension IntercomViewModel {
         localNetworkStatus = .idle
         lastLocalNetworkPeerID = nil
         lastLocalNetworkEventAt = nil
+        remoteVoiceReceivedAt.removeAll()
+        remoteRuntimeStatuses.removeAll()
         resetVoiceLevelWindows()
         resetAudioDebugCounters()
     }
