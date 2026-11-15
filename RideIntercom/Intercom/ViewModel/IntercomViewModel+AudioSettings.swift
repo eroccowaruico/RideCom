@@ -31,82 +31,75 @@ extension IntercomViewModel {
     }
 
     func setAudioSessionProfile(_ profile: AudioSessionProfile) {
-        audioSessionProfile = profile
-        saveAppSettings()
-        guard configureAudioSession() else { return }
-        audioErrorMessage = nil
-        AppLoggers.settings.info(
-            "settings.audio_session.changed",
-            metadata: .event("settings.audio_session.changed", [
-                "profile": "\(profile.rawValue)"
-            ])
-        )
+        applyAudioSessionSettings(event: "settings.audio_session.changed", metadata: ["profile": "\(profile.rawValue)"]) {
+            audioSessionProfile = profile
+        }
     }
 
     func setAudioSessionModeProfile(_ profile: AudioSessionProfile) {
-        let previousOutputPort = selectedOutputPort
-        let keepsEchoCancellation = audioSessionProfile.prefersEchoCancelledInput
-        let keepsSpeakerOutput = isSpeakerOutputEnabled
-        switch profile.settingsModeProfile {
-        case .standard:
-            audioSessionProfile = keepsEchoCancellation ? .echoCancelledInput : .standard
-        case .voiceChat:
-            audioSessionProfile = .voiceChat
-        case .speakerDefault, .echoCancelledInput:
-            audioSessionProfile = .standard
+        applyAudioSessionSettings(event: "settings.audio_session.changed", metadata: [
+            "profile": "\(audioSessionProfile.rawValue)", "speaker": "\(isSpeakerOutputEnabled)"]) {
+            let keepsEchoCancellation = audioSessionProfile.prefersEchoCancelledInput
+            let keepsSpeakerOutput = isSpeakerOutputEnabled
+            switch profile.settingsModeProfile {
+            case .standard:
+                audioSessionProfile = keepsEchoCancellation ? .echoCancelledInput : .standard
+            case .voiceChat:
+                audioSessionProfile = .voiceChat
+            case .speakerDefault, .echoCancelledInput:
+                audioSessionProfile = .standard
+            }
+            if keepsSpeakerOutput { selectedOutputPort = .speaker }
         }
-        if keepsSpeakerOutput {
-            selectedOutputPort = .speaker
-        }
-        saveAppSettings()
-        guard configureAudioSession() else { return }
-        audioErrorMessage = nil
-        if selectedOutputPort != previousOutputPort {
-            refreshAudioDevicesIfNeeded()
-        }
-        AppLoggers.settings.info(
-            "settings.audio_session.changed",
-            metadata: .event("settings.audio_session.changed", [
-                "profile": "\(audioSessionProfile.rawValue)",
-                "speaker": "\(isSpeakerOutputEnabled)"
-            ])
-        )
     }
 
     func setSpeakerOutputEnabled(_ enabled: Bool) {
-        let previousOutputPort = selectedOutputPort
-        if audioSessionProfile == .speakerDefault {
-            audioSessionProfile = .standard
+        applyAudioSessionSettings(event: "settings.audio_speaker.changed", metadata: [
+            "enabled": "\(enabled)", "profile": "\(audioSessionProfile.rawValue)"]) {
+            if audioSessionProfile == .speakerDefault { audioSessionProfile = .standard }
+            selectedOutputPort = enabled ? .speaker : .systemDefault
         }
-        selectedOutputPort = enabled ? .speaker : .systemDefault
-        saveAppSettings()
-        guard configureAudioSession() else { return }
-        audioErrorMessage = nil
-        if selectedOutputPort != previousOutputPort {
-            refreshAudioDevicesIfNeeded()
-        }
-        AppLoggers.settings.info(
-            "settings.audio_speaker.changed",
-            metadata: .event("settings.audio_speaker.changed", [
-                "enabled": "\(enabled)",
-                "profile": "\(audioSessionProfile.rawValue)"
-            ])
-        )
     }
 
     func setSessionEchoCancellationEnabled(_ enabled: Bool) {
         guard canToggleSessionEchoCancellation else { return }
-        audioSessionProfile = enabled ? .echoCancelledInput : .standard
+        applyAudioSessionSettings(event: "settings.echo_cancellation.changed", metadata: [
+            "enabled": "\(isSessionEchoCancellationEnabled)", "speaker": "\(isSpeakerOutputEnabled)"]) {
+            audioSessionProfile = enabled ? .echoCancelledInput : .standard
+        }
+    }
+
+    func setInputPort(_ port: AudioPortInfo) {
+        applyAudioSessionSettings(event: "settings.audio_device.changed", metadata: [
+            "direction": "input", "selection": "\(port.id)"]) {
+            selectedInputPort = port
+        }
+    }
+
+    func setOutputPort(_ port: AudioPortInfo) {
+        applyAudioSessionSettings(event: "settings.audio_device.changed", metadata: [
+            "direction": "output", "selection": "\(port.id)"]) {
+            selectedOutputPort = port
+        }
+    }
+
+    /// Profile, speaker, echo cancellation and device selection differ only in the wish they
+    /// change. Each one is saved, configured on the session and logged the same way, and running
+    /// media restarts only when the selected device actually changed. The metadata is read after
+    /// the session resolved the wish, so the log carries what was applied.
+    private func applyAudioSessionSettings(event: String, metadata: @autoclosure () -> Logging.Logger.Metadata,
+                                           _ change: () -> Void) {
+        let previousPorts = [selectedInputPort, selectedOutputPort]
+        change()
         saveAppSettings()
         guard configureAudioSession() else { return }
         audioErrorMessage = nil
-        AppLoggers.settings.info(
-            "settings.echo_cancellation.changed",
-            metadata: .event("settings.echo_cancellation.changed", [
-                "enabled": "\(isSessionEchoCancellationEnabled)",
-                "speaker": "\(isSpeakerOutputEnabled)"
-            ])
-        )
+        if [selectedInputPort, selectedOutputPort] != previousPorts { refreshAudioDevicesIfNeeded() }
+        logSettingChange(event, metadata())
+    }
+
+    private func logSettingChange(_ event: String, _ values: Logging.Logger.Metadata) {
+        AppLoggers.settings.info("\(event)", metadata: .event(event, values))
     }
 
     func toggleMute() {
@@ -191,7 +184,7 @@ extension IntercomViewModel {
         saveAppSettings()
         var values = metadata
         if announcesCodec { values["selectedCodec"] = "\(selectedTransmitCodec.rawValue)" }
-        AppLoggers.settings.info("\(event)", metadata: .event(event, values))
+        logSettingChange(event, values)
         if announcesCodec {
             logCodecFallbackIfNeeded()
             broadcastMetadataKeepalive()
@@ -236,12 +229,7 @@ extension IntercomViewModel {
         enabledRTCTransportRoutes = normalizedRoutes
         callSession.setEnabledRoutes(normalizedRoutes)
         saveAppSettings()
-        AppLoggers.settings.info(
-            "settings.rtc_routes.changed",
-            metadata: .event("settings.rtc_routes.changed", [
-                "enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"
-            ])
-        )
+        logSettingChange("settings.rtc_routes.changed", ["enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"])
         publishRuntimePackageReports(force: true)
     }
 
@@ -250,10 +238,7 @@ extension IntercomViewModel {
         audioPipeline.applyVADSensitivity(sensitivity)
         refreshPackageRuntimeSnapshots()
         saveAppSettings()
-        AppLoggers.settings.info(
-            "settings.vad.changed",
-            metadata: .event("settings.vad.changed", ["preset": "\(sensitivity.rawValue)"])
-        )
+        logSettingChange("settings.vad.changed", ["preset": "\(sensitivity.rawValue)"])
         publishRuntimePackageReports(force: true)
     }
 
@@ -275,24 +260,13 @@ extension IntercomViewModel {
             remoteOutputVolumes[peerID] = normalizedVolume
         }
         updateAudioPipelineOutputSettings()
-        AppLoggers.settings.info(
-            "settings.remote_output_volume.changed",
-            metadata: .event("settings.remote_output_volume.changed", [
-                "peerID": "\(peerID)",
-                "volume": "\(normalizedVolume)"
-            ])
-        )
+        logSettingChange("settings.remote_output_volume.changed", ["peerID": "\(peerID)", "volume": "\(normalizedVolume)"])
         publishRuntimePackageReports(force: true)
     }
 
     func setSoundIsolationEnabled(_ enabled: Bool) {
         isSoundIsolationEnabled = enabled
-        AppLoggers.settings.info(
-            "settings.sound_isolation.changed",
-            metadata: .event("settings.sound_isolation.changed", [
-                "enabled": "\(enabled)"
-            ])
-        )
+        logSettingChange("settings.sound_isolation.changed", ["enabled": "\(enabled)"])
         updateAudioPipelineEffectSettings()
     }
 
@@ -306,57 +280,14 @@ extension IntercomViewModel {
         } else {
             remoteSoundIsolationEnabled[peerID] = enabled
         }
-        AppLoggers.settings.info(
-            "settings.remote_sound_isolation.changed",
-            metadata: .event("settings.remote_sound_isolation.changed", [
-                "peerID": "\(peerID)",
-                "enabled": "\(enabled)"
-            ])
-        )
+        logSettingChange("settings.remote_sound_isolation.changed", ["peerID": "\(peerID)", "enabled": "\(enabled)"])
         updateAudioPipelineEffectSettings()
     }
 
     func setReceiveMasterSoundIsolationEnabled(_ enabled: Bool) {
         receiveMasterSoundIsolationEnabled = enabled
-        AppLoggers.settings.info(
-            "settings.receive_master_sound_isolation.changed",
-            metadata: .event("settings.receive_master_sound_isolation.changed", [
-                "enabled": "\(enabled)"
-            ])
-        )
+        logSettingChange("settings.receive_master_sound_isolation.changed", ["enabled": "\(enabled)"])
         updateAudioPipelineEffectSettings()
-    }
-
-    func setInputPort(_ port: AudioPortInfo) {
-        let previousInputPort = selectedInputPort
-        selectedInputPort = port
-        guard configureAudioSession() else { return }
-        audioErrorMessage = nil
-        if selectedInputPort != previousInputPort { refreshAudioDevicesIfNeeded() }
-        AppLoggers.settings.info(
-            "settings.audio_device.changed",
-            metadata: .event("settings.audio_device.changed", [
-                "direction": "input",
-                "selection": "\(port.id)"
-            ])
-        )
-    }
-
-    func setOutputPort(_ port: AudioPortInfo) {
-        let previousOutputPort = selectedOutputPort
-        selectedOutputPort = port
-        guard configureAudioSession() else { return }
-        audioErrorMessage = nil
-        if selectedOutputPort != previousOutputPort {
-            refreshAudioDevicesIfNeeded()
-        }
-        AppLoggers.settings.info(
-            "settings.audio_device.changed",
-            metadata: .event("settings.audio_device.changed", [
-                "direction": "output",
-                "selection": "\(port.id)"
-            ])
-        )
     }
 
     func setDuckOthersEnabled(_ enabled: Bool) {
@@ -365,12 +296,7 @@ extension IntercomViewModel {
         applyCurrentVoiceProcessingConfiguration()
         publishRuntimePackageReports(force: true)
         audioErrorMessage = nil
-        AppLoggers.settings.info(
-            "settings.ducking.changed",
-            metadata: .event("settings.ducking.changed", [
-                "enabled": "\(enabled)"
-            ])
-        )
+        logSettingChange("settings.ducking.changed", ["enabled": "\(enabled)"])
     }
 
     func toggleOutputMute() {
@@ -401,10 +327,7 @@ extension IntercomViewModel {
         setOpusBitRate(Self.defaultOpusBitRate)
         setRTCTransportRoutes(Self.defaultEnabledRTCTransportRoutes)
         setMasterOutputVolume(Self.defaultMasterOutputVolume)
-        let resetRemoteOutputPeerIDs = Array(remoteOutputVolumes.keys)
         remoteOutputVolumes.removeAll()
-        _ = resetRemoteOutputPeerIDs
-        updateAudioPipelineOutputSettings()
         receiveMasterSoundIsolationEnabled = Self.defaultReceiveSoundIsolationEnabled
         remoteSoundIsolationEnabled.removeAll()
         isOutputMuted = false
@@ -412,13 +335,7 @@ extension IntercomViewModel {
         updateAudioPipelineEffectSettings()
         updateAudioPipelineOutputSettings()
         publishRuntimePackageReports(force: true)
-        let operationID = UUID().uuidString
-        AppLoggers.settings.notice(
-            "settings.reset",
-            metadata: .event("settings.reset", [
-                "operationID": "\(operationID)"
-            ])
-        )
+        AppLoggers.settings.notice("settings.reset", metadata: .event("settings.reset", ["operationID": "\(UUID().uuidString)"]))
     }
 
     func saveAppSettings() {

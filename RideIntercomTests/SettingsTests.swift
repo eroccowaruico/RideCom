@@ -97,6 +97,34 @@ struct SettingsTests {
         #expect(applied?.options.contains(.defaultToSpeaker) == true)
     }
 
+    @Test func selectingAnAudioPortReconfiguresTheSessionAndRestartsActiveMedia() async {
+        let harness = AppTestSupport.makeHarness()
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+        let input = AudioPortInfo(id: "input-1", name: "Input 1")
+
+        var configured = harness.audioSessionBackend.appliedConfigurations.count
+        harness.viewModel.setInputPort(input)
+        #expect(harness.viewModel.selectedInputPort == input)
+        #expect(harness.audioSessionBackend.appliedConfigurations.count > configured)
+        #expect(!harness.viewModel.isAudioReady)
+        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+
+        // The same port again reconfigures the session but keeps the running media.
+        harness.viewModel.setInputPort(input)
+        #expect(harness.viewModel.isAudioReady)
+
+        configured = harness.audioSessionBackend.appliedConfigurations.count
+        harness.viewModel.setOutputPort(.speaker)
+        #expect(harness.viewModel.selectedOutputPort == .speaker)
+        #expect(harness.audioSessionBackend.appliedConfigurations.count > configured)
+        #expect(harness.audioSessionBackend.appliedConfigurations.last?.options.contains(.defaultToSpeaker) == true)
+        #expect(!harness.viewModel.isAudioReady)
+        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+        #expect(harness.viewModel.audioErrorMessage == nil)
+    }
+
     @Test func viewModelLoadsAndPersistsAppAudioSettings() {
         let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
             audioSessionProfile: .voiceChat,
