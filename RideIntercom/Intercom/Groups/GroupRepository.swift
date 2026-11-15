@@ -113,18 +113,15 @@ final class GroupRepository {
     }
 
     func renameUser(_ id: UUID, displayName: String) throws {
-        guard let snapshot, let index = snapshot.users.firstIndex(where: { $0.id == id }),
-              IntercomGroup.isValidName(displayName) else { throw GroupStorageError.invalidUpdate }
-        var users = snapshot.users
-        users[index].localName = displayName
-        try update(snapshot.groups.map { try $0.group() }, credential: nil, users: users)
+        guard IntercomGroup.isValidName(displayName) else { throw GroupStorageError.invalidUpdate }
+        try setUserLocalName(id, displayName)
     }
 
-    func resetUserName(_ id: UUID) throws {
+    func resetUserName(_ id: UUID) throws { try setUserLocalName(id, nil) }
+
+    private func setUserLocalName(_ id: UUID, _ localName: String?) throws {
         guard let snapshot, let index = snapshot.users.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-        var users = snapshot.users
-        users[index].localName = nil
-        try update(snapshot.groups.map { try $0.group() }, credential: nil, users: users)
+        try amend(snapshot) { next in next.users[index].localName = localName }
     }
 
     func storedMembers(in groupID: UUID) -> [GroupSnapshot.Member] {
@@ -492,10 +489,7 @@ extension GroupRepository {
         guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
               record.direction == .outgoing, record.state == .pending else { throw GroupStorageError.invalidUpdate }
         guard record.sent == false else { return }
-        try amend(snapshot) { next in
-            guard let index = next.contactInvitations.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-            next.contactInvitations[index].sent = true
-        }
+        try amendContactInvitation(id, in: snapshot) { record in record.sent = true }
     }
 
     /// Removes an expired invitation's record (after a new one is sent for the same person, or on cancel).
@@ -513,18 +507,22 @@ extension GroupRepository {
         guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
               record.direction == .outgoing, record.state == .pending else { throw GroupStorageError.invalidUpdate }
         guard record.nickname != nickname else { return }
+        try amendContactInvitation(id, in: snapshot) { record in record.nickname = nickname }
+    }
+
+    private func amendContactInvitation(_ id: UUID, in snapshot: GroupSnapshot,
+                                        _ change: (inout ContactInvitationRecord) -> Void) throws {
         try amend(snapshot) { next in
             guard let index = next.contactInvitations.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-            next.contactInvitations[index].nickname = nickname
+            change(&next.contactInvitations[index])
         }
     }
 
     private func setContactInvitationState(_ id: UUID, state: ContactInvitationRecord.State) throws {
         guard let snapshot, snapshot.contactInvitations.contains(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-        try amend(snapshot) { next in
-            guard let index = next.contactInvitations.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-            next.contactInvitations[index].state = state
-            next.contactInvitations[index].credentialReference = nil
+        try amendContactInvitation(id, in: snapshot) { record in
+            record.state = state
+            record.credentialReference = nil
         }
     }
 }

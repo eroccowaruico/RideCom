@@ -278,7 +278,8 @@ extension IntercomViewModel {
             throw GroupInviteTokenError.wrongRecipient
         }
         let kind: IntercomGroup.Kind = token.recipientMemberID == nil && token.accountPair == nil ? .group : .direct
-        if let existing = groups.first(where: { $0.id == token.groupID }), (existing.kind != kind || existing.accountPair != token.accountPair) {
+        let existing = groups.first { $0.id == token.groupID }
+        if let existing, existing.kind != kind || existing.accountPair != token.accountPair {
             groupErrorMessage = "This invitation cannot change an individual call into a group."
             throw GroupInviteTokenError.incompatibleCall
         }
@@ -292,17 +293,17 @@ extension IntercomViewModel {
         // Do not replace a call that has already connected; reconnect explicitly.
         let keepsLocalKey = token.accountPair.map { $0.first == localAccountPrincipal }
             ?? (localMemberIdentity.memberID < token.inviterMemberID)
-        if kind == .direct, let previous, previous.secret != token.groupSecret,
-           let existing = groups.first(where: { $0.id == token.groupID }),
-           keepsLocalKey {
+        if kind == .direct, let previous, previous.secret != token.groupSecret, let existing, keepsLocalKey {
             selectGroup(existing)
             groupErrorMessage = "You both created a call invitation. Share this call's invitation so you use the same call."
             return nil
         }
-        if let existing = groups.first(where: { $0.id == token.groupID }), previous?.secret == token.groupSecret {
-            let name = token.inviterDisplayName ?? savedUsers.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName ?? "Inviter"
+        // The inviter's own name wins; a saved name fills in for an invitation that carries none.
+        let inviterName = token.inviterDisplayName
+            ?? savedUsers.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName ?? "Inviter"
+        if let existing, previous?.secret == token.groupSecret {
             do {
-                try groupRepository.acceptInvitation(accepted, inviterName: name, retainingMemberIDs: Set(currentRepresentativeProfiles.keys))
+                try groupRepository.acceptInvitation(accepted, inviterName: inviterName, retainingMemberIDs: Set(currentRepresentativeProfiles.keys))
                 refreshStoredAccountCall(token.groupID)
                 refreshGroupStorageStatus()
             } catch { reportGroupStorageError(error); throw error }
@@ -318,8 +319,7 @@ extension IntercomViewModel {
         var members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
         let ownOtherDevice = accepted.inviter.principal != nil && accepted.inviter.principal == localAccountPrincipal
         if token.inviterMemberID != localMemberIdentity.memberID && !ownOtherDevice {
-            let name = token.inviterDisplayName ?? savedUsers.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName ?? "Inviter"
-            members.append(GroupMember(id: token.inviterMemberID, displayName: name))
+            members.append(GroupMember(id: token.inviterMemberID, displayName: inviterName))
         }
         var devices: [String: AccountDeviceBinding] = [:]
         if token.accountPair != nil || kind == .group {
