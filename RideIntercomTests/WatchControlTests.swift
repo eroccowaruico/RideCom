@@ -184,7 +184,7 @@ struct WatchControlTests {
         #expect(reply.snapshot.reference == current.reference)
         #expect(try JSONDecoder().decode(WatchControlReply.self, from: JSONEncoder().encode(reply)) == reply)
     }
-    @Test func deletingACurrentContactDoesNotPreventEndingAndBrowsingDoesNotChangeStatus() async throws {
+    @Test func deletingACurrentContactEndsTheCallTheWatchShows() async throws {
         let h = AppTestSupport.makeHarness(); let vm = h.viewModel
         defer { vm.disconnect() }
         let group = vm.groups[0]
@@ -196,11 +196,8 @@ struct WatchControlTests {
         let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
         let current = owner.watchSnapshot()
         #expect(vm.removeSavedUser(user.id))
-        vm.selectGroup(group)
-        #expect(owner.watchSnapshot().reference == current.reference)
-        #expect(owner.watchSnapshot().state == .connecting)
-        #expect(await owner.handleWatchRequest(.init(.end, snapshot: current)).problem == nil)
         #expect(vm.activeGroupID == nil)
+        #expect(owner.watchSnapshot().reference != current.reference)
     }
 
 }

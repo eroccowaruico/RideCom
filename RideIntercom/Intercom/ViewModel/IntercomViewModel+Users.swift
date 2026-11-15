@@ -71,14 +71,19 @@ extension IntercomViewModel {
         return true
     }
 
+    /// Deleting a person deletes their direct group too, and ends a call with them.
     @discardableResult
     func removeSavedUser(_ id: UUID) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
+        let removedGroups: Set<UUID>
         do {
             try notifications.suppressContact(id)
-            try groupRepository.removeUser(id)
+            removedGroups = try groupRepository.removeUser(id)
         }
         catch { reportGroupStorageError(error); return false }
+        if let active = activeGroupID, removedGroups.contains(active) { disconnect() }
+        if let selected = selectedGroup?.id, removedGroups.contains(selected) { selectedGroup = nil }
+        groups.removeAll { removedGroups.contains($0.id) }
         refreshGroupStorageStatus()
         Task { await notifications.retryRevocations() }
         groupErrorMessage = nil

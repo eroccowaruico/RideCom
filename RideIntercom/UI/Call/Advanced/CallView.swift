@@ -51,10 +51,8 @@ struct CallView: View {
             statusHeader
             controls
                 if viewModel.selectedGroup?.kind == .direct {
-                    Text(viewModel.selectedGroup.flatMap(viewModel.directCallRecipient) == nil
-                         && viewModel.selectedGroup.flatMap(viewModel.directCallAccountRecipient) == nil
-                         ? "This user was removed from Saved Users. Your current call stays available until you disconnect."
-                         : "Individual call")
+                    // Deleting the person deletes this call, so there is no "removed user" state to show.
+                    Text("Individual call")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("directCallHelpLabel")

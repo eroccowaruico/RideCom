@@ -88,7 +88,7 @@ struct WidgetDestinationTests {
         await #expect(throws: CallIntentError.self) { _ = try await start.perform() }
     }
 
-    @Test func projectionIncludesOnlySavedUsersAndDeletionPreservesActiveCallEnd() async throws {
+    @Test func projectionIncludesOnlySavedUsersAndDeletionEndsTheirCall() async throws {
         let file = try temporaryFile(); defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let h = AppTestSupport.makeHarness(), vm = h.viewModel; defer { vm.disconnect() }
         let store = WidgetDestinationStore(fileURL: file)
@@ -112,9 +112,8 @@ struct WidgetDestinationTests {
         #expect(store.readSnapshot()?.destinations.first { $0.id == selected.id } == nil)
         #expect(store.readSnapshot()?.currentDestinationID == nil)
         #expect(throws: CallIntentError.self) { try owner.startWidgetCall(id: selected.id) }
-        #expect(vm.activeGroupID != nil)
-        try owner.performCallSurfaceAction(.end, reference: reference)
         #expect(vm.activeGroupID == nil)
+        #expect(throws: (any Error).self) { try owner.performCallSurfaceAction(.end, reference: reference) }
     }
 
     @Test func failedPublicationCanRetryAndUnchangedSuccessDoesNotReload() throws {

@@ -75,7 +75,7 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 | 参照 | 既存のaccountAccessID・connectionGeneration・groupIDから不透明な参照を作る。要求の参照を現在値と比較してから実行。Watch専用epochを増やさない |
 | 期限 | iPhoneが発行したsnapshotを120秒有効とする。要求が遅延し期限切れなら実行しない。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
 | 重複 | 開始・終了は既存通話世代、ミュートはtoggleではなく指定したBoolで処理する。同じ指定値は既存処理で冪等。専用requestIDや永続重複台帳を追加しない |
-| 削除・切替 | 実行時に保存相手を再解決する。相手削除後の新規開始を拒否し、成立済み通話の終了は許す。別ログイン・別通話・再接続前の要求を拒否する |
+| 削除・切替 | 実行時に保存相手を再解決する。相手削除後の新規開始を拒否する。相手を削除するとその相手との通話は切断されるため、削除前の表示からの終了は古い操作として拒否する。別ログイン・別通話・再接続前の要求を拒否する |
 | `WatchPhoneBridge` | iPhoneで1つ保持しWCSessionをactivate。Observationで状態変更を検出し、通話参照・通話先・表示内容が変わった場合だけ`updateApplicationContext`へ最新snapshotを渡す。音量meter等からの再評価で発行日時だけが変わっても送信しない。activation・Watch切替時は再発行し、送信失敗値は送信済みにしない。明示操作の応答は有効期限を更新する。周期pollingを設けない |
 | `WatchConnectivityClient` | activatedかつ到達可能なWCSessionの`sendMessageData`だけで要求する。activation／到達性変更／Watch前面復帰時に更新。接続切断で表示を外し、古い非同期応答を採用しない |
 | `WatchControlClient` | 応答待ちに重複タップをqueueへ追加しない。古い応答が新しいcontextを上書きしない。送信受付だけで接続済み・マイクONと表示しない |

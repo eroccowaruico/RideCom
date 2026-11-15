@@ -297,12 +297,11 @@ extension CallAccessTests {
         f.bi = f.b.callSession.sentApplicationDataMessages.count
         await f.connect()
         let original = try #require(f.a.viewModel.callAccessState.lastSponsoredStart)
-        #expect(f.a.viewModel.removeSavedUser(user.id))
-        #expect(f.a.viewModel.callAccessState.isEstablished)
-        #expect(!f.a.viewModel.startCall(to: .user(user.id), accountAccessID: f.a.viewModel.accountAccessID))
-        #expect(f.a.viewModel.activeGroupID == id)
-        #expect(f.a.viewModel.endCall(f.a.viewModel.currentCallReference))
         #expect(f.a.viewModel.groupRepository.lastSponsoredStart(for: id) == original)
+        #expect(f.a.viewModel.removeSavedUser(user.id))
+        #expect(f.a.viewModel.activeGroupID == nil)
+        #expect(!f.a.viewModel.startCall(to: .user(user.id), accountAccessID: f.a.viewModel.accountAccessID))
+        #expect(f.a.viewModel.groupRepository.lastSponsoredStart(for: id) == nil)
     }
 }
 

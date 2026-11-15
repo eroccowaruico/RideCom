@@ -41,7 +41,7 @@ struct DirectCallTests {
         #expect(vm.activeGroupID == direct.id)
     }
 
-    @Test func onlySavedDirectContactsCanResolveCallsAndDeletionPreservesExistingCall() throws {
+    @Test func onlySavedDirectContactsCanResolveCallsAndDeletionEndsTheirCall() throws {
         let h = try harness(local: "alice", remote: "bob")
         let vm = h.viewModel
         defer { vm.disconnect() }
@@ -51,14 +51,14 @@ struct DirectCallTests {
         let direct = try #require(vm.selectedGroup)
         vm.connectLocal()
         #expect(vm.removeSavedUser(user.id))
-        #expect(vm.activeGroupID == direct.id)
-        #expect(vm.groups.contains { $0.id == direct.id })
+        #expect(vm.activeGroupID == nil)
+        #expect(!vm.groups.contains { $0.id == direct.id })
         #expect(!vm.selectUser(user.id))
         #expect(vm.makeSelectedGroupInviteURL() == nil)
     }
 
-    /// The call's More menu finds User Settings through the direct call; once the saved user
-    /// is removed the entry stays but has no user to open.
+    /// The call's More menu finds User Settings through the direct call; removing the
+    /// saved user removes the direct call with them.
     @Test func directCallMoreMenuFollowsTheSavedUser() throws {
         let h = try harness(local: "alice", remote: "bob")
         let vm = h.viewModel
@@ -72,6 +72,7 @@ struct DirectCallTests {
         #expect(vm.isInCall(with: .user(user.id)))
         #expect(vm.removeSavedUser(user.id))
         #expect(vm.savedUserID(forDirectCall: direct) == nil)
+        #expect(vm.existingDirectCall(for: user.id) == nil)
     }
 
     @Test func recipientBoundInviteIsSharedAndReusesSameCallOnBothSides() throws {

@@ -32,7 +32,7 @@ struct AccountDirectCallTests {
         #expect(c.groupStore.snapshot == snapshot)
     }
 
-    @Test func onlyTheOtherAccountCanEnrollADeviceAndRemovalPreservesOfflineProof() throws {
+    @Test func onlyTheOtherAccountCanEnrollADeviceAndRemovalEndsTheAccountCall() throws {
         let f = AccountCallFixture(); defer { f.disconnect() }
         let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b")
         let b2 = try f.peer("b2", account: "b"), c = try f.peer("c", account: "c")
@@ -53,15 +53,11 @@ struct AccountDirectCallTests {
         #expect(Set(IntercomViewModel.admittedMemberships(in: a.viewModel.peerProfiles).keys.map(\.rawValue)) == ["b2"])
         #expect(Set(try #require(a.viewModel.selectedGroup).members.map(\.id)) == ["a", "b", "b2"])
         #expect(a.viewModel.savedUsers.first?.memberIDs == ["b"])
-        #expect(a.viewModel.removeSavedUser(user.id))
         a.callSession.authenticate([]); a.callSession.authenticate(["b2"])
         // No current account certificate: the earlier verified key is sufficient offline.
         try f.deliverProfile(from: b2, to: a, certified: false)
         #expect(a.viewModel.peerProfiles["b2"]?.verified != nil)
-        #expect(a.viewModel.savedUsers.isEmpty)
         #expect(try a.viewModel.groupRepository.credential(for: groupID) == key)
-        #expect(a.viewModel.selectedGroup?.id == groupID)
-        #expect(!a.viewModel.canShareSelectedGroup)
         a.callSession.authenticate([]); a.callSession.authenticate(["b2"])
         let forged = try testPeerProfile(a.viewModel, peerID: "b2", displayName: "Same name",
             signer: DeviceIdentitySigner(memberID: "b2", key: P256.Signing.PrivateKey()))
@@ -79,6 +75,12 @@ struct AccountDirectCallTests {
             message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(changedProfile))))
         #expect(a.viewModel.peerProfiles["b2"]?.verified == nil)
         #expect(a.viewModel.groupStorageIssue == nil)
+        // The person and their account call are one: deleting them ends and removes the call.
+        #expect(a.viewModel.removeSavedUser(user.id))
+        #expect(a.viewModel.savedUsers.isEmpty)
+        #expect(a.viewModel.activeGroupID == nil && a.viewModel.selectedGroup == nil)
+        #expect(!a.viewModel.groups.contains { $0.id == groupID })
+        #expect(try a.viewModel.groupRepository.credential(for: groupID) == nil)
     }
 
     @Test func foreignCertificationAndFailedPersistenceNeverGrantAudio() throws {

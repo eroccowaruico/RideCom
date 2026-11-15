@@ -96,13 +96,13 @@ struct CallIntentTests {
         vm.disconnect()
         let start = StartSavedCallIntent(target: target); start.owner = owner
         _ = try await start.perform()
+        #expect(vm.activeGroupID != nil)
+        // Deleting the person ends the call with them.
         #expect(vm.removeSavedUser(user.id))
+        #expect(vm.activeGroupID == nil)
         #expect(try await query.entities(for: [target.id]).isEmpty)
         await #expect(throws: CallIntentError.self) { _ = try await start.perform() }
-        #expect(vm.activeGroupID != nil)
         let end = EndCurrentCallIntent(); end.owner = owner
-        _ = try await end.perform()
-        #expect(vm.activeGroupID == nil)
         _ = try await end.perform()
         #expect(vm.activeGroupID == nil)
     }

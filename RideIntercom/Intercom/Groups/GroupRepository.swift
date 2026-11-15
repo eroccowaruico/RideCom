@@ -30,6 +30,13 @@ final class GroupRepository {
                 try store.commit(current)
                 guard try store.read() == current else { throw GroupStorageError.verificationFailed }
             }
+            // Loading happens with no call running, so a leftover direct group can go now.
+            if current.groups.contains(where: { isOrphanedDirectGroup($0, users: current.users) }) {
+                current.groups.removeAll { isOrphanedDirectGroup($0, users: current.users) }
+                current.generation = UUID()
+                try store.commit(current)
+                guard try store.read() == current else { throw GroupStorageError.verificationFailed }
+            }
             let groups = try validateIdentity(current, localMemberID: localMemberID)
             var missing: Set<UUID> = []
             for record in current.groups {
@@ -242,9 +249,30 @@ final class GroupRepository {
         snapshot?.groups.first { $0.id == groupID }.flatMap { try? $0.group() }
     }
 
-    func removeUser(_ id: UUID) throws {
-        guard let snapshot, snapshot.users.contains(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-        try update(snapshot.groups.map { try $0.group() }, credential: nil, users: snapshot.users.filter { $0.id != id })
+    /// A saved person and their direct group are one thing. Removing the person removes
+    /// that group and its key in the same commit; regular groups keep the member.
+    /// Returns the removed direct groups so a live call to one of them can end.
+    @discardableResult
+    func removeUser(_ id: UUID) throws -> Set<UUID> {
+        guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+        let removed = Set(snapshot.groups.filter { belongs($0, to: user) }.map(\.id))
+        try update(snapshot.groups.filter { !removed.contains($0.id) }.map { try $0.group() },
+                   credential: nil, users: snapshot.users.filter { $0.id != id })
+        return removed
+    }
+
+    private func belongs(_ record: GroupSnapshot.Record, to user: SavedUser) -> Bool {
+        guard record.kind == .direct else { return false }
+        if let principal = user.principal, let pair = record.accountPair,
+           let local = localMemberID.flatMap({ record.accountDevices[$0]?.principal }),
+           pair.other(than: local) == principal { return true }
+        return record.members.contains { $0.id != localMemberID && user.memberIDs.contains($0.id) }
+    }
+
+    /// A direct group whose person is no longer saved, as an earlier version left after deleting them.
+    private func isOrphanedDirectGroup(_ record: GroupSnapshot.Record, users: [SavedUser]) -> Bool {
+        guard record.kind == .direct, record.members.contains(where: { $0.id != localMemberID }) else { return false }
+        return !users.contains { belongs(record, to: $0) }
     }
 
     func acceptInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String, retainingMemberIDs: Set<String> = []) throws {

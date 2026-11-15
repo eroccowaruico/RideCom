@@ -129,8 +129,8 @@ struct ContactInvitationPersistenceTests {
         #expect(!reloaded.viewModel.resumeContactInvitation(id))
         #expect(throws: (any Error).self) { try reloaded.viewModel.acceptContactInviteURL(url) }
         #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        // Like any direct call, the registered pair call outlives its user but cannot be started.
-        #expect(friend.credentials.values.count == 1)
+        // Deleting the person deleted their pair call and its key.
+        #expect(friend.credentials.values.isEmpty)
         #expect(reloaded.viewModel.regularGroups.isEmpty)
     }
 
@@ -204,8 +204,8 @@ struct ContactInvitationPersistenceTests {
         let (reloaded, _) = author.make()
         #expect(!reloaded.viewModel.resumeContactInvitation(id))
         #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        // Like any direct call, the registered pair call outlives its user but cannot be started.
-        #expect(author.credentials.values.count == 1)
+        // Deleting the person deleted their pair call and its key.
+        #expect(author.credentials.values.isEmpty)
         #expect(reloaded.viewModel.regularGroups.isEmpty)
     }
 

@@ -27,7 +27,7 @@ struct RecentCallTests {
         #expect(vm.recentCallTitle == second.name && vm.savedRemoteUsers.isEmpty)
     }
 
-    @Test func directCallRemembersTheSavedUserAndDeletionKeepsOnlyTheCurrentCall() async throws {
+    @Test func directCallRemembersTheSavedUserAndDeletionEndsTheCall() async throws {
         let settings = InMemoryAppSettingsStore()
         let h = AppTestSupport.makeHarness(appSettingsStore: settings); let vm = h.viewModel
         defer { vm.disconnect() }
@@ -45,7 +45,7 @@ struct RecentCallTests {
         #expect(vm.removeSavedUser(user.id))
         #expect(vm.recentCallDestination == nil && settings.load().recentCallDestination == nil)
         #expect(!vm.startRecentCall(accountAccessID: vm.accountAccessID))
-        #expect(vm.currentCallReference == call && vm.endCall(call))
+        #expect(vm.activeGroupID == nil && !vm.endCall(call))
     }
 
     @Test func mediaFailureDoesNotRecordUntilTheVerifiedCallRecovers() async throws {

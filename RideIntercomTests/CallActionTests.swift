@@ -64,7 +64,7 @@ struct CallActionTests {
         #expect(vm.hasAnyActiveGroupConnection && !vm.isMuted)
     }
 
-    @Test func deletedContactCannotStartAgainButItsCurrentCallCanEnd() throws {
+    @Test func deletingAContactEndsTheirCallAndItCannotStartAgain() throws {
         let h = try harness(); let vm = h.viewModel
         defer { vm.disconnect() }
         let group = vm.groups[0]
@@ -76,14 +76,12 @@ struct CallActionTests {
         let direct = try #require(vm.selectedGroup)
         let call = vm.currentCallReference
         #expect(vm.removeSavedUser(user.id))
-        #expect(vm.activeGroupID == direct.id)
+        #expect(vm.activeGroupID == nil)
+        #expect(!vm.endCall(call))
         #expect(!vm.startCall(to: .user(user.id), accountAccessID: vm.accountAccessID))
         #expect(!vm.startCall(to: .group(direct.id), accountAccessID: vm.accountAccessID))
-        #expect(vm.activeGroupID == direct.id)
-        #expect(vm.endCall(call))
-        vm.connectLocal()
         #expect(vm.activeGroupID == nil)
-        #expect(vm.groups.contains(where: { $0.id == direct.id }))
+        #expect(!vm.groups.contains(where: { $0.id == direct.id }))
     }
 
     @Test func staleStartCannotCrossLoginGenerationEvenForTheSameUser() throws {
