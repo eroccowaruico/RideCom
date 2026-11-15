@@ -107,7 +107,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 
 ## グループの設定と相手の設定
 
-[操作の流れ](../../../design/操作の流れ.md)の「設定は名前の付いた入口から」に従う。画面はモードごとに別のView（Group Settingsは`StandardGroupSettingsView`・`AdvancedGroupSettingsView`、User Settingsは`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`GroupSettingsView`・`UserSettingsView`が選ぶ。一覧の行・メンバーの行のswipeもモードごとの修飾子（`standardDestinationRowActions`・`standardMemberRowActions`／`advanced…`）で、削除・外すの確認（`destinationDeleteConfirmation`・`memberRemoveConfirmation`）だけを安全規則として共通にする。長押しのメニュー（`contextMenu`）は両モードとも置かず、マウスでスワイプできないMacだけ同じ項目を右クリックのメニュー（`macRightClickMenu`）に出す。入口はStandardは通話のツールバーの設定のボタン、Advancedは通話の…メニューと、Users / Groupsの行のswipeだけで、行のタップは接続の1つの意味に保つ。開いても選択中の通話・表示中の通話を切り替えない。
+[操作の流れ](../../../design/操作の流れ.md)の「設定は名前の付いた入口から」に従う。画面はモードごとに別のView（Group Settingsは`StandardGroupSettingsView`・`AdvancedGroupSettingsView`、User Settingsは`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`GroupSettingsView`・`UserSettingsView`が選ぶ。Users / Groupsの一覧の行のswipeは両モードで完全に同一のため、`Common`の修飾子`destinationRowActions`を共用する。メンバーの行のswipeは項目が違う（Advancedだけ名前の編集がある）ため、モードごとの修飾子（`standardMemberRowActions`・`advancedMemberRowActions`）に分ける。削除・外すの確認（`destinationDeleteConfirmation`・`memberRemoveConfirmation`）は安全規則として共通にする。長押しのメニュー（`contextMenu`）は両モードとも置かず、マウスでスワイプできないMacだけ同じ項目を右クリックのメニュー（`macRightClickMenu`）に出す。入口はStandardは通話のツールバーの設定のボタン、Advancedは通話の…メニューと、Users / Groupsの行のswipeだけで、行のタップは接続の1つの意味に保つ。開いても選択中の通話・表示中の通話を切り替えない。
 
 | 画面 | 項目 | 操作 |
 |---|---|---|
