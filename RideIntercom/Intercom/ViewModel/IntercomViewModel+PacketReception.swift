@@ -68,13 +68,13 @@ extension IntercomViewModel {
     func applyReceivedVoiceMemberState(peerID: String, voiceLevel: Float) {
         let clampedLevel = min(1, max(0, voiceLevel))
         let peakLevel = remoteVoicePeakWindows[peerID, default: VoicePeakWindow()].record(clampedLevel)
-        withActiveGroup { group in
-            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
-            group.members[memberIndex].isTalking = remoteVoiceReceivedAt[peerID] != nil
-            group.members[memberIndex].voiceLevel = clampedLevel
-            group.members[memberIndex].voicePeakLevel = peakLevel
-            group.members[memberIndex].receivedAudioPacketCount += 1
-            group.members[memberIndex].queuedAudioFrameCount += 1
+        let isTalking = remoteVoiceReceivedAt[peerID] != nil
+        withMember(peerID) { member in
+            member.isTalking = isTalking
+            member.voiceLevel = clampedLevel
+            member.voicePeakLevel = peakLevel
+            member.receivedAudioPacketCount += 1
+            member.queuedAudioFrameCount += 1
         }
     }
 

@@ -89,15 +89,9 @@ extension IntercomViewModel {
 
     func makeInactiveDisplayGroup(from group: IntercomGroup) -> IntercomGroup {
         var group = group
-        group.members = group.members.map { member in
-            var updated = member
-            updated.connectionState = .offline
-            updated.authenticationState = member.id == localMemberIdentity.memberID ? .open : .offline
-            updated.isTalking = false
-            updated.voiceLevel = 0
-            updated.voicePeakLevel = 0
-            updated.queuedAudioFrameCount = 0
-            return updated
+        for index in group.members.indices {
+            group.members[index].leaveCall()
+            if group.members[index].id == localMemberIdentity.memberID { group.members[index].authenticationState = .open }
         }
         return group
     }

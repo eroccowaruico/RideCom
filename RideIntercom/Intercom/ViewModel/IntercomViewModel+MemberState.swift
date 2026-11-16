@@ -8,12 +8,24 @@ import SessionManager
 import VADGate
 
 extension IntercomViewModel {
-    func setVoiceActive(_ isActive: Bool) {
-        isVoiceActive = isActive
+    /// The local rider is the first member of every group.
+    func withLocalMember(_ update: (inout GroupMember) -> Void) {
         withActiveGroup { group in
             guard !group.members.isEmpty else { return }
-            group.members[0].isTalking = isActive
+            update(&group.members[0])
         }
+    }
+
+    func withMember(_ peerID: String, _ update: (inout GroupMember) -> Void) {
+        withActiveGroup { group in
+            guard let index = group.members.firstIndex(where: { $0.id == peerID }) else { return }
+            update(&group.members[index])
+        }
+    }
+
+    func setVoiceActive(_ isActive: Bool) {
+        isVoiceActive = isActive
+        withLocalMember { $0.isTalking = isActive }
     }
 
     func resetVoiceLevelWindows() {
@@ -24,10 +36,9 @@ extension IntercomViewModel {
     func setLocalVoiceLevel(_ level: Float) {
         let clampedLevel = min(1, max(0, level))
         let peakLevel = localVoicePeakWindow.record(clampedLevel)
-        withActiveGroup { group in
-            guard !group.members.isEmpty else { return }
-            group.members[0].voiceLevel = clampedLevel
-            group.members[0].voicePeakLevel = peakLevel
+        withLocalMember { member in
+            member.voiceLevel = clampedLevel
+            member.voicePeakLevel = peakLevel
         }
     }
 
@@ -40,50 +51,36 @@ extension IntercomViewModel {
             remoteVoicePeakWindows.removeValue(forKey: peerID)
         }
 
-        withActiveGroup { group in
-            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
-            group.members[memberIndex].isTalking = isTalking
+        withMember(peerID) { member in
+            member.isTalking = isTalking
             if let voiceLevel {
-                group.members[memberIndex].voiceLevel = min(1, max(0, voiceLevel))
-                group.members[memberIndex].voicePeakLevel = peakLevel ?? 0
+                member.voiceLevel = min(1, max(0, voiceLevel))
+                member.voicePeakLevel = peakLevel ?? 0
             } else if !isTalking {
-                group.members[memberIndex].voiceLevel = 0
-                group.members[memberIndex].voicePeakLevel = 0
+                member.silence()
             }
         }
     }
 
     func setRemotePeerMuteState(peerID: String, isMuted: Bool) {
-        withActiveGroup { group in
-            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
-            group.members[memberIndex].isMuted = isMuted
-            if isMuted {
-                group.members[memberIndex].isTalking = false
-                group.members[memberIndex].voiceLevel = 0
-                group.members[memberIndex].voicePeakLevel = 0
-            }
+        withMember(peerID) { member in
+            member.isMuted = isMuted
+            if isMuted { member.silence() }
         }
     }
 
     func setLocalActiveCodec(_ codec: AudioCodecIdentifier) {
-        withActiveGroup { group in
-            guard !group.members.isEmpty else { return }
-            group.members[0].activeCodec = codec
-        }
+        withLocalMember { $0.activeCodec = codec }
     }
 
     func setRemotePeerCodec(_ peerID: String, codec: AudioCodecIdentifier) {
-        withActiveGroup { group in
-            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
-            group.members[memberIndex].activeCodec = codec
-        }
+        withMember(peerID) { $0.activeCodec = codec }
     }
 
     func markPlayedAudioFrame(peerID: String) {
-        withActiveGroup { group in
-            guard let memberIndex = group.members.firstIndex(where: { $0.id == peerID }) else { return }
-            group.members[memberIndex].playedAudioFrameCount += 1
-            group.members[memberIndex].queuedAudioFrameCount = max(0, group.members[memberIndex].queuedAudioFrameCount - 1)
+        withMember(peerID) { member in
+            member.playedAudioFrameCount += 1
+            member.queuedAudioFrameCount = max(0, member.queuedAudioFrameCount - 1)
         }
     }
 
@@ -91,51 +88,34 @@ extension IntercomViewModel {
         let connectedPeerIDSet = Set(peerIDs)
         let authenticatedPeerIDSet = Set(authenticatedPeerIDs)
         withActiveGroup { group in
-            group.members = group.members.map { member in
-                var updated = member
-                if member.id == localMemberIdentity.memberID {
-                    updated.connectionState = isAudioReady ? .connected : .offline
-                    updated.authenticationState = .open
-                } else if connectedPeerIDSet.contains(member.id) {
-                    updated.connectionState = .connected
-                    updated.authenticationState = authenticatedPeerIDSet.contains(member.id) ? .authenticated : .pending
+            for index in group.members.indices {
+                let id = group.members[index].id
+                if id == localMemberIdentity.memberID {
+                    group.members[index].connectionState = isAudioReady ? .connected : .offline
+                    group.members[index].authenticationState = .open
+                } else if connectedPeerIDSet.contains(id) {
+                    group.members[index].connectionState = .connected
+                    group.members[index].authenticationState = authenticatedPeerIDSet.contains(id) ? .authenticated : .pending
                 } else {
-                    updated.connectionState = .offline
-                    updated.authenticationState = .offline
-                    updated.isTalking = false
-                    updated.voiceLevel = 0
-                    updated.voicePeakLevel = 0
-                    updated.queuedAudioFrameCount = 0
+                    group.members[index].leaveCall()
                 }
-                return updated
             }
         }
     }
 
     func markMembers(_ state: PeerConnectionState) {
         withActiveGroup { group in
-            group.members = group.members.map { member in
-                var updated = member
-                updated.connectionState = state
-                if member.id == localMemberIdentity.memberID {
-                    updated.authenticationState = .open
-                } else {
-                    switch state {
-                    case .connected:
-                        updated.authenticationState = authenticatedPeerIDs.contains(member.id) ? .authenticated : .pending
-                    case .connecting:
-                        updated.authenticationState = .pending
-                    case .offline:
-                        updated.authenticationState = .offline
-                    }
+            for index in group.members.indices {
+                let id = group.members[index].id
+                if state == .offline { group.members[index].leaveCall() }
+                group.members[index].connectionState = state
+                if id == localMemberIdentity.memberID {
+                    group.members[index].authenticationState = .open
+                } else if state == .connected {
+                    group.members[index].authenticationState = authenticatedPeerIDs.contains(id) ? .authenticated : .pending
+                } else if state == .connecting {
+                    group.members[index].authenticationState = .pending
                 }
-                if state == .offline {
-                    updated.isTalking = false
-                    updated.voiceLevel = 0
-                    updated.voicePeakLevel = 0
-                    updated.queuedAudioFrameCount = 0
-                }
-                return updated
             }
         }
     }

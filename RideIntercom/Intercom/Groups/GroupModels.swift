@@ -63,6 +63,24 @@ struct GroupMember: Identifiable, Equatable, Hashable, Codable {
 
 }
 
+/// A member's call activity ends in one of two ways, used wherever the call's state changes.
+extension GroupMember {
+    /// Not heard any more (muted, or stopped talking): no talking mark and no level.
+    mutating func silence() {
+        isTalking = false
+        voiceLevel = 0
+        voicePeakLevel = 0
+    }
+
+    /// Not in the call any more: offline, silent, and nothing waiting to play.
+    mutating func leaveCall() {
+        connectionState = .offline
+        authenticationState = .offline
+        silence()
+        queuedAudioFrameCount = 0
+    }
+}
+
 enum AudioPipelineState: String, Equatable, Hashable, Codable {
     case idle = "Audio Idle"
     case received = "Received"
