@@ -77,10 +77,8 @@ extension IntercomViewModel {
     }
 
     func startAudioPipelineIfNeeded(resumingDevice: Bool = false) {
-        guard !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970),
-              callDisconnectDeadline != nil, canStartCalls, canPrepareCallMedia,
+        guard callStillPermitsMedia(),
               !isUsingWatchAudio || watchAudioLink != nil,
-              !authenticatedPeerIDs.isEmpty,
               !isAudioPausedForDeviceChange || resumingDevice,
               !isAudioReady, audioStartTask == nil else { return }
 
@@ -89,6 +87,11 @@ extension IntercomViewModel {
         guard configureAudioSession() else {
             if resumingDevice { reportAudioDeviceRestartFailure() }
             return
+        }
+        // A start that fails after activation leaves nothing running; a resume also says why.
+        let abandonStart = { [weak self] in
+            self?.stopAudioPipeline()
+            if resumingDevice { self?.reportAudioDeviceRestartFailure() }
         }
         let generation = audioGeneration, connection = connectionGeneration
         // Register before returning to the caller, so a synchronous stop or
@@ -99,26 +102,17 @@ extension IntercomViewModel {
             guard let self, !Task.isCancelled, self.audioGeneration == generation,
                   self.connectionGeneration == connection else { return }
             self.audioStartTask = nil
-            guard !self.disconnectIfTimerExpired(now: self.callAccessNow().timeIntervalSince1970),
-                  self.callDisconnectDeadline != nil, self.canStartCalls,
-                  self.canPrepareCallMedia, !self.authenticatedPeerIDs.isEmpty else {
+            // The call may have ended, lost its peer or its right while the session activated.
+            guard self.callStillPermitsMedia() else {
                 self.stopAudioPipeline()
                 return
             }
             guard report.result != .ignored(.superseded) else { return }
-            guard self.applyAudioSessionActivationReport(report) else {
-                self.stopAudioPipeline()
-                if resumingDevice { self.reportAudioDeviceRestartFailure() }
-                return
-            }
+            guard self.applyAudioSessionActivationReport(report) else { abandonStart(); return }
             self.callSession.startMedia()
             guard self.rebuildAudioPipeline(startsOutputClock: false),
                   self.applyCurrentVoiceProcessingConfiguration(), self.startInputCapture(),
-                  self.startPreparedAudioOutput(configuration: .intercomCall) else {
-                self.stopAudioPipeline()
-                if resumingDevice { self.reportAudioDeviceRestartFailure() }
-                return
-            }
+                  self.startPreparedAudioOutput(configuration: .intercomCall) else { abandonStart(); return }
             self.inputFrameDelivery?.activate()
             self.callTicker.start()
             self.isAudioReady = true
@@ -142,6 +136,13 @@ extension IntercomViewModel {
             self.refreshCallAccess()
             self.recordEstablishedCall()
         }
+    }
+
+    /// What a call needs to carry media, checked before the session activates and again after:
+    /// its timer has not run out, the account and usage right still allow it, and a verified peer is there.
+    private func callStillPermitsMedia() -> Bool {
+        !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970)
+            && callDisconnectDeadline != nil && canStartCalls && canPrepareCallMedia && !authenticatedPeerIDs.isEmpty
     }
 
     func stopAudioPipeline() {
@@ -280,11 +281,7 @@ extension IntercomViewModel {
         guard report.result != .ignored(.superseded) else { return false }
         lastAudioSessionActivationReport = report
         guard report.result.isContinuable else {
-            audioErrorMessage = "Audio session activation failed"
-            publishRuntimePackageReports(force: true)
-            AppLoggers.audio.error("audio.session.failed", metadata: .event("audio.session.failed", [
-                "operation": "setActive", "isRecoverable": "true"
-            ]))
+            reportAudioSessionFailure("Audio session activation failed", operation: "setActive")
             return false
         }
         return true
@@ -298,32 +295,23 @@ extension IntercomViewModel {
                 applyAudioSessionSnapshot(snapshot)
             }
             guard report.operations.allSatisfy(\.result.isContinuable) else {
-                audioErrorMessage = "Audio session configuration failed"
-                publishRuntimePackageReports(force: true)
-                AppLoggers.audio.error(
-                    "audio.session.failed",
-                    metadata: .event("audio.session.failed", [
-                        "operation": "configure",
-                        "isRecoverable": "true"
-                    ])
-                )
+                reportAudioSessionFailure("Audio session configuration failed", operation: "configure")
                 return false
             }
             publishRuntimePackageReports(force: true)
             return true
         } catch {
-            audioErrorMessage = "Audio session configuration failed"
-            publishRuntimePackageReports(force: true)
-            AppLoggers.audio.error(
-                "audio.session.failed",
-                metadata: .event("audio.session.failed", [
-                    "operation": "configure",
-                    "errorType": "\(type(of: error))",
-                    "isRecoverable": "true"
-                ])
-            )
+            reportAudioSessionFailure("Audio session configuration failed", operation: "configure", error: error)
             return false
         }
+    }
+
+    private func reportAudioSessionFailure(_ message: String, operation: String, error: (any Error)? = nil) {
+        audioErrorMessage = message
+        publishRuntimePackageReports(force: true)
+        var values: Logger.Metadata = ["operation": "\(operation)", "isRecoverable": "true"]
+        if let error { values["errorType"] = "\(type(of: error))" }
+        AppLoggers.audio.error("audio.session.failed", metadata: .event("audio.session.failed", values))
     }
 
     func makeAudioSessionConfiguration() -> SessionManager.AudioSessionConfiguration {
