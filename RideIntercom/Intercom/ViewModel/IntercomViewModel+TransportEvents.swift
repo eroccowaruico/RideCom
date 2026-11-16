@@ -30,9 +30,9 @@ extension IntercomViewModel {
         case .routesChanged(let snapshot):
             availableCallRoutes = snapshot.availableRoutes
             if !authenticatedPeerIDs.isEmpty {
-                connectionState = isInternetOnlyCall ? .internetConnected : .localConnected
+                connectionState = routeConnectionState(isConnected: true)
             } else if connectionState == .localConnecting || connectionState == .internetConnecting {
-                connectionState = isInternetOnlyCall ? .internetConnecting : .localConnecting
+                connectionState = routeConnectionState(isConnected: false)
             }
             if snapshot.availableRoutes.contains(.webRTC) {
                 connectivityNotice = nil
@@ -64,9 +64,7 @@ extension IntercomViewModel {
             if authenticatedPeerIDs.isEmpty, isAudioReady || audioStartTask != nil { stopAudioPipeline() }
             refreshCallAccess()
             localNetworkStatus = peerIDs.isEmpty ? .advertisingBrowsing : .connected
-            connectionState = isInternetOnlyCall
-                ? (peerIDs.isEmpty ? .internetConnecting : .internetConnected)
-                : (peerIDs.isEmpty ? .localConnecting : .localConnected)
+            connectionState = routeConnectionState(isConnected: !peerIDs.isEmpty)
             markConnectedMembers(peerIDs: peerIDs)
             publishRuntimePackageReports(force: true)
         case .authenticated(let members):
@@ -83,7 +81,7 @@ extension IntercomViewModel {
             if authenticatedPeerIDs.isEmpty, isAudioReady || audioStartTask != nil { stopAudioPipeline() }
             synchronizePeerProfiles(members: members)
             connectedPeerIDs = Array(Set(connectedPeerIDs).union(authenticatedPeerIDSet)).sorted()
-            connectionState = isInternetOnlyCall ? .internetConnected : .localConnected
+            connectionState = routeConnectionState(isConnected: true)
             markConnectedMembers(peerIDs: connectedPeerIDs)
             startActiveCallAfterAuthenticatedPeer()
             sendStateMetadataSnapshot()

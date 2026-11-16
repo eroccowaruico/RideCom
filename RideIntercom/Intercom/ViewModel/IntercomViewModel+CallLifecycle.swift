@@ -49,9 +49,7 @@ extension IntercomViewModel {
             callDisconnectDeadline = callAccessNow().addingTimeInterval(interval.seconds)
         }
 
-        connectionState = isInternetOnlyCall
-            ? (connectedPeerIDs.isEmpty ? .internetConnecting : .internetConnected)
-            : (connectedPeerIDs.isEmpty ? .localConnecting : .localConnected)
+        connectionState = routeConnectionState(isConnected: !connectedPeerIDs.isEmpty)
         markMembers(connectedPeerIDs.isEmpty ? .connecting : .connected)
         let shouldStartOrPromoteLocalConnection =
             authenticatedPeerIDs.isEmpty &&
@@ -121,7 +119,7 @@ extension IntercomViewModel {
                 self.isAudioPausedForDeviceChange = false
                 self.audioRouteNotice = nil
             }
-            self.connectionState = self.isInternetOnlyCall ? .internetConnected : .localConnected
+            self.connectionState = self.routeConnectionState(isConnected: true)
             self.markConnectedMembers(peerIDs: self.connectedPeerIDs)
             self.callSession.setAudioPolicy(self.currentCallAudioPolicy())
             self.refreshOtherAudioDuckingState()
@@ -136,6 +134,12 @@ extension IntercomViewModel {
             self.refreshCallAccess()
             self.recordEstablishedCall()
         }
+    }
+
+    /// A call says the same two things on any route; only the word names the route in use.
+    func routeConnectionState(isConnected: Bool) -> CallConnectionState {
+        if isInternetOnlyCall { return isConnected ? .internetConnected : .internetConnecting }
+        return isConnected ? .localConnected : .localConnecting
     }
 
     /// What a call needs to carry media, checked before the session activates and again after:
