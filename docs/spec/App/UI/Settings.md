@@ -17,6 +17,20 @@ StandardのInternet接続（`StandardInternetConnectionSection`）は状態の�
 
 Settings はアカウントのサインアウトと削除、通信経路、Audio Session、入出力、Audio Check、送信 codec、VAD、設定リセットを扱う。設定値の型、既定値、永続化は `docs/spec/App/Configuration/設定値一覧.md` を正とする。
 
+## 表示モードを切り替えたときの設定保持
+
+2026-11-17に現行コードを照合。`setInterfaceMode(_:)`は表示モードとその保存だけを変更し、音声・通信設定を初期化しない。Advancedで変更してStandardへ戻っても、Standardに項目がない設定を含め同じViewModelの値を使い続ける。
+
+| 対象 | AdvancedからStandardへの切替時 |
+|---|---|
+| Audio SessionのMode・スピーカー・エコーキャンセル、送信codec・sample rate・bitrate | 変更値を保持して実処理に使う。Streamを明示選択済みならStandardに戻ってもStreamのまま。項目が見えなくなることと既定値へ戻ることは別 |
+| 通信経路・Internet接続、入出力・VAD等の共通設定 | 変更値を保持する。永続化する項目は共通のAppSettingsStoreへ保存し、同じアカウントでの再起動後に読み込む |
+| 通話・選択・ミュート | 画面モードの切替だけでは変更しない。runtime値と再起動後も保存する設定の区別は[設定値一覧](../Configuration/設定値一覧.md)に従う |
+| Settings内の画面遷移 | 新しい表示モードの設定トップへ戻る。編集中で保存・適用していないフォーム値の保存を、この切替契約は保証しない |
+| 初期値へ戻す操作 | 明示的な設定リセットで戻す。Standardへの移動そのものをリセットとして扱わない |
+
+初期状態をバーストに限定する追加要求は[バックログ](../../../backlog/未実装課題.md#音声モードの初期状態をバーストに限定する)で追跡する。現行の設定保持契約と、今後の初期値要求を混同しない。
+
 ## 親セクション
 
 | 項目名（日本語） | 項目ID | 目的 | 実装 | 発現条件 | 表示仕様 |
