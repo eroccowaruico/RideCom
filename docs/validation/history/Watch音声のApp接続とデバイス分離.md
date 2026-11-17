@@ -57,7 +57,7 @@ API追従後のRelease再実行は`.validation/watch-audio-app-final-20261101/re
 
 Mac・iPhone Simulatorで各1回成功し、失敗・skip・runtime warning0、HEADと全入力hash一致、所有Simulator停止を確認した。証跡は`.validation/watch-core-story-20261101/`。全体536/522件の確認後に変更したのはこの試験だけで、productionは同一である。
 
-この区切りは合成Watch入力・offline phone graphを用いるアプリの操作／媒体契約の検証である。実Watch UI、実WatchConnectivity配送、native Watchマイク・スピーカー、背景開始・継続を通した利用体験の受入ではない。通常iOSマイクの0Hz問題も未解決として別に残す。Watch機能全体を完了にはせず、[現行の実行順](../../backlog/未実装課題.md#依存関係と取り組む順序)に沿って次の利用体験へ進める。
+この区切りは合成Watch入力・offline phone graphを用いるアプリの操作／媒体契約の検証である。実Watch UI、実WatchConnectivity配送、native Watchマイク・スピーカー、背景開始・継続を通した利用体験の受入ではない。通常iOSマイクの0Hz問題も未解決として別に残す。Watch機能全体を完了にはせず、[現行の実行順](../../backlog/README.md#着手順)に沿って次の利用体験へ進める。
 
 `efficient-work`を適用し、継続中のSol／medium担当を再利用して局所実装・診断・このstory試験を担当させた。主担当が要求と受入境界、差分、コミットを確認した。新しい管理役や重複レビュー役は追加せず、全体テストの再実行はproduction変更がないため行っていない。料金・削減率の推計はしていない。
 
