@@ -228,19 +228,7 @@ extension IntercomViewModel {
         } catch {
             AppLoggers.app.warning("app.deeplink.invite.rejected", metadata: InviteDeepLinkLog.rejected(error))
             // Storage and account failures already carry their own recovery action.
-            if groupErrorMessage == nil {
-                switch error {
-                case GroupInviteTokenError.expired:
-                    groupErrorMessage = "This invitation has expired. Ask the sender for a new invitation."
-                case GroupInviteTokenError.unsupportedVersion:
-                    groupErrorMessage = "This invitation uses a different app version. Update RideCom and ask for a new invitation."
-                case GroupInviteTokenError.invalidURL, GroupInviteTokenError.invalidTokenEncoding,
-                     GroupInviteTokenError.invalidSignature:
-                    groupErrorMessage = "This invitation could not be verified. Ask the sender for a new invitation."
-                default:
-                    groupErrorMessage = "This invitation could not be opened or saved. Check your account and saved groups, then open the link again."
-                }
-            }
+            if groupErrorMessage == nil { groupErrorMessage = InviteRejection(error).notice }
             throw error
         }
         if let accepted {
@@ -348,35 +336,5 @@ extension IntercomViewModel {
         selectGroup(group)
         inviteStatusMessage = "JOINED \(token.groupName)"
         return group
-    }
-}
-
-/// Invitation deep-link log metadata. Records only the outcome category, never the token or raw group ID.
-enum InviteDeepLinkLog {
-    static func accepted(groupID: UUID, kind: IntercomGroup.Kind) -> Logging.Logger.Metadata {
-        .event("app.deeplink.invite.accepted", ["groupID": "\(groupID.uuidString)", "kind": "\(kind.rawValue)"])
-    }
-
-    static func rejected(_ error: any Error) -> Logging.Logger.Metadata {
-        rejected(reason: reason(for: error))
-    }
-
-    static func rejected(reason: String) -> Logging.Logger.Metadata {
-        .event("app.deeplink.invite.rejected", ["reason": "\(reason)"])
-    }
-
-    private static func reason(for error: any Error) -> String {
-        switch error {
-        case GroupInviteTokenError.expired: "expired"
-        case GroupInviteTokenError.unsupportedVersion: "unsupported_version"
-        case GroupInviteTokenError.invalidURL, GroupInviteTokenError.invalidTokenEncoding,
-             GroupInviteTokenError.invalidSignature: "unverified"
-        case GroupInviteTokenError.wrongRecipient: "wrong_recipient"
-        case GroupInviteTokenError.incompatibleCall: "incompatible_call"
-        case GroupInviteTokenError.activeGroupKeyChanged: "active_group_key_changed"
-        case GroupInviteTokenError.accountVerificationRequired: "account_verification_required"
-        case IntercomGroupError.storageUnavailable: "storage_unavailable"
-        default: "other"
-        }
     }
 }
