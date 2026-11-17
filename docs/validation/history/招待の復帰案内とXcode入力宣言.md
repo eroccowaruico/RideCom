@@ -78,3 +78,20 @@
 
 
 通常APNs／UserNotificationsを前提に、CallKit・VoIP Push・AppleのPushToTalk frameworkを使わない条件を維持した。HTMLのブラウザー描画・実APNs・物理2端末の共有と背景動作は未受入。Internetなしの手動返信共有、送受信側の操作の明瞭化、同じ相手の招待状態の統合など招待の残課題へ引き続き対応し、招待全体を完了とはしていない。
+
+
+## 入力中の招待送信が隠れる不具合
+
+2026-11-17、「キャンセルしか選べない」報告を日本語・最大文字サイズAX5・キーボード表示中で再現した。名前の説明footerが大きくなると、同じForm内の「招待を送る」が画面外へ押し出されていた。共有の作成画面はStandard／Advancedとも、名前と説明をスクロールに残し、送信を`safeAreaBar`の全幅の主要操作としてキーボードの上に固定した。
+
+| 検証 | 結果と証跡 |
+|---|---|
+| 変更前 | `.validation/contact-create-large-red-20261117/ui.xcresult`。送信ボタンは存在するがhittableでないassertで失敗。添付画像で、キーボードと長い説明のため上部のキャンセルしか見えない状態を確認 |
+| 最大文字の最終確認 | `.validation/contact-create-final-regression-20261117/ui.xcresult`。日本語AX5で、キーボードを閉じず送信→OS共有→Copy→元の画面へ戻る操作が成功 |
+| 通常サイズの最終回帰 | 同runの英語共有取消・スワイプで閉じる・Copy・再共有と、入力名・招待1件・保存ユーザー全ID／通常グループ不変の確認が成功。計UI2件、失敗・skip・runtime warningは0 |
+| Advanced | `.validation/contact-create-regression-final-20261117/ui.xcresult`の`testAdvancedInvitationShowsTheStoredRecordAndItsOperations`が成功。run全体は後述の一覧の件数比較で失敗し、全体成功として数えない。共通の作成画面ソースはその後変えておらず、最終変更はStandard側のUIテストの一覧走査だけなので、この単独経路の証跡を再利用 |
+| Mac | `.validation/contact-create-macos-final-20261117/app.xcresult`。共通作成画面のビルドと招待表示・保存の7定義が成功。失敗・skip・runtime warningは0。後の変更はiOS UIテストだけで、Appのソースは同一 |
+| 切り分け | 固定領域へ移したShareLinkが親の画面IDを引き継いだため、子を保持するアクセシビリティコンテナとスタイル後のIDを明示した。成功した日本語AX5の添付画像で送信が見えることも照合。先行英語回帰はListの画面内にある保存ユーザー件数を比較していたため、招待行の増加で相手が画面外になり失敗した。全体をスクロールして保存ユーザー全IDを比較し、上端へ戻るよう試験を直して最終回帰を通した |
+| 定義 | 招待設計Markdown・Call仕様・HTML見本の入力中の図・マニュアルを一緒に更新。文書リンク・HTML ID／主要コンテナ・共有記号の参照・String Catalog・diff検査成功 |
+
+iPhone 17 Pro Simulator、iOS 27.2、light。所有Simulatorを終了した。HTMLのキーボードは位置を示す簡略表示であり、ブラウザー描画・物理端末・Macの実描画は未確認。共有先の別アプリへ移った後の通信再開や、閉じる／取消の意味の問題までこの修正だけで解決したとは扱わず、招待の残課題へ維持する。通常APNs／UserNotificationsと、CallKit・VoIP Push・Apple PushToTalk不使用の前提も維持した。

@@ -290,7 +290,7 @@ final class StandardInterfaceUITests: XCTestCase {
         tab("Groups", id: "groupsTab")
         let originalGroups = contactGroupRows().count
         tab("Users", id: "usersTab")
-        let originalUsers = contactUserRows().count
+        let originalUsers = contactSavedUserIDs()
         let originalPending = contactPendingIDs()
         let plus = app.buttons["inviteContactButton"].firstMatch
         XCTAssertTrue(plus.waitForExistence(timeout: 3))
@@ -335,7 +335,7 @@ final class StandardInterfaceUITests: XCTestCase {
         app.buttons["closeContactInvitationButton"].tap()
         // Rows are lazy; count from the top as the original count was.
         app.descendants(matching: .any)["standardUsersList"].firstMatch.swipeDown()
-        XCTAssertEqual(contactUserRows().count, originalUsers)
+        XCTAssertEqual(contactSavedUserIDs(), originalUsers)
         XCTAssertEqual(contactPendingIDs().subtracting(originalPending).count, 1,
                        "Cancel and Copy reuse the one explicitly created pending invitation")
         // The pending row names who it is for and says one state word.
@@ -347,6 +347,31 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertEqual(contactGroupRows().count, originalGroups)
         tab("Users", id: "usersTab")
         screenshot("Shared contact invitation remains pending without a fabricated user")
+    }
+
+    @MainActor
+    func testJapaneseContactCreationKeepsSendReachableWithLargestTextAndKeyboard() {
+        launch(japanese: true)
+        app.terminate()
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        tab("ユーザー", id: "usersTab")
+        app.buttons["inviteContactButton"].tap()
+        let name = app.textFields["contactInvitationNameField"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 4))
+        let send = app.buttons["shareContactInvitationButton"].firstMatch
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        screenshot("Japanese invitation largest text with keyboard")
+        XCTAssertTrue(send.isHittable, "Inviting remains possible without dismissing the keyboard or finding a hidden button")
+        name.typeText("ツーリングの仲間")
+        XCTAssertTrue(send.isHittable)
+        send.tap()
+        let copy = nativeInvitationCopyAction()
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        copy.tap()
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        app.buttons["closeContactInvitationButton"].tap()
     }
 
     @MainActor
@@ -490,6 +515,26 @@ final class StandardInterfaceUITests: XCTestCase {
     @MainActor private func contactUserRows() -> XCUIElementQuery {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "standardUser-"))
     }
+    /// SwiftUI lazily exposes rows. Compare identities over the whole list, then return to its top.
+    @MainActor private func contactSavedUserIDs() -> Set<String> {
+        let list = app.descendants(matching: .any)["standardUsersList"].firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 3))
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@",
+                                                  "standardUser-", "pendingContactInvitation-"))
+        var result: Set<String> = []
+        var previous: Set<String>?, bottomReached = false, swipes = 0
+        for _ in 0..<20 {
+            result.formUnion(contactUserRows().allElementsBoundByIndex.map(\.identifier))
+            let visible = Set(rows.allElementsBoundByIndex.filter(\.isHittable).map(\.identifier))
+            if visible == previous { bottomReached = true; break }
+            previous = visible
+            list.swipeUp(); swipes += 1
+        }
+        XCTAssertTrue(bottomReached, "The comparison must cover the whole saved-user list")
+        for _ in 0...swipes { list.swipeDown() }
+        return result
+    }
+
     @MainActor private func contactGroupRows() -> XCUIElementQuery {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "standardGroup-"))
     }
@@ -497,7 +542,7 @@ final class StandardInterfaceUITests: XCTestCase {
         Set(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "pendingContactInvitation-")).allElementsBoundByIndex.map(\.identifier))
     }
     @MainActor private func nativeInvitationCopyAction() -> XCUIElement {
-        app.cells.matching(NSPredicate(format: "label == 'Copy' OR label == 'Copy Link'")).firstMatch
+        app.cells.matching(NSPredicate(format: "label IN %@", ["Copy", "Copy Link", "コピー", "リンクをコピー"])).firstMatch
     }
     #endif
 

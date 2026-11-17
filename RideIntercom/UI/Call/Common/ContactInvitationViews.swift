@@ -47,6 +47,7 @@ struct ContactInvitationSheet: View {
                     .accessibilityIdentifier("closeContactInvitationButton")
                 }
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("contactInvitationSheet")
         }
         // While naming and sending, only Cancel closes the sheet. With the keyboard up, a swipe meant
@@ -91,12 +92,17 @@ private struct ContactInvitationCreation: View {
             } footer: {
                 Text("Only you see this name. If you leave it empty, it will be \(candidate). They see the name they chose for themselves.")
             }
-            Section {
-                ContactInvitationShareLink(viewModel: viewModel, invitationID: invitationID,
-                                           title: "Send Invitation", personName: effectiveName)
-            }
         }
         .formStyle(.grouped)
+        .safeAreaBar(edge: .bottom) {
+            ContactInvitationShareLink(viewModel: viewModel, invitationID: invitationID,
+                                       title: "Send Invitation", personName: effectiveName)
+                .appProminentButtonStyle()
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("shareContactInvitationButton")
+                .padding(.horizontal, AppSpacing.screen)
+                .padding(.vertical, AppSpacing.s)
+        }
         .onAppear {
             guard candidate.isEmpty else { return }
             let used = Set(viewModel.savedRemoteUsers.map(\.resolvedDisplayName))
