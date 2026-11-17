@@ -9,7 +9,8 @@ import Security
 /// what authenticates the peer. Apple platforms have no API that makes a `SecIdentity` from a key and
 /// a certificate, so both are wrapped in a PKCS#12 container in memory and imported from there:
 /// nothing is written to the Keychain and nothing is left behind.
-struct LocalControlIdentity {
+/// `SecIdentity` is an immutable system object that may be used from any thread.
+struct LocalControlIdentity: @unchecked Sendable {
     enum Failure: Error { case importFailed(OSStatus), invalidCertificate }
 
     let identity: SecIdentity

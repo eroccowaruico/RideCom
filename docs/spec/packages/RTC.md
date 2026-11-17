@@ -146,12 +146,13 @@ DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなく配
 |---|---|
 | `SelfSignedCertificate` | P-256の鍵で署名した最小のX.509証明書（v3、common nameだけ、ECDSA with SHA-256、有効期間は作成の1時間前から2日後まで）を作る。外部の依存を使わない |
 | `LocalControlIdentity` | 鍵と証明書から`SecIdentity`を作る。Apple OSに鍵と証明書から直接identityを作る公開APIがないため、PKCS#12の入れ物（鍵はPBES2で暗号化、SHA-1のMAC）をメモリ上で組み立てて`SecPKCS12Import`で取り込む。Keychainへ書かず、後始末も要らない（macOSは`kSecImportToMemoryOnly`）。入れ物のパスワードは形式を満たすためだけの使い捨てで、何も保護しない。証明書のSHA-256を`fingerprint`として公開する |
-| `LocalControlTLS` | QUIC（ALPN `ride-control`、TLS 1.3）のparametersを作る。双方が自分のidentityを提示し（mutual TLS）、相手の証明書は内容を問わず受け入れて、そのfingerprintを呼び出し側へ渡す。相手が誰かは証明書では決めず、後段のgroup共有鍵のhandshakeで決める（未実装）。peer-to-peer Wi-Fiを含め、セルラーは使わない |
+| `LocalControlTLS` | QUIC（ALPN `ride-control`、TLS 1.3）のparametersを作る。双方が自分のidentityを提示し（mutual TLS）、相手の証明書は内容を問わず受け入れる。相手が誰かは証明書では決めず、`LocalControlLink`のhandshakeで決める。peer-to-peer Wi-Fiを含め、セルラーは使わない |
 
 | `LocalControlFraming` | 信頼できるstream上のmessageの境界。4 byteのbig-endianの長さの後にmessageを置く。上限は現行のLocal制御と同じ64 KiBで、超える長さを告げた相手の続きは読まない |
 | `LocalControlHandshake` | 相手が誰かを決めるmessage。group共有鍵のHMAC-SHA256で、groupHash・送信者ID・nonce・送信側の証明書のfingerprint・受信側の証明書のfingerprintを、各項目に長さを付けて覆う。間に入って中継する者は自分の証明書を両側へ提示するしかなく、両側が見るfingerprintが食い違うので検証に失敗する。逆向きへの使い回しと、自分のmessageの送り返しも拒否する。nonceは現行と同じくUDP媒体のlistenerの世代を示す |
+| `LocalControlLink` | 相手1人との制御の接続1本（QUICのstream）。readyになったら、その接続でTLSが見た相手の証明書（接続のmetadataから読む）のfingerprintを束縛したhandshakeを送る。相手のhandshakeを同じ接続の証明書で検証できるまで、相手が送ったものを何も渡さない。検証に失敗した場合、10秒以内に認証できない場合、上限を超える長さ、通信の失敗、`close()`で閉じ、`closed`を1回だけ通知する。認証後のmessageは送った順に届く |
 
-確かめたこと: 証明書をOSが解析でき、自分自身をanchorにした検証が有効期間内だけ成功する。identityの秘密鍵で署名した値を証明書の公開鍵で検証できる。同じ端末上で2つのidentityがQUICのstreamを開き、双方向にデータが届き、互いに相手のfingerprintを得る（macOSとiPhone Simulator）。framingはstreamをどこで区切っても境界を保つ。handshakeは、中継者の証明書、別のgroup、別の鍵、項目の改変、項目の境界のずらしを拒否する。
+確かめたこと: 証明書をOSが解析でき、自分自身をanchorにした検証が有効期間内だけ成功する。identityの秘密鍵で署名した値を証明書の公開鍵で検証できる。同じ端末上で、2つのidentityによる実際のQUICの接続（macOSとiPhone Simulator）で、同じgroup鍵を持つ2者が互いを認証し、上限の大きさを含むmessageが双方向に順序どおり届き、片方が閉じると双方が1回ずつ`closed`になる。group鍵を持たない相手は、TLSが成立しても何も渡されずに閉じられる。framingはstreamをどこで区切っても境界を保つ。handshakeは、中継者の証明書、別のgroup、別の鍵、項目の改変、項目の境界のずらしを拒否する。
 
 実装で分かった制約: 鍵を暗号化しない入れ物では、`SecPKCS12Import`は証明書だけを返しidentityを作らない。QUICの`NWListener`は接続を`newConnectionGroupHandler`のgroupで受け取り、streamはそのgroupから受け取る（`newConnectionHandler`だけを設定すると、readyになるがデータを受け取らない接続が返る）。Keychainを経由する方法は、package単独のテストのプロセスでは権限がなく使えない。
 
