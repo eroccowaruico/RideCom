@@ -159,6 +159,17 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertEqual(inviterRows(inviterName).count, 1)
     }
 
+    /// A swipe made while the invitation sheet is still closing is lost, so swipe again until the action shows.
+    @MainActor private func openUserSettings(from row: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let settings = app.buttons["User Settings"].firstMatch
+        for _ in 0..<3 where !settings.exists {
+            row.swipeLeft()
+            _ = settings.waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(settings.exists, file: file, line: line)
+        settings.tap()
+    }
+
     /// The saved user's own row (the pending invitation row shows the same name), scrolled into view.
     @MainActor private func inviterRows(_ name: String) -> XCUIElementQuery {
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardUser-", name))
@@ -466,8 +477,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
         let row = inviterRows(inviterName).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 3))
-        row.swipeLeft()
-        app.buttons["User Settings"].firstMatch.tap()
+        openUserSettings(from: row)
         XCTAssertTrue(app.descendants(matching: .any)["userSettingsView"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["userSettingsInviteButton"].exists, "No invitation sharing in a person's settings")
         let name = app.textFields["savedUserNameField"].firstMatch
@@ -480,8 +490,7 @@ final class StandardInterfaceUITests: XCTestCase {
         app.buttons["saveUserNameButton"].tap()
         let renamed = inviterRows("Trail " + suffix).firstMatch
         XCTAssertTrue(renamed.waitForExistence(timeout: 3))
-        renamed.swipeLeft()
-        app.buttons["User Settings"].firstMatch.tap()
+        openUserSettings(from: renamed)
         app.buttons["deleteUserButton"].firstMatch.tap()
         let confirm = app.alerts.buttons["confirmDeleteUserButton"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 3))
@@ -820,7 +829,8 @@ final class StandardInterfaceUITests: XCTestCase {
         selectLayout("Advanced")
         openInternetSettings()
         XCTAssertTrue(app.secureTextFields["internetDeviceToken"].waitForExistence(timeout: 3))
-        XCTAssertEqual(app.textFields["internetWorkerURL"].placeholderValue, "Worker URL")
+        // Advanced shows the form of the value as the field's prompt.
+        XCTAssertEqual(app.textFields["internetWorkerURL"].placeholderValue, "https://example.workers.dev")
         XCTAssertTrue(app.buttons["saveInternetConnection"].exists)
     }
 

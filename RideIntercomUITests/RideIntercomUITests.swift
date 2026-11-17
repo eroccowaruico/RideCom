@@ -610,6 +610,8 @@ final class RideIntercomUITests: XCTestCase {
     func testCorruptGroupStoreRecovery() throws {
         // The compile-isolated fixture seeds the actual manifest before launch.
         // Cmd-U uses the same recovery UI and checks the resulting disk files.
+        // The app opens on Users; the group list holds the create button this checks.
+        openGroupsTab()
         let status = app.descendants(matching: .any)["groupStorageStatus"].firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["standardCreateGroupButton"].isEnabled)

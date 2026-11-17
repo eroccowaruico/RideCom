@@ -64,6 +64,11 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.module.Runner(self.runner.out)
 
+    def test_iphone_test_stage_has_its_own_limit_unless_one_is_requested(self):
+        self.assertEqual(self.module.ios_tests_timeout({}), self.module.IOS_TESTS_SECONDS)
+        self.assertGreater(self.module.IOS_TESTS_SECONDS, 4307)
+        self.assertIsNone(self.module.ios_tests_timeout({'VALIDATION_TIMEOUT_SECONDS': '600'}))
+
     def test_timeout_kills_owned_child_process_group(self):
         child = Path(self.temporary.name) / 'child.pid'
         code = ('import subprocess,time; p=subprocess.Popen(["sleep","60"]); '

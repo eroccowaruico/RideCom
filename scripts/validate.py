@@ -59,6 +59,16 @@ def tests_passed(text):
             and all(int(node.get(key, 0)) == 0 for key in ['fail', 'skipped', 'cancelled', 'todo']))
 
 
+# The iPhone stage runs the App tests and then every UI test one at a time on one Simulator;
+# 61 UI tests alone took 4307 s (2026-11-17), so the general stage limit cannot hold it.
+IOS_TESTS_SECONDS = 7200
+
+
+def ios_tests_timeout(environment):
+    """An explicit VALIDATION_TIMEOUT_SECONDS still limits every stage, this one included."""
+    return None if environment.get('VALIDATION_TIMEOUT_SECONDS') else IOS_TESTS_SECONDS
+
+
 def xcode_tests_passed(summary):
     count = summary.get('totalTestCount', 0)
     return (count > 0 and summary.get('passedTests') == count
@@ -205,7 +215,7 @@ class Runner:
         return self.record(name, [], 'passed', 0, started, 'Generated host isolation verified before launch')
 
     def xcode(self, name, destination, only=None, needs=(), skip=None, reuse_build=None,
-              scheme='RideIntercom'):
+              scheme='RideIntercom', timeout=None):
         bundle = self.out / f'{name}.xcresult'
         settings_stage = name + '-build-settings'
         started = time.monotonic()
@@ -257,7 +267,7 @@ class Runner:
             # so restate them; otherwise scheme-excluded suites would run here.
             for identifier in (xctestrun_skips(test_run) if test_run and not plan_name else []) + skips:
                 command.append(f'-skip-testing:{identifier}')
-        self.run(name, command, needs=[preflight])
+        self.run(name, command, needs=[preflight], timeout=timeout)
         summary_name = name + '-summary'
         self.run(summary_name, ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle)], needs=[name], timeout=60)
         started = time.monotonic()
@@ -429,7 +439,8 @@ def main():
                             runner.record('simulator-audio-device', [], 'failed', 1, time.monotonic(), str(error))
                         recovery = 'RideIntercomUITests/RideIntercomUITests/testCorruptGroupStoreRecovery'
                         runner.xcode('ios-tests', 'platform=iOS Simulator,id=' + sim, only='RideIntercomUITests' if mode == 'ios-ui' else None,
-                                     needs=['simulator-ready', 'simulator-appearance', 'webrtc-artifact'], skip=[recovery] + IPAD_ONLY_TESTS)
+                                     needs=['simulator-ready', 'simulator-appearance', 'webrtc-artifact'], skip=[recovery] + IPAD_ONLY_TESTS,
+                                     timeout=ios_tests_timeout(os.environ))
                         runner.xcode('ios-recovery', 'platform=iOS Simulator,id=' + sim, only=recovery,
                                      needs=['ios-tests-acceptance'], reuse_build='ios-tests')
                 finally:
