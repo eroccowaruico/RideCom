@@ -40,12 +40,13 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
                                             willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         guard SystemSurfaceScope.permitsSystemAccess,
               let tap = CallNotificationTap(payload: notification.request.content.userInfo) else { return [] }
-        return await shouldPresent(tap) ? [.banner, .sound] : []
+        return await presentationOptions(for: tap)
     }
-    private func shouldPresent(_ tap: CallNotificationTap) -> Bool {
+    func presentationOptions(for tap: CallNotificationTap) -> UNNotificationPresentationOptions {
         guard let owner, let model = owner.viewModel, model.accountSession === owner.account,
-              model.hasCurrentAccountAccess else { return false }
-        return model.notifications.canReceive(tap)
+              model.hasCurrentAccountAccess, model.notifications.canReceive(tap) else { return [] }
+        // A call includes waiting for peers and paused audio. Arrival never interrupts it.
+        return model.hasAnyActiveGroupConnection ? [.list] : [.banner, .list, .sound]
     }
 }
 

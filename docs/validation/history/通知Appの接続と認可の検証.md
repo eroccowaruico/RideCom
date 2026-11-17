@@ -31,3 +31,19 @@
 256行の回収と新しい許可、同principal再追加と保存再読取後のrevision維持、取消失敗行の保持を先に失敗させた。符号・破損・counter上限時の失敗と発行済みgrant取消、回収保存失敗時のメモリ・ディスク保全も確認した。先行96件の結果はその時点の証跡として保持し、追加修正の最終結果は`.validation/notification-capacity-final`へ分けて保存した。
 
 追加5テストを含む関連8 suite・101件が成功し、失敗・skip・runtime warningはない。generic iOS build・既存catalogと英日追加29key・文書検査も成功。検証前後330のsource/configuration入力が一致し、所有host残存はなく、Simulatorは起動していない。
+
+
+## 前景の通話中通知を静かにする
+
+2026-11-17、通常のAPNsとUserNotificationsを使い、CallKit・VoIP Push・AppleのPushToTalk frameworkを使わない利用者の前提を要求・仕様・Markdown・HTMLへ明記した。Appだけを変更し、前景の表示判断を`AppNotificationBridge.presentationOptions(for:)`へ集約した。接続待ち・音声の一時停止を含む通話中は`[.list]`、未接続は`[.banner, .list, .sound]`を返す。到着だけでは通話・画面を変えず、表示判断のネット照会は行わない。
+
+| 検証 | 証跡・結果 |
+|---|---|
+| 変更前の失敗再現 | `.validation/notification-foreground-suite-red-20261117`。関連43テストを実行し、追加した表示テストで5件の期待不一致。通話中もバナー・音を返し、通知センターへの指定がないことを再現。空のmethod選択やコンパイル失敗は再現の成功に数えない |
+| macOS最終回帰 | `.validation/notification-foreground-macos-final-20261117/app.xcresult`。NotificationClientTests・NotificationPermissionTestsの47件成功。失敗・skip・runtime warningは0 |
+| iOS Simulator最終回帰 | `.validation/notification-foreground-ios-final-20261117/ui.xcresult`。同じ47件成功。失敗・skip・runtime warningは0。所有Simulatorを終了済み |
+| 確認した経路 | App所有者・現在アカウント・端末受信ONの検証、待機→音声準備完了→デバイス変更による音声停止→切断の表示判断、到着による通話先・画面の変更とHTTP照会がないこと、既存の登録・取消・署名付き許可・タップ処理の回帰 |
+| テストの修正 | 先行green実行では、追加テストの`endAccountAccess()`が非同期の端末登録解除を残し、次の既存テストへ混ざった。サインアウト済みアカウントを観測開始前に作る独立fixtureへ直し、両OSの最終回帰を再実行した |
+| 定義とHTML | 要求・通知仕様・通知設計・HTML見本・残課題・未確認事項を対応付けた。文書リンク、String Catalog、diff、HTMLの主要コンテナの対応とID重複を検査 |
+
+検証はAppホスト内の実モデルと、HTTP・音声・接続を置き換えた既存harnessによる表示オプションの判断である。実APNs・OSの許可や実際の通知音／バナー／通知センター、背景配送、端末ロック、Watchは未受入。HTMLのブラウザー描画も未検証。背景のpassive・音なし、名前の解決、通信の通知は通知拡張の未実装工程として保持する。ビルド番号の自動更新は番号だけの独立コミットに分けた。

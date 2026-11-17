@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import RTC
+import SessionManager
 import Testing
 import UserNotifications
 @testable import RideIntercom
@@ -10,6 +11,62 @@ struct NotificationClientTests {
     let origin = URL(string: "https://notify.test")!
     let token = "ri1." + String(repeating: "a", count: 64) + ".00000000-0000-0000-0000-000000000001." + String(repeating: "b", count: 64)
     let userID = String(repeating: "c", count: 64)
+
+    @Test func foregroundArrivalOnlyChangesPresentationAndStaysQuietThroughoutACall() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let h = notificationHarness(fixture), vm = h.viewModel
+        defer { vm.disconnect() }
+        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        owner.notificationBridge.bind(to: owner)
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        let initialRequestCount = NotificationHTTPStub.requests.count
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.banner, .list, .sound])
+        #expect(h.callSession.connectedGroup == nil && owner.callPresentationID == nil)
+        #expect(vm.createTalkGroup(name: "Current call", userIDs: [fixture.user.id]))
+        #expect(vm.hasAnyActiveGroupConnection && vm.authenticatedPeerIDs.isEmpty)
+        let reference = vm.currentCallReference
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.list], "Waiting for peers is still an active call")
+        vm.setSoundIsolationEnabled(false)
+        h.callSession.authenticate(["friend"])
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        #expect(vm.isAudioReady)
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.list])
+        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+            reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
+        #expect(vm.isAudioPausedForDeviceChange && vm.hasAnyActiveGroupConnection)
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.list])
+        #expect(vm.currentCallReference == reference && owner.callPresentationID == nil)
+        #expect(NotificationHTTPStub.requests.count == initialRequestCount, "Arrival performs no network lookup")
+        vm.disconnect()
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.banner, .list, .sound])
+    }
+
+    @Test func foregroundPresentationRejectsMissingOwnerDisabledAndUnrelatedAccounts() throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let h = notificationHarness(fixture), vm = h.viewModel
+        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        #expect(owner.notificationBridge.presentationOptions(for: tap).isEmpty)
+        owner.notificationBridge.bind(to: owner)
+        #expect(owner.notificationBridge.presentationOptions(for: tap).isEmpty)
+        fixture.store.notificationRegistrationEnabled = true
+        let wrongRecipient = CallNotificationTap(requestID: UUID(), recipientID: fixture.peer.userID)
+        #expect(owner.notificationBridge.presentationOptions(for: wrongRecipient).isEmpty)
+        let other = AppTestSupport.makeHarness()
+        let mismatched = AppCallOwner(account: other.viewModel.accountSession, viewModel: vm)
+        mismatched.notificationBridge.bind(to: mismatched)
+        #expect(mismatched.notificationBridge.presentationOptions(for: tap).isEmpty)
+        let signedOut = AppTestSupport.signedInAccount()
+        signedOut.signOut()
+        let retired = AppTestSupport.makeHarness(accountSession: signedOut)
+        retired.viewModel.notifications = fixture.notifications
+        let retiredOwner = AppCallOwner(account: signedOut, viewModel: retired.viewModel)
+        retiredOwner.notificationBridge.bind(to: retiredOwner)
+        #expect(!retired.viewModel.hasCurrentAccountAccess)
+        #expect(retiredOwner.notificationBridge.presentationOptions(for: tap).isEmpty)
+        #expect(NotificationHTTPStub.requests.isEmpty && h.callSession.connectedGroup == nil)
+    }
 
     @Test func deviceRegistrationAndRemovalUseOnlyNativeNotificationFields() async throws {
         let client = makeClient()
