@@ -6929,6 +6929,86 @@
           }
         }
       }
+    },
+    "Choose a Name" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼び名の確認"
+          }
+        }
+      }
+    },
+    "Change %@ to %@?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を「%@」に変更しますか？"
+          }
+        }
+      }
+    },
+    "Use Their Name" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本人の名前を使う"
+          }
+        }
+      }
+    },
+    "Keep This Name" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この呼び名を使う"
+          }
+        }
+      }
+    },
+    "Keep Local Name" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の呼び名を保持"
+          }
+        }
+      }
+    },
+    "Their name: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本人の名前：%@"
+          }
+        }
+      }
+    },
+    "This name changed. Review it again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前が変更されました。もう一度確認してください。"
+          }
+        }
+      }
+    },
+    "Could not save the name choice. Try again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前の選択を保存できませんでした。もう一度お試しください。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
