@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Check local links, discoverability, and Settings UI coverage; no network calls."""
+from collections import Counter
+from html.parser import HTMLParser
 from pathlib import Path
 import re
 import sys
@@ -7,6 +9,15 @@ from urllib.parse import unquote, urlsplit
 
 LINK = re.compile(r'\[[^\]\n]*\]\((<[^>]+>|[^\n)]+)\)')
 UI_ID = re.compile(r'accessibilityIdentifier\s*[:(]\s*"([^"\\]+)"')
+
+
+class DesignHTMLIDs(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.ids = []
+
+    def handle_starttag(self, tag, attrs):
+        self.ids.extend(value for key, value in attrs if key == 'id' and value is not None)
 
 
 def without_fences(text):
@@ -30,6 +41,12 @@ def check(root):
     for entry in ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']:
         if (root / entry).exists(): documents.add(root / entry)
     errors, edges = [], {}
+    for sample in sorted((root / 'docs/design').rglob('*.html')):
+        parser = DesignHTMLIDs()
+        parser.feed(sample.read_text())
+        for identifier, count in Counter(parser.ids).items():
+            if count > 1:
+                errors.append(f'{sample.relative_to(root)}: duplicate HTML id {identifier}')
     for directory in sorted((root / 'docs').rglob('*')):
         if directory.is_dir() and not any(directory.iterdir()):
             errors.append(f'{directory.relative_to(root)}: empty directory')
@@ -81,4 +98,4 @@ if __name__ == '__main__':
     errors = check(root)
     for error in errors: print(error, file=sys.stderr)
     if errors: sys.exit(1)
-    print('Documentation links, navigation, empty directories, and Settings coverage: OK')
+    print('Documentation links, navigation, design HTML IDs, empty directories, and Settings coverage: OK')

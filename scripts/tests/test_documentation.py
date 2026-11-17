@@ -15,6 +15,24 @@ class DocumentationTests(unittest.TestCase):
         (root / 'README.md').write_text('[guide](docs/guide.md)\n')
         (root / 'docs/guide.md').write_text('# Guide\n')
 
+    def test_design_html_rejects_svg_and_section_with_the_same_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.fixture(root)
+            designs = root / 'docs/design'
+            designs.mkdir()
+            (designs / 'sample.html').write_text(
+                '<svg><symbol id="watch"></symbol></svg><a href="#watch">Watch</a><h2 id="watch">Watch</h2>')
+            self.assertTrue(any('duplicate HTML id watch' in error for error in DOCS.check(root)))
+
+    def test_design_html_ids_are_scoped_to_each_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.fixture(root)
+            designs = root / 'docs/design'
+            designs.mkdir()
+            for name in ('standard', 'advanced'):
+                (designs / (name + '.html')).write_text('<svg><symbol id="watch-icon"/></svg><h2 id="watch">Watch</h2>')
+            self.assertEqual(DOCS.check(root), [])
+
     def test_broken_relative_link_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); self.fixture(root)
