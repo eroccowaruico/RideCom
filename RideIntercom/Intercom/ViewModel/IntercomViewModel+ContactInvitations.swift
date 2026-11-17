@@ -10,13 +10,13 @@ extension IntercomViewModel {
     }
 
     /// Direct contact consent is independent of the right to create a group.
-    func makeContactInviteURL() -> URL? {
+    func makeContactInviteURL(replacingExpiredInvitation id: UUID? = nil) -> URL? {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return nil }
         do {
             let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
             let token = try ContactInvitationSession.makeToken(authority: invitationAuthority, signer: signer,
                 displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
-            try groupRepository.stageContactInvitation(token, now: callAccessNow().timeIntervalSince1970)
+            try groupRepository.stageContactInvitation(token, now: callAccessNow().timeIntervalSince1970, replacingExpiredInvitation: id)
             refreshGroupStorageStatus()
             let url = try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
             _ = resumeContactInvitation(try contactID(token))

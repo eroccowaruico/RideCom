@@ -155,16 +155,12 @@ extension IntercomViewModel {
     func sendNewContactInvitation(replacing id: UUID) {
         guard canEditSavedGroups, let old = contactInvitationRecord(id), contactInvitationIsExpired(old) else { return }
         contactInvitationMessage = nil
-        guard let url = makeContactInviteURL(),
+        guard let url = makeContactInviteURL(replacingExpiredInvitation: id),
               let token = try? GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true),
               let newID = token.directInvitation?.context.id else {
             contactInvitationMessage = "Could not save this invitation. Try again."
             return
         }
-        if let name = old.nickname { _ = setContactInvitationNickname(newID, name, refresh: false) }
-        if old.isExpiredTombstone { try? groupRepository.removeExpiredContactInvitation(id) }
-        else { try? groupRepository.cancelContactInvitation(id) }
-        refreshGroupStorageStatus()
         contactInvitationPresentation = .sharing(newID)
     }
 

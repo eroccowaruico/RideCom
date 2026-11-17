@@ -38,3 +38,20 @@
 ## 受入範囲
 
 実機・Appleログイン・通知・課金・署名・提出の受入ではない。既知のCoreAudio待機、独立音声E2E、Watch自身の音声と押下中送話、無線・電池・背景動作の確認は残す。古いDerivedDataを別worktreeから再利用した際のstale path warningと、AppIntents未使用targetのmetadata省略warningはログへ保持し、warningゼロとは扱わない。
+
+
+## 期限切れ招待の置換と呼び名の一括保存
+
+2026-11-17、期限切れの「新しい招待を送る」が、新規発行・呼び名の引継ぎ・旧記録の除去を別々に保存し、途中の失敗を無視していた。2回目の保存だけを失敗させると、呼び名のない新規招待へ移り、旧記録も残ることを再現した。`stageContactInvitation(_:now:replacingExpiredInvitation:)`で新規招待・Keychain参照・元のnickname・旧記録除去を1回のmanifest置換へまとめ、成功後だけ新しい詳細を開くようにした。期限内・存在しない置換対象も無書込で拒否する。App側だけの変更でpackage／serverは変更していない。
+
+| 検証 | 結果と証跡 |
+|---|---|
+| 変更前 | `.validation/contact-replacement-red-20261117`。期限切れpendingとexpired記録の両方で、呼び名の欠落・旧記録残存・再読込の不整合を再現。先行の保存失敗テストは既存の読取専用／再読込契約を考慮していなかったため、直接再試行の期待を再読込後の回復へ訂正した |
+| 最終Mac | `.validation/contact-replacement-macos-standard-final-20261117/app.xcresult`。標準配置の署名済み検証Appで関連5スイート・27定義／29実行成功。失敗・skip・runtime warningなし。実QUICの受諾→双方の登録→ディスク再読込も含む |
+| 最終iOS Simulator | `.validation/contact-replacement-ios-final-20261117/ui.xcresult`。同じ5スイート・27定義／29実行成功。失敗・skip・runtime warningなし。所有Simulatorを終了 |
+| 置換の回帰 | 元の呼び名、旧記録除去、新しい詳細の対象ID、再読込後の記録、不要な鍵の回収、通話を開始しないこと。保存前の失敗では旧manifest・名前・表示対象・確定済みの鍵を保持し、再読込後に再試行できる。鍵保存先と2回目の保存失敗は既存in-memory storeで注入 |
+| 先行の環境失敗 | `.validation/contact-replacement-macos-green-20261117`ではDerivedData配置の実通信2テストが既知の`NoAuth(-65555)`で失敗。規定の標準配置へ最終ビルドをコピーし、5スイートすべてを再実行した。所有する検証コピー2つは回収済み。OS権限・通常Appの設定は変更していない |
+| 集計と入力の照合 | 標準配置のテストとxcresult集計は成功したが、その後の一時runnerのrecord呼出しで引数誤りが出た。同じxcresultを共通`xcode_tests_passed`で独立評価して成功を確認し、`acceptance.json`へ記録。再実行したと扱わない。両最終runのSwift等429入力が最終ソースと一致 |
+| 定義 | 通信仕様・UI Stack・招待のMarkdown・HTML見本・マニュアルを一緒に更新。文書参照・String Catalog・diff・HTMLの主要コンテナを検査。HTMLの既存`watch` ID重複は変更前から存在し、今回の招待修正では増やしていない |
+
+通常APNs／UserNotificationsを前提とし、CallKit・VoIP Push・AppleのPushToTalk frameworkを使わない条件は維持した。今回の修正は期限切れ招待の保存境界であり、通知到着・実APNs・実機の共有／ロック／背景配送の受入を新たに成立させた結果ではない。HTMLのブラウザー描画、画面を開いたまま期限を迎える際の表示更新は今回の検証範囲に含めない。元の招待と新しい招待の共有手順は維持した。

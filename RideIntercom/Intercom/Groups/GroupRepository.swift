@@ -366,19 +366,28 @@ final class GroupRepository {
 }
 
 extension GroupRepository {
-    func stageContactInvitation(_ token: GroupInviteToken, now: TimeInterval) throws {
+    func stageContactInvitation(_ token: GroupInviteToken, now: TimeInterval, replacingExpiredInvitation id: UUID? = nil) throws {
         try token.validate(contactBootstrap: true)
         guard let snapshot, let context = token.directInvitation?.context,
               token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
               !snapshot.contactInvitations.contains(where: { $0.id == context.id }) else { throw GroupStorageError.invalidUpdate }
         guard let proof = token.identityProof else { throw GroupStorageError.invalidUpdate }
         _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
+        let previous = id.flatMap { id in snapshot.contactInvitations.first { $0.id == id } }
+        if id != nil {
+            guard let previous, previous.isExpiredTombstone
+                    || (previous.direction == .outgoing && previous.state == .pending && previous.expiresAt <= now) else {
+                throw GroupStorageError.invalidUpdate
+            }
+        }
         let payload = ContactInvitationPayload(token: token)
         try amend(snapshot) { next in
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
+            // The old record, its name and the new credential change at the manifest's sole commit point.
+            if let id { next.contactInvitations.removeAll { $0.id == id } }
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .outgoing,
-                expiresAt: context.expiresAt, credentialReference: reference, sent: false))
+                expiresAt: context.expiresAt, credentialReference: reference, nickname: previous?.nickname, sent: false))
         }
     }
 
@@ -495,16 +504,6 @@ extension GroupRepository {
               record.direction == .outgoing, record.state == .pending else { throw GroupStorageError.invalidUpdate }
         guard record.sent == false else { return }
         try amendContactInvitation(id, in: snapshot) { record in record.sent = true }
-    }
-
-    /// Removes an expired invitation's record (after a new one is sent for the same person, or on cancel).
-    func removeExpiredContactInvitation(_ id: UUID) throws {
-        guard let snapshot, snapshot.contactInvitations.contains(where: { $0.id == id && $0.isExpiredTombstone }) else {
-            throw GroupStorageError.invalidUpdate
-        }
-        try amend(snapshot) { next in
-            next.contactInvitations.removeAll { $0.id == id }
-        }
     }
 
     /// Names an outgoing invitation before it completes; nil clears the name.

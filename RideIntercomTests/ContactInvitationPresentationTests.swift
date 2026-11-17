@@ -99,6 +99,88 @@ struct ContactInvitationPresentationTests {
         #expect(h.viewModel.contactInvitationPresentation?.id == "share-" + replacement.id.uuidString)
     }
 
+    @Test(arguments: [false, true])
+    func replacingAnExpiredInvitationKeepsItsNameWithoutAnIntermediateSave(tombstone: Bool) throws {
+        var now = Date()
+        let keys = InMemoryGroupCredentialStore()
+        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys, localMemberID: "replace-author", callAccessNow: { now })
+        let vm = h.viewModel
+        vm.contactSessionFactory = { RecordingCallSession() }
+        defer { vm.disconnect() }
+        let url = try #require(vm.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
+        #expect(vm.setContactInvitationNickname(id, "Edited Haruka"))
+        vm.stopContactInvitationSession()
+        now = now.addingTimeInterval(8 * 24 * 60 * 60)
+        if tombstone { try vm.groupRepository.removeExpiredContactInvitations(now: now.timeIntervalSince1970) }
+        let before = h.groupStore.snapshot
+        vm.contactInvitationPresentation = .sharing(id)
+        // A second write would expose a partially saved replacement if saving its name failed.
+        h.groupStore.failOnSaveNumber = h.groupStore.saveCount + 2
+        vm.sendNewContactInvitation(replacing: id)
+        let replacement = try #require(vm.pendingContactInvitations.first { $0.id != id })
+        #expect(replacement.nickname == "Edited Haruka")
+        #expect(vm.contactInvitationRecord(id) == nil)
+        #expect(vm.contactInvitationPresentation?.id == "share-" + replacement.id.uuidString)
+        #expect(vm.contactInvitationMessage == nil)
+        #expect(h.groupStore.snapshot.contactInvitations.count == 1)
+        #expect(h.groupStore.snapshot.groups == before.groups && h.groupStore.snapshot.users == before.users)
+        let reloaded = GroupRepository(store: h.groupStore, credentials: keys)
+        _ = try reloaded.load(localMemberID: "replace-author")
+        #expect(reloaded.contactInvitations == [replacement])
+        #expect(keys.values.count == 1, "Only the new invitation's credential remains")
+        #expect(h.callSession.connectedGroup == nil, "Replacing an invitation never starts a call")
+    }
+
+    @Test func failedReplacementPreservesTheOriginalInvitationAndCanBeRetried() throws {
+        var now = Date()
+        let keys = InMemoryGroupCredentialStore()
+        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys, localMemberID: "replace-failure", callAccessNow: { now })
+        let vm = h.viewModel
+        vm.contactSessionFactory = { RecordingCallSession() }
+        defer { vm.disconnect() }
+        let url = try #require(vm.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
+        #expect(vm.setContactInvitationNickname(id, "Kept name"))
+        vm.stopContactInvitationSession()
+        now = now.addingTimeInterval(8 * 24 * 60 * 60)
+        vm.contactInvitationPresentation = .sharing(id)
+        let before = h.groupStore.snapshot
+        let oldReference = try #require(vm.contactInvitationRecord(id)?.credentialReference)
+        h.groupStore.failSaving = true
+        vm.sendNewContactInvitation(replacing: id)
+        #expect(h.groupStore.snapshot == before)
+        #expect(vm.contactInvitationRecord(id)?.nickname == "Kept name")
+        #expect(vm.contactInvitationPresentation?.id == "share-" + id.uuidString)
+        #expect(vm.contactInvitationMessage != nil)
+        #expect(keys.values[oldReference] != nil, "A failed save preserves the committed credential")
+        h.groupStore.failSaving = false
+        vm.reloadSavedGroups()
+        #expect(keys.values.count == 1, "Reload removes only the uncommitted orphan credential")
+        vm.sendNewContactInvitation(replacing: id)
+        #expect(vm.contactInvitationRecord(id) == nil)
+        #expect(vm.pendingContactInvitations.count == 1)
+        #expect(vm.pendingContactInvitations.first?.nickname == "Kept name")
+        #expect(vm.contactInvitationMessage == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func replacementRejectsUnknownOrStillLiveInvitation(unknown: Bool) throws {
+        let keys = InMemoryGroupCredentialStore()
+        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys, localMemberID: "replace-live")
+        let vm = h.viewModel
+        vm.contactSessionFactory = { RecordingCallSession() }
+        defer { vm.disconnect() }
+        let url = try #require(vm.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
+        vm.stopContactInvitationSession()
+        let before = h.groupStore.snapshot, references = Set(keys.values.keys)
+        #expect(vm.makeContactInviteURL(replacingExpiredInvitation: unknown ? UUID() : id) == nil)
+        #expect(h.groupStore.snapshot == before)
+        #expect(Set(keys.values.keys) == references)
+        #expect(vm.contactInvitationID == nil)
+    }
+
     @Test func acceptingAPreviewRegistersTheInviterWithoutInterruptingAnExistingCall() throws {
         let (author, url) = try authorURL(); defer { author.viewModel.disconnect() }
         let group = try IntercomGroup(name: "Current call", members: [.init(id: "presentation-friend", displayName: "Friend")], accessSecret: "current-call-key")

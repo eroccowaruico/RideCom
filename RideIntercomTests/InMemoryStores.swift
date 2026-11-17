@@ -35,6 +35,7 @@ final class InMemoryGroupStore: GroupStoring {
     var snapshot: GroupSnapshot
     private(set) var saveCount = 0
     var failSaving = false
+    var failOnSaveNumber: Int?
     var readError: Error?
     init(groups: [IntercomGroup] = []) { snapshot = GroupSnapshot(groups: groups.map { .init($0) }) }
     func read() throws -> GroupSnapshot? {
@@ -42,7 +43,7 @@ final class InMemoryGroupStore: GroupStoring {
         return try snapshot.validated()
     }
     func commit(_ snapshot: GroupSnapshot) throws {
-        if failSaving { throw IntercomGroupError.storageUnavailable }
+        if failSaving || failOnSaveNumber == saveCount + 1 { throw IntercomGroupError.storageUnavailable }
         self.snapshot = snapshot; saveCount += 1
     }
     func loadGroups() -> [IntercomGroup] { snapshot.groups.compactMap { try? $0.group() } }
