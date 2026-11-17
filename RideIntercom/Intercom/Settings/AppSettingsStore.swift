@@ -13,6 +13,10 @@ nonisolated enum CallDisconnectInterval: Int, CaseIterable, Identifiable, Sendab
     case oneHour = 3600, twoHours = 7200, threeHours = 10800, sixHours = 21600
     case eightHours = 28800, twelveHours = 43200, twentyFourHours = 86400
 
+    /// The implementation's defaults: what a new account starts with, what Reset puts back, what Advanced marks.
+    static let regularDefault = Self.threeHours
+    static let watchDefault = Self.fiveMinutes
+
     var id: Self { self }
     var seconds: TimeInterval { TimeInterval(rawValue) }
     var title: String {
@@ -53,8 +57,8 @@ struct AppSettings: Equatable {
 
     init(
         recentCallDestination: CallDestination? = nil,
-        callDisconnectInterval: CallDisconnectInterval = .threeHours,
-        watchCallDisconnectInterval: CallDisconnectInterval = .fiveMinutes,
+        callDisconnectInterval: CallDisconnectInterval = .regularDefault,
+        watchCallDisconnectInterval: CallDisconnectInterval = .watchDefault,
         audioSessionProfile: AudioSessionProfile = IntercomViewModel.defaultAudioSessionProfile,
         vadSensitivity: VoiceActivitySensitivity = IntercomViewModel.defaultVADSensitivity,
         preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec,
@@ -108,8 +112,8 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
     func load() -> AppSettings {
         var settings = AppSettings(
             recentCallDestination: defaults.data(forKey: recentCallDestinationKey).flatMap { try? JSONDecoder().decode(CallDestination.self, from: $0) },
-            callDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: callDisconnectIntervalKey)) ?? .threeHours,
-            watchCallDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: watchCallDisconnectIntervalKey)) ?? .fiveMinutes,
+            callDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: callDisconnectIntervalKey)) ?? .regularDefault,
+            watchCallDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: watchCallDisconnectIntervalKey)) ?? .watchDefault,
             audioSessionProfile: loadAudioSessionProfile(),
             vadSensitivity: loadVADSensitivity(),
             preferredTransmitCodec: loadPreferredTransmitCodec(),

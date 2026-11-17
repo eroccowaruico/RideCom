@@ -76,8 +76,8 @@ final class IntercomViewModel {
     var savedUsers: [SavedUser] = []
     var selectedGroup: IntercomGroup?
     var activeGroupID: UUID?
-    var callDisconnectInterval: CallDisconnectInterval = .threeHours
-    var watchCallDisconnectInterval: CallDisconnectInterval = .fiveMinutes
+    var callDisconnectInterval: CallDisconnectInterval = .regularDefault
+    var watchCallDisconnectInterval: CallDisconnectInterval = .watchDefault
     var callDisconnectDeadline: Date?
     var connectionState: CallConnectionState = .idle
     var isMuted = false

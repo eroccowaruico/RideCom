@@ -308,8 +308,8 @@ extension IntercomViewModel {
     }
 
     func resetAllSettings() {
-        setCallDisconnectInterval(.threeHours)
-        setCallDisconnectInterval(.fiveMinutes, usingWatch: true)
+        setCallDisconnectInterval(.regularDefault)
+        setCallDisconnectInterval(.watchDefault, usingWatch: true)
         setInputPort(.systemDefault)
         setOutputPort(.systemDefault)
         setAudioSessionProfile(Self.defaultAudioSessionProfile)

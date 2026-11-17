@@ -19,7 +19,7 @@ struct CallDisconnectTimerSection: View {
             Picker("Regular Calls", selection: Binding(get: { viewModel.callDisconnectInterval },
                                                        set: { viewModel.setCallDisconnectInterval($0) })) {
                 ForEach(CallDisconnectInterval.allCases) { interval in
-                    settingsOption(interval.title, isDefault: interval == AppSettings().callDisconnectInterval, marks: marksDefault).tag(interval)
+                    settingsOption(interval.title, isDefault: interval == .regularDefault, marks: marksDefault).tag(interval)
                 }
             }
             .pickerStyle(.menu)
@@ -27,7 +27,7 @@ struct CallDisconnectTimerSection: View {
             Picker("Calls Started from Watch", selection: Binding(get: { viewModel.watchCallDisconnectInterval },
                                                                  set: { viewModel.setCallDisconnectInterval($0, usingWatch: true) })) {
                 ForEach(CallDisconnectInterval.allCases) { interval in
-                    settingsOption(interval.title, isDefault: interval == AppSettings().watchCallDisconnectInterval, marks: marksDefault).tag(interval)
+                    settingsOption(interval.title, isDefault: interval == .watchDefault, marks: marksDefault).tag(interval)
                 }
             }
             .pickerStyle(.menu)
