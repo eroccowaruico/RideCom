@@ -41,6 +41,64 @@ final class StandardInterfaceUITests: XCTestCase {
 
     #if os(iOS)
     @MainActor
+    func testDirectCallHidesMembersAcrossReopeningAndLayoutSwitch() throws {
+        launch()
+        let suffix = String(UUID().uuidString.prefix(6))
+        let peerName = "Direct " + suffix
+        app.open(try InvitationURLFixture.make(inviter: "ui-direct-" + suffix, sharedName: peerName, contact: true))
+        let accept = app.buttons["acceptContactInvitationButton"].firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 5))
+        accept.tap()
+        XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        let row = inviterRows(peerName).firstMatch
+        XCTAssertTrue(row.exists)
+        row.tap()
+        assertDirectCallHasNoMembers(peerName)
+        app.closeCallIfOpen()
+        app.openCurrentCall()
+        assertDirectCallHasNoMembers(peerName)
+        tab("Settings", id: "settingsTab")
+        selectLayout("Advanced")
+        app.openCurrentCall()
+        XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["directCallHelpLabel"].exists)
+        screenshot("Advanced retains direct call details")
+        tab("Settings", id: "settingsTab")
+        selectLayout("Standard")
+        app.openCurrentCall()
+        assertDirectCallHasNoMembers(peerName)
+        app.buttons["standardEndCallButton"].firstMatch.tap()
+        app.buttons["standardConfirmEndCallButton"].firstMatch.tap()
+
+        // Two people in an ordinary group still get the members section.
+        tab("Groups", id: "groupsTab")
+        app.buttons["standardCreateGroupButton"].firstMatch.tap()
+        let selection = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "selectUser-", peerName)).firstMatch
+        XCTAssertTrue(selection.waitForExistence(timeout: 3))
+        selection.tap()
+        app.buttons["saveUserSelectionButton"].firstMatch.tap()
+        let finish = app.buttons["finishAddingUsersButton"].firstMatch
+        XCTAssertTrue(finish.waitForExistence(timeout: 5))
+        finish.tap()
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        let heading = app.staticTexts["standardCallParticipantsHeading"].firstMatch
+        for _ in 0..<3 where !heading.exists { app.swipeUp() }
+        XCTAssertTrue(heading.exists, "An ordinary two-person group keeps its members")
+        screenshot("Two-person ordinary group retains members")
+    }
+
+    @MainActor private func assertDirectCallHasNoMembers(_ name: String) {
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        let hero = app.descendants(matching: .any)["standardCallHero"].firstMatch
+        XCTAssertTrue(hero.label.contains(name), hero.label)
+        for _ in 0..<2 { app.swipeUp() }
+        XCTAssertFalse(app.staticTexts["standardCallParticipantsHeading"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["standardVoiceIndicatorSelf"].exists)
+        XCTAssertFalse(app.buttons["addSavedUsersButton"].exists)
+        screenshot("Standard direct call without members")
+    }
+
+    @MainActor
     func testStandardContactShareCancelAndCopyDoNotRegisterUsers() throws {
         launch()
         tab("Groups", id: "groupsTab")

@@ -174,6 +174,12 @@ struct StandardCallView: View {
             if let notice = viewModel.connectivityNotice { noticeSection(notice) }
             if let error = viewModel.audioErrorMessage { noticeSection(error) }
         }
+        if group.kind == .group {
+            membersSection(group)
+        }
+    }
+
+    private func membersSection(_ group: IntercomGroup) -> some View {
         Section {
             // You come first: whether your microphone picks up your voice.
             if group.id == viewModel.activeGroupID {
