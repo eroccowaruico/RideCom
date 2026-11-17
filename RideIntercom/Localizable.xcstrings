@@ -2528,6 +2528,16 @@
         }
       }
     },
+    "Group %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループ %@"
+          }
+        }
+      }
+    },
     "Group · %lld people" : {
       "localizations" : {
         "en" : {

@@ -58,16 +58,25 @@ struct SavedUsersView: View {
 struct MemberSelection {
     let viewModel: IntercomViewModel
     let groupID: UUID?
+    let suggestedName: String?
     var selected: Set<UUID> = []
     var typedName = ""
 
-    var users: [SavedUser] { viewModel.availableUsers(for: groupID) }
-
-    /// "Haruka, Kenta and Yu" from the people chosen so far, in the list's order.
-    var suggestedName: String? {
-        let names = users.filter { selected.contains($0.id) }.map(\.resolvedDisplayName)
-        return names.isEmpty ? nil : names.formatted(.list(type: .and))
+    init(viewModel: IntercomViewModel, groupID: UUID?) {
+        self.viewModel = viewModel
+        self.groupID = groupID
+        guard groupID == nil else { suggestedName = nil; return }
+        // One editable name per creation sheet. Picking people never replaces it.
+        var name: String
+        repeat {
+            let code = String(UUID().uuidString.prefix(6))
+            name = String(localized: "Group \(code)")
+        } while viewModel.groups.contains(where: { $0.name == name })
+        suggestedName = name
+        typedName = name
     }
+
+    var users: [SavedUser] { viewModel.availableUsers(for: groupID) }
 
     var groupName: String {
         let typed = typedName.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -38,10 +38,25 @@ extension XCUIApplication {
         confirm.tap()
     }
 
-    /// Deletes a group row. Advanced swipes to Delete; Standard's swipe offers Group Settings only,
-    /// so deleting happens at the end of Group Settings. Both ask first.
-    func deleteGroupRow(_ row: XCUIElement) {
-        row.swipeLeft()
+    /// An owner deletes from the shared swipe; a joined member leaves through settings.
+    /// Both operations ask first and remove the group from this device.
+    func removeGroupRow(_ row: XCUIElement) {
+        let target = buttons[row.identifier].firstMatch
+        let list = descendants(matching: .any)["standardGroupsList"].firstMatch
+        let window = windows.firstMatch.frame
+        // Rows beneath the call accessory/tab bar can still report isHittable. Bring the
+        // whole row into the list's clear area so a swipe cannot switch the tab instead.
+        let top = window.minY + 120
+        let bottom = window.maxY - 170
+        for _ in 0..<20 {
+            if target.exists, target.isHittable, target.frame.minY >= top, target.frame.maxY <= bottom { break }
+            if target.exists, target.frame.minY < top { list.swipeDown() }
+            else { list.swipeUp() }
+        }
+        XCTAssertTrue(target.exists && target.isHittable)
+        XCTAssertGreaterThanOrEqual(target.frame.minY, top)
+        XCTAssertLessThanOrEqual(target.frame.maxY, bottom)
+        target.swipeLeft()
         let delete = buttons["Delete"].firstMatch
         let settings = buttons["Group Settings"].firstMatch
         XCTAssertTrue(delete.waitForExistence(timeout: 3) || settings.exists, "The swipe shows an action")
@@ -51,11 +66,11 @@ extension XCUIApplication {
             return
         }
         settings.tap()
-        let deleteGroup = buttons["deleteGroupButton"].firstMatch
-        XCTAssertTrue(deleteGroup.waitForExistence(timeout: 3))
-        deleteGroup.tap()
-        let confirm = alerts.firstMatch.buttons["confirmDeleteGroupButton"].firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "Deleting a group asks first")
+        let leaveGroup = buttons["leaveGroupButton"].firstMatch
+        XCTAssertTrue(leaveGroup.waitForExistence(timeout: 3))
+        leaveGroup.tap()
+        let confirm = alerts.firstMatch.buttons["confirmLeaveGroupButton"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "Leaving a group asks first")
         confirm.tap()
     }
 }

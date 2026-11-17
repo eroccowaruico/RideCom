@@ -413,10 +413,12 @@ final class RideIntercomUITests: XCTestCase {
         toggle.tap()
         XCTAssertTrue(toggle.isSelected)
         XCTAssertTrue(app.navigationBars["New Group"].exists, "The sheet is titled New Group")
-        // The name starts empty and suggests the chosen people.
+        // The editable generated name stays when people are selected.
         let groupName = app.textFields["savedUsersGroupNameField"]
-        XCTAssertEqual(groupName.placeholderValue, "Alex")
-        groupName.tap(); groupName.typeText("Talk Group")
+        let generated = groupName.value as? String ?? ""
+        XCTAssertNotNil(generated.range(of: "^Group [A-F0-9]{6}$", options: .regularExpression))
+        groupName.tap()
+        groupName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + "Talk Group")
         attachScreen("Saved Users Selection")
         app.buttons["saveUserSelectionButton"].tap()
         finishSendingGroupInvitation("New Group with Saved User invitation step")
@@ -1074,7 +1076,7 @@ final class RideIntercomUITests: XCTestCase {
         let initialCount = groupRows.count
         let groupRow = groupRows.firstMatch
         XCTAssertTrue(groupRow.waitForExistence(timeout: 3))
-        app.deleteGroupRow(groupRow)
+        app.removeGroupRow(groupRow)
         XCTAssertLessThan(talkGroupRows.count, initialCount)
     }
 
@@ -1407,7 +1409,7 @@ final class RideIntercomUITests: XCTestCase {
             // Rows are lazy: deleting one can load another, so check that this row went away.
             let deleted = groupRow.identifier
 
-            app.deleteGroupRow(groupRow)
+            app.removeGroupRow(groupRow)
 
             XCTAssertTrue(app.buttons[deleted].waitForNonExistence(timeout: 3))
         }

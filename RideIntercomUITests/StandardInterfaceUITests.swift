@@ -41,6 +41,78 @@ final class StandardInterfaceUITests: XCTestCase {
 
     #if os(iOS)
     @MainActor
+    func testGeneratedGroupNamesCreateRenameAndPersistInBothLayouts() throws {
+        for mode in ["standard", "advanced"] {
+            app?.terminate()
+            launch(interface: mode)
+            tab("Groups", id: "groupsTab")
+            app.buttons["standardCreateGroupButton"].firstMatch.tap()
+            let name = app.textFields["savedUsersGroupNameField"].firstMatch
+            XCTAssertTrue(name.waitForExistence(timeout: 3))
+            let generated = try XCTUnwrap(name.value as? String)
+            XCTAssertNotNil(generated.range(of: "^Group [A-F0-9]{6}$", options: .regularExpression))
+            let save = app.buttons["saveUserSelectionButton"].firstMatch
+            XCTAssertTrue(save.isEnabled, "A new group needs no typed name or selected members")
+            screenshot("Generated group name in \(mode)")
+            save.tap()
+            let end = app.buttons[mode == "standard" ? "standardEndCallButton" : "disconnectButton"].firstMatch
+            XCTAssertTrue(end.waitForExistence(timeout: 5))
+            app.openCallMoreMenuItem("callGroupSettingsButton").tap()
+            let savedName = app.textFields["groupSettingsNameField"].firstMatch
+            XCTAssertTrue(savedName.waitForExistence(timeout: 3))
+            XCTAssertEqual(savedName.value as? String, generated)
+            let renamed = "Renamed " + UUID().uuidString.prefix(6)
+            savedName.tap()
+            savedName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + renamed)
+            app.buttons["saveGroupSettingsButton"].firstMatch.tap()
+            XCTAssertTrue(savedName.waitForNonExistence(timeout: 3))
+            end.tap()
+            if mode == "standard" { app.buttons["standardConfirmEndCallButton"].firstMatch.tap() }
+            tab("Groups", id: "groupsTab")
+            app.buttons["standardCreateGroupButton"].firstMatch.tap()
+            XCTAssertTrue(name.waitForExistence(timeout: 3))
+            let second = try XCTUnwrap(name.value as? String)
+            XCTAssertNotNil(second.range(of: "^Group [A-F0-9]{6}$", options: .regularExpression))
+            XCTAssertNotEqual(second, generated)
+            let manual = "Manual " + UUID().uuidString.prefix(6)
+            name.tap()
+            name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: second.count) + manual)
+            save.tap()
+            XCTAssertTrue(end.waitForExistence(timeout: 5))
+            end.tap()
+            if mode == "standard" { app.buttons["standardConfirmEndCallButton"].firstMatch.tap() }
+            app.terminate(); app.launch(); app.activate()
+            tab("Groups", id: "groupsTab")
+            for title in [renamed, manual] {
+                let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", title)).firstMatch
+                let list = app.descendants(matching: .any)["standardGroupsList"].firstMatch
+                for _ in 0..<15 where !row.exists { list.swipeUp() }
+                XCTAssertTrue(row.exists, "The saved name survives relaunch: \(title)")
+            }
+        }
+    }
+
+    @MainActor
+    func testJapaneseNewGroupStartsWithAnEditableGeneratedName() throws {
+        launch(japanese: true)
+        tab("グループ", id: "groupsTab")
+        app.buttons["standardCreateGroupButton"].firstMatch.tap()
+        let name = app.textFields["savedUsersGroupNameField"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        let generated = try XCTUnwrap(name.value as? String)
+        XCTAssertNotNil(generated.range(of: "^グループ [A-F0-9]{6}$", options: .regularExpression))
+        screenshot("Japanese generated group name")
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count))
+        XCTAssertEqual(name.placeholderValue, generated)
+        let save = app.buttons["saveUserSelectionButton"].firstMatch
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["standardCallHero"].firstMatch.label.contains(generated))
+    }
+
+    @MainActor
     func testJoinedGroupHasNoSwipeDeleteInEitherLayout() throws {
         launch()
         let groupName = "Joined " + UUID().uuidString.prefix(6)
@@ -95,7 +167,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 3))
         let groupName = "Owned " + UUID().uuidString.prefix(6)
         name.tap()
-        name.typeText(groupName)
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0) + groupName)
         app.buttons["saveUserSelectionButton"].firstMatch.tap()
         XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 5))
         tab("Groups", id: "groupsTab")
@@ -555,22 +627,35 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
         tab("Groups", id: "groupsTab")
         app.buttons["standardCreateGroupButton"].firstMatch.tap()
+        let groupName = app.textFields["savedUsersGroupNameField"].firstMatch
+        XCTAssertTrue(groupName.waitForExistence(timeout: 3))
+        let generated = try XCTUnwrap(groupName.value as? String)
+        XCTAssertNotNil(generated.range(of: "^Group [A-F0-9]{6}$", options: .regularExpression))
+        let chosenName = "Chosen " + suffix
+        groupName.tap()
+        groupName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + chosenName)
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "selectUser-", inviterName)).firstMatch
+        let form = app.collectionViews.firstMatch
+        XCTAssertTrue(app.staticTexts["Your Users"].exists)
+        for _ in 0..<15 where !row.exists || !row.isHittable { form.swipeUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "editUser-")).firstMatch.exists,
                        "Rows only select; renaming lives in the person's settings")
-        XCTAssertTrue(app.staticTexts["Your Users"].exists)
         let count = app.staticTexts["memberSelectionCount"].firstMatch
         XCTAssertEqual(count.label, "1/8 people including you")
         row.tap()
-        XCTAssertTrue(row.isSelected)
         XCTAssertEqual(count.label, "2/8 people including you")
+        // Updating the selection can scroll the focused name field back into view.
+        for _ in 0..<15 where !row.exists || !row.isHittable { form.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        XCTAssertTrue(row.isSelected)
         let action = app.buttons["saveUserSelectionButton"].firstMatch
         XCTAssertEqual(action.label, "Create and Connect")
         XCTAssertTrue(action.isHittable)
         // The primary action spans the sheet's width, not a capsule as wide as its words.
         XCTAssertGreaterThanOrEqual(action.frame.width, app.windows.firstMatch.frame.width - 2 * 16 - 1, "\(action.frame)")
-        XCTAssertEqual(app.textFields["savedUsersGroupNameField"].placeholderValue, inviterName)
+        for _ in 0..<15 where !groupName.exists { form.swipeDown() }
+        XCTAssertEqual(groupName.value as? String, chosenName, "Selecting a person keeps the edited group name")
         screenshot("Standard new group with a user picked")
         action.tap()
         // Until saved users get the group automatically, the added person still needs the invitation.
@@ -683,7 +768,7 @@ final class StandardInterfaceUITests: XCTestCase {
         let name = app.textFields["savedUsersGroupNameField"]
         XCTAssertTrue(name.waitForExistence(timeout: 3))
         name.tap()
-        name.typeText("Alone " + UUID().uuidString.prefix(6))
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0) + "Alone " + UUID().uuidString.prefix(6))
         app.buttons["saveUserSelectionButton"].tap()
         let presence = app.staticTexts["callPresenceLabel"].firstMatch
         XCTAssertTrue(presence.waitForExistence(timeout: 5))
@@ -745,7 +830,7 @@ final class StandardInterfaceUITests: XCTestCase {
         tab("Groups", id: "groupsTab")
         let created = app.buttons.containing(.staticText, identifier: groupName).firstMatch
         XCTAssertTrue(created.waitForExistence(timeout: 3))
-        app.deleteGroupRow(created)
+        app.removeGroupRow(created)
         XCTAssertTrue(created.waitForNonExistence(timeout: 3))
     }
 
@@ -789,7 +874,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["standardEndCallButton"].waitForNonExistence(timeout: 3))
         tab("Groups", id: "groupsTab")
         let row = app.buttons.containing(.staticText, identifier: destination).firstMatch
-        app.deleteGroupRow(row)
+        app.removeGroupRow(row)
         XCTAssertTrue(row.waitForNonExistence(timeout: 3))
         #endif
     }
