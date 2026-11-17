@@ -149,7 +149,7 @@ import Testing
 
     let routeKinds = Set(CallSessionFactory.makeRoutes(configuration).map(\.kind))
 
-    #if canImport(MultipeerConnectivity)
+    #if !os(watchOS)
     #expect(routeKinds == [.multipeer, .webRTC])
     #else
     #expect(routeKinds == [.webRTC])
@@ -509,7 +509,6 @@ private actor ReceivedPackets {
         try await Task.sleep(for: .milliseconds(20))
     }
     #expect(route.prepareCount == 2)
-    // Native Multipeer may need up to its invitation timeout (10 seconds).
     // An in-flight attempt must survive the previous two-second retry interval.
     try await Task.sleep(for: .milliseconds(2300))
     #expect(route.prepareCount == 2)
@@ -735,15 +734,15 @@ private func relayMessages(_ messages: [ApplicationDataMessage]) -> [Application
     relayBodies(messages).compactMap { if case .application(let message) = $0 { message } else { nil } }
 }
 
-#if canImport(MultipeerConnectivity)
-@Test @MainActor func localDiscoveryCanCancelAndRestartWithPendingRunLoopCallbacks() async {
-    let transport = MultipeerConnectionTransport(request: makeRequest(credential: nil))
+#if !os(watchOS)
+@Test func localDiscoveryCanCancelAndRestartWithPendingCallbacks() async {
+    let route = LocalCallRoute()
     for _ in 0..<12 {
-        transport.start()
+        await route.prepare(makeRequest(credential: .derived(groupID: "restart", secret: "fixture")))
+        await route.startConnection()
         await Task.yield()
-        transport.stop()
-        transport.stop()
-        try? await Task.sleep(for: .milliseconds(10))
+        await route.stopConnection()
+        await route.stopConnection()
     }
 }
 #endif

@@ -8,6 +8,9 @@ public struct PeerID: RawRepresentable, Hashable, Codable, Sendable, CustomStrin
         self.rawValue = rawValue
     }
 
+    var isValidRelayID: Bool { (1...Self.maximumRelayIDBytes).contains(rawValue.utf8.count) }
+    static let maximumRelayIDBytes = 80
+
     public var description: String { rawValue }
 }
 

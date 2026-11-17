@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 struct FilteredPacketAudioPacket: Equatable, Sendable {
@@ -139,76 +138,4 @@ struct PacketAudioReceiveBuffer: Sendable {
             return left.sequenceNumber < right.sequenceNumber
         }
     }
-}
-
-struct RouteHandshakeMessage: Codable, Equatable, Sendable {
-    var groupHash: String
-    var senderID: PeerID
-    var nonce: String
-    var mac: String
-
-    static func make(credential: RTCCredential, senderID: PeerID, nonce: String = UUID().uuidString) -> RouteHandshakeMessage {
-        RouteHandshakeMessage(
-            groupHash: credential.groupHash,
-            senderID: senderID,
-            nonce: nonce,
-            mac: mac(groupHash: credential.groupHash, senderID: senderID, nonce: nonce, secret: credential.sharedSecret)
-        )
-    }
-
-    func verify(credential: RTCCredential) -> Bool {
-        groupHash == credential.groupHash
-            && mac == Self.mac(groupHash: groupHash, senderID: senderID, nonce: nonce, secret: credential.sharedSecret)
-    }
-
-    private static func mac(groupHash: String, senderID: PeerID, nonce: String, secret: Data) -> String {
-        let key = SymmetricKey(data: secret)
-        let message = [groupHash, senderID.rawValue, nonce].joined(separator: "|")
-        return HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: key)
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
-}
-
-enum RouteControlPayload: Codable, Equatable, Sendable {
-    case handshake(RouteHandshakeMessage)
-}
-
-enum MultipeerWireMessage: Codable, Equatable, Sendable {
-    case control(RouteControlPayload)
-    case applicationData(ApplicationDataMessage)
-}
-
-enum TransportSendMode: Equatable, Sendable {
-    case reliable
-    case unreliable
-}
-
-struct TransportPayload: Equatable, Sendable {
-    var data: Data
-    var mode: TransportSendMode
-    var groupAudio: Data? = nil
-}
-
-enum MultipeerPayloadBuilder {
-    static func makeControlPayload(_ payload: RouteControlPayload) throws -> TransportPayload {
-        TransportPayload(data: try encode(.control(payload)), mode: .reliable)
-    }
-
-    static func makeApplicationDataPayload(_ message: ApplicationDataMessage) throws -> TransportPayload {
-        let mode: TransportSendMode = message.delivery == .reliable ? .reliable : .unreliable
-        return TransportPayload(data: try encode(.applicationData(message)), mode: mode,
-            groupAudio: message.namespace == GroupRelay.namespace && mode == .unreliable ? message.payload : nil)
-    }
-
-    static func decode(_ data: Data) throws -> MultipeerWireMessage {
-        try JSONDecoder().decode(MultipeerWireMessage.self, from: data)
-    }
-
-    private static func encode(_ message: MultipeerWireMessage) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(message)
-    }
-
 }

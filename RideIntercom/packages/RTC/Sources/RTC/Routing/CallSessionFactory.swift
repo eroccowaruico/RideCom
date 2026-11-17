@@ -45,7 +45,7 @@ public enum CallSessionFactory {
         configuration.routeConfiguration.enabledRoutes.compactMap { route in
             switch route {
             case .multipeer:
-                makeMultipeerRoute()
+                makeLocalRoute()
             case .webRTC:
                 WebRTCInternetRoute(
                     cloudflareConfigurationProvider: configuration.webRTC.cloudflareConfigurationProvider,
@@ -56,9 +56,9 @@ public enum CallSessionFactory {
         }
     }
 
-    private static func makeMultipeerRoute() -> RTCCallRoute? {
-        #if canImport(MultipeerConnectivity)
-        MultipeerLocalRoute()
+    private static func makeLocalRoute() -> RTCCallRoute? {
+        #if !os(watchOS)
+        LocalCallRoute()
         #else
         nil
         #endif

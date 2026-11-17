@@ -12,6 +12,7 @@ final class LocalControlLink: @unchecked Sendable {
         /// The peer proved the group key on this connection. `nonce` names its UDP audio listener.
         case authenticated(PeerID, nonce: String)
         case message(Data)
+        case handshakeRejected
         /// Sent once, whatever ended the link: the peer, the network, a refused handshake, `close()`.
         case closed
     }
@@ -86,7 +87,11 @@ final class LocalControlLink: @unchecked Sendable {
             if let data, !data.isEmpty {
                 guard let messages = try? self.framing.receive(data) else { self.finish(); return }
                 for message in messages {
-                    guard self.accept(message) else { self.finish(); return }
+                    guard self.accept(message) else {
+                        self.onEvent(.handshakeRejected)
+                        self.finish()
+                        return
+                    }
                 }
             }
             if isComplete || error != nil { self.finish(); return }

@@ -115,7 +115,7 @@ final class LocalDatagramTransport: @unchecked Sendable {
         }
     }
 
-    /// Multipeer owns discovery and authentication. Resolve only that known
+    /// QUIC control owns discovery and authentication. Resolve only that known
     /// peer's service; a second continuous P2P browser costs power and is redundant.
     func connect(to peer: PeerID, nonce: String) {
         guard peer != peerID else { return }
@@ -210,7 +210,7 @@ final class LocalDatagramTransport: @unchecked Sendable {
     /// Returns only peers accepted for immediate UDP sending. The caller may use
     /// another no-retry datagram route for others; never a reliable audio stream.
     func send(_ data: Data, to peers: [PeerID]) -> Set<PeerID> {
-        guard data.count <= 60_000, (1...63).contains(peerID.rawValue.utf8.count) else { return [] }
+        guard data.count <= 60_000, peerID.isValidRelayID else { return [] }
         let bytes = Data([UInt8(peerID.rawValue.utf8.count)]) + Data(peerID.rawValue.utf8) + data
         return synchronized {
             var sent: Set<PeerID> = []
@@ -256,7 +256,8 @@ final class LocalDatagramTransport: @unchecked Sendable {
         connection.receiveMessage { [weak self] data, _, _, error in
             guard let self, self.generation == token, self.incoming[id] != nil else { return }
             self.incoming[id]?.lastActivity = ProcessInfo.processInfo.systemUptime
-            if let data, data.count <= 60_064, let length = data.first, (1...63).contains(Int(length)),
+            if let data, let length = data.first, (1...PeerID.maximumRelayIDBytes).contains(Int(length)),
+               data.count <= 60_001 + Int(length),
                data.count > Int(length) + 1,
                let sender = String(data: data.dropFirst().prefix(Int(length)), encoding: .utf8) {
                 self.received += 1

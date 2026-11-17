@@ -91,7 +91,7 @@ struct GroupRelay: Sendable {
               envelope.origin.id != request.localPeer.id, envelope.path.first == envelope.origin.id,
               envelope.path.last == hop, (1...8).contains(envelope.path.count),
               Set(envelope.path).count == envelope.path.count, !envelope.path.contains(request.localPeer.id),
-              !envelope.origin.id.rawValue.isEmpty, envelope.origin.id.rawValue.utf8.count <= 80,
+              envelope.origin.id.isValidRelayID,
               envelope.origin.displayName.utf8.count <= 320 else { return nil }
         let id = envelope.origin.id
         let isPresence = envelope.body == .presence

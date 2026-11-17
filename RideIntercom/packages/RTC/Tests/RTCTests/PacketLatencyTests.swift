@@ -20,10 +20,9 @@ import Testing
 }
 
 @Test func localAudioNeverUsesReliableDeliveryOrRetransmission() throws {
-    let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([1, 2, 3]), delivery: .unreliable)
-    let payload = try MultipeerPayloadBuilder.makeApplicationDataPayload(message)
-    #expect(payload.mode == .unreliable)
-    #expect(try MultipeerPayloadBuilder.decode(payload.data) == .applicationData(message))
+    let packet = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, payload: Data([1, 2]))
+    #expect(RelayBody.audio(packet).delivery == .unreliable)
+    #expect(RelayBody.presence.delivery == .reliable)
 }
 
 @Test func eightIndependentOrderedStreamsHaveNoReceiveTimerDelay() {

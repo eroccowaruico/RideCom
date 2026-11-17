@@ -11,9 +11,10 @@ enum LocalControlEvent: Equatable, Sendable {
     case lost(PeerID)
     case message(Data, PeerID)
     case failed(String)
+    case handshakeRejected
 }
 
-/// Local control without MultipeerConnectivity: every member advertises one QUIC listener under a
+/// Local control: every member advertises one QUIC listener under a
 /// name made for this start, browses for the others, and holds one authenticated `LocalControlLink`
 /// to each member in reach. Members out of reach are served by relaying, not by this class.
 final class LocalControlTransport: @unchecked Sendable {
@@ -35,7 +36,7 @@ final class LocalControlTransport: @unchecked Sendable {
     private var identity: LocalControlIdentity?
     private var listener: NWListener?
     private var browser: NWBrowser?
-    private var groups: [NWConnectionGroup] = []
+    private var groups: [ObjectIdentifier: NWConnectionGroup] = [:]
     private var dialed: [String: LocalControlLink] = [:]
     private var visible: [String: NWEndpoint] = [:]
     private var pending: [ObjectIdentifier: LocalControlLink] = [:]
@@ -63,7 +64,15 @@ final class LocalControlTransport: @unchecked Sendable {
                 // A QUIC listener hands over the connection as a group; its streams arrive through the group.
                 listener.newConnectionGroupHandler = { [weak self] group in
                     guard let self, self.generation == token else { group.cancel(); return }
-                    self.groups.append(group)
+                    let id = ObjectIdentifier(group)
+                    self.groups[id] = group
+                    group.stateUpdateHandler = { [weak self] state in
+                        guard let self, self.generation == token else { return }
+                        switch state {
+                        case .cancelled, .failed: self.groups.removeValue(forKey: id)?.cancel()
+                        default: break
+                        }
+                    }
                     group.newConnectionHandler = { [weak self] stream in
                         guard let self, self.generation == token else { stream.cancel(); return }
                         self.adopt(stream, dialedName: nil, token: token)
@@ -111,7 +120,7 @@ final class LocalControlTransport: @unchecked Sendable {
         let links = Array(pending.values) + Array(members.values)
         pending.removeAll(); members.removeAll(); dialed.removeAll(); visible.removeAll()
         links.forEach { $0.close() }
-        groups.forEach { $0.cancel() }; groups.removeAll()
+        groups.values.forEach { $0.cancel() }; groups.removeAll()
         identity = nil
         if hadMembers { hadMembers = false; onEvent(.members([])); onEvent(.state(.disconnected)) }
     }
@@ -165,6 +174,8 @@ final class LocalControlTransport: @unchecked Sendable {
         case .message(let data):
             guard let peer = members.first(where: { $0.value === link })?.key else { return }
             onEvent(.message(data, peer))
+        case .handshakeRejected:
+            onEvent(.handshakeRejected)
         case .closed:
             pending[ObjectIdentifier(link)] = nil
             if let dialedName, dialed[dialedName] === link {

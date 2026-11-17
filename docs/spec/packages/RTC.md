@@ -28,7 +28,7 @@ flowchart LR
     Mix <--> Codec
     Codec <--> Session[CallSession / RouteManager]
     Session <--> Relay[GroupRelay: origin / epoch / sequence]
-    Relay <--> Local[音声: Network.framework UDP / 制御: MCSession]
+    Relay <--> Local[音声: Network.framework UDP / 制御: QUIC]
     Relay <--> Internet[WebRTC DataChannel: Cloudflare SFU]
 ```
 
@@ -64,8 +64,8 @@ flowchart LR
 
 | 境界 | 制約 |
 |---|---|
-| Local接続 | MCSession暗号化必須。同一groupHash discovery/contextとshared secretのhandshake。切断peerの登録解除、旧session通知拒否。handshakeの検証に失敗したpeerは認証せず、`connectionFailed`と区別した`CallSessionError.handshakeRejected(route)`を通知する。拒否理由・secret・peerの申告値は含めない |
-| peer識別 | MCPeerIDは`CallStartRequest.localPeer.id`。表示名の変更でInternet側と別人にならない |
+| Local接続 | BonjourのTXTで同じgroupHashを探索し、QUICのmutual TLSで制御路を開く。双方の証明書を束縛したgroup共有鍵のhandshakeに失敗した相手は認証せず、通信失敗の `connectionFailed` と区別して `CallSessionError.handshakeRejected(route)` を通知する。拒否理由・secret・peerの申告値は含めない |
+| peer識別 | handshakeの送信者は `CallStartRequest.localPeer.id`。広告名は通話世代ごとに生成する。表示名の変更でInternet側と別人にならない |
 | Internet接続 | Workerの端末資格・同一room購読認可。SFU App Secretはサーバーのみ |
 | 中継envelope | `rtc.group-relay.v2`。session、origin、epoch、sequence、path、body、Internet ready状態。招待由来のgroup keyでAES-GCM暗号化。Foundation binary PropertyListのCodingKeysを短縮し、packetごとのmetadata量を減らす。独自parserや信頼ありの辞書同期は導入しない。v1参加者との混在は不可 |
 | 信頼境界 | 接続元hopが認証済みpeerで、path末尾と一致すること。group credentialを持つ参加者間の信頼モデル。個人署名による悪意あるグループ参加者のなりすまし防止ではない |
@@ -130,28 +130,19 @@ DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなく配
 
 根拠: [W3C DataChannelInit](https://www.w3.org/TR/webrtc/#dom-rtcdatachannelinit)、[Cloudflare message delivery](https://developers.cloudflare.com/realtime/sfu/features/datachannels/#configure-message-delivery)。
 
-## Local探索のOS所有境界
+## 近距離の探索とQUIC制御
 
-| 操作 | 契約 |
-|---|---|
-| Multipeer peer / session / browser / advertiser生成・開始・停止・解放 | native資源をMainActorの所有者へまとめ、最終解放もisolated deinitで同じactorへ揃える。main上からの同期再入は直接実行してdeadlockを避ける |
-| 停止 | delegateを外して探索・sessionを停止。停止済み・別sessionの遅延callbackを拒否 |
-| 理由 | SimulatorのDisconnect UIでBonjour `_MonitorCancel` / `_netServiceMonitorCallBack` がEXC_BAD_ACCESSとなった。sessionも含むnative資源の寿命をcallback側run loopと揃える |
-
-## 近距離制御のQUIC移行の準備
-
-[近距離制御のMultipeerからの移行](../../backlog/未実装課題.md#近距離制御のmultipeerからの移行)の最初の部品である。経路にはまだ接続しておらず、現行の近距離制御はMultipeerのままである。watchOSでは使わない。
+iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUICの信頼できるstreamで認証・presence・操作を届ける。音声は別のUDP listenerへ送る。通話する両端末にこの方式の版が必要である。設定・診断に使う経路識別子は `RouteKind.multipeer`。watchOSの音声デバイス接続は別の経路を使う。
 
 | 部品 | 契約 |
 |---|---|
 | `SelfSignedCertificate` | P-256の鍵で署名した最小のX.509証明書（v3、common nameだけ、ECDSA with SHA-256、有効期間は作成の1時間前から2日後まで）を作る。外部の依存を使わない |
 | `LocalControlIdentity` | 鍵と証明書から`SecIdentity`を作る。Apple OSに鍵と証明書から直接identityを作る公開APIがないため、PKCS#12の入れ物（鍵はPBES2で暗号化、SHA-1のMAC）をメモリ上で組み立てて`SecPKCS12Import`で取り込む。Keychainへ書かず、後始末も要らない（macOSは`kSecImportToMemoryOnly`）。入れ物のパスワードは形式を満たすためだけの使い捨てで、何も保護しない。証明書のSHA-256を`fingerprint`として公開する |
 | `LocalControlTLS` | QUIC（ALPN `ride-control`、TLS 1.3）のparametersを作る。双方が自分のidentityを提示し（mutual TLS）、相手の証明書は内容を問わず受け入れる。相手が誰かは証明書では決めず、`LocalControlLink`のhandshakeで決める。peer-to-peer Wi-Fiを含め、セルラーは使わない |
-
 | `LocalControlFraming` | 信頼できるstream上のmessageの境界。4 byteのbig-endianの長さの後にmessageを置く。上限は現行のLocal制御と同じ64 KiBで、超える長さを告げた相手の続きは読まない |
 | `LocalControlHandshake` | 相手が誰かを決めるmessage。group共有鍵のHMAC-SHA256で、groupHash・送信者ID・nonce・送信側の証明書のfingerprint・受信側の証明書のfingerprintを、各項目に長さを付けて覆う。間に入って中継する者は自分の証明書を両側へ提示するしかなく、両側が見るfingerprintが食い違うので検証に失敗する。逆向きへの使い回しと、自分のmessageの送り返しも拒否する。nonceは現行と同じくUDP媒体のlistenerの世代を示す |
 | `LocalControlLink` | 相手1人との制御の接続1本（QUICのstream）。readyになったら、その接続でTLSが見た相手の証明書（接続のmetadataから読む）のfingerprintを束縛したhandshakeを送る。相手のhandshakeを同じ接続の証明書で検証できるまで、相手が送ったものを何も渡さない。検証に失敗した場合、10秒以内に認証できない場合、上限を超える長さ、通信の失敗、`close()`で閉じ、`closed`を1回だけ通知する。認証後のmessageは送った順に届く |
-| `LocalControlTransport` | 届く範囲の全員との制御の接続を持つ。開始のたびに新しいidentityとservice名（端末名・人の名前ではない乱数の識別子）を作り、QUICのlistenerをBonjour service `_ride-control._udp`として広告する。TXTの`g`に現行と同じgroupHashを載せる。同じgroupHashのserviceを探索し、service名の小さい側だけが接続を張る（双方が同時に張らないための規則。現行の招待の辞書順を引き継ぐ）。認証できた相手を`members`として通知し、相手のUDP媒体用のnonceを`authenticated`で渡す。同じ相手が新しい接続で戻ったら新しい接続に置き換える。相手は7人まで。張った接続が認証前に閉じた、または切れた場合は、広告が見えている間2秒後に張り直す。最後の相手を失うと`disconnected`を通知する。停止で、listener・探索・接続・identityをすべて破棄する。全処理を1本の直列queueで行い、MainActorを使わない |
+| `LocalControlTransport` | 届く範囲の全員との制御の接続を持つ。開始のたびに新しいidentityとservice名（端末名・人の名前ではない乱数の識別子）を作り、QUICのlistenerをBonjour service `_ride-control._udp`として広告する。TXTの`g`に現行と同じgroupHashを載せる。同じgroupHashのserviceを探索し、service名の小さい側だけが接続を張る（双方が同時に張らないための規則）。認証できた相手を`members`として通知し、相手のUDP媒体用のnonceを`authenticated`で渡す。同じ相手が新しい接続で戻ったら新しい接続に置き換える。相手は7人まで。張った接続が認証前に閉じた、または切れた場合は、広告が見えている間2秒後に張り直す。最後の相手を失うと`disconnected`を通知する。停止で、listener・探索・接続・identityをすべて破棄する。全処理を1本の直列queueで行い、MainActorを使わない |
 
 確かめたこと: 証明書をOSが解析でき、自分自身をanchorにした検証が有効期間内だけ成功する。identityの秘密鍵で署名した値を証明書の公開鍵で検証できる。同じ端末上で、2つのidentityによる実際のQUICの接続（macOSとiPhone Simulator）で、同じgroup鍵を持つ2者が互いを認証し、上限の大きさを含むmessageが双方向に順序どおり届き、片方が閉じると双方が1回ずつ`closed`になる。group鍵を持たない相手は、TLSが成立しても何も渡されずに閉じられる。実際のBonjourの探索を使い、同じプロセス内の3者が互いを見つけて認証し、messageが順序どおり届く。別のgroupの端末と、同じgroupHashを名乗るが鍵の違う端末は、認証されず何も受け取らない。離れた相手は失われ、開始し直すと再び見つかる（macOS）。この2つの試験を各200回繰り返して、失敗もプロセスの異常終了もなかった（同じ形の繰り返しで、Multipeerは約420回のうち3回異常終了した）。framingはstreamをどこで区切っても境界を保つ。handshakeは、中継者の証明書、別のgroup、別の鍵、項目の改変、項目の境界のずらしを拒否する。
 
@@ -167,7 +158,7 @@ DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなく配
 | bufferedBytes | native connectionが所有するDataChannelのbufferedAmount合計 | アプリの送信待ちbyte数。接続がない場合はnil |
 | packetLoss | DataChannel用の損失率はnil | RTPのpacketsLostをSCTP音声に流用しない。取得不能理由を明示し、0で正常表示しない |
 | peers | group envelopeを認証・重複検査した最後のpathと到着route、観測時刻 | 最後に届いた経路。全候補経路の探索結果ではない。8秒経過・hop消失・route消失・stopで表示対象から除く |
-| Multipeer | transportとrouteのmailbox破棄を通知 | UDP音声の送受信datagram数と送信処理中bytesを通知。ACKのないUDPからRTTやネットワーク損失を捏造しない |
+| Local | transportとrouteのmailbox破棄を通知 | UDP音声の送受信datagram数と送信処理中bytesを通知。ACKのないUDPからRTTやネットワーク損失を捏造しない |
 
 経路の新実装が統計backendを持たない場合も、共通診断APIから明示的な取得不能を返す。新たなplugin層は追加せず既存route / native engine境界を使う。packet形式・音声送信方式は変更しない。
 
@@ -191,7 +182,7 @@ DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなく配
 | CallSession / RouteManager | 共通の音声開始・停止・ミュート・暗号化中継・受信待ちを所有 |
 | SFU signaling | 完全なSDP offer / answerとmembership snapshotを使用。trickle候補の個別配送や空のsendAnswer APIは持たない |
 | NativeWebRTCEngine.prepareTransport | 接続試行の診断を初期化。マイク・スピーカーを取得しない |
-| Local wire | handshake・presence・操作はMCSessionのreliable。GroupRelay音声は認証済み暗号化envelopeをNetwork.framework UDPへ直接渡す。UDPが未準備なら破棄し、MCSessionやTCPへfallbackしない |
+| Local wire | handshake・presence・操作はQUICのreliable stream。GroupRelay音声は認証済み暗号化envelopeをNetwork.framework UDPへ直接渡す。UDPが未準備なら破棄し、制御streamへfallbackしない |
 
 旧per-route音声API・暗号化・二重受信待ちは削除した。招待URLと現行group-relay wireは変更しない。旧per-route音声wireとの互換は提供せず、参加端末は同じ版を使用する。
 
@@ -205,17 +196,17 @@ DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなく配
 
 通話全体の状態（`CallConnectionState`）は、相手がいれば`connected`／`mediaReady`、全有効routeが手動復帰待ちなら`failed`とする。どのrouteもつながっていず、再試行を待つrouteがあり、かつ初回の試行中（`connecting`で再試行の予約がない）のrouteが1つもないときだけ`reconnecting`にする。それ以外は`connecting`。1人で待つ間にLocalが探索を続けていれば、Internetの接続失敗と再試行があっても`connecting`のままにする（相手を待つ正常な状態を、接続を失った状態として出さない）。
 
-Local識別子は[MCPeerIDの制約](https://developer.apple.com/documentation/multipeerconnectivity/mcpeerid/init(displayname:))に従いUTF-8で1–63 byteを生成前に検証する。Local受信は64 KiB以下、WebSocket signaling messageも64 KiB以下。Local送信失敗はイベントで通知し、生ID・payload・OS error全文を直接ログへ出さない。nativeのmediaReady判定はchannel IDだけでなく現行channelオブジェクトの同一性を確認する。
+近距離経路では、制御の認証とUDP音声に共通のpeer ID（UTF-8で1〜80 byte）を使う。Local制御の受信は64 KiB以下、WebSocket signaling messageも64 KiB以下。Local送信失敗はイベントで通知し、生ID・payload・OS error全文を直接ログへ出さない。nativeのmediaReady判定はchannel IDだけでなく現行channelオブジェクトの同一性を確認する。
 
 ## 近距離接続試行の競合回避
 
 | 場面 | 動作 |
 |---|---|
-| 両端が同時にadvertise / browse | peer IDの辞書順で小さい側だけが招待を送る。同時招待によるsession競合を防ぐ |
-| 失敗後の再試行開始 | 次の試行が成功または失敗を通知するまで同じretry timerで再prepareしない。招待timeoutより短い周期で接続途中のsessionを壊さない |
+| 両端が同時にadvertise / browse | 広告したservice名の辞書順で小さい側だけがQUIC接続を開始する |
+| 失敗後の再試行開始 | 次の試行が成功または失敗を通知するまで同じretry timerで再prepareしない。接続試行中に新しい試行を重ねない |
 | 再試行の失敗通知 | 既存backoffで次の試行を予約する。接続成功時はretry状態を破棄する |
 
-招待側の決定とretry中のsession維持を単体テストで確認し、実際の両端接続・音声は独立したAudio E2E targetで検証する。
+接続開始側の決定とretry中のsession維持を単体テストで確認し、実際の両端接続・音声は独立したAudio E2E targetで検証する。
 
 ## SFU購読更新の一時切断
 
@@ -242,21 +233,19 @@ GroupRelayの認証・replay protection用sequenceと音声専用sequenceを分�
 
 ### Local datagramの所有と再接続
 
-初回制御接続でCFNetworkのresource-loader threadを同期生成すると、Multipeer内部のUI run loopが低QoS threadの完了を待つことがある。接続開始前に、端末内のsocket pairによるCFStreamの初期化を一度だけutility queueで行い、呼出側は非同期に待つ。外部通信・周期処理・常駐socketは追加しない。初期化中にstop/prepareされた旧世代は接続を開始しない。これはnative制御stream固有の起動処理であり、共通音声経路には入れない。
+QUICのhandshakeで認証したpeerのIDと媒体用nonceから`_ride-audio._udp` Bonjour service名を求め、Network.frameworkで個別に解決してUDP listenerへ送る。nonceはlistener世代ごとに更新し、再起動したpeerの古いportがBonjour cacheに残っても新世代の名前を直接解決する。同じ制御session内の重複handshakeは再解決を起動しない。再接続後の認証成功は古い失敗backoffを解除して再解決し、通常の音声packetでは解除しない。UDP側の全件browserは持たず、未認証peerへの接続を作らない。8名の媒体枠から離脱peerを置換する際は、そのpeerのendpoint・送信flow・再試行状態も解放する。音声にはGroupRelayの暗号化・認証・epoch・重複排除を引き続き適用する。UDPの先頭にある直近hop識別子だけでは認証しない。
 
-MCSessionは探索・認証・制御を所有する。認証messageのsender IDとMCSessionの直接peer IDが一致することを検証し、そのpeerのIDと署名済みnonceから`_ride-audio._udp` Bonjour service名を求め、Network.frameworkで個別に解決してUDP listenerへ送る。nonceはlistener世代ごとに更新し、再起動したpeerの古いportがBonjour cacheに残っても新世代の名前を直接解決する。同じ制御session内の重複handshakeは再解決を起動しない。再接続後の認証成功は古い失敗backoffを解除して再解決し、通常の音声packetでは解除しない。UDP側の全件browserは持たず、未認証peerへの接続を作らない。8名の媒体枠から離脱peerを置換する際は、そのpeerのendpoint・送信flow・再試行状態も解放する。音声にはGroupRelayの暗号化・認証・epoch・重複排除を引き続き適用する。UDPの先頭にある直近hop識別子だけでは認証しない。
-
-待受・service解決・送信は共通のUDP parametersを使い、`includePeerToPeer = true`、セルラー禁止、特定interfaceへの固定なしとする。Bonjourのservice endpointもinterfaceを固定せず解決する。アクセスポイント・InternetがなくてもApple peer-to-peer Wi-Fiを使用できる。これはMCSessionの音声配送ではなく、同じ端末間近距離無線上の別UDP媒体である。Wi-Fi機能OFF時のBluetooth単独音声は提供しない。現在のMultipeerもBluetooth単独のデータ通信には対応しない（[Apple DTS](https://developer.apple.com/forums/thread/749346)）。Bluetoothによる探索補助をBluetooth媒体への自動移行と解釈しない。peer-to-peer資源には電力負荷があるため、通話停止時に全資源を解放し、通話中の全件探索は途中参加を受け付けるMultipeerに一本化する。
+UDPの待受・service解決・送信は共通のparametersを使い、`includePeerToPeer = true`、セルラー禁止、特定interfaceへの固定なしとする。アクセスポイント・Internetがない場所ではApple peer-to-peer Wi-Fiを使う。Wi-Fi機能をOFFにしたBluetooth単独の音声通話には対応しない。通話中は途中参加を受け付けるため制御serviceだけを全件探索し、通話停止時に探索・接続を解放する。
 
 `RTCCallRoute.sendApplicationData`は即時配送を受け付けた直接peerの集合を返す。Localの音声では認証済みかつUDP ready・送信中bytes上限内のpeerだけを返す。受領ACKではなく、無線上の到着・遅延・損失の保証でもない。個別受付先を取得できないSFUと制御送信は空集合を返す。RouteManagerがこの共通契約でLocal優先を決め、Appへnative transport判定を持ち出さない。
 
-UDP送受信はBonjourと制御を所有するMainActorを経由しない。認証済み媒体peerのsnapshotだけを短いlockで取得し、送信はdatagram queue、受信は有界event sourceへ直接渡す。停止時は媒体許可を先に取り消す。native Bonjour資源の作成・変更・最終解放はMainActorで行う。
+UDP送受信はQUIC制御のqueueを経由しない。音声は認証済みの媒体peerだけに許可し、停止で媒体許可を取り消す。
 
 送信endpointが準備できないときはその音声を保持しない。送信処理中のbytesには上限を設け、接続失敗後に古いpacketを再送しない。受信flowは16個までとし、UDPに切断handshakeがないことを考慮して最も古いflowを解放する。endpoint変更・stopで所有資源を閉じ、前世代のcallbackを拒否する。
 
 UDPは確立済みflowの無線経路を自動移行しないため、`betterPathUpdateHandler`で同じBonjour serviceへの置換flowを作る。旧flowが利用可能なら新flowがreadyになるまで使い、新flowの準備完了後に旧flowを閉じる。`viabilityUpdateHandler`で到達不能になったflowは即時送信可能集合から外し、代替を解決する。置換flowはpeerごとに1本まで。前世代・旧flowの遅延callbackで新flowを取り消さない。接続・送信失敗時は共通の`ConnectionRetry`へpolicy（初期2秒・上限30秒）と単調時計を渡してbackoffを計算し、後続の新しい送信または認証・経路変更イベントで再試行する。周期pollingや捨てた音声の再送は行わない。RouteManagerも同じ間隔計算を使うが、routeの開始とtimeoutはroute側が所有する。接続試行中はdeadlineを無限大にして再起動の連打を防ぎ、成功で履歴を消す。HTTPの資格取得・signalingのrequest再試行はサーバー応答に依存する別契約として維持する。
 
-制御接続の切断時にはMCSession上の認証を取り消して再handshakeを要求するが、同じ通話で認証済みのUDP媒体資格は保持する。期限切れ・離脱済み話者の音声はGroupRelayで拒否し、音声が途絶えた資格を音声packetだけで復活させない。通話stop時に両方を破棄する。
+制御接続の切断時にはQUIC接続の認証を取り消して再handshakeを要求するが、同じ通話で認証済みのUDP媒体資格は保持する。期限切れ・離脱済み話者の音声はGroupRelayで拒否し、音声が途絶えた資格を音声packetだけで復活させない。通話stop時に両方を破棄する。
 
 圏外での成立条件とMultipeerの信頼なし配送を調べた根拠は[近距離オフライン通信の検証](../../validation/history/近距離オフライン通信.md)を参照する。
 
@@ -281,4 +270,4 @@ UDPは確立済みflowの無線経路を自動移行しないため、`betterPat
 | 経路切替 | 有限回・期限付きのhello／ackによりflowを確立し、未認証候補は既存flowを追放しない。接続試行は5秒、helloは最大10回／0.4秒間隔、native障害後の再dialは最大5回とする。送話gateが閉じていてもhandshakeと受話は可能。nativeの置換・有限inFlightにより、同一sessionの通常path更新では鍵・sequenceを維持する。制御経路の再bootstrapへ依存せず、捨てた音声は再送しない。切替前pathからの未受信packetすべてを識別拒否する保証は設けない |
 | 停止と所有 | stopは暗号状態を先に破棄してnative資源を閉じ、古いcallbackを拒否する。同instanceの再startはエラー。終話・account／音声機器切替では新しいsession／鍵を作る。配送queue上からのsend・stopはreentrantに実行し、同queueへの同期待ちを重ねない |
 
-RTC targetのwatchOS deployment targetも27.0。Multipeer専用のCFNetwork初期化は同frameworkを持つOSに限定する。これはWatchでgroup通話やWebRTC binaryを利用する宣言ではない。Watchの低層通信と音声sessionの実機条件は[未確認事項](../../validation/未確認事項.md)に従い、SDK compileや端末内UDP試験を実Watchの無線・背景成立と扱わない。
+RTC targetのwatchOS deployment targetも27.0。近距離グループ通話のQUIC制御はiOS・iPadOS・macOSで使う。これはWatchでgroup通話やWebRTC binaryを利用する宣言ではない。Watchの低層通信と音声sessionの実機条件は[未確認事項](../../validation/未確認事項.md)に従い、SDK compileや端末内UDP試験を実Watchの無線・背景成立と扱わない。

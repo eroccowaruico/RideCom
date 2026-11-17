@@ -4,8 +4,8 @@ import Synchronization
 import Testing
 @testable import RTC
 
-/// Real QUIC on this machine: the experiments that decide whether local control can leave
-/// MultipeerConnectivity. Nothing here is simulated except the distance between the two ends.
+/// Real QUIC on this machine.
+/// The OS exchanges genuine certificates and authenticates the QUIC stream.
 struct LocalControlTLSTests {
     /// A listening end and a dialing end, each with its own throwaway identity and event log.
     private final class Pair: Sendable {
@@ -109,7 +109,8 @@ struct LocalControlTLSTests {
         let pair = try await Pair(listenerCredential: credential, dialerCredential: stranger)
         defer { pair.stop() }
         await pair.wait { pair.events("listener").last == .closed && pair.events("dialer").last == .closed }
-        #expect(pair.events("listener") == [.closed], "TLS succeeded, the handshake did not")
-        #expect(pair.events("dialer") == [.closed])
+        let events = pair.events("listener") + pair.events("dialer")
+        #expect(events.contains(.handshakeRejected), "TLS succeeded, the handshake did not")
+        #expect(events.allSatisfy { $0 == .closed || $0 == .handshakeRejected })
     }
 }

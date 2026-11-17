@@ -27,7 +27,7 @@ struct LocalControlHandshake: Codable, Equatable, Sendable {
     ///   - senderFingerprint: the certificate the peer presented on this connection.
     ///   - receiverFingerprint: the certificate this end presents.
     func verify(credential: RTCCredential, localID: PeerID, senderFingerprint: Data, receiverFingerprint: Data) -> Bool {
-        guard groupHash == credential.groupHash, senderID != localID, !nonce.isEmpty,
+        guard groupHash == credential.groupHash, senderID.isValidRelayID, senderID != localID, !nonce.isEmpty,
               let claimed = Data(hexadecimal: mac) else { return false }
         let expected = Self.code(groupHash: groupHash, senderID: senderID, nonce: nonce,
                                  senderFingerprint: senderFingerprint, receiverFingerprint: receiverFingerprint, secret: credential.sharedSecret)
@@ -55,7 +55,7 @@ struct LocalControlHandshake: Codable, Equatable, Sendable {
 
 private extension Data {
     init?(hexadecimal text: String) {
-        guard text.utf8.count == 64 else { return nil }
+        guard text.utf8.count == 64, text.allSatisfy({ $0.isASCII && $0.isHexDigit }) else { return nil }
         var bytes: [UInt8] = []
         var index = text.startIndex
         while index < text.endIndex {

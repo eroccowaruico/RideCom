@@ -60,6 +60,7 @@ struct LocalControlProtocolTests {
         for change: (inout LocalControlHandshake) -> Void in [
             { $0.senderID = .init(rawValue: "c") }, { $0.nonce = "other" }, { $0.nonce = "" },
             { $0.mac = String(repeating: "0", count: 64) }, { $0.mac = "" }, { $0.mac += "00" },
+            { $0.mac = String(repeating: "é", count: 32) },
         ] {
             var altered = valid; change(&altered)
             #expect(!altered.verify(credential: credential, localID: local, senderFingerprint: a, receiverFingerprint: b))

@@ -4,6 +4,67 @@ import Testing
 
 extension RealtimeTransportTests {
 @Suite struct GroupContinuityTests {
+    @Test(.timeLimit(.minutes(1)))
+    func fourRidersRelayAlongALineAndRejoinAfterTheMiddleRiderReturns() async throws {
+        let ids = ["a", "b", "c", "d"].map { PeerID(rawValue: $0) }
+        let network = VirtualNetwork(internetAvailable: false, localLine: ids)
+        let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer)
+        let credential = RTCCredential.derived(groupID: "line", secret: "fixture")
+        let managers = ids.map { id in
+            RouteManager(routes: [VirtualRoute(peer: id, kind: .multipeer, network: network)],
+                configuration: configuration, runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
+        }
+        let records = ids.map { _ in CallRecorder() }
+        let listeners = managers.indices.map { i in
+            let events = managers[i].events
+            return Task { for await event in events { await records[i].record(event) } }
+        }
+        defer { listeners.forEach { $0.cancel() } }
+        for i in ids.indices {
+            await managers[i].prepare(.init(sessionID: "line", localPeer: .init(id: ids[i], displayName: ids[i].rawValue),
+                credential: credential, configuration: configuration))
+            await managers[i].startConnection()
+            await managers[i].startMedia()
+        }
+        func send(_ i: Int, _ marker: UInt8) async {
+            await managers[i].sendAudioPacket(.init(sequenceNumber: UInt64(marker), codec: .pcm16,
+                payload: Data(repeating: marker, count: 960)))
+        }
+        func assertAllDirections(_ offset: Int) async throws {
+            for record in records { try await eventually { await record.memberCount == 3 } }
+            for i in ids.indices { await send(i, UInt8(offset + i)) }
+            for i in ids.indices {
+                for j in ids.indices where j != i {
+                    try await eventually {
+                        await records[j].audio.filter { $0.peerID == ids[i] && $0.packet.payload.first == UInt8(offset + i) }.count == 1
+                    }
+                }
+            }
+        }
+
+        try await assertAllDirections(0)
+        #expect(await managers[3].networkDiagnostics().peers.contains { $0.peerID == ids[0] && $0.path == ids })
+        await network.fail(ids[1], kind: .multipeer)
+        #expect(await network.reachablePeers(ids[0], kind: .multipeer).isEmpty)
+        await send(0, 21)
+        await send(2, 22)
+        try await eventually { await records[3].audio.contains { $0.packet.payload.first == 22 } }
+        await network.restore(ids[1], kind: .multipeer)
+        try await eventually("The middle rider retries the Local route", timeout: .seconds(15)) {
+            await network.isJoined(ids[1], kind: .multipeer)
+        }
+        try await assertAllDirections(30)
+        for i in ids.indices {
+            let markers = await records[i].audio.compactMap { $0.packet.payload.first }
+            #expect(!markers.contains(21))
+            for j in ids.indices where j != i {
+                #expect(markers.filter { $0 == UInt8(j) }.count == 1)
+                #expect(markers.filter { $0 == UInt8(30 + j) }.count == 1)
+            }
+            await managers[i].stopConnection()
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func eightLocalPeersTalkWhileInternetIsUnavailable() async throws {
         let network = VirtualNetwork(internetAvailable: false)
         var managers: [RouteManager] = [], records: [CallRecorder] = [], tasks: [Task<Void, Never>] = []
@@ -190,7 +251,11 @@ private actor VirtualNetwork {
     private var unavailable: [RouteKind: Set<PeerID>] = [:]
     private var attempts: [RouteKind: [PeerID: Int]] = [:]
     private var localNetworks: [PeerID: String] = [:]
-    init(internetAvailable: Bool = true) { self.internetAvailable = internetAvailable }
+    private let localLine: [PeerID]
+    init(internetAvailable: Bool = true, localLine: [PeerID] = []) {
+        self.internetAvailable = internetAvailable
+        self.localLine = localLine
+    }
     func join(_ peer: PeerID, kind: RouteKind, source: EventSource<RouteEvent>) {
         attempts[kind, default: [:]][peer, default: 0] += 1
         if (kind == .webRTC && !internetAvailable) || unavailable[kind, default: []].contains(peer) {
@@ -214,7 +279,11 @@ private actor VirtualNetwork {
     func reachablePeers(_ peer: PeerID, kind: RouteKind) -> Set<PeerID> {
         guard routes[kind]?[peer] != nil else { return [] }
         return Set(routes[kind, default: [:]].keys.filter { other in
-            other != peer && (kind != .multipeer || localNetworks[other, default: "nearby"] == localNetworks[peer, default: "nearby"])
+            if kind == .multipeer, !localLine.isEmpty {
+                guard let i = localLine.firstIndex(of: peer), let j = localLine.firstIndex(of: other) else { return false }
+                return abs(i - j) == 1
+            }
+            return other != peer && (kind != .multipeer || localNetworks[other, default: "nearby"] == localNetworks[peer, default: "nearby"])
         })
     }
     func send(_ peer: PeerID, kind: RouteKind, message: ApplicationDataMessage) {

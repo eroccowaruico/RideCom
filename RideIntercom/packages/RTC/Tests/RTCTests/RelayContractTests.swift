@@ -86,19 +86,14 @@ import Testing
 
 
 extension RelayContractTests {
-    @Test func localWirePreservesDeliveryAndHandshakeReliability() throws {
-        let handshake = RouteHandshakeMessage.make(credential: credential, senderID: .init(rawValue: "a"))
-        let control = try MultipeerPayloadBuilder.makeControlPayload(.handshake(handshake))
-        #expect(control.mode == .reliable)
-        #expect(try MultipeerPayloadBuilder.decode(control.data) == .control(.handshake(handshake)))
+    @Test func localControlWirePreservesNamespaceDeliveryAndPayload() throws {
         for delivery in [ApplicationDataDelivery.reliable, .unreliable] {
-            let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([1, 2]), delivery: delivery)
-            let payload = try MultipeerPayloadBuilder.makeApplicationDataPayload(message)
-            #expect(payload.mode == (delivery == .reliable ? .reliable : .unreliable))
-            #expect(try MultipeerPayloadBuilder.decode(payload.data) == .applicationData(message))
-            let generic = ApplicationDataMessage(namespace: "application", payload: Data([1, 2]), delivery: delivery)
-            #expect(try MultipeerPayloadBuilder.makeApplicationDataPayload(generic).mode
-                == (delivery == .reliable ? .reliable : .unreliable))
+            let message = ApplicationDataMessage(namespace: "control", payload: Data([1, 2]), delivery: delivery)
+            let data = try JSONEncoder().encode(message)
+            let frame = try LocalControlFraming.frame(data)
+            var decoder = LocalControlFraming()
+            let decoded = try #require(try decoder.receive(frame).first)
+            #expect(try JSONDecoder().decode(ApplicationDataMessage.self, from: decoded) == message)
         }
     }
 
