@@ -116,9 +116,13 @@ enum AppTestSupport {
         timeout: Duration = .seconds(1),
         _ condition: @escaping @MainActor () -> Bool
     ) async {
-        let start = ContinuousClock.now
-        while !condition(), start.duration(to: .now) < timeout {
-            try? await Task.sleep(for: .milliseconds(10))
+        // Counted in turns, not on the clock: every test shares the main thread, and time another test
+        // spent holding it is not time the awaited work had. Each turn lets the queued main-actor work run.
+        let interval = Duration.milliseconds(10)
+        var remaining = max(1, Int(timeout / interval))
+        while !condition(), remaining > 0 {
+            try? await Task.sleep(for: interval)
+            remaining -= 1
         }
     }
 
