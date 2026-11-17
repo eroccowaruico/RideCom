@@ -1,7 +1,10 @@
 import Foundation
 
 extension IntercomViewModel {
-    var savedRemoteUsers: [SavedUser] {
+    var savedRemoteUsers: [SavedUser] { directoryUsers.filter(\.isRegistered) }
+
+    /// Includes names explicitly saved before the person has registered.
+    var directoryUsers: [SavedUser] {
         savedUsers.filter { !$0.memberIDs.contains(localMemberIdentity.memberID) && ($0.principal == nil || $0.principal != localAccountPrincipal) }
             .sorted {
                 let order = $0.resolvedDisplayName.localizedStandardCompare($1.resolvedDisplayName)

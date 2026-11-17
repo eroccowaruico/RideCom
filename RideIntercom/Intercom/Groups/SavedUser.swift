@@ -9,5 +9,6 @@ struct SavedUser: Codable, Equatable, Identifiable {
     var localName: String?
     var deviceKeys: [String: String]?
     var principal: AccountPrincipal?
+    var isRegistered: Bool { !memberIDs.isEmpty }
     var resolvedDisplayName: String { localName ?? displayName }
 }

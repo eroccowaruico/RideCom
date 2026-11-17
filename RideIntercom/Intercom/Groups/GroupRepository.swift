@@ -25,7 +25,7 @@ final class GroupRepository {
         do {
             var current = try store.read() ?? migrate(localMemberID: localMemberID)
             _ = try validateIdentity(current, localMemberID: localMemberID)
-            if current.version < 9 {
+            if current.version < 10 {
                 current = current.upgraded()
                 try store.commit(current)
                 guard try store.read() == current else { throw GroupStorageError.verificationFailed }
@@ -117,6 +117,15 @@ final class GroupRepository {
         }
     }
 
+    func saveContactPerson(_ id: UUID, name: String) throws {
+        guard let snapshot, IntercomGroup.isValidName(name), !snapshot.users.contains(where: { $0.id == id }) else {
+            throw GroupStorageError.invalidUpdate
+        }
+        try amend(snapshot) { next in
+            next.users.append(SavedUser(id: id, displayName: name, memberIDs: [], localName: name))
+        }
+    }
+
     func renameUser(_ id: UUID, displayName: String) throws {
         guard IntercomGroup.isValidName(displayName) else { throw GroupStorageError.invalidUpdate }
         try setUserLocalName(id, displayName)
@@ -196,7 +205,14 @@ final class GroupRepository {
         guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
         let removed = Set(snapshot.groups.filter { belongs($0, to: user) }.map(\.id))
         try update(snapshot.groups.filter { !removed.contains($0.id) }.map { try $0.group() },
-                   credential: nil, users: snapshot.users.filter { $0.id != id })
+                   credential: nil, users: snapshot.users.filter { $0.id != id }) { next in
+            for index in next.contactInvitations.indices where next.contactInvitations[index].personID == id {
+                if next.contactInvitations[index].state == .pending {
+                    next.contactInvitations[index].state = .cancelled
+                    next.contactInvitations[index].credentialReference = nil
+                }
+            }
+        }
         return removed
     }
 
@@ -366,7 +382,7 @@ final class GroupRepository {
 }
 
 extension GroupRepository {
-    func stageContactInvitation(_ token: GroupInviteToken, now: TimeInterval, replacingExpiredInvitation id: UUID? = nil) throws {
+    func stageContactInvitation(_ token: GroupInviteToken, now: TimeInterval, replacingExpiredInvitation id: UUID? = nil, personID: UUID? = nil) throws {
         try token.validate(contactBootstrap: true)
         guard let snapshot, let context = token.directInvitation?.context,
               token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
@@ -380,6 +396,13 @@ extension GroupRepository {
                 throw GroupStorageError.invalidUpdate
             }
         }
+        let personID = personID ?? previous?.personID
+        if let personID {
+            guard snapshot.users.contains(where: { $0.id == personID && !$0.isRegistered }) else { throw GroupStorageError.invalidUpdate }
+            guard !snapshot.contactInvitations.contains(where: { $0.personID == personID && $0.id != id && $0.state == .pending && $0.expiresAt > now }) else {
+                throw GroupStorageError.invalidUpdate
+            }
+        }
         let payload = ContactInvitationPayload(token: token)
         try amend(snapshot) { next in
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
@@ -387,7 +410,7 @@ extension GroupRepository {
             if let id { next.contactInvitations.removeAll { $0.id == id } }
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .outgoing,
-                expiresAt: context.expiresAt, credentialReference: reference, nickname: previous?.nickname, sent: false))
+                expiresAt: context.expiresAt, credentialReference: reference, nickname: previous?.nickname ?? snapshot.users.first(where: { $0.id == personID })?.resolvedDisplayName, sent: false, personID: personID))
         }
     }
 
@@ -415,7 +438,8 @@ extension GroupRepository {
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .incoming, expiresAt: context.expiresAt,
                 credentialReference: reference, receiptID: accepted.receipt.id,
-                peerMemberID: accepted.inviter.memberID, peerDeviceKey: accepted.inviter.publicKey))
+                peerMemberID: accepted.inviter.memberID, peerDeviceKey: accepted.inviter.publicKey,
+                personID: next.users.first(where: { $0.memberIDs.contains(accepted.inviter.memberID) })?.id))
         }
     }
 
@@ -438,7 +462,17 @@ extension GroupRepository {
                                          groups: try snapshot.groups.map { try $0.group() })
         try update(call.groups, credential: call.credential) { next in
             guard let index = next.contactInvitations.firstIndex(where: { $0.id == context.id }) else { throw GroupStorageError.invalidUpdate }
+            let alreadyKnown = next.users.contains { $0.memberIDs.contains(recipient.id)
+                || (verified.identity.principal != nil && $0.principal == verified.identity.principal) }
             try next.remember(recipient, identity: verified.identity)
+            if let personID = old.personID, let placeholder = next.users.first(where: { $0.id == personID && !$0.isRegistered }),
+               let registered = next.users.firstIndex(where: { $0.memberIDs.contains(recipient.id) }) {
+                // A newly verified person inherits the original local ID and name. An already known
+                // identity keeps its ID; the completed exchange resolves an open draft to that person.
+                if !alreadyKnown { next.users[registered].id = personID }
+                next.users[registered].localName = next.users[registered].localName ?? placeholder.localName
+                next.users.removeAll { $0.id == placeholder.id && !$0.isRegistered }
+            }
             if let nickname = old.nickname,
                let user = next.users.firstIndex(where: { $0.memberIDs.contains(recipient.id) }),
                next.users[user].localName == nil {

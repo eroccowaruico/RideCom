@@ -20,6 +20,8 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     /// False from creation until a share destination took the link (the share sheet asks for it only then).
     /// Nil on records saved before this was kept: those were treated as sent.
     var sent: Bool?
+    /// The local person this exchange belongs to; never a verified remote identity.
+    var personID: UUID?
 
     var canResume: Bool { (state == .pending || state == .confirmed) && credentialReference != nil }
     var isExpiredTombstone: Bool { state == .expired && direction == .outgoing }
