@@ -48,17 +48,22 @@ extension IntercomViewModel {
         guard canStartCalls, isAudioReady, !enforceCallAccess || callAccessState.isEstablished,
               authenticatedPeerIDs.contains(where: { currentRepresentativeProfiles[$0]?.verified != nil }),
               let group = groups.first(where: { $0.id == activeGroupID }) else { return }
-        let destination: CallDestination?
-        if group.kind == .group {
-            destination = .group(group.id)
-        } else if let principal = directCallAccountRecipient(for: group) {
-            destination = savedRemoteUsers.first { $0.principal == principal }.map { .user($0.id) }
-        } else if let memberID = directCallRecipient(for: group) {
-            destination = savedRemoteUsers.first { $0.memberIDs.contains(memberID) }.map { .user($0.id) }
-        } else { destination = nil }
-        guard let destination, destination != storedRecentCallDestination else { return }
+        guard let destination = callDestination(of: group), destination != storedRecentCallDestination else { return }
         storedRecentCallDestination = destination
         saveAppSettings()
+    }
+
+    /// The saved destination a call belongs to: the group itself, or the saved person of an individual
+    /// call. An individual call whose person is no longer saved has none.
+    func callDestination(of group: IntercomGroup) -> CallDestination? {
+        if group.kind == .group { return .group(group.id) }
+        if let principal = directCallAccountRecipient(for: group) {
+            return savedRemoteUsers.first { $0.principal == principal }.map { .user($0.id) }
+        }
+        if let memberID = directCallRecipient(for: group) {
+            return savedRemoteUsers.first { $0.memberIDs.contains(memberID) }.map { .user($0.id) }
+        }
+        return nil
     }
 
     func discardUnavailableRecentCall() {

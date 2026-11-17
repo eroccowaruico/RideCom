@@ -56,18 +56,8 @@ extension AppCallOwner {
                     kind: { if case .user = target.destination { return .user }; return .group }())
             }
             let currentDestinationID: String? = {
-                guard let vm = viewModel, let groupID = vm.activeGroupID,
-                      let group = vm.groups.first(where: { $0.id == groupID }) else { return nil }
-                let destination: CallDestination?
-                if group.kind == .group {
-                    destination = .group(group.id)
-                } else if let principal = vm.directCallAccountRecipient(for: group) {
-                    destination = vm.savedRemoteUsers.first { $0.principal == principal }.map { .user($0.id) }
-                } else if let memberID = vm.directCallRecipient(for: group) {
-                    destination = vm.savedRemoteUsers.first { $0.memberIDs.contains(memberID) }.map { .user($0.id) }
-                } else {
-                    destination = nil
-                }
+                guard let vm = viewModel, let group = vm.groups.first(where: { $0.id == vm.activeGroupID }),
+                      let destination = vm.callDestination(of: group) else { return nil }
                 return targets.first { $0.destination == destination }?.entity.id
             }()
             let recentDestinationID = viewModel?.recentCallDestination.flatMap { recent in
