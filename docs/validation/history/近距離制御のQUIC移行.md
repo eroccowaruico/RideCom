@@ -40,8 +40,8 @@ AP・セルラーなしの屋外での相互通話、隊列の中継距離・移
 
 | 実行 | 観測 |
 |---|---|
-| iPhone SimulatorのAppテスト | 8スイートで計58回成功。別に、実QUICで招待を受け、双方のUsersを保存して再読込するテストが24反復すべて成功した。証跡は `.validation/local-quic-ios-182154` と `.validation/local-quic-ios-nested-182422` |
-| macOS 27.2のApp全体 | 656件中654件成功、2件失敗。未登録者から招待の受諾を届けるテストと、双方のUsers保存・再読込のテストで、招待元の登録結果が空だった。証跡は `.validation/local-quic-app-macos-20261117/actual-summary.json` |
+| iPhone SimulatorのAppテスト | 選択8スイートの54テスト定義、パラメータ展開後の58実行がすべて成功。別に、実QUICで招待を受け、双方のUsersを保存して再読込するテストが24反復すべて成功した。証跡は `.validation/local-quic-ios-182154` と `.validation/local-quic-ios-nested-182422` |
+| macOS 27.2、DerivedData配置でのApp全体 | 656件中654件成功、2件失敗。未登録者から招待の受諾を届けるテストと、双方のUsers保存・再読込のテストで、招待元の登録結果が空だった。証跡は `.validation/local-quic-app-macos-20261117/actual-summary.json` |
 | MacとiPhone SimulatorのLocal音声E2E | Loopback Audio（48 kHz）を使って両端でnative音声の開始に成功。Mac側で制御のBonjour探索が `NoAuth(-65555)` を返し、両端が認証待ちで時間切れとなった。測定は0件で、波形の同一性・欠落0・125 ms以内の判定には到達していない。Simulatorの音声選択を復元し、専用Simulatorの終了に成功した。証跡は `.validation/audio-e2e-20261117-182610-618879/results.tsv` と同じ場所の `measurements.json` |
 
 同じMacのAppテストホストでBonjourの4種のserviceを比較した。domain（既定／`local.`）、TXT取得、peer-to-peer、UDP parametersを変えた各16条件、計64条件の結果はserviceごとに一致した。`_ride-audio._udp` と旧 `_ride-intercom._tcp` は各16条件で探索開始（ready）、`_ride-control._udp` と旧 `_ride-intercom._udp` は各16条件で `NoAuth`。readyは探索を開始できたことを示す。OSのローカルネットワーク許可を設定し直し、実行ファイルのUUIDを変えた試行でも制御の探索拒否が続いた。証跡は `.validation/bonjour-comparison-mac-183405/comparison.log`、`.validation/quic-auth-after-reset-183945`、`.validation/quic-auth-no-stub-184027`。Macでの再開条件は[未確認事項](../未確認事項.md#macの近距離quic探索とapp音声e2e)で追う。
@@ -49,3 +49,30 @@ AP・セルラーなしの屋外での相互通話、隊列の中継距離・移
 Macの標準配置でも同一署名・同一bundle IDの検証用Appを試した。DerivedDataから実行したときはmDNSResponderが実行元のApp情報の取得時に OSStatus -5000 を記録した。`/Applications` 配下に同じAppを配置すると、OSが現行のBonjour宣言を読み取り、探索と広告は利用者の許可待ち（`pending`）へ進んだ。署名と検証用保存先を起動前に照合した。証跡は `.validation/quic-applications-host-184945/`。
 
 別々のiPhone Simulatorの2プロセスで実行した比較では、両端の事前試験各5件が成功した。両方の探索・広告でホストOSに許可待ちの記録があり、60秒以内に相互認証できず測定は0件だった。音声機器選択の復元、追加端末の削除、再利用端末の停止を確認した。証跡は `.validation/quic-two-iphones-20261117-184746/`。
+
+
+### Macの標準配置での実招待とApp回帰
+
+利用者がローカルネットワークを許可した後、`/Applications` 配下の検証用Appで実QUICの招待を再実行した。招待の受諾から双方のUsers登録とディスク再読込まで単発で1.407秒、続けて24反復すべて成功した。同じ配置のApp全体では77スイートの656テスト定義、パラメータ展開後の772実行がすべて成功した。DerivedData配置で失敗した招待2件も含む。証跡は `.validation/quic-applications-host-184945/regression-190123/`。
+
+許可後もDerivedDataから再実行すると、同じ実招待でBonjourの `NoAuth(-65555)` が再発した。このMacの自動検証では、許可した標準配置のAppホストを使う。証跡は `.validation/quic-auth-derived-after-grant-190349/`。
+
+### 標準配置のMacとiPhone Simulatorの音声測定
+
+Release-Validationを既定のDerivedDataでビルドした。Mac側では署名済みApp、PackageFrameworksと音声E2E用xctestrunを `/Applications` の検証専用ディレクトリに同じ製品構成で配置した。起動前に署名、xctestrunの参照先と検証用の保存先を照合した。iPhone Simulatorの入出力を48 kHzのLoopback Audioに固定し、役割ごとに異なる発話を送った。判定は通常のLocal quickと同じである。結果は `.validation/audio-e2e-20261117-190501-776563/measurements.json` と同ディレクトリの `results.tsv` にある。
+
+| 条件 | Mac受話の有声区間欠落率 | iPhone Simulator受話の有声区間欠落率 |
+|---|---:|---:|
+| 既定AAC | 0% | 0% |
+| Opus 24 kHz・エフェクトあり | 0% | 0% |
+| PCM16 16 kHz・voiceChat | 2.92% | 0.68% |
+| 出力ミュート | 無音を確認 | 無音を確認 |
+| ミュート解除後 | 0% | 0.64% |
+
+両方向の5条件すべてで計10件を測定した。有音8件の出力は相手の発話との相関が0.945以上で、自分の発話との相関を上回った。送受の記録が重なる区間では、送信側の収録時刻に対応するパケットがすべて到着した。PCM16とミュート復帰で生じた欠落は、受信側の復号直後にも現れた。旧Multipeer制御のLocal測定（`.validation/audio-e2e-20261103-232137-068927/`）でもPCM16と復帰で同傾向の欠落があった。
+
+既定AACの収録から相手のrenderまでの片道遅延は、iPhone Simulator→Macが111.05 ms、Mac→iPhone Simulatorが120.29 ms。判定は波形照合の余裕10 msを加えるため後者は130.29 msとなり、125 msの基準を超えた。音声E2E全体は不合格である。既定AACの送信callbackから相手の受信callbackまでの中央値は両方向とも0.6 ms未満だった。残る音声品質の受入は[音声の途切れと遅延](../../backlog/未実装課題.md#音声の途切れと遅延)で追う。
+
+実行中のソース一致、音声機器設定の復元、専用Simulatorの停止、標準配置のDebug・Release検証Appの回収を確認した。古い検証版Widget（build 462）も利用者の指定で終了し、旧親Appの登録だけを解除した。その後もこのMacのDerivedData配置では探索拒否が再現した。標準配置の回収記録は `.validation/quic-applications-host-184945/cleanup.json` にある。
+
+同じLoopback Audio・Releaseで、iPhone Simulator内の通信を通さないリアルタイム試験も実行した。日本語の3発話と3 codecの9条件すべてで相手波形に相当する参照音声との連続性を確認した。判定余裕込みで125 msを超えた条件は6件。通信を含まない経路でも遅延条件を超える。証跡は `.validation/audio-e2e-20261117-190902-228818/pipeline-measurements.json`。音声選択を復元し、Simulatorの停止を確認した。
