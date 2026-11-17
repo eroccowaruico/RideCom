@@ -43,7 +43,8 @@ final class StandardInterfaceUITests: XCTestCase {
     @MainActor
     func testJoinedGroupHasNoSwipeDeleteInEitherLayout() throws {
         launch()
-        app.open(try InvitationURLFixture.make(inviter: "ui-joined-" + UUID().uuidString))
+        let groupName = "Joined " + UUID().uuidString.prefix(6)
+        app.open(try InvitationURLFixture.make(inviter: "ui-joined-" + UUID().uuidString, name: groupName))
         XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
         for mode in ["Standard", "Advanced"] {
             if mode == "Advanced" {
@@ -51,14 +52,106 @@ final class StandardInterfaceUITests: XCTestCase {
                 selectLayout(mode)
             }
             tab("Groups", id: "groupsTab")
-            let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", "Talk Group")).firstMatch
+            let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", groupName)).firstMatch
             XCTAssertTrue(row.waitForExistence(timeout: 3))
             row.swipeLeft()
             XCTAssertTrue(app.buttons["Group Settings"].firstMatch.waitForExistence(timeout: 3))
             XCTAssertFalse(app.buttons["Delete"].firstMatch.exists, "Only the owner deletes a group in \(mode)")
             screenshot("Joined group's shared row actions in \(mode)")
-            row.swipeRight()
+            app.buttons["Group Settings"].firstMatch.tap()
+            let leave = app.buttons["leaveGroupButton"].firstMatch
+            XCTAssertTrue(leave.waitForExistence(timeout: 3), "A joined group offers Leave Group in \(mode)")
+            XCTAssertFalse(app.buttons["deleteGroupButton"].exists)
+            leave.tap()
+            let alert = app.alerts.firstMatch
+            XCTAssertTrue(alert.waitForExistence(timeout: 3))
+            XCTAssertTrue(alert.staticTexts["Leave \(groupName)?"].exists)
+            XCTAssertTrue(alert.staticTexts["The current connection ends."].exists)
+            let confirm = alert.buttons["confirmLeaveGroupButton"].firstMatch
+            XCTAssertEqual(confirm.label, "Disconnect and Leave")
+            screenshot("Joined group leave confirmation in \(mode)")
+            alert.buttons["Cancel"].firstMatch.tap()
+            XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+            if mode == "Advanced" {
+                leave.tap()
+                XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+                confirm.tap()
+                XCTAssertTrue(row.waitForNonExistence(timeout: 5))
+                XCTAssertFalse(app.buttons["callAccessoryOpenButton"].exists)
+            } else {
+                app.buttons["closeGroupSettingsButton"].firstMatch.tap()
+                XCTAssertTrue(row.waitForExistence(timeout: 3))
+                XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists)
+            }
         }
+    }
+
+    @MainActor
+    func testAdvancedOwnerCanDeleteFromGroupSettings() {
+        launch(interface: "advanced")
+        tab("Groups", id: "groupsTab")
+        app.buttons["standardCreateGroupButton"].firstMatch.tap()
+        let name = app.textFields["savedUsersGroupNameField"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        let groupName = "Owned " + UUID().uuidString.prefix(6)
+        name.tap()
+        name.typeText(groupName)
+        app.buttons["saveUserSelectionButton"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 5))
+        tab("Groups", id: "groupsTab")
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", groupName)).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.swipeLeft()
+        let settings = app.buttons["Group Settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+        let delete = app.buttons["deleteGroupButton"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["leaveGroupButton"].exists)
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 3))
+        XCTAssertTrue(alert.staticTexts["Delete \(groupName)?"].exists)
+        let confirm = alert.buttons["confirmDeleteGroupButton"].firstMatch
+        XCTAssertEqual(confirm.label, "Disconnect and Delete")
+        alert.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+        delete.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(row.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["callAccessoryOpenButton"].exists)
+        screenshot("Advanced owner's group deleted through settings")
+    }
+
+    @MainActor
+    func testJapaneseAdvancedJoinedGroupCanLeaveWithSharedConfirmation() throws {
+        launch(japanese: true, interface: "advanced")
+        let groupName = "招待 " + UUID().uuidString.prefix(6)
+        app.open(try InvitationURLFixture.make(inviter: "ui-joined-ja-" + UUID().uuidString, name: groupName))
+        XCTAssertTrue(app.buttons["disconnectButton"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["callMoreMenu"].firstMatch.tap()
+        let settings = app.buttons["callGroupSettingsButton"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+        let leave = app.buttons["leaveGroupButton"].firstMatch
+        XCTAssertTrue(leave.waitForExistence(timeout: 3))
+        XCTAssertEqual(leave.label, "グループから抜ける")
+        leave.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 3))
+        XCTAssertTrue(alert.staticTexts["\(groupName)から抜けますか？"].exists)
+        let confirm = alert.buttons["confirmLeaveGroupButton"].firstMatch
+        XCTAssertEqual(confirm.label, "切断して抜ける")
+        screenshot("Japanese shared group leave confirmation")
+        alert.buttons["キャンセル"].firstMatch.tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(leave.exists)
+        leave.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["callAccessoryOpenButton"].exists)
     }
 
     @MainActor
@@ -952,11 +1045,11 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["appleSignInScreen"].exists)
     }
 
-    @MainActor private func launch(japanese: Bool = false, throttled: Bool = false) {
+    @MainActor private func launch(japanese: Bool = false, throttled: Bool = false, interface: String = "standard") {
         app = XCUIApplication()
         app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
         app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
-        app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
+        app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = interface
         if throttled { app.launchEnvironment["RIDEINTERCOM_INTERNET_ACCOUNT_FIXTURE"] = "throttled" }
         app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
         app.launch(); app.activate()

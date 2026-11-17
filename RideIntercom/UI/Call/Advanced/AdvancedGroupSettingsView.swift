@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Advanced's group settings: name, members with their row actions, the link invitation and Delete Group.
+/// Advanced's group settings, with the shared owner-aware group removal action last.
 struct AdvancedGroupSettingsView: View {
     let viewModel: IntercomViewModel
     let groupID: UUID
@@ -8,7 +8,6 @@ struct AdvancedGroupSettingsView: View {
     @State private var name: String?
     @State private var addingUsers = false
     @State private var editingMember: GroupMember?
-    @State private var confirmsDelete = false
     @State private var pendingRemoval: PendingMemberRemoval?
 
     private var group: IntercomGroup? { viewModel.groups.first { $0.id == groupID && $0.kind == .group } }
@@ -47,11 +46,7 @@ struct AdvancedGroupSettingsView: View {
                                                  bindsToGroup: true)
                         }
                     }
-                    Section {
-                        Button("Delete Group", systemImage: "trash", role: .destructive) { confirmsDelete = true }
-                            .disabled(!viewModel.canEditSavedGroups)
-                            .accessibilityIdentifier("deleteGroupButton")
-                    }
+                    GroupRemovalSection(viewModel: viewModel, group: group, onRemoved: { dismiss() })
                     if let message = viewModel.groupErrorMessage {
                         Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
                             .accessibilityIdentifier("groupSettingsError")
@@ -75,16 +70,6 @@ struct AdvancedGroupSettingsView: View {
                     .disabled(group == nil || !(name.map { IntercomGroup.isValidName($0) && !$0.contains("|") } ?? true))
                     .accessibilityIdentifier("saveGroupSettingsButton")
                 }
-            }
-            .alert("Delete Group?", isPresented: $confirmsDelete) {
-                Button("Delete Group", role: .destructive) {
-                    viewModel.deleteGroup(groupID)
-                    dismiss()
-                }
-                .accessibilityIdentifier("confirmDeleteGroupButton")
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("The group is removed from this device. If it is in a call, the call ends.")
             }
             .sheet(isPresented: $addingUsers) { SavedUsersView(viewModel: viewModel, groupID: groupID) }
             .sheet(item: $editingMember) { member in

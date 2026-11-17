@@ -9,28 +9,12 @@ struct StandardGroupSettingsView: View {
     @State private var name: String?
     @State private var invitingMembers = false
     @State private var editingMember: GroupMember?
-    @State private var confirmsDelete = false
     @State private var pendingRemoval: PendingMemberRemoval?
 
     private var group: IntercomGroup? { viewModel.groups.first { $0.id == groupID && $0.kind == .group } }
     /// The name made from the members, as when the group was created.
     private var membersName: String {
         (group?.members.dropFirst().map(\.resolvedDisplayName) ?? []).formatted(.list(type: .and))
-    }
-
-    private var ownsGroup: Bool { viewModel.groupRepository.ownsGroup(groupID) }
-    private var endsCall: Bool { viewModel.activeGroupID == groupID || viewModel.isActiveCall(.group(groupID)) }
-    private var confirmationTitle: Text {
-        let name = group?.name ?? ""
-        return ownsGroup ? Text("Delete \(name)?") : Text("Leave \(name)?")
-    }
-    private var confirmationAction: LocalizedStringKey {
-        switch (ownsGroup, endsCall) {
-        case (true, true): "Disconnect and Delete"
-        case (true, false): "Delete"
-        case (false, true): "Disconnect and Leave"
-        case (false, false): "Leave"
-        }
     }
 
     var body: some View {
@@ -88,17 +72,7 @@ struct StandardGroupSettingsView: View {
                     } header: {
                         Text("Members")
                     }
-                    // One last button: whoever made the group deletes it; everyone else leaves it.
-                    Section {
-                        if ownsGroup {
-                            Button("Delete Group", role: .destructive) { confirmsDelete = true }
-                                .disabled(!viewModel.canEditSavedGroups)
-                                .accessibilityIdentifier("deleteGroupButton")
-                        } else {
-                            Button("Leave Group", role: .destructive) { confirmsDelete = true }
-                                .accessibilityIdentifier("leaveGroupButton")
-                        }
-                    }
+                    GroupRemovalSection(viewModel: viewModel, group: group, onRemoved: { dismiss() })
                     if let message = viewModel.groupErrorMessage {
                         Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
                             .accessibilityIdentifier("groupSettingsError")
@@ -128,16 +102,6 @@ struct StandardGroupSettingsView: View {
                     .disabled(group == nil || name?.contains("|") == true || (name?.isEmpty == true && membersName.isEmpty))
                     .accessibilityIdentifier("saveGroupSettingsButton")
                 }
-            }
-            .alert(confirmationTitle, isPresented: $confirmsDelete) {
-                Button(confirmationAction, role: .destructive) {
-                    viewModel.deleteGroup(groupID)
-                    dismiss()
-                }
-                .accessibilityIdentifier(ownsGroup ? "confirmDeleteGroupButton" : "confirmLeaveGroupButton")
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                if endsCall { Text("The current connection ends.") }
             }
             .sheet(isPresented: $invitingMembers) { SavedUsersView(viewModel: viewModel, groupID: groupID) }
             .sheet(item: $editingMember) { member in
