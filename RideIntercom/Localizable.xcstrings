@@ -6919,6 +6919,16 @@
           }
         }
       }
+    },
+    "This is your name for them. It also appears in the invitation message you share. If you leave it empty, it will be %@." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この端末での呼び名です。招待の共有文にも使います。空のままなら「%@」になります。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
