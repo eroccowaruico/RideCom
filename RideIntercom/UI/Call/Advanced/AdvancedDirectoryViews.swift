@@ -90,6 +90,7 @@ struct AdvancedGroupsView: View {
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardGroup-\(group.id)")
                     .destinationRowActions("Group Settings", settings: { settings = .group(group.id) },
+                                           canDelete: viewModel.canEditSavedGroups && viewModel.groupRepository.ownsGroup(group.id),
                                            pending: $pendingDelete, name: group.name, endsCall: viewModel.isInCall(with: .group(group.id))) {
                         viewModel.deleteGroup(group.id)
                     }

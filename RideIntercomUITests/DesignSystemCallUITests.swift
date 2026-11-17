@@ -104,14 +104,14 @@ final class DesignSystemCallUITests: XCTestCase {
         row.swipeLeft()
         let settings = app.buttons["Group Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["Delete"].firstMatch.exists, "A group's swipe offers Group Settings only")
+        XCTAssertTrue(app.buttons["Delete"].firstMatch.exists, "The owner's group offers the shared Delete action")
         settings.tap()
         XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForExistence(timeout: 3))
         attachEvidence("Group settings from the row")
         app.buttons["closeGroupSettingsButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForNonExistence(timeout: 3))
         XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists, "Settings do not end the call")
-        // Deleting a group lives at the end of Group Settings and asks first; Cancel keeps it and the call.
+        // The settings entry also asks first; Cancel keeps the group and its call.
         row.swipeLeft()
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         settings.tap()
@@ -126,6 +126,27 @@ final class DesignSystemCallUITests: XCTestCase {
         app.buttons["closeGroupSettingsButton"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 3), "Cancel keeps the group")
         XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists, "Cancel keeps the call")
+        row.swipeLeft()
+        let swipeDelete = app.buttons["Delete"].firstMatch
+        XCTAssertTrue(swipeDelete.waitForExistence(timeout: 3))
+        swipeDelete.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 3))
+        XCTAssertTrue(alert.staticTexts["The current connection ends."].exists)
+        let confirm = alert.buttons["confirmDeleteDestinationButton"].firstMatch
+        XCTAssertEqual(confirm.label, "Disconnect and Delete")
+        attachEvidence("Swipe deletion of a live group asks first")
+        alert.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(row.exists)
+        XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists)
+        row.swipeLeft()
+        XCTAssertTrue(swipeDelete.waitForExistence(timeout: 3))
+        swipeDelete.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(row.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["callAccessoryOpenButton"].firstMatch.exists)
+        attachEvidence("Swipe deletion removes the group and ends its call")
     }
 
     /// The bar above the tab bar names the call and its state, and offers Mute and End.

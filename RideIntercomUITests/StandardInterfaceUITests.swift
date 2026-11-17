@@ -41,6 +41,27 @@ final class StandardInterfaceUITests: XCTestCase {
 
     #if os(iOS)
     @MainActor
+    func testJoinedGroupHasNoSwipeDeleteInEitherLayout() throws {
+        launch()
+        app.open(try InvitationURLFixture.make(inviter: "ui-joined-" + UUID().uuidString))
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        for mode in ["Standard", "Advanced"] {
+            if mode == "Advanced" {
+                tab("Settings", id: "settingsTab")
+                selectLayout(mode)
+            }
+            tab("Groups", id: "groupsTab")
+            let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", "Talk Group")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 3))
+            row.swipeLeft()
+            XCTAssertTrue(app.buttons["Group Settings"].firstMatch.waitForExistence(timeout: 3))
+            XCTAssertFalse(app.buttons["Delete"].firstMatch.exists, "Only the owner deletes a group in \(mode)")
+            screenshot("Joined group's shared row actions in \(mode)")
+            row.swipeRight()
+        }
+    }
+
+    @MainActor
     func testDirectCallHidesMembersAcrossReopeningAndLayoutSwitch() throws {
         launch()
         let suffix = String(UUID().uuidString.prefix(6))
