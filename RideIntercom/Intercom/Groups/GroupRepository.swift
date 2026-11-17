@@ -469,11 +469,13 @@ extension GroupRepository {
                let registered = next.users.firstIndex(where: { $0.memberIDs.contains(recipient.id) }) {
                 // A newly verified person inherits the original local ID and name. An already known
                 // identity keeps its ID; the completed exchange resolves an open draft to that person.
-                if !alreadyKnown { next.users[registered].id = personID }
-                next.users[registered].localName = next.users[registered].localName ?? placeholder.localName
+                if !alreadyKnown {
+                    next.users[registered].id = personID
+                    next.users[registered].localName = placeholder.localName
+                }
                 next.users.removeAll { $0.id == placeholder.id && !$0.isRegistered }
             }
-            if let nickname = old.nickname,
+            if !alreadyKnown, old.personID == nil, let nickname = old.nickname,
                let user = next.users.firstIndex(where: { $0.memberIDs.contains(recipient.id) }),
                next.users[user].localName == nil {
                 next.users[user].localName = nickname

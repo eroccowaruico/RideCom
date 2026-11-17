@@ -202,4 +202,29 @@ struct ContactPersonTests {
         #expect(vm.pendingContactInvitations.isEmpty && vm.contactInvitationID == nil)
     }
 
+    @Test(arguments: [false, true])
+    func reInvitationPreservesAnExistingNameChoice(followSharedName: Bool) throws {
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "name-choice-author")
+        let repo = h.viewModel.groupRepository, now = Date().timeIntervalSince1970
+        let firstID = UUID()
+        for (index, id) in [firstID, UUID()].enumerated() {
+            try repo.saveContactPerson(id, name: index == 0 ? "Original alias" : "New invitation alias")
+            let token = try ContactInvitationSession.makeToken(authority: h.viewModel.invitationAuthority,
+                signer: testIdentitySigner("name-choice-author"), displayName: "Author", now: now)
+            try repo.stageContactInvitation(token, now: now, personID: id)
+            let acceptance = try token.accept(signer: testIdentitySigner("name-choice-peer"), displayName: "Their Name",
+                now: now, contactBootstrap: true)
+            let verified = try #require(try h.viewModel.invitationAuthority.verify(acceptance.receipt, now: now))
+            try repo.confirmContactInvitation(verified, localDisplayName: "Author", now: now)
+            if index == 0 {
+                if followSharedName { try repo.resetUserName(firstID) }
+                else { try repo.renameUser(firstID, displayName: "My chosen name") }
+            }
+        }
+        #expect(repo.users.map(\.id) == [firstID])
+        #expect(repo.users.first?.localName == (followSharedName ? nil : "My chosen name"))
+        #expect(repo.users.first?.resolvedDisplayName == (followSharedName ? "Their Name" : "My chosen name"))
+        #expect(h.groupStore.snapshot.contactInvitations.count == 2)
+    }
+
 }
