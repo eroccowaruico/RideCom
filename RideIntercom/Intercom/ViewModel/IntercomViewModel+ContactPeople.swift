@@ -17,7 +17,7 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func saveContactPerson(_ id: UUID, name: String) -> Bool {
+    func saveContactPerson(_ id: UUID, name: String, usesProvisionalName: Bool = false) -> Bool {
         guard canEditSavedGroups, contactInvitationPresentation == .person(id) else { return false }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard IntercomGroup.isValidName(name) else {
@@ -25,13 +25,34 @@ extension IntercomViewModel {
             return false
         }
         do {
-            try groupRepository.saveContactPerson(id, name: name)
+            try groupRepository.saveContactPerson(id, name: name, usesProvisionalName: usesProvisionalName)
             refreshGroupStorageStatus()
             contactInvitationMessage = nil
             return true
         } catch {
             reportGroupStorageError(error)
             contactInvitationMessage = "Could not save this person. Try again."
+            return false
+        }
+    }
+
+    @discardableResult
+    func resolveContactPersonName(_ person: SavedUser, useSharedName: Bool) -> Bool {
+        guard canEditSavedGroups, let current = contactPerson(person.id), current.needsNameConfirmation else { return false }
+        guard let local = person.localName, current.localName == local, current.displayName == person.displayName else {
+            contactInvitationMessage = "This name changed. Review it again."
+            groupErrorMessage = contactInvitationMessage
+            return false
+        }
+        do {
+            try groupRepository.resolveProvisionalName(person.id, localName: local, sharedName: person.displayName, useSharedName: useSharedName)
+            refreshGroupStorageStatus()
+            contactInvitationMessage = nil
+            groupErrorMessage = nil
+            return true
+        } catch {
+            reportGroupStorageError(error)
+            contactInvitationMessage = "Could not save the name choice. Try again."
             return false
         }
     }

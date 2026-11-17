@@ -723,6 +723,25 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>保存済みの相手の詳細</b>名前は保存で確定済み。共有を取り消しても、コピーしても、この同じ詳細と名前を保つ。「完了」で一覧へ戻り、後で同じ人を再び開ける。登録完了時も自動で閉じず、この詳細の状態だけを「登録済み」へ更新する。<a href="../招待と登録の設計.md#一連の操作の確認">一連の操作の確認</a>と対応する設計見本。</figcaption>
     </figure>
 
+    <!-- 自動生成した仮名だけ、同じ詳細内で名前を選ぶ -->
+    <figure>
+      <div class="phone"><div class="screen form">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
+        <div class="body">
+          <div class="card"><div class="dest">青いキツネ</div><div class="status">登録済み</div></div>
+          <div class="group-h">呼び名の確認</div>
+          <div class="group">
+            <div class="row">「青いキツネ」を「マキ」に変更しますか？</div>
+            <div class="row"><span class="link">本人の名前を使う</span></div>
+            <div class="row"><span class="link">この呼び名を使う</span></div>
+          </div>
+          <div class="group-h">本人の名前</div><div class="group"><div class="row">マキ</div></div>
+        </div>
+      </div></div>
+      <figcaption><b>登録後の仮名の確認</b>生成した候補を採用した相手だけ、同じ詳細・設定内で旧名と本人名を示す。選ばず完了しても保持し、次に続けられる。どちらを選んでも画面と人のIDを保ち、再起動・再招待で同じ確認を繰り返さない。手編集の呼び名は自動で置き換えない（<a href="../招待と登録の設計.md#仮名から本人名への選択">状態と操作</a>）。</figcaption>
+    </figure>
+
     <!-- グループ -->
     <figure>
       <div class="phone"><div class="screen list-bg">

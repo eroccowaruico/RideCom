@@ -160,6 +160,9 @@ struct GroupSnapshot: Codable, Equatable {
             guard users.filter({ !$0.isRegistered }).allSatisfy({ $0.principal == nil && $0.deviceKeys == nil }) else {
                 throw IntercomGroupError.invalidStoredGroups
             }
+            guard users.allSatisfy({ $0.usesProvisionalName != true || $0.localName != nil }) else {
+                throw IntercomGroupError.invalidStoredGroups
+            }
             let memberIDs = users.flatMap(\.memberIDs)
             guard Set(users.map(\.id)).count == users.count,
                   Set(memberIDs).count == memberIDs.count,

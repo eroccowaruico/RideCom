@@ -9,6 +9,11 @@ struct SavedUser: Codable, Equatable, Identifiable {
     var localName: String?
     var deviceKeys: [String: String]?
     var principal: AccountPrincipal?
+    /// True only when the empty input explicitly adopted the generated candidate. Nil is unknown legacy data.
+    var usesProvisionalName: Bool?
+    var needsNameConfirmation: Bool {
+        usesProvisionalName == true && isRegistered && localName != nil && localName != displayName
+    }
     var isRegistered: Bool { !memberIDs.isEmpty }
     var resolvedDisplayName: String { localName ?? displayName }
 }

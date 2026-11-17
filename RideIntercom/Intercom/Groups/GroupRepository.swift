@@ -117,12 +117,25 @@ final class GroupRepository {
         }
     }
 
-    func saveContactPerson(_ id: UUID, name: String) throws {
+    func saveContactPerson(_ id: UUID, name: String, usesProvisionalName: Bool = false) throws {
         guard let snapshot, IntercomGroup.isValidName(name), !snapshot.users.contains(where: { $0.id == id }) else {
             throw GroupStorageError.invalidUpdate
         }
         try amend(snapshot) { next in
-            next.users.append(SavedUser(id: id, displayName: name, memberIDs: [], localName: name))
+            next.users.append(SavedUser(id: id, displayName: name, memberIDs: [], localName: name, usesProvisionalName: usesProvisionalName))
+        }
+    }
+
+    /// The displayed pair of names is checked at the manifest's atomic commit point.
+    func resolveProvisionalName(_ id: UUID, localName: String, sharedName: String, useSharedName: Bool) throws {
+        guard let snapshot, let index = snapshot.users.firstIndex(where: { $0.id == id }),
+              snapshot.users[index].needsNameConfirmation,
+              snapshot.users[index].localName == localName, snapshot.users[index].displayName == sharedName else {
+            throw GroupStorageError.invalidUpdate
+        }
+        try amend(snapshot) { next in
+            if useSharedName { next.users[index].localName = nil }
+            next.users[index].usesProvisionalName = false
         }
     }
 
@@ -135,7 +148,10 @@ final class GroupRepository {
 
     private func setUserLocalName(_ id: UUID, _ localName: String?) throws {
         guard let snapshot, let index = snapshot.users.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-        try amend(snapshot) { next in next.users[index].localName = localName }
+        try amend(snapshot) { next in
+            next.users[index].localName = localName
+            next.users[index].usesProvisionalName = false
+        }
     }
 
     func storedMembers(in groupID: UUID) -> [GroupSnapshot.Member] {
@@ -472,6 +488,7 @@ extension GroupRepository {
                 if !alreadyKnown {
                     next.users[registered].id = personID
                     next.users[registered].localName = placeholder.localName
+                    next.users[registered].usesProvisionalName = placeholder.usesProvisionalName
                 }
                 next.users.removeAll { $0.id == placeholder.id && !$0.isRegistered }
             }

@@ -88,6 +88,11 @@ extension GroupSnapshot {
             // explicit resolution instead of silently discarding either one.
             guard users[first].localName == nil || other.localName == nil
                 || users[first].localName == other.localName else { throw GroupStorageError.identityConflict }
+            if users[first].localName == nil {
+                users[first].usesProvisionalName = other.usesProvisionalName
+            } else if other.localName != nil && other.usesProvisionalName != true {
+                users[first].usesProvisionalName = false
+            }
             users[first].localName = users[first].localName ?? other.localName
             users[first].memberIDs.append(contentsOf: other.memberIDs)
             users[first].deviceKeys = (users[first].deviceKeys ?? [:]).merging(other.deviceKeys ?? [:]) { old, _ in old }
