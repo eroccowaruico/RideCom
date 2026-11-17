@@ -208,7 +208,7 @@ th { font-size: 11.5px; color: var(--label2); font-weight: 600; }
 
 <main class="wrap">
   <h1>RideCom デザインシステム見本</h1>
-  <p class="lead">一般向け（Standard）と詳細表示（Advanced）の色・状態・寸法・レイアウト・部品の見本。部品はStandardとAdvancedで分け、共通なのは色・安全・アクセシビリティの下限だけ。規則の正本は <a href="デザインシステム.md">デザインシステム</a>、色は <a href="カラーテーマ.md">カラーテーマ</a>、記号は <a href="アイコン定義.md">アイコン定義</a>。画面ごとの見本は <a href="一般向け/デザイン見本.html">一般向け</a> と <a href="詳細画面/詳細画面見本.html">詳細表示</a>。</p>
+  <p class="lead">一般向け（Standard）と詳細表示（Advanced）の色・状態・寸法・レイアウト・部品の見本。モードで異なる部品はStandardとAdvancedで分ける。データと動作の正本、色・安全・利用環境・アクセシビリティの下限と、表示・語・配置・操作が完全に同一の部品は共通にする。規則の正本は <a href="デザインシステム.md">デザインシステム</a>、色は <a href="カラーテーマ.md">カラーテーマ</a>、記号は <a href="アイコン定義.md">アイコン定義</a>。画面ごとの見本は <a href="一般向け/デザイン見本.html">一般向け</a> と <a href="詳細画面/詳細画面見本.html">詳細表示</a>。</p>
 
   <!-- 色 -->
   <h2 id="color">色</h2>
@@ -482,7 +482,7 @@ th { font-size: 11.5px; color: var(--label2); font-weight: 600; }
 
   <!-- 違い -->
   <h2 id="diff">StandardとAdvanced</h2>
-  <p class="note">目的が違うので、別々の原則で設計する（<a href="デザインシステム.md#standardとadvancedの違い">StandardとAdvancedの違い</a>）。Standardは利用者の意図から先に定めたUXで、不要な情報を出さない。Advancedは画面の各要素を実装の値・状態と1対1で対応させ、言い換えない。共通なのは色・安全・アクセシビリティの下限だけで、部品と語は流用しない。</p>
+  <p class="note">目的が違うので、別々の原則で設計する（<a href="デザインシステム.md#standardとadvancedの違い">StandardとAdvancedの違い</a>）。Standardは利用者の意図から先に定めたUXで、不要な情報を出さない。Advancedは画面の各要素を実装の値・状態と1対1で対応させ、言い換えない。データと動作の正本、色・安全・利用環境・アクセシビリティの下限を共有する。表示・語・配置・操作が完全に同一の部品は <code>Common/</code> に置いて共通化し、違いのある部品はモードごとに持つ。たとえば一覧のスワイプと削除確認は共通で、削除可否も同じ権限条件を使う。</p>
   <div class="row-flex">
     <div><div class="surface" style="width:300px"><div class="card"><div class="lrow"><span class="av"><svg class="i"><use href="#person"/></svg></span><span class="g">ハルカ<div class="sub">話しています</div></span><span class="vi l4"><i></i><i></i><i></i><i></i><i></i></span><span class="sub">›</span></div></div></div><div class="cap"><b>Standard（意図から）</b>誰が話しているかと、声が届いているかの大小だけ。経路・codec・数値・内部の状態は出さない。音量は行を開いたSliderだけで、数値なし。</div></div>
     <div><div class="surface" style="width:320px"><div class="card" style="padding:4px 10px"><div class="srow"><b>Haruka</b><span><code>connectionState</code> Connected · <code>authenticationState</code> AUTH OK · <code>activeCodec</code> MPEG-4 AAC-ELD<div class="sub">RX 100/s · Jitter buffer 24 ms · 0 dropped</div></span><span>100%</span></div></div></div><div class="cap"><b>Advanced（実装と対）</b>実装のプロパティの値をそのまま並べる。Standardのカード・語を流用しない。英語のみ。</div></div>
