@@ -673,9 +673,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub tag ok"><svg class="i"><use href="#wave"/></svg>会話中</div></span><svg class="i chev"><use href="#chev"/></svg></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ケンタ</span><svg class="i chev"><use href="#chev"/></svg></div>
           </div>
-          <div class="group-h">招待中</div>
+          <div class="group-h">ユーザー</div>
           <div class="group">
-            <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">マキ<div class="sub">受け取り待ち</div></span><svg class="i chev"><use href="#chev"/></svg></div>
+            <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">マキ<div class="sub">未登録</div></span><svg class="i chev"><use href="#chev"/></svg></div>
             <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">リョウ<div class="sub">返信を届けています</div></span><span class="spin" style="color:var(--label2)"></span></div>
           </div>
         </div>
@@ -690,45 +690,37 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="tab"><svg class="i"><use href="#gear"/></svg>設定</div>
         </div>
       </div></div>
-      <figcaption><b>ユーザー（最初の画面・会話中）</b>行をタップするとすぐ接続して通話のシートを開く（接続中は今の通話のシートを開くだけで切り替えない。別の場所へは切断してから）。右上 + で新しい相手を招待。成立前は「招待中」に状態の語1つで並べ、タップで招待の詳細を開く（<a href="../招待と登録の設計.md">招待と登録の設計</a>）。タブはグループタブを表示しない既定の2つ。下の通話のアクセサリは縮めず、名前・状態・ミュート・切断（確認付き）を置く。アクセサリの面はOSのガラスで、ミュートと切断は記号だけ（円の面を足さない。ミュート中だけ赤い円）。</figcaption>
+      <figcaption><b>ユーザー（最初の画面・会話中）</b>行をタップするとすぐ接続して通話のシートを開く（接続中は今の通話のシートを開くだけで切り替えない。別の場所へは切断してから）。右上 + で新しい相手を招待。成立前も同じ相手の行に「未登録」を示し、タップで保存済み詳細を開く（<a href="../招待と登録の設計.md">招待と登録の設計</a>）。タブはグループタブを表示しない既定の2つ。下の通話のアクセサリは縮めず、名前・状態・ミュート・切断（確認付き）を置く。アクセサリの面はOSのガラスで、ミュートと切断は記号だけ（円の面を足さない。ミュート中だけ赤い円）。</figcaption>
     </figure>
 
-    <!-- 新しい相手を招待：送信操作はキーボードの上に固定 -->
+    <!-- 相手を追加：保存操作はキーボードの上に固定 -->
     <figure>
       <div class="phone"><div class="screen form" style="display:flex;flex-direction:column">
         <div class="sbar" style="flex-shrink:0"><span>9:41</span><span class="island"></span><span></span></div>
-        <div class="navbar" style="justify-content:space-between;flex-shrink:0"><span class="link">キャンセル</span><b>新しい相手を招待</b><span></span></div>
+        <div class="navbar" style="justify-content:space-between;flex-shrink:0"><span class="link">キャンセル</span><b>相手を追加</b><span></span></div>
         <div class="body" style="flex:1;min-height:0;overflow:auto;padding:22px 14px 10px">
           <div class="group-h">相手の名前</div>
           <div class="group"><div class="row"><span class="field grow" style="color:var(--label2)">青いキツネ<span style="color:var(--accent)">｜</span></span></div></div>
           <p class="note" style="padding:0 6px">あなたの端末だけで使う名前です。空のままなら「青いキツネ」になります。相手には、相手が自分で決めた名前が表示されます。</p>
         </div>
-        <div style="padding:10px 14px;flex-shrink:0"><div class="btn prom"><svg class="i"><use href="#share"/></svg>招待を送る</div></div>
+        <div style="padding:10px 14px;flex-shrink:0"><div class="btn prom">保存</div></div>
         <div style="height:190px;flex-shrink:0;display:grid;place-items:center;background:var(--fill);color:var(--label2)">キーボード</div>
       </div></div>
-      <figcaption><b>新しい相手を招待（入力中）</b>名前と説明はスクロールし、「招待を送る」は画面の下端、入力中はキーボードの上に固定する。文字が大きくても、キーボードを閉じずに送れる。キーボードは領域だけを簡略表示。</figcaption>
+      <figcaption><b>相手を追加（入力中）</b>保存前は無書込。「保存」はキーボードの上に固定し、押した後は同じシートの保存済み詳細へ切り替える。共有せず保存できる。キーボードは領域だけを簡略表示。</figcaption>
     </figure>
 
-    <!-- 招待の詳細 -->
+    <!-- 保存済みの同じ相手：共有取消でもこの詳細へ戻る -->
     <figure>
-      <div class="phone"><div class="screen list-bg">
-        <div class="sbar"><span>9:41</span><span class="island"></span><span class="sys"><svg class="i"><use href="#antenna"/></svg><span class="bat"></span></span></div>
-        <div class="navbar" style="justify-content:flex-start"><span class="link" style="display:flex;align-items:center;gap:2px;font-size:14px"><svg class="i"><use href="#back"/></svg>ユーザー</span></div>
-        <div class="body" style="padding-top:6px">
-          <div class="glass card" style="margin-bottom:10px"><div class="kind"><svg class="i"><use href="#person"/></svg>あなたが送った招待</div><div class="dest">マキ</div><div class="status wait"><span class="spin"></span>受け取り待ち</div><div class="route" style="margin-top:4px">マキがこの招待を開いて受け入れると、ユーザーに加わります。</div></div>
-          <div class="btn prom" style="margin:4px 0"><svg class="i"><use href="#share"/></svg>もう一度送る</div>
-          <p class="note" style="padding:0 6px;margin:0 0 12px">マキに、同じ招待をもう一度送ります。</p>
-          <div class="group-h">呼び名</div>
-          <div class="group"><div class="row"><span class="grow">マキ<span style="color:var(--accent)">|</span></span></div></div>
-          <div class="ffoot">あなたの端末だけで使う名前です。空にすると、招待を作ったときの名前に戻ります。</div>
-          <div class="group"><div class="row"><span class="grow" style="color:var(--red)">招待を取り消す</span></div></div>
-        </div>
-        <div class="tabbar glass">
-          <div class="tab on"><svg class="i"><use href="#person2"/></svg>ユーザー</div>
-          <div class="tab"><svg class="i"><use href="#gear"/></svg>設定</div>
+      <div class="phone"><div class="screen form">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="navbar"><span class="link">完了</span></div>
+        <div class="body">
+          <div class="card"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><div class="dest">マキ</div><div class="status">未登録</div><p>相手が登録すると通話できます。</p></div>
+          <div class="btn prom"><svg class="i"><use href="#share"/></svg>招待を共有</div>
+          <p class="note">共有画面を閉じても、この詳細へ戻ります。相手の登録を確認するまで「未登録」です。</p>
         </div>
       </div></div>
-      <figcaption><b>招待の詳細</b>誰に対する何の操作かを1文ずつ示す。送った招待も、受け取った招待で返信が届かないときも同じ「もう一度送る」にし、誰に何を送るかはボタンの下の1文で示す。自動で届けている間は操作を出さない。呼び名はその場の入力欄で書き換える。送った側で相手を登録したら招待行とこの詳細を閉じ、返信待ちを残さない。受け手の未配送の返信は残し、配達確認後に閉じる。期限切れから新しい招待を作るときも呼び名を保つ。保存に失敗したら元の招待と名前をこの詳細に残して失敗を表示し、保存状態を再読込してから再試行する。</figcaption>
+      <figcaption><b>保存済みの相手の詳細</b>名前は保存で確定済み。共有を取り消しても、コピーしても、この同じ詳細と名前を保つ。「完了」で一覧へ戻り、後で同じ人を再び開ける。登録完了時も自動で閉じず、この詳細の状態だけを「登録済み」へ更新する。<a href="../招待と登録の設計.md#一連の操作の確認">一連の操作の確認</a>と対応する設計見本。</figcaption>
     </figure>
 
     <!-- グループ -->
@@ -1014,8 +1006,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ケンタ</span><span class="vi l0" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span><span class="tail"><span class="link">呼び出す</span></span></div>
           </div>
-          <div class="group-h">招待中</div>
-          <div class="group"><div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">マキ<div class="sub">受け取り待ち</div></span><svg class="i chev"><use href="#chev"/></svg></div></div>
+          <div class="group-h">ユーザー</div>
+          <div class="group"><div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">マキ<div class="sub">未登録</div></span><svg class="i chev"><use href="#chev"/></svg></div></div>
                 </div>
       </div></div>
       <figcaption><b>iPad・Mac（幅1000pt以上）</b>サイドバー＋一覧＋右の列の通話（<code>inspector</code>）。接続していない間は通話の列を出さない。幅が狭くなると通話はシートに変わる。Macは背景をOS標準にする（デザインシステム見本の「macOS」）。</figcaption>
