@@ -2103,6 +2103,7 @@
       }
     },
     "Delete Group?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -2528,16 +2529,6 @@
         }
       }
     },
-    "Group %@" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "グループ %@"
-          }
-        }
-      }
-    },
     "Group · %lld people" : {
       "localizations" : {
         "en" : {
@@ -2562,6 +2553,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "グループ・%lld人"
+          }
+        }
+      }
+    },
+    "Group %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループ %@"
           }
         }
       }
@@ -5613,6 +5614,7 @@
       }
     },
     "The group is removed from this device. If it is in a call, the call ends." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
