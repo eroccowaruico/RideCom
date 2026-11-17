@@ -5,8 +5,7 @@ import Testing
 
 @MainActor
 struct ContactInvitationSessionTests {
-    /// The first decisive experiment uses actual RTC adapters and Multipeer
-    /// discovery/authentication/application data. No auth event is injected.
+    /// Exercise Bonjour discovery, QUIC authentication and acceptance delivery through the RTC adapters.
     @Test(.timeLimit(.minutes(1)))
     func nativeControlOnlyReceivesAcceptanceFromPreviouslyUnknownPeer() async throws {
         let suffix = UUID().uuidString.prefix(8)

@@ -1,0 +1,51 @@
+# 近距離制御のQUIC移行
+
+## 通信方式の選定
+
+2026-11-02の追加依頼。Xcode 27 SDKでMultipeerConnectivity全体が非推奨となった（[TN3213](https://developer.apple.com/documentation/technotes/tn3213-moving-from-multipeer-connectivity-to-network-framework)。各APIは「Deprecated in iOS 27.0」、移行先はNetwork.framework）。同日に代替手段を調査し、利用者の回答で移行方針を決めた。
+
+移行前にMCSessionが担っていたのは、探索・招待、暗号化必須のsession、handshake・presence・操作のreliable配送だけだった。Local音声は当時からNetwork.frameworkのUDP（`includePeerToPeer = true`）で送っていた（[RTC仕様](../../spec/packages/RTC.md)）。TN3213は、Apple peer-to-peer Wi-FiがMultipeer専用ではなく、Network.frameworkからも使えることを明記している。移行後も、AP・セルラーがない屋外の近距離通話（[製品要求](../../requirements/製品要求.md)）を同じ無線で成立させる。実装はNetwork.frameworkの `NWListener`、`NWBrowser`、`NWConnection` を使う。
+
+| 代替手段 | 判断 |
+|---|---|
+| Network.framework＋peer-to-peer Wi-Fi | 採用。iOS/macOS両対応で、端末の組ごとのペアリングが不要。既存のUDP媒体と同じ基盤 |
+| Wi-Fi Aware＋DeviceDiscoveryUI | 第1段階は不採用。対応機種と端末の組ごとのペアリングが制約になる。[改善候補](../../backlog/改善候補.md#近距離通信の追加経路と統合)へ置く |
+| Core Bluetooth | 第1段階は不採用。音声主経路には帯域・距離・遅延が不足し得る。補助経路として後から検討する（[改善候補](../../backlog/改善候補.md#近距離通信の追加経路と統合)） |
+| Nearby Interaction、GameKit、SharePlay、インターネット共有 | 対象外。音声・制御のデータ経路にならない、Multipeer系の旧方式である、またはAP・Internet不在の要求を満たさない |
+
+| 論点 | 2026-11-02に決めた方針 |
+|---|---|
+| 制御protocol | QUICを使う。handshake・presence・操作をQUICのreliable streamへ移し、message境界はframingで保つ。64 KiBの受信上限など現行のLocal制約を引き継ぐ |
+| 暗号化と認証 | TLS-PKIを基本路線とする。端末ごとに一時的な自己署名identityを生成してmutual TLSを張る。相手証明書はTLS層の信頼評価では受け入れ、既存のgroup共有鍵によるhandshake MACへ証明書fingerprint等を含めて通信路へ束縛し、そこで認証する。Apple OSにidentityの生成APIがないため、生成は最小の自前実装とした（外部依存を増やさない。2026-11-17）。束縛は、handshakeのMACへ送信側・受信側の両方の証明書のfingerprintを含める方式とした（2026-11-17）。TLS-PSKは旧APIだけの機能で、TLS 1.3とQUICに対応しないため使わない |
+| 接続の形 | 届く相手とはすべて直接接続する部分メッシュとし、全員が直接届くことを前提にしない。隊列で先頭と最後尾が直接届かない場合も、既存の[重複破棄付き転送（最大8hop）](../../spec/packages/RTC.md#混在通話と経路)で中間の端末が中継する。特定の端末をserverにするclient-server構成は、その端末の離脱や隊列内の位置で全体が切れるため採らない。同じ相手との重複接続は広告名の比較で小さい側だけが発信し、既存の[招待競合の回避](../../spec/packages/RTC.md#近距離接続試行の競合回避)の辞書順を引き継ぐ |
+| 探索とプライバシー | 最低限とする。`NWListener`でBonjour serviceを広告し、TXTには現行と同じgroupHashを載せる。自動接続のため、service名には端末名を使わず通話世代ごとの識別子を使う。識別子のrotation等の追加対策は、利用規模・利用場所から現時点では行わない |
+| 音声 | 第1段階は既存の`_ride-audio._udp`のUDP媒体を維持し、UDP媒体用のnonceを新しい制御経路のhandshakeから渡す。QUIC datagramへの統合は[改善候補](../../backlog/改善候補.md#近距離通信の追加経路と統合)とする |
+| 旧版との互換 | 維持しない。Multipeer版と新版の混在通話は不可とし、同じ版同士で使う。利用者の操作・表示（Settingsの近距離ON/OFF、接続・切断、経路の表示）は変えない。設定・診断の経路識別子は`RouteKind.multipeer`を使用する |
+| 電力 | 第1段階はTN3213の基本どおりとする。通話停止で探索・listener・connectionを破棄し、途中参加・再発見のために通話中は探索を維持する現行の扱いを引き継ぐ。Bluetooth併用等の省電力・補助経路は後から検討する |
+
+## 経路の切り替え
+
+近距離経路の制御に `_ride-control._udp` を使用する。音声は認証した相手のnonceで `_ride-audio._udp` を解決する。QUICのidentity・handshake・探索の部品を確認した条件と結果は[RTC仕様](../../spec/packages/RTC.md#近距離の探索とquic制御)に記録した。
+
+AP・セルラーなしの屋外での相互通話、隊列の中継距離・移動・画面ロック・消費電力は[実機確認待ち](../実機確認待ち.md#iphone無線音声機器の確認)で追う。
+
+
+## 2026-11-17の検証
+
+- RTC単独でRTCTests 129件、RTCNativeWebRTCTests 4件が成功した。macOS上の実QUIC・UDPで同時探索、認証拒否、制御切断後の媒体資格の保持、別世代への切替、再認証、音声の双方向配送を確認した。80 byteの送信元IDでUDPを通す境界試験も成功した。
+- 仮想4端末の直線隊列では、全方向の音声が1回ずつ届き、中間端末の離脱で分断し、復帰後に自動で合流した。RTC単独でiOS Simulator・watchOS Simulator向けのビルドも成功した。
+- AppのLocal音声E2Eは、Macに入出力を兼ねる48 kHz機器が0台のため測定前に終了した。専用Simulatorを停止し、音声選択の復元工程は成功した。証跡は `.validation/audio-e2e-20261117-181332-723774/results.json`。その後、利用者が48 kHzの仮想入出力機器Loopback Audioを用意した。後続の測定では異なる発話を両端から送り、相手の波形との相関が自分の発話との相関を0.10超上回る条件で折り返しを除外する。
+
+### Appの招待・回帰と音声E2E
+
+| 実行 | 観測 |
+|---|---|
+| iPhone SimulatorのAppテスト | 8スイートで計58回成功。別に、実QUICで招待を受け、双方のUsersを保存して再読込するテストが24反復すべて成功した。証跡は `.validation/local-quic-ios-182154` と `.validation/local-quic-ios-nested-182422` |
+| macOS 27.2のApp全体 | 656件中654件成功、2件失敗。未登録者から招待の受諾を届けるテストと、双方のUsers保存・再読込のテストで、招待元の登録結果が空だった。証跡は `.validation/local-quic-app-macos-20261117/actual-summary.json` |
+| MacとiPhone SimulatorのLocal音声E2E | Loopback Audio（48 kHz）を使って両端でnative音声の開始に成功。Mac側で制御のBonjour探索が `NoAuth(-65555)` を返し、両端が認証待ちで時間切れとなった。測定は0件で、波形の同一性・欠落0・125 ms以内の判定には到達していない。Simulatorの音声選択を復元し、専用Simulatorの終了に成功した。証跡は `.validation/audio-e2e-20261117-182610-618879/results.tsv` と同じ場所の `measurements.json` |
+
+同じMacのAppテストホストでBonjourの4種のserviceを比較した。domain（既定／`local.`）、TXT取得、peer-to-peer、UDP parametersを変えた各16条件、計64条件の結果はserviceごとに一致した。`_ride-audio._udp` と旧 `_ride-intercom._tcp` は各16条件で探索開始（ready）、`_ride-control._udp` と旧 `_ride-intercom._udp` は各16条件で `NoAuth`。readyは探索を開始できたことを示す。OSのローカルネットワーク許可を設定し直し、実行ファイルのUUIDを変えた試行でも制御の探索拒否が続いた。証跡は `.validation/bonjour-comparison-mac-183405/comparison.log`、`.validation/quic-auth-after-reset-183945`、`.validation/quic-auth-no-stub-184027`。Macでの再開条件は[未確認事項](../未確認事項.md#macの近距離quic探索とapp音声e2e)で追う。
+
+Macの標準配置でも同一署名・同一bundle IDの検証用Appを試した。DerivedDataから実行したときはmDNSResponderが実行元のApp情報の取得時に OSStatus -5000 を記録した。`/Applications` 配下に同じAppを配置すると、OSが現行のBonjour宣言を読み取り、探索と広告は利用者の許可待ち（`pending`）へ進んだ。署名と検証用保存先を起動前に照合した。証跡は `.validation/quic-applications-host-184945/`。
+
+別々のiPhone Simulatorの2プロセスで実行した比較では、両端の事前試験各5件が成功した。両方の探索・広告でホストOSに許可待ちの記録があり、60秒以内に相互認証できず測定は0件だった。音声機器選択の復元、追加端末の削除、再利用端末の停止を確認した。証跡は `.validation/quic-two-iphones-20261117-184746/`。

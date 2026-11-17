@@ -19,7 +19,7 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.config = self.root / 'RideIntercom.xcodeproj/project.pbxproj'
         self.config.write_text('CURRENT_PROJECT_VERSION = 315;\nMARKETING_VERSION = 1.0;\nUNRELATED = keep;\n')
         self.source = self.root / 'RideIntercom/Info.plist'
-        self.metadata = {'UIBackgroundModes': ['audio'], 'NSBonjourServices': ['_ride-intercom._tcp'],
+        self.metadata = {'UIBackgroundModes': ['audio'], 'NSBonjourServices': ['_ride-control._udp', '_ride-audio._udp'],
                          'StorageNamespace': '$(RIDEINTERCOM_STORAGE_NAMESPACE)',
                          'RideIntercomAPNsEnvironment': '$(RIDEINTERCOM_APNS_ENVIRONMENT)',
                          'NSSupportsLiveActivities': True,

@@ -486,7 +486,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private static func routeDebugName(_ route: RTC.RouteKind?) -> String {
         switch route {
         case .multipeer:
-            "MultipeerLocalRoute"
+            "LocalCallRoute"
         case .webRTC:
             "WebRTCInternetRoute"
         case nil:

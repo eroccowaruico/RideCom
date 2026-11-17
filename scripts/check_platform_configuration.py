@@ -31,12 +31,14 @@ def target_configurations(project, name):
 
 def rtc_bonjour_services(root):
     """Derive the declarations from the service names RTC actually uses."""
-    rtc = root / 'RideIntercom/packages/RTC/Sources/RTC/Multipeer'
-    multipeer = re.search(r'static let serviceType = "([^"]+)"', (rtc / 'MultipeerLocalRoute.swift').read_text())
-    datagram = re.search(r'static let serviceType = "([^"]+)"', (rtc / 'LocalDatagramTransport.swift').read_text())
-    if multipeer is None or datagram is None: return None
-    # Multipeer browses/advertises its service type over both TCP and UDP Bonjour records.
-    return {f'_{multipeer[1]}._tcp', f'_{multipeer[1]}._udp', datagram[1]}
+    rtc = root / 'RideIntercom/packages/RTC/Sources/RTC/Local'
+    services = set()
+    for source in ('LocalControlTransport.swift', 'LocalDatagramTransport.swift'):
+        match = re.search(r'static let serviceType = "([^"]+)"', (rtc / source).read_text())
+        if match is None:
+            return None
+        services.add(match[1])
+    return services
 
 
 def target_settings(project, name):

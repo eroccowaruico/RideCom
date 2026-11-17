@@ -261,8 +261,7 @@ struct ContactInvitationPersistenceTests {
         #expect(b.viewModel.savedRemoteUsers.isEmpty)
         #expect(b.viewModel.acceptPresentedContactInvitation())
         #expect(b.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
-        // One native connection attempt can fail on its own (Multipeer then reports it after about ten
-        // seconds) and the route retries by itself. Wait long enough to see that retry succeed.
+        // Allow discovery, authentication and the route’s automatic retry to complete.
         let deadline = ContinuousClock.now + .seconds(45)
         while (a.viewModel.savedRemoteUsers.isEmpty || !b.viewModel.pendingContactInvitations.isEmpty), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))

@@ -98,7 +98,7 @@ snapshotの現在通話は閲覧中groupと分ける。表示状態は未ログ�
 | 通信とnative経路 | 相手の無音・packet欠落・省電力のための音声通信停止を、Watchのnative入出力経路の破棄と結び付けない。無音を出せる再生状態を維持し、次の受話で再初期化を要求しない。この条件と暗転中の受話継続、押下解除中の受話継続を回帰・実機受入で確認する |
 | 音声session | Watchでは[非同期activation](https://developer.apple.com/documentation/avfaudio/avaudiosession/activate(options:completionhandler:))の実完了を待つ。途中の終了・中断・新開始に古い完了を適用せず、設定変更のたびのactivationや周期的な再activationを設けない。指定できない周波数・バッファ長・出力先等は要求値と実適用を区別する |
 | 媒体と秘密 | WatchConnectivityは操作と接続準備に限定する。既存のNetwork UDP配送・音声packetを再利用し、認証・暗号化・鮮度破棄をpackageに閉じる。グループ鍵やアカウント資格は渡さず、現在のペアと通話だけに使う一時的な媒体資格を別の明示契約で扱う。一般の表示snapshotに秘密を追加しない |
-| 既存packageとの差 | 再利用対象はiPhone–Watch間のNetwork配送・PCM入出力であり、WatchへNative WebRTCやグループ通話を移植しない。既存moduleのMultipeer専用CFNetwork/socket処理と、Watch非対応のAudio Toolbox・Audio Unit処理を分離し、必要な処理だけをWatchで使える境界を確認する |
+| 既存packageとの差 | 再利用対象はiPhone–Watch間のNetwork配送・PCM入出力であり、WatchへNative WebRTCやグループ通話を移植しない。近距離グループ通話のQUIC制御とWatch非対応のAudio Toolbox・Audio Unit処理をWatchの音声デバイス経路から分離する |
 | 入出力と時計 | SessionManagerのcapture/render backend境界を使う。mix・エフェクト・VADはiPhoneに置き、Watch側にはAudioMixer graphを作らない。iPhoneで合成済みの単一音声をWatchへ送り、Watchは最小限の入出力・媒体codec・押下送話gateを持つ。iPhone側のmix時計とWatch側の再生時計の差・二重bufferを接続境界で検証し、出力callbackを転送できるだけで完了にしない |
 | Watchの遅延受入 | 通常端末に対して少なくとも約100ms追加する設計上の見込みを許容し、通常の約125ms総遅延ゲートを適用しない。iPhone経由・各通信段・codec・再生待ちの実測を分け、押して話すUIで許可状態と発話・受信の時間差が理解できることを確認する。固定100ms待ちを追加する実装にはしない |
 | codecと電池 | Apple標準AACを優先候補として公開APIによるdecodeを検証する。特定形式解析APIの不在とAAC全体の利用可否を区別する。Opusへの変更は十分な電池消費上の利点を比較して判断し、実機未測定の優位を採用根拠にしない |
