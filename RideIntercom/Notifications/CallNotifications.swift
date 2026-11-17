@@ -317,11 +317,12 @@ final class CallNotifications {
         }
     }
     func send(to contactID: UUID) async -> CallNotificationReply? {
-        guard !isBusy, let context = access(), let record = permission(contactID, context: context),
+        // Not held back by `isBusy`: grants are issued by themselves at launch and sign-in, and a notice
+        // that is sent once and never followed up must not be lost to that housekeeping.
+        guard let context = access(), let record = permission(contactID, context: context),
               let grant = record.sending, grant.isAddressed(to: record.peer, from: context.principal) else { return nil }
         let capability = grant.capability
-        let expected = generation; isBusy = true
-        defer { if generation == expected { isBusy = false } }
+        let expected = generation
         do {
             let reply = try await client.sendCallNotification(origin: context.origin, token: context.accessToken, capability: capability, requestID: UUID())
             guard current(context, generation: expected), permission(contactID, context: context)?.sending?.capability == capability else { return nil }

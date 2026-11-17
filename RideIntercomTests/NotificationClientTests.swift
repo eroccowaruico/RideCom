@@ -644,6 +644,25 @@ struct NotificationClientTests {
         #expect(NotificationHTTPStub.requests.allSatisfy { $0.httpMethod != "DELETE" }, "Nothing withdraws the notification")
     }
 
+    /// The notice is sent once and never followed up, so unrelated housekeeping must not swallow it.
+    @Test func aNoticeIsStillSentWhileAReceivingGrantIsBeingIssued() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        try fixture.notifications.receivePermission(.make(owner: fixture.peer, allowedSender: fixture.local, revision: 1,
+            grant: try testCallNotificationGrant(owner: fixture.peer, allowedSender: fixture.local), signer: fixture.peerSigner), peerID: "friend")
+        NotificationHTTPStub.response = String(decoding: try JSONEncoder().encode(
+            try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)), as: UTF8.self)
+        NotificationHTTPStub.echoCallStatus = .accepted
+        let gate = ManualAsyncGate(); NotificationHTTPStub.delayGate = gate
+        let issuing = Task { await fixture.notifications.setIncomingAllowed(true, contactID: fixture.user.id) }
+        await gate.waitForEntry()
+        NotificationHTTPStub.delayGate = nil
+        #expect(fixture.notifications.isBusy)
+        #expect(await fixture.notifications.send(to: fixture.user.id)?.status == .accepted)
+        await gate.release()
+        #expect(await issuing.value)
+        #expect(fixture.notifications.allowsIncoming(from: fixture.user.id))
+    }
+
     private func authenticateNotificationPeer(_ h: AppTestSupport.Harness, fixture: NotificationModelFixture) throws {
         h.callSession.authenticate(["friend"])
         let profile = try testPeerProfile(h.viewModel, peerID: "friend", displayName: "Friend", signer: fixture.peerSigner)
