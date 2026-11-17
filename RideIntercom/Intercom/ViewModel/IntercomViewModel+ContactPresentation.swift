@@ -64,9 +64,28 @@ extension IntercomViewModel {
 
     func dismissContactInvitationPresentation(expectedPresentationID: String? = nil) {
         guard expectedPresentationID == nil || contactInvitationPresentation?.id == expectedPresentationID else { return }
-        if case .some(.sharing(let id)) = contactInvitationPresentation, contactInvitationID == id {
-            stopContactInvitationSession()
-        }
+        if case .some(.sharing(let id)) = contactInvitationPresentation { contactInvitationSheetDidDisappear(id) }
+        contactInvitationPresentation = nil
+        contactInvitationMessage = nil
+    }
+
+    /// A completed registration disappears from the UI, but still answers duplicate receipts for the
+    /// remainder of the existing bounded exchange (or finishes the notification-permission exchange).
+    func contactInvitationSheetDidDisappear(_ id: UUID) {
+        guard contactInvitationID == id else { return }
+        if let record = groupRepository.contactInvitations.first(where: { $0.id == id }), contactInvitationIsComplete(record) { return }
+        stopContactInvitationSession()
+    }
+
+    func contactInvitationIsComplete(_ record: ContactInvitationRecord) -> Bool {
+        (record.direction == .outgoing && record.state == .confirmed)
+            || (record.direction == .incoming && record.state == .delivered)
+    }
+
+    func dismissCompletedContactInvitationPresentation() {
+        guard case .some(.sharing(let id)) = contactInvitationPresentation,
+              let record = groupRepository.contactInvitations.first(where: { $0.id == id }),
+              contactInvitationIsComplete(record) else { return }
         contactInvitationPresentation = nil
         contactInvitationMessage = nil
     }

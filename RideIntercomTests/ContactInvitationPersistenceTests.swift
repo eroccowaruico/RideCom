@@ -75,18 +75,36 @@ struct ContactInvitationPersistenceTests {
         #expect(a.viewModel.resumeContactInvitation(id))
         #expect(b.viewModel.resumeContactInvitation(id))
         defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
+        a.viewModel.showContactInvitation(id)
+        b.viewModel.showContactInvitation(id)
+        #expect(a.viewModel.contactInvitationPresentation != nil && b.viewModel.contactInvitationPresentation != nil)
         friendTransport.authenticate(["persist-author"])
         let receipt = try #require(friendTransport.sentApplicationDataMessages.last)
         authorTransport.authenticate(["persist-friend"])
         authorTransport.onEvent?(.receivedApplicationData(peerID: "persist-friend", message: receipt))
         #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
+        #expect(a.viewModel.pendingContactInvitations.isEmpty, "A saved person is no longer a pending invitation")
+        #expect(a.viewModel.contactInvitationPresentation == nil, "Registration closes the invitation detail")
+        #expect(b.viewModel.pendingContactInvitations.map(\.id) == [id], "Without the ACK the reply still needs delivery")
+        // The first ACK may be lost: closing the completed detail must retain the bounded listener.
+        a.viewModel.dismissContactInvitationPresentation(expectedPresentationID: "share-" + id.uuidString)
+        a.viewModel.contactInvitationSheetDidDisappear(id)
+        let sentBeforeRetry = authorTransport.sentApplicationDataMessages.count
+        authorTransport.onEvent?(.receivedApplicationData(peerID: "persist-friend", message: receipt))
+        #expect(authorTransport.sentApplicationDataMessages.count == sentBeforeRetry + 1)
         let ack = try #require(authorTransport.sentApplicationDataMessages.last)
         friendTransport.onEvent?(.receivedApplicationData(peerID: "persist-author", message: ack))
+        #expect(b.viewModel.contactInvitationPresentation == nil, "Delivered replies leave no stale detail")
         a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()
         let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
         #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
         #expect(reloadedB.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
         #expect(reloadedB.viewModel.pendingContactInvitations.isEmpty)
+        #expect(reloadedA.viewModel.pendingContactInvitations.isEmpty, "Restart does not resurrect a completed invitation row")
+        reloadedA.viewModel.showContactInvitation(id)
+        #expect(reloadedA.viewModel.contactInvitationPresentation == nil)
+        #expect(reloadedA.viewModel.groupRepository.contactInvitations.first { $0.id == id }?.state == .confirmed,
+                "Keep the binding for duplicate receipts without presenting it as pending")
         #expect(reloadedA.viewModel.regularGroups.isEmpty && reloadedB.viewModel.regularGroups.isEmpty)
         // The invitation alone completes the pair call: both sides already hold one
         // call key, so a nearby call needs no further exchange or Internet service.
@@ -254,8 +272,12 @@ struct ContactInvitationPersistenceTests {
         b.viewModel.contactSessionFactory = { RideIntercomCallSessionAdapter(memberID: friendID) }
         a.viewModel.enabledRTCTransportRoutes = [.multipeer]
         b.viewModel.enabledRTCTransportRoutes = [.multipeer]
+        #expect(!a.viewModel.hasInternetCredentials && !b.viewModel.hasInternetCredentials,
+                "Local invitation acceptance does not depend on Internet registration")
         defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
         let url = try #require(a.viewModel.makeContactInviteURL())
+        let invitationID = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation?.context.id)
+        a.viewModel.showContactInvitation(invitationID)
         #expect(a.viewModel.savedRemoteUsers.isEmpty)
         #expect(b.viewModel.previewContactInvitation(url))
         #expect(b.viewModel.savedRemoteUsers.isEmpty)
@@ -269,6 +291,8 @@ struct ContactInvitationPersistenceTests {
         #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]], "Actual RTC acceptance notification reaches the author's atomic registration")
         #expect(b.viewModel.pendingContactInvitations.isEmpty, "Actual acknowledgement completes the recipient's durable notification")
         #expect(b.viewModel.contactInvitationID == nil)
+        #expect(a.viewModel.pendingContactInvitations.isEmpty)
+        #expect(a.viewModel.contactInvitationPresentation == nil)
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
         #expect(a.callSession.startMediaCallCount == 0 && b.callSession.startMediaCallCount == 0)
         a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()

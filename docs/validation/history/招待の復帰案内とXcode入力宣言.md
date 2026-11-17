@@ -55,3 +55,26 @@
 | 定義 | 通信仕様・UI Stack・招待のMarkdown・HTML見本・マニュアルを一緒に更新。文書参照・String Catalog・diff・HTMLの主要コンテナを検査。HTMLの既存`watch` ID重複は変更前から存在し、今回の招待修正では増やしていない |
 
 通常APNs／UserNotificationsを前提とし、CallKit・VoIP Push・AppleのPushToTalk frameworkを使わない条件は維持した。今回の修正は期限切れ招待の保存境界であり、通知到着・実APNs・実機の共有／ロック／背景配送の受入を新たに成立させた結果ではない。HTMLのブラウザー描画、画面を開いたまま期限を迎える際の表示更新は今回の検証範囲に含めない。元の招待と新しい招待の共有手順は維持した。
+
+
+## 登録後に残る送信側の招待行と詳細
+
+2026-11-17、利用者が残るものを「送った側の招待行・返信待ち表示」と特定した。`pendingContactInvitations`が再送できる`outgoing/confirmed`を未完了として返し、Standardでは登録済みでも「返信を届けています」と表示していた。完了した`outgoing/confirmed`と`incoming/delivered`を未完了一覧から外し、対象の詳細も閉じる。ACK未配送の受け手のpendingは保持する。内部の送信側bindingを消さず、完了によるsheet閉鎖では既存の有限なACK再送／通知許可交換を止めない。通常通話・Usersから離れる・サインアウト・既存の通信期限で止める契約は維持した。
+
+| 検証 | 結果と証跡 |
+|---|---|
+| 変更前 | `.validation/contact-completion-red-20261117`。ディスク保存を使う1テストで6件の期待不一致。登録後の一覧・詳細、再起動後の行の復活、詳細を閉じた後のACK再送の喪失を再現 |
+| 最終Mac | `.validation/contact-completion-macos-final-20261117/app.xcresult`。招待5スイートと通知許可交換の計70定義成功。失敗・skip・runtime warningは0。Internet資格なし、Localだけの実QUICで受諾→双方の登録→送信側一覧と詳細の完了→ディスク再読込を確認 |
+| 最終iOS | `.validation/contact-completion-ios-final-20261117/ui.xcresult`。同じ70定義とUI3件の計73件成功。失敗・skip・runtime warningは0。UIはStandard英語の共有取消・Copy・再共有、日本語のpreview取消・明示受諾・再起動後の登録、Advancedの記録・操作を実画面で回帰 |
+| 保存とACK | 2つのViewModelとディスクを使い、最初のACKを渡さない→未配送の受け手は残る→送信側の詳細が閉じても重複receiptへACK→受け手も完了→両側再起動で完了済み行が復活しないことを確認。ACK再送用bindingは残す。接続／音声は開始しない |
+| ソースと資源 | 両最終runのSwift／entitlement入力が最終ソースと一致。標準配置の所有検証Appを回収し、所有iPhone 17 Pro Simulatorを終了 |
+| 定義と画像 | 通信仕様・Call UI Stack・一般／詳細のMarkdownとHTML・マニュアルを同時更新。文書参照・HTML IDと主要コンテナ・String Catalog・diff検査成功。共有後とAdvancedの添付画像を目視照合。正常完了の自動閉鎖自体はモデルとnative通信で確認し、両端の製品UIを同時操作した証拠とは分ける |
+
+調査前の観測は次のとおりで、報告の経緯を保持する。
+
+**同日の追加観測:** 利用者の現在のバージョンでは、招待応答がうまくいく場合もあるが、結局画面に何かが残るため状態の不整合が疑われる。「常に応答不能」とは断定せず、先の報告と成功する条件の両方を保持して再現する。残るものの種類・画面・操作段階・再現頻度と対象buildは未特定であり、招待待ちレコードやエラー等と決めつけない。
+
+処理結果と表示・保存状態を対応付け、応答が成功した場合には、その結果に応じて完了済みの表示や操作を整理し、未完了の待ち状態だけを残す。失敗・未配送の場合は続行に必要な状態を保持する。両端の画面を操作前後に記録し、成功直後・画面の開き直し・再起動後まで照合する。一度の成功だけで解消とせず、成功時にも残る表示の正体と不整合の原因を特定して受け入れる。
+
+
+通常APNs／UserNotificationsを前提に、CallKit・VoIP Push・AppleのPushToTalk frameworkを使わない条件を維持した。HTMLのブラウザー描画・実APNs・物理2端末の共有と背景動作は未受入。Internetなしの手動返信共有、送受信側の操作の明瞭化、同じ相手の招待状態の統合など招待の残課題へ引き続き対応し、招待全体を完了とはしていない。

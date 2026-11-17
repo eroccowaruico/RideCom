@@ -53,7 +53,7 @@ struct ContactInvitationSheet: View {
         // to close the share sheet otherwise lands on this sheet and closes both.
         .interactiveDismissDisabled(isCreating)
         .onDisappear {
-            if viewModel.contactInvitationID == invitationID { viewModel.stopContactInvitationSession() }
+            viewModel.contactInvitationSheetDidDisappear(invitationID)
         }
         #if os(macOS)
         .frame(minWidth: 360, idealWidth: 460, minHeight: 320)

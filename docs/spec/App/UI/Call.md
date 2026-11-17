@@ -51,6 +51,8 @@ Standard／AdvancedのUsers画面は別の構成を維持し、招待の保存�
 
 ### Contact招待のUIスタックと遷移
 
+`pendingContactInvitations`は未完了の受諾・返信と、再作成できる期限切れ招待だけを表示する。送信側で相手の保存が成功した`outgoing/confirmed`は、ACK再送用bindingを内部に保持していても招待行として表示しない。受け手の`incoming/pending`はACKが届くまで残し、`incoming/delivered`で外す。完了した対象の詳細は両モードで自動で閉じ、再表示・再起動で招待行へ戻さない。自動で閉じたsheetの`onDisappear`では、既存の有限なACK再送／通知許可交換を止めない。
+
 [UIスタック](../../../design/デザインシステム.md#uiスタック)の5状態を、既存の保存状態・通知所有ID・presentationから導出する。登録の成立と通知の配達は別に扱い、一端の表示から両端の登録完了を推測しない。
 
 | 状態 | 成立条件・表示 | 操作・遷移・復帰先 |
