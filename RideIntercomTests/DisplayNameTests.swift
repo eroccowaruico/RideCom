@@ -47,6 +47,22 @@ struct DisplayNameTests {
         #expect(vm.savedUsers.map(\.displayName) == ["Friend"])
     }
 
+    @Test func aNameThatCannotBeSavedAfterSignOutSaysSoInsteadOfBlamingTheName() throws {
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "local")
+        let vm = h.viewModel; defer { vm.disconnect() }
+        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+            groupID: UUID(), groupName: "Friends", groupSecret: "shared-group-key", inviterMemberID: "friend", inviterDisplayName: "Friend")
+        try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        let user = try #require(vm.savedUsers.first)
+        vm.accountSession.signOut()
+        let ended = "This sign-in has ended. Open your current account to continue."
+        #expect(!vm.setLocalDisplayName("Valid Name"))
+        #expect(vm.groupErrorMessage == ended)
+        vm.groupErrorMessage = nil
+        #expect(!vm.renameSavedUser(user.id, displayName: "Valid Name"))
+        #expect(vm.groupErrorMessage == ended)
+    }
+
     @Test func localNamePersistsAndIsSharedWithoutEndingTheCall() throws {
         let h = AppTestSupport.makeHarness(); let vm = h.viewModel
         defer { vm.disconnect() }

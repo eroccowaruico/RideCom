@@ -8,9 +8,8 @@ extension IntercomViewModel {
     @discardableResult
     func setLocalDisplayName(_ value: String) -> Bool {
         let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canStartCalls, IntercomGroup.isValidName(name) else {
-            groupErrorMessage = "Enter a valid display name."; return false
-        }
+        guard canStartCalls else { groupErrorMessage = groupStorageNotice; return false }
+        guard IntercomGroup.isValidName(name) else { groupErrorMessage = "Enter a valid display name."; return false }
         localMemberIdentityStore.saveDisplayName(name)
         localMemberIdentity.displayName = name
         localMemberIdentity.hasChosenName = true
