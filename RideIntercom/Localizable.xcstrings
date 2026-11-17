@@ -49,17 +49,6 @@
         }
       }
     },
-    "%@ hasn't chosen to receive call requests from this device." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@がこの端末からの呼び出しを受け取る設定になっていません"
-          }
-        }
-      }
-    },
     "%@ hasn't received your reply yet." : {
       "localizations" : {
         "ja" : {
@@ -420,17 +409,6 @@
         }
       }
     },
-    "Acceptance Notification" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "受諾の通知"
-          }
-        }
-      }
-    },
     "Accepting saves this person to Users. Your current call stays connected." : {
       "localizations" : {
         "ja" : {
@@ -503,17 +481,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アカウントの削除はまだ完了していません。削除を始めた端末で処理を終えてから、インターネット通話を設定し直してください。"
-          }
-        }
-      }
-    },
-    "Add me on RideCom." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RideComで私を連絡先に追加してください。"
           }
         }
       }
@@ -599,17 +566,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開発者向けの高度な設定"
-          }
-        }
-      }
-    },
-    "Advanced shows diagnostics and detailed settings (English only)." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "詳細表示では診断と細かな設定を表示します（英語のみ）。"
           }
         }
       }
@@ -706,17 +662,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この個別の接続に予定外の相手が加わったため、切断しました。"
-          }
-        }
-      }
-    },
-    "Answering starts your conversation." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "応答すると会話を始めます"
           }
         }
       }
@@ -1202,17 +1147,6 @@
         }
       }
     },
-    "Call Again" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "もう一度接続"
-          }
-        }
-      }
-    },
     "Call controls" : {
       "localizations" : {
         "en" : {
@@ -1278,17 +1212,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "通話の呼び出しを取り消しました。"
-          }
-        }
-      }
-    },
-    "Call requests do not connect automatically." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しを受けても、自動では接続しません。"
           }
         }
       }
@@ -1393,17 +1316,6 @@
         }
       }
     },
-    "Can't reach %@ with a call request" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@に呼び出しを届けられません"
-          }
-        }
-      }
-    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1446,17 +1358,6 @@
         }
       }
     },
-    "Cancel Ringing" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しを取り消す"
-          }
-        }
-      }
-    },
     "Cancel This Invitation?" : {
       "localizations" : {
         "ja" : {
@@ -1473,17 +1374,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この待機中の招待を取り消しますか？"
-          }
-        }
-      }
-    },
-    "Changing these settings can affect audio and connections." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "これらの設定を変更すると、音声や接続に影響することがあります。"
           }
         }
       }
@@ -1950,17 +1840,6 @@
         }
       }
     },
-    "Could not enable call requests. Try again." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しを受け取れるように設定できませんでした。もう一度お試しください。"
-          }
-        }
-      }
-    },
     "Could not finish the deletion record. Try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2119,17 +1998,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保存済みのインターネット通話アカウントを確認できませんでした。データは保持されています。設定からAppleでインターネット通話を接続し直して、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "Couldn't send the call request" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しを送れませんでした"
           }
         }
       }
@@ -2392,17 +2260,6 @@
         }
       }
     },
-    "Disconnect from %@ and connect to %@." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@との接続を切断して、%2$@に接続します。"
-          }
-        }
-      }
-    },
     "Disconnect from %@?" : {
       "localizations" : {
         "ja" : {
@@ -2549,17 +2406,6 @@
         }
       }
     },
-    "End Call?" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "切断しますか？"
-          }
-        }
-      }
-    },
     "End current call" : {
       "localizations" : {
         "ja" : {
@@ -2662,17 +2508,6 @@
         }
       }
     },
-    "Expires %@" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "有効期限：%@"
-          }
-        }
-      }
-    },
     "Get Started" : {
       "localizations" : {
         "ja" : {
@@ -2760,17 +2595,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "グループ"
-          }
-        }
-      }
-    },
-    "Groups and a call in progress are kept." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "グループと接続中の通話はそのまま残ります。"
           }
         }
       }
@@ -2942,17 +2766,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "インターネット接続"
-          }
-        }
-      }
-    },
-    "Internet connection is required to receive call requests." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しを受け取るにはインターネット接続が必要です。"
           }
         }
       }
@@ -3191,17 +3004,6 @@
         }
       }
     },
-    "Let Them Know Another Way" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ほかの方法で知らせる"
-          }
-        }
-      }
-    },
     "LEVEL %lld  PEAK %lld" : {
       "comment" : "A label that displays the current audio level and peak level. The first argument is the current audio level. The second argument is the peak audio level.",
       "isCommentAutoGenerated" : true,
@@ -3268,28 +3070,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "静かな場所"
-          }
-        }
-      }
-    },
-    "Manage" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "管理"
-          }
-        }
-      }
-    },
-    "Manage %@" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@を管理"
           }
         }
       }
@@ -3631,17 +3411,6 @@
         }
       }
     },
-    "No answer" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "応答がありませんでした"
-          }
-        }
-      }
-    },
     "No Groups Yet" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3743,17 +3512,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未設定"
-          }
-        }
-      }
-    },
-    "Not connected" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未接続"
           }
         }
       }
@@ -3862,17 +3620,6 @@
         }
       }
     },
-    "Notifications are not allowed in system settings." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "通知がシステム設定で許可されていません。"
-          }
-        }
-      }
-    },
     "Notifications are not ready on this device." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3977,17 +3724,6 @@
       "comment" : "A link to open the user's Apple Account.",
       "isCommentAutoGenerated" : true
     },
-    "Open Call" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "通話を開く"
-          }
-        }
-      }
-    },
     "Open call controls" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4052,17 +3788,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RideComを開くか、直近の通話を再開します。"
-          }
-        }
-      }
-    },
-    "Open Settings" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定を開く"
           }
         }
       }
@@ -4431,28 +4156,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "通話を始める"
-          }
-        }
-      }
-    },
-    "Receive Call Requests" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しを受け取る"
-          }
-        }
-      }
-    },
-    "Receive Calls from This Person" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この相手からの呼び出しを受け取る"
           }
         }
       }
@@ -4864,50 +4567,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RideComへの招待"
-          }
-        }
-      }
-    },
-    "Ring" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出す"
-          }
-        }
-      }
-    },
-    "Ring %@" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@を呼び出す"
-          }
-        }
-      }
-    },
-    "Ring Again" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "もう一度呼び出す"
-          }
-        }
-      }
-    },
-    "Ringing" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出し中"
           }
         }
       }
@@ -5347,17 +5006,6 @@
         }
       }
     },
-    "Setting up call requests." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼び出しの通知を設定しています。"
-          }
-        }
-      }
-    },
     "Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5397,50 +5045,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "招待を共有"
-          }
-        }
-      }
-    },
-    "Share Invitation" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "招待を共有"
-          }
-        }
-      }
-    },
-    "Share the group's invitation so the selected users can join. Selecting a user does not call or notify them. Deleting a saved user keeps existing groups and calls." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選んだ相手が参加できるよう、グループの招待を共有してください。選ぶだけでは呼び出しや通知は行いません。ユーザーを削除しても既存のグループと通話は残ります。"
-          }
-        }
-      }
-    },
-    "Share the invitation from More the first time. Your friend needs to open this call too; this does not send a notification." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "初回は「その他」から招待を共有してください。相手もこの通話を開く必要があります。この操作で通知は送信されません。"
-          }
-        }
-      }
-    },
-    "Sharing does not register a person. Their acceptance will identify them." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "共有だけでは相手は登録されません。相手が受け入れると、誰が受け入れたかを確認できます。"
           }
         }
       }
@@ -5853,45 +5457,12 @@
         }
       }
     },
-    "Stop Ringing" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取り消す"
-          }
-        }
-      }
-    },
     "Stops retries on this device. A link already shared may still be accepted until it expires." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "この端末での再試行を停止します。共有済みのリンクは、有効期限まで相手が受け入れられる場合があります。"
-          }
-        }
-      }
-    },
-    "Switch" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "切り替える"
-          }
-        }
-      }
-    },
-    "Switch connection?" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "接続を切り替えますか？"
           }
         }
       }
@@ -6479,17 +6050,6 @@
         }
       }
     },
-    "Touch and hold a member to rename or remove them." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メンバーを長押しすると、名前の変更と削除ができます。"
-          }
-        }
-      }
-    },
     "Transmit Codec" : {
       "comment" : "A section header for the transmit codec settings.",
       "isCommentAutoGenerated" : true
@@ -6512,28 +6072,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "もう一度試す"
-          }
-        }
-      }
-    },
-    "Try again where you have a connection." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "通信できる場所でもう一度お試しください"
-          }
-        }
-      }
-    },
-    "Turn this on to receive call requests on this device." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ONにすると、仲間からの呼び出しをこの端末で受け取ります。"
           }
         }
       }
@@ -6991,17 +6529,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RideComへようこそ"
-          }
-        }
-      }
-    },
-    "When %@ chooses you, your conversation starts." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@が選ぶと会話を始めます"
           }
         }
       }
