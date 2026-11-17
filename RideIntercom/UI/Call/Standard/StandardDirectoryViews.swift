@@ -29,6 +29,7 @@ struct StandardUsersView: View {
                     } label: {
                         if user.isRegistered {
                             DirectoryRowLabel(title: user.resolvedDisplayName, isGroup: false,
+                                              detail: user.needsNameConfirmation ? String(localized: "Their name: \(user.displayName)") : nil,
                                               status: viewModel.isInCall(with: .user(user.id)) ? viewModel.callStatus(for: viewModel.activeGroupID) : nil)
                         } else {
                             StandardInvitationRow(name: user.resolvedDisplayName, state: "Not registered", isSending: false)

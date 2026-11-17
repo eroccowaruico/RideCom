@@ -282,7 +282,7 @@ struct ContactInvitationPersistenceTests {
         defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
         a.viewModel.beginContactInvitationPresentation()
         guard case .person(let personID) = a.viewModel.contactInvitationPresentation else { Issue.record("Expected person"); return }
-        #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner"))
+        #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner", usesProvisionalName: true))
         let bytes = try await InvitationShare(viewModel: a.viewModel, contactPersonID: personID).exported(as: .url)
         let url = try await URL(importing: bytes, contentType: .url)
         #expect(a.viewModel.savedRemoteUsers.isEmpty)
@@ -306,6 +306,10 @@ struct ContactInvitationPersistenceTests {
         #expect(a.viewModel.contactInvitationPresentation == .person(personID))
         #expect(a.viewModel.savedRemoteUsers.map(\.id) == [personID])
         #expect(a.viewModel.directoryUsers.count == 1 && a.viewModel.unlinkedContactInvitations.isEmpty)
+        let namedPerson = try #require(a.viewModel.contactPerson(personID))
+        #expect(namedPerson.needsNameConfirmation)
+        #expect(a.viewModel.resolveContactPersonName(namedPerson, useSharedName: false))
+        #expect(a.viewModel.contactPerson(personID)?.needsNameConfirmation == false)
         a.viewModel.dismissContactInvitationPresentation()
         #expect(a.viewModel.contactInvitationPresentation == nil)
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
@@ -314,6 +318,7 @@ struct ContactInvitationPersistenceTests {
         let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
         #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]])
         #expect(reloadedA.viewModel.directoryUsers.map(\.id) == [personID])
+        #expect(reloadedA.viewModel.directoryUsers.first?.usesProvisionalName == false)
         #expect(reloadedB.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
         #expect(reloadedA.viewModel.regularGroups.isEmpty && reloadedB.viewModel.regularGroups.isEmpty)
         #expect(reloadedB.viewModel.pendingContactInvitations.isEmpty)

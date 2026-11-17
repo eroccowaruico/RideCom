@@ -88,4 +88,21 @@ struct ContactNameChoiceTests {
         #expect(throws: (any Error).self) { try GroupSnapshot(users: [person]).encoded() }
     }
 
+    @Test func uiFixtureIsAccountScopedAndNeverResetsAPersistedChoice() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "name-review-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = UUID(), scope = "RideIntercom.Validation.NameChoice"
+        #expect(throws: (any Error).self) { try AppleAccountFixture.processContactNameFixture(id.uuidString, namespace: "RideIntercom", applicationSupport: root) }
+        #expect(!FileManager.default.fileExists(atPath: root.path))
+        try AppleAccountFixture.processContactNameFixture(id.uuidString, namespace: scope, applicationSupport: root)
+        let directory = root.appending(path: AppleAccountSession.storageNamespace(base: scope, userID: AppleAccountFixture.userID)).appending(path: "Groups")
+        let store = FileGroupStore(directory: directory)
+        var saved = try #require(try store.read())
+        #expect(saved.users.first?.needsNameConfirmation == true)
+        saved.users[0].usesProvisionalName = false
+        try store.lock(); try store.commit(saved); store.unlock()
+        try AppleAccountFixture.processContactNameFixture(id.uuidString, namespace: scope, applicationSupport: root)
+        #expect(try store.read()?.users.first?.usesProvisionalName == false)
+    }
+
 }

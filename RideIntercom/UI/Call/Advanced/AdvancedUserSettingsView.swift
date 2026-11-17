@@ -7,15 +7,20 @@ struct AdvancedUserSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var confirmsDelete = false
+    @State private var nameChoiceSaved = false
 
     init(viewModel: IntercomViewModel, user: SavedUser) {
         self.viewModel = viewModel; self.user = user
-        _name = State(initialValue: user.resolvedDisplayName)
+        _name = State(initialValue: user.localName ?? "")
     }
 
     private var currentUser: SavedUser { viewModel.savedUsers.first { $0.id == user.id } ?? user }
     /// Deleting the person ends a call with them, so the confirmation says so.
     private var endsCall: Bool { viewModel.isInCall(with: .user(user.id)) }
+
+    private var typed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var hasUncommittedNameEdit: Bool { typed != (currentUser.localName ?? "") }
 
     var body: some View {
         NavigationStack {
@@ -24,12 +29,19 @@ struct AdvancedUserSettingsView: View {
                 if currentUser.isRegistered {
                 LabeledContent("Name shared by this person", value: currentUser.displayName)
                     .accessibilityIdentifier("savedUserOriginalName")
+                if !currentUser.needsNameConfirmation && currentUser.localName != nil {
                 Button("Use Shared Name") {
                     if viewModel.resetSavedUserName(user.id) { dismiss() }
                 }
                 .accessibilityIdentifier("resetUserNameButton")
                 Text("Your name for this person stays on this device. Use Shared Name removes your edit and follows their name updates.").font(.footnote)
                 }
+                }
+                AdvancedContactNameConfirmation(viewModel: viewModel, person: currentUser,
+                    allowsConfirmation: !hasUncommittedNameEdit, onResolved: { useShared in
+                        name = useShared ? "" : (currentUser.localName ?? "")
+                        nameChoiceSaved = true
+                    })
                 if let call = viewModel.existingDirectCall(for: user.id), viewModel.canShareGroup(call.id) {
                     Section {
                         CallInvitationButton(viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton",
@@ -58,14 +70,20 @@ struct AdvancedUserSettingsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.accessibilityIdentifier("closeUserSettingsButton")
+                    Button(nameChoiceSaved && !hasUncommittedNameEdit ? "Done" : "Cancel") { dismiss() }
+                        .accessibilityIdentifier("closeUserSettingsButton")
                 }
+                if !nameChoiceSaved || hasUncommittedNameEdit {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        if viewModel.renameSavedUser(user.id, displayName: name) { dismiss() }
+                        let saved = typed.isEmpty || typed == currentUser.displayName
+                            ? viewModel.resetSavedUserName(user.id)
+                            : viewModel.renameSavedUser(user.id, displayName: typed)
+                        if saved { dismiss() }
                     }
-                    .disabled(!IntercomGroup.isValidName(name))
+                    .disabled(!typed.isEmpty && !IntercomGroup.isValidName(typed))
                     .accessibilityIdentifier("saveUserNameButton")
+                }
                 }
             }
         }

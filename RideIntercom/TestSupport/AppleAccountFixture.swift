@@ -25,6 +25,12 @@ enum AppleAccountFixture {
                 preconditionFailure("Local saved-group recovery fixture failed: \(error)")
             }
         }
+        if mode == "signed-in", let raw = environment["RIDEINTERCOM_CONTACT_NAME_FIXTURE"] {
+            do {
+                try processContactNameFixture(raw, namespace: namespace,
+                    applicationSupport: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+            } catch { preconditionFailure("Local contact-name fixture failed: \(error)") }
+        }
         if let raw = environment["RIDEINTERCOM_INTERFACE_FIXTURE"], let layout = InterfaceMode(rawValue: raw) {
             let scoped = UserDefaults(suiteName: AppleAccountSession.storageNamespace(base: namespace, userID: userID))!
             scoped.set(layout.rawValue, forKey: "RideIntercom.settings.interfaceMode")
@@ -80,6 +86,30 @@ enum AppleAccountFixture {
                       return try Data(contentsOf: path) == corruptGroupBytes
                   }) else { throw RecoveryFailure.verificationFailed }
         }
+    }
+
+    /// Seeds a saved, verified-format person for UI interaction only. The native invitation tests
+    /// independently exercise receipt delivery; this fixture never replaces that transport evidence.
+    static func processContactNameFixture(_ raw: String, namespace: String, applicationSupport: URL) throws {
+        guard namespace.range(of: #"^RideIntercom\.Validation\.[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil,
+              let id = UUID(uuidString: raw) else { throw RecoveryFailure.invalidScope }
+        let root = applicationSupport.resolvingSymlinksInPath()
+        let account = root.appending(path: AppleAccountSession.storageNamespace(base: namespace, userID: userID))
+        let directory = account.appending(path: "Groups")
+        for path in [account, directory, directory.appending(path: "groups.json")] {
+            guard path.resolvingSymlinksInPath().standardizedFileURL.path == path.standardizedFileURL.path else { throw RecoveryFailure.unsafePath }
+        }
+        let store = FileGroupStore(directory: directory)
+        try store.lock(); defer { store.unlock() }
+        var snapshot = try store.read() ?? GroupSnapshot()
+        guard !snapshot.users.contains(where: { $0.id == id }) else { return }
+        let suffix = String(id.uuidString.prefix(6)), peer = "name-review-" + id.uuidString
+        let key = IdentityEncoding.encode(P256.Signing.PrivateKey().publicKey.x963Representation)
+        snapshot.users.append(SavedUser(id: id, displayName: "Maki " + suffix, memberIDs: [peer],
+            localName: "A Generated Name " + suffix, deviceKeys: [peer: key], usesProvisionalName: true))
+        snapshot.generation = UUID()
+        try store.commit(snapshot)
+        guard try store.read() == snapshot else { throw RecoveryFailure.verificationFailed }
     }
 
     private final class FixtureKeychain: KeychainSecretStoring {

@@ -49,6 +49,20 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | `contactInvitationPreview` | URLの署名・期限・宛先を検証し、本人名と登録・拒否の効果を表示する。URLを開くだけではユーザー／pending／署名鍵を保存しない |
 | `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、Usersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
 
+### 登録後の呼び名の確認
+
+[仮名から本人名への選択](../../../design/招待と登録の設計.md#仮名から本人名への選択)に従う。空欄保存時だけ`usesProvisionalName=true`を渡す。本人名を取得した同じ人の`needsNameConfirmation`を表示条件とし、文字列の形式では推測しない。
+
+| UI・状態 | 表示・操作・保存 |
+|---|---|
+| Standardの未確認 | 同じ行に「Their name: {本人名}」。タップは既存の接続開始のまま。詳細・相手の設定内に旧名と本人名、「Use Their Name」「Keep This Name」。新しい画面を自動で開かず通話を止めない |
+| Advancedの実装値 | 詳細・相手の設定に`usesProvisionalName`（true／false／nil）、`needsNameConfirmation`をそのまま表示。`Use Shared Name`／`Keep Local Name`を同じ保存処理へ接続。確認中は従来のリセット操作を重ねない |
+| 確認操作 | `useContactPeerNameButton`／`keepContactLocalNameButton`は表示した両名を再検証してatomic保存。同じ人・シートを保ち、確認を消す。前者は`localName=nil`、後者は現名を保持し、どちらも確認済みを保存 |
+| 設定で保存済み | 選択直後は「Done」のみ。入力は実際の`localName`で、nilは空欄・本人名をプレースホルダーにする。新たな文字編集がある場合だけ「Cancel」「Save」へ戻し、2択を隠す。空欄または本人名そのもののSaveは本人名への追従とする |
+| Partial／再表示 | 選ばず閉じても元の仮名と未確認を保ち、再表示・再起動で続ける。明示編集済み・由来不明の旧データは自動確認しない |
+| Error | 保存失敗・確認中の名前変更は元の名前を保ち、その場で再確認・再試行。別人や新しい編集へ古い選択を適用しない |
+| Ideal／Empty／Loading | 選択後は同じ確認を繰り返さない。未登録・本人名未取得では確認なし。ローカル保存に独立Loadingやtimerを作らない |
+
 ### Contact招待のUIスタックと遷移
 
 | 状態 | 成立条件・表示 | 操作・復帰先 |

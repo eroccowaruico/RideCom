@@ -96,7 +96,7 @@ private struct ContactPersonCreation: View {
         .formStyle(.grouped)
         .safeAreaBar(edge: .bottom) {
             Button("Save") {
-                if viewModel.saveContactPerson(personID, name: effectiveName) {
+                if viewModel.saveContactPerson(personID, name: effectiveName, usesProvisionalName: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     nameFocused = false
                     onSaved()
                 }

@@ -19,6 +19,7 @@ struct AdvancedContactPersonDetail: View {
                 field("principal", person.principal?.userID ?? "nil")
                 Button("User Settings") { editsName = true }
             } header: { Text(verbatim: "SavedUser") }
+            AdvancedContactNameConfirmation(viewModel: viewModel, person: person)
             ForEach(viewModel.contactPersonInvitations(presentationPersonID)) { record in
                 AdvancedContactInvitationContent(viewModel: viewModel, record: record)
             }

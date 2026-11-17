@@ -8,6 +8,7 @@ struct StandardUserSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var confirmsDelete = false
+    @State private var nameChoiceSaved = false
 
     init(viewModel: IntercomViewModel, user: SavedUser) {
         self.viewModel = viewModel
@@ -20,6 +21,8 @@ struct StandardUserSettingsView: View {
     /// Deleting the person ends a call with them, so the confirmation says so.
     private var endsCall: Bool { viewModel.isInCall(with: .user(user.id)) }
     private var typed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var hasUncommittedNameEdit: Bool { typed != (current.localName ?? "") }
 
     var body: some View {
         NavigationStack {
@@ -34,6 +37,11 @@ struct StandardUserSettingsView: View {
                         .accessibilityIdentifier("savedUserOriginalName")
                 }
                 }
+                StandardContactNameConfirmation(viewModel: viewModel, person: current,
+                    allowsConfirmation: !hasUncommittedNameEdit, onResolved: { useShared in
+                        name = useShared ? "" : (current.localName ?? "")
+                        nameChoiceSaved = true
+                    })
                 StandardContactReplyStatus(viewModel: viewModel, personID: user.id)
                 if let message = viewModel.groupErrorMessage {
                     Section { Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger) }
@@ -59,12 +67,15 @@ struct StandardUserSettingsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.accessibilityIdentifier("closeUserSettingsButton")
+                    Button(nameChoiceSaved && !hasUncommittedNameEdit ? "Done" : "Cancel") { dismiss() }
+                        .accessibilityIdentifier("closeUserSettingsButton")
                 }
+                if !nameChoiceSaved || hasUncommittedNameEdit {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
                         .disabled(!typed.isEmpty && !IntercomGroup.isValidName(typed))
                         .accessibilityIdentifier("saveUserNameButton")
+                }
                 }
             }
         }

@@ -22,6 +22,7 @@ struct StandardContactPersonDetail: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppSpacing.s)
             }
+            StandardContactNameConfirmation(viewModel: viewModel, person: person)
             if person.isRegistered {
                 Section("Their Own Name") { Text(verbatim: person.displayName).foregroundStyle(.secondary) }
             }
