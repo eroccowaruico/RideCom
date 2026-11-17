@@ -194,13 +194,17 @@ final class AdaptiveInterfaceUITests: XCTestCase {
 
     /// In landscape the bars and the call accessory leave a short visible band.
     /// Scroll in small steps toward the row so it stops inside the band instead of
-    /// overshooting under the navigation bar.
+    /// overshooting under the navigation bar. A row under the call accessory still
+    /// reports hittable, but a tap there opens the call, so the row must clear it.
     @MainActor private func revealInSettings(_ element: XCUIElement) {
         // The developer sub-page is its own Form without the Settings root identifier.
         let root = app.descendants(matching: .any)["settingsScrollView"].firstMatch
         let form = root.exists ? root : app.collectionViews.firstMatch
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
-            let below = !element.exists || element.frame.midY > form.frame.midY
+        let accessory = app.buttons["callAccessoryOpenButton"].firstMatch
+        let bandBottom = accessory.exists ? accessory.frame.minY : form.frame.maxY
+        func isInBand() -> Bool { element.exists && element.isHittable && element.frame.maxY <= bandBottom }
+        for _ in 0..<24 where !isInBand() {
+            let below = !element.exists || element.frame.maxY > bandBottom
             let from = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.5 : 0.35))
             let to = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.35 : 0.5))
             from.press(forDuration: 0.3, thenDragTo: to)

@@ -497,28 +497,32 @@ final class RideIntercomUITests: XCTestCase {
         app.buttons["closeSavedUsersButton"].tap()
     }
 
+    /// Advanced marks the implementation's default in the option's own label.
+    private let aacELD = "AAC-ELD (Default)"
+    private let defaultSampleRate = "48 kHz (Default)"
+
     @MainActor
     func testAACBitrateChoicesSurviveCodecSwitches() {
         openSettingsTab()
         let scroll = app.descendants(matching: .any)["settingsScrollView"].firstMatch
         let codec = app.segmentedControls.containing(.button, identifier: "PCM 16-bit").firstMatch
-        for _ in 0..<8 where !codec.buttons["AAC-ELD"].isHittable { scroll.swipeUp() }
+        for _ in 0..<8 where !codec.buttons[aacELD].isHittable { scroll.swipeUp() }
         XCTAssertTrue(app.staticTexts["transmitCodecLabel"].exists)
         XCTAssertTrue(app.staticTexts["rtcAudioSampleRateLabel"].exists)
-        codec.buttons["AAC-ELD"].tap()
-        let format = app.segmentedControls.containing(.button, identifier: "48 kHz").firstMatch
-        for (sampleRate, rates) in [("48 kHz", [32, 48, 64, 80, 96, 112, 128]), ("24 kHz", [16, 32, 48, 64]), ("16 kHz", [48])] {
+        codec.buttons[aacELD].tap()
+        let format = app.segmentedControls.containing(.button, identifier: defaultSampleRate).firstMatch
+        for (sampleRate, rates) in [(defaultSampleRate, [32, 48, 64, 80, 96, 112, 128]), ("24 kHz", [16, 32, 48, 64]), ("16 kHz", [48])] {
             format.buttons[sampleRate].tap()
             for otherCodec in ["PCM 16-bit", "Opus", "PCM 16-bit"] {
                 codec.buttons[otherCodec].tap()
-                codec.buttons["AAC-ELD"].tap()
+                codec.buttons[aacELD].tap()
                 let bitrate = app.buttons["aacELDBitRatePicker"].firstMatch
                 XCTAssertTrue(bitrate.waitForExistence(timeout: 3))
                 bitrate.tap()
                 attachScreen("AAC menu \(sampleRate) after \(otherCodec)")
                 func label(_ rate: Int) -> String {
-                    let lowerQuality = (sampleRate == "48 kHz" && rate == 32) || (sampleRate == "24 kHz" && rate == 16)
-                    return "\(rate) kbps" + (lowerQuality ? " (Lower Quality)" : "")
+                    let lowerQuality = (sampleRate == defaultSampleRate && rate == 32) || (sampleRate == "24 kHz" && rate == 16)
+                    return "\(rate) kbps" + (lowerQuality ? " (Lower Quality)" : "") + (rate == 48 ? " (Default)" : "")
                 }
                 for rate in [16, 32, 48, 64, 80, 96, 112, 128] {
                     XCTAssertEqual(app.buttons[label(rate)].firstMatch.exists, rates.contains(rate), "\(sampleRate): \(rate) kbps after \(otherCodec)")
@@ -528,7 +532,7 @@ final class RideIntercomUITests: XCTestCase {
                 XCTAssertTrue(bitrate.label.contains(label(selectedRate)) || (bitrate.value as? String)?.contains(label(selectedRate)) == true)
             }
         }
-        format.buttons["48 kHz"].tap()
+        format.buttons[defaultSampleRate].tap()
     }
 
     @MainActor
@@ -538,7 +542,7 @@ final class RideIntercomUITests: XCTestCase {
         let codec = app.segmentedControls.containing(.button, identifier: "PCM 16-bit").firstMatch
         for _ in 0..<8 where !codec.buttons["Opus"].isHittable { scroll.swipeUp() }
         codec.buttons["Opus"].tap()
-        let format = app.segmentedControls.containing(.button, identifier: "48 kHz").firstMatch
+        let format = app.segmentedControls.containing(.button, identifier: defaultSampleRate).firstMatch
         let bitrate = app.steppers["opusBitRateStepper"].firstMatch
         revealSettingsControl(bitrate)
         XCTAssertTrue(bitrate.waitForExistence(timeout: 3))
@@ -547,7 +551,7 @@ final class RideIntercomUITests: XCTestCase {
             XCTAssertTrue(value.contains("\(rate) kbps"), value)
             XCTAssertEqual(value.contains("Lower Quality"), lowQuality)
         }
-        for sampleRate in ["48 kHz", "24 kHz", "16 kHz"] {
+        for sampleRate in [defaultSampleRate, "24 kHz", "16 kHz"] {
             format.buttons[sampleRate].tap()
             for _ in 0..<53 where !(bitrate.value as? String ?? "").contains("24 kbps") {
                 bitrate.buttons["opusBitRateStepper-Decrement"].tap()
@@ -564,7 +568,7 @@ final class RideIntercomUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts["opusLowBandwidthExplanation"].exists)
             attachScreen("Opus manual choices \(sampleRate)")
         }
-        format.buttons["48 kHz"].tap()
+        format.buttons[defaultSampleRate].tap()
     }
 
     @MainActor
@@ -584,8 +588,9 @@ final class RideIntercomUITests: XCTestCase {
             option.tap()
             expect(picker, title)
         }
-        expect(regular, "3 hours")
-        expect(watch, "5 minutes")
+        // Start from the marked defaults: a run that failed part-way leaves its choices saved.
+        select(regular, "3 hours (Default)")
+        select(watch, "5 minutes (Default)")
         select(regular, "15 minutes")
         expect(watch, "5 minutes")
         select(watch, "1 minute")
@@ -597,8 +602,8 @@ final class RideIntercomUITests: XCTestCase {
         expect(regular, "15 minutes")
         expect(watch, "1 minute")
         attachScreen("Independent call disconnection timers")
-        select(regular, "3 hours")
-        select(watch, "5 minutes")
+        select(regular, "3 hours (Default)")
+        select(watch, "5 minutes (Default)")
     }
 
     @MainActor
