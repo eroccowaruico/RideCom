@@ -77,11 +77,27 @@ extension IntercomViewModel {
                           self.contactInvitationID == id else { throw ContactInvitationError.unavailable }
                     try self.groupRepository.completeContactNotification(id)
                     self.refreshGroupStorageStatus()
-                    self.stopContactInvitationSession()
+                    // Registration is complete. The exchange stays only as long as the two notification
+                    // permissions need, and not at all when this device cannot take part.
+                    if self.notifications.canUseNotifications { self.closeContactInvitation(id, after: self.contactPermissionExchangeDuration) }
+                    else { self.stopContactInvitationSession() }
                 }, confirm: { _, _ in
                     // Explicit acceptance is committed atomically before restore.
                     throw ContactInvitationError.unavailable
                 })
+            session.onRegisteredPeerAlone = { [weak self, weak session] peerID in
+                guard let self, let session else { return }
+                self.shareNotificationPermission(with: peerID, over: session, invitationID: id, access: access)
+            }
+            session.onNotificationPermission = { [weak self, weak session] peerID, message in
+                guard let self, let session, self.accountAccessID == access, self.contactInvitationID == id,
+                      let value = message.decodedPayload(CallNotificationPermissionMessage.self, from: peerID) else { return }
+                // An unverifiable permission authorizes nothing; the first one-to-one connection shares it again.
+                guard (try? self.notifications.receivePermission(value, peerID: peerID)) != nil else { return }
+                self.contactPermissionExchange.received = true
+                self.finishContactPermissionExchange(id, session: session)
+            }
+            contactPermissionExchange = (false, false)
             contactInvitationID = id
             contactInvitationSession = session
             try session.restore(payload)
@@ -90,21 +106,51 @@ extension IntercomViewModel {
             let remaining = Duration.seconds(max(0, record.expiresAt - callAccessNow().timeIntervalSince1970))
             let attempt = min(.seconds(60), max(.zero, contactNotificationAttemptDuration))
             let delay = min(remaining, attempt)
-            contactInvitationExpiryTask = Task { [weak self] in
-                do { try await Task.sleep(for: delay) } catch { return }
-                guard let self, self.contactInvitationID == id else { return }
-                self.stopContactInvitationSession()
-                do {
-                    try self.groupRepository.removeExpiredContactInvitations(now: self.callAccessNow().timeIntervalSince1970)
-                    self.refreshGroupStorageStatus()
-                } catch { self.contactInvitationMessage = "Could not update this invitation. Try again." }
-            }
+            closeContactInvitation(id, after: delay)
             return true
         } catch {
             stopContactInvitationSession()
             contactInvitationMessage = "This invitation could not be resumed. Try again."
             return false
         }
+    }
+
+    private func closeContactInvitation(_ id: UUID, after delay: Duration) {
+        contactInvitationExpiryTask?.cancel()
+        contactInvitationExpiryTask = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, self.contactInvitationID == id else { return }
+            self.stopContactInvitationSession()
+            do {
+                try self.groupRepository.removeExpiredContactInvitations(now: self.callAccessNow().timeIntervalSince1970)
+                self.refreshGroupStorageStatus()
+            } catch { self.contactInvitationMessage = "Could not update this invitation. Try again." }
+        }
+    }
+
+    /// The two people have just saved each other and are alone in the exchange: share the permission to
+    /// notify now, so the first call can already reach them (otherwise it is shared at the first
+    /// one-to-one connection). The grant is issued here when it does not exist yet.
+    private func shareNotificationPermission(with peerID: String, over session: ContactInvitationSession,
+                                             invitationID id: UUID, access: UUID) {
+        Task { [weak self, weak session] in
+            await self?.notifications.allowEveryContact()
+            guard let self, let session, !session.isStopped, self.accountAccessID == access, self.contactInvitationID == id,
+                  let signer = try? self.internetSettingsStore.invitationSigner(memberID: self.localMemberIdentity.memberID),
+                  let value = try? self.notifications.permissionMessage(for: peerID, signer: signer),
+                  let payload = try? JSONEncoder().encode(value),
+                  session.sendNotificationPermission(payload) else { return }
+            self.contactPermissionExchange.sent = true
+            self.finishContactPermissionExchange(id, session: session)
+        }
+    }
+
+    /// The person who accepted has nothing left to do once both permissions have crossed. The inviter
+    /// keeps listening for the rest of the attempt, as before.
+    private func finishContactPermissionExchange(_ id: UUID, session: ContactInvitationSession) {
+        guard contactInvitationID == id, session.isAcknowledged,
+              contactPermissionExchange.sent, contactPermissionExchange.received else { return }
+        stopContactInvitationSession()
     }
 
     /// Saves the name the inviter gives the person before sending. Blank clears it.

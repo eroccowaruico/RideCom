@@ -663,6 +663,43 @@ struct NotificationClientTests {
         #expect(fixture.notifications.allowsIncoming(from: fixture.user.id))
     }
 
+    /// The first call should already be able to notify: the two permissions cross while the people
+    /// are registering each other, without waiting for a first one-to-one connection.
+    @Test func registeringSomeoneSharesThePermissionToNotifyOverTheInvitationExchange() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let h = notificationHarness(fixture); defer { h.viewModel.disconnect() }
+        let exchange = RecordingCallSession()
+        h.viewModel.contactSessionFactory = { exchange }
+        defer { h.viewModel.stopContactInvitationSession() }
+        NotificationHTTPStub.response = String(decoding: try JSONEncoder().encode(
+            try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)), as: UTF8.self)
+        let url = try #require(h.viewModel.makeContactInviteURL())
+        let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
+        let accepted = try token.accept(signer: fixture.peerSigner, displayName: "Friend", contactBootstrap: true)
+        exchange.authenticate(["friend"])
+        exchange.onEvent?(.receivedApplicationData(peerID: "friend", message: .init(namespace: DirectInvitationReceipt.namespace,
+            payload: try JSONEncoder().encode(accepted.receipt))))
+        func shared() -> ApplicationDataMessage? {
+            exchange.sentApplicationDataMessages.last { $0.namespace == CallNotificationPermissionMessage.namespace }
+        }
+        await AppTestSupport.waitUntil { shared() != nil }
+        let mine = try JSONDecoder().decode(CallNotificationPermissionMessage.self, from: try #require(shared()).payload)
+        #expect(mine.grant != nil && mine.owner == fixture.local && mine.allowedSender == fixture.peer)
+        #expect(fixture.notifications.allowsIncoming(from: fixture.user.id))
+
+        #expect(!fixture.notifications.canNotify(fixture.user.id))
+        let theirs = try CallNotificationPermissionMessage.make(owner: fixture.peer, allowedSender: fixture.local, revision: 1,
+            grant: try testCallNotificationGrant(owner: fixture.peer, allowedSender: fixture.local), signer: fixture.peerSigner)
+        exchange.authenticate(["friend", "stranger"])
+        exchange.onEvent?(.receivedApplicationData(peerID: "friend", message: .init(namespace: CallNotificationPermissionMessage.namespace,
+            payload: try JSONEncoder().encode(theirs))))
+        #expect(!fixture.notifications.canNotify(fixture.user.id), "Not while anyone else is in the exchange")
+        exchange.authenticate(["friend"])
+        exchange.onEvent?(.receivedApplicationData(peerID: "friend", message: .init(namespace: CallNotificationPermissionMessage.namespace,
+            payload: try JSONEncoder().encode(theirs))))
+        #expect(fixture.notifications.canNotify(fixture.user.id))
+    }
+
     private func authenticateNotificationPeer(_ h: AppTestSupport.Harness, fixture: NotificationModelFixture) throws {
         h.callSession.authenticate(["friend"])
         let profile = try testPeerProfile(h.viewModel, peerID: "friend", displayName: "Friend", signer: fixture.peerSigner)

@@ -24,6 +24,13 @@ final class ContactInvitationSession {
     private(set) var isConfirmed = false
     private(set) var isAcknowledged = false
     private(set) var failure: Error?
+    /// The person this exchange registered, once both sides have saved each other: the invitee after the
+    /// inviter bound their receipt, the inviter after their acknowledgement arrived.
+    private(set) var registeredPeerID: String?
+    /// The registered person is the only one connected: now, and again whenever they reconnect.
+    var onRegisteredPeerAlone: ((String) -> Void)?
+    /// A notification permission from the registered person, while they are the only one connected.
+    var onNotificationPermission: ((String, ApplicationDataMessage) -> Void)?
 
     init(transport: CallSession, authority: DirectInvitationAuthority, signer: DeviceIdentitySigner,
          displayName: String, trust: DeviceIdentityTrust? = nil,
@@ -68,6 +75,7 @@ final class ContactInvitationSession {
                       try authority.verify(receipt, trust: trust, now: now()) != nil else { throw GroupStorageError.identityConflict }
                 boundReceipt = receipt
                 isConfirmed = true
+                registeredPeerID = receipt.inviteeMemberID
             }
             issued = token
         } else {
@@ -111,6 +119,20 @@ final class ContactInvitationSession {
         issued = nil; received = nil; boundReceipt = nil; peers = []
     }
 
+    private var registeredPeerIsAlone: Bool { registeredPeerID.map { peers == [$0] } ?? false }
+    private func announceRegisteredPeer() {
+        if !isStopped, registeredPeerIsAlone, let registeredPeerID { onRegisteredPeerAlone?(registeredPeerID) }
+    }
+
+    /// Application data reaches everyone in the rendezvous, and an invitation link may have been passed
+    /// on. A personal permission is sent only while the registered person is the only one connected.
+    @discardableResult
+    func sendNotificationPermission(_ payload: Data) -> Bool {
+        guard !isStopped, registeredPeerIsAlone, payload.count <= 8192 else { return false }
+        transport.sendApplicationData(.init(namespace: CallNotificationPermissionMessage.namespace, payload: payload))
+        return true
+    }
+
     /// Retry uses the same signed receipt. No media lifecycle is involved.
     func retry() {
         guard !isStopped, let pending = received, !pending.token.isExpired(now: now()),
@@ -130,7 +152,14 @@ final class ContactInvitationSession {
             case .authenticated(let members):
                 peers = Set(members.filter { $0.isConnected }.map { $0.peer.id.rawValue })
                 retry()
+                announceRegisteredPeer()
             case .receivedApplicationData(let peer, let message):
+                if message.namespace == CallNotificationPermissionMessage.namespace {
+                    if registeredPeerIsAlone, peer == registeredPeerID, message.payload.count <= 8192 {
+                        onNotificationPermission?(peer, message)
+                    }
+                    return
+                }
                 guard message.namespace == DirectInvitationReceipt.namespace, message.payload.count <= 8192,
                       peers.contains(peer), let receipt = message.decodedPayload(DirectInvitationReceipt.self, from: peer),
                       receipt.invitation?.contactBootstrap == true else { return }
@@ -146,9 +175,11 @@ final class ContactInvitationSession {
                         else { try confirm(verified.identity, receipt.displayName) }
                         boundReceipt = receipt
                         isConfirmed = true
+                        registeredPeerID = peer
                     }
                     send(try receipt.acknowledged(by: signer))
                     failure = nil
+                    announceRegisteredPeer()
                 } else if let pending = received {
                     guard !pending.token.isExpired(now: now()), receipt.kind == .acknowledged,
                           peer == pending.token.inviterMemberID, !isAcknowledged,
@@ -162,7 +193,9 @@ final class ContactInvitationSession {
                                          memberID: peer, trust: trust, now: Date(timeIntervalSince1970: now()))
                     try acknowledged?()
                     isAcknowledged = true
+                    registeredPeerID = peer
                     failure = nil
+                    announceRegisteredPeer()
                 }
             default: break
             }

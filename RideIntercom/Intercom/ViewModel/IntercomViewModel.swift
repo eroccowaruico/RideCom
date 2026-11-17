@@ -23,6 +23,9 @@ final class IntercomViewModel {
     var contactInvitationID: UUID?
     @ObservationIgnored var contactInvitationExpiryTask: Task<Void, Never>?
     @ObservationIgnored var contactNotificationAttemptDuration: Duration = .seconds(60)
+    /// How long the person who accepted keeps the exchange open for the two notification permissions.
+    @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
+    @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
     var contactInvitationRevision = UUID()
     var contactInvitationPresentation: ContactInvitationPresentation?
     var contactInvitationMessage: String?

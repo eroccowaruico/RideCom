@@ -107,4 +107,42 @@ struct ContactInvitationSessionSafetyTests {
         #expect(pair.author.isConfirmed)
         #expect(pair.author.failure == nil)
     }
+
+    /// The permission is personal, the rendezvous is not: an invitation link may have been passed on.
+    @Test func notificationPermissionTravelsOnlyBetweenTheTwoRegisteredPeopleWhileTheyAreAlone() throws {
+        let pair = Pair(); defer { pair.stop() }
+        var authorAlone: [String] = [], friendAlone: [String] = [], received: [String] = []
+        pair.author.onRegisteredPeerAlone = { authorAlone.append($0) }
+        pair.friend.onRegisteredPeerAlone = { friendAlone.append($0) }
+        pair.friend.onNotificationPermission = { peer, _ in received.append(peer) }
+        let permission = ApplicationDataMessage(namespace: CallNotificationPermissionMessage.namespace, payload: Data([1]))
+        let (_, receipt) = try pair.prepare()
+        #expect(!pair.friend.sendNotificationPermission(Data([1])), "Not before the inviter has saved this person")
+        pair.friendTransport.onEvent?(.receivedApplicationData(peerID: "safety-author", message: permission))
+        #expect(received.isEmpty)
+
+        pair.authorTransport.authenticate(["safety-friend"])
+        pair.deliver(receipt)
+        #expect(authorAlone == ["safety-friend"])
+        let ack = try #require(pair.authorTransport.sentApplicationDataMessages.last)
+        pair.friendTransport.onEvent?(.receivedApplicationData(peerID: "safety-author", message: ack))
+        #expect(friendAlone == ["safety-author"])
+
+        #expect(pair.author.sendNotificationPermission(Data([1])))
+        #expect(pair.authorTransport.sentApplicationDataMessages.last == permission)
+        pair.friendTransport.onEvent?(.receivedApplicationData(peerID: "safety-author", message: permission))
+        #expect(received == ["safety-author"])
+
+        pair.authorTransport.authenticate(["safety-friend", "safety-stranger"])
+        #expect(!pair.author.sendNotificationPermission(Data([1])), "Never with anyone else in the rendezvous")
+        pair.friendTransport.authenticate(["safety-author", "safety-stranger"])
+        pair.friendTransport.onEvent?(.receivedApplicationData(peerID: "safety-author", message: permission))
+        pair.friendTransport.onEvent?(.receivedApplicationData(peerID: "safety-stranger", message: permission))
+        #expect(received == ["safety-author"])
+
+        pair.authorTransport.authenticate(["safety-friend"])
+        #expect(authorAlone == ["safety-friend", "safety-friend"], "Offered again when they are alone again")
+        pair.author.stop()
+        #expect(!pair.author.sendNotificationPermission(Data([1])))
+    }
 }
