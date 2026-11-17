@@ -20,6 +20,33 @@ struct DisplayNameTests {
         #expect(vm.groupStorageIssue == nil)
     }
 
+    @Test func anInvitationWithoutANameKeepsTheKnownNameOfItsAuthor() throws {
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "local")
+        let vm = h.viewModel; defer { vm.disconnect() }
+        vm.contactSessionFactory = { RecordingCallSession() }
+        func invitation(_ group: String, name: String?, contact: Bool = false) throws -> URL {
+            let secret = Data(repeating: UInt8(group.count), count: 32).base64EncodedString()
+            let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+                groupID: UUID(), groupName: group, groupSecret: secret, inviterMemberID: "friend", inviterDisplayName: name,
+                contactBootstrap: contact ? true : nil)
+            return try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: contact ? true : nil)
+        }
+        try vm.acceptInviteURL(invitation("Friends", name: "Friend"))
+        vm.disconnect()
+
+        try vm.acceptInviteURL(invitation("Club", name: nil))
+        vm.disconnect()
+        #expect(vm.savedUsers.map(\.displayName) == ["Friend"])
+        #expect(vm.groups.first { $0.name == "Club" }?.members.map(\.displayName).last == "Friend")
+
+        let contact = try invitation("Contact Invitation", name: nil, contact: true)
+        #expect(vm.previewContactInvitation(contact))
+        guard case .some(.accepting(let preview)) = vm.contactInvitationPresentation else { Issue.record("No preview"); return }
+        #expect(preview.inviterName == "Friend")
+        #expect(vm.acceptPresentedContactInvitation())
+        #expect(vm.savedUsers.map(\.displayName) == ["Friend"])
+    }
+
     @Test func localNamePersistsAndIsSharedWithoutEndingTheCall() throws {
         let h = AppTestSupport.makeHarness(); let vm = h.viewModel
         defer { vm.disconnect() }

@@ -82,6 +82,11 @@ final class GroupRepository {
         return .init(groupID: id, secret: secret)
     }
 
+    /// The inviter's own name wins; the name already saved for them fills in for an invitation that carries none.
+    func inviterName(for token: GroupInviteToken) -> String {
+        token.inviterDisplayName ?? users.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName ?? "Inviter"
+    }
+
     func save(_ groups: [IntercomGroup]) throws { try update(groups, credential: nil) }
     func save(_ groups: [IntercomGroup], credential: GroupAccessCredential, acceptedInvitation: AcceptedDirectInvitation? = nil, inviterName: String? = nil) throws {
         let previousGroupIDs = Set(snapshot?.groups.map(\.id) ?? [])
@@ -392,7 +397,7 @@ extension GroupRepository {
             return
         }
         let payload = ContactInvitationPayload(token: token, receipt: accepted.receipt)
-        let inviter = GroupMember(id: accepted.inviter.memberID, displayName: token.inviterDisplayName ?? "Inviter")
+        let inviter = GroupMember(id: accepted.inviter.memberID, displayName: inviterName(for: token))
         let call = try contactDirectCall(with: inviter, localDisplayName: localDisplayName, token: token,
                                          groups: try snapshot.groups.map { try $0.group() })
         try update(call.groups, credential: call.credential) { next in

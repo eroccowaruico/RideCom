@@ -292,9 +292,7 @@ extension IntercomViewModel {
             groupErrorMessage = "You both created a call invitation. Share this call's invitation so you use the same call."
             return nil
         }
-        // The inviter's own name wins; a saved name fills in for an invitation that carries none.
-        let inviterName = token.inviterDisplayName
-            ?? savedUsers.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName ?? "Inviter"
+        let inviterName = groupRepository.inviterName(for: token)
         if let existing, previous?.secret == token.groupSecret {
             do {
                 try groupRepository.acceptInvitation(accepted, inviterName: inviterName, retainingMemberIDs: Set(currentRepresentativeProfiles.keys))
@@ -338,7 +336,7 @@ extension IntercomViewModel {
             updated.insert(group, at: 0)
         }
         do {
-            try groupRepository.save(updated, credential: .init(groupID: token.groupID, secret: token.groupSecret), acceptedInvitation: accepted, inviterName: token.inviterDisplayName ?? "Inviter")
+            try groupRepository.save(updated, credential: .init(groupID: token.groupID, secret: token.groupSecret), acceptedInvitation: accepted, inviterName: inviterName)
             refreshGroupStorageStatus()
         }
         catch {
