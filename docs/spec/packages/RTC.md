@@ -138,6 +138,20 @@ DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなく配
 | 停止 | delegateを外して探索・sessionを停止。停止済み・別sessionの遅延callbackを拒否 |
 | 理由 | SimulatorのDisconnect UIでBonjour `_MonitorCancel` / `_netServiceMonitorCallBack` がEXC_BAD_ACCESSとなった。sessionも含むnative資源の寿命をcallback側run loopと揃える |
 
+## 近距離制御のQUIC移行の準備
+
+[近距離制御のMultipeerからの移行](../../backlog/未実装課題.md#近距離制御のmultipeerからの移行)の最初の部品である。経路にはまだ接続しておらず、現行の近距離制御はMultipeerのままである。watchOSでは使わない。
+
+| 部品 | 契約 |
+|---|---|
+| `SelfSignedCertificate` | P-256の鍵で署名した最小のX.509証明書（v3、common nameだけ、ECDSA with SHA-256、有効期間は作成の1時間前から2日後まで）を作る。外部の依存を使わない |
+| `LocalControlIdentity` | 鍵と証明書から`SecIdentity`を作る。Apple OSに鍵と証明書から直接identityを作る公開APIがないため、PKCS#12の入れ物（鍵はPBES2で暗号化、SHA-1のMAC）をメモリ上で組み立てて`SecPKCS12Import`で取り込む。Keychainへ書かず、後始末も要らない（macOSは`kSecImportToMemoryOnly`）。入れ物のパスワードは形式を満たすためだけの使い捨てで、何も保護しない。証明書のSHA-256を`fingerprint`として公開する |
+| `LocalControlTLS` | QUIC（ALPN `ride-control`、TLS 1.3）のparametersを作る。双方が自分のidentityを提示し（mutual TLS）、相手の証明書は内容を問わず受け入れて、そのfingerprintを呼び出し側へ渡す。相手が誰かは証明書では決めず、後段のgroup共有鍵のhandshakeで決める（未実装）。peer-to-peer Wi-Fiを含め、セルラーは使わない |
+
+確かめたこと: 証明書をOSが解析でき、自分自身をanchorにした検証が有効期間内だけ成功する。identityの秘密鍵で署名した値を証明書の公開鍵で検証できる。同じ端末上で2つのidentityがQUICのstreamを開き、双方向にデータが届き、互いに相手のfingerprintを得る（macOSとiPhone Simulator）。
+
+実装で分かった制約: 鍵を暗号化しない入れ物では、`SecPKCS12Import`は証明書だけを返しidentityを作らない。QUICの`NWListener`は接続を`newConnectionGroupHandler`のgroupで受け取り、streamはそのgroupから受け取る（`newConnectionHandler`だけを設定すると、readyになるがデータを受け取らない接続が返る）。Keychainを経由する方法は、package単独のテストのプロセスでは権限がなく使えない。
+
 ## ネットワーク診断の契約
 
 | 情報 | 所有者・意味 | 未取得・限界 |
