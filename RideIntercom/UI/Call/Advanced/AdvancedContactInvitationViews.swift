@@ -5,7 +5,7 @@ struct AdvancedInvitationsSection: View {
     let viewModel: IntercomViewModel
 
     var body: some View {
-        let records = viewModel.pendingContactInvitations
+        let records = viewModel.unlinkedContactInvitations
         if !records.isEmpty {
             Section {
                 ForEach(records) { record in
@@ -48,14 +48,23 @@ private struct AdvancedInvitationRow: View {
 struct AdvancedContactInvitationDetail: View {
     let viewModel: IntercomViewModel
     let record: ContactInvitationRecord
+    var body: some View {
+        Form { AdvancedContactInvitationContent(viewModel: viewModel, record: record) }.formStyle(.grouped)
+    }
+}
+
+struct AdvancedContactInvitationContent: View {
+    let viewModel: IntercomViewModel
+    let record: ContactInvitationRecord
     @State private var confirmsCancellation = false
 
     private var stopsRetrying: Bool { record.state == .confirmed }
 
     var body: some View {
-        Form {
+        Group {
             Section {
                 field("id", record.id.uuidString.lowercased())
+                field("personID", record.personID?.uuidString.lowercased() ?? "nil")
                 field("direction", record.direction.rawValue)
                 field("state", record.state.rawValue)
                 field("canResume", String(record.canResume))
@@ -72,7 +81,7 @@ struct AdvancedContactInvitationDetail: View {
                 if let message = viewModel.contactInvitationMessage { Text(LocalizedStringKey(message)) }
             }
             Section {
-                if record.direction == .outgoing && record.state == .pending {
+                if record.personID == nil && record.direction == .outgoing && record.state == .pending {
                     ShareLink(item: InvitationShare(viewModel: viewModel, contactInvitationID: record.id),
                               subject: Text("RideCom Invite"), preview: SharePreview(Text("RideCom Invite"))) {
                         Label("Share Again", systemImage: "square.and.arrow.up")
@@ -90,7 +99,6 @@ struct AdvancedContactInvitationDetail: View {
                 }
             }
         }
-        .formStyle(.grouped)
         .alert(stopsRetrying ? "Stop Retrying Notification?" : "Cancel This Pending Invitation?", isPresented: $confirmsCancellation) {
             Button(stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation", role: .destructive) {
                 _ = viewModel.cancelPresentedContactInvitation(record.id)
@@ -105,6 +113,7 @@ struct AdvancedContactInvitationDetail: View {
     private func field(_ name: String, _ value: String) -> some View {
         LabeledContent {
             Text(verbatim: value).font(.caption.monospaced()).textSelection(.enabled)
+                .accessibilityIdentifier("contactInvitationField-\(name)")
         } label: {
             Text(verbatim: name).font(.subheadline.monospaced())
         }

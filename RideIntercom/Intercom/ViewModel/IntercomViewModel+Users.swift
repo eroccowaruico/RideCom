@@ -97,7 +97,7 @@ extension IntercomViewModel {
     func renameSavedUser(_ id: UUID, displayName: String) -> Bool {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
-        guard savedRemoteUsers.contains(where: { $0.id == id }), IntercomGroup.isValidName(name) else {
+        guard directoryUsers.contains(where: { $0.id == id }), IntercomGroup.isValidName(name) else {
             groupErrorMessage = "Enter a valid display name."
             return false
         }

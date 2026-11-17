@@ -68,6 +68,8 @@ final class AppCallOwner: CallSurfaceActions {
 
     func refreshAccountForForeground() async {
         account.reloadSavedSignIn()
+        synchronizeAccountModel()
+        viewModel?.resumeSuspendedContactInvitation()
         await account.refresh()
         synchronizeAccountModel()
         guard let model = viewModel, model.hasCurrentAccountAccess else { return }

@@ -3,19 +3,16 @@ import Foundation
 extension IntercomViewModel {
     func beginContactInvitationPresentation() {
         contactInvitationMessage = nil
-        guard let url = makeContactInviteURL(),
-              let token = try? GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true),
-              let id = token.directInvitation?.context.id else {
-            contactInvitationMessage = "Could not save this invitation. Try again."
-            return
-        }
-        contactInvitationPresentation = .sharing(id)
+        guard canEditSavedGroups else { return }
+        contactInvitationPresentation = .person(UUID())
     }
 
     func showContactInvitation(_ id: UUID) {
         guard canEditSavedGroups, pendingContactInvitations.contains(where: { $0.id == id }) else { return }
         contactInvitationMessage = nil
-        contactInvitationPresentation = .sharing(id)
+        if let person = contactInvitationRecord(id)?.personID, contactPerson(person) != nil {
+            contactInvitationPresentation = .person(person)
+        } else { contactInvitationPresentation = .sharing(id) }
     }
 
     /// Preview verifies the author without creating a local signing key, user,
@@ -106,18 +103,26 @@ extension IntercomViewModel {
         return url
     }
 
+    private func presentsContactInvitation(_ id: UUID) -> Bool {
+        switch contactInvitationPresentation {
+        case .sharing(let presented): return presented == id
+        case .person(let person): return contactPersonInvitations(person).contains { $0.id == id }
+        default: return false
+        }
+    }
+
     func retryPresentedContactInvitation(_ id: UUID) {
-        guard case .some(.sharing(let presented)) = contactInvitationPresentation, presented == id else { return }
+        guard presentsContactInvitation(id) else { return }
         contactInvitationMessage = nil
         _ = resumeContactInvitation(id)
     }
 
     @discardableResult
     func cancelPresentedContactInvitation(_ id: UUID) -> Bool {
-        guard case .some(.sharing(let presented)) = contactInvitationPresentation, presented == id else { return false }
+        guard presentsContactInvitation(id) else { return false }
         do {
             try cancelContactInvitation(id)
-            contactInvitationPresentation = nil
+            if case .sharing = contactInvitationPresentation { contactInvitationPresentation = nil }
             contactInvitationMessage = nil
             return true
         } catch {

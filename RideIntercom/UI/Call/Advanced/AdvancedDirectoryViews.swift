@@ -11,16 +11,17 @@ struct AdvancedUsersView: View {
             CurrentCallSection(viewModel: viewModel, selectedTab: $selectedTab)
             CallStorageSection(viewModel: viewModel)
             Section {
-                if viewModel.savedRemoteUsers.isEmpty {
+                if viewModel.directoryUsers.isEmpty {
                     ContentUnavailableView("No Saved Users", systemImage: "person.2",
                         description: Text("Invite someone, or accept an invitation to save each other."))
                 }
-                ForEach(viewModel.savedRemoteUsers) { user in
+                ForEach(viewModel.directoryUsers) { user in
                     Button {
-                        viewModel.open(.user(user.id)) { selectedTab = .call }
+                        if user.isRegistered { viewModel.open(.user(user.id)) { selectedTab = .call } }
+                        else { viewModel.showContactPerson(user.id) }
                     } label: {
                         AdvancedRecordRow(title: user.resolvedDisplayName, value: userValue(user),
-                                          detail: "Name shared by this person: \(user.displayName)",
+                                          detail: user.isRegistered ? "Name shared by this person: \(user.displayName)" : "memberIDs [] · principal nil",
                                           state: viewModel.isInCall(with: .user(user.id))
                                               ? viewModel.callStatus(for: viewModel.activeGroupID).title : nil)
                     }
@@ -33,9 +34,9 @@ struct AdvancedUsersView: View {
                     }
                 }
             } header: {
-                Text(verbatim: "Saved Users \(viewModel.savedRemoteUsers.count)")
+                Text(verbatim: "Saved Users \(viewModel.directoryUsers.count)")
             } footer: {
-                Text("Only direct invitations save a person here. Removing a saved user also removes their direct group and ends a call with them. Regular groups keep them.")
+                Text("Saved names may have no identity yet. Direct invitations register a person. Removing a saved user also removes their direct group and ends a call with them. Regular groups keep them.")
             }
             AdvancedInvitationsSection(viewModel: viewModel)
             CallErrorSection(viewModel: viewModel)
@@ -44,7 +45,7 @@ struct AdvancedUsersView: View {
         .navigationTitle("Users")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Invite Someone", systemImage: "plus") { viewModel.beginContactInvitationPresentation() }
+                Button("Add Person", systemImage: "plus") { viewModel.beginContactInvitationPresentation() }
                     .disabled(!viewModel.canEditSavedGroups)
                     .accessibilityIdentifier("inviteContactButton")
             }

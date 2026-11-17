@@ -1,0 +1,102 @@
+import Foundation
+
+extension IntercomViewModel {
+    /// An open sheet can resolve a newly identified duplicate to the already saved person without
+    /// replacing its presentation identity or losing the current screen.
+    func contactPerson(_ id: UUID) -> SavedUser? {
+        _ = contactInvitationRevision
+        if let user = directoryUsers.first(where: { $0.id == id }) { return user }
+        guard let peer = groupRepository.contactInvitations.first(where: { $0.personID == id && $0.state == .confirmed })?.peerMemberID else { return nil }
+        return savedRemoteUsers.first { $0.memberIDs.contains(peer) }
+    }
+
+    func showContactPerson(_ id: UUID) {
+        guard canEditSavedGroups, contactPerson(id) != nil else { return }
+        contactInvitationMessage = nil
+        contactInvitationPresentation = .person(id)
+    }
+
+    @discardableResult
+    func saveContactPerson(_ id: UUID, name: String) -> Bool {
+        guard canEditSavedGroups, contactInvitationPresentation == .person(id) else { return false }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard IntercomGroup.isValidName(name) else {
+            contactInvitationMessage = "Enter a valid display name."
+            return false
+        }
+        do {
+            try groupRepository.saveContactPerson(id, name: name)
+            refreshGroupStorageStatus()
+            contactInvitationMessage = nil
+            return true
+        } catch {
+            reportGroupStorageError(error)
+            contactInvitationMessage = "Could not save this person. Try again."
+            return false
+        }
+    }
+
+    func contactPersonInvitations(_ id: UUID) -> [ContactInvitationRecord] {
+        _ = contactInvitationRevision
+        let members = contactPerson(id)?.memberIDs ?? []
+        return groupRepository.contactInvitations.filter {
+            $0.personID == id || ($0.peerMemberID.map(members.contains) ?? false)
+        }.sorted { $0.expiresAt > $1.expiresAt }
+    }
+
+    /// Kept only for old, unlinked exchanges. A person's delivery record never adds a second row.
+    var unlinkedContactInvitations: [ContactInvitationRecord] {
+        pendingContactInvitations.filter { record in
+            record.personID == nil && !(record.peerMemberID.map { peer in savedRemoteUsers.contains { $0.memberIDs.contains(peer) } } ?? false)
+        }
+    }
+
+    func contactPersonURLForSharing(_ id: UUID, expectedAccountAccessID: UUID) throws -> URL {
+        guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
+              let person = directoryUsers.first(where: { $0.id == id }), !person.isRegistered else {
+            throw ContactInvitationError.unavailable
+        }
+        contactInvitationMessage = nil
+        do {
+            let record = contactPersonInvitations(id).first { $0.direction == .outgoing && ($0.state == .pending || $0.state == .expired) }
+            if let record, record.state == .pending, !contactInvitationIsExpired(record) {
+                let url = try contactInvitationURLForSharing(record.id, expectedAccountAccessID: expectedAccountAccessID)
+                _ = resumeContactInvitation(record.id)
+                return url
+            }
+            let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+            let token = try ContactInvitationSession.makeToken(authority: invitationAuthority, signer: signer,
+                displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
+            try groupRepository.stageContactInvitation(token, now: callAccessNow().timeIntervalSince1970,
+                replacingExpiredInvitation: record?.id, personID: id)
+            guard let invitationID = token.directInvitation?.context.id else { throw ContactInvitationError.unavailable }
+            let url = try contactInvitationURLForSharing(invitationID, expectedAccountAccessID: expectedAccountAccessID)
+            refreshGroupStorageStatus()
+            _ = resumeContactInvitation(invitationID)
+            return url
+        } catch {
+            contactInvitationMessage = "Could not prepare this invitation. Try again."
+            throw error
+        }
+    }
+
+    func resumeContactPersonInvitation(_ id: UUID) {
+        guard let record = contactPersonInvitations(id).first(where: { $0.canResume && !contactInvitationIsComplete($0) }) else { return }
+        _ = resumeContactInvitation(record.id)
+    }
+
+    /// The same finite exchange may continue after sharing through another app. No background scan,
+    /// notification or periodic work is introduced, and another account cannot resume this exchange.
+    func suspendContactInvitationForBackground() {
+        guard let id = contactInvitationID else { return }
+        stopContactInvitationSession()
+        suspendedContactInvitation = (id, accountAccessID)
+    }
+
+    func resumeSuspendedContactInvitation() {
+        guard let suspended = suspendedContactInvitation else { return }
+        suspendedContactInvitation = nil
+        guard suspended.access == accountAccessID else { return }
+        _ = resumeContactInvitation(suspended.id)
+    }
+}

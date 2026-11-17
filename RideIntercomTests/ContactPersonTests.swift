@@ -1,4 +1,6 @@
+import CoreTransferable
 import Foundation
+import UniformTypeIdentifiers
 import Testing
 @testable import RideIntercom
 
@@ -118,6 +120,86 @@ struct ContactPersonTests {
         snapshot.version = 10
         snapshot.users[0].deviceKeys = [:]
         #expect(throws: (any Error).self) { try snapshot.encoded() }
+    }
+
+    @Test func saveAndShareKeepOnePresentationAndCompletionDoesNotCloseIt() async throws {
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "presentation-person")
+        let vm = h.viewModel
+        vm.contactSessionFactory = { RecordingCallSession() }
+        defer { vm.disconnect() }
+        let before = h.groupStore.snapshot
+        vm.beginContactInvitationPresentation()
+        guard case .person = vm.contactInvitationPresentation else { Issue.record("Expected an unsaved person"); return }
+        #expect(h.groupStore.snapshot == before && vm.contactInvitationID == nil)
+        vm.dismissContactInvitationPresentation()
+        #expect(h.groupStore.snapshot == before)
+        vm.beginContactInvitationPresentation()
+        guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected the reopened draft"); return }
+        #expect(vm.saveContactPerson(id, name: "My Partner"))
+        #expect(vm.contactInvitationPresentation == .person(id) && vm.pendingContactInvitations.isEmpty)
+        let share = InvitationShare(viewModel: vm, contactPersonID: id)
+        vm.contactInvitationMessage = "Could not prepare this invitation. Try again."
+        let first = try await share.exported(as: .url), second = try await share.exported(as: .url)
+        #expect(first == second && vm.directoryUsers.map(\.id) == [id])
+        #expect(vm.contactInvitationMessage == nil, "A successful retry clears the earlier preparation failure")
+        #expect(vm.unlinkedContactInvitations.isEmpty && vm.contactInvitationPresentation == .person(id))
+        let url = try await URL(importing: first, contentType: .url)
+        let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
+        let acceptance = try token.accept(signer: testIdentitySigner("person-response"), displayName: "Peer Name", contactBootstrap: true)
+        let verified = try #require(try vm.invitationAuthority.verify(acceptance.receipt))
+        try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
+        vm.refreshGroupStorageStatus()
+        #expect(vm.contactInvitationPresentation == .person(id), "Registration updates the same detail instead of closing it")
+        #expect(vm.contactPerson(id)?.isRegistered == true && vm.directoryUsers.count == 1)
+        #expect(vm.unlinkedContactInvitations.isEmpty)
+        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
+    }
+
+    @Test func foregroundResumesOnlyTheSuspendedExchangeInTheSameAccount() async throws {
+        var now = Date()
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "foreground-person", callAccessNow: { now })
+        let vm = h.viewModel
+        var transports: [RecordingCallSession] = []
+        vm.contactSessionFactory = { let transport = RecordingCallSession(); transports.append(transport); return transport }
+        defer { vm.disconnect() }
+        vm.beginContactInvitationPresentation()
+        guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected person"); return }
+        #expect(vm.saveContactPerson(id, name: "Partner"))
+        _ = try await InvitationShare(viewModel: vm, contactPersonID: id).exported(as: .url)
+        let invitation = try #require(vm.contactInvitationID)
+        vm.suspendContactInvitationForBackground()
+        #expect(vm.contactInvitationID == nil)
+        vm.resumeSuspendedContactInvitation()
+        #expect(vm.contactInvitationID == invitation && transports.count == 2)
+        #expect(vm.contactInvitationPresentation == .person(id))
+        vm.resumeSuspendedContactInvitation()
+        #expect(transports.count == 2, "Foreground consumes the suspension once")
+        vm.suspendContactInvitationForBackground()
+        now = now.addingTimeInterval(8 * 86400)
+        vm.resumeSuspendedContactInvitation()
+        #expect(vm.contactInvitationID == nil && transports.count == 2)
+        vm.suspendedContactInvitation = (invitation, UUID())
+        now = Date()
+        vm.resumeSuspendedContactInvitation()
+        #expect(vm.contactInvitationID == nil && transports.count == 2)
+        #expect(h.callSession.connectedGroup == nil)
+    }
+
+    @Test func failedExplicitSaveKeepsTheDraftPresentationForReloadAndRetry() throws {
+        let h = AppTestSupport.makeHarness(groups: [])
+        let vm = h.viewModel
+        vm.beginContactInvitationPresentation()
+        guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected person"); return }
+        h.groupStore.failSaving = true
+        #expect(!vm.saveContactPerson(id, name: "Retained Input"))
+        #expect(vm.contactInvitationPresentation == .person(id) && vm.directoryUsers.isEmpty)
+        #expect(vm.contactInvitationMessage != nil && !vm.canEditSavedGroups)
+        h.groupStore.failSaving = false
+        vm.reloadSavedGroups()
+        #expect(vm.saveContactPerson(id, name: "Retained Input"))
+        #expect(vm.contactInvitationPresentation == .person(id))
+        #expect(vm.contactPerson(id)?.resolvedDisplayName == "Retained Input")
+        #expect(vm.pendingContactInvitations.isEmpty && vm.contactInvitationID == nil)
     }
 
 }

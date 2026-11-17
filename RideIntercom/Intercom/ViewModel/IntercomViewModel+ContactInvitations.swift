@@ -72,11 +72,13 @@ extension IntercomViewModel {
                     try self.groupRepository.confirmContactInvitation(verified, localDisplayName: self.localMemberIdentity.displayName,
                         now: self.callAccessNow().timeIntervalSince1970)
                     self.adoptStoredDirectCall(with: verified.identity.memberID)
+                    self.contactInvitationMessage = nil
                     self.refreshGroupStorageStatus()
                 }, acknowledged: { [weak self] in
                     guard let self, self.canEditSavedGroups, self.accountAccessID == access,
                           self.contactInvitationID == id else { throw ContactInvitationError.unavailable }
                     try self.groupRepository.completeContactNotification(id)
+                    self.contactInvitationMessage = nil
                     self.refreshGroupStorageStatus()
                     // Registration is complete. The exchange stays only as long as the two notification
                     // permissions need, and not at all when this device cannot take part.
@@ -179,6 +181,7 @@ extension IntercomViewModel {
     }
 
     func stopContactInvitationSession() {
+        suspendedContactInvitation = nil
         contactInvitationExpiryTask?.cancel()
         contactInvitationExpiryTask = nil
         contactInvitationSession?.stop()

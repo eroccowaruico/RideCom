@@ -21,6 +21,7 @@ final class IntercomViewModel {
     @ObservationIgnored var contactSessionFactory: (() -> CallSession)?
     @ObservationIgnored var contactInvitationSession: ContactInvitationSession?
     var contactInvitationID: UUID?
+    @ObservationIgnored var suspendedContactInvitation: (id: UUID, access: UUID)?
     @ObservationIgnored var contactInvitationExpiryTask: Task<Void, Never>?
     @ObservationIgnored var contactNotificationAttemptDuration: Duration = .seconds(60)
     /// How long the person who accepted keeps the exchange open for the two notification permissions.

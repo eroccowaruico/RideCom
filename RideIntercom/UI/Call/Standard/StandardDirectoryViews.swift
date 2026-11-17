@@ -11,7 +11,7 @@ struct StandardUsersView: View {
     @State private var query = ""
 
     private var users: [SavedUser] {
-        let users = viewModel.savedRemoteUsers
+        let users = viewModel.directoryUsers
         guard !query.isEmpty else { return users }
         return users.filter { $0.resolvedDisplayName.localizedStandardContains(query) }
     }
@@ -24,10 +24,15 @@ struct StandardUsersView: View {
             Section {
                 ForEach(users) { user in
                     Button {
-                        viewModel.open(.user(user.id)) { selectedTab = .call }
+                        if user.isRegistered { viewModel.open(.user(user.id)) { selectedTab = .call } }
+                        else { viewModel.showContactPerson(user.id) }
                     } label: {
-                        DirectoryRowLabel(title: user.resolvedDisplayName, isGroup: false,
-                                          status: viewModel.isInCall(with: .user(user.id)) ? viewModel.callStatus(for: viewModel.activeGroupID) : nil)
+                        if user.isRegistered {
+                            DirectoryRowLabel(title: user.resolvedDisplayName, isGroup: false,
+                                              status: viewModel.isInCall(with: .user(user.id)) ? viewModel.callStatus(for: viewModel.activeGroupID) : nil)
+                        } else {
+                            StandardInvitationRow(name: user.resolvedDisplayName, state: "Not registered", isSending: false)
+                        }
                     }
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardUser-\(user.id)")
@@ -43,10 +48,10 @@ struct StandardUsersView: View {
         .screenBackground(AppColorPalette.listScreenBackground)
         .readableScrollWidth()
         .navigationTitle("Users")
-        .directorySearch($query, count: viewModel.savedRemoteUsers.count)
+        .directorySearch($query, count: viewModel.directoryUsers.count)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Invite Someone", systemImage: "plus") { viewModel.beginContactInvitationPresentation() }
+                Button("Add Person", systemImage: "plus") { viewModel.beginContactInvitationPresentation() }
                     .disabled(!viewModel.canEditSavedGroups)
                     .accessibilityIdentifier("inviteContactButton")
             }
@@ -55,11 +60,11 @@ struct StandardUsersView: View {
         // The heading and one action only, centred in the list's area. After the list's identifier,
         // which would otherwise replace the action's.
         .overlay {
-            if viewModel.savedRemoteUsers.isEmpty {
+            if viewModel.directoryUsers.isEmpty {
                 ContentUnavailableView {
                     Label("No Saved Users", systemImage: "person.2")
                 } actions: {
-                    Button("Invite Someone") { viewModel.beginContactInvitationPresentation() }
+                    Button("Add Person") { viewModel.beginContactInvitationPresentation() }
                         .appProminentButtonStyle()
                         .disabled(!viewModel.canEditSavedGroups)
                         .emptyStateActionWidth()

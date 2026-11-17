@@ -30,7 +30,7 @@ struct ContentView: View {
         .task { if (try? await NotificationSystem.requestAuthorization()) == true { await viewModel?.startNotifications() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await owner.refreshAccountForForeground() } }
-            if phase == .background { viewModel?.stopContactInvitationSession() }
+            if phase == .background { viewModel?.suspendContactInvitationForBackground() }
         }
         .onChange(of: owner.viewModel?.accountAccessID) { previous, _ in
             if previous != nil { pendingInviteURL = nil }

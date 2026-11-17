@@ -15,7 +15,8 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     var peerMemberID: String?
     var peerDeviceKey: String?
     /// The inviter's own word for the person, kept on this device only. Becomes the saved user's
-    /// local name when the invitation completes; never sent or shown to the other person.
+    /// local name when the invitation completes. It is not a remote profile name; the explicit
+    /// invitation share message may include it.
     var nickname: String?
     /// False from creation until a share destination took the link (the share sheet asks for it only then).
     /// Nil on records saved before this was kept: those were treated as sent.

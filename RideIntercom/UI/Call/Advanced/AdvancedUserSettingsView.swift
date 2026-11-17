@@ -21,6 +21,7 @@ struct AdvancedUserSettingsView: View {
         NavigationStack {
             Form {
                 TextField("Name on this device", text: $name, prompt: Text(verbatim: currentUser.displayName)).accessibilityIdentifier("savedUserNameField")
+                if currentUser.isRegistered {
                 LabeledContent("Name shared by this person", value: currentUser.displayName)
                     .accessibilityIdentifier("savedUserOriginalName")
                 Button("Use Shared Name") {
@@ -28,6 +29,7 @@ struct AdvancedUserSettingsView: View {
                 }
                 .accessibilityIdentifier("resetUserNameButton")
                 Text("Your name for this person stays on this device. Use Shared Name removes your edit and follows their name updates.").font(.footnote)
+                }
                 if let call = viewModel.existingDirectCall(for: user.id), viewModel.canShareGroup(call.id) {
                     Section {
                         CallInvitationButton(viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton",

@@ -28,7 +28,7 @@ extension View {
             switch target {
             case .group(let id): GroupSettingsView(viewModel: viewModel, groupID: id)
             case .user(let id):
-                if let user = viewModel.savedRemoteUsers.first(where: { $0.id == id }) {
+                if let user = viewModel.directoryUsers.first(where: { $0.id == id }) {
                     UserSettingsView(viewModel: viewModel, user: user)
                 }
             }

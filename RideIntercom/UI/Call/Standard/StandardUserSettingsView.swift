@@ -29,10 +29,12 @@ struct StandardUserSettingsView: View {
                         .accessibilityIdentifier("savedUserNameField")
                 }
                 // Their own name, its own group as in the design: read only, in the secondary color.
-                Section("Their Own Name") {
+                if current.isRegistered { Section("Their Own Name") {
                     Text(verbatim: current.displayName).foregroundStyle(.secondary)
                         .accessibilityIdentifier("savedUserOriginalName")
                 }
+                }
+                StandardContactReplyStatus(viewModel: viewModel, personID: user.id)
                 if let message = viewModel.groupErrorMessage {
                     Section { Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger) }
                 }

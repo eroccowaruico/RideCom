@@ -82,6 +82,8 @@ struct SignedInContentView: View {
         }
         .sheet(item: $viewModel.contactInvitationPresentation) { presentation in
             switch presentation {
+            case .person(let id):
+                ContactPersonSheet(viewModel: viewModel, personID: id)
             case .sharing(let id):
                 ContactInvitationSheet(viewModel: viewModel, invitationID: id)
             case .accepting(let preview):

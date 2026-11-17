@@ -1,4 +1,6 @@
+import CoreTransferable
 import Foundation
+import UniformTypeIdentifiers
 import RTC
 import Testing
 @testable import RideIntercom
@@ -94,7 +96,10 @@ struct ContactInvitationPersistenceTests {
         #expect(authorTransport.sentApplicationDataMessages.count == sentBeforeRetry + 1)
         let ack = try #require(authorTransport.sentApplicationDataMessages.last)
         friendTransport.onEvent?(.receivedApplicationData(peerID: "persist-author", message: ack))
-        #expect(b.viewModel.contactInvitationPresentation == nil, "Delivered replies leave no stale detail")
+        let savedRecipientID = try #require(b.viewModel.savedRemoteUsers.first?.id)
+        #expect(b.viewModel.contactInvitationPresentation == .person(savedRecipientID), "Delivery updates the saved person's detail without closing it")
+        #expect(b.viewModel.unlinkedContactInvitations.isEmpty)
+        b.viewModel.dismissContactInvitationPresentation()
         a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()
         let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
         #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
@@ -176,7 +181,7 @@ struct ContactInvitationPersistenceTests {
         fixture.store.snapshot.version = 8
         let (h, _) = fixture.make()
         defer { h.viewModel.stopContactInvitationSession() }
-        #expect(fixture.store.snapshot.version == 9)
+        #expect(fixture.store.snapshot.version == 10)
         let url = try #require(h.viewModel.makeContactInviteURL())
         let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
         try h.viewModel.groupRepository.save([])
@@ -256,7 +261,7 @@ struct ContactInvitationPersistenceTests {
         json.removeValue(forKey: "contactInvitations")
         let legacy = try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json))
         let upgraded = legacy.upgraded()
-        #expect(upgraded.version == 9)
+        #expect(upgraded.version == 10)
         #expect(upgraded.contactInvitations.isEmpty)
         json["version"] = 9
         #expect(throws: (any Error).self) { try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json)) }
@@ -275,13 +280,17 @@ struct ContactInvitationPersistenceTests {
         #expect(!a.viewModel.hasInternetCredentials && !b.viewModel.hasInternetCredentials,
                 "Local invitation acceptance does not depend on Internet registration")
         defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        let url = try #require(a.viewModel.makeContactInviteURL())
-        let invitationID = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation?.context.id)
-        a.viewModel.showContactInvitation(invitationID)
+        a.viewModel.beginContactInvitationPresentation()
+        guard case .person(let personID) = a.viewModel.contactInvitationPresentation else { Issue.record("Expected person"); return }
+        #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner"))
+        let bytes = try await InvitationShare(viewModel: a.viewModel, contactPersonID: personID).exported(as: .url)
+        let url = try await URL(importing: bytes, contentType: .url)
         #expect(a.viewModel.savedRemoteUsers.isEmpty)
         #expect(b.viewModel.previewContactInvitation(url))
         #expect(b.viewModel.savedRemoteUsers.isEmpty)
+        a.viewModel.contactInvitationMessage = "This invitation could not be resumed. Try again."
         #expect(b.viewModel.acceptPresentedContactInvitation())
+        b.viewModel.contactInvitationMessage = "This invitation could not be resumed. Try again."
         #expect(b.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
         // Allow discovery, authentication and the route’s automatic retry to complete.
         let deadline = ContinuousClock.now + .seconds(45)
@@ -292,12 +301,19 @@ struct ContactInvitationPersistenceTests {
         #expect(b.viewModel.pendingContactInvitations.isEmpty, "Actual acknowledgement completes the recipient's durable notification")
         #expect(b.viewModel.contactInvitationID == nil)
         #expect(a.viewModel.pendingContactInvitations.isEmpty)
+        #expect(a.viewModel.contactInvitationMessage == nil && b.viewModel.contactInvitationMessage == nil,
+                "Verified registration and delivery clear earlier retry failures")
+        #expect(a.viewModel.contactInvitationPresentation == .person(personID))
+        #expect(a.viewModel.savedRemoteUsers.map(\.id) == [personID])
+        #expect(a.viewModel.directoryUsers.count == 1 && a.viewModel.unlinkedContactInvitations.isEmpty)
+        a.viewModel.dismissContactInvitationPresentation()
         #expect(a.viewModel.contactInvitationPresentation == nil)
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
         #expect(a.callSession.startMediaCallCount == 0 && b.callSession.startMediaCallCount == 0)
         a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()
         let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
         #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]])
+        #expect(reloadedA.viewModel.directoryUsers.map(\.id) == [personID])
         #expect(reloadedB.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
         #expect(reloadedA.viewModel.regularGroups.isEmpty && reloadedB.viewModel.regularGroups.isEmpty)
         #expect(reloadedB.viewModel.pendingContactInvitations.isEmpty)

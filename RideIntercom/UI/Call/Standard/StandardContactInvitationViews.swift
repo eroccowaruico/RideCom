@@ -5,9 +5,9 @@ struct StandardPendingInvitationsSection: View {
     let viewModel: IntercomViewModel
 
     var body: some View {
-        if !viewModel.pendingContactInvitations.isEmpty {
+        if !viewModel.unlinkedContactInvitations.isEmpty {
             Section("Invitations") {
-                ForEach(viewModel.pendingContactInvitations) { record in
+                ForEach(viewModel.unlinkedContactInvitations) { record in
                     Button { viewModel.showContactInvitation(record.id) } label: {
                         StandardInvitationRow(name: viewModel.contactInvitationName(for: record),
                                               state: viewModel.contactInvitationStateWord(for: record),
@@ -28,7 +28,7 @@ struct StandardPendingInvitationsSection: View {
 }
 
 /// Sending states show progress instead of a chevron; resending lives in the invitation's detail.
-private struct StandardInvitationRow: View {
+struct StandardInvitationRow: View {
     let name: String
     let state: String
     let isSending: Bool
