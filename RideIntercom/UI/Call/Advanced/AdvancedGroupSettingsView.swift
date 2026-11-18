@@ -45,6 +45,7 @@ struct AdvancedGroupSettingsView: View {
                         Text("Control-click a member to rename or remove them.")
                         #endif
                     }
+                    AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(in: groupID))
                     if viewModel.canShareGroup(groupID) {
                         Section {
                             CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "groupSettingsInviteButton",

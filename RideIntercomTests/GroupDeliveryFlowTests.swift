@@ -171,6 +171,26 @@ import Testing
         #expect(GroupDeliveryHTTPStub.requestCount == 5, "A later lifecycle pass retries discard and then observes an empty inbox")
     }
 
+    @Test func aGroupMembersStateUsesTheirAccountAndKeepsOtherGroupsSeparate() throws {
+        let peer = AccountPrincipal(issuer: "https://delivery.test", userID: String(repeating: "b", count: 64))
+        let user = SavedUser(displayName: "Two devices", memberIDs: ["state-one", "state-two"],
+            deviceKeys: ["state-one": testIdentitySigner("state-one").publicKey, "state-two": testIdentitySigner("state-two").publicKey], principal: peer)
+        let store = InMemoryGroupStore(groups: []); store.snapshot.users = [user]
+        let h = AppTestSupport.makeHarness(groups: [], groupStore: store, localMemberID: "state-sender")
+        defer { h.viewModel.disconnect() }
+        #expect(h.viewModel.createTalkGroup(name: "State after closing the sheet", userIDs: [user.id]))
+        let group = try #require(h.viewModel.groups.first)
+        #expect(h.viewModel.groupInvitationDeliveryState(forMember: "state-one", in: group.id) == .pending)
+        #expect(h.viewModel.groupInvitationDeliveries(in: group.id).count == 2)
+        let record = try #require(h.viewModel.groupRepository.groupDeliveries.first)
+        try h.viewModel.groupRepository.setGroupDeliveryState(record.id, state: .received)
+        #expect(h.viewModel.groupInvitationDeliveryState(forMember: "state-two", in: group.id) == .received, "One known device's receipt confirms the same person")
+        #expect(h.viewModel.groupInvitationDeliveryState(forMember: "unknown", in: group.id) == nil)
+        let other = UUID()
+        #expect(h.viewModel.groupInvitationDeliveryState(forMember: "state-one", in: other) == nil)
+        #expect(h.viewModel.groupInvitationDeliveries(in: other).isEmpty)
+    }
+
     @Test func aGroupInvitationNoticeIsNeverDecodedAsACallRequest() {
         let payload: [AnyHashable: Any] = ["version": 1, "kind": "groupInvitation", "requestID": UUID().uuidString,
             "recipientID": String(repeating: "a", count: 64)]

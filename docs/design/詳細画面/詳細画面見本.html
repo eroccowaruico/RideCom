@@ -556,6 +556,24 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。保存でpending、暗号文のserver受付でqueued、相手の保存後のACKでreceived。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。受信は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
     </figure>
 
+    <figure id="group-settings">
+      <div class="phone tall"><div class="screen">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="ptitle"><span class="linkt">Cancel</span> Group Settings <span class="linkt">Done</span></div>
+        <div class="body"><div class="sect">Name</div><div class="card"><div class="row">Weekend Touring</div></div>
+          <div class="sect">Members</div><div class="card"><div class="row">Maki</div><div class="row linkt">Add Members</div></div>
+          <div class="sect">GroupDeliveryRecord</div><div class="card">
+            <div class="row"><b>id</b><span class="v mono">7a6d2140-8336-4afb-9146-e55f92b86029</span></div>
+            <div class="row"><b>recipientMemberID</b><span class="v mono">maki-phone</span></div>
+            <div class="row"><b>state</b><span class="v mono">pending</span></div>
+            <div class="row"><b>expiresAt</b><span class="v mono">1795564800.0</span></div>
+            <div class="row"><b>credentialReference</b><span class="v mono">nil</span></div>
+          </div><div class="card"><div class="row linkt">Share Call Invite</div></div>
+          <div class="card"><div class="row" style="color:var(--err)">Delete Group</div></div>
+        </div>
+      </div></div>
+      <figcaption><b>Group Settingsの配送記録</b>保存画面を閉じた後も同じgroupのoutgoing記録を表示する。AdvancedGroupDeliveryRecordsが保存画面と同じ値を読む。共有は設定の既存操作を1つ使い、表示で通信を開始しない。</figcaption>
+    </figure>
     <figure id="group-contact-invitation-detail">
       <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>

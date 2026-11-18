@@ -44,7 +44,18 @@ struct StandardGroupSettingsView: View {
                                 HStack(spacing: AppSpacing.m) {
                                     if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { PendingAvatar(diameter: 28).accessibilityHidden(true) }
                                     else { DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true) }
-                                    Text(verbatim: member.resolvedDisplayName).lineLimit(2)
+                                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                        Text(verbatim: member.resolvedDisplayName).lineLimit(2)
+                                        if member.id.hasPrefix(GroupMember.pendingInvitePrefix) {
+                                            StandardGroupInvitationStatus(state: .pending)
+                                                .font(.subheadline).foregroundStyle(.secondary)
+                                                .accessibilityIdentifier("groupSettingsInvitationState-\(member.id)")
+                                        } else if let state = viewModel.groupInvitationDeliveryState(forMember: member.id, in: groupID) {
+                                            StandardGroupInvitationStatus(state: state)
+                                                .font(.subheadline).foregroundStyle(.secondary)
+                                                .accessibilityIdentifier("groupSettingsInvitationState-\(member.id)")
+                                        }
+                                    }
                                     Spacer()
                                     Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
                                         .foregroundStyle(.tertiary).accessibilityHidden(true)

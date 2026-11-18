@@ -7,6 +7,8 @@ final class RegisteredGroupInvitationUITests: XCTestCase {
     @MainActor func testAdvancedSavesRegisteredInvitationsWithoutOpeningSharing() throws { try save(advanced: true) }
     @MainActor func testStandardSavesLegacyInvitationsWithoutOpeningSharing() throws { try save(legacy: true) }
     @MainActor func testAdvancedSavesLegacyInvitationsWithoutOpeningSharing() throws { try save(advanced: true, legacy: true) }
+    @MainActor func testStandardGroupSettingsKeepsTheSavedInvitationState() throws { try save(checkSettings: true) }
+    @MainActor func testAdvancedGroupSettingsKeepsTheSavedInvitationState() throws { try save(advanced: true, checkSettings: true) }
     @MainActor func testJapaneseNewInvitationKeepsTheTargetAndRegistrationState() throws {
         let app = XCUIApplication(); defer { app.terminate() }
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in", "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
@@ -26,7 +28,7 @@ final class RegisteredGroupInvitationUITests: XCTestCase {
         app.buttons["finishAddingUsersButton"].tap()
         XCTAssertTrue(app.buttons["finishAddingUsersButton"].waitForNonExistence(timeout: 3))
     }
-    @MainActor private func save(advanced: Bool = false, legacy: Bool = false) throws {
+    @MainActor private func save(advanced: Bool = false, legacy: Bool = false, checkSettings: Bool = false) throws {
         let app = XCUIApplication(); defer { app.terminate() }
         let seed = UUID().uuidString
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
@@ -67,6 +69,16 @@ final class RegisteredGroupInvitationUITests: XCTestCase {
         let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Registered invitations remain in the saved step"; attachment.lifetime = .keepAlways; add(attachment)
         app.buttons["finishAddingUsersButton"].tap()
         XCTAssertTrue(app.buttons["finishAddingUsersButton"].waitForNonExistence(timeout: 3))
+        if checkSettings {
+            let entry = app.buttons[advanced ? "callMoreMenu" : "callGroupSettingsButton"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
+            if advanced { app.buttons["callGroupSettingsButton"].tap() }
+            let state = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", advanced ? "groupDeliveryState-" : "groupSettingsInvitationState-")).firstMatch
+            XCTAssertTrue(state.waitForExistence(timeout: 3))
+            XCTAssertEqual(state.label, advanced ? "pending" : "Invitation pending")
+            let image = XCTAttachment(screenshot: app.screenshot()); image.name = "Group settings keeps saved invitation state"; image.lifetime = .keepAlways; add(image)
+            app.buttons["closeGroupSettingsButton"].tap()
+        }
     }
 }
 #endif

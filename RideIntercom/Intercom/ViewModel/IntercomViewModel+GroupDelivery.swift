@@ -14,10 +14,17 @@ extension IntercomViewModel {
     }
 
     func groupInvitationDeliveries(for people: Set<UUID>, in groupID: UUID) -> [GroupDeliveryRecord] {
-        _ = contactInvitationRevision
         let accounts = Set(savedRemoteUsers.filter { people.contains($0.id) }.compactMap(\.principal))
-        return groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.groupID == groupID && accounts.contains($0.recipient) }
+        return groupInvitationDeliveries(in: groupID).filter { accounts.contains($0.recipient) }
+    }
+    func groupInvitationDeliveries(in groupID: UUID) -> [GroupDeliveryRecord] {
+        _ = contactInvitationRevision
+        return groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.groupID == groupID }
             .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+    func groupInvitationDeliveryState(forMember memberID: String, in groupID: UUID) -> GroupDeliveryRecord.State? {
+        guard let person = savedRemoteUsers.first(where: { $0.memberIDs.contains(memberID) }) else { return nil }
+        return groupInvitationDeliveryState(for: person, in: groupID)
     }
     func groupInvitationDeliveryState(for person: SavedUser, in groupID: UUID) -> GroupDeliveryRecord.State? {
         _ = contactInvitationRevision
