@@ -8,6 +8,9 @@ import Synchronization
 import RTC
 import SessionManager
 import XCTest
+#if os(iOS)
+import UIKit
+#endif
 @testable import RideIntercom
 
 final class AudioE2ETests: XCTestCase {
@@ -202,7 +205,9 @@ final class AudioE2ETests: XCTestCase {
         let mixed = transport == "mixed"
         let usesInternet = transport == "webrtc" || mixed
         let waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
+        let movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
+        if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
         let soleRoute: RouteKind = usesInternet ? .webRTC : .multipeer
         let groupSecret = "fixture-only-\(run)"
         let room = RTCCredential.derived(groupID: groupID.uuidString, secret: groupSecret).groupHash
@@ -309,6 +314,9 @@ final class AudioE2ETests: XCTestCase {
         }
         let joiningStarted = ContinuousClock.now
         try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        if movesToBackground {
+            try await leaveForSettingsAfterStartingCall(viewModel: viewModel, joiningStarted: joiningStarted)
+        }
         let barrier = AudioE2EBarrier(session: viewModel.callSession)
 
         func status() -> String {
@@ -330,6 +338,7 @@ final class AudioE2ETests: XCTestCase {
                 XCTAssertTrue(viewModel.authenticatedPeerIDs.isEmpty)
                 XCTAssertFalse(viewModel.isCallMediaStarted)
                 XCTAssertEqual(viewModel.sentVoicePacketCount, 0)
+                checkBackgroundIfRequested(movesToBackground)
                 try await Task.sleep(for: .milliseconds(100))
             } while waitingSince.duration(to: .now) < .seconds(3)
             print("Audio E2E: First endpoint waited on \(transport) alone with native audio active")
@@ -347,7 +356,7 @@ final class AudioE2ETests: XCTestCase {
             print("Audio E2E: Authenticated remote over \(transport) after \(joiningStarted.duration(to: .now))")
             try await verifyLateParticipantAudio(viewModel: viewModel, barrier: barrier, probe: probe,
                 route: soleRoute, transport: transport, role: role, local: input.samples, remote: remote.samples,
-                directory: directory, seconds: initial.seconds)
+                directory: directory, seconds: initial.seconds, movesToBackground: movesToBackground)
             return
         }
         #if DEBUG
@@ -568,19 +577,46 @@ final class AudioE2ETests: XCTestCase {
     }
 
     @MainActor
+    private func leaveForSettingsAfterStartingCall(viewModel: IntercomViewModel, joiningStarted: ContinuousClock.Instant) async throws {
+        #if os(iOS)
+        XCTAssertEqual(UIApplication.shared.applicationState, .active)
+        let settings = try XCTUnwrap(URL(string: UIApplication.openSettingsURLString))
+        let wasAudioReady = viewModel.isAudioReady
+        let opened = await UIApplication.shared.open(settings)
+        XCTAssertTrue(opened)
+        try await waitUntil(seconds: 5, description: "Settings brings the call application into the OS background",
+                            status: { "state=\(UIApplication.shared.applicationState.rawValue)" }) {
+            UIApplication.shared.applicationState == .background
+        }
+        print("Audio E2E: Entered OS background after \(joiningStarted.duration(to: .now)); audio ready before opening Settings=\(wasAudioReady)")
+        #else
+        throw NSError(domain: "AudioE2E.BackgroundAfterStartRequiresIOS", code: 1)
+        #endif
+    }
+
+    @MainActor
+    private func checkBackgroundIfRequested(_ requested: Bool) {
+        #if os(iOS)
+        if requested { XCTAssertEqual(UIApplication.shared.applicationState, .background) }
+        #endif
+    }
+
+    @MainActor
     private func verifyLateParticipantAudio(
         viewModel: IntercomViewModel, barrier: AudioE2EBarrier, probe: RenderedAudioProbe,
         route: RouteKind, transport: String, role: String,
-        local: [Float], remote: [Float], directory: URL, seconds: Double
+        local: [Float], remote: [Float], directory: URL, seconds: Double, movesToBackground: Bool
     ) async throws {
         try await waitUntil(seconds: 12, description: "Media starts after the peer joins", status: { viewModel.routeLabel }) {
             viewModel.isCallMediaStarted
         }
         try await barrier.meet("late-participant-ready")
+        checkBackgroundIfRequested(movesToBackground)
         probe.reset()
         let firstReceived = viewModel.receivedVoicePacketCount
         try await Task.sleep(for: .seconds(seconds))
         let rendered = probe.snapshot()
+        checkBackgroundIfRequested(movesToBackground)
         let received = viewModel.receivedVoicePacketCount - firstReceived
         XCTAssertEqual(viewModel.availableCallRoutes, [route])
         XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
@@ -597,6 +633,7 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "The local fixture cannot satisfy the remote speech oracle")
         let scenario = route == .webRTC ? "late-internet" : "late-local"
         let evidence: [String: Any] = ["scenario": scenario, "role": role, "transport": transport,
+            "background": movesToBackground,
             "received": received, "remoteMatch": remoteMatch, "localMatch": localMatch,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
