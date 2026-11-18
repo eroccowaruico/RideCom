@@ -1,6 +1,17 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "New People" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい相手"
+          }
+        }
+      }
+    },
     "Could not save these invitations. Try again." : {
       "extractionState" : "manual",
       "localizations" : {
