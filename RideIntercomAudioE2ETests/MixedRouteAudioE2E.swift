@@ -19,8 +19,9 @@ final class MixedRouteAudioE2E {
     }
 
     func verify(test: XCTestCase, viewModel: IntercomViewModel, peer: PeerID, role: String,
-                barrier: AudioE2EBarrier, probe: RenderedAudioProbe, local: [Float], remote: [Float],
+                barrier: AudioE2EBarrier, probe: RenderedAudioProbe, input: SpeechFileInput, remote: [Float],
                 directory: URL, seconds: Double) async throws {
+        let local = input.samples
         let route = try XCTUnwrap(localRoute)
         let media = try await Self.mediaTransport(route)
         let localControl = LocalControlCounter(route: route, peer: peer)
@@ -34,7 +35,26 @@ final class MixedRouteAudioE2E {
         let proxy = try MediaBlackhole(target: remotePort)
         defer { proxy.stop() }
         print("Mixed Route E2E: Local listener exchange completed")
+        let outboundBlockedAtStart = role == "a"
+        proxy.setBlocked(outboundBlockedAtStart)
         media.connect(to: peer, nonce: remoteNonce, endpoint: .hostPort(host: .ipv4(.loopback), port: proxy.port))
+        try await waitFor("Local UDP path exists before application audio") { media.isReady(for: peer) }
+        let waitingForInternet = ContinuousClock.now
+        try await waitFor("Internet route is available before the first speech", timeout: .seconds(30)) {
+            viewModel.availableCallRoutes.contains(.webRTC)
+        }
+        print("Mixed Route E2E: Internet route available after \(waitingForInternet.duration(to: .now))")
+        XCTAssertEqual(viewModel.sentVoicePacketCount, 0)
+        XCTAssertEqual(viewModel.receivedVoicePacketCount, 0)
+        XCTAssertFalse(media.hasRecentMediaReceipt(for: peer))
+        let initialControlCount = localControl.receivedCount
+        try await barrier.meet("mixed-initial-one-way-blocked")
+        try await measure("one-way-initial", blocked: !outboundBlockedAtStart, beginSpeech: true)
+        XCTAssertGreaterThan(localControl.receivedCount, initialControlCount, "QUIC control still reaches the peer")
+        XCTAssertEqual(media.hasRecentMediaReceipt(for: peer), !outboundBlockedAtStart)
+        if outboundBlockedAtStart { XCTAssertGreaterThan(proxy.droppedCount, 0) }
+        try await barrier.meet("mixed-initial-one-way-observed")
+        proxy.setBlocked(false)
         try await waitFor("Authenticated Local audio through the proxy") { media.hasRecentMediaReceipt(for: peer) }
         try await barrier.meet("mixed-initial-local")
         try await measure("local-before", blocked: false)
@@ -56,10 +76,11 @@ final class MixedRouteAudioE2E {
         try await barrier.meet("mixed-local-restored")
         try await measure("local-after", blocked: false)
 
-        func measure(_ phase: String, blocked: Bool) async throws {
+        func measure(_ phase: String, blocked: Bool, beginSpeech: Bool = false) async throws {
             probe.reset()
             let firstReceived = viewModel.receivedVoicePacketCount
             let firstLocal = media.statistics.receivedMediaDatagrams ?? 0
+            if beginSpeech { input.setFrameDeliveryEnabled(true) }
             let start = ContinuousClock.now
             repeat {
                 XCTAssertTrue(viewModel.isAudioReady)
@@ -101,8 +122,8 @@ final class MixedRouteAudioE2E {
         }
     }
 
-    private func waitFor(_ description: String, condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(12))
+    private func waitFor(_ description: String, timeout: Duration = .seconds(12), condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         _ = try XCTUnwrap(condition() ? true : nil, description)
     }

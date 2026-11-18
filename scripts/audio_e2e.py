@@ -405,7 +405,7 @@ def execute(args, runner, resource_root):
                     '--path', str(out / (name + '.xcresult')), '--output-path', str(folder)], timeout=60)
                 if exported:
                     try:
-                        expected_ids = ['local-before', 'internet-during', 'local-after'] if transport == 'mixed' else [case['id'] for case in cases]
+                        expected_ids = ['one-way-initial', 'local-before', 'internet-during', 'local-after'] if transport == 'mixed' else [case['id'] for case in cases]
                         measured += measurements(folder, expected_ids, role, transport)
                         runner.record('coverage-' + name, [], 'passed', 0, time.monotonic())
                     except (OSError, ValueError) as error:

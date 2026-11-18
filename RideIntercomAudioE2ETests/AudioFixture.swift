@@ -98,6 +98,7 @@ struct CaptureTimedFixture {
 final class SpeechFileInput: AudioInputStreamBackend {
     let samples: [Float]
     private let timingLock = NSLock()
+    private var frameDeliveryEnabled = true
     private var firstCapture: Double?
     private var captureAges: [Double] = []
     private var captureDurations: [Double] = []
@@ -119,7 +120,11 @@ final class SpeechFileInput: AudioInputStreamBackend {
         0
         #endif
     }
-    private func recordCaptureTime(_ time: Double, duration: Double) { timingLock.withLock {
+    func setFrameDeliveryEnabled(_ enabled: Bool) {
+        timingLock.withLock { frameDeliveryEnabled = enabled }
+    }
+
+    private func recordCaptureTime(_ time: Double, duration: Double) -> Bool { timingLock.withLock {
         if firstCapture == nil { firstCapture = time }
         let host = ProcessInfo.processInfo.systemUptime
         if let previousCaptureEnd, abs(time - previousCaptureEnd) > 2 / 48000.0 {
@@ -127,6 +132,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
         }
         previousCaptureEnd = time + duration
         captureAges.append(host - time); captureDurations.append(duration)
+        return frameDeliveryEnabled
     } }
     #if os(iOS)
     private let hardware: SystemAudioInputStreamBackend
@@ -173,7 +179,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
         // Exercise the real iOS input engine, route format and capture clock.
         // Discard microphone values immediately; only fixture speech leaves here.
         return try hardware.startCapture(configuration: configuration) { [weak self] frame in
-            self?.recordCaptureTime(frame.capturedAt, duration: Double(frame.frameCount) / frame.format.sampleRate)
+            guard self?.recordCaptureTime(frame.capturedAt, duration: Double(frame.frameCount) / frame.format.sampleRate) == true else { return }
             let block = fixture.render(capturedAt: frame.capturedAt, format: frame.format, frameCount: frame.frameCount)
             onFrame(PCMFrame(sequenceNumber: frame.sequenceNumber, format: frame.format,
                             capturedAt: frame.capturedAt, samples: block))
@@ -189,12 +195,12 @@ final class SpeechFileInput: AudioInputStreamBackend {
             // as the real capture ring does, without slowing the fixture clock.
             let ticks = max(1, self?.timer?.data ?? 1)
             for _ in 0..<ticks {
-            let captureTime = captureEpoch + Double(sequence) * 0.01
-            self?.recordCaptureTime(captureTime, duration: 0.01)
-            let block = fixture.render(capturedAt: captureTime, format: .init(), frameCount: 480)
-            onFrame(PCMFrame(sequenceNumber: sequence, format: AudioFormat(sampleRate: 48_000, channelCount: 1),
-                            capturedAt: captureTime, samples: block))
-            sequence += 1
+                let captureTime = captureEpoch + Double(sequence) * 0.01
+                defer { sequence += 1 }
+                guard self?.recordCaptureTime(captureTime, duration: 0.01) == true else { continue }
+                let block = fixture.render(capturedAt: captureTime, format: .init(), frameCount: 480)
+                onFrame(PCMFrame(sequenceNumber: sequence, format: AudioFormat(sampleRate: 48_000, channelCount: 1),
+                                 capturedAt: captureTime, samples: block))
             }
         }
         self.timer = timer

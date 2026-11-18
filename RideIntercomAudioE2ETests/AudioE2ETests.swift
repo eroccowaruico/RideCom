@@ -209,12 +209,12 @@ final class AudioE2ETests: XCTestCase {
         if transport == "webrtc" || mixed {
             let url = try XCTUnwrap(URL(string: try XCTUnwrap(env["AUDIO_E2E_WORKER_URL"])))
             internet = .init(workerURL: url, accessToken: run)
-            #if os(macOS)
-            let room = RTCCredential.derived(groupID: groupID.uuidString, secret: "fixture-only-\(run)").groupHash
-            let worker = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room)
-            try await worker.start()
-            addTeardownBlock { await worker.stop() }
-            #endif
+            if role == "a" {
+                let room = RTCCredential.derived(groupID: groupID.uuidString, secret: "fixture-only-\(run)").groupHash
+                let worker = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room)
+                try await worker.start()
+                addTeardownBlock { await worker.stop() }
+            }
         } else { internet = nil }
         let suffix = env["AUDIO_E2E_SPEECH_PAIR"] == "japanese" ? "-ja" : ""
         let fixtures = env["AUDIO_E2E_SPEECH_PAIR"] == "conversation"
@@ -223,6 +223,7 @@ final class AudioE2ETests: XCTestCase {
         let remoteFixture = fixtures[role == "a" ? 1 : 0]
         let outputEngine = AVAudioEngine()
         let input = try SpeechFileInput(name: localFixture, engine: outputEngine)
+        if mixed { input.setFrameDeliveryEnabled(false) }
         let remote = try SpeechFileInput(name: remoteFixture)
         let probe = RenderedAudioProbe()
         let mixedProbe = RenderedAudioProbe(), decodedProbe = RenderedAudioProbe()
@@ -311,7 +312,7 @@ final class AudioE2ETests: XCTestCase {
         #if DEBUG
         if let mixedRoute {
             try await mixedRoute.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
-                role: role, barrier: barrier, probe: probe, local: input.samples, remote: remote.samples,
+                role: role, barrier: barrier, probe: probe, input: input, remote: remote.samples,
                 directory: directory, seconds: initial.seconds)
             return
         }

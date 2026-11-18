@@ -14,7 +14,6 @@ func makeAudioE2EWebRTCEngine() -> WebRTCNativeEngine {
     return WebRTCNativeEngine(iceServers: [], factory: factory)
 }
 
-#if os(macOS)
 /// Loopback-only Worker/SFU fixture. The production HTTP/WebSocket signaling
 /// client negotiates two real DTLS/SCTP connections; only the service is replaced.
 /// Audio is forwarded opaquely and never decoded or manufactured here.
@@ -233,4 +232,3 @@ actor AudioE2EWorker {
         for connection in sockets.values { try? await Self.send(connection, bytes: frame) }
     }
 }
-#endif
