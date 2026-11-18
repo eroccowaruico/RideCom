@@ -61,8 +61,8 @@ extension IntercomViewModel {
             )
             connectedPeerIDs = peerIDs
             removeDisconnectedAuthenticatedPeers(connectedPeerIDs: peerIDs)
-            if authenticatedPeerIDs.isEmpty, isAudioReady || audioStartTask != nil { stopAudioPipeline() }
             refreshCallAccess()
+            refreshCallMediaAdmission()
             localNetworkStatus = peerIDs.isEmpty ? .advertisingBrowsing : .connected
             connectionState = routeConnectionState(isConnected: !peerIDs.isEmpty)
             markConnectedMembers(peerIDs: peerIDs)
@@ -78,10 +78,9 @@ extension IntercomViewModel {
             }
             let authenticatedPeerIDSet = Set(peerIDs)
             authenticatedPeerIDs = Array(authenticatedPeerIDSet).sorted()
-            if authenticatedPeerIDs.isEmpty, isAudioReady || audioStartTask != nil { stopAudioPipeline() }
             synchronizePeerProfiles(members: members)
             connectedPeerIDs = Array(Set(connectedPeerIDs).union(authenticatedPeerIDSet)).sorted()
-            connectionState = routeConnectionState(isConnected: true)
+            connectionState = routeConnectionState(isConnected: !authenticatedPeerIDs.isEmpty)
             markConnectedMembers(peerIDs: connectedPeerIDs)
             startActiveCallAfterAuthenticatedPeer()
             sendStateMetadataSnapshot()
@@ -139,10 +138,11 @@ extension IntercomViewModel {
                     "isRecoverable": "\(willRetry)"
                 ])
             )
-            stopAudioPipeline()
             connectedPeerIDs = []
             authenticatedPeerIDs = []
             peerProfiles.removeAll()
+            if willRetry { refreshCallMediaAdmission() }
+            else { stopAudioPipeline() }
             localNetworkStatus = willRetry ? .unavailable : .idle
             connectionState = willRetry ? .reconnectingOffline : .idle
             markMembers(willRetry ? .connecting : .offline)

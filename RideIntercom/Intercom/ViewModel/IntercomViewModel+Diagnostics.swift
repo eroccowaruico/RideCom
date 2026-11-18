@@ -37,7 +37,7 @@ extension IntercomViewModel {
     }
 
     var connectionLabel: String {
-        if hasPresentedAuthenticatedConnection && !isAudioReady {
+        if hasPresentedAuthenticatedConnection && !isCallMediaStarted {
             return "\(connectionState.label) / Audio Idle"
         }
         return connectionState.label
@@ -54,7 +54,7 @@ extension IntercomViewModel {
         if connectionState == .idle, localNetworkStatus != .idle {
             return "Waiting for Riders"
         }
-        if hasPresentedAuthenticatedConnection && !isAudioReady {
+        if hasPresentedAuthenticatedConnection && !isCallMediaStarted {
             return "Connected / Audio Idle"
         }
         return connectionState.label
@@ -72,7 +72,7 @@ extension IntercomViewModel {
                 : "Internet"
             return isAudioPausedForDeviceChange ? "\(path) / Audio Paused" : path
         }
-        if hasPresentedAuthenticatedConnection && !isAudioReady {
+        if hasPresentedAuthenticatedConnection && !isCallMediaStarted {
             switch presentedConnectionState {
             case .localConnected, .localConnecting:
                 return "Local / Control Only"

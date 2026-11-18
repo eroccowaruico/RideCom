@@ -124,10 +124,10 @@ extension CallAccessTests {
         await f.connect()
         #expect(f.a.viewModel.peerProfiles["bob"]?.verified != nil)
         #expect(f.b.viewModel.peerProfiles["alice"]?.verified != nil)
-        #expect(!f.a.viewModel.isAudioReady && !f.b.viewModel.isAudioReady)
+        #expect(!f.a.viewModel.isCallMediaStarted && !f.b.viewModel.isCallMediaStarted)
         #expect(f.a.viewModel.callAccessState.lastSponsoredStart == nil)
         f.sourceB.value = .init(status: .active, activeUntil: .distantFuture)
-        await AppTestSupport.waitUntil { f.b.viewModel.isAudioReady }
+        await AppTestSupport.waitUntil { f.b.viewModel.isCallMediaStarted }
         await f.pump()
         #expect(f.a.viewModel.callAccessState.isEstablished && f.b.viewModel.callAccessState.isEstablished)
     }
@@ -193,7 +193,7 @@ extension CallAccessTests {
         #expect(!f.a.viewModel.callAccessState.isEstablished && !f.b.viewModel.callAccessState.isEstablished)
         await f.connect()
         #expect(!f.a.viewModel.callAccessState.isEstablished && !f.b.viewModel.callAccessState.isEstablished)
-        #expect(!f.a.viewModel.isAudioReady && !f.b.viewModel.isAudioReady)
+        #expect(!f.a.viewModel.isCallMediaStarted && !f.b.viewModel.isCallMediaStarted)
         #expect(f.a.viewModel.callAccessState.lastSponsoredStart == original)
     }
 
@@ -251,7 +251,7 @@ extension CallAccessTests {
         f.a.viewModel.stopCallAccessObservation()
         f.sourceA.value = .init(status: .active, activeUntil: .distantFuture)
         try await Task.sleep(for: .milliseconds(50))
-        #expect(!f.a.viewModel.isAudioReady)
+        #expect(!f.a.viewModel.isCallMediaStarted)
         f.a.viewModel.accountSession.signOut()
         let count = f.a.callSession.sentApplicationDataMessages.count
         f.a.viewModel.refreshCallAccess(); f.a.viewModel.sendCallAccess(force: true)
@@ -401,7 +401,7 @@ extension CallAccessTests {
             vm.handleTransportEvent(.receivedApplicationData(peerID: "bob", message: .init(namespace: SharedCallAccess.namespace,
                 payload: try JSONEncoder().encode(invalid))))
             #expect(vm.peerProfiles["bob"]?.callAccess?.revision != 10_000)
-            #expect(!vm.isAudioReady && !vm.callAccessState.isEstablished)
+            #expect(!vm.isCallMediaStarted && !vm.callAccessState.isEstablished)
             #expect(vm.callAccessState.lastSponsoredStart == nil)
         }
     }
@@ -440,8 +440,8 @@ extension CallAccessTests {
         f.sourceB.now = f.sourceA.now
         await gate.release()
         await connecting.value
-        #expect(!f.a.viewModel.isAudioReady)
-        #expect(f.a.inputBackend.startCount == 0 && f.a.callSession.startMediaCallCount == 0)
+        #expect(!f.a.viewModel.isCallMediaStarted)
+        #expect(f.a.inputBackend.startCount == 1 && f.a.callSession.startMediaCallCount == 0)
         #expect(!f.a.viewModel.callAccessState.isEstablished)
         _ = await f.a.viewModel.audioSessionManager.requestActive(false).value
     }

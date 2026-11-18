@@ -114,7 +114,7 @@ extension IntercomViewModel {
 
     func applyEffectiveInputMute() {
         let muted = effectiveInputMuted
-        audioPipeline.setInputMuted(muted)
+        audioPipeline.setInputMuted(muted || (!audioCheckOwnsAudioPipeline && !isCallMediaStarted))
         applyCurrentVoiceProcessingConfiguration()
         callSession.setLocalMute(muted)
 

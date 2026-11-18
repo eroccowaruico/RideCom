@@ -74,9 +74,9 @@ extension IntercomViewModel {
                 mediaReady: isAudioReady && !readyPeers.isEmpty && canEstablish)
             if groupErrorMessage == Self.callAccessRequiredMessage { groupErrorMessage = nil }
         } else {
-            if isAudioReady || audioStartTask != nil { stopAudioPipeline() }
             if !peers.isEmpty { groupErrorMessage = Self.callAccessRequiredMessage }
         }
+        refreshCallMediaAdmission()
         let storedStart = groupRepository.lastSponsoredStart(for: groupID)
         if let start = callAccessState.lastSponsoredStart,
            storedStart.map({ !CallAccessState.validStart($0, now: now) || start > $0 }) ?? true,

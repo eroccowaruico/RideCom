@@ -186,7 +186,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 表示仕様 | 状態 |
 |---|---|---|---|---|---|---|
-| 通話状態要約 | `callStatusHeader` | `connectionStatusIcon` | `Call status` | `callPresenceLabel`, `routeLabel`, `connectionState`, `isAudioReady` | 接続アイコン + 2 行テキスト | Idle、Waiting、Connected / Audio Idle、通話中 |
+| 通話状態要約 | `callStatusHeader` | `connectionStatusIcon` | `Call status` | `callPresenceLabel`, `routeLabel`, `connectionState`, `isAudioReady`, `isCallMediaStarted` | 接続アイコン + 2 行テキスト | Idle、Waiting、Connected / Audio Idle、通話中 |
 | 接続状態ラベル | `connectionStatusIcon` | `callPresenceLabel` | 接続状態名 | `String` | 1 行目 | 状態不明時も文言化する |
 | 経路ラベル | `connectionStatusIcon` | `routeLabel` | 経路 | `String` | 2 行目補助テキスト | Local / Internet / Offline / Control Only |
 | ローカル入力ヘッダー | `callStatusHeader` | `localMicrophoneHeaderControl` | `Input` | `GroupMember`, `Bool` | ローカル入力状態カード | Unmuted / Muted |
@@ -329,3 +329,7 @@ Standardは新しい人の名前にRegistered／Not registered（登録済み／
 StandardGroupSettingsViewのMembersは新しい相手の予約枠に「招待中」を添える。登録済み相手の配送記録が残る間は、同じ人の複数端末をまとめた状態を名前の下に出す。StandardGroupInvitationStatusが保存画面と同じ語（招待中／グループに追加済み／招待を停止しました）を使う。記録がない旧形式や保持期限後のメンバーに受領済みを推測して付けない。状態の識別子はgroupSettingsInvitationState-{member.id}。既存のタップ・外す・名前変更はそのまま使う。
 
 AdvancedGroupSettingsViewは対象groupのoutgoing記録をAdvancedGroupDeliveryRecordsで表示する。id・recipientMemberID・state・expiresAt・credentialReferenceとその識別子は保存画面と同じ。入力中の名前、今の通話、共有操作を状態更新で切り替えない。groupInvitationDeliveries(in:)が対象groupの記録を照会し、groupInvitationDeliveryState(forMember:in:)は保存済み人物のアカウントを解決して既存の端末集約判定を使う。画面用の別の配送状態・通信・timerは持たない。
+
+### 操作直後のロックと相手待ち
+
+Standard・Advancedとも、接続操作から音声入出力の準備を開始する。相手の参加まで画面を開いたまま待つ操作を求めない。相手待ち・復旧可能な切断でも接続意思と終了期限を保ち、入出力を停止して前面復帰を待つ方式にはしない。音声準備だけで相手と接続済みとは表示せず、相手の認証と利用条件が成立するまで送信しない。通常のミュート値は維持する。OSによる録音開始拒否・音声中断は接続待ちと別に扱い、この契約の実機受入は[背景の受入マトリクス](../../../backlog/未実装課題.md#ios背景実行の調査と受入マトリクス)で管理する。

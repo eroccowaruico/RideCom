@@ -149,7 +149,7 @@ struct AudioActivationTests {
         #expect(h.inputBackend.startCount == 0)
     }
 
-    @Test(arguments: ["disconnect", "signout", "deadline", "peerLoss"])
+    @Test(arguments: ["disconnect", "signout", "deadline"])
     func endedOrUnauthorizedCallCannotStartAfterLateActivation(ending: String) async {
         var now = Date(timeIntervalSince1970: 2_000_000_000)
         let h = AppTestSupport.makeHarness(callAccessNow: { now }), gate = ManualAsyncGate()
@@ -161,7 +161,6 @@ struct AudioActivationTests {
         switch ending {
         case "signout": h.viewModel.accountSession.signOut()
         case "deadline": now = now.addingTimeInterval(60) // completion must check before the next tick
-        case "peerLoss": h.viewModel.handleTransportEvent(.connected(peerIDs: []))
         default: h.viewModel.disconnect()
         }
         await gate.release()

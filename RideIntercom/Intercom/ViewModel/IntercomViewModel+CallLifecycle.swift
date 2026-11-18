@@ -56,6 +56,8 @@ extension IntercomViewModel {
             connectedPeerIDs.isEmpty &&
             localNetworkStatus != .connected
 
+        // Prepare the explicitly requested call before waiting for discovery or admission.
+        startAudioPipelineIfNeeded()
         if shouldStartOrPromoteLocalConnection {
             var group = selectedGroup
             group.accessSecret = credential.secret
@@ -72,10 +74,11 @@ extension IntercomViewModel {
     func startActiveCallAfterAuthenticatedPeer() {
         if enforceCallAccess { refreshCallAccess(); return }
         startAudioPipelineIfNeeded()
+        refreshCallMediaAdmission()
     }
 
     func startAudioPipelineIfNeeded(resumingDevice: Bool = false) {
-        guard callStillPermitsMedia(),
+        guard callStillRequestsAudio(),
               !isUsingWatchAudio || watchAudioLink != nil,
               !isAudioPausedForDeviceChange || resumingDevice,
               !isAudioReady, audioStartTask == nil else { return }
@@ -100,26 +103,26 @@ extension IntercomViewModel {
             guard let self, !Task.isCancelled, self.audioGeneration == generation,
                   self.connectionGeneration == connection else { return }
             self.audioStartTask = nil
-            // The call may have ended, lost its peer or its right while the session activated.
-            guard self.callStillPermitsMedia() else {
+            // The explicit call may have ended while the session activated.
+            guard self.callStillRequestsAudio() else {
                 self.stopAudioPipeline()
                 return
             }
             guard report.result != .ignored(.superseded) else { return }
             guard self.applyAudioSessionActivationReport(report) else { abandonStart(); return }
-            self.callSession.startMedia()
             guard self.rebuildAudioPipeline(startsOutputClock: false),
                   self.applyCurrentVoiceProcessingConfiguration(), self.startInputCapture(),
                   self.startPreparedAudioOutput(configuration: .intercomCall) else { abandonStart(); return }
             self.inputFrameDelivery?.activate()
             self.callTicker.start()
             self.isAudioReady = true
+            self.refreshCallMediaAdmission()
             self.watchAudioLink?.setSendingAllowed(self.isUsingWatchAudio)
             if resumingDevice {
                 self.isAudioPausedForDeviceChange = false
                 self.audioRouteNotice = nil
             }
-            self.connectionState = self.routeConnectionState(isConnected: true)
+            self.connectionState = self.routeConnectionState(isConnected: !self.connectedPeerIDs.isEmpty)
             self.markConnectedMembers(peerIDs: self.connectedPeerIDs)
             self.callSession.setAudioPolicy(self.currentCallAudioPolicy())
             self.refreshOtherAudioDuckingState()
@@ -142,11 +145,24 @@ extension IntercomViewModel {
         return isConnected ? .localConnected : .localConnecting
     }
 
-    /// What a call needs to carry media, checked before the session activates and again after:
-    /// its timer has not run out, the account and usage right still allow it, and a verified peer is there.
-    private func callStillPermitsMedia() -> Bool {
+    /// Native audio belongs to the explicit call, including waiting and recoverable loss.
+    /// Peer authentication and commercial access independently gate network media.
+    private func callStillRequestsAudio() -> Bool {
         !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970)
-            && callDisconnectDeadline != nil && canStartCalls && canPrepareCallMedia && !authenticatedPeerIDs.isEmpty
+            && callDisconnectDeadline != nil && canStartCalls
+    }
+
+    func refreshCallMediaAdmission() {
+        let admitted = isAudioReady && callDisconnectDeadline != nil && canStartCalls
+            && canPrepareCallMedia && !authenticatedPeerIDs.isEmpty
+        // Close the pipeline before revoking media, and open it only after transport admission.
+        if !admitted { audioPipeline.setInputMuted(true) }
+        if admitted != isCallMediaStarted {
+            isCallMediaStarted = admitted
+            if admitted { callSession.startMedia() }
+            else { callSession.stopMedia() }
+        }
+        audioPipeline.setInputMuted(effectiveInputMuted || !admitted)
     }
 
     func stopAudioPipeline() {
@@ -159,6 +175,8 @@ extension IntercomViewModel {
         watchAudioLink?.setSendingAllowed(false)
         let wasAudioReady = isAudioReady
         setOtherAudioDuckingActive(false)
+        isCallMediaStarted = false
+        audioPipeline.setInputMuted(true)
         callSession.stopMedia()
         audioPipeline.stop()
         _ = audioInputCapture.stop()
@@ -166,6 +184,9 @@ extension IntercomViewModel {
         if callDisconnectDeadline == nil && (!enforceCallAccess || activeGroupID == nil) { callTicker.stop() }
         audioSessionManager.requestActive(false)
         isAudioReady = false
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+        BackgroundCallValidationObservation.observe(self)
+        #endif
         publishRuntimePackageReports(force: true)
         if wasAudioReady {
             AppLoggers.audio.info(
@@ -249,7 +270,7 @@ extension IntercomViewModel {
         inputFrameDelivery = delivery
         let pipeline = audioPipeline
         let recording = audioCheckRecording
-        pipeline.setInputMuted(effectiveInputMuted)
+        pipeline.setInputMuted(effectiveInputMuted || (recording == nil && !isCallMediaStarted))
         audioInputCapture.setRuntimeEventHandler { [weak self] event in
             if case .inputFrame(let frame) = event {
                 guard delivery.isActive else { return }
@@ -277,6 +298,9 @@ extension IntercomViewModel {
                 return
             }
             guard self.isAudioReady else { return }
+            #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+            BackgroundCallValidationObservation.observe(self, output: true)
+            #endif
             self.scheduleOutputFrame(frame: frame, receivedAt: Date().timeIntervalSince1970)
         }
     }

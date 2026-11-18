@@ -36,11 +36,11 @@ struct CallLifecycleTests {
         #expect(harness.viewModel.authenticatedPeerIDs.isEmpty)
         #expect(harness.viewModel.receivedVoicePacketCount == 0)
         #expect(harness.viewModel.networkDiagnostics?.generatedAt != 123)
-        #expect(!harness.viewModel.isAudioReady)
+        #expect(!harness.viewModel.isCallMediaStarted)
         harness.viewModel.disconnect()
     }
 
-    @Test func lastPeerDisconnectStopsMediaAndAllowsAuthenticatedReconnect() async {
+    @Test func lastPeerDisconnectStopsNetworkMediaButKeepsNativeAudioForAuthenticatedReconnect() async {
         let harness = AppTestSupport.makeHarness()
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         harness.callSession.authenticate(["member-108", "member-215"])
@@ -49,8 +49,9 @@ struct CallLifecycleTests {
         #expect(harness.viewModel.isAudioReady)
         #expect(harness.viewModel.authenticatedPeerIDs == ["member-215"])
         harness.viewModel.handleTransportEvent(.connected(peerIDs: []))
-        #expect(!harness.viewModel.isAudioReady)
-        #expect(harness.viewModel.audioPipeline.snapshot.busIDs.isEmpty)
+        #expect(!harness.viewModel.isCallMediaStarted)
+        #expect(harness.viewModel.isAudioReady)
+        #expect(!harness.viewModel.audioPipeline.snapshot.busIDs.isEmpty)
         #expect(harness.viewModel.activeGroupID != nil)
         harness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }

@@ -94,6 +94,7 @@ final class IntercomViewModel {
     var isVoiceActive = false
     @ObservationIgnored var localInputObservedAt: TimeInterval?
     var isAudioReady = false
+    var isCallMediaStarted = false
     var audioErrorMessage: String?
     var isAudioPausedForDeviceChange = false
     var audioRouteNotice: String?
