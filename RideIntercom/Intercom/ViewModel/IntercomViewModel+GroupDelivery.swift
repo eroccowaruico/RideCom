@@ -1,4 +1,9 @@
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
+
+typealias GroupDeliveryBackgroundTimeRequest = @MainActor (@escaping @MainActor () -> Void) -> (@MainActor () -> Void)?
 
 extension IntercomViewModel {
     func groupDeliveryRecords(for selected: Set<UUID>, groupID: UUID) -> [GroupDeliveryRecord] {
@@ -37,24 +42,71 @@ extension IntercomViewModel {
 
     func requestGroupDeliverySync(afterMutation: Bool = false) {
         guard groupDeliveryClient != nil, hasCurrentAccountAccess else { return }
-        if groupDeliveryTask != nil { if afterMutation { groupDeliveryNeedsSync = true }; return }
-        groupDeliveryNeedsSync = true
-        let run = UUID(); groupDeliveryRunID = run
-        groupDeliveryTask = Task { [weak self] in
-            guard let self else { return }
-            defer { if self.groupDeliveryRunID == run { self.groupDeliveryTask = nil } }
-            while self.groupDeliveryNeedsSync && !Task.isCancelled && self.hasCurrentAccountAccess {
-                self.groupDeliveryNeedsSync = false
-                await self.performGroupDeliverySync()
+        if groupDeliveryTask == nil {
+            groupDeliveryNeedsSync = true
+            let run = UUID(); groupDeliveryRunID = run
+            groupDeliveryTask = Task {
+                defer {
+                    if groupDeliveryRunID == run {
+                        groupDeliveryTask = nil
+                        finishGroupDeliveryBackgroundTime()
+                    }
+                }
+                while groupDeliveryNeedsSync && !Task.isCancelled && hasCurrentAccountAccess {
+                    groupDeliveryNeedsSync = false
+                    await performGroupDeliverySync()
+                }
             }
+        } else if afterMutation {
+            groupDeliveryNeedsSync = true
         }
+        if afterMutation { requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID) }
     }
+
+    /// Request time before the save action returns, including when a pass is already running.
+    private func requestGroupDeliveryBackgroundTime(run: UUID) {
+        guard endGroupDeliveryBackgroundTime == nil, canEditSavedGroups, notifications.canUseNotifications,
+              groupRepository.groupDeliveries.contains(where: { $0.direction == .outgoing && $0.state != .received })
+        else { return }
+        let end = beginGroupDeliveryBackgroundTime { [weak self] in
+            guard let self, self.groupDeliveryRunID == run else { return }
+            self.stopGroupDeliverySync()
+        }
+        guard groupDeliveryRunID == run else {
+            end?()
+            return
+        }
+        endGroupDeliveryBackgroundTime = end
+    }
+
+    private func finishGroupDeliveryBackgroundTime() {
+        let end = endGroupDeliveryBackgroundTime
+        endGroupDeliveryBackgroundTime = nil
+        end?()
+    }
+
+    static func beginSystemGroupDeliveryBackgroundTime(expiration: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        #if os(iOS)
+        guard SystemSurfaceScope.permitsSystemAccess else { return nil }
+        let application = UIApplication.shared
+        let identifier = application.beginBackgroundTask(withName: "Finish Group Invitation Delivery") {
+            // UIKit calls this synchronously on the main thread.
+            MainActor.assumeIsolated { expiration() }
+        }
+        guard identifier != .invalid else { return nil }
+        return { application.endBackgroundTask(identifier) }
+        #else
+        return nil
+        #endif
+    }
+
     func synchronizeGroupDeliveries() async {
         requestGroupDeliverySync()
         await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {
         groupDeliveryRunID = UUID(); groupDeliveryTask?.cancel(); groupDeliveryTask = nil; groupDeliveryNeedsSync = false
+        finishGroupDeliveryBackgroundTime()
     }
     private func groupDeliveryIsCurrent(_ access: CallNotificationServiceAccess, accountID: UUID) -> Bool {
         hasCurrentAccountAccess && accountAccessID == accountID && !Task.isCancelled

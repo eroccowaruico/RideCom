@@ -20,6 +20,7 @@ extension IntercomViewModel {
     }
     func endAccountAccess() {
         notifications.stop()
+        stopGroupDeliverySync()
         stopCallAccessObservation()
         storeAccess.stop()
         disconnect()

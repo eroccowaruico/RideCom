@@ -35,6 +35,8 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 
 ## APNs環境を一つの設定から渡す
 
+グループ招待の送信途中にiOSの背景へ移る場合は、UIKitの有限の背景実行時間を使用する。このAPIへの追加のCapability・通知種別・Cloudflare設定は不要。グループ招待のアラートは、以下の通常APNsの設定で配信する。[Appleの背景実行時間](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time)。
+
 | 項目 | 値・契約 |
 |---|---|
 | Build Setting | `RIDEINTERCOM_APNS_ENVIRONMENT`。Debugは`development`、Releaseは`production` |

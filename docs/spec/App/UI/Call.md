@@ -316,6 +316,8 @@ UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/�
 
 AdvancedRegisteredGroupInvitationsはGroupDeliveryRecordのid・recipientMemberID・state・expiresAt・credentialReferenceをそのまま表示し、Share Call Inviteを任意に残す。両モードで保存・送受信・判定は同じ処理を使い、文言と配置はモード所有の画面に分ける。新しい相手もいる場合、その人の名前付き詳細と登録済みの相手の配送状態を同じ保存後の画面で続けられる。
 
+iOSの保存直後に背景へ移ると、送信処理はOSが与えた有限の実行時間で進む。時間切れでは保存済みの同じ行と状態を保つ。相手側の保存確認に合わせて状態を更新する。[グループ自動配送の実行契約](../通信仕様.md#グループ自動配送の実行契約)。
+
 ## 非表示のグループタブへの受取案内
 
 StandardUsersViewだけがStandardGroupInvitationOfferを持つ。Standard・グループタブOFF・Users一覧・保存編集可能・通話なし・名前選択なし・人物詳細や設定／削除確認なしの場合に、受取group名と「グループタブを表示しますか？」を標準アラートで一度だけ出す。人物の登録後は同じ詳細に留まり、完了で一覧へ戻るまで確認を出さない。

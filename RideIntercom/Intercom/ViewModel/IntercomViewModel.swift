@@ -28,6 +28,8 @@ final class IntercomViewModel {
     @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
     @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
     @ObservationIgnored var groupDeliveryClient: InternetAccountClient? = SystemSurfaceScope.permitsSystemAccess ? .init() : nil
+    @ObservationIgnored var beginGroupDeliveryBackgroundTime: GroupDeliveryBackgroundTimeRequest = IntercomViewModel.beginSystemGroupDeliveryBackgroundTime
+    @ObservationIgnored var endGroupDeliveryBackgroundTime: (@MainActor () -> Void)?
     @ObservationIgnored var groupDeliveryTask: Task<Void, Never>?
     @ObservationIgnored var groupDeliveryNeedsSync = false
     @ObservationIgnored var groupDeliveryRunID = UUID()

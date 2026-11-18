@@ -199,6 +199,62 @@ import Testing
         #expect(GroupInvitationTap(payload: ["version": 1, "requestID": UUID().uuidString, "recipientID": String(repeating: "a", count: 64)]) == nil)
     }
 
+    @Test(arguments: [false, true])
+    func savingAGroupRequestsBackgroundTimeAndKeepsTheSameDeliveryOnExpiry(expires: Bool) async throws {
+        let a = GroupDeliveryTestIdentity("background-delivery-author")
+        let b = GroupDeliveryTestIdentity("background-delivery-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let h = try a.harness(knowing: [b])
+        let vm = h.viewModel
+        defer { vm.stopGroupDeliverySync(); vm.disconnect() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        GroupDeliveryHTTPStub.reset()
+        defer { GroupDeliveryHTTPStub.reset() }
+        let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        GroupDeliveryHTTPStub.users = [access.accessToken: try a.principal.userID]
+        vm.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal, revision: 1,
+            grant: nil, signer: b.signer, groupGrant: testCallNotificationGrant(owner: b.principal, allowedSender: a.principal,
+                audience: "rideintercom-group-invitation"), groupInvitationsSupported: true)
+        try vm.notifications.receivePermission(permission, peerID: b.memberID)
+        var starts = 0, finishes = 0
+        var expire: (@MainActor () -> Void)?
+        vm.beginGroupDeliveryBackgroundTime = { onExpiration in
+            starts += 1
+            expire = onExpiration
+            return { finishes += 1 }
+        }
+        GroupDeliveryHTTPStub.onQueued = {
+            #expect(starts == 1 && finishes == 0, "The network write begins inside the app's requested time")
+            if expires { expire?() }
+        }
+        let groupID = UUID()
+        if expires {
+            vm.requestGroupDeliverySync()
+            #expect(starts == 0, "An ordinary inbox refresh does not request extra time")
+        }
+        #expect(vm.createTalkGroup(name: "Saved before leaving the app", userIDs: [b.personID], id: groupID))
+        #expect(starts == 1, "Request extra time before the save action returns")
+        let pass = try #require(vm.groupDeliveryTask)
+        await pass.value
+        #expect(finishes == 1)
+        let record = try #require(vm.groupRepository.groupDeliveries.first)
+        #expect(record.groupID == groupID && GroupDeliveryHTTPStub.items.count == 1)
+        #expect(record.state == (expires ? .pending : .queued))
+        if expires {
+            GroupDeliveryHTTPStub.onQueued = nil
+            await vm.synchronizeGroupDeliveries()
+            let retried = try #require(vm.groupRepository.groupDeliveries.first)
+            #expect(retried.id == record.id && retried.state == .queued)
+            #expect(GroupDeliveryHTTPStub.items.count == 1 && GroupDeliveryHTTPStub.submitted.count == 2)
+            #expect(Set(GroupDeliveryHTTPStub.submitted).count == 1, "Retry uses the same committed envelope")
+            #expect(starts == 1 && finishes == 1)
+        }
+    }
+
     @Test func aLateResponseCannotCommitAfterTheAccountSignsOut() async throws {
         let a = GroupDeliveryTestIdentity("late-author"), b = GroupDeliveryTestIdentity("late-recipient")
         defer { a.remove(); b.remove() }
