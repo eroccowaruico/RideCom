@@ -36,7 +36,7 @@ struct SavedUsersView: View {
         if let addedTo { invitationGroupID = addedTo } else { dismiss() }
     }
 
-    /// Until saved users receive the group automatically, the added people get it by a shared link.
+    /// Keep delivery status and optional sharing in the same saved step.
     private func invitationStep(_ group: IntercomGroup) -> some View {
         Form {
             let people = viewModel.groupInvitationPersonIDs(group.id)

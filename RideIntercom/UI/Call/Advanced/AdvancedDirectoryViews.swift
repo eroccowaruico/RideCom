@@ -138,6 +138,9 @@ struct AdvancedGroupsView: View {
         }) { SavedUsersView(viewModel: viewModel) }
         .destinationSettingsSheet($settings, viewModel: viewModel)
         .destinationDeleteConfirmation($pendingDelete)
+        .onAppear { if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
+        .onChange(of: selectedTab) { _, tab in if tab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
+        .onChange(of: viewModel.contactInvitationRevision) { _, _ in if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .accessibilityIdentifier("standardGroupsList")
     }
 

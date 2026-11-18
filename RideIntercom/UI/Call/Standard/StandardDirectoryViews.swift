@@ -75,6 +75,7 @@ struct StandardUsersView: View {
         }
         .destinationSettingsSheet($settings, viewModel: viewModel)
         .destinationDeleteConfirmation($pendingDelete)
+        .modifier(StandardGroupInvitationOffer(viewModel: viewModel, selectedTab: $selectedTab, blocked: settings != nil || pendingDelete != nil))
     }
 }
 
@@ -129,6 +130,9 @@ struct StandardGroupsView: View {
         }) { SavedUsersView(viewModel: viewModel) }
         .destinationSettingsSheet($settings, viewModel: viewModel)
         .destinationDeleteConfirmation($pendingDelete)
+        .onAppear { if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
+        .onChange(of: selectedTab) { _, tab in if tab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
+        .onChange(of: viewModel.contactInvitationRevision) { _, _ in if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .accessibilityIdentifier("standardGroupsList")
         .overlay {
             if viewModel.regularGroups.isEmpty {

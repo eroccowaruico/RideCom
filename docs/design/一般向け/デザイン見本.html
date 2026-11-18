@@ -569,6 +569,20 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       </div></div>
       <figcaption><b>保存から相手ごとの共有へ</b>ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えてもUsersの同じ人かグループ設定の招待中の行から再開できる。この例は登録済みのマキも選んでいるため、自動配送の状態と任意の共有を下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
     </figure>
+    <figure id="group-tab-invitation-offer">
+      <div class="phone"><div class="screen">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="body"><h2>ユーザー</h2><div class="group"><div class="row">マキ</div></div></div>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="group-tab-offer-title" style="width:calc(100% - 48px);max-width:320px;border-radius:28px;padding:22px 16px 16px;background:var(--grouped-card);box-shadow:0 12px 32px rgba(0,0,0,.16)">
+            <b id="group-tab-offer-title" style="display:block;margin:0 12px 8px;font-size:17px">グループタブを表示しますか？</b>
+            <p style="margin:0 12px 20px;color:var(--label2);font-size:15px;line-height:1.45">週末の仲間に招待されました。グループタブから接続できます。</p>
+            <div style="display:flex;gap:8px"><span style="flex:1;text-align:center;border-radius:24px;padding:12px 4px;background:rgba(120,120,128,.16)">今はしない</span><span style="flex:1;text-align:center;border-radius:24px;padding:12px 4px;background:rgba(120,120,128,.16)">表示する</span></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption><b>非表示のグループタブの案内</b>実装はOS標準アラート。招待の詳細を完了しUsers一覧へ戻ってから一度だけ確認する。「表示する」は設定を保存してGroups一覧へ、「今はしない」は次の新しいgroupまで聞かない。どちらも通話を始めず、既存の通話や他のシートを中断しない。</figcaption>
+    </figure>
     <figure id="group-new-person-accept">
       <div class="phone"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>

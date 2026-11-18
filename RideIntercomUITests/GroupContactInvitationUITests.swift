@@ -7,6 +7,15 @@ final class GroupContactInvitationUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
     override func tearDownWithError() throws { app?.terminate(); app = nil }
 
+    func testReplyFixtureUsesTheSameFractionalTimestampSpellingAsCodable() throws {
+        struct Fields: Encodable { let expiresAt: Double; let contactBootstrap: Bool }
+        let value = Fields(expiresAt: 1795596316.992827, contactBootstrap: true)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(value)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(try InvitationURLFixture.canonicalData(object), data)
+    }
+
     @MainActor func testStandardPreparesANewPersonsGroupInvitation() throws { try prepare() }
     @MainActor func testAdvancedPreparesANewPersonsGroupInvitation() throws { try prepare(advanced: true) }
     @MainActor func testStandardGroupSettingsPreparesANewPersonsInvitation() throws { try prepare(entry: "settings") }
@@ -78,7 +87,7 @@ final class GroupContactInvitationUITests: XCTestCase {
         if advanced { app.buttons["callGroupSettingsButton"].tap() }
         XCTAssertTrue(app.textFields["groupSettingsNameField"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textFields["groupSettingsNameField"].value as? String, groupName)
-        if !advanced { XCTAssertTrue(app.buttons["groupSettingsMember-" + peer].exists) }
+        if !advanced { XCTAssertTrue(app.buttons["groupSettingsMember-" + peer].waitForExistence(timeout: 5)) }
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", nickname)).firstMatch.exists)
         let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Signed reply replaces only its saved group invitation slot"; attachment.lifetime = .keepAlways; self.add(attachment)
 

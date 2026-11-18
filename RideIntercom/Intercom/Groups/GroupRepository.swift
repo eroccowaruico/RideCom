@@ -104,6 +104,7 @@ final class GroupRepository {
                 if let index = next.groups.firstIndex(where: { $0.id == receipt.receipt.groupID }), next.groups[index].kind != .direct,
                    previousGroupIDs.contains(receipt.receipt.groupID) == false {
                     next.groups[index].joinedByInvitation = true
+                    next.groups[index].groupTabOfferAcknowledged = false
                 }
             }
         }
@@ -214,6 +215,20 @@ final class GroupRepository {
     /// You own a regular group you made here; one you joined through an invitation is someone else's.
     func ownsGroup(_ groupID: UUID) -> Bool {
         snapshot?.groups.first { $0.id == groupID }?.joinedByInvitation != true
+    }
+
+    var unacknowledgedGroupTabOffers: [UUID] {
+        snapshot?.groups.filter { $0.kind == .group && $0.joinedByInvitation == true && $0.groupTabOfferAcknowledged == false }.map(\.id) ?? []
+    }
+
+    /// One response covers all invitations already received, so a batch never produces repeated alerts.
+    func acknowledgeGroupTabOffers() throws {
+        guard let snapshot, !unacknowledgedGroupTabOffers.isEmpty else { return }
+        try update(try snapshot.groups.map { try $0.group() }, credential: nil) { next in
+            for index in next.groups.indices where next.groups[index].groupTabOfferAcknowledged == false {
+                next.groups[index].groupTabOfferAcknowledged = true
+            }
+        }
     }
 
     func storedGroup(_ groupID: UUID) -> IntercomGroup? {
@@ -350,6 +365,7 @@ final class GroupRepository {
             record.pendingInvitation = old?.pendingInvitation
             record.receivedInvitationIDs = old?.receivedInvitationIDs ?? []
             record.joinedByInvitation = old?.joinedByInvitation
+            record.groupTabOfferAcknowledged = old?.groupTabOfferAcknowledged
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations, groupDeliveries: previous.groupDeliveries)
         try modify(&next)
@@ -555,6 +571,7 @@ extension GroupRepository {
         try update(groups, credential: .init(groupID: token.groupID, secret: token.groupSecret)) { next in
             if let index = next.groups.firstIndex(where: { $0.id == token.groupID }), !previous.contains(where: { $0.id == token.groupID }) {
                 next.groups[index].joinedByInvitation = true
+                next.groups[index].groupTabOfferAcknowledged = false
                 next.groups[index].accountDevices[localMemberID] = .init(principal: envelope.recipient, publicKey: envelope.recipientKey)
                 next.groups[index].accountDevices[envelope.senderMemberID] = .init(principal: envelope.sender, publicKey: proof.publicKey)
             }
@@ -586,7 +603,10 @@ extension GroupRepository {
         let keys = token.invitedGroup.map { [GroupAccessCredential(groupID: $0.id, secret: $0.secret)] } ?? []
         try update(joiningGroups, credential: call.credential, additionalCredentials: keys) { next in
             if let target = token.invitedGroup, !snapshot.groups.contains(where: { $0.id == target.id }),
-               let index = next.groups.firstIndex(where: { $0.id == target.id }) { next.groups[index].joinedByInvitation = true }
+               let index = next.groups.firstIndex(where: { $0.id == target.id }) {
+                next.groups[index].joinedByInvitation = true
+                next.groups[index].groupTabOfferAcknowledged = false
+            }
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
             try next.remember(inviter, identity: accepted.inviter)
             let reference = try self.prepareKey(payload.encodedSecret())

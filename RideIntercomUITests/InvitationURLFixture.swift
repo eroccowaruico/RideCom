@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import CoreFoundation
 
 /// Synthetic remote signer; the UI tests never call a real account or service.
 enum InvitationURLFixture {
@@ -55,7 +56,7 @@ enum InvitationURLFixture {
         guard let bytes = Data(base64Encoded: encoded), var object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
               let inviter = object["inviterMemberID"] as? String else { throw Failure.invalidURL }
         object["kind"] = "acknowledged"
-        let message = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let message = try canonicalData(object)
         let publicKey = base64url(signingKey.publicKey.x963Representation)
         var signed = Data("rideintercom.device-proof.v1\0".utf8)
         for field in [Data("acknowledgeInvitation".utf8), Data(inviter.utf8), Data(publicKey.utf8), Data(), Data(), message] {
@@ -82,11 +83,11 @@ enum InvitationURLFixture {
         let receiptID = UUID(uuid: (hash[0],hash[1],hash[2],hash[3],hash[4],hash[5],hash[6],hash[7],hash[8],hash[9],hash[10],hash[11],hash[12],hash[13],hash[14],hash[15])).uuidString
         let publicKey = base64url(signingKey.publicKey.x963Representation)
         let proofFields: [String: Any] = ["receiptID": receiptID, "inviteeMemberID": invitee, "inviteeDeviceKey": publicKey, "invitation": context]
-        let proofBytes = Data("rideintercom.direct-invitation.receipt.v2\0".utf8) + (try JSONSerialization.data(withJSONObject: proofFields, options: [.sortedKeys]))
+        let proofBytes = Data("rideintercom.direct-invitation.receipt.v2\0".utf8) + (try canonicalData(proofFields))
         let proof = Data(HMAC<SHA256>.authenticationCode(for: proofBytes, using: SymmetricKey(data: secretBytes))).base64EncodedString()
         var object: [String: Any] = ["id": receiptID, "groupID": group, "inviterMemberID": inviter, "inviteeMemberID": invitee,
             "inviteeDeviceKey": publicKey, "displayName": sharedName, "invitation": context, "proof": proof]
-        let message = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let message = try canonicalData(object)
         var signed = Data("rideintercom.device-proof.v1\0".utf8)
         for field in [Data("acceptInvitation".utf8), Data(invitee.utf8), Data(publicKey.utf8), Data(), Data(), message] {
             var count = UInt32(field.count).bigEndian
@@ -96,6 +97,40 @@ enum InvitationURLFixture {
         object["acceptanceProof"] = ["publicKey": publicKey, "signature": base64url(try signingKey.signature(for: signed).rawRepresentation)]
         guard let url = URL(string: "rideintercom://contact-reply?receipt=" + base64url(try JSONSerialization.data(withJSONObject: object))) else { throw Failure.invalidURL }
         return url
+    }
+
+    /// Match the product's Codable representation, including fractional timestamp spelling.
+    static func canonicalData(_ object: [String: Any]) throws -> Data {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(CanonicalJSON(value: object))
+    }
+
+    private struct CanonicalJSON: Encodable {
+        let value: Any
+        private struct Key: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(_ value: String) { stringValue = value }
+            init?(stringValue: String) { self.init(stringValue) }
+            init?(intValue: Int) { return nil }
+        }
+        func encode(to encoder: Encoder) throws {
+            if let object = value as? [String: Any] {
+                var container = encoder.container(keyedBy: Key.self)
+                for (key, value) in object { try container.encode(Self(value: value), forKey: Key(key)) }
+            } else if let array = value as? [Any] {
+                var container = encoder.unkeyedContainer()
+                for value in array { try container.encode(Self(value: value)) }
+            } else {
+                var container = encoder.singleValueContainer()
+                if let string = value as? String { try container.encode(string) }
+                else if let number = value as? NSNumber {
+                    if CFGetTypeID(number) == CFBooleanGetTypeID() { try container.encode(number.boolValue) }
+                    else { try container.encode(number.doubleValue) }
+                } else if value is NSNull { try container.encodeNil() }
+                else { throw Failure.invalidURL }
+            }
+        }
     }
 
     private static func base64url(_ bytes: Data) -> String {

@@ -22,6 +22,8 @@ struct GroupSnapshot: Codable, Equatable {
         /// True when this device joined the group through someone's invitation, so someone else owns it.
         /// Nil (groups made here, and groups saved before this was kept) means you own it.
         var joinedByInvitation: Bool?
+        /// Only newly received groups have false; nil preserves the behavior of legacy records.
+        var groupTabOfferAcknowledged: Bool?
 
         init(_ group: IntercomGroup, credentialReference: UUID? = nil) {
             id = group.id; name = group.name
@@ -32,7 +34,7 @@ struct GroupSnapshot: Codable, Equatable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, lastSponsoredStart, joinedByInvitation
+            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, lastSponsoredStart, joinedByInvitation, groupTabOfferAcknowledged
         }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -47,6 +49,7 @@ struct GroupSnapshot: Codable, Equatable {
             receivedInvitationIDs = try values.decodeIfPresent([UUID].self, forKey: .receivedInvitationIDs) ?? []
             lastSponsoredStart = try values.decodeIfPresent(TimeInterval.self, forKey: .lastSponsoredStart)
             joinedByInvitation = try values.decodeIfPresent(Bool.self, forKey: .joinedByInvitation)
+            groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
         }
         func group() throws -> IntercomGroup {
             try IntercomGroup(id: id, name: name, members: members.map { GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName) }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)

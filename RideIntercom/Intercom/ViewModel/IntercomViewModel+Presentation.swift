@@ -22,6 +22,7 @@ extension IntercomViewModel {
 
     func setShowsGroupsTab(_ shows: Bool) {
         guard canStartCalls, showsGroupsTab != shows else { return }
+        if !shows { acknowledgeVisibleGroupTabInvitations() }
         showsGroupsTab = shows
         saveAppSettings()
     }

@@ -15,8 +15,14 @@ final class RegisteredGroupInvitationUITests: XCTestCase {
         let groups = app.tabBars.buttons["Groups"]; XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
         app.buttons["standardCreateGroupButton"].firstMatch.tap()
         let person = app.buttons["selectUser-" + seed]
-        for _ in 0..<24 where !person.exists || !person.isHittable { app.swipeUp() }
-        XCTAssertTrue(person.exists); person.tap()
+        for _ in 0..<32 {
+            let bottom = advanced ? app.frame.maxY - 36 : app.buttons["saveUserSelectionButton"].frame.minY
+            if person.exists, person.isHittable, person.frame.minY > 130, person.frame.maxY < bottom - 12 { break }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)).press(forDuration: 0.05,
+                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.30)))
+        }
+        XCTAssertTrue(person.exists && person.isHittable); person.tap()
+        XCTAssertTrue(person.isSelected, "The chosen person is selected before saving")
         app.buttons["saveUserSelectionButton"].tap()
         XCTAssertTrue(app.buttons["finishAddingUsersButton"].waitForExistence(timeout: 5))
         if advanced {
