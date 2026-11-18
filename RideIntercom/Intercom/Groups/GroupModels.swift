@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 struct GroupMember: Identifiable, Equatable, Hashable, Codable {
-    static let pendingInvitePrefix = "invite-pending-"
+    nonisolated static let pendingInvitePrefix = "invite-pending-"
     let id: String
     var displayName: String
     var localName: String?

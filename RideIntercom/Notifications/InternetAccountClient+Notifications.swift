@@ -86,7 +86,7 @@ extension InternetAccountClient {
         guard parts.count == 4, parts[0] == "ri1", Self.notificationUserID(parts[1]), UUID(uuidString: parts[2]) != nil,
               Self.notificationUserID(parts[3]) else { throw Failure.rejected }
     }
-    static func notificationUserID(_ value: String) -> Bool {
+    nonisolated static func notificationUserID(_ value: String) -> Bool {
         value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 }

@@ -18,6 +18,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
     var ciphertext: Data
     var proof: DeviceIdentityProof?
 
+    @MainActor
     static func seal(_ token: GroupInviteToken, sender: AccountPrincipal, recipient: AccountPrincipal,
                      recipientMemberID: String, recipientKey: String, signer: DeviceIdentitySigner,
                      now: Date = Date(), deliveryID: UUID = UUID()) throws -> Self {
@@ -45,6 +46,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
         result.proof = try signer.sign(result.message(), purpose: .deliverGroupInvitation)
         return result
     }
+    @MainActor
     func open(recipient signer: DeviceIdentitySigner, local: AccountPrincipal, sender user: SavedUser,
               now: Date = Date()) throws -> GroupInviteToken {
         guard version == 1, sender.isValid, recipient == local, recipient.isValid, sender != recipient,
