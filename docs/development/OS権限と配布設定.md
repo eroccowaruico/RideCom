@@ -8,7 +8,7 @@
 |---|---|---|
 | Appleログイン | 全通話で認証必須。AppのiOS/macOS entitlementにSign in with Apple | 対象App IDのcapabilityと、そのcapabilityを含む両OSのprofile。実Apple認証・取消・復帰 |
 | 近距離通信 | `NSBonjourServices`は近距離のQUIC制御用の`_ride-control._udp`と、音声用の`_ride-audio._udp`。ローカルネットワーク説明を日英で同梱 | 各端末でローカルネットワークを許可。固定BonjourとUDP unicastなのでmulticastの制限付きentitlementは追加しない |
-| マイク・継続音声 | 日英のマイク説明、macOS audio-input、Appのaudio background mode | 各端末のマイク許可。実Bluetooth・中断・ロック中通話の受入。カメラ、連絡先、位置情報、Watchマイクは要求しない |
+| マイク・継続音声 | 日英のマイク説明、macOS audio-input、Appのaudio background mode。端末本体の通話・Audio Check前に明示要求し、許可後は同じ操作を続行 | 各端末のマイク許可。実Bluetooth・中断・ロック中通話の受入。カメラ、連絡先、位置情報、Watchマイクは要求しない |
 | Mac sandbox | Appはsandboxとnetwork client/serverを有効。UDPの送受信に両方向が必要 | 通常sandboxの実起動と実通信。自動unitでsandboxを無効にした結果とは区別 |
 | Widgetの選択用共有 | AppとWidgetに同じApp Group。Widgetは資格を持たず、Appが投影を書きextensionは読む | 両App IDへのgroup割当と両profileのgroup許可。署名済みの実App/extension間で共有できること |
 | 通知 | AppだけPush entitlement。通常のalert/soundと利用者tapを使用。背景remote-notificationを要求しない | Push capability、APNs環境、server topic、provider鍵、利用者の通知許可を一致させる |

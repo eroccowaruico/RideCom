@@ -1,8 +1,13 @@
 import Foundation
 import Logging
+import Foundation
 import SessionManager
 
 extension IntercomViewModel {
+    static var microphoneAccessRequiredMessage: String {
+        String(localized: "Microphone access is required. Allow it in Settings.")
+    }
+
     var audioCheckInputPortName: String {
         audioCheckPhase == .recording || audioCheckPhase == .playing
             ? audioSessionSnapshot.currentInput.name : selectedInputPort.name

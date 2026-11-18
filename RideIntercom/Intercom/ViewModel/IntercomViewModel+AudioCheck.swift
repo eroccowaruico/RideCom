@@ -41,10 +41,19 @@ extension IntercomViewModel {
             failAudioCheck(audioErrorMessage ?? "Audio setup failed")
             return false
         }
-        let activation = audioSessionManager.requestActive(true)
         audioCheckTask = Task { [weak self] in
+            guard let self, !Task.isCancelled, self.audioCheckGeneration == generation,
+                  self.audioGeneration == audio else { return }
+            let authorized = watchSessionID != nil ? true : await self.requestMicrophoneAccess()
+            guard !Task.isCancelled, self.audioCheckGeneration == generation,
+                  self.audioGeneration == audio else { return }
+            guard authorized else {
+                self.failAudioCheck(Self.microphoneAccessRequiredMessage)
+                return
+            }
+            let activation = self.audioSessionManager.requestActive(true)
             let report = await activation.value
-            guard let self, !Task.isCancelled, self.audioCheckGeneration == generation else { return }
+            guard !Task.isCancelled, self.audioCheckGeneration == generation else { return }
             guard self.audioGeneration == audio, self.canPrepareAudioCheck, self.audioCheckPhase == .preparing else {
                 self.cancelAudioCheck(); return
             }

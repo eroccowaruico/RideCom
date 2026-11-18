@@ -50,7 +50,8 @@ enum AppTestSupport {
         localMemberID: String? = nil,
         enforceCallAccess: Bool? = nil,
         callAccessEvaluation: (@MainActor (Date) -> StoreAccessEvaluation)? = nil,
-        callAccessNow: @escaping @MainActor () -> Date = Date.init
+        callAccessNow: @escaping @MainActor () -> Date = Date.init,
+        requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { true }
     ) -> Harness {
         let groups = groups ?? IntercomSeedData.recentGroups
         let credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
@@ -85,6 +86,7 @@ enum AppTestSupport {
             internetSettingsStore: internetSettingsStore ?? InternetConnectionSettingsStore(keychain: identityKeychain, namespace: identityNamespace),
             localMemberIdentityStore: identityStore,
             invitationAuthority: invitationAuthority ?? testInvitationAuthority(),
+            requestMicrophoneAccess: requestMicrophoneAccess,
             audioSessionManager: audioSessionManager ?? AudioSessionManager(backend: audioSessionBackend),
             audioInputCapture: AudioInputStreamCapture(
                 configuration: .intercom(voiceProcessing: IntercomViewModel.defaultVoiceProcessingConfiguration()),

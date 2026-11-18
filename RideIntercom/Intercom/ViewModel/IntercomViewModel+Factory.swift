@@ -3,6 +3,7 @@ import AVFAudio
 import Codec
 import CryptoKit
 import Foundation
+import Logging
 import OSLog
 import RTC
 import SessionManager
@@ -35,6 +36,13 @@ extension IntercomViewModel {
             internetSettingsStore: InternetConnectionSettingsStore.makeForCurrentProcess(namespace: namespace),
             localMemberIdentityStore: localMemberIdentityStore,
             invitationAuthority: DirectInvitationAuthority(keychain: SystemKeychainSecretStore(), namespace: namespace),
+            requestMicrophoneAccess: {
+                let granted = await AVAudioApplication.requestRecordPermission()
+                if let denied = MicrophonePermissionLog.denied(AVAudioApplication.shared.recordPermission) {
+                    AppLoggers.app.notice("app.permission.microphone.denied", metadata: denied)
+                }
+                return granted
+            },
             audioSessionManager: processAudioSessionManager
         )
     }

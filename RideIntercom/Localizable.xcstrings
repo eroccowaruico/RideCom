@@ -3368,6 +3368,17 @@
         }
       }
     },
+    "Microphone access is required. Allow it in Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マイクへのアクセスを許可する必要があります。「設定」で許可してください。"
+          }
+        }
+      }
+    },
     "Microphone capture failed" : {
       "extractionState" : "manual",
       "localizations" : {

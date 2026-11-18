@@ -234,13 +234,13 @@ struct FiniteAudioCheckDeliveryTests {
             callSession: h.callSession, groupRepository: h.viewModel.groupRepository,
             appSettingsStore: InMemoryAppSettingsStore(), internetSettingsStore: h.viewModel.internetSettingsStore,
             localMemberIdentityStore: h.viewModel.localMemberIdentityStore,
-            invitationAuthority: h.viewModel.invitationAuthority, callTicker: NoOpCallTicker())
+            invitationAuthority: h.viewModel.invitationAuthority, requestMicrophoneAccess: { true }, callTicker: NoOpCallTicker())
     }
     #endif
 
     #if os(iOS)
     @Test func nativeCallCaptureContinuesAfterPipelinePreparationAndRestart() async throws {
-        // Only account/control/transport use fixtures. Native capture, DSP and
+        // Account/control/transport and permission use fixtures. Native capture, DSP and
         // the shared hardware engine follow the ordinary call lifecycle.
         let h = AppTestSupport.makeHarness(), vm = makeNativeViewModel(h)
         defer { vm.disconnect() }

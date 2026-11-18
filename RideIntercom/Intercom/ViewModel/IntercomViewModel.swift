@@ -194,6 +194,7 @@ final class IntercomViewModel {
     var inviteStatusMessage: String?
     let callSession: CallSession
     let audioSessionManager: SessionManager.AudioSessionManager
+    let requestMicrophoneAccess: @MainActor () async -> Bool
     let nativeAudioInputCapture: SessionManager.AudioInputStreamCapture
     let nativeAudioOutputRenderer: SessionManager.AudioOutputStreamRenderer
     var audioInputCapture: SessionManager.AudioInputStreamCapture
@@ -267,6 +268,7 @@ final class IntercomViewModel {
         internetSettingsStore: InternetConnectionSettingsStore? = nil,
         localMemberIdentityStore: LocalMemberIdentityStoring,
         invitationAuthority: DirectInvitationAuthority,
+        requestMicrophoneAccess: @escaping @MainActor () async -> Bool,
         audioSessionManager: SessionManager.AudioSessionManager? = nil,
         audioInputCapture: SessionManager.AudioInputStreamCapture? = nil,
         audioOutputRenderer: SessionManager.AudioOutputStreamRenderer? = nil,
@@ -278,6 +280,7 @@ final class IntercomViewModel {
         self.callAccessEvaluation = callAccessEvaluation
         self.callAccessNow = callAccessNow
         self.invitationAuthority = invitationAuthority
+        self.requestMicrophoneAccess = requestMicrophoneAccess
         self.accountSession = accountSession
         self.accountUserID = accountSession.userID
         self.accountAccessID = accountSession.accessID

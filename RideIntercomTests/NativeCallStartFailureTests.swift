@@ -17,13 +17,14 @@ import Testing
             let hardware = engine.inputNode.inputFormat(forBus: 0)
             try #require(hardware.sampleRate == 0 || hardware.channelCount == 0)
             let h = AppTestSupport.makeHarness(enforceCallAccess: false)
-            // Only activation/control and RTC are fixtures. The shared receive graph,
+            // Microphone permission, activation/control and RTC are fixtures. The shared receive graph,
             // native input, voice processing, failure report and App call path are real.
             let vm = IntercomViewModel(accountSession: h.viewModel.accountSession, enforceCallAccess: false,
                 callSession: h.callSession, groupRepository: h.viewModel.groupRepository,
                 appSettingsStore: InMemoryAppSettingsStore(), internetSettingsStore: h.viewModel.internetSettingsStore,
                 localMemberIdentityStore: InMemoryLocalMemberIdentityStore(identity: h.viewModel.localMemberIdentity),
                 invitationAuthority: testInvitationAuthority(),
+                requestMicrophoneAccess: { true },
                 audioSessionManager: SessionManager.AudioSessionManager(backend: h.audioSessionBackend),
                 audioInputCapture: AudioInputStreamCapture(configuration: .intercom(voiceProcessing:
                     IntercomViewModel.defaultVoiceProcessingConfiguration()), engine: engine),

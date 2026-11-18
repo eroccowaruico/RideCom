@@ -11,16 +11,18 @@ from scripts.test_lifecycle import exclusive_run, simulator_resource_root, Simul
 parser=argparse.ArgumentParser(description="Native iOS waiting audio during background, without a peer; not physical-device acceptance")
 parser.add_argument('--out', type=Path, required=True)
 parser.add_argument('--reuse-settings', type=Path)
-parser.add_argument('--scenario', choices=['waiting','resumed','all'], default='waiting')
+parser.add_argument('--scenario', choices=['waiting','resumed','first-permission','all'], default='waiting')
 args=parser.parse_args()
 root=ROOT
-cases=[('open',False),('muted',True)] if args.scenario=='waiting' else [('resumed',False)]
-if args.scenario=='all': cases=[('open',False),('muted',True),('resumed',False)]
+cases={'waiting':[('open',False),('muted',True)],'resumed':[('resumed',False)],
+       'first-permission':[('first-permission',False)],
+       'all':[('open',False),('muted',True),('resumed',False),('first-permission',False)]}[args.scenario]
 tests=[]
 for layout in ['Standard','Advanced']:
     for variant,_ in cases:
         method=('test'+layout+'WaitingReturnsFromBackgroundWithoutLosingItsCall' if variant=='open' else
                 'test'+layout+'MutedWaitingKeepsAudioInBackground' if variant=='muted' else
+                'test'+layout+'FirstMicrophonePermissionContinuesInBackground' if variant=='first-permission' else
                 'test'+layout+'ResumeWhileWaitingContinuesInBackground')
         tests.append('RideIntercomUITests/BackgroundCallLifecycleUITests/'+method)
 os.chdir(root)
@@ -46,7 +48,8 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
         if reuse:
             import shutil
             shutil.copyfile(reuse, runner.out/'reused-build-build-settings.json')
-        runner.run('microphone-permission',['xcrun','simctl','privacy',sim,'grant','microphone','com.yowamushi-inc.RideIntercom.RideIntercom'],needs=['ready'],timeout=30)
+        permission='reset' if args.scenario in ['first-permission','all'] else 'grant'
+        runner.run('microphone-permission',['xcrun','simctl','privacy',sim,permission,'microphone','com.yowamushi-inc.RideIntercom.RideIntercom'],needs=['ready'],timeout=30)
         prior=subprocess.run(['xcrun','simctl','get_app_container',sim,'com.yowamushi-inc.RideIntercom.RideIntercom','data'],capture_output=True,text=True)
         if prior.returncode==0:
             for old in (Path(prior.stdout.strip())/'tmp').glob('background-call-*.json'):
@@ -68,6 +71,7 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                         v.get('platform')=='simulator' and isinstance(v.get('processInstance'),str)
                         and isinstance(v.get('processID'),int) and isinstance(v.get('recordedAt'),(float,int))
                         and isinstance(v.get('protectedDataAvailable'),bool)
+                        and v.get('microphonePermission') in ['undetermined','denied','granted','unknown']
                         and (v.get('debuggerAttached') is None or isinstance(v.get('debuggerAttached'),bool))
                         and isinstance(v.get('testRunnerPresent'),bool) for v in rows)
                     # With no remote source, AVAudioEngine need not deliver silent output taps.
@@ -77,7 +81,7 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                     for kind in kinds:
                         samples=[v for v in rows if v['background'] and v.get(kind)]
                         span=samples[-1]['uptime']-samples[0]['uptime'] if samples else 0
-                        ok=len(samples)>=20 and span>=29 and len({v['deadline'] for v in samples})==1 and all(v['audioReady'] and v['inputRunning'] and v['outputRunning'] and not v['mediaStarted'] and v['authenticatedPeers']==0 and v['muted']==muted for v in samples)
+                        ok=len(samples)>=20 and span>=29 and len({v['deadline'] for v in samples})==1 and all(v['audioReady'] and v['inputRunning'] and v['outputRunning'] and not v['mediaStarted'] and v['authenticatedPeers']==0 and v['muted']==muted and v['microphonePermission']=='granted' for v in samples)
                         details.append(dict(kind=kind,samples=len(samples),span=span,passed=ok))
                     outcome.update(passed=context_ok and all(v['passed'] for v in details),observations=details,
                                    runtimeContextValid=context_ok)

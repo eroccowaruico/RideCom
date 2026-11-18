@@ -1,5 +1,6 @@
 #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
 import AudioCore
+import AVFAudio
 import Darwin
 import Foundation
 import SessionManager
@@ -26,6 +27,14 @@ import UIKit
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
         guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0 else { return nil }
         return (info.kp_proc.p_flag & P_TRACED) != 0
+    }
+    private static var microphonePermission: String {
+        switch AVAudioApplication.shared.recordPermission {
+        case .undetermined: "undetermined"
+        case .denied: "denied"
+        case .granted: "granted"
+        @unknown default: "unknown"
+        }
     }
     static func observe(_ model: IntercomViewModel, frame: PCMFrame? = nil, output: Bool = false) {
         guard isEnabled(environment: ProcessInfo.processInfo.environment,
@@ -59,6 +68,7 @@ import UIKit
             "processID": ProcessInfo.processInfo.processIdentifier, "platform": platform,
             "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
             "protectedDataAvailable": UIApplication.shared.isProtectedDataAvailable,
+            "microphonePermission": microphonePermission,
             "debuggerAttached": debuggerAttached() as Any? ?? NSNull(), "testRunnerPresent": testRunner,
             "inputCallback": frame != nil, "outputCallback": output, "audioReady": model.isAudioReady,
             "muted": model.effectiveInputMuted,
@@ -75,6 +85,7 @@ import UIKit
         let resuming = false
         #endif
         let suffix = resuming ? "-resumed"
+            : environment["RIDEINTERCOM_BACKGROUND_FIRST_PERMISSION"] == "1" ? "-first-permission"
             : (ProcessInfo.processInfo.environment["RIDEINTERCOM_BACKGROUND_MUTED"] == "1" ? "-muted" : "-open")
         try? write(records, to: FileManager.default.temporaryDirectory.appendingPathComponent("background-call-" + layout + suffix + ".json"))
     }

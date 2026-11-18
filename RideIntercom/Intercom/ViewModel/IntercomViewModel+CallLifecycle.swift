@@ -95,12 +95,22 @@ extension IntercomViewModel {
             if resumingDevice { self?.reportAudioDeviceRestartFailure() }
         }
         let generation = audioGeneration, connection = connectionGeneration
-        // Register before returning to the caller, so a synchronous stop or
-        // a new call cannot be overtaken by a task that has not started yet.
-        let activation = audioSessionManager.requestActive(true)
         audioStartTask = Task { [weak self] in
-            let report = await activation.value
             guard let self, !Task.isCancelled, self.audioGeneration == generation,
+                  self.connectionGeneration == connection else { return }
+            let authorized = self.isUsingWatchAudio ? true : await self.requestMicrophoneAccess()
+            // Permission may complete after end, sign-out, or a different call.
+            // Register activation only while this same call still requests it.
+            guard !Task.isCancelled, self.audioGeneration == generation,
+                  self.connectionGeneration == connection, self.callStillRequestsAudio() else { return }
+            guard authorized else {
+                self.stopAudioPipeline()
+                self.audioErrorMessage = Self.microphoneAccessRequiredMessage
+                return
+            }
+            let activation = self.audioSessionManager.requestActive(true)
+            let report = await activation.value
+            guard !Task.isCancelled, self.audioGeneration == generation,
                   self.connectionGeneration == connection else { return }
             self.audioStartTask = nil
             // The explicit call may have ended while the session activated.
@@ -131,9 +141,6 @@ extension IntercomViewModel {
             AppLoggers.audio.info("audio.media.started", metadata: .event("audio.media.started", [
                 "route": "\(self.routeLabel)", "codec": "\(self.selectedTransmitCodec.rawValue)"
             ]))
-            if let denied = MicrophonePermissionLog.denied(AVAudioApplication.shared.recordPermission) {
-                AppLoggers.app.notice("app.permission.microphone.denied", metadata: denied)
-            }
             self.refreshCallAccess()
             self.recordEstablishedCall()
         }
