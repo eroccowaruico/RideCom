@@ -94,6 +94,10 @@ struct GroupSnapshot: Codable, Equatable {
                 let user = SavedUser(displayName: record.nickname ?? "Invitation", memberIDs: [], localName: record.nickname)
                 next.users.append(user)
                 next.contactInvitations[index].personID = user.id
+            } else if record.direction == .incoming && record.state == .pending {
+                // An old received checkpoint must not retry a relationship removed from the directory.
+                next.contactInvitations[index].state = .cancelled
+                next.contactInvitations[index].credentialReference = nil
             }
         }
         next.synchronizeUserReferences()

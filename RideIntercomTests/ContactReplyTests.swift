@@ -286,4 +286,83 @@ struct ContactReplyTests {
         #expect(a.groupStore.snapshot == aBefore && b.groupStore.snapshot == bBefore)
     }
 
+
+    private func reopenLegacyPending(_ h: AppTestSupport.Harness, id: UUID, personWasDeleted: Bool = false) throws -> URL {
+        let url = try GroupInviteTokenCodec.joinURL(for: h.viewModel.groupRepository.contactInvitationPayload(id).token, contactBootstrap: true)
+        var old = h.groupStore.snapshot
+        old.version = 9
+        let index = try #require(old.contactInvitations.firstIndex { $0.id == id })
+        old.contactInvitations[index].personID = nil
+        if personWasDeleted { old.users = []; old.groups = [] }
+        let expectedPerson = old.users.first { $0.memberIDs.contains("reply-author") }?.id
+        h.groupStore.snapshot = try GroupSnapshot.decode(old.encoded())
+        h.viewModel.reloadSavedGroups()
+        #expect(h.groupStore.snapshot.version == 10)
+        #expect(h.viewModel.contactInvitationRecord(id)?.personID == expectedPerson)
+        return url
+    }
+
+    @Test func migratingAnOldPendingInvitationFindsTheSameVerifiedPerson() throws {
+        let (_, b, id) = try pair()
+        let person = try #require(b.viewModel.savedRemoteUsers.first)
+        let url = try reopenLegacyPending(b, id: id)
+        #expect(b.viewModel.previewContactInvitation(url))
+        let presentation = b.viewModel.contactInvitationPresentation
+        #expect(b.viewModel.acceptPresentedContactInvitation(expectedInvitationID: id, keepingPresentation: true))
+        #expect(b.viewModel.contactInvitationRecord(id)?.personID == person.id)
+        #expect(b.viewModel.contactInvitationPresentation == presentation)
+        #expect(b.viewModel.directoryUsers.count == 1)
+        b.viewModel.stopContactInvitationSession()
+    }
+
+    @Test func deletingTheMigratedPersonCancelsItsPendingReply() throws {
+        let (_, b, id) = try pair()
+        _ = try reopenLegacyPending(b, id: id)
+        let person = try #require(b.viewModel.savedRemoteUsers.first).id
+        #expect(b.viewModel.removeSavedUser(person))
+        #expect(b.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(b.viewModel.contactInvitationRecord(id)?.credentialReference == nil)
+        #expect(!b.viewModel.resumeContactInvitation(id))
+        #expect(b.viewModel.directoryUsers.isEmpty && b.viewModel.groups.isEmpty)
+        b.viewModel.stopContactInvitationSession()
+    }
+
+    @Test func anOldPendingReplyWithoutItsPersonCannotPretendToRegisterOrStartTransport() throws {
+        let (_, b, id) = try pair()
+        let url = try reopenLegacyPending(b, id: id, personWasDeleted: true)
+        #expect(b.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(b.viewModel.contactInvitationRecord(id)?.credentialReference == nil)
+        let before = b.groupStore.snapshot
+        var starts = 0
+        b.viewModel.contactSessionFactory = { starts += 1; return RecordingCallSession() }
+        #expect(b.viewModel.previewContactInvitation(url))
+        #expect(!b.viewModel.acceptPresentedContactInvitation(expectedInvitationID: id, keepingPresentation: true))
+        #expect(starts == 0 && b.viewModel.contactInvitationID == nil)
+        #expect(b.viewModel.directoryUsers.isEmpty && b.viewModel.groups.isEmpty)
+        #expect(b.groupStore.snapshot == before)
+        #expect(b.viewModel.contactInvitationMessage == "This invitation could not be accepted. Ask the sender for a new invitation.")
+        b.viewModel.stopContactInvitationSession()
+    }
+
+
+    @Test func failedOrphanMigrationPreservesTheOldCheckpointUntilReloadSucceeds() throws {
+        let (_, b, id) = try pair()
+        var old = b.groupStore.snapshot
+        old.version = 9; old.users = []; old.groups = []
+        let index = try #require(old.contactInvitations.firstIndex { $0.id == id })
+        old.contactInvitations[index].personID = nil
+        b.groupStore.snapshot = try GroupSnapshot.decode(old.encoded())
+        b.groupStore.failSaving = true
+        b.viewModel.reloadSavedGroups()
+        #expect(b.viewModel.groupStorageIssue != nil)
+        #expect(b.groupStore.snapshot == old)
+        #expect(!b.viewModel.resumeContactInvitation(id))
+        b.groupStore.failSaving = false
+        b.viewModel.reloadSavedGroups()
+        #expect(b.viewModel.groupStorageIssue == nil)
+        #expect(b.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(b.viewModel.contactInvitationRecord(id)?.credentialReference == nil)
+        #expect(b.viewModel.directoryUsers.isEmpty && b.viewModel.groups.isEmpty)
+    }
+
 }
