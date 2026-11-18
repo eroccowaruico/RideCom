@@ -1,6 +1,95 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "GROUP_INVITATION_BODY" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open RideCom to receive a group invitation."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RideComを開いてグループへの招待を受け取ってください。"
+          }
+        }
+      }
+    },
+    "GROUP_INVITATION_TITLE" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group Invitation"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループへの招待"
+          }
+        }
+      }
+    },
+    "Sharing required" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "招待の共有が必要です"
+          }
+        }
+      }
+    },
+    "Invitation stopped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "招待を停止しました"
+          }
+        }
+      }
+    },
+    "Added to group" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループに追加済み"
+          }
+        }
+      }
+    },
+    "Invitation pending" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "招待中"
+          }
+        }
+      }
+    },
+    "Invitations saved. You can check each person's status and share an invitation if needed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。"
+          }
+        }
+      }
+    },
     "New People" : {
       "extractionState" : "manual",
       "localizations" : {
