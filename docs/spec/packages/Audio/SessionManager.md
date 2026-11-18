@@ -345,8 +345,8 @@ stateDiagram-v2
 | 操作 | iOS | macOS | 呼び出し側が見る結果 |
 |---|---|---|---|
 | category / mode / options の適用 | `AVAudioSession.setCategory` を呼ぶ | 非対応として扱う | `AudioSessionOperationReport` |
-| sessionを有効化する | `AVAudioSession.setActive(true)` を呼ぶ | 非対応として扱う | `AudioSessionOperationReport` |
-| sessionを無効化する | `AVAudioSession.setActive(false, .notifyOthersOnDeactivation)` を呼ぶ | 非対応として扱う | `AudioSessionOperationReport` |
+| sessionを有効化する | `await AVAudioSession.activate(options: [])` の完了を待つ | 非対応として扱う | `AudioSessionOperationReport` |
+| sessionを無効化する | `await AVAudioSession.deactivate(options: .notifyOthersOnDeactivation)` の完了を待つ | 非対応として扱う | `AudioSessionOperationReport` |
 | 入力をsystem defaultへ戻す | `setPreferredInput(nil)` を呼ぶ | 何もしない | `AudioSessionOperationReport` |
 | 出力をsystem defaultへ戻す | `overrideOutputAudioPort(.none)` を呼ぶ | 何もしない | `AudioSessionOperationReport` |
 | echo-cancelled input希望を適用する | `setPrefersEchoCancelledInput` を呼ぶ | 非対応として扱う | `AudioSessionOperationReport` |
