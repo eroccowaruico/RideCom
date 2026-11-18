@@ -7361,6 +7361,50 @@
           }
         }
       }
+    },
+    "Show the Groups tab?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループタブを表示しますか？"
+          }
+        }
+      }
+    },
+    "You were invited to %@. Connect from the Groups tab." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@に招待されました。グループタブから接続できます。"
+          }
+        }
+      }
+    },
+    "Show" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示する"
+          }
+        }
+      }
+    },
+    "Not Now" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今はしない"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
