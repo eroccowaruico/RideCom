@@ -216,4 +216,19 @@ struct ContactReplyTests {
         await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
     }
 
+
+    @Test func unreadableReplyOffersTheExistingReloadAndCanBeSharedAfterRecovery() throws {
+        let (_, b, id) = try pair()
+        let before = b.groupStore.snapshot
+        b.groupStore.readError = IntercomGroupError.storageUnavailable
+        #expect(throws: (any Error).self) { try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID) }
+        #expect(b.viewModel.groupStorageIssue != nil)
+        #expect(b.groupStore.snapshot == before)
+        b.groupStore.readError = nil
+        b.viewModel.reloadSavedGroups()
+        #expect(b.viewModel.groupStorageIssue == nil)
+        _ = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
+        #expect(b.groupStore.snapshot == before)
+    }
+
 }

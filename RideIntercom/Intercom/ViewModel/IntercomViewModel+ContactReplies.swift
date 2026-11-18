@@ -21,7 +21,7 @@ extension IntercomViewModel {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let record = contactInvitationRecord(id), record.canResume,
               callAccessNow().timeIntervalSince1970 < record.expiresAt else { throw ContactInvitationError.unavailable }
-        let payload = try groupRepository.contactInvitationPayload(id)
+        let payload = try loadContactReplyPayload(id)
         guard let receipt = payload.receipt else { throw ContactInvitationError.unavailable }
         let reply: DirectInvitationReceipt
         if record.direction == .incoming {
@@ -47,7 +47,7 @@ extension IntercomViewModel {
         case .accepted:
             guard record.direction == .outgoing, record.canResume,
                   receipt.inviterMemberID == localMemberIdentity.memberID else { throw ContactInvitationError.unavailable }
-            let payload = try groupRepository.contactInvitationPayload(record.id)
+            let payload = try loadContactReplyPayload(record.id)
             guard payload.token.directInvitation?.context == context,
                   payload.receipt == nil || payload.receipt == receipt,
                   let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust(), now: now) else { throw GroupStorageError.identityConflict }
@@ -62,7 +62,7 @@ extension IntercomViewModel {
             _ = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: receipt.inviteeDeviceKey)
             var expected = receipt; expected.kind = .accepted; expected.acknowledgementProof = nil
             if record.state == .pending {
-                let payload = try groupRepository.contactInvitationPayload(record.id)
+                let payload = try loadContactReplyPayload(record.id)
                 guard payload.token.directInvitation?.context == context, payload.receipt == expected else { throw GroupStorageError.identityConflict }
             }
             try receipt.verifyAcknowledgement(of: expected, trust: internetSettingsStore.identityTrust(), now: now)
@@ -75,4 +75,10 @@ extension IntercomViewModel {
         contactInvitationMessage = nil
         refreshGroupStorageStatus()
     }
+    /// A checkpoint read failure needs the same reload path as a failed registration write.
+    private func loadContactReplyPayload(_ id: UUID) throws -> ContactInvitationPayload {
+        do { return try groupRepository.contactInvitationPayload(id) }
+        catch { reportGroupStorageError(error); throw error }
+    }
+
 }
