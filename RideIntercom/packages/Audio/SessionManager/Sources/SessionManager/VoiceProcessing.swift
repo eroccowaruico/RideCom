@@ -87,6 +87,13 @@ public final class SystemAudioInputVoiceProcessingBackend: AudioInputVoiceProces
         #if os(iOS) || os(watchOS)
         guard let inputNode else { return }
         if inputNode.isVoiceProcessingEnabled != enabled {
+            // Disabled hardware can expose a zero-rate/zero-channel format. The
+            // native I/O rewire may raise an Objective-C exception rather than
+            // returning an NSError, particularly with an already prepared graph.
+            let hardware = inputNode.inputFormat(forBus: 0)
+            guard hardware.sampleRate.isFinite, hardware.sampleRate > 0, hardware.channelCount > 0 else {
+                throw AudioStreamError.invalidFrame("Voice processing requires enabled input hardware")
+            }
             try inputNode.setVoiceProcessingEnabled(enabled)
         }
         #else

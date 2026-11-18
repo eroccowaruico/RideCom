@@ -466,6 +466,12 @@ flowchart LR
 | output `schedule(frame)` | `frame.format == actualHardwareFormat` | `.applied` | `invalidFrame` または engine操作失敗 | schedule結果、output scheduled frame |
 | output `schedule(frame)` | `frame.format != actualHardwareFormat` | native変換後に`.applied` | 変換不能・不正frame・再生予算超過はfailed | schedule結果、変換後のoutput scheduled frame |
 
+## 無効なnative入力でのvoice processing切替
+
+`SystemAudioInputVoiceProcessingBackend`はiOS／watchOSでI/O modeを変更する前に、入力nodeのhardware format（`inputFormat(forBus: 0)`）を検査する。sample rateが有限で正、channel数が正であることを必要とし、0Hz・0chなどの無効な入力ではSDKの切替を呼ばず`AudioStreamError.invalidFrame`を返す。`AudioInputStreamCapture.start()`は既存の失敗reportと非稼働snapshotへ変換し、途中の資源を解放する。native I/O modeを無断で変更したり、例外終了したりせず、入力が回復した後の再試行を可能にする。
+
+これはhardware入力が有効かの検査であり、sample rateやchannel数を希望値へ書き換える処理ではない。voice processingのmode変更がない操作、入力nodeを指定しないbackend、非対応OSの既存動作は維持する。根拠はAppleの[inputNode仕様](https://developer.apple.com/documentation/avfaudio/avaudioengine/inputnode)にある非zero形式の確認と、無効入力の操作がerrorまたはexceptionになる条件。受信用graphを先に用意した状態も同じ境界で検査する。
+
 ## Voice Processing Ownership
 
 | 処理 | 所有 | 理由 |
