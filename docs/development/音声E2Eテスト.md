@@ -15,6 +15,8 @@ python3 scripts/audio_e2e.py --matrix full
 
 通常は両通信経路の`quick`を実行する。`--transport local`はBonjourで探索しQUICで認証・制御する近距離経路と、その相手とのUDP音声、`--transport webrtc`はローカルのサーバーモックと実WebRTCに絞る。切り分け用の`--matrix smoke`は既定設定だけを測る。`--codec pcm16` / `--codec opus`と`--isolation off`は診断用の上書きであり、全設定を検証した実績にはしない。`--seconds`は各発話区間の秒数で、既定8秒。無音を測る区間は2秒。
 
+近距離の音声だけを両方向で遮断する試験は `python3 scripts/audio_e2e.py --transport mixed --matrix smoke` で実行する。Debug-Validationで両経路を有効にし、同じ通話で遮断前・遮断中・復帰後の各区間の音声出力を照合する。遮断中は近距離の媒体受信が0で、QUIC制御とWebRTC経由の相手の発話が届くことを確認する。復帰後は近距離の媒体受信と実出力を再確認する。両端それぞれの3区間のJSONとWAVを保存する。この試験の合格条件は媒体の到達と再生で、連続性や125ms基準は通常の音声試験で判定する。Macでローカルネットワーク許可を読み取れない場合の標準配置の実績は[QUIC移行の検証記録](../validation/history/近距離制御のQUIC移行.md#標準配置のmacとiphone-simulatorの音声測定)を参照する。
+
 この開発機での両経路の実測は、build cache再利用時のquickが約3分54秒、fullが約17分30秒。初回buildやOS・機材の違いにより所要時間は変わる。測定結果は[検証記録](../validation/history/iOS音声E2Eと通話障害修復.md)を参照する。
 
 | 範囲 | 測定する設定 |

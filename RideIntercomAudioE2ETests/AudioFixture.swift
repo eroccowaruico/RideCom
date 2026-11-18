@@ -51,6 +51,23 @@ final class AudioE2EBarrier {
             } while !received.contains(token)
         }
     }
+
+    /// Deliver a small value through the same group control path as the rendezvous.
+    func exchange(_ phase: String, value: String) async throws -> String {
+        let prefix = phase + ":value:"
+        let ack = phase + ":received"
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        repeat {
+            session.sendApplicationData(.init(namespace: "test.audio-e2e", payload: Data((prefix + value).utf8)))
+            let remote = received.first { $0.hasPrefix(prefix) }
+            if remote != nil {
+                session.sendApplicationData(.init(namespace: "test.audio-e2e", payload: Data(ack.utf8)))
+            }
+            try await Task.sleep(for: .milliseconds(100))
+            if let remote, received.contains(ack) { return String(remote.dropFirst(prefix.count)) }
+        } while ContinuousClock.now < deadline
+        throw NSError(domain: "AudioE2E.Barrier." + phase, code: 1)
+    }
 }
 
 /// Fixture position follows capture time. A missing native interval omits the

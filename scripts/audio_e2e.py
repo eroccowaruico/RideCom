@@ -238,7 +238,7 @@ def main():
     parser.add_argument('--clean-build', action='store_true', help='Clean test products before building, preserving bundle identifiers and signing')
     parser.add_argument('--ephemeral', action='store_true', help='Delete the owned simulator after this run (CI)')
     parser.add_argument('--cleanup-only', action='store_true', help='Recover managed devices and report old running hosts without stopping unknown owners')
-    parser.add_argument('--transport', choices=['local', 'webrtc', 'all'], default='all')
+    parser.add_argument('--transport', choices=['local', 'webrtc', 'mixed', 'all'], default='all')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity'], default='quick')
     parser.add_argument('--speech-pair', choices=['english', 'japanese', 'conversation'], default='english')
     parser.add_argument('--switches-only', action='store_true', help='Live codec, format and effect changes with bounded silence and click checks')
@@ -254,6 +254,9 @@ def main():
         parser.error('--seconds must be between 6 and 600')
     if sum([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only]) > 1:
         parser.error('Choose one standalone audio test mode')
+    if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or
+            any([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])):
+        parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
     os.environ.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
@@ -402,13 +405,15 @@ def execute(args, runner, resource_root):
                     '--path', str(out / (name + '.xcresult')), '--output-path', str(folder)], timeout=60)
                 if exported:
                     try:
-                        measured += measurements(folder, [case['id'] for case in cases], role, transport)
+                        expected_ids = ['local-before', 'internet-during', 'local-after'] if transport == 'mixed' else [case['id'] for case in cases]
+                        measured += measurements(folder, expected_ids, role, transport)
                         runner.record('coverage-' + name, [], 'passed', 0, time.monotonic())
                     except (OSError, ValueError) as error:
                         runner.record('coverage-' + name, [], 'failed', 1, time.monotonic(), str(error))
         try:
-            duplex_latencies(measured)
-            if measured:
+            if args.transport != 'mixed':
+                duplex_latencies(measured)
+            if measured and args.transport != 'mixed':
                 runner.record('duplex-latency', [], 'passed', 0, time.monotonic())
         except (KeyError, TypeError, ValueError) as error:
             runner.record('duplex-latency', [], 'failed', 1, time.monotonic(), str(error))

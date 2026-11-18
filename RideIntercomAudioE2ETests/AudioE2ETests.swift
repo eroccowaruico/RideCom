@@ -192,8 +192,14 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertTrue(["a", "b"].contains(role))
         let groupID = try XCTUnwrap(UUID(uuidString: run))
         let transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
+        let mixed = transport == "mixed"
+        #if DEBUG
+        let mixedRoute = mixed ? MixedRouteAudioE2E() : nil
+        #else
+        if mixed { throw NSError(domain: "Mixed route fault injection requires Debug-Validation", code: 1) }
+        #endif
         let internet: CloudflareRealtimeConfiguration?
-        if transport == "webrtc" {
+        if transport == "webrtc" || mixed {
             let url = try XCTUnwrap(URL(string: try XCTUnwrap(env["AUDIO_E2E_WORKER_URL"])))
             internet = .init(workerURL: url, accessToken: run)
             #if os(macOS)
@@ -227,7 +233,8 @@ final class AudioE2ETests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
         }
         let settings = UserDefaultsAppSettingsStore(defaults: defaults)
-        var configuration = AppSettings(enabledRTCTransportRoutes: transport == "webrtc" ? [.webRTC] : [.multipeer])
+        let enabledRoutes: Set<RouteKind> = mixed ? [.multipeer, .webRTC] : transport == "webrtc" ? [.webRTC] : [.multipeer]
+        var configuration = AppSettings(enabledRTCTransportRoutes: enabledRoutes)
         configuration.preferredTransmitCodec = AudioCodecIdentifier(rawValue: initial.codec)
         configuration.rtcAudioFormatPreset = try XCTUnwrap(RTCAudioFormatPreset(rawValue: initial.format))
         configuration.audioSessionProfile = try XCTUnwrap(AudioSessionProfile(rawValue: initial.profile))
@@ -235,7 +242,12 @@ final class AudioE2ETests: XCTestCase {
         let callSession: RideIntercomCallSessionAdapter? = internet.map { internet in
             RideIntercomCallSessionAdapter(memberID: "e2e-\(role)-\(run.prefix(8))", internetConfiguration: internet,
                 sessionFactory: { policy, routes, configuration in
-                    RTC.CallSessionFactory.makeSession(.init(
+                    #if DEBUG
+                    if let mixedRoute {
+                        return mixedRoute.makeSession(routes: routes, internet: configuration)
+                    }
+                    #endif
+                    return RTC.CallSessionFactory.makeSession(.init(
                         routeConfiguration: .init(enabledRoutes: routes, preferredRoute: .webRTC), audioPolicy: policy,
                         webRTC: .init(cloudflareConfigurationProvider: { _ in configuration },
                                       engineFactory: { makeAudioE2EWebRTCEngine() })))
@@ -254,6 +266,14 @@ final class AudioE2ETests: XCTestCase {
             localMemberIdentityStore: UserDefaultsLocalMemberIdentityStore(defaults: defaults,
                 makeID: { "e2e-\(role)-\(run.prefix(8))" }, defaultDisplayName: { "Audio E2E \(role)" }),
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: namespace),
+            requestMicrophoneAccess: {
+                #if os(iOS)
+                await AVAudioApplication.requestRecordPermission()
+                #else
+                // The Mac endpoint supplies file samples without opening a microphone.
+                true
+                #endif
+            },
             audioInputCapture: AudioInputStreamCapture(configuration: .intercom(voiceProcessing: IntercomViewModel.defaultVoiceProcessingConfiguration()), backend: input),
             audioOutputRenderer: AudioOutputStreamRenderer(configuration: .intercom, backend: output)
         )
@@ -281,6 +301,14 @@ final class AudioE2ETests: XCTestCase {
                 && IntercomViewModel.admittedMemberships(in: viewModel.peerProfiles).count == 1
         }
         let peerID = try XCTUnwrap(viewModel.authenticatedPeerIDs.first)
+        #if DEBUG
+        if let mixedRoute {
+            try await mixedRoute.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
+                role: role, barrier: barrier, probe: probe, local: input.samples, remote: remote.samples,
+                directory: directory, seconds: initial.seconds)
+            return
+        }
+        #endif
         let receivedTiming = Mutex<[[String: Double]]>([])
         let decodeFailures = Mutex(0)
         @Sendable func timing(_ packet: RTCAudioPacket) -> [String: Double] {
@@ -518,6 +546,7 @@ extension AudioE2ETests {
             internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: namespace),
             localMemberIdentityStore: UserDefaultsLocalMemberIdentityStore(defaults: defaults),
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: namespace),
+            requestMicrophoneAccess: { await AVAudioApplication.requestRecordPermission() },
             audioInputCapture: AudioInputStreamCapture(configuration: .intercom(
                 voiceProcessing: IntercomViewModel.defaultVoiceProcessingConfiguration()), backend: input),
             audioOutputRenderer: AudioOutputStreamRenderer(configuration: .intercom, backend: output))
