@@ -30,6 +30,10 @@ extension IntercomViewModel {
         return nil
     }
     func refreshGroupStorageStatus() {
+        if let id = contactInvitationID,
+           groupRepository.contactInvitations.contains(where: { $0.id == id && $0.state == .cancelled }) {
+            stopContactInvitationSession()
+        }
         contactInvitationRevision = UUID()
         savedUsers = groupRepository.users
         applySavedUserNames()

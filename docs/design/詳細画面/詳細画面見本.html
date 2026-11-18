@@ -550,7 +550,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div><div class="card"><div class="row"><span class="linkt">Share Invitation</span></div></div>
         </div>
       </div></div>
-      <figcaption><b>新しい相手へのgroup招待</b>図はNew Peopleで入力し、保存後に開く人物詳細の抜粋。人物IDとinvitedGroupIDで同じ人・groupの予約枠・招待を結ぶ。実装は完全なID・期限・その他の保存値も従来どおり表示し、表示のためにtokenやgroup鍵を読み出さない。共有取消で同じ詳細を保ち、署名付き返信でstateがconfirmed、SavedUserが登録済み、対応枠が参加者になる。相手の登録とgroup保存は原子的に行う。</figcaption>
+      <figcaption><b>新しい相手へのgroup招待</b>図はNew Peopleで入力し、保存後に開く人物詳細の抜粋。人物IDとinvitedGroupIDで同じ人・groupの予約枠・招待を結ぶ。実装は完全なID・期限・その他の保存値も従来どおり表示し、表示のためにtokenやgroup鍵を読み出さない。共有取消で同じ詳細を保ち、署名付き返信でstateがconfirmed、SavedUserが登録済み、対応枠が参加者になる。相手の登録とgroup保存は原子的に行う。対象groupから抜けたincoming pendingはstate=cancelledとなり、credentialReferenceはnil、canResumeはfalseになる。SavedUserと個人通話は保持し、旧URLの再登録は失敗として表示する。</figcaption>
     </figure>
 
     <figure id="contact-reply-stopped">

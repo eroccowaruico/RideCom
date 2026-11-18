@@ -30,9 +30,12 @@ final class GroupRepository {
                 try store.commit(current)
                 guard try store.read() == current else { throw GroupStorageError.verificationFailed }
             }
-            // Loading happens with no call running, so a leftover direct group can go now.
-            if current.groups.contains(where: { isOrphanedDirectGroup($0, users: current.users) }) {
-                current.groups.removeAll { isOrphanedDirectGroup($0, users: current.users) }
+            // Loading happens with no call running. Repair checkpoints left by older deletion paths
+            // in the same commit as orphan cleanup, before reclaiming their keys.
+            let beforeMaintenance = current
+            current.groups.removeAll { isOrphanedDirectGroup($0, users: current.users) }
+            reconcileGroupInvitations(in: &current)
+            if current != beforeMaintenance {
                 current.generation = UUID()
                 try store.commit(current)
                 guard try store.read() == current else { throw GroupStorageError.verificationFailed }
@@ -586,13 +589,15 @@ extension GroupRepository {
     private func reconcileGroupInvitations(in next: inout GroupSnapshot) {
         for index in next.contactInvitations.indices {
             let record = next.contactInvitations[index]
-            guard record.direction == .outgoing, let groupID = record.invitedGroupID else { continue }
+            guard let groupID = record.invitedGroupID else { continue }
             let group = next.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group })
-            if record.state == .pending && !(group.map { next.groups[$0].members.contains { $0.id == record.pendingGroupMemberID } } ?? false) {
+            let targetExists = record.direction == .incoming ? group != nil
+                : (group.map { next.groups[$0].members.contains { $0.id == record.pendingGroupMemberID } } ?? false)
+            if record.state == .pending && !targetExists {
                 next.contactInvitations[index].state = .cancelled
                 next.contactInvitations[index].credentialReference = nil
             }
-            if next.contactInvitations[index].state == .cancelled, let group {
+            if record.direction == .outgoing, next.contactInvitations[index].state == .cancelled, let group {
                 next.groups[group].members.removeAll { $0.id == record.pendingGroupMemberID }
             }
         }

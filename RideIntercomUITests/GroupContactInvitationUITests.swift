@@ -13,6 +13,8 @@ final class GroupContactInvitationUITests: XCTestCase {
     @MainActor func testAdvancedCallPreparesANewPersonsInvitation() throws { try prepare(advanced: true, entry: "call") }
     @MainActor func testJapaneseReceiverRegistersAndJoinsTogether() throws { try receive(japanese: true) }
     @MainActor func testAdvancedReceiverRegistersAndJoinsTogether() throws { try receive(advanced: true) }
+    @MainActor func testStandardLeavingAReceivedGroupKeepsThePersonAndRejectsTheOldInvitation() throws { try receive(leaves: true) }
+    @MainActor func testAdvancedLeavingAReceivedGroupKeepsThePersonAndRejectsTheOldInvitation() throws { try receive(advanced: true, leaves: true) }
 
 
     @MainActor private func prepare(advanced: Bool = false, entry: String = "new") throws {
@@ -98,7 +100,7 @@ final class GroupContactInvitationUITests: XCTestCase {
         return try XCTUnwrap(URL(string: String(value[match])))
     }
 
-    @MainActor private func receive(advanced: Bool = false, japanese: Bool = false) throws {
+    @MainActor private func receive(advanced: Bool = false, japanese: Bool = false, leaves: Bool = false) throws {
         app = XCUIApplication()
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in", "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard"]
         app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
@@ -121,6 +123,25 @@ final class GroupContactInvitationUITests: XCTestCase {
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", groupName)).firstMatch
         for _ in 0..<20 where !row.exists || !row.isHittable { app.swipeUp() }
         XCTAssertTrue(row.exists, "The received group survives restart without starting a call")
+        if leaves {
+            app.removeGroupRow(row)
+            XCTAssertTrue(row.waitForNonExistence(timeout: 5))
+            app.open(url)
+            XCTAssertTrue(app.buttons["acceptContactInvitationButton"].waitForExistence(timeout: 5))
+            app.buttons["acceptContactInvitationButton"].tap()
+            XCTAssertTrue(app.staticTexts["This invitation could not be accepted. Ask the sender for a new invitation."].waitForExistence(timeout: 3))
+            XCTAssertFalse(app.staticTexts["contactPersonSavedName"].exists, "An old link cannot report a deleted group as saved")
+            app.buttons["cancelContactInvitationButton"].tap()
+            app.terminate(); app.launch(); app.activate()
+            let users = app.tabBars.buttons["Users"]
+            XCTAssertTrue(users.waitForExistence(timeout: 5)); users.tap()
+            let person = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardUser-", name)).firstMatch
+            for _ in 0..<20 where !person.exists || !person.isHittable { app.swipeUp() }
+            XCTAssertTrue(person.exists, "Leaving only the group keeps the registered contact")
+            app.tabBars.buttons["Groups"].tap()
+            XCTAssertFalse(row.exists, "An old link must not recreate a group after leaving")
+            let evidence = XCTAttachment(screenshot: app.screenshot()); evidence.name = "Leaving the group cancels only its invitation"; evidence.lifetime = .keepAlways; self.add(evidence)
+        }
     }
 }
 #endif

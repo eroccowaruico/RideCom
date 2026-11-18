@@ -39,9 +39,9 @@ struct GroupContactInvitationTests {
         #expect(!tampered.verifySignature())
     }
 
-    private func prepared(now: @escaping @MainActor () -> Date = Date.init) throws -> (AppTestSupport.Harness, AppTestSupport.Harness, GroupInviteToken, UUID) {
+    private func prepared(recipientCredentials: GroupCredentialStoring? = nil, now: @escaping @MainActor () -> Date = Date.init) throws -> (AppTestSupport.Harness, AppTestSupport.Harness, GroupInviteToken, UUID) {
         let author = AppTestSupport.makeHarness(groups: [], localMemberID: "group-author", callAccessNow: now)
-        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "group-recipient", callAccessNow: now)
+        let recipient = AppTestSupport.makeHarness(groups: [], credentialStore: recipientCredentials, localMemberID: "group-recipient", callAccessNow: now)
         author.viewModel.contactSessionFactory = { RecordingCallSession() }; recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
         #expect(author.viewModel.createTalkGroup(name: "Mountain riders"))
         author.viewModel.disconnect()
@@ -112,6 +112,65 @@ struct GroupContactInvitationTests {
         #expect(a.groupStore.snapshot == before)
         #expect(a.viewModel.contactPerson(person)?.resolvedDisplayName == "My new rider")
         #expect(a.viewModel.savedRemoteUsers.isEmpty)
+    }
+
+    @Test func deletingAReceivedGroupStopsItsReplyAndKeepsTheRegisteredContactAndPairCall() throws {
+        let keys = InMemoryGroupCredentialStore()
+        let (a, b, token, _) = try prepared(recipientCredentials: keys)
+        defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
+        let target = try #require(token.invitedGroup), id = try #require(token.directInvitation?.context.id)
+        let url = try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
+        try b.viewModel.acceptContactInviteURL(url)
+        let person = try #require(b.viewModel.savedRemoteUsers.first)
+        let pair = try #require(b.viewModel.groups.first(where: { $0.kind == .direct }))
+        let pairKey = try b.viewModel.groupRepository.credential(for: pair.id)
+        let replyKey = try #require(b.viewModel.contactInvitationRecord(id)?.credentialReference)
+        #expect(b.viewModel.contactInvitationID == id && keys.values[replyKey] != nil)
+        let saved = b.groupStore.snapshot
+        b.groupStore.failSaving = true
+        b.viewModel.deleteGroup(target.id)
+        #expect(b.groupStore.snapshot == saved && keys.values[replyKey] != nil)
+        #expect(b.viewModel.contactInvitationID == id)
+        b.groupStore.failSaving = false; b.viewModel.reloadSavedGroups()
+        #expect(b.viewModel.resumeContactInvitation(id))
+        b.viewModel.deleteGroup(target.id)
+        #expect(b.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(b.viewModel.contactInvitationRecord(id)?.credentialReference == nil)
+        #expect(b.viewModel.contactInvitationID == nil && keys.values[replyKey] == nil)
+        #expect(b.viewModel.savedRemoteUsers == [person])
+        #expect(b.viewModel.groups.contains { $0.id == pair.id })
+        #expect(try b.viewModel.groupRepository.credential(for: pair.id) == pairKey)
+        b.viewModel.reloadSavedGroups()
+        let after = b.groupStore.snapshot
+        #expect(throws: (any Error).self) { try b.viewModel.acceptContactInviteURL(url) }
+        #expect(b.groupStore.snapshot == after && !b.viewModel.groups.contains { $0.id == target.id })
+        #expect(!b.viewModel.canShareContactReply(try #require(b.viewModel.contactInvitationRecord(id))))
+    }
+
+    @Test func loadingAnOldReceivedReplyWithoutItsGroupCancelsItWithoutChangingACurrentCall() throws {
+        let keys = InMemoryGroupCredentialStore()
+        let (a, b, token, _) = try prepared(recipientCredentials: keys)
+        defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
+        let target = try #require(token.invitedGroup), id = try #require(token.directInvitation?.context.id)
+        let url = try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
+        try b.viewModel.acceptContactInviteURL(url)
+        let replyKey = try #require(b.viewModel.contactInvitationRecord(id)?.credentialReference)
+        b.viewModel.stopContactInvitationSession()
+        b.groupStore.snapshot.groups.removeAll { $0.id == target.id } // Previously saved by the old deletion path.
+        let orphaned = b.groupStore.snapshot
+        b.groupStore.failSaving = true
+        b.viewModel.reloadSavedGroups()
+        #expect(b.groupStore.snapshot == orphaned && keys.values[replyKey] != nil)
+        b.groupStore.failSaving = false
+        b.viewModel.reloadSavedGroups()
+        #expect(b.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(b.viewModel.contactInvitationRecord(id)?.credentialReference == nil && keys.values[replyKey] == nil)
+        b.viewModel.setSoundIsolationEnabled(false)
+        #expect(b.viewModel.createTalkGroup(name: "Unrelated call"))
+        let current = b.viewModel.currentCallReference
+        #expect(throws: (any Error).self) { try b.viewModel.acceptContactInviteURL(url) }
+        #expect(b.viewModel.currentCallReference == current)
+        #expect(b.viewModel.savedRemoteUsers.count == 1)
     }
 
     @Test func cancellationReleasesTheGroupSlotAndKeepsThePerson() throws {
