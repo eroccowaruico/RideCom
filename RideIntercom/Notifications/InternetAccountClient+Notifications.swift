@@ -7,12 +7,12 @@ nonisolated struct CallNotificationGrant: Codable, Equatable, Sendable {
 
     /// A rejection filter for an already authenticated contact exchange. Decoding
     /// these claims does not establish issuer trust; the server verifies the JWT.
-    func isAddressed(to recipient: AccountPrincipal, from sender: AccountPrincipal) -> Bool {
+    func isAddressed(to recipient: AccountPrincipal, from sender: AccountPrincipal, audience: String = "rideintercom-call-notification") -> Bool {
         let parts = capability.split(separator: ".", omittingEmptySubsequences: false)
         guard isValid, parts.count == 3, recipient.issuer == sender.issuer,
               let data = IdentityEncoding.decode(String(parts[1])),
               let claims = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              claims["iss"] as? String == recipient.issuer, claims["aud"] as? String == "rideintercom-call-notification",
+              claims["iss"] as? String == recipient.issuer, claims["aud"] as? String == audience,
               claims["recipient"] as? String == recipient.userID, claims["sub"] as? String == sender.userID,
               let id = claims["jti"] as? String, UUID(uuidString: id) == grantID else { return false }
         return true
@@ -49,6 +49,14 @@ extension InternetAccountClient {
         let result: CallNotificationGrant = try await send(origin: origin, path: "api/notifications/grants", body: ["senderUserID": senderUserID], token: token)
         guard result.isValid else { throw Failure.invalidResponse }
         return result
+    }
+    func issueGroupInvitationGrant(origin: URL, token: String, senderUserID: String) async throws -> CallNotificationGrant {
+        try validateNotificationAccess(origin, token: token)
+        guard Self.notificationUserID(senderUserID) else { throw Failure.invalidResponse }
+        let value: CallNotificationGrant = try await send(origin: origin, path: "api/notifications/group-invitations/grants",
+            body: ["senderUserID": senderUserID], token: token)
+        guard value.isValid else { throw Failure.invalidResponse }
+        return value
     }
     func revokeNotificationGrant(origin: URL, token: String, grantID: UUID? = nil) async throws {
         try validateNotificationAccess(origin, token: token)

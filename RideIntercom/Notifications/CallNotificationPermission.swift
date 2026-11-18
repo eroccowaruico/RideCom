@@ -20,33 +20,45 @@ nonisolated struct CallNotificationPermission: Codable, Equatable, Sendable {
     var allowsIncoming = false
     var receiving: CallNotificationGrant?
     var sending: CallNotificationGrant?
+    var allowsGroupInvitations: Bool? = nil
+    var groupReceiving: CallNotificationGrant?
+    var groupSending: CallNotificationGrant?
+    var groupReceivedRevision: UInt64? = nil
+    var groupReceivedRevisionSource: String? = nil
     var revision: UInt64 = 0
     var receivedRevision: UInt64 = 0
     var receivedRevisionSource: String?
     var isValid: Bool {
         revision < UInt64.max && receivedRevision < UInt64.max && owner.isValid && peer.isValid && owner.issuer == peer.issuer && owner != peer
         && receiving.map(\.isValid) != false && sending.map(\.isValid) != false
+        && groupReceiving.map(\.isValid) != false && groupSending.map(\.isValid) != false
+        && (groupReceivedRevision ?? 0) < UInt64.max && groupReceivedRevisionSource.map(DeviceIdentityProof.isValidPublicKey) != false
         && receivedRevisionSource.map(DeviceIdentityProof.isValidPublicKey) != false
     }
 }
 
 nonisolated struct CallNotificationPermissionMessage: Codable, Equatable, Sendable {
     static let namespace = "rideintercom.call-notification-permission.v1"
+    static let groupNamespace = "rideintercom.group-invitation-permission.v1"
     var owner: AccountPrincipal
     var allowedSender: AccountPrincipal
     var revision: UInt64
     var grant: CallNotificationGrant?
     var proof: DeviceIdentityProof?
+    var groupGrant: CallNotificationGrant? = nil
+    var groupInvitationsSupported: Bool? = nil
 
     static func make(owner: AccountPrincipal, allowedSender: AccountPrincipal, revision: UInt64,
-                     grant: CallNotificationGrant?, signer: DeviceIdentitySigner) throws -> Self {
+                     grant: CallNotificationGrant?, signer: DeviceIdentitySigner, groupGrant: CallNotificationGrant? = nil, groupInvitationsSupported: Bool? = nil) throws -> Self {
         guard signer.principal == nil || signer.principal == owner else { throw DeviceIdentityProof.Failure.invalid }
-        var value = Self(owner: owner, allowedSender: allowedSender, revision: revision, grant: grant)
+        var value = Self(owner: owner, allowedSender: allowedSender, revision: revision, grant: grant, groupGrant: groupGrant, groupInvitationsSupported: groupInvitationsSupported)
         value.proof = try signer.sign(value.message(), purpose: .callNotificationPermission)
         return value
     }
     func verifiedGrant(peerID: String, savedUser: SavedUser, local: AccountPrincipal) throws -> CallNotificationGrant? {
         guard owner.isValid, allowedSender.isValid, owner.issuer == allowedSender.issuer, owner != allowedSender, revision > 0,
+              (groupGrant == nil || groupInvitationsSupported == true),
+              groupGrant.map({ $0.isAddressed(to: owner, from: local, audience: "rideintercom-group-invitation") }) != false,
               grant.map({ $0.isAddressed(to: owner, from: local) }) != false, savedUser.principal == owner, allowedSender == local,
               savedUser.memberIDs.contains(peerID), let proof, savedUser.deviceKeys?[peerID] == proof.publicKey else { throw DeviceIdentityProof.Failure.invalid }
         _ = try proof.verify(message(), purpose: .callNotificationPermission, memberID: peerID)

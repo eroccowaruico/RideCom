@@ -127,9 +127,10 @@ final class ContactInvitationSession {
     /// Application data reaches everyone in the rendezvous, and an invitation link may have been passed
     /// on. A personal permission is sent only while the registered person is the only one connected.
     @discardableResult
-    func sendNotificationPermission(_ payload: Data) -> Bool {
-        guard !isStopped, registeredPeerIsAlone, payload.count <= 8192 else { return false }
-        transport.sendApplicationData(.init(namespace: CallNotificationPermissionMessage.namespace, payload: payload))
+    func sendNotificationPermission(_ payload: Data, namespace: String = CallNotificationPermissionMessage.namespace) -> Bool {
+        guard !isStopped, registeredPeerIsAlone, payload.count <= 8192,
+              [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(namespace) else { return false }
+        transport.sendApplicationData(.init(namespace: namespace, payload: payload))
         return true
     }
 
@@ -154,7 +155,7 @@ final class ContactInvitationSession {
                 retry()
                 announceRegisteredPeer()
             case .receivedApplicationData(let peer, let message):
-                if message.namespace == CallNotificationPermissionMessage.namespace {
+                if [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(message.namespace) {
                     if registeredPeerIsAlone, peer == registeredPeerID, message.payload.count <= 8192 {
                         onNotificationPermission?(peer, message)
                     }

@@ -148,8 +148,13 @@ extension IntercomViewModel {
             guard let self, let session, !session.isStopped, self.accountAccessID == access, self.contactInvitationID == id,
                   let signer = try? self.internetSettingsStore.invitationSigner(memberID: self.localMemberIdentity.memberID),
                   let value = try? self.notifications.permissionMessage(for: peerID, signer: signer),
-                  let payload = try? JSONEncoder().encode(value),
-                  session.sendNotificationPermission(payload) else { return }
+                  let payload = try? JSONEncoder().encode(value) else { return }
+            // Send the new channel first; the complete legacy message remains unchanged for older peers.
+            if let groupValue = try? self.notifications.groupPermissionMessage(for: peerID, signer: signer),
+               let groupPayload = try? JSONEncoder().encode(groupValue) {
+                _ = session.sendNotificationPermission(groupPayload, namespace: CallNotificationPermissionMessage.groupNamespace)
+            }
+            guard session.sendNotificationPermission(payload) else { return }
             self.contactPermissionExchange.sent = true
             self.finishContactPermissionExchange(id, session: session)
         }

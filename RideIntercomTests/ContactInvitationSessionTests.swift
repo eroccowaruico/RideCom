@@ -11,18 +11,19 @@ struct ContactInvitationSessionTests {
         let suffix = UUID().uuidString.prefix(8)
         let authorID = "contact-author-\(suffix)"
         let friendID = "contact-friend-\(suffix)"
+        let authorSigner = testIdentitySigner(authorID), friendSigner = testIdentitySigner(friendID)
         let authorTransport = RideIntercomCallSessionAdapter(memberID: authorID)
         let friendTransport = RideIntercomCallSessionAdapter(memberID: friendID)
         var authorsContacts: [String] = []
         var friendsContacts: [String] = []
         let author = ContactInvitationSession(transport: authorTransport, authority: testInvitationAuthority(),
-            signer: testIdentitySigner(authorID), displayName: "Author", routes: [.multipeer]) { identity, name in
+            signer: authorSigner, displayName: "Author", routes: [.multipeer]) { identity, name in
                 #expect(identity.memberID == friendID)
                 #expect(name == "Friend")
                 authorsContacts.append(identity.memberID)
             }
         let friend = ContactInvitationSession(transport: friendTransport, authority: testInvitationAuthority(),
-            signer: testIdentitySigner(friendID), displayName: "Friend", routes: [.multipeer]) { identity, name in
+            signer: friendSigner, displayName: "Friend", routes: [.multipeer]) { identity, name in
                 #expect(identity.memberID == authorID)
                 #expect(name == "Author")
                 friendsContacts.append(identity.memberID)
@@ -41,6 +42,23 @@ struct ContactInvitationSessionTests {
         #expect(friendsContacts == [authorID])
         #expect(author.isConfirmed)
         #expect(friend.isAcknowledged)
+        let source = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "a", count: 64))
+        let destination = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "b", count: 64))
+        let grant = try testCallNotificationGrant(owner: source, allowedSender: destination, audience: "rideintercom-group-invitation")
+        let permission = try CallNotificationPermissionMessage.make(owner: source, allowedSender: destination, revision: 1,
+            grant: nil, signer: authorSigner, groupGrant: grant, groupInvitationsSupported: true)
+        let savedAuthor = SavedUser(displayName: "Author", memberIDs: [authorID], deviceKeys: [authorID: authorSigner.publicKey], principal: source)
+        var receivedGroupPermission = false
+        friend.onNotificationPermission = { peerID, message in
+            guard message.namespace == CallNotificationPermissionMessage.groupNamespace,
+                  let value = try? JSONDecoder().decode(CallNotificationPermissionMessage.self, from: message.payload) else { return }
+            do { _ = try value.verifiedGrant(peerID: peerID, savedUser: savedAuthor, local: destination); receivedGroupPermission = value.groupGrant == grant }
+            catch { Issue.record("The group permission must verify against the registered device") }
+        }
+        #expect(author.sendNotificationPermission(try JSONEncoder().encode(permission), namespace: CallNotificationPermissionMessage.groupNamespace))
+        let permissionDeadline = ContinuousClock.now + .seconds(5)
+        while !receivedGroupPermission, ContinuousClock.now < permissionDeadline { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(receivedGroupPermission, "The separate group permission crosses the real QUIC exchange")
         // These coordinators own only CallSession control; no App audio pipeline
         // or ordinary group repository is constructed by this experiment.
     }

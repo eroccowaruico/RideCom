@@ -68,6 +68,54 @@ struct NotificationClientTests {
         #expect(NotificationHTTPStub.requests.isEmpty && h.callSession.connectedGroup == nil)
     }
 
+    @Test func aGroupDeliveryPermissionCannotBeAddedOutsideThePeerSignature() throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let value = try CallNotificationPermissionMessage.make(owner: fixture.peer, allowedSender: fixture.local,
+            revision: 1, grant: nil, signer: fixture.peerSigner)
+        var fields = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
+        fields["groupGrant"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(testCallNotificationGrant(owner: fixture.peer, allowedSender: fixture.local)))
+        let injected = try JSONDecoder().decode(CallNotificationPermissionMessage.self, from: JSONSerialization.data(withJSONObject: fields))
+        #expect(throws: (any Error).self) { try fixture.notifications.receivePermission(injected, peerID: "friend") }
+    }
+
+    @Test func groupDeliveryPermissionIsSeparateSignedPersistentAndRevocable() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        let grant = try testCallNotificationGrant(owner: fixture.peer, allowedSender: fixture.local, audience: "rideintercom-group-invitation")
+        let value = try CallNotificationPermissionMessage.make(owner: fixture.peer, allowedSender: fixture.local, revision: 1,
+            grant: nil, signer: fixture.peerSigner, groupGrant: grant, groupInvitationsSupported: true)
+        try fixture.notifications.receivePermission(value, peerID: "friend")
+        #expect(fixture.notifications.groupInvitationGrant(for: fixture.user.id) == grant)
+        #expect(!fixture.notifications.canNotify(fixture.user.id))
+        let oldPeer = try CallNotificationPermissionMessage.make(owner: fixture.peer, allowedSender: fixture.local, revision: 2, grant: nil, signer: fixture.peerSigner)
+        try fixture.notifications.receivePermission(oldPeer, peerID: "friend")
+        #expect(fixture.notifications.groupInvitationGrant(for: fixture.user.id) == grant)
+        let revoked = try CallNotificationPermissionMessage.make(owner: fixture.peer, allowedSender: fixture.local, revision: 3,
+            grant: nil, signer: fixture.peerSigner, groupInvitationsSupported: true)
+        try fixture.notifications.receivePermission(revoked, peerID: "friend")
+        try fixture.notifications.receivePermission(value, peerID: "friend")
+        #expect(fixture.notifications.groupInvitationGrant(for: fixture.user.id) == nil)
+    }
+    @Test func groupInboxPermissionCanBeIssuedWithoutOSAlertPermissionAndRemovedWithTheContact() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.permission = false
+        let grant = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer, audience: "rideintercom-group-invitation")
+        NotificationHTTPStub.response = String(decoding: try JSONEncoder().encode(grant), as: UTF8.self)
+        await fixture.notifications.start()
+        #expect(!fixture.notifications.isEnabled && fixture.registerCount == 0)
+        #expect(try fixture.store.notificationPermissions().first?.groupReceiving == grant)
+        #expect(NotificationHTTPStub.requests.first?.url?.path == "/api/notifications/group-invitations/grants")
+        let signer = try fixture.store.invitationSigner(memberID: "local")
+        let legacy = try #require(try fixture.notifications.permissionMessage(for: "friend", signer: signer))
+        let fields = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any])
+        #expect(fields["groupGrant"] == nil && fields["groupInvitationsSupported"] == nil)
+        let group = try #require(try fixture.notifications.groupPermissionMessage(for: "friend", signer: signer))
+        #expect(group.groupGrant == grant && group.groupInvitationsSupported == true)
+        try fixture.notifications.suppressContact(fixture.user.id); fixture.users = []
+        NotificationHTTPStub.response = "{}"; await fixture.notifications.retryRevocations()
+        #expect(try fixture.store.notificationPermissions().isEmpty)
+        #expect(NotificationHTTPStub.requests.last?.url?.path == "/api/notifications/grants/" + grant.grantID.uuidString.lowercased())
+    }
+
     @Test func deviceRegistrationAndRemovalUseOnlyNativeNotificationFields() async throws {
         let client = makeClient()
         NotificationHTTPStub.response = "{\"registered\":true}"
@@ -141,9 +189,8 @@ struct NotificationClientTests {
         await fixture.notifications.start()
         #expect(fixture.notifications.isEnabled && fixture.registerCount == 1)
         #expect(fixture.notifications.allowsIncoming(from: fixture.user.id), "Everyone you registered may notify you")
-        let requests = NotificationHTTPStub.requests.count
         await fixture.notifications.start()
-        #expect(NotificationHTTPStub.requests.count == requests, "An existing grant is not issued again")
+        #expect(NotificationHTTPStub.requests.filter { $0.url?.path == "/api/notifications/grants" }.count == 1, "An existing call grant is not issued again; inbox permission may retry separately")
         fixture.permission = false
         await fixture.notifications.start()
         #expect(!fixture.notifications.isEnabled && fixture.unregisterCount == 1 && fixture.notifications.authorizationDenied)
@@ -154,7 +201,7 @@ struct NotificationClientTests {
         fixture.permission = false
         await fixture.notifications.start()
         #expect(!fixture.notifications.isEnabled && fixture.registerCount == 0)
-        #expect(!fixture.notifications.allowsIncoming(from: fixture.user.id) && NotificationHTTPStub.requests.isEmpty)
+        #expect(!fixture.notifications.allowsIncoming(from: fixture.user.id) && NotificationHTTPStub.requests.allSatisfy { $0.url?.path == "/api/notifications/group-invitations/grants" || $0.httpMethod == "DELETE" })
     }
 
     @Test func explicitContactPermissionPersistsAndSignedRevocationCannotBeReplayed() async throws {
