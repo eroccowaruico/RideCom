@@ -329,6 +329,44 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor
+    func testLegacyContactInvitationWaitsForShareCompletionAndRetainsItsRow() throws {
+        launch(legacyContactInvitation: true)
+        tab("Users", id: "usersTab")
+        let rowID = try XCTUnwrap(contactPendingIDs().first)
+        let row = app.buttons[rowID].firstMatch
+        row.tap()
+        let state = app.descendants(matching: .any)["contactInvitationState"].firstMatch
+        XCTAssertTrue(state.waitForExistence(timeout: 5))
+        XCTAssertEqual(state.label, "Not sent yet")
+        XCTAssertTrue(app.staticTexts["Contact Invitation"].exists)
+        let share = app.buttons["shareContactInvitationButton"].firstMatch
+        let copy = nativeInvitationCopyAction()
+        share.tap()
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        app.swipeDown()
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(state.waitForExistence(timeout: 5), "Dismissing OS sharing keeps the invitation detail open")
+        XCTAssertEqual(state.label, "Not sent yet", "Opening and dismissing the share preview leaves the link unsent")
+        XCTAssertEqual(share.label, "Share Invitation")
+        share.tap()
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        copy.tap()
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(state.label, "Waiting to be accepted")
+        XCTAssertEqual(share.label, "Share Again")
+        app.buttons["closeContactInvitationButton"].firstMatch.tap()
+        XCTAssertEqual(contactPendingIDs(), [rowID])
+        app.launchEnvironment.removeValue(forKey: "RIDEINTERCOM_LEGACY_CONTACT_INVITATION_FIXTURE")
+        app.terminate(); app.launch(); app.activate()
+        tab("Users", id: "usersTab")
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertEqual(contactPendingIDs(), [rowID])
+        row.tap()
+        XCTAssertTrue(state.waitForExistence(timeout: 5))
+        XCTAssertEqual(state.label, "Waiting to be accepted")
+    }
+
+    @MainActor
     func testContactPersonSaveShareCancelCopyAndRestartKeepOnePerson() throws {
         launch()
         tab("Users", id: "usersTab")
@@ -1284,12 +1322,14 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["appleSignInScreen"].exists)
     }
 
-    @MainActor private func launch(japanese: Bool = false, throttled: Bool = false, interface: String = "standard") {
+    @MainActor private func launch(japanese: Bool = false, throttled: Bool = false, interface: String = "standard",
+                                  legacyContactInvitation: Bool = false) {
         app = XCUIApplication()
         app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
         app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
         app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = interface
         if throttled { app.launchEnvironment["RIDEINTERCOM_INTERNET_ACCOUNT_FIXTURE"] = "throttled" }
+        if legacyContactInvitation { app.launchEnvironment["RIDEINTERCOM_LEGACY_CONTACT_INVITATION_FIXTURE"] = "1" }
         app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
         app.launch(); app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))

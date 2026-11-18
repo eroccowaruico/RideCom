@@ -86,12 +86,12 @@ struct AdvancedContactInvitationContent: View {
                 if let message = viewModel.contactInvitationMessage { Text(LocalizedStringKey(message)) }
             }
             Section {
-                if record.personID == nil && record.direction == .outgoing && record.state == .pending {
-                    ShareLink(item: InvitationShare(viewModel: viewModel, contactInvitationID: record.id),
-                              subject: Text("RideCom Invite"), preview: SharePreview(Text("RideCom Invite"))) {
-                        Label("Share Again", systemImage: "square.and.arrow.up")
+                if record.personID == nil && record.direction == .outgoing && record.state == .pending && !viewModel.contactInvitationIsExpired(record) {
+                    ContactInvitationShareButton(viewModel: viewModel,
+                        title: viewModel.contactInvitationIsUnsent(record) ? "Share Invitation" : "Share Again",
+                        personName: viewModel.contactInvitationName(for: record)) {
+                        try viewModel.prepareContactInvitationShare(record.id, expectedAccountAccessID: viewModel.accountAccessID)
                     }
-                    .accessibilityIdentifier("shareContactInvitationButton")
                 }
                 if viewModel.canShareContactReply(record) {
                     ShareLink(item: InvitationShare(viewModel: viewModel, contactReplyID: record.id),

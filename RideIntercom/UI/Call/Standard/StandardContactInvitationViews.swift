@@ -81,7 +81,7 @@ struct StandardContactInvitationDetail: View {
             Section {
                 VStack(spacing: AppSpacing.s) {
                     PendingAvatar(diameter: 56)
-                    Text(outgoing ? "You sent this invitation" : "Invitation from \(person)")
+                    Text(outgoing ? "Contact Invitation" : "Invitation from \(person)")
                         .font(.subheadline).foregroundStyle(Color.secondary)
                     Text(verbatim: person).font(.title2.bold()).multilineTextAlignment(.center)
                     stateAndAction
@@ -134,17 +134,14 @@ struct StandardContactInvitationDetail: View {
             }
             .appProminentButtonStyle()
             .accessibilityIdentifier("sendNewContactInvitationButton")
-        } else if viewModel.contactInvitationIsUnsent(record) {
-            stateWord("Not sent yet", busy: false)
-            sentence("This invitation has not been sent to anyone yet.")
-            ContactInvitationShareLink(viewModel: viewModel, invitationID: record.id, title: "Send Invitation", personName: person)
-                .appProminentButtonStyle()
         } else if isAwaitingAcceptance {
-            stateWord("Waiting to be accepted", busy: false)
-            sentence("\(person) joins your Users after opening and accepting this invitation.")
-            ContactInvitationShareLink(viewModel: viewModel, invitationID: record.id, title: "Send Again", personName: person)
-                .appProminentButtonStyle()
-            footnote("Sends the same invitation to \(person) again.")
+            let unsent = viewModel.contactInvitationIsUnsent(record)
+            stateWord(unsent ? "Not sent yet" : "Waiting to be accepted", busy: false)
+            sentence(unsent ? "This invitation has not been sent to anyone yet." : "\(person) joins your Users after opening and accepting this invitation.")
+            ContactInvitationShareButton(viewModel: viewModel, title: unsent ? "Share Invitation" : "Share Again", personName: person) {
+                try viewModel.prepareContactInvitationShare(record.id, expectedAccountAccessID: viewModel.accountAccessID)
+            }
+            .appProminentButtonStyle()
         } else if viewModel.contactInvitationID == record.id || inCall {
             stateWord("Sending a reply", busy: true)
             if inCall {

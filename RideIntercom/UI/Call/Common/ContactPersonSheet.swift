@@ -119,27 +119,16 @@ private struct ContactPersonCreation: View {
     }
 }
 
-/// Preparing an invitation leaves it unsent until the system activity succeeds.
 struct ContactPersonShareButton: View {
     let viewModel: IntercomViewModel
     let person: SavedUser
-    @State private var share: PreparedContactInvitationShare?
 
     var body: some View {
-        Button {
-            share = try? viewModel.prepareContactPersonShare(person.id, expectedAccountAccessID: viewModel.accountAccessID)
-        } label: {
-            Label("Share Invitation", systemImage: "square.and.arrow.up")
-        }
-        .background {
-            ContactInvitationActivity(share: share, message: String(localized: "RideCom invitation for \(person.resolvedDisplayName)")) { prepared, completed in
-                if completed { viewModel.completeContactInvitationSharing(prepared) }
-                share = nil
-            }
+        ContactInvitationShareButton(viewModel: viewModel, title: "Share Invitation", personName: person.resolvedDisplayName) {
+            try viewModel.prepareContactPersonShare(person.id, expectedAccountAccessID: viewModel.accountAccessID)
         }
         .appProminentButtonStyle()
         .frame(maxWidth: .infinity)
-        .accessibilityIdentifier("shareContactInvitationButton")
         .padding(.horizontal, AppSpacing.screen)
         .padding(.vertical, AppSpacing.s)
     }

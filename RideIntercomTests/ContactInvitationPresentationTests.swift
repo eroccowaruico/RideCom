@@ -1,8 +1,6 @@
-import CoreTransferable
 import CryptoKit
 import Foundation
 import Testing
-import UniformTypeIdentifiers
 @testable import RideIntercom
 
 @MainActor
@@ -39,39 +37,48 @@ struct ContactInvitationPresentationTests {
         #expect(notification.connectedGroup != nil, "Closing the accepted preview keeps the bounded Users-owned notification alive")
     }
 
-    @Test func contactShareReusesOneStoredTokenAndRevalidatesAtExport() async throws {
+    @Test func contactShareReusesOneStoredTokenAndWritesOnlyOnCurrentCompletion() throws {
         var now = Date()
         let h = AppTestSupport.makeHarness(groups: [], localMemberID: "sharing-author", callAccessNow: { now })
-        h.viewModel.contactSessionFactory = { RecordingCallSession() }
-        defer { h.viewModel.disconnect() }
-        let url = try #require(h.viewModel.makeContactInviteURL())
+        let vm = h.viewModel
+        vm.contactSessionFactory = { RecordingCallSession() }
+        defer { vm.disconnect() }
+        let url = try #require(vm.makeContactInviteURL())
         let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
         let before = h.groupStore.saveCount
-        let share = InvitationShare(viewModel: h.viewModel, contactInvitationID: id)
-        for _ in 0..<2 {
-            let bytes = try await share.exported(as: .url)
-            let exported = try await URL(importing: bytes, contentType: .url)
-            let expectedDigest = SHA256.hash(data: Data(url.absoluteString.utf8))
-            let actualDigest = SHA256.hash(data: Data(exported.absoluteString.utf8))
-            #expect(actualDigest == expectedDigest)
+        let access = vm.accountAccessID
+        let first = try vm.prepareContactInvitationShare(id, expectedAccountAccessID: access)
+        let second = try vm.prepareContactInvitationShare(id, expectedAccountAccessID: access)
+        let expectedDigest = SHA256.hash(data: Data(url.absoluteString.utf8))
+        for share in [first, second] {
+            #expect(share.id == id)
+            #expect(SHA256.hash(data: Data(share.url.absoluteString.utf8)) == expectedDigest)
         }
-        #expect(h.groupStore.saveCount == before + 1, "Only the first export records that it was sent")
-        #expect(h.viewModel.pendingContactInvitations.count == 1)
+        #expect(h.groupStore.saveCount == before)
+        #expect(vm.contactInvitationRecord(id)?.sent == false)
+        vm.completeContactInvitationSharing(first)
+        vm.completeContactInvitationSharing(second)
+        #expect(h.groupStore.saveCount == before + 1, "Only the first successful activity updates storage")
+        #expect(vm.contactInvitationRecord(id)?.sent == true)
+        #expect(vm.unlinkedContactInvitations.map(\.id) == [id])
         now = now.addingTimeInterval(8 * 24 * 60 * 60)
-        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
+        #expect(throws: (any Error).self) { _ = try vm.prepareContactInvitationShare(id, expectedAccountAccessID: access) }
         now = Date()
-        try h.viewModel.cancelContactInvitation(id)
-        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
-        let anotherURL = try #require(h.viewModel.makeContactInviteURL())
+        try vm.cancelContactInvitation(id)
+        #expect(throws: (any Error).self) { _ = try vm.prepareContactInvitationShare(id, expectedAccountAccessID: access) }
+        let anotherURL = try #require(vm.makeContactInviteURL())
         let anotherID = try #require(GroupInviteTokenCodec.decodeJoinURL(anotherURL, contactBootstrap: true).directInvitation).context.id
-        let currentShare = InvitationShare(viewModel: h.viewModel, contactInvitationID: anotherID)
-        h.viewModel.accountSession.signOut()
-        await #expect(throws: (any Error).self) { _ = try await currentShare.exported(as: .url) }
+        let currentShare = try vm.prepareContactInvitationShare(anotherID, expectedAccountAccessID: access)
+        vm.accountSession.signOut()
+        let signedOutSaves = h.groupStore.saveCount
+        vm.completeContactInvitationSharing(currentShare)
+        #expect(h.groupStore.saveCount == signedOutSaves)
+        #expect(throws: (any Error).self) { _ = try vm.prepareContactInvitationShare(anotherID, expectedAccountAccessID: access) }
     }
 
     /// Not sent until a share destination takes the link; expired sent invitations stay, as Expired, until a new
     /// one with the same name replaces them.
-    @Test func invitationIsNotSentUntilSharedAndExpiredOnesOfferANewOne() async throws {
+    @Test func invitationIsNotSentUntilSharedAndExpiredOnesOfferANewOne() throws {
         var now = Date()
         let h = AppTestSupport.makeHarness(groups: [], localMemberID: "state-author", callAccessNow: { now })
         h.viewModel.contactSessionFactory = { RecordingCallSession() }
@@ -81,7 +88,8 @@ struct ContactInvitationPresentationTests {
         #expect(h.viewModel.setContactInvitationNickname(id, "Haruka"))
         var record = try #require(h.viewModel.contactInvitationRecord(id))
         #expect(h.viewModel.contactInvitationStateWord(for: record) == "Not sent yet")
-        _ = try await InvitationShare(viewModel: h.viewModel, contactInvitationID: id).exported(as: .url)
+        let share = try h.viewModel.prepareContactInvitationShare(id, expectedAccountAccessID: h.viewModel.accountAccessID)
+        h.viewModel.completeContactInvitationSharing(share)
         record = try #require(h.viewModel.contactInvitationRecord(id))
         #expect(h.viewModel.contactInvitationStateWord(for: record) == "Waiting to be accepted")
         now = now.addingTimeInterval(8 * 24 * 60 * 60)

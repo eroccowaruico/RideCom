@@ -87,12 +87,6 @@ extension IntercomViewModel {
         contactInvitationMessage = nil
     }
 
-    func contactInvitationURLForSharing(_ id: UUID, expectedAccountAccessID: UUID) throws -> URL {
-        let share = try prepareContactInvitationShare(id, expectedAccountAccessID: expectedAccountAccessID)
-        try? groupRepository.markContactInvitationSent(id)
-        return share.url
-    }
-
     func prepareContactInvitationShare(_ id: UUID, expectedAccountAccessID: UUID) throws -> PreparedContactInvitationShare {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let record = pendingContactInvitations.first(where: { $0.id == id }),
@@ -240,6 +234,7 @@ extension IntercomViewModel {
                 ? "Contact added. Confirmation can be resent."
                 : "This invitation was already accepted. Confirmation can be resent."
         }
+        if contactInvitationIsUnsent(record) { return "This invitation has not been sent to anyone yet." }
         if activeGroupID != nil || hasAnyActiveGroupConnection {
             return record.direction == .incoming
                 ? "Contact saved. Waiting for the current call to end."

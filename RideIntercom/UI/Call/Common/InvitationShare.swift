@@ -27,15 +27,6 @@ nonisolated struct InvitationShare: Transferable {
     }
 
     @MainActor
-    init(viewModel: IntercomViewModel, contactInvitationID: UUID) {
-        let access = viewModel.accountAccessID
-        makeURL = { [weak viewModel] in
-            guard let viewModel else { throw CocoaError(.userCancelled) }
-            return try viewModel.contactInvitationURLForSharing(contactInvitationID, expectedAccountAccessID: access)
-        }
-    }
-
-    @MainActor
     init(viewModel: IntercomViewModel, contactReplyID: UUID) {
         let access = viewModel.accountAccessID
         makeURL = { [weak viewModel] in

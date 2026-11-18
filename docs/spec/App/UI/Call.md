@@ -49,6 +49,8 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | `contactInvitationPreview` | URLの署名・期限・宛先を検証し、本人名と登録・拒否の効果を表示する。URLを開くだけではユーザー／pending／署名鍵を保存しない |
 | `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、同じacceptingのシートIDを保って保存済み詳細へ更新する。「Done」（完了）でUsersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
 
+旧形式の未紐付け送信招待は `pendingContactInvitation-{id}` から開く。「Share Invitation」／「Share Again」は保存済みの人と同じ `ContactInvitationShareButton` を使う。`prepareContactInvitationShare` は今のログイン世代・招待ID・期限・保存済みの署名鍵を照合して同じリンクを返す。OSの成功通知で `completeContactInvitationSharing` が同じアカウントと招待を再確認し、未送信（`sent == false`）なら `sent = true` を保存して再表示する。共有の表示・プレビュー・取消ではその詳細に留まり、状態を保つ。Standardは「Not sent yet」から「Waiting to be accepted」へ更新し、Advancedは `sent` の保存値を表示する。親シートはinteractive dismissを無効にし、「Close」で同じ行がある一覧へ戻る。
+
 ### 招待返信の共有
 
 [通信を使わずに返信する](../../../design/招待と登録の設計.md#通信を使わずに返信する)の状態と復帰を適用する。URL入口は`rideintercom://contact-reply`。保留中のログインには既存のpendingInviteURLを使い、現アカウントで検証してから共通receiveContactReplyURLへ接続する。URLの検証だけで通常通話やミュートを変更しない。

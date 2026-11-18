@@ -780,6 +780,24 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>保存済みの相手の詳細</b>名前は保存で確定済み。共有を取り消しても、コピーしても、この同じ詳細と名前を保つ。「完了」で一覧へ戻り、後で同じ人を再び開ける。登録完了時も自動で閉じず、この詳細の状態だけを「登録済み」へ更新する。<a href="../招待と登録の設計.md#一連の操作の確認">一連の操作の確認</a>と対応する設計見本。</figcaption>
     </figure>
 
+    <figure id="legacy-contact-invitation">
+      <div class="phone"><div class="screen form">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="navbar" style="justify-content:flex-start"><span class="link">閉じる</span></div>
+        <div class="body">
+          <div class="group card" style="text-align:center">
+            <span class="avatar pending" style="width:56px;height:56px;margin:0 auto 8px"><svg class="i"><use href="#person"/></svg></span>
+            <div class="kind" style="justify-content:center">招待</div><div class="dest">マキ</div>
+            <div class="status" style="justify-content:center">まだ送っていません</div><p>招待はまだ誰にも送っていません。</p>
+            <div class="btn prom"><svg class="i"><use href="#share"/></svg>招待を共有</div>
+          </div>
+          <div class="group-h">この端末での呼び名</div><div class="group"><div class="row">マキ</div></div>
+          <div class="group"><div class="row redtext">招待を取り消す</div></div>
+        </div>
+      </div></div>
+      <figcaption><b>旧形式の個人招待</b>Usersの招待行から開く。OS共有を取り消すと同じ詳細で「まだ送っていません」を保つ。共有操作かコピーの完了で「受け取り待ち」と「再共有」に変わる。相手の登録は署名付きの返信で確かめる。「閉じる」で同じ行のある一覧へ戻る。</figcaption>
+    </figure>
+
     <!-- 自動生成した仮名だけ、同じ詳細内で名前を選ぶ -->
     <figure>
       <div class="phone"><div class="screen form">

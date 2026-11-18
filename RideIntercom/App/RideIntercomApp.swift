@@ -23,6 +23,9 @@ struct RideIntercomApp: App {
         RideIntercomLogging.bootstrap()
         let account = AppleAccountSession.makeForCurrentProcess()
         let owner = AppCallOwner(account: account, viewModel: IntercomViewModel.makeForCurrentProcess(accountSession: account))
+        #if DEBUG && RIDEINTERCOM_VALIDATION
+        AppleAccountFixture.stageLegacyContactInvitationIfRequested(owner.viewModel)
+        #endif
         _callOwner = State(initialValue: owner)
         owner.notificationBridge.bind(to: owner)
         appDelegate.notificationBridge = owner.notificationBridge

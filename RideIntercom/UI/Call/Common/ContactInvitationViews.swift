@@ -37,6 +37,7 @@ struct ContactInvitationSheet: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("contactInvitationSheet")
         }
+        .interactiveDismissDisabled()
         .onDisappear {
             viewModel.contactInvitationSheetDidDisappear(invitationID)
         }
@@ -46,20 +47,33 @@ struct ContactInvitationSheet: View {
     }
 }
 
-/// Shares the stored invitation; the message names who it is for.
-struct ContactInvitationShareLink: View {
+/// Preparing a link leaves it unsent until the system activity succeeds.
+struct ContactInvitationShareButton: View {
     let viewModel: IntercomViewModel
-    let invitationID: UUID
     let title: LocalizedStringKey
     let personName: String
+    let prepare: @MainActor () throws -> PreparedContactInvitationShare
+    @State private var share: PreparedContactInvitationShare?
 
     var body: some View {
-        ShareLink(item: InvitationShare(viewModel: viewModel, contactInvitationID: invitationID),
-            subject: Text("RideCom Invite"), message: Text("RideCom invitation for \(personName)"),
-            preview: SharePreview(Text("RideCom Invite"))) {
-                Label(title, systemImage: "square.and.arrow.up")
+        Button {
+            guard share == nil else { return }
+            do {
+                share = try prepare()
+                viewModel.contactInvitationMessage = nil
+            } catch {
+                viewModel.contactInvitationMessage = "Could not prepare this invitation. Try again."
             }
-            .accessibilityIdentifier("shareContactInvitationButton")
+        } label: {
+            Label(title, systemImage: "square.and.arrow.up")
+        }
+        .background {
+            ContactInvitationActivity(share: share, message: String(localized: "RideCom invitation for \(personName)")) { prepared, completed in
+                if completed { viewModel.completeContactInvitationSharing(prepared) }
+                share = nil
+            }
+        }
+        .accessibilityIdentifier("shareContactInvitationButton")
     }
 }
 

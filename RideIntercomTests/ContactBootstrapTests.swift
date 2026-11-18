@@ -38,7 +38,7 @@ struct ContactBootstrapTests {
         #expect(a.savedRemoteUsers.map(\.memberIDs) == [["contact-friend"]])
         let spentID = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
         #expect(throws: (any Error).self) {
-            _ = try a.contactInvitationURLForSharing(spentID, expectedAccountAccessID: a.accountAccessID)
+            _ = try a.prepareContactInvitationShare(spentID, expectedAccountAccessID: a.accountAccessID)
         }
         #expect(b.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
         let acknowledgement = try #require(authorNotification.sentApplicationDataMessages.last {

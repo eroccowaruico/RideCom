@@ -18,7 +18,7 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     /// local name when the invitation completes. It is not a remote profile name; the explicit
     /// invitation share message may include it.
     var nickname: String?
-    /// False from creation until a share destination took the link (the share sheet asks for it only then).
+    /// False from creation until the system reports successful sharing or copying.
     /// Nil on records saved before this was kept: those were treated as sent.
     var sent: Bool?
     /// The local person this exchange belongs to; never a verified remote identity.

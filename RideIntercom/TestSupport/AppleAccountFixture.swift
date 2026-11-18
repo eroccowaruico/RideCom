@@ -64,6 +64,19 @@ enum AppleAccountFixture {
 
     enum RecoveryFailure: Error { case invalidScope, unsafePath, verificationFailed }
 
+    /// Recreates the older outgoing record without a linked SavedUser.
+    static func stageLegacyContactInvitationIfRequested(_ viewModel: IntercomViewModel?) {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RIDEINTERCOM_LOCAL_TESTING"] == "1",
+              environment["RIDEINTERCOM_ACCOUNT_FIXTURE"] == "signed-in",
+              environment["RIDEINTERCOM_LEGACY_CONTACT_INVITATION_FIXTURE"] == "1",
+              let namespace = Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String,
+              namespace.hasPrefix("RideIntercom.Validation.") else { return }
+        guard let viewModel else { preconditionFailure("Local legacy invitation fixture requires a signed-in account") }
+        guard viewModel.unlinkedContactInvitations.isEmpty else { return }
+        guard viewModel.makeContactInviteURL() != nil else { preconditionFailure("Could not stage local legacy invitation fixture") }
+    }
+
     /// Only the validation account's real group manifest is prepared. No test
     /// state is persisted: the UI test explicitly selects prepare or verify.
     static func processGroupRecovery(_ mode: String, namespace: String, applicationSupport: URL) throws {
