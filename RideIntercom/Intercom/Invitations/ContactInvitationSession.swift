@@ -185,12 +185,7 @@ final class ContactInvitationSession {
                           peer == pending.token.inviterMemberID, !isAcknowledged,
                           let proof = receipt.acknowledgementProof,
                           proof.publicKey == pending.accepted.inviter.publicKey else { return }
-                    var expected = pending.accepted.receipt
-                    expected.kind = .acknowledged
-                    var unsigned = receipt; unsigned.acknowledgementProof = nil
-                    guard unsigned == expected else { return }
-                    _ = try proof.verify(receipt.acknowledgementMessage(), purpose: .acknowledgeInvitation,
-                                         memberID: peer, trust: trust, now: Date(timeIntervalSince1970: now()))
+                    try receipt.verifyAcknowledgement(of: pending.accepted.receipt, trust: trust, now: now())
                     try acknowledged?()
                     isAcknowledged = true
                     registeredPeerID = peer
