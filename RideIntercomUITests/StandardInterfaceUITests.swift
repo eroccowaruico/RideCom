@@ -784,7 +784,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertNotNil(generated.range(of: "^Group [A-F0-9]{6}$", options: .regularExpression))
         let chosenName = "Chosen " + suffix
         groupName.tap()
-        groupName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + chosenName)
+        groupName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + chosenName + "\n")
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "selectUser-", inviterName)).firstMatch
         let form = app.collectionViews.firstMatch
         XCTAssertTrue(app.staticTexts["Your Users"].exists)
@@ -809,8 +809,9 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertEqual(groupName.value as? String, chosenName, "Selecting a person keeps the edited group name")
         screenshot("Standard new group with a user picked")
         action.tap()
-        // Until saved users get the group automatically, the added person still needs the invitation.
-        XCTAssertTrue(app.staticTexts["sendGroupInvitationMessage"].waitForExistence(timeout: 5))
+        // The same saved target remains visible; sharing is optional.
+        XCTAssertTrue(app.staticTexts["groupDeliverySelectionMessage"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["savedInvitationGroupName"].label, chosenName)
         app.buttons["finishAddingUsersButton"].tap()
         XCTAssertTrue(app.buttons["standardEndCallButton"].waitForExistence(timeout: 5))
         // Group Settings: tapping a member opens their settings, where Remove from Group asks first.

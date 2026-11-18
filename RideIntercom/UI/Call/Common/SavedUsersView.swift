@@ -1,13 +1,12 @@
 import SwiftUI
 
 /// Choosing saved users for a new group or for an existing one. Each mode has its own selection
-/// screen; both share the selection's data and operations and the invitation step that follows.
+/// screen and saved step; the selection data, operations and presentation lifetime are shared.
 struct SavedUsersView: View {
     @Bindable var viewModel: IntercomViewModel
     var groupID: UUID?
     @Environment(\.dismiss) private var dismiss
-    /// Set once saved users were committed to this group. Adding them only lists
-    /// them here; their devices get the group key from the shared invitation.
+    /// The people committed by this selection; delivery and optional sharing keep this target.
     @State private var selectedUsers: Set<UUID> = []
     @State private var invitationGroupID: UUID?
     private var invitationGroup: IntercomGroup? { viewModel.groups.first { $0.id == invitationGroupID } }
@@ -15,7 +14,11 @@ struct SavedUsersView: View {
     var body: some View {
         NavigationStack {
             if let group = invitationGroup {
-                invitationStep(group)
+                if viewModel.interfaceMode == .advanced {
+                    AdvancedGroupInvitationSavedView(viewModel: viewModel, group: group, selectedUsers: selectedUsers, onDone: { dismiss() })
+                } else {
+                    StandardGroupInvitationSavedView(viewModel: viewModel, group: group, selectedUsers: selectedUsers, onDone: { dismiss() })
+                }
             } else if viewModel.interfaceMode == .advanced {
                 AdvancedSavedUsersSelection(viewModel: viewModel, groupID: groupID, onSaved: finish)
             } else {
@@ -34,51 +37,6 @@ struct SavedUsersView: View {
     private func finish(_ addedTo: UUID?, selectedUsers: Set<UUID>) {
         self.selectedUsers = selectedUsers
         if let addedTo { invitationGroupID = addedTo } else { dismiss() }
-    }
-
-    /// Keep delivery status and optional sharing in the same saved step.
-    private func invitationStep(_ group: IntercomGroup) -> some View {
-        Form {
-            let people = viewModel.groupInvitationPersonIDs(group.id)
-            if !people.isEmpty {
-                Section {
-                    Text(verbatim: group.name).font(.headline)
-                    Text("Invitations saved. Share each person's invitation. Cancelling sharing keeps the saved people and invitations.")
-                    ForEach(people, id: \.self) { personID in
-                        if let person = viewModel.contactPerson(personID) {
-                        NavigationLink {
-                            if viewModel.interfaceMode == .advanced {
-                                AdvancedContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID)
-                            } else { StandardContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID) }
-                        } label: { Text(verbatim: person.resolvedDisplayName) }
-                        .accessibilityIdentifier("groupInvitePerson-\(personID)")
-                        }
-                    }
-                }
-            }
-            if !selectedUsers.isEmpty {
-            if !viewModel.groupInvitationDeliveries(for: selectedUsers, in: group.id).isEmpty {
-                if viewModel.interfaceMode == .advanced {
-                    AdvancedRegisteredGroupInvitations(viewModel: viewModel, group: group, selectedUsers: selectedUsers)
-                } else { StandardRegisteredGroupInvitations(viewModel: viewModel, group: group, selectedUsers: selectedUsers) }
-            } else {
-            Section {
-                Text("Send the group invitation to the people you added. When they open it, \(group.name) and its key are added on their device, and you can talk nearby without the Internet.")
-                    .accessibilityIdentifier("sendGroupInvitationMessage")
-                CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton", bindsToGroup: true)
-            } footer: {
-                Text("Adding people only lists them on this device. You can send the invitation later from Invite.")
-            }
-            }
-            }
-        }
-        .screenBackground(AppColorPalette.listScreenBackground)
-        .navigationTitle(LocalizedStringKey("Share Invitations"))
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }.accessibilityIdentifier("finishAddingUsersButton")
-            }
-        }
     }
 }
 

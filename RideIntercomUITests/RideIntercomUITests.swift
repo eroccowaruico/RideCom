@@ -375,11 +375,10 @@ final class RideIntercomUITests: XCTestCase {
         try checkGroupDeletionCanBeExercisedFromUI()
     }
 
-    /// Adding saved users only lists them locally. The sheet stays open on the
-    /// invitation step so the group key can reach them before it is dismissed.
+    /// The saved target stays visible; sharing is optional and Done closes the sheet.
     @MainActor
-    private func finishSendingGroupInvitation(_ screen: String) {
-        XCTAssertTrue(app.staticTexts["sendGroupInvitationMessage"].waitForExistence(timeout: 3))
+    private func finishSavingGroupInvitations(_ screen: String) {
+        XCTAssertTrue(app.staticTexts["savedInvitationGroupID"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["addedUsersInviteButton"].exists)
         attachScreen(screen)
         app.buttons["finishAddingUsersButton"].tap()
@@ -421,7 +420,7 @@ final class RideIntercomUITests: XCTestCase {
         groupName.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + "Talk Group")
         attachScreen("Saved Users Selection")
         app.buttons["saveUserSelectionButton"].tap()
-        finishSendingGroupInvitation("New Group with Saved User invitation step")
+        finishSavingGroupInvitations("New Group with Saved User invitation step")
         XCTAssertTrue(app.descendants(matching: .any)["remoteParticipantRow0"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Alex"].firstMatch.exists)
         assertAdvancedCallHasNoManagementControls()
@@ -441,7 +440,7 @@ final class RideIntercomUITests: XCTestCase {
         toggle.tap()
         XCTAssertTrue(toggle.isSelected)
         app.buttons["saveUserSelectionButton"].tap()
-        finishSendingGroupInvitation("Saved User Added invitation step")
+        finishSavingGroupInvitations("Saved User Added invitation step")
         XCTAssertTrue(app.staticTexts["Alex"].firstMatch.waitForExistence(timeout: 3))
         attachScreen("Saved User Added to Existing Group management")
         closeManagementAndReturnToCall()

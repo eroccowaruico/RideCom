@@ -152,7 +152,7 @@ struct AdvancedGroupsView: View {
 
 /// One implementation record: the name, its stored values, an identifier line and the live state.
 /// Advanced rows never reuse Standard's list parts or wording.
-private struct AdvancedRecordRow: View {
+struct AdvancedRecordRow: View {
     let title: String
     let value: String
     let detail: String

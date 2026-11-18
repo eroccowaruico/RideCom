@@ -125,16 +125,16 @@ Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見�
 
 Usersの行の`User Settings`（`userSettingsView`）は相手の設定を開く。モードごとに別のView（`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`UserSettingsView`が選ぶ。Standardは、見本の項目だけを置く。「Name on This Device」（この端末での名前、`savedUserNameField`。今の呼び名で開き、空なら本人の名前をプレースホルダーに出す）と別のSection「Their Own Name」（本人の名前、`savedUserOriginalName`。副次色で読むだけ）、最後に赤の`Delete User`（ユーザーを削除、`deleteUserButton`。確認はタイトル「{呼び名}を削除しますか？」と「削除」（`confirmDeleteUserButton`。その相手と接続中なら本文「今の接続は切断されます。」と確定「切断して削除」）・「キャンセル」で、削除の同期が未実装のため本文を出さない）。`Save`（`saveUserNameButton`）では、空欄か本人の名前と同じなら呼び名を解除して本人名に従い、それ以外は端末内の呼び名として保存する。招待の共有、`Use Shared Name`、通知の切替、説明のfooterは置かない（通知はOSの設定だけで、個人で登録した相手は全員通知を送ってよい）。Standardの相手の設定には呼び出しの送信を置かない。1対1の接続を始めると呼び出しの通知を1回だけ送る（下の[1対1の呼び出しの通知](#1対1の呼び出しの通知)）。AdvancedもUsersの行のスワイプ（Macは右クリック）の「User Settings」から開く。Advancedの相手の設定は端末での呼び名、本人名、`Use Shared Name`（`resetUserNameButton`）、内部のdirect groupがあり共有可能なら招待（`userSettingsInviteButton`）、`Delete User`を置く。手動の呼び出し・受信の切替は両モードとも置かず、`closeUserSettingsButton`で閉じる。同じ名前の別IDは統合しない。行のDeleteは相手とその個別通話group（Advancedの`advancedDirectGroup-{UUID}`）を消し、その相手との進行中の通話は切断する。通常グループのメンバーは保持する。表示名変更は既存グループにも反映する。
 
-StandardではCallのメンバーの下の`Invite Members`（メンバーを招待、`addSavedUsersButton`）、Advancedは通話の…メニュー（`callAddMembersButton`）、両モードでGroup Settings（`groupSettingsAddMembersButton`）から保存ユーザーを追加する。現在のgroup IDを操作対象として固定し、直接招待関係のある保存ユーザーのうち、まだ含まれない相手を選択して追加する。自分を含め8memberまでで、重複・古い操作対象・保存失敗は確定しない。`savedUsersErrorLabel`で失敗を示す。選択だけでは相手へ通知しないことと、追加後に招待の共有が必要なことをFormに表示する。AppleログインやID宛て通知の完成を表す画面ではない。
+StandardではCallのメンバーの下の`Invite Members`（メンバーを招待、`addSavedUsersButton`）、Advancedは通話の…メニュー（`callAddMembersButton`）、両モードでGroup Settings（`groupSettingsAddMembersButton`）から保存ユーザーを追加する。現在のgroup IDを操作対象として固定し、直接招待関係のある保存ユーザーのうち、まだ含まれない相手を選択して追加する。自分を含め8memberまでで、重複・古い操作対象・保存失敗は確定しない。`savedUsersErrorLabel`で失敗を示す。選択中は通知しない。保存時に確認済みの相手への自動配送待ちを作り、許可未交換の相手は次の接続を待つ。旧形式の相手は手動共有する（下の登録済みの相手へのグループ招待）。
 
-保存ユーザーの追加はこの端末のメンバー一覧への記録だけであり、group鍵は相手へ届かない。鍵は招待URL（署名付きのgroup ID・名前・鍵）を相手が開いたときに相手の端末へ保存され、相手のgroup一覧へ自動で追加される。そのため、保存ユーザーを選ぶか新しい人を1人以上入力した作成・追加が成功したら、sheetを閉じずに同じsheetを招待の段階へ切り替える。
+確認済みの登録相手には暗号化した招待を自動配送する。相手の保存確認までは受領済みと扱わない。手動共有では署名付きURLを相手が開いたときにgroupを保存する。新しい人は個人登録とgroup参加を兼ねる専用招待を使う。保存ユーザーを選ぶか新しい人を1人以上入力した作成・追加が成功したら、sheetを閉じずに同じsheetを招待の段階へ切り替える。
 
 | 状態 | 成立条件 | 表示 | 可能な操作 | 復帰先 |
 |---|---|---|---|---|
-| Ideal | 保存ユーザーを1人以上含む作成・追加が保存された | 見出し`Share Invitations`、相手が開くとgroupと鍵が相手の端末に追加されInternetなしで近くで会話できる旨（`sendGroupInvitationMessage`）、共有ボタン（`addedUsersInviteButton`）、追加だけでは一覧に載るだけで後からInviteでも送れる旨 | 共有、Done（`finishAddingUsersButton`） | Doneで元の画面。作成時は新groupの通話画面 |
+| Ideal | 保存ユーザーまたは新しい人を1人以上含む作成・追加が保存された | 見出し`Invitation`（招待）。常に対象group名。Standardは相手の名前と招待状態、AdvancedはIntercomGroup・SavedUser・GroupDeliveryRecordの値。任意の共有ボタン（`addedUsersInviteButton`） | 共有、Done（`finishAddingUsersButton`） | Doneで元の画面。作成時は新groupの通話画面 |
 | Partial | 共有せずにDoneを押した | 追加済みのメンバーは一覧に残る | AdvancedのGroup Settingsの招待（`groupSettingsInviteButton`）または通話の…メニューの`inviteButton`で後から共有 | 元の画面 |
 | Error | 保存に失敗した | 選択画面のまま`savedUsersErrorLabel` | 選択の変更・再試行・Cancel | 選択画面 |
-| Empty | 保存ユーザーを選ばずにgroupを作成した | 招待の段階を出さずにsheetを閉じる | 通常どおり | 新groupの通話画面 |
+| Empty | 保存ユーザーも新しい人も含めずgroupを作成した | 招待の段階を出さずにsheetを閉じる | 通常どおり | 新groupの通話画面 |
 | Loading | 該当しない | 保存は同期処理で、共有URLはOS共有画面の要求時に作るため待ち表示を持たない | — | — |
 
 招待の段階の表示中に対象groupが削除された場合はsheetを閉じる。共有URLは既存のInviteと同じく共有時に対象group・権利を再検証する。
@@ -295,7 +295,7 @@ Standardの通話のaddSavedUsersButton・group設定のgroupSettingsAddMembersB
 | addNewGroupInviteeButton | Invite Someone New（新しい人を招待）。押すと名前欄を追加してfocusし、人数へ1枠を加える。8枠で無効 |
 | newGroupInviteName-{UUID} | Their Name。空欄は重複しない仮名候補を採用。Removeは未保存行だけを外す。Returnはfocusを外すだけで保存しない |
 | saveUserSelectionButton | Standardの既存groupはSave Invitations、AdvancedはAdd Users、新規作成のCreate and Connect／Create Groupは従来どおり。名前・人・予約枠・招待を同じcommitで確定する |
-| groupInvitePerson-{UUID} | Share Invitationsに参加先・保存済みの名前を並べ、同じ人のモード別詳細を開く。元のperson IDで識別し、既知の相手へ解決しても勝手に別画面へ進めない |
+| groupInvitePerson-{UUID} | Invitation（招待）に参加先・保存済みの名前を並べ、同じ人のモード別詳細を開く。元のperson IDで識別し、既知の相手へ解決しても勝手に別画面へ進めない |
 | shareContactInvitationButton | 参加先と人を確認してOS共有へ。取消・コピーで同じ詳細と保存状態を保つ。Doneは取消ではなく、保存済みのまま閉じる |
 | group設定の招待中の行 | 保存した同じ人のContactPersonSheetを開き、共有・名前編集を再開。通常のメンバーの編集・削除と区別し、PendingAvatarを使う |
 | invitedGroupPreview／acceptContactInvitationButton | 作者とgroup名、登録するとGroupsへも加わる旨。拒否は無保存。Registerは関係とgroupを一度に保存し、通話を切り替えず同じ詳細へ |
@@ -306,7 +306,7 @@ UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/�
 
 ## 登録済みの相手へのグループ招待の表示
 
-保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。StandardRegisteredGroupInvitationsは「招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。」と名前ごとの状態、任意の「招待を共有」を表示する。pending／queuedは「招待中」、同じ相手の既知端末のどれか1台がreceivedなら「グループに追加済み」、全件cancelledは「招待を停止しました」。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。全員が旧形式なら既存の手動共有説明を維持する。
+保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。StandardRegisteredGroupInvitationsは「招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。」と名前ごとの状態、任意の「招待を共有」を表示する。pending／queuedは「招待中」、同じ相手の既知端末のどれか1台がreceivedなら「グループに追加済み」、全件cancelledは「招待を停止しました」。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。旧形式の相手だけでも同じ保存済み画面で名前ごとに「招待の共有が必要です」と任意の共有を表示する。
 
 AdvancedRegisteredGroupInvitationsはGroupDeliveryRecordのid・recipientMemberID・state・expiresAt・credentialReferenceをそのまま表示し、Share Call Inviteを任意に残す。両モードで保存・送受信・判定は同じ処理を使い、文言と配置はモード所有の画面に分ける。新しい相手もいる場合、その人の名前付き詳細と登録済みの相手の配送状態を同じ保存後の画面で続けられる。
 
@@ -317,3 +317,9 @@ StandardUsersViewだけがStandardGroupInvitationOfferを持つ。Standard・グ
 「表示する」は確認済みを保存し、グループタブの設定をONにしてGroups一覧へ移る。「今はしない」は設定を変えず確認済みだけ保存する。どちらも接続せず、group・鍵・現在の通話を変更しない。既に届いた複数groupは一度の返答で確認済みとし、別groupが新しく届くまで繰り返さない。保存失敗は既存の再読込へ接続し、確認済みとして捨てない。Advancedにはこのアラートを置かない。
 
 グループ一覧を表示した場合も、到着済みの案内を確認済みにする。表示していたタブを明示的にOFFにする操作も既存の案内を消費し、過去に見たgroupを再案内しない。確認済みの保存に失敗した場合は既存の保存復旧へ進み、無条件には消費しない。
+
+### 保存済み招待画面の責務
+
+SavedUsersViewは選択から保存済みへの遷移・対象ID・sheetの終了を所有する。StandardGroupInvitationSavedViewとAdvancedGroupInvitationSavedViewが表示を分け、Doneは親から渡す同じ終了操作を呼ぶ。両方で見出しInvitation（招待）、対象group名（savedInvitationGroupName）、任意共有、明示的な完了を維持する。共有の完了を保存の条件にしない。
+
+Standardは新しい人の名前にRegistered／Not registered（登録済み／未登録）を添え、未登録の人が残るときだけ各人の共有案内を出す。内部IDや鍵・配送方式の説明は出さない。AdvancedはIntercomGroup.id／name、SavedUserのid／isRegisteredを表示し、人を開くと既存の詳細へ進む。登録済みの配送記録はAdvancedRegisteredGroupInvitationsがそのまま表示する。未保存の選択値と保存処理はMemberSelectionで共通に保ち、見た目の都合で状態を複製しない。
