@@ -27,7 +27,7 @@ final class MixedRouteAudioE2E {
 
     func verify(test: XCTestCase, viewModel: IntercomViewModel, peer: PeerID, role: String, worker: AudioE2EWorker?,
                 barrier: AudioE2EBarrier, probe: RenderedAudioProbe, input: SpeechFileInput, remote: [Float],
-                directory: URL, seconds: Double) async throws {
+                directory: URL, seconds: Double, startsBeforeInternet: Bool) async throws {
         let local = input.samples
         let route = try XCTUnwrap(localRoute)
         let media = try await Self.mediaTransport(route)
@@ -46,17 +46,36 @@ final class MixedRouteAudioE2E {
         proxy.setBlocked(outboundBlockedAtStart)
         media.connect(to: peer, nonce: remoteNonce, endpoint: .hostPort(host: .ipv4(.loopback), port: proxy.port))
         try await waitFor("Local UDP path exists before application audio") { media.isReady(for: peer) }
+        if startsBeforeInternet {
+            XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
+            XCTAssertEqual(viewModel.sentVoicePacketCount, 0)
+            XCTAssertEqual(viewModel.receivedVoicePacketCount, 0)
+            XCTAssertFalse(media.hasRecentMediaReceipt(for: peer))
+            let controlBefore = localControl.receivedCount
+            try await barrier.meet("mixed-first-speech-without-internet")
+            try await measure("before-internet", blocked: !outboundBlockedAtStart, beginSpeech: true,
+                              expectsRemoteSpeech: outboundBlockedAtStart)
+            XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
+            XCTAssertGreaterThan(localControl.receivedCount, controlBefore)
+            try await barrier.meet("mixed-internet-unavailable-observed")
+            if role == "a" {
+                let service = try XCTUnwrap(worker)
+                await service.enableInternetSignaling()
+            }
+        }
         let waitingForInternet = ContinuousClock.now
-        try await waitFor("Internet route is available before the first speech", timeout: .seconds(30)) {
+        try await waitFor("Internet route becomes available", timeout: .seconds(30)) {
             viewModel.availableCallRoutes.contains(.webRTC)
         }
         print("Mixed Route E2E: Internet route available after \(waitingForInternet.duration(to: .now))")
-        XCTAssertEqual(viewModel.sentVoicePacketCount, 0)
-        XCTAssertEqual(viewModel.receivedVoicePacketCount, 0)
-        XCTAssertFalse(media.hasRecentMediaReceipt(for: peer))
+        if !startsBeforeInternet {
+            XCTAssertEqual(viewModel.sentVoicePacketCount, 0)
+            XCTAssertEqual(viewModel.receivedVoicePacketCount, 0)
+            XCTAssertFalse(media.hasRecentMediaReceipt(for: peer))
+        }
         let initialControlCount = localControl.receivedCount
         try await barrier.meet("mixed-initial-one-way-blocked")
-        try await measure("one-way-initial", blocked: !outboundBlockedAtStart, beginSpeech: true)
+        try await measure("one-way-initial", blocked: !outboundBlockedAtStart, beginSpeech: !startsBeforeInternet)
         XCTAssertGreaterThan(localControl.receivedCount, initialControlCount, "QUIC control still reaches the peer")
         XCTAssertEqual(media.hasRecentMediaReceipt(for: peer), !outboundBlockedAtStart)
         if outboundBlockedAtStart { XCTAssertGreaterThan(proxy.droppedCount, 0) }
@@ -126,7 +145,7 @@ final class MixedRouteAudioE2E {
         }
         print("Mixed Route E2E: Explicit end and peer wait verified after restoring media")
 
-        func measure(_ phase: String, blocked: Bool, beginSpeech: Bool = false) async throws {
+        func measure(_ phase: String, blocked: Bool, beginSpeech: Bool = false, expectsRemoteSpeech: Bool = true) async throws {
             probe.reset()
             let firstReceived = viewModel.receivedVoicePacketCount
             let firstLocal = media.statistics.receivedMediaDatagrams ?? 0
@@ -149,9 +168,14 @@ final class MixedRouteAudioE2E {
             }.value
             XCTAssertEqual(render.invalid, 0)
             XCTAssertGreaterThan(render.samples.count, Int(render.rate * seconds * 0.8))
-            XCTAssertGreaterThan(received, 20)
-            XCTAssertGreaterThan(remoteMatch, 0.45, "Missing the remote voice during " + phase)
-            XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "Local audio cannot satisfy the remote voice oracle")
+            if expectsRemoteSpeech {
+                XCTAssertGreaterThan(received, 20)
+                XCTAssertGreaterThan(remoteMatch, 0.45, "Missing the remote voice during " + phase)
+                XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "Local audio cannot satisfy the remote voice oracle")
+            } else {
+                XCTAssertEqual(received, 0)
+                XCTAssertLessThan(render.samples.reduce(Float(0)) { max($0, abs($1)) }, 0.001)
+            }
             if blocked { XCTAssertEqual(localDatagrams, 0, "The receiver must not get Local audio during the cut") }
             else { XCTAssertGreaterThan(localDatagrams, 20, "The Local route must carry current media") }
             let evidence: [String: Any] = ["scenario": phase, "role": role, "transport": "mixed",

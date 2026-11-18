@@ -40,16 +40,19 @@ actor AudioE2EWorker {
     private var waitingParticipantReady = false
     private var readyForInternetOutage: Set<String> = []
     private var stillObservingInternetOutage: Set<String> = []
+    private var holdsInternetSignaling: Bool
     private var stopped = false
     private enum Failure: Error { case invalidRequest, disconnected }
 
-    init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false) throws {
+    init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false,
+         holdsInternetSignaling: Bool = false) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .init(rawValue: port)!)
         listener = try NWListener(using: parameters)
         token = run; self.room = room
         allowedPeers = Set(["a", "b"].map { "e2e-\($0)-\(run.prefix(8))" })
         self.checksInternetRecovery = checksInternetRecovery
+        self.holdsInternetSignaling = holdsInternetSignaling
     }
 
     func start() async throws {
@@ -85,6 +88,8 @@ actor AudioE2EWorker {
     func measurements() -> [String: Any] { ["forwardedPackets": forwarded, "requests": requests] }
 
     func setDropsMedia(_ enabled: Bool) { dropsMedia = enabled }
+
+    func enableInternetSignaling() { holdsInternetSignaling = false }
 
     func markWaitingParticipantReady() { waitingParticipantReady = true }
 
@@ -194,7 +199,7 @@ actor AudioE2EWorker {
                 stillObservingInternetOutage.remove(id)
             }
             try await Self.respond(connection, body: [:])
-        } else if !stillObservingInternetOutage.isEmpty, operation == "ice" || operation == "join" {
+        } else if holdsInternetSignaling || !stillObservingInternetOutage.isEmpty, operation == "ice" || operation == "join" {
             try await Self.respond(connection, status: 503, body: ["error": "fixture unavailable"])
         } else if operation == "ice" {
             // No external STUN/TURN dependency. Host candidates carry this test.

@@ -209,6 +209,7 @@ final class AudioE2ETests: XCTestCase {
         let transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
         let mixed = transport == "mixed"
         let usesInternet = transport == "webrtc" || mixed
+        let startsBeforeInternet = env["AUDIO_E2E_DELAY_INTERNET"] == "1"
         let waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
         let movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
         let checksInternetRecovery = env["AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY"] == "1"
@@ -216,6 +217,7 @@ final class AudioE2ETests: XCTestCase {
         let checksBackgroundSilence = env["AUDIO_E2E_BACKGROUND_SILENCE"] == "1"
         let checksBackgroundMute = env["AUDIO_E2E_BACKGROUND_MIC_OFF"] == "1"
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
+        if startsBeforeInternet { XCTAssertTrue(mixed) }
         if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
         if checksInternetRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "webrtc") }
         if checksLocalRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "local") }
@@ -238,7 +240,8 @@ final class AudioE2ETests: XCTestCase {
             workerURL = url
             if role == "a" {
                 let fixture = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room,
-                                                 checksInternetRecovery: checksInternetRecovery)
+                                                 checksInternetRecovery: checksInternetRecovery,
+                                                 holdsInternetSignaling: startsBeforeInternet)
                 worker = fixture
                 try await fixture.start()
                 addTeardownBlock { await fixture.stop() }
@@ -412,7 +415,7 @@ final class AudioE2ETests: XCTestCase {
         if let instrumentedRoutes {
             try await instrumentedRoutes.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
                 role: role, worker: worker, barrier: barrier, probe: probe, input: input, remote: remote.samples,
-                directory: directory, seconds: initial.seconds)
+                directory: directory, seconds: initial.seconds, startsBeforeInternet: startsBeforeInternet)
             return
         }
         #endif
