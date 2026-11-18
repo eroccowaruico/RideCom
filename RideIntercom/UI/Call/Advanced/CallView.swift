@@ -72,7 +72,6 @@ struct CallView: View {
                         }
                         .controlSize(.large)
                         .buttonStyle(.glassProminent)
-                        .disabled(viewModel.authenticatedPeerIDs.isEmpty)
                         .accessibilityIdentifier("resumeAudioButton")
                     }
                 }

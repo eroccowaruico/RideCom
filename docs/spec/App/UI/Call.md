@@ -238,7 +238,7 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 | 経路 | availableRoutesからLocal / Internet / Local + Internetを表示。Localだけでも他者経由の中継が可能 |
 | 音声操作 | 全production routeで共通のmeter・effect・master/peer音量・muteを使用 |
 | Internet失敗 | `connectivityNotice`。通常は到達可能な参加者との接続を維持して再試行する旨を表示。アカウントの既存通話との競合は、既存通話の終了・通信断時の期限待ち・再操作を案内する。通話全体が手動復帰待ちならConnectを表示する |
-| 機器消失 | `audioRouteNotice`とConnected / Audio Paused。理由と接続・中継の維持を明示 |
+| 機器消失 | `audioRouteNotice`と、認証済み相手がいるときはConnected / Audio Paused、相手待ちはAudio paused。理由と接続・中継の維持を明示 |
 | 再開 | `resumeAudioButton`。標準Button、文字ラベルとSF Symbolを併用。認証済みpeerなしでは無効 |
 | 別グループ閲覧 | activeGroup用の機器・経路通知を別groupの状態として表示しない |
 | 到達確認 | 接続状態・mute解除は相手に聞こえた証明ではない。実音声の受け入れを別途行う |
@@ -333,3 +333,5 @@ AdvancedGroupSettingsViewは対象groupのoutgoing記録をAdvancedGroupDelivery
 ### 操作直後のロックと相手待ち
 
 Standard・Advancedとも、接続操作から音声入出力の準備を開始する。相手の参加まで画面を開いたまま待つ操作を求めない。相手待ち・復旧可能な切断でも接続意思と終了期限を保ち、入出力を停止して前面復帰を待つ方式にはしない。音声準備だけで相手と接続済みとは表示せず、相手の認証と利用条件が成立するまで送信しない。通常のミュート値は維持する。OSによる録音開始拒否・音声中断は接続待ちと別に扱い、この契約の実機受入は[背景の受入マトリクス](../../../backlog/未実装課題.md#ios背景実行の調査と受入マトリクス)で管理する。
+
+相手待ちの音声一時停止でも`resumeAudioButton`を有効にし、相手を待たずに音声準備を再開し、成功後に停止表示を解除する。準備中も相手と接続済みとは表示せず、認証・利用条件が揃うまで送信しない。Standard・Advancedで操作の意味を揃え、muteと元の終了期限を維持する。

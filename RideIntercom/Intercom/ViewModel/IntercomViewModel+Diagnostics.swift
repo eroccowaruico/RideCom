@@ -48,7 +48,9 @@ extension IntercomViewModel {
     }
 
     var callPresenceLabel: String {
-        if selectedGroup?.id == activeGroupID, isAudioPausedForDeviceChange { return "Connected / Audio Paused" }
+        if selectedGroup?.id == activeGroupID, isAudioPausedForDeviceChange {
+            return hasPresentedAuthenticatedConnection ? "Connected / Audio Paused" : String(localized: "Audio paused")
+        }
         let connectionState = presentedConnectionState
         let localNetworkStatus = presentedLocalNetworkStatus
         if connectionState == .idle, localNetworkStatus != .idle {

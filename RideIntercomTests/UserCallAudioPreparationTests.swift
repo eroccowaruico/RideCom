@@ -1,6 +1,7 @@
 import AudioCore
 import Foundation
 import RTC
+import SessionManager
 import Testing
 @testable import RideIntercom
 
@@ -65,6 +66,49 @@ import Testing
         #expect(vm.isAudioReady && !vm.isCallMediaStarted)
         #expect(vm.connectionState == .localConnecting)
         #expect(vm.standardCallStatus == .connecting)
+    }
+
+    @Test(arguments: [RouteKind.multipeer, .webRTC], [false, true])
+    func explicitResumeWhileWaitingPreparesAudioWithoutAPeer(route: RouteKind, muted: Bool) async throws {
+        let h = AppTestSupport.makeHarness(enforceCallAccess: true), vm = h.viewModel
+        defer { vm.disconnect() }
+        vm.setSoundIsolationEnabled(false); vm.enabledRTCTransportRoutes = [route]; vm.applyLocalMute(muted)
+        vm.selectGroup(try #require(vm.groups.first))
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        try #require(vm.isAudioReady)
+        let deadline = vm.callDisconnectDeadline, starts = h.inputBackend.startCount
+        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionBegan, snapshot: h.audioSessionBackend.current)))
+        #expect(vm.isAudioPausedForDeviceChange && !vm.isAudioReady)
+        #expect(vm.callPresenceLabel == String(localized: "Audio paused"))
+        vm.resumeAudioAfterDeviceChange()
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        #expect(vm.isAudioReady && !vm.isAudioPausedForDeviceChange && vm.audioRouteNotice == nil)
+        #expect(h.inputBackend.startCount == starts + 1 && vm.isMuted == muted)
+        #expect(vm.callDisconnectDeadline == deadline && vm.authenticatedPeerIDs.isEmpty)
+        #expect(!vm.isCallMediaStarted && h.callSession.startMediaCallCount == 0)
+        for index in 0..<8 {
+            h.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: .init(sampleRate: 48_000, channelCount: 1),
+                capturedAt: ProcessInfo.processInfo.systemUptime, samples: Array(repeating: 0.2, count: 960)))
+        }
+        await Task.yield()
+        #expect(h.callSession.sentAudioPackets.isEmpty)
+    }
+
+    @Test func resumingWaitingAudioAfterTheDeadlineEndsTheCallInsteadOfOpeningInput() async throws {
+        var now = Date(timeIntervalSince1970: 2_000_000_000)
+        let h = AppTestSupport.makeHarness(callAccessNow: { now }), vm = h.viewModel
+        defer { vm.disconnect() }
+        vm.setSoundIsolationEnabled(false); vm.setCallDisconnectInterval(.oneMinute)
+        vm.selectGroup(try #require(vm.groups.first))
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        try #require(vm.isAudioReady)
+        let starts = h.inputBackend.startCount
+        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionBegan, snapshot: h.audioSessionBackend.current)))
+        now = now.addingTimeInterval(60)
+        vm.resumeAudioAfterDeviceChange()
+        await Task.yield()
+        #expect(vm.callDisconnectDeadline == nil && !vm.isAudioReady && vm.audioStartTask == nil)
+        #expect(h.inputBackend.startCount == starts && h.callSession.startMediaCallCount == 0)
     }
 
 }

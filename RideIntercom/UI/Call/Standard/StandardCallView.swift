@@ -166,7 +166,6 @@ struct StandardCallView: View {
                     Text("Check your headphones or speaker, then resume audio.")
                     Button("Resume Audio") { viewModel.resumeAudioAfterDeviceChange() }
                         .appProminentButtonStyle()
-                        .disabled(viewModel.authenticatedPeerIDs.isEmpty)
                         .accessibilityIdentifier("resumeAudioButton")
                 }
             }

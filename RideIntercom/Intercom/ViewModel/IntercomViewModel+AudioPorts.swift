@@ -104,8 +104,7 @@ extension IntercomViewModel {
     var canResumeAudioOnThisDevice: Bool { !isUsingWatchAudio || watchAudioLink != nil }
 
     func resumeAudioAfterDeviceChange() {
-        guard canResumeAudioOnThisDevice, isAudioPausedForDeviceChange, activeGroupID != nil,
-              !authenticatedPeerIDs.isEmpty else { return }
+        guard canResumeAudioOnThisDevice, isAudioPausedForDeviceChange, activeGroupID != nil else { return }
         startAudioPipelineIfNeeded(resumingDevice: true)
     }
 

@@ -11,8 +11,18 @@ from scripts.test_lifecycle import exclusive_run, simulator_resource_root, Simul
 parser=argparse.ArgumentParser(description="Native iOS waiting audio during background, without a peer; not physical-device acceptance")
 parser.add_argument('--out', type=Path, required=True)
 parser.add_argument('--reuse-settings', type=Path)
+parser.add_argument('--scenario', choices=['waiting','resumed','all'], default='waiting')
 args=parser.parse_args()
 root=ROOT
+cases=[('open',False),('muted',True)] if args.scenario=='waiting' else [('resumed',False)]
+if args.scenario=='all': cases=[('open',False),('muted',True),('resumed',False)]
+tests=[]
+for layout in ['Standard','Advanced']:
+    for variant,_ in cases:
+        method=('test'+layout+'WaitingReturnsFromBackgroundWithoutLosingItsCall' if variant=='open' else
+                'test'+layout+'MutedWaitingKeepsAudioInBackground' if variant=='muted' else
+                'test'+layout+'ResumeWhileWaitingContinuesInBackground')
+        tests.append('RideIntercomUITests/BackgroundCallLifecycleUITests/'+method)
 os.chdir(root)
 runner=Runner(args.out.resolve(), timeout=1200)
 snapshot(runner.out)
@@ -41,14 +51,14 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
         if prior.returncode==0:
             for old in (Path(prior.stdout.strip())/'tmp').glob('background-call-*.json'):
                 old.unlink()
-        runner.xcode('ui','platform=iOS Simulator,id='+sim, only=["RideIntercomUITests/BackgroundCallLifecycleUITests"],needs=['ready'],
+        runner.xcode('ui','platform=iOS Simulator,id='+sim, only=tests,needs=['ready'],
                      reuse_build='reused-build' if reuse else None)
         import subprocess, shutil
         container=Path(subprocess.check_output(['xcrun','simctl','get_app_container',sim,'com.yowamushi-inc.RideIntercom.RideIntercom','data'],text=True).strip())
         found=[]
         for layout in ['standard','advanced']:
-            for muted in [False,True]:
-                variant=layout+('-muted' if muted else '-open')
+            for suffix,muted in cases:
+                variant=layout+'-'+suffix
                 source=container/'tmp'/('background-call-'+variant+'.json')
                 outcome=dict(variant=variant,passed=False)
                 if source.is_file():
