@@ -359,3 +359,15 @@ test('group invitation receipt requires a current resubmission after sender sign
         assert.equal((await (await call(r, path, undefined, current.accessToken, 'GET')).json()).status, 'cancelled');
     } finally { await r.dispose(); }
 });
+
+test('group invitation lifetime tolerates a small device clock difference but stays bounded', async () => {
+    const r = await setup();
+    try {
+        const a = await login(r, 'clock-a'), b = await login(r, 'clock-b');
+        const g = await (await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken)).json();
+        const body = { capability: g.capability, requestID: randomUUID(), expiresAt: Date.now() + 7 * 86400000 + 60000,
+            recipientKey: 's'.repeat(87), envelope: Buffer.from('opaque clock fixture').toString('base64') };
+        assert.equal((await call(r, '/api/notifications/group-invitations', body, a.accessToken)).status, 200);
+        assert.equal((await call(r, '/api/notifications/group-invitations', { ...body, requestID: randomUUID(), expiresAt: Date.now() + 7 * 86400000 + 600000 }, a.accessToken)).status, 400);
+    } finally { await r.dispose(); }
+});

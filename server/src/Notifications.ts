@@ -139,7 +139,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const now = Date.now()
             if (typeof body.requestID !== 'string' || !uuidPattern.test(body.requestID)
                 || (body.noticeID !== undefined && (typeof body.noticeID !== 'string' || !uuidPattern.test(body.noticeID)))
-                || typeof body.expiresAt !== 'number' || !Number.isFinite(body.expiresAt) || body.expiresAt <= now || body.expiresAt > now + 7 * 86400000
+                || typeof body.expiresAt !== 'number' || !Number.isFinite(body.expiresAt) || body.expiresAt <= now || body.expiresAt > now + 7 * 86400000 + 300000
                 || typeof body.recipientKey !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(body.recipientKey)
                 || typeof body.envelope !== 'string' || body.envelope.length < 4 || body.envelope.length > 21848
                 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.envelope)) throw new Error('body')
