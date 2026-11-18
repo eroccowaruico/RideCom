@@ -173,7 +173,7 @@ extension RealtimeTransportTests {
 
     @Test func losingOnlyQUICPreservesTheAuthenticatedUDPEndpointUntilStop() async throws {
         let local = LocalEnd("local"), peer = PeerID(rawValue: "remote"), group = groupCredential()
-        let media = LocalDatagramTransport(peerID: peer, groupHash: group.groupHash) { _, _ in }
+        let media = LocalDatagramTransport(peerID: peer, credential: group) { _, _ in }
         try media.start()
         defer { media.stop() }
         let control = LocalControlTransport(localID: peer, credential: group, nonce: media.serviceNonce) { event in

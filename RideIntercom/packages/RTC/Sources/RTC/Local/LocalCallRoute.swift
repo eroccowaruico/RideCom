@@ -66,7 +66,7 @@ private final class Session: @unchecked Sendable {
     private var controlPeers: Set<PeerID> = []
     private var mediaPeers: Set<PeerID> = []
     private var control: LocalControlTransport?
-    private(set) lazy var datagrams = LocalDatagramTransport(peerID: peer, groupHash: credential.groupHash) { [weak self] peer, bytes in
+    private(set) lazy var datagrams = LocalDatagramTransport(peerID: peer, credential: credential) { [weak self] peer, bytes in
         guard let self, self.active, self.mediaPeers.contains(peer) else { return }
         self.deliver(.init(namespace: GroupRelay.namespace, payload: bytes, delivery: .unreliable), from: peer)
     }
@@ -102,7 +102,7 @@ private final class Session: @unchecked Sendable {
 
     func send(_ message: ApplicationDataMessage) -> Set<PeerID> {
         if message.namespace == GroupRelay.namespace, message.delivery == .unreliable {
-            return datagrams.synchronized { datagrams.send(message.payload, to: Array(mediaPeers)) }
+            return datagrams.synchronized { datagrams.send(message.payload, to: Array(mediaPeers)).verified }
         }
         guard let bytes = try? JSONEncoder().encode(message), bytes.count <= LocalControlFraming.maximumMessageBytes else {
             source.yield(.error(kind, .connectionFailed(kind, "Local control message exceeds frame limit")))

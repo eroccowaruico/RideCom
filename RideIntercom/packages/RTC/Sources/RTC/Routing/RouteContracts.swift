@@ -28,8 +28,10 @@ public protocol RTCCallRoute: AnyObject, Sendable {
     func prepare(_ request: CallStartRequest) async
     func startConnection() async
     func stopConnection() async
-    /// Direct peers accepted for immediate delivery, not delivery acknowledgements.
-    /// Return an empty set when the backend cannot report individual recipients.
+    /// Direct peers eligible to suppress an alternate media copy for this send.
+    /// Local requires immediate acceptance and recent authenticated media receipt;
+    /// this is not an acknowledgement of the current frame. Return an empty set
+    /// when the backend cannot establish individual recipients.
     @discardableResult
     func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID>
 }

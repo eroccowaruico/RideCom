@@ -182,7 +182,8 @@ public actor RouteManager: CallSession {
         let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: data, delivery: body.delivery)
         var localRecipients: Set<PeerID> = []
         // Local always gets the first immediate attempt. A control connection
-        // alone is insufficient: only the UDP sender can report accepted peers.
+        // alone is insufficient: Local must report recent media receipt as well
+        // as immediate acceptance on the flow that actually sends this frame.
         for kind in [RouteKind.multipeer, .webRTC] where started.contains(kind) && kind != excluding {
             if case .audio = body, kind == .webRTC {
                 let internetPeers = routeMembers[.webRTC, default: []]
