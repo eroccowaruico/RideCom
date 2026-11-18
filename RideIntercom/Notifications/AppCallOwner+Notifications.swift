@@ -1,6 +1,19 @@
 import Foundation
 
 extension AppCallOwner {
+    @discardableResult
+    func respondToGroupInvitation(_ tap: GroupInvitationTap) async -> Bool {
+        guard let model = viewModel, model.accountSession === account, model.hasCurrentAccountAccess,
+              let access = try? model.internetSettingsStore.notificationAccess(memberID: model.localMemberIdentity.memberID),
+              access.principal.userID == tap.recipientID else { return false }
+        let generation = model.accountAccessID
+        await model.synchronizeGroupDeliveries()
+        guard viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == generation else { return false }
+        if model.hasAnyActiveGroupConnection { model.showLiveCall(); callPresentationID = UUID() }
+        else { groupsPresentationID = UUID() }
+        return true
+    }
+
     /// Only the notification response callback calls this method, never arrival.
     @discardableResult
     func respondToCallNotification(_ tap: CallNotificationTap) async -> Bool {

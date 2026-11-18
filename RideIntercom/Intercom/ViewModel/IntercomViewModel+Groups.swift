@@ -118,6 +118,7 @@ extension IntercomViewModel {
         if selectedGroup?.id == groupID { selectedGroup = nil }
         groups = remaining
         discardUnavailableRecentCall()
+        requestGroupDeliverySync(afterMutation: true)
     }
 
     /// The name stays on this device; renaming does not touch the call.
@@ -167,7 +168,7 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func createTalkGroup(name: String = "Talk Group", userIDs: Set<UUID> = []) -> Bool {
+    func createTalkGroup(name: String = "Talk Group", userIDs: Set<UUID> = [], id: UUID? = nil) -> Bool {
         groupErrorMessage = nil
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         guard requireGroupAccess() else { return false }
@@ -176,7 +177,14 @@ extension IntercomViewModel {
             groupErrorMessage = "Enter a group name without | and choose up to 7 other members."
             return false
         }
-        let groupID = UUID()
+        let groupID = id ?? UUID()
+        if let existing = groups.first(where: { $0.id == groupID }) {
+            guard existing.kind == .group, existing.name == name,
+                  Set(remoteMembers.map(\.id)).isSubset(of: Set(existing.members.map(\.id))) else { return false }
+            selectGroup(existing)
+            requestGroupDeliverySync(afterMutation: true)
+            return true
+        }
         let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)] + remoteMembers
         let newGroup = try? IntercomGroup(
             id: groupID,
@@ -189,13 +197,14 @@ extension IntercomViewModel {
             return false
         }
         let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
-        do { try groupRepository.save([newGroup] + groups, credential: .init(groupID: groupID, secret: secret)); refreshGroupStorageStatus() }
+        do { try groupRepository.save([newGroup] + groups, credential: .init(groupID: groupID, secret: secret), deliveries: groupDeliveryRecords(for: userIDs, groupID: groupID)); refreshGroupStorageStatus() }
         catch {
             reportGroupStorageError(error)
             return false
         }
         groups.insert(newGroup, at: 0)
         selectGroup(newGroup)
+        requestGroupDeliverySync(afterMutation: true)
         return true
     }
 

@@ -57,12 +57,18 @@ struct SavedUsersView: View {
                 }
             }
             if !selectedUsers.isEmpty {
+            if !viewModel.groupInvitationDeliveries(for: selectedUsers, in: group.id).isEmpty {
+                if viewModel.interfaceMode == .advanced {
+                    AdvancedRegisteredGroupInvitations(viewModel: viewModel, group: group, selectedUsers: selectedUsers)
+                } else { StandardRegisteredGroupInvitations(viewModel: viewModel, group: group, selectedUsers: selectedUsers) }
+            } else {
             Section {
                 Text("Send the group invitation to the people you added. When they open it, \(group.name) and its key are added on their device, and you can talk nearby without the Internet.")
                     .accessibilityIdentifier("sendGroupInvitationMessage")
                 CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton", bindsToGroup: true)
             } footer: {
                 Text("Adding people only lists them on this device. You can send the invitation later from Invite.")
+            }
             }
             }
         }
@@ -141,7 +147,7 @@ struct MemberSelection {
             return .some(.some(id))
         }
         let saved = if let groupID { viewModel.addSavedUsers(selected, to: groupID) }
-                    else { viewModel.createTalkGroup(name: groupName, userIDs: selected) }
+                    else { viewModel.createTalkGroup(name: groupName, userIDs: selected, id: newGroupID) }
         guard saved else { return .none }
         return .some(selected.isEmpty ? nil : groupID ?? viewModel.selectedGroup?.id)
     }

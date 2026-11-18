@@ -5,7 +5,7 @@ nonisolated struct CallNotificationTap: Equatable, Sendable {
     let recipientID: String
     init(requestID: UUID, recipientID: String) { self.requestID = requestID; self.recipientID = recipientID }
     init?(payload: [AnyHashable: Any]) {
-        guard payload["version"] as? Int == 1, let value = payload["requestID"] as? String, let requestID = UUID(uuidString: value),
+        guard payload["kind"] == nil, payload["version"] as? Int == 1, let value = payload["requestID"] as? String, let requestID = UUID(uuidString: value),
               let recipientID = payload["recipientID"] as? String, recipientID.utf8.count == 64,
               recipientID.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
         self.init(requestID: requestID, recipientID: recipientID)
@@ -75,4 +75,16 @@ nonisolated struct CallNotificationServiceAccess: Equatable, Sendable {
     let origin: URL
     let accessToken: String
     let principal: AccountPrincipal
+}
+
+
+nonisolated struct GroupInvitationTap: Equatable, Sendable {
+    let requestID: UUID
+    let recipientID: String
+    init?(payload: [AnyHashable: Any]) {
+        guard payload["kind"] as? String == "groupInvitation", payload["version"] as? Int == 1,
+              let raw = payload["requestID"] as? String, let id = UUID(uuidString: raw),
+              let recipient = payload["recipientID"] as? String, InternetAccountClient.notificationUserID(recipient) else { return nil }
+        requestID = id; recipientID = recipient
+    }
 }

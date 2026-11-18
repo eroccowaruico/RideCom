@@ -6,6 +6,7 @@ extension IntercomViewModel {
     func startNotifications() async {
         await notifications.start()
         sendNotificationPermissions()
+        await synchronizeGroupDeliveries()
     }
     /// Application data is a broadcast API. Personal grants therefore use only
     /// an account-bound direct call with exactly its intended peer connected.
@@ -40,7 +41,7 @@ extension IntercomViewModel {
         guard [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(message.namespace), message.payload.count <= 8192,
               notificationExchangeContext()?.peerID == peerID,
               let value = message.decodedPayload(CallNotificationPermissionMessage.self, from: peerID) else { return }
-        do { try notifications.receivePermission(value, peerID: peerID) }
+        do { try notifications.receivePermission(value, peerID: peerID); requestGroupDeliverySync(afterMutation: message.namespace == CallNotificationPermissionMessage.groupNamespace) }
         catch { /* Untrusted or unrelated capabilities cannot authorize a call. */ }
     }
 }

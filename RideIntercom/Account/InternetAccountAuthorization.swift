@@ -93,13 +93,20 @@ nonisolated struct InternetAccountClient: Sendable {
     private struct Empty: Decodable, Sendable {}
     private struct Rejection: Decodable { let code: String? }
     func send<T: Decodable & Sendable>(origin: URL, path: String, method: String = "POST", body: [String: String]? = nil, token: String? = nil) async throws -> T {
-        var request = URLRequest(url: origin.appendingPathComponent(path), timeoutInterval: 10)
+        try await sendJSON(origin: origin, path: path, method: method, body: try body.map { try JSONEncoder().encode($0) }, token: token)
+    }
+    func sendJSON<T: Decodable & Sendable>(origin: URL, path: String, method: String = "POST", body: Data? = nil,
+                                         token: String? = nil, query: [URLQueryItem] = [], acceptsMissing: Bool = false) async throws -> T {
+        var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { components.queryItems = query }
+        var request = URLRequest(url: components.url!, timeoutInterval: 10)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let body { request.httpBody = try JSONEncoder().encode(body) }
+        request.httpBody = body
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.url == request.url else { throw Failure.rejected }
+        if acceptsMissing, response.statusCode == 404 { return try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
         // An already revoked credential needs no further server cleanup.
         if method == "DELETE", path == "api/auth/session", response.statusCode == 401 { return try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
         if method == "DELETE", path == "api/auth/account", response.statusCode == 401 { throw Failure.deletionReauthenticationRequired }

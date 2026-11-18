@@ -3,6 +3,9 @@ import Foundation
 
 /// Opaque transport for a signed group invitation, addressed to one previously verified device.
 nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
+    private static let clockSkew: TimeInterval = 300
+    private static let lifetime: TimeInterval = 7 * 86400
+
     var version = 1
     var id: UUID
     var sender: AccountPrincipal
@@ -24,7 +27,9 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
               token.inviterMemberID == signer.memberID, token.identityProof?.publicKey == signer.publicKey,
               token.verifySignature(), token.directInvitation?.context.contactBootstrap != true,
               let expiry = token.expiresAt, expiry > now.timeIntervalSince1970,
-              expiry <= now.timeIntervalSince1970 + 7 * 86400,
+              expiry <= now.timeIntervalSince1970 + Self.lifetime + Self.clockSkew,
+              token.issuedAt <= now.timeIntervalSince1970 + Self.clockSkew,
+              expiry - token.issuedAt <= Self.lifetime + Self.clockSkew,
               IntercomGroup.isValidMemberID(recipientMemberID), !recipientMemberID.hasPrefix(GroupMember.pendingInvitePrefix),
               let targetBytes = IdentityEncoding.decode(recipientKey) else { throw DeviceIdentityProof.Failure.invalid }
         let target = try P256.KeyAgreement.PublicKey(x963Representation: targetBytes)
@@ -47,7 +52,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
               signer.principal == nil || signer.principal == local,
               recipientMemberID == signer.memberID, recipientKey == signer.publicKey,
               user.memberIDs.contains(senderMemberID), let proof, user.deviceKeys?[senderMemberID] == proof.publicKey,
-              expiresAt.isFinite, expiresAt > now.timeIntervalSince1970, expiresAt <= now.timeIntervalSince1970 + 7 * 86400,
+              expiresAt.isFinite, expiresAt > now.timeIntervalSince1970, expiresAt <= now.timeIntervalSince1970 + Self.lifetime + Self.clockSkew,
               (29...8192).contains(ciphertext.count), let ephemeral = IdentityEncoding.decode(ephemeralKey), ephemeral.count == 65
         else { throw DeviceIdentityProof.Failure.invalid }
         _ = try proof.verify(message(), purpose: .deliverGroupInvitation, memberID: senderMemberID)
@@ -56,7 +61,9 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
         let token = try JSONDecoder().decode(GroupInviteToken.self, from: data)
         try token.validate()
         guard token.inviterMemberID == senderMemberID, token.identityProof?.publicKey == proof.publicKey,
-              token.verifySignature(), token.expiresAt == expiresAt, !token.isExpired(now: now.timeIntervalSince1970),
+              token.verifySignature(), token.expiresAt == expiresAt,
+              token.issuedAt <= now.timeIntervalSince1970 + Self.clockSkew,
+              expiresAt - token.issuedAt <= Self.lifetime + Self.clockSkew, !token.isExpired(now: now.timeIntervalSince1970),
               token.directInvitation?.context.contactBootstrap != true else { throw DeviceIdentityProof.Failure.invalid }
         return token
     }

@@ -90,3 +90,54 @@ extension InternetAccountClient {
         value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 }
+
+
+nonisolated struct GroupDeliveryReply: Decodable, Sendable {
+    let requestID: UUID
+    let expiresAt: Double
+    let status: GroupDeliveryRecord.State
+}
+nonisolated struct GroupDeliveryItem: Decodable, Sendable {
+    let requestID: UUID
+    let senderUserID: String
+    let recipientKey: String
+    let expiresAt: Double
+    let envelope: String
+}
+extension InternetAccountClient {
+    nonisolated private struct GroupInbox: Decodable, Sendable { let delivery: GroupDeliveryItem? }
+    nonisolated private struct GroupAcknowledgement: Decodable, Sendable {}
+    nonisolated private struct GroupSubmission: Encodable, Sendable {
+        let capability: String; let requestID: String; let noticeID: String; let expiresAt: Double; let recipientKey: String; let envelope: String
+    }
+    func sendGroupInvitation(_ envelope: GroupInvitationEnvelope, noticeID: UUID, capability: String, access: CallNotificationServiceAccess) async throws -> GroupDeliveryReply {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(envelope)
+        guard data.count <= 16384, !capability.isEmpty, capability.utf8.count <= 4096 else { throw Failure.invalidResponse }
+        let body = GroupSubmission(capability: capability, requestID: envelope.id.uuidString.lowercased(), noticeID: noticeID.uuidString.lowercased(),
+            expiresAt: envelope.expiresAt * 1000, recipientKey: envelope.recipientKey, envelope: data.base64EncodedString())
+        let reply: GroupDeliveryReply = try await sendJSON(origin: access.origin, path: "api/notifications/group-invitations", body: JSONEncoder().encode(body), token: access.accessToken)
+        guard reply.requestID == envelope.id, reply.expiresAt.isFinite, abs(reply.expiresAt - envelope.expiresAt * 1000) < 1,
+              [.queued, .received, .cancelled].contains(reply.status) else { throw Failure.invalidResponse }
+        return reply
+    }
+    func nextGroupInvitation(recipientKey: String, access: CallNotificationServiceAccess) async throws -> GroupDeliveryItem? {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        guard DeviceIdentityProof.isValidPublicKey(recipientKey) else { throw Failure.invalidResponse }
+        let result: GroupInbox = try await sendJSON(origin: access.origin, path: "api/notifications/group-invitations", method: "GET",
+            token: access.accessToken, query: [.init(name: "recipientKey", value: recipientKey)])
+        if let value = result.delivery {
+            guard value.recipientKey == recipientKey, Self.notificationUserID(value.senderUserID), value.expiresAt.isFinite,
+                  value.expiresAt > 0, value.envelope.utf8.count <= 21848 else { throw Failure.invalidResponse }
+        }
+        return result.delivery
+    }
+    func finishGroupInvitation(recipient: AccountPrincipal, id: UUID, discard: Bool = false, access: CallNotificationServiceAccess) async throws {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        guard recipient.isValid, recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
+        let _: GroupAcknowledgement = try await sendJSON(origin: access.origin,
+            path: "api/notifications/group-invitations/\(recipient.userID)/\(id.uuidString.lowercased())", method: "DELETE", token: access.accessToken,
+            query: discard ? [.init(name: "discard", value: "1")] : [], acceptsMissing: true)
+    }
+}

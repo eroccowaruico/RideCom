@@ -121,7 +121,7 @@ Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見�
 | 確定操作 | `safeAreaBar`に主要操作1つ（`saveUserSelectionButton`）。作成は`Create and Connect`（作成して接続）、別の通話中は`Create Group`、既存groupへの追加は`Save Invitations`（招待を保存） | ツールバーの`saveUserSelectionButton`。新規作成は同じ`Create and Connect`／`Create Group`、既存groupへの追加は`Add Users` |
 | 取消 | ツールバーの`Cancel`（`closeSavedUsersButton`）。変更せず閉じる | 同左 |
 
-選択の値・名前の生成・検証・保存は両モード共通の`MemberSelection`。保存済みの相手を使うグループを作成し、待機中ならそのまま接続する。相手の端末へグループを自動で届ける機能は未実装。選択した登録済みの人には既存の手動共有（`sendGroupInvitationMessage`）を用意し、新しい人には下記の名前付きの共有段階を出す。
+選択の値・名前の生成・検証・保存は両モード共通の`MemberSelection`。保存済みの相手を使うグループを作成し、待機中ならそのまま接続する。既知のアカウントと確認済み端末鍵を持つ登録済みの相手には、保存と同時に配送待ちを作り、自動配送する。未交換の許可は次の接続で交換し、手動共有も任意に使える。新しい人には下記の名前付き共有段階を出す。
 
 Usersの行の`User Settings`（`userSettingsView`）は相手の設定を開く。モードごとに別のView（`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`UserSettingsView`が選ぶ。Standardは、見本の項目だけを置く。「Name on This Device」（この端末での名前、`savedUserNameField`。今の呼び名で開き、空なら本人の名前をプレースホルダーに出す）と別のSection「Their Own Name」（本人の名前、`savedUserOriginalName`。副次色で読むだけ）、最後に赤の`Delete User`（ユーザーを削除、`deleteUserButton`。確認はタイトル「{呼び名}を削除しますか？」と「削除」（`confirmDeleteUserButton`。その相手と接続中なら本文「今の接続は切断されます。」と確定「切断して削除」）・「キャンセル」で、削除の同期が未実装のため本文を出さない）。`Save`（`saveUserNameButton`）では、空欄か本人の名前と同じなら呼び名を解除して本人名に従い、それ以外は端末内の呼び名として保存する。招待の共有、`Use Shared Name`、通知の切替、説明のfooterは置かない（通知はOSの設定だけで、個人で登録した相手は全員通知を送ってよい）。Standardの相手の設定には呼び出しの送信を置かない。1対1の接続を始めると呼び出しの通知を1回だけ送る（下の[1対1の呼び出しの通知](#1対1の呼び出しの通知)）。AdvancedもUsersの行のスワイプ（Macは右クリック）の「User Settings」から開く。Advancedの相手の設定は端末での呼び名、本人名、`Use Shared Name`（`resetUserNameButton`）、内部のdirect groupがあり共有可能なら招待（`userSettingsInviteButton`）、`Delete User`を置く。手動の呼び出し・受信の切替は両モードとも置かず、`closeUserSettingsButton`で閉じる。同じ名前の別IDは統合しない。行のDeleteは相手とその個別通話group（Advancedの`advancedDirectGroup-{UUID}`）を消し、その相手との進行中の通話は切断する。通常グループのメンバーは保持する。表示名変更は既存グループにも反映する。
 
@@ -302,4 +302,10 @@ Standardの通話のaddSavedUsersButton・group設定のgroupSettingsAddMembersB
 | AdvancedContactInvitationContent | invitedGroupIDとsentを他の保存値に併記。秘密の添付やgroup鍵を表示のために読み出さない |
 | reloadGroupInvitationStorageButton | 保存失敗時は同じ入力を保ち、既存のReload Saved Groupsから回復。曖昧な保存完了後の再試行も同じIDで重複を防ぐ |
 
-UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/招待と登録の設計.md#新しい相手のグループ招待の状態遷移)と[通信契約](../通信仕様.md#個人登録を兼ねるグループ招待)に従う。登録済みの選択相手へのgroup鍵の自動配送は未実装で、選択した人向けの従来の手動共有を同じ段階に残す。新しい人への宛先なしリンクで代用しない。
+UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/招待と登録の設計.md#新しい相手のグループ招待の状態遷移)と[通信契約](../通信仕様.md#個人登録を兼ねるグループ招待)に従う。登録済みの選択相手への自動配送は、下記の状態を同じ保存後の段階に表示する。新しい人への宛先なしリンクで代用しない。
+
+## 登録済みの相手へのグループ招待の表示
+
+保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。StandardRegisteredGroupInvitationsは「招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。」と名前ごとの状態、任意の「招待を共有」を表示する。pending／queuedは「招待中」、同じ相手の既知端末のどれか1台がreceivedなら「グループに追加済み」、全件cancelledは「招待を停止しました」。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。全員が旧形式なら既存の手動共有説明を維持する。
+
+AdvancedRegisteredGroupInvitationsはGroupDeliveryRecordのid・recipientMemberID・state・expiresAt・credentialReferenceをそのまま表示し、Share Call Inviteを任意に残す。両モードで保存・送受信・判定は同じ処理を使い、文言と配置はモード所有の画面に分ける。新しい相手もいる場合、その人の名前付き詳細と登録済みの相手の配送状態を同じ保存後の画面で続けられる。

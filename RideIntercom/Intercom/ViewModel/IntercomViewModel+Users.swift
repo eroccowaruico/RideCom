@@ -68,8 +68,9 @@ extension IntercomViewModel {
         var updated = groups
         updated[index].members = combined
         updated[index].accountDevices.merge(groupAccountDevices(for: members)) { old, _ in old }
-        guard commitGroups(updated) else { return false }
+        guard commitGroups(updated, deliveries: groupDeliveryRecords(for: ids, groupID: groupID)) else { return false }
         if selectedGroup?.id == groupID { selectedGroup = groups[index] }
+        requestGroupDeliverySync(afterMutation: true)
         return true
     }
 
@@ -88,6 +89,7 @@ extension IntercomViewModel {
         groups.removeAll { removedGroups.contains($0.id) }
         refreshGroupStorageStatus()
         Task { await notifications.retryRevocations() }
+        requestGroupDeliverySync(afterMutation: true)
         groupErrorMessage = nil
         return true
     }

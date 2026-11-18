@@ -14,6 +14,7 @@ final class AppCallOwner: CallSurfaceActions {
     var callPresentationID: UUID?
     /// Asks the window to show the Users list (a notification whose sender could not be resolved).
     var usersPresentationID: UUID?
+    var groupsPresentationID: UUID?
     @ObservationIgnored private let makeViewModel: @MainActor (AppleAccountSession) -> IntercomViewModel?
     @ObservationIgnored private var credentialRevocationObserver: NSObjectProtocol?
     #if os(iOS)
@@ -57,6 +58,7 @@ final class AppCallOwner: CallSurfaceActions {
     private func synchronizeAccountModel() {
         guard viewModel?.accountAccessID != account.accessID || viewModel?.accountUserID != account.userID
                 || account.deletion.blocksSignIn else { return }
+        viewModel?.stopGroupDeliverySync()
         viewModel?.notifications.stop()
         viewModel?.stopCallAccessObservation()
         viewModel?.storeAccess.stop()

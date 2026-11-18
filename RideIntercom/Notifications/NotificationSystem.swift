@@ -10,6 +10,10 @@ import UIKit
 @MainActor
 enum NotificationSystem {
     static let callRequestCategoryIdentifier = "RIDEINTERCOM_CALL_REQUEST"
+    static let groupInvitationCategoryIdentifier = "RIDEINTERCOM_GROUP_INVITATION"
+    static var groupInvitationCategory: UNNotificationCategory {
+        .init(identifier: groupInvitationCategoryIdentifier, actions: [], intentIdentifiers: [], options: [])
+    }
     static let connectActionIdentifier = "RIDEINTERCOM_CONNECT"
     static let ignoreActionIdentifier = "RIDEINTERCOM_IGNORE"
     /// The expanded notification and Apple Watch offer Connect (opens the app, unlocking first, the same as

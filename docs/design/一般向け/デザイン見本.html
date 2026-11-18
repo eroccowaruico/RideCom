@@ -551,7 +551,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
         </div>
       </div></div>
-      <figcaption><b>メンバーを招待（保存前）</b>通話・グループ設定から同じ画面へ入る。登録済みの候補がいなくても新しい人を加えられる。新しい人の名前は保存まで未確定で、行を外しても保存済みの人を削除しない。名前欄へfocusし、候補のまま保存もできる。人数は既存4人・選択したマキ・新しいソラで6枠。保存で名前・人・予約枠・招待をまとめて確定する。登録済みの人への自動配送は残課題で、現行は保存後に手動共有する。</figcaption>
+      <figcaption><b>メンバーを招待（保存前）</b>通話・グループ設定から同じ画面へ入る。登録済みの候補がいなくても新しい人を加えられる。新しい人の名前は保存まで未確定で、行を外しても保存済みの人を削除しない。名前欄へfocusし、候補のまま保存もできる。人数は既存4人・選択したマキ・新しいソラで6枠。保存で名前・人・予約枠・招待をまとめて確定する。登録済みの人は保存と同時に配送待ちを作り、自動で届ける。保存後も同じ画面で状態と任意の共有を確認できる。</figcaption>
     </figure>
     <figure id="group-new-person-share">
       <div class="phone"><div class="screen">
@@ -561,12 +561,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row">招待を保存しました。相手ごとの招待を共有してください。共有を取り消しても、保存した相手と招待は残ります。</div>
             <div class="row"><span class="grow">ソラ</span><span>›</span></div>
           </div><div class="group">
-            <div class="row">追加した相手にグループの招待を送ってください。相手が開くと、週末の仲間とその鍵が相手の端末に追加され、インターネットがなくても近くで会話できます。</div>
-            <div class="row link"><svg class="i"><use href="#share"/></svg><span>招待</span></div>
-          </div><p class="note">追加しただけでは、この端末の一覧に載るだけです。招待は後から「招待」でも送れます。</p></div>
+            <div class="row">招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。</div>
+            <div class="row"><span class="grow">マキ</span><span>招待中</span></div>
+            <div class="row link"><svg class="i"><use href="#share"/></svg><span>招待を共有</span></div>
+          </div><p class="note">相手の端末の保存確認で「グループに追加済み」になります。</p></div>
         </div>
       </div></div>
-      <figcaption><b>保存から相手ごとの共有へ</b>ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えてもUsersの同じ人かグループ設定の招待中の行から再開できる。この例は登録済みのマキも選んでいるため、従来の手動共有も下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
+      <figcaption><b>保存から相手ごとの共有へ</b>ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えてもUsersの同じ人かグループ設定の招待中の行から再開できる。この例は登録済みのマキも選んでいるため、自動配送の状態と任意の共有を下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
     </figure>
     <figure id="group-new-person-accept">
       <div class="phone"><div class="screen">

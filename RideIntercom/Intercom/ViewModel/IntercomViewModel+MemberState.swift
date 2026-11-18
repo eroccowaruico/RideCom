@@ -132,10 +132,10 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func commitGroups(_ updated: [IntercomGroup]) -> Bool {
+    func commitGroups(_ updated: [IntercomGroup], deliveries: [GroupDeliveryRecord] = []) -> Bool {
         guard canStartCalls else { groupErrorMessage = groupStorageNotice; return false }
         do {
-            try groupRepository.save(updated)
+            try groupRepository.save(updated, deliveries: deliveries)
             groups = updated
             refreshGroupStorageStatus()
             return true

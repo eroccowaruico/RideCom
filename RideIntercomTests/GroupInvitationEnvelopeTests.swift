@@ -23,6 +23,17 @@ import Testing
         #expect(opened.groupID == token.groupID && opened.groupSecret == token.groupSecret && opened.verifySignature())
         #expect(throws: (any Error).self) { try value.open(recipient: testIdentitySigner("other-device"), local: receiver, sender: user) }
     }
+    @Test func aSmallClockDifferenceDoesNotRejectAValidWeekLongInvitation() throws {
+        let now = Date(), a = testIdentitySigner("clock-author"), b = testIdentitySigner("clock-recipient")
+        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a, groupID: UUID(), groupName: "Clock group",
+            groupSecret: "synthetic-clock-key", inviterMemberID: a.memberID, issuedAt: now.timeIntervalSince1970, expiresAt: now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
+        let envelope = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: receiver, recipientMemberID: b.memberID, recipientKey: b.publicKey, signer: a, now: now)
+        let user = SavedUser(displayName: "Author", memberIDs: [a.memberID], deviceKeys: [a.memberID: a.publicKey], principal: sender)
+        let opened = try envelope.open(recipient: b, local: receiver, sender: user, now: now.addingTimeInterval(-60))
+        #expect(opened.groupID == token.groupID)
+        #expect(throws: (any Error).self) { try envelope.open(recipient: b, local: receiver, sender: user, now: now.addingTimeInterval(-600)) }
+    }
+
     @Test func changedRoutingOrCiphertextAndUnknownSendersAreRejected() throws {
         let (token, a, b, user) = try fixture()
         let value = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: receiver, recipientMemberID: b.memberID, recipientKey: b.publicKey, signer: a)

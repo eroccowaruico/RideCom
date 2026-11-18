@@ -535,6 +535,25 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。名前の編集・削除・Share Call Invite は行のスワイプの User Settings（長押しのメニューは置かない）。並びと値は実装と対（未登録も含む<code>directoryUsers</code>のSavedUser。配送記録は同じ人の詳細に内包し、旧未紐付け招待だけInvitationsへ置く。再試行は詳細の操作）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。</figcaption>
     </figure>
 
+    <figure id="registered-group-delivery">
+      <div class="phone"><div class="screen">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="body">
+          <div class="ptitle">Share Invitations <span class="linkt">Done</span></div>
+          <div class="sect">GroupDeliveryRecord</div>
+          <div class="card">
+            <div class="row"><b>id</b><span class="v mono">7a6d2140-8336-4afb-9146-e55f92b86029</span></div>
+            <div class="row"><b>recipientMemberID</b><span class="v mono">maki-phone</span></div>
+            <div class="row"><b>state</b><span class="v mono">pending</span></div>
+            <div class="row"><b>expiresAt</b><span class="v mono">1795564800.0</span></div>
+            <div class="row"><b>credentialReference</b><span class="v mono">nil</span></div>
+          </div>
+          <div class="card"><div class="row linkt">Share Call Invite</div></div>
+        </div>
+      </div></div>
+      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。保存でpending、暗号文のserver受付でqueued、相手の保存後のACKでreceived。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。</figcaption>
+    </figure>
+
     <figure id="group-contact-invitation-detail">
       <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>

@@ -14,7 +14,7 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         self.owner = owner
         if NotificationSystem.permitsSystemAccess {
             UNUserNotificationCenter.current().delegate = self
-            UNUserNotificationCenter.current().setNotificationCategories([NotificationSystem.callRequestCategory])
+            UNUserNotificationCenter.current().setNotificationCategories([NotificationSystem.callRequestCategory, NotificationSystem.groupInvitationCategory])
         }
     }
     func receivedDeviceToken(_ token: Data) {
@@ -23,8 +23,12 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     }
     func registrationFailed() { owner?.viewModel?.notifications.registrationFailed() }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard SystemSurfaceScope.permitsSystemAccess,
-              let tap = CallNotificationTap(payload: response.notification.request.content.userInfo) else { return }
+        guard SystemSurfaceScope.permitsSystemAccess else { return }
+        if let group = GroupInvitationTap(payload: response.notification.request.content.userInfo) {
+            if response.actionIdentifier == UNNotificationDefaultActionIdentifier { _ = await owner?.respondToGroupInvitation(group) }
+            return
+        }
+        guard let tap = CallNotificationTap(payload: response.notification.request.content.userInfo) else { return }
         _ = await respond(to: tap, actionIdentifier: response.actionIdentifier,
                           categoryIdentifier: response.notification.request.content.categoryIdentifier)
     }
@@ -38,9 +42,17 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        guard SystemSurfaceScope.permitsSystemAccess,
-              let tap = CallNotificationTap(payload: notification.request.content.userInfo) else { return [] }
+        guard SystemSurfaceScope.permitsSystemAccess else { return [] }
+        if let group = GroupInvitationTap(payload: notification.request.content.userInfo) { return await groupPresentationOptions(for: group) }
+        guard let tap = CallNotificationTap(payload: notification.request.content.userInfo) else { return [] }
         return await presentationOptions(for: tap)
+    }
+    func groupPresentationOptions(for tap: GroupInvitationTap) -> UNNotificationPresentationOptions {
+        guard let owner, let model = owner.viewModel, model.accountSession === owner.account, model.hasCurrentAccountAccess,
+              let access = try? model.internetSettingsStore.notificationAccess(memberID: model.localMemberIdentity.memberID),
+              access.principal.userID == tap.recipientID else { return [] }
+        model.requestGroupDeliverySync(afterMutation: true)
+        return model.hasAnyActiveGroupConnection ? [.list] : [.banner, .list]
     }
     func presentationOptions(for tap: CallNotificationTap) -> UNNotificationPresentationOptions {
         guard let owner, let model = owner.viewModel, model.accountSession === owner.account,

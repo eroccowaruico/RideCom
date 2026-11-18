@@ -7,6 +7,7 @@ struct CallInvitationButton: View {
     var accessibilityIdentifier = "inviteButton"
     /// Settings and the add-members step share a named group, not whichever call is shown.
     var bindsToGroup = false
+    var titleOverride: LocalizedStringKey?
 
     var body: some View {
         ShareLink(item: bindsToGroup ? InvitationShare(viewModel: viewModel, settingsGroupID: group.id)
@@ -14,7 +15,7 @@ struct CallInvitationButton: View {
                   subject: Text("RideCom Invite"),
                   message: Text("Join me for a call on RideCom."),
                   preview: SharePreview(Text(viewModel.callTitle(for: group)))) {
-            Label(LocalizedStringKey(group.kind == .direct ? "Share Call Invite" : "Invite"), systemImage: "square.and.arrow.up")
+            Label(titleOverride ?? LocalizedStringKey(group.kind == .direct ? "Share Call Invite" : "Invite"), systemImage: "square.and.arrow.up")
         }
         .accessibilityHint("Opens sharing options for this invitation.")
         .accessibilityIdentifier(accessibilityIdentifier)

@@ -27,6 +27,10 @@ final class IntercomViewModel {
     /// How long the person who accepted keeps the exchange open for the two notification permissions.
     @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
     @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
+    @ObservationIgnored var groupDeliveryClient: InternetAccountClient? = SystemSurfaceScope.permitsSystemAccess ? .init() : nil
+    @ObservationIgnored var groupDeliveryTask: Task<Void, Never>?
+    @ObservationIgnored var groupDeliveryNeedsSync = false
+    @ObservationIgnored var groupDeliveryRunID = UUID()
     var contactInvitationRevision = UUID()
     var contactInvitationPresentation: ContactInvitationPresentation?
     var contactInvitationMessage: String?
