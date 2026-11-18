@@ -742,6 +742,43 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>登録後の仮名の確認</b>生成した候補を採用した相手だけ、同じ詳細・設定内で旧名と本人名を示す。選ばず完了しても保持し、次に続けられる。どちらを選んでも画面と人のIDを保ち、再起動・再招待で同じ確認を繰り返さない。設定では選択後に「完了」とし、文字入力を新しく編集した場合だけ「キャンセル」「保存」を戻す。手編集の呼び名は自動で置き換えない（<a href="../招待と登録の設計.md#仮名から本人名への選択">状態と操作</a>）。</figcaption>
     </figure>
 
+    <!-- 登録した同じ受け取り画面から返信を共有する -->
+    <figure>
+      <div class="phone"><div class="screen form">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
+        <div class="body">
+          <div class="card"><div class="dest">マキ</div><div class="status">登録済み</div></div>
+          <div class="group-h">本人の名前</div><div class="group"><div class="row">マキ</div></div>
+          <div class="group">
+            <div class="row">返信が届いていません</div>
+            <div class="row"><span class="link">もう一度送る</span></div>
+            <div class="row"><span class="link">返信を共有</span></div>
+          </div>
+          <p class="note">この返信をマキに共有してください。</p>
+          <div class="group"><div class="row"><span class="link">名前を編集</span></div></div>
+        </div>
+      </div></div>
+      <figcaption><b>登録から返信共有まで同じ画面</b>図は自動配送の試行が止まった状態。受け取った招待の「登録」でこの保存済み詳細に変わり、自動では閉じない。通信を待たず「返信を共有」でOS共有へ進める。取り消してもコピーしても、この詳細と返信待ちを保つ。「完了」で終えても相手の設定から続けられる。通話中も共有は使え、自動の再試行だけが通話終了待ちになる。</figcaption>
+    </figure>
+    <figure>
+      <div class="phone"><div class="screen form">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
+        <div class="body">
+          <div class="card"><div class="dest">マキさん</div><div class="status">登録済み</div></div>
+          <div class="group-h">本人の名前</div><div class="group"><div class="row">マキ</div></div>
+          <div class="group">
+            <div class="row">返信を受け取りました</div>
+            <div class="row"><span class="link">到着確認を共有</span></div>
+          </div>
+          <p class="note">相手がこの到着確認を開くと、返信待ちが解消します。</p>
+          <div class="group"><div class="row"><span class="link">名前を編集</span></div></div>
+        </div>
+      </div></div>
+      <figcaption><b>共有された返信の到着確認</b>元の作者は検証済み返信で同じ人を登録済みに更新する。手動で受け取った場合だけ到着確認を案内する。相手が確認リンクを開いて検証・保存したときに返信待ちを外し、共有先の選択・コピーでは配達済みにしない。通常の近距離交換では確認を自動で返す（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
+    </figure>
+
     <!-- グループ -->
     <figure>
       <div class="phone"><div class="screen list-bg">

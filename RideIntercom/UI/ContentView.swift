@@ -41,13 +41,18 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             if url.scheme == "rideintercom", url.host == "call" { selectedTab = .call; return }
-            guard !account.deletion.blocksSignIn, url.scheme == "rideintercom", url.host == "join" || url.host == "contact" else { return }
+            guard !account.deletion.blocksSignIn, url.scheme == "rideintercom", url.host == "join" || url.host == "contact" || url.host == "contact-reply" else { return }
             if let viewModel, viewModel.canStartCalls { openInvitation(url, in: viewModel) }
             else { pendingInviteURL = url }
         }
     }
 
     private func openInvitation(_ url: URL, in viewModel: IntercomViewModel) {
+        if url.host == "contact-reply" {
+            selectedTab = .users
+            _ = viewModel.handleContactReplyURL(url)
+            return
+        }
         if url.host == "contact" {
             selectedTab = .users
             _ = viewModel.previewContactInvitation(url)

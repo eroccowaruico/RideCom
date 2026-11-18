@@ -236,6 +236,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(accept.waitForExistence(timeout: 5))
         accept.tap()
         XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        app.buttons["closeContactInvitationButton"].tap()
         let row = inviterRows(peerName).firstMatch
         XCTAssertTrue(row.exists)
         row.tap()
@@ -434,6 +435,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(preview.waitForExistence(timeout: 5))
         accept.tap()
         XCTAssertTrue(preview.waitForNonExistence(timeout: 5))
+        app.buttons["closeContactInvitationButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 3))
         revealUser(inviterName)
         // Rows are lazy and earlier runs leave users, so count the inviter's rows rather than all rows.
@@ -531,6 +533,7 @@ final class StandardInterfaceUITests: XCTestCase {
         let register = app.buttons["acceptContactInvitationButton"].firstMatch
         XCTAssertTrue(register.waitForExistence(timeout: 5))
         register.tap()
+        app.buttons["closeContactInvitationButton"].tap()
         tab("Groups", id: "groupsTab")
         app.buttons["standardCreateGroupButton"].tap()
         let name = app.textFields["savedUsersGroupNameField"]
@@ -729,6 +732,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(accept.waitForExistence(timeout: 5))
         accept.tap()
         XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        app.buttons["closeContactInvitationButton"].tap()
         tab("Groups", id: "groupsTab")
         app.buttons["standardCreateGroupButton"].firstMatch.tap()
         let groupName = app.textFields["savedUsersGroupNameField"].firstMatch
@@ -812,6 +816,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(accept.waitForExistence(timeout: 5))
         accept.tap()
         XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        app.buttons["closeContactInvitationButton"].tap()
         let row = inviterRows(inviterName).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 3))
         row.tap()
@@ -836,6 +841,7 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(accept.waitForExistence(timeout: 5))
         accept.tap()
         XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        app.buttons["closeContactInvitationButton"].tap()
         let row = inviterRows(inviterName).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 3))
         openUserSettings(from: row)

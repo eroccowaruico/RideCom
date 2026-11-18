@@ -1,6 +1,21 @@
 import Foundation
 
 extension IntercomViewModel {
+    func canShareContactReply(_ record: ContactInvitationRecord) -> Bool {
+        canEditSavedGroups && record.canResume && callAccessNow().timeIntervalSince1970 < record.expiresAt
+            && ((record.direction == .incoming && record.state == .pending)
+                || (record.direction == .outgoing && record.state == .confirmed))
+    }
+
+    @discardableResult
+    func handleContactReplyURL(_ url: URL) -> Bool {
+        do { try receiveContactReplyURL(url); return true }
+        catch {
+            contactInvitationMessage = "This reply could not be saved. Check the sender and invitation, then try again."
+            return false
+        }
+    }
+
     /// Sharing neither starts transport nor records delivery. The OS requests this only on export.
     func contactReplyURLForSharing(_ id: UUID, expectedAccountAccessID: UUID) throws -> URL {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
@@ -36,7 +51,9 @@ extension IntercomViewModel {
             guard payload.token.directInvitation?.context == context,
                   payload.receipt == nil || payload.receipt == receipt,
                   let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust(), now: now) else { throw GroupStorageError.identityConflict }
-            try groupRepository.confirmContactInvitation(verified, localDisplayName: localMemberIdentity.displayName, now: now)
+            do {
+                try groupRepository.confirmContactInvitation(verified, localDisplayName: localMemberIdentity.displayName, now: now, receivedBySharing: true)
+            } catch { reportGroupStorageError(error); throw error }
             adoptStoredDirectCall(with: verified.identity.memberID)
         case .acknowledged:
             guard record.direction == .incoming, receipt.inviteeMemberID == localMemberIdentity.memberID,
@@ -49,7 +66,10 @@ extension IntercomViewModel {
                 guard payload.token.directInvitation?.context == context, payload.receipt == expected else { throw GroupStorageError.identityConflict }
             }
             try receipt.verifyAcknowledgement(of: expected, trust: internetSettingsStore.identityTrust(), now: now)
-            if record.state == .pending { try groupRepository.completeContactNotification(record.id) }
+            if record.state == .pending {
+                do { try groupRepository.completeContactNotification(record.id) }
+                catch { reportGroupStorageError(error); throw error }
+            }
             if contactInvitationID == record.id { stopContactInvitationSession() }
         }
         contactInvitationMessage = nil

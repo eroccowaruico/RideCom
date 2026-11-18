@@ -68,6 +68,7 @@ struct AdvancedContactInvitationContent: View {
                 field("direction", record.direction.rawValue)
                 field("state", record.state.rawValue)
                 field("canResume", String(record.canResume))
+                field("receivedBySharing", record.receivedBySharing.map(String.init) ?? "nil")
                 field("expiresAt", Date(timeIntervalSince1970: record.expiresAt).formatted(.iso8601))
                 field("peerMemberID", record.peerMemberID ?? "nil")
                 field("nickname", record.nickname ?? "nil")
@@ -87,6 +88,12 @@ struct AdvancedContactInvitationContent: View {
                         Label("Share Again", systemImage: "square.and.arrow.up")
                     }
                     .accessibilityIdentifier("shareContactInvitationButton")
+                }
+                if viewModel.canShareContactReply(record) {
+                    ShareLink(item: InvitationShare(viewModel: viewModel, contactReplyID: record.id),
+                        subject: Text("RideCom Reply"), preview: SharePreview(Text("RideCom Reply"))) {
+                        Label(record.direction == .incoming ? "Share Accepted Receipt" : "Share Acknowledgement", systemImage: "square.and.arrow.up")
+                    }.accessibilityIdentifier(record.direction == .incoming ? "shareContactReplyButton" : "shareContactConfirmationButton")
                 }
                 if record.canResume {
                     Button("Retry Notification", systemImage: "arrow.clockwise") {

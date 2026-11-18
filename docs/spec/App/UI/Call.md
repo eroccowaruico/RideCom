@@ -47,7 +47,20 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | Advancedの人の詳細 | `SavedUser`の`id`・`displayName`・`localName`・`memberIDs`・`principal`と、対応する配送記録を同じ詳細に内包する。`ContactInvitationRecord`の`id`・`personID`・`direction`・`state`・`canResume`・`expiresAt`・`peerMemberID`・`nickname`・通知の`session`（running/stopped）をその値で表示する。`Retry Notification`と`Cancel Pending Invitation`／`Stop Retrying Notification`は実装の条件どおり。取消はその端末の再試行を止め、保存した人の詳細を維持する |
 | 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、未配送の返信はその人の詳細・設定内で扱う。通常通話中は「Waiting for the current call to end.」を表示し、実行できない再試行を出さない。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
 | `contactInvitationPreview` | URLの署名・期限・宛先を検証し、本人名と登録・拒否の効果を表示する。URLを開くだけではユーザー／pending／署名鍵を保存しない |
-| `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、Usersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
+| `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、同じacceptingのシートIDを保って保存済み詳細へ更新する。「Done」（完了）でUsersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
+
+### 招待返信の共有
+
+[通信を使わずに返信する](../../../design/招待と登録の設計.md#通信を使わずに返信する)の状態と復帰を適用する。URL入口は`rideintercom://contact-reply`。保留中のログインには既存のpendingInviteURLを使い、現アカウントで検証してから共通receiveContactReplyURLへ接続する。URLの検証だけで通常通話やミュートを変更しない。
+
+| UI・実装 | 動作 |
+|---|---|
+| 登録後の同じ受け取り画面 | keepingPresentationを指定し、同じacceptingのシート内でStandard／Advancedの保存済み人の詳細へ更新。登録ボタンを外しDoneを出す。相手のpersonIDを保持し、返信を共有するために設定を開き直す手間を設けない |
+| StandardのshareContactReplyButton | incoming・pending・canResume・期限内なら詳細／相手の設定に「Share Reply」。通信・通常通話と独立して共有。OS取消・コピーで同じ親を保ち、配達状態を書かない |
+| StandardのshareContactConfirmationButton | outgoing・confirmed・receivedBySharing=true・canResume・期限内のときだけ「Reply received」と「Share Confirmation」。相手が確認を開くと返信待ちを解消する旨を添える |
+| Advancedの共有 | ContactInvitationRecordのreceivedBySharingをtrue／false／nilで表示。canShareContactReplyに従いincomingはShare Accepted Receipt、outgoingはShare Acknowledgement。人の詳細と相手の設定に同じ記録を内包する |
+| export／エラー | InvitationShare(contactReplyID:)がexport時にaccountAccessID・現在の記録・期限・鍵を再検証。失敗は同じ詳細に表示。読込・保存失敗は既存の再読込へ接続し、通常通話を勝手に切断しない |
+| import／再表示 | 元の作者は同じ人・開いている詳細を登録済みに更新。受け手は検証済みACKでpendingを解消。どちらも新しいシートを強制せず、再起動後は同じ人の設定から続ける。未知・改ざん・取消・期限切れは保存しない |
 
 ### 登録後の呼び名の確認
 

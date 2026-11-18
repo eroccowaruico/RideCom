@@ -17,7 +17,7 @@ struct AdvancedContactPersonDetail: View {
                 }
                 field("memberIDs", person.memberIDs.joined(separator: ", "))
                 field("principal", person.principal?.userID ?? "nil")
-                Button("User Settings") { editsName = true }
+                Button("User Settings") { editsName = true }.accessibilityIdentifier("editContactPersonNameButton")
             } header: { Text(verbatim: "SavedUser") }
             AdvancedContactNameConfirmation(viewModel: viewModel, person: person)
             ForEach(viewModel.contactPersonInvitations(presentationPersonID)) { record in

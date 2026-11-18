@@ -42,6 +42,9 @@ struct AdvancedUserSettingsView: View {
                         name = useShared ? "" : (currentUser.localName ?? "")
                         nameChoiceSaved = true
                     })
+                ForEach(viewModel.contactPersonInvitations(user.id)) { record in
+                    AdvancedContactInvitationContent(viewModel: viewModel, record: record)
+                }
                 if let call = viewModel.existingDirectCall(for: user.id), viewModel.canShareGroup(call.id) {
                     Section {
                         CallInvitationButton(viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton",

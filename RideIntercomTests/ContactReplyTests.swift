@@ -1,4 +1,6 @@
+import CoreTransferable
 import Foundation
+import UniformTypeIdentifiers
 import Testing
 @testable import RideIntercom
 
@@ -34,8 +36,12 @@ struct ContactReplyTests {
         #expect(a.viewModel.contactPerson(person)?.localName == "My Friend")
         #expect(a.viewModel.contactInvitationPresentation == presentation)
         #expect(a.viewModel.pendingContactInvitations.isEmpty)
+        let receiver = try #require(b.viewModel.directoryUsers.first).id
+        b.viewModel.showContactPerson(receiver)
+        let receiverPresentation = b.viewModel.contactInvitationPresentation
         let confirmation = try a.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: a.viewModel.accountAccessID)
         try b.viewModel.receiveContactReplyURL(confirmation)
+        #expect(b.viewModel.contactInvitationPresentation == receiverPresentation)
         #expect(b.viewModel.contactInvitationRecord(id)?.state == .delivered)
         #expect(b.viewModel.pendingContactInvitations.isEmpty)
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
@@ -164,4 +170,50 @@ struct ContactReplyTests {
         #expect(throws: (any Error).self) { try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: access) }
         #expect(throws: (any Error).self) { try b.viewModel.receiveContactReplyURL(reply) }
     }
+
+    @Test func registrationCanKeepTheSamePreviewAndContinueIntoTheSavedPerson() throws {
+        let (_, b, id) = try pair()
+        let token = try b.viewModel.groupRepository.contactInvitationPayload(id).token
+        let url = try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
+        #expect(b.viewModel.previewContactInvitation(url))
+        let presentation = b.viewModel.contactInvitationPresentation
+        #expect(b.viewModel.acceptPresentedContactInvitation(expectedInvitationID: id, keepingPresentation: true))
+        #expect(b.viewModel.contactInvitationPresentation == presentation)
+        let person = try #require(b.viewModel.contactInvitationRecord(id)?.personID)
+        #expect(b.viewModel.contactPerson(person)?.isRegistered == true)
+        b.viewModel.dismissContactInvitationPresentation(expectedPresentationID: presentation?.id)
+        #expect(b.viewModel.contactInvitationPresentation == nil)
+        #expect(b.viewModel.canShareContactReply(try #require(b.viewModel.contactInvitationRecord(id))))
+        b.viewModel.disconnect()
+    }
+
+    @Test func onlyManuallyReceivedRepliesOfferTheStandardReturnConfirmation() throws {
+        let (a, b, id) = try pair()
+        let pending = try #require(a.viewModel.contactInvitationRecord(id))
+        #expect(pending.receivedBySharing == nil)
+        #expect(!a.viewModel.canShareContactReply(pending))
+        let reply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
+        #expect(a.viewModel.handleContactReplyURL(reply))
+        let record = try #require(a.viewModel.contactInvitationRecord(id))
+        #expect(record.receivedBySharing == true && a.viewModel.canShareContactReply(record))
+        let reloaded = try GroupSnapshot.decode(a.groupStore.snapshot.encoded())
+        #expect(reloaded.contactInvitations.first?.receivedBySharing == true)
+        let snapshot = a.groupStore.snapshot
+        #expect(!a.viewModel.handleContactReplyURL(URL(string: "rideintercom://contact-reply?receipt=invalid")!))
+        #expect(a.groupStore.snapshot == snapshot && a.viewModel.groupStorageIssue == nil)
+        #expect(a.viewModel.contactInvitationMessage != nil)
+    }
+
+    @Test func replyTransferableRechecksTheAccountAtTheActualExport() async throws {
+        let (_, b, id) = try pair()
+        let share = InvitationShare(viewModel: b.viewModel, contactReplyID: id)
+        let snapshot = b.groupStore.snapshot
+        let bytes = try await share.exported(as: .url)
+        let url = try await URL(importing: bytes, contentType: .url)
+        #expect(try ContactReplyURL.decode(url).kind == .accepted)
+        #expect(b.groupStore.snapshot == snapshot)
+        b.viewModel.accountSession.signOut()
+        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
+    }
+
 }

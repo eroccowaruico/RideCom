@@ -459,7 +459,7 @@ extension GroupRepository {
         }
     }
 
-    func confirmContactInvitation(_ verified: VerifiedDirectInvitation, localDisplayName: String, now: TimeInterval) throws {
+    func confirmContactInvitation(_ verified: VerifiedDirectInvitation, localDisplayName: String, now: TimeInterval, receivedBySharing: Bool = false) throws {
         let receipt = verified.receipt
         guard let snapshot, let context = receipt.invitation, context.contactBootstrap == true,
               receipt.inviterMemberID == localMemberID, now < context.expiresAt,
@@ -468,6 +468,9 @@ extension GroupRepository {
         if old.state == .confirmed {
             guard old.receiptID == receipt.id, old.peerMemberID == verified.identity.memberID,
                   old.peerDeviceKey == verified.identity.publicKey else { throw GroupStorageError.identityConflict }
+            if receivedBySharing && old.receivedBySharing != true {
+                try amendContactInvitation(context.id, in: snapshot) { $0.receivedBySharing = true }
+            }
             return
         }
         var payload = try contactInvitationPayload(context.id)
@@ -499,6 +502,7 @@ extension GroupRepository {
             }
             next.contactInvitations[index].credentialReference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations[index].state = .confirmed
+            next.contactInvitations[index].receivedBySharing = receivedBySharing ? true : nil
             next.contactInvitations[index].receiptID = receipt.id
             next.contactInvitations[index].peerMemberID = verified.identity.memberID
             next.contactInvitations[index].peerDeviceKey = verified.identity.publicKey

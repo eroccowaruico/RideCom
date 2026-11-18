@@ -44,6 +44,19 @@ nonisolated struct InvitationShare: Transferable {
         }
     }
 
+    @MainActor
+    init(viewModel: IntercomViewModel, contactReplyID: UUID) {
+        let access = viewModel.accountAccessID
+        makeURL = { [weak viewModel] in
+            guard let viewModel else { throw CocoaError(.userCancelled) }
+            do { return try viewModel.contactReplyURLForSharing(contactReplyID, expectedAccountAccessID: access) }
+            catch {
+                viewModel.contactInvitationMessage = "Could not prepare this reply. Try again."
+                throw error
+            }
+        }
+    }
+
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(exportedContentType: .url) { item in
             let url = try await item.makeURL()

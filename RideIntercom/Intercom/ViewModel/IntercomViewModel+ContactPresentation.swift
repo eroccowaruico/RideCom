@@ -44,13 +44,13 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func acceptPresentedContactInvitation(expectedInvitationID: UUID? = nil) -> Bool {
+    func acceptPresentedContactInvitation(expectedInvitationID: UUID? = nil, keepingPresentation: Bool = false) -> Bool {
         guard case .some(.accepting(let preview)) = contactInvitationPresentation,
               expectedInvitationID == nil || preview.id == expectedInvitationID,
               preview.accountAccessID == accountAccessID, canEditSavedGroups else { return false }
         do {
             try acceptContactInviteURL(preview.url)
-            contactInvitationPresentation = nil
+            if !keepingPresentation { contactInvitationPresentation = nil }
             contactInvitationMessage = nil
             return true
         } catch {

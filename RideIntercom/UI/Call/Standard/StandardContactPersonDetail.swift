@@ -61,6 +61,26 @@ struct StandardContactReplyStatus: View {
                     Button("Send Again", systemImage: "arrow.clockwise") { _ = viewModel.resumeContactInvitation(reply.id) }
                         .accessibilityIdentifier("retryContactInvitationButton")
                 }
+                if viewModel.canShareContactReply(reply) {
+                    ShareLink(item: InvitationShare(viewModel: viewModel, contactReplyID: reply.id),
+                        subject: Text("RideCom Reply"), preview: SharePreview(Text("RideCom Reply"))) {
+                        Label("Share Reply", systemImage: "square.and.arrow.up")
+                    }.accessibilityIdentifier("shareContactReplyButton")
+                    Text("Share this reply with \(viewModel.contactInvitationName(for: reply)).")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        if let confirmation = viewModel.contactPersonInvitations(personID).first(where: {
+            $0.direction == .outgoing && $0.receivedBySharing == true && viewModel.canShareContactReply($0)
+        }) {
+            Section {
+                Text("Reply received")
+                ShareLink(item: InvitationShare(viewModel: viewModel, contactReplyID: confirmation.id),
+                    subject: Text("RideCom Reply"), preview: SharePreview(Text("RideCom Reply"))) {
+                    Label("Share Confirmation", systemImage: "square.and.arrow.up")
+                }.accessibilityIdentifier("shareContactConfirmationButton")
+                Text("They can open this confirmation to clear their pending reply.").font(.footnote).foregroundStyle(.secondary)
             }
         }
     }

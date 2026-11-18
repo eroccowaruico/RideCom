@@ -23,6 +23,8 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     var sent: Bool?
     /// The local person this exchange belongs to; never a verified remote identity.
     var personID: UUID?
+    /// The inviter received this signed reply through an explicit URL share, so it can offer a return confirmation.
+    var receivedBySharing: Bool?
 
     var canResume: Bool { (state == .pending || state == .confirmed) && credentialReference != nil }
     var isExpiredTombstone: Bool { state == .expired && direction == .outgoing }

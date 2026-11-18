@@ -42,6 +42,56 @@ enum InvitationURLFixture {
         return url
     }
 
+    static func acknowledgement(_ reply: URL, signingKey: P256.Signing.PrivateKey) throws -> URL {
+        guard let raw = URLComponents(url: reply, resolvingAgainstBaseURL: false)?.queryItems?.first?.value else { throw Failure.invalidURL }
+        var encoded = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let bytes = Data(base64Encoded: encoded), var object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              let inviter = object["inviterMemberID"] as? String else { throw Failure.invalidURL }
+        object["kind"] = "acknowledged"
+        let message = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let publicKey = base64url(signingKey.publicKey.x963Representation)
+        var signed = Data("rideintercom.device-proof.v1\0".utf8)
+        for field in [Data("acknowledgeInvitation".utf8), Data(inviter.utf8), Data(publicKey.utf8), Data(), Data(), message] {
+            var count = UInt32(field.count).bigEndian
+            withUnsafeBytes(of: &count) { signed.append(contentsOf: $0) }; signed.append(field)
+        }
+        object["acknowledgementProof"] = ["publicKey": publicKey, "signature": base64url(try signingKey.signature(for: signed).rawRepresentation)]
+        guard let url = URL(string: "rideintercom://contact-reply?receipt=" + base64url(try JSONSerialization.data(withJSONObject: object))) else { throw Failure.invalidURL }
+        return url
+    }
+
+    static func acceptance(_ invitation: URL, invitee: String, sharedName: String,
+                           signingKey: P256.Signing.PrivateKey = .init()) throws -> URL {
+        guard let raw = URLComponents(url: invitation, resolvingAgainstBaseURL: false)?.queryItems?.first?.value else { throw Failure.invalidURL }
+        var encoded = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let bytes = Data(base64Encoded: encoded), let token = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              let grant = token["directInvitation"] as? [String: Any], let context = grant["context"] as? [String: Any],
+              let secret = grant["secret"] as? String, let secretBytes = Data(base64Encoded: secret),
+              let id = context["id"] as? String, let inviter = context["inviterMemberID"] as? String,
+              let group = context["groupID"] as? String else { throw Failure.invalidURL }
+        var hash = Array(SHA256.hash(data: Data(("rideintercom.invitation-receipt.v2|" + id + "|" + invitee).utf8)).prefix(16))
+        hash[6] = (hash[6] & 0x0f) | 0x80; hash[8] = (hash[8] & 0x3f) | 0x80
+        let receiptID = UUID(uuid: (hash[0],hash[1],hash[2],hash[3],hash[4],hash[5],hash[6],hash[7],hash[8],hash[9],hash[10],hash[11],hash[12],hash[13],hash[14],hash[15])).uuidString
+        let publicKey = base64url(signingKey.publicKey.x963Representation)
+        let proofFields: [String: Any] = ["receiptID": receiptID, "inviteeMemberID": invitee, "inviteeDeviceKey": publicKey, "invitation": context]
+        let proofBytes = Data("rideintercom.direct-invitation.receipt.v2\0".utf8) + (try JSONSerialization.data(withJSONObject: proofFields, options: [.sortedKeys]))
+        let proof = Data(HMAC<SHA256>.authenticationCode(for: proofBytes, using: SymmetricKey(data: secretBytes))).base64EncodedString()
+        var object: [String: Any] = ["id": receiptID, "groupID": group, "inviterMemberID": inviter, "inviteeMemberID": invitee,
+            "inviteeDeviceKey": publicKey, "displayName": sharedName, "invitation": context, "proof": proof]
+        let message = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        var signed = Data("rideintercom.device-proof.v1\0".utf8)
+        for field in [Data("acceptInvitation".utf8), Data(invitee.utf8), Data(publicKey.utf8), Data(), Data(), message] {
+            var count = UInt32(field.count).bigEndian
+            withUnsafeBytes(of: &count) { signed.append(contentsOf: $0) }; signed.append(field)
+        }
+        object["kind"] = "accepted"
+        object["acceptanceProof"] = ["publicKey": publicKey, "signature": base64url(try signingKey.signature(for: signed).rawRepresentation)]
+        guard let url = URL(string: "rideintercom://contact-reply?receipt=" + base64url(try JSONSerialization.data(withJSONObject: object))) else { throw Failure.invalidURL }
+        return url
+    }
+
     private static func base64url(_ bytes: Data) -> String {
         bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
