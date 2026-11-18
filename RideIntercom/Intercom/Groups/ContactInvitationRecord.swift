@@ -26,6 +26,9 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     /// The inviter received this signed reply through an explicit URL share, so it can offer a return confirmation.
     var receivedBySharing: Bool?
 
+    /// The deadline is independent of the stored direction and delivery state.
+    func hasExpired(at now: TimeInterval) -> Bool { isExpiredTombstone || !now.isFinite || now >= expiresAt }
+
     var canResume: Bool { (state == .pending || state == .confirmed) && credentialReference != nil }
     var isExpiredTombstone: Bool { state == .expired && direction == .outgoing }
     /// Past its time: a sent invitation still waiting becomes an expired record; anything else goes.

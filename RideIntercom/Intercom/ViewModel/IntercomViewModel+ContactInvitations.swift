@@ -6,7 +6,7 @@ extension IntercomViewModel {
         let now = callAccessNow().timeIntervalSince1970
         // Expired sent invitations stay (as "Expired") until a new one is sent or they are cancelled.
         return groupRepository.contactInvitations.filter { !contactInvitationIsComplete($0)
-                && (($0.canResume && now < $0.expiresAt) || contactInvitationIsExpired($0)) }
+                && (($0.canResume && !$0.hasExpired(at: now)) || contactInvitationIsExpired($0)) }
             .sorted { $0.expiresAt > $1.expiresAt }
     }
 
@@ -45,7 +45,13 @@ extension IntercomViewModel {
     func resumeContactInvitation(_ id: UUID) -> Bool {
         guard canEditSavedGroups, activeGroupID == nil, !hasAnyActiveGroupConnection,
               let record = groupRepository.contactInvitations.first(where: { $0.id == id }),
-              record.canResume, callAccessNow().timeIntervalSince1970 < record.expiresAt else { return false }
+              record.canResume else { return false }
+        guard !record.hasExpired(at: callAccessNow().timeIntervalSince1970) else {
+            if contactInvitationID == id { stopContactInvitationSession() }
+            contactInvitationMessage = "This invitation can no longer be used."
+            refreshGroupStorageStatus()
+            return false
+        }
         if contactInvitationID == id, let session = contactInvitationSession, !session.isStopped {
             session.retry()
             return true

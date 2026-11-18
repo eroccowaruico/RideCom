@@ -135,7 +135,7 @@ extension IntercomViewModel {
         _ = contactInvitationRevision
         guard let record = groupRepository.contactInvitations.first(where: { $0.id == id }) else { return nil }
         if contactInvitationIsExpired(record) { return record }
-        if record.canResume && callAccessNow().timeIntervalSince1970 >= record.expiresAt { return nil }
+        if record.canResume && record.hasExpired(at: callAccessNow().timeIntervalSince1970) { return nil }
         return record
     }
 
@@ -154,7 +154,7 @@ extension IntercomViewModel {
     /// A sent invitation nobody accepted in time (kept, or not yet tidied up).
     func contactInvitationIsExpired(_ record: ContactInvitationRecord) -> Bool {
         record.isExpiredTombstone
-            || (record.direction == .outgoing && record.state == .pending && callAccessNow().timeIntervalSince1970 >= record.expiresAt)
+            || (record.direction == .outgoing && record.state == .pending && record.hasExpired(at: callAccessNow().timeIntervalSince1970))
     }
 
     /// Created, but no share destination took the link yet.
@@ -191,6 +191,12 @@ extension IntercomViewModel {
     func contactInvitationStatus(for record: ContactInvitationRecord) -> String {
         if record.direction == .incoming && record.state == .delivered {
             return "Contact saved. The acceptance notification was delivered."
+        }
+        if record.isExpiredTombstone || (record.canResume && record.hasExpired(at: callAccessNow().timeIntervalSince1970)) {
+            if record.direction == .incoming {
+                return "Contact saved. The reply has expired. Ask the sender for a new invitation."
+            }
+            return record.state == .confirmed ? "Contact saved. This confirmation has expired." : "This invitation can no longer be used."
         }
         if record.direction == .outgoing && record.state == .confirmed {
             return savedRemoteUsers.contains(where: { $0.memberIDs.contains(record.peerMemberID ?? "") })

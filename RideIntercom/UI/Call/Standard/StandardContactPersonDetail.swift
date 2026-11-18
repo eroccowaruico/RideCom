@@ -50,7 +50,10 @@ struct StandardContactReplyStatus: View {
     var body: some View {
         if let reply = viewModel.contactPersonInvitations(personID).first(where: { $0.direction == .incoming && $0.state == .pending }) {
             Section {
-                if viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection {
+                if reply.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
+                    Text("Reply expired").accessibilityIdentifier("contactInvitationState")
+                    Text("Ask the sender for a new invitation.")
+                } else if viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection {
                     Text("Waiting for the current call to end.").accessibilityIdentifier("contactInvitationState")
                 } else if viewModel.contactInvitationID == reply.id {
                     HStack { ProgressView(); Text("Sending a reply") }
@@ -59,6 +62,7 @@ struct StandardContactReplyStatus: View {
                 } else {
                     Text("Reply not delivered").accessibilityIdentifier("contactInvitationState")
                     Button("Send Again", systemImage: "arrow.clockwise") { _ = viewModel.resumeContactInvitation(reply.id) }
+                        .disabled(!viewModel.canEditSavedGroups)
                         .accessibilityIdentifier("retryContactInvitationButton")
                 }
                 if viewModel.canShareContactReply(reply) {

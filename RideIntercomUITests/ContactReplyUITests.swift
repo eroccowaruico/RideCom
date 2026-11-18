@@ -152,5 +152,43 @@ final class ContactReplyUITests: XCTestCase {
         if advanced { reveal(confirm) }
         XCTAssertTrue(confirm.waitForExistence(timeout: 4), "The manual receipt origin survives restart")
     }
+
+    @MainActor func testJapaneseExpiredReplyExplainsRecoveryAfterRestart() async throws {
+        try await expiredReply(japanese: true)
+    }
+    @MainActor func testAdvancedExpiredReplyShowsTheDeadlineWithoutRetry() async throws {
+        try await expiredReply(advanced: true)
+    }
+    @MainActor private func expiredReply(advanced: Bool = false, japanese: Bool = false) async throws {
+        launch(advanced: advanced, japanese: japanese)
+        let suffix = String(UUID().uuidString.prefix(6)), name = "Expiry Author " + suffix
+        let started = Date()
+        let url = try InvitationURLFixture.make(inviter: "expired-reply-" + suffix, sharedName: name, contact: true, expiresAfter: 45)
+        app.open(url)
+        let register = app.buttons["acceptContactInvitationButton"]
+        XCTAssertTrue(register.waitForExistence(timeout: 5)); register.tap()
+        let done = app.buttons["closeContactInvitationButton"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4)); done.tap()
+        app.terminate()
+        // End the owning process before the deadline so the real persisted checkpoint expires while stopped.
+        let remaining = max(0, started.addingTimeInterval(47).timeIntervalSinceNow)
+        if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
+        app.launch(); app.activate(); settings(name)
+        let ownName = app.descendants(matching: .any)["savedUserOriginalName"].firstMatch
+        XCTAssertTrue((ownName.label + (ownName.value as? String ?? "")).contains(name))
+        if advanced {
+            let expired = app.staticTexts["contactInvitationField-hasExpired"]
+            reveal(expired)
+            XCTAssertEqual(expired.label, "true")
+        } else {
+            let state = app.descendants(matching: .any)["contactInvitationState"].firstMatch
+            XCTAssertTrue(state.waitForExistence(timeout: 4))
+            XCTAssertEqual(state.label, "返信の有効期限が切れました")
+            XCTAssertTrue(app.staticTexts["新しい招待を送ってもらってください。"].exists)
+        }
+        XCTAssertFalse(app.buttons["retryContactInvitationButton"].exists)
+        XCTAssertFalse(app.buttons["shareContactReplyButton"].exists)
+        screenshot("Expired checkpoint keeps the person and offers a valid next step")
+    }
 }
 #endif

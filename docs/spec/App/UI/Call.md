@@ -61,6 +61,7 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | Advancedの共有 | ContactInvitationRecordのreceivedBySharingをtrue／false／nilで表示。canShareContactReplyに従いincomingはShare Accepted Receipt、outgoingはShare Acknowledgement。人の詳細と相手の設定に同じ記録を内包する |
 | export／エラー | InvitationShare(contactReplyID:)がexport時にaccountAccessID・現在の記録・期限・鍵を再検証。表示時とexport時に現在の記録・相手の登録と公開鍵を照合し、削除・取消後の古い共有操作は無効にする。失敗は同じ詳細に表示。読込・保存失敗は既存の再読込へ接続し、通常通話を勝手に切断しない |
 | import／再表示 | 元の作者は同じ人・開いている詳細を登録済みに更新。受け手は検証済みACKでpendingを解消。どちらも新しいシートを強制せず、再起動後は同じ人の設定から続ける。未知・改ざん・取消・期限切れは保存しない |
+| 期限切れの保存済み返信 | StandardのcontactInvitationStateは「Reply expired」（返信の有効期限が切れました）、続けて「Ask the sender for a new invitation.」。再試行・共有を出さず、登録済みの人は保つ。AdvancedはhasExpired(at:)のtrue／falseと期限・保存state・canResumeを併記し、期限内だけ再試行・取消を出す。通常通話中・保存編集不可のRetry Notificationは無効。期限到達で人を削除したり通話を切断したりしない |
 
 ### 登録後の呼び名の確認
 

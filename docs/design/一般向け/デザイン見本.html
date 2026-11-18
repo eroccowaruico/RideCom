@@ -779,6 +779,21 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>共有された返信の到着確認</b>元の作者は検証済み返信で同じ人を登録済みに更新する。手動で受け取った場合だけ到着確認を案内する。相手が確認リンクを開いて検証・保存したときに返信待ちを外し、共有先の選択・コピーでは配達済みにしない。削除・取消後は、先に開いていた共有からも書き出さない。通常の近距離交換では確認を自動で返す（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
     </figure>
 
+    <!-- 期限を越えて再起動した保存済みの返信 -->
+    <figure>
+      <div class="phone"><div class="screen form">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
+        <div class="body">
+          <div class="card"><div class="dest">マキ</div><div class="status">登録済み</div></div>
+          <div class="group-h">本人の名前</div><div class="group"><div class="row">マキ</div></div>
+          <div class="group"><div class="row">返信の有効期限が切れました</div><div class="row">新しい招待を送ってもらってください。</div></div>
+          <div class="group"><div class="row"><span class="link">名前を編集</span></div></div>
+        </div>
+      </div></div>
+      <figcaption><b>期限切れの返信</b>未配送の返信が保存されたまま期限を越えた場合の詳細。再試行・共有を出さず、相手・呼び名・通常通話は保つ。「完了」で一覧へ戻る。AdvancedはhasExpiredと期限・保存状態を示す（<a href="../招待と登録の設計.md#通信を使わずに返信する">期限と復帰</a>）。</figcaption>
+    </figure>
+
     <!-- グループ -->
     <figure>
       <div class="phone"><div class="screen list-bg">

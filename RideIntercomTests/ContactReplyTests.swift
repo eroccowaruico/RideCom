@@ -265,4 +265,25 @@ struct ContactReplyTests {
         #expect(b.groupStore.snapshot == cancelled)
     }
 
+
+    @Test func expiredReplyAndConfirmationDoNotSuggestAnImpossibleRetry() throws {
+        var now = Date()
+        let (a, b, id) = try pair(now: { now })
+        let reply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
+        try a.viewModel.receiveContactReplyURL(reply)
+        let incoming = try #require(b.viewModel.contactInvitationRecord(id))
+        let confirmation = try #require(a.viewModel.contactInvitationRecord(id))
+        let aBefore = a.groupStore.snapshot, bBefore = b.groupStore.snapshot
+        #expect(!incoming.hasExpired(at: incoming.expiresAt - 0.001))
+        #expect(incoming.hasExpired(at: incoming.expiresAt))
+        now = Date(timeIntervalSince1970: incoming.expiresAt)
+        #expect(b.viewModel.contactInvitationStatus(for: incoming) == "Contact saved. The reply has expired. Ask the sender for a new invitation.")
+        #expect(a.viewModel.contactInvitationStatus(for: confirmation) == "Contact saved. This confirmation has expired.")
+        #expect(!b.viewModel.resumeContactInvitation(id) && !a.viewModel.resumeContactInvitation(id))
+        #expect(a.viewModel.contactInvitationMessage == "This invitation can no longer be used.")
+        #expect(b.viewModel.contactInvitationMessage == "This invitation can no longer be used.")
+        #expect(a.viewModel.savedRemoteUsers.count == 1 && b.viewModel.savedRemoteUsers.count == 1)
+        #expect(a.groupStore.snapshot == aBefore && b.groupStore.snapshot == bBefore)
+    }
+
 }

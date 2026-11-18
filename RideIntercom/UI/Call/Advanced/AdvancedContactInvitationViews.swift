@@ -68,6 +68,7 @@ struct AdvancedContactInvitationContent: View {
                 field("direction", record.direction.rawValue)
                 field("state", record.state.rawValue)
                 field("canResume", String(record.canResume))
+                field("hasExpired", String(record.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970)))
                 field("receivedBySharing", record.receivedBySharing.map(String.init) ?? "nil")
                 field("expiresAt", Date(timeIntervalSince1970: record.expiresAt).formatted(.iso8601))
                 field("peerMemberID", record.peerMemberID ?? "nil")
@@ -95,10 +96,12 @@ struct AdvancedContactInvitationContent: View {
                         Label(record.direction == .incoming ? "Share Accepted Receipt" : "Share Acknowledgement", systemImage: "square.and.arrow.up")
                     }.accessibilityIdentifier(record.direction == .incoming ? "shareContactReplyButton" : "shareContactConfirmationButton")
                 }
-                if record.canResume {
+                if record.canResume && !record.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Button("Retry Notification", systemImage: "arrow.clockwise") {
                         viewModel.retryPresentedContactInvitation(record.id)
-                    }.accessibilityIdentifier("retryContactInvitationButton")
+                    }
+                    .disabled(!viewModel.canEditSavedGroups || viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection)
+                    .accessibilityIdentifier("retryContactInvitationButton")
                     Button(stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation", role: .destructive) {
                         confirmsCancellation = true
                     }

@@ -6,9 +6,9 @@ enum InvitationURLFixture {
     enum Failure: Error { case invalidURL }
 
     static func make(inviter: String, sharedName: String? = nil, contact: Bool = false, name: String? = nil,
-                     signingKey: P256.Signing.PrivateKey = .init()) throws -> URL {
+                     signingKey: P256.Signing.PrivateKey = .init(), expiresAfter: TimeInterval = 3600) throws -> URL {
         let groupID = UUID(), issuedAt = floor(Date().timeIntervalSince1970)
-        let expiresAt = issuedAt + 3600
+        let expiresAt = issuedAt + expiresAfter
         let secret = "ui-test-invitation-key"
         let groupName = name ?? (contact ? "Contact Invitation" : "Talk Group")
         let publicKey = base64url(signingKey.publicKey.x963Representation)
