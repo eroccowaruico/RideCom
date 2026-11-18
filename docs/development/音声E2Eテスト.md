@@ -66,7 +66,7 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair japanese
 python3 scripts/audio_e2e.py --pipeline-only
 ```
 
-`--pipeline-only`はRTC・VAD・送信Isolationを通さず、日本語発話を20ms / 100ms周期でAppAudioPipelineへ渡す。各条件で2秒の安定待ちと20秒の測定を行い、同じ連続性判定、実出力WAV、処理エラー、再生予約リセット回数を残す。通信を外しても欠落するかを切り分ける試験であり、ネットワーク試験の代用ではない。
+`--pipeline-only`はRTC・VAD・送信Isolationを外し、日本語発話を20ms／100ms周期でAppAudioPipelineへ渡す。入力の収録時刻はサンプル数から求め、受信には製品通話と同じ開始待機2ms、予約上限120ms、相手別の適応再生を使う。各条件で2秒の安定待ちと20秒の測定を行い、有声区間の欠落0を要求する。実出力WAV・処理エラーと、相手別の再生予約調整・リセット、最終出力側のリセットを記録する。通信を外した経路の連続性を確かめる試験。
 
 コーデックの要求と実選択は別に記録する。現行AACはnative AAC-ELD monoであり、AAC条件では実選択がAAC-ELDかつfallback=falseを要求する。旧AAC-ELD v2の非対応時にPCMへ代替した結果はAAC成功として数えない。
 
@@ -95,7 +95,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 |---|---|
 | results.json / results.tsv | build、実行、受入判定、後片付けの成否と秒数 |
 | measurements.json | 全通信経路・全端末・全設定の発話照合、packet数、render数、peak、要求／実選択codec。各設定の実測が揃わない場合も失敗扱い |
-| pipeline-measurements.json | `--pipeline-only`の20ms / 100ms入力周期別の連続性、再生予約リセット、処理失敗 |
+| pipeline-measurements.json | `--pipeline-only`の20ms／100ms入力周期別の連続性、相手別の再生予約調整・リセット、最終出力側のリセット、処理失敗 |
 | configuration.json / scenarios.json | run識別子、入力境界、通信経路、設定区間 |
 | source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含め、buildから受入までにsourceが変わると失敗扱い |
 | local-mac.xcresult / local-ios.xcresult / webrtc-mac.xcresult / webrtc-ios.xcresult | 通信経路・端末別の独立したXCTest結果 |

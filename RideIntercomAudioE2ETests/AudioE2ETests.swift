@@ -54,9 +54,13 @@ final class AudioE2ETests: XCTestCase {
             }
             try pipeline.rebuild(configuration: .init(rtcSendFormat: .init(sampleRate: 48_000, channelCount: 1),
                 outputHardwareFormat: hardware, preferredCodec: .pcm16, transmitSoundIsolationEnabled: false,
-                maximumBufferedDuration: 0.1), peerIDs: ["loopback"])
+                maximumBufferedDuration: 0.1,
+                receiveMaximumBufferedDuration: AppAudioPipelineConfiguration.callReceiveMaximumBufferedDuration,
+                receivePlayoutDelay: AppAudioPipelineConfiguration.callReceivePlayoutDelay), peerIDs: ["loopback"])
             let start = ContinuousClock.now
             let count = milliseconds * 48
+            let captureDuration = Double(count) / 48_000
+            let firstCapturedAt = ProcessInfo.processInfo.systemUptime - captureDuration
             var resetStart = 0
             for index in 0..<(22_000 / milliseconds) {
                 try await Task.sleep(until: start + .milliseconds(index * milliseconds), clock: .continuous)
@@ -64,12 +68,14 @@ final class AudioE2ETests: XCTestCase {
                 let block = (0..<count).map { samples[(index * count + $0) % samples.count] }
                 try pipeline.processCapturedFrame(PCMFrame(sequenceNumber: UInt64(index),
                     format: .init(sampleRate: 48_000, channelCount: 1),
-                    capturedAt: ProcessInfo.processInfo.systemUptime, samples: block))
+                    capturedAt: firstCapturedAt + Double(index) * captureDuration, samples: block))
             }
             try await Task.sleep(until: start + .seconds(22), clock: .continuous)
             let rendered = probe.snapshot()
             let processingFailures = processingFailureStore.withLock { $0 }
             let resets = (output.playbackResetCount ?? 0) - resetStart
+            let playout = pipeline.receivePlayoutDiagnostics(peerID: "loopback")
+            XCTAssertNotNil(playout)
             let mixer = String(describing: pipeline.snapshot)
             pipeline.stop()
             try output.stopRendering()
@@ -81,7 +87,8 @@ final class AudioE2ETests: XCTestCase {
                 "remoteFixture": "speech-ja", "continuityPassed": continuity.passed && continuity.missingActiveRatio == 0,
                 "continuity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(continuity)),
                 "renderedSamples": rendered.samples.count, "sampleRate": rendered.rate,
-                "outputPlaybackResets": resets, "mixer": mixer, "processingFailures": processingFailures]
+                "outputPlaybackResets": resets, "playoutAdjustments": playout?.adjustments ?? 0,
+                "playoutResets": playout?.resets ?? 0, "mixer": mixer, "processingFailures": processingFailures]
             let data = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement, options: [.sortedKeys]),
                                      uniformTypeIdentifier: "public.json")
             data.name = name + "-measurement"; data.lifetime = .keepAlways; add(data)
