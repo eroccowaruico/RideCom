@@ -59,8 +59,7 @@ struct AdvancedGroupSettingsView: View {
                     AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(in: groupID))
                     if viewModel.canShareGroup(groupID) {
                         Section {
-                            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "groupSettingsInviteButton",
-                                                 bindsToGroup: true)
+                            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "groupSettingsInviteButton")
                         }
                     }
                     GroupRemovalSection(viewModel: viewModel, group: group, onRemoved: { dismiss() })

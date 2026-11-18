@@ -563,7 +563,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><b>expiresAt</b><span class="v mono">1795564800.0</span></div>
             <div class="row"><b>credentialReference</b><span class="v mono">nil</span></div>
           </div>
-          <div class="card"><div class="row linkt">Share Call Invite</div></div>
+          <div class="card"><div class="row linkt">Invite</div></div>
         </div>
       </div></div>
       <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。保存でpending、暗号文のserver受付でqueued、相手の保存後のACKでreceived。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。受信は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
@@ -585,11 +585,11 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><b>state</b><span class="v mono">pending</span></div>
             <div class="row"><b>expiresAt</b><span class="v mono">1795564800.0</span></div>
             <div class="row"><b>credentialReference</b><span class="v mono">nil</span></div>
-          </div><div class="card"><div class="row linkt">Share Call Invite</div></div>
+          </div><div class="card"><div class="row linkt">Invite</div></div>
           <div class="card"><div class="row" style="color:var(--err)">Delete Group</div></div>
         </div>
       </div></div>
-      <figcaption><b>Group Settingsの招待と配送記録</b>Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Share Call Inviteはグループの既存の共有操作で、表示だけで通信を開始しない。</figcaption>
+      <figcaption><b>Group Settingsの招待と配送記録</b>Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。</figcaption>
     </figure>
     <figure id="group-contact-invitation-detail">
       <div class="phone tall"><div class="screen">

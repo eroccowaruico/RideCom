@@ -293,6 +293,12 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["directCallHelpLabel"].exists)
         screenshot("Advanced retains direct call details")
+        let userSettings = app.openCallMoreMenuItem("callUserSettingsButton")
+        XCTAssertFalse(app.buttons["callAddMembersButton"].exists)
+        userSettings.tap()
+        let closeSettings = app.buttons["closeUserSettingsButton"].firstMatch
+        XCTAssertTrue(closeSettings.waitForExistence(timeout: 5))
+        closeSettings.tap()
         tab("Settings", id: "settingsTab")
         selectLayout("Standard")
         app.openCurrentCall()

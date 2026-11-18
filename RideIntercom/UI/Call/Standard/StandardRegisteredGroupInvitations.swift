@@ -13,7 +13,8 @@ struct StandardRegisteredGroupInvitations: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("groupDeliveryPerson-\(person.id)")
             }
-            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton", bindsToGroup: true, titleOverride: "Share Invitation")
+            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton",
+                                 titleOverride: "Share Invitation")
         }
     }
 }

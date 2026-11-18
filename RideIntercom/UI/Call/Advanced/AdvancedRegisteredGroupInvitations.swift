@@ -7,7 +7,7 @@ struct AdvancedRegisteredGroupInvitations: View {
     var body: some View {
         AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(for: selectedUsers, in: group.id))
         Section {
-            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton", bindsToGroup: true)
+            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton")
         }
     }
 }

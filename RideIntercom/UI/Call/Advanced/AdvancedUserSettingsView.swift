@@ -47,8 +47,7 @@ struct AdvancedUserSettingsView: View {
                 }
                 if let call = viewModel.existingDirectCall(for: user.id), viewModel.canShareGroup(call.id) {
                     Section {
-                        CallInvitationButton(viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton",
-                                             bindsToGroup: true)
+                        CallInvitationButton(viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton")
                     }
                 }
                 Section {
