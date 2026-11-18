@@ -13,6 +13,14 @@ struct DirectInvitationContext: Codable, Equatable {
     var inviterAccount: AccountPrincipal?
     var recipientAccount: AccountPrincipal?
     var contactBootstrap: Bool? = nil
+    var invitedGroupID: UUID? = nil
+    var invitedGroupDigest: String? = nil
+    private var validInvitedGroup: Bool {
+        if invitedGroupID == nil && invitedGroupDigest == nil { return true }
+        guard contactBootstrap == true, let invitedGroupID, invitedGroupID != groupID,
+              let digest = invitedGroupDigest else { return false }
+        return digest.utf8.count == 64 && digest.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
     var accountPair: AccountCallPair? {
         guard let inviterAccount, let recipientAccount else { return nil }
         return AccountCallPair(inviterAccount, recipientAccount)
@@ -24,7 +32,7 @@ struct DirectInvitationContext: Codable, Equatable {
     }
 
     var isValid: Bool {
-        validAccountAddress && inviterDeviceKey.map(DeviceIdentityProof.isValidPublicKey) == true
+        validAccountAddress && validInvitedGroup && inviterDeviceKey.map(DeviceIdentityProof.isValidPublicKey) == true
         && IntercomGroup.isValidMemberID(inviterMemberID)
         && !inviterMemberID.hasPrefix(GroupMember.pendingInvitePrefix)
         && (recipientMemberID.map { IntercomGroup.isValidMemberID($0)

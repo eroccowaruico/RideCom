@@ -1,6 +1,21 @@
 import CryptoKit
 import Foundation
 
+/// Secret attachment remains in the signed token/Keychain, never the public receipt context.
+struct ContactGroupInvitation: Codable, Equatable {
+    let id: UUID
+    let name: String
+    let secret: String
+    var isValid: Bool {
+        IntercomGroup.isValidName(name) && !name.contains("|")
+            && !secret.isEmpty && secret.utf8.count <= 256 && !secret.contains("|")
+    }
+    func digest() throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return SHA256.hash(data: try encoder.encode(self)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 struct GroupInviteToken: Codable, Equatable {
     static let currentVersion = 6
 
@@ -16,6 +31,7 @@ struct GroupInviteToken: Codable, Equatable {
     let directInvitation: DirectInvitationGrant?
     let signature: String
     let identityProof: DeviceIdentityProof?
+    let invitedGroup: ContactGroupInvitation?
     var accountPair: AccountCallPair? { directInvitation?.context.accountPair }
     var recipientAccount: AccountPrincipal? { directInvitation?.context.recipientAccount }
 
@@ -31,7 +47,8 @@ struct GroupInviteToken: Codable, Equatable {
         expiresAt: TimeInterval?,
         directInvitation: DirectInvitationGrant? = nil,
         signature: String,
-        identityProof: DeviceIdentityProof? = nil
+        identityProof: DeviceIdentityProof? = nil,
+        invitedGroup: ContactGroupInvitation? = nil
     ) throws {
         guard version == Self.currentVersion else {
             throw GroupInviteTokenError.unsupportedVersion
@@ -49,6 +66,7 @@ struct GroupInviteToken: Codable, Equatable {
         self.directInvitation = directInvitation
         self.signature = signature
         self.identityProof = identityProof
+        self.invitedGroup = invitedGroup
     }
 
     static func make(
@@ -62,6 +80,7 @@ struct GroupInviteToken: Codable, Equatable {
         recipientMemberID: String? = nil,
         recipientAccount: AccountPrincipal? = nil,
         contactBootstrap: Bool? = nil,
+        invitedGroup: ContactGroupInvitation? = nil,
         issuedAt: TimeInterval = Date().timeIntervalSince1970,
         expiresAt: TimeInterval? = nil
     ) throws -> GroupInviteToken {
@@ -70,14 +89,15 @@ struct GroupInviteToken: Codable, Equatable {
         let expiresAt = expiresAt ?? issuedAt + 7 * 24 * 60 * 60
         let grant = try authority.issue(.init(groupID: groupID, inviterMemberID: inviterMemberID, inviterDeviceKey: signer.publicKey,
                                              recipientMemberID: recipientMemberID, expiresAt: expiresAt,
-                                             inviterAccount: recipientAccount == nil ? nil : signer.principal, recipientAccount: recipientAccount, contactBootstrap: contactBootstrap))
+                                             inviterAccount: recipientAccount == nil ? nil : signer.principal, recipientAccount: recipientAccount, contactBootstrap: contactBootstrap,
+                                             invitedGroupID: invitedGroup?.id, invitedGroupDigest: try invitedGroup?.digest()))
         let signature = makeSignature(version: currentVersion, groupID: groupID, groupName: groupName, groupSecret: groupSecret,
             inviterMemberID: inviterMemberID, inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID,
-            issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant)
+            issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant, invitedGroup: invitedGroup)
         return try GroupInviteToken(groupID: groupID, groupName: groupName, groupSecret: groupSecret, inviterMemberID: inviterMemberID,
             inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID, issuedAt: issuedAt, expiresAt: expiresAt,
             directInvitation: grant, signature: signature,
-            identityProof: signer.sign(Data(signature.utf8), purpose: .issueInvitation))
+            identityProof: signer.sign(Data(signature.utf8), purpose: .issueInvitation), invitedGroup: invitedGroup)
     }
 
     func accept(signer: DeviceIdentitySigner, displayName: String, trust: DeviceIdentityTrust? = nil,
@@ -106,7 +126,7 @@ struct GroupInviteToken: Codable, Equatable {
             recipientMemberID: recipientMemberID,
             issuedAt: issuedAt,
             expiresAt: expiresAt,
-            directInvitation: directInvitation
+            directInvitation: directInvitation, invitedGroup: invitedGroup
         )
     }
 
@@ -119,6 +139,13 @@ struct GroupInviteToken: Codable, Equatable {
               directInvitation.context.recipientMemberID == recipientMemberID,
               directInvitation.context.expiresAt == expiresAt,
               inviterDisplayName.map(IntercomGroup.isValidName) ?? true else { throw GroupInviteTokenError.invalidTokenEncoding }
+        if let invitedGroup {
+            guard contactBootstrap == true, invitedGroup.isValid,
+                  directInvitation.context.invitedGroupID == invitedGroup.id,
+                  directInvitation.context.invitedGroupDigest == (try invitedGroup.digest()) else { throw GroupInviteTokenError.invalidTokenEncoding }
+        } else if directInvitation.context.invitedGroupID != nil || directInvitation.context.invitedGroupDigest != nil {
+            throw GroupInviteTokenError.invalidTokenEncoding
+        }
         if let recipientMemberID {
             guard groupID == IntercomGroup.directCallID(memberIDs: [inviterMemberID, recipientMemberID])
             else { throw GroupInviteTokenError.invalidTokenEncoding }
@@ -147,7 +174,8 @@ struct GroupInviteToken: Codable, Equatable {
         recipientMemberID: String?,
         issuedAt: TimeInterval,
         expiresAt: TimeInterval?,
-        directInvitation: DirectInvitationGrant?
+        directInvitation: DirectInvitationGrant?,
+        invitedGroup: ContactGroupInvitation?
     ) -> String {
         var fields = [
             "\(version)",
@@ -163,6 +191,8 @@ struct GroupInviteToken: Codable, Equatable {
         fields.append(Data((inviterDisplayName ?? "").utf8).base64EncodedString())
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         fields.append((try? encoder.encode(directInvitation))?.base64EncodedString() ?? "")
+        // Keep ordinary v6 invitations byte-compatible; only combined invitations add a field.
+        if let invitedGroup { fields.append((try? encoder.encode(invitedGroup))?.base64EncodedString() ?? "") }
         let message = fields.joined(separator: "|")
         let key = SymmetricKey(data: Data(groupSecret.utf8))
         return HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: key)
