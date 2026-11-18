@@ -231,4 +231,38 @@ struct ContactReplyTests {
         #expect(b.groupStore.snapshot == before)
     }
 
+
+    @Test func deletingTheRegisteredPersonInvalidatesACapturedConfirmationShare() async throws {
+        let (a, b, id) = try pair()
+        let reply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
+        try a.viewModel.receiveContactReplyURL(reply)
+        let record = try #require(a.viewModel.contactInvitationRecord(id))
+        let share = InvitationShare(viewModel: a.viewModel, contactReplyID: id)
+        #expect(a.viewModel.canShareContactReply(record))
+        let person = try #require(a.viewModel.savedRemoteUsers.first).id
+        #expect(a.viewModel.removeSavedUser(person))
+        let afterDeletion = a.groupStore.snapshot
+        #expect(a.viewModel.contactInvitationRecord(id)?.state == .confirmed)
+        #expect(try a.viewModel.groupRepository.contactInvitationPayload(id).receipt != nil,
+                "The binding remains for duplicate control acknowledgements")
+        #expect(!a.viewModel.canShareContactReply(record))
+        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
+        #expect(a.groupStore.snapshot == afterDeletion)
+        try a.viewModel.receiveContactReplyURL(reply)
+        #expect(a.viewModel.directoryUsers.isEmpty && a.viewModel.groups.isEmpty)
+        #expect(a.groupStore.snapshot == afterDeletion, "A duplicate reply cannot restore a deleted person")
+    }
+
+    @Test func cancellingAReplyInvalidatesItsPreviouslyRenderedShareCondition() async throws {
+        let (_, b, id) = try pair()
+        let record = try #require(b.viewModel.contactInvitationRecord(id))
+        let share = InvitationShare(viewModel: b.viewModel, contactReplyID: id)
+        #expect(b.viewModel.canShareContactReply(record))
+        try b.viewModel.cancelContactInvitation(id)
+        let cancelled = b.groupStore.snapshot
+        #expect(!b.viewModel.canShareContactReply(record))
+        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
+        #expect(b.groupStore.snapshot == cancelled)
+    }
+
 }

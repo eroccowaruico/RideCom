@@ -2,7 +2,10 @@ import Foundation
 
 extension IntercomViewModel {
     func canShareContactReply(_ record: ContactInvitationRecord) -> Bool {
-        canEditSavedGroups && record.canResume && callAccessNow().timeIntervalSince1970 < record.expiresAt
+        guard canEditSavedGroups, contactInvitationRecord(record.id) == record,
+              let peer = record.peerMemberID, let key = record.peerDeviceKey,
+              savedRemoteUsers.contains(where: { $0.memberIDs.contains(peer) && $0.deviceKeys?[peer] == key }) else { return false }
+        return record.canResume && callAccessNow().timeIntervalSince1970 < record.expiresAt
             && ((record.direction == .incoming && record.state == .pending)
                 || (record.direction == .outgoing && record.state == .confirmed))
     }
@@ -18,9 +21,8 @@ extension IntercomViewModel {
 
     /// Sharing neither starts transport nor records delivery. The OS requests this only on export.
     func contactReplyURLForSharing(_ id: UUID, expectedAccountAccessID: UUID) throws -> URL {
-        guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
-              let record = contactInvitationRecord(id), record.canResume,
-              callAccessNow().timeIntervalSince1970 < record.expiresAt else { throw ContactInvitationError.unavailable }
+        guard expectedAccountAccessID == accountAccessID,
+              let record = contactInvitationRecord(id), canShareContactReply(record) else { throw ContactInvitationError.unavailable }
         let payload = try loadContactReplyPayload(id)
         guard let receipt = payload.receipt else { throw ContactInvitationError.unavailable }
         let reply: DirectInvitationReceipt

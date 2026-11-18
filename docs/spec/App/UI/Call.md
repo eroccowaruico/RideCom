@@ -59,7 +59,7 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | StandardのshareContactReplyButton | incoming・pending・canResume・期限内なら詳細／相手の設定に「Share Reply」。通信・通常通話と独立して共有。OS取消・コピーで同じ親を保ち、配達状態を書かない |
 | StandardのshareContactConfirmationButton | outgoing・confirmed・receivedBySharing=true・canResume・期限内のときだけ「Reply received」と「Share Confirmation」。相手が確認を開くと返信待ちを解消する旨を添える |
 | Advancedの共有 | ContactInvitationRecordのreceivedBySharingをtrue／false／nilで表示。canShareContactReplyに従いincomingはShare Accepted Receipt、outgoingはShare Acknowledgement。人の詳細と相手の設定に同じ記録を内包する |
-| export／エラー | InvitationShare(contactReplyID:)がexport時にaccountAccessID・現在の記録・期限・鍵を再検証。失敗は同じ詳細に表示。読込・保存失敗は既存の再読込へ接続し、通常通話を勝手に切断しない |
+| export／エラー | InvitationShare(contactReplyID:)がexport時にaccountAccessID・現在の記録・期限・鍵を再検証。表示時とexport時に現在の記録・相手の登録と公開鍵を照合し、削除・取消後の古い共有操作は無効にする。失敗は同じ詳細に表示。読込・保存失敗は既存の再読込へ接続し、通常通話を勝手に切断しない |
 | import／再表示 | 元の作者は同じ人・開いている詳細を登録済みに更新。受け手は検証済みACKでpendingを解消。どちらも新しいシートを強制せず、再起動後は同じ人の設定から続ける。未知・改ざん・取消・期限切れは保存しない |
 
 ### 登録後の呼び名の確認
