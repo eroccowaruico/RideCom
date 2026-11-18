@@ -7009,6 +7009,106 @@
           }
         }
       }
+    },
+    "Share Reply" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返信を共有"
+          }
+        }
+      }
+    },
+    "Share Confirmation" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "到着確認を共有"
+          }
+        }
+      }
+    },
+    "Reply received" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返信を受け取りました"
+          }
+        }
+      }
+    },
+    "Share this reply with %@." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この返信を%@に共有してください。"
+          }
+        }
+      }
+    },
+    "They can open this confirmation to clear their pending reply." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相手がこの到着確認を開くと、返信待ちが解消します。"
+          }
+        }
+      }
+    },
+    "RideCom Reply" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RideComの返信"
+          }
+        }
+      }
+    },
+    "Share Accepted Receipt" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受諾証明を共有"
+          }
+        }
+      }
+    },
+    "Share Acknowledgement" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ACKを共有"
+          }
+        }
+      }
+    },
+    "This reply could not be saved. Check the sender and invitation, then try again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返信を保存できませんでした。相手と招待を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Could not prepare this reply. Try again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返信を準備できませんでした。もう一度お試しください。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
