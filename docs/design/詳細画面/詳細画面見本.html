@@ -66,6 +66,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .sbar { height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 6px 26px 0 30px; font-weight: 600; font-size: 12.5px; }
 .sbar .island { position: absolute; left: 50%; top: 10px; width: 92px; height: 26px; margin-left: -46px; background: #000; border-radius: 20px; }
 .ptitle { font-size: 21px; font-weight: 700; padding: 2px 14px 6px; }
+.call-title { display: flex; justify-content: space-between; align-items: center; }
+.call-more { position: relative; flex: none; }
+.call-more summary { display: grid; place-items: center; width: 44px; height: 44px; color: var(--accent); font-size: 18px; cursor: pointer; }
+.call-more summary::-webkit-details-marker { display: none; }
+.call-more ul { position: absolute; right: 0; top: 100%; z-index: 1; width: max-content; min-width: 160px; margin: 0; padding: 0; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.15); font-size: 13px; font-weight: 500; }
+.call-more li { padding: 9px 12px; }
+.call-more li + li { border-top: 1px solid var(--line); }
 .pseg { display: flex; margin: 0 10px 8px; background: var(--line); border-radius: 8px; padding: 2px; font-size: 10px; font-weight: 600; }
 .pseg span { flex: 1; text-align: center; padding: 4px 0; border-radius: 6px; color: var(--label2); }
 .pseg span.on { background: var(--card); color: var(--label); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
@@ -446,7 +453,11 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     <figure>
       <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
-        <div class="ptitle" style="display:flex;justify-content:space-between;align-items:center">Weekend Touring<span style="font-size:18px;color:var(--accent)" aria-label="More">⋯</span></div>
+        <div class="ptitle call-title">Weekend Touring
+          <details class="call-more"><summary aria-label="More">⋯</summary>
+            <ul><li>Group Settings</li><li>Add Saved Users</li><li>Invite</li></ul>
+          </details>
+        </div>
         <div class="pbody">
           <div class="hd">Call status</div>
           <div class="card">
@@ -476,17 +487,20 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><b>Mika</b><span class="v">Connected · AUTH OK · PCM 16-bit<div class="pmeter"><span class="bar"><i style="width:45%"></i><b style="left:58%"></b></span><span class="val">LEVEL 45  PEAK 58</span></div></span><span class="x num">60%</span></div>
             <div class="row dim"><b>Yu</b><span class="v">Offline</span><span class="x"></span></div>
           </div>
-          <div class="btn gl" style="margin-top:2px">Add Saved Users</div>
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>Call（シート）：グループ通話</b>Call status → Input → Output → Participants。相手ごとに受信のメーター（<code>voiceLevel</code>のバーと<code>voicePeakLevel</code>の印）と、実装の値の文<code>LEVEL n  PEAK n</code>（相手がミュート中は<code>MUTED</code>）を出す。Participants の下でそのまま Add Saved Users。グループの設定はツールバーの設定のボタン（招待は Participants の下の別のボタン）。Call status にグループの種類・人数・短縮IDを出し、Participants は自分（local member）を含めて並べる。</figcaption>
+      <figcaption><b>Call（シート）：グループ通話</b>Call status → Input → Output → Participants。相手ごとに受信のメーター（<code>voiceLevel</code>のバーと<code>voicePeakLevel</code>の印）と、実装の値の文<code>LEVEL n  PEAK n</code>（相手がミュート中は<code>MUTED</code>）を出す。ツールバーのMore（…）でグループの設定・追加・共有を開く。Add Saved Usersから保存済みの相手も新しい相手も追加できる。Call status にグループの種類・人数・短縮IDを出し、Participants は自分（local member）を含めて並べる。</figcaption>
     </figure>
 
     <figure>
       <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
-        <div class="ptitle" style="display:flex;justify-content:space-between;align-items:center">Haruka<span style="font-size:18px;color:var(--accent)" aria-label="More">⋯</span></div>
+        <div class="ptitle call-title">Haruka
+          <details class="call-more"><summary aria-label="More">⋯</summary>
+            <ul><li>User Settings</li><li>Share Call Invite</li></ul>
+          </details>
+        </div>
         <div class="pbody">
           <div class="hd">Call status</div>
           <div class="card">
@@ -506,11 +520,10 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><b>You</b><span class="v">Naohito · local member</span><span class="x"></span></div>
             <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div></span><span class="x num">100%</span></div>
           </div>
-          <div class="btn gl" style="margin-top:2px">Share Call Invite</div>
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>Call（シート）：1対1</b>相手が1人でも同じ構成。Group に「Direct · 2 members」と内部グループのIDを出す。追加の代わりに Share Call Invite。</figcaption>
+      <figcaption><b>Call（シート）：1対1</b>Group に「Direct · 2 members」と内部グループのIDを出す。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。共有の項目は共有可能な場合に表示する。</figcaption>
     </figure>
 
     <figure id="advanced-users">

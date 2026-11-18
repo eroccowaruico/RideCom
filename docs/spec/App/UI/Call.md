@@ -110,7 +110,7 @@ Appがbackgroundへ移ると招待通信を停止し、停止対象とログイ�
 | Current Call | 進行中の個別通話を`standardCurrentCallButton`で開く。相手を削除するとその通話は切断され、Current Callからも消える |
 | Groups | kind=groupだけを表示。個別通話の内部ID・group作成操作を要求しない |
 | 個別通話の画面 | タイトルは相手名。Standardは`kind == .direct`ならメンバーSection（`standardCallParticipantsHeading`、自分と相手の行、個別音量、招待）を表示せず、ヒーロー・通話操作・音量を表示する。接続待ち・音声停止・エラー・再表示・表示モードの往復でも同じで、通常グループは2人でもメンバーSectionを維持する。Advancedの`directCallHelpLabel`は個別通話であること（Individual call）を示す。相手を削除すると個別通話groupも消えるため、削除後の状態の表示はない。既存通話中に別の相手を選んだときは今の通話を開くだけで切り替えない（AdvancedのConnectも別の通話を置き換えない） |
-| Share Call Invite | StandardではCall、AdvancedではUsersの管理画面に置く`inviteButton`は特定の相手宛ての署名付き招待をOS共有画面へ渡す。保存ユーザー削除後は表示しない。通常groupのInviteとは宛先制約が異なる |
+| Share Call Invite | Advancedの通話の`More`の項目（`inviteButton`）とUser Settings（`userSettingsInviteButton`）に、共有可能な場合だけ表示する。特定の相手宛ての署名付き招待をOS共有画面へ渡す。Standardの個別通話には相手の設定への入口を置く。通常groupの`Invite`とは宛先制約が異なる |
 | 参加者操作 | 個別通話ではAdd Saved Users、参加者Delete、招待枠の追加を提供しない。ミュート・音量・音声効果・Disconnectは既存の共通操作を使う |
 
 ## 保存済みユーザーの操作
@@ -295,7 +295,7 @@ StandardとAdvancedの接続・音声再開には標準`glassProminent`、補助
 
 ## 新しい相手へのグループ招待
 
-Standardの通話のaddSavedUsersButton・group設定のgroupSettingsAddMembersButtonと、AdvancedのcallAddMembersButton・groupSettingsAddMembersButton、新規作成は同じSavedUsersViewへ入る。候補の保存ユーザーが0人でも、通常groupの8枠に余裕があれば入口を使える。
+Standardの通話の`Invite Members`（`addSavedUsersButton`）、Advancedの通話の`More`にある`Add Saved Users`（`callAddMembersButton`）、両モードのGroup Settings（`groupSettingsAddMembersButton`）、新規作成は同じ`SavedUsersView`へ入る。編集権限があり通常groupの8枠に余裕があれば、候補の保存ユーザーが0人でも入口を使える。
 
 | 対応する実装・ID | 表示・操作 |
 |---|---|
