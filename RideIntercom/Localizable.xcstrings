@@ -7109,6 +7109,46 @@
           }
         }
       }
+    },
+    "Reply expired" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返信の有効期限が切れました"
+          }
+        }
+      }
+    },
+    "Ask the sender for a new invitation." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい招待を送ってもらってください。"
+          }
+        }
+      }
+    },
+    "Contact saved. The reply has expired. Ask the sender for a new invitation." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相手は登録済みです。返信の有効期限が切れました。新しい招待を送ってもらってください。"
+          }
+        }
+      }
+    },
+    "Contact saved. This confirmation has expired." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相手は登録済みです。この到着確認の有効期限が切れました。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
