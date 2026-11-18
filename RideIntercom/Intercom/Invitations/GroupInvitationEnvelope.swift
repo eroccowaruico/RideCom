@@ -17,7 +17,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
 
     static func seal(_ token: GroupInviteToken, sender: AccountPrincipal, recipient: AccountPrincipal,
                      recipientMemberID: String, recipientKey: String, signer: DeviceIdentitySigner,
-                     now: Date = Date()) throws -> Self {
+                     now: Date = Date(), deliveryID: UUID = UUID()) throws -> Self {
         try token.validate()
         guard sender.isValid, recipient.isValid, sender.issuer == recipient.issuer, sender != recipient,
               signer.principal == nil || signer.principal == sender,
@@ -29,7 +29,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
               let targetBytes = IdentityEncoding.decode(recipientKey) else { throw DeviceIdentityProof.Failure.invalid }
         let target = try P256.KeyAgreement.PublicKey(x963Representation: targetBytes)
         let ephemeral = P256.KeyAgreement.PrivateKey()
-        var result = Self(id: UUID(), sender: sender, recipient: recipient, senderMemberID: signer.memberID,
+        var result = Self(id: deliveryID, sender: sender, recipient: recipient, senderMemberID: signer.memberID,
             recipientMemberID: recipientMemberID, recipientKey: recipientKey,
             ephemeralKey: IdentityEncoding.encode(ephemeral.publicKey.x963Representation), expiresAt: expiry, ciphertext: Data())
         let aad = try result.header()

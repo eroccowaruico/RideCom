@@ -181,7 +181,7 @@ struct ContactInvitationPersistenceTests {
         fixture.store.snapshot.version = 8
         let (h, _) = fixture.make()
         defer { h.viewModel.stopContactInvitationSession() }
-        #expect(fixture.store.snapshot.version == 10)
+        #expect(fixture.store.snapshot.version == 11)
         let url = try #require(h.viewModel.makeContactInviteURL())
         let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
         try h.viewModel.groupRepository.save([])
@@ -261,7 +261,7 @@ struct ContactInvitationPersistenceTests {
         json.removeValue(forKey: "contactInvitations")
         let legacy = try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json))
         let upgraded = legacy.upgraded()
-        #expect(upgraded.version == 10)
+        #expect(upgraded.version == 11)
         #expect(upgraded.contactInvitations.isEmpty)
         json["version"] = 9
         #expect(throws: (any Error).self) { try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json)) }

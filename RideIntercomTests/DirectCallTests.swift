@@ -204,7 +204,7 @@ struct DirectCallTests {
         #expect(try restarted.load(localMemberID: "local").first?.kind == .group)
         #expect(restarted.users == users)
         #expect(try restarted.credential(for: group.id)?.secret == "key")
-        #expect(try f.file.read()?.version == 10)
+        #expect(try f.file.read()?.version == 11)
     }
 
     @Test func tamperedRecipientOrGroupKindCannotReinterpretExistingCall() throws {

@@ -52,20 +52,22 @@ struct GroupSnapshot: Codable, Equatable {
             try IntercomGroup(id: id, name: name, members: members.map { GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName) }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
         }
     }
-    var version = 10
+    var version = 11
     var generation = UUID()
     var groups: [Record] = []
     var users: [SavedUser] = []
     var contactInvitations: [ContactInvitationRecord] = []
+    var groupDeliveries: [GroupDeliveryRecord] = []
 
-    init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = []) {
+    init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [], groupDeliveries: [GroupDeliveryRecord] = []) {
         self.groups = groups
         self.users = users
         self.contactInvitations = contactInvitations
+        self.groupDeliveries = groupDeliveries
         synchronizeUserReferences()
     }
 
-    private enum CodingKeys: String, CodingKey { case version, generation, groups, users, contactInvitations }
+    private enum CodingKeys: String, CodingKey { case version, generation, groups, users, contactInvitations, groupDeliveries }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -78,26 +80,29 @@ struct GroupSnapshot: Codable, Equatable {
         contactInvitations = version < 9
             ? (try values.decodeIfPresent([ContactInvitationRecord].self, forKey: .contactInvitations) ?? [])
             : try values.decode([ContactInvitationRecord].self, forKey: .contactInvitations)
+        groupDeliveries = version < 11 ? [] : try values.decode([GroupDeliveryRecord].self, forKey: .groupDeliveries)
     }
 
     func upgraded() -> GroupSnapshot {
-        guard version < 10 else { return self }
+        guard version < 11 else { return self }
         var records = groups
         if version < 3 { for index in records.indices { records[index].kind = .group } }
         if version < 5 { for index in records.indices { records[index].pendingInvitation = nil } }
         var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations)
-        for index in next.contactInvitations.indices {
-            let record = next.contactInvitations[index]
-            if let peer = record.peerMemberID, let user = next.users.first(where: { $0.memberIDs.contains(peer) }) {
-                next.contactInvitations[index].personID = user.id
-            } else if record.direction == .outgoing && (record.state == .pending || record.state == .expired) {
-                let user = SavedUser(displayName: record.nickname ?? "Invitation", memberIDs: [], localName: record.nickname)
-                next.users.append(user)
-                next.contactInvitations[index].personID = user.id
-            } else if record.direction == .incoming && record.state == .pending {
-                // An old received checkpoint must not retry a relationship removed from the directory.
-                next.contactInvitations[index].state = .cancelled
-                next.contactInvitations[index].credentialReference = nil
+        if version < 10 {
+            for index in next.contactInvitations.indices {
+                let record = next.contactInvitations[index]
+                if let peer = record.peerMemberID, let user = next.users.first(where: { $0.memberIDs.contains(peer) }) {
+                    next.contactInvitations[index].personID = user.id
+                } else if record.direction == .outgoing && (record.state == .pending || record.state == .expired) {
+                    let user = SavedUser(displayName: record.nickname ?? "Invitation", memberIDs: [], localName: record.nickname)
+                    next.users.append(user)
+                    next.contactInvitations[index].personID = user.id
+                } else if record.direction == .incoming && record.state == .pending {
+                    // An old received checkpoint must not retry a relationship removed from the directory.
+                    next.contactInvitations[index].state = .cancelled
+                    next.contactInvitations[index].credentialReference = nil
+                }
             }
         }
         next.synchronizeUserReferences()
@@ -139,7 +144,7 @@ struct GroupSnapshot: Codable, Equatable {
     }
 
     func validated() throws -> GroupSnapshot {
-        guard (1...10).contains(version) else { throw GroupStorageError.unsupportedVersion }
+        guard (1...11).contains(version) else { throw GroupStorageError.unsupportedVersion }
         guard version < 3 || groups.allSatisfy({ $0.kind != nil }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else { throw IntercomGroupError.invalidStoredGroups }
@@ -147,7 +152,9 @@ struct GroupSnapshot: Codable, Equatable {
         guard version >= 9 || contactInvitations.isEmpty else { throw IntercomGroupError.invalidStoredGroups }
         guard contactInvitations.count <= 1024, contactInvitations.allSatisfy(\.isValid),
               Set(contactInvitations.map(\.id)).count == contactInvitations.count else { throw IntercomGroupError.invalidStoredGroups }
-        let references = groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
+        guard version >= 11 || groupDeliveries.isEmpty, groupDeliveries.count <= 512,
+              groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count else { throw IntercomGroupError.invalidStoredGroups }
+        let references = groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference) + groupDeliveries.compactMap(\.credentialReference)
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {
             _ = try record.group()
@@ -209,7 +216,7 @@ struct GroupSnapshot: Codable, Equatable {
         guard bytes.count <= 1_048_576 else { throw IntercomGroupError.invalidStoredGroups }
         // Inspect the version first, even when a future schema has different fields.
         struct Header: Decodable { let version: Int }
-        guard (1...10).contains(try JSONDecoder().decode(Header.self, from: bytes).version) else { throw GroupStorageError.unsupportedVersion }
+        guard (1...11).contains(try JSONDecoder().decode(Header.self, from: bytes).version) else { throw GroupStorageError.unsupportedVersion }
         do {
             return try JSONDecoder().decode(Self.self, from: bytes).validated()
         } catch is IntercomGroupError {
