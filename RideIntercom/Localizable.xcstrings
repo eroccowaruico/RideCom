@@ -4559,6 +4559,17 @@
         }
       }
     },
+    "Retries stopped on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この端末での再試行を停止しました。"
+          }
+        }
+      }
+    },
     "Retry Deletion" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5529,6 +5540,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この端末での再試行を停止します。共有済みのリンクは、有効期限まで相手が受け入れられる場合があります。"
+          }
+        }
+      }
+    },
+    "Stops retries on this device. The saved contact remains." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この端末での再試行を停止します。登録済みの相手は残ります。"
           }
         }
       }
