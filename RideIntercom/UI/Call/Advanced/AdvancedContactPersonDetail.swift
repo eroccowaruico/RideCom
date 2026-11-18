@@ -21,7 +21,7 @@ struct AdvancedContactPersonDetail: View {
             } header: { Text(verbatim: "SavedUser") }
             AdvancedContactNameConfirmation(viewModel: viewModel, person: person)
             ForEach(viewModel.contactPersonInvitations(presentationPersonID)) { record in
-                AdvancedContactInvitationContent(viewModel: viewModel, record: record)
+                AdvancedContactInvitationContent(viewModel: viewModel, record: record, personID: presentationPersonID)
             }
             if let message = viewModel.contactInvitationMessage {
                 Section { Text(LocalizedStringKey(message)).accessibilityIdentifier("contactInvitationMessage") }

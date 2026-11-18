@@ -190,5 +190,39 @@ final class ContactReplyUITests: XCTestCase {
         XCTAssertFalse(app.buttons["shareContactReplyButton"].exists)
         screenshot("Expired checkpoint keeps the person and offers a valid next step")
     }
+
+    @MainActor func testAdvancedReplyCanStopWithoutClosingTheRegisteredPerson() throws {
+        try stopReply()
+    }
+
+    @MainActor func testJapaneseAdvancedReplyCanStopFromSettings() throws {
+        try stopReply(japanese: true, fromSettings: true)
+    }
+
+    @MainActor private func stopReply(japanese: Bool = false, fromSettings: Bool = false) throws {
+        launch(advanced: true, japanese: japanese)
+        let suffix = String(UUID().uuidString.prefix(6)), name = "Stopped Author " + suffix
+        app.open(try InvitationURLFixture.make(inviter: "stopped-reply-" + suffix, sharedName: name, contact: true))
+        let register = app.buttons["acceptContactInvitationButton"]
+        XCTAssertTrue(register.waitForExistence(timeout: 5)); register.tap()
+        if fromSettings { app.buttons["closeContactInvitationButton"].tap(); settings(name) }
+        let closeID = fromSettings ? "closeUserSettingsButton" : "closeContactInvitationButton"
+        let stoppedMessage = japanese ? "この端末での再試行を停止しました。" : "Retries stopped on this device."
+        let cancel = app.buttons["cancelPendingContactInvitationButton"].firstMatch
+        reveal(cancel); cancel.tap()
+        let confirm = app.buttons["confirmCancelContactInvitationButton"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3)); confirm.tap()
+        let status = app.descendants(matching: .any)["contactInvitationStatus"].firstMatch
+        reveal(status)
+        XCTAssertEqual(status.label, stoppedMessage)
+        XCTAssertFalse(app.buttons["retryContactInvitationButton"].exists)
+        XCTAssertFalse(app.buttons["shareContactReplyButton"].exists)
+        XCTAssertTrue(app.buttons[closeID].exists)
+        screenshot("Stopping a reply preserves the registered person's detail")
+        app.buttons[closeID].tap()
+        app.terminate(); app.launch(); app.activate(); settings(name)
+        reveal(status)
+        XCTAssertEqual(status.label, stoppedMessage)
+    }
 }
 #endif

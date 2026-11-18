@@ -43,7 +43,7 @@ struct AdvancedUserSettingsView: View {
                         nameChoiceSaved = true
                     })
                 ForEach(viewModel.contactPersonInvitations(user.id)) { record in
-                    AdvancedContactInvitationContent(viewModel: viewModel, record: record)
+                    AdvancedContactInvitationContent(viewModel: viewModel, record: record, personID: user.id)
                 }
                 if let call = viewModel.existingDirectCall(for: user.id), viewModel.canShareGroup(call.id) {
                     Section {

@@ -527,12 +527,33 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><b>Mika</b><span class="v">No direct group yet<div class="sub">Name shared by this person: Mika</div></span><span class="x"></span></div>
           </div>
           <div class="hd">Invitations <span>ContactInvitationRecord</span></div>
-          <div class="card"><div class="row"><b>4f2a91c0</b><span class="v mono">outgoing · pending · canResume<div class="sub">expiresAt 2026-11-14 09:41</div></span><span class="x linkt">Retry Notification</span></div><div class="row"><b>9b07e3d2</b><span class="v mono">incoming · pending · canResume<div class="sub">expiresAt 2026-11-10 18:20</div></span><span class="x"></span></div></div>
+          <div class="card"><div class="row"><b>4f2a91c0</b><span class="v mono">outgoing · pending · canResume<div class="sub">expiresAt 2026-11-14 09:41</div></span><span class="x linkt">Details</span></div><div class="row"><b>9b07e3d2</b><span class="v mono">incoming · pending · canResume<div class="sub">expiresAt 2026-11-10 18:20</div></span><span class="x"></span></div></div>
           <div class="foot">Only direct invitations save a person here. Removing a saved user also removes their direct group and ends a call with them. Regular groups keep them.</div>
         </div>
         <div style="position:absolute;left:14px;right:14px;bottom:76px;height:38px;border-radius:20px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:11px"><span class="d ok"></span><b>Weekend Touring</b><span style="color:var(--label2)">Connected</span><span style="margin-left:auto;color:var(--label2)">Unmuted</span><span style="font-size:14px"><svg class="i"><use href="#mic-slash"/></svg></span><span style="font-size:14px;color:var(--err)"><svg class="i"><use href="#phone-down"/></svg></span></div><div class="tabbar"><span class="tab on"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。名前の編集・削除・Share Call Invite は行のスワイプの User Settings（長押しのメニューは置かない）。並びと値は実装と対（<code>savedRemoteUsers</code> の SavedUser、その下に <code>ContactInvitationRecord</code> の direction・state・expiresAt をそのまま）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。</figcaption>
+      <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。名前の編集・削除・Share Call Invite は行のスワイプの User Settings（長押しのメニューは置かない）。並びと値は実装と対（未登録も含む<code>directoryUsers</code>のSavedUser。配送記録は同じ人の詳細に内包し、旧未紐付け招待だけInvitationsへ置く。再試行は詳細の操作）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。</figcaption>
+    </figure>
+
+    <figure id="contact-reply-stopped">
+      <div class="phone tall"><div class="screen">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="ptitle">User Settings <span class="linkt">Cancel</span></div>
+        <div class="pbody">
+          <div class="hd">SavedUser</div>
+          <div class="card"><div class="row"><b>displayName</b><span class="v">Maki</span></div></div>
+          <div class="hd">ContactInvitationRecord</div>
+          <div class="card">
+            <div class="row"><b>direction</b><span class="v mono">incoming</span></div>
+            <div class="row"><b>state</b><span class="v mono">cancelled</span></div>
+            <div class="row"><b>canResume</b><span class="v mono">false</span></div>
+            <div class="row"><b>hasExpired</b><span class="v mono">false</span></div>
+            <div class="row"><b>session</b><span class="v mono">stopped</span></div>
+          </div>
+          <div class="card"><div class="row">Retries stopped on this device.</div></div>
+        </div>
+      </div></div>
+      <figcaption><b>返信の再試行を停止</b>登録直後の同じ詳細・人物詳細・相手の設定は、同じ記録部品と人物別の共通操作を使う。Stop Retrying Notificationの確認で、この端末の再試行を停止し登録済み相手は残ると伝える。確定後は再試行・共有を外し、人・名前・開いている画面を保つ。図は相手の設定で、登録直後の詳細ではDoneを保つ。保存失敗は同じ画面に理由を出し、停止済みと表示しない（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
     </figure>
 
     <figure>

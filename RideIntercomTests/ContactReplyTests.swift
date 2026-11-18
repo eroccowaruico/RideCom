@@ -365,4 +365,32 @@ struct ContactReplyTests {
         #expect(b.viewModel.directoryUsers.isEmpty && b.viewModel.groups.isEmpty)
     }
 
+
+    @Test(arguments: [false, true])
+    func aPersonsReplyCanRetryAndStopFromSettingsOrItsAcceptedPreview(keepingPreview: Bool) throws {
+        let (_, b, id) = try pair()
+        let person = try #require(b.viewModel.savedRemoteUsers.first).id
+        if keepingPreview {
+            let url = try GroupInviteTokenCodec.joinURL(for: b.viewModel.groupRepository.contactInvitationPayload(id).token, contactBootstrap: true)
+            #expect(b.viewModel.previewContactInvitation(url))
+            #expect(b.viewModel.acceptPresentedContactInvitation(expectedInvitationID: id, keepingPresentation: true))
+            b.viewModel.stopContactInvitationSession()
+        }
+        let presentation = b.viewModel.contactInvitationPresentation
+        let before = b.groupStore.snapshot
+        #expect(!b.viewModel.retryContactPersonInvitation(id, personID: UUID()))
+        #expect(!b.viewModel.cancelContactPersonInvitation(id, personID: UUID()))
+        #expect(b.groupStore.snapshot == before)
+        #expect(b.viewModel.retryContactPersonInvitation(id, personID: person))
+        #expect(b.viewModel.contactInvitationID == id)
+        #expect(b.viewModel.contactInvitationPresentation == presentation)
+        #expect(b.viewModel.cancelContactPersonInvitation(id, personID: person))
+        let stopped = try #require(b.viewModel.contactInvitationRecord(id))
+        #expect(stopped.state == .cancelled && !stopped.canResume)
+        #expect(b.viewModel.contactInvitationStatus(for: stopped) == "Retries stopped on this device.")
+        #expect(b.viewModel.contactInvitationID == nil)
+        #expect(b.viewModel.contactInvitationPresentation == presentation)
+        #expect(b.viewModel.savedRemoteUsers.map(\.id) == [person])
+    }
+
 }

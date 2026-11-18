@@ -120,9 +120,31 @@ extension IntercomViewModel {
     @discardableResult
     func cancelPresentedContactInvitation(_ id: UUID) -> Bool {
         guard presentsContactInvitation(id) else { return false }
+        return stopContactInvitationRetries(id)
+    }
+
+    @discardableResult
+    func retryContactPersonInvitation(_ invitationID: UUID, personID: UUID) -> Bool {
+        guard ownsResumableContactInvitation(invitationID, personID: personID) else { return false }
+        contactInvitationMessage = nil
+        return resumeContactInvitation(invitationID)
+    }
+
+    @discardableResult
+    func cancelContactPersonInvitation(_ invitationID: UUID, personID: UUID) -> Bool {
+        guard ownsResumableContactInvitation(invitationID, personID: personID) else { return false }
+        return stopContactInvitationRetries(invitationID)
+    }
+
+    private func ownsResumableContactInvitation(_ id: UUID, personID: UUID) -> Bool {
+        canEditSavedGroups && contactPerson(personID) != nil
+            && contactPersonInvitations(personID).contains { $0.id == id && $0.canResume }
+    }
+
+    private func stopContactInvitationRetries(_ id: UUID) -> Bool {
         do {
             try cancelContactInvitation(id)
-            if case .sharing = contactInvitationPresentation { contactInvitationPresentation = nil }
+            if case .sharing(let shown) = contactInvitationPresentation, shown == id { contactInvitationPresentation = nil }
             contactInvitationMessage = nil
             return true
         } catch {
@@ -189,6 +211,7 @@ extension IntercomViewModel {
     }
 
     func contactInvitationStatus(for record: ContactInvitationRecord) -> String {
+        if record.state == .cancelled { return "Retries stopped on this device." }
         if record.direction == .incoming && record.state == .delivered {
             return "Contact saved. The acceptance notification was delivered."
         }

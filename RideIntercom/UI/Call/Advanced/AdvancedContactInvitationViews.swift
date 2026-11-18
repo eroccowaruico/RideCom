@@ -56,9 +56,10 @@ struct AdvancedContactInvitationDetail: View {
 struct AdvancedContactInvitationContent: View {
     let viewModel: IntercomViewModel
     let record: ContactInvitationRecord
+    var personID: UUID? = nil
     @State private var confirmsCancellation = false
 
-    private var stopsRetrying: Bool { record.state == .confirmed }
+    private var stopsRetrying: Bool { record.direction == .incoming || record.state == .confirmed }
 
     var body: some View {
         Group {
@@ -98,7 +99,9 @@ struct AdvancedContactInvitationContent: View {
                 }
                 if record.canResume && !record.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Button("Retry Notification", systemImage: "arrow.clockwise") {
-                        viewModel.retryPresentedContactInvitation(record.id)
+                        if let personID {
+                            _ = viewModel.retryContactPersonInvitation(record.id, personID: personID)
+                        } else { viewModel.retryPresentedContactInvitation(record.id) }
                     }
                     .disabled(!viewModel.canEditSavedGroups || viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection)
                     .accessibilityIdentifier("retryContactInvitationButton")
@@ -111,12 +114,18 @@ struct AdvancedContactInvitationContent: View {
         }
         .alert(stopsRetrying ? "Stop Retrying Notification?" : "Cancel This Pending Invitation?", isPresented: $confirmsCancellation) {
             Button(stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation", role: .destructive) {
-                _ = viewModel.cancelPresentedContactInvitation(record.id)
+                if let personID {
+                    _ = viewModel.cancelContactPersonInvitation(record.id, personID: personID)
+                } else { _ = viewModel.cancelPresentedContactInvitation(record.id) }
             }
             .accessibilityIdentifier("confirmCancelContactInvitationButton")
             Button("Keep Pending Invitation", role: .cancel) {}
         } message: {
-            Text("Stops retries on this device. A link already shared may still be accepted until it expires.")
+            if record.direction == .incoming {
+                Text("Stops retries on this device. The saved contact remains.")
+            } else {
+                Text("Stops retries on this device. A link already shared may still be accepted until it expires.")
+            }
         }
     }
 
