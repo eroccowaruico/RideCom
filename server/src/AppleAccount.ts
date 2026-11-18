@@ -1,3 +1,4 @@
+import type { NotificationGroupInvitation } from './AccountNotifications'
 import { DurableObject } from 'cloudflare:workers'
 import { errors, jwtVerify } from 'jose'
 import { Env, json, readJSON } from './types'
@@ -68,6 +69,12 @@ export class AppleAuthAttempt extends DurableObject<Env> {
 
 export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
+    async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
+    groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
+    groupInvitationPending(userID: string, recipientKey: string) { return this.notifications.pendingInvitations(userID, recipientKey) }
+    groupInvitationFinish(userID: string, requestID: string, actorID: string, discard = false) { return this.notifications.finishInvitation(userID, requestID, actorID, discard) }
+    groupInvitationNeedsNotice(userID: string, requestID: string) { return this.notifications.invitationNeedsNotice(userID, requestID) }
+    groupInvitationCandidates(userID: string, requestID: string) { return this.notifications.invitationCandidates(userID, requestID) }
     notificationAuthorized(auth: NotificationAuth) { return this.notifications.authorized(auth) }
     notificationRegister(auth: NotificationAuth, value: NotificationDevice) { return this.notifications.register(auth, value) }
     notificationRemoveDevice(auth: NotificationAuth) { return this.notifications.removeDevice(auth) }

@@ -282,3 +282,80 @@ test('an older device cannot shorten the current public route, while token owner
         assert.equal(await (await route.current()).expiresAt, olderExpiry, 'unrelated public identity must not inherit the expiry');
     } finally { await r.dispose(); }
 });
+
+test('group invitation delivery requires its own permission and keeps opaque offline mail until receipt', async () => {
+    const requests = [], r = await setup({}, async q => { requests.push(await q.json()); return Response.json({}); });
+    try {
+        const a = await login(r, 'group-a'), b = await login(r, 'group-b'), c = await login(r, 'group-c');
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken);
+        assert.equal(issued.status, 200); const g = await issued.json(), ordinary = await grant(r, b, a);
+        const body = { capability: g.capability, requestID: randomUUID(), expiresAt: Date.now() + 86400000,
+            recipientKey: 'k'.repeat(87), envelope: Buffer.from('synthetic encrypted envelope').toString('base64') };
+        const submit = (value = body, user = a) => call(r, '/api/notifications/group-invitations', value, user.accessToken);
+        assert.equal((await submit({ ...body, capability: ordinary.capability })).status, 403);
+        assert.equal((await send(r, a, g.capability)).status, 403);
+        assert.equal((await submit(body, c)).status, 403);
+        const first = await submit(); assert.equal(first.status, 200); assert.equal((await first.json()).status, 'queued');
+        assert.equal(requests.length, 0);
+        const read = user => call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, user.accessToken, 'GET');
+        assert.equal((await (await read(c)).json()).delivery, null);
+        const delivered = (await (await read(b)).json()).delivery;
+        assert.equal(delivered.envelope, body.envelope); assert.equal(delivered.senderUserID, a.userID); assert.equal(delivered.requestID, body.requestID);
+        assert.equal((await submit({ ...body, envelope: Buffer.from('changed').toString('base64') })).status, 409);
+        const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;
+        assert.equal((await call(r, path, undefined, c.accessToken, 'DELETE')).status, 404);
+        assert.equal((await call(r, path, undefined, b.accessToken, 'DELETE')).status, 200);
+        assert.equal((await (await read(b)).json()).delivery, null);
+        assert.equal((await (await submit()).json()).status, 'received'); assert.equal(requests.length, 0);
+    } finally { await r.dispose(); }
+});
+
+test('group invitation alerts hide ciphertext and cancellation and grant revocation block later receipt', async () => {
+    const requests = [], r = await setup({}, async q => { requests.push(await q.json()); return Response.json({}); });
+    try {
+        const a = await login(r, 'invite-a'), b = await login(r, 'invite-b'); await register(r, b);
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken);
+        assert.equal(issued.status, 200); const g = await issued.json();
+        const body = { capability: g.capability, requestID: randomUUID(), noticeID: randomUUID(), expiresAt: Date.now() + 86400000,
+            recipientKey: 'p'.repeat(87), envelope: Buffer.from('opaque group ciphertext').toString('base64') };
+        const submit = (value = body) => call(r, '/api/notifications/group-invitations', value, a.accessToken);
+        assert.equal((await submit()).status, 200); assert.equal(requests.length, 1);
+        assert.equal(requests[0].aps.category, 'RIDEINTERCOM_GROUP_INVITATION'); assert.equal(requests[0].kind, 'groupInvitation');
+        assert.ok(!JSON.stringify(requests).includes(body.envelope));
+        assert.equal((await submit()).status, 200); assert.equal(requests.length, 1);
+        const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;
+        assert.equal((await call(r, path, undefined, a.accessToken, 'DELETE')).status, 200);
+        assert.equal((await (await call(r, path, undefined, a.accessToken, 'GET')).json()).status, 'cancelled');
+        assert.equal((await (await submit()).json()).status, 'cancelled');
+        assert.equal((await submit({ ...body, requestID: randomUUID(), recipientKey: 'q'.repeat(87) })).status, 200);
+        assert.equal(requests.length, 1, 'Known recipient devices share one notification batch');
+        await call(r, `/api/notifications/grants/${g.grantID}`, undefined, b.accessToken, 'DELETE');
+        const read = await call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        assert.equal((await read.json()).delivery, null);
+        assert.equal((await submit({ ...body, expiresAt: Date.now() + 8 * 86400000 })).status, 400);
+    } finally { await r.dispose(); }
+});
+
+test('group invitation receipt requires a current resubmission after sender sign-in', async () => {
+    const r = await setup();
+    try {
+        const a = await login(r, 'resume-a'), b = await login(r, 'resume-b');
+        const g = await (await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken)).json();
+        const body = { capability: g.capability, requestID: randomUUID(), expiresAt: Date.now() + 86400000,
+            recipientKey: 'r'.repeat(87), envelope: Buffer.from('opaque pending packet').toString('base64') };
+        const submit = (user, value = body) => call(r, '/api/notifications/group-invitations', value, user.accessToken);
+        const read = () => call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        assert.equal((await submit(a)).status, 200);
+        await call(r, '/api/auth/session', undefined, a.accessToken, 'DELETE');
+        assert.equal((await (await read()).json()).delivery, null);
+        assert.equal((await submit(a)).status, 401);
+        const current = await login(r, 'resume-a', a.deviceID);
+        assert.equal((await submit(current)).status, 200);
+        assert.equal((await (await read()).json()).delivery.envelope, body.envelope);
+        assert.equal((await submit(current, { ...body, envelope: 'a'.repeat(22000) })).status, 400);
+        assert.equal((await submit(current, { ...body, recipientKey: '../other' })).status, 400);
+        const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;
+        assert.equal((await call(r, path + '?discard=1', undefined, b.accessToken, 'DELETE')).status, 200);
+        assert.equal((await (await call(r, path, undefined, current.accessToken, 'GET')).json()).status, 'cancelled');
+    } finally { await r.dispose(); }
+});

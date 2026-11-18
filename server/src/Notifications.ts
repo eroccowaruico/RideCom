@@ -7,6 +7,7 @@ import { json, readJSON, type Env } from './types'
 const publicIDPattern = /^[a-f0-9]{64}$/
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const audience = 'rideintercom-call-notification'
+const groupAudience = 'rideintercom-group-invitation'
 const account = (env: Env, id: string) => env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(id))
 const index = (env: Env, name: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName(name))
 export const notificationHash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('')
@@ -18,11 +19,11 @@ async function capabilityKey(env: Env, signing: boolean) {
     if (jwk.kty !== 'EC' || jwk.crv !== 'P-256' || !jwk.d) throw new Error('configuration')
     return importJWK(signing ? jwk : { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, 'ES256')
 }
-async function readCapability(value: unknown, env: Env, issuer: string, senderID: string) {
+async function readCapability(value: unknown, env: Env, issuer: string, senderID: string, requiredAudience = audience) {
     if (typeof value !== 'string' || value.length > 4096) return null
     try {
         const { payload, protectedHeader } = await jwtVerify(value, await capabilityKey(env, false), {
-            issuer, audience, algorithms: ['ES256'], requiredClaims: ['sub', 'iat', 'jti', 'recipient']
+            issuer, audience: requiredAudience, algorithms: ['ES256'], requiredClaims: ['sub', 'iat', 'jti', 'recipient']
         })
         if (protectedHeader.typ !== 'rideintercom-notification+jwt' || payload.sub !== senderID
             || typeof payload.recipient !== 'string' || !publicIDPattern.test(payload.recipient)
@@ -74,6 +75,26 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!await owner.notificationAuthorized(auth)) return json({ error: 'Not found' }, 404)
             return json({ ...callReply(call), senderUserID: call.sender.userID })
         }
+        const groupRoute = path.match(/^\/api\/notifications\/group-invitations\/([a-f0-9]{64})\/([a-f0-9-]{36})$/i)
+        if (groupRoute && uuidPattern.test(groupRoute[2]) && ['GET', 'DELETE'].includes(method)) {
+            const recipient = groupRoute[1].toLowerCase(), id = groupRoute[2].toLowerCase(), receiver = await target(env, recipient)
+            const value = await receiver?.groupInvitationGet(recipient, id)
+            if (!value || !await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.sender.userID)) return json({ error: 'Not found' }, 404)
+            if (method === 'DELETE') return await receiver!.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1') ? json({}) : json({ error: 'Not found' }, 404)
+            return json({ requestID: id, expiresAt: value.expiresAt, status: value.status })
+        }
+        if (path === '/api/notifications/group-invitations' && method === 'GET') {
+            const key = url.searchParams.get('recipientKey') ?? ''
+            if (!/^[A-Za-z0-9_-]{87}$/.test(key)) throw new Error('body')
+            const pending = await owner.groupInvitationPending(auth.userID, key)
+            for (const value of pending) {
+                if (!await account(env, value.sender.accountID).notificationAuthorized(value.sender)) continue
+                if (!await owner.notificationAuthorized(auth) || !await owner.notificationGrantActive(auth.userID, value.grantHash)) break
+                return json({ delivery: { requestID: value.requestID, senderUserID: value.sender.userID,
+                    recipientKey: key, expiresAt: value.expiresAt, envelope: value.envelope } })
+            }
+            return json({ delivery: null })
+        }
         if (!notificationsConfigured(env)) return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
         if (path === '/api/notifications/device' && method === 'PUT') {
             const body = await readJSON(request); fields(body, ['token', 'environment', 'topic'])
@@ -100,18 +121,55 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!await owner.notificationAuthorized(auth)) return json({ error: 'Unauthorized' }, 401)
             return json({ registered: true })
         }
-        if (path === '/api/notifications/grants' && method === 'POST') {
+        if (['/api/notifications/grants', '/api/notifications/group-invitations/grants'].includes(path) && method === 'POST') {
             const body = await readJSON(request); fields(body, ['senderUserID'])
             if (typeof body.senderUserID !== 'string' || !publicIDPattern.test(body.senderUserID) || body.senderUserID === auth.userID) throw new Error('body')
             if (!await owner.notificationMutationBudget(auth)) return json({ error: 'Too many notification changes' }, 429)
             const grantID = crypto.randomUUID()
             const capability = await new SignJWT({ recipient: auth.userID }).setProtectedHeader({ alg: 'ES256', typ: 'rideintercom-notification+jwt' })
-                .setIssuer(url.origin).setAudience(audience).setSubject(body.senderUserID).setIssuedAt().setJti(grantID).sign(await capabilityKey(env, true))
+                .setIssuer(url.origin).setAudience(path.includes('/group-invitations/') ? groupAudience : audience).setSubject(body.senderUserID).setIssuedAt().setJti(grantID).sign(await capabilityKey(env, true))
             if (!await owner.notificationActivateGrant(auth, await notificationHash(grantID))) return json({ error: 'Permission limit or inactive account', code: 'grant_limit_or_inactive' }, 409)
             const session = await owner.authenticate(auth.deviceID, auth.tokenHash)
             if (!session || session.userID !== auth.userID) return json({ error: 'Unauthorized' }, 401)
             await publishRoute(env, auth, session.expiresAt)
             return json({ grantID, capability })
+        }
+        if (path === '/api/notifications/group-invitations' && method === 'POST') {
+            const body = await readJSON(request); fields(body, ['capability', 'requestID', 'noticeID', 'expiresAt', 'recipientKey', 'envelope'])
+            const now = Date.now()
+            if (typeof body.requestID !== 'string' || !uuidPattern.test(body.requestID)
+                || (body.noticeID !== undefined && (typeof body.noticeID !== 'string' || !uuidPattern.test(body.noticeID)))
+                || typeof body.expiresAt !== 'number' || !Number.isFinite(body.expiresAt) || body.expiresAt <= now || body.expiresAt > now + 7 * 86400000
+                || typeof body.recipientKey !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(body.recipientKey)
+                || typeof body.envelope !== 'string' || body.envelope.length < 4 || body.envelope.length > 21848
+                || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.envelope)) throw new Error('body')
+            const grant = await readCapability(body.capability, env, url.origin, auth.userID, groupAudience)
+            if (!grant) return json({ error: 'Invitation permission required' }, 403)
+            const receiver = await target(env, grant.recipient)
+            if (!receiver || !await receiver.notificationGrantActive(grant.recipient, grant.grantHash)) return json({ error: 'Invitation permission required' }, 403)
+            if (!await owner.notificationSendBudget(auth)) return json({ error: 'Too many invitations' }, 429)
+            const id = body.requestID.toLowerCase()
+            const started = await receiver.groupInvitationBegin({ requestID: id, sender: auth, recipientID: grant.recipient, grantHash: grant.grantHash,
+                recipientKey: body.recipientKey, noticeID: (body.noticeID ?? body.requestID).toLowerCase(), envelope: body.envelope, expiresAt: body.expiresAt, status: 'queued' })
+            if (started === 'forbidden') return json({ error: 'Invitation permission required' }, 403)
+            if (started === 'conflict') return json({ error: 'Invitation ID already used' }, 409)
+            if (started === 'limited') return json({ error: 'Too many invitations' }, 429)
+            if (started.fresh && await receiver.groupInvitationNeedsNotice(grant.recipient, id)) {
+                const candidates = await receiver.groupInvitationCandidates(grant.recipient, id)
+                if (candidates.length) {
+                    const providerToken = await notificationProviderToken(env)
+                    for (const device of candidates) {
+                        const binding = await index(env, device.tokenIndex).current()
+                        if (binding?.registrationID !== device.registrationID || binding.userID !== grant.recipient) continue
+                        if (!await owner.notificationAuthorized(auth)) break
+                        if (!(await receiver.groupInvitationCandidates(grant.recipient, id)).some(v => v.deviceID === device.deviceID && v.registrationID === device.registrationID)) continue
+                        const result = await deliverNotification(device, providerToken, id, grant.recipient, body.expiresAt, 'groupInvitation')
+                        if (result === 'invalid_token') await receiver.notificationInvalidToken(grant.recipient, device.deviceID, device.registrationID)
+                    }
+                }
+            }
+            const value = await receiver.groupInvitationGet(grant.recipient, id)
+            return value ? json({ requestID: id, expiresAt: value.expiresAt, status: value.status }) : json({ error: 'Not found' }, 404)
         }
         if (path === '/api/notifications/calls' && method === 'POST') {
             const body = await readJSON(request); fields(body, ['capability', 'requestID'])

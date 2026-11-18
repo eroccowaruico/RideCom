@@ -13,6 +13,11 @@ export const callLifetime = 120_000
 export const dedupeLifetime = 86_400_000
 const devicePrefix = 'notify-device:'
 const grantPrefix = 'notify-grant:'
+export interface NotificationGroupInvitation {
+    requestID: string; sender: NotificationAuth; recipientID: string; grantHash: string
+    recipientKey: string; noticeID: string; envelope: string | null; expiresAt: number; status: 'queued' | 'received' | 'cancelled'
+}
+const invitationPrefix = 'notify-group:'
 const callPrefix = 'notify-call:'
 
 /** Shares the account's synchronous storage, so revocation/deletion wins locally. */
@@ -40,7 +45,7 @@ export class AccountNotifications {
     takeMutationBudget(auth: NotificationAuth): boolean { return this.authorized(auth) && this.takeBudget('mutation', 60) }
     invalidateDevice(deviceID: string) { this.storage.kv.delete(devicePrefix + deviceID) }
     invalidateAll() {
-        for (const prefix of [devicePrefix, grantPrefix, callPrefix, 'notify-rate:']) {
+        for (const prefix of [devicePrefix, grantPrefix, callPrefix, invitationPrefix, 'notify-rate:']) {
             for (const [key] of this.storage.kv.list({ prefix })) this.storage.kv.delete(key)
         }
     }
@@ -111,11 +116,60 @@ export class AccountNotifications {
         this.storage.kv.put(callPrefix + requestID, { ...call, status: 'cancelled' })
         return true
     }
+    beginInvitation(value: NotificationGroupInvitation): { value: NotificationGroupInvitation; fresh: boolean } | 'forbidden' | 'limited' | 'conflict' {
+        this.prune()
+        if (!this.grantActive(value.recipientID, value.grantHash)) return 'forbidden'
+        const old = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + value.requestID)
+        if (old) {
+            if (old.sender.userID !== value.sender.userID || old.grantHash !== value.grantHash || old.recipientKey !== value.recipientKey || old.noticeID !== value.noticeID
+                || old.expiresAt !== value.expiresAt || (old.envelope !== null && old.envelope !== value.envelope)) return 'conflict'
+            // A current authenticated sender may resume its exact persisted packet after sign-in.
+            // Merely retaining a packet from a signed-out credential cannot make it receivable.
+            if (old.status === 'queued') {
+                const resumed = { ...old, sender: value.sender }
+                this.storage.kv.put(invitationPrefix + value.requestID, resumed)
+                return { value: resumed, fresh: false }
+            }
+            return { value: old, fresh: false }
+        }
+        if (!this.takeBudget('group-recipient', 20) || [...this.storage.kv.list({ prefix: invitationPrefix })].length >= 64) return 'limited'
+        this.storage.kv.put(invitationPrefix + value.requestID, value)
+        return { value, fresh: true }
+    }
+    invitation(userID: string, requestID: string): NotificationGroupInvitation | null {
+        if (!this.isCurrent(userID)) return null
+        const value = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + requestID)
+        return value && value.expiresAt > Date.now() ? value : null
+    }
+    pendingInvitations(userID: string, recipientKey: string): NotificationGroupInvitation[] {
+        this.prune()
+        return [...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].map(([, v]) => v)
+            .filter(v => v.recipientID === userID && v.recipientKey === recipientKey && v.status === 'queued' && this.grantActive(userID, v.grantHash))
+    }
+    finishInvitation(userID: string, requestID: string, actorID: string, discard = false): boolean {
+        const value = this.invitation(userID, requestID)
+        if (!value || (actorID !== userID && actorID !== value.sender.userID)) return false
+        if (value.status === 'queued') this.storage.kv.put(invitationPrefix + requestID,
+            { ...value, envelope: null, status: actorID === userID && !discard ? 'received' : 'cancelled' })
+        return true
+    }
+    invitationNeedsNotice(userID: string, requestID: string): boolean {
+        const value = this.invitation(userID, requestID)
+        return !!value && ![...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].some(([, other]) =>
+            other.requestID !== requestID && other.sender.userID === value.sender.userID && other.noticeID === value.noticeID)
+    }
+    invitationCandidates(userID: string, requestID: string): NotificationDevice[] {
+        const value = this.invitation(userID, requestID)
+        return value?.status === 'queued' && this.grantActive(userID, value.grantHash) ? this.devices().filter(v =>
+            this.authorized({ accountID: '', userID, deviceID: v.deviceID, tokenHash: v.tokenHash }) && v.expiresAt > Date.now()).slice(0, 8) : []
+    }
     prune() {
+        for (const [key, value] of this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })) if (value.expiresAt <= Date.now()) this.storage.kv.delete(key)
         for (const [key, value] of this.storage.kv.list<NotificationCall>({ prefix: callPrefix })) if (value.forgetAt <= Date.now()) this.storage.kv.delete(key)
         for (const [key, value] of this.storage.kv.list<NotificationDevice>({ prefix: devicePrefix })) if (value.expiresAt <= Date.now()) this.storage.kv.delete(key)
     }
     deadlines(): number[] {
         return [...this.storage.kv.list<NotificationCall>({ prefix: callPrefix })].map(([, value]) => value.forgetAt)
+            .concat([...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].map(([, value]) => value.expiresAt))
     }
 }

@@ -29,7 +29,7 @@ export async function notificationProviderToken(env: Env): Promise<string> {
 export type NotificationDeliveryResult = 'accepted' | 'invalid_token' | 'retry_later' | 'rejected'
 /** Native fetch is the production candidate; tests intercept it before any external I/O. */
 export async function deliverNotification(device: NotificationDevice, providerToken: string,
-                                        requestID: string, recipientID: string, expiresAt: number): Promise<NotificationDeliveryResult> {
+                                        requestID: string, recipientID: string, expiresAt: number, kind: 'call' | 'groupInvitation' = 'call'): Promise<NotificationDeliveryResult> {
     const host = device.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
     try {
         const response = await fetch(`https://${host}/3/device/${device.token}`, {
@@ -37,8 +37,11 @@ export async function deliverNotification(device: NotificationDevice, providerTo
             headers: { authorization: `bearer ${providerToken}`, 'content-type': 'application/json',
                 'apns-topic': device.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
                 'apns-id': requestID, 'apns-collapse-id': requestID, 'apns-expiration': String(Math.floor(expiresAt / 1000)) },
-            body: JSON.stringify({ aps: { alert: { 'title-loc-key': 'CALL_REQUEST_TITLE', 'loc-key': 'CALL_REQUEST_BODY' }, sound: 'default', category: 'RIDEINTERCOM_CALL_REQUEST' },
-                version: 1, requestID, recipientID })
+            body: JSON.stringify(kind === 'groupInvitation'
+                ? { aps: { alert: { 'title-loc-key': 'GROUP_INVITATION_TITLE', 'loc-key': 'GROUP_INVITATION_BODY' }, category: 'RIDEINTERCOM_GROUP_INVITATION' },
+                    version: 1, kind, requestID, recipientID }
+                : { aps: { alert: { 'title-loc-key': 'CALL_REQUEST_TITLE', 'loc-key': 'CALL_REQUEST_BODY' }, sound: 'default', category: 'RIDEINTERCOM_CALL_REQUEST' },
+                    version: 1, requestID, recipientID })
         })
         // No provider body, token or payload is logged or forwarded to callers.
         await response.body?.cancel()
