@@ -22,6 +22,7 @@ class XcodeProductPathTests(unittest.TestCase):
             for scheme, target, product, platform, destination in [
                 ('RideIntercom', 'RideIntercom', 'RideIntercom.app', 'iphonesimulator', 'platform=iOS Simulator,id=owned'),
                 ('RideIntercom', 'RideIntercom', 'RideIntercom.app', 'macosx', 'platform=macOS,arch=arm64'),
+                ('RideIntercom', 'RideIntercom', 'RideIntercom.app', 'iphoneos', 'platform=iOS,id=registered-device'),
                 ('RideIntercomWatch', 'RideIntercomWatch', 'RideIntercomWatch.app', 'watchsimulator', 'platform=watchOS Simulator,id=owned'),
             ]:
                 with self.subTest(platform=platform):
@@ -57,6 +58,16 @@ class XcodeProductPathTests(unittest.TestCase):
                 with patch.object(xcode_paths.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=json.dumps(rows))):
                     with self.assertRaises(ValueError):
                         xcode_paths.xcode_build_settings(validate.ROOT, 'RideIntercomWatch', 'platform=watchOS Simulator,id=owned', 'Debug-Validation')
+
+    def test_device_rejects_simulator_settings_and_unspecified_destination_platform(self):
+        with tempfile.TemporaryDirectory() as root:
+            for platform,destination in [('iphonesimulator','platform=iOS,id=registered-device'),
+                                         ('iphoneos','id=registered-device')]:
+                with self.subTest(platform=platform,destination=destination):
+                    rows=[{'target':'RideIntercom','buildSettings':self.settings(root,'RideIntercom.app',platform)}]
+                    with patch.object(xcode_paths.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(rows))):
+                        with self.assertRaises(ValueError):
+                            xcode_paths.xcode_build_settings(validate.ROOT,'RideIntercom',destination,'Debug-Validation')
 
     def test_watch_host_preflight_checks_selected_app_namespace_and_credentials(self):
         with tempfile.TemporaryDirectory() as root:

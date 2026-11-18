@@ -59,7 +59,7 @@ def xcode_build_settings(root, scheme, destination, configuration):
         if settings['CONFIGURATION'] != configuration:
             raise ValueError('Unexpected configuration')
         destination_platform = dict(part.split('=', 1) for part in destination.split(',') if '=' in part).get('platform')
-        platform = {'iOS Simulator': 'iphonesimulator', 'macOS': 'macosx',
+        platform = {'iOS Simulator': 'iphonesimulator', 'iOS': 'iphoneos', 'macOS': 'macosx',
                     'watchOS Simulator': 'watchsimulator'}.get(destination_platform)
         if settings['PLATFORM_NAME'] != platform:
             raise ValueError('Unexpected platform')
