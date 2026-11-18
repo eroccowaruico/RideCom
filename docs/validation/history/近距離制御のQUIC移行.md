@@ -76,3 +76,18 @@ Release-Validationを既定のDerivedDataでビルドした。Mac側では署名
 実行中のソース一致、音声機器設定の復元、専用Simulatorの停止、標準配置のDebug・Release検証Appの回収を確認した。古い検証版Widget（build 462）も利用者の指定で終了し、旧親Appの登録だけを解除した。その後もこのMacのDerivedData配置では探索拒否が再現した。標準配置の回収記録は `.validation/quic-applications-host-184945/cleanup.json` にある。
 
 同じLoopback Audio・Releaseで、iPhone Simulator内の通信を通さないリアルタイム試験も実行した。日本語の3発話と3 codecの9条件すべてで相手波形に相当する参照音声との連続性を確認した。判定余裕込みで125 msを超えた条件は6件。通信を含まない経路でも遅延条件を超える。証跡は `.validation/audio-e2e-20261117-190902-228818/pipeline-measurements.json`。音声選択を復元し、Simulatorの停止を確認した。
+
+### 既定AACとPCM16 16kHzの現行再測定（2026-11-19）
+
+基準は `73b74018`。同じRelease-Validationと英語の合成発話を用い、標準配置の署名済みMacとiOS 27.2 SimulatorでLocal quickの既定AACとPCM16 16kHz・voiceChat（受信相手別音声分離あり）を8秒ずつ測った。両端の接続・認証、実UDP配送と実出力を通した。
+
+| 条件 | 音声の向き | 復号後の欠落 | 実出力の欠落 | 収録から実描画 | 10msの判定余裕込み |
+|---|---|---:|---:|---:|---:|
+| 既定AAC | iOS Simulator → Mac | 0% | 0% | 104.84ms | 114.84ms |
+| 既定AAC | Mac → iOS Simulator | 0% | 0% | 122.08ms | 132.08ms |
+| PCM16 16kHz | iOS Simulator → Mac | 0% | 0% | 163.99ms | 173.99ms |
+| PCM16 16kHz | Mac → iOS Simulator | 0% | 0% | 167.21ms | 177.21ms |
+
+送信時の収録時刻で両端の記録を照合した重複区間の全packetが到着し、送信callbackから相手の受信callbackまでの中央値は0.38〜0.49msだった。既定AACのMac→Simulatorでは発話波形と時刻の照合上、復号直後に約68ms、受信Mixerに約122msを観測した。復号後から描画までに残る待ちを対象に、再生予約と実際の出力位置を照合する。16kHzの以前の欠落は今回の条件・長さでは観測されなかった。
+
+事前試験7件・各端の実音声試験・素材とソースの照合・音声選択の復元・Simulator停止・一時Mac Appの回収は成功。125ms判定は3条件で未達のためrun全体は不合格。証跡は `.validation/local-aac-and-pcm16-current-20261119` の波形・`measurements.json`・両端のpacket時刻。近距離のローカル測定であり、物理iPhoneのマイク、ロック、Bluetooth、実無線移動の観測は残る。
