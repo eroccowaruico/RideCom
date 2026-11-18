@@ -48,6 +48,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private let audioDelivery = AudioPacketDelivery()
     var droppedAudioPacketCount: Int { audioDelivery.droppedPacketCount }
     private var eventGeneration = UUID()
+    private var publishedPeerIDs: [String]?
+    private var publishedAuthenticatedMembers: [RTC.CallMemberState]?
     private var connectionRequest: RTC.CallStartRequest?
     private var mediaRequested = false
     private var audioPolicy: RTC.RTCAudioPolicy = .intercomDefault
@@ -255,6 +257,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private func invalidateEvents() {
         clearPendingAudio()
         eventGeneration = UUID()
+        publishedPeerIDs = nil
+        publishedAuthenticatedMembers = nil
         eventTask?.cancel()
         eventTask = nil
         audioReceiveTask?.cancel(); audioReceiveTask = nil
@@ -331,9 +335,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
         case .routeAvailabilityChanged:
             break
         case .membersChanged(let members):
-            let peerIDs = members.map { $0.peer.id.rawValue }.filter { $0 != memberID }.sorted()
-            onEvent?(.connected(peerIDs: peerIDs))
-            onEvent?(.authenticated(members: members.filter { $0.isConnected && $0.peer.id.rawValue != memberID }))
+            publishMembershipChanges(members)
         case .receivedApplicationData(let received):
             onEvent?(Self.makeAppEvent(peerID: received.peerID.rawValue, applicationData: received.message))
         case .receivedAudioPacket:
@@ -344,6 +346,29 @@ final class RideIntercomCallSessionAdapter: CallSession {
             onEvent?(.networkDiagnostics(report))
         case .error(let error):
             handleRTCError(error)
+        }
+    }
+
+    private func publishMembershipChanges(_ members: [RTC.CallMemberState]) {
+        let remote = members.filter { $0.peer.id.rawValue != memberID }
+            .sorted { $0.peer.id.rawValue < $1.peer.id.rawValue }
+        let peerIDs = remote.map { $0.peer.id.rawValue }
+        let authenticated = remote.filter(\.isConnected)
+        // RTC reports the most recent path on each member. Admission responds
+        // to participant changes, while routesChanged carries route state.
+        let membership = authenticated.map { member in
+            var copy = member
+            copy.route = nil
+            return copy
+        }
+        let notifyConnected = peerIDs != publishedPeerIDs
+        let notifyAuthenticated = membership != publishedAuthenticatedMembers
+        publishedPeerIDs = peerIDs
+        publishedAuthenticatedMembers = membership
+        let generation = eventGeneration
+        if notifyConnected { onEvent?(.connected(peerIDs: peerIDs)) }
+        if notifyAuthenticated, generation == eventGeneration {
+            onEvent?(.authenticated(members: authenticated))
         }
     }
 

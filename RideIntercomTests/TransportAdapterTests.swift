@@ -130,6 +130,51 @@ struct TransportAdapterTests {
         #expect(adapter.activeRouteDebugTypeName == "RTC RouteManager")
     }
 
+    @Test func routingChangesDoNotRepeatPeerAdmissionButNewMembershipDoes() async {
+        let rtc = FakeRTCCallSession()
+        let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
+        var connected: [[String]] = []
+        var authenticated: [[UUID?]] = []
+        var routeSnapshots = 0
+        var markers = 0
+        adapter.onEvent = { event in
+            switch event {
+            case .connected(let peers): connected.append(peers)
+            case .authenticated(let members): authenticated.append(members.map(\.membershipID))
+            case .routesChanged: routeSnapshots += 1
+            case .receivedApplicationData(_, let message) where message.namespace == "test.marker":
+                markers += 1
+            default: break
+            }
+        }
+        defer { adapter.disconnect() }
+        let peer = PeerDescriptor(id: .init(rawValue: "remote"), displayName: "Remote")
+        let first = UUID(), rejoined = UUID()
+        func emitMember(_ route: RouteKind, _ membership: UUID) {
+            rtc.emit(.membersChanged([.init(peer: peer, route: route, isConnected: true, membershipID: membership)]))
+        }
+        func marker() {
+            rtc.emit(.receivedApplicationData(.init(peerID: peer.id, message: .init(namespace: "test.marker", payload: Data()))))
+        }
+        emitMember(.multipeer, first)
+        for route in [RouteKind.webRTC, .multipeer, .webRTC] { emitMember(route, first) }
+        rtc.emit(.routeChanged(.init(activeRoute: .webRTC, mediaRoute: .webRTC, availableRoutes: [.webRTC],
+                                     isHandoverInProgress: false)))
+        marker()
+        await AppTestSupport.waitUntil { markers == 1 }
+        #expect(connected == [["remote"]])
+        #expect(authenticated == [[first]])
+        #expect(routeSnapshots == 1)
+
+        emitMember(.webRTC, rejoined)
+        rtc.emit(.membersChanged([]))
+        emitMember(.multipeer, rejoined)
+        marker()
+        await AppTestSupport.waitUntil { markers == 2 }
+        #expect(connected == [["remote"], [], ["remote"]])
+        #expect(authenticated == [[first], [rejoined], [], [rejoined]])
+    }
+
     @Test func callSessionAdapterIgnoresFallbackRouteFailureUntilSessionFails() async {
         let rtcSession = FakeRTCCallSession()
         let adapter = RideIntercomCallSessionAdapter(memberID: "member-local", rtcSession: rtcSession)
