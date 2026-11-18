@@ -6,25 +6,34 @@ struct StandardContactPersonDetail: View {
     let presentationPersonID: UUID
     @State private var editsName = false
 
+    private var currentPerson: SavedUser { viewModel.contactPerson(presentationPersonID) ?? person }
+
     var body: some View {
         Form {
             Section {
                 VStack(spacing: AppSpacing.s) {
-                    if person.isRegistered { DestinationAvatar(isGroup: false, diameter: 56) }
+                    if currentPerson.isRegistered { DestinationAvatar(isGroup: false, diameter: 56) }
                     else { PendingAvatar(diameter: 56) }
-                    Text(verbatim: person.resolvedDisplayName).font(.title2.bold())
+                    Text(verbatim: currentPerson.resolvedDisplayName).font(.title2.bold())
                         .accessibilityIdentifier("contactPersonSavedName")
-                    Text(person.isRegistered ? "Registered" : "Not registered").font(.headline)
+                    Text(currentPerson.isRegistered ? "Registered" : "Not registered").font(.headline)
                         .accessibilityIdentifier("contactPersonRegistrationState")
-                    if !person.isRegistered { Text("You can call each other after they register.") }
+                    if !currentPerson.isRegistered { Text("You can call each other after they register.") }
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppSpacing.s)
             }
-            StandardContactNameConfirmation(viewModel: viewModel, person: person)
-            if person.isRegistered {
-                Section("Their Own Name") { Text(verbatim: person.displayName).foregroundStyle(.secondary) }
+            StandardContactNameConfirmation(viewModel: viewModel, person: currentPerson)
+            if currentPerson.isRegistered {
+                Section("Their Own Name") { Text(verbatim: currentPerson.displayName).foregroundStyle(.secondary) }
+            }
+            if let invitation = viewModel.contactPersonInvitations(presentationPersonID).first(where: { $0.invitedGroupID != nil && $0.state != .cancelled }),
+               let group = viewModel.groups.first(where: { $0.id == invitation.invitedGroupID }) {
+                Section {
+                    if invitation.direction == .incoming { Text("Group saved: \(group.name)") }
+                    else { Text("Group invitation: \(group.name)") }
+                }
             }
             StandardContactReplyStatus(viewModel: viewModel, personID: presentationPersonID)
             Section {
@@ -36,9 +45,9 @@ struct StandardContactPersonDetail: View {
         }
         .formStyle(.grouped)
         .safeAreaBar(edge: .bottom) {
-            if !person.isRegistered { ContactPersonShareLink(viewModel: viewModel, person: person) }
+            if !currentPerson.isRegistered { ContactPersonShareLink(viewModel: viewModel, person: currentPerson) }
         }
-        .sheet(isPresented: $editsName) { StandardUserSettingsView(viewModel: viewModel, user: person) }
+        .sheet(isPresented: $editsName) { StandardUserSettingsView(viewModel: viewModel, user: currentPerson) }
     }
 }
 

@@ -85,7 +85,9 @@ struct ContactInvitationAcceptanceView: View {
                         Section {
                             Text(preview.inviterName).font(.title2)
                             Text("Registering saves this person to Users. Declining closes this invitation without saving or notifying them. Your current call stays connected.")
+                            if let groupName = preview.invitedGroupName { Text("Registering also adds \(groupName) to Groups.").accessibilityIdentifier("invitedGroupPreview") }
                             if let message = viewModel.contactInvitationMessage { Text(LocalizedStringKey(message)) }
+                            InvitationStorageRecoveryButton(viewModel: viewModel)
                         }
                     }
                     .formStyle(.grouped)

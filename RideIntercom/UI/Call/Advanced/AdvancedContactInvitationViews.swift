@@ -65,6 +65,8 @@ struct AdvancedContactInvitationContent: View {
         Group {
             Section {
                 field("id", record.id.uuidString.lowercased())
+                field("sent", record.sent.map(String.init) ?? "nil")
+                field("invitedGroupID", record.invitedGroupID?.uuidString.lowercased() ?? "nil")
                 field("personID", record.personID?.uuidString.lowercased() ?? "nil")
                 field("direction", record.direction.rawValue)
                 field("state", record.state.rawValue)

@@ -34,8 +34,9 @@ extension IntercomViewModel {
         let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
         let acceptance = try token.accept(signer: signer, displayName: localMemberIdentity.displayName,
             trust: internetSettingsStore.identityTrust(), now: callAccessNow().timeIntervalSince1970, contactBootstrap: true)
-        try groupRepository.acceptContactInvitation(token, accepted: acceptance,
-            localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
+        do { try groupRepository.acceptContactInvitation(token, accepted: acceptance,
+            localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970) }
+        catch { reportGroupStorageError(error); throw error }
         adoptStoredContactRegistration(with: acceptance.inviter.memberID, invitationID: try contactID(token))
         refreshGroupStorageStatus()
         _ = resumeContactInvitation(try contactID(token))

@@ -8,6 +8,7 @@ struct StandardGroupSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String?
     @State private var invitingMembers = false
+    @State private var invitationPerson: SavedUser?
     @State private var editingMember: GroupMember?
     @State private var pendingRemoval: PendingMemberRemoval?
 
@@ -36,9 +37,13 @@ struct StandardGroupSettingsView: View {
                         .accessibilityIdentifier("groupSettingsSelf")
                         ForEach(Array(group.members.dropFirst())) { member in
                             // The tap opens the member's own page; the swipe removes them.
-                            Button { editingMember = member } label: {
+                            Button {
+                                if let person = viewModel.personForGroupInvitation(memberID: member.id, groupID: groupID) { invitationPerson = person }
+                                else { editingMember = member }
+                            } label: {
                                 HStack(spacing: AppSpacing.m) {
-                                    DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true)
+                                    if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { PendingAvatar(diameter: 28).accessibilityHidden(true) }
+                                    else { DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true) }
                                     Text(verbatim: member.resolvedDisplayName).lineLimit(2)
                                     Spacer()
                                     Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
@@ -65,8 +70,7 @@ struct StandardGroupSettingsView: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.borderless)
-                        .disabled(viewModel.availableUsers(for: groupID).isEmpty
-                                  || group.members.count >= IntercomGroup.maximumMemberCount)
+                        .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
                         .accessibilityIdentifier("groupSettingsAddMembersButton")
                         }
                     } header: {
@@ -104,6 +108,9 @@ struct StandardGroupSettingsView: View {
                 }
             }
             .sheet(isPresented: $invitingMembers) { SavedUsersView(viewModel: viewModel, groupID: groupID) }
+            .sheet(item: $invitationPerson) { person in
+                ContactPersonSheet(viewModel: viewModel, personID: person.id, onClose: { invitationPerson = nil })
+            }
             .sheet(item: $editingMember) { member in
                 // The member's own page ends with removing them, for whoever can edit the group.
                 StandardGroupMemberView(viewModel: viewModel, groupID: groupID, member: member,

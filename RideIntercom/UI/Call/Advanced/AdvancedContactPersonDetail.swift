@@ -6,20 +6,22 @@ struct AdvancedContactPersonDetail: View {
     let presentationPersonID: UUID
     @State private var editsName = false
 
+    private var currentPerson: SavedUser { viewModel.contactPerson(presentationPersonID) ?? person }
+
     var body: some View {
         Form {
             Section {
-                field("id", person.id.uuidString.lowercased())
-                field("displayName", person.displayName)
+                field("id", currentPerson.id.uuidString.lowercased())
+                field("displayName", currentPerson.displayName)
                 LabeledContent("localName") {
-                    Text(verbatim: person.localName ?? "nil").font(.caption.monospaced())
+                    Text(verbatim: currentPerson.localName ?? "nil").font(.caption.monospaced())
                         .accessibilityIdentifier("contactPersonSavedName")
                 }
-                field("memberIDs", person.memberIDs.joined(separator: ", "))
-                field("principal", person.principal?.userID ?? "nil")
+                field("memberIDs", currentPerson.memberIDs.joined(separator: ", "))
+                field("principal", currentPerson.principal?.userID ?? "nil")
                 Button("User Settings") { editsName = true }.accessibilityIdentifier("editContactPersonNameButton")
             } header: { Text(verbatim: "SavedUser") }
-            AdvancedContactNameConfirmation(viewModel: viewModel, person: person)
+            AdvancedContactNameConfirmation(viewModel: viewModel, person: currentPerson)
             ForEach(viewModel.contactPersonInvitations(presentationPersonID)) { record in
                 AdvancedContactInvitationContent(viewModel: viewModel, record: record, personID: presentationPersonID)
             }
@@ -29,9 +31,9 @@ struct AdvancedContactPersonDetail: View {
         }
         .formStyle(.grouped)
         .safeAreaBar(edge: .bottom) {
-            if !person.isRegistered { ContactPersonShareLink(viewModel: viewModel, person: person) }
+            if !currentPerson.isRegistered { ContactPersonShareLink(viewModel: viewModel, person: currentPerson) }
         }
-        .sheet(isPresented: $editsName) { AdvancedUserSettingsView(viewModel: viewModel, user: person) }
+        .sheet(isPresented: $editsName) { AdvancedUserSettingsView(viewModel: viewModel, user: currentPerson) }
     }
 
     private func field(_ name: String, _ value: String) -> some View {

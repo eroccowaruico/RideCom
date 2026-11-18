@@ -5,11 +5,11 @@ import SwiftUI
 struct AdvancedSavedUsersSelection: View {
     @Bindable var viewModel: IntercomViewModel
     let groupID: UUID?
-    let onSaved: (UUID?) -> Void
+    let onSaved: (UUID?, Set<UUID>) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selection: MemberSelection
 
-    init(viewModel: IntercomViewModel, groupID: UUID?, onSaved: @escaping (UUID?) -> Void) {
+    init(viewModel: IntercomViewModel, groupID: UUID?, onSaved: @escaping (UUID?, Set<UUID>) -> Void) {
         self.viewModel = viewModel
         self.groupID = groupID
         self.onSaved = onSaved
@@ -24,6 +24,7 @@ struct AdvancedSavedUsersSelection: View {
                         .accessibilityIdentifier("savedUsersGroupNameField")
                 }
             }
+            Section("New People") { NewGroupInvitees(selection: $selection) }
             Section {
                 ForEach(selection.users) { user in
                     let isSelected = selection.selected.contains(user.id)
@@ -39,6 +40,7 @@ struct AdvancedSavedUsersSelection: View {
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .accessibilityIdentifier("selectUser-\(user.id)")
                 }
+
             } header: {
                 Text("Saved Users")
             }
@@ -47,6 +49,7 @@ struct AdvancedSavedUsersSelection: View {
                 if let message = viewModel.groupErrorMessage {
                     Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
                         .accessibilityIdentifier("savedUsersErrorLabel")
+                    InvitationStorageRecoveryButton(viewModel: viewModel)
                 }
             }
         }
@@ -60,7 +63,7 @@ struct AdvancedSavedUsersSelection: View {
                 // A new group connects at once when no other call is live, so the button says so.
                 Button(LocalizedStringKey(groupID != nil ? "Add Users"
                                           : viewModel.hasAnyActiveGroupConnection ? "Create Group" : "Create and Connect")) {
-                    if case .some(let added) = selection.save() { onSaved(added) }
+                    if case .some(let added) = selection.save() { onSaved(added, selection.selected) }
                 }
                 .disabled(!selection.canSave)
                 .accessibilityIdentifier("saveUserSelectionButton")

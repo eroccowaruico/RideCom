@@ -7,6 +7,7 @@ struct AdvancedGroupSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String?
     @State private var addingUsers = false
+    @State private var invitationPerson: SavedUser?
     @State private var editingMember: GroupMember?
     @State private var pendingRemoval: PendingMemberRemoval?
 
@@ -22,15 +23,19 @@ struct AdvancedGroupSettingsView: View {
                     }
                     Section {
                         ForEach(Array(group.members.dropFirst())) { member in
-                            Label { Text(member.resolvedDisplayName) } icon: { DestinationAvatar(isGroup: false, diameter: 28) }
+                            Group {
+                                if let person = viewModel.personForGroupInvitation(memberID: member.id, groupID: groupID) {
+                                    Button { invitationPerson = person } label: { Text(verbatim: member.resolvedDisplayName) }
+                                        .accessibilityIdentifier("groupSettingsMember-\(member.id)")
+                                } else { Label { Text(member.resolvedDisplayName) } icon: { DestinationAvatar(isGroup: false, diameter: 28) } }
+                            }
                                 .advancedMemberRowActions(edit: { editingMember = member }, pending: $pendingRemoval,
                                                   name: member.resolvedDisplayName) {
                                     viewModel.removeMember(member.id, from: groupID)
                                 }
                         }
                         Button("Add Members", systemImage: "person.badge.plus") { addingUsers = true }
-                            .disabled(!viewModel.canEditSavedGroups || viewModel.availableUsers(for: groupID).isEmpty
-                                      || group.members.count >= IntercomGroup.maximumMemberCount)
+                            .disabled(!viewModel.canEditSavedGroups || group.members.count >= IntercomGroup.maximumMemberCount)
                             .accessibilityIdentifier("groupSettingsAddMembersButton")
                     } header: {
                         Text("Members")
@@ -72,6 +77,9 @@ struct AdvancedGroupSettingsView: View {
                 }
             }
             .sheet(isPresented: $addingUsers) { SavedUsersView(viewModel: viewModel, groupID: groupID) }
+            .sheet(item: $invitationPerson) { person in
+                ContactPersonSheet(viewModel: viewModel, personID: person.id, onClose: { invitationPerson = nil })
+            }
             .sheet(item: $editingMember) { member in
                 GroupMemberNameView(viewModel: viewModel, groupID: groupID, member: member)
             }

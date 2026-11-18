@@ -6,24 +6,29 @@ enum InvitationURLFixture {
     enum Failure: Error { case invalidURL }
 
     static func make(inviter: String, sharedName: String? = nil, contact: Bool = false, name: String? = nil,
-                     signingKey: P256.Signing.PrivateKey = .init(), expiresAfter: TimeInterval = 3600) throws -> URL {
+                     signingKey: P256.Signing.PrivateKey = .init(), expiresAfter: TimeInterval = 3600, invitedGroupName: String? = nil) throws -> URL {
         let groupID = UUID(), issuedAt = floor(Date().timeIntervalSince1970)
         let expiresAt = issuedAt + expiresAfter
         let secret = "ui-test-invitation-key"
         let groupName = name ?? (contact ? "Contact Invitation" : "Talk Group")
         let publicKey = base64url(signingKey.publicKey.x963Representation)
+        let invitedGroup = invitedGroupName.map { ["id": UUID().uuidString, "name": $0, "secret": "ui-test-group-key"] }
+        let attachmentData = try invitedGroup.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+        let attachmentDigest = attachmentData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         struct Context: Encodable {
             let id: UUID; let groupID: UUID; let inviterMemberID: String
             let inviterDeviceKey: String; let expiresAt: Double; let contactBootstrap: Bool?
+            let invitedGroupID: String?; let invitedGroupDigest: String?
         }
         struct Grant: Encodable { let context: Context; let secret: String }
         let grant = Grant(context: .init(id: UUID(), groupID: groupID, inviterMemberID: inviter,
-            inviterDeviceKey: publicKey, expiresAt: expiresAt, contactBootstrap: contact ? true : nil),
+            inviterDeviceKey: publicKey, expiresAt: expiresAt, contactBootstrap: contact ? true : nil, invitedGroupID: invitedGroup?["id"], invitedGroupDigest: attachmentDigest),
             secret: Data(repeating: 42, count: 32).base64EncodedString())
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let grantData = try encoder.encode(grant)
-        let fields = ["6", groupID.uuidString, groupName, secret, inviter, String(format: "%.3f", issuedAt),
+        var fields = ["6", groupID.uuidString, groupName, secret, inviter, String(format: "%.3f", issuedAt),
             String(format: "%.3f", expiresAt), "", Data((sharedName ?? "").utf8).base64EncodedString(), grantData.base64EncodedString()]
+        if let attachmentData { fields.append(attachmentData.base64EncodedString()) }
         let signature = HMAC<SHA256>.authenticationCode(for: Data(fields.joined(separator: "|").utf8),
             using: SymmetricKey(data: Data(secret.utf8))).map { String(format: "%02x", $0) }.joined()
         var signed = Data("rideintercom.device-proof.v1\0".utf8)
@@ -37,6 +42,7 @@ enum InvitationURLFixture {
             "groupSecret": secret, "inviterMemberID": inviter, "issuedAt": issuedAt, "expiresAt": expiresAt,
             "directInvitation": try JSONSerialization.jsonObject(with: grantData), "signature": signature, "identityProof": identityProof]
         object["inviterDisplayName"] = sharedName
+        object["invitedGroup"] = invitedGroup
         let encoded = base64url(try JSONSerialization.data(withJSONObject: object))
         guard let url = URL(string: "rideintercom://\(contact ? "contact" : "join")?token=\(encoded)") else { throw Failure.invalidURL }
         return url

@@ -39,9 +39,9 @@ struct GroupContactInvitationTests {
         #expect(!tampered.verifySignature())
     }
 
-    private func prepared() throws -> (AppTestSupport.Harness, AppTestSupport.Harness, GroupInviteToken, UUID) {
-        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "group-author")
-        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "group-recipient")
+    private func prepared(now: @escaping @MainActor () -> Date = Date.init) throws -> (AppTestSupport.Harness, AppTestSupport.Harness, GroupInviteToken, UUID) {
+        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "group-author", callAccessNow: now)
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "group-recipient", callAccessNow: now)
         author.viewModel.contactSessionFactory = { RecordingCallSession() }; recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
         #expect(author.viewModel.createTalkGroup(name: "Mountain riders"))
         author.viewModel.disconnect()
@@ -50,9 +50,9 @@ struct GroupContactInvitationTests {
         author.viewModel.reloadSavedGroups()
         let credential = try #require(try author.viewModel.groupRepository.credential(for: group.id))
         let token = try ContactInvitationSession.makeToken(authority: author.viewModel.invitationAuthority,
-            signer: author.viewModel.internetSettingsStore.invitationSigner(memberID: "group-author"), displayName: "Author", now: Date().timeIntervalSince1970,
+            signer: author.viewModel.internetSettingsStore.invitationSigner(memberID: "group-author"), displayName: "Author", now: now().timeIntervalSince1970,
             invitedGroup: .init(id: group.id, name: group.name, secret: credential.secret))
-        try author.viewModel.groupRepository.stageContactInvitation(token, now: Date().timeIntervalSince1970, personID: person)
+        try author.viewModel.groupRepository.stageContactInvitation(token, now: now().timeIntervalSince1970, personID: person)
         author.viewModel.reloadSavedGroups()
         return (author, recipient, token, person)
     }
@@ -78,6 +78,10 @@ struct GroupContactInvitationTests {
         let before = b.groupStore.snapshot
         try b.viewModel.acceptContactInviteURL(url)
         #expect(b.groupStore.snapshot == before)
+        let ack = try a.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: a.viewModel.accountAccessID)
+        try b.viewModel.receiveContactReplyURL(ack)
+        #expect(b.viewModel.contactInvitationRecord(id)?.state == .delivered)
+        #expect(b.viewModel.groups.contains { $0.id == target.id })
         #expect(a.viewModel.activeGroupID == nil && b.viewModel.activeGroupID == nil)
     }
 
@@ -137,6 +141,81 @@ struct GroupContactInvitationTests {
         let before = c.groupStore.snapshot
         #expect(throws: (any Error).self) { try c.viewModel.acceptContactInviteURL(url) }
         #expect(c.groupStore.snapshot == before && c.viewModel.savedRemoteUsers.isEmpty)
+    }
+
+    @Test func multipleNewPeopleAndTheGroupSaveTogetherAndRetryDoesNotDuplicateThem() throws {
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "batch-author")
+        defer { h.viewModel.disconnect() }
+        h.viewModel.setSoundIsolationEnabled(false)
+        var selection = MemberSelection(viewModel: h.viewModel, groupID: nil)
+        selection.typedName = "Snow friends"
+        selection.addNewPerson(); selection.newPeople[0].name = "First rider"
+        selection.addNewPerson(); selection.newPeople[1].name = "Second rider"
+        let before = h.groupStore.snapshot
+        #expect(selection.memberCount == 3 && selection.canSave)
+        #expect(h.groupStore.snapshot == before)
+        h.groupStore.failSaving = true
+        #expect(selection.save() == nil)
+        #expect(h.groupStore.snapshot == before)
+        h.groupStore.failSaving = false; h.viewModel.reloadSavedGroups()
+        #expect(selection.save() == .some(.some(selection.newGroupID)))
+        #expect(h.viewModel.groups.first?.members.count == 3)
+        #expect(h.viewModel.directoryUsers.count == 2 && h.viewModel.savedRemoteUsers.isEmpty)
+        #expect(h.groupStore.snapshot.contactInvitations.count == 2)
+        let saved = h.groupStore.snapshot, reference = h.viewModel.currentCallReference
+        #expect(selection.canSave && selection.memberCount == 3)
+        #expect(selection.save() == .some(.some(selection.newGroupID)))
+        #expect(h.groupStore.snapshot == saved && h.viewModel.currentCallReference == reference)
+    }
+
+    @Test func addingANewPersonKeepsTheCurrentCallAndGroupKey() throws {
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "adding-author")
+        defer { h.viewModel.disconnect() }
+        h.viewModel.setSoundIsolationEnabled(false)
+        #expect(h.viewModel.createTalkGroup(name: "Ongoing"))
+        let group = try #require(h.viewModel.groups.first), reference = h.viewModel.currentCallReference
+        let key = try h.viewModel.groupRepository.credential(for: group.id)
+        var selection = MemberSelection(viewModel: h.viewModel, groupID: group.id)
+        selection.addNewPerson()
+        #expect(selection.canSave && selection.memberCount == 2)
+        #expect(selection.save() == .some(.some(group.id)))
+        #expect(h.viewModel.currentCallReference == reference)
+        #expect(try h.viewModel.groupRepository.credential(for: group.id) == key)
+        #expect(h.viewModel.directoryUsers.count == 1)
+    }
+
+    @Test func aFreshInvitationAfterExpiryKeepsItsPersonAndTargetGroup() throws {
+        var now = Date()
+        let (a, b, token, person) = try prepared(now: { now })
+        defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
+        now = now.addingTimeInterval(8 * 24 * 60 * 60)
+        let url = try a.viewModel.contactPersonURLForSharing(person, expectedAccountAccessID: a.viewModel.accountAccessID)
+        let fresh = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
+        #expect(fresh.invitedGroup == token.invitedGroup)
+        #expect(fresh.directInvitation?.context.id != token.directInvitation?.context.id)
+        #expect(a.viewModel.groupInvitationPeople(try #require(token.invitedGroup).id).map(\.id) == [person])
+        #expect(a.viewModel.groups.first(where: { $0.id == token.invitedGroup?.id })?.members.count == 2)
+        try b.viewModel.acceptContactInviteURL(url)
+        #expect(b.viewModel.groups.contains { $0.id == token.invitedGroup?.id })
+    }
+
+    @Test func aMixedSelectionAndRenamedPendingPersonKeepTheSameSavedState() throws {
+        let h = try AppTestSupport.makeHarnessWithSavedUser()
+        defer { h.viewModel.disconnect() }
+        h.viewModel.setSoundIsolationEnabled(false)
+        let known = try #require(h.viewModel.savedRemoteUsers.first)
+        var selection = MemberSelection(viewModel: h.viewModel, groupID: nil)
+        selection.selected = [known.id]; selection.addNewPerson()
+        #expect(selection.memberCount == 3)
+        #expect(selection.save() == .some(.some(selection.newGroupID)))
+        let saved = h.groupStore.snapshot
+        #expect(selection.memberCount == 3 && selection.canSave)
+        #expect(selection.save() == .some(.some(selection.newGroupID)))
+        #expect(h.groupStore.snapshot == saved)
+        let person = selection.newPeople[0].id
+        #expect(h.viewModel.renameSavedUser(person, displayName: "Renamed new rider"))
+        #expect(h.groupStore.snapshot.contactInvitations.first(where: { $0.personID == person })?.nickname == "Renamed new rider")
+        #expect(h.viewModel.groups.first(where: { $0.id == selection.newGroupID })?.members.first(where: { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) })?.resolvedDisplayName == "Renamed new rider")
     }
 
 }

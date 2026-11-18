@@ -6,6 +6,7 @@ struct ContactInvitationPreview: Equatable, Identifiable {
     let expiresAt: TimeInterval
     let accountAccessID: UUID
     let url: URL
+    var invitedGroupName: String? = nil
 }
 
 enum ContactInvitationPresentation: Equatable, Identifiable {

@@ -5,11 +5,11 @@ import SwiftUI
 struct StandardMemberSelection: View {
     @Bindable var viewModel: IntercomViewModel
     let groupID: UUID?
-    let onSaved: (UUID?) -> Void
+    let onSaved: (UUID?, Set<UUID>) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selection: MemberSelection
 
-    init(viewModel: IntercomViewModel, groupID: UUID?, onSaved: @escaping (UUID?) -> Void) {
+    init(viewModel: IntercomViewModel, groupID: UUID?, onSaved: @escaping (UUID?, Set<UUID>) -> Void) {
         self.viewModel = viewModel
         self.groupID = groupID
         self.onSaved = onSaved
@@ -18,7 +18,7 @@ struct StandardMemberSelection: View {
 
     /// Inviting says what it does; creating says whether it also connects.
     private var actionTitle: LocalizedStringKey {
-        if groupID != nil { return "Send Invitation" }
+        if groupID != nil { return "Save Invitations" }
         return viewModel.hasAnyActiveGroupConnection ? "Create Group" : "Create and Connect"
     }
 
@@ -30,8 +30,8 @@ struct StandardMemberSelection: View {
                         .accessibilityIdentifier("savedUsersGroupNameField")
                 }
             }
-            if !selection.users.isEmpty {
-                Section("Your Users") {
+            Section("Your Users") {
+                    NewGroupInvitees(selection: $selection)
                     ForEach(selection.users) { user in
                         let isSelected = selection.selected.contains(user.id)
                         Button { selection.toggle(user.id) } label: {
@@ -51,12 +51,13 @@ struct StandardMemberSelection: View {
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                         .accessibilityIdentifier("selectUser-\(user.id)")
                     }
-                }
+
             }
             if let message = viewModel.groupErrorMessage {
                 Section {
                     Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
                         .accessibilityIdentifier("savedUsersErrorLabel")
+                    InvitationStorageRecoveryButton(viewModel: viewModel)
                 }
             }
         }
@@ -68,7 +69,7 @@ struct StandardMemberSelection: View {
                     .font(.footnote).foregroundStyle(Color.secondary)
                     .accessibilityIdentifier("memberSelectionCount")
                 Button(actionTitle) {
-                    if case .some(let added) = selection.save() { onSaved(added) }
+                    if case .some(let added) = selection.save() { onSaved(added, selection.selected) }
                 }
                 .appProminentButtonStyle()
                 .frame(maxWidth: .infinity)

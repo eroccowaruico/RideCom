@@ -85,13 +85,15 @@ extension IntercomViewModel {
                 _ = resumeContactInvitation(record.id)
                 return url
             }
+            let target = try record?.invitedGroupID.map { try contactGroupAttachment(for: $0) }
             let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
             let token = try ContactInvitationSession.makeToken(authority: invitationAuthority, signer: signer,
-                displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
+                displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970, invitedGroup: target)
             try groupRepository.stageContactInvitation(token, now: callAccessNow().timeIntervalSince1970,
                 replacingExpiredInvitation: record?.id, personID: id)
             guard let invitationID = token.directInvitation?.context.id else { throw ContactInvitationError.unavailable }
             let url = try contactInvitationURLForSharing(invitationID, expectedAccountAccessID: expectedAccountAccessID)
+            refreshContactInvitationGroup(invitationID)
             refreshGroupStorageStatus()
             _ = resumeContactInvitation(invitationID)
             return url

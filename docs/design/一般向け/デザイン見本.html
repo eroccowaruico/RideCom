@@ -458,6 +458,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     <symbol id="speaker-low" viewBox="0 0 24 24"><path d="M5 9.5h3.5L13 5.5v13l-4.5-4H5z"/><path d="M16.5 10a3 3 0 0 1 0 4"/></symbol>
     <symbol id="wave" viewBox="0 0 24 24"><path d="M3 11v2M6.5 8v8M10 5v14M13.5 8.5v7M17 6.5v11M20.5 10.5v3"/></symbol>
     <symbol id="person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></symbol>
+    <symbol id="person-add" viewBox="0 0 24 24"><circle cx="10" cy="7" r="3.5"/><path d="M3 20a7 7 0 0 1 12-4.9"/><circle cx="18" cy="18" r="4.5"/><path d="M18 15.5v5M15.5 18h5"/></symbol>
+    <symbol id="minus-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7 12h10"/></symbol>
     <symbol id="person2" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 19.5a6.5 6.5 0 0 1 13 0M16 4.8a3.5 3.5 0 0 1 0 6.4M18 13.5a6.5 6.5 0 0 1 3.5 6"/></symbol>
     <symbol id="person3" viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3"/><circle cx="5.5" cy="10" r="2.3"/><circle cx="18.5" cy="10" r="2.3"/><path d="M7 19.5a5 5 0 0 1 10 0M1.5 18.5a4 4 0 0 1 5-3.7M22.5 18.5a4 4 0 0 0-5-3.7"/></symbol>
     <symbol id="gear" viewBox="0 0 24 24"><path class="gearbody" fill-rule="evenodd" d="M9.43 4.53 L9.88 2.02 L14.12 2.02 L14.57 4.53 L15.46 4.90 L17.56 3.45 L20.55 6.44 L19.10 8.54 L19.47 9.43 L21.98 9.88 L21.98 14.12 L19.47 14.57 L19.10 15.46 L20.55 17.56 L17.56 20.55 L15.46 19.10 L14.57 19.47 L14.12 21.98 L9.88 21.98 L9.43 19.47 L8.54 19.10 L6.44 20.55 L3.45 17.56 L4.90 15.46 L4.53 14.57 L2.02 14.12 L2.02 9.88 L4.53 9.43 L4.90 8.54 L3.45 6.44 L6.44 3.45 L8.54 4.90 Z M15.3 12a3.3 3.3 0 1 0-6.6 0a3.3 3.3 0 1 0 6.6 0Z"/></symbol>
@@ -533,27 +535,50 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <figcaption><b>名前の入力（サインイン直後）</b>名前を一度も保存していなければ出す。閉じられない。名前が空の間は「はじめる」を押せない。既定の「You」のまま仲間へ伝えない。</figcaption>
     </figure>
 
-    <!-- メンバーを招待 -->
-    <figure>
+    <!-- 保存前の同じ選択画面：新しい人と保存ユーザー -->
+    <figure id="group-new-person-selection">
       <div class="phone"><div class="screen">
-        <div class="sbar"><span>9:41</span><span class="island"></span><span class="sys"><svg class="i"><use href="#antenna"/></svg><span class="bat"></span></span></div>
-        <div class="sheet">
-          <div class="grab"></div>
-          <div class="sh"><span class="link">キャンセル</span><b>メンバーを招待</b><span style="width:56px"></span></div>
-          <div class="body">
-            <div class="group-h">あなたのユーザー</div>
-            <div class="group" style="background:var(--grouped-card)">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="sheet"><div class="sh"><span class="link">キャンセル</span><b>メンバーを招待</b></div>
+          <div class="body"><div class="group-h">あなたのユーザー</div>
+            <div class="group">
+              <div class="row"><svg class="i link"><use href="#person-add"/></svg><span class="grow link">新しい人を招待</span></div>
+              <div class="row"><span class="grow">ソラ<span style="color:var(--accent)">|</span></span><svg class="i link" aria-label="削除"><use href="#minus-circle"/></svg></div>
               <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">マキ</span><span class="check on"><svg class="i"><use href="#check"/></svg></span></div>
               <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">リョウ</span><span class="check"></span></div>
-              <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">ソラ<span style="color:var(--accent)">|</span></span><span class="check on"><svg class="i"><use href="#check"/></svg></span></div>
-              <div class="row"><span class="avatar pending"><svg class="i"><use href="#plus"/></svg></span><span class="grow link">新しい人を招待</span></div>
             </div>
-            <p class="note" style="padding:0 6px">自分を含めて6/8人</p>
-            <div class="btn prom" style="margin-top:14px">招待を送る</div>
+            <p class="note">自分を含めて6/8人</p><div class="btn prom">招待を保存</div>
           </div>
         </div>
       </div></div>
-      <figcaption><b>メンバーを招待（シート）</b>仲間を入れたいという意図は1つなので、登録済みの人（マキ）も新しい人（ソラ）も同じ一覧で選び、同じ「招待を送る」で送る。登録済みの人には自動で届き、新しい人がいるときだけ続けて共有画面で送り先を選ぶ。届け方の違いは見せない。結果はどちらもメンバー一覧の「招待中」。背景はすべてのシートと同じテーマのグラデーション（変化は上から25%まで）。Formの標準の単色にしない。</figcaption>
+      <figcaption><b>メンバーを招待（保存前）</b>通話・グループ設定から同じ画面へ入る。登録済みの候補がいなくても新しい人を加えられる。新しい人の名前は保存まで未確定で、行を外しても保存済みの人を削除しない。名前欄へfocusし、候補のまま保存もできる。人数は既存4人・選択したマキ・新しいソラで6枠。保存で名前・人・予約枠・招待をまとめて確定する。登録済みの人への自動配送は残課題で、現行は保存後に手動共有する。</figcaption>
+    </figure>
+    <figure id="group-new-person-share">
+      <div class="phone"><div class="screen">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="sheet"><div class="sh"><b>招待を共有</b><span class="link">完了</span></div>
+          <div class="body"><div class="group"><div class="row"><b>週末の仲間</b></div>
+            <div class="row">招待を保存しました。相手ごとの招待を共有してください。共有を取り消しても、保存した相手と招待は残ります。</div>
+            <div class="row"><span class="grow">ソラ</span><span>›</span></div>
+          </div><div class="group">
+            <div class="row">追加した相手にグループの招待を送ってください。相手が開くと、週末の仲間とその鍵が相手の端末に追加され、インターネットがなくても近くで会話できます。</div>
+            <div class="row link"><svg class="i"><use href="#share"/></svg><span>招待</span></div>
+          </div><p class="note">追加しただけでは、この端末の一覧に載るだけです。招待は後から「招待」でも送れます。</p></div>
+        </div>
+      </div></div>
+      <figcaption><b>保存から相手ごとの共有へ</b>ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えてもUsersの同じ人かグループ設定の招待中の行から再開できる。この例は登録済みのマキも選んでいるため、従来の手動共有も下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
+    </figure>
+    <figure id="group-new-person-accept">
+      <div class="phone"><div class="screen">
+        <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
+        <div class="sheet"><div class="sh"><span class="link">拒否</span><b>招待</b><span class="link">登録</span></div>
+          <div class="body"><div class="group"><div class="row"><b>マキ</b></div>
+            <div class="row">登録すると、この相手をユーザーに保存します。拒否しても相手には通知しません。</div>
+            <div class="row">登録すると「週末の仲間」もグループに追加されます。</div>
+          </div></div>
+        </div>
+      </div></div>
+      <figcaption><b>個人登録とグループ保存を一度に確認</b>拒否は無保存。「登録」で相手・個人通話の鍵・グループと鍵・返信を一度に保存し、同じ保存済み詳細に留まる。「保存したグループ：週末の仲間」と返信状況を出し、そのまま返信を共有できる。現在の通話は切り替えず、保存したグループは後から自分で開く。再起動しても同じ人とグループを保つ。</figcaption>
     </figure>
 
     <!-- 通話 接続中 -->

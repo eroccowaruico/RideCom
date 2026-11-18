@@ -14,8 +14,7 @@ struct AdvancedCallMoreMenu: View {
                     Button("Group Settings", systemImage: "gearshape") { settings = .group(group.id) }
                         .accessibilityIdentifier("callGroupSettingsButton")
                     Button("Add Saved Users", systemImage: "person.badge.plus") { addingMembers = group }
-                        .disabled(!viewModel.canEditSavedGroups || viewModel.availableUsers(for: group.id).isEmpty
-                                  || group.members.count >= IntercomGroup.maximumMemberCount)
+                        .disabled(!viewModel.canEditSavedGroups || group.members.count >= IntercomGroup.maximumMemberCount)
                         .accessibilityIdentifier("callAddMembersButton")
                 } else {
                     let userID = viewModel.savedUserID(forDirectCall: group)

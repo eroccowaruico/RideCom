@@ -105,11 +105,25 @@ struct GroupSnapshot: Codable, Equatable {
     }
 
     mutating func synchronizeUserReferences() {
+        let people = Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for index in contactInvitations.indices {
+            let record = contactInvitations[index]
+            if record.direction == .outgoing, record.state == .pending || record.state == .expired,
+               let person = record.personID.flatMap({ people[$0] }), !person.isRegistered {
+                contactInvitations[index].nickname = person.resolvedDisplayName
+            }
+        }
         let directory = Dictionary(users.flatMap { user in user.memberIDs.map { ($0, user) } },
                                uniquingKeysWith: { first, _ in first })
         for groupIndex in groups.indices {
             for index in groups[groupIndex].members.indices {
                 let member = groups[groupIndex].members[index]
+                if let invitation = contactInvitations.first(where: { $0.invitedGroupID == groups[groupIndex].id
+                    && $0.direction == .outgoing && $0.state != .cancelled && $0.pendingGroupMemberID == member.id }),
+                   let person = invitation.personID.flatMap({ people[$0] }), !person.isRegistered {
+                    groups[groupIndex].members[index].displayName = person.resolvedDisplayName
+                    groups[groupIndex].members[index].localName = nil
+                }
                 // Group presence is not a direct invitation. Keep group metadata
                 // without copying unrelated riders into the address book.
                 let user = directory[member.id] ?? groups[groupIndex].accountDevices[member.id].flatMap { binding in

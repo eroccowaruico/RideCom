@@ -8,6 +8,7 @@ struct SavedUsersView: View {
     @Environment(\.dismiss) private var dismiss
     /// Set once saved users were committed to this group. Adding them only lists
     /// them here; their devices get the group key from the shared invitation.
+    @State private var selectedUsers: Set<UUID> = []
     @State private var invitationGroupID: UUID?
     private var invitationGroup: IntercomGroup? { viewModel.groups.first { $0.id == invitationGroupID } }
 
@@ -21,6 +22,7 @@ struct SavedUsersView: View {
                 StandardMemberSelection(viewModel: viewModel, groupID: groupID, onSaved: finish)
             }
         }
+        .interactiveDismissDisabled()
         // A group removed during the invitation step has nothing left to share.
         .onChange(of: invitationGroupID != nil && invitationGroup == nil) { _, removed in if removed { dismiss() } }
         #if os(macOS)
@@ -29,13 +31,32 @@ struct SavedUsersView: View {
     }
 
     /// Creating selects the new group. Only added people need the invitation.
-    private func finish(_ addedTo: UUID?) {
+    private func finish(_ addedTo: UUID?, selectedUsers: Set<UUID>) {
+        self.selectedUsers = selectedUsers
         if let addedTo { invitationGroupID = addedTo } else { dismiss() }
     }
 
     /// Until saved users receive the group automatically, the added people get it by a shared link.
     private func invitationStep(_ group: IntercomGroup) -> some View {
         Form {
+            let people = viewModel.groupInvitationPersonIDs(group.id)
+            if !people.isEmpty {
+                Section {
+                    Text(verbatim: group.name).font(.headline)
+                    Text("Invitations saved. Share each person's invitation. Cancelling sharing keeps the saved people and invitations.")
+                    ForEach(people, id: \.self) { personID in
+                        if let person = viewModel.contactPerson(personID) {
+                        NavigationLink {
+                            if viewModel.interfaceMode == .advanced {
+                                AdvancedContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID)
+                            } else { StandardContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID) }
+                        } label: { Text(verbatim: person.resolvedDisplayName) }
+                        .accessibilityIdentifier("groupInvitePerson-\(personID)")
+                        }
+                    }
+                }
+            }
+            if !selectedUsers.isEmpty {
             Section {
                 Text("Send the group invitation to the people you added. When they open it, \(group.name) and its key are added on their device, and you can talk nearby without the Internet.")
                     .accessibilityIdentifier("sendGroupInvitationMessage")
@@ -43,9 +64,10 @@ struct SavedUsersView: View {
             } footer: {
                 Text("Adding people only lists them on this device. You can send the invitation later from Invite.")
             }
+            }
         }
         .screenBackground(AppColorPalette.listScreenBackground)
-        .navigationTitle(LocalizedStringKey("Send Invitation"))
+        .navigationTitle(LocalizedStringKey("Share Invitations"))
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }.accessibilityIdentifier("finishAddingUsersButton")
@@ -59,6 +81,8 @@ struct MemberSelection {
     let viewModel: IntercomViewModel
     let groupID: UUID?
     let suggestedName: String?
+    let newGroupID = UUID()
+    var newPeople: [GroupInvitationDraft] = []
     var selected: Set<UUID> = []
     var typedName = ""
 
@@ -76,7 +100,10 @@ struct MemberSelection {
         typedName = name
     }
 
-    var users: [SavedUser] { viewModel.availableUsers(for: groupID) }
+    var users: [SavedUser] {
+        let savedID = groupID ?? (viewModel.groups.contains(where: { $0.id == newGroupID }) ? newGroupID : nil)
+        return viewModel.availableUsers(for: savedID)
+    }
 
     var groupName: String {
         let typed = typedName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,13 +111,21 @@ struct MemberSelection {
     }
 
     var memberCount: Int {
-        (viewModel.groups.first { $0.id == groupID }?.members.count ?? 1)
+        (viewModel.groups.first { $0.id == (groupID ?? newGroupID) }?.members.count ?? 1)
         + users.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.groupMemberIDs.count }
+        + newPeople.filter { viewModel.contactPerson($0.id) == nil }.count
     }
 
     var canSave: Bool {
         viewModel.canEditSavedGroups && memberCount <= IntercomGroup.maximumMemberCount
-            && (groupID == nil ? IntercomGroup.isValidName(groupName) && !groupName.contains("|") : !selected.isEmpty)
+            && newPeople.allSatisfy { IntercomGroup.isValidName($0.resolvedName) }
+            && (groupID == nil ? IntercomGroup.isValidName(groupName) && !groupName.contains("|") : !selected.isEmpty || !newPeople.isEmpty)
+    }
+
+    mutating func addNewPerson() {
+        guard memberCount < IntercomGroup.maximumMemberCount else { return }
+        let avoided = Set(viewModel.directoryUsers.map(\.resolvedDisplayName) + newPeople.map(\.resolvedName))
+        newPeople.append(.init(suggestedName: ProvisionalName.candidate(avoiding: avoided)))
     }
 
     mutating func toggle(_ id: UUID) {
@@ -100,6 +135,11 @@ struct MemberSelection {
     /// Saves, then returns the group the people were added to, or nil when nobody was added.
     /// Returns `.none` when saving failed.
     func save() -> UUID?? {
+        if !newPeople.isEmpty {
+            guard canSave, let id = viewModel.saveGroupInvitations(groupID: groupID ?? newGroupID, creating: groupID == nil,
+                name: groupName, selected: selected, newPeople: newPeople) else { return nil }
+            return .some(.some(id))
+        }
         let saved = if let groupID { viewModel.addSavedUsers(selected, to: groupID) }
                     else { viewModel.createTalkGroup(name: groupName, userIDs: selected) }
         guard saved else { return .none }
@@ -117,6 +157,44 @@ struct UserSettingsView: View {
             AdvancedUserSettingsView(viewModel: viewModel, user: user)
         } else {
             StandardUserSettingsView(viewModel: viewModel, user: user)
+        }
+    }
+}
+
+/// The same explicit reload action wherever an invitation save needs recovery.
+struct InvitationStorageRecoveryButton: View {
+    let viewModel: IntercomViewModel
+    var body: some View {
+        if viewModel.groupStorageIssue != nil {
+            Button("Reload Saved Groups") { viewModel.reloadSavedGroups() }
+                .accessibilityIdentifier("reloadGroupInvitationStorageButton")
+        }
+    }
+}
+
+/// Identical new-person input and discard in both modes; saved-user selection stays mode-owned.
+struct NewGroupInvitees: View {
+    @Binding var selection: MemberSelection
+    @FocusState private var focusedPerson: UUID?
+    var body: some View {
+        Group {
+            Button("Invite Someone New", systemImage: "person.badge.plus") {
+                selection.addNewPerson(); focusedPerson = selection.newPeople.last?.id
+            }
+            .disabled(selection.memberCount >= IntercomGroup.maximumMemberCount || !selection.viewModel.canEditSavedGroups)
+            .accessibilityIdentifier("addNewGroupInviteeButton")
+            ForEach($selection.newPeople) { $draft in
+                HStack {
+                    TextField("Their Name", text: $draft.name, prompt: Text(verbatim: draft.suggestedName))
+                        .focused($focusedPerson, equals: draft.id).submitLabel(.done)
+                        .onSubmit { focusedPerson = nil }
+                        .accessibilityIdentifier("newGroupInviteName-\(draft.id)")
+                    Button("Remove", systemImage: "minus.circle") {
+                        if focusedPerson == draft.id { focusedPerson = nil }
+                        selection.newPeople.removeAll { $0.id == draft.id }
+                    }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                }
+            }
         }
     }
 }

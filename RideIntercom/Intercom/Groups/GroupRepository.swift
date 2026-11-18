@@ -443,6 +443,38 @@ extension GroupRepository {
         }
     }
 
+    /// A selection of new people and its group is one operation, including every reserved slot.
+    func saveGroupInvitationSelection(_ group: IntercomGroup, credential: GroupAccessCredential,
+                                     invitees: [(person: SavedUser, token: GroupInviteToken)], now: TimeInterval) throws {
+        guard let snapshot, group.kind == .group, credential.groupID == group.id, !invitees.isEmpty,
+              group.members.count + invitees.count <= IntercomGroup.maximumMemberCount,
+              Set(invitees.map { $0.person.id }).count == invitees.count else { throw GroupStorageError.invalidUpdate }
+        if snapshot.groups.contains(where: { $0.id == group.id }) {
+            guard try self.credential(for: group.id)?.secret == credential.secret else { throw GroupStorageError.identityConflict }
+        }
+        var reserved = group
+        for (person, token) in invitees {
+            try token.validate(contactBootstrap: true)
+            guard let context = token.directInvitation?.context, let target = token.invitedGroup,
+                  target.id == group.id, target.name == group.name, target.secret == credential.secret,
+                  token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
+                  !person.isRegistered, IntercomGroup.isValidName(person.resolvedDisplayName),
+                  !snapshot.users.contains(where: { $0.id == person.id }),
+                  !snapshot.contactInvitations.contains(where: { $0.id == context.id }), let proof = token.identityProof else { throw GroupStorageError.invalidUpdate }
+            _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
+            reserved.members.append(.init(id: GroupMember.pendingInvitePrefix + "contact-" + context.id.uuidString.lowercased(), displayName: person.resolvedDisplayName))
+        }
+        try update([reserved] + snapshot.groups.filter { $0.id != group.id }.map { try $0.group() }, credential: credential) { next in
+            for (person, token) in invitees {
+                guard let context = token.directInvitation?.context else { throw GroupStorageError.invalidUpdate }
+                next.users.append(person)
+                next.contactInvitations.append(.init(id: context.id, direction: .outgoing, expiresAt: context.expiresAt,
+                    credentialReference: try self.prepareKey(ContactInvitationPayload(token: token).encodedSecret()),
+                    nickname: person.resolvedDisplayName, sent: false, personID: person.id, invitedGroupID: group.id))
+            }
+        }
+    }
+
     func acceptContactInvitation(_ token: GroupInviteToken, accepted: AcceptedDirectInvitation,
                                  localDisplayName: String, now: TimeInterval) throws {
         try token.validate(contactBootstrap: true)

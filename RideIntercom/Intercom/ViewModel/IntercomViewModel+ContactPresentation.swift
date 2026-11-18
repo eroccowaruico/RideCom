@@ -34,7 +34,7 @@ extension IntercomViewModel {
             contactInvitationMessage = nil
             contactInvitationPresentation = .accepting(.init(id: context.id,
                 inviterName: groupRepository.inviterName(for: token), expiresAt: context.expiresAt,
-                accountAccessID: accountAccessID, url: url))
+                accountAccessID: accountAccessID, url: url, invitedGroupName: token.invitedGroup?.name))
             return true
         } catch {
             contactInvitationPresentation = nil

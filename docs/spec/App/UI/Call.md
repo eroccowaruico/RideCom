@@ -118,20 +118,20 @@ Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見�
 | 保存ユーザーの行 | 「Your Users」（あなたのユーザー）にアバター・名前・選択の印（`checkmark.circle.fill`／`circle`）。候補がなければSectionを出さない | 「Saved Users」に名前と選択中だけの`checkmark`。Toggleは使わない |
 | 行の操作 | 両モードともタップで選ぶだけ（`selectUser-{UUID}`、VoiceOverは選択状態）。行に名前の編集・削除、説明やfooterを置かない | 同左。画面の構成と選択の印はモードごとに持つ |
 | 人数とエラー | 保存と共通のSavedUser.groupMemberIDsで数える。確認済みの同じアカウントは1枠、principalがない相手はmember ID単位。一覧の下の`safeAreaBar`に「{n}/8 people including you」（自分を含めて{n}/8人、`memberSelectionCount`）と`savedUsersErrorLabel` | Formの別Sectionに「{n} of 8 members including you」と`savedUsersErrorLabel` |
-| 確定操作 | `safeAreaBar`に主要操作1つ（`saveUserSelectionButton`）。作成は`Create and Connect`（作成して接続）、別の通話中は`Create Group`、既存groupへの追加は`Send Invitation`（招待を送る） | ツールバーの`saveUserSelectionButton`。新規作成は同じ`Create and Connect`／`Create Group`、既存groupへの追加は`Add Users` |
+| 確定操作 | `safeAreaBar`に主要操作1つ（`saveUserSelectionButton`）。作成は`Create and Connect`（作成して接続）、別の通話中は`Create Group`、既存groupへの追加は`Save Invitations`（招待を保存） | ツールバーの`saveUserSelectionButton`。新規作成は同じ`Create and Connect`／`Create Group`、既存groupへの追加は`Add Users` |
 | 取消 | ツールバーの`Cancel`（`closeSavedUsersButton`）。変更せず閉じる | 同左 |
 
-選択の値・名前の生成・検証・保存は両モード共通の`MemberSelection`。保存済みの相手を使うグループを作成し、待機中ならそのまま接続する。相手を加えたときは、相手の端末へグループを自動で届ける機能がまだないため、続けて共通の招待の共有の画面（`sendGroupInvitationMessage`）を出す。
+選択の値・名前の生成・検証・保存は両モード共通の`MemberSelection`。保存済みの相手を使うグループを作成し、待機中ならそのまま接続する。相手の端末へグループを自動で届ける機能は未実装。選択した登録済みの人には既存の手動共有（`sendGroupInvitationMessage`）を用意し、新しい人には下記の名前付きの共有段階を出す。
 
 Usersの行の`User Settings`（`userSettingsView`）は相手の設定を開く。モードごとに別のView（`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`UserSettingsView`が選ぶ。Standardは、見本の項目だけを置く。「Name on This Device」（この端末での名前、`savedUserNameField`。今の呼び名で開き、空なら本人の名前をプレースホルダーに出す）と別のSection「Their Own Name」（本人の名前、`savedUserOriginalName`。副次色で読むだけ）、最後に赤の`Delete User`（ユーザーを削除、`deleteUserButton`。確認はタイトル「{呼び名}を削除しますか？」と「削除」（`confirmDeleteUserButton`。その相手と接続中なら本文「今の接続は切断されます。」と確定「切断して削除」）・「キャンセル」で、削除の同期が未実装のため本文を出さない）。`Save`（`saveUserNameButton`）では、空欄か本人の名前と同じなら呼び名を解除して本人名に従い、それ以外は端末内の呼び名として保存する。招待の共有、`Use Shared Name`、通知の切替、説明のfooterは置かない（通知はOSの設定だけで、個人で登録した相手は全員通知を送ってよい）。Standardの相手の設定には呼び出しの送信を置かない。1対1の接続を始めると呼び出しの通知を1回だけ送る（下の[1対1の呼び出しの通知](#1対1の呼び出しの通知)）。AdvancedもUsersの行のスワイプ（Macは右クリック）の「User Settings」から開く。Advancedの相手の設定は端末での呼び名、本人名、`Use Shared Name`（`resetUserNameButton`）、内部のdirect groupがあり共有可能なら招待（`userSettingsInviteButton`）、`Delete User`を置く。手動の呼び出し・受信の切替は両モードとも置かず、`closeUserSettingsButton`で閉じる。同じ名前の別IDは統合しない。行のDeleteは相手とその個別通話group（Advancedの`advancedDirectGroup-{UUID}`）を消し、その相手との進行中の通話は切断する。通常グループのメンバーは保持する。表示名変更は既存グループにも反映する。
 
 StandardではCallのメンバーの下の`Invite Members`（メンバーを招待、`addSavedUsersButton`）、Advancedは通話の…メニュー（`callAddMembersButton`）、両モードでGroup Settings（`groupSettingsAddMembersButton`）から保存ユーザーを追加する。現在のgroup IDを操作対象として固定し、直接招待関係のある保存ユーザーのうち、まだ含まれない相手を選択して追加する。自分を含め8memberまでで、重複・古い操作対象・保存失敗は確定しない。`savedUsersErrorLabel`で失敗を示す。選択だけでは相手へ通知しないことと、追加後に招待の共有が必要なことをFormに表示する。AppleログインやID宛て通知の完成を表す画面ではない。
 
-保存ユーザーの追加はこの端末のメンバー一覧への記録だけであり、group鍵は相手へ届かない。鍵は招待URL（署名付きのgroup ID・名前・鍵）を相手が開いたときに相手の端末へ保存され、相手のgroup一覧へ自動で追加される。そのため、保存ユーザーを1人以上選んだCreate Group / Add Usersが成功したら、sheetを閉じずに同じsheetを招待の段階へ切り替える。
+保存ユーザーの追加はこの端末のメンバー一覧への記録だけであり、group鍵は相手へ届かない。鍵は招待URL（署名付きのgroup ID・名前・鍵）を相手が開いたときに相手の端末へ保存され、相手のgroup一覧へ自動で追加される。そのため、保存ユーザーを選ぶか新しい人を1人以上入力した作成・追加が成功したら、sheetを閉じずに同じsheetを招待の段階へ切り替える。
 
 | 状態 | 成立条件 | 表示 | 可能な操作 | 復帰先 |
 |---|---|---|---|---|
-| Ideal | 保存ユーザーを1人以上含む作成・追加が保存された | 見出し`Send Invitation`、相手が開くとgroupと鍵が相手の端末に追加されInternetなしで近くで会話できる旨（`sendGroupInvitationMessage`）、共有ボタン（`addedUsersInviteButton`）、追加だけでは一覧に載るだけで後からInviteでも送れる旨 | 共有、Done（`finishAddingUsersButton`） | Doneで元の画面。作成時は新groupの通話画面 |
+| Ideal | 保存ユーザーを1人以上含む作成・追加が保存された | 見出し`Share Invitations`、相手が開くとgroupと鍵が相手の端末に追加されInternetなしで近くで会話できる旨（`sendGroupInvitationMessage`）、共有ボタン（`addedUsersInviteButton`）、追加だけでは一覧に載るだけで後からInviteでも送れる旨 | 共有、Done（`finishAddingUsersButton`） | Doneで元の画面。作成時は新groupの通話画面 |
 | Partial | 共有せずにDoneを押した | 追加済みのメンバーは一覧に残る | AdvancedのGroup Settingsの招待（`groupSettingsInviteButton`）または通話の…メニューの`inviteButton`で後から共有 | 元の画面 |
 | Error | 保存に失敗した | 選択画面のまま`savedUsersErrorLabel` | 選択の変更・再試行・Cancel | 選択画面 |
 | Empty | 保存ユーザーを選ばずにgroupを作成した | 招待の段階を出さずにsheetを閉じる | 通常どおり | 新groupの通話画面 |
@@ -165,7 +165,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 
 | 画面 | 項目 | 操作 |
 |---|---|---|
-| Group Settings（`groupSettingsView`） | 名前（`groupSettingsNameField`）、メンバー（Standardは先頭に自分の行（「自分」、`groupSettingsSelf`、操作なし）。相手の行のタップ（`groupSettingsMember-{id}`、行末にchevron）でメンバーの画面（`StandardGroupMemberView`。タイトルはその人の名前、「この端末での名前」（`groupMemberNameField`。空ならプレースホルダーに本人の名前を出し、空で保存すると本人の名前に戻る）と最後の赤い`Remove from Group`（グループから外す、`removeGroupMemberButton`）だけ。Advancedの`GroupMemberNameView`とは部品を分ける）を開き、行のswipeは`Remove`（`person.badge.minus`）だけ。外す操作は`canEditSavedGroups`のときだけ出す。Advancedは行のswipeで`Edit Name`と`Remove`、Macは右クリック。どれも標準の`alert`で「{名前}をグループから外しますか？」と確認し、確定は`confirmRemoveMemberButton`）、メンバーの下の追加の行（`groupSettingsAddMembersButton`。Standardは破線のアバターと`Invite Members`（メンバーを招待）で、通話のメンバーの下と同じ語。Advancedは`Add Members`）、招待（`groupSettingsInviteButton`。Standardでは新しい人を招待できるまでの暫定）、最後の赤いボタン1つ（両モードで同じ`GroupRemovalSection`。記号なしの赤い文字）: グループを作った人（オーナー。この端末で作ったグループ。招待から入ったグループは`GroupSnapshot.Record.joinedByInvitation`で区別し、記録より前のグループはオーナー扱い）は`Delete Group`（`deleteGroupButton`）、それ以外は`Leave Group`（グループから抜ける、`leaveGroupButton`。この端末から外す。ほかのメンバーへの反映は削除の同期で行う）。確認のタイトルは「{グループ}を削除しますか？」／「{グループ}から抜けますか？」、接続中なら本文「今の接続は切断されます。」と確定「切断して削除」／「切断して抜ける」（`confirmDeleteGroupButton`／`confirmLeaveGroupButton`）。メンバーの招待（`groupSettingsAddMembersButton`と通話の`addSavedUsersButton`）と外す操作は利用権を持つ人（`canManageRegularGroups`）だけに出し、持たない人には出さない（無効にして見せない）。Standardに宛先のないグループのリンクの共有は置かない（Advancedの`Share Call Invite`だけ） | `Done`（`saveGroupSettingsButton`）で名前を保存して閉じる。名前は端末内の`renameGroup`で保存し、接続中でも再接続しない。`|`は保存しない。Standardの名前の欄はプレースホルダーにメンバーの名前から作った名前（例: Haruka and Kenta）を出し、空にして`Done`を押すとその名前を保存する。Advancedは空白だけの名前を保存しない。削除・抜けるは確認の後に実行し、接続中なら切断する。`Cancel`（`closeGroupSettingsButton`）は名前を保存しない |
+| Group Settings（`groupSettingsView`） | 名前（`groupSettingsNameField`）、メンバー（Standardは先頭に自分の行（「自分」、`groupSettingsSelf`、操作なし）。相手の行のタップ（`groupSettingsMember-{id}`、行末にchevron）でメンバーの画面（`StandardGroupMemberView`。タイトルはその人の名前、「この端末での名前」（`groupMemberNameField`。空ならプレースホルダーに本人の名前を出し、空で保存すると本人の名前に戻る）と最後の赤い`Remove from Group`（グループから外す、`removeGroupMemberButton`）だけ。Advancedの`GroupMemberNameView`とは部品を分ける）を開き、行のswipeは`Remove`（`person.badge.minus`）だけ。外す操作は`canEditSavedGroups`のときだけ出す。Advancedは行のswipeで`Edit Name`と`Remove`、Macは右クリック。どれも標準の`alert`で「{名前}をグループから外しますか？」と確認し、確定は`confirmRemoveMemberButton`）、メンバーの下の追加の行（`groupSettingsAddMembersButton`。Standardは破線のアバターと`Invite Members`（メンバーを招待）で、通話のメンバーの下と同じ語。Advancedは`Add Members`）、招待（`groupSettingsInviteButton`。Advancedのみ）、最後の赤いボタン1つ（両モードで同じ`GroupRemovalSection`。記号なしの赤い文字）: グループを作った人（オーナー。この端末で作ったグループ。招待から入ったグループは`GroupSnapshot.Record.joinedByInvitation`で区別し、記録より前のグループはオーナー扱い）は`Delete Group`（`deleteGroupButton`）、それ以外は`Leave Group`（グループから抜ける、`leaveGroupButton`。この端末から外す。ほかのメンバーへの反映は削除の同期で行う）。確認のタイトルは「{グループ}を削除しますか？」／「{グループ}から抜けますか？」、接続中なら本文「今の接続は切断されます。」と確定「切断して削除」／「切断して抜ける」（`confirmDeleteGroupButton`／`confirmLeaveGroupButton`）。メンバーの招待（`groupSettingsAddMembersButton`と通話の`addSavedUsersButton`）と外す操作は利用権を持つ人（`canManageRegularGroups`）だけに出し、持たない人には出さない（無効にして見せない）。Standardに宛先のないグループのリンクの共有は置かない（Advancedの`Share Call Invite`だけ） | `Done`（`saveGroupSettingsButton`）で名前を保存して閉じる。名前は端末内の`renameGroup`で保存し、接続中でも再接続しない。`|`は保存しない。Standardの名前の欄はプレースホルダーにメンバーの名前から作った名前（例: Haruka and Kenta）を出し、空にして`Done`を押すとその名前を保存する。Advancedは空白だけの名前を保存しない。削除・抜けるは確認の後に実行し、接続中なら切断する。`Cancel`（`closeGroupSettingsButton`）は名前を保存しない |
 | User Settings（`userSettingsView`） | Standardはこの端末での名前、本人の名前、`Delete User`。Advancedは端末での呼び名、本人の名前、Use Shared Name、招待（`userSettingsInviteButton`）、`Delete User`（`deleteUserButton`） | `Save`で呼び名を保存。削除は確認の後で、相手の個別通話groupも消し、その相手との通話は切断する。通常groupは保持する |
 
 対象groupの消失・種別不一致では設定の内容を表示しない。設定の招待は対象group IDに固定した共有（`InvitationShare(settingsGroupID:)`）を使い、表示中の通話が別のgroupでも、共有時に対象groupの存在・鍵・権限を再検証する。通話画面の招待は従来どおり表示中の通話に固定し、選択が変われば共有しない。Advancedの通話の参加者は状態と音声操作だけを表示する。Standardの通話のメンバーの行に操作は置かず、名前の編集と通常groupから外す操作はGroup Settingsで行う。
@@ -283,3 +283,23 @@ AdvancedではGroups管理画面の参加者名から、StandardではCallの参
 ## 共通の操作表現
 
 StandardとAdvancedの接続・音声再開には標準`glassProminent`、補助操作には`glass`のButtonStyleを使う。Advancedの参加者操作と、Form内の設定コントロールを維持する。画面の背景は、上端のbackgroundTop（ライト`#CFE5F6`、ダーク`#0E2238`）から下へbackgroundBase（ライト`#EBF1F7`、ダーク`#03070D`）に変わり、変化の終わりから下は一定の色にする（`AppColorPalette`の`callScreenBackground`・`listScreenBackground`と`screenBackground(_:)`。List・Formは標準のセルのまま、背景を画面に固定する）。終わりの位置は、StandardのCall・Appleログイン・名前の入力が高さの45%（ガラスのヒーローと操作が変化の上に乗る）、Users・Groups・招待のシート・Settingsとその中の画面・AdvancedのCall・Diagnosticsが25%（行は一定の色の上に並ぶ）。macOSは標準のwindowの背景で、グラデーションを使わない（[背景のグラデーション](../../../design/カラーテーマ.md#背景のグラデーション)）。下から開くシート（メンバーを招待・新しいグループと招待の送信、グループの設定、相手の設定、メンバーの呼び名、招待の受け取り、購入、アカウントの削除と削除中の表示）も同じ25%の背景にし、Formの標準の単色にしない。面は[面の重なり](../../../design/カラーテーマ.md#面の重なり)に従い、独自に描くAdvanced・Diagnosticsのカード（`appCallCardStyle`・`appDiagnosticsCardStyle`）は不透明の`cardSurface`（`secondarySystemGroupedBackground`）に`cardBorder`の枠線、Diagnosticsの入れ子の面は不透明の`panelSurface`（`tertiarySystemGroupedBackground`）で、ガラス・Material・薄めた色にしない。ガラスはStandardの状態ヒーロー、ボタン、ナビゲーションだけ。通話のアクセサリの中のミュート（オフ）と切断は、OSのガラスの上に記号だけを置き、ミュート中だけDangerで塗った円に白い記号にする。共通の青いtintで揃える。
+
+
+## 新しい相手へのグループ招待
+
+Standardの通話のaddSavedUsersButton・group設定のgroupSettingsAddMembersButtonと、AdvancedのcallAddMembersButton・groupSettingsAddMembersButton、新規作成は同じSavedUsersViewへ入る。候補の保存ユーザーが0人でも、通常groupの8枠に余裕があれば入口を使える。
+
+| 対応する実装・ID | 表示・操作 |
+|---|---|
+| MemberSelection.newPeople／newGroupID | 未保存のGroupInvitationDraftを保持。StandardはYour Usersの上、AdvancedはNew Peopleに共通NewGroupInviteesを置く。保存済みの選択行は各モードのまま |
+| addNewGroupInviteeButton | Invite Someone New（新しい人を招待）。押すと名前欄を追加してfocusし、人数へ1枠を加える。8枠で無効 |
+| newGroupInviteName-{UUID} | Their Name。空欄は重複しない仮名候補を採用。Removeは未保存行だけを外す。Returnはfocusを外すだけで保存しない |
+| saveUserSelectionButton | Standardの既存groupはSave Invitations、AdvancedはAdd Users、新規作成のCreate and Connect／Create Groupは従来どおり。名前・人・予約枠・招待を同じcommitで確定する |
+| groupInvitePerson-{UUID} | Share Invitationsに参加先・保存済みの名前を並べ、同じ人のモード別詳細を開く。元のperson IDで識別し、既知の相手へ解決しても勝手に別画面へ進めない |
+| shareContactInvitationButton | 参加先と人を確認してOS共有へ。取消・コピーで同じ詳細と保存状態を保つ。Doneは取消ではなく、保存済みのまま閉じる |
+| group設定の招待中の行 | 保存した同じ人のContactPersonSheetを開き、共有・名前編集を再開。通常のメンバーの編集・削除と区別し、PendingAvatarを使う |
+| invitedGroupPreview／acceptContactInvitationButton | 作者とgroup名、登録するとGroupsへも加わる旨。拒否は無保存。Registerは関係とgroupを一度に保存し、通話を切り替えず同じ詳細へ |
+| AdvancedContactInvitationContent | invitedGroupIDとsentを他の保存値に併記。秘密の添付やgroup鍵を表示のために読み出さない |
+| reloadGroupInvitationStorageButton | 保存失敗時は同じ入力を保ち、既存のReload Saved Groupsから回復。曖昧な保存完了後の再試行も同じIDで重複を防ぐ |
+
+UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/招待と登録の設計.md#新しい相手のグループ招待の状態遷移)と[通信契約](../通信仕様.md#個人登録を兼ねるグループ招待)に従う。登録済みの選択相手へのgroup鍵の自動配送は未実装で、選択した人向けの従来の手動共有を同じ段階に残す。新しい人への宛先なしリンクで代用しない。
