@@ -32,19 +32,20 @@ extension IntercomViewModel {
     func acceptContactInviteURL(_ url: URL) throws {
         guard canEditSavedGroups else { throw ContactInvitationError.unavailable }
         let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
+        let id = try contactID(token)
         let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
         let acceptance = try token.accept(signer: signer, displayName: localMemberIdentity.displayName,
             trust: internetSettingsStore.identityTrust(), now: callAccessNow().timeIntervalSince1970, contactBootstrap: true)
         do { try groupRepository.acceptContactInvitation(token, accepted: acceptance,
             localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); throw error }
-        adoptStoredContactRegistration(with: acceptance.inviter.memberID, invitationID: try contactID(token))
+        adoptStoredContactRegistration(with: acceptance.inviter.memberID, invitationID: id)
         refreshGroupStorageStatus()
-        _ = resumeContactInvitation(try contactID(token))
+        _ = resumeContactInvitation(id, continuingInBackground: true)
     }
 
     @discardableResult
-    func resumeContactInvitation(_ id: UUID) -> Bool {
+    func resumeContactInvitation(_ id: UUID, continuingInBackground: Bool = false) -> Bool {
         guard canEditSavedGroups, activeGroupID == nil, !hasAnyActiveGroupConnection,
               let record = groupRepository.contactInvitations.first(where: { $0.id == id }),
               record.canResume else { return false }
@@ -55,6 +56,8 @@ extension IntercomViewModel {
             return false
         }
         if contactInvitationID == id, let session = contactInvitationSession, !session.isStopped {
+            if continuingInBackground { requestContactInvitationBackgroundTime(for: session) }
+            guard !session.isStopped else { return false }
             session.retry()
             return true
         }
@@ -112,6 +115,8 @@ extension IntercomViewModel {
             contactPermissionExchange = (false, false)
             contactInvitationID = id
             contactInvitationSession = session
+            if continuingInBackground { requestContactInvitationBackgroundTime(for: session) }
+            guard !session.isStopped else { return false }
             try session.restore(payload)
             // Each explicit retry has a finite radio lifetime. The durable
             // invitation keeps its independent seven-day validity after pausing.
@@ -125,6 +130,20 @@ extension IntercomViewModel {
             contactInvitationMessage = "This invitation could not be resumed. Try again."
             return false
         }
+    }
+
+    /// A registration can finish its existing reply attempt after the user leaves the app.
+    private func requestContactInvitationBackgroundTime(for session: ContactInvitationSession) {
+        guard endContactInvitationBackgroundTime == nil else { return }
+        let end = beginContactInvitationBackgroundTime { [weak self, weak session] in
+            guard let self, let session, self.contactInvitationSession === session else { return }
+            self.pauseContactInvitationSession()
+        }
+        guard contactInvitationSession === session else {
+            end?()
+            return
+        }
+        endContactInvitationBackgroundTime = end
     }
 
     private func closeContactInvitation(_ id: UUID, after delay: Duration) {
@@ -196,12 +215,15 @@ extension IntercomViewModel {
     }
 
     func stopContactInvitationSession() {
+        let end = endContactInvitationBackgroundTime
+        endContactInvitationBackgroundTime = nil
         suspendedContactInvitation = nil
         contactInvitationExpiryTask?.cancel()
         contactInvitationExpiryTask = nil
         contactInvitationSession?.stop()
         contactInvitationSession = nil
         contactInvitationID = nil
+        end?()
     }
 
     private func contactID(_ token: GroupInviteToken) throws -> UUID {

@@ -23,12 +23,18 @@ final class IntercomViewModel {
     var contactInvitationID: UUID?
     @ObservationIgnored var suspendedContactInvitation: (id: UUID, access: UUID)?
     @ObservationIgnored var contactInvitationExpiryTask: Task<Void, Never>?
+    @ObservationIgnored var beginContactInvitationBackgroundTime: AppBackgroundTime.Request = {
+        AppBackgroundTime.begin(name: "Finish Contact Invitation Reply", expiration: $0)
+    }
+    @ObservationIgnored var endContactInvitationBackgroundTime: (@MainActor () -> Void)?
     @ObservationIgnored var contactNotificationAttemptDuration: Duration = .seconds(60)
     /// How long the person who accepted keeps the exchange open for the two notification permissions.
     @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
     @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
     @ObservationIgnored var groupDeliveryClient: InternetAccountClient? = SystemSurfaceScope.permitsSystemAccess ? .init() : nil
-    @ObservationIgnored var beginGroupDeliveryBackgroundTime: GroupDeliveryBackgroundTimeRequest = IntercomViewModel.beginSystemGroupDeliveryBackgroundTime
+    @ObservationIgnored var beginGroupDeliveryBackgroundTime: AppBackgroundTime.Request = {
+        AppBackgroundTime.begin(name: "Finish Group Invitation Delivery", expiration: $0)
+    }
     @ObservationIgnored var endGroupDeliveryBackgroundTime: (@MainActor () -> Void)?
     @ObservationIgnored var groupDeliveryTask: Task<Void, Never>?
     @ObservationIgnored var groupDeliveryNeedsSync = false

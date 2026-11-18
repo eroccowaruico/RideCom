@@ -1,9 +1,4 @@
 import Foundation
-#if os(iOS)
-import UIKit
-#endif
-
-typealias GroupDeliveryBackgroundTimeRequest = @MainActor (@escaping @MainActor () -> Void) -> (@MainActor () -> Void)?
 
 extension IntercomViewModel {
     func groupDeliveryRecords(for selected: Set<UUID>, groupID: UUID) -> [GroupDeliveryRecord] {
@@ -83,21 +78,6 @@ extension IntercomViewModel {
         let end = endGroupDeliveryBackgroundTime
         endGroupDeliveryBackgroundTime = nil
         end?()
-    }
-
-    static func beginSystemGroupDeliveryBackgroundTime(expiration: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
-        #if os(iOS)
-        guard SystemSurfaceScope.permitsSystemAccess else { return nil }
-        let application = UIApplication.shared
-        let identifier = application.beginBackgroundTask(withName: "Finish Group Invitation Delivery") {
-            // UIKit calls this synchronously on the main thread.
-            MainActor.assumeIsolated { expiration() }
-        }
-        guard identifier != .invalid else { return nil }
-        return { application.endBackgroundTask(identifier) }
-        #else
-        return nil
-        #endif
     }
 
     func synchronizeGroupDeliveries() async {

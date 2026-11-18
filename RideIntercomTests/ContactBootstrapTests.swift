@@ -67,6 +67,63 @@ struct ContactBootstrapTests {
         #expect(ProvisionalName.candidate(japanese: false, avoiding: everything, using: &generator) == "Blue Fox 2")
     }
 
+    @Test(arguments: [false, true])
+    func explicitRegistrationContinuesTheSameSignedReplyAfterLeavingTheApp(expires: Bool) throws {
+        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-author")
+        let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-friend")
+        let a = author.viewModel, b = friend.viewModel
+        let authorTransport = RecordingCallSession()
+        var friendTransports: [RecordingCallSession] = []
+        a.contactSessionFactory = { authorTransport }
+        b.contactSessionFactory = {
+            let transport = RecordingCallSession()
+            friendTransports.append(transport)
+            return transport
+        }
+        defer { a.disconnect(); b.disconnect() }
+        var starts = 0, finishes = 0
+        var expire: (@MainActor () -> Void)?
+        b.beginContactInvitationBackgroundTime = { onExpiration in
+            starts += 1
+            expire = onExpiration
+            return { finishes += 1 }
+        }
+        let url = try #require(a.makeContactInviteURL())
+        #expect(b.previewContactInvitation(url))
+        #expect(starts == 0)
+        #expect(b.acceptPresentedContactInvitation(keepingPresentation: true))
+        #expect(starts == 1, "Register requests time before the user can leave")
+        let id = try #require(b.contactInvitationID)
+        let saved = try #require(b.contactInvitationRecord(id))
+        b.dismissContactInvitationPresentation()
+        b.suspendContactInvitationForBackground()
+        #expect(b.contactInvitationID == id && friendTransports.count == 1)
+        #expect(finishes == 0)
+        if expires {
+            expire?()
+            #expect(b.contactInvitationID == nil && finishes == 1)
+            #expect(b.contactInvitationRecord(id) == saved)
+            #expect(b.savedRemoteUsers.count == 1)
+            b.resumeSuspendedContactInvitation()
+            #expect(b.contactInvitationID == id && friendTransports.count == 2 && starts == 1)
+        }
+        let friendTransport = try #require(friendTransports.last)
+        friendTransport.authenticate(["background-reply-author"])
+        let receipt = try #require(friendTransport.sentApplicationDataMessages.last {
+            $0.namespace == DirectInvitationReceipt.namespace
+        })
+        authorTransport.authenticate(["background-reply-friend"])
+        authorTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-friend", message: receipt))
+        let acknowledgement = try #require(authorTransport.sentApplicationDataMessages.last {
+            $0.namespace == DirectInvitationReceipt.namespace
+        })
+        friendTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-author", message: acknowledgement))
+        #expect(a.savedRemoteUsers.map(\.memberIDs) == [["background-reply-friend"]])
+        #expect(b.savedRemoteUsers.map(\.memberIDs) == [["background-reply-author"]])
+        #expect(b.contactInvitationRecord(id)?.state == .delivered && finishes == 1)
+        #expect(author.callSession.startMediaCallCount == 0 && friend.callSession.startMediaCallCount == 0)
+    }
+
     @Test func theNameGivenBeforeSendingBecomesTheSavedUsersLocalName() throws {
         let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
         let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")

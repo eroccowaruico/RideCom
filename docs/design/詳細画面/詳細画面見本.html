@@ -608,7 +608,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="row">Retries stopped on this device.</div></div>
         </div>
       </div></div>
-      <figcaption><b>返信の再試行を停止</b>登録直後の同じ詳細・人物詳細・相手の設定は、同じ記録部品と人物別の共通操作を使う。Stop Retrying Notificationの確認で、この端末の再試行を停止し登録済み相手は残ると伝える。確定後は再試行・共有を外し、人・名前・開いている画面を保つ。図は相手の設定で、登録直後の詳細ではDoneを保つ。保存失敗は同じ画面に理由を出し、停止済みと表示しない（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
+      <figcaption><b>返信の再試行を停止</b>登録直後の同じ詳細・人物詳細・相手の設定は、同じ記録部品と人物別の共通操作を使う。Stop Retrying Notificationの確認で、この端末の再試行を停止し登録済み相手は残ると伝える。確定後は再試行・共有を外し、人・名前・開いている画面を保つ。図は相手の設定で、登録直後の詳細ではDoneを保つ。iOSで明示登録直後に背景へ移ると、OSが許す時間は同じsessionで返信を続ける。時間切れで未配送の記録はpendingを保つ。保存失敗は同じ画面に理由を出し、停止済みと表示しない（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
     </figure>
 
     <figure>

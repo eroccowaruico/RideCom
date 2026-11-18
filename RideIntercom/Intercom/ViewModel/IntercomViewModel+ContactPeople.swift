@@ -114,9 +114,13 @@ extension IntercomViewModel {
         _ = resumeContactInvitation(record.id)
     }
 
-    /// The same finite exchange may continue after sharing through another app. No background scan,
-    /// notification or periodic work is introduced, and another account cannot resume this exchange.
     func suspendContactInvitationForBackground() {
+        guard endContactInvitationBackgroundTime == nil else { return }
+        pauseContactInvitationSession()
+    }
+
+    /// Preserve the current attempt's durable checkpoint for the same account.
+    func pauseContactInvitationSession() {
         guard let id = contactInvitationID else { return }
         stopContactInvitationSession()
         suspendedContactInvitation = (id, accountAccessID)
