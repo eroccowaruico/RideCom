@@ -13,9 +13,16 @@ final class MixedRouteAudioE2E {
         let config = CallRouteConfiguration(enabledRoutes: routes, preferredRoute: .multipeer)
         let local = LocalCallRoute()
         localRoute = local
-        let web = WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in internet },
-                                      engine: makeAudioE2EWebRTCEngine())
-        return RouteManager(routes: [local, web], configuration: config)
+        var transports: [RTCCallRoute] = [local]
+        if let internet {
+            transports.append(WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in internet },
+                                                 engine: makeAudioE2EWebRTCEngine()))
+        }
+        return RouteManager(routes: transports, configuration: config)
+    }
+
+    func currentLocalMedia() async throws -> LocalDatagramTransport {
+        try await Self.mediaTransport(XCTUnwrap(localRoute))
     }
 
     func verify(test: XCTestCase, viewModel: IntercomViewModel, peer: PeerID, role: String, worker: AudioE2EWorker?,

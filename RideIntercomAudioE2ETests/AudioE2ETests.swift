@@ -5,7 +5,11 @@ import Codec
 import CryptoKit
 import Foundation
 import Synchronization
+#if DEBUG
+@testable import RTC
+#else
 import RTC
+#endif
 import SessionManager
 import XCTest
 #if os(iOS)
@@ -207,16 +211,18 @@ final class AudioE2ETests: XCTestCase {
         let waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
         let movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
         let checksInternetRecovery = env["AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY"] == "1"
+        let checksLocalRecovery = env["AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY"] == "1"
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
         if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
         if checksInternetRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "webrtc") }
+        if checksLocalRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "local") }
         let soleRoute: RouteKind = usesInternet ? .webRTC : .multipeer
         let groupSecret = "fixture-only-\(run)"
         let room = RTCCredential.derived(groupID: groupID.uuidString, secret: groupSecret).groupHash
         #if DEBUG
-        let mixedRoute = mixed ? MixedRouteAudioE2E() : nil
+        let instrumentedRoutes = mixed || checksLocalRecovery ? MixedRouteAudioE2E() : nil
         #else
-        if mixed { throw NSError(domain: "Mixed route fault injection requires Debug-Validation", code: 1) }
+        if mixed || checksLocalRecovery { throw NSError(domain: "Local route fault injection requires Debug-Validation", code: 1) }
         #endif
         let workerURL: URL?
         var worker: AudioE2EWorker?
@@ -265,12 +271,13 @@ final class AudioE2ETests: XCTestCase {
         configuration.rtcAudioFormatPreset = try XCTUnwrap(RTCAudioFormatPreset(rawValue: initial.format))
         configuration.audioSessionProfile = try XCTUnwrap(AudioSessionProfile(rawValue: initial.profile))
         settings.save(configuration)
-        let callSession: RideIntercomCallSessionAdapter? = internet.map { internet in
-            RideIntercomCallSessionAdapter(memberID: "e2e-\(role)-\(run.prefix(8))", internetConfiguration: internet,
+        let callSession: RideIntercomCallSessionAdapter?
+        if usesInternet || checksLocalRecovery {
+            callSession = RideIntercomCallSessionAdapter(memberID: "e2e-\(role)-\(run.prefix(8))", internetConfiguration: internet,
                 sessionFactory: { policy, routes, configuration in
                     #if DEBUG
-                    if let mixedRoute {
-                        return mixedRoute.makeSession(routes: routes, internet: configuration)
+                    if let instrumentedRoutes {
+                        return instrumentedRoutes.makeSession(routes: routes, internet: configuration)
                     }
                     #endif
                     return RTC.CallSessionFactory.makeSession(.init(
@@ -278,7 +285,7 @@ final class AudioE2ETests: XCTestCase {
                         webRTC: .init(cloudflareConfigurationProvider: { _ in configuration },
                                       engineFactory: { makeAudioE2EWebRTCEngine() })))
                 })
-        }
+        } else { callSession = nil }
         let account = AppleAccountSession(keychain: FixtureKeychain(), defaults: defaults, namespace: namespace, credentialState: { _ in .authorized })
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
@@ -370,11 +377,21 @@ final class AudioE2ETests: XCTestCase {
                     role: role, local: input.samples, remote: remote.samples,
                     directory: directory, seconds: initial.seconds, movesToBackground: true)
             }
+            #if DEBUG
+            if checksLocalRecovery {
+                try await verifyBackgroundLocalRecovery(viewModel: viewModel, routes: XCTUnwrap(instrumentedRoutes),
+                    barrier: barrier, groupID: groupID, peerID: peerID)
+                try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+                    scenario: "background-local-recovered", route: .multipeer, transport: transport,
+                    role: role, local: input.samples, remote: remote.samples,
+                    directory: directory, seconds: initial.seconds, movesToBackground: true)
+            }
+            #endif
             return
         }
         #if DEBUG
-        if let mixedRoute {
-            try await mixedRoute.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
+        if let instrumentedRoutes {
+            try await instrumentedRoutes.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
                 role: role, worker: worker, barrier: barrier, probe: probe, input: input, remote: remote.samples,
                 directory: directory, seconds: initial.seconds)
             return
@@ -661,6 +678,53 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertEqual(viewModel.callDisconnectDeadline, callDeadline)
         print("Audio E2E: Recovered authenticated Internet media in the background after \(outageObserved.duration(to: .now))")
     }
+
+    #if DEBUG
+    @MainActor
+    private func verifyBackgroundLocalRecovery(
+        viewModel: IntercomViewModel, routes: MixedRouteAudioE2E, barrier: AudioE2EBarrier,
+        groupID: UUID, peerID: String
+    ) async throws {
+        let callDeadline = viewModel.callDisconnectDeadline
+        let oldMedia = try await routes.currentLocalMedia()
+        try await barrier.meet("before-local-listener-loss")
+        checkBackgroundIfRequested(true)
+        let outageStarted = ContinuousClock.now
+        try oldMedia.synchronized {
+            let listenerFailed = try XCTUnwrap(oldMedia.onFailure)
+            oldMedia.stop()
+            listenerFailed("Local UDP listener interrupted by the audio E2E fixture")
+        }
+        XCTAssertNil(oldMedia.port)
+        try await waitUntil(seconds: 2, description: "The Local route drops in the background", status: { viewModel.routeLabel }) {
+            viewModel.availableCallRoutes.isEmpty
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        let packetsAtLoss = viewModel.receivedVoicePacketCount
+        try await Task.sleep(for: .milliseconds(500))
+        checkBackgroundIfRequested(true)
+        XCTAssertTrue(viewModel.availableCallRoutes.isEmpty)
+        XCTAssertTrue(viewModel.isAudioReady)
+        XCTAssertEqual(viewModel.receivedVoicePacketCount, packetsAtLoss)
+        XCTAssertEqual(viewModel.activeGroupID, groupID)
+        print("Audio E2E: Observed Local listener loss without leaving the background")
+
+        try await waitUntil(seconds: 20, description: "The same call regains its Local route in the background", status: { viewModel.routeLabel }) {
+            viewModel.availableCallRoutes == [.multipeer] && viewModel.authenticatedPeerIDs == [peerID]
+                && viewModel.isAudioReady && viewModel.isCallMediaStarted
+        }
+        let replacement = try await routes.currentLocalMedia()
+        XCTAssertFalse(replacement === oldMedia)
+        let peer = PeerID(rawValue: peerID)
+        try await waitUntil(seconds: 10, description: "Replacement Local UDP carries newly received media", status: { viewModel.routeLabel }) {
+            replacement.isReady(for: peer) && (replacement.statistics.receivedMediaDatagrams ?? 0) > 0
+        }
+        checkBackgroundIfRequested(true)
+        XCTAssertEqual(viewModel.activeGroupID, groupID)
+        XCTAssertEqual(viewModel.callDisconnectDeadline, callDeadline)
+        print("Audio E2E: Recovered Local media with a new listener in the background after \(outageStarted.duration(to: .now))")
+    }
+    #endif
 
     @MainActor
     private func verifyPairedAudio(
