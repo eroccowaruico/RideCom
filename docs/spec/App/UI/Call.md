@@ -111,6 +111,7 @@ Appがbackgroundへ移ると招待通信を停止し、停止対象とログイ�
 | Groups | kind=groupだけを表示。個別通話の内部ID・group作成操作を要求しない |
 | 個別通話の画面 | タイトルは相手名。Standardは`kind == .direct`ならメンバーSection（`standardCallParticipantsHeading`、自分と相手の行、個別音量、招待）を表示せず、ヒーロー・通話操作・音量を表示する。接続待ち・音声停止・エラー・再表示・表示モードの往復でも同じで、通常グループは2人でもメンバーSectionを維持する。Advancedの`directCallHelpLabel`は個別通話であること（Individual call）を示す。相手を削除すると個別通話groupも消えるため、削除後の状態の表示はない。既存通話中に別の相手を選んだときは今の通話を開くだけで切り替えない（AdvancedのConnectも別の通話を置き換えない） |
 | Share Call Invite | Advancedの通話の`More`の項目（`inviteButton`）とUser Settings（`userSettingsInviteButton`）に、共有可能な場合だけ表示する。特定の相手宛ての署名付き招待をOS共有画面へ渡す。Standardの個別通話には相手の設定への入口を置く。通常groupの`Invite`とは宛先制約が異なる |
+| 鍵の競合からの復旧 | Standardで異なる鍵を持つ個別通話の招待が届き、この端末が既存の鍵を保持する側なら、通話の補助情報にある案内と同じSectionに「招待を共有」（`shareCrossedDirectInvitationButton`）を出す。表示中の対象が一致し、共有できる場合に限る。OS共有の取消・コピー後は同じ通話を表示する。相手が新しい招待を受け取って開くと既存の鍵選択処理が適用される |
 | 参加者操作 | 個別通話ではAdd Saved Users、参加者Delete、招待枠の追加を提供しない。ミュート・音量・音声効果・Disconnectは既存の共通操作を使う |
 
 ## 保存済みユーザーの操作

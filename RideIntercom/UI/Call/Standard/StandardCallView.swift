@@ -21,7 +21,7 @@ struct StandardCallView: View {
                         CurrentCallSection(viewModel: viewModel, selectedTab: $selectedTab, excludesSelected: true)
                         CallStorageSection(viewModel: viewModel)
                         detailSections(group)
-                        CallErrorSection(viewModel: viewModel)
+                        CallErrorSection(viewModel: viewModel, offersDirectInvitationRecovery: true)
                     }
                     .frame(maxHeight: .infinity)
                     .clipped()
@@ -50,7 +50,7 @@ struct StandardCallView: View {
                         CurrentCallSection(viewModel: viewModel, selectedTab: $selectedTab, excludesSelected: true)
                         CallStorageSection(viewModel: viewModel)
                         detailSections(group)
-                        CallErrorSection(viewModel: viewModel)
+                        CallErrorSection(viewModel: viewModel, offersDirectInvitationRecovery: true)
                     }
                     .accessibilityIdentifier("standardCallDetailsScroll")
                     .frame(maxWidth: AppSize.callColumnMaxWidth)
@@ -78,7 +78,7 @@ struct StandardCallView: View {
                         }
                         detailSections(group)
                     }
-                    CallErrorSection(viewModel: viewModel)
+                    CallErrorSection(viewModel: viewModel, offersDirectInvitationRecovery: true)
                 }
                 // The hero sits right under the sheet's toolbar, as in the design sample.
                 .contentMargins(.top, AppSpacing.s, for: .scrollContent)

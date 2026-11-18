@@ -7,8 +7,10 @@ enum InvitationURLFixture {
     enum Failure: Error { case invalidURL }
 
     static func make(inviter: String, sharedName: String? = nil, contact: Bool = false, name: String? = nil,
-                     signingKey: P256.Signing.PrivateKey = .init(), expiresAfter: TimeInterval = 3600, invitedGroupName: String? = nil) throws -> URL {
-        let groupID = UUID(), issuedAt = floor(Date().timeIntervalSince1970)
+                     signingKey: P256.Signing.PrivateKey = .init(), expiresAfter: TimeInterval = 3600,
+                     invitedGroupName: String? = nil, directRecipient: String? = nil) throws -> URL {
+        let groupID = directRecipient.map { directCallID(inviter, $0) } ?? UUID()
+        let issuedAt = floor(Date().timeIntervalSince1970)
         let expiresAt = issuedAt + expiresAfter
         let secret = "ui-test-invitation-key"
         let groupName = name ?? (contact ? "Contact Invitation" : "Talk Group")
@@ -18,17 +20,19 @@ enum InvitationURLFixture {
         let attachmentDigest = attachmentData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         struct Context: Encodable {
             let id: UUID; let groupID: UUID; let inviterMemberID: String
-            let inviterDeviceKey: String; let expiresAt: Double; let contactBootstrap: Bool?
+            let inviterDeviceKey: String; let recipientMemberID: String?
+            let expiresAt: Double; let contactBootstrap: Bool?
             let invitedGroupID: String?; let invitedGroupDigest: String?
         }
         struct Grant: Encodable { let context: Context; let secret: String }
         let grant = Grant(context: .init(id: UUID(), groupID: groupID, inviterMemberID: inviter,
-            inviterDeviceKey: publicKey, expiresAt: expiresAt, contactBootstrap: contact ? true : nil, invitedGroupID: invitedGroup?["id"], invitedGroupDigest: attachmentDigest),
+            inviterDeviceKey: publicKey, recipientMemberID: directRecipient, expiresAt: expiresAt,
+            contactBootstrap: contact ? true : nil, invitedGroupID: invitedGroup?["id"], invitedGroupDigest: attachmentDigest),
             secret: Data(repeating: 42, count: 32).base64EncodedString())
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let grantData = try encoder.encode(grant)
         var fields = ["6", groupID.uuidString, groupName, secret, inviter, String(format: "%.3f", issuedAt),
-            String(format: "%.3f", expiresAt), "", Data((sharedName ?? "").utf8).base64EncodedString(), grantData.base64EncodedString()]
+            String(format: "%.3f", expiresAt), directRecipient ?? "", Data((sharedName ?? "").utf8).base64EncodedString(), grantData.base64EncodedString()]
         if let attachmentData { fields.append(attachmentData.base64EncodedString()) }
         let signature = HMAC<SHA256>.authenticationCode(for: Data(fields.joined(separator: "|").utf8),
             using: SymmetricKey(data: Data(secret.utf8))).map { String(format: "%02x", $0) }.joined()
@@ -43,10 +47,31 @@ enum InvitationURLFixture {
             "groupSecret": secret, "inviterMemberID": inviter, "issuedAt": issuedAt, "expiresAt": expiresAt,
             "directInvitation": try JSONSerialization.jsonObject(with: grantData), "signature": signature, "identityProof": identityProof]
         object["inviterDisplayName"] = sharedName
+        object["recipientMemberID"] = directRecipient
         object["invitedGroup"] = invitedGroup
         let encoded = base64url(try JSONSerialization.data(withJSONObject: object))
         guard let url = URL(string: "rideintercom://\(contact ? "contact" : "join")?token=\(encoded)") else { throw Failure.invalidURL }
         return url
+    }
+
+    static func fields(from url: URL) throws -> [String: Any] {
+        guard let field = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value else {
+            throw Failure.invalidURL
+        }
+        var encoded = field.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let bytes = Data(base64Encoded: encoded),
+              let fields = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw Failure.invalidURL }
+        return fields
+    }
+
+    private static func directCallID(_ inviter: String, _ recipient: String) -> UUID {
+        let members = [inviter, recipient].sorted().joined(separator: "|")
+        var bytes = Array(SHA256.hash(data: Data(("rideintercom.direct-call.v1|" + members).utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x80
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                           bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
     static func acknowledgement(_ reply: URL, signingKey: P256.Signing.PrivateKey) throws -> URL {

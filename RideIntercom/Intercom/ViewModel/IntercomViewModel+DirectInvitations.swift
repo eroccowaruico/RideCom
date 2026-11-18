@@ -8,6 +8,13 @@ extension IntercomViewModel {
         return canShare(group)
     }
 
+    var crossedDirectCallToShare: IntercomGroup? {
+        guard case .crossedDirectInvitation(let groupID) = groupCallIssue,
+              let group = selectedGroup, group.id == groupID, group.kind == .direct,
+              canShareSelectedGroup else { return nil }
+        return group
+    }
+
     /// Group Settings shares a saved group by ID, independent of the call being shown.
     func canShareGroup(_ groupID: UUID) -> Bool {
         guard let group = groups.first(where: { $0.id == groupID }) else { return false }

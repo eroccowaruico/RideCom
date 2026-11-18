@@ -128,11 +128,15 @@ struct DirectCallTests {
         let left = try #require(a.viewModel.makeSelectedGroupInviteURL())
         let right = try #require(b.viewModel.makeSelectedGroupInviteURL())
         try a.viewModel.acceptInviteURL(right)
+        #expect(a.viewModel.crossedDirectCallToShare?.id == a.viewModel.selectedGroup?.id)
         try b.viewModel.acceptInviteURL(left)
+        #expect(b.viewModel.crossedDirectCallToShare == nil)
         let id = try #require(a.viewModel.selectedGroup?.id)
         #expect(try a.viewModel.groupRepository.credential(for: id) == b.viewModel.groupRepository.credential(for: id))
         #expect(a.viewModel.groups.count == 2)
         #expect(b.viewModel.groups.count == 2)
+        a.viewModel.showGroupSelection()
+        #expect(a.viewModel.crossedDirectCallToShare == nil)
     }
 
     @Test func directCallSurvivesRestartAndRenamingWithoutChangingKey() throws {

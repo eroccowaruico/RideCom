@@ -195,7 +195,11 @@ final class IntercomViewModel {
     var lastAudibleReceivedAudioAt: TimeInterval?
     var droppedAudioPacketCount = 0
     var jitterQueuedFrameCount = 0
-    var groupErrorMessage: String?
+    var groupCallIssue: GroupCallIssue?
+    var groupErrorMessage: String? {
+        get { groupCallIssue?.message }
+        set { groupCallIssue = newValue.map(GroupCallIssue.notice) }
+    }
     var groupStorageIssue: GroupStorageIssue?
     var groupsMissingKeys: Set<UUID> = []
     var groupKeyCleanupPending = false
@@ -317,7 +321,7 @@ final class IntercomViewModel {
             self.groups = []
             let issue = GroupStorageIssue.classify(error)
             self.groupStorageIssue = issue
-            self.groupErrorMessage = issue.message
+            self.groupCallIssue = .notice(issue.message)
         }
         let internetConfiguration: RTC.CloudflareRealtimeConfiguration?
         do { internetConfiguration = try internetSettingsStore.load() }

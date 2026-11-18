@@ -8,6 +8,19 @@ import RTC
 import SessionManager
 import VADGate
 
+enum GroupCallIssue {
+    case notice(String)
+    case crossedDirectInvitation(groupID: UUID)
+
+    var message: String {
+        switch self {
+        case .notice(let message): message
+        case .crossedDirectInvitation:
+            "You both created a call invitation. Share this call's invitation so you use the same call."
+        }
+    }
+}
+
 extension IntercomViewModel {
     func selectGroup(_ group: IntercomGroup, connectIfIdle: Bool = true) {
         groupErrorMessage = nil
@@ -286,7 +299,7 @@ extension IntercomViewModel {
             ?? (localMemberIdentity.memberID < token.inviterMemberID)
         if kind == .direct, let previous, previous.secret != token.groupSecret, let existing, keepsLocalKey {
             selectGroup(existing)
-            groupErrorMessage = "You both created a call invitation. Share this call's invitation so you use the same call."
+            groupCallIssue = .crossedDirectInvitation(groupID: existing.id)
             return nil
         }
         let inviterName = groupRepository.inviterName(for: token)

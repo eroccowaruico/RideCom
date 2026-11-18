@@ -48,6 +48,11 @@ final class ContactReplyUITests: XCTestCase {
         let edit = app.buttons["editContactPersonNameButton"]
         reveal(edit, down: true); edit.tap()
         let field = app.textFields["savedUserNameField"]
+        let url = try pasteURL(in: field)
+        app.buttons["closeUserSettingsButton"].tap()
+        return url
+    }
+    @MainActor private func pasteURL(in field: XCUIElement) throws -> URL {
         XCTAssertTrue(field.waitForExistence(timeout: 3))
         field.tap()
         let old = field.value as? String ?? ""
@@ -59,12 +64,65 @@ final class ContactReplyUITests: XCTestCase {
         if menu.waitForExistence(timeout: 2) { menu.tap() }
         else { XCTAssertTrue(button.waitForExistence(timeout: 2)); button.tap() }
         let value = try XCTUnwrap(field.value as? String)
-        app.buttons["closeUserSettingsButton"].tap()
         let match = try XCTUnwrap(value.range(of: #"rideintercom://[^\s]+"#, options: .regularExpression))
         return try XCTUnwrap(URL(string: String(value[match])))
     }
     @MainActor private func screenshot(_ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
+    }
+    @MainActor func testStandardCanShareItsDirectCallAfterACrossedInvitation() throws {
+        launch()
+        let suffix = String(UUID().uuidString.prefix(6))
+        let inviter = "zz-legacy-" + suffix
+        let peerName = "Legacy call " + suffix
+        let key = P256.Signing.PrivateKey()
+        app.open(try InvitationURLFixture.make(inviter: inviter, sharedName: peerName, contact: true, signingKey: key))
+        let register = app.buttons["acceptContactInvitationButton"].firstMatch
+        XCTAssertTrue(register.waitForExistence(timeout: 5))
+        register.tap()
+        let reply = app.buttons["shareContactReplyButton"].firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 5))
+        reply.tap()
+        XCTAssertTrue(copy().waitForExistence(timeout: 5))
+        copy().tap()
+        XCTAssertTrue(copy().waitForNonExistence(timeout: 5))
+        let receipt = try InvitationURLFixture.fields(from: copiedURL())
+        let localMember = try XCTUnwrap(receipt["inviteeMemberID"] as? String)
+        XCTAssertLessThan(localMember, inviter, "This end retains the canonical call when keys differ")
+        app.buttons["closeContactInvitationButton"].tap()
+
+        let crossed = try InvitationURLFixture.make(inviter: inviter, sharedName: peerName, name: "Direct Call",
+                                                     signingKey: key, directRecipient: localMember)
+        app.open(crossed)
+        let notice = app.descendants(matching: .any)["groupErrorLabel"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertTrue(notice.label.contains("You both created a call invitation."), notice.label)
+
+        let share = app.buttons["shareCrossedDirectInvitationButton"].firstMatch
+        XCTAssertTrue(share.waitForExistence(timeout: 3), "The Standard call offers the action requested by the notice")
+        reveal(share)
+        share.tap()
+        XCTAssertTrue(copy().waitForExistence(timeout: 5))
+        let close = app.buttons["Close"].firstMatch
+        if close.exists && close.isHittable { close.tap() }
+        else { app.swipeDown() }
+        XCTAssertTrue(copy().waitForNonExistence(timeout: 5))
+        XCTAssertTrue(share.isHittable, "Closing sharing keeps the user in the same call")
+        share.tap()
+        XCTAssertTrue(copy().waitForExistence(timeout: 5))
+        copy().tap()
+        XCTAssertTrue(copy().waitForNonExistence(timeout: 5))
+        XCTAssertTrue(share.isHittable)
+        app.closeCallIfOpen()
+        settings(peerName)
+        let shared = try pasteURL(in: app.textFields["savedUserNameField"])
+        app.buttons["closeUserSettingsButton"].tap()
+        let ownInvite = try InvitationURLFixture.fields(from: shared)
+        let peerInvite = try InvitationURLFixture.fields(from: crossed)
+        XCTAssertEqual(shared.host, "join")
+        XCTAssertEqual(ownInvite["recipientMemberID"] as? String, inviter)
+        XCTAssertEqual(ownInvite["groupID"] as? String, peerInvite["groupID"] as? String)
+        XCTAssertNotEqual(ownInvite["groupSecret"] as? String, peerInvite["groupSecret"] as? String)
     }
     @MainActor func testJapaneseReplyShareReturnsToSettingsAndConfirmationClearsPending() throws {
         try incoming(japanese: true)

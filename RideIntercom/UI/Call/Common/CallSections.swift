@@ -22,11 +22,17 @@ struct CurrentCallSection: View {
 
 struct CallErrorSection: View {
     let viewModel: IntercomViewModel
+    var offersDirectInvitationRecovery = false
     var body: some View {
         if let message = viewModel.groupErrorMessage, message != viewModel.groupStorageNotice {
             Section {
                 Label(LocalizedStringKey(message), systemImage: "exclamationmark.circle")
                     .accessibilityIdentifier("groupErrorLabel")
+                if offersDirectInvitationRecovery, let group = viewModel.crossedDirectCallToShare {
+                    CallInvitationButton(invitation: InvitationShare(viewModel: viewModel, groupID: group.id),
+                                         previewTitle: viewModel.callTitle(for: group), title: "Share Invitation",
+                                         accessibilityIdentifier: "shareCrossedDirectInvitationButton")
+                }
             }
         }
     }
