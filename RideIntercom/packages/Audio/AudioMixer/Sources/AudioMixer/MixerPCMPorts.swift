@@ -23,6 +23,7 @@ public final class MixerPCMSource {
     // Fastest observed transit: local arrival time minus remote capture time.
     // It may rise only as fast as independent device clocks can drift.
     private var fastestTransit: (seconds: Double, observedAt: TimeInterval)?
+    private var arrivalBatch: (firstCapture: TimeInterval, lastArrival: TimeInterval, previousDuration: TimeInterval)?
     static let clockDriftAllowance = 0.0002
     static let jitterMarginHold: TimeInterval = 10
     static let jitterMarginReleasePerSecond: TimeInterval = 0.01
@@ -135,6 +136,8 @@ public final class MixerPCMSource {
                 // This is independent of network jitter; aligned codecs add zero.
                 let margin = adaptivePlayout ? retainedJitterMargin(at: capturedAt) : 0
                 let transit = arrivedAt - capturedAt
+                let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
+                    arrivedAt: arrivedAt, packetDuration: duration) : (previousDuration: 0, offset: 0)
                 if let fastest = fastestTransit,
                    transit >= fastest.seconds + (capturedAt - fastest.observedAt) * Self.clockDriftAllowance {
                 } else { fastestTransit = (transit, capturedAt) }
@@ -154,11 +157,10 @@ public final class MixerPCMSource {
                         target = Double(scheduledEndSample)
                     }
                     let resumed = lastCapturedEnd.map { capturedAt - $0 > 0.25 } ?? false
-                    // Packetization can deliver multiple adjacent packets in one
-                    // capture callback. Their normal tail is not stale latency.
-                    // In particular a 20 ms callback carries two 10 ms packets;
-                    // trimming the second quiet packet shifts every reply.
-                    let recoveryMargin = max(0.02, duration * 2) * mixerFormat.sampleRate
+                    // Only the previous burst's observed duration counts as
+                    // normal tail growth. A one-off backlog can still shrink.
+                    let normalTail = min(batch.offset, batch.previousDuration)
+                    let recoveryMargin = (max(0.02, duration * 2) + normalTail) * mixerFormat.sampleRate
                     if audible || target <= Double(delayedStart) { recoveringQuietBurst = false }
                     // Replacing silence must use the confirmed player clock,
                     // not the future scheduling frontier. A block currently
@@ -187,12 +189,14 @@ public final class MixerPCMSource {
                             // must start before its first sample (one packet
                             // alone left gaps on the audio E2E).
                             let excess = (transit - fastest.seconds) * mixerFormat.sampleRate + 2 * Double(buffer.frameLength)
-                            // The packets held with this one arrive in the same
-                            // burst, one learned wait later: keep both inside the
-                            // bounded playout window.
-                            let ceiling = (AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down))
-                                - AVAudioFramePosition((delay * mixerFormat.sampleRate).rounded(.up))) / 2
-                            let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), max(0, ceiling)))
+                            // Leave room for the previous burst's full duration
+                            // as well as the wait. The half-window cap remains
+                            // the bound when deliveries are shorter.
+                            let window = (limit - delay - packetizationJitter) * mixerFormat.sampleRate
+                            let remainingBatch = max(0, batch.previousDuration - batch.offset)
+                            let reserved = remainingBatch * mixerFormat.sampleRate + Double(nativeLead)
+                            let ceiling = AVAudioFramePosition(max(0, min(window / 2, window - reserved)).rounded(.down))
+                            let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
                             jitterMargin = (learned, capturedAt)
                             // Resume this burst with the wait just learned.
                             start = rendered + min(requestedLead - margin + learned,
@@ -290,6 +294,7 @@ public final class MixerPCMSource {
 		playoutAnchor = nil
 		lastCapturedAt = nil
         lastCapturedEnd = nil
+        arrivalBatch = nil
         lastAudibleEnd = 0
         recoveringQuietBurst = false
         // The learned wait and fastest arrival describe the peer's link, not
@@ -303,6 +308,26 @@ public final class MixerPCMSource {
         guard let margin = jitterMargin else { return 0 }
         let calm = max(0, capturedAt - margin.observedAt - Self.jitterMarginHold)
         return max(0, margin.frames - AVAudioFramePosition((calm * Self.jitterMarginReleasePerSecond * mixerFormat.sampleRate).rounded()))
+    }
+
+    /// Contiguous audio delivered faster than its sample clock is one burst.
+    /// The previous burst estimates the space for a new tail. Within a burst,
+    /// the offset measures how much of that tail has already been scheduled.
+    private func updateArrivalBatch(capturedAt: TimeInterval, arrivedAt: TimeInterval,
+                                    packetDuration: TimeInterval) -> (previousDuration: TimeInterval, offset: TimeInterval) {
+        if let batch = arrivalBatch, let end = lastCapturedEnd {
+            let deliveryGap = arrivedAt - batch.lastArrival
+            if abs(capturedAt - end) <= 2 / mixerFormat.sampleRate,
+               deliveryGap >= 0 && deliveryGap < packetDuration / 2 {
+                arrivalBatch?.lastArrival = arrivedAt
+                return (batch.previousDuration, capturedAt - batch.firstCapture)
+            }
+            let previousDuration = max(0, end - batch.firstCapture)
+            arrivalBatch = (capturedAt, arrivedAt, previousDuration)
+            return (previousDuration, 0)
+        }
+        arrivalBatch = (capturedAt, arrivedAt, 0)
+        return (0, 0)
     }
 }
 

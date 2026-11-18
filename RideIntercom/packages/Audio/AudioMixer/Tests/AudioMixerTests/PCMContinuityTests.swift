@@ -635,6 +635,54 @@ private func renderedSpeechGaps(utterances: Int, stallEvery: Double, stall: Doub
     #expect(gaps.isEmpty, "A link without jitter keeps every utterance contiguous: \(gaps)")
 }
 
+@Test(arguments: [false, true])
+func regularHundredMillisecondBurstsKeepTheirTailInsideTheCallWindow(withPauses: Bool) throws {
+    let engine = AVAudioEngine()
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+    try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 48)
+    let mixer = try AudioMixer(engine: engine, audioFormat: .init())
+    let bus = try mixer.createBus("burst-receive")
+    let source = try bus.addPCMSource(id: "peer", maximumBufferedDuration: 0.12,
+        captureTimePlayoutDelay: 0.002, adaptivePlayout: true)
+    try mixer.routeToOutput(bus)
+    try mixer.start(); source.start()
+    defer { mixer.stop() }
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48))
+    let speech = Array(repeating: Float(0.25), count: 480)
+    let silence = Array(repeating: Float(0), count: 480)
+    var batch = 0
+    var recorded: [Float] = []
+    let arrival = [0, 7, 1, 4]
+    for millisecond in 0..<3200 {
+        if millisecond == (batch + 1) * 100 + arrival[batch % arrival.count] {
+            for offset in 0..<10 {
+                let packet = batch * 10 + offset
+                let audible = !withPauses || (batch % 2 == 1 && offset >= 7)
+                try source.schedule(.init(sequenceNumber: UInt64(packet), capturedAt: Double(packet) / 100,
+                    samples: audible ? speech : silence),
+                    arrivedAt: Double(millisecond) / 1000)
+            }
+            batch += 1
+            // Allow the player to consume scheduled commands before advancing
+            // the offline device clock, as in the other scheduling tests.
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+        try #require(try engine.renderOffline(48, to: output) == .success)
+        if millisecond >= 1200 {
+            let samples = try #require(output.floatChannelData)[0]
+            recorded.append(contentsOf: UnsafeBufferPointer(start: samples, count: 48))
+        }
+    }
+    let firstVoice = try #require(recorded.firstIndex { $0 > 0.2 })
+    #expect(firstVoice < 9_600)
+    let lossSamples = recorded.indices.dropFirst(firstVoice).filter { index in
+        let audible = !withPauses || (index - firstVoice) % 9_600 < 1_440
+        return abs(recorded[index] - (audible ? 0.25 : 0)) > 0.001
+    }.count
+    #expect(lossSamples == 0, "A learned wait must not cut off the rest of a steady 100 ms burst")
+    #expect(source.playbackResetCount == 0)
+}
+
 @Test func localRenderJumpWithCalmArrivalsLearnsNoLinkWait() throws {
     let engine = AVAudioEngine()
     let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
