@@ -18,7 +18,7 @@ final class MixedRouteAudioE2E {
         return RouteManager(routes: [local, web], configuration: config)
     }
 
-    func verify(test: XCTestCase, viewModel: IntercomViewModel, peer: PeerID, role: String,
+    func verify(test: XCTestCase, viewModel: IntercomViewModel, peer: PeerID, role: String, worker: AudioE2EWorker?,
                 barrier: AudioE2EBarrier, probe: RenderedAudioProbe, input: SpeechFileInput, remote: [Float],
                 directory: URL, seconds: Double) async throws {
         let local = input.samples
@@ -75,6 +75,49 @@ final class MixedRouteAudioE2E {
         try await waitFor("Local media receipt after restore") { media.hasRecentMediaReceipt(for: peer) }
         try await barrier.meet("mixed-local-restored")
         try await measure("local-after", blocked: false)
+
+        let activeGroup = try XCTUnwrap(viewModel.activeGroupID)
+        let dropsBefore = proxy.droppedCount
+        let internetDropsBefore = await worker?.droppedMediaPackets ?? 0
+        await worker?.setDropsMedia(true)
+        proxy.setBlocked(true)
+        try await barrier.meet("mixed-all-media-blocked")
+        try await Task.sleep(for: .seconds(LocalMediaReceiptWindow.lifetime + 0.3))
+        let receivedBefore = viewModel.receivedVoicePacketCount
+        let sentBefore = viewModel.sentVoicePacketCount
+        let controlBeforeEnd = localControl.receivedCount
+        let localBeforeEnd = media.statistics.receivedMediaDatagrams ?? 0
+        try await Task.sleep(for: .seconds(2))
+        try await barrier.meet("mixed-ending-while-all-media-blocked")
+        XCTAssertEqual(viewModel.receivedVoicePacketCount, receivedBefore)
+        XCTAssertEqual(media.statistics.receivedMediaDatagrams ?? 0, localBeforeEnd)
+        XCTAssertGreaterThan(viewModel.sentVoicePacketCount, sentBefore)
+        XCTAssertGreaterThan(localControl.receivedCount, controlBeforeEnd)
+        XCTAssertGreaterThan(proxy.droppedCount, dropsBefore)
+        let internetDrops = await worker?.droppedMediaPackets ?? 0
+        if worker != nil { XCTAssertGreaterThan(internetDrops, internetDropsBefore) }
+        print("Mixed Route E2E: All media blocked, received delta=0, Local drops=\(proxy.droppedCount - dropsBefore), Internet drops=\(internetDrops - internetDropsBefore)")
+        if role == "a" {
+            XCTAssertTrue(viewModel.endCall(viewModel.currentCallReference))
+            try await waitFor("The explicitly ended call releases its audio") { !viewModel.isAudioReady }
+            await worker?.setDropsMedia(false)
+        } else {
+            try await waitFor("The waiting peer observes the other endpoint leaving") { viewModel.authenticatedPeerIDs.isEmpty }
+        }
+        proxy.setBlocked(false)
+        let verificationDeadline = ContinuousClock.now.advanced(by: .seconds(seconds))
+        while ContinuousClock.now < verificationDeadline {
+            XCTAssertTrue(viewModel.authenticatedPeerIDs.isEmpty)
+            if role == "a" {
+                XCTAssertNil(viewModel.activeGroupID, "Restoring routes must never revive the ended call")
+                XCTAssertFalse(viewModel.hasAnyActiveGroupConnection)
+                XCTAssertFalse(viewModel.isAudioReady)
+            } else {
+                XCTAssertEqual(viewModel.activeGroupID, activeGroup, "The peer keeps waiting in the original call")
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        print("Mixed Route E2E: Explicit end and peer wait verified after restoring media")
 
         func measure(_ phase: String, blocked: Bool, beginSpeech: Bool = false) async throws {
             probe.reset()

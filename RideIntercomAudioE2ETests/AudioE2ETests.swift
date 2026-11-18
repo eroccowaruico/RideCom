@@ -206,14 +206,16 @@ final class AudioE2ETests: XCTestCase {
         if mixed { throw NSError(domain: "Mixed route fault injection requires Debug-Validation", code: 1) }
         #endif
         let internet: CloudflareRealtimeConfiguration?
+        var worker: AudioE2EWorker?
         if transport == "webrtc" || mixed {
             let url = try XCTUnwrap(URL(string: try XCTUnwrap(env["AUDIO_E2E_WORKER_URL"])))
             internet = .init(workerURL: url, accessToken: run)
             if role == "a" {
                 let room = RTCCredential.derived(groupID: groupID.uuidString, secret: "fixture-only-\(run)").groupHash
-                let worker = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room)
-                try await worker.start()
-                addTeardownBlock { await worker.stop() }
+                let fixture = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room)
+                worker = fixture
+                try await fixture.start()
+                addTeardownBlock { await fixture.stop() }
             }
         } else { internet = nil }
         let suffix = env["AUDIO_E2E_SPEECH_PAIR"] == "japanese" ? "-ja" : ""
@@ -312,7 +314,7 @@ final class AudioE2ETests: XCTestCase {
         #if DEBUG
         if let mixedRoute {
             try await mixedRoute.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
-                role: role, barrier: barrier, probe: probe, input: input, remote: remote.samples,
+                role: role, worker: worker, barrier: barrier, probe: probe, input: input, remote: remote.samples,
                 directory: directory, seconds: initial.seconds)
             return
         }

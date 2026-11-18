@@ -33,6 +33,8 @@ actor AudioE2EWorker {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var forwarded: [String: Int] = [:]
     private var requests: [String: Int] = [:]
+    private var dropsMedia = false
+    private(set) var droppedMediaPackets = 0
     private var stopped = false
     private enum Failure: Error { case invalidRequest, disconnected }
 
@@ -71,6 +73,8 @@ actor AudioE2EWorker {
     }
 
     func measurements() -> [String: Any] { ["forwardedPackets": forwarded, "requests": requests] }
+
+    func setDropsMedia(_ enabled: Bool) { dropsMedia = enabled }
 
     private func accept(_ connection: NWConnection) async {
         guard !stopped else { connection.cancel(); return }
@@ -216,6 +220,11 @@ actor AudioE2EWorker {
     }
     private func forward(_ message: ApplicationDataMessage, from id: String) async {
         guard !stopped, participants[id] != nil else { return }
+        // Relay audio is unreliable. Reliable group control can still reach the peer.
+        if dropsMedia, message.delivery == .unreliable {
+            droppedMediaPackets += 1
+            return
+        }
         for (destination, participant) in participants where destination != id && participant.published {
             await participant.engine.sendApplicationData(message, to: participant.peer.id)
             forwarded[id, default: 0] += 1
