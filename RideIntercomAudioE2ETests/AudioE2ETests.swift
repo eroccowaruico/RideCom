@@ -200,6 +200,10 @@ final class AudioE2ETests: XCTestCase {
         let groupID = try XCTUnwrap(UUID(uuidString: run))
         let transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
         let mixed = transport == "mixed"
+        let waitsForLateInternetParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_INTERNET_PARTICIPANT"] == "1"
+        if waitsForLateInternetParticipant { XCTAssertEqual(transport, "webrtc") }
+        let groupSecret = "fixture-only-\(run)"
+        let room = RTCCredential.derived(groupID: groupID.uuidString, secret: groupSecret).groupHash
         #if DEBUG
         let mixedRoute = mixed ? MixedRouteAudioE2E() : nil
         #else
@@ -211,7 +215,6 @@ final class AudioE2ETests: XCTestCase {
             let url = try XCTUnwrap(URL(string: try XCTUnwrap(env["AUDIO_E2E_WORKER_URL"])))
             internet = .init(workerURL: url, accessToken: run)
             if role == "a" {
-                let room = RTCCredential.derived(groupID: groupID.uuidString, secret: "fixture-only-\(run)").groupHash
                 let fixture = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room)
                 worker = fixture
                 try await fixture.start()
@@ -295,7 +298,12 @@ final class AudioE2ETests: XCTestCase {
         let token = try GroupInviteToken.make(
             authority: DirectInvitationAuthority(keychain: keychain, namespace: namespace + ".Inviter"),
             signer: DeviceIdentitySigner(memberID: "fixture-owner", key: P256.Signing.PrivateKey()), groupID: groupID, groupName: "Audio E2E",
-            groupSecret: "fixture-only-\(run)", inviterMemberID: "fixture-owner")
+            groupSecret: groupSecret, inviterMemberID: "fixture-owner")
+        if waitsForLateInternetParticipant, role == "b" {
+            let configuration = try XCTUnwrap(internet)
+            try await waitForFirstInternetParticipant(at: configuration.workerURL, room: room, token: run)
+        }
+        let joiningStarted = ContinuousClock.now
         try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         let barrier = AudioE2EBarrier(session: viewModel.callSession)
 
@@ -306,11 +314,35 @@ final class AudioE2ETests: XCTestCase {
             let attachment = XCTAttachment(string: status() + "\nmixer=\(viewModel.audioPipeline.snapshot)\nvad=\(viewModel.vadGateRuntimeSnapshot)")
             attachment.name = "endpoint-\(role)-status"; attachment.lifetime = .keepAlways; add(attachment)
         }
+        if waitsForLateInternetParticipant, role == "a" {
+            try await waitUntil(seconds: 30, description: "The first endpoint has Internet and native audio ready", status: status) {
+                viewModel.availableCallRoutes == [.webRTC] && viewModel.isAudioReady
+            }
+            let waitingSince = ContinuousClock.now
+            repeat {
+                XCTAssertEqual(viewModel.activeGroupID, groupID)
+                XCTAssertTrue(viewModel.authenticatedPeerIDs.isEmpty)
+                XCTAssertFalse(viewModel.isCallMediaStarted)
+                XCTAssertEqual(viewModel.sentVoicePacketCount, 0)
+                try await Task.sleep(for: .milliseconds(100))
+            } while waitingSince.duration(to: .now) < .seconds(3)
+            print("Audio E2E: First endpoint waited on Internet alone with native audio active")
+            let service = try XCTUnwrap(worker)
+            await service.markWaitingParticipantReady()
+        }
         try await waitUntil(seconds: 60, description: "Verified peer, RTC audio admission and active audio", status: status) {
             viewModel.authenticatedPeerIDs.count == 1 && viewModel.isAudioReady
                 && IntercomViewModel.admittedMemberships(in: viewModel.peerProfiles).count == 1
         }
         let peerID = try XCTUnwrap(viewModel.authenticatedPeerIDs.first)
+        if waitsForLateInternetParticipant {
+            XCTAssertEqual(viewModel.availableCallRoutes, [.webRTC])
+            XCTAssertEqual(viewModel.activeGroupID, groupID)
+            print("Audio E2E: Authenticated remote over Internet after \(joiningStarted.duration(to: .now))")
+            try await verifyLateInternetAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+                role: role, local: input.samples, remote: remote.samples, directory: directory, seconds: initial.seconds)
+            return
+        }
         #if DEBUG
         if let mixedRoute {
             try await mixedRoute.verify(test: self, viewModel: viewModel, peer: PeerID(rawValue: peerID),
@@ -510,6 +542,65 @@ final class AudioE2ETests: XCTestCase {
         // and adds an unrelated "runner exited with code 75" failure.
         continueAfterFailure = true
         XCTAssertTrue(continuityFailures.isEmpty, "Speech continuity failed: " + continuityFailures.joined(separator: "; "))
+    }
+
+    private func waitForFirstInternetParticipant(at worker: URL, room: String, token: String) async throws {
+        let url = worker.appendingPathComponent("api/rooms/\(room)/test-waiting-participant")
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        let deadline = ContinuousClock.now.advanced(by: .seconds(45))
+        while ContinuousClock.now < deadline {
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let state = try? JSONDecoder().decode([String: Bool].self, from: data), state["ready"] == true {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(150))
+        }
+        throw NSError(domain: "AudioE2E.WaitingParticipant", code: 1)
+    }
+
+    @MainActor
+    private func verifyLateInternetAudio(
+        viewModel: IntercomViewModel, barrier: AudioE2EBarrier, probe: RenderedAudioProbe,
+        role: String, local: [Float], remote: [Float], directory: URL, seconds: Double
+    ) async throws {
+        try await waitUntil(seconds: 12, description: "Internet media starts after the peer joins", status: { viewModel.routeLabel }) {
+            viewModel.isCallMediaStarted
+        }
+        try await barrier.meet("late-internet-ready")
+        probe.reset()
+        let firstReceived = viewModel.receivedVoicePacketCount
+        try await Task.sleep(for: .seconds(seconds))
+        let rendered = probe.snapshot()
+        let received = viewModel.receivedVoicePacketCount - firstReceived
+        XCTAssertEqual(viewModel.availableCallRoutes, [.webRTC])
+        XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
+        XCTAssertNil(viewModel.audioErrorMessage)
+        try await barrier.meet("late-internet-measured")
+        let (remoteMatch, localMatch) = await Task.detached {
+            (RenderedAudioProbe.speechMatch(reference: remote, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate),
+             RenderedAudioProbe.speechMatch(reference: local, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate))
+        }.value
+        XCTAssertEqual(rendered.invalid, 0)
+        XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * seconds * 0.8))
+        XCTAssertGreaterThan(received, 20)
+        XCTAssertGreaterThan(remoteMatch, 0.45, "The late join must lead to rendered remote speech")
+        XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "The local fixture cannot satisfy the remote speech oracle")
+        let evidence: [String: Any] = ["scenario": "late-internet", "role": role, "transport": "webrtc",
+            "received": received, "remoteMatch": remoteMatch, "localMatch": localMatch,
+            "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate]
+        let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
+        attachment.name = "endpoint-\(role)-late-internet-measurement"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let wav = directory.appendingPathComponent("late-internet-\(role).wav")
+        try await Task.detached { try probe.writeWAV(to: wav, rendered: rendered) }.value
+        let recording = XCTAttachment(contentsOfFile: wav)
+        recording.name = "endpoint-\(role)-late-internet-speech"
+        recording.lifetime = .keepAlways
+        add(recording)
     }
 
     @MainActor

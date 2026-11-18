@@ -35,6 +35,7 @@ actor AudioE2EWorker {
     private var requests: [String: Int] = [:]
     private var dropsMedia = false
     private(set) var droppedMediaPackets = 0
+    private var waitingParticipantReady = false
     private var stopped = false
     private enum Failure: Error { case invalidRequest, disconnected }
 
@@ -75,6 +76,8 @@ actor AudioE2EWorker {
     func measurements() -> [String: Any] { ["forwardedPackets": forwarded, "requests": requests] }
 
     func setDropsMedia(_ enabled: Bool) { dropsMedia = enabled }
+
+    func markWaitingParticipantReady() { waitingParticipantReady = true }
 
     private func accept(_ connection: NWConnection) async {
         guard !stopped else { connection.cancel(); return }
@@ -166,7 +169,9 @@ actor AudioE2EWorker {
         let parts = path.split(separator: "/").map(String.init)
         let operation = parts.first == "sessions" ? parts.dropFirst(2).first ?? "delete" : parts.first ?? ""
         requests[operation, default: 0] += 1
-        if operation == "ice" {
+        if operation == "test-waiting-participant" {
+            try await Self.respond(connection, body: ["ready": waitingParticipantReady])
+        } else if operation == "ice" {
             // No external STUN/TURN dependency. Host candidates carry this test.
             try await Self.respond(connection, body: ["iceServers": [["urls": ["stun:127.0.0.1:9"]]]])
         } else if operation == "join" {
