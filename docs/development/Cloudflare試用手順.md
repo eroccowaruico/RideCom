@@ -17,11 +17,21 @@ WorkerのSettings → Runtime variables and secretsで **Previews Base** を選�
 |---|---|---|
 | CLOUDFLARE_SFU_APP_ID | VariableまたはSecret | SFU App ID |
 | CLOUDFLARE_SFU_APP_SECRET | Secret | SFU App Secret |
-| CLIENT_TOKENS_JSON | Secret | 試用資格の登録用`client-tokens.json`の内容 |
+| CLIENT_TOKENS_JSON | Secret（旧手動試用だけ） | 試用資格の登録用`client-tokens.json`の内容。native Apple登録には不要 |
+| APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
+| DEVICE_IDENTITY_SIGNING_KEY | Secret | 環境専用P-256 private JWK。端末証明と用途別通知許可の署名に使用し、継続して保持する |
+| APPLE_CLIENT_SECRET | Secret | AppleのSign in with Apple鍵で発行するclient-secret JWT。削除時のApple認可取消用。APNsのp8とは別 |
+| APNS_PRIVATE_KEY | Secret | Appleで作成するAPNs用p8（PKCS8 P-256）。対象環境・topicへの送信権限がある鍵 |
+| APNS_KEY_ID / APNS_TEAM_ID | Secret | 上記APNs鍵のKey IDとTeam ID |
+| APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
+| APNS_ENVIRONMENT | Variable | Productionは`production`、PreviewはDebug向けの`sandbox`。TestFlightからPreviewを使うときはそのPreviewも`production`へ合わせる |
+| APPLE_AUTH_ENABLED | Variable | 両環境の既定false。Apple App ID・profile・証明署名鍵が揃った環境だけtrueにする |
+| NOTIFICATIONS_ENABLED | Variable | 両環境の既定false。APNs鍵・profile・topic・環境が揃った環境だけtrueにする |
+| SERVICE_ENABLED | Variable | 音声SFUの入口。Productionの既定false、Previewはtrue。通知の有効化とは別にSFU資格と費用上限を確認する |
 
-`CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。一般公開時の自動登録・資格発行は[未実装課題](../backlog/未実装課題.md)であり、Cloudflareの設定だけでは提供されない。
+`CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
 
-Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。`SERVICE_ENABLED = "true"`などの通常変数と2つのDO bindingは`wrangler.toml`の`previews`へ定義済み。SFUの値・資格はファイルやGitへ埋め込まず、Baseから継承する。
+Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。`SERVICE_ENABLED = "true"`などの通常変数と5つのDO bindingは`wrangler.toml`の`previews`へ定義済み。SFUの値・資格はファイルやGitへ埋め込まず、Baseから継承する。
 
 Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。CLIでプレビューを配置する場合は下記の依存導入と`wrangler login`の後、`npm --prefix server run preview`をリポジトリrootで実行する。固定名で手動試用する場合は`npm --prefix server run preview -- --name trial`と指定できる。
 
@@ -127,3 +137,22 @@ npx wrangler secret put CLOUDFLARE_TURN_API_TOKEN
 | override除去条件 | 安定版Miniflareが修正版を宣言したら通常依存へ戻し、同じWorker/ペア試験を通す |
 
 例: [undici advisory](https://github.com/advisories/GHSA-w293-vg96-wgc3)、[sharp advisory](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)。これらはローカル開発・検証ツールの依存であり、Worker bundleへそのまま配布するものではない。
+
+## 利用者が行うApple・Cloudflareの設定と受入順
+
+App・serverのコードと公開値はrepoへ置き、アカウント固有の鍵・profile・商品を外部で設定する。Apple側の正本は[OS権限と配布設定](OS権限と配布設定.md#identifierとapple-developerでの設定)。本節は実施順を示し、portalや実配置が設定済みであるとは扱わない。
+
+| 順 | 設定する場所 | 行うこと・確認する出力 |
+|---|---|---|
+| 1 | Apple Developer | App IDへSign in with Apple・Push Notifications・App Groupsを設定し、App／Widget／Watchのprofileを揃える。APNs鍵を取得し、Apple認可取消用client-secretも用意する。詳細はApple側正本を参照 |
+| 2 | Cloudflareの対象WorkerのProduction／Previews Base | 上表の環境別secretを登録し、公開値をwrangler.tomlへ合わせる。Baseの変更は既存Previewへ遡及しないので、既存Previewにも必要なsecretを設定する |
+| 3 | Worker配置 | repoの5 bindingを配置する。SIGNALING_ROOM・USAGE_GUARDはv1、APPLE_AUTH_ATTEMPT・USER_ACCOUNTはv2、NOTIFICATION_INDEXはv3のSQLite migration。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
+| 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
+| 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
+| 6 | 呼出しとgroup配送 | 既存の相手とは次の認証済み個別接続で新しい用途別許可を交換する。登録済み相手をgroupへ招待し、送信側pending→queued、相手側の保存後にreceivedになることを確認する。通知の受取・タップで通話が始まらず、OS通知OFFでも前面復帰で受け取ることを確認する |
+
+グループ鍵・名前は端末で暗号化されるため、group専用のserver secretを作らない。用途別grantは既存のDEVICE_IDENTITY_SIGNING_KEYで発行する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。
+
+secretは[Workersのsecret設定](https://developers.cloudflare.com/workers/configuration/secrets/)から入力する。ProductionとPreviewの区別、Baseの継承と既存Previewへの反映は[Previewsの設定](https://developers.cloudflare.com/workers/previews/configuration/)に従う。通常の`wrangler secret put`は即座に配置する操作なので、適用先と検証済みのコードを揃えて実行する。実値をGit・通常変数・ログへ置かない。
+
+コード側は2026-11-18に、実Workerのローカル結合とAppの送受信・ファイル保存・ACKまで検証済み（[招待の検証記録](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)）。配置後のAPNs・2実機・実SFUは[未確認事項](../validation/未確認事項.md)の対応項目を通して受け入れる。

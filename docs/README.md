@@ -24,6 +24,7 @@
 | 構造を理解・変更したい | [アーキテクチャ](spec/アーキテクチャ.md) | 対応するApp / package / server仕様 |
 | 設定を実装したい | [App設定値](spec/App/Configuration/設定値一覧.md) | 同階層Bindings、package契約、Settings画面仕様 |
 | 開発・試用を始めたい | [Xcode / VS Code](development/開発環境.md) | [自動検証](development/自動検証.md)、[Cloudflare試用手順](development/Cloudflare試用手順.md) |
+| Apple／Cloudflareを設定したい | [Appleの権限・署名・配布](development/OS権限と配布設定.md) | [Cloudflareの変数・secret・配置順](development/Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順) |
 | これから作るものを知りたい | [課題](backlog/README.md) | 実装作業と未採用候補 |
 | 何をまだ確認していないか | [未確認事項](validation/未確認事項.md) | 試験条件と必要な環境 |
 | どこまで動いたか知りたい | [検証状況](validation/README.md) | 条件・commitを明記した履歴 |

@@ -166,3 +166,11 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 | 後片付けと統合対象 | この検証が作成した一時Simulatorは停止・削除済み。main側の未コミットのXcode参照設定を今回のcommitへ含めず保全する。ローカルDebug資格はignore対象のままmainの作業環境へ引き継ぐ |
 
 公開バージョンは1.0.0、ビルド番号は既定の自動採番による20。この統合検証では実CloudflareのHTTP/SFU/TURN試験を追加実行していない。今回の範囲の確認を、`validate.sh all --clean`・独立音声E2E・実機・実SFU媒体の全体受入れと扱わない。実サービスの検証を始める前の条件は、引き続き開発方針の費用制約に従う。
+
+## 通知の公開値と外部設定の照合（2026-11-18）
+
+利用者の指示により、Appとserverで設定できる公開値を揃え、Apple／Cloudflareで行う設定を正本へ集約した。APNS_TOPICを両環境でAppのbundle IDへ設定し、ProductionのAPNS_ENVIRONMENTをRelease／TestFlightのproductionへ合わせた。PreviewはDebug向けsandboxを保持。NOTIFICATIONS_ENABLEDとAPPLE_AUTH_ENABLEDはfalseのままで、有効化・secret登録・配置は行っていない。
+
+変更前の対照スクリプトは両topicの空欄とProductionの環境不一致でexit 1。修正後はAppのRelease設定を直接読んだ照合に成功。Worker82件・型検査、OS／配布設定15件とplatform checker、文書・diff検査が成功した。Wranglerの型生成も同じinclude-runtime=false／strict-vars=falseで実行し、生成物は既存と同値だった。証跡と入力hashは`.validation/notification-deployment-settings-20261118`へ保存した。型生成の初回だけ作業directoryを誤り、実行前に127で止まったため、正しいserver directoryでやり直した。
+
+[Cloudflare試用手順](../../development/Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)へ変数・secret・5 DOとv1/v2/v3 migration・環境別の有効化・2端末受入をまとめ、[Appleの権限と配布設定](../../development/OS権限と配布設定.md)へAPNs鍵・Sign in with Appleのclient-secret・profileとの対応を揃えた。古い「自動登録は未実装」「DO bindingは2つ」を現行の実装へ修正した。TestFlight Internal OnlyもAPNsはproductionであり、Previewへ接続する場合もその環境を合わせる。通常APNsだけを使い、group専用secretは不要である。実Apple・APNs・配置後の実SFUの受入は未確認事項に維持する。
