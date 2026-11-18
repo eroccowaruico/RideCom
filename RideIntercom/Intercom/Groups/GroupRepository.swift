@@ -328,7 +328,7 @@ final class GroupRepository {
         return reference
     }
 
-    private func update(_ groups: [IntercomGroup], credential: GroupAccessCredential?, users: [SavedUser]? = nil,
+    private func update(_ groups: [IntercomGroup], credential: GroupAccessCredential?, additionalCredentials: [GroupAccessCredential] = [], users: [SavedUser]? = nil,
                         modify: (inout GroupSnapshot) throws -> Void = { _ in }) throws {
         guard isWritable, let previous = snapshot else { throw IntercomGroupError.storageUnavailable }
         try store.lock(); defer { store.unlock() }
@@ -346,10 +346,12 @@ final class GroupRepository {
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations)
         try modify(&next)
+        reconcileGroupInvitations(in: &next)
         next.synchronizeUserReferences()
         do { _ = try next.encoded() }
         catch { throw GroupStorageError.invalidUpdate }
-        if let credential {
+        let allCredentials = (credential.map { [$0] } ?? []) + additionalCredentials
+        for credential in allCredentials {
             guard let index = next.groups.firstIndex(where: { $0.id == credential.groupID }) else { throw GroupStorageError.invalidUpdate }
             next.groups[index].credentialReference = try prepareKey(credential.secret)
         }
@@ -364,7 +366,7 @@ final class GroupRepository {
         }
         snapshot = next
         missingCredentialGroupIDs.formIntersection(Set(next.groups.map(\.id)))
-        if let credential { missingCredentialGroupIDs.remove(credential.groupID) }
+        for credential in allCredentials { missingCredentialGroupIDs.remove(credential.groupID) }
         cleanup(next)
     }
 
@@ -419,6 +421,11 @@ extension GroupRepository {
                 throw GroupStorageError.invalidUpdate
             }
         }
+        if let target = token.invitedGroup {
+            guard personID != nil, let group = snapshot.groups.first(where: { $0.id == target.id }), group.kind == .group,
+                  group.members.contains(where: { $0.id == localMemberID }),
+                  try credential(for: target.id)?.secret == target.secret else { throw GroupStorageError.invalidUpdate }
+        }
         let payload = ContactInvitationPayload(token: token)
         try amend(snapshot) { next in
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
@@ -426,7 +433,13 @@ extension GroupRepository {
             if let id { next.contactInvitations.removeAll { $0.id == id } }
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .outgoing,
-                expiresAt: context.expiresAt, credentialReference: reference, nickname: previous?.nickname ?? snapshot.users.first(where: { $0.id == personID })?.resolvedDisplayName, sent: false, personID: personID))
+                expiresAt: context.expiresAt, credentialReference: reference, nickname: previous?.nickname ?? snapshot.users.first(where: { $0.id == personID })?.resolvedDisplayName, sent: false, personID: personID, invitedGroupID: token.invitedGroup?.id))
+            if let target = token.invitedGroup, let index = next.groups.firstIndex(where: { $0.id == target.id }) {
+                if let previous { next.groups[index].members.removeAll { $0.id == previous.pendingGroupMemberID } }
+                guard next.groups[index].members.count < IntercomGroup.maximumMemberCount else { throw GroupStorageError.invalidUpdate }
+                let record = next.contactInvitations[next.contactInvitations.count - 1]
+                next.groups[index].members.append(.init(id: record.pendingGroupMemberID, displayName: record.nickname ?? "Invitation"))
+            }
         }
     }
 
@@ -448,14 +461,18 @@ extension GroupRepository {
         let inviter = GroupMember(id: accepted.inviter.memberID, displayName: inviterName(for: token))
         let call = try contactDirectCall(with: inviter, localDisplayName: localDisplayName, token: token,
                                          groups: try snapshot.groups.map { try $0.group() })
-        try update(call.groups, credential: call.credential) { next in
+        let joiningGroups = try groupsByJoining(token.invitedGroup, inviter: inviter, identity: accepted.inviter, localDisplayName: localDisplayName, groups: call.groups)
+        let keys = token.invitedGroup.map { [GroupAccessCredential(groupID: $0.id, secret: $0.secret)] } ?? []
+        try update(joiningGroups, credential: call.credential, additionalCredentials: keys) { next in
+            if let target = token.invitedGroup, !snapshot.groups.contains(where: { $0.id == target.id }),
+               let index = next.groups.firstIndex(where: { $0.id == target.id }) { next.groups[index].joinedByInvitation = true }
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
             try next.remember(inviter, identity: accepted.inviter)
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .incoming, expiresAt: context.expiresAt,
                 credentialReference: reference, receiptID: accepted.receipt.id,
                 peerMemberID: accepted.inviter.memberID, peerDeviceKey: accepted.inviter.publicKey,
-                personID: next.users.first(where: { $0.memberIDs.contains(accepted.inviter.memberID) })?.id))
+                personID: next.users.first(where: { $0.memberIDs.contains(accepted.inviter.memberID) })?.id, invitedGroupID: token.invitedGroup?.id))
         }
     }
 
@@ -500,12 +517,52 @@ extension GroupRepository {
                next.users[user].localName == nil {
                 next.users[user].localName = nickname
             }
+            if let targetID = old.invitedGroupID {
+                guard let groupIndex = next.groups.firstIndex(where: { $0.id == targetID && $0.kind == .group }),
+                      let slot = next.groups[groupIndex].members.firstIndex(where: { $0.id == old.pendingGroupMemberID }) else { throw GroupStorageError.invalidUpdate }
+                let alreadyMember = next.groups[groupIndex].members.contains { $0.id == recipient.id }
+                    || (verified.identity.principal.map { principal in next.groups[groupIndex].accountDevices.values.contains { $0.principal == principal } } ?? false)
+                if alreadyMember { next.groups[groupIndex].members.remove(at: slot) }
+                else {
+                    next.groups[groupIndex].members[slot] = .init(id: recipient.id, displayName: recipient.displayName)
+                    if let principal = verified.identity.principal { next.groups[groupIndex].accountDevices[recipient.id] = .init(principal: principal, publicKey: verified.identity.publicKey) }
+                }
+            }
             next.contactInvitations[index].credentialReference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations[index].state = .confirmed
             next.contactInvitations[index].receivedBySharing = receivedBySharing ? true : nil
             next.contactInvitations[index].receiptID = receipt.id
             next.contactInvitations[index].peerMemberID = verified.identity.memberID
             next.contactInvitations[index].peerDeviceKey = verified.identity.publicKey
+        }
+    }
+
+    private func groupsByJoining(_ target: ContactGroupInvitation?, inviter: GroupMember, identity: VerifiedDeviceProof,
+                                 localDisplayName: String, groups: [IntercomGroup]) throws -> [IntercomGroup] {
+        guard let target else { return groups }
+        if let existing = groups.first(where: { $0.id == target.id }) {
+            guard existing.kind == .group, try credential(for: target.id)?.secret == target.secret else { throw GroupStorageError.identityConflict }
+            return groups
+        }
+        guard let localMemberID else { throw GroupStorageError.invalidUpdate }
+        let devices: [String: AccountDeviceBinding] = identity.principal.map { [inviter.id: .init(principal: $0, publicKey: identity.publicKey)] } ?? [:]
+        let group = try IntercomGroup(id: target.id, name: target.name,
+            members: [.init(id: localMemberID, displayName: localDisplayName), inviter], accountDevices: devices)
+        return [group] + groups
+    }
+
+    private func reconcileGroupInvitations(in next: inout GroupSnapshot) {
+        for index in next.contactInvitations.indices {
+            let record = next.contactInvitations[index]
+            guard record.direction == .outgoing, let groupID = record.invitedGroupID else { continue }
+            let group = next.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group })
+            if record.state == .pending && !(group.map { next.groups[$0].members.contains { $0.id == record.pendingGroupMemberID } } ?? false) {
+                next.contactInvitations[index].state = .cancelled
+                next.contactInvitations[index].credentialReference = nil
+            }
+            if next.contactInvitations[index].state == .cancelled, let group {
+                next.groups[group].members.removeAll { $0.id == record.pendingGroupMemberID }
+            }
         }
     }
 

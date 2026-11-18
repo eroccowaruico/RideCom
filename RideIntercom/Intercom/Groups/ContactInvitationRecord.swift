@@ -26,6 +26,9 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     /// The inviter received this signed reply through an explicit URL share, so it can offer a return confirmation.
     var receivedBySharing: Bool?
 
+    var invitedGroupID: UUID? = nil
+    var pendingGroupMemberID: String { GroupMember.pendingInvitePrefix + "contact-" + id.uuidString.lowercased() }
+
     /// The deadline is independent of the stored direction and delivery state.
     func hasExpired(at now: TimeInterval) -> Bool { isExpiredTombstone || !now.isFinite || now >= expiresAt }
 
@@ -80,7 +83,8 @@ struct ContactInvitationPayload: Codable {
         try payload.token.validate(contactBootstrap: true)
         guard payload.token.verifySignature(), let proof = payload.token.identityProof,
               payload.token.directInvitation?.context.id == record.id,
-              payload.token.expiresAt == record.expiresAt else { throw GroupStorageError.invalidUpdate }
+              payload.token.expiresAt == record.expiresAt,
+              payload.token.invitedGroup?.id == record.invitedGroupID else { throw GroupStorageError.invalidUpdate }
         _ = try proof.verify(Data(payload.token.signature.utf8), purpose: .issueInvitation, memberID: payload.token.inviterMemberID)
         if let receipt = payload.receipt {
             guard receipt.isValid, receipt.kind == .accepted,

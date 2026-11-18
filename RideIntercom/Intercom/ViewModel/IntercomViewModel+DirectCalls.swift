@@ -92,10 +92,17 @@ extension IntercomViewModel {
 
     /// Contact registration commits the pair call. Keep it in the in-memory list so
     /// a later save of that list cannot drop it; a live call keeps its runtime state.
-    func adoptStoredDirectCall(with memberID: String) {
+    func adoptStoredContactRegistration(with memberID: String, invitationID: UUID) {
         let id = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, memberID])
-        guard !groups.contains(where: { $0.id == id }), let stored = groupRepository.storedGroup(id) else { return }
-        groups.insert(stored, at: 0)
+        if !groups.contains(where: { $0.id == id }), let stored = groupRepository.storedGroup(id) { groups.insert(stored, at: 0) }
+        refreshContactInvitationGroup(invitationID)
+    }
+
+    func refreshContactInvitationGroup(_ invitationID: UUID) {
+        guard let groupID = groupRepository.contactInvitations.first(where: { $0.id == invitationID })?.invitedGroupID,
+              let stored = groupRepository.storedGroup(groupID) else { return }
+        if groups.contains(where: { $0.id == groupID }) { refreshStoredAccountCall(groupID) }
+        else { groups.insert(stored, at: 0) }
     }
 
     /// Merge durable membership without resetting live mute, audio or connection state.

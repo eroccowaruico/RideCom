@@ -56,7 +56,7 @@ extension IntercomViewModel {
             do {
                 try groupRepository.confirmContactInvitation(verified, localDisplayName: localMemberIdentity.displayName, now: now, receivedBySharing: true)
             } catch { reportGroupStorageError(error); throw error }
-            adoptStoredDirectCall(with: verified.identity.memberID)
+            adoptStoredContactRegistration(with: verified.identity.memberID, invitationID: record.id)
         case .acknowledged:
             guard record.direction == .incoming, receipt.inviteeMemberID == localMemberIdentity.memberID,
                   record.peerMemberID == receipt.inviterMemberID, record.peerDeviceKey == context.inviterDeviceKey,

@@ -36,7 +36,7 @@ extension IntercomViewModel {
             trust: internetSettingsStore.identityTrust(), now: callAccessNow().timeIntervalSince1970, contactBootstrap: true)
         try groupRepository.acceptContactInvitation(token, accepted: acceptance,
             localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
-        adoptStoredDirectCall(with: acceptance.inviter.memberID)
+        adoptStoredContactRegistration(with: acceptance.inviter.memberID, invitationID: try contactID(token))
         refreshGroupStorageStatus()
         _ = resumeContactInvitation(try contactID(token))
     }
@@ -77,7 +77,7 @@ extension IntercomViewModel {
                           self.contactInvitationID == id, verified.receipt.invitation?.id == id else { throw ContactInvitationError.unavailable }
                     try self.groupRepository.confirmContactInvitation(verified, localDisplayName: self.localMemberIdentity.displayName,
                         now: self.callAccessNow().timeIntervalSince1970)
-                    self.adoptStoredDirectCall(with: verified.identity.memberID)
+                    self.adoptStoredContactRegistration(with: verified.identity.memberID, invitationID: id)
                     self.contactInvitationMessage = nil
                     self.refreshGroupStorageStatus()
                 }, acknowledged: { [weak self] in
@@ -182,6 +182,7 @@ extension IntercomViewModel {
         guard canEditSavedGroups else { throw ContactInvitationError.unavailable }
         // Commit the cancellation before stopping; a failed save remains retryable.
         try groupRepository.cancelContactInvitation(id)
+        refreshContactInvitationGroup(id)
         if contactInvitationID == id { stopContactInvitationSession() }
         refreshGroupStorageStatus()
     }

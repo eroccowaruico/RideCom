@@ -55,7 +55,7 @@ extension IntercomGroup {
         } else {
             // Group authentication alone cannot evict an unrelated saved rider.
             guard connected.contains(memberID) else { return false }
-            if let slot = members.firstIndex(where: { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) }) {
+            if let slot = members.firstIndex(where: { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) && !$0.id.hasPrefix(GroupMember.pendingInvitePrefix + "contact-") }) {
                 let localName = members[slot].localName
                 members[slot] = .init(id: memberID, displayName: name, localName: localName)
             } else {
