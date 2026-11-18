@@ -184,7 +184,7 @@ extension IntercomViewModel {
         if callDisconnectDeadline == nil && (!enforceCallAccess || activeGroupID == nil) { callTicker.stop() }
         audioSessionManager.requestActive(false)
         isAudioReady = false
-        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
         BackgroundCallValidationObservation.observe(self)
         #endif
         publishRuntimePackageReports(force: true)
@@ -298,7 +298,7 @@ extension IntercomViewModel {
                 return
             }
             guard self.isAudioReady else { return }
-            #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+            #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
             BackgroundCallValidationObservation.observe(self, output: true)
             #endif
             self.scheduleOutputFrame(frame: frame, receivedAt: Date().timeIntervalSince1970)

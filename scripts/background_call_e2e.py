@@ -64,6 +64,12 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                 if source.is_file():
                     shutil.copyfile(source,runner.out/source.name)
                     rows=json.loads(source.read_text())
+                    context_ok=bool(rows) and len({v.get('processInstance') for v in rows})==1 and all(
+                        v.get('platform')=='simulator' and isinstance(v.get('processInstance'),str)
+                        and isinstance(v.get('processID'),int) and isinstance(v.get('recordedAt'),(float,int))
+                        and isinstance(v.get('protectedDataAvailable'),bool)
+                        and (v.get('debuggerAttached') is None or isinstance(v.get('debuggerAttached'),bool))
+                        and isinstance(v.get('testRunnerPresent'),bool) for v in rows)
                     # With no remote source, AVAudioEngine need not deliver silent output taps.
                     # Observe native capture when unmuted, render when capture delivery is muted.
                     kinds=['outputCallback'] if muted else ['inputCallback']
@@ -73,7 +79,8 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                         span=samples[-1]['uptime']-samples[0]['uptime'] if samples else 0
                         ok=len(samples)>=20 and span>=29 and len({v['deadline'] for v in samples})==1 and all(v['audioReady'] and v['inputRunning'] and v['outputRunning'] and not v['mediaStarted'] and v['authenticatedPeers']==0 and v['muted']==muted for v in samples)
                         details.append(dict(kind=kind,samples=len(samples),span=span,passed=ok))
-                    outcome.update(passed=all(v['passed'] for v in details),observations=details)
+                    outcome.update(passed=context_ok and all(v['passed'] for v in details),observations=details,
+                                   runtimeContextValid=context_ok)
                 else:
                     outcome['reason']='missing evidence'
                 found.append(outcome)

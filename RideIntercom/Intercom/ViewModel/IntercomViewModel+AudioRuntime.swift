@@ -65,7 +65,7 @@ extension IntercomViewModel {
             processAudioCheckInput(level: rawLevel, frame: frame)
         }
         guard isAudioReady else { return }
-        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
         BackgroundCallValidationObservation.observe(self, frame: frame)
         #endif
         // This is local observation time, never the remote capture clock.
