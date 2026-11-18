@@ -36,10 +36,13 @@ let package = Package(
             name: "WebRTC",
             path: "BinaryArtifacts/WebRTC/WebRTC.xcframework.zip"
         ),
-        .testTarget(name: "RTCNativeWebRTCTests", dependencies: ["RTC", "RTCNativeWebRTC"]),
+        // Owned UDP fault injection is shared by the Local and native WebRTC
+        // integration tests; production products do not depend on this target.
+        .target(name: "RTCTestSupport", path: "Tests/RTCTestSupport"),
+        .testTarget(name: "RTCNativeWebRTCTests", dependencies: ["RTC", "RTCNativeWebRTC", "RTCTestSupport"]),
         .testTarget(
             name: "RTCTests",
-            dependencies: ["RTC"]
+            dependencies: ["RTC", "RTCTestSupport"]
         ),
     ],
     swiftLanguageModes: [.v6]

@@ -267,6 +267,12 @@ UDPは確立済みflowの無線経路を自動移行しないため、`betterPat
 
 検証結果と残る音声E2Eの問題は[RTC音声の再送禁止と即時配送](../../validation/history/RTC音声の再送禁止と即時配送.md)に記録する。
 
+## 媒体不達の検証境界
+
+`RTCTestSupport`は`Tests/RTCTestSupport`に置くpackage内の試験専用targetで、Localとnative WebRTCのテストが同じowned UDP proxyを使う。製品の`RTC`／`RTCNativeWebRTC` productは依存しない。proxyは所有するloopback socketの媒体だけを破棄でき、hostのWi-Fi・セルラー・他アプリの経路を変更しない。
+
+`NativeRouteContinuityTests`は実`LocalCallRoute`のQUIC制御とUDP、および実`WebRTCInternetRoute`／`WebRTCNativeEngine`を通す。サーバー側の接続交渉・opaqueなfan-outは試験内の2参加者fixtureへ置き換え、両端からfixtureまでの媒体は実UDP／DTLS／SCTPで配送する。片方向／両方向、最初から／通話途中の媒体不達を同じ契約で検査する。再実行の入口と、Appの音声出力・実Cloudflareとは別の証拠であることは[自動検証](../../development/自動検証.md#近距離媒体だけの遮断と代替経路)を参照する。
+
 ## 1組の音声機器との暗号化媒体
 
 `RTCAudioDeviceLink`は、通話を所有する端末と遠隔音声入出力機器の1組に限る媒体APIである。`CallSession`、GroupRelay参加者、group credential、RTCNativeWebRTCを作らない。配送は音声機器専用の単一UDP双方向flowを用い、groupの`LocalDatagramTransport`は変更しない。音声用のTCP、音声再送、常設制御接続、周期polling、復旧台帳を追加しない。
