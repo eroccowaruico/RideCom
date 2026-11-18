@@ -214,12 +214,14 @@ final class AudioE2ETests: XCTestCase {
         let checksInternetRecovery = env["AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY"] == "1"
         let checksLocalRecovery = env["AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY"] == "1"
         let checksBackgroundSilence = env["AUDIO_E2E_BACKGROUND_SILENCE"] == "1"
+        let checksBackgroundMute = env["AUDIO_E2E_BACKGROUND_MIC_OFF"] == "1"
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
         if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
         if checksInternetRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "webrtc") }
         if checksLocalRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "local") }
-        if checksBackgroundSilence {
+        if checksBackgroundSilence || checksBackgroundMute {
             XCTAssertTrue(movesToBackground && waitsForLateParticipant && !checksInternetRecovery && !checksLocalRecovery)
+            XCTAssertFalse(checksBackgroundSilence && checksBackgroundMute)
         }
         let soleRoute: RouteKind = usesInternet ? .webRTC : .multipeer
         let groupSecret = "fixture-only-\(run)"
@@ -373,13 +375,17 @@ final class AudioE2ETests: XCTestCase {
                 scenario: usesInternet ? "late-internet" : "late-local", route: soleRoute,
                 transport: transport, role: role, local: input.samples, remote: remote.samples,
                 directory: directory, seconds: initial.seconds, movesToBackground: movesToBackground)
-            if checksBackgroundSilence {
-                try await verifyBackgroundSilence(viewModel: viewModel, barrier: barrier, input: input, probe: probe,
-                    route: soleRoute, peerID: peerID, groupID: groupID, role: role, transport: transport)
+            if checksBackgroundSilence || checksBackgroundMute {
+                let scenario = checksBackgroundMute ? "background-mic-off" : "background-silence"
+                try await verifyBackgroundQuietPeriod(viewModel: viewModel, barrier: barrier, input: input, probe: probe,
+                    route: soleRoute, peerID: peerID, groupID: groupID, role: role, transport: transport,
+                    scenario: scenario, bothMute: checksBackgroundMute)
                 try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
-                    scenario: "background-silence-resumed", route: soleRoute, transport: transport,
+                    scenario: "\(scenario)-resumed", route: soleRoute, transport: transport,
                     role: role, local: input.samples, remote: remote.samples,
-                    directory: directory, seconds: initial.seconds, movesToBackground: true)
+                    directory: directory, seconds: initial.seconds, movesToBackground: true,
+                    expectsRemoteSpeech: !checksBackgroundMute || role == "a")
+                if checksBackgroundMute { XCTAssertEqual(viewModel.effectiveInputMuted, role == "a") }
             }
             if checksInternetRecovery {
                 try await verifyBackgroundInternetRecovery(viewModel: viewModel, workerURL: XCTUnwrap(workerURL),
@@ -645,15 +651,18 @@ final class AudioE2ETests: XCTestCase {
     }
 
     @MainActor
-    private func verifyBackgroundSilence(
+    private func verifyBackgroundQuietPeriod(
         viewModel: IntercomViewModel, barrier: AudioE2EBarrier, input: SpeechFileInput, probe: RenderedAudioProbe,
-        route: RouteKind, peerID: String, groupID: UUID, role: String, transport: String
+        route: RouteKind, peerID: String, groupID: UUID, role: String, transport: String,
+        scenario: String, bothMute: Bool
     ) async throws {
         checkBackgroundIfRequested(true)
+        let call = viewModel.currentCallReference
         let callDeadline = viewModel.callDisconnectDeadline
-        input.setSilentInput(true)
-        defer { input.setSilentInput(false) }
-        try await barrier.meet("background-silence-input")
+        if bothMute { XCTAssertTrue(viewModel.setCallMuted(true, for: call)) }
+        else { input.setSilentInput(true) }
+        defer { if !bothMute { input.setSilentInput(false) } }
+        try await barrier.meet("\(scenario)-input")
         try await Task.sleep(for: .seconds(1)) // Let VAD release and buffers drain.
         probe.reset()
         let firstSent = viewModel.sentVoicePacketCount
@@ -667,7 +676,8 @@ final class AudioE2ETests: XCTestCase {
             XCTAssertEqual(viewModel.authenticatedPeerIDs, [peerID])
             XCTAssertTrue(viewModel.isAudioReady)
             XCTAssertTrue(viewModel.isCallMediaStarted)
-            XCTAssertEqual(viewModel.audioPipeline.vadRuntimeSnapshot.state, .silence)
+            if bothMute { XCTAssertTrue(viewModel.effectiveInputMuted) }
+            else { XCTAssertEqual(viewModel.audioPipeline.vadRuntimeSnapshot.state, .silence) }
             try await Task.sleep(for: .seconds(1))
         } while ProcessInfo.processInfo.systemUptime - started < 60
         checkBackgroundIfRequested(true)
@@ -681,18 +691,23 @@ final class AudioE2ETests: XCTestCase {
         }.value
         XCTAssertEqual(viewModel.callDisconnectDeadline, callDeadline)
         XCTAssertEqual(rendered.invalid, 0)
-        XCTAssertLessThan(peak, 0.001, "The actual render must stay silent while both fixtures are quiet")
-        let evidence: [String: Any] = ["scenario": "background-silence", "background": true,
+        XCTAssertLessThan(peak, 0.001, "The actual render must stay silent during \(scenario)")
+        if bothMute {
+            XCTAssertEqual(transmitted, 0)
+            XCTAssertEqual(received, 0)
+        }
+        let evidence: [String: Any] = ["scenario": scenario, "background": true, "bothMicrophonesMuted": bothMute,
             "role": role, "transport": transport, "durationSeconds": duration, "peak": peak,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate,
             "transmitted": transmitted, "received": received, "scheduled": scheduled]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence),
                                        uniformTypeIdentifier: "public.json")
-        attachment.name = "endpoint-\(role)-background-silence-measurement"
+        attachment.name = "endpoint-\(role)-\(scenario)-measurement"
         attachment.lifetime = .keepAlways
         add(attachment)
-        try await barrier.meet("background-silence-observed")
-        print("Audio E2E: Both endpoints kept the call during \(duration) seconds of silence; peak=\(peak) tx=\(transmitted) rx=\(received) scheduled=\(scheduled)")
+        try await barrier.meet("\(scenario)-observed")
+        if bothMute, role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: call)) }
+        print("Audio E2E: Both endpoints kept the call during \(duration) seconds in \(scenario); peak=\(peak) tx=\(transmitted) rx=\(received) scheduled=\(scheduled)")
     }
 
     @MainActor
@@ -794,7 +809,8 @@ final class AudioE2ETests: XCTestCase {
     private func verifyPairedAudio(
         viewModel: IntercomViewModel, barrier: AudioE2EBarrier, probe: RenderedAudioProbe,
         scenario: String, route: RouteKind, transport: String, role: String,
-        local: [Float], remote: [Float], directory: URL, seconds: Double, movesToBackground: Bool
+        local: [Float], remote: [Float], directory: URL, seconds: Double, movesToBackground: Bool,
+        expectsRemoteSpeech: Bool = true
     ) async throws {
         try await waitUntil(seconds: 12, description: "Media starts for \(scenario)", status: { viewModel.routeLabel }) {
             viewModel.isCallMediaStarted
@@ -817,11 +833,16 @@ final class AudioE2ETests: XCTestCase {
         }.value
         XCTAssertEqual(rendered.invalid, 0)
         XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * seconds * 0.8))
-        XCTAssertGreaterThan(received, 20)
-        XCTAssertGreaterThan(remoteMatch, 0.45, "The matched output must include remote speech for \(scenario)")
-        XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "The local fixture cannot satisfy the remote speech oracle")
+        if expectsRemoteSpeech {
+            XCTAssertGreaterThan(received, 20)
+            XCTAssertGreaterThan(remoteMatch, 0.45, "The matched output must include remote speech for \(scenario)")
+            XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "The local fixture cannot satisfy the remote speech oracle")
+        } else {
+            XCTAssertEqual(received, 0, "The listening endpoint must stay muted")
+            XCTAssertLessThan(rendered.samples.reduce(Float(0)) { max($0, abs($1)) }, 0.001)
+        }
         let evidence: [String: Any] = ["scenario": scenario, "role": role, "transport": transport,
-            "background": movesToBackground,
+            "background": movesToBackground, "expectsRemoteSpeech": expectsRemoteSpeech,
             "received": received, "remoteMatch": remoteMatch, "localMatch": localMatch,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
