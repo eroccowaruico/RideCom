@@ -15,12 +15,44 @@ struct RegularGroupRepresentativeTests {
         }
         let h = AppTestSupport.makeHarness(groups: [], groupStore: store, localMemberID: "local")
         defer { h.viewModel.disconnect() }
-        #expect(h.viewModel.createTalkGroup(name: "Eight people", userIDs: Set(store.snapshot.users.map(\.id))))
+        var selection = MemberSelection(viewModel: h.viewModel, groupID: nil)
+        selection.typedName = "Eight people"
+        for person in store.snapshot.users { selection.toggle(person.id) }
+        #expect(selection.memberCount == 8)
+        #expect(selection.canSave)
+        #expect(selection.save() != nil)
         let group = try #require(h.viewModel.selectedGroup)
         #expect(group.members.count == 8)
         #expect(group.accountDevices.count == 7)
         #expect(h.viewModel.availableUsers(for: group.id).isEmpty)
         #expect(!h.viewModel.addSavedUsers([store.snapshot.users[0].id], to: group.id))
+    }
+
+    @Test(arguments: [false, true])
+    func selectionUsesActualSlotsWhenAddingToAGroup(accountBased: Bool) throws {
+        let group = try IntercomGroup(name: "Seven members", members: [.init(id: "local", displayName: "You")]
+            + (1...6).map { .init(id: "existing-\($0)", displayName: "Existing \($0)") })
+        let store = InMemoryGroupStore(groups: [group])
+        let ids = (0..<8).map { "new-rider-\($0)" }
+        let person = SavedUser(displayName: "New rider", memberIDs: ids,
+            deviceKeys: Dictionary(uniqueKeysWithValues: ids.map { ($0, testIdentitySigner($0).publicKey) }),
+            principal: accountBased ? .init(issuer: "https://account.test", userID: String(repeating: "c", count: 64)) : nil)
+        store.snapshot.users = [person]
+        let h = AppTestSupport.makeHarness(groups: [group], groupStore: store, localMemberID: "local")
+        defer { h.viewModel.disconnect() }
+        var selection = MemberSelection(viewModel: h.viewModel, groupID: group.id)
+        selection.toggle(person.id)
+        #expect(selection.memberCount == (accountBased ? 8 : 15))
+        #expect(selection.canSave == accountBased)
+        if accountBased {
+            #expect(selection.save() == .some(.some(group.id)))
+            #expect(h.groupStore.snapshot.groups.first?.members.count == 8)
+            #expect(h.groupStore.snapshot.groups.first?.members.last?.id == "new-rider-0")
+        } else {
+            let before = store.snapshot
+            #expect(selection.save() == nil)
+            #expect(store.snapshot == before)
+        }
     }
 
     @Test func additionalDevicesCannotDisplaceSevenConnectedRepresentatives() throws {

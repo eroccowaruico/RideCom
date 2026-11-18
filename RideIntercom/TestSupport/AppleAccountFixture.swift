@@ -31,6 +31,12 @@ enum AppleAccountFixture {
                     applicationSupport: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
             } catch { preconditionFailure("Local contact-name fixture failed: \(error)") }
         }
+        if mode == "signed-in", let raw = environment["RIDEINTERCOM_MEMBER_SELECTION_FIXTURE"] {
+            do {
+                try processContactNameFixture(raw, namespace: namespace,
+                    applicationSupport: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0], accountDeviceCount: 8)
+            } catch { preconditionFailure("Local member-selection fixture failed: \(error)") }
+        }
         if let raw = environment["RIDEINTERCOM_INTERFACE_FIXTURE"], let layout = InterfaceMode(rawValue: raw) {
             let scoped = UserDefaults(suiteName: AppleAccountSession.storageNamespace(base: namespace, userID: userID))!
             scoped.set(layout.rawValue, forKey: "RideIntercom.settings.interfaceMode")
@@ -90,9 +96,9 @@ enum AppleAccountFixture {
 
     /// Seeds a saved, verified-format person for UI interaction only. The native invitation tests
     /// independently exercise receipt delivery; this fixture never replaces that transport evidence.
-    static func processContactNameFixture(_ raw: String, namespace: String, applicationSupport: URL) throws {
+    static func processContactNameFixture(_ raw: String, namespace: String, applicationSupport: URL, accountDeviceCount: Int = 1) throws {
         guard namespace.range(of: #"^RideIntercom\.Validation\.[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil,
-              let id = UUID(uuidString: raw) else { throw RecoveryFailure.invalidScope }
+              [1, 8].contains(accountDeviceCount), let id = UUID(uuidString: raw) else { throw RecoveryFailure.invalidScope }
         let root = applicationSupport.resolvingSymlinksInPath()
         let account = root.appending(path: AppleAccountSession.storageNamespace(base: namespace, userID: userID))
         let directory = account.appending(path: "Groups")
@@ -104,9 +110,13 @@ enum AppleAccountFixture {
         var snapshot = try store.read() ?? GroupSnapshot()
         guard !snapshot.users.contains(where: { $0.id == id }) else { return }
         let suffix = String(id.uuidString.prefix(6)), peer = "name-review-" + id.uuidString
-        let key = IdentityEncoding.encode(P256.Signing.PrivateKey().publicKey.x963Representation)
-        snapshot.users.append(SavedUser(id: id, displayName: "Maki " + suffix, memberIDs: [peer],
-            localName: "A Generated Name " + suffix, deviceKeys: [peer: key], usesProvisionalName: true))
+        let peers = accountDeviceCount == 1 ? [peer] : (0..<accountDeviceCount).map { peer + "-\($0)" }
+        let keys = Dictionary(uniqueKeysWithValues: peers.map { ($0, IdentityEncoding.encode(P256.Signing.PrivateKey().publicKey.x963Representation)) })
+        let accountID = id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        snapshot.users.append(SavedUser(id: id, displayName: "Maki " + suffix, memberIDs: peers,
+            localName: "A Generated Name " + suffix, deviceKeys: keys,
+            principal: accountDeviceCount == 1 ? nil : .init(issuer: "https://account.test", userID: accountID + accountID),
+            usesProvisionalName: true))
         snapshot.generation = UUID()
         try store.commit(snapshot)
         guard try store.read() == snapshot else { throw RecoveryFailure.verificationFailed }

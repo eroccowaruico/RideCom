@@ -14,6 +14,11 @@ struct SavedUser: Codable, Equatable, Identifiable {
     var needsNameConfirmation: Bool {
         usesProvisionalName == true && isRegistered && localName != nil && localName != displayName
     }
+    /// Regular groups select one deterministic device per verified account.
+    /// Device-only contacts retain every saved identity because no common account is known.
+    var groupMemberIDs: [String] {
+        principal == nil ? memberIDs : Array(memberIDs.sorted().prefix(1))
+    }
     var isRegistered: Bool { !memberIDs.isEmpty }
     var resolvedDisplayName: String { localName ?? displayName }
 }

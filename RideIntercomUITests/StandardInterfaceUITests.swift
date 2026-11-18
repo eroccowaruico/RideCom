@@ -6,6 +6,49 @@ final class StandardInterfaceUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
     override func tearDownWithError() throws { app?.terminate(); app = nil }
 
+    @MainActor func testStandardAccountWithEightDevicesUsesOneSelectionSlot() throws {
+        try multiDeviceGroupSelection(advanced: false)
+    }
+
+    @MainActor func testAdvancedAccountWithEightDevicesUsesOneSelectionSlot() throws {
+        try multiDeviceGroupSelection(advanced: true)
+    }
+
+    @MainActor private func multiDeviceGroupSelection(advanced: Bool) throws {
+        let personID = UUID()
+        app = XCUIApplication()
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard",
+            "RIDEINTERCOM_MEMBER_SELECTION_FIXTURE": personID.uuidString]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch(); app.activate()
+        tab("Groups", id: "groupsTab")
+        app.buttons["standardCreateGroupButton"].firstMatch.tap()
+        let name = app.textFields["savedUsersGroupNameField"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        let generated = try XCTUnwrap(name.value as? String), groupName = "Two people " + String(personID.uuidString.prefix(6))
+        name.tap(); name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: generated.count) + groupName + "\n")
+        let row = app.buttons["selectUser-" + personID.uuidString].firstMatch
+        let form = app.collectionViews.firstMatch
+        for _ in 0..<20 where !row.exists || !row.isHittable { form.swipeUp() }
+        XCTAssertTrue(row.exists); row.tap()
+        let count = advanced ? app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", " of 8 members including you")).firstMatch : app.staticTexts["memberSelectionCount"]
+        for _ in 0..<6 where !count.exists { form.swipeUp() }
+        XCTAssertEqual(count.label, advanced ? "2 of 8 members including you" : "2/8 people including you")
+        let save = app.buttons["saveUserSelectionButton"]
+        XCTAssertTrue(save.isEnabled)
+        screenshot("One account with eight devices occupies one group slot")
+        save.tap()
+        XCTAssertTrue(app.buttons["finishAddingUsersButton"].waitForExistence(timeout: 5))
+        app.buttons["finishAddingUsersButton"].tap()
+        let settings = app.buttons[advanced ? "callMoreMenu" : "callGroupSettingsButton"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        if advanced { app.buttons["callGroupSettingsButton"].tap() }
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", String(personID.uuidString.prefix(6)))).firstMatch.exists)
+        screenshot("Created group keeps the selected person once")
+    }
+
     @MainActor
     func testInvitationFailureExplainsRecoveryInBothEnglishLayouts() {
         checkInvitationFailure(japanese: false)

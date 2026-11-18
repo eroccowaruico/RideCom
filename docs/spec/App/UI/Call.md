@@ -117,7 +117,7 @@ Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見�
 |---|---|---|
 | 保存ユーザーの行 | 「Your Users」（あなたのユーザー）にアバター・名前・選択の印（`checkmark.circle.fill`／`circle`）。候補がなければSectionを出さない | 「Saved Users」に名前と選択中だけの`checkmark`。Toggleは使わない |
 | 行の操作 | 両モードともタップで選ぶだけ（`selectUser-{UUID}`、VoiceOverは選択状態）。行に名前の編集・削除、説明やfooterを置かない | 同左。画面の構成と選択の印はモードごとに持つ |
-| 人数とエラー | 一覧の下の`safeAreaBar`に「{n}/8 people including you」（自分を含めて{n}/8人、`memberSelectionCount`）と`savedUsersErrorLabel` | Formの別Sectionに「{n} of 8 members including you」と`savedUsersErrorLabel` |
+| 人数とエラー | 保存と共通のSavedUser.groupMemberIDsで数える。確認済みの同じアカウントは1枠、principalがない相手はmember ID単位。一覧の下の`safeAreaBar`に「{n}/8 people including you」（自分を含めて{n}/8人、`memberSelectionCount`）と`savedUsersErrorLabel` | Formの別Sectionに「{n} of 8 members including you」と`savedUsersErrorLabel` |
 | 確定操作 | `safeAreaBar`に主要操作1つ（`saveUserSelectionButton`）。作成は`Create and Connect`（作成して接続）、別の通話中は`Create Group`、既存groupへの追加は`Send Invitation`（招待を送る） | ツールバーの`saveUserSelectionButton`。新規作成は同じ`Create and Connect`／`Create Group`、既存groupへの追加は`Add Users` |
 | 取消 | ツールバーの`Cancel`（`closeSavedUsersButton`）。変更せず閉じる | 同左 |
 

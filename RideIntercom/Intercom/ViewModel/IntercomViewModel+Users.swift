@@ -26,8 +26,7 @@ extension IntercomViewModel {
             return nil
         }
         return users.flatMap { user in
-            let ids = user.principal == nil ? user.memberIDs : Array(user.memberIDs.sorted().prefix(1))
-            return ids.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
+            return user.groupMemberIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
         }
     }
 

@@ -85,7 +85,7 @@ struct MemberSelection {
 
     var memberCount: Int {
         (viewModel.groups.first { $0.id == groupID }?.members.count ?? 1)
-        + users.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.memberIDs.count }
+        + users.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.groupMemberIDs.count }
     }
 
     var canSave: Bool {
