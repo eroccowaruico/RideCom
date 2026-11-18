@@ -206,8 +206,10 @@ final class AudioE2ETests: XCTestCase {
         let usesInternet = transport == "webrtc" || mixed
         let waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
         let movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
+        let checksInternetRecovery = env["AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY"] == "1"
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
         if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
+        if checksInternetRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "webrtc") }
         let soleRoute: RouteKind = usesInternet ? .webRTC : .multipeer
         let groupSecret = "fixture-only-\(run)"
         let room = RTCCredential.derived(groupID: groupID.uuidString, secret: groupSecret).groupHash
@@ -222,7 +224,8 @@ final class AudioE2ETests: XCTestCase {
             let url = try XCTUnwrap(URL(string: try XCTUnwrap(env["AUDIO_E2E_WORKER_URL"])))
             workerURL = url
             if role == "a" {
-                let fixture = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room)
+                let fixture = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room,
+                                                 checksInternetRecovery: checksInternetRecovery)
                 worker = fixture
                 try await fixture.start()
                 addTeardownBlock { await fixture.stop() }
@@ -354,9 +357,19 @@ final class AudioE2ETests: XCTestCase {
             XCTAssertEqual(viewModel.availableCallRoutes, [soleRoute])
             XCTAssertEqual(viewModel.activeGroupID, groupID)
             print("Audio E2E: Authenticated remote over \(transport) after \(joiningStarted.duration(to: .now))")
-            try await verifyLateParticipantAudio(viewModel: viewModel, barrier: barrier, probe: probe,
-                route: soleRoute, transport: transport, role: role, local: input.samples, remote: remote.samples,
+            try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+                scenario: usesInternet ? "late-internet" : "late-local", route: soleRoute,
+                transport: transport, role: role, local: input.samples, remote: remote.samples,
                 directory: directory, seconds: initial.seconds, movesToBackground: movesToBackground)
+            if checksInternetRecovery {
+                try await verifyBackgroundInternetRecovery(viewModel: viewModel, workerURL: XCTUnwrap(workerURL),
+                    room: room, token: run, groupID: groupID, peerID: peerID,
+                    participantID: "e2e-\(role)-\(run.prefix(8))")
+                try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+                    scenario: "background-internet-recovered", route: .webRTC, transport: transport,
+                    role: role, local: input.samples, remote: remote.samples,
+                    directory: directory, seconds: initial.seconds, movesToBackground: true)
+            }
             return
         }
         #if DEBUG
@@ -602,15 +615,63 @@ final class AudioE2ETests: XCTestCase {
     }
 
     @MainActor
-    private func verifyLateParticipantAudio(
+    private func verifyBackgroundInternetRecovery(
+        viewModel: IntercomViewModel, workerURL: URL, room: String, token: String,
+        groupID: UUID, peerID: String, participantID: String
+    ) async throws {
+        func signalOutage(_ phase: String) async throws {
+            let url = workerURL.appendingPathComponent("api/rooms/\(room)/test-internet-outage-\(phase)")
+            var request = URLRequest(url: url, timeoutInterval: 5)
+            request.httpMethod = "POST"
+            request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(["participantId": participantID])
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = try XCTUnwrap((response as? HTTPURLResponse)?.statusCode)
+            guard status == 200 else { throw NSError(domain: "AudioE2E.InternetOutage.\(phase)", code: status) }
+        }
+        func status() -> String {
+            "routes=\(viewModel.availableCallRoutes) state=\(viewModel.connectionState) peers=\(viewModel.authenticatedPeerIDs.count) audioReady=\(viewModel.isAudioReady)"
+        }
+        checkBackgroundIfRequested(true)
+        let callDeadline = viewModel.callDisconnectDeadline
+        try await signalOutage("ready")
+        try await waitUntil(seconds: 25, description: "The Internet route and authenticated peer are lost in the background", status: status) {
+            viewModel.availableCallRoutes.isEmpty && viewModel.authenticatedPeerIDs.isEmpty
+        }
+        let outageObserved = ContinuousClock.now
+        let packetsAtLoss = viewModel.receivedVoicePacketCount
+        repeat {
+            checkBackgroundIfRequested(true)
+            XCTAssertEqual(viewModel.activeGroupID, groupID)
+            XCTAssertTrue(viewModel.availableCallRoutes.isEmpty)
+            XCTAssertTrue(viewModel.isAudioReady)
+            XCTAssertEqual(viewModel.receivedVoicePacketCount, packetsAtLoss)
+            try await Task.sleep(for: .milliseconds(100))
+        } while outageObserved.duration(to: .now) < .seconds(2)
+        print("Audio E2E: Observed Internet route loss without stopping native audio or leaving the background")
+        try await signalOutage("observed")
+        try await waitUntil(seconds: 45, description: "The same call recovers its authenticated peer and media in the background", status: status) {
+            viewModel.availableCallRoutes == [.webRTC] && viewModel.authenticatedPeerIDs == [peerID]
+                && viewModel.isCallMediaStarted && viewModel.isAudioReady
+                && IntercomViewModel.admittedMemberships(in: viewModel.peerProfiles).count == 1
+        }
+        checkBackgroundIfRequested(true)
+        XCTAssertEqual(viewModel.activeGroupID, groupID)
+        XCTAssertEqual(viewModel.callDisconnectDeadline, callDeadline)
+        print("Audio E2E: Recovered authenticated Internet media in the background after \(outageObserved.duration(to: .now))")
+    }
+
+    @MainActor
+    private func verifyPairedAudio(
         viewModel: IntercomViewModel, barrier: AudioE2EBarrier, probe: RenderedAudioProbe,
-        route: RouteKind, transport: String, role: String,
+        scenario: String, route: RouteKind, transport: String, role: String,
         local: [Float], remote: [Float], directory: URL, seconds: Double, movesToBackground: Bool
     ) async throws {
-        try await waitUntil(seconds: 12, description: "Media starts after the peer joins", status: { viewModel.routeLabel }) {
+        try await waitUntil(seconds: 12, description: "Media starts for \(scenario)", status: { viewModel.routeLabel }) {
             viewModel.isCallMediaStarted
         }
-        try await barrier.meet("late-participant-ready")
+        try await barrier.meet("\(scenario)-ready")
         checkBackgroundIfRequested(movesToBackground)
         probe.reset()
         let firstReceived = viewModel.receivedVoicePacketCount
@@ -621,7 +682,7 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertEqual(viewModel.availableCallRoutes, [route])
         XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
         XCTAssertNil(viewModel.audioErrorMessage)
-        try await barrier.meet("late-participant-measured")
+        try await barrier.meet("\(scenario)-measured")
         let (remoteMatch, localMatch) = await Task.detached {
             (RenderedAudioProbe.speechMatch(reference: remote, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate),
              RenderedAudioProbe.speechMatch(reference: local, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate))
@@ -629,9 +690,8 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertEqual(rendered.invalid, 0)
         XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * seconds * 0.8))
         XCTAssertGreaterThan(received, 20)
-        XCTAssertGreaterThan(remoteMatch, 0.45, "The late join must lead to rendered remote speech")
+        XCTAssertGreaterThan(remoteMatch, 0.45, "The matched output must include remote speech for \(scenario)")
         XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "The local fixture cannot satisfy the remote speech oracle")
-        let scenario = route == .webRTC ? "late-internet" : "late-local"
         let evidence: [String: Any] = ["scenario": scenario, "role": role, "transport": transport,
             "background": movesToBackground,
             "received": received, "remoteMatch": remoteMatch, "localMatch": localMatch,

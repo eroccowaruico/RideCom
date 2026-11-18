@@ -20,6 +20,7 @@ func makeAudioE2EWebRTCEngine() -> WebRTCNativeEngine {
 actor AudioE2EWorker {
     private struct Participant {
         let peer: PeerDescriptor
+        let sessionID: String
         let engine: WebRTCNativeEngine
         let task: Task<Void, Never>
         var published = false
@@ -28,6 +29,7 @@ actor AudioE2EWorker {
     private let token: String
     private let room: String
     private let allowedPeers: Set<String>
+    private let checksInternetRecovery: Bool
     private var participants: [String: Participant] = [:]
     private var sockets: [String: NWConnection] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -36,15 +38,18 @@ actor AudioE2EWorker {
     private var dropsMedia = false
     private(set) var droppedMediaPackets = 0
     private var waitingParticipantReady = false
+    private var readyForInternetOutage: Set<String> = []
+    private var stillObservingInternetOutage: Set<String> = []
     private var stopped = false
     private enum Failure: Error { case invalidRequest, disconnected }
 
-    init(port: UInt16, run: String, room: String) throws {
+    init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .init(rawValue: port)!)
         listener = try NWListener(using: parameters)
         token = run; self.room = room
         allowedPeers = Set(["a", "b"].map { "e2e-\($0)-\(run.prefix(8))" })
+        self.checksInternetRecovery = checksInternetRecovery
     }
 
     func start() async throws {
@@ -69,6 +74,10 @@ actor AudioE2EWorker {
         stopped = true; listener.cancel()
         for connection in connections.values { connection.cancel() }
         connections = [:]; sockets = [:]
+        await closeParticipants()
+    }
+
+    private func closeParticipants() async {
         let old = participants; participants = [:]
         for participant in old.values { participant.task.cancel(); await participant.engine.close() }
     }
@@ -155,7 +164,7 @@ actor AudioE2EWorker {
     }
     private func lease(_ id: String, answer: WebRTCSessionDescription? = nil) throws -> [String: Any] {
         var result: [String: Any] = ["sessionId": id, "expiresAt": (Date().timeIntervalSince1970 + 120) * 1000,
-            "renewAfterSeconds": 20]
+            "renewAfterSeconds": checksInternetRecovery ? 2 : 20]
         if let answer {
             result["sessionDescription"] = ["type": "answer", "sdp": answer.sdp]
             result["channels"] = try Self.wire([.init(id: 2, isPublisher: true), .init(id: 6, isPublisher: true, delivery: .reliable)])
@@ -171,6 +180,22 @@ actor AudioE2EWorker {
         requests[operation, default: 0] += 1
         if operation == "test-waiting-participant" {
             try await Self.respond(connection, body: ["ready": waitingParticipantReady])
+        } else if operation == "test-internet-outage-ready" || operation == "test-internet-outage-observed" {
+            guard checksInternetRecovery, let id = request.body["participantId"] as? String,
+                  allowedPeers.contains(id) else { throw Failure.invalidRequest }
+            if operation == "test-internet-outage-ready" {
+                if readyForInternetOutage.insert(id).inserted, readyForInternetOutage == allowedPeers {
+                    stillObservingInternetOutage = allowedPeers
+                    for socket in sockets.values { socket.cancel() }
+                    sockets = [:]
+                    await closeParticipants()
+                }
+            } else {
+                stillObservingInternetOutage.remove(id)
+            }
+            try await Self.respond(connection, body: [:])
+        } else if !stillObservingInternetOutage.isEmpty, operation == "ice" || operation == "join" {
+            try await Self.respond(connection, status: 503, body: ["error": "fixture unavailable"])
         } else if operation == "ice" {
             // No external STUN/TURN dependency. Host candidates carry this test.
             try await Self.respond(connection, body: ["iceServers": [["urls": ["stun:127.0.0.1:9"]]]])
@@ -186,15 +211,20 @@ actor AudioE2EWorker {
                     if case .receivedApplicationData(let data) = event { await self?.forward(data.message, from: id) }
                 }
             }
-            participants[id] = Participant(peer: peer, engine: engine, task: task)
+            let sessionID = UUID().uuidString
+            participants[id] = Participant(peer: peer, sessionID: sessionID, engine: engine, task: task)
             await engine.createPeerConnection(for: peer)
             await engine.configureDataChannels([.init(id: 2, peerID: peer.id), .init(id: 4, isPublisher: true),
                 .init(id: 6, peerID: peer.id, delivery: .reliable), .init(id: 8, isPublisher: true, delivery: .reliable)], for: peer.id)
             guard let answer = await engine.acceptOffer(.init(kind: .offer, sdp: sdp), from: peer.id) else { throw Failure.invalidRequest }
-            try await Self.respond(connection, body: lease(id, answer: answer))
+            try await Self.respond(connection, body: lease(sessionID, answer: answer))
         } else {
-            guard parts.count >= 2, let participant = participants[parts[1]] else { throw Failure.invalidRequest }
-            let id = parts[1]
+            guard parts.count >= 2 else { throw Failure.invalidRequest }
+            guard let participant = participants.values.first(where: { $0.sessionID == parts[1] }) else {
+                try await Self.respond(connection, status: 404, body: ["error": "Session not found"])
+                return false
+            }
+            let id = participant.peer.id.rawValue
             switch operation {
             case "publish":
                 participants[id]?.published = true
@@ -205,7 +235,7 @@ actor AudioE2EWorker {
                 let channels = others.flatMap { [WebRTCDataChannel(id: 4, peerID: $0.peer.id),
                     .init(id: 8, peerID: $0.peer.id, delivery: .reliable)] }
                 try await Self.respond(connection, body: ["channels": try Self.wire(channels)])
-            case "renew": try await Self.respond(connection, body: lease(id))
+            case "renew": try await Self.respond(connection, body: lease(participant.sessionID))
             case "signal":
                 guard let key = request.headers["sec-websocket-key"] else { throw Failure.invalidRequest }
                 let accept = Data(Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))).base64EncodedString()
@@ -237,7 +267,7 @@ actor AudioE2EWorker {
     }
     private func publishMembership() async {
         let peers = participants.values.filter(\.published).map { ["id": $0.peer.id.rawValue,
-            "displayName": $0.peer.displayName, "sessionId": $0.peer.id.rawValue] }
+            "displayName": $0.peer.displayName, "sessionId": $0.sessionID] }
         guard let data = try? JSONSerialization.data(withJSONObject: ["type": "peers", "peers": peers]), data.count < 65_536 else { return }
         var frame = Data([0x81])
         if data.count < 126 { frame.append(UInt8(data.count)) }
