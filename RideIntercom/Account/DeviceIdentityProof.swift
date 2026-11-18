@@ -17,7 +17,7 @@ nonisolated struct DeviceIdentityTrust: Sendable {
 }
 
 nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
-    enum Purpose: String { case issueInvitation, acceptInvitation, acknowledgeInvitation, shareDisplayName, shareCallAccess, callNotificationPermission }
+    enum Purpose: String { case issueInvitation, acceptInvitation, acknowledgeInvitation, shareDisplayName, shareCallAccess, callNotificationPermission, deliverGroupInvitation }
     let publicKey: String
     var certificate: DeviceIdentityCertificate?
     let signature: String
@@ -75,6 +75,14 @@ nonisolated struct DeviceIdentitySigner: Sendable {
         self.principal = identity.map { AccountPrincipal(issuer: $0.issuer, userID: $0.userID) }
         self.memberID = memberID; self.key = key; self.publicKey = publicKey; self.certificate = identity?.envelope
     }
+    /// The private scalar stays inside the signer; only authenticated plaintext is returned.
+    func decryptGroupInvitation(_ ciphertext: Data, ephemeralKey: Data, header: Data) throws -> Data {
+        let agreement = try P256.KeyAgreement.PrivateKey(rawRepresentation: key.rawRepresentation)
+        let peer = try P256.KeyAgreement.PublicKey(x963Representation: ephemeralKey)
+        let secret = try agreement.sharedSecretFromKeyAgreement(with: peer)
+        return try AES.GCM.open(.init(combined: ciphertext), using: GroupInvitationEnvelope.key(secret, header: header), authenticating: header)
+    }
+
     func sign(_ payload: Data, purpose: DeviceIdentityProof.Purpose) throws -> DeviceIdentityProof {
         let message = try DeviceIdentityProof.message(payload, purpose: purpose, memberID: memberID, publicKey: publicKey, certificate: certificate)
         return DeviceIdentityProof(publicKey: publicKey, certificate: certificate,
