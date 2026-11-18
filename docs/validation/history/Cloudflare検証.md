@@ -174,3 +174,9 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 変更前の対照スクリプトは両topicの空欄とProductionの環境不一致でexit 1。修正後はAppのRelease設定を直接読んだ照合に成功。Worker82件・型検査、OS／配布設定15件とplatform checker、文書・diff検査が成功した。Wranglerの型生成も同じinclude-runtime=false／strict-vars=falseで実行し、生成物は既存と同値だった。証跡と入力hashは`.validation/notification-deployment-settings-20261118`へ保存した。型生成の初回だけ作業directoryを誤り、実行前に127で止まったため、正しいserver directoryでやり直した。
 
 [Cloudflare試用手順](../../development/Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)へ変数・secret・5 DOとv1/v2/v3 migration・環境別の有効化・2端末受入をまとめ、[Appleの権限と配布設定](../../development/OS権限と配布設定.md)へAPNs鍵・Sign in with Appleのclient-secret・profileとの対応を揃えた。古い「自動登録は未実装」「DO bindingは2つ」を現行の実装へ修正した。TestFlight Internal OnlyもAPNsはproductionであり、Previewへ接続する場合もその環境を合わせる。通常APNsだけを使い、group専用secretは不要である。実Apple・APNs・配置後の実SFUの受入は未確認事項に維持する。
+
+## Productionの実設定の読取（2026-11-18）
+
+Cloudflare APIのWorker一覧・settings・secret名一覧をGETし、対象rideintercomを確認した。5 DOとmigration v3、App IDのAPNS_TOPICとproduction環境、APPLE_CLIENT_IDは配置へ反映済みだった。APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse。secret名は0件でSFU App IDの通常bindingもなかった。Previewは未監査。
+
+`.validation/notification-cloudflare-state-20261118/production.json`に公開値・binding名と未確認範囲だけを保存した。secretの値を取得せず、変更API・手動デプロイを行っていない。実状態の証拠は設定読取の範囲であり、配置されたコードの同一性や実配達の受入とは区別する。必要な外部設定は[試用手順](../../development/Cloudflare試用手順.md#外部設定の確認状況)へ集約した。

@@ -156,3 +156,17 @@ App・serverのコードと公開値はrepoへ置き、アカウント固有の�
 secretは[Workersのsecret設定](https://developers.cloudflare.com/workers/configuration/secrets/)から入力する。ProductionとPreviewの区別、Baseの継承と既存Previewへの反映は[Previewsの設定](https://developers.cloudflare.com/workers/previews/configuration/)に従う。通常の`wrangler secret put`は即座に配置する操作なので、適用先と検証済みのコードを揃えて実行する。実値をGit・通常変数・ログへ置かない。
 
 コード側は2026-11-18に、実Workerのローカル結合とAppの送受信・ファイル保存・ACKまで検証済み（[招待の検証記録](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)）。配置後のAPNs・2実機・実SFUは[未確認事項](../validation/未確認事項.md)の対応項目を通して受け入れる。
+
+## 外部設定の確認状況
+
+2026-11-18、接続済みCloudflareの読取APIでProductionのrideintercomを確認した。secretは値を読まず、名前の一覧だけを確認した。PreviewとPreviews Baseは今回の読取対象外であり、Productionの結果を流用しない。
+
+| 項目 | 確認した状態 | 利用者側で残ること |
+|---|---|---|
+| 公開値 | APNS_TOPICはApp ID、APNS_ENVIRONMENTはproduction、APPLE_CLIENT_IDも一致 | 同じ環境へ接続するAppの署名・Infoと照合する |
+| Durable Objects | 5 bindingとmigration v3まで反映済み | 現状のnamespaceを継続し、今後の変更はmigration履歴と合わせる |
+| Secret | リストAPIは0件。SFU App IDの通常bindingも未登録 | DEVICE_IDENTITY_SIGNING_KEY、APNsの3項目、必要なCLOUDFLARE_SFU_APP_ID／CLOUDFLARE_SFU_APP_SECRETを登録する。Apple認可取消にはAPPLE_CLIENT_SECRETも登録する |
+| 有効化 | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse | 対応する鍵・権限が揃った機能を個別に有効化して受け入れる |
+| 実サービス受入 | 設定値・bindingの読取まで | 配置コードの同一性、実Apple認証・APNs・実SFUを確認する |
+
+読取時点の設定は`.validation/notification-cloudflare-state-20261118/production.json`と[検証記録](../validation/history/Cloudflare検証.md)へ残した。接続先の値やsecretを変更するAPIは実行していない。

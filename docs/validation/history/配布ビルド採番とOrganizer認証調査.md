@@ -81,3 +81,13 @@ schemeのArchive Pre-actionで`agvtool`を実行すると、project上は新番�
 | 確認範囲 | 文書・開発設定・plist・差分検査成功。既存Xcode画面の操作とアップロードは実施していない |
 
 証跡は`/tmp/ride-project-number-10.log`、`/tmp/ride-project-number-build.log`、`/tmp/ride-project-number-before-build.sha256`、`/tmp/ride-project-number-11.log`、最終規則の`/tmp/ride-shared-number-debug.log`、`/tmp/ride-shared-number-release.log`、`/tmp/ride-shared-number-archive.log`。一時領域のため永続保存ではない。現行の操作・要求は[開発環境](../../development/開発環境.md)と[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)を参照する。
+
+## iOS Internal Only送信の試行（2026-11-18）
+
+この時点の利用者指示により、検証済みの招待修正からiOS ArchiveとInternal Only送信を試した。公開版は1.0.0を維持。最初の署名Archive 1039でAppのactor警告を見つけ、97件の回帰を通してabe15a30で境界を明示した。Swift警告をerrorにする第2試行は、swift-logのsuppress-warningsとCLIのwarnings-as-errorsの衝突で失敗した。依存や製品コードの不具合とは数えず、標準構成で再実行した。
+
+最終は`.validation/testflight-internal-1000-final-20261118/RideCom.xcarchive`。App・Widget・Watchは1.0.0 (1041)、Build後処理の次回番号1042、source abe15a30。strictなcodesign検証が成功し、App compiler警告0、入力指紋一致（次回番号だけ許容）。開発署名のAPNsはdevelopment、Sign in with AppleとApp Groupがあり、Release Infoはproduction。配布Exportでproductionへ再署名する最終結果は未確認。
+
+送信の直前にdestination=upload、testFlightInternalTestingOnly=true、manageAppVersionAndBuildNumber=false、teamID=UAY8FH5FF8を照合した。ソース差分も次回番号以外がないことを確認し、標準xcodebuild -exportArchiveを実行したが、Failed to Use Accounts / App Store Connect access for UAY8FH5FF8 is requiredで失敗。未アップロードであり、内部配信・Apple側処理を成功としない。標準API keyの環境設定・保存先にも利用可能な設定はなかった。認証・権限の復旧は[OS権限と配布設定](../../development/OS権限と配布設定.md#現在の署名配布アクセスの確認)へ記録した。
+
+`.validation/testflight-internal-1000-20261118`は未送信の最初のArchive、`testflight-internal-1000-actor-fixed-20261118`は検証オプション衝突の失敗、最終フォルダのuploadには実送信試行のlogと使用optionsを保持する。現行の標準Archiveは従来どおりの入口・次回採番を使い、配布用の別カウンタや定期実行は導入していない。

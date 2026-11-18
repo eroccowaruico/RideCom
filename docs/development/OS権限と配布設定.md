@@ -77,3 +77,9 @@ profile更新後の端末受入は、Appleログイン、OSのマイク／ロー
 管理WebRTC artifactの二重配置は[独立artifact工程](../validation/history/WebRTCマニフェスト配置の修正.md)で修正した。App buildでも標準の`WebRTC.framework/Resources/PrivacyInfo.xcprivacy`への同梱と元のmanifest内容を確認済み。更新時は[WebRTC組み立て・検証手順](BuildWebRTC/WebRTCビルドスクリプト.md#sdkプライバシーマニフェストの配置)を適用し、配布前には署名済み最終artifactとArchiveのprivacy reportを別に受け入れる。
 
 設定・配置の実施順とCloudflareへ渡す全変数は[Cloudflareの設定と受入順](Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)を参照する。APNs鍵の形式と環境／topicの権限はAppleの[provider tokenの仕様](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)に従う。
+
+## 現在の署名・配布アクセスの確認
+
+2026-11-18、iOSの1.0.0 (1041)を標準Release Archiveで作成した。App・Widget・Watchの番号一致、strictな署名検証、Appのcompiler警告0を確認。開発署名の実entitlementにはSign in with Apple、App Group、developmentのAPNsが含まれ、get-task-allowはtrueだった。これは開発署名のArchiveであり、productionの最終配布署名はExportで確認する。InfoはReleaseのproductionのまま維持する。
+
+Internal Only指定の送信は、Xcodeが「App Store Connect access for UAY8FH5FF8 is required」で拒否し、未送信。通常のAPI key設定も見つからなかった。配布する際はXcode → Settings → Accountsで、このチームと対象AppへApp Store Connectアクセスを持つApple Accountの認証・権限を確認する。開発署名を作れることと、App Store Connectへ送信できることを分けて扱う。認証復旧後に同じArchiveを再使用できる。詳細と保存先は[配布の検証記録](../validation/history/配布ビルド採番とOrganizer認証調査.md)を参照する。
