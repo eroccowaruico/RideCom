@@ -24,9 +24,20 @@ struct AdvancedGroupSettingsView: View {
                     Section {
                         ForEach(Array(group.members.dropFirst())) { member in
                             Group {
-                                if let person = viewModel.personForGroupInvitation(memberID: member.id, groupID: groupID) {
-                                    Button { invitationPerson = person } label: { Text(verbatim: member.resolvedDisplayName) }
-                                        .accessibilityIdentifier("groupSettingsMember-\(member.id)")
+                                if let invitation = viewModel.outgoingGroupInvitation(forPendingMember: member.id, in: groupID),
+                                   let personID = invitation.personID, let person = viewModel.contactPerson(personID) {
+                                    Button { invitationPerson = person } label: {
+                                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                                            Text(verbatim: member.resolvedDisplayName)
+                                            let sent = invitation.sent.map(String.init) ?? "nil"
+                                            Text(verbatim: "\(invitation.direction.rawValue) · \(invitation.state.rawValue) · sent \(sent)")
+                                                .font(.subheadline.monospaced()).foregroundStyle(.secondary)
+                                            Text(verbatim: "expiresAt \(Date(timeIntervalSince1970: invitation.expiresAt).formatted(.iso8601))")
+                                                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                                        }
+                                        .accessibilityElement(children: .combine)
+                                    }
+                                    .accessibilityIdentifier("groupSettingsMember-\(member.id)")
                                 } else { Label { Text(member.resolvedDisplayName) } icon: { DestinationAvatar(isGroup: false, diameter: 28) } }
                             }
                                 .advancedMemberRowActions(edit: { editingMember = member }, pending: $pendingRemoval,
