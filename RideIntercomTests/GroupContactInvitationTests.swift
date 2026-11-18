@@ -248,13 +248,19 @@ struct GroupContactInvitationTests {
         let (a, b, token, person) = try prepared(now: { now })
         defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
         now = now.addingTimeInterval(8 * 24 * 60 * 60)
-        let url = try a.viewModel.contactPersonURLForSharing(person, expectedAccountAccessID: a.viewModel.accountAccessID)
-        let fresh = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
+        let share = try a.viewModel.prepareContactPersonShare(person, expectedAccountAccessID: a.viewModel.accountAccessID)
+        let fresh = try GroupInviteTokenCodec.decodeJoinURL(share.url, contactBootstrap: true)
         #expect(fresh.invitedGroup == token.invitedGroup)
         #expect(fresh.directInvitation?.context.id != token.directInvitation?.context.id)
         #expect(a.viewModel.groupInvitationPeople(try #require(token.invitedGroup).id).map(\.id) == [person])
         #expect(a.viewModel.groups.first(where: { $0.id == token.invitedGroup?.id })?.members.count == 2)
-        try b.viewModel.acceptContactInviteURL(url)
+        let pending = try #require(a.viewModel.contactInvitationRecord(share.id))
+        #expect(a.viewModel.contactInvitationIsUnsent(pending))
+        let repeated = try a.viewModel.prepareContactPersonShare(person, expectedAccountAccessID: a.viewModel.accountAccessID)
+        #expect(repeated.id == share.id && repeated.url == share.url)
+        a.viewModel.completeContactInvitationSharing(share)
+        #expect(a.viewModel.contactInvitationRecord(share.id)?.sent == true)
+        try b.viewModel.acceptContactInviteURL(share.url)
         #expect(b.viewModel.groups.contains { $0.id == token.invitedGroup?.id })
     }
 

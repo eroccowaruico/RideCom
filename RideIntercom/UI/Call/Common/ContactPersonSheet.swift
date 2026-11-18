@@ -119,16 +119,23 @@ private struct ContactPersonCreation: View {
     }
 }
 
-/// Export, rather than opening the dialog, prepares one reusable invitation for this saved person.
-struct ContactPersonShareLink: View {
+/// Preparing an invitation leaves it unsent until the system activity succeeds.
+struct ContactPersonShareButton: View {
     let viewModel: IntercomViewModel
     let person: SavedUser
+    @State private var share: PreparedContactInvitationShare?
 
     var body: some View {
-        ShareLink(item: InvitationShare(viewModel: viewModel, contactPersonID: person.id),
-                  subject: Text("RideCom Invite"), message: Text("RideCom invitation for \(person.resolvedDisplayName)"),
-                  preview: SharePreview(Text("RideCom Invite"))) {
+        Button {
+            share = try? viewModel.prepareContactPersonShare(person.id, expectedAccountAccessID: viewModel.accountAccessID)
+        } label: {
             Label("Share Invitation", systemImage: "square.and.arrow.up")
+        }
+        .background {
+            ContactInvitationActivity(share: share, message: String(localized: "RideCom invitation for \(person.resolvedDisplayName)")) { prepared, completed in
+                if completed { viewModel.completeContactInvitationSharing(prepared) }
+                share = nil
+            }
         }
         .appProminentButtonStyle()
         .frame(maxWidth: .infinity)

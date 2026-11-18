@@ -567,22 +567,23 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div><p class="note">相手の端末の保存確認で「グループに追加済み」になります。</p></div>
         </div>
       </div></div>
-      <figcaption><b>保存から相手ごとの共有へ</b>登録済みの相手だけでも同じ位置に対象グループ名を表示する。ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えてもUsersの同じ人かグループ設定の招待中の行から再開できる。相手ごとの許可拒否は他の相手への配送を止めず、受領確認までは招待中のまま。この例は登録済みのマキも選んでいるため、自動配送の状態と任意の共有を下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
+      <figcaption><b>保存から相手ごとの共有へ</b>登録済みの相手だけでも同じ位置に対象グループ名を表示する。ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えても、通話・グループ設定、またはUsersの同じ人の行から再開できる。相手ごとの許可拒否は他の相手への配送を止めず、受領確認までは招待中のまま。この例は登録済みのマキも選んでいるため、自動配送の状態と任意の共有を下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
     </figure>
     <figure id="group-settings">
       <div class="phone"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
         <div class="sheet"><div class="sh"><span class="link">キャンセル</span><b>グループの設定</b><span class="link">完了</span></div>
           <div class="body"><div class="group-h">名前</div><div class="group"><div class="row">週末の仲間</div></div>
-            <div class="group-h">メンバー</div><div class="group"><div class="row">自分</div>
+            <div class="group-h">メンバー</div><div class="group">
+              <div class="row link"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span>メンバーを招待</div>
+              <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span>自分</div>
               <div class="row"><span class="grow">マキ<div class="sub">招待中</div></span><span>›</span></div>
-              <div class="row"><span class="grow">ソラ<div class="sub">招待中</div></span><span>›</span></div>
-              <div class="row link">メンバーを招待</div></div>
+              <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">ソラ<div class="sub">まだ送っていません</div></span><span>›</span></div></div>
             <div class="group"><div class="row" style="color:var(--red)">グループを削除</div></div>
           </div>
         </div>
       </div></div>
-      <figcaption><b>グループ設定の招待状態</b>保存画面を完了した後もMembers内で確認できる。マキは登録済みの相手への配送待ち、ソラは新しい相手の未登録の予約枠。保存確認後のマキは「グループに追加済み」になる。記録のないメンバーへ受領済みを推測して表示しない。ソラの行は同じ人物詳細を開く。</figcaption>
+      <figcaption><b>グループ設定の招待状態</b>メンバー欄の先頭から招待できる。マキは登録済みの相手への配送待ち、ソラは保存した未送信の招待。マキから保存確認が届くと「グループに追加済み」になる。ソラの行は同じ人物詳細を開き、共有先の選択へ進める。</figcaption>
     </figure>
     <figure id="group-tab-invitation-offer">
       <div class="phone"><div class="screen">
@@ -653,15 +654,16 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="slider"><svg class="i"><use href="#speaker-low"/></svg><span class="track"><i style="width:50%"></i><b style="left:50%"></b></span><span class="vi l3" role="img" aria-label="出力"><svg class="i"><use href="#speaker"/></svg><i></i><i></i><i></i><i></i><i></i></span></div>
           <div class="group-h" style="margin-top:8px">メンバー</div>
           <div class="group">
+            <div class="row link"><svg class="i"><use href="#person-add"/></svg>メンバーを招待</div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">自分</span><span class="vi l2" role="img" aria-label="自分の声"><svg class="i"><use href="#mic"/></svg><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub">話しています</div></span><span class="vi l4" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span><span class="tail"><svg class="i chev"><use href="#chev"/></svg></span></div>
-            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ケンタ</span><span class="vi l0" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span><span class="tail"><svg class="i chev"><use href="#chev"/></svg></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span><span class="tail"><span class="link">呼び出す</span></span></div>
+            <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">ソラ<div class="sub">まだ送っていません</div></span><svg class="i chev"><use href="#chev"/></svg></div>
           </div>
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>通話のシート：会話中</b>下へ閉じても接続は続き、タブバーの上の通話表示から戻れる。ミュート（常に斜線入りのマイクの切替）・消音・切断を円形ガラスボタンで横並び。塗りの主操作は置かない。自分の行（マイクの入力）、相手ごと（届いている声）、音量の右端（実際の出力）に、声の大小を記号の段で示す（数値は出さない）。止まっている場所が、動いていない記号で分かる。未接続のメンバーで呼び出せる人には「呼び出す」。</figcaption>
+      <figcaption><b>通話のシート：会話中</b>下へ閉じても接続は続き、タブバーの上の通話表示から戻れる。ミュート（常に斜線入りのマイクの切替）・消音・切断を円形ガラスボタンで横並び。塗りの主操作は置かない。自分の行（マイクの入力）、相手ごと（届いている声）、音量の右端（実際の出力）に、声の大小を記号の段で示す（数値は出さない）。止まっている場所が、動いていない記号で分かる。未接続のメンバーで呼び出せる人には「呼び出す」。先頭の「メンバーを招待」から追加できる。未送信のソラは行を開いて共有でき、返信後は通常のメンバーの行に変わる。</figcaption>
     </figure>
 
     <!-- 通話 ミュート -->

@@ -19,6 +19,7 @@ final class GroupContactInvitationUITests: XCTestCase {
     @MainActor func testStandardPreparesANewPersonsGroupInvitation() throws { try prepare() }
     @MainActor func testAdvancedPreparesANewPersonsGroupInvitation() throws { try prepare(advanced: true) }
     @MainActor func testStandardGroupSettingsPreparesANewPersonsInvitation() throws { try prepare(entry: "settings") }
+    @MainActor func testStandardCallReopensASavedGroupInvitation() throws { try prepare(entry: "call") }
     @MainActor func testAdvancedCallPreparesANewPersonsInvitation() throws { try prepare(advanced: true, entry: "call") }
     @MainActor func testJapaneseReceiverRegistersAndJoinsTogether() throws { try receive(japanese: true) }
     @MainActor func testAdvancedReceiverRegistersAndJoinsTogether() throws { try receive(advanced: true) }
@@ -35,15 +36,24 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
         app.buttons["standardCreateGroupButton"].firstMatch.tap()
         let groupName = try XCTUnwrap(app.textFields["savedUsersGroupNameField"].value as? String)
+        let fromStandardCall = !advanced && entry == "call"
         if entry != "new" {
             app.buttons["saveUserSelectionButton"].tap()
-            let more = app.buttons[advanced ? "callMoreMenu" : "callGroupSettingsButton"]
-            XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
-            if entry == "settings" {
-                if advanced { app.buttons["callGroupSettingsButton"].tap() }
-                let invite = app.buttons["groupSettingsAddMembersButton"]
-                XCTAssertTrue(invite.waitForExistence(timeout: 3)); XCTAssertTrue(invite.isEnabled); invite.tap()
-            } else { app.buttons["callAddMembersButton"].tap() }
+            if fromStandardCall {
+                let invite = app.buttons["addSavedUsersButton"]
+                XCTAssertTrue(app.staticTexts["standardCallParticipantsHeading"].waitForExistence(timeout: 5))
+                for _ in 0..<6 where !invite.isHittable { app.swipeUp() }
+                XCTAssertTrue(invite.isHittable)
+                invite.tap()
+            } else {
+                let more = app.buttons[advanced ? "callMoreMenu" : "callGroupSettingsButton"]
+                XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
+                if entry == "settings" {
+                    if advanced { app.buttons["callGroupSettingsButton"].tap() }
+                    let invite = app.buttons["groupSettingsAddMembersButton"]
+                    XCTAssertTrue(invite.waitForExistence(timeout: 3)); XCTAssertTrue(invite.isEnabled); invite.tap()
+                } else { app.buttons["callAddMembersButton"].tap() }
+            }
         }
         let add = app.buttons["addNewGroupInviteeButton"]
         for _ in 0..<24 where !add.exists || !add.isHittable { app.swipeUp() }
@@ -51,29 +61,62 @@ final class GroupContactInvitationUITests: XCTestCase {
         let name = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH %@", "newGroupInviteName-")).firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 3))
         let nickname = "New rider " + String(UUID().uuidString.prefix(6))
+        let callInvitee = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+            "standardCallInvitee-", nickname)).firstMatch
         name.tap(); name.typeText(nickname + "\n")
         app.buttons["saveUserSelectionButton"].tap()
-        XCTAssertTrue(app.buttons["finishAddingUsersButton"].waitForExistence(timeout: 5))
+        let finish = app.buttons["finishAddingUsersButton"]
+        XCTAssertTrue(finish.waitForExistence(timeout: 5))
         let person = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "groupInvitePerson-", nickname)).firstMatch
-        XCTAssertTrue(person.waitForExistence(timeout: 3)); person.tap()
+        XCTAssertTrue(person.waitForExistence(timeout: 3))
+        if fromStandardCall {
+            finish.tap()
+            XCTAssertTrue(callInvitee.waitForExistence(timeout: 5))
+            for _ in 0..<4 where !callInvitee.isHittable { app.swipeUp() }
+            XCTAssertTrue(callInvitee.isHittable, "The group offers the saved invitation before the other person joins")
+            XCTAssertTrue(callInvitee.label.contains("Not sent yet"))
+            XCTAssertLessThan(app.buttons["addSavedUsersButton"].frame.minY, callInvitee.frame.minY)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Group shows a saved unsent invitation"; attachment.lifetime = .keepAlways; self.add(attachment)
+            callInvitee.tap()
+        } else {
+            person.tap()
+        }
         let share = app.buttons["shareContactInvitationButton"]
         XCTAssertTrue(share.waitForExistence(timeout: 3)); share.tap()
         let copy = app.cells.matching(NSPredicate(format: "label IN %@", ["Copy", "Copy Link"])).firstMatch
         XCTAssertTrue(copy.waitForExistence(timeout: 5))
-        let dismissRegion = app.otherElements["PopoverDismissRegion"].firstMatch
-        if dismissRegion.exists { dismissRegion.tap() }
-        else {
-            let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "Cancel", "Dismiss", "閉じる", "キャンセル"])).allElementsBoundByIndex.first { $0.isHittable }
-            XCTAssertNotNil(close); close?.tap()
-        }
+        let closeShare = app.buttons["Close"].firstMatch
+        if closeShare.exists && closeShare.isHittable { closeShare.tap() }
+        else { app.swipeDown() }
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
         XCTAssertTrue(share.waitForExistence(timeout: 5)); XCTAssertTrue(share.isHittable)
+        if fromStandardCall {
+            app.buttons["closeContactInvitationButton"].tap()
+            XCTAssertTrue(callInvitee.waitForExistence(timeout: 5))
+            XCTAssertTrue(callInvitee.label.contains("Not sent yet"), "Closing the share sheet leaves the invitation unsent")
+            callInvitee.tap()
+            XCTAssertTrue(share.waitForExistence(timeout: 3))
+        }
         share.tap(); XCTAssertTrue(copy.waitForExistence(timeout: 5)); copy.tap()
         XCTAssertTrue(app.buttons["shareContactInvitationButton"].waitForExistence(timeout: 5), "Sharing keeps the same saved detail")
         let invitation = try copiedURL()
         // Finish explicitly before opening the reply: XCUIApplication.open relaunches this test app.
-        let finish = app.buttons["finishAddingUsersButton"]
-        if !finish.exists || !finish.isHittable { app.navigationBars.buttons.element(boundBy: 0).tap() }
-        XCTAssertTrue(finish.waitForExistence(timeout: 3)); finish.tap()
+        if fromStandardCall {
+            let done = app.buttons["closeContactInvitationButton"]
+            XCTAssertTrue(done.waitForExistence(timeout: 3)); done.tap()
+            XCTAssertTrue(callInvitee.waitForExistence(timeout: 5))
+            XCTAssertTrue(callInvitee.label.contains("Waiting to be accepted"))
+            app.buttons["callGroupSettingsButton"].tap()
+            let state = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                "groupSettingsInvitationState-")).firstMatch
+            XCTAssertTrue(state.waitForExistence(timeout: 3))
+            XCTAssertEqual(state.label, "Waiting to be accepted")
+            app.buttons["closeGroupSettingsButton"].tap()
+        } else {
+            if !finish.exists || !finish.isHittable { app.navigationBars.buttons.element(boundBy: 0).tap() }
+            XCTAssertTrue(finish.waitForExistence(timeout: 3)); finish.tap()
+        }
         let suffix = String(UUID().uuidString.prefix(6)), peer = "group-peer-" + suffix
         app.open(try InvitationURLFixture.acceptance(invitation, invitee: peer, sharedName: "Remote " + suffix))
         app.closeCallIfOpen()
@@ -81,13 +124,25 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(groupsTab.waitForExistence(timeout: 5)); groupsTab.tap()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", groupName)).firstMatch
         for _ in 0..<20 where !row.exists || !row.isHittable { app.swipeUp() }
-        XCTAssertTrue(row.exists); row.tap()
-        let menu = app.buttons[advanced ? "callMoreMenu" : "callGroupSettingsButton"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 5)); menu.tap()
-        if advanced { app.buttons["callGroupSettingsButton"].tap() }
+        XCTAssertTrue(row.exists)
+        if advanced {
+            row.swipeLeft()
+            let settings = app.buttons["Group Settings"].firstMatch
+            XCTAssertTrue(settings.waitForExistence(timeout: 5))
+            settings.tap()
+        } else {
+            row.tap()
+            let settings = app.buttons["callGroupSettingsButton"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 5))
+            settings.tap()
+        }
         XCTAssertTrue(app.textFields["groupSettingsNameField"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textFields["groupSettingsNameField"].value as? String, groupName)
-        if !advanced { XCTAssertTrue(app.buttons["groupSettingsMember-" + peer].waitForExistence(timeout: 5)) }
+        if !advanced {
+            XCTAssertTrue(app.buttons["groupSettingsMember-" + peer].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                "groupSettingsMember-invite-pending-contact-")).firstMatch.exists)
+        }
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", nickname)).firstMatch.exists)
         let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Signed reply replaces only its saved group invitation slot"; attachment.lifetime = .keepAlways; self.add(attachment)
 

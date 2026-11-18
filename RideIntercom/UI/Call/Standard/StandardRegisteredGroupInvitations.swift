@@ -18,16 +18,33 @@ struct StandardRegisteredGroupInvitations: View {
     }
 }
 
-/// The same saved delivery state has the same words in selection and group settings.
+/// The same saved invitation state uses the same words wherever it is shown.
 struct StandardGroupInvitationStatus: View {
-    let state: GroupDeliveryRecord.State?
-    var body: some View { Text(title) }
-    private var title: LocalizedStringKey {
-        switch state {
+    private let title: LocalizedStringKey
+
+    init(state: GroupDeliveryRecord.State?) {
+        title = switch state {
         case .received: "Added to group"
         case .pending, .queued: "Invitation pending"
         case .cancelled: "Invitation stopped"
         case nil: "Sharing required"
         }
     }
+
+    init?(viewModel: IntercomViewModel, memberID: String, groupID: UUID, includeReceived: Bool = true) {
+        if let record = viewModel.outgoingGroupInvitation(forPendingMember: memberID, in: groupID) {
+            self.init(title: LocalizedStringKey(viewModel.contactInvitationStateWord(for: record)))
+        } else if let state = viewModel.groupInvitationDeliveryState(forMember: memberID, in: groupID),
+                  includeReceived || state != .received {
+            self.init(state: state)
+        } else if memberID.hasPrefix(GroupMember.pendingInvitePrefix) {
+            self.init(state: .pending)
+        } else {
+            return nil
+        }
+    }
+
+    private init(title: LocalizedStringKey) { self.title = title }
+
+    var body: some View { Text(title) }
 }

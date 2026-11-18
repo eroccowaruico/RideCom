@@ -5,6 +5,7 @@ struct StandardCallView: View {
     let viewModel: IntercomViewModel
     @Binding var selectedTab: AppTab
     @State private var addingUsers: IntercomGroup?
+    @State private var invitationPerson: SavedUser?
     @State private var pendingEndReference: CallReference?
     @State private var confirmsEnd = false
     @State private var endingCallName = ""
@@ -110,6 +111,9 @@ struct StandardCallView: View {
                 .accessibilityIdentifier("standardCancelEndCallButton")
         }
         .sheet(item: $addingUsers) { group in SavedUsersView(viewModel: viewModel, groupID: group.id) }
+        .sheet(item: $invitationPerson) { person in
+            ContactPersonSheet(viewModel: viewModel, personID: person.id, onClose: { invitationPerson = nil })
+        }
     }
 
     /// The status hero: a glass card, leading-aligned, with the kind and size, the destination,
@@ -180,7 +184,11 @@ struct StandardCallView: View {
 
     private func membersSection(_ group: IntercomGroup) -> some View {
         Section {
-            // You come first: whether your microphone picks up your voice.
+            if viewModel.canManageRegularGroups {
+                Button("Invite Members", systemImage: "person.badge.plus") { addingUsers = group }
+                    .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
+                    .accessibilityIdentifier("addSavedUsersButton")
+            }
             if group.id == viewModel.activeGroupID {
                 HStack {
                     DestinationAvatar(isGroup: false)
@@ -199,8 +207,18 @@ struct StandardCallView: View {
             }
             ForEach(Array(group.members.dropFirst())) { member in
                 Group {
-                    // Someone in the conversation opens their own volume with a tap; it stays hidden otherwise.
-                    if group.id == viewModel.activeGroupID, viewModel.authenticatedPeerIDs.contains(member.id) {
+                    if let person = viewModel.personForGroupInvitation(memberID: member.id, groupID: group.id) {
+                        Button { invitationPerson = person } label: {
+                            HStack {
+                                memberRow(member, in: group)
+                                Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary).accessibilityHidden(true)
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("standardCallInvitee-\(member.id)")
+                    } else if group.id == viewModel.activeGroupID, viewModel.authenticatedPeerIDs.contains(member.id) {
                         DisclosureGroup {
                             Slider(value: Binding(get: { Double(viewModel.remoteOutputVolume(for: member.id)) },
                                                   set: { viewModel.setRemoteOutputVolume(peerID: member.id, volume: Float($0)) }), in: 0...1) {
@@ -217,12 +235,6 @@ struct StandardCallView: View {
                     }
                 }
             }
-            // Only those with the usage right invite; others see no invite button.
-            if group.kind == .group && viewModel.canManageRegularGroups {
-                Button("Invite Members", systemImage: "person.badge.plus") { addingUsers = group }
-                    .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
-                    .accessibilityIdentifier("addSavedUsersButton")
-            }
         } header: {
             Text("People in This Call").accessibilityIdentifier("standardCallParticipantsHeading")
         }
@@ -231,10 +243,16 @@ struct StandardCallView: View {
     private func memberRow(_ member: GroupMember, in group: IntercomGroup) -> some View {
         HStack {
             HStack {
-                DestinationAvatar(isGroup: false)
+                if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { PendingAvatar() }
+                else { DestinationAvatar(isGroup: false) }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(member.resolvedDisplayName)
-                    if group.id == viewModel.activeGroupID { memberState(member) }
+                    if let invitation = StandardGroupInvitationStatus(viewModel: viewModel, memberID: member.id,
+                                                                      groupID: group.id, includeReceived: false) {
+                        invitation.font(.footnote).foregroundStyle(.secondary)
+                    } else if group.id == viewModel.activeGroupID {
+                        memberState(member)
+                    }
                 }
             }
             .accessibilityElement(children: .combine)

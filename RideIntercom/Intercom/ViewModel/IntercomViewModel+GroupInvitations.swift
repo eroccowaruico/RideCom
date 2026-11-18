@@ -57,9 +57,17 @@ extension IntercomViewModel {
         }
     }
 
+    func outgoingGroupInvitation(forPendingMember memberID: String, in groupID: UUID) -> ContactInvitationRecord? {
+        guard memberID.hasPrefix(GroupMember.pendingInvitePrefix) else { return nil }
+        _ = contactInvitationRevision
+        return groupRepository.contactInvitations.first {
+            $0.direction == .outgoing && $0.invitedGroupID == groupID
+                && $0.pendingGroupMemberID == memberID && $0.state != .cancelled
+        }
+    }
+
     func personForGroupInvitation(memberID: String, groupID: UUID) -> SavedUser? {
-        guard let record = groupRepository.contactInvitations.first(where: { $0.direction == .outgoing && $0.invitedGroupID == groupID
-            && $0.pendingGroupMemberID == memberID && $0.state != .cancelled }), let person = record.personID else { return nil }
+        guard let person = outgoingGroupInvitation(forPendingMember: memberID, in: groupID)?.personID else { return nil }
         return contactPerson(person)
     }
 

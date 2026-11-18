@@ -65,7 +65,7 @@ final class DesignSystemCallUITests: XCTestCase {
     }
 
     /// Settings open from named, visible entries: the call's settings button (no "…" menu) and a row's swipe.
-    /// Invite Members is its own button under the members. No long-press menus.
+    /// Invite Members heads the member list. No long-press menus.
     @MainActor
     func testGroupSettingsOpenFromTheCallMenuAndTheListRow() {
         defer { attachEvidence("Group settings entries") }
@@ -79,7 +79,7 @@ final class DesignSystemCallUITests: XCTestCase {
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 3), "The settings button sits in the toolbar")
         settingsButton.tap()
         XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForExistence(timeout: 3))
-        // Standard: Invite Members under the members, the same words as the call's menu; Delete Group last.
+        // Standard uses the same invitation label in the call and settings. Delete Group comes last.
         XCTAssertEqual(app.buttons["groupSettingsAddMembersButton"].label, "Invite Members")
         XCTAssertEqual(app.buttons["deleteGroupButton"].label, "Delete Group")
         let name = app.textFields["groupSettingsNameField"].firstMatch

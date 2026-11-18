@@ -45,7 +45,7 @@ struct StandardContactPersonDetail: View {
         }
         .formStyle(.grouped)
         .safeAreaBar(edge: .bottom) {
-            if !currentPerson.isRegistered { ContactPersonShareLink(viewModel: viewModel, person: currentPerson) }
+            if !currentPerson.isRegistered { ContactPersonShareButton(viewModel: viewModel, person: currentPerson) }
         }
         .sheet(isPresented: $editsName) { StandardUserSettingsView(viewModel: viewModel, user: currentPerson) }
     }

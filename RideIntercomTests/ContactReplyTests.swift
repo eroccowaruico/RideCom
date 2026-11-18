@@ -14,8 +14,9 @@ struct ContactReplyTests {
         author.viewModel.beginContactInvitationPresentation()
         guard case .person(let person) = author.viewModel.contactInvitationPresentation else { throw ContactInvitationError.unavailable }
         #expect(author.viewModel.saveContactPerson(person, name: "My Friend", usesProvisionalName: true))
-        let url = try author.viewModel.contactPersonURLForSharing(person, expectedAccountAccessID: author.viewModel.accountAccessID)
-        try friend.viewModel.acceptContactInviteURL(url)
+        let share = try author.viewModel.prepareContactPersonShare(person, expectedAccountAccessID: author.viewModel.accountAccessID)
+        author.viewModel.completeContactInvitationSharing(share)
+        try friend.viewModel.acceptContactInviteURL(share.url)
         author.viewModel.stopContactInvitationSession(); friend.viewModel.stopContactInvitationSession()
         let id = try #require(friend.viewModel.pendingContactInvitations.first).id
         return (author, friend, id)

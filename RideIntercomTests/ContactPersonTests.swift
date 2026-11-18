@@ -1,6 +1,4 @@
-import CoreTransferable
 import Foundation
-import UniformTypeIdentifiers
 import Testing
 @testable import RideIntercom
 
@@ -122,7 +120,7 @@ struct ContactPersonTests {
         #expect(throws: (any Error).self) { try snapshot.encoded() }
     }
 
-    @Test func saveAndShareKeepOnePresentationAndCompletionDoesNotCloseIt() async throws {
+    @Test func saveAndShareKeepOnePresentationAndCompletionDoesNotCloseIt() throws {
         let h = AppTestSupport.makeHarness(groups: [], localMemberID: "presentation-person")
         let vm = h.viewModel
         vm.contactSessionFactory = { RecordingCallSession() }
@@ -137,14 +135,18 @@ struct ContactPersonTests {
         guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected the reopened draft"); return }
         #expect(vm.saveContactPerson(id, name: "My Partner"))
         #expect(vm.contactInvitationPresentation == .person(id) && vm.pendingContactInvitations.isEmpty)
-        let share = InvitationShare(viewModel: vm, contactPersonID: id)
+        let access = vm.accountAccessID
         vm.contactInvitationMessage = "Could not prepare this invitation. Try again."
-        let first = try await share.exported(as: .url), second = try await share.exported(as: .url)
-        #expect(first == second && vm.directoryUsers.map(\.id) == [id])
+        let first = try vm.prepareContactPersonShare(id, expectedAccountAccessID: access)
+        let second = try vm.prepareContactPersonShare(id, expectedAccountAccessID: access)
+        #expect(first.id == second.id && first.url == second.url && vm.directoryUsers.map(\.id) == [id])
+        vm.completeContactInvitationSharing(.init(id: first.id, accountAccessID: UUID(), url: first.url))
+        #expect(vm.contactInvitationRecord(first.id)?.sent == false)
+        vm.completeContactInvitationSharing(first)
+        #expect(vm.contactInvitationRecord(first.id)?.sent == true)
         #expect(vm.contactInvitationMessage == nil, "A successful retry clears the earlier preparation failure")
         #expect(vm.unlinkedContactInvitations.isEmpty && vm.contactInvitationPresentation == .person(id))
-        let url = try await URL(importing: first, contentType: .url)
-        let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
+        let token = try GroupInviteTokenCodec.decodeJoinURL(first.url, contactBootstrap: true)
         let acceptance = try token.accept(signer: testIdentitySigner("person-response"), displayName: "Peer Name", contactBootstrap: true)
         let verified = try #require(try vm.invitationAuthority.verify(acceptance.receipt))
         try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
@@ -152,10 +154,10 @@ struct ContactPersonTests {
         #expect(vm.contactInvitationPresentation == .person(id), "Registration updates the same detail instead of closing it")
         #expect(vm.contactPerson(id)?.isRegistered == true && vm.directoryUsers.count == 1)
         #expect(vm.unlinkedContactInvitations.isEmpty)
-        await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
+        #expect(throws: (any Error).self) { _ = try vm.prepareContactPersonShare(id, expectedAccountAccessID: access) }
     }
 
-    @Test func foregroundResumesOnlyTheSuspendedExchangeInTheSameAccount() async throws {
+    @Test func foregroundResumesOnlyTheSuspendedExchangeInTheSameAccount() throws {
         var now = Date()
         let h = AppTestSupport.makeHarness(groups: [], localMemberID: "foreground-person", callAccessNow: { now })
         let vm = h.viewModel
@@ -165,7 +167,8 @@ struct ContactPersonTests {
         vm.beginContactInvitationPresentation()
         guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected person"); return }
         #expect(vm.saveContactPerson(id, name: "Partner"))
-        _ = try await InvitationShare(viewModel: vm, contactPersonID: id).exported(as: .url)
+        let share = try vm.prepareContactPersonShare(id, expectedAccountAccessID: vm.accountAccessID)
+        vm.completeContactInvitationSharing(share)
         let invitation = try #require(vm.contactInvitationID)
         vm.suspendContactInvitationForBackground()
         #expect(vm.contactInvitationID == nil)

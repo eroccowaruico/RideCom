@@ -1,6 +1,4 @@
-import CoreTransferable
 import Foundation
-import UniformTypeIdentifiers
 import RTC
 import Testing
 @testable import RideIntercom
@@ -283,8 +281,9 @@ struct ContactInvitationPersistenceTests {
         a.viewModel.beginContactInvitationPresentation()
         guard case .person(let personID) = a.viewModel.contactInvitationPresentation else { Issue.record("Expected person"); return }
         #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner", usesProvisionalName: true))
-        let bytes = try await InvitationShare(viewModel: a.viewModel, contactPersonID: personID).exported(as: .url)
-        let url = try await URL(importing: bytes, contentType: .url)
+        let share = try a.viewModel.prepareContactPersonShare(personID, expectedAccountAccessID: a.viewModel.accountAccessID)
+        a.viewModel.completeContactInvitationSharing(share)
+        let url = share.url
         #expect(a.viewModel.savedRemoteUsers.isEmpty)
         #expect(b.viewModel.previewContactInvitation(url))
         #expect(b.viewModel.savedRemoteUsers.isEmpty)

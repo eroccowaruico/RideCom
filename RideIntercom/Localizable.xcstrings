@@ -1892,6 +1892,16 @@
         }
       }
     },
+    "Copy Invitation Link" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "招待リンクをコピー"
+          }
+        }
+      }
+    },
     "Could not cancel this pending invitation. Try again." : {
       "localizations" : {
         "ja" : {

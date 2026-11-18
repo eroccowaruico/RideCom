@@ -88,6 +88,12 @@ extension IntercomViewModel {
     }
 
     func contactInvitationURLForSharing(_ id: UUID, expectedAccountAccessID: UUID) throws -> URL {
+        let share = try prepareContactInvitationShare(id, expectedAccountAccessID: expectedAccountAccessID)
+        try? groupRepository.markContactInvitationSent(id)
+        return share.url
+    }
+
+    func prepareContactInvitationShare(_ id: UUID, expectedAccountAccessID: UUID) throws -> PreparedContactInvitationShare {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let record = pendingContactInvitations.first(where: { $0.id == id }),
               record.direction == .outgoing, record.state == .pending,
@@ -97,10 +103,18 @@ extension IntercomViewModel {
         _ = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
                                                        expectedPublicKey: payload.token.identityProof?.publicKey)
         let url = try GroupInviteTokenCodec.joinURL(for: payload.token, contactBootstrap: true)
-        // The share sheet asks for the link only when a destination takes it. Not republished here, so the
-        // open share sheet is not redrawn; the list reads it again when the sheet closes.
-        try? groupRepository.markContactInvitationSent(id)
-        return url
+        return .init(id: id, accountAccessID: expectedAccountAccessID, url: url)
+    }
+
+    func completeContactInvitationSharing(_ share: PreparedContactInvitationShare) {
+        guard share.accountAccessID == accountAccessID, canEditSavedGroups,
+              let record = contactInvitationRecord(share.id), contactInvitationIsUnsent(record) else { return }
+        do {
+            try groupRepository.markContactInvitationSent(share.id)
+            refreshGroupStorageStatus()
+        } catch {
+            reportGroupStorageError(error)
+        }
     }
 
     private func presentsContactInvitation(_ id: UUID) -> Bool {

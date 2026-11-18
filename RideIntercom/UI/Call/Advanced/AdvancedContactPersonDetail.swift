@@ -31,7 +31,7 @@ struct AdvancedContactPersonDetail: View {
         }
         .formStyle(.grouped)
         .safeAreaBar(edge: .bottom) {
-            if !currentPerson.isRegistered { ContactPersonShareLink(viewModel: viewModel, person: currentPerson) }
+            if !currentPerson.isRegistered { ContactPersonShareButton(viewModel: viewModel, person: currentPerson) }
         }
         .sheet(isPresented: $editsName) { AdvancedUserSettingsView(viewModel: viewModel, user: currentPerson) }
     }

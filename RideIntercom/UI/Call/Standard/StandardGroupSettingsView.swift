@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The group's name, You and the members (a tap opens a member, the swipe removes them), Invite Members, then
-/// one red button last: Delete Group for whoever made it, Leave Group for everyone else.
+/// The group name and members, with the invitation action above the rows.
 struct StandardGroupSettingsView: View {
     let viewModel: IntercomViewModel
     let groupID: UUID
@@ -28,7 +27,19 @@ struct StandardGroupSettingsView: View {
                             .accessibilityIdentifier("groupSettingsNameField")
                     }
                     Section {
-                        // You come first, as in the call; your own row opens nothing.
+                        if viewModel.canManageRegularGroups {
+                            Button { invitingMembers = true } label: {
+                                HStack(spacing: AppSpacing.m) {
+                                    PendingAvatar(diameter: 28)
+                                    Text("Invite Members")
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
+                            .accessibilityIdentifier("groupSettingsAddMembersButton")
+                        }
                         HStack(spacing: AppSpacing.m) {
                             DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true)
                             Text("You")
@@ -46,12 +57,9 @@ struct StandardGroupSettingsView: View {
                                     else { DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true) }
                                     VStack(alignment: .leading, spacing: AppSpacing.xs) {
                                         Text(verbatim: member.resolvedDisplayName).lineLimit(2)
-                                        if member.id.hasPrefix(GroupMember.pendingInvitePrefix) {
-                                            StandardGroupInvitationStatus(state: .pending)
-                                                .font(.subheadline).foregroundStyle(.secondary)
-                                                .accessibilityIdentifier("groupSettingsInvitationState-\(member.id)")
-                                        } else if let state = viewModel.groupInvitationDeliveryState(forMember: member.id, in: groupID) {
-                                            StandardGroupInvitationStatus(state: state)
+                                        if let invitation = StandardGroupInvitationStatus(viewModel: viewModel,
+                                                                                          memberID: member.id, groupID: groupID) {
+                                            invitation
                                                 .font(.subheadline).foregroundStyle(.secondary)
                                                 .accessibilityIdentifier("groupSettingsInvitationState-\(member.id)")
                                         }
@@ -69,20 +77,6 @@ struct StandardGroupSettingsView: View {
                                                       name: member.resolvedDisplayName) {
                                 viewModel.removeMember(member.id, from: groupID)
                             }
-                        }
-                        // Only those with the usage right invite; others see no invite row.
-                        if viewModel.canManageRegularGroups {
-                        Button { invitingMembers = true } label: {
-                            HStack(spacing: AppSpacing.m) {
-                                PendingAvatar(diameter: 28)
-                                Text("Invite Members")
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
-                        .accessibilityIdentifier("groupSettingsAddMembersButton")
                         }
                     } header: {
                         Text("Members")

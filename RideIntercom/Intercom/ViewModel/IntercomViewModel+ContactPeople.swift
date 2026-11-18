@@ -1,5 +1,11 @@
 import Foundation
 
+struct PreparedContactInvitationShare: Identifiable {
+    let id: UUID
+    let accountAccessID: UUID
+    let url: URL
+}
+
 extension IntercomViewModel {
     /// An open sheet can resolve a newly identified duplicate to the already saved person without
     /// replacing its presentation identity or losing the current screen.
@@ -72,7 +78,7 @@ extension IntercomViewModel {
         }
     }
 
-    func contactPersonURLForSharing(_ id: UUID, expectedAccountAccessID: UUID) throws -> URL {
+    func prepareContactPersonShare(_ id: UUID, expectedAccountAccessID: UUID) throws -> PreparedContactInvitationShare {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let person = directoryUsers.first(where: { $0.id == id }), !person.isRegistered else {
             throw ContactInvitationError.unavailable
@@ -81,9 +87,9 @@ extension IntercomViewModel {
         do {
             let record = contactPersonInvitations(id).first { $0.direction == .outgoing && ($0.state == .pending || $0.state == .expired) }
             if let record, record.state == .pending, !contactInvitationIsExpired(record) {
-                let url = try contactInvitationURLForSharing(record.id, expectedAccountAccessID: expectedAccountAccessID)
+                let share = try prepareContactInvitationShare(record.id, expectedAccountAccessID: expectedAccountAccessID)
                 _ = resumeContactInvitation(record.id)
-                return url
+                return share
             }
             let target = try record?.invitedGroupID.map { try contactGroupAttachment(for: $0) }
             let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
@@ -92,11 +98,11 @@ extension IntercomViewModel {
             try groupRepository.stageContactInvitation(token, now: callAccessNow().timeIntervalSince1970,
                 replacingExpiredInvitation: record?.id, personID: id)
             guard let invitationID = token.directInvitation?.context.id else { throw ContactInvitationError.unavailable }
-            let url = try contactInvitationURLForSharing(invitationID, expectedAccountAccessID: expectedAccountAccessID)
+            let share = try prepareContactInvitationShare(invitationID, expectedAccountAccessID: expectedAccountAccessID)
             refreshContactInvitationGroup(invitationID)
             refreshGroupStorageStatus()
             _ = resumeContactInvitation(invitationID)
-            return url
+            return share
         } catch {
             contactInvitationMessage = "Could not prepare this invitation. Try again."
             throw error
