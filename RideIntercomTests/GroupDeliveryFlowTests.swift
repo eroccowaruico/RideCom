@@ -92,6 +92,85 @@ import Testing
         #expect(!(await owner.respondToGroupInvitation(unrelated)))
     }
 
+    @Test func oneForegroundPassReceivesMoreThanEightDifferentGroupInvitations() async throws {
+        let a = GroupDeliveryTestIdentity("batch-author"), b = GroupDeliveryTestIdentity("batch-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64)); try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let left = try a.harness(knowing: [b]), right = try b.harness(knowing: [a])
+        defer { left.viewModel.stopGroupDeliverySync(); right.viewModel.stopGroupDeliverySync(); left.viewModel.disconnect(); right.viewModel.disconnect() }
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: configuration))
+        GroupDeliveryHTTPStub.reset()
+        GroupDeliveryHTTPStub.users = [try #require(try a.store.notificationAccess(memberID: a.memberID)).accessToken: try a.principal.userID,
+            try #require(try b.store.notificationAccess(memberID: b.memberID)).accessToken: try b.principal.userID]
+        let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal, revision: 1,
+            grant: nil, signer: b.signer, groupGrant: testCallNotificationGrant(owner: b.principal, allowedSender: a.principal, audience: "rideintercom-group-invitation"), groupInvitationsSupported: true)
+        try left.viewModel.notifications.receivePermission(permission, peerID: b.memberID)
+        left.viewModel.groupDeliveryClient = nil
+        var expected = Set<UUID>()
+        for index in 0..<9 {
+            let id = UUID(); expected.insert(id)
+            #expect(left.viewModel.createTalkGroup(name: "Batch group \(index)", userIDs: [b.personID], id: id))
+        }
+        left.viewModel.groupDeliveryClient = client; right.viewModel.groupDeliveryClient = client
+        await left.viewModel.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.items.count == 9)
+        let currentCall = right.viewModel.currentCallReference
+        await right.viewModel.synchronizeGroupDeliveries()
+        #expect(expected.isSubset(of: Set(right.viewModel.groups.map(\.id))), "All queued groups must arrive without a second foreground event")
+        #expect(right.viewModel.currentCallReference == currentCall && !right.viewModel.hasAnyActiveGroupConnection)
+        #expect(right.viewModel.groupRepository.groupDeliveries.filter { $0.direction == .incoming && $0.state == .received }.count == 9)
+        await left.viewModel.synchronizeGroupDeliveries()
+        #expect(left.viewModel.groupRepository.groupDeliveries.allSatisfy { $0.state == .received })
+    }
+
+    @Test(arguments: [403, 401, 429, 503]) func aRecipientRejectionDoesNotBlockOtherPeopleButASharedFailureStopsThePass(status: Int) async throws {
+        let a = GroupDeliveryTestIdentity("rejection-author"), b = GroupDeliveryTestIdentity("rejection-first"), c = GroupDeliveryTestIdentity("rejection-second")
+        defer { a.remove(); b.remove(); c.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64)); try b.authorizeFixture(userID: String(repeating: "b", count: 64)); try c.authorizeFixture(userID: String(repeating: "c", count: 64))
+        let h = try a.harness(knowing: [b, c]); defer { h.viewModel.stopGroupDeliverySync(); h.viewModel.disconnect() }
+        h.viewModel.groupDeliveryClient = nil
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        GroupDeliveryHTTPStub.reset()
+        GroupDeliveryHTTPStub.users = [try #require(try a.store.notificationAccess(memberID: a.memberID)).accessToken: try a.principal.userID]
+        for peer in [b, c] {
+            let permission = try CallNotificationPermissionMessage.make(owner: peer.principal, allowedSender: a.principal, revision: 1,
+                grant: nil, signer: peer.signer, groupGrant: testCallNotificationGrant(owner: peer.principal, allowedSender: a.principal, audience: "rideintercom-group-invitation"), groupInvitationsSupported: true)
+            try h.viewModel.notifications.receivePermission(permission, peerID: peer.memberID)
+        }
+        #expect(h.viewModel.createTalkGroup(name: "Independent recipients", userIDs: [b.personID, c.personID]))
+        let first = try #require(h.viewModel.groupRepository.groupDeliveries.first)
+        GroupDeliveryHTTPStub.rejectedRecipientID = first.recipient.userID
+        GroupDeliveryHTTPStub.submitRejectionStatus = status
+        h.viewModel.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        await h.viewModel.synchronizeGroupDeliveries()
+        let records = h.viewModel.groupRepository.groupDeliveries
+        #expect(records.first(where: { $0.id == first.id })?.state == .pending, "A rejected recipient stays recoverable")
+        #expect(GroupDeliveryHTTPStub.submitted.count == (status == 403 ? 2 : 1))
+        #expect(records.filter { $0.id != first.id }.allSatisfy { $0.state == (status == 403 ? .queued : .pending) })
+    }
+
+    @Test func anInvalidInboxPacketWhoseDiscardFailsWaitsForTheNextLifecycleEvent() async throws {
+        let a = GroupDeliveryTestIdentity("discard-recipient"), b = GroupDeliveryTestIdentity("discard-sender")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64)); try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let h = try a.harness(knowing: [b]); defer { h.viewModel.stopGroupDeliverySync(); h.viewModel.disconnect() }
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        GroupDeliveryHTTPStub.reset()
+        GroupDeliveryHTTPStub.users = [try #require(try a.store.notificationAccess(memberID: a.memberID)).accessToken: try a.principal.userID]
+        let id = UUID().uuidString.lowercased(), initialGroups = h.viewModel.groups.map(\.id)
+        GroupDeliveryHTTPStub.items[id] = ["requestID": id, "expiresAt": Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000,
+            "status": "queued", "senderUserID": try b.principal.userID, "recipientID": try a.principal.userID,
+            "recipientKey": try a.signer.publicKey, "envelope": "invalid-base64"]
+        GroupDeliveryHTTPStub.failNextAcknowledgement = true
+        h.viewModel.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        await h.viewModel.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.requestCount == 2, "GET and one failed discard, without re-fetching the same invalid packet")
+        #expect(h.viewModel.groups.map(\.id) == initialGroups)
+        await h.viewModel.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.requestCount == 5, "A later lifecycle pass retries discard and then observes an empty inbox")
+    }
+
     @Test func aGroupInvitationNoticeIsNeverDecodedAsACallRequest() {
         let payload: [AnyHashable: Any] = ["version": 1, "kind": "groupInvitation", "requestID": UUID().uuidString,
             "recipientID": String(repeating: "a", count: 64)]
@@ -154,9 +233,11 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var items: [String: [String: Any]] = [:]
     nonisolated(unsafe) static var submitted: [String] = []
     nonisolated(unsafe) static var onQueued: (@MainActor () -> Void)?
+    nonisolated(unsafe) static var rejectedRecipientID: String?
+    nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; failNextSubmit = false; failNextAcknowledgement = false; onQueued = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; onQueued = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -185,6 +266,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
            let encoded = fields["envelope"] as? String, let data = Data(base64Encoded: encoded),
            let envelope = try? JSONDecoder().decode(GroupInvitationEnvelope.self, from: data) {
             submitted.append(encoded)
+            if envelope.recipient.userID == rejectedRecipientID { return (submitRejectionStatus, [:]) }
             if failNextSubmit { failNextSubmit = false; return (503, [:]) }
             if let old = items[id] {
                 guard old["envelope"] as? String == encoded else { return (409, [:]) }

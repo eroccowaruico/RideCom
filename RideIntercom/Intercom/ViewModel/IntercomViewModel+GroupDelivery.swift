@@ -89,7 +89,8 @@ extension IntercomViewModel {
             } catch { reportGroupStorageError(error); return }
             let reply: GroupDeliveryReply
             do { reply = try await client.sendGroupInvitation(envelope, noticeID: record.noticeID, capability: grant.capability, access: access) }
-            catch { break } // The next lifecycle event retries the same encrypted packet.
+            catch InternetAccountClient.Failure.forbidden { continue } // This recipient's grant cannot block unrelated people.
+            catch { break } // Shared auth, rate limit or network failure waits for the next lifecycle event.
             guard groupDeliveryIsCurrent(access, accountID: generation),
                   let current = groupRepository.groupDeliveries.first(where: { $0.id == record.id }) else { return }
             if current.state == .cancelled { groupDeliveryNeedsSync = true; continue }
@@ -99,7 +100,8 @@ extension IntercomViewModel {
         }
         guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
         guard let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID) else { return }
-        for _ in 0..<8 {
+        // Match the Worker mailbox capacity; stop at empty or failure without polling.
+        for _ in 0..<64 {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
             let item: GroupDeliveryItem
             do {
@@ -116,7 +118,8 @@ extension IntercomViewModel {
                       let user = savedRemoteUsers.first(where: { $0.principal == envelope.sender }) else { throw DeviceIdentityProof.Failure.invalid }
                 token = try envelope.open(recipient: signer, local: access.principal, sender: user, now: callAccessNow())
             } catch {
-                try? await client.finishGroupInvitation(recipient: access.principal, id: item.requestID, discard: true, access: access)
+                do { try await client.finishGroupInvitation(recipient: access.principal, id: item.requestID, discard: true, access: access) }
+                catch { break } // Do not repeatedly fetch the same invalid packet after a failed discard.
                 continue
             }
             do {

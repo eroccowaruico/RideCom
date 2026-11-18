@@ -5,7 +5,7 @@ import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryWorkerTests {
-    @Test(.timeLimit(.minutes(1))) func theActualWorkerDeliversAndAcknowledgesAGroupWithoutStartingTheRecipientsCall() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [1, 9]) func theActualWorkerDeliversAndAcknowledgesAGroupWithoutStartingTheRecipientsCall(count: Int) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RideIntercom-GroupWorker-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let portFile = directory.appendingPathComponent("port.json"), logFile = directory.appendingPathComponent("fixture.log")
@@ -36,32 +36,38 @@ import Testing
         defer { left.viewModel.stopGroupDeliverySync(); right.viewModel.stopGroupDeliverySync(); left.viewModel.disconnect(); right.viewModel.disconnect() }
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
         let client = InternetAccountClient(session: URLSession(configuration: configuration))
-        left.viewModel.groupDeliveryClient = client; right.viewModel.groupDeliveryClient = client
+        left.viewModel.groupDeliveryClient = nil; right.viewModel.groupDeliveryClient = client
         right.viewModel.notifications = CallNotifications(store: b.store, memberID: b.memberID, client: client,
             isCurrentUser: { [weak model = right.viewModel] in model?.canStartCalls == true }, contacts: { [weak model = right.viewModel] in model?.savedRemoteUsers ?? [] })
         await right.viewModel.notifications.allowGroupInvitations()
         let permission = try #require(try right.viewModel.notifications.groupPermissionMessage(for: a.memberID, signer: b.signer))
         #expect(permission.groupGrant != nil)
         try left.viewModel.notifications.receivePermission(permission, peerID: b.memberID)
-        #expect(left.viewModel.createTalkGroup(name: "Actual Worker group", userIDs: [b.personID]))
+        var invitedGroups = Set<UUID>()
+        for index in 0..<count {
+            let id = UUID(); invitedGroups.insert(id)
+            #expect(left.viewModel.createTalkGroup(name: "Actual Worker group \(index)", userIDs: [b.personID], id: id))
+        }
+        left.viewModel.groupDeliveryClient = client
         let group = try #require(left.viewModel.groups.first), call = left.viewModel.currentCallReference
         let recipientCall = right.viewModel.currentCallReference
         await left.viewModel.synchronizeGroupDeliveries()
         #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .queued)
         await right.viewModel.synchronizeGroupDeliveries()
-        #expect(right.viewModel.groups.contains { $0.id == group.id })
+        #expect(invitedGroups.isSubset(of: Set(right.viewModel.groups.map(\.id))))
         #expect(right.viewModel.currentCallReference == recipientCall && left.viewModel.currentCallReference == call)
         #expect(right.viewModel.activeGroupID == nil && !right.viewModel.hasAnyActiveGroupConnection && right.callSession.connectedGroup == nil)
         let source = try #require(try left.viewModel.groupRepository.credential(for: group.id))
         let target = try #require(try right.viewModel.groupRepository.credential(for: group.id))
         #expect(SHA256.hash(data: Data(source.secret.utf8)) == SHA256.hash(data: Data(target.secret.utf8)))
         await left.viewModel.synchronizeGroupDeliveries()
-        #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .received)
+        #expect(left.viewModel.groupRepository.groupDeliveries.count == count)
+        #expect(left.viewModel.groupRepository.groupDeliveries.allSatisfy { $0.state == .received })
         #expect(left.viewModel.groupRepository.groupDeliveries.first?.credentialReference == nil)
         right.viewModel.stopGroupDeliverySync(); right.viewModel.disconnect()
         let reopened = try b.harness(knowing: [a], onDisk: true)
         defer { reopened.viewModel.stopGroupDeliverySync(); reopened.viewModel.disconnect() }
-        #expect(reopened.viewModel.groups.contains { $0.id == group.id })
+        #expect(invitedGroups.isSubset(of: Set(reopened.viewModel.groups.map(\.id))))
         #expect(reopened.viewModel.groupRepository.groupDeliveries.first?.state == .received)
         #expect(reopened.viewModel.savedRemoteUsers.count == 1)
     }
