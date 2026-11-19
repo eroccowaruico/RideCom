@@ -29,3 +29,21 @@
 実App Groupの署名・containerのOS保護・Widget追加と実IPCは別受入とした。テスト用containerは一時ファイルへ注入し、実利用データ・portal・profileを変更していない。
 
 追加後のgeneric iOS Simulator buildも成功し、App／埋込Widget／埋込Watchは同じ番号33、予約1回を確認した（`.validation/widget-destinations-ios`）。Simulator起動やOS経由のWidget実行は行っていない。
+
+## ホーム画面から同じ通話のマイクを切り替える（2026-11-19）
+
+アプリを開き直さずにマイクを切り替える用途について、最初にライブアクティビティと選択通話Widgetの入口を照合した。ライブアクティビティとDynamic Islandは状態を表示し、本体タップで通話を開く。マイクの操作は選択通話Widgetが既に持つ。施錠時のWidgetKitボタン／ToggleにはOSによる解除が必要で、Intentの`.alwaysAllowed`は追加の認証要求に関する指定。根拠は[AppleのWidgetKit資料](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities)。
+
+次に、ホーム画面のWidgetをiOS 27.2 Simulatorへ追加して、ToggleからApp Intent、現在の通話参照の照合、既存のミュート処理、音声入出力までたどった。Widgetは設定先と表示中の通話参照を使い、状態を設定するのはAppの通話モデル。再読み込みでその結果を表示する。試験では専用ファイルをApp Groupで共有し、音声が動作中の通話を操作可能な表示にした。App Intentの配送、通話モデル、マイクおよび再生の処理は製品経路を使用した。
+
+| Appが背景にいる間の状態 | 観測したコールバック数（入力／出力） |
+|---|---|
+| マイク有効（Widget追加を含む約116秒） | 115／115 |
+| ホーム画面からミュート（約3秒） | 0／4 |
+| ホーム画面からミュート解除（約10秒） | 9／9 |
+
+約131秒間、Appを前面に戻さずに同じ通話と切断期限を維持した。CFBundleVersion 1220で画面試験1件成功、失敗・skip・XCTestの実行時警告は0。初回試行も背景のまま両方向へ切り替わったが、App復帰後の英語ラベルの期待値に操作名「Mute」と読み上げ値「Unmuted」の取り違えがあり試験は失敗した。期待値を修正し、操作中の画面記録を加えて再実行した。両試行ともSimulatorのSpringBoardのアニメーション完了待ちが各2回60秒で打ち切られた後に操作できた。所要時間は利用者の操作に必要な待ち時間とは扱わない。
+
+共有先と表示の試験差分を外したmacOSの製品コードで、背景Intent・通話投影・宛先・描画の回帰25件が成功した。失敗・skip・実行時警告は0。[システム表示仕様](../../spec/App/システム表示と通話操作.md)と[デザイン定義](../../design/一般向け/画面構成とレイアウト.md#widget)、HTML、使い方を実装とOSの操作条件に揃えた。証跡は `.validation/widget-os-microphone-probe-final-20261119`、初回は `.validation/widget-os-microphone-probe-20261119`、製品コードの回帰は `.validation/widget-os-microphone-clean-20261119`（ビルド後採番1222）。
+
+今回の端末には相手が接続していないため、出力コールバックの継続と解除後の入力の再開までが観測範囲。相手が実際に聞く音声、施錠した物理端末、OSによる実行停止、配布署名でのApp Group共有は[OS受入](../未確認事項.md#widgetcontrollive-activityのos受入)に残る。

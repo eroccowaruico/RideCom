@@ -368,7 +368,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .widget .wact .r { background: var(--red); color: #fff; }
 .widget .wact div { white-space: nowrap; padding: 0 6px; gap: 3px; }
 .widget .wact { gap: 12px; }
-.widget .wact .end-icon { flex: none; width: 44px; padding: 0; border-radius: 50%; font-size: 15px; background: var(--glass) !important; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent) !important; color: var(--red) !important; }
+.widget .wact .mute-control, .widget .wact .end-control, .widget .wact .end-icon { background: color-mix(in srgb, var(--label) 9%, transparent); }
+.widget .wact .end-control, .widget .wact .end-icon { border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); color: var(--red); }
+.widget .wact .end-icon { flex: none; width: 44px; padding: 0; border-radius: 50%; font-size: 15px; }
 .widget .wact div { font-size: 12px; padding: 0 4px; }
 .widget, .wscreen { line-break: strict; word-break: auto-phrase; }
 .widget .muted-txt { color: var(--label2); font-size: 12px; margin-top: 8px; }
@@ -1300,8 +1302,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
       <div class="widget">
         <div class="wh" style="color:var(--label2)"><svg class="i"><use href="#person"/></svg>ユーザー<span class="gl glr appicon-small"></span></div>
         <div class="wname">ハルカ</div>
-        <div class="wst"><span class="spin" style="color:var(--orange)" style="width:11px;height:11px"></span>接続中</div>
-        <div class="wact"><div class="g" style="color:var(--red)"><svg class="i"><use href="#phone-down"/></svg>切断</div></div>
+        <div class="wst"><span class="spin" style="color:var(--orange);width:11px;height:11px" aria-hidden="true"></span>接続中</div>
+        <div class="wact"><div class="end-control"><svg class="i"><use href="#phone-down"/></svg>切断</div></div>
       </div>
       <figcaption><b>接続待ち</b></figcaption>
     </figure>
@@ -1310,9 +1312,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div class="wh" style="color:var(--label2)"><svg class="i"><use href="#person3"/></svg>グループ<span class="gl glr appicon-small"></span></div>
         <div class="wname">週末ツーリング</div>
         <div class="wst"><svg class="i" style="color:var(--green)"><use href="#wave"/></svg>会話中</div>
-        <div class="wact"><div class="g"><svg class="i"><use href="#mic-slash"/></svg>ミュート</div><div class="end-icon" aria-label="切断"><svg class="i"><use href="#phone-down"/></svg></div></div>
+        <div class="wact"><div class="mute-control"><svg class="i"><use href="#mic-slash"/></svg>ミュート</div><div class="end-icon" aria-label="切断"><svg class="i"><use href="#phone-down"/></svg></div></div>
       </div>
-      <figcaption><b>会話中</b>ミュートは1つの切替ボタン（記号は常に斜線入り）。切断は右端のガラスの円に赤い記号（44pt、間12pt以上）。ミュート中の赤い塗りと見た目を分ける。</figcaption>
+      <figcaption><b>会話中</b>ミュートは1つの切替ボタン（記号は常に斜線入り）。切断は右端の中立色の円に赤い記号と細い縁（44pt、間12pt以上）。ミュート中の赤い塗りと見た目を分ける。</figcaption>
     </figure>
     <figure>
       <div class="widget">
@@ -1372,13 +1374,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
         </div>
       </div>
-      <figcaption><b>ライブアクティビティ（ロック画面）</b>状態だけを表示し（ミュート中は「会話中・ミュート中」）、切断ボタンは置かない（ポケットやグローブで誤って切れるため）。タップでアプリを開く。接続先の名前は出さない。左上はアプリアイコン（小さな書き出し画像）。</figcaption>
+      <figcaption><b>ライブアクティビティ（ロック画面）</b>状態を表示し（ミュート中は「会話中・ミュート中」）、タップでアプリの通話画面を開く。マイク操作は選択通話ウィジェットにあり、施錠中はOSの認証が必要。接続先の名前は出さない。左上はアプリアイコン（小さな書き出し画像）。</figcaption>
     </figure>
     <figure>
       <div class="di-wrap">
         <div class="di compact"><span class="gly appicon-small"></span><span><svg class="i"><use href="#mic"/></svg></span></div>
         <div class="di compact"><span class="gly appicon-small"></span><span class="rd"><svg class="i"><use href="#mic-slash"/></svg></span></div>
-        <div class="di compact"><span class="gly appicon-small"></span><span class="spin" style="color:#FFB340"></span></div>
+        <div class="di compact"><span class="gly appicon-small"></span><span class="spin" style="color:#FFB340" aria-hidden="true"></span></div>
         <div style="display:flex;gap:8px;align-items:center"><div class="di compact" style="width:150px;justify-content:center;color:#aaa;font-size:11px">他のアプリ</div><div class="di minimal"><span class="gly appicon-small"></span></div></div>
         <div class="di expanded">
           <span style="display:flex;gap:6px;align-items:center;font-weight:700;font-size:13px"><span class="gly lg appicon-small"></span>RideCom</span>
@@ -1386,7 +1388,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <span style="font-size:18px"><svg class="i"><use href="#mic"/></svg></span>
         </div>
       </div>
-      <figcaption><b>Dynamic Island</b>左側と最小表示はアプリアイコンの小さな書き出し画像で、ひと目で RideCom と分かるようにする。右側はマイク状態（ミュートは red）、接続中は琥珀色の進行表示。展開表示にも切断は置かない。</figcaption>
+      <figcaption><b>Dynamic Island</b>左側と最小表示はアプリアイコンの小さな書き出し画像で、ひと目で RideCom と分かるようにする。右側はマイク状態（ミュートは赤）。compactの接続中は琥珀色の静止した進行記号。本体をタップするとアプリの通話画面を開く。</figcaption>
     </figure>
     <figure>
       <div class="cc">
