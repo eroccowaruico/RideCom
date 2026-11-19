@@ -4,6 +4,24 @@ import Testing
 
 @MainActor
 struct GroupMigrationTests {
+    @Test func version16KeepsTheGroupKeyAndTakenInvitationWhenAddingRemovalReceipts() throws {
+        let f = try GroupStorageFixture(); defer { f.remove() }
+        let group = try f.group()
+        try f.repository.save([group], credential: .init(groupID: group.id, secret: "group-key"))
+        var old = try #require(try f.file.read())
+        old.version = 16
+        let link = GroupSnapshot.GroupLinkReceipt(groupID: group.id, receiptID: UUID(), expiresAt: nil, retired: true)
+        old.groupLinkReceipts = [link]
+        try f.file.commit(old)
+
+        let restarted = f.restart()
+        #expect(try restarted.load(localMemberID: "local").map(\.id) == [group.id])
+        #expect(try restarted.credential(for: group.id)?.secret == "group-key")
+        let migrated = try #require(try f.file.read())
+        #expect(migrated.version == GroupSnapshot.currentVersion)
+        #expect(migrated.groupLinkReceipts == [link] && migrated.groupRemovalReceipts.isEmpty)
+    }
+
     @Test func validJSONWithInvalidGroupIdentityOffersCorruptionRecovery() throws {
         let f = try GroupStorageFixture(); defer { f.remove() }
         let group = try f.group()

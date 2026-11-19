@@ -2,7 +2,15 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 16
+    static let currentVersion = 17
+    struct GroupRemovalReceipt: Codable, Equatable {
+        let groupID: UUID
+        let eventID: UUID
+        let signedDigest: Data
+        let expiresAt: TimeInterval
+
+        var isValid: Bool { signedDigest.count == 32 && expiresAt.isFinite && expiresAt >= 0 }
+    }
     struct GroupLinkReceipt: Codable, Equatable {
         let groupID: UUID
         let receiptID: UUID
@@ -141,18 +149,23 @@ struct GroupSnapshot: Codable, Equatable {
     var contactInvitations: [ContactInvitationRecord] = []
     var groupDeliveries: [GroupDeliveryRecord] = []
     var groupLinkReceipts: [GroupLinkReceipt] = []
+    var groupRemovalReceipts: [GroupRemovalReceipt] = []
 
     init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [],
-         groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = []) {
+         groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = [],
+         groupRemovalReceipts: [GroupRemovalReceipt] = []) {
         self.groups = groups
         self.users = users
         self.contactInvitations = contactInvitations
         self.groupDeliveries = groupDeliveries
         self.groupLinkReceipts = groupLinkReceipts
+        self.groupRemovalReceipts = groupRemovalReceipts
         synchronizeUserReferences()
     }
 
-    private enum CodingKeys: String, CodingKey { case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts }
+    private enum CodingKeys: String, CodingKey {
+        case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts, groupRemovalReceipts
+    }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -167,6 +180,7 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactInvitationRecord].self, forKey: .contactInvitations)
         groupDeliveries = version < 11 ? [] : try values.decode([GroupDeliveryRecord].self, forKey: .groupDeliveries)
         groupLinkReceipts = version < 16 ? [] : try values.decode([GroupLinkReceipt].self, forKey: .groupLinkReceipts)
+        groupRemovalReceipts = version < 17 ? [] : try values.decode([GroupRemovalReceipt].self, forKey: .groupRemovalReceipts)
     }
 
     func upgraded() -> GroupSnapshot {
@@ -263,6 +277,10 @@ struct GroupSnapshot: Codable, Equatable {
         guard version >= 12 || groupDeliveries.allSatisfy({ $0.direction == .outgoing || $0.state == .received })
         else { throw IntercomGroupError.invalidStoredGroups }
         let regularGroupIDs = Set(groups.filter { $0.kind == .group }.map(\.id))
+        guard version >= 17 || groupRemovalReceipts.isEmpty,
+              groupRemovalReceipts.count <= 1024, groupRemovalReceipts.allSatisfy(\.isValid),
+              Set(groupRemovalReceipts.map { [$0.groupID, $0.eventID] }).count == groupRemovalReceipts.count
+        else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 16 || groupLinkReceipts.isEmpty,
               Set(groupLinkReceipts.map { [$0.groupID, $0.receiptID] }).count == groupLinkReceipts.count,
               groupLinkReceipts.allSatisfy({ record in

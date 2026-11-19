@@ -373,28 +373,34 @@ struct GroupContactInvitationTests {
         let signed = try MembershipEndorsement(event, signer: signer)
         let otherKey = try DeviceIdentitySigner(memberID: inviterID, key: P256.Signing.PrivateKey())
         let untrusted = try MembershipEndorsement(event, signer: otherKey)
-        var targetJournal = MembershipJournal(), observerJournal = MembershipJournal()
+        let now = Date().timeIntervalSince1970, expiresAt = now + 3600
 
         // A fixture supplies the author's authorization. The signed message and actual saved
         // introducer key still have to match before applying it to the recipient App.
-        func deliver(_ removal: MembershipEndorsement, to vm: IntercomViewModel, store: FileGroupStore,
-                     journal: inout MembershipJournal) throws -> Bool {
+        func deliver(_ removal: MembershipEndorsement, to vm: IntercomViewModel, store: FileGroupStore) throws -> Bool {
             let statement = removal.statement
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let receipt = GroupSnapshot.GroupRemovalReceipt(groupID: statement.groupID, eventID: statement.introductionID,
+                signedDigest: Data(SHA256.hash(data: try encoder.encode(removal))), expiresAt: expiresAt)
+            do {
+                if try vm.groupRepository.hasAppliedGroupRemoval(receipt, now: now) { return true }
+            } catch GroupStorageError.invalidUpdate { return false }
             guard statement.kind == .removal,
+                  !statement.memberID.hasPrefix(GroupMember.pendingInvitePrefix),
+                  !statement.introducerID.hasPrefix(GroupMember.pendingInvitePrefix),
+                  statement.introducerID != statement.memberID,
                   let roster = try store.read()?.groups.first(where: { $0.id == statement.groupID }) else { return false }
-            var proposed = journal
-            guard proposed.receive(removal, in: roster),
-                  vm.applyGroupMemberRemoval(statement.memberID, from: statement.groupID) else { return false }
-            journal = proposed
-            return true
+            return removal.hasKnownSignature(in: roster)
+                && vm.applyGroupMemberRemoval(statement.memberID, from: statement.groupID, receipt: receipt)
         }
 
-        let rejected = try deliver(untrusted, to: observer, store: observerStore.file, journal: &observerJournal)
+        let rejected = try deliver(untrusted, to: observer, store: observerStore.file)
         #expect(!rejected)
         #expect(observer.currentCallReference == continuingCall)
         let beforeFailure = try targetStore.file.read()
         targetStore.store.failCommit = true
-        let failed = try deliver(signed, to: target, store: targetStore.file, journal: &targetJournal)
+        let failed = try deliver(signed, to: target, store: targetStore.file)
         #expect(!failed)
         #expect(try targetStore.file.read() == beforeFailure)
         #expect(target.currentCallReference == targetCall)
@@ -403,8 +409,8 @@ struct GroupContactInvitationTests {
         target.reloadSavedGroups()
         target.selectGroup(try #require(target.groups.first { $0.id == group.id }))
 
-        let appliedToTarget = try deliver(signed, to: target, store: targetStore.file, journal: &targetJournal)
-        let appliedToObserver = try deliver(signed, to: observer, store: observerStore.file, journal: &observerJournal)
+        let appliedToTarget = try deliver(signed, to: target, store: targetStore.file)
+        let appliedToObserver = try deliver(signed, to: observer, store: observerStore.file)
         #expect(appliedToTarget && appliedToObserver)
         #expect(target.activeGroupID == nil && b.callSession.connectedGroup == nil)
         #expect(try target.groupRepository.credential(for: group.id) == nil)
@@ -416,19 +422,44 @@ struct GroupContactInvitationTests {
         #expect(c.callSession.audioPolicies.last?.peerPolicy == .admittedMemberships(observer.callAccessAdmittedMemberships))
         #expect(observer.peerProfiles[targetID] == nil)
 
-        let savedObserver = try observerStore.file.read()
-        observerJournal = try JSONDecoder().decode(MembershipJournal.self, from: JSONEncoder().encode(observerJournal))
-        let retry = try deliver(signed, to: observer, store: observerStore.file, journal: &observerJournal)
-        let afterRetry = try observerStore.file.read()
-        #expect(!retry && afterRetry == savedObserver)
-        target.reloadSavedGroups()
-        #expect(throws: GroupInviteTokenError.retiredGroupLink) { try target.acceptInviteURL(oldURL) }
+        // Lose the in-memory receive state after the commit, as after a restart
+        // between saving and returning a delivery acknowledgement.
         observer.disconnect()
-        observer.reloadSavedGroups()
-        observer.selectGroup(try #require(observer.groups.first { $0.id == group.id }))
-        try authenticate(observer, peers: [signer, targetSigner])
-        #expect(observer.peerProfiles[targetID]?.verified == nil)
-        #expect(observer.groups.first?.members.contains { $0.id == targetID } == false)
+        let savedObserver = try observerStore.file.read(), savedTarget = try targetStore.file.read()
+        let observerAfterRestart = AppTestSupport.makeHarness(groups: [], groupRepository: observerStore.restart(),
+            credentialStore: observerStore.keys, localMemberID: observerID).viewModel
+        let targetAfterRestart = AppTestSupport.makeHarness(groups: [], groupRepository: targetStore.restart(),
+            credentialStore: targetStore.keys, localMemberID: targetID).viewModel
+        defer { observerAfterRestart.disconnect(); targetAfterRestart.disconnect() }
+        let targetRetry = try deliver(signed, to: targetAfterRestart, store: targetStore.file)
+        let observerRetry = try deliver(signed, to: observerAfterRestart, store: observerStore.file)
+        #expect(targetRetry && observerRetry)
+        #expect(try observerStore.file.read() == savedObserver)
+        #expect(try targetStore.file.read() == savedTarget)
+        #expect(try !deliver(untrusted, to: targetAfterRestart, store: targetStore.file))
+        #expect(try !deliver(untrusted, to: observerAfterRestart, store: observerStore.file))
+        let changedTarget = try MembershipEndorsement(.init(groupID: group.id, introductionID: event.introductionID,
+            introducerID: inviterID, memberID: observerID, memberKey: observerSigner.publicKey, kind: .removal), signer: signer)
+        #expect(try !deliver(changedTarget, to: observerAfterRestart, store: observerStore.file))
+        #expect(try observerStore.file.read() == savedObserver)
+        #expect(throws: GroupInviteTokenError.retiredGroupLink) { try targetAfterRestart.acceptInviteURL(oldURL) }
+        observerAfterRestart.selectGroup(try #require(observerAfterRestart.groups.first { $0.id == group.id }))
+        try authenticate(observerAfterRestart, peers: [signer, targetSigner])
+        #expect(observerAfterRestart.peerProfiles[targetID]?.verified == nil)
+        #expect(observerAfterRestart.groups.first?.members.contains { $0.id == targetID } == false)
+
+        let lateRemoval = try MembershipEndorsement(.init(groupID: group.id, introductionID: UUID(),
+            introducerID: inviterID, memberID: targetID, memberKey: targetSigner.publicKey, kind: .removal), signer: signer)
+        observerStore.store.failAfterCommit = true
+        let lostResponse = try deliver(lateRemoval, to: observerAfterRestart, store: observerStore.file)
+        #expect(!lostResponse)
+        observerStore.store.failAfterCommit = false
+        observerAfterRestart.disconnect()
+        observerAfterRestart.reloadSavedGroups()
+        let afterInterruptedSave = try #require(try observerStore.file.read())
+        #expect(afterInterruptedSave.groupRemovalReceipts.map(\.eventID) == [event.introductionID, lateRemoval.statement.introductionID])
+        #expect(try deliver(lateRemoval, to: observerAfterRestart, store: observerStore.file))
+        #expect(try observerStore.file.read() == afterInterruptedSave)
     }
 
     @Test func failedRegistrationDoesNotLeaveOnlyAContactOrOnlyAGroup() throws {

@@ -122,10 +122,10 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func deleteGroup(_ groupID: UUID) -> Bool {
+    func deleteGroup(_ groupID: UUID, receipt: GroupSnapshot.GroupRemovalReceipt? = nil) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         let remaining = groups.filter { $0.id != groupID }
-        do { try groupRepository.delete(groupID, remaining: remaining, now: callAccessNow().timeIntervalSince1970) }
+        do { try groupRepository.delete(groupID, remaining: remaining, receipt: receipt, now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return false }
         refreshGroupStorageStatus()
         if activeGroupID == groupID { disconnect() }
@@ -167,14 +167,14 @@ extension IntercomViewModel {
 
     /// The caller authorizes the removal. Applying it requires writable saved groups,
     /// regardless of the local recipient's pass.
-    func applyGroupMemberRemoval(_ memberID: String, from groupID: UUID) -> Bool {
+    func applyGroupMemberRemoval(_ memberID: String, from groupID: UUID, receipt: GroupSnapshot.GroupRemovalReceipt? = nil) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         if memberID == localMemberIdentity.memberID {
             guard groups.contains(where: { $0.id == groupID && $0.kind == .group }) else { return false }
-            return deleteGroup(groupID)
+            return deleteGroup(groupID, receipt: receipt)
         }
         let removed: Set<String>
-        do { removed = try groupRepository.removeGroupMember(memberID, from: groupID, now: callAccessNow().timeIntervalSince1970) }
+        do { removed = try groupRepository.removeGroupMember(memberID, from: groupID, receipt: receipt, now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return false }
         refreshStoredAccountCall(groupID)
         refreshGroupStorageStatus()

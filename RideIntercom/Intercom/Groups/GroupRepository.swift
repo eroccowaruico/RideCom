@@ -110,19 +110,46 @@ final class GroupRepository {
             }
         }
     }
-    func delete(_ id: UUID, remaining: [IntercomGroup], now: TimeInterval = Date().timeIntervalSince1970) throws {
+    func delete(_ id: UUID, remaining: [IntercomGroup], receipt: GroupSnapshot.GroupRemovalReceipt? = nil,
+                now: TimeInterval = Date().timeIntervalSince1970) throws {
         try update(remaining, credential: nil, now: now) { next in
+            try Self.rememberGroupRemoval(receipt, for: id, in: &next, now: now)
             Self.cancelPendingGroupReceipts(in: &next) { $0.groupID == id }
         }
     }
 
-    func removeGroupMember(_ memberID: String, from groupID: UUID, now: TimeInterval) throws -> Set<String> {
+    func hasAppliedGroupRemoval(_ receipt: GroupSnapshot.GroupRemovalReceipt, now: TimeInterval) throws -> Bool {
+        guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
+        guard receipt.isValid, receipt.expiresAt > now else { throw GroupStorageError.invalidUpdate }
+        guard let applied = snapshot.groupRemovalReceipts.first(where: {
+            $0.groupID == receipt.groupID && $0.eventID == receipt.eventID && $0.expiresAt > now
+        }) else { return false }
+        // The original issuer might no longer be in the roster after a successful removal.
+        // In that case only a byte-for-byte match to the verified event can be acknowledged.
+        guard applied == receipt else { throw GroupStorageError.invalidUpdate }
+        try store.lock()
+        defer { store.unlock() }
+        guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
+        return true
+    }
+
+    private static func rememberGroupRemoval(_ receipt: GroupSnapshot.GroupRemovalReceipt?, for groupID: UUID,
+                                             in snapshot: inout GroupSnapshot, now: TimeInterval) throws {
+        guard let receipt else { return }
+        guard receipt.groupID == groupID, receipt.isValid, receipt.expiresAt > now,
+              !snapshot.groupRemovalReceipts.contains(where: { $0.groupID == groupID && $0.eventID == receipt.eventID })
+        else { throw GroupStorageError.invalidUpdate }
+        snapshot.groupRemovalReceipts.append(receipt)
+    }
+
+    func removeGroupMember(_ memberID: String, from groupID: UUID, receipt: GroupSnapshot.GroupRemovalReceipt? = nil,
+                           now: TimeInterval) throws -> Set<String> {
         guard let snapshot, let localMemberID, memberID != localMemberID,
               IntercomGroup.isValidMemberID(memberID),
               let index = snapshot.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group })
         else { throw GroupStorageError.invalidUpdate }
         let isPendingSlot = memberID.hasPrefix(GroupMember.pendingInvitePrefix)
-        guard !isPendingSlot || snapshot.groups[index].members.contains(where: { $0.id == memberID })
+        guard !isPendingSlot || (receipt == nil && snapshot.groups[index].members.contains(where: { $0.id == memberID }))
         else { throw GroupStorageError.invalidUpdate }
         var groups = try snapshot.groups.map { try $0.group() }
         let binding = groups[index].accountDevices[memberID]
@@ -130,7 +157,8 @@ final class GroupRepository {
         let ids = Set(user?.memberIDs ?? []).union([memberID]).subtracting([localMemberID])
         groups[index].members.removeAll { ids.contains($0.id) }
         groups[index].accountDevices = groups[index].accountDevices.filter { !ids.contains($0.key) }
-        try update(groups, credential: nil) { next in
+        try update(groups, credential: nil, now: now) { next in
+            try Self.rememberGroupRemoval(receipt, for: groupID, in: &next, now: now)
             // A verified removal can arrive before this device ever sees the member.
             guard !isPendingSlot else { return }
             let pending = next.contactInvitations.filter { $0.direction == .outgoing && $0.state == .pending && $0.invitedGroupID == groupID }
@@ -443,7 +471,8 @@ final class GroupRepository {
             record.invitationDeviceKeys = old?.invitationDeviceKeys
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations,
-           groupDeliveries: previous.groupDeliveries, groupLinkReceipts: previous.groupLinkReceipts)
+           groupDeliveries: previous.groupDeliveries, groupLinkReceipts: previous.groupLinkReceipts,
+           groupRemovalReceipts: previous.groupRemovalReceipts.filter { $0.expiresAt > now })
         try modify(&next)
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
