@@ -94,18 +94,20 @@ struct DiagnosticsView: View {
 
     // The former summary cards are retired; Overview is the pipeline summary and the symptom actions.
     private var overviewContent: some View {
-        let steps = pipelineSteps
-        return VStack(alignment: .leading, spacing: AppSpacing.l) {
-            verdicts(tx: steps.tx, rx: steps.rx)
-            pipelineOverview(tx: steps.tx, rx: steps.rx)
-            participantsOverview
-            networkOverview
-            symptomButtons
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let steps = pipelineSteps(now: context.date.timeIntervalSince1970)
+            VStack(alignment: .leading, spacing: AppSpacing.l) {
+                verdicts(tx: steps.tx, rx: steps.rx)
+                pipelineOverview(tx: steps.tx, rx: steps.rx)
+                participantsOverview
+                networkOverview
+                symptomButtons
+            }
         }
     }
 
-    private var pipelineSteps: (tx: [PipelineStep], rx: [PipelineStep]) {
-        let input = DiagnosticsInput(viewModel)
+    private func pipelineSteps(now: TimeInterval) -> (tx: [PipelineStep], rx: [PipelineStep]) {
+        let input = DiagnosticsInput(viewModel, now: now)
         let tx = TransmitPipelinePresentation(input: input)
         let rx = ReceivePipelinePresentation(input: input)
         return (tx.flowSteps,

@@ -19,6 +19,11 @@ import UIKit
 @testable import RideIntercom
 
 final class AudioE2ETests: XCTestCase {
+    @MainActor
+    private func observedOutputBatches(_ model: IntercomViewModel) -> Int {
+        model.nativeRenderedOutputBatchCount + model.scheduledOutputBatchCount
+    }
+
     func testFixturePreservesClockGapsWithoutDelayingLaterSpeech() {
         var fixture = CaptureTimedFixture(samples: (0..<48000).map(Float.init))
         XCTAssertEqual(fixture.render(capturedAt: 100, format: .init(), frameCount: 480), (0..<480).map(Float.init))
@@ -378,7 +383,7 @@ final class AudioE2ETests: XCTestCase {
         let barrier = AudioE2EBarrier(session: viewModel.callSession, rendezvous: rendezvous)
 
         func status() -> String {
-            "state=\(viewModel.connectionState) authenticated=\(viewModel.authenticatedPeerIDs.count) ready=\(viewModel.isAudioReady) tx=\(viewModel.sentVoicePacketCount) rx=\(viewModel.receivedVoicePacketCount) scheduled=\(viewModel.scheduledOutputFrameCount) audioError=\(viewModel.audioErrorMessage ?? "none") input=\(String(describing: viewModel.lastInputStreamOperationReport?.result)) output=\(String(describing: viewModel.lastOutputStreamOperationReport?.result)) session=\(String(describing: viewModel.lastAudioSessionConfigurationReport?.operations))"
+            "state=\(viewModel.connectionState) authenticated=\(viewModel.authenticatedPeerIDs.count) ready=\(viewModel.isAudioReady) tx=\(viewModel.sentVoicePacketCount) rx=\(viewModel.receivedVoicePacketCount) outputBatches=\(observedOutputBatches(viewModel)) audioError=\(viewModel.audioErrorMessage ?? "none") input=\(String(describing: viewModel.lastInputStreamOperationReport?.result)) output=\(String(describing: viewModel.lastOutputStreamOperationReport?.result)) session=\(String(describing: viewModel.lastAudioSessionConfigurationReport?.operations))"
         }
         defer {
             let attachment = XCTAttachment(string: status() + "\nmixer=\(viewModel.audioPipeline.snapshot)\nvad=\(viewModel.vadGateRuntimeSnapshot)")
@@ -545,7 +550,7 @@ final class AudioE2ETests: XCTestCase {
             }
             let dropsBefore = dropCounts()
             let before = (viewModel.sentVoicePacketCount, viewModel.receivedVoicePacketCount,
-                          viewModel.scheduledOutputFrameCount, output.playbackResetCount ?? 0)
+                          observedOutputBatches(viewModel), output.playbackResetCount ?? 0)
             let start = ContinuousClock.now
             while start.duration(to: .now) < .seconds(scenario.seconds) {
                 XCTAssertTrue(viewModel.isAudioReady, "\(scenario.id): \(status())")
@@ -574,7 +579,7 @@ final class AudioE2ETests: XCTestCase {
             trace.name = "endpoint-\(role)-\(scenario.id)-packet-timing"; trace.lifetime = .keepAlways; add(trace)
             let tx = viewModel.sentVoicePacketCount - before.0
             let rx = viewModel.receivedVoicePacketCount - before.1
-            let scheduled = viewModel.scheduledOutputFrameCount - before.2
+            let outputBatches = observedOutputBatches(viewModel) - before.2
             let playbackResets = (output.playbackResetCount ?? 0) - before.3
             XCTAssertEqual(rendered.invalid, 0)
             XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * scenario.seconds * 0.8))
@@ -636,7 +641,7 @@ final class AudioE2ETests: XCTestCase {
                 "mixer": String(describing: viewModel.audioPipeline.snapshot),
                 "remoteSpeechCorrelation": match, "localSpeechCorrelation": localMatch,
                 "renderedSamples": rendered.samples.count, "sampleRate": rendered.rate,
-                "peak": peak, "transmitted": tx, "received": rx, "scheduled": scheduled,
+                "peak": peak, "transmitted": tx, "received": rx, "outputBatches": outputBatches,
                 "expectedSilence": scenario.expectsSilence]
             let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement, options: [.sortedKeys]),
                 uniformTypeIdentifier: "public.json")
@@ -660,7 +665,7 @@ final class AudioE2ETests: XCTestCase {
                 XCTAssertTrue(dropped.values.allSatisfy { $0 == 0 }, "\(scenario.id): internal drops \(dropped)")
                 XCTAssertGreaterThan(tx, 20, status())
                 XCTAssertGreaterThan(rx, 20, status())
-                XCTAssertGreaterThan(scheduled, 20, status())
+                XCTAssertGreaterThan(outputBatches, 20, status())
                 XCTAssertGreaterThan(match, 0.45, "Remote speech missing in \(scenario.id): \(status())")
                 XCTAssertGreaterThan(match, localMatch + 0.10, "Reject local echo and unrelated audio")
                 XCTAssertEqual(continuity.missingActiveRatio, 0, "Even sub-percent missing speech is a regression")
@@ -735,7 +740,7 @@ final class AudioE2ETests: XCTestCase {
         probe.reset()
         let firstSent = viewModel.sentVoicePacketCount
         let firstReceived = viewModel.receivedVoicePacketCount
-        let firstScheduled = viewModel.scheduledOutputFrameCount
+        let firstOutputBatchCount = observedOutputBatches(viewModel)
         let started = ProcessInfo.processInfo.systemUptime
         repeat {
             checkBackgroundIfRequested(true)
@@ -753,7 +758,7 @@ final class AudioE2ETests: XCTestCase {
         let rendered = probe.snapshot()
         let transmitted = viewModel.sentVoicePacketCount - firstSent
         let received = viewModel.receivedVoicePacketCount - firstReceived
-        let scheduled = viewModel.scheduledOutputFrameCount - firstScheduled
+        let outputBatches = observedOutputBatches(viewModel) - firstOutputBatchCount
         let peak = await Task.detached {
             rendered.samples.reduce(Float(0)) { max($0, abs($1)) }
         }.value
@@ -767,7 +772,7 @@ final class AudioE2ETests: XCTestCase {
         let evidence: [String: Any] = ["scenario": scenario, "background": true, "bothMicrophonesMuted": bothMute,
             "role": role, "transport": transport, "durationSeconds": duration, "peak": peak,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate,
-            "transmitted": transmitted, "received": received, "scheduled": scheduled]
+            "transmitted": transmitted, "received": received, "outputBatches": outputBatches]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence),
                                        uniformTypeIdentifier: "public.json")
         attachment.name = "endpoint-\(role)-\(scenario)-measurement"
@@ -775,7 +780,7 @@ final class AudioE2ETests: XCTestCase {
         add(attachment)
         try await barrier.meet("\(scenario)-observed")
         if bothMute, !keepMuted, role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: call)) }
-        print("Audio E2E: Both endpoints kept the call during \(duration) seconds in \(scenario); peak=\(peak) tx=\(transmitted) rx=\(received) scheduled=\(scheduled)")
+        print("Audio E2E: Both endpoints kept the call during \(duration) seconds in \(scenario); peak=\(peak) tx=\(transmitted) rx=\(received) outputBatches=\(outputBatches)")
     }
 
     @MainActor

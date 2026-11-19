@@ -56,6 +56,13 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertEqual(mix.value as? String, "Idle, Not available")
         XCTAssertTrue(app.staticTexts["No participants"].firstMatch.exists)
         attachScreen("RX diagnostics before a call")
+        let output = app.descendants(matching: .any)["receive-pipeline-output-step"].firstMatch
+        XCTAssertTrue(output.waitForExistence(timeout: 3))
+        reveal(output, app: app)
+        XCTAssertEqual(output.value as? String, "Idle, Not available")
+        output.tap()
+        let details = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Buffered: ")).firstMatch
+        XCTAssertTrue(details.waitForExistence(timeout: 3))
     }
 
     func testDiagnosticsMenuAtAccessibilitySizeInLandscape() {

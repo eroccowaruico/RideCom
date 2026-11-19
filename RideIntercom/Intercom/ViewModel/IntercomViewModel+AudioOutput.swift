@@ -8,11 +8,11 @@ extension IntercomViewModel {
         sentVoicePacketCount = 0
         transmitPacketCounterBaseline = audioPipeline.inputObservation.sentPackets
         receivedVoicePacketCount = 0
-        playedAudioFrameCount = 0
         lastScheduledOutputRMS = 0
         lastScheduledOutputPeakRMS = 0
+        nativeRenderedOutputBatchCount = 0
         scheduledOutputBatchCount = 0
-        scheduledOutputFrameCount = 0
+        lastPlaybackScheduledAt = nil
         lastReceivedAudioAt = nil
         lastAudibleReceivedAudioAt = nil
         droppedAudioPacketCount = 0
@@ -62,7 +62,7 @@ extension IntercomViewModel {
             lastScheduledOutputRMS = observation.rms
             lastScheduledOutputPeakRMS = observation.peakRMS
             lastAudibleReceivedAudioAt = observation.lastAudibleAt
-            countObservedOutputFrames(observation.frameCount)
+            nativeRenderedOutputBatchCount += observation.frameCount
         }
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
         BackgroundCallValidationObservation.observe(self, output: true)
@@ -92,17 +92,13 @@ extension IntercomViewModel {
             )
         }
         guard case .applied = report.result else { return }
-        countObservedOutputFrames(1)
+        scheduledOutputBatchCount += 1
+        lastPlaybackScheduledAt = receivedAt
         if level > AudioLevelMeter.audibleOutputThreshold {
             lastAudibleReceivedAudioAt = receivedAt
         }
     }
 
-    private func countObservedOutputFrames(_ count: Int) {
-        scheduledOutputBatchCount += count
-        scheduledOutputFrameCount += count
-        playedAudioFrameCount += count
-    }
 }
 
 private extension SessionManager.AudioStreamOperationResult {

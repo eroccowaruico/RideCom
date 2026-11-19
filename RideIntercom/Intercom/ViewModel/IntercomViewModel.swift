@@ -170,11 +170,11 @@ final class IntercomViewModel {
     var audioCheckStatusMessage = "Audio check idle"
     var sentVoicePacketCount = 0
     var receivedVoicePacketCount = 0
-    var playedAudioFrameCount = 0
     var lastScheduledOutputRMS: Float = 0
     var lastScheduledOutputPeakRMS: Float = 0
+    var nativeRenderedOutputBatchCount = 0
     var scheduledOutputBatchCount = 0
-    var scheduledOutputFrameCount = 0
+    var lastPlaybackScheduledAt: TimeInterval?
     var connectedPeerIDs: [String] = []
     var localAccountPrincipal: AccountPrincipal?
     var authenticatedPeerIDs: [String] = []

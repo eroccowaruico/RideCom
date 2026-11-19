@@ -1,7 +1,7 @@
 import AudioCore
 import AudioMixer
 import RTC
-import SessionManager
+import Foundation
 
 /// Pure projection of one captured input; owns no live state.
 struct ReceivePipelinePresentation {
@@ -172,7 +172,7 @@ struct ReceivePipelinePresentation {
             detail: bus.map { "\(receivePeerBusCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
                 ?? "\(receivePeerBusCount) in / OUT \(Int(input.masterOutputVolume * 100))%",
             icon: "waveform.path.ecg",
-            state: input.playedAudioFrameCount > 0 ? .passing : .waiting,
+            state: hasScheduledPeerAudio ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-master-bus-step"
         )
     }
@@ -223,15 +223,29 @@ struct ReceivePipelinePresentation {
                 accessibilityIdentifier: "receive-pipeline-output-step"
             )
         }
-        let snapshot = input.lastOutputStreamOperationReport?.snapshot
-        let detail = outputStreamDetail(snapshot: snapshot)
+        var state = PipelineStepState.waiting
+        let detail: String
+        if input.usesNativeOutput {
+            if let timestamp = input.lastNativeAudibleOutputAt {
+                let age = max(0, input.capturedAt - timestamp)
+                state = age <= 2 ? .passing : .waiting
+                detail = "Last audible PCM · \(Int(age))s ago"
+            } else {
+                detail = "No audible PCM observed"
+            }
+        } else if let timestamp = input.lastPlaybackScheduledAt {
+            let age = max(0, input.capturedAt - timestamp)
+            detail = "Playback scheduled · \(Int(age))s ago / Render not measured"
+        } else {
+            detail = "No playback scheduled / Render not measured"
+        }
         return PipelineStep(
             id: "output",
             package: "SessionManager",
             title: "Output",
             detail: detail,
             icon: "speaker.wave.2.fill",
-            state: input.playedAudioFrameCount > 0 ? .passing : .waiting,
+            state: state,
             accessibilityIdentifier: "receive-pipeline-output-step"
         )
     }
@@ -244,25 +258,13 @@ struct ReceivePipelinePresentation {
         ReceiveMasterMixSnapshot(
             sourceBusCount: receivePeerBusCount,
             receivedFrameCount: input.receivedVoicePacketCount,
-            playedFrameCount: input.playedAudioFrameCount,
             outputLevel: input.diagnosticsOutputLevel,
             outputPeakLevel: input.diagnosticsOutputPeakLevel,
             masterVolume: input.masterOutputVolume,
             effectSummary: input.receiveMasterEffectChainSnapshot.compactSummary,
             isMuted: input.isOutputMuted,
-            state: input.playedAudioFrameCount > 0 ? .passing : (input.isAudioReady ? .waiting : .idle)
+            state: masterBusStep.state
         )
-    }
-
-    private func outputStreamDetail(snapshot: SessionManager.AudioStreamSnapshot?) -> String {
-        guard let snapshot else {
-            return input.playedAudioFrameCount > 0 ? "Scheduled" : "Ready"
-        }
-        return "\(snapshot.isRunning ? "Run" : "Idle") / \(streamFormatSummary(snapshot.actualHardwareFormat)) / F \(snapshot.processedFrameCount)"
-    }
-
-    private func streamFormatSummary(_ format: AudioFormat) -> String {
-        "\(Int(format.sampleRate / 1_000))k/\(format.channelCount)ch"
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {

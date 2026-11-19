@@ -104,6 +104,7 @@ extension IntercomViewModel {
 
     @discardableResult
     func rebuildAudioPipeline(startsOutputClock: Bool = true) -> Bool {
+        lastPlaybackScheduledAt = nil
         do {
             audioPipeline.setHardwareOutputEnabled(audioOutputRenderer.rendersToHardware)
             try audioPipeline.rebuild(

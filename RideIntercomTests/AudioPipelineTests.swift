@@ -249,22 +249,48 @@ struct AudioPipelineTests {
                              samples: Array(repeating: 0.2, count: 9600))
         _ = try pipeline.processReceivedAudioPacket(
             AppTestSupport.receivedAudioPacket(peerID: "peer", frame: frame, codec: .pcm16))
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
-        for _ in 0..<44 {
-            #expect(try engine.renderOffline(480, to: buffer) == .success)
-            Thread.sleep(forTimeInterval: 0.002)
+        func renderAndObserve() throws {
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
+            for _ in 0..<44 {
+                #expect(try engine.renderOffline(480, to: buffer) == .success)
+                Thread.sleep(forTimeInterval: 0.002)
+            }
+            model.handleCallTick(now: Date().timeIntervalSince1970)
         }
-        #expect(pipeline.lastNativeAudibleOutputAt != nil)
-        let now = Date().timeIntervalSince1970
         // The MainActor has not serviced any per-frame callback or timer yet.
-        model.handleCallTick(now: now)
-        #expect(model.playedAudioFrameCount > 0)
+        try renderAndObserve()
+        let first = try #require(pipeline.lastNativeAudibleOutputAt)
+        #expect(model.nativeRenderedOutputBatchCount > 0)
+        #expect(model.scheduledOutputBatchCount == 0)
+        let output = ReceivePipelinePresentation(input: DiagnosticsInput(model)).outputStep
+        #expect(output.state == .passing)
+        #expect(output.detail.hasPrefix("Last audible PCM"))
         #expect(model.diagnosticsOutputPeakLevel > 0.1)
         #expect(model.diagnosticsOutputLevel == 0, "Late meter refresh must show the current silence as well as the recent peak")
+        let stale = ReceivePipelinePresentation(input: DiagnosticsInput(model, now: first + 3)).outputStep
+        #expect(stale.state == .waiting)
+        #expect(stale.detail == "Last audible PCM · 3s ago")
+
+        let resumed = PCMFrame(sequenceNumber: 1, format: frame.format, samples: frame.samples)
+        _ = try pipeline.processReceivedAudioPacket(
+            AppTestSupport.receivedAudioPacket(peerID: "peer", frame: resumed, codec: .pcm16))
+        try renderAndObserve()
+        #expect((pipeline.lastNativeAudibleOutputAt ?? 0) > first)
+        #expect(ReceivePipelinePresentation(input: DiagnosticsInput(model)).outputStep.state == .passing)
+        #if os(iOS)
+        model.audioMixerSnapshot = pipeline.snapshot
+        let renderer = ImageRenderer(content: LiveReceivePipelineView(viewModel: model, expandedStage: .constant("receive-output"))
+            .frame(width: 370)
+            .padding()
+            .background(AppColorPalette.listScreenBackground))
+        renderer.scale = 2
+        Attachment.record(try #require(renderer.uiImage?.pngData()), named: "rx-output-rendered.png")
+        #endif
         pipeline.stop()
-        let frameCount = model.playedAudioFrameCount
-        model.handleCallTick(now: now)
-        #expect(model.playedAudioFrameCount == frameCount)
+        let batchCount = model.nativeRenderedOutputBatchCount
+        model.handleCallTick(now: Date().timeIntervalSince1970)
+        #expect(model.nativeRenderedOutputBatchCount == batchCount)
+        #expect(ReceivePipelinePresentation(input: DiagnosticsInput(model)).outputStep.detail == "No audible PCM observed")
     }
 
     @Test func appDecodeRejectsUnknownCodecAndInvalidFormatBeforeConversion() throws {
@@ -378,7 +404,11 @@ struct AudioPipelineTests {
         #expect(remoteMember.isTalking)
         #expect(remoteMember.receivedAudioPacketCount == 1)
         #expect(remoteMember.playedAudioFrameCount == 1)
-        #expect(harness.viewModel.playedAudioFrameCount == scheduledFrames.count)
+        #expect(harness.viewModel.scheduledOutputBatchCount == scheduledFrames.count)
+        #expect(harness.viewModel.nativeRenderedOutputBatchCount == 0)
+        let output = ReceivePipelinePresentation(input: DiagnosticsInput(harness.viewModel)).outputStep
+        #expect(output.state == .waiting)
+        #expect(output.detail.contains("Render not measured"))
         #expect(scheduledFrames.allSatisfy { $0.format == .intercomHardwarePreferred && $0.frameCount <= 960 })
         #expect(scheduledFrames.flatMap(\.samples).contains { abs($0 - 0.2) < 0.001 })
         #expect(scheduledFrames.flatMap(\.samples).contains { abs($0 + 0.2) < 0.001 })

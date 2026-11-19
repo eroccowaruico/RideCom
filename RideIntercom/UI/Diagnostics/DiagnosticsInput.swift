@@ -1,4 +1,5 @@
 import AudioMixer
+import Foundation
 import RTC
 import SessionManager
 import VADGate
@@ -33,13 +34,17 @@ struct DiagnosticsInput {
     var isOutputMuted: Bool
     var lastOutputStreamOperationReport: SessionManager.AudioStreamOperationReport?
     var masterOutputVolume: Float
-    var playedAudioFrameCount: Int
+    var usesNativeOutput: Bool
+    var lastNativeAudibleOutputAt: TimeInterval?
+    var lastPlaybackScheduledAt: TimeInterval?
+    let capturedAt: TimeInterval
     var receiveMasterEffectChainSnapshot: AudioEffectChainSnapshot
     var receiveDecodeCounts: ReceiveDecodeCounts
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
 
-    init(_ viewModel: IntercomViewModel) {
+    init(_ viewModel: IntercomViewModel, now: TimeInterval = Date().timeIntervalSince1970) {
+        capturedAt = now
         audioErrorMessage = viewModel.audioErrorMessage
         audioSessionProfile = viewModel.audioSessionProfile
         audioSessionSnapshot = viewModel.audioSessionSnapshot
@@ -74,7 +79,9 @@ struct DiagnosticsInput {
         isOutputMuted = viewModel.isOutputMuted
         lastOutputStreamOperationReport = viewModel.lastOutputStreamOperationReport
         masterOutputVolume = viewModel.masterOutputVolume
-        playedAudioFrameCount = viewModel.playedAudioFrameCount
+        usesNativeOutput = viewModel.audioPipeline.rendersToHardware
+        lastNativeAudibleOutputAt = viewModel.audioPipeline.lastNativeAudibleOutputAt
+        lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
         receiveMasterEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount

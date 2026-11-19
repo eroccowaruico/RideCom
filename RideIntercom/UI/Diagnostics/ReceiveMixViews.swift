@@ -32,7 +32,7 @@ struct ReceiveMasterMixGroup: View {
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                        Text("\(master.sourceBusCount) buses / RX \(master.receivedFrameCount) / PLAY \(master.playedFrameCount)")
+                        Text("\(master.sourceBusCount) buses / RX \(master.receivedFrameCount)")
                             .font(AppTypography.caption2Mono)
                             .foregroundStyle(AppColorPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -60,7 +60,7 @@ struct ReceiveMasterMixGroup: View {
             .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : CompactPipelineLayout.childIndent)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Receive mix down to master")
-            .accessibilityValue("\(master.sourceBusCount) peer buses, played \(master.playedFrameCount)")
+            .accessibilityValue("\(master.sourceBusCount) peer buses, received \(master.receivedFrameCount)")
             .accessibilityIdentifier("receive-master-mix-card")
 
             CompactEffectChainGroup(
