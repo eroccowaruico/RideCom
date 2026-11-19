@@ -62,7 +62,7 @@ extension IntercomViewModel {
             groups = try groupRepository.load(localMemberID: localMemberIdentity.memberID)
             selectedGroup = nil; groupStorageIssue = nil; groupErrorMessage = nil
             refreshGroupStorageStatus()
-            requestGroupDeliverySync(afterMutation: true)
+            requestGroupDeliverySync(forNewWork: true)
         } catch { reportGroupStorageError(error) }
     }
     func resetSavedGroups() {

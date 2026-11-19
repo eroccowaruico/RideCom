@@ -97,6 +97,63 @@ import UserNotifications
         #expect(!(await owner.respondToGroupInvitation(unrelated)))
     }
 
+    @Test func openingAnInvitationWhileAnOlderEmptyInboxResponseIsPendingReceivesTheGroup() async throws {
+        let author = GroupDeliveryTestIdentity("notice-author")
+        let recipient = GroupDeliveryTestIdentity("notice-recipient")
+        defer { author.remove(); recipient.remove() }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try author.harness(knowing: [recipient]).viewModel
+        let receiver = try recipient.harness(knowing: [author]).viewModel
+        let owner = AppCallOwner(account: receiver.accountSession, viewModel: receiver)
+        GroupDeliveryHTTPStub.reset()
+        var resumeInbox: CheckedContinuation<Void, Never>?
+        defer {
+            resumeInbox?.resume()
+            sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync()
+            sender.disconnect(); receiver.disconnect()
+            GroupDeliveryHTTPStub.reset()
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: configuration))
+        let authorAccess = try #require(try author.store.notificationAccess(memberID: author.memberID))
+        let recipientAccess = try #require(try recipient.store.notificationAccess(memberID: recipient.memberID))
+        GroupDeliveryHTTPStub.users = [authorAccess.accessToken: try author.principal.userID,
+                                       recipientAccess.accessToken: try recipient.principal.userID]
+        let grant = try testCallNotificationGrant(owner: recipient.principal, allowedSender: author.principal,
+                                                  audience: "rideintercom-group-invitation")
+        try sender.notifications.receivePermission(CallNotificationPermissionMessage.make(owner: recipient.principal,
+            allowedSender: author.principal, revision: 1, grant: nil, signer: recipient.signer,
+            groupGrant: grant, groupInvitationsSupported: true), peerID: recipient.memberID)
+        sender.groupDeliveryClient = client
+        receiver.groupDeliveryClient = client
+        GroupDeliveryHTTPStub.beforeReturningInbox = {
+            await withCheckedContinuation { resumeInbox = $0 }
+        }
+        receiver.requestGroupDeliverySync()
+        await AppTestSupport.waitUntil { resumeInbox != nil }
+        let staleResponse = try #require(resumeInbox)
+
+        let groupID = UUID()
+        #expect(sender.createTalkGroup(name: "Recently delivered", userIDs: [recipient.personID], id: groupID))
+        await sender.synchronizeGroupDeliveries()
+        let delivery = try #require(sender.groupRepository.groupDeliveries.first)
+        #expect(delivery.state == .queued)
+        let notice = try #require(GroupInvitationTap(payload: ["version": 1, "kind": "groupInvitation",
+            "requestID": delivery.noticeID.uuidString, "recipientID": try recipient.principal.userID]))
+
+        // The tap and the older request join the same sync task on the main actor.
+        Task { @MainActor in
+            resumeInbox = nil
+            staleResponse.resume()
+        }
+        #expect(await owner.respondToGroupInvitation(notice))
+        #expect(receiver.groups.contains { $0.id == groupID })
+        #expect(GroupDeliveryHTTPStub.items[delivery.id.uuidString.lowercased()]?["status"] as? String == "received")
+        #expect(owner.groupsPresentationID != nil && owner.callPresentationID == nil && !receiver.hasAnyActiveGroupConnection)
+    }
+
     @Test func oneForegroundPassReceivesMoreThanEightDifferentGroupInvitations() async throws {
         let a = GroupDeliveryTestIdentity("batch-author"), b = GroupDeliveryTestIdentity("batch-recipient")
         defer { a.remove(); b.remove() }
@@ -466,12 +523,13 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var submitted: [String] = []
     nonisolated(unsafe) static var onQueued: (@MainActor () -> Void)?
     nonisolated(unsafe) static var onAcknowledged: (@MainActor () -> Void)?
+    @MainActor static var beforeReturningInbox: (@MainActor () async -> Void)?
     nonisolated(unsafe) static var rejectedRecipientID: String?
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
     nonisolated(unsafe) static var legacyAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -486,6 +544,10 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
         let value = captured
         Task { @MainActor [self] in
             let (status, object) = Self.respond(value)
+            if object["delivery"] != nil, let beforeReturningInbox = Self.beforeReturningInbox {
+                Self.beforeReturningInbox = nil
+                await beforeReturningInbox()
+            }
             let response = HTTPURLResponse(url: value.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: object)); client?.urlProtocolDidFinishLoading(self)

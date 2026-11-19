@@ -132,7 +132,7 @@ extension IntercomViewModel {
         if selectedGroup?.id == groupID { selectedGroup = nil }
         groups = remaining
         discardUnavailableRecentCall()
-        requestGroupDeliverySync(afterMutation: true)
+        requestGroupDeliverySync(forNewWork: true)
         return true
     }
 
@@ -179,7 +179,7 @@ extension IntercomViewModel {
         refreshStoredAccountCall(groupID)
         refreshGroupStorageStatus()
         groupErrorMessage = nil
-        requestGroupDeliverySync(afterMutation: true)
+        requestGroupDeliverySync(forNewWork: true)
         if activeGroupID == groupID {
             connectedPeerIDs.removeAll { removed.contains($0) }
             authenticatedPeerIDs.removeAll { removed.contains($0) }
@@ -211,7 +211,7 @@ extension IntercomViewModel {
             guard existing.kind == .group, existing.name == name,
                   Set(remoteMembers.map(\.id)).isSubset(of: Set(existing.members.map(\.id))) else { return false }
             selectGroup(existing)
-            requestGroupDeliverySync(afterMutation: true)
+            requestGroupDeliverySync(forNewWork: true)
             return true
         }
         let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)] + remoteMembers
@@ -233,7 +233,7 @@ extension IntercomViewModel {
         }
         groups.insert(newGroup, at: 0)
         selectGroup(newGroup)
-        requestGroupDeliverySync(afterMutation: true)
+        requestGroupDeliverySync(forNewWork: true)
         return true
     }
 

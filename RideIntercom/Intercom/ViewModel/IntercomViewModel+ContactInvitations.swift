@@ -108,7 +108,7 @@ extension IntercomViewModel {
                       let value = message.decodedPayload(CallNotificationPermissionMessage.self, from: peerID) else { return }
                 // An unverifiable permission authorizes nothing; the first one-to-one connection shares it again.
                 guard (try? self.notifications.receivePermission(value, peerID: peerID)) != nil else { return }
-                self.requestGroupDeliverySync(afterMutation: message.namespace == CallNotificationPermissionMessage.groupNamespace)
+                self.requestGroupDeliverySync(forNewWork: message.namespace == CallNotificationPermissionMessage.groupNamespace)
                 self.contactPermissionExchange.received = true
                 self.finishContactPermissionExchange(id, session: session)
             }

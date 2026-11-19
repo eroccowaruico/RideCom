@@ -7,7 +7,8 @@ extension AppCallOwner {
               let access = try? model.internetSettingsStore.notificationAccess(memberID: model.localMemberIdentity.memberID),
               access.principal.userID == tap.recipientID else { return false }
         let generation = model.accountAccessID
-        await model.synchronizeGroupDeliveries()
+        // An in-flight read may have taken its snapshot before this invitation arrived.
+        await model.synchronizeGroupDeliveries(forNewWork: true)
         guard viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == generation else { return false }
         if model.hasAnyActiveGroupConnection { model.showLiveCall(); callPresentationID = UUID() }
         else { groupsPresentationID = UUID() }

@@ -35,7 +35,7 @@ extension IntercomViewModel {
         return records.isEmpty ? nil : .cancelled
     }
 
-    func requestGroupDeliverySync(afterMutation: Bool = false) {
+    func requestGroupDeliverySync(forNewWork: Bool = false) {
         guard groupDeliveryClient != nil, hasCurrentAccountAccess else { return }
         if groupDeliveryTask == nil {
             groupDeliveryNeedsSync = true
@@ -52,10 +52,10 @@ extension IntercomViewModel {
                     await performGroupDeliverySync()
                 }
             }
-        } else if afterMutation {
+        } else if forNewWork {
             groupDeliveryNeedsSync = true
         }
-        if afterMutation { requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID) }
+        if forNewWork { requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID) }
     }
 
     /// Request time before the save action returns, including when a pass is already running.
@@ -80,8 +80,8 @@ extension IntercomViewModel {
         end?()
     }
 
-    func synchronizeGroupDeliveries() async {
-        requestGroupDeliverySync()
+    func synchronizeGroupDeliveries(forNewWork: Bool = false) async {
+        requestGroupDeliverySync(forNewWork: forNewWork)
         await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {

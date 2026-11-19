@@ -49,7 +49,7 @@ extension IntercomViewModel {
             else if let saved = groupRepository.storedGroup(groupID) { groups.insert(saved, at: 0) }
             refreshGroupStorageStatus()
             if creating, let saved = groups.first(where: { $0.id == groupID }) { selectGroup(saved) }
-            requestGroupDeliverySync(afterMutation: true)
+            requestGroupDeliverySync(forNewWork: true)
             return groupID
         } catch {
             reportGroupStorageError(error)
