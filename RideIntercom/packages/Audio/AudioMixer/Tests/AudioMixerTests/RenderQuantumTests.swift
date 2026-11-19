@@ -177,19 +177,40 @@ func testQuietRecoveryKeepsTheCaptureClockAcrossOmittedSilence() async throws {
     try mixer.start(); source.start()
     defer { mixer.stop() }
     let start = ContinuousClock.now
-    for index in 0..<170 {
+    for index in 0..<50 {
         try await Task.sleep(until: start + .milliseconds(index * 10 + (index == 10 ? 50 : 0)), clock: .continuous)
-        if (50..<150).contains(index) { continue }
-        let audible = (30..<50).contains(index) || index >= 150
         try source.schedule(.init(sequenceNumber: UInt64(index), capturedAt: 100 + Double(index) / 100,
-            samples: Array(repeating: audible ? 0.2 : 0, count: 480)))
+            samples: Array(repeating: index >= 30 ? 0.2 : 0, count: 480)))
+    }
+    let adjustmentsBeforePause = source.playoutAdjustmentCount
+    XCTAssertGreaterThan(adjustmentsBeforePause, 0, "The preceding stall must exercise recovery")
+    let firstSpeech = try XCTUnwrap(received.snapshot.flatMap(\.samples).firstIndex { $0 > 0.1 })
+    let onsetInterval = 57_600 // 1.2 seconds on the 48 kHz capture clock.
+    // Deliver the next phrase within the learned wait, 40 ms before its
+    // target on the actual output clock. A wall-clock deadline can make it
+    // arrive early enough to shorten the pause or late enough to expire.
+    let resumeAtFrame = firstSpeech + onsetInterval - 1_920
+    let deadline = ContinuousClock.now + .seconds(2)
+    while received.snapshot.reduce(0, { $0 + $1.frameCount }) < resumeAtFrame {
+        guard ContinuousClock.now < deadline else { return XCTFail("The native render clock did not reach the resume point") }
+        try await Task.sleep(for: .milliseconds(1))
+    }
+    let resumeAt = ContinuousClock.now
+    for index in 150..<170 {
+        try await Task.sleep(until: resumeAt + .milliseconds((index - 150) * 10), clock: .continuous)
+        try source.schedule(.init(sequenceNumber: UInt64(index), capturedAt: 100 + Double(index) / 100,
+            samples: Array(repeating: 0.2, count: 480)))
+        if index == 150 {
+            XCTAssertEqual(source.playoutAdjustmentCount, adjustmentsBeforePause,
+                "The first packet after omitted silence must use the existing clock")
+        }
     }
     try await Task.sleep(for: .milliseconds(100))
     let samples = received.snapshot.flatMap(\.samples)
     let onsets = samples.indices.filter { samples[$0] > 0.1 && ($0 == 0 || samples[$0 - 1] <= 0.1) }
     XCTAssertEqual(onsets.count, 2)
     if onsets.count == 2 {
-        XCTAssertEqual(onsets[1] - onsets[0], 57600, accuracy: 2,
+        XCTAssertEqual(onsets[1] - onsets[0], onsetInterval, accuracy: 2,
             "Quiet recovery must not leave implicit and explicit native reservations on different clocks")
     }
     XCTAssertEqual(samples.filter { $0 > 0.1 }.count, 19200)

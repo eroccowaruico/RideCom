@@ -128,6 +128,58 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
     #expect(source.playbackResetCount == 0)
 }
 
+@Test(arguments: [0, 21, 33, 50])
+func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovementMilliseconds: Int) throws {
+    let mixer = try AudioMixer(audioFormat: .init())
+    let bus = try mixer.createBus("recovering-pause")
+    let source = try bus.addPCMSource(id: "voice", maximumBufferedDuration: 0.12,
+        captureTimePlayoutDelay: 0.002, adaptivePlayout: true)
+    try mixer.routeToOutput(bus)
+    try mixer.engine.enableManualRenderingMode(.offline, format: mixer.format, maximumFrameCount: 48)
+    try mixer.start(); source.start()
+    defer { mixer.stop() }
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: mixer.format, frameCapacity: 48))
+    let firstPhrasePackets = 25
+    let firstReturningPacket = 70
+    let packets = (Array(0..<49) + Array(firstReturningPacket..<95)).map { packet in
+        let isVoiced = packet < firstPhrasePackets || packet >= firstReturningPacket
+        let samples = (0..<480).map { sample in
+            isVoiced ? 0.1 + Float(packet * 480 + sample) * 0.00001 : 0
+        }
+        let arrival = packet * 10 + 13
+        // Transit improves during silence. Packets already in flight are
+        // delivered in order as one burst when they catch up to packet 30.
+        let oldTransit = transitImprovementMilliseconds
+        let arrivalMilliseconds = packet < 31 ? arrival + oldTransit : max(313 + oldTransit, arrival)
+        let frame = PCMFrame(sequenceNumber: UInt64(packet), capturedAt: Double(packet) / 100, samples: samples)
+        return (arrival: arrivalMilliseconds, frame: frame, isVoiced: isVoiced)
+    }
+    var next = 0
+    var rendered: [Float] = []
+    for millisecond in 0..<1100 {
+        let firstPending = next
+        while next < packets.count, packets[next].arrival <= millisecond {
+            let packet = packets[next]
+            try source.schedule(packet.frame, arrivedAt: Double(packet.arrival) / 1000)
+            next += 1
+        }
+        if next != firstPending { Thread.sleep(forTimeInterval: 0.002) }
+        try #require(mixer.engine.renderOffline(48, to: output) == .success)
+        rendered += UnsafeBufferPointer(start: output.floatChannelData![0], count: 48)
+    }
+    let expected = packets.filter { $0.isVoiced }.flatMap { $0.frame.samples }
+    let voiced = rendered.filter { $0 > 0.00001 }
+    #expect(voiced.count == expected.count)
+    #expect(zip(voiced, expected).allSatisfy { abs($0 - $1) < 0.00001 })
+    let returningAmplitude = expected[firstPhrasePackets * 480]
+    let returningSpeech = try #require(rendered.firstIndex { $0 >= returningAmplitude - 0.00001 })
+    let precedingSpeech = try #require(rendered[..<returningSpeech].lastIndex { $0 > 0.00001 })
+    let pauseSamples = (450 - transitImprovementMilliseconds) * 48
+    #expect(abs(returningSpeech - precedingSpeech - 1 - pauseSamples) <= 1)
+    #expect((source.playoutAdjustmentCount > 0) == (transitImprovementMilliseconds > 0))
+    #expect(source.playbackResetCount == 0)
+}
+
 @Test func graphTransitionFadesTheDeviceOutputAndDoesNotOnlyModifyItsObserver() throws {
     let engine = AVAudioEngine()
     let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
