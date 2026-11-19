@@ -5283,6 +5283,7 @@
       }
     },
     "Sends the same invitation to %@ again." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -7231,6 +7232,7 @@
       }
     },
     "You sent this invitation" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
