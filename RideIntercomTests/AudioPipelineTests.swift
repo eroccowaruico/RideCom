@@ -15,6 +15,57 @@ import PeakLimiter
 extension AppTests {
 @MainActor
 struct AudioPipelineTests {
+    @Test(arguments: [true, false])
+    func defaultAACStopsSendingDuringQuietSteadyNoise(isolationEnabled: Bool) throws {
+        let transmitter = AppAudioTransmitter()
+        let format = AudioFormat.intercomMixer
+        let configuration = AppAudioPipelineConfiguration(preferredCodec: IntercomViewModel.defaultTransmitCodec,
+            transmitSoundIsolationEnabled: isolationEnabled)
+        try transmitter.rebuild(configuration: configuration,
+            encoding: configuration.codecRuntimeReport.activeConfiguration)
+        defer { transmitter.stop() }
+        let frameCount = 480
+        func send(_ samples: [Float], index: Int) {
+            transmitter.processMicrophone(.init(sequenceNumber: UInt64(index), format: format,
+                capturedAt: Double(index * frameCount) / format.sampleRate, samples: samples))
+        }
+
+        for index in 0..<100 { send(Array(repeating: 0, count: frameCount), index: index) }
+        for index in 100..<160 {
+            send((0..<frameCount).map { Float(0.1 * sin(Double(index * frameCount + $0) * 2 * .pi * 400 / format.sampleRate)) }, index: index)
+        }
+        #expect(transmitter.vadSnapshot.state == .speech)
+
+        var seed: UInt32 = 1
+        func sendNoise(_ range: Range<Int>) {
+            for index in range {
+                let samples = (0..<frameCount).map { _ in
+                    seed = 1_664_525 &* seed &+ 1_013_904_223
+                    return (Float(seed >> 16) / 32_768 - 1) * Float(0.001)
+                }
+                send(samples, index: index)
+            }
+        }
+        sendNoise(160..<360)
+        let settled = transmitter.inputObservation.sentPackets
+        sendNoise(360..<460)
+        let analysis = try #require(transmitter.vadSnapshot.lastAnalysis)
+        print("Default AAC silence probe: isolation=\(isolationEnabled) state=\(analysis.state) "
+            + "applied=\(transmitter.isolationSnapshot?.state.rawValue ?? "unavailable") "
+            + "input=\(analysis.rmsDBFS)dBFS floor=\(analysis.noiseFloorDBFS)dBFS "
+            + "packetsInLastSecond=\(transmitter.inputObservation.sentPackets - settled)")
+        #expect(analysis.state == .silence)
+        #expect(transmitter.inputObservation.sentPackets == settled)
+
+        for index in 460..<472 {
+            send((0..<frameCount).map { Float(0.02 * sin(Double(index * frameCount + $0) * 2 * .pi * 330 / format.sampleRate)) }, index: index)
+        }
+        #expect(transmitter.vadSnapshot.state == .speech)
+        sendNoise(472..<502)
+        #expect(transmitter.inputObservation.sentPackets > settled)
+        #expect(transmitter.failureCount == 0)
+    }
+
     @Test func receiveGraphUsesDeviceClockWithoutImplicitOutputResampling() async throws {
         let engine = AVAudioEngine()
         let hardware = AudioFormat(sampleRate: 44_100, channelCount: 1)
