@@ -13,6 +13,7 @@ enum AppleCredentialState: Sendable {
 @Observable
 final class AppleAccountSession {
     let deletion: AccountDeletion
+    let launchInstructions: String?
     private(set) var userID: String?
     // A new login must never reactivate work retained from a retired session.
     private(set) var accessID = UUID()
@@ -34,23 +35,29 @@ final class AppleAccountSession {
 
     init(keychain: KeychainSecretStoring, defaults: UserDefaults, namespace: String,
          applicationSupport: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
+         launchInstructions: String? = nil,
          credentialState: @escaping @MainActor (String) async throws -> AppleCredentialState) {
         deletion = AccountDeletion(keychain: keychain, namespace: namespace, applicationSupport: applicationSupport)
+        self.launchInstructions = launchInstructions
         self.keychain = keychain
         self.defaults = defaults
         service = namespace + ".AppleAccount"
         self.credentialState = credentialState
-        load()
+        if launchInstructions == nil {
+            load()
+        } else {
+            storageUnavailable = true
+        }
     }
 
     static func makeForCurrentProcess() -> AppleAccountSession {
         let configuredNamespace = Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String
         #if DEBUG && RIDEINTERCOM_VALIDATION
-        guard let configuredNamespace,
-              let fixture = AppleAccountFixture.makeForCurrentProcess(namespace: configuredNamespace) else {
-            preconditionFailure("Local validation requires an isolated StorageNamespace and explicit account fixture environment.")
+        guard let configuredNamespace, configuredNamespace.hasPrefix("RideIntercom.Validation.") else {
+            preconditionFailure("Local validation requires an isolated StorageNamespace.")
         }
-        return fixture
+        return AppleAccountFixture.makeForCurrentProcess(namespace: configuredNamespace)
+            ?? AppleAccountFixture.unavailableLaunchSession()
         #else
         let namespace = configuredNamespace ?? "RideIntercom"
         return AppleAccountSession(keychain: SystemKeychainSecretStore(),
@@ -114,7 +121,7 @@ final class AppleAccountSession {
     /// Synchronous disk retry lets an action establish its account generation
     /// before it awaits native credential verification.
     func reloadSavedSignIn() {
-        guard !isSigningIn else { return }
+        guard launchInstructions == nil, !isSigningIn else { return }
         deletion.reload()
         if needsCredentialRemoval { signOut(); return }
         message = nil
@@ -217,6 +224,7 @@ final class AppleAccountSession {
     }
 
     func signOut() {
+        guard launchInstructions == nil else { return }
         // Persist the denial before touching Keychain: a failed delete must not
         // resurrect the session on the next offline launch.
         defaults.set(true, forKey: Self.requiresSignInKey)

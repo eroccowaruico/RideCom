@@ -9,6 +9,13 @@ import CryptoKit
 enum AppleAccountFixture {
     static let userID = "local-validation-apple-user"
 
+    static func unavailableLaunchSession() -> AppleAccountSession {
+        let namespace = "RideIntercom.Validation.UnconfiguredLaunch"
+        let defaults = UserDefaults(suiteName: namespace)!
+        return AppleAccountSession(keychain: FixtureKeychain(defaults: defaults), defaults: defaults,
+            namespace: namespace, launchInstructions: "Launch this validation build with a test account configured.") { _ in .notFound }
+    }
+
     static func makeForCurrentProcess(namespace: String) -> AppleAccountSession? {
         let environment = ProcessInfo.processInfo.environment
         guard namespace.hasPrefix("RideIntercom.Validation."),

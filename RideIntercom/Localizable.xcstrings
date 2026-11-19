@@ -3282,6 +3282,17 @@
         }
       }
     },
+    "Launch this validation build with a test account configured." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この検証ビルドは、試験用アカウントを指定して起動してください。"
+          }
+        }
+      }
+    },
     "Leave" : {
       "localizations" : {
         "ja" : {

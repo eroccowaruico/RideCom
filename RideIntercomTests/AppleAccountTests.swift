@@ -5,6 +5,21 @@ import Testing
 
 @MainActor
 struct AppleAccountTests {
+    #if DEBUG && RIDEINTERCOM_VALIDATION
+    @Test func unconfiguredValidationLaunchStaysBlockedAfterRefreshAndRevocation() async {
+        let session = AppleAccountFixture.unavailableLaunchSession()
+        await session.reload()
+        session.revoke()
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        session.prepare(request)
+
+        #expect(session.launchInstructions != nil)
+        #expect(session.storageUnavailable)
+        #expect(session.userID == nil)
+        #expect(!session.isSigningIn)
+    }
+    #endif
+
     @Test func allRoutesRequireLoginAndSignOutStopsActiveCall() async throws {
         let f = AccountFixture(); defer { f.remove() }
         let denied = AppTestSupport.makeHarness(accountSession: f.session)

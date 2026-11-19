@@ -13,14 +13,14 @@ struct AppleSignInView: View {
                     if geometry.size.width > geometry.size.height && geometry.size.width >= 600 {
                         HStack(alignment: .center, spacing: AppSpacing.l) {
                             brand.frame(maxWidth: .infinity)
-                            signInContent.frame(maxWidth: 420)
+                            accountContent.frame(maxWidth: 420)
                         }
                     } else {
                         // As in the design: the icon and name above, the reason right before the button at the bottom.
                         VStack(spacing: 32) {
                             brand
                             Spacer(minLength: 0)
-                            signInContent
+                            accountContent
                         }
                         .frame(maxWidth: 420, maxHeight: .infinity)
                     }
@@ -31,6 +31,17 @@ struct AppleSignInView: View {
         }
         .background(AppColorPalette.callScreenBackground)
         .accessibilityIdentifier("appleSignInScreen")
+    }
+
+    @ViewBuilder private var accountContent: some View {
+        if let instructions = account.launchInstructions {
+            Text(LocalizedStringKey(instructions))
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("validationLaunchInstructions")
+        } else {
+            signInContent
+        }
     }
 
     private var brand: some View {
