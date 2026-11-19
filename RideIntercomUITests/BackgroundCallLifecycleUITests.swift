@@ -2,6 +2,8 @@
 import XCTest
 
 final class BackgroundCallLifecycleUITests: XCTestCase {
+    private enum InvitationOpening { case cold, foreground, background }
+
     override func setUpWithError() throws { continueAfterFailure = false }
     @MainActor func testStandardWaitingReturnsFromBackgroundWithoutLosingItsCall() throws { try waitingRoundTrip() }
     @MainActor func testAdvancedWaitingReturnsFromBackgroundWithoutLosingItsCall() throws { try waitingRoundTrip(advanced: true) }
@@ -9,11 +11,61 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
     @MainActor func testStandardMutedWaitingKeepsAudioInBackground() throws { try waitingRoundTrip(muted: true) }
     @MainActor func testAdvancedMutedWaitingKeepsAudioInBackground() throws { try waitingRoundTrip(advanced: true, muted: true) }
 
+    @MainActor func testExternalGroupInvitationOpensColdAndPersists() throws {
+        try verifyExternalGroupInvitation(from: .cold)
+    }
+
+    @MainActor func testExternalGroupInvitationOpensInRunningAppAndPersists() throws {
+        try verifyExternalGroupInvitation(from: .foreground)
+    }
+
+    @MainActor func testExternalGroupInvitationOpensFromBackgroundAndPersists() throws {
+        try verifyExternalGroupInvitation(from: .background)
+    }
+
     @MainActor func testStandardResumeWhileWaitingContinuesInBackground() throws { try waitingRoundTrip(resuming: true) }
     @MainActor func testAdvancedResumeWhileWaitingContinuesInBackground() throws { try waitingRoundTrip(advanced: true, resuming: true) }
 
     @MainActor func testStandardFirstMicrophonePermissionContinuesInBackground() throws { try waitingRoundTrip(firstPermission: true) }
     @MainActor func testAdvancedFirstMicrophonePermissionContinuesInBackground() throws { try waitingRoundTrip(advanced: true, firstPermission: true) }
+
+    @MainActor private func verifyExternalGroupInvitation(from opening: InvitationOpening) throws {
+        let app = XCUIApplication(); defer { app.terminate() }
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        let suffix = UUID().uuidString.prefix(8)
+        let name = "External " + suffix
+        let invitation = try InvitationURLFixture.make(inviter: "external-" + suffix, name: name)
+        switch opening {
+        case .cold:
+            app.terminate()
+            XCTAssertEqual(app.state, .notRunning)
+            app.open(invitation)
+        case .foreground, .background:
+            app.launch()
+            XCTAssertTrue(app.tabBars.buttons["Users"].waitForExistence(timeout: 5))
+            if opening == .background {
+                XCUIDevice.shared.press(.home)
+                XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5)
+                    || app.wait(for: .runningBackgroundSuspended, timeout: 5))
+            }
+            XCUIDevice.shared.system.open(invitation)
+            confirmExternalApplicationOpen(timeout: 3)
+        }
+        let end = app.buttons["standardEndCallButton"].firstMatch
+        XCTAssertTrue(end.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
+        end.tap()
+        app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
+        XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Groups"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                   "standardGroup-", name)).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+    }
 
     @MainActor private func waitingRoundTrip(advanced: Bool = false, muted: Bool = false, resuming: Bool = false, firstPermission: Bool = false) throws {
         let app = XCUIApplication(); defer { app.terminate() }
@@ -31,9 +83,7 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         if waitsForInvitation {
             name = "Audio E2E"
             FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE\n".utf8))
-            let open = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons
-                .matching(NSPredicate(format: "label IN %@", ["Open", "開く"])).firstMatch
-            if open.waitForExistence(timeout: 10) { open.tap() }
+            confirmExternalApplicationOpen(timeout: 10)
             XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 45))
         } else {
             let groups = app.tabBars.buttons["Groups"]; XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
@@ -78,6 +128,12 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         end.tap()
         if !advanced { app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap() }
         XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor private func confirmExternalApplicationOpen(timeout: TimeInterval) {
+        let open = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons
+            .matching(NSPredicate(format: "label IN %@", ["Open", "開く"])).firstMatch
+        if open.waitForExistence(timeout: timeout) { open.tap() }
     }
 }
 #endif
