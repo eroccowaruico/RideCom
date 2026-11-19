@@ -232,6 +232,38 @@ struct AudioPipelineTests {
         #expect(!model.shouldApplyOtherAudioDucking(now: Date().timeIntervalSince1970))
     }
 
+    @Test func nativeOutputMeterKeepsRenderedSpeechWithoutPCMDelivery() throws {
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 480)
+        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
+        let model = AppTestSupport.makeHarness(audioPipeline: pipeline).viewModel
+        try pipeline.rebuild(configuration: .init(transmitSoundIsolationEnabled: false), peerIDs: ["peer"])
+        defer { pipeline.stop() }
+        model.isAudioReady = true
+        pipeline.onOutputFrame = nil
+        let frame = PCMFrame(sequenceNumber: 0, format: .intercomMixer,
+                             samples: Array(repeating: 0.2, count: 9600))
+        _ = try pipeline.processReceivedAudioPacket(
+            AppTestSupport.receivedAudioPacket(peerID: "peer", frame: frame, codec: .pcm16))
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
+        for _ in 0..<44 {
+            #expect(try engine.renderOffline(480, to: buffer) == .success)
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+        #expect(pipeline.lastNativeAudibleOutputAt != nil)
+        let now = Date().timeIntervalSince1970
+        // The MainActor has not serviced any per-frame callback or timer yet.
+        model.handleCallTick(now: now)
+        #expect(model.playedAudioFrameCount > 0)
+        #expect(model.diagnosticsOutputPeakLevel > 0.1)
+        #expect(model.diagnosticsOutputLevel == 0, "Late meter refresh must show the current silence as well as the recent peak")
+        pipeline.stop()
+        let frameCount = model.playedAudioFrameCount
+        model.handleCallTick(now: now)
+        #expect(model.playedAudioFrameCount == frameCount)
+    }
+
     @Test func appDecodeRejectsUnknownCodecAndInvalidFormatBeforeConversion() throws {
         let valid = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, capturedAt: 0,
                                    sampleCount: 1, payload: Data([0, 0]))

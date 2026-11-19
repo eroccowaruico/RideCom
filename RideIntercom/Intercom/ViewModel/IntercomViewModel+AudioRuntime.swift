@@ -30,6 +30,7 @@ extension IntercomViewModel {
         refreshCallAccess(retryMedia: false)
         expireRemoteTalkers(now: now)
         expireLocalInputObservation(now: now)
+        refreshNativeOutputObservation()
         refreshOtherAudioDuckingState(now: now)
         publishRuntimePackageReports(now: now)
     }

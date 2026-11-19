@@ -149,25 +149,6 @@ struct VoiceLevelIndicatorState: Equatable {
     }
 }
 
-struct VoicePeakWindow: Equatable {
-    private let frameLimit: Int
-    private var levels: [Float]
-
-    init(frameLimit: Int = 100, levels: [Float] = []) {
-        self.frameLimit = frameLimit
-        self.levels = levels
-    }
-
-    mutating func record(_ level: Float) -> Float {
-        let clampedLevel = min(1, max(0, level))
-        levels.append(clampedLevel)
-        if levels.count > frameLimit {
-            levels.removeFirst(levels.count - frameLimit)
-        }
-        return levels.max() ?? 0
-    }
-}
-
 enum PeerAuthenticationState: String, Equatable, Hashable, Codable {
     case open = "AUTH OPEN"
     case pending = "AUTH PENDING"

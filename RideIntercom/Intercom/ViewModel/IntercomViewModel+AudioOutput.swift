@@ -52,6 +52,23 @@ extension IntercomViewModel {
         #endif
     }
 
+    func refreshNativeOutputObservation() {
+        guard isAudioReady, audioCheckPhase == .idle,
+              let observation = audioPipeline.takeNativeOutputObservation() else { return }
+        if isOutputMuted || masterOutputVolume <= 0 {
+            lastScheduledOutputRMS = 0
+            lastScheduledOutputPeakRMS = 0
+        } else {
+            lastScheduledOutputRMS = observation.rms
+            lastScheduledOutputPeakRMS = observation.peakRMS
+            lastAudibleReceivedAudioAt = observation.lastAudibleAt
+            countObservedOutputFrames(observation.frameCount)
+        }
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+        BackgroundCallValidationObservation.observe(self, output: true)
+        #endif
+    }
+
     func scheduleOutputFrame(frame: PCMFrame, receivedAt: TimeInterval) {
         guard !isOutputMuted, masterOutputVolume > 0 else {
             lastScheduledOutputRMS = 0
@@ -62,29 +79,29 @@ extension IntercomViewModel {
         let level = AudioLevelMeter.rmsLevel(samples: frame.samples)
         lastScheduledOutputRMS = level
         lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(level)
-        // With a shared engine this callback observes audio already rendered
-        // by the device. Metering must not enqueue another copy for playback.
-        if !audioPipeline.rendersToHardware {
-            let report = audioOutputRenderer.schedule(frame)
-            lastOutputStreamOperationReport = report
-            if !report.result.isContinuable {
-                audioErrorMessage = "Audio output failed"
-                AppLoggers.audio.warning(
-                    "audio.output.schedule_failed",
-                    metadata: .event("audio.output.schedule_failed", [
-                        "errorType": "\(report.result)",
-                        "isRecoverable": "true"
-                    ])
-                )
-            }
-            guard case .applied = report.result else { return }
+        let report = audioOutputRenderer.schedule(frame)
+        lastOutputStreamOperationReport = report
+        if !report.result.isContinuable {
+            audioErrorMessage = "Audio output failed"
+            AppLoggers.audio.warning(
+                "audio.output.schedule_failed",
+                metadata: .event("audio.output.schedule_failed", [
+                    "errorType": "\(report.result)",
+                    "isRecoverable": "true"
+                ])
+            )
         }
-        scheduledOutputBatchCount += 1
-        scheduledOutputFrameCount += 1
-        playedAudioFrameCount += 1
+        guard case .applied = report.result else { return }
+        countObservedOutputFrames(1)
         if level > AudioLevelMeter.audibleOutputThreshold {
             lastAudibleReceivedAudioAt = receivedAt
         }
+    }
+
+    private func countObservedOutputFrames(_ count: Int) {
+        scheduledOutputBatchCount += count
+        scheduledOutputFrameCount += count
+        playedAudioFrameCount += count
     }
 }
 

@@ -102,10 +102,13 @@ final class AppAudioPipeline {
         get { transmitter.onPacket }
         set { transmitter.onPacket = newValue }
     }
-    var onOutputFrame: ((PCMFrame) -> Void)?
+    var onOutputFrame: ((PCMFrame) -> Void)? {
+        didSet { requestsOutputFrames.store(onOutputFrame != nil, ordering: .releasing) }
+    }
 
     private let makeEngine: () -> AVAudioEngine
-    private let usesHardwareClock: Bool
+    let usesHardwareClock: Bool
+    private nonisolated let requestsOutputFrames = Atomic<Bool>(false)
     var rendersToHardware: Bool { usesHardwareClock && hardwareOutputEnabled }
     private var generation = UUID()
     private var hardwareOutputEnabled = true
@@ -113,6 +116,9 @@ final class AppAudioPipeline {
     private var nativeOutputActivity: NativeOutputActivity?
     var lastNativeAudibleOutputAt: TimeInterval? {
         rendersToHardware ? nativeOutputActivity?.lastAudibleAt : nil
+    }
+    func takeNativeOutputObservation() -> NativeOutputObservation? {
+        rendersToHardware ? nativeOutputActivity?.takeObservation() : nil
     }
     #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
     private(set) var backgroundOutputProbe: BackgroundCallOutputProbe?
@@ -211,12 +217,14 @@ final class AppAudioPipeline {
         backgroundOutputProbe = probe
         #endif
         try receiver.rebuild(engine: engine, configuration: configuration, peers: peerIDs,
-            rendersToHardware: rendersToHardware, startsClock: startsOutputClock) { frame in
+            rendersToHardware: rendersToHardware, startsClock: startsOutputClock) { [weak self] frame in
             activity?.record(frame)
             #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
             probe?.record(frame)
             #endif
-            outputDelivery.yield(frame)
+            if self?.requestsOutputFrames.load(ordering: .acquiring) == true {
+                outputDelivery.yield(frame)
+            }
         }
         completed = true
     }
@@ -330,17 +338,49 @@ final class AppAudioPipeline {
 
 }
 
-/// Native output reaches the sink before its bounded MainActor delivery. Keep
-/// ducking current even when metering frames are discarded by that delivery.
+nonisolated struct NativeOutputObservation: Sendable {
+    let frameCount: Int
+    let rms: Float
+    let peakRMS: Float
+    let lastAudibleAt: TimeInterval?
+}
+
+/// The existing call tick reads this bounded state without enqueueing PCM.
 private nonisolated final class NativeOutputActivity: Sendable {
     private let timestampBits = Atomic<UInt64>(0)
+    private let meter = Mutex(Meter())
+
+    private struct Meter {
+        var pendingFrames = 0
+        var rms: Float = 0
+        var peakRMS: Float = 0
+        var peakWindow = VoicePeakWindow()
+    }
+
     var lastAudibleAt: TimeInterval? {
         let bits = timestampBits.load(ordering: .relaxed)
         return bits == 0 ? nil : TimeInterval(bitPattern: bits)
     }
 
     func record(_ frame: PCMFrame) {
-        guard AudioLevelMeter.rmsLevel(samples: frame.samples) > AudioLevelMeter.audibleOutputThreshold else { return }
-        timestampBits.store(Date().timeIntervalSince1970.bitPattern, ordering: .relaxed)
+        let level = AudioLevelMeter.rmsLevel(samples: frame.samples)
+        meter.withLock {
+            $0.pendingFrames += 1
+            $0.rms = level
+            $0.peakRMS = $0.peakWindow.record(level)
+            if level > AudioLevelMeter.audibleOutputThreshold {
+                timestampBits.store(Date().timeIntervalSince1970.bitPattern, ordering: .relaxed)
+            }
+        }
+    }
+
+    func takeObservation() -> NativeOutputObservation? {
+        meter.withLock {
+            guard $0.pendingFrames > 0 else { return nil }
+            let observation = NativeOutputObservation(frameCount: $0.pendingFrames,
+                rms: $0.rms, peakRMS: $0.peakRMS, lastAudibleAt: lastAudibleAt)
+            $0.pendingFrames = 0
+            return observation
+        }
     }
 }

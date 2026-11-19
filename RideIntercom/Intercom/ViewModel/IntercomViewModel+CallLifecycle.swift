@@ -294,6 +294,10 @@ extension IntercomViewModel {
         }
         if let recording { audioPipeline.onTransmitPacket = { recording.receive($0) } }
         else { audioPipeline.onTransmitPacket = callSession.audioPacketSink }
+        if finiteRecordingDuration == nil, pipeline.usesHardwareClock, audioOutputRenderer.rendersToHardware {
+            pipeline.onOutputFrame = nil
+            return
+        }
         audioPipeline.onOutputFrame = { [weak self] frame in
             guard let self, self.audioGeneration == generation else { return }
             if self.audioCheckPhase == .playing {
@@ -305,7 +309,7 @@ extension IntercomViewModel {
                 }
                 return
             }
-            guard self.isAudioReady else { return }
+            guard self.isAudioReady, !self.audioPipeline.rendersToHardware else { return }
             self.scheduleOutputFrame(frame: frame, receivedAt: Date().timeIntervalSince1970)
             #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
             BackgroundCallValidationObservation.observe(self, output: true)
