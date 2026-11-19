@@ -47,7 +47,7 @@ struct LiveTransmitPipelineView: View {
                 }
             }
             stage(presentation.rtcStep) {
-                DiagnosticsTransmitRoutes(viewModel: viewModel)
+                DiagnosticsTransmitRoutes(presentation: presentation)
             }
         }
         .appDiagnosticsCardStyle()

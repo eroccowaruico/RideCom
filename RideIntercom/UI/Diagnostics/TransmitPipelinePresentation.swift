@@ -230,6 +230,46 @@ struct TransmitPipelinePresentation {
         aggregateState(transmitEffectStages.map(\.state))
     }
 
+    func outboundRoutes(now: TimeInterval) -> (summary: String, branches: [PipelineStep]) {
+        let report = input.networkDiagnostics
+        let dispatch = report?.outboundAudioDispatch
+        let age = dispatch.map { max(0, now - $0.observedAt) }
+        let summary = age.map { "Last audio dispatch · \(Int($0))s ago" } ?? "Last audio dispatch"
+        let telemetryLifetime: TimeInterval = 15
+        let reportIsFresh = report.map { now - $0.generatedAt <= telemetryLifetime } ?? false
+        let branches = RouteKind.allCases.map { route in
+            let isInternet = route == .webRTC
+            let status: (state: PipelineStepState, label: String)
+            if let dispatch, let age {
+                if age > telemetryLifetime || !reportIsFresh {
+                    status = (.idle, "Last dispatch is stale")
+                } else if dispatch.offeredRoutes.contains(route) {
+                    status = (.passing, "Offered to transport")
+                } else if isInternet && dispatch.internetCoveredByLocal {
+                    status = (.idle, "Covered by Local")
+                } else {
+                    status = (.idle, "Not used for last packet")
+                }
+            } else {
+                status = (.idle, "No audio dispatch observed")
+            }
+            let queuedBytes = reportIsFresh
+                ? report?.routes.first(where: { $0.route == route })?.statistics.bufferedBytes
+                : nil
+            let queue = queuedBytes.map { "\($0) B" } ?? "Not measured"
+            return PipelineStep(
+                id: route.rawValue,
+                package: "RTC",
+                title: isInternet ? "Internet" : "Local",
+                detail: isInternet ? "\(status.label) / Send queue: \(queue)" : status.label,
+                icon: "arrow.turn.down.right",
+                state: status.state,
+                accessibilityIdentifier: "pipeline-rtc-route-\(route.rawValue)"
+            )
+        }
+        return (summary, branches)
+    }
+
     var codecState: PipelineStepState {
         input.isVoiceActive && input.encodedAudioPacketCount > 0 ? .passing : .waiting
     }

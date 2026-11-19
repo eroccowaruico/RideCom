@@ -41,6 +41,15 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Input level: Not measured"].firstMatch.exists)
         attachScreen("TX diagnostics before microphone analysis")
+        let rtc = app.descendants(matching: .any)["pipeline-rtc-step"].firstMatch
+        reveal(rtc, app: app)
+        rtc.tap()
+        let local = app.descendants(matching: .any)["pipeline-rtc-route-multipeer"].firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 3), app.debugDescription)
+        reveal(local, app: app)
+        XCTAssertEqual(local.value as? String, "Idle, No audio dispatch observed")
+        XCTAssertTrue(app.descendants(matching: .any)["pipeline-rtc-route-webRTC"].firstMatch.exists)
+        attachScreen("TX diagnostics route branches before a call")
         picker.buttons["RX"].tap()
         let mix = app.descendants(matching: .any)["receive-pipeline-mix-step"].firstMatch
         reveal(mix, app: app)

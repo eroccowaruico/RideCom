@@ -1,4 +1,5 @@
 import AudioMixer
+import RTC
 import SessionManager
 import VADGate
 
@@ -17,6 +18,7 @@ struct DiagnosticsInput {
     var lastVoiceProcessingOperationReport: SessionManager.AudioStreamOperationReport?
     var preferredTransmitCodec: AudioCodecIdentifier
     var routeLabel: String
+    var networkDiagnostics: RTCNetworkDiagnostics?
     var selectedGroupConnectionState: CallConnectionState
     var selectedTransmitCodec: AudioCodecIdentifier
     var encodedAudioPacketCount: Int
@@ -52,6 +54,11 @@ struct DiagnosticsInput {
         lastVoiceProcessingOperationReport = viewModel.lastVoiceProcessingOperationReport
         preferredTransmitCodec = viewModel.preferredTransmitCodec
         routeLabel = viewModel.routeLabel
+        if let activeGroupID = viewModel.activeGroupID, activeGroupID == viewModel.selectedGroup?.id {
+            networkDiagnostics = viewModel.networkDiagnostics
+        } else {
+            networkDiagnostics = nil
+        }
         selectedGroupConnectionState = viewModel.selectedGroupConnectionState
         selectedTransmitCodec = viewModel.selectedTransmitCodec
         // The transmitter increments this count as it collects encoded frames for delivery.

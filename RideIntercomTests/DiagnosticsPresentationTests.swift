@@ -1,6 +1,10 @@
+import Foundation
 import RTC
 import Testing
 import VADGate
+#if os(iOS)
+import SwiftUI
+#endif
 @testable import RideIntercom
 
 extension AppTests {
@@ -43,6 +47,49 @@ struct DiagnosticsPresentationTests {
         let paused = TransmitPipelinePresentation(input: input)
         #expect(paused.encodedAudioPacketCount == nil)
         #expect(paused.rtcStep.detail == presentation.rtcStep.detail)
+    }
+
+    @Test func transmitBranchesDistinguishOffersLocalCoverageAndStaleReports() throws {
+        let model = AppTestSupport.makeHarness().viewModel
+        let now = Date().timeIntervalSince1970
+        let groups = IntercomSeedData.recentGroups
+        model.activeGroupID = groups[0].id
+        model.selectedGroup = groups[1]
+        model.isAudioReady = true
+        model.networkDiagnostics = .init(generatedAt: now,
+            routes: [.init(route: .webRTC, statistics: .init(bufferedBytes: 1228))],
+            outboundAudioDispatch: .init(offeredRoutes: [.multipeer], internetCoveredByLocal: true, observedAt: now - 2))
+        let otherGroup = TransmitPipelinePresentation(input: DiagnosticsInput(model)).outboundRoutes(now: now)
+        #expect(otherGroup.branches.map(\.state) == [.idle, .idle])
+        #expect(otherGroup.branches.first?.detail == "No audio dispatch observed")
+
+        model.selectedGroup = groups[0]
+        let local = TransmitPipelinePresentation(input: DiagnosticsInput(model)).outboundRoutes(now: now)
+        #expect(local.summary == "Last audio dispatch · 2s ago")
+        #expect(local.branches.map(\.state) == [.passing, .idle])
+        #expect(local.branches.last?.detail == "Covered by Local / Send queue: 1228 B")
+
+        model.networkDiagnostics?.outboundAudioDispatch?.offeredRoutes = [.multipeer, .webRTC]
+        model.networkDiagnostics?.outboundAudioDispatch?.internetCoveredByLocal = false
+        let mixed = TransmitPipelinePresentation(input: DiagnosticsInput(model))
+        #expect(mixed.outboundRoutes(now: now).branches.map(\.state) == [.passing, .passing])
+        let stale = mixed.outboundRoutes(now: now + 16)
+        #expect(stale.branches.map(\.state) == [.idle, .idle])
+        #expect(stale.branches.last?.detail == "Last dispatch is stale / Send queue: Not measured")
+
+        #if os(iOS)
+        for (name, size) in [("standard", DynamicTypeSize.large), ("accessibility", .accessibility5)] {
+            let view = LiveTransmitPipelineView(viewModel: model, expandedStage: .constant("rtc"))
+                .frame(width: 370)
+                .padding()
+                .background(AppColorPalette.listScreenBackground)
+                .environment(\.dynamicTypeSize, size)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let data = try #require(renderer.uiImage?.pngData())
+            Attachment.record(data, named: "tx-dispatch-\(name).png")
+        }
+        #endif
     }
 
     @Test func transmitProjectionDisplaysAnalyzerInputOnlyWhenActive() throws {

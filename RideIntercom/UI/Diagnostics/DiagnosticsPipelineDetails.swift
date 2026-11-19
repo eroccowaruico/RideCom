@@ -6,22 +6,19 @@ import VADGate
 import SoundIsolation
 
 struct DiagnosticsTransmitRoutes: View {
-    @Bindable var viewModel: IntercomViewModel
+    let presentation: TransmitPipelinePresentation
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.s) {
-            Text("Audio delivery: Not measured")
-            ForEach(RouteKind.allCases, id: \.rawValue) { route in
-                let paths = viewModel.networkDiagnostics?.peers.filter { $0.route == route } ?? []
-                VStack(alignment: .leading) {
-                    Text(route == .webRTC ? "Internet" : "Local").font(.headline)
-                    if paths.isEmpty { Text("Destinations: Not measured") }
-                    ForEach(paths, id: \.peerID) { path in
-                        Text("\(path.path.count > 2 ? "Relayed" : "Direct group path"): \(path.path.map { String($0.rawValue.prefix(8)) }.joined(separator: " → "))")
-                    }
-                    if route == .webRTC {
-                        Text("Send queue: \(viewModel.networkDiagnostics?.routes.first { $0.route == route }?.statistics.bufferedBytes.map { "\($0) B" } ?? "Not measured")")
-                    }
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let dispatch = presentation.outboundRoutes(now: context.date.timeIntervalSince1970)
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                Text(dispatch.summary)
+                    .foregroundStyle(.secondary)
+                ForEach(dispatch.branches) { branch in
+                    CompactPipelineStepRow(step: branch)
                 }
+                Text("Peer receipt: Not measured")
+                    .foregroundStyle(.secondary)
             }
         }
     }

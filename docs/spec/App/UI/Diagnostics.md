@@ -70,7 +70,7 @@ TX/RXは従来のpipeline、Networkは、経路（Local・Internet）ごとの�
 | AudioMixer TX busステップ | `liveTransmitPipelineView` | `pipeline-mixer-step` | TX Bus | `AudioMixerSnapshot` の `tx-bus` / source / routing 状態 | `source count -> FX count` として表示 | mixer 未開始は neutral |
 | AudioMixer effect chainステップ | `liveTransmitPipelineView` | `pipeline-effects-step` | FX Chain | `AudioMixerSnapshot` の `tx-bus.effectChain` から導出した `transmitEffectChainSnapshot.stages` | TX bus 配下の inline stage chip として表示 | stage 内の unavailable / bypassed を warning 以下で表示 |
 | codec ステップ | `liveTransmitPipelineView` | `pipeline-codec-step` | Codec | 要求と実効codec、`AppAudioTransmitter`が生成した音声packetの現在の通話分 | requested と selected を表示。fallback 時は `requested -> selected / Fallback`。展開すると`Encoded audio packets`の累計 | fallback は warning。発話状態で生成実績があればPassing。メディア未準備は未計測。値をRTC受付・音声到着へ流用しない |
-| RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | 選択通話の制御接続と経路 | 制御の接続済みは経路と`Control Connected`。展開すると`Audio delivery: Not measured`と経路別情報 | 制御接続は音声停止中も表示する。相手側の到着と最終出力は各端末の観測を要する |
+| RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | 選択通話の制御接続と経路 | 制御の接続済みは経路と`Control Connected`。展開すると最後の自端末音声を渡した経路と観測時刻 | 制御接続は音声停止中も表示する。相手側の到着と最終出力は各端末の観測を要する |
 
 ## 送信 effect chain 表示
 
@@ -88,6 +88,10 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 | stage 追加 | AudioMixer package の `tx-bus.effectChain` に stage が追加されれば Diagnostics の表示順へ反映する |
 | 固定文字列禁止 | `SoundIsolation -> VADGate -> DynamicsProcessor -> PeakLimiter` のような固定文言や default 値を UI の正本にしない |
 | 一覧性 | stage が増えた場合は FX Chain 行の内側で折り返し、ログを読まなくても各 stage の現在状態を読めるようにする |
+
+## 送信RTCの経路分岐
+
+`RTC` の分岐は `pipeline-rtc-route-multipeer`（Local）と `pipeline-rtc-route-webRTC`（Internet）。選択中の通話の `RTCNetworkDiagnostics.outboundAudioDispatch` を使う。経路へ渡したときはPassingの記号と `Offered to transport`。近距離でInternetの相手をカバーしたときはInternetにIdleの記号と `Covered by Local`。最後のpacketで使わなかった経路は `Not used for last packet`。記録がない場合は `No audio dispatch observed`、15秒を超えた場合は `Last dispatch is stale` としてIdleにする。Internetの `Send queue` は生成から15秒以内のnetwork reportの値を使用する。相手の受信は `Peer receipt: Not measured` とする。
 
 ## 受信パイプライン
 

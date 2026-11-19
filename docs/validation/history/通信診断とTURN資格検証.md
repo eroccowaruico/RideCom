@@ -62,3 +62,7 @@ VALIDATION_DIR=/private/tmp/rtc-network-scripts-rerun scripts/validate.sh script
 - 回帰は `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` でRTCTests 140件、RTCNativeWebRTCTests 5件が合格。Workerペアは別工程。
 - ローカル証跡は `.validation/tx-dispatch-1402/` の `red.log`・`green-focused.log`・`rtc.log`。
 - この記録が示すのはRTCから各経路に渡した時点。backendの受付、実サービス・実機の相手への到着と実出力、Appの表示は別の確認を要する。
+
+Build 1404のApp検証では、DiagnosticsのTXからRTCを展開して、通話前のLocal／Internet分岐が現れることをiOS Simulatorで確認した。通話の診断snapshotを渡すApp試験では、近距離でカバーしたときにInternetがIdleとなること、混在で2経路へ渡した記録、期限を過ぎた記録と別グループの観測を有効表示しないことを確認した。混在入力を描画し、通常文字と最大文字で経路名・状態・送信待ちを読めることを確認した。証跡は `.validation/tx-dispatch-1402/app-green/app.xcresult` と `tx-dispatch-standard.png`・`tx-dispatch-accessibility.png`。物理端末と実サービスを使った通話中の表示確認は残る。
+
+Appの回帰はiOS Simulatorで23件、macOSで21件が合格した。
