@@ -99,9 +99,9 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 |---|---|---|---|---|---|---|
 | RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数、Appで認証済みの音声を受け取った時刻 | route と総 `RX n`、`Last receipt` と経過秒。時刻がない場合は `Receipt time not measured`。破棄があれば `DROP n` | 直近2秒に受信を観測するとPassing。復号エラーが起きても受信の時刻は進む |
 | Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | 現在の受信処理で空でないPCMを返したpacket数と最終時刻、復号に失敗したpacket数と最終時刻。受信グラフを作り直すと初期化する | `No PCM observed` または `PCM n`。PCMがあれば `Last PCM` と経過秒。失敗があれば `Decode errors n` と `Last error` の経過秒。peer別のdecode codecは参加者内訳で表示 | 直近2秒にPCMがあればPassing。直近のPCMがなく、2秒以内に失敗があればBlocked。両方の観測が途絶えればWaiting |
-| peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot.routes` の `rx-peer-*` → `rx-master` と各入力の `scheduledFrameCount` | `n peer buses`。peer別の音量・FX要約・待機frame数は下の参加者内訳に表示 | 音声未準備はIdle。接続された入力のいずれかでPCMの再生予約を観測するとPassing、それまではWaiting |
+| peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot.routes` の `rx-peer-*` → `rx-master` と各入力の `MixerSourceSnapshot.lastScheduledAt` | `n peer buses`。peer別の音量・FX要約・待機frame数は下の参加者内訳に表示 | 音声未準備はIdle。経路のある入力のいずれかに直近2秒以内のPCM再生予約があればPassing。全入力で未観測または2秒超はWaiting |
 | receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | Peer Busesと同じ経路・再生予約 | `n routes → rx-master`（1本は `1 route → rx-master`）。その経路がある参加者の枝線が左の縦線で合流し、Mix Downで線が終わる | Peer Busesと同じ判定。再生予約後の出力はOutputで確認する |
-| receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、master volume、経路数と入力のPCM再生予約 | source bus count と OUT volume。mix 後の 1 本の master bus として表示。アクセシビリティ文字サイズではメーターを集計の下に置く | 入力の再生予約を観測するとPassing。未観測はWaiting |
+| receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、master volume、経路数と入力のPCM再生予約 | source bus count と OUT volume。mix 後の 1 本の master bus として表示。アクセシビリティ文字サイズではメーターを集計の下に置く | Peer Busesと同じ判定 |
 | master effect chainステップ | `liveReceivePipelineView` | `receive-pipeline-master-effects-step` | Master FX | `AudioMixerSnapshot` の `rx-master.effectChain` + `rx-output.effectChain` から導出した `receiveMasterEffectChainSnapshot.stages` | RX Master 配下に適用される ordered stage chip として inline 表示（Isolation → master fader → 出力Limiter） | stage 単位で unavailable / bypassed を表示 |
 | outputステップ | `liveReceivePipelineView` | `receive-pipeline-output-step` | Output | native出力を最後に描画した時刻と最後の有声PCMの時刻、別rendererの最終再生予約時刻、mute、volume | nativeは `Last audible PCM` と `Last render` の経過秒。展開時に機器名、取得した実形式・buffer・reset数 | muteはMuted、音量0はWaiting。直近2秒にnativeの有声PCMを観測していればPassing |
 
@@ -117,7 +117,7 @@ native出力は無音の間も `Last render` を更新する。描画が2秒を�
 |---|---|---|
 | 参加者内訳 | `diagnosticsReceiveDetails` | 見出しと参加者の一覧。通話先がなければNo participants |
 | 内訳の見出し | `receive-mix-topology` | Participants |
-| 参加者行 | メンバーIDを`id`に持つDisclosureGroup | 表示名と状態。経路なしはOfflineまたはNo mixer route。経路ありはPassing／Waitingを共通の記号と語で示す。開くと、送信側のミュート（`mic.slash.fill`と語）、送信側のcodec・bitrate・VAD・isolationと報告の経過秒（15秒超はStale）、RTC RXの接続・認証・経路（Internet／Local direct／Local relayed）、Decode codec、Peer Busの音量・FX要約・待機frame数。offlineはOfflineだけを表示する。未取得値はNot measured |
+| 参加者行 | メンバーIDを`id`に持つDisclosureGroup | 表示名と状態。経路なしはOfflineまたはNo mixer route。経路ありは、その相手の入力に直近2秒以内のPCM再生予約があればPassing、未観測または2秒超はWaiting。状態は共通の記号と語で示し、Waitingでも経路がある間は枝を描く。開くと、送信側のミュート（`mic.slash.fill`と語）、送信側のcodec・bitrate・VAD・isolationと報告の経過秒（15秒超はStale）、RTC RXの接続・認証・経路（Internet／Local direct／Local relayed）、Decode codec、Peer Busの音量・FX要約・待機frame数。offlineはOfflineだけを表示する。未取得値はNot measured |
 | master mix row | `receive-master-mix-card` | source bus count、総 RX、master volume / mute、RX master effect summary、出力 level |
 
 ## 受信 effect chain 表示

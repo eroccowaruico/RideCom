@@ -1,6 +1,7 @@
 @testable import AudioMixer
 import AVFAudio
 import AudioCore
+import Foundation
 import Testing
 
 @Test(arguments: [16_000.0, 24_000.0, 48_000.0])
@@ -50,6 +51,8 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
     let bus = try mixer.createBus("remote")
     let source = try bus.addPCMSource(id: "peer-a")
 
+    #expect(bus.snapshot().sources.first?.lastScheduledAt == nil)
+    let before = Date().timeIntervalSince1970
     let report = try source.schedule(PCMFrame(
         sequenceNumber: 1,
         format: AudioFormat(sampleRate: 24_000, channelCount: 2),
@@ -66,6 +69,8 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
     #expect(snapshot.originalFormat == AudioFormat(sampleRate: 24_000, channelCount: 2))
     #expect(snapshot.mixerFormat == AudioFormat(sampleRate: 48_000, channelCount: 1))
     #expect(snapshot.scheduledFrameCount == 1)
+    let lastScheduledAt = try #require(snapshot.lastScheduledAt)
+    #expect(lastScheduledAt >= before && lastScheduledAt <= Date().timeIntervalSince1970)
     #expect(snapshot.normalizationReport == report)
     #expect(snapshot.lastFailure == nil)
 }
@@ -86,6 +91,7 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
     } catch {
         let snapshot = try #require(bus.snapshot().sources.first)
         #expect(snapshot.scheduledFrameCount == 0)
+        #expect(snapshot.lastScheduledAt == nil)
         #expect(snapshot.originalFormat == AudioFormat(sampleRate: 24_000, channelCount: 2))
         #expect(snapshot.lastFailure == "sample count is not divisible by channel count")
     }

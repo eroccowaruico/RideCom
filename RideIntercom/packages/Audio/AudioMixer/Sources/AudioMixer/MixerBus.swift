@@ -140,13 +140,14 @@ public final class MixerBus {
 			captureTimePlayoutDelay: captureTimePlayoutDelay,
 			adaptivePlayout: adaptivePlayout,
             renderClock: renderClock,
-			recordSchedule: { [weak self, weak player] frame, report, failure in
+			recordSchedule: { [weak self, weak player] frame, report, failure, didSchedule in
 				guard let player else { return }
 				self?.recordPCMSourceSchedule(
 					nodeID: ObjectIdentifier(player),
 					frame: frame,
 					report: report,
-					failure: failure
+					failure: failure,
+					didSchedule: didSchedule
 				)
 			}
 		)
@@ -259,7 +260,8 @@ public final class MixerBus {
 					normalizationReport: $0.normalizationReport,
 					lastFailure: $0.lastFailure,
 					bufferedDuration: pcmSourceByNodeID[nodeID]?.bufferedDuration,
-					playbackResetCount: pcmSourceByNodeID[nodeID]?.playbackResetCount ?? 0
+					playbackResetCount: pcmSourceByNodeID[nodeID]?.playbackResetCount ?? 0,
+					lastScheduledAt: $0.lastScheduledAt
 				)
 			}
 		}
@@ -481,7 +483,8 @@ public final class MixerBus {
 		nodeID: ObjectIdentifier,
 		frame: PCMFrame,
 		report: AudioProcessingReport?,
-		failure: String?
+		failure: String?,
+		didSchedule: Bool
 	) {
 		metadataLock.lock()
 		defer { metadataLock.unlock() }
@@ -491,6 +494,9 @@ public final class MixerBus {
 		metadata.lastFailure = failure
 		if failure == nil {
 			metadata.scheduledFrameCount += 1
+		}
+		if didSchedule {
+			metadata.lastScheduledAt = Date().timeIntervalSince1970
 		}
 		sourceMetadataByNodeID[nodeID] = metadata
 	}
@@ -539,6 +545,7 @@ private struct MixerSourceMetadata {
 	var originalFormat: AudioFormat?
 	var mixerFormat: AudioFormat?
 	var scheduledFrameCount = 0
+	var lastScheduledAt: TimeInterval?
 	var normalizationReport: AudioProcessingReport?
 	var lastFailure: String?
 }

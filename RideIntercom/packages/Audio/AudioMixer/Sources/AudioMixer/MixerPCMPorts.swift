@@ -8,7 +8,7 @@ public final class MixerPCMSource {
 	public let faderNode: AVAudioMixerNode
 	public let mixerFormat: AudioFormat
 
-	private let recordSchedule: (PCMFrame, AudioProcessingReport?, String?) -> Void
+	private let recordSchedule: (PCMFrame, AudioProcessingReport?, String?, Bool) -> Void
 	private let maximumBufferedDuration: TimeInterval?
 	private let captureTimePlayoutDelay: TimeInterval?
 	private var playoutAnchor: (capturedAt: TimeInterval, sample: AVAudioFramePosition)?
@@ -70,7 +70,7 @@ public final class MixerPCMSource {
 		captureTimePlayoutDelay: TimeInterval?,
         adaptivePlayout: Bool,
         renderClock: MixerRenderClock,
-		recordSchedule: @escaping (PCMFrame, AudioProcessingReport?, String?) -> Void
+		recordSchedule: @escaping (PCMFrame, AudioProcessingReport?, String?, Bool) -> Void
 	) {
 		self.id = id
 		self.playerNode = playerNode
@@ -95,7 +95,7 @@ public final class MixerPCMSource {
             }
 			let normalized = try normalizer.normalize(frame, to: mixerFormat, operation: .normalizeSource)
             guard normalized.frame.frameCount > 0 else {
-                recordSchedule(frame, normalized.report, nil)
+                recordSchedule(frame, normalized.report, nil, false)
                 return normalized.report
             }
 			let capturedAt = normalized.frame.capturedAt
@@ -253,13 +253,13 @@ public final class MixerPCMSource {
 				? nil : AVAudioTime(sampleTime: startSample, atRate: mixerFormat.sampleRate)
 			playerNode.scheduleBuffer(buffer, at: time, options: options)
             if startRequested && !playerNode.isPlaying { try playerNode.playAudio() }
-			recordSchedule(frame, normalized.report, nil)
+			recordSchedule(frame, normalized.report, nil, true)
 			return normalized.report
 		} catch let failure as AudioProcessingFailure {
-			recordSchedule(frame, nil, failure.reason)
+			recordSchedule(frame, nil, failure.reason, false)
 			throw failure
 		} catch {
-			recordSchedule(frame, nil, String(describing: error))
+			recordSchedule(frame, nil, String(describing: error), false)
 			throw AudioMixerError.pcmSourceScheduleFailed(String(describing: error))
 		}
 	}

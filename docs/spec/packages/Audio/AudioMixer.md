@@ -210,7 +210,7 @@ external caller
 | `MixerPCMSource` | 任意formatの `PCMFrame` を bus processing format に正規化して graph へ入れる |
 | `MixerPCMSink` | bus processing format の PCM を target format に正規化して emit する |
 | `AudioMixerSnapshot` | bus、source、sink、effect、route、graph を診断する |
-| `MixerSourceSnapshot` | source original format、mixer format、scheduled count、normalization report、last failure を持つ |
+| `MixerSourceSnapshot` | source original format、mixer format、scheduled count、`lastScheduledAt`、normalization report、last failure を持つ |
 | `MixerSinkSnapshot` | mixer format、target format、emitted count、normalization report、last failure を持つ |
 | `MixerEffectSnapshot` | effect id、型名、順序、状態、表示用parameterを持つ |
 | `MixerGraphSnapshot` | node / edge として現在の信号経路を表す |
@@ -305,6 +305,7 @@ snapshot は Codable とし、RTC runtime package report へ載せられる。
 | peerごとの入力format | `MixerSourceSnapshot.originalFormat` | RTC受信やCodec decodeのformat多様性を確認する |
 | bus処理format | `MixerSourceSnapshot.mixerFormat`, `MixerSinkSnapshot.mixerFormat` | effect chain が動くformatを確認する |
 | output/codec向けformat | `MixerSinkSnapshot.targetFormat` | `SessionManager` や `Codec` が要求するformatに合っているか確認する |
+| sourceの最終予約 | `MixerSourceSnapshot.lastScheduledAt` | 空でないPCMをplayerに予約できた時点の端末内のUnix時刻。空の正規化出力・失敗では更新しない。未観測はnil |
 | source正規化成否 | `MixerSourceSnapshot.normalizationReport` | source ingressの変換有無と失敗を確認する |
 | sink正規化成否 | `MixerSinkSnapshot.normalizationReport` | sink egressの変換有無と失敗を確認する |
 | graph接続 | `MixerGraphSnapshot.nodes/edges` | route、effect順序、sink接続を確認する |

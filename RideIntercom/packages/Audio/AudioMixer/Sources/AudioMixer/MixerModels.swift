@@ -80,6 +80,8 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 	public var originalFormat: AudioFormat?
 	public var mixerFormat: AudioFormat?
 	public var scheduledFrameCount: Int
+	/// Local Unix time of the most recent nonempty PCM buffer scheduled to the player.
+	public var lastScheduledAt: TimeInterval?
 	public var normalizationReport: AudioProcessingReport?
 	public var bufferedDuration: TimeInterval?
 	public var playbackResetCount: Int
@@ -96,7 +98,8 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 		normalizationReport: AudioProcessingReport? = nil,
 		lastFailure: String? = nil,
 		bufferedDuration: TimeInterval? = nil,
-		playbackResetCount: Int = 0
+		playbackResetCount: Int = 0,
+		lastScheduledAt: TimeInterval? = nil
 	) {
 		self.id = id
 		self.typeName = typeName
@@ -105,6 +108,7 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 		self.originalFormat = originalFormat
 		self.mixerFormat = mixerFormat
 		self.scheduledFrameCount = scheduledFrameCount
+		self.lastScheduledAt = lastScheduledAt
 		self.normalizationReport = normalizationReport
 		self.lastFailure = lastFailure
 		self.bufferedDuration = bufferedDuration

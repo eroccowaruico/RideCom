@@ -772,6 +772,19 @@ struct AudioPipelineTests {
             model.audioMixerSnapshot = pipeline.snapshot
             return .init(input: DiagnosticsInput(model))
         }
+        #if os(iOS)
+        func attachMix(_ name: String, size: DynamicTypeSize = .large) throws {
+            let view = LiveReceivePipelineView(viewModel: model, expandedStage: .constant(nil))
+                .frame(width: 370)
+                .padding()
+                .background(AppColorPalette.listScreenBackground)
+                .environment(\.dynamicTypeSize, size)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let data = try #require(renderer.uiImage?.pngData())
+            Attachment.record(data, named: "rx-mix-\(name).png")
+        }
+        #endif
         #expect(presentation().receivePeerStates == ["a": .waiting, "b": .waiting])
         #expect(presentation().receiveMixStep.detail == "2 routes → rx-master")
         #expect(presentation().masterBusStep.detail.hasPrefix("2 in /"))
@@ -782,17 +795,8 @@ struct AudioPipelineTests {
             if peer == "a" {
                 #expect(presentation().receivePeerStates == ["a": .passing, "b": .waiting])
                 #if os(iOS)
-                for (name, size) in [("standard", DynamicTypeSize.large), ("accessibility", .accessibility5)] {
-                    let view = LiveReceivePipelineView(viewModel: model, expandedStage: .constant(nil))
-                        .frame(width: 370)
-                        .padding()
-                        .background(AppColorPalette.listScreenBackground)
-                        .environment(\.dynamicTypeSize, size)
-                    let renderer = ImageRenderer(content: view)
-                    renderer.scale = 2
-                    let data = try #require(renderer.uiImage?.pngData())
-                    Attachment.record(data, named: "rx-mix-\(name).png")
-                }
+                try attachMix("standard")
+                try attachMix("accessibility", size: .accessibility5)
                 #endif
             }
         }
@@ -810,6 +814,25 @@ struct AudioPipelineTests {
         #expect(output.sinks.first?.id == "speaker-output")
         #expect(pipeline.snapshot.routes.contains { $0.sourceBusID == "rx-master" && $0.destinationBusID == "rx-output" })
         #expect(presentation().receivePeerStates == ["a": .passing, "b": .passing])
+        try await Task.sleep(for: .milliseconds(2100))
+        #expect(presentation().receivePeerStates == ["a": .waiting, "b": .waiting])
+        #expect(presentation().receiveMixStep.state == .waiting)
+        let nextPacket = RTCAudioPacket(sequenceNumber: 1, codec: .pcm16,
+            format: packet.format, capturedAt: Double(engine.manualRenderingSampleTime) / 48_000,
+            sampleCount: 480, payload: PCM16Codec.encode(Array(wave.prefix(480))))
+        _ = try pipeline.processReceivedAudioPacket(ReceivedAudioPacket(peerID: PeerID(rawValue: "b"), packet: nextPacket))
+        #expect(presentation().receivePeerStates == ["a": .waiting, "b": .passing])
+        #expect(presentation().receiveMixStep.state == .passing)
+        #if os(iOS)
+        try attachMix("one-peer-resumed")
+        #endif
+        rendered.removeAll(keepingCapacity: true)
+        for _ in 0..<12 {
+            #expect(try engine.renderOffline(1024, to: buffer) == .success)
+            await Task.yield()
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(rendered.contains { abs($0) > 0.2 })
         try pipeline.stopReceivePeer("a")
         #expect(presentation().receivePeerStates == ["b": .passing])
     }

@@ -325,7 +325,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 238 / Last PCM · 0s ago / Decode errors 2 / Last error · 4s ago</span></div>
           </div>
           <div class="card">
-            <div class="row"><span class="k">Peer Buses</span><span class="v num">3 peer buses</span></div>
+            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Peer Buses</span><span class="v num">3 peer buses</span></div>
           </div>
           <div class="hd">Participants</div>
           <div class="card blk off peer-unrouted">
@@ -353,7 +353,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
               <div class="row"><span class="k">Decode</span><span class="v num">PCM 16-bit</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 60% · Jitter buffer 62 ms<div class="sub">SoundIsolation bypassed <span class="meter"><i style="width:45%"></i></span></div></span></div>
             </div>
-            <div class="merge"><span>Mix Down</span><span class="r">3 routes → rx-master</span></div>
+            <div class="merge"><span><span class="ok-t" role="img" aria-label="Passing">✓</span> Mix Down</span><span class="r">3 routes → rx-master</span></div>
           </div>
           <div class="down">↓</div>
           <div class="card">
@@ -369,7 +369,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。受信と復号は最後の観測からの経過秒も表示する。相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。再生予約を観測した相手は Passing、未観測なら Waiting。経路がない相手は木の上に表示する。合流線はMix Downで終わる。その下に RX Master → Master FX → Output が続く。Outputは最後の有声PCMからの経過を表示する。別rendererでは Playback scheduled と Render not measured を併記する。大きい文字では集計の下にメーターを置き、Master FXを1列にする。</figcaption>
+      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。受信と復号は最後の観測からの経過秒も表示する。相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。直近2秒以内に再生予約を観測した相手は Passing、未観測または2秒を超えた相手は Waiting。Waitingでも経路があれば枝を描き、いずれかの相手がPassingならMix DownもPassingになる。経路がない相手は木の上に表示する。合流線はMix Downで終わる。その下に RX Master → Master FX → Output が続く。Outputは最後の有声PCMからの経過を表示する。別rendererでは Playback scheduled と Render not measured を併記する。大きい文字では集計の下にメーターを置き、Master FXを1列にする。</figcaption>
     </figure>
 
     <!-- Network -->

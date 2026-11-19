@@ -113,7 +113,8 @@ struct DiagnosticsTests {
     }
 
     @Test func receiveMixCountsOnlyRoutedPeerBusesAndUsesTheirAudioEvidence() {
-        var input = DiagnosticsInput(AppTestSupport.makeHarness().viewModel)
+        let now: TimeInterval = 100
+        var input = DiagnosticsInput(AppTestSupport.makeHarness().viewModel, now: now)
         input.isAudioReady = true
         input.authenticatedPeerCount = 3
         input.receivedVoicePacketCount = 8
@@ -135,6 +136,10 @@ struct DiagnosticsTests {
             .init(id: "rx-peer-first", volume: 1, sourceCount: 1, effectCount: 0,
                 sources: [.init(id: "pcm", typeName: "MixerPCMSource", index: 0, inputBusIndex: 0, scheduledFrameCount: 1)])
         ]
+        #expect(presentation().receivePeerStates["first"] == .waiting)
+        input.audioMixerSnapshot.buses[0].sources[0].lastScheduledAt = now - 2.01
+        #expect(presentation().receivePeerStates["first"] == .waiting)
+        input.audioMixerSnapshot.buses[0].sources[0].lastScheduledAt = now - 2
         #expect(presentation().receivePeerStates["first"] == .passing)
         #expect(presentation().receivePeerStates["second"] == .waiting)
         #expect(presentation().receiveMixStep.state == .passing)

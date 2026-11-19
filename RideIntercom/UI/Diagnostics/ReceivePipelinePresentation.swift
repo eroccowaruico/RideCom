@@ -17,8 +17,8 @@ struct ReceivePipelinePresentation {
                 where route.destinationBusID == "rx-master" && route.sourceBusID.hasPrefix(peerBusPrefix) {
                 let peerID = String(route.sourceBusID.dropFirst(peerBusPrefix.count))
                 let bus = input.mixerBusSnapshot(id: route.sourceBusID)
-                let scheduled = bus?.sources.contains { $0.scheduledFrameCount > 0 } ?? false
-                states[peerID] = scheduled ? .passing : .waiting
+                let lastScheduledAt = bus?.sources.compactMap(\.lastScheduledAt).max()
+                states[peerID] = Self.observation(lastScheduledAt, now: input.capturedAt).state
             }
         }
         receivePeerStates = states
@@ -168,8 +168,13 @@ struct ReceivePipelinePresentation {
     }
 
     private func observation(_ timestamp: TimeInterval?, maximumAge: TimeInterval = 2) -> (state: PipelineStepState, elapsed: String?) {
+        Self.observation(timestamp, now: input.capturedAt, maximumAge: maximumAge)
+    }
+
+    private static func observation(_ timestamp: TimeInterval?, now: TimeInterval,
+                                    maximumAge: TimeInterval = 2) -> (state: PipelineStepState, elapsed: String?) {
         guard let timestamp else { return (.waiting, nil) }
-        let age = max(0, input.capturedAt - timestamp)
+        let age = max(0, now - timestamp)
         return (age <= maximumAge ? .passing : .waiting, "\(Int(age))s ago")
     }
 
