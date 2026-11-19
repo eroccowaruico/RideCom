@@ -85,6 +85,126 @@ struct GroupContactInvitationTests {
         #expect(a.viewModel.activeGroupID == nil && b.viewModel.activeGroupID == nil)
     }
 
+    @Test func anotherGroupMemberCanVerifyTheIntroducerButNeedsCurrentMembershipState() throws {
+        let now = Date()
+        let (a, b, token, _) = try prepared(now: { now })
+        let c = AppTestSupport.makeHarness(groups: [], localMemberID: "group-observer", callAccessNow: { now })
+        defer {
+            for vm in [a.viewModel, b.viewModel, c.viewModel] {
+                vm.stopContactInvitationSession()
+                vm.disconnect()
+            }
+        }
+        let group = try #require(token.invitedGroup), invitation = try #require(token.directInvitation)
+        let author = try a.viewModel.internetSettingsStore.invitationSigner(memberID: token.inviterMemberID)
+        let linkForObserver = try GroupInviteToken.make(authority: a.viewModel.invitationAuthority, signer: author,
+            groupID: group.id, groupName: group.name, groupSecret: group.secret, inviterMemberID: author.memberID)
+        try c.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: linkForObserver))
+        let savedAuthor = try #require(c.viewModel.savedRemoteUsers.first)
+        #expect(c.viewModel.removeSavedUser(savedAuthor.id))
+        c.viewModel.disconnect()
+        c.viewModel.reloadSavedGroups()
+        let stored = try GroupSnapshot.decode(c.groupStore.snapshot.encoded())
+        let observer = try #require(stored.groups.first { $0.id == group.id })
+        #expect(observer.invitationDeviceKeys == [author.memberID: author.publicKey])
+        #expect(c.viewModel.savedRemoteUsers.isEmpty)
+
+        try b.viewModel.acceptContactInviteURL(GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true))
+        let reply = try b.viewModel.contactReplyURLForSharing(invitation.context.id, expectedAccountAccessID: b.viewModel.accountAccessID)
+        try a.viewModel.receiveContactReplyURL(reply)
+        let confirmation = try a.viewModel.contactReplyURLForSharing(invitation.context.id, expectedAccountAccessID: a.viewModel.accountAccessID)
+        let acknowledgement = try ContactReplyURL.decode(confirmation)
+        try b.viewModel.receiveContactReplyURL(confirmation)
+        let memberKey = try #require(acknowledgement.inviteeDeviceKey)
+        let memberID = acknowledgement.inviteeMemberID
+        #expect(!observer.members.contains { $0.id == memberID })
+        #expect(a.groupStore.snapshot.groups.first { $0.id == group.id }?.invitationDeviceKeys?[memberID] == memberKey)
+
+        // A third device can verify the signed contact acknowledgement without the invitation capability.
+        var accepted = acknowledgement
+        accepted.kind = .accepted
+        accepted.acknowledgementProof = nil
+        #expect(acknowledgement.invitation?.invitedGroupID == observer.id)
+        #expect(acknowledgement.acknowledgementProof?.publicKey == observer.invitationDeviceKeys?[author.memberID])
+        try acknowledgement.verifyAcknowledgement(of: accepted, trust: nil, now: now.timeIntervalSince1970)
+        #expect(acknowledgement.invitation?.invitedGroupDigest == (try group.digest()))
+        let afterExpiry = invitation.context.expiresAt + 1
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try acknowledgement.verifyAcknowledgement(of: accepted, trust: nil, now: afterExpiry)
+        }
+        let acknowledgementBytes = try JSONEncoder().encode(acknowledgement)
+
+        // Compare a detached statement which has no group key, contact label, or grant data.
+        let statement = MembershipStatement(groupID: group.id, introductionID: invitation.context.id,
+            introducerID: author.memberID, memberID: memberID, memberKey: memberKey)
+        let endorsement = try MembershipEndorsement(statement, signer: author)
+        let bytes = try JSONEncoder().encode(endorsement)
+        #expect(bytes.count < acknowledgementBytes.count)
+        let text = String(decoding: bytes, as: UTF8.self)
+        #expect(!text.contains(group.secret) && !text.contains(token.groupSecret) && !text.contains(invitation.secret))
+        #expect(!text.contains("displayName") && !text.contains("invitedGroupDigest"))
+        let decoded = try JSONDecoder().decode(MembershipEndorsement.self, from: bytes)
+        let verifiedRecipient = try #require(acknowledgement.acceptanceProof).verify(
+            acknowledgement.identityMessage(), purpose: .acceptInvitation, memberID: memberID)
+        #expect(decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: nil))
+        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: UUID()))
+        var otherGroup = observer; otherGroup.id = UUID()
+        #expect(!decoded.verifies(in: otherGroup, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        let unsignedPeer = testIdentitySigner("other-rider")
+        let unknownIdentity = try unsignedPeer.sign(Data(), purpose: .shareDisplayName).verify(
+            Data(), purpose: .shareDisplayName, memberID: unsignedPeer.memberID)
+        #expect(!decoded.verifies(in: observer, peer: unknownIdentity, activeIntroduction: statement.introductionID))
+        let otherKey = try DeviceIdentitySigner(memberID: author.memberID, key: P256.Signing.PrivateKey())
+        let unpinned = try MembershipEndorsement(statement, signer: otherKey)
+        #expect(!unpinned.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        var changedBytes = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        var changedStatement = try #require(changedBytes["statement"] as? [String: Any])
+        changedStatement["groupID"] = otherGroup.id.uuidString
+        changedBytes["statement"] = changedStatement
+        let changed = try JSONDecoder().decode(MembershipEndorsement.self, from: JSONSerialization.data(withJSONObject: changedBytes))
+        #expect(!changed.verifies(in: otherGroup, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+
+        #expect(a.viewModel.removeMember(memberID, from: group.id))
+        // Issuer-side removal does not invalidate already signed bytes at an uninformed observer.
+        try acknowledgement.verifyAcknowledgement(of: accepted, trust: nil, now: now.timeIntervalSince1970)
+        #expect(decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: nil))
+        print("Third-device membership: acknowledgement=\(acknowledgementBytes.count)B detached=\(bytes.count)B")
+    }
+
+    private struct MembershipStatement: Codable {
+        let groupID: UUID
+        let introductionID: UUID
+        let introducerID: String
+        let memberID: String
+        let memberKey: String
+
+        func signingData() throws -> Data {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return Data("rideintercom.membership-experiment.v1\0".utf8) + (try encoder.encode(self))
+        }
+    }
+
+    private struct MembershipEndorsement: Codable {
+        let statement: MembershipStatement
+        let proof: DeviceIdentityProof
+
+        init(_ statement: MembershipStatement, signer: DeviceIdentitySigner) throws {
+            self.statement = statement
+            self.proof = try signer.sign(statement.signingData(), purpose: .acknowledgeInvitation)
+        }
+
+        func verifies(in group: GroupSnapshot.Record, peer: VerifiedDeviceProof, activeIntroduction: UUID?) -> Bool {
+            guard statement.groupID == group.id, statement.introductionID == activeIntroduction,
+                  group.invitationDeviceKeys?[statement.introducerID] == proof.publicKey,
+                  statement.memberID == peer.memberID, statement.memberKey == peer.publicKey else { return false }
+            return (try? proof.verify(statement.signingData(), purpose: .acknowledgeInvitation,
+                                      memberID: statement.introducerID)) != nil
+        }
+    }
+
     @Test func failedRegistrationDoesNotLeaveOnlyAContactOrOnlyAGroup() throws {
         let (a, b, token, _) = try prepared()
         defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
