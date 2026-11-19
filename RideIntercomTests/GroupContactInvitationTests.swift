@@ -147,30 +147,30 @@ struct GroupContactInvitationTests {
         let decoded = try JSONDecoder().decode(MembershipEndorsement.self, from: bytes)
         let verifiedRecipient = try #require(acknowledgement.acceptanceProof).verify(
             acknowledgement.identityMessage(), purpose: .acceptInvitation, memberID: memberID)
-        #expect(decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
-        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: nil))
-        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: UUID()))
+        #expect(decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroductions: [statement.introductionID]))
+        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroductions: []))
+        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroductions: [UUID()]))
         var otherGroup = observer; otherGroup.id = UUID()
-        #expect(!decoded.verifies(in: otherGroup, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        #expect(!decoded.verifies(in: otherGroup, peer: verifiedRecipient, activeIntroductions: [statement.introductionID]))
         let unsignedPeer = testIdentitySigner("other-rider")
         let unknownIdentity = try unsignedPeer.sign(Data(), purpose: .shareDisplayName).verify(
             Data(), purpose: .shareDisplayName, memberID: unsignedPeer.memberID)
-        #expect(!decoded.verifies(in: observer, peer: unknownIdentity, activeIntroduction: statement.introductionID))
+        #expect(!decoded.verifies(in: observer, peer: unknownIdentity, activeIntroductions: [statement.introductionID]))
         let otherKey = try DeviceIdentitySigner(memberID: author.memberID, key: P256.Signing.PrivateKey())
         let unpinned = try MembershipEndorsement(statement, signer: otherKey)
-        #expect(!unpinned.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        #expect(!unpinned.verifies(in: observer, peer: verifiedRecipient, activeIntroductions: [statement.introductionID]))
         var changedBytes = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
         var changedStatement = try #require(changedBytes["statement"] as? [String: Any])
         changedStatement["groupID"] = otherGroup.id.uuidString
         changedBytes["statement"] = changedStatement
         let changed = try JSONDecoder().decode(MembershipEndorsement.self, from: JSONSerialization.data(withJSONObject: changedBytes))
-        #expect(!changed.verifies(in: otherGroup, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
+        #expect(!changed.verifies(in: otherGroup, peer: verifiedRecipient, activeIntroductions: [statement.introductionID]))
 
         #expect(a.viewModel.removeMember(memberID, from: group.id))
         // Issuer-side removal does not invalidate already signed bytes at an uninformed observer.
         try acknowledgement.verifyAcknowledgement(of: accepted, trust: nil, now: now.timeIntervalSince1970)
-        #expect(decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: statement.introductionID))
-        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroduction: nil))
+        #expect(decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroductions: [statement.introductionID]))
+        #expect(!decoded.verifies(in: observer, peer: verifiedRecipient, activeIntroductions: []))
         print("Third-device membership: acknowledgement=\(acknowledgementBytes.count)B detached=\(bytes.count)B")
     }
 
@@ -201,8 +201,8 @@ struct GroupContactInvitationTests {
             self.proof = try signer.sign(statement.signingData(), purpose: .acknowledgeInvitation)
         }
 
-        func verifies(in group: GroupSnapshot.Record, peer: VerifiedDeviceProof, activeIntroduction: UUID?) -> Bool {
-            guard statement.kind == .admission, statement.introductionID == activeIntroduction,
+        func verifies(in group: GroupSnapshot.Record, peer: VerifiedDeviceProof, activeIntroductions: Set<UUID>) -> Bool {
+            guard statement.kind == .admission, activeIntroductions.contains(statement.introductionID),
                   statement.memberID == peer.memberID, statement.memberKey == peer.publicKey else { return false }
             return hasKnownSignature(in: group)
         }
@@ -274,22 +274,73 @@ struct GroupContactInvitationTests {
                 journal = try JSONDecoder().decode(MembershipJournal.self, from: Data(contentsOf: file))
                 let expected = received.contains(1) ? (received.contains(2) ? fresh.introductionID : nil)
                     : (received.contains(0) ? original.introductionID : nil)
-                #expect(journal.activeIntroduction(for: original.memberID) == expected)
+                #expect(journal.activeIntroductions(for: original.memberID) == Set([expected].compactMap { $0 }))
                 let acceptedRetry = journal.receive(events[index], in: receiver)
                 #expect(!acceptedRetry, "Retry has no additional write")
             }
-            #expect(journal.activeIntroduction(for: original.memberID) == fresh.introductionID)
+            #expect(journal.activeIntroductions(for: original.memberID) == [fresh.introductionID])
 
             let acceptedUntrusted = journal.receive(untrustedRemoval, in: receiver)
             #expect(!acceptedUntrusted)
-            #expect(journal.activeIntroduction(for: original.memberID) == fresh.introductionID)
+            #expect(journal.activeIntroductions(for: original.memberID) == [fresh.introductionID])
             let acceptedRemoval = journal.receive(signedLaterRemoval, in: receiver)
             #expect(acceptedRemoval)
             try JSONEncoder().encode(journal).write(to: file, options: .atomic)
             journal = try JSONDecoder().decode(MembershipJournal.self, from: Data(contentsOf: file))
             let acceptedRestoreReplay = journal.receive(events[2], in: receiver)
             #expect(!acceptedRestoreReplay)
-            #expect(journal.activeIntroduction(for: original.memberID) == nil)
+            #expect(journal.activeIntroductions(for: original.memberID).isEmpty)
+        }
+    }
+
+    @Test func concurrentIntroducersKeepAllValidReadmissionsForTheSameDevice() throws {
+        let a = testIdentitySigner("parallel-author-a"), c = testIdentitySigner("parallel-author-c")
+        let b = testIdentitySigner("parallel-rider")
+        let secondDeviceUsingSameID = try DeviceIdentitySigner(memberID: b.memberID, key: P256.Signing.PrivateKey())
+        let group = try IntercomGroup(name: "Riders", members: [
+            GroupMember(id: "parallel-observer", displayName: "Observer"),
+            GroupMember(id: a.memberID, displayName: "A"), GroupMember(id: c.memberID, displayName: "C"),
+        ])
+        var roster = GroupSnapshot.Record(group)
+        roster.invitationDeviceKeys = [a.memberID: a.publicKey, c.memberID: c.publicKey]
+        func signed(by author: DeviceIdentitySigner, kind: MembershipStatement.Kind, observes: [UUID] = [],
+                    member: DeviceIdentitySigner? = nil) throws -> MembershipEndorsement {
+            let member = member ?? b
+            return try MembershipEndorsement(.init(groupID: group.id, introductionID: UUID(), introducerID: author.memberID,
+                memberID: member.memberID, memberKey: member.publicKey, kind: kind, observedRemovals: observes), signer: author)
+        }
+        let first = try signed(by: a, kind: .removal), second = try signed(by: c, kind: .removal)
+        let removals = [first.statement.introductionID, second.statement.introductionID]
+        let onlyOne = try signed(by: a, kind: .admission, observes: [removals[0]])
+        let agreedA = try signed(by: a, kind: .admission, observes: removals)
+        let agreedC = try signed(by: c, kind: .admission, observes: Array(removals.reversed()))
+        let changedKey = try signed(by: c, kind: .admission, observes: removals, member: secondDeviceUsingSameID)
+        let laterRemoval = try signed(by: a, kind: .removal)
+        let explicitRestore = try signed(by: c, kind: .admission, observes: removals + [laterRemoval.statement.introductionID])
+        let events = [first, second, onlyOne, agreedA, agreedC]
+
+        func reload(_ journal: MembershipJournal) throws -> MembershipJournal {
+            try JSONDecoder().decode(MembershipJournal.self, from: JSONEncoder().encode(journal))
+        }
+        for order in [[0, 1, 2, 3, 4], [4, 3, 2, 1, 0], [3, 0, 2, 4, 1], [2, 0, 1, 4, 3]] {
+            var journal = MembershipJournal()
+            for index in order {
+                let applied = journal.receive(events[index], in: roster)
+                #expect(applied)
+                journal = try reload(journal)
+            }
+            let active = journal.activeIntroductions(for: b.memberID)
+            #expect(active == [agreedA.statement.introductionID, agreedC.statement.introductionID])
+            let peer = try b.sign(Data(), purpose: .shareDisplayName).verify(Data(), purpose: .shareDisplayName, memberID: b.memberID)
+            #expect(agreedA.verifies(in: roster, peer: peer, activeIntroductions: active))
+            #expect(agreedC.verifies(in: roster, peer: peer, activeIntroductions: active))
+            #expect(!onlyOne.verifies(in: roster, peer: peer, activeIntroductions: active))
+            let conflict = journal.receive(changedKey, in: roster)
+            #expect(conflict && journal.activeIntroductions(for: b.memberID).isEmpty)
+            let removed = journal.receive(laterRemoval, in: roster)
+            #expect(removed && journal.activeIntroductions(for: b.memberID).isEmpty)
+            let restored = journal.receive(explicitRestore, in: roster)
+            #expect(restored && journal.activeIntroductions(for: b.memberID) == [explicitRestore.statement.introductionID])
         }
     }
 
@@ -303,12 +354,14 @@ struct GroupContactInvitationTests {
             return true
         }
 
-        func activeIntroduction(for memberID: String) -> UUID? {
+        func activeIntroductions(for memberID: String) -> Set<UUID> {
             let statements = events.values.map(\.statement).filter { $0.memberID == memberID }
             let removals = Set(statements.filter { $0.kind == .removal }.map(\.introductionID))
             let admissions = statements.filter { $0.kind == .admission && Set($0.observedRemovals) == removals }
-            // The trial leaves competing admissions unresolved.
-            return admissions.count == 1 ? admissions.first?.introductionID : nil
+            // Several introducers can confirm the same member key. Competing keys
+            // for one ID need a new removal and an explicit readmission.
+            guard Set(admissions.map(\.memberKey)).count == 1 else { return [] }
+            return Set(admissions.map(\.introductionID))
         }
     }
 
