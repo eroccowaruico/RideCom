@@ -697,7 +697,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="fhd g4"><span class="gdot"></span>Audio Session</div>
           <div class="card"><div class="frow"><span class="g">Mode</span><span class="tail">Burst mode (Default) <span class="chev">⌃</span></span></div><div class="frow"><span class="g">Use Speaker</span><span class="toggle off"></span></div><div class="frow"><span class="g">Echo Cancellation</span><span class="toggle"></span></div><div class="frow"><span class="g">Duck Other Audio</span><span class="toggle"></span></div></div>
           <div class="fhd g4"><span class="gdot"></span>Audio I/O</div>
-          <div class="card"><div class="frow"><span class="g">Input</span><span class="tail">Auto <span class="chev">⌃</span></span></div><div class="frow"><span class="g">Output</span><span class="tail">Auto <span class="chev">⌃</span></span></div><div class="frow"><span class="g">Transmit Voice Isolation Effect</span><span class="toggle"></span></div></div>
+          <div class="card"><div class="frow"><span class="g">Output</span><span class="tail">Auto <span class="chev">⌃</span></span></div><div class="frow"><span class="g">Input</span><span class="tail">Auto <span class="chev">⌃</span></span></div><div class="frow"><span class="g">Transmit Voice Isolation Effect</span><span class="toggle"></span></div></div>
           <div class="fhd g4"><span class="gdot"></span>Voice Activity</div>
           <div class="card"><div style="font-size:11px;padding-top:3px">VAD Sensitivity</div><div class="seg2"><span>Low Noise</span><span class="on">Standard (Default)</span><span>Noisy</span></div></div>
           <div class="fhd g4"><span class="gdot"></span>Transmit Codec</div>
@@ -711,7 +711,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab on"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>設定（詳細・スクロール全体）</b>グループの切れ目は少し広い余白で区切る。リセットは最後に独立したセクションとして置く。</figcaption>
+      <figcaption><b>設定（詳細・スクロール全体）</b>グループの切れ目は少し広い余白で区切る。最後のリセットを確定すると、ModeはBurst mode (Default)、入出力はAutoへ戻る。画面表示を切り替えるときは、選んだModeを保つ。</figcaption>
     </figure>
     <div class="outline">
       <h4>構成（グループ ＞ セクション ＞ 項目）</h4>
@@ -729,7 +729,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <li>Internet Connection <span>状態 · Configure Internet Connection（sheet）</span></li></ol></div>
       <div class="og g4"><b>音声（信号の流れの順）</b><ol>
         <li>Audio Session <span>Mode · Use Speaker · Echo Cancellation · Duck Other Audio</span></li>
-        <li>Audio I/O <span>Input · Output · Transmit Voice Isolation Effect</span></li>
+        <li>Audio I/O <span>Output · Input · Transmit Voice Isolation Effect</span></li>
         <li>Voice Activity <span>VAD Sensitivity</span></li>
         <li>Transmit Codec <span>Codec · Sample Rate · AAC-ELD Bitrate／Opus Bitrate</span></li>
         <li>Audio Check <span>Call · Audio Check · Recording Input · Playback Output · Record 5s and Play</span></li></ol></div>

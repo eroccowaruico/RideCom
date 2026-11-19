@@ -13,7 +13,8 @@ struct AdvancedAudioSessionPanel: View {
                 set: { viewModel.setAudioSessionModeProfile($0) }
             )) {
                 ForEach(AudioSessionProfile.settingsModeCases) { profile in
-                    settingsOption(profile.label, isDefault: profile == IntercomViewModel.defaultAudioSessionProfile).tag(profile)
+                    settingsOption(profile.label, isDefault: profile == IntercomViewModel.defaultAudioSessionProfile.settingsModeProfile)
+                        .tag(profile)
                 }
             }
             .pickerStyle(.menu)
@@ -53,13 +54,13 @@ struct AdvancedAudioSessionPanel: View {
 
         } header: {
             Text("Audio Session")
+                .accessibilityIdentifier("audioSessionPanel")
         } footer: {
             Text("Burst mode uses the default session for intercom-style audio and explicit echo cancellation. Stream mode uses voice-chat routing for continuous conversation.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("audioSessionModeDescription")
         }
-        .accessibilityIdentifier("audioSessionPanel")
     }
 }
 

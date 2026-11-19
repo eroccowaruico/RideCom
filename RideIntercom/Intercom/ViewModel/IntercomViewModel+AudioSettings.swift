@@ -308,11 +308,14 @@ extension IntercomViewModel {
     }
 
     func resetAllSettings() {
+        applyAudioSessionSettings(event: "settings.audio_session.changed", metadata: [
+            "profile": "\(Self.defaultAudioSessionProfile.rawValue)", "speaker": "\(isSpeakerOutputEnabled)"]) {
+            audioSessionProfile = Self.defaultAudioSessionProfile
+            selectedInputPort = .systemDefault
+            selectedOutputPort = .systemDefault
+        }
         setCallDisconnectInterval(.regularDefault)
         setCallDisconnectInterval(.watchDefault, usingWatch: true)
-        setInputPort(.systemDefault)
-        setOutputPort(.systemDefault)
-        setAudioSessionProfile(Self.defaultAudioSessionProfile)
         setDuckOthersEnabled(Self.defaultDuckOthersEnabled)
         setVADSensitivity(Self.defaultVADSensitivity)
         setSoundIsolationEnabled(Self.defaultSoundIsolationEnabled)

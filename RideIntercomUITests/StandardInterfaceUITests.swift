@@ -1209,6 +1209,34 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor
+    func testAdvancedMarksBurstAsDefaultAndResetReturnsToIt() {
+        #if os(iOS)
+        launch(interface: "advanced")
+        tab("Settings", id: "settingsTab")
+        let form = app.collectionViews.firstMatch
+        let audioSession = form.staticTexts["Audio Session"].firstMatch
+        revealStandardSettingsControl(audioSession)
+        let mode = form.buttons["audioSessionProfilePicker"].firstMatch
+        XCTAssertTrue(mode.isHittable, form.debugDescription)
+        XCTAssertEqual(mode.label, "Mode, Burst mode (Default)")
+        mode.tap()
+        let stream = app.buttons["Stream mode"].firstMatch
+        XCTAssertTrue(stream.waitForExistence(timeout: 3))
+        stream.tap()
+        XCTAssertEqual(mode.label, "Mode, Stream mode")
+
+        let reset = app.buttons["resetAllSettingsButton"].firstMatch
+        revealStandardSettingsControl(reset)
+        reset.tap()
+        let confirm = app.alerts.buttons["confirmResetAllSettingsButton"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        revealStandardSettingsControl(audioSession)
+        XCTAssertEqual(mode.label, "Mode, Burst mode (Default)")
+        #endif
+    }
+
+    @MainActor
     func testStandardSettingsSeparatesRoutineControlsAndConfirmsReset() {
         launch()
         tab("Settings", id: "settingsTab")

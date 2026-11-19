@@ -14,6 +14,42 @@ import PeakLimiter
 extension AppTests {
 @MainActor
 struct SettingsTests {
+    @Test(arguments: [nil, "unrecognized-profile", AudioSessionProfile.voiceChat.rawValue] as [String?])
+    func audioSessionUsesTheStoredModeAndResetsWithoutReapplyingStream(savedMode: String?) async throws {
+        let suite = "RideIntercomTests.initial-audio-mode.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(savedMode, forKey: "RideIntercom.settings.audioSessionProfile")
+        let store = UserDefaultsAppSettingsStore(defaults: defaults)
+        let harness = AppTestSupport.makeHarness(appSettingsStore: store)
+        let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+
+        let hasSavedStream = savedMode == AudioSessionProfile.voiceChat.rawValue
+        viewModel.setInterfaceMode(.advanced)
+        viewModel.setInterfaceMode(.standard)
+        #expect(viewModel.audioSessionModeProfile == (hasSavedStream ? .voiceChat : .standard))
+        viewModel.selectGroup(try #require(viewModel.groups.first))
+        harness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { viewModel.isAudioReady }
+        #expect(viewModel.isAudioReady)
+        let initial = try #require(harness.audioSessionBackend.appliedConfigurations.last)
+        #expect(initial.mode == (hasSavedStream ? .voiceChat : .default))
+        #expect(initial.prefersEchoCancelledInput == (hasSavedStream ? nil : true))
+        #expect(!initial.options.contains(.defaultToSpeaker))
+
+        viewModel.setAudioSessionModeProfile(.voiceChat)
+        viewModel.setSpeakerOutputEnabled(true)
+        let beforeReset = harness.audioSessionBackend.appliedConfigurations.count
+        viewModel.resetAllSettings()
+        let appliedByReset = harness.audioSessionBackend.appliedConfigurations.dropFirst(beforeReset)
+        #expect(!appliedByReset.isEmpty)
+        #expect(appliedByReset.allSatisfy { $0.mode == .default })
+        #expect(appliedByReset.last?.prefersEchoCancelledInput == true)
+        #expect(appliedByReset.last?.options.contains(.defaultToSpeaker) == false)
+        #expect(store.load().audioSessionProfile == .echoCancelledInput)
+    }
+
     @Test func unchangedEncodingSettingsDoNotRepublishRTCPPolicy() {
         let h = AppTestSupport.makeHarness()
         let policies = h.callSession.audioPolicies

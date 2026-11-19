@@ -95,9 +95,11 @@ App は route 実体を直接構築しない。Settings の `enabledRTCTransport
 
 ## Audio Session
 
+`audioSessionPanel` はセクション見出しに付ける。各操作は下表の固有IDで取得する。
+
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 発現条件 | 表示仕様 | 異常系の考え方 |
 |---|---|---|---|---|---|---|---|
-| Session mode選択 | `audioSessionPanel` | `audioSessionProfilePicker` | `Mode` | `.standard` / `.voiceChat`。既定は `Burst mode` | 常時 | `Picker(.menu)`。表示は `Burst mode` / `Stream mode` | `.speakerDefault` は画面選択肢に出さない |
+| Session mode選択 | `audioSessionPanel` | `audioSessionProfilePicker` | `Mode` | `.standard` / `.voiceChat`。既定の `.echoCancelledInput` は `.standard` に表示する | 常時 | `Picker(.menu)`。表示は `Burst mode (Default)` / `Stream mode` | `.speakerDefault` は画面選択肢に出さない |
 | スピーカー出力設定 | `audioSessionPanel` | `speakerOutputToggle` | `Use Speaker` | `Bool` | 常時 | Toggle | speaker 出力希望は mode と独立して選ぶ。`Stream mode` でも ON にできる |
 | Echo Cancellation設定 | `audioSessionPanel` | `echoCancellationToggle` | `Echo Cancellation` | `Bool`。既定 ON | `Mode == Burst mode` | Toggle。`Use Speaker == true` の場合は操作不可にし、実効値は SessionManager report を正とする | `mode = .voiceChat` では session 側 `prefersEchoCancelledInput` を使わない |
 | 他音声ダック設定 | `audioSessionPanel` | `duckOthersToggle` | `Duck Other Audio` | `Bool`。既定 ON | `supportsAdvancedMixingOptions == true` | Toggle | Audio Session / input voice processing の組み合わせとして扱う。実効発動は可聴な受信出力の有無から導出 |
@@ -162,6 +164,8 @@ Standardの音声チェック（`StandardAudioCheckSection`）は「Record 5s an
 | 設定リセットボタン | `resetSettingsPanel` | `resetAllSettingsButton` | `Reset All Settings` | Action | 常時 | destructive button。標準alertで確認 | グループ、参加者、Internet資格、入力muteは維持。routeが既定へ変わる場合は切断する |
 | リセットの確認 | `resetSettingsPanel` | `confirmResetAllSettingsButton` / `cancelResetAllSettingsButton` | `Reset All Settings` / `Cancel` | Action | 確認中 | 標準alert | 確定時のみリセット。キャンセル時は変更しない |
 | 設定リセット補足文 | `resetSettingsPanel` | `resetSettingsPanel` | 補足文 | 固定文字列 | 常時 | footer | データ削除と混同させない |
+
+StandardとAdvancedのリセットは同じ処理を使う。音声モード、入力先、出力先を先にまとめて既定値へ戻し、同じ設定として保存・適用する。リセット後のAudio SessionはBurstで、入出力先は自動選択、スピーカー固定は解除される。
 
 ## Voice Isolationの現在の提供状態
 
