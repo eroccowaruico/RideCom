@@ -10,6 +10,9 @@ extension IntercomViewModel {
             return
         }
 
+        // Local delivery is observable even when the decoder rejects the packet.
+        let receivedAt = Date().timeIntervalSince1970
+        lastReceivedAudioAt = receivedAt
         let level: Float
         switch reception {
         case .processed(let measured): level = measured
@@ -36,9 +39,7 @@ extension IntercomViewModel {
         }
         // A remote clock is untrusted and is not comparable with this device's
         // local activity/ducking timers. Arrival time owns local UI activity.
-        let receivedAt = Date().timeIntervalSince1970
         receivedVoicePacketCount += 1
-        lastReceivedAudioAt = receivedAt
         if level >= 0.0001 { remoteVoiceReceivedAt[peerID] = receivedAt }
         applyReceivedVoiceMemberState(peerID: peerID, voiceLevel: level)
         if !isOutputMuted, masterOutputVolume > 0, remoteOutputVolume(for: peerID) > 0 {

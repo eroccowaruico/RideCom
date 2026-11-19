@@ -44,6 +44,7 @@ struct DiagnosticsTests {
             receivedAudioFrameCount: 5, droppedAudioFrameCount: 0, queuedAudioFrameCount: 3))
         #expect(presentation().codecDecodeStep.state == .waiting)
         #expect(presentation().codecDecodeStep.detail == "No PCM observed")
+        #expect(presentation().rtcReceiveStep.state == .waiting, "Cumulative route metrics have no receipt timestamp")
 
         let frame = PCMFrame(sequenceNumber: 0, format: .intercomMixer,
             samples: Array(repeating: 0.2, count: 480))
@@ -52,13 +53,22 @@ struct DiagnosticsTests {
         invalid.packet.payload = Data([0xff])
         harness.callSession.receive(invalid)
         #expect(presentation().codecDecodeStep.detail == "PCM 0 / Decode errors 1")
+        #expect(presentation().rtcReceiveStep.state == .passing)
+        #expect(presentation().codecDecodeStep.state == .waiting)
 
         harness.callSession.receive(valid)
         harness.callSession.publishMetrics(.init(route: .multipeer, activePeerCount: 1,
             receivedAudioFrameCount: 8, droppedAudioFrameCount: 2, queuedAudioFrameCount: 0))
         #expect(presentation().codecDecodeStep.state == .passing)
-        #expect(presentation().codecDecodeStep.detail == "PCM 1 / Decode errors 1")
+        #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 1 / Last PCM"))
         #expect(presentation().rtcReceiveStep.detail.hasSuffix("DROP 2"))
+        let later = DiagnosticsInput(model, now: Date().timeIntervalSince1970 + 3)
+        let stale = ReceivePipelinePresentation(input: later)
+        #expect(stale.rtcReceiveStep.state == .waiting)
+        #expect(stale.codecDecodeStep.state == .waiting)
+        harness.callSession.receive(valid)
+        #expect(presentation().rtcReceiveStep.state == .passing)
+        #expect(presentation().codecDecodeStep.state == .passing)
         model.disconnect()
         #expect(model.audioPipeline.receiveDecodeCounts == .init())
         #expect(presentation().codecDecodeStep.state == .idle)

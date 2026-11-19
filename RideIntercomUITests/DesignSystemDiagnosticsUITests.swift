@@ -51,6 +51,13 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["pipeline-rtc-route-webRTC"].firstMatch.exists)
         attachScreen("TX diagnostics route branches before a call")
         picker.buttons["RX"].tap()
+        let receipt = app.descendants(matching: .any)["receive-pipeline-rtc-step"].firstMatch
+        let decode = app.descendants(matching: .any)["receive-pipeline-codec-step"].firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 3))
+        XCTAssertTrue(decode.exists)
+        XCTAssertLessThan(receipt.frame.minY, decode.frame.minY)
+        XCTAssertEqual(receipt.value as? String, "Idle, Media Idle")
+        XCTAssertEqual(decode.value as? String, "Idle, Not available")
         let mix = app.descendants(matching: .any)["receive-pipeline-mix-step"].firstMatch
         reveal(mix, app: app)
         XCTAssertEqual(mix.value as? String, "Idle, Not available")

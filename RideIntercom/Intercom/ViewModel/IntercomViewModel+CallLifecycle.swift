@@ -188,6 +188,7 @@ extension IntercomViewModel {
         callSession.stopMedia()
         audioPipeline.stop()
         lastPlaybackScheduledAt = nil
+        lastReceivedAudioAt = nil
         _ = audioInputCapture.stop()
         _ = audioOutputRenderer.stop()
         if callDisconnectDeadline == nil && (!enforceCallAccess || activeGroupID == nil) { callTicker.stop() }

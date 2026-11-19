@@ -65,15 +65,17 @@ struct ReceivePipelinePresentation {
         let received = input.receivedVoicePacketCount
         let dropped = input.droppedAudioPacketCount
         let peers = "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount)"
+        let receipt = observation(input.lastReceivedAudioAt)
+        let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? " / Receipt time not measured"
         let media = received > 0 || dropped > 0 ? " / RX \(received)" : ""
         let failures = dropped > 0 ? " / DROP \(dropped)" : ""
         return PipelineStep(
             id: "rtc-receive",
             package: "RTC",
             title: "RTC RX",
-            detail: peers + media + failures,
+            detail: peers + media + lastReceipt + failures,
             icon: "dot.radiowaves.left.and.right",
-            state: received > 0 ? .passing : .waiting,
+            state: receipt.state,
             accessibilityIdentifier: "receive-pipeline-rtc-step"
         )
     }
@@ -93,14 +95,16 @@ struct ReceivePipelinePresentation {
         let counts = input.receiveDecodeCounts
         let hasPCM = counts.pcmPackets > 0
         let pcm = hasPCM || counts.failures > 0 ? "PCM \(counts.pcmPackets)" : "No PCM observed"
+        let decoded = observation(counts.lastPCMAt)
+        let lastPCM = decoded.elapsed.map { " / Last PCM · \($0)" } ?? ""
         let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
         return PipelineStep(
             id: "codec-decode",
             package: "Codec",
             title: "Decode",
-            detail: pcm + failures,
+            detail: pcm + lastPCM + failures,
             icon: hasPCM ? "cpu.fill" : "cpu",
-            state: hasPCM ? .passing : .waiting,
+            state: decoded.state,
             accessibilityIdentifier: "receive-pipeline-codec-step"
         )
     }
@@ -226,13 +230,9 @@ struct ReceivePipelinePresentation {
         var state = PipelineStepState.waiting
         let detail: String
         if input.usesNativeOutput {
-            if let timestamp = input.lastNativeAudibleOutputAt {
-                let age = max(0, input.capturedAt - timestamp)
-                state = age <= 2 ? .passing : .waiting
-                detail = "Last audible PCM · \(Int(age))s ago"
-            } else {
-                detail = "No audible PCM observed"
-            }
+            let output = observation(input.lastNativeAudibleOutputAt)
+            state = output.state
+            detail = output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed"
         } else if let timestamp = input.lastPlaybackScheduledAt {
             let age = max(0, input.capturedAt - timestamp)
             detail = "Playback scheduled · \(Int(age))s ago / Render not measured"
@@ -265,6 +265,12 @@ struct ReceivePipelinePresentation {
             isMuted: input.isOutputMuted,
             state: masterBusStep.state
         )
+    }
+
+    private func observation(_ timestamp: TimeInterval?) -> (state: PipelineStepState, elapsed: String?) {
+        guard let timestamp else { return (.waiting, nil) }
+        let age = max(0, input.capturedAt - timestamp)
+        return (age <= 2 ? .passing : .waiting, "\(Int(age))s ago")
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {

@@ -113,7 +113,20 @@ final class MixedRouteAudioE2E {
         let sentBefore = viewModel.sentVoicePacketCount
         let controlBeforeEnd = localControl.receivedCount
         let localBeforeEnd = media.statistics.receivedMediaDatagrams ?? 0
-        try await Task.sleep(for: .seconds(2))
+        let pcmBefore = viewModel.audioPipeline.receiveDecodeCounts.pcmPackets
+        let blackoutStartedAt = Date().timeIntervalSince1970
+        probe.reset()
+        // A complete publish interval is needed to observe a send decision made during the cut.
+        try await Task.sleep(for: .seconds(seconds))
+        let silence = probe.snapshot()
+        let peak = silence.samples.reduce(Float(0)) { max($0, abs($1)) }
+        XCTAssertEqual(silence.invalid, 0)
+        XCTAssertGreaterThan(silence.samples.count, Int(silence.rate * seconds * 0.8))
+        XCTAssertLessThan(peak, 0.001)
+        XCTAssertEqual(viewModel.audioPipeline.receiveDecodeCounts.pcmPackets, pcmBefore)
+        let blackout = try diagnostics(from: blackoutStartedAt, outgoing: .webRTC, expectsRemoteSpeech: false)
+        try attachJSON(blackout.merging(["renderedSamples": silence.samples.count, "peak": peak]) { _, new in new },
+                       name: "endpoint-\(role)-all-media-blocked-diagnostics")
         try await barrier.meet("mixed-ending-while-all-media-blocked")
         XCTAssertEqual(viewModel.receivedVoicePacketCount, receivedBefore)
         XCTAssertEqual(media.statistics.receivedMediaDatagrams ?? 0, localBeforeEnd)
@@ -148,7 +161,9 @@ final class MixedRouteAudioE2E {
         func measure(_ phase: String, blocked: Bool, beginSpeech: Bool = false, expectsRemoteSpeech: Bool = true) async throws {
             probe.reset()
             let firstReceived = viewModel.receivedVoicePacketCount
+            let firstPCM = viewModel.audioPipeline.receiveDecodeCounts.pcmPackets
             let firstLocal = media.statistics.receivedMediaDatagrams ?? 0
+            let observationStartedAt = Date().timeIntervalSince1970
             if beginSpeech { input.setFrameDeliveryEnabled(true) }
             let start = ContinuousClock.now
             repeat {
@@ -159,8 +174,12 @@ final class MixedRouteAudioE2E {
             } while start.duration(to: .now) < .seconds(seconds)
             let render = probe.snapshot()
             let received = viewModel.receivedVoicePacketCount - firstReceived
+            let decoded = viewModel.audioPipeline.receiveDecodeCounts.pcmPackets - firstPCM
             let localDatagrams = (media.statistics.receivedMediaDatagrams ?? 0) - firstLocal
             print("Mixed Route E2E: Render sampled during \(phase), received=\(received), Local=\(localDatagrams)")
+            let internetFallback = phase == "internet-during" || (phase == "one-way-initial" && outboundBlockedAtStart)
+            let observation = try diagnostics(from: observationStartedAt, outgoing: internetFallback ? .webRTC : .multipeer,
+                                              expectsRemoteSpeech: expectsRemoteSpeech)
             try await barrier.meet("mixed-measured-" + phase)
             let (remoteMatch, localMatch) = await Task.detached {
                 (RenderedAudioProbe.speechMatch(reference: remote, referenceRate: 48000, output: render.samples, outputRate: render.rate),
@@ -170,22 +189,21 @@ final class MixedRouteAudioE2E {
             XCTAssertGreaterThan(render.samples.count, Int(render.rate * seconds * 0.8))
             if expectsRemoteSpeech {
                 XCTAssertGreaterThan(received, 20)
+                XCTAssertGreaterThan(decoded, 20)
                 XCTAssertGreaterThan(remoteMatch, 0.45, "Missing the remote voice during " + phase)
                 XCTAssertGreaterThan(remoteMatch, localMatch + 0.10, "Local audio cannot satisfy the remote voice oracle")
             } else {
                 XCTAssertEqual(received, 0)
+                XCTAssertEqual(decoded, 0)
                 XCTAssertLessThan(render.samples.reduce(Float(0)) { max($0, abs($1)) }, 0.001)
             }
             if blocked { XCTAssertEqual(localDatagrams, 0, "The receiver must not get Local audio during the cut") }
             else { XCTAssertGreaterThan(localDatagrams, 20, "The Local route must carry current media") }
             let evidence: [String: Any] = ["scenario": phase, "role": role, "transport": "mixed",
-                "received": received, "receivedLocalDatagrams": localDatagrams, "remoteMatch": remoteMatch,
-                "localMatch": localMatch, "renderedSamples": render.samples.count, "renderedRate": render.rate]
-            let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence),
-                                           uniformTypeIdentifier: "public.json")
-            attachment.name = "endpoint-\(role)-\(phase)-measurement"
-            attachment.lifetime = .keepAlways
-            test.add(attachment)
+                "received": received, "decoded": decoded, "receivedLocalDatagrams": localDatagrams, "remoteMatch": remoteMatch,
+                "localMatch": localMatch, "renderedSamples": render.samples.count, "renderedRate": render.rate,
+                "diagnostics": observation]
+            try attachJSON(evidence, name: "endpoint-\(role)-\(phase)-measurement")
             let wav = directory.appendingPathComponent("mixed-\(role)-\(phase).wav")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try await Task.detached { try probe.writeWAV(to: wav, rendered: render) }.value
@@ -193,6 +211,41 @@ final class MixedRouteAudioE2E {
             recording.name = "endpoint-\(role)-\(phase)-speech"
             recording.lifetime = .keepAlways
             test.add(recording)
+        }
+
+        func diagnostics(from startedAt: TimeInterval, outgoing: RouteKind,
+                         expectsRemoteSpeech: Bool) throws -> [String: Any] {
+            let input = DiagnosticsInput(viewModel)
+            let rx = ReceivePipelinePresentation(input: input)
+            let tx = TransmitPipelinePresentation(input: input).outboundRoutes(now: input.capturedAt)
+            let dispatch = try XCTUnwrap(input.networkDiagnostics?.outboundAudioDispatch)
+            XCTAssertGreaterThanOrEqual(dispatch.observedAt, startedAt, "Use a dispatch observed in this interval")
+            let send = try XCTUnwrap(tx.branches.first { $0.id == outgoing.rawValue })
+            XCTAssertEqual(dispatch.transportAcceptance?[outgoing], true, "\(send.title): \(send.detail)")
+            XCTAssertEqual(send.state, .passing, "\(send.title): \(send.detail)")
+
+            let expectedState: PipelineStepState = expectsRemoteSpeech ? .passing : .waiting
+            let receive = [rx.rtcReceiveStep, rx.codecDecodeStep, rx.outputStep]
+            for stage in receive {
+                XCTAssertEqual(stage.state, expectedState, "\(stage.title): \(stage.detail)")
+            }
+            return [
+                "intervalStartedAt": startedAt, "capturedAt": input.capturedAt,
+                "dispatchAt": dispatch.observedAt, "outgoingRoute": outgoing.rawValue,
+                "transmit": tx.branches.map { ["stage": $0.title, "state": $0.state.statusText, "detail": $0.detail] },
+                "receive": receive.map { ["stage": $0.title, "state": $0.state.statusText, "detail": $0.detail] },
+                "lastReceiptAt": input.lastReceivedAudioAt as Any? ?? NSNull(),
+                "lastPCMAt": input.receiveDecodeCounts.lastPCMAt as Any? ?? NSNull(),
+                "lastAudibleAt": input.lastNativeAudibleOutputAt as Any? ?? NSNull()
+            ]
+        }
+
+        func attachJSON(_ evidence: [String: Any], name: String) throws {
+            let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence),
+                                           uniformTypeIdentifier: "public.json")
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            test.add(attachment)
         }
     }
 

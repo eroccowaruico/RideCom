@@ -40,6 +40,7 @@ struct DiagnosticsInput {
     let capturedAt: TimeInterval
     var receiveMasterEffectChainSnapshot: AudioEffectChainSnapshot
     var receiveDecodeCounts: ReceiveDecodeCounts
+    var lastReceivedAudioAt: TimeInterval?
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
 
@@ -84,6 +85,7 @@ struct DiagnosticsInput {
         lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
         receiveMasterEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
+        lastReceivedAudioAt = viewModel.lastReceivedAudioAt
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount
         selectedGroup = viewModel.selectedGroup
     }

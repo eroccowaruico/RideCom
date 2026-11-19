@@ -11,6 +11,7 @@ import Synchronization
 nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
     var pcmPackets = 0
     var failures = 0
+    var lastPCMAt: TimeInterval?
 }
 
 /// The receive graph has one serial owner independent of UI/control. The lock
@@ -121,6 +122,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         }
         if !frame.samples.isEmpty {
             decodeCounts.pcmPackets += 1
+            decodeCounts.lastPCMAt = Date().timeIntervalSince1970
             try play(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
         }
         return frame

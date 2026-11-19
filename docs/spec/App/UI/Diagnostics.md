@@ -54,7 +54,7 @@ TX/RXは従来のpipeline、Networkは、経路（Local・Internet）ごとの�
 
 | 状態 | 成立条件・表示 | 操作・遷移・復帰先 |
 |---|---|---|
-| Ideal | 通話中で各段がRunning、Networkの最新metricsが15秒以内。Overviewの要約は`Running` | 症状の案内から該当ページと段へ移動して展開する。ページ選択でOverviewへ戻る |
+| Ideal | 通話中で各段がPassing、Networkの最新metricsが15秒以内。Overviewの要約は`Passing` | 症状の案内から該当ページと段へ移動して展開する。ページ選択でOverviewへ戻る |
 | Empty | 通話先・通話がなく、reportが未取得。各段の値は`Not available`（状態の記号はIdleの点線の円、RTCの段だけ`Media Idle`）、Networkは接続を促す`Not measured`の文言、Appliedの未取得値は`Not measured` | 通話はCall／Users／Groupsから開始する。Diagnosticsから通話を開始・変更しない |
 | Error | いずれかの段がBlocked（session・codec・RTC等の失敗）。Overviewの要約が最初のblockedの段と理由を示し、記号と語で色以外でも区別する | 「Others can't hear me」はTXの最初の未成立段へ移動する。復旧操作は各機能の画面（Call・Settings）で行う |
 | Partial | 一部の段がWaiting／Muted、Networkが15秒超で`Stale`、相手や経路の値が未取得。取得済みの値と`Not measured`を並べ、未取得値を推測で埋めない | 値は0.5秒ごとの更新で自然に変わる。経路の再接続はDiagnosticsから行わない |
@@ -97,15 +97,15 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 表示仕様 | 状態・異常系の考え方 |
 |---|---|---|---|---|---|---|
-| RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数 | route と総 `RX n`。破棄があれば `DROP n`。peer別の接続・認証・経路は下の参加者内訳に表示 | 受信 0 は未発話または未接続として読む |
-| Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | 現在の受信処理で空でないPCMを返したpacket数と、復号に失敗したpacket数。受信グラフを作り直すと数え直す | `No PCM observed` または `PCM n`。失敗があれば `Decode errors n` を併記。peer別のdecode codecは参加者内訳で表示 | PCMが得られるまではwaiting。RTC受信・破棄、再生予約や実出力は別の段 |
+| RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数、Appで認証済みの音声を受け取った時刻 | route と総 `RX n`、`Last receipt` と経過秒。時刻がない場合は `Receipt time not measured`。破棄があれば `DROP n` | 直近2秒に受信を観測するとPassing。復号エラーが起きても受信の時刻は進む |
+| Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | 現在の受信処理で空でないPCMを返したpacket数と最後に得られた時刻、復号に失敗したpacket数。受信グラフを作り直すと数え直す | `No PCM observed` または `PCM n`。PCMを得たら `Last PCM` と経過秒、失敗があれば `Decode errors n`。peer別のdecode codecは参加者内訳で表示 | 直近2秒にPCMを観測するとPassing。再生予約と実出力は後の段 |
 | peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot.routes` の `rx-peer-*` → `rx-master` と各入力の `scheduledFrameCount` | `n peer buses`。peer別の音量・FX要約・待機frame数は下の参加者内訳に表示 | 音声未準備はIdle。接続された入力のいずれかでPCMの再生予約を観測するとPassing、それまではWaiting |
 | receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | Peer Busesと同じ経路・再生予約 | `n routes → rx-master`（1本は `1 route → rx-master`）。その経路がある参加者の枝線が左の縦線で合流し、Mix Downで線が終わる | Peer Busesと同じ判定。再生予約後の出力はOutputで確認する |
 | receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、master volume、経路数と入力のPCM再生予約 | source bus count と OUT volume。mix 後の 1 本の master bus として表示。アクセシビリティ文字サイズではメーターを集計の下に置く | 入力の再生予約を観測するとPassing。未観測はWaiting |
 | master effect chainステップ | `liveReceivePipelineView` | `receive-pipeline-master-effects-step` | Master FX | `AudioMixerSnapshot` の `rx-master.effectChain` + `rx-output.effectChain` から導出した `receiveMasterEffectChainSnapshot.stages` | RX Master 配下に適用される ordered stage chip として inline 表示（Isolation → master fader → 出力Limiter） | stage 単位で unavailable / bypassed を表示 |
 | outputステップ | `liveReceivePipelineView` | `receive-pipeline-output-step` | Output | native出力tapで最後に有声PCMを観測した時刻、別rendererで最後の再生予約が通った時刻、mute、volume | 最終観測と経過秒。展開時に機器名、取得した実形式・buffer・reset数 | muteはMuted、音量0はWaiting。直近2秒にnativeの有声PCMを観測していればPassing |
 
-OverviewとRXは同じ判定を使い、表示中に経過秒を更新する。nativeの有声PCMは `Last audible PCM · n s ago`（画面では `3s ago` の形）。2秒を超えると時刻は残したままWaitingになる。未観測は `No audible PCM observed`。別rendererは `Playback scheduled` または `No playback scheduled` に `Render not measured` を併記し、出力段はWaitingとする。音声処理が停止・再構築されると出力の時刻を初期化する。
+OverviewとRXは同じ判定を使い、表示中に経過秒を更新する。RTC RXとDecodeは2秒を超えて新しい観測がなければWaitingに戻り、累計と最後の観測を表示する。nativeの有声PCMは `Last audible PCM · n s ago`（画面では `3s ago` の形）。2秒を超えると時刻は残したままWaitingになる。未観測は `No audible PCM observed`。別rendererは `Playback scheduled` または `No playback scheduled` に `Render not measured` を併記し、出力段はWaitingとする。音声処理が停止・再構築されると出力の時刻を初期化する。
 
 ## 受信 mix topology 表示
 
