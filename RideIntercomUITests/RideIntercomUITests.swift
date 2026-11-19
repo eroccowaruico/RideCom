@@ -829,6 +829,28 @@ final class RideIntercomUITests: XCTestCase {
         attachScreen("Pipeline state at accessibility text size")
     }
 
+    #if os(iOS)
+    @MainActor
+    func testAdvancedCallMasterVolumeTracksSliderMovement() {
+        createTalkGroupAndOpenCall()
+        let slider = app.sliders["masterOutputSlider"].firstMatch
+        let level = app.staticTexts["outputStateLabel"].firstMatch
+        for _ in 0..<4 where !slider.isHittable { app.swipeUp() }
+        XCTAssertTrue(slider.waitForExistence(timeout: 3))
+        XCTAssertTrue(slider.isHittable)
+        XCTAssertEqual(level.label, "Output 100%")
+        slider.adjust(toNormalizedSliderPosition: 0.75)
+        let raised = level.label
+        XCTAssertNotEqual(raised, "Output 100%")
+        slider.adjust(toNormalizedSliderPosition: 0.25)
+        let lowered = level.label
+        func percent(_ label: String) -> Int? { Int(label.dropFirst("Output ".count).dropLast()) }
+        XCTAssertGreaterThan(percent(raised) ?? 0, 100)
+        XCTAssertLessThan(percent(lowered) ?? 200, 100)
+        XCTAssertTrue(app.buttons["disconnectButton"].exists)
+    }
+    #endif
+
     @MainActor
     func testAdaptiveDiagnosticsAndConfigurationRemainReachable() {
         openDiagnosticsTab()

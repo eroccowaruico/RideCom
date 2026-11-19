@@ -536,6 +536,43 @@ struct AudioPipelineTests {
         #expect(peak > 0.045 && peak < 0.055, "Observed peak: \(peak)") // 0.4 × peer 0.25 × master 0.5; the other peer is silent.
     }
 
+    @Test func actualOutputFollowsMasterGainAndMuteWithoutRebuilding() throws {
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
+        try pipeline.rebuild(configuration: AppAudioPipelineConfiguration(), peerIDs: ["a"])
+        defer { pipeline.stop() }
+        // Give the native mixer time to ramp between gains before the tone.
+        let wave = [Float](repeating: 0, count: 4_800)
+            + (0..<9_600).map { Float(sin(Double($0) * 2 * .pi * 440 / 48_000)) * 0.1 }
+        let payload = PCM16Codec.encode(wave)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
+        let settings: [(volume: Float, muted: Bool, expectedPeak: Float)] = [
+            (1, false, 0.1), (0.5, false, 0.05), (1.5, false, 0.15),
+            (1.5, true, 0), (1.5, false, 0.15)
+        ]
+        for (index, setting) in settings.enumerated() {
+            pipeline.updateOutput(masterVolume: setting.volume, isMuted: setting.muted, peerOutputVolumes: [:])
+            let packet = RTCAudioPacket(sequenceNumber: UInt64(index), codec: .pcm16,
+                format: RTCAudioFormat(sampleRate: 48_000, channelCount: 1),
+                capturedAt: Double(engine.manualRenderingSampleTime) / 48_000,
+                sampleCount: wave.count, payload: payload)
+            _ = try pipeline.processReceivedAudioPacket(ReceivedAudioPacket(peerID: PeerID(rawValue: "a"), packet: packet))
+            var peak: Float = 0
+            for _ in 0..<32 {
+                let status = try engine.renderOffline(1024, to: buffer)
+                try #require(status == .success)
+                let samples = try #require(buffer.floatChannelData?[0])
+                for offset in 0..<Int(buffer.frameLength) {
+                    peak = max(peak, abs(samples[offset]))
+                }
+            }
+            #expect(abs(peak - setting.expectedPeak) < 0.005,
+                "Volume \(setting.volume), muted \(setting.muted), rendered peak \(peak)")
+        }
+    }
+
     @Test func actualOutputLimiterProtectsCombinedPeersAfterMasterGain() async throws {
         let engine = AVAudioEngine()
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!

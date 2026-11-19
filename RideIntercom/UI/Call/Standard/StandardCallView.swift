@@ -420,26 +420,34 @@ struct StandardCallView: View {
     /// The volume of where the sound goes now: the slider alone, no number. A tick marks 100%;
     /// above it, "Louder" says it is raised.
     private var audioDetails: some View {
-        Section {
+        let louder = Text("Louder").font(.footnote).foregroundStyle(.secondary)
+        return Section {
             HStack(spacing: AppSpacing.s) {
                 Image(systemName: "speaker").foregroundStyle(.secondary).accessibilityHidden(true)
                 Slider(value: Binding(get: { Double(viewModel.masterOutputVolume) }, set: { viewModel.setMasterOutputVolume(Float($0)) }),
                        in: 0...2) {
                     Text("Volume")
-                } ticks: {
-                    SliderTick(1.0)
                 }
                 .labelsHidden()
+                // SwiftUI slider ticks define selectable values. The midpoint is a visual reference.
+                .overlay(alignment: .bottom) {
+                    Capsule().fill(.secondary).frame(width: 2, height: 4)
+                        .offset(y: 5)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 .accessibilityIdentifier("standardVolumeSlider")
                 // What actually plays, so a moving symbol you cannot hear points at the volume or device.
                 StandardVoiceIndicator(kind: .output, level: viewModel.diagnosticsOutputLevel,
                                        isSilenced: viewModel.isOutputMuted, label: Text("Output"))
                     .accessibilityIdentifier("standardVoiceIndicatorOutput")
                 if viewModel.masterOutputVolume > 1 {
-                    Text("Louder").font(.footnote).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("standardVolumeLouder")
+                    louder.accessibilityIdentifier("standardVolumeLouder")
+                } else {
+                    louder.hidden().accessibilityHidden(true)
                 }
             }
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
             if viewModel.supportsSoundIsolation {
                 Toggle("Voice Isolation", isOn: Binding(get: { viewModel.receiveMasterSoundIsolationEnabled },
                                                         set: viewModel.setReceiveMasterSoundIsolationEnabled))

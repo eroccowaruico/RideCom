@@ -235,7 +235,7 @@ final class DesignSystemCallUITests: XCTestCase {
     }
 
     @MainActor
-    func testMutedStateIsIndependentAndSpeakerVolumeShowsValue() {
+    func testMutedStateIsIndependentAndSpeakerVolumeShowsValue() throws {
         defer { attachEvidence("Muted state and speaker volume") }
         startStandardCall()
         let mute = app.buttons["standardMuteButton"].firstMatch
@@ -252,6 +252,22 @@ final class DesignSystemCallUITests: XCTestCase {
         XCTAssertEqual(volume.label, "Volume")
         XCTAssertFalse(app.staticTexts["100%"].exists)
         XCTAssertFalse(app.staticTexts["standardVolumeLouder"].exists, "100% is not louder")
+        XCTAssertEqual(Double(volume.value as? String ?? ""), 1)
+        let initialSliderFrame = volume.frame
+        let louder = app.staticTexts["standardVolumeLouder"]
+        volume.adjust(toNormalizedSliderPosition: 0.75)
+        XCTAssertTrue(louder.waitForExistence(timeout: 3))
+        let raisedVolume = try XCTUnwrap(Double(volume.value as? String ?? ""))
+        XCTAssertGreaterThan(raisedVolume, 1)
+        XCTAssertLessThan(raisedVolume, 2)
+        XCTAssertEqual(volume.frame.minX, initialSliderFrame.minX, accuracy: 1)
+        XCTAssertEqual(volume.frame.width, initialSliderFrame.width, accuracy: 1)
+        attachEvidence("Volume above the reference mark")
+        volume.adjust(toNormalizedSliderPosition: 0.25)
+        XCTAssertTrue(louder.waitForNonExistence(timeout: 3))
+        let loweredVolume = try XCTUnwrap(Double(volume.value as? String ?? ""))
+        XCTAssertGreaterThan(loweredVolume, 0)
+        XCTAssertLessThan(loweredVolume, 1)
         // The output switch is Silence, read as On or Off; never "Speaker".
         let silence = app.buttons["standardSpeakerButton"].firstMatch
         XCTAssertEqual(silence.label, "Silence")
