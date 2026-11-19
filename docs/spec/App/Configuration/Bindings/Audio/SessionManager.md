@@ -99,4 +99,6 @@ Voice Isolation Effect の画面設定は `SoundIsolation` effect の有効/無�
 
 受話の有無ではvoice processingのI/Oモードを変えず、Duck Other AudioがONの間は入力開始前から有効にする。受話時はducking levelだけをmediumへ、無受話時はminimumへ切り替える。機能のON/OFFでI/Oモードが変わる場合の安全な停止・再開はSessionManagerが担当する。
 
+共有エンジンの出力では、受話の判定に出力workerが最後に検出した有声フレームの時刻を使う。メーターへの配送が遅れてもworkerの時刻で判定し、出力グラフを終了・再生成したときに以前の時刻を破棄する。別の出力先へフレームを予約する場合は、予約成功後の有声判定を使う。
+
 通話の最終出力は`intercomCall`の200 ms上限を開始時に明示する。100 msのtapがactorへの配送でまとまる場合も、期限内の2batchを途中で破棄しない。固定の待機を追加する設定ではない。Audio Checkは`intercom`の100 msへ戻し、直接結合試験も100 msのまま使う。

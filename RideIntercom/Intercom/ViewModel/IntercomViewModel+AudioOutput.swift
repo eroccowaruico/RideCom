@@ -34,8 +34,10 @@ extension IntercomViewModel {
     }
 
     func hasRecentReceivedAudio(now: TimeInterval) -> Bool {
-        guard let lastAudibleReceivedAudioAt else { return false }
-        return now - lastAudibleReceivedAudioAt <= Self.otherAudioDuckingHoldDuration
+        let lastAudibleOutputAt = audioPipeline.rendersToHardware
+            ? audioPipeline.lastNativeAudibleOutputAt : lastAudibleReceivedAudioAt
+        guard let lastAudibleOutputAt else { return false }
+        return now - lastAudibleOutputAt <= Self.otherAudioDuckingHoldDuration
     }
 
     func setOtherAudioDuckingActive(_ isActive: Bool) {
@@ -80,7 +82,7 @@ extension IntercomViewModel {
         scheduledOutputBatchCount += 1
         scheduledOutputFrameCount += 1
         playedAudioFrameCount += 1
-        if level > Self.audibleOutputLevelThreshold {
+        if level > AudioLevelMeter.audibleOutputThreshold {
             lastAudibleReceivedAudioAt = receivedAt
         }
     }

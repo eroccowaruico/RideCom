@@ -105,6 +105,7 @@ import UIKit
             "usesNativeOutput": usesNativeOutput,
             "nativeOutput": (usesNativeOutput ? model.audioPipeline.backgroundOutputProbe?.fields : nil) as Any? ?? NSNull(),
             "lastAudibleOutputAt": lastAudibleOutputAt as Any? ?? NSNull(),
+            "lastNativeAudibleOutputAt": model.audioPipeline.lastNativeAudibleOutputAt as Any? ?? NSNull(),
             "lastDuckingChange": lastDuckingChange?.fields as Any? ?? NSNull(),
             "longestDuckingChange": longestDuckingChange?.fields as Any? ?? NSNull(),
             "deadline": model.callDisconnectDeadline?.timeIntervalSince1970 as Any? ?? NSNull()])
@@ -140,7 +141,7 @@ nonisolated final class BackgroundCallOutputProbe: Sendable {
 
     func record(_ frame: PCMFrame, workerUptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         let duration = Double(frame.frameCount) / frame.format.sampleRate
-        let audible = AudioLevelMeter.rmsLevel(samples: frame.samples) > IntercomViewModel.audibleOutputLevelThreshold
+        let audible = AudioLevelMeter.rmsLevel(samples: frame.samples) > AudioLevelMeter.audibleOutputThreshold
         metrics.withLock { value in
             value.callbackCount += 1
             if audible { value.audibleDuration += duration }

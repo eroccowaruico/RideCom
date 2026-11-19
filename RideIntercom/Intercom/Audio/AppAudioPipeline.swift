@@ -7,6 +7,7 @@ import PeakLimiter
 import SoundIsolation
 import Foundation
 import RTC
+import Synchronization
 import VADGate
 
 nonisolated struct AppAudioPipelineConfiguration: Equatable, Sendable {
@@ -109,6 +110,10 @@ final class AppAudioPipeline {
     private var generation = UUID()
     private var hardwareOutputEnabled = true
     private var frameDeliveries: [AudioFrameDelivery] = []
+    private var nativeOutputActivity: NativeOutputActivity?
+    var lastNativeAudibleOutputAt: TimeInterval? {
+        rendersToHardware ? nativeOutputActivity?.lastAudibleAt : nil
+    }
     #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
     private(set) var backgroundOutputProbe: BackgroundCallOutputProbe?
     #endif
@@ -199,12 +204,15 @@ final class AppAudioPipeline {
             self.publishOutput(frame)
         }
         frameDeliveries.append(outputDelivery)
+        let activity = rendersToHardware && configuration.finitePlaybackDuration == nil ? NativeOutputActivity() : nil
+        nativeOutputActivity = activity
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
         let probe = rendersToHardware && BackgroundCallValidationObservation.isEnabled ? BackgroundCallOutputProbe() : nil
         backgroundOutputProbe = probe
         #endif
         try receiver.rebuild(engine: engine, configuration: configuration, peers: peerIDs,
             rendersToHardware: rendersToHardware, startsClock: startsOutputClock) { frame in
+            activity?.record(frame)
             #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
             probe?.record(frame)
             #endif
@@ -217,6 +225,7 @@ final class AppAudioPipeline {
         generation = UUID()
         frameDeliveries.forEach { $0.finish() }
         frameDeliveries.removeAll()
+        nativeOutputActivity = nil
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
         backgroundOutputProbe = nil
         #endif
@@ -319,4 +328,19 @@ final class AppAudioPipeline {
         onOutputFrame?(frame)
     }
 
+}
+
+/// Native output reaches the sink before its bounded MainActor delivery. Keep
+/// ducking current even when metering frames are discarded by that delivery.
+private nonisolated final class NativeOutputActivity: Sendable {
+    private let timestampBits = Atomic<UInt64>(0)
+    var lastAudibleAt: TimeInterval? {
+        let bits = timestampBits.load(ordering: .relaxed)
+        return bits == 0 ? nil : TimeInterval(bitPattern: bits)
+    }
+
+    func record(_ frame: PCMFrame) {
+        guard AudioLevelMeter.rmsLevel(samples: frame.samples) > AudioLevelMeter.audibleOutputThreshold else { return }
+        timestampBits.store(Date().timeIntervalSince1970.bitPattern, ordering: .relaxed)
+    }
 }

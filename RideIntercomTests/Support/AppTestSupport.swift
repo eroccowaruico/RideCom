@@ -52,6 +52,7 @@ enum AppTestSupport {
         callAccessEvaluation: (@MainActor (Date) -> StoreAccessEvaluation)? = nil,
         callAccessNow: @escaping @MainActor () -> Date = Date.init,
         outputEngine: AVAudioEngine? = nil,
+        audioPipeline: AppAudioPipeline? = nil,
         requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { true }
     ) -> Harness {
         let groups = groups ?? IntercomSeedData.recentGroups
@@ -94,7 +95,7 @@ enum AppTestSupport {
                 backend: inputBackend
             ),
             audioOutputRenderer: AudioOutputStreamRenderer(configuration: .intercom, backend: outputBackend),
-            audioPipeline: AppAudioPipeline(makeEngine: audioDriver.makeEngine),
+            audioPipeline: audioPipeline ?? AppAudioPipeline(makeEngine: audioDriver.makeEngine),
             callTicker: NoOpCallTicker()
         )
         return Harness(

@@ -201,6 +201,37 @@ struct AudioPipelineTests {
         #expect(!viewModel.currentVoiceProcessingConfiguration().voiceProcessingEnabled)
     }
 
+    @Test func nativeDuckingStaysCurrentWithoutOutputFrameDeliveryToApp() throws {
+        let engine = AVAudioEngine()
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 480)
+        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
+        let model = AppTestSupport.makeHarness(audioPipeline: pipeline).viewModel
+        try pipeline.rebuild(configuration: .init(transmitSoundIsolationEnabled: false), peerIDs: ["peer"])
+        defer { pipeline.stop() }
+        model.isAudioReady = true
+        var appFrames = 0
+        pipeline.onOutputFrame = { _ in appFrames += 1 }
+        #expect(!model.shouldApplyOtherAudioDucking(now: Date().timeIntervalSince1970))
+        let frame = PCMFrame(sequenceNumber: 0, format: .intercomMixer,
+                             samples: Array(repeating: 0.2, count: 9600))
+        _ = try pipeline.processReceivedAudioPacket(
+            AppTestSupport.receivedAudioPacket(peerID: "peer", frame: frame, codec: .pcm16))
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
+        for _ in 0..<22 { #expect(try engine.renderOffline(480, to: buffer) == .success) }
+
+        // Native capture drains on its worker while MainActor still owns this test.
+        let deadline = ContinuousClock.now + .milliseconds(300)
+        while !model.shouldApplyOtherAudioDucking(now: Date().timeIntervalSince1970), ContinuousClock.now < deadline {
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+        #expect(appFrames == 0)
+        #expect(model.shouldApplyOtherAudioDucking(now: Date().timeIntervalSince1970))
+        #expect(!model.shouldApplyOtherAudioDucking(now: Date().timeIntervalSince1970 + 2))
+        pipeline.stop()
+        #expect(!model.shouldApplyOtherAudioDucking(now: Date().timeIntervalSince1970))
+    }
+
     @Test func appDecodeRejectsUnknownCodecAndInvalidFormatBeforeConversion() throws {
         let valid = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, capturedAt: 0,
                                    sampleCount: 1, payload: Data([0, 0]))

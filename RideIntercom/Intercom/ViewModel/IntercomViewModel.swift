@@ -76,7 +76,6 @@ final class IntercomViewModel {
     nonisolated static let defaultMasterOutputVolume: Float = 1
     nonisolated static let defaultRemoteOutputVolume: Float = 1
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
-    nonisolated static let audibleOutputLevelThreshold: Float = 0.00025
     nonisolated static let runtimePackageReportPublishInterval: TimeInterval = 0.5
 
     var interfaceMode: InterfaceMode = .standard
