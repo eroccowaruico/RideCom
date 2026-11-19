@@ -46,7 +46,7 @@ struct AdvancedSavedUsersSelection: View {
             }
             Section {
                 Text("\(selection.memberCount) of 8 members including you")
-                if let message = viewModel.groupErrorMessage {
+                if let message = selection.saveMessage {
                     Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
                         .accessibilityIdentifier("savedUsersErrorLabel")
                     InvitationStorageRecoveryButton(viewModel: viewModel)

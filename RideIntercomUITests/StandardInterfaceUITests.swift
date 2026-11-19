@@ -247,6 +247,45 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor
+    func testInviteEntrancesRequireAnActivePassInBothLayouts() throws {
+        launch(storeCatalog: "unavailable")
+        let groupName = "Joined " + UUID().uuidString.prefix(6)
+        app.open(try InvitationURLFixture.make(inviter: "ui-invite-access-" + UUID().uuidString, name: groupName))
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        for advanced in [false, true] {
+            if advanced {
+                tab("Settings", id: "settingsTab")
+                selectLayout("Advanced")
+                app.openCurrentCall()
+                let more = app.buttons["callMoreMenu"].firstMatch
+                XCTAssertTrue(more.waitForExistence(timeout: 3))
+                more.tap()
+                XCTAssertFalse(app.buttons["callAddMembersButton"].firstMatch.exists)
+            } else {
+                XCTAssertFalse(app.buttons["addSavedUsersButton"].firstMatch.exists)
+            }
+            let settings = app.buttons["callGroupSettingsButton"].firstMatch
+            XCTAssertTrue(settings.waitForExistence(timeout: 3))
+            settings.tap()
+            let close = app.buttons["closeGroupSettingsButton"].firstMatch
+            XCTAssertTrue(close.waitForExistence(timeout: 3))
+            XCTAssertFalse(app.buttons["groupSettingsAddMembersButton"].firstMatch.exists)
+            close.tap()
+            XCTAssertTrue(close.waitForNonExistence(timeout: 3))
+        }
+        for mode in ["Advanced", "Standard"] {
+            if mode == "Standard" {
+                tab("Settings", id: "settingsTab")
+                selectLayout("Standard")
+            }
+            tab("Groups", id: "groupsTab")
+            let create = app.buttons["standardCreateGroupButton"].firstMatch
+            XCTAssertTrue(create.waitForExistence(timeout: 3))
+            XCTAssertFalse(create.isEnabled)
+        }
+    }
+
+    @MainActor
     func testAdvancedOwnerCanDeleteFromGroupSettings() {
         launch(interface: "advanced")
         tab("Groups", id: "groupsTab")

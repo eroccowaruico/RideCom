@@ -46,9 +46,11 @@ struct AdvancedGroupSettingsView: View {
                                     viewModel.removeMember(member.id, from: groupID)
                                 }
                         }
-                        Button("Add Members", systemImage: "person.badge.plus") { addingUsers = true }
-                            .disabled(!viewModel.canEditSavedGroups || group.members.count >= IntercomGroup.maximumMemberCount)
-                            .accessibilityIdentifier("groupSettingsAddMembersButton")
+                        if viewModel.canManageRegularGroups {
+                            Button("Add Members", systemImage: "person.badge.plus") { addingUsers = true }
+                                .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
+                                .accessibilityIdentifier("groupSettingsAddMembersButton")
+                        }
                     } header: {
                         Text("Members")
                     } footer: {

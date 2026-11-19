@@ -53,7 +53,7 @@ struct StandardMemberSelection: View {
                     }
 
             }
-            if let message = viewModel.groupErrorMessage {
+            if let message = selection.saveMessage {
                 Section {
                     Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
                         .accessibilityIdentifier("savedUsersErrorLabel")

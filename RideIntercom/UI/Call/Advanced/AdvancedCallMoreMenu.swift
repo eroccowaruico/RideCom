@@ -10,7 +10,7 @@ struct AdvancedCallMoreMenu: View {
     var body: some View {
         if let group = viewModel.selectedGroup {
             let actions: Actions = group.kind == .group
-                ? .group(canAddMembers: viewModel.canEditSavedGroups && group.members.count < IntercomGroup.maximumMemberCount)
+                ? .group(canInvite: viewModel.canManageRegularGroups, hasRoom: group.members.count < IntercomGroup.maximumMemberCount)
                 : .direct(userID: viewModel.savedUserID(forDirectCall: group))
             let options = Options(groupID: group.id, actions: actions,
                                   shareTitle: viewModel.canShareSelectedGroup ? viewModel.callTitle(for: group) : nil)
@@ -20,7 +20,7 @@ struct AdvancedCallMoreMenu: View {
     }
 
     private nonisolated enum Actions: Equatable, Sendable {
-        case group(canAddMembers: Bool)
+        case group(canInvite: Bool, hasRoom: Bool)
         case direct(userID: UUID?)
     }
 
@@ -45,15 +45,19 @@ struct AdvancedCallMoreMenu: View {
             // replace the open system menu, where that replacement can interrupt a tap.
             Menu {
                 switch options.actions {
-                case .group(let canAddMembers):
+                case .group(let canInvite, let hasRoom):
                     Button("Group Settings", systemImage: "gearshape") { settings = .group(options.groupID) }
                         .accessibilityIdentifier("callGroupSettingsButton")
-                    Button("Add Saved Users", systemImage: "person.badge.plus") {
-                        guard let group = viewModel.selectedGroup, group.id == options.groupID else { return }
-                        addingMembers = group
+                    if canInvite {
+                        Button("Add Saved Users", systemImage: "person.badge.plus") {
+                            guard viewModel.canManageRegularGroups,
+                                  let group = viewModel.selectedGroup, group.id == options.groupID,
+                                  group.members.count < IntercomGroup.maximumMemberCount else { return }
+                            addingMembers = group
+                        }
+                        .disabled(!hasRoom)
+                        .accessibilityIdentifier("callAddMembersButton")
                     }
-                    .disabled(!canAddMembers)
-                    .accessibilityIdentifier("callAddMembersButton")
                 case .direct(let userID):
                     Button("User Settings", systemImage: "gearshape") { settings = userID.map { .user($0) } }
                         .disabled(userID == nil)

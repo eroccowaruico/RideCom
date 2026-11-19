@@ -297,7 +297,7 @@ StandardとAdvancedの接続・音声再開には標準`glassProminent`、補助
 
 ## 新しい相手へのグループ招待
 
-Standardの通話の`Invite Members`（`addSavedUsersButton`）、Advancedの通話の`More`にある`Add Saved Users`（`callAddMembersButton`）、両モードのGroup Settings（`groupSettingsAddMembersButton`）、新規作成は同じ`SavedUsersView`へ入る。編集権限があり通常groupの8枠に余裕があれば、候補の保存ユーザーが0人でも入口を使える。
+Standardの通話の`Invite Members`（`addSavedUsersButton`）、Advancedの通話の`More`にある`Add Saved Users`（`callAddMembersButton`）、両モードのGroup Settings（`groupSettingsAddMembersButton`）、新規作成は同じ`SavedUsersView`へ入る。両モードとも、`canManageRegularGroups`が偽なら既存グループの招待入口を出さず、新規作成を無効にする。利用権があり通常groupの8枠に余裕があれば、候補の保存ユーザーが0人でも入口を使える。満員の既存グループでは招待を無効にする。入力中に利用権が切れた場合は名前・選択を保ち、保存を無効にして同じ画面で設定の「利用権」を案内する。保存時も共通判定を使う。
 
 | 対応する実装・ID | 表示・操作 |
 |---|---|

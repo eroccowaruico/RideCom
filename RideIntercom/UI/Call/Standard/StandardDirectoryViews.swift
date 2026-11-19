@@ -122,7 +122,7 @@ struct StandardGroupsView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("New Group", systemImage: "plus", action: beginCreatingGroup)
-                    .disabled(!viewModel.canEditSavedGroups).accessibilityIdentifier("standardCreateGroupButton")
+                    .disabled(!viewModel.canManageRegularGroups).accessibilityIdentifier("standardCreateGroupButton")
             }
         }
         .sheet(isPresented: $createsGroup, onDismiss: {
@@ -141,7 +141,7 @@ struct StandardGroupsView: View {
                 } actions: {
                     Button("New Group") { beginCreatingGroup() }
                         .appProminentButtonStyle()
-                        .disabled(!viewModel.canEditSavedGroups)
+                        .disabled(!viewModel.canManageRegularGroups)
                         .emptyStateActionWidth()
                         .accessibilityIdentifier("emptyGroupsCreateButton")
                 }

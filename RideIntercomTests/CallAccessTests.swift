@@ -78,6 +78,35 @@ struct CallAccessTests {
         #expect(vm.groups.first?.members.contains { $0.id == rider.id } == false)
         #expect(h.groupStore.saveCount == saves + 1)
     }
+
+    @Test(arguments: [false, true])
+    func invitationSelectionKeepsItsDraftWhenThePassExpires(creating: Bool) throws {
+        let source = CallAccessSourceFixture()
+        let expiresAt = source.now.addingTimeInterval(1)
+        source.value = .init(status: .active, activeUntil: expiresAt)
+        let h = AppTestSupport.makeHarness(enforceCallAccess: true,
+            callAccessEvaluation: { _ in source.value }, callAccessNow: { source.now })
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        let groupID = creating ? nil : try #require(vm.groups.first).id
+        var selection = MemberSelection(viewModel: vm, groupID: groupID)
+        selection.addNewPerson()
+        selection.newPeople[0].name = "Snow rider"
+        let saved = h.groupStore.snapshot
+        #expect(selection.canSave)
+
+        source.now = expiresAt
+        #expect(!selection.canSave)
+        #expect(selection.saveMessage == IntercomViewModel.groupAccessRequiredMessage)
+        #expect(selection.save() == nil)
+        #expect(h.groupStore.snapshot == saved)
+        #expect(selection.newPeople[0].resolvedName == "Snow rider")
+
+        source.value = .init(status: .active, activeUntil: .distantFuture)
+        #expect(selection.canSave)
+        #expect(selection.save() == .some(.some(groupID ?? selection.newGroupID)))
+        #expect(vm.directoryUsers.contains { $0.resolvedDisplayName == "Snow rider" })
+    }
 }
 
 @MainActor @Observable

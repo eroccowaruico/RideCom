@@ -129,7 +129,7 @@ struct AdvancedGroupsView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("New Group", systemImage: "plus") { previousSelection = viewModel.selectedGroup?.id; createsGroup = true }
-                    .disabled(!viewModel.canEditSavedGroups).accessibilityIdentifier("standardCreateGroupButton")
+                    .disabled(!viewModel.canManageRegularGroups).accessibilityIdentifier("standardCreateGroupButton")
             }
         }
         .screenBackground(AppColorPalette.listScreenBackground)

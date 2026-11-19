@@ -81,13 +81,18 @@ struct MemberSelection {
     }
 
     var canSave: Bool {
-        viewModel.canEditSavedGroups && memberCount <= IntercomGroup.maximumMemberCount
+        viewModel.canManageRegularGroups && memberCount <= IntercomGroup.maximumMemberCount
             && newPeople.allSatisfy { IntercomGroup.isValidName($0.resolvedName) }
             && (groupID == nil ? IntercomGroup.isValidName(groupName) && !groupName.contains("|") : !selected.isEmpty || !newPeople.isEmpty)
     }
 
+    var saveMessage: String? {
+        if viewModel.canManageRegularGroups { return viewModel.groupErrorMessage }
+        return viewModel.canEditSavedGroups ? IntercomViewModel.groupAccessRequiredMessage : viewModel.groupStorageNotice
+    }
+
     mutating func addNewPerson() {
-        guard memberCount < IntercomGroup.maximumMemberCount else { return }
+        guard viewModel.canManageRegularGroups, memberCount < IntercomGroup.maximumMemberCount else { return }
         let avoided = Set(viewModel.directoryUsers.map(\.resolvedDisplayName) + newPeople.map(\.resolvedName))
         newPeople.append(.init(suggestedName: ProvisionalName.candidate(avoiding: avoided)))
     }
@@ -99,8 +104,9 @@ struct MemberSelection {
     /// Saves, then returns the group the people were added to, or nil when nobody was added.
     /// Returns `.none` when saving failed.
     func save() -> UUID?? {
+        guard canSave else { return nil }
         if !newPeople.isEmpty {
-            guard canSave, let id = viewModel.saveGroupInvitations(groupID: groupID ?? newGroupID, creating: groupID == nil,
+            guard let id = viewModel.saveGroupInvitations(groupID: groupID ?? newGroupID, creating: groupID == nil,
                 name: groupName, selected: selected, newPeople: newPeople) else { return nil }
             return .some(.some(id))
         }
@@ -145,7 +151,7 @@ struct NewGroupInvitees: View {
             Button("Invite Someone New", systemImage: "person.badge.plus") {
                 selection.addNewPerson(); focusedPerson = selection.newPeople.last?.id
             }
-            .disabled(selection.memberCount >= IntercomGroup.maximumMemberCount || !selection.viewModel.canEditSavedGroups)
+            .disabled(selection.memberCount >= IntercomGroup.maximumMemberCount || !selection.viewModel.canManageRegularGroups)
             .accessibilityIdentifier("addNewGroupInviteeButton")
             ForEach($selection.newPeople) { $draft in
                 HStack {
