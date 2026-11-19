@@ -76,10 +76,12 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 | 生成 | `PeakLimiterEffect.make(configuration:)` が `AUPeakLimiter` の存在確認後に `AVAudioUnitEffect(audioComponentDescription:)` で生成する |
 | ノード取得 | `PeakLimiterEffect.node` で `AVAudioNode` として取得する |
 | 詳細アクセス | `PeakLimiterEffect.avAudioUnitEffect` で `AVAudioUnitEffect` として取得する |
-| 設定適用 | `PeakLimiterEffect.apply(_:)` が Audio Unit parameter tree に各設定値を設定する |
+| 設定適用 | `PeakLimiterEffect.apply(_:)` が `withAudioUnit` で Audio Unit を借り、固定の3パラメータを `AudioUnitSetParameter` で同じ単位・値のまま設定する |
 | runtime snapshot | `PeakLimiterEffect.runtimeSnapshot` が設定、support、state を返す |
-| 設定保持 | 適用成功時のみ `configuration` を更新する |
-| 失敗時 | Audio Unit がない、生成に失敗した、必要な parameter がない場合に throw する |
+| 設定保持 | 適用成功時のみ `configuration` を更新する。途中で失敗した場合は、書込み済みの値を従来設定へ戻す処理を行う |
+| 失敗時 | Audio Unit 不可、必要なパラメータの欠落、またはAudio Unitが値を拒否した場合にエラーを返す。値の拒否は該当パラメータと `OSStatus` を含む |
+
+固定パラメータの設定は、Appによるparameter treeの参照・監視登録を省く。graph開始の直後にエフェクトを解放しても、設定のために追加の監視を要求する経路を持たない。[AppleのAudio Unitへのアクセス](https://developer.apple.com/documentation/avfaudio/avaudiounit)、[パラメータ設定API](https://developer.apple.com/documentation/audiotoolbox/audiounitsetparameter(_:_:_:_:_:_:))。
 
 ## 接続例
 

@@ -4,6 +4,7 @@ import AudioToolbox
 public enum PeakLimiterError: Error, Equatable, Sendable {
 	case audioUnitUnavailable
 	case missingParameter(PeakLimiterParameter)
+	case parameterUpdateFailed(PeakLimiterParameter, OSStatus)
 }
 
 public enum PeakLimiterParameter: Sendable {
@@ -110,17 +111,26 @@ public final class PeakLimiterEffect {
 
 	public func apply(_ configuration: PeakLimiterConfiguration) throws {
 		let configuration = PeakLimiterConfiguration(attackTime: configuration.attackTime, decayTime: configuration.decayTime, preGain: configuration.preGain)
-		try setValue(AUValue(configuration.attackTime), for: AUParameterAddress(kLimiterParam_AttackTime), missingParameter: .attackTime)
-		try setValue(AUValue(configuration.decayTime), for: AUParameterAddress(kLimiterParam_DecayTime), missingParameter: .decayTime)
-		try setValue(AUValue(configuration.preGain), for: AUParameterAddress(kLimiterParam_PreGain), missingParameter: .preGain)
-		self.configuration = configuration
-	}
-
-	private func setValue(_ value: AUValue, for address: AUParameterAddress, missingParameter: PeakLimiterParameter) throws {
-		guard let parameter = effect.withAUAudioUnit({ $0.parameterTree?.parameter(withAddress: address) }) else {
-			throw PeakLimiterError.missingParameter(missingParameter)
+		let parameters: [(id: AudioUnitParameterID, name: PeakLimiterParameter, value: Float, previous: Float)] = [
+			(kLimiterParam_AttackTime, .attackTime, configuration.attackTime, self.configuration.attackTime),
+			(kLimiterParam_DecayTime, .decayTime, configuration.decayTime, self.configuration.decayTime),
+			(kLimiterParam_PreGain, .preGain, configuration.preGain, self.configuration.preGain),
+		]
+		// These fixed v2 parameters do not need AUParameterTree listeners.
+		// The bridge can still be rebuilding its listeners when a graph is discarded.
+		try effect.withAudioUnit { unit in
+			for (index, parameter) in parameters.enumerated() {
+				let status = AudioUnitSetParameter(unit, parameter.id, kAudioUnitScope_Global, 0, parameter.value, 0)
+				guard status == noErr else {
+					for applied in parameters.prefix(index) {
+						_ = AudioUnitSetParameter(unit, applied.id, kAudioUnitScope_Global, 0, applied.previous, 0)
+					}
+					if status == kAudioUnitErr_InvalidParameter { throw PeakLimiterError.missingParameter(parameter.name) }
+					throw PeakLimiterError.parameterUpdateFailed(parameter.name, status)
+				}
+			}
 		}
-		parameter.value = value
+		self.configuration = configuration
 	}
 
 }
