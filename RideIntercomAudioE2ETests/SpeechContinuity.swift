@@ -12,10 +12,17 @@ struct SpeechContinuity: Codable, Sendable {
     let longestMissingSeconds: Double
     let activeSeconds: Double
     let windows: [Window]
+    let missingIntervals: [MissingInterval]
 
     struct Window: Codable, Sendable {
         let outputSeconds: Double
         let correlation: Float
+    }
+
+    /// Half-open interval in seconds relative to the observed stage's first sample.
+    struct MissingInterval: Codable, Sendable {
+        let startSeconds: Double
+        let endSeconds: Double
     }
 
     var passed: Bool {
@@ -25,7 +32,7 @@ struct SpeechContinuity: Codable, Sendable {
 
     static func measure(reference: [Float], referenceRate: Double, output: [Float], outputRate: Double) -> Self {
         let empty = Self(alignmentCorrelation: 0, referenceOffsetSeconds: 0, matchedWindowRatio: 0,
-                         missingActiveRatio: 1, longestMissingSeconds: 0, activeSeconds: 0, windows: [])
+                         missingActiveRatio: 1, longestMissingSeconds: 0, activeSeconds: 0, windows: [], missingIntervals: [])
         guard !reference.isEmpty, !output.isEmpty, referenceRate > 0, outputRate > 0,
               reference.allSatisfy(\.isFinite), output.allSatisfy(\.isFinite) else { return empty }
         let count = Int((Double(output.count) / outputRate + Double(reference.count) / referenceRate + 0.1) * referenceRate)
@@ -88,13 +95,19 @@ struct SpeechContinuity: Codable, Sendable {
             active[i] && outputRMS[i] > 0.00001 ? outputRMS[i] / referenceRMS[i] : nil
         }.sorted()
         let gain = gains.isEmpty ? 1 : gains[gains.count / 2]
-        var activeCount = 0, missingCount = 0, run = 0, longest = 0
-        for i in 0..<length {
-            if active[i] { activeCount += 1 }
-            if active[i] && outputRMS[i] < referenceRMS[i] * gain * 0.1 {
-                missingCount += 1; run += 1; longest = max(longest, run)
-            } else { run = 0 }
+        var activeCount = 0
+        var missingBins: [Range<Int>] = []
+        for i in 0..<length where active[i] {
+            activeCount += 1
+            guard outputRMS[i] < referenceRMS[i] * gain * 0.1 else { continue }
+            if let previous = missingBins.last, previous.upperBound == i {
+                missingBins[missingBins.count - 1] = previous.lowerBound..<(i + 1)
+            } else {
+                missingBins.append(i..<(i + 1))
+            }
         }
+        let missingCount = missingBins.reduce(0) { $0 + $1.count }
+        let longest = missingBins.map(\.count).max() ?? 0
 
         var windows: [Window] = []
         for start in stride(from: 0, through: length - 20, by: 10) {
@@ -118,6 +131,9 @@ struct SpeechContinuity: Codable, Sendable {
         return Self(alignmentCorrelation: best, referenceOffsetSeconds: Double(fineOffset) / 1000,
                     matchedWindowRatio: windows.isEmpty ? 0 : Double(windows.filter { $0.correlation >= 0.65 }.count) / Double(windows.count),
                     missingActiveRatio: activeCount == 0 ? 1 : Double(missingCount) / Double(activeCount),
-                    longestMissingSeconds: Double(longest) / 100, activeSeconds: Double(activeCount) / 100, windows: windows)
+                    longestMissingSeconds: Double(longest) / 100, activeSeconds: Double(activeCount) / 100, windows: windows,
+                    missingIntervals: missingBins.map {
+                        MissingInterval(startSeconds: Double($0.lowerBound) / 100, endSeconds: Double($0.upperBound) / 100)
+                    })
     }
 }

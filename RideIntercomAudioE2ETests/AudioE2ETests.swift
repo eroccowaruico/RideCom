@@ -120,7 +120,9 @@ final class AudioE2ETests: XCTestCase {
         func measure(_ output: [Float]) -> SpeechContinuity {
             SpeechContinuity.measure(reference: speech, referenceRate: 48_000, output: output, outputRate: 48_000)
         }
-        XCTAssertTrue(measure(clean).passed, "Fixed delay and gain must preserve speech")
+        let cleanResult = measure(clean)
+        XCTAssertTrue(cleanResult.passed, "Fixed delay and gain must preserve speech")
+        XCTAssertTrue(cleanResult.missingIntervals.isEmpty)
         let resampled = (0..<Int(Double(clean.count - 1) * 44_100 / 48_000)).map { index -> Float in
             let position = Double(index) * 48_000 / 44_100
             let lower = Int(position), fraction = Float(position - Double(lower))
@@ -138,11 +140,18 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertTrue(measure(filtered).passed, "Coloration alone is not a dropout")
         var gaps = clean
         for index in gaps.indices where index % 24_000 < 4_800 { gaps[index] = 0 }
-        XCTAssertFalse(measure(gaps).passed, "Repeated 100 ms losses must fail")
-        XCTAssertGreaterThan(measure(gaps).missingActiveRatio, 0.05)
+        let gapResult = measure(gaps)
+        XCTAssertFalse(gapResult.passed, "Repeated 100 ms losses must fail")
+        XCTAssertGreaterThan(gapResult.missingActiveRatio, 0.05)
+        let durations = gapResult.missingIntervals.map { $0.endSeconds - $0.startSeconds }
+        XCTAssertEqual(durations.reduce(0, +), gapResult.activeSeconds * gapResult.missingActiveRatio, accuracy: 0.001)
+        XCTAssertEqual(durations.max() ?? 0, gapResult.longestMissingSeconds, accuracy: 0.001)
         var missing = clean
         missing.replaceSubrange(240_000..<264_000, with: repeatElement(0, count: 24_000))
-        XCTAssertFalse(measure(missing).passed, "One missing half-second must fail")
+        let missingResult = measure(missing)
+        XCTAssertFalse(missingResult.passed, "One missing half-second must fail")
+        XCTAssertFalse(missingResult.missingIntervals.isEmpty)
+        XCTAssertTrue(missingResult.missingIntervals.allSatisfy { $0.startSeconds >= 5 && $0.endSeconds <= 5.5 })
         var repeated = clean
         repeated.replaceSubrange(240_000..<288_000, with: clean[192_000..<240_000])
         XCTAssertFalse(measure(repeated).passed, "Repeated speech must fail even without silence")
