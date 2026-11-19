@@ -50,12 +50,19 @@ import Testing
         }
         let revokedGroupID = UUID()
         #expect(left.viewModel.createTalkGroup(name: "Removed before receipt", userIDs: [b.personID], id: revokedGroupID))
+        let cancelledBeforeSend = UUID()
+        #expect(left.viewModel.createTalkGroup(name: "Cancelled before arrival", userIDs: [b.personID], id: cancelledBeforeSend))
+        let unsent = try #require(left.viewModel.groupRepository.groupDeliveries.first { $0.groupID == cancelledBeforeSend })
+        let sender = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        // Exercise the same HTTP DELETE after an ambiguous upload, while the Worker has no row.
+        try await client.finishGroupInvitation(recipient: unsent.recipient, id: unsent.id, access: sender)
         left.viewModel.groupDeliveryClient = client
         let group = try #require(left.viewModel.groups.first(where: { invitedGroups.contains($0.id) }))
         let call = left.viewModel.currentCallReference
         let recipientCall = right.viewModel.currentCallReference
         await left.viewModel.synchronizeGroupDeliveries()
         let author = left.viewModel
+        #expect(author.groupRepository.groupDeliveries.first(where: { $0.id == unsent.id })?.state == .cancelled)
         let revoked = try #require(author.groupRepository.groupDeliveries.first(where: { $0.groupID == revokedGroupID }))
         #expect(revoked.state == .queued)
         var requested = 0, released = 0
@@ -73,6 +80,7 @@ import Testing
         await right.viewModel.synchronizeGroupDeliveries()
         #expect(invitedGroups.isSubset(of: Set(right.viewModel.groups.map(\.id))))
         #expect(!right.viewModel.groups.contains { $0.id == revokedGroupID })
+        #expect(!right.viewModel.groups.contains { $0.id == cancelledBeforeSend })
         #expect(right.viewModel.currentCallReference == recipientCall && left.viewModel.currentCallReference == call)
         #expect(right.viewModel.activeGroupID == nil && !right.viewModel.hasAnyActiveGroupConnection && right.callSession.connectedGroup == nil)
         let source = try #require(try left.viewModel.groupRepository.credential(for: group.id))

@@ -75,6 +75,17 @@ export class UserAccount extends DurableObject<Env> {
     groupInvitationDelivery(auth: NotificationAuth, recipientKey: string, requestID: string, verifiedSender: NotificationAuth) {
         return this.notifications.invitationForDelivery(auth, recipientKey, requestID, verifiedSender)
     }
+    groupInvitationSenderState(auth: NotificationAuth, recipient: string, id: string) {
+        return this.notifications.groupInvitationSenderState(auth, recipient, id)
+    }
+    groupInvitationSendBudget(auth: NotificationAuth, recipient: string, id: string) {
+        return this.notifications.takeGroupInvitationSendBudget(auth, recipient, id)
+    }
+    async groupInvitationCancelUnstored(auth: NotificationAuth, recipient: string, id: string) {
+        const result = this.notifications.cancelUnstoredGroupInvitation(auth, recipient, id)
+        if (result === 'cancelled') await this.scheduleExpiry()
+        return result
+    }
     groupInvitationFinish(userID: string, requestID: string, actorID: string, discard = false) { return this.notifications.finishInvitation(userID, requestID, actorID, discard) }
     groupInvitationNeedsNotice(userID: string, requestID: string) { return this.notifications.invitationNeedsNotice(userID, requestID) }
     groupInvitationCandidates(userID: string, requestID: string) { return this.notifications.invitationCandidates(userID, requestID) }
@@ -276,6 +287,7 @@ export class UserAccount extends DurableObject<Env> {
 
     private prune() {
         this.notifications.prune()
+        this.notifications.pruneUnstoredGroupCancellations()
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         if (preparation && preparation.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletionPreparation')
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')

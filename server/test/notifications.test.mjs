@@ -375,6 +375,103 @@ test('an inbox read in flight skips a cancelled candidate and delivers the next 
     } finally { release.resolve(); await r.dispose(); }
 });
 
+test('cancellation before the first mailbox write prevents delayed delivery', { timeout: 10_000 }, async () => {
+    const store = Promise.withResolvers(), release = Promise.withResolvers();
+    const stored = Promise.withResolvers(), respond = Promise.withResolvers();
+    let notifications = 0;
+    const r = await setup({}, async () => { notifications++; return Response.json({}); }, {
+        onInvitationStore: async phase => {
+            if (phase === 'before') { store.resolve(); await release.promise; }
+            else { stored.resolve(); await respond.promise; }
+        }
+    });
+    try {
+        const a = await login(r, 'delayed-sender'), b = await login(r, 'delayed-recipient'), c = await login(r, 'other-sender');
+        assert.equal((await register(r, b)).status, 200);
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability } = await issued.json();
+        const body = { capability, requestID: randomUUID(), expiresAt: Date.now() + 86400000,
+            recipientKey: 'p'.repeat(87), envelope: Buffer.from('delayed').toString('base64') };
+        const submit = (invitation = body) => call(r, '/api/notifications/group-invitations', invitation, a.accessToken);
+        const cancel = (user, id) => call(r, `/api/notifications/group-invitations/${b.userID}/${id}`, undefined, user.accessToken, 'DELETE');
+        const read = () => call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const pending = submit();
+        await Promise.race([store.promise, pending.then(() => assert.fail('The invitation was not held before storage'))]);
+        const cancelled = await cancel(a, body.requestID);
+        release.resolve();
+        await Promise.race([stored.promise, pending.then(() => assert.fail('The invitation was not held after storage'))]);
+        assert.deepEqual(await (await read()).json(), { delivery: null });
+        respond.resolve();
+        const delivered = await pending;
+        assert.equal(cancelled.status, 404);
+        assert.equal(delivered.status, 200);
+        assert.equal((await delivered.json()).status, 'cancelled');
+        assert.equal((await (await submit()).json()).status, 'cancelled');
+        assert.equal(notifications, 0);
+
+        const unrelated = { ...body, requestID: randomUUID() };
+        assert.equal((await cancel(c, unrelated.requestID)).status, 404);
+        assert.equal((await (await submit(unrelated)).json()).status, 'queued');
+        assert.equal((await (await read()).json()).delivery.requestID, unrelated.requestID);
+        assert.equal(notifications, 1);
+    } finally { release.resolve(); respond.resolve(); await r.dispose(); }
+});
+
+test('an early group cancellation survives restart and credential rotation', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-cancellation-'));
+    let r = await setup({}, undefined, { storageDirectory });
+    try {
+        const a = await login(r, 'persist-canceller'), b = await login(r, 'persist-recipient');
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability } = await issued.json();
+        const body = { capability, requestID: randomUUID(), expiresAt: Date.now() + 86400000,
+            recipientKey: 'q'.repeat(87), envelope: Buffer.from('stale delivery').toString('base64') };
+        const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;
+        assert.equal((await call(r, path, undefined, b.accessToken, 'DELETE')).status, 404);
+        assert.equal((await call(r, path, undefined, a.accessToken, 'DELETE')).status, 404);
+        assert.equal((await call(r, path, undefined, a.accessToken, 'DELETE')).status, 404);
+        await r.dispose();
+        r = await setup({}, undefined, { storageDirectory });
+        const current = await login(r, 'persist-canceller', a.deviceID);
+        assert.equal((await call(r, '/api/notifications/group-invitations', body, a.accessToken)).status, 401);
+        const delayed = await call(r, '/api/notifications/group-invitations', body, current.accessToken);
+        assert.equal(delayed.status, 200);
+        assert.equal((await delayed.json()).status, 'cancelled');
+        const inbox = await call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        assert.deepEqual(await inbox.json(), { delivery: null });
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
+test('early group cancellations are bounded per sender and expire', { timeout: 15_000 }, async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-cancellation-limit-'));
+    const now = Date.now();
+    let r = await setup({}, undefined, { storageDirectory, fixedNowMs: now });
+    try {
+        const a = await login(r, 'full-canceller'), b = await login(r, 'independent-canceller');
+        const recipient = 'd'.repeat(64);
+        const cancel = (user, id) => call(r, `/api/notifications/group-invitations/${recipient}/${id}`, undefined, user.accessToken, 'DELETE');
+        const ids = Array.from({ length: 512 }, () => randomUUID());
+        for (let start = 0; start < ids.length; start += 16) {
+            const writes = await Promise.all(ids.slice(start, start + 16).map(id => cancel(a, id)));
+            assert.ok(writes.every(reply => reply.status === 404));
+        }
+        assert.equal((await cancel(a, ids[0])).status, 404, 'Repeating a cancellation consumes no slot');
+        assert.equal((await cancel(a, randomUUID())).status, 429);
+        assert.equal((await cancel(b, randomUUID())).status, 404, 'The limit is local to the sender');
+        await r.dispose();
+        r = await setup({}, undefined, { storageDirectory, fixedNowMs: now + 7 * 86400000 + 300000 });
+        assert.equal((await cancel(a, randomUUID())).status, 404, 'Expired cancellations release their slots');
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
 test('group invitation receipt requires a current resubmission after sender sign-in', async () => {
     const r = await setup();
     try {

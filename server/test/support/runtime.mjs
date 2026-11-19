@@ -8,20 +8,28 @@ export const hash = createHash('sha256').update(token).digest('hex');
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
+    const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const clock = clockOffsetMs || fixedNowMs !== undefined
         ? `const systemNow = Date.now; Date.now = () => ${fixedNowMs === undefined ? `systemNow() + ${Number(clockOffsetMs)}` : Number(fixedNowMs)};\n`
         : '';
-    const source = afterInboxSnapshot ? { modules: [
+    const source = afterInboxSnapshot || onInvitationStore ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
             export { default, AppleAuthAttempt, NotificationIndex, SignalingRoom, UsageGuard } from './index.js';
             import { UserAccount as ProductionAccount } from './index.js';
             export class UserAccount extends ProductionAccount {
                 async groupInvitationPending(...args) {
                     const candidates = super.groupInvitationPending(...args);
-                    if (candidates.length) await fetch('${inboxSnapshotURL}');
+                    if (${Boolean(afterInboxSnapshot)} && candidates.length) await fetch('${inboxSnapshotURL}');
                     return candidates;
+                }
+                async groupInvitationBegin(...args) {
+                    if (!${Boolean(onInvitationStore)}) return super.groupInvitationBegin(...args);
+                    await fetch('${invitationStoreURL}/before');
+                    const result = await super.groupInvitationBegin(...args);
+                    await fetch('${invitationStoreURL}/after');
+                    return result;
                 }
             }` },
         { type: 'ESModule', path: 'index.js', contents: clock + await readFile('dist/index.js', 'utf8') }
@@ -41,6 +49,10 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         outboundService: async request => {
             if (request.url === inboxSnapshotURL && afterInboxSnapshot) {
                 await afterInboxSnapshot();
+                return new Response(null, { status: 204 });
+            }
+            if (onInvitationStore && request.url.startsWith(invitationStoreURL + '/')) {
+                await onInvitationStore(request.url.slice(invitationStoreURL.length + 1));
                 return new Response(null, { status: 204 });
             }
             if (request.url === 'https://appleid.apple.com/auth/keys') return Response.json({ keys: appleKeys });

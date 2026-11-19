@@ -11,6 +11,7 @@ export interface NotificationCall {
 }
 export const callLifetime = 120_000
 export const dedupeLifetime = 86_400_000
+export const groupInvitationLifetime = 7 * 86_400_000 + 300_000
 const devicePrefix = 'notify-device:'
 const grantPrefix = 'notify-grant:'
 export interface NotificationGroupInvitation {
@@ -18,6 +19,7 @@ export interface NotificationGroupInvitation {
     recipientKey: string; noticeID: string; envelope: string | null; expiresAt: number; status: 'queued' | 'received' | 'cancelled'
 }
 const invitationPrefix = 'notify-group:'
+const groupCancellationPrefix = 'notify-group-cancel:'
 const callPrefix = 'notify-call:'
 
 /** Shares the account's synchronous storage, so revocation/deletion wins locally. */
@@ -45,7 +47,7 @@ export class AccountNotifications {
     takeMutationBudget(auth: NotificationAuth): boolean { return this.authorized(auth) && this.takeBudget('mutation', 60) }
     invalidateDevice(deviceID: string) { this.storage.kv.delete(devicePrefix + deviceID) }
     invalidateAll() {
-        for (const prefix of [devicePrefix, grantPrefix, callPrefix, invitationPrefix, 'notify-rate:']) {
+        for (const prefix of [devicePrefix, grantPrefix, callPrefix, invitationPrefix, groupCancellationPrefix, 'notify-rate:']) {
             for (const [key] of this.storage.kv.list({ prefix })) this.storage.kv.delete(key)
         }
     }
@@ -67,6 +69,26 @@ export class AccountNotifications {
     }
     takeSendBudget(auth: NotificationAuth): boolean {
         return this.authorized(auth) && this.takeBudget('sender', 60)
+    }
+    groupInvitationSenderState(auth: NotificationAuth, recipient: string, requestID: string): 'active' | 'inactive' | 'cancelled' {
+        if (!this.authorized(auth)) return 'inactive'
+        const expiresAt = this.storage.kv.get<number>(groupCancellationPrefix + recipient + ':' + requestID)
+        return expiresAt !== undefined && expiresAt > Date.now() ? 'cancelled' : 'active'
+    }
+    takeGroupInvitationSendBudget(auth: NotificationAuth, recipient: string, requestID: string) {
+        const state = this.groupInvitationSenderState(auth, recipient, requestID)
+        if (state !== 'active') return state
+        return this.takeBudget('sender', 60) ? 'active' : 'limited'
+    }
+    cancelUnstoredGroupInvitation(auth: NotificationAuth, recipient: string, requestID: string) {
+        const state = this.groupInvitationSenderState(auth, recipient, requestID)
+        if (state === 'inactive' || auth.userID === recipient) return 'unauthorized'
+        if (state === 'cancelled') return 'cancelled'
+        this.pruneUnstoredGroupCancellations()
+        // Reserve only the authenticated sender's own storage, independent of the recipient inbox.
+        if ([...this.storage.kv.list({ prefix: groupCancellationPrefix, limit: 512 })].length >= 512) return 'limited'
+        this.storage.kv.put(groupCancellationPrefix + recipient + ':' + requestID, Date.now() + groupInvitationLifetime)
+        return 'cancelled'
     }
     private takeBudget(kind: string, maximum: number): boolean {
         const key = 'notify-rate:' + kind, minute = Math.floor(Date.now() / 60_000)
@@ -116,8 +138,9 @@ export class AccountNotifications {
         this.storage.kv.put(callPrefix + requestID, { ...call, status: 'cancelled' })
         return true
     }
-    beginInvitation(value: NotificationGroupInvitation): { value: NotificationGroupInvitation; fresh: boolean } | 'forbidden' | 'limited' | 'conflict' {
+    beginInvitation(value: NotificationGroupInvitation): { value: NotificationGroupInvitation; fresh: boolean } | 'forbidden' | 'limited' | 'conflict' | 'expired' {
         this.prune()
+        if (value.expiresAt <= Date.now()) return 'expired'
         if (!this.grantActive(value.recipientID, value.grantHash)) return 'forbidden'
         const old = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + value.requestID)
         if (old) {
@@ -180,8 +203,13 @@ export class AccountNotifications {
         for (const [key, value] of this.storage.kv.list<NotificationCall>({ prefix: callPrefix })) if (value.forgetAt <= Date.now()) this.storage.kv.delete(key)
         for (const [key, value] of this.storage.kv.list<NotificationDevice>({ prefix: devicePrefix })) if (value.expiresAt <= Date.now()) this.storage.kv.delete(key)
     }
+    pruneUnstoredGroupCancellations() {
+        const now = Date.now()
+        for (const [key, expiresAt] of this.storage.kv.list<number>({ prefix: groupCancellationPrefix })) if (expiresAt <= now) this.storage.kv.delete(key)
+    }
     deadlines(): number[] {
         return [...this.storage.kv.list<NotificationCall>({ prefix: callPrefix })].map(([, value]) => value.forgetAt)
             .concat([...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].map(([, value]) => value.expiresAt))
+            .concat([...this.storage.kv.list<number>({ prefix: groupCancellationPrefix })].map(([, expiresAt]) => expiresAt))
     }
 }

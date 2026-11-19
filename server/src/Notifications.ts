@@ -1,6 +1,6 @@
 import { importJWK, jwtVerify, SignJWT } from 'jose'
 import { notificationAuth } from './AppleAccount'
-import { callLifetime, dedupeLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
+import { callLifetime, dedupeLifetime, groupInvitationLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
 import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
 import { json, readJSON, type Env } from './types'
 
@@ -79,7 +79,15 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         if (groupRoute && uuidPattern.test(groupRoute[2]) && ['GET', 'DELETE'].includes(method)) {
             const recipient = groupRoute[1].toLowerCase(), id = groupRoute[2].toLowerCase(), receiver = await target(env, recipient)
             const value = await receiver?.groupInvitationGet(recipient, id)
-            if (!value || !await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.sender.userID)) return json({ error: 'Not found' }, 404)
+            if (!value) {
+                if (method !== 'DELETE' || auth.userID === recipient) return json({ error: 'Not found' }, 404)
+                const result = await owner.groupInvitationCancelUnstored(auth, recipient, id)
+                if (result === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
+                // Also finish a packet inserted between the first lookup and the sender's cancellation.
+                if (result === 'cancelled' && await receiver?.groupInvitationFinish(recipient, id, auth.userID)) return json({})
+                return json({ error: 'Not found' }, 404)
+            }
+            if (!await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.sender.userID)) return json({ error: 'Not found' }, 404)
             if (method === 'DELETE') return await receiver!.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1') ? json({}) : json({ error: 'Not found' }, 404)
             return json({ requestID: id, expiresAt: value.expiresAt, status: value.status })
         }
@@ -88,7 +96,9 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!/^[A-Za-z0-9_-]{87}$/.test(key)) throw new Error('body')
             const pending = await owner.groupInvitationPending(auth.userID, key)
             for (const { requestID, sender } of pending) {
-                if (!await account(env, sender.accountID).notificationAuthorized(sender)) continue
+                const state = await account(env, sender.accountID).groupInvitationSenderState(sender, auth.userID, requestID)
+                if (state === 'cancelled') await owner.groupInvitationFinish(auth.userID, requestID, sender.userID)
+                if (state !== 'active') continue
                 const delivery = await owner.groupInvitationDelivery(auth, key, requestID, sender)
                 if (delivery === 'unauthorized') break
                 if (delivery) return json({ delivery })
@@ -139,7 +149,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const now = Date.now()
             if (typeof body.requestID !== 'string' || !uuidPattern.test(body.requestID)
                 || (body.noticeID !== undefined && (typeof body.noticeID !== 'string' || !uuidPattern.test(body.noticeID)))
-                || typeof body.expiresAt !== 'number' || !Number.isFinite(body.expiresAt) || body.expiresAt <= now || body.expiresAt > now + 7 * 86400000 + 300000
+                || typeof body.expiresAt !== 'number' || !Number.isFinite(body.expiresAt) || body.expiresAt <= now || body.expiresAt > now + groupInvitationLifetime
                 || typeof body.recipientKey !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(body.recipientKey)
                 || typeof body.envelope !== 'string' || body.envelope.length < 4 || body.envelope.length > 21848
                 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.envelope)) throw new Error('body')
@@ -147,13 +157,21 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!grant) return json({ error: 'Invitation permission required' }, 403)
             const receiver = await target(env, grant.recipient)
             if (!receiver || !await receiver.notificationGrantActive(grant.recipient, grant.grantHash)) return json({ error: 'Invitation permission required' }, 403)
-            if (!await owner.notificationSendBudget(auth)) return json({ error: 'Too many invitations' }, 429)
             const id = body.requestID.toLowerCase()
+            const cancelled = () => json({ requestID: id, expiresAt: body.expiresAt, status: 'cancelled' })
+            const permission = await owner.groupInvitationSendBudget(auth, grant.recipient, id)
+            if (permission === 'cancelled') return cancelled()
+            if (permission !== 'active') return json({ error: 'Too many invitations' }, 429)
             const started = await receiver.groupInvitationBegin({ requestID: id, sender: auth, recipientID: grant.recipient, grantHash: grant.grantHash,
                 recipientKey: body.recipientKey, noticeID: (body.noticeID ?? body.requestID).toLowerCase(), envelope: body.envelope, expiresAt: body.expiresAt, status: 'queued' })
             if (started === 'forbidden') return json({ error: 'Invitation permission required' }, 403)
             if (started === 'conflict') return json({ error: 'Invitation ID already used' }, 409)
             if (started === 'limited') return json({ error: 'Too many invitations' }, 429)
+            if (started === 'expired') return json({ error: 'Invitation expired' }, 400)
+            if (await owner.groupInvitationSenderState(auth, grant.recipient, id) === 'cancelled') {
+                await receiver.groupInvitationFinish(grant.recipient, id, auth.userID)
+                return cancelled()
+            }
             if (started.fresh && await receiver.groupInvitationNeedsNotice(grant.recipient, id)) {
                 const candidates = await receiver.groupInvitationCandidates(grant.recipient, id)
                 if (candidates.length) {
@@ -161,7 +179,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                     for (const device of candidates) {
                         const binding = await index(env, device.tokenIndex).current()
                         if (binding?.registrationID !== device.registrationID || binding.userID !== grant.recipient) continue
-                        if (!await owner.notificationAuthorized(auth)) break
+                        if (await owner.groupInvitationSenderState(auth, grant.recipient, id) !== 'active') break
                         if (!(await receiver.groupInvitationCandidates(grant.recipient, id)).some(v => v.deviceID === device.deviceID && v.registrationID === device.registrationID)) continue
                         const result = await deliverNotification(device, providerToken, id, grant.recipient, body.expiresAt, 'groupInvitation')
                         if (result === 'invalid_token') await receiver.notificationInvalidToken(grant.recipient, device.deviceID, device.registrationID)
