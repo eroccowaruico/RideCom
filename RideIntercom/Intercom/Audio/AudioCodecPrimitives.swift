@@ -1,6 +1,6 @@
 import VADGate
 
-struct AudioLevelMeter {
+nonisolated struct AudioLevelMeter {
     static func rmsLevel(samples: [Float]) -> Float {
         VADGate.rms(samples: samples)
     }

@@ -87,10 +87,15 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                             v.get('usesNativeOutput') is True and v.get('receivedVoicePackets') == 0
                             and isinstance(v.get('availableRoutes'), list)
                             and 'lastAudibleOutputAt' in v and v['lastAudibleOutputAt'] is None for v in samples)
+                        native_frames = [(v.get('nativeOutput') or {}).get('callbackCount', 0) for v in samples]
+                        silent_native_output = kind != 'outputCallback' or (
+                            len(native_frames) > 1 and 0 < native_frames[0] < native_frames[-1]
+                            and all((v.get('nativeOutput') or {}).get('audibleDuration') == 0 for v in samples))
                         ok=len(samples)>=20 and span>=29 and len({v['deadline'] for v in samples})==1 and all(v['audioReady'] and v['inputRunning'] and v['outputRunning'] and not v['mediaStarted'] and v['authenticatedPeers']==0 and v['muted']==muted and v['microphonePermission']=='granted' for v in samples)
                         details.append(dict(kind=kind, samples=len(samples), span=span,
                                             sameCall=same_call, waitingWithoutRemoteAudio=waiting_without_remote_audio,
-                                            passed=ok and same_call and waiting_without_remote_audio))
+                                            silentNativeOutput=silent_native_output,
+                                            passed=ok and same_call and waiting_without_remote_audio and silent_native_output))
                     outcome.update(passed=context_ok and all(v['passed'] for v in details),observations=details,
                                    runtimeContextValid=context_ok)
                 else:

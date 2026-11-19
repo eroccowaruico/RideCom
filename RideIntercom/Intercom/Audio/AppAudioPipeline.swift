@@ -109,6 +109,9 @@ final class AppAudioPipeline {
     private var generation = UUID()
     private var hardwareOutputEnabled = true
     private var frameDeliveries: [AudioFrameDelivery] = []
+    #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+    private(set) var backgroundOutputProbe: BackgroundCallOutputProbe?
+    #endif
 
     init(makeEngine: @escaping () -> AVAudioEngine = { AVAudioEngine() }, usesHardwareClock: Bool = false) {
         self.makeEngine = makeEngine
@@ -196,8 +199,17 @@ final class AppAudioPipeline {
             self.publishOutput(frame)
         }
         frameDeliveries.append(outputDelivery)
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+        let probe = rendersToHardware && BackgroundCallValidationObservation.isEnabled ? BackgroundCallOutputProbe() : nil
+        backgroundOutputProbe = probe
+        #endif
         try receiver.rebuild(engine: engine, configuration: configuration, peers: peerIDs,
-            rendersToHardware: rendersToHardware, startsClock: startsOutputClock) { frame in outputDelivery.yield(frame) }
+            rendersToHardware: rendersToHardware, startsClock: startsOutputClock) { frame in
+            #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+            probe?.record(frame)
+            #endif
+            outputDelivery.yield(frame)
+        }
         completed = true
     }
 
@@ -205,6 +217,9 @@ final class AppAudioPipeline {
         generation = UUID()
         frameDeliveries.forEach { $0.finish() }
         frameDeliveries.removeAll()
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+        backgroundOutputProbe = nil
+        #endif
         receiver.stop()
         transmitter.stop()
     }

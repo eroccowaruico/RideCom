@@ -1,4 +1,5 @@
 #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+import AudioCore
 import Foundation
 import Testing
 @testable import RideIntercom
@@ -28,6 +29,25 @@ import Testing
             #expect(protection == FileProtectionType.completeUntilFirstUserAuthentication.rawValue)
             #endif
         }
+    }
+
+    @Test func nativeOutputProbeDistinguishesRenderedGapFromWorkerDelay() throws {
+        let format = AudioFormat(sampleRate: 48_000, channelCount: 1)
+        let probe = BackgroundCallOutputProbe()
+        for (sequence, renderTime, workerTime, level) in [
+            (UInt64(0), 4.0, 10.0, Float(0)),
+            (1, 4.02, 11.0, 0.1),
+            (2, 4.52, 11.02, 0.1)
+        ] {
+            probe.record(PCMFrame(sequenceNumber: sequence, format: format, capturedAt: renderTime,
+                samples: Array(repeating: level, count: 960)), workerUptime: workerTime)
+        }
+        let fields = probe.fields
+        #expect(fields["callbackCount"] as? Int == 3)
+        #expect(abs(try #require(fields["audibleDuration"] as? Double) - 0.04) < 0.000001)
+        #expect(abs(try #require(fields["maxRenderGap"] as? Double) - 0.48) < 0.000001)
+        #expect(fields["maxWorkerGap"] as? Double == 1)
+        #expect(fields["lastWorkerAt"] as? Double == 11.02)
     }
 }
 #endif

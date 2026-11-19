@@ -5,15 +5,36 @@ import Darwin
 import Foundation
 import RTC
 import SessionManager
+import Synchronization
 import UIKit
 
-/// Opt-in native callback evidence, bounded and without PCM or participant identity.
-/// Runs on the existing UI observation delivery, never on the realtime capture worker.
+/// Persists bounded snapshots on the existing App delivery, without PCM or participant identity.
 @MainActor enum BackgroundCallValidationObservation {
     private static var didPauseForResumeFixture = false
     private static let processInstance = UUID().uuidString
     private static var records: [[String: Any]] = []
     private static var lastRecordedAt: [String: TimeInterval] = [:]
+    private static var lastDuckingChange: DuckingChange?
+    private static var longestDuckingChange: DuckingChange?
+    static let isEnabled = isEnabled(environment: ProcessInfo.processInfo.environment,
+        storageNamespace: Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String)
+
+    private struct DuckingChange {
+        var active: Bool
+        var startedAt: TimeInterval
+        var duration: TimeInterval
+        var fields: [String: Any] { ["active": active, "startedAt": startedAt, "duration": duration] }
+    }
+
+    static func measureDuckingChange(to active: Bool, _ apply: () -> Void) {
+        guard isEnabled else { apply(); return }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        apply()
+        let change = DuckingChange(active: active, startedAt: startedAt,
+            duration: ProcessInfo.processInfo.systemUptime - startedAt)
+        lastDuckingChange = change
+        if change.duration > (longestDuckingChange?.duration ?? 0) { longestDuckingChange = change }
+    }
     static func isEnabled(environment: [String: String], storageNamespace: String?) -> Bool {
         environment["RIDEINTERCOM_BACKGROUND_OBSERVATION"] == "1"
             && storageNamespace?.hasPrefix("RideIntercom.Validation.") == true
@@ -38,8 +59,7 @@ import UIKit
         }
     }
     static func observe(_ model: IntercomViewModel, frame: PCMFrame? = nil, output: Bool = false) {
-        guard isEnabled(environment: ProcessInfo.processInfo.environment,
-            storageNamespace: Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String) else { return }
+        guard isEnabled else { return }
         #if targetEnvironment(simulator)
         if frame != nil, !didPauseForResumeFixture,
            ProcessInfo.processInfo.environment["RIDEINTERCOM_BACKGROUND_RESUME"] == "1" {
@@ -83,19 +103,63 @@ import UIKit
             "availableRoutes": model.availableCallRoutes.map(\.rawValue).sorted(),
             "receivedVoicePackets": model.receivedVoicePacketCount,
             "usesNativeOutput": usesNativeOutput,
+            "nativeOutput": (usesNativeOutput ? model.audioPipeline.backgroundOutputProbe?.fields : nil) as Any? ?? NSNull(),
             "lastAudibleOutputAt": lastAudibleOutputAt as Any? ?? NSNull(),
+            "lastDuckingChange": lastDuckingChange?.fields as Any? ?? NSNull(),
+            "longestDuckingChange": longestDuckingChange?.fields as Any? ?? NSNull(),
             "deadline": model.callDisconnectDeadline?.timeIntervalSince1970 as Any? ?? NSNull()])
         if records.count > 256 { records.removeFirst(records.count - 256) }
-        let layout = ProcessInfo.processInfo.environment["RIDEINTERCOM_INTERFACE_FIXTURE"] == "advanced" ? "advanced" : "standard"
+        let layout = environment["RIDEINTERCOM_INTERFACE_FIXTURE"] == "advanced" ? "advanced" : "standard"
+        let suffix = observationSuffix(environment)
+        try? write(records, to: FileManager.default.temporaryDirectory.appendingPathComponent("background-call-\(layout)-\(suffix).json"))
+    }
+
+    private static func observationSuffix(_ environment: [String: String]) -> String {
         #if targetEnvironment(simulator)
-        let resuming = environment["RIDEINTERCOM_BACKGROUND_RESUME"] == "1"
-        #else
-        let resuming = false
+        if environment["RIDEINTERCOM_BACKGROUND_RESUME"] == "1" { return "resumed" }
         #endif
-        let suffix = resuming ? "-resumed"
-            : environment["RIDEINTERCOM_BACKGROUND_FIRST_PERMISSION"] == "1" ? "-first-permission"
-            : (ProcessInfo.processInfo.environment["RIDEINTERCOM_BACKGROUND_MUTED"] == "1" ? "-muted" : "-open")
-        try? write(records, to: FileManager.default.temporaryDirectory.appendingPathComponent("background-call-" + layout + suffix + ".json"))
+        if environment["RIDEINTERCOM_BACKGROUND_FIRST_PERMISSION"] == "1" { return "first-permission" }
+        return environment["RIDEINTERCOM_BACKGROUND_MUTED"] == "1" ? "muted" : "open"
+    }
+}
+
+/// The mixer's capture worker delivers frames here after leaving the render
+/// thread and before enqueueing them for MainActor. Retain only counters.
+nonisolated final class BackgroundCallOutputProbe: Sendable {
+    private let instance = UUID().uuidString
+    private let metrics = Mutex(Metrics())
+
+    private struct Metrics {
+        var callbackCount = 0
+        var audibleDuration: TimeInterval = 0
+        var lastRenderEnd: TimeInterval?
+        var maxRenderGap: TimeInterval = 0
+        var lastWorkerAt: TimeInterval?
+        var maxWorkerGap: TimeInterval = 0
+    }
+
+    func record(_ frame: PCMFrame, workerUptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        let duration = Double(frame.frameCount) / frame.format.sampleRate
+        let audible = AudioLevelMeter.rmsLevel(samples: frame.samples) > IntercomViewModel.audibleOutputLevelThreshold
+        metrics.withLock { value in
+            value.callbackCount += 1
+            if audible { value.audibleDuration += duration }
+            if let previousEnd = value.lastRenderEnd {
+                value.maxRenderGap = max(value.maxRenderGap, frame.capturedAt - previousEnd)
+            }
+            if let previousWorkerAt = value.lastWorkerAt {
+                value.maxWorkerGap = max(value.maxWorkerGap, workerUptime - previousWorkerAt)
+            }
+            value.lastRenderEnd = frame.capturedAt + duration
+            value.lastWorkerAt = workerUptime
+        }
+    }
+
+    var fields: [String: Any] {
+        let value = metrics.withLock { $0 }
+        return ["instance": instance, "callbackCount": value.callbackCount, "audibleDuration": value.audibleDuration,
+            "lastRenderEnd": value.lastRenderEnd as Any? ?? NSNull(), "maxRenderGap": value.maxRenderGap,
+            "lastWorkerAt": value.lastWorkerAt as Any? ?? NSNull(), "maxWorkerGap": value.maxWorkerGap]
     }
 }
 #endif

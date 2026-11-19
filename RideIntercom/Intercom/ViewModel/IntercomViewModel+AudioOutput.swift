@@ -41,7 +41,13 @@ extension IntercomViewModel {
     func setOtherAudioDuckingActive(_ isActive: Bool) {
         guard isOtherAudioDuckingActiveInternal != isActive else { return }
         isOtherAudioDuckingActiveInternal = isActive
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
+        BackgroundCallValidationObservation.measureDuckingChange(to: isActive) {
+            _ = applyCurrentVoiceProcessingConfiguration()
+        }
+        #else
         applyCurrentVoiceProcessingConfiguration()
+        #endif
     }
 
     func scheduleOutputFrame(frame: PCMFrame, receivedAt: TimeInterval) {
