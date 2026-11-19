@@ -187,11 +187,14 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
     let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 960)!
     var rendered: [Float] = []
     for batch in 0..<50 {
+        let arrivalTime = 1 + Double(batch) * 0.02
         for packet in 0..<2 {
             let index = batch * 2 + packet
             try source.schedule(.init(sequenceNumber: UInt64(index), capturedAt: Double(index) * 0.01,
-                samples: Array(repeating: batch < 25 ? 0 : 0.2, count: 480)))
+                samples: Array(repeating: batch < 25 ? 0 : 0.2, count: 480)), arrivedAt: arrivalTime)
         }
+        // The offline clock doesn't wait for the native player's command queue.
+        Thread.sleep(forTimeInterval: 0.01)
         #expect(try engine.renderOffline(960, to: buffer) == .success)
         rendered += Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: 960))
     }
