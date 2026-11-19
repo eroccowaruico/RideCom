@@ -44,9 +44,10 @@ VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を�
 | `silence` | `rmsDBFS > noiseFloorDBFS + speechThresholdOffsetDB` が `attackDuration` 以上続く | `speech` へ遷移する |
 | `silence` | speech 条件を満たさない | attack 累積をリセットし、ノイズフロアを更新する |
 | `speech` | `rmsDBFS < noiseFloorDBFS + silenceThresholdOffsetDB` が `releaseDuration` 以上続く | `silence` へ遷移する |
-| `speech` | silence 条件を満たさない | release 累積をリセットする |
+| `speech` | 通常のsilence条件を上回る入力でも、ノイズ追従が有効で、初期ノイズフロア以下のレベルが最初の値から2dB以内に `2 × releaseDuration` 続く | 新しいノイズフロアをその静かなレベルまで引き上げて `silence` へ遷移する |
+| `speech` | 通常のsilence条件を満たさない | release 累積をリセットする。定常入力の候補は範囲を外れるたびに見直す |
 
-`speechThresholdOffsetDB` と `silenceThresholdOffsetDB` を分けることでヒステリシスを作る。`releaseDuration` は hangover として働き、発話中の短い無音で gate が閉じることを避ける。
+`speechThresholdOffsetDB` と `silenceThresholdOffsetDB` を分けることでヒステリシスを作る。`releaseDuration` は hangover として働き、発話中の短い無音で gate が閉じることを避ける。定常入力の確認も入力フレームの時間で積算する。標準のrelease 0.5秒では1秒続くまで定常雑音として扱わない。既存の会話・返事6音源を10msで測った比較では、同じレベル条件の最長は110msだった。
 
 ## 設定仕様
 
@@ -75,8 +76,8 @@ VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を�
 | `process(rmsDBFS:duration:)` | dBFS 値を直接受け取り、状態遷移、ノイズフロア更新、gain 更新を行って `VADGateAnalysis` を返す |
 | `process(samples:duration:)` | `[Float]` PCM サンプルから RMS dBFS を計算し、`process(rmsDBFS:duration:)` と同じ処理を行う |
 | `applyGate(to:duration:)` | `[Float]` PCM サンプルを解析し、更新後の gain をサンプルへ乗算して `VADGateAnalysis` を返す |
-| `apply(configuration:)` | 設定を更新する。状態は維持したまま次フレームから新しい設定で動作する |
-| `reset(noiseFloorDBFS:)` | 状態、attack/release 累積、gain、ノイズフロアを初期化する |
+| `apply(configuration:)` | 設定を更新し、定常入力の候補を破棄する。状態を維持したまま次のフレームから新しい設定で動作する |
+| `reset(noiseFloorDBFS:)` | 状態、attack/release 累積、定常入力の候補、gain、ノイズフロアを初期化する |
 | `runtimeSnapshot` | `VADGateRuntimeSnapshot` を返す。`VADGateEffect.runtimeSnapshot` からも同じ情報を取得できる |
 | `rms(samples:)` | サンプル列の短時間 RMS を返す |
 | `rmsDBFS(samples:)` | サンプル列の短時間 RMS を dBFS で返す |
@@ -147,7 +148,7 @@ if analysis.state == .speech {
 |---|---|
 | ML 非使用 | 機械学習VADではないため、騒音環境では誤検出が起きる可能性がある |
 | hangover | `releaseDuration` を短くしすぎると語尾や文節間で gate が閉じやすい |
-| ノイズフロア | ノイズフロアは silence 中のみ追従するため、長時間 speech 状態が続く環境では更新が遅れる |
+| ノイズフロア | 通常はsilence中に追従する。speech中は一定の小さい入力が長く続いた条件でだけ補正する。入力の特徴をRMSで判定するため、実環境の騒音や発話は個別に評価する |
 | gate gain | 完全 mute が不自然な場合は `silenceGain` を `0.1` などに上げる |
 | リアルタイム処理 | 高頻度コールを想定し、Audio Session や engine 操作は行わない |
 

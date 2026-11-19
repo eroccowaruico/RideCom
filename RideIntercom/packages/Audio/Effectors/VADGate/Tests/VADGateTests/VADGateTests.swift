@@ -69,6 +69,41 @@ import Foundation
     #expect(gate.process(rmsDBFS: -58).state == .silence)
 }
 
+@Test(arguments: [0.005, 0.01, 0.02])
+func quietSteadyNoiseDoesNotHoldSpeechOpenAfterTheNoiseFloorDrops(frameDuration: Double) {
+    let gate = VADGate(configuration: .init(attackDuration: 0.01))
+    func receive(_ levels: [Float], duration: Double) {
+        for index in 0..<Int((duration / frameDuration).rounded()) {
+            _ = gate.process(rmsDBFS: levels[index % levels.count], duration: frameDuration)
+        }
+    }
+    receive([-120], duration: 1)
+    receive([-35], duration: 0.2)
+    #expect(gate.state == .speech)
+
+    // A low but varying input can be quiet speech. A brief steady segment
+    // during it cannot be taken as a new background noise floor.
+    receive([-65, -58, -71, -56, -69], duration: 1)
+    #expect(gate.state == .speech)
+    receive([-65, -64.6, -65.3], duration: 0.2)
+    #expect(gate.state == .speech)
+
+    receive([-65, -64.6, -65.3], duration: 2)
+    #expect(gate.state == .silence)
+    receive([-65, -64.6, -65.3], duration: 1)
+    #expect(gate.state == .silence)
+    receive([-46], duration: 0.04)
+    #expect(gate.state == .speech)
+}
+
+@Test func steadyQuietNoiseDoesNotChangeAFixedNoiseFloor() {
+    let gate = VADGate(configuration: .init(attackDuration: 0.01, initialNoiseFloorDBFS: -80, noiseFloorAdaptation: 0))
+    _ = gate.process(rmsDBFS: -45)
+    for _ in 0..<100 { _ = gate.process(rmsDBFS: -65) }
+    #expect(gate.state == .speech)
+    #expect(gate.noiseFloorDBFS == -80)
+}
+
 @Test func vadGateEffectExposesValidAVAudioNode() async throws {
     let effect = try await VADGateEffect.make()
 

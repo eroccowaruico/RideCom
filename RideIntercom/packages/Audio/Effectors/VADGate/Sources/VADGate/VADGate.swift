@@ -122,6 +122,7 @@ public final class VADGate {
 
 	private var attackElapsed: Double = 0
 	private var releaseElapsed: Double = 0
+	private var steadyQuietInput: (referenceDBFS: Float, duration: Double)?
 
 	public init(configuration: VADGateConfiguration = VADGateConfiguration()) {
 		self._configuration = configuration.normalized
@@ -133,6 +134,7 @@ public final class VADGate {
 		lock.lock()
 		defer { lock.unlock() }
 		self._configuration = configuration.normalized
+		steadyQuietInput = nil
 	}
 
 	public func reset(noiseFloorDBFS: Float? = nil) {
@@ -141,6 +143,7 @@ public final class VADGate {
 		_state = .silence
 		attackElapsed = 0
 		releaseElapsed = 0
+		steadyQuietInput = nil
 		let floor = noiseFloorDBFS.flatMap { $0.isFinite ? $0 : nil } ?? configuration.initialNoiseFloorDBFS
 		self._noiseFloorDBFS = min(configuration.maximumNoiseFloorDBFS, max(configuration.minimumNoiseFloorDBFS, floor))
 		_gain = configuration.silenceGain
@@ -189,13 +192,17 @@ public final class VADGate {
 		case .speech:
 			if rmsDBFS < silenceThreshold {
 				releaseElapsed += frameDuration
-				if releaseElapsed >= configuration.releaseDuration {
-					_state = .silence
-					releaseElapsed = 0
-					attackElapsed = 0
-				}
 			} else {
 				releaseElapsed = 0
+			}
+			let quietFloor = sustainedQuietNoiseFloor(rmsDBFS: rmsDBFS, duration: frameDuration,
+				silenceThreshold: silenceThreshold)
+			if releaseElapsed >= configuration.releaseDuration || quietFloor != nil {
+				if let quietFloor { _noiseFloorDBFS = quietFloor }
+				_state = .silence
+				releaseElapsed = 0
+				attackElapsed = 0
+				steadyQuietInput = nil
 			}
 		}
 
@@ -203,6 +210,26 @@ public final class VADGate {
 		let analysis = makeAnalysis(rmsDBFS: rmsDBFS)
 		_lastAnalysis = analysis
 		return analysis
+	}
+
+	private func sustainedQuietNoiseFloor(rmsDBFS: Float, duration: Double, silenceThreshold: Float) -> Float? {
+		// A floor learned in a quiet interval can leave steady background above
+		// the release threshold indefinitely. Require two release intervals near
+		// one quiet level so ordinary speech and the normal hangover keep priority.
+		let configuration = _configuration
+		guard configuration.noiseFloorAdaptation > 0,
+			  rmsDBFS >= silenceThreshold, rmsDBFS <= configuration.initialNoiseFloorDBFS else {
+			steadyQuietInput = nil
+			return nil
+		}
+		let previous = steadyQuietInput
+		if let previous, abs(rmsDBFS - previous.referenceDBFS) <= 2 {
+			steadyQuietInput = (previous.referenceDBFS, previous.duration + duration)
+		} else {
+			steadyQuietInput = (rmsDBFS, duration)
+		}
+		guard let quiet = steadyQuietInput, quiet.duration >= 2 * configuration.releaseDuration else { return nil }
+		return min(configuration.maximumNoiseFloorDBFS, max(_noiseFloorDBFS, quiet.referenceDBFS))
 	}
 
 	@discardableResult
