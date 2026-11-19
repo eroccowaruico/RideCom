@@ -29,24 +29,18 @@ struct ReceivePipelinePresentation {
                 accessibilityIdentifier: "receive-pipeline-rtc-step"
             )
         }
-        if input.receivedVoicePacketCount > 0 {
-            return PipelineStep(
-                id: "rtc-receive",
-                package: "RTC",
-                title: "RTC RX",
-                detail: "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount) / RX \(input.receivedVoicePacketCount)",
-                icon: "dot.radiowaves.left.and.right",
-                state: .passing,
-                accessibilityIdentifier: "receive-pipeline-rtc-step"
-            )
-        }
+        let received = input.receivedVoicePacketCount
+        let dropped = input.droppedAudioPacketCount
+        let peers = "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount)"
+        let media = received > 0 || dropped > 0 ? " / RX \(received)" : ""
+        let failures = dropped > 0 ? " / DROP \(dropped)" : ""
         return PipelineStep(
             id: "rtc-receive",
             package: "RTC",
             title: "RTC RX",
-            detail: "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount)",
+            detail: peers + media + failures,
             icon: "dot.radiowaves.left.and.right",
-            state: .waiting,
+            state: received > 0 ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-rtc-step"
         )
     }
@@ -63,24 +57,17 @@ struct ReceivePipelinePresentation {
                 accessibilityIdentifier: "receive-pipeline-codec-step"
             )
         }
-        if input.droppedAudioPacketCount > 0 {
-            return PipelineStep(
-                id: "codec-decode",
-                package: "Codec",
-                title: "Decode",
-                detail: "Peer decode / DROP \(input.droppedAudioPacketCount)",
-                icon: "cpu",
-                state: .waiting,
-                accessibilityIdentifier: "receive-pipeline-codec-step"
-            )
-        }
+        let counts = input.receiveDecodeCounts
+        let hasPCM = counts.pcmPackets > 0
+        let pcm = hasPCM || counts.failures > 0 ? "PCM \(counts.pcmPackets)" : "No PCM observed"
+        let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
         return PipelineStep(
             id: "codec-decode",
             package: "Codec",
             title: "Decode",
-            detail: input.receivedVoicePacketCount > 0 ? "Peer decode / RX \(input.receivedVoicePacketCount)" : "Peer decode Ready",
-            icon: input.receivedVoicePacketCount > 0 ? "cpu.fill" : "cpu",
-            state: input.receivedVoicePacketCount > 0 ? .passing : .waiting,
+            detail: pcm + failures,
+            icon: hasPCM ? "cpu.fill" : "cpu",
+            state: hasPCM ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-codec-step"
         )
     }

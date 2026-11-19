@@ -307,26 +307,30 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div class="pseg"><span>Overview</span><span>TX</span><span class="on">RX</span><span>Network</span><span>Applied</span></div>
         <div class="pbody">
           <div class="hd">Live RX Pipeline <span>3 peer buses · 1 offline</span></div>
+          <div class="card">
+            <div class="row"><span class="k">RTC RX</span><span class="v num">Local + Internet / C 3 / A 3 / RX 240 / DROP 3</span></div>
+            <div class="row"><span class="k">Decode</span><span class="v num">PCM 238 / Decode errors 2</span></div>
+          </div>
           <div class="tree">
             <div class="card blk">
               <div class="blk-h"><span class="d ok"></span><b>Haruka</b><span class="ok-t" style="font-weight:600">Passing</span><span class="r">Local · direct</span></div>
               <div class="row"><span class="k">Sender</span><span class="v">MPEG-4 AAC-ELD · 48 kHz · 48 kbps<div class="sub">Unmuted · Speech · SoundIsolation active</div></span></div>
               <div class="row"><span class="k">RTC RX</span><span class="v">Connected · AUTH OK</span></div>
-              <div class="row"><span class="k">Decode</span><span class="v num">MPEG-4 AAC-ELD · RX <b>100</b>/s · 0 dropped</span></div>
+              <div class="row"><span class="k">Decode</span><span class="v num">MPEG-4 AAC-ELD</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 100% · Jitter buffer 24 ms<div class="sub">SoundIsolation bypassed <span class="meter"><i style="width:70%"></i></span></div></span></div>
             </div>
             <div class="card blk">
               <div class="blk-h"><span class="d warn"></span><b>Kenta</b><span class="warn-t" style="font-weight:600">Waiting</span><span class="r">Local · relayed by Haruka</span></div>
               <div class="row"><span class="k">Sender</span><span class="v">Opus · 24 kHz · 32 kbps <span class="pill">Lower Quality</span><div class="sub">Unmuted · Silence · SoundIsolation bypassed</div></span></div>
               <div class="row"><span class="k">RTC RX</span><span class="v">Connected · AUTH OK</span></div>
-              <div class="row"><span class="k">Decode</span><span class="v num">Opus · RX 0/s · Not speaking</span></div>
+              <div class="row"><span class="k">Decode</span><span class="v num">Opus</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 80% · Jitter buffer 4 ms<div class="sub">SoundIsolation active <span class="meter"></span></div></span></div>
             </div>
             <div class="card blk">
               <div class="blk-h"><span class="d ok"></span><b>Mika</b><span class="ok-t" style="font-weight:600">Passing</span><span class="r">Internet</span></div>
               <div class="row"><span class="k">Sender</span><span class="v">MPEG-4 AAC-ELD → PCM 16-bit · 16 kHz <span class="pill warn-t">Fallback</span><div class="sub">Unmuted · Speech · SoundIsolation unavailable · 3 s ago</div></span></div>
               <div class="row"><span class="k">RTC RX</span><span class="v">Connected · AUTH OK<div class="sub">Local unavailable</div></span></div>
-              <div class="row"><span class="k">Decode</span><span class="v num">PCM 16-bit · RX <b>100</b>/s · <span class="warn-t">3 dropped</span></span></div>
+              <div class="row"><span class="k">Decode</span><span class="v num">PCM 16-bit</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 60% · Jitter buffer 62 ms<div class="sub">SoundIsolation bypassed <span class="meter"><i style="width:45%"></i></span></div></span></div>
             </div>
             <div class="card blk off">
@@ -348,7 +352,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Peer Bus（自分側の設定）を入れ子で並べ、左の線が Mix Down へ合流し、RX Master → Master FX → Output へ続く。</figcaption>
+      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Peer Bus（自分側の設定）を入れ子で並べ、左の線が Mix Down へ合流し、RX Master → Master FX → Output へ続く。</figcaption>
     </figure>
 
     <!-- Network -->

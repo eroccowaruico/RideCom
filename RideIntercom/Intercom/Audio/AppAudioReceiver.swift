@@ -8,6 +8,11 @@ import RTC
 import SoundIsolation
 import Synchronization
 
+nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
+    var pcmPackets = 0
+    var failures = 0
+}
+
 /// The receive graph has one serial owner independent of UI/control. The lock
 /// covers native graph changes as well as packet decoding/scheduling; no await,
 /// UI callback or network operation occurs while holding it.
@@ -21,6 +26,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private var decoders: [String: StreamingCodecDecoder] = [:]
     private var effects: [String: VoiceIsolationEffect] = [:]
     private var limiter: PeakLimiterEffect?
+    private var decodeCounts = ReceiveDecodeCounts()
 
     var snapshot: AudioMixerSnapshot {
         lock.withLock { mixer?.snapshot() ?? .init(busIDs: [], buses: [], routes: [], outputBusID: nil) }
@@ -29,6 +35,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         lock.withLock { effects.mapValues(\.runtimeSnapshot) }
     }
     var limiterSnapshot: PeakLimiterRuntimeSnapshot? { lock.withLock { limiter?.runtimeSnapshot } }
+    var decodeSnapshot: ReceiveDecodeCounts { lock.withLock { decodeCounts } }
     var droppedRenderFrameCount: Int {
         lock.withLock { (mixer?.busIDs ?? []).reduce(0) { $0 + (mixer?.bus($1)?.droppedCaptureFrameCount ?? 0) } }
     }
@@ -89,6 +96,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         if let mixer { for id in mixer.busIDs { try? mixer.removeBus(id) } }
         mixer = nil; master = nil; limiter = nil
         sources.removeAll(); decoders.removeAll(); effects.removeAll()
+        decodeCounts = .init()
     }
 
     func receive(_ received: RTC.ReceivedAudioPacket) throws -> PCMFrame {
@@ -104,8 +112,15 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let id = received.peerID.rawValue
         let decoder = decoders[id] ?? StreamingCodecDecoder()
         decoders[id] = decoder
-        let frame = try AppAudioCodecBridge.decode(received.packet, using: decoder)
+        let frame: PCMFrame
+        do {
+            frame = try AppAudioCodecBridge.decode(received.packet, using: decoder)
+        } catch {
+            decodeCounts.failures += 1
+            throw error
+        }
         if !frame.samples.isEmpty {
+            decodeCounts.pcmPackets += 1
             try play(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
         }
         return frame

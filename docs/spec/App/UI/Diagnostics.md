@@ -93,8 +93,8 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 表示仕様 | 状態・異常系の考え方 |
 |---|---|---|---|---|---|---|
-| RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、media ownership | route と総 RX count。peer別の接続・認証・経路は下の参加者内訳に表示 | 受信 0 は未発話または未接続として読む |
-| Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | peer ごとの `activeCodec`、peer ごとの RX count、drop count | codec の集約サマリは出さない。peer別のdecode codecは下の参加者内訳に表示 | drop は warning |
+| RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数 | route と総 `RX n`。破棄があれば `DROP n`。peer別の接続・認証・経路は下の参加者内訳に表示 | 受信 0 は未発話または未接続として読む |
+| Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | 現在の受信処理で空でないPCMを返したpacket数と、復号に失敗したpacket数。受信グラフを作り直すと数え直す | `No PCM observed` または `PCM n`。失敗があれば `Decode errors n` を併記。peer別のdecode codecは参加者内訳で表示 | PCMが得られるまではwaiting。RTC受信・破棄、再生予約や実出力は別の段 |
 | peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot` の RX peer bus、authenticated peer count、peer 別 RX / JIT / PLAY / level / volume / `receivePeerEffectChainSnapshot(peerID:)` | bus 数と RX count。peer別の音量・FX要約・待機frame数は下の参加者内訳に表示 | peer なしは neutral / waiting |
 | receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | `AudioMixerSnapshot.routes`、peer bus count、受信 packet count | `n routes -> rx-master` として複数 peer が master に集約されることを表示 | bus なしは waiting |
 | receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、played frame count、master volume、source bus count | source bus count と OUT volume。mix 後の 1 本の master bus として表示 | 再生 0 は waiting |

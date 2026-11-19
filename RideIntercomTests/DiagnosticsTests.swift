@@ -31,6 +31,39 @@ struct DiagnosticsTests {
         #expect(harness.viewModel.jitterQueuedFrameCount == 3)
     }
 
+    @Test func receiveDiagnosticsDistinguishRouteMetricsFromActualDecoding() async throws {
+        let harness = AppTestSupport.makeHarness()
+        let model = harness.viewModel
+        model.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        defer { model.disconnect() }
+        func presentation() -> ReceivePipelinePresentation { .init(input: DiagnosticsInput(model)) }
+
+        harness.callSession.publishMetrics(.init(route: .multipeer, activePeerCount: 1,
+            receivedAudioFrameCount: 5, droppedAudioFrameCount: 0, queuedAudioFrameCount: 3))
+        #expect(presentation().codecDecodeStep.state == .waiting)
+        #expect(presentation().codecDecodeStep.detail == "No PCM observed")
+
+        let frame = PCMFrame(sequenceNumber: 0, format: .intercomMixer,
+            samples: Array(repeating: 0.2, count: 480))
+        let valid = try AppTestSupport.receivedAudioPacket(peerID: "member-108", frame: frame, codec: .pcm16)
+        var invalid = valid
+        invalid.packet.payload = Data([0xff])
+        harness.callSession.receive(invalid)
+        #expect(presentation().codecDecodeStep.detail == "PCM 0 / Decode errors 1")
+
+        harness.callSession.receive(valid)
+        harness.callSession.publishMetrics(.init(route: .multipeer, activePeerCount: 1,
+            receivedAudioFrameCount: 8, droppedAudioFrameCount: 2, queuedAudioFrameCount: 0))
+        #expect(presentation().codecDecodeStep.state == .passing)
+        #expect(presentation().codecDecodeStep.detail == "PCM 1 / Decode errors 1")
+        #expect(presentation().rtcReceiveStep.detail.hasSuffix("DROP 2"))
+        model.disconnect()
+        #expect(model.audioPipeline.receiveDecodeCounts == .init())
+        #expect(presentation().codecDecodeStep.state == .idle)
+    }
+
     @Test func viewModelExposesTransmitEffectChainFromRuntimeSettings() {
         let harness = AppTestSupport.makeHarness()
 

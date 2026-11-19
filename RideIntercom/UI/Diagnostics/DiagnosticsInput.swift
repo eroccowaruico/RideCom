@@ -32,6 +32,7 @@ struct DiagnosticsInput {
     var masterOutputVolume: Float
     var playedAudioFrameCount: Int
     var receiveMasterEffectChainSnapshot: AudioEffectChainSnapshot
+    var receiveDecodeCounts: ReceiveDecodeCounts
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
     var peerEffectChains: [String: AudioEffectChainSnapshot]
@@ -68,6 +69,7 @@ struct DiagnosticsInput {
         masterOutputVolume = viewModel.masterOutputVolume
         playedAudioFrameCount = viewModel.playedAudioFrameCount
         receiveMasterEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
+        receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount
         selectedGroup = viewModel.selectedGroup
         let ids = Set((viewModel.selectedGroup?.members.map(\.id) ?? []) + viewModel.authenticatedPeerIDs)
