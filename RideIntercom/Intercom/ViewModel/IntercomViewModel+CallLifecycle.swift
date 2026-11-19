@@ -89,10 +89,12 @@ extension IntercomViewModel {
             if resumingDevice { reportAudioDeviceRestartFailure() }
             return
         }
-        // A start that fails after activation leaves nothing running; a resume also says why.
-        let abandonStart = { [weak self] in
-            self?.stopAudioPipeline()
-            if resumingDevice { self?.reportAudioDeviceRestartFailure() }
+        // Failed preparation releases audio. A stopped call that was resuming keeps a reason and the retry action.
+        let abandonStart = { [weak self] (reason: String?) in
+            guard let self else { return }
+            self.stopAudioPipeline()
+            if resumingDevice { self.reportAudioDeviceRestartFailure(reason: reason) }
+            else if let reason { self.audioErrorMessage = reason }
         }
         let generation = audioGeneration, connection = connectionGeneration
         audioStartTask = Task { [weak self] in
@@ -104,8 +106,7 @@ extension IntercomViewModel {
             guard !Task.isCancelled, self.audioGeneration == generation,
                   self.connectionGeneration == connection, self.callStillRequestsAudio() else { return }
             guard authorized else {
-                self.stopAudioPipeline()
-                self.audioErrorMessage = Self.microphoneAccessRequiredMessage
+                abandonStart(Self.microphoneAccessRequiredMessage)
                 return
             }
             let activation = self.audioSessionManager.requestActive(true)
@@ -119,10 +120,10 @@ extension IntercomViewModel {
                 return
             }
             guard report.result != .ignored(.superseded) else { return }
-            guard self.applyAudioSessionActivationReport(report) else { abandonStart(); return }
+            guard self.applyAudioSessionActivationReport(report) else { abandonStart(nil); return }
             guard self.rebuildAudioPipeline(startsOutputClock: false),
                   self.applyCurrentVoiceProcessingConfiguration(), self.startInputCapture(),
-                  self.startPreparedAudioOutput(configuration: .intercomCall) else { abandonStart(); return }
+                  self.startPreparedAudioOutput(configuration: .intercomCall) else { abandonStart(nil); return }
             self.inputFrameDelivery?.activate()
             self.callTicker.start()
             self.isAudioReady = true

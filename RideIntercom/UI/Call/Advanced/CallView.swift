@@ -66,6 +66,7 @@ struct CallView: View {
                         Label(notice, systemImage: "headphones")
                             .accessibilityIdentifier("audioRouteNotice")
                     }
+                    if let error = viewModel.audioPauseError { audioError(error) }
                     if viewModel.isAudioPausedForDeviceChange, viewModel.canResumeAudioOnThisDevice {
                         Button("Resume Audio", systemImage: "play.fill") {
                             viewModel.resumeAudioAfterDeviceChange()
@@ -108,13 +109,17 @@ struct CallView: View {
                     }
                 }
 
-                if let audioErrorMessage = viewModel.audioErrorMessage {
-                    Text(audioErrorMessage)
-                        .font(AppTypography.footnote)
-                        .foregroundStyle(AppColorPalette.danger)
-                        .accessibilityIdentifier("audioErrorLabel")
+                if let error = viewModel.audioErrorMessage, viewModel.audioPauseError == nil {
+                    audioError(error)
                 }
         }
+    }
+
+    private func audioError(_ message: String) -> some View {
+        Text(message)
+            .font(AppTypography.footnote)
+            .foregroundStyle(AppColorPalette.danger)
+            .accessibilityIdentifier("audioErrorLabel")
     }
 
     private var statusHeader: some View {

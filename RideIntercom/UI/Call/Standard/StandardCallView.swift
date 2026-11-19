@@ -167,7 +167,7 @@ struct StandardCallView: View {
             audioDetails
             if viewModel.isAudioPausedForDeviceChange, viewModel.canResumeAudioOnThisDevice {
                 Section {
-                    Text("Check your headphones or speaker, then resume audio.")
+                    if viewModel.audioPauseError == nil { Text("Check your headphones or speaker, then resume audio.") }
                     Button("Resume Audio") { viewModel.resumeAudioAfterDeviceChange() }
                         .appProminentButtonStyle()
                         .accessibilityIdentifier("resumeAudioButton")
@@ -175,7 +175,7 @@ struct StandardCallView: View {
             }
             if let notice = viewModel.audioRouteNotice { noticeSection(notice) }
             if let notice = viewModel.connectivityNotice { noticeSection(notice) }
-            if let error = viewModel.audioErrorMessage { noticeSection(error) }
+            if let error = viewModel.audioErrorMessage, viewModel.audioPauseError == nil { noticeSection(error) }
         }
         if group.kind == .group {
             membersSection(group)
@@ -296,7 +296,8 @@ struct StandardCallView: View {
     /// The hero's words: the call's own state. A call notification never changes it.
     private var heroState: (title: String, detail: String?) {
         let status = viewModel.standardCallStatus
-        return (String(localized: .init(stringLiteral: status.title)), status.detail.map { String(localized: .init(stringLiteral: $0)) })
+        let detail = status == .audioPaused ? viewModel.audioPauseError ?? status.detail : status.detail
+        return (String(localized: .init(stringLiteral: status.title)), detail.map { String(localized: .init(stringLiteral: $0)) })
     }
 
     /// The shared state symbol; the hero's larger type takes the larger progress.

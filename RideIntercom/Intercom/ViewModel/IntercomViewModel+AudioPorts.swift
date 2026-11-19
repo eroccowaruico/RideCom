@@ -121,15 +121,24 @@ extension IntercomViewModel {
 
     var canResumeAudioOnThisDevice: Bool { !isUsingWatchAudio || watchAudioLink != nil }
 
+    var audioPauseError: String? {
+        isAudioPausedForDeviceChange && audioRouteNotice == nil ? audioErrorMessage : nil
+    }
+
     func resumeAudioAfterDeviceChange() {
         guard canResumeAudioOnThisDevice, isAudioPausedForDeviceChange, activeGroupID != nil else { return }
         startAudioPipelineIfNeeded(resumingDevice: true)
     }
 
-    func reportAudioDeviceRestartFailure() {
+    func reportAudioDeviceRestartFailure(reason: String? = nil) {
         guard hasAnyActiveGroupConnection, callDisconnectDeadline != nil else { return }
         isAudioPausedForDeviceChange = true
-        audioRouteNotice = "Audio could not restart on the selected device. The group connection and relay continue. Check your device, then resume."
+        if let reason {
+            audioErrorMessage = reason
+            audioRouteNotice = nil
+        } else {
+            audioRouteNotice = "Audio could not restart on the selected device. The group connection and relay continue. Check your device, then resume."
+        }
     }
 
     func deduplicatedPorts(_ ports: [AudioPortInfo]) -> [AudioPortInfo] {

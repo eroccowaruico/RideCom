@@ -317,6 +317,36 @@ struct AudioActivationTests {
         #expect(h.outputBackend.startCount == starts + 1)
         #expect(vm.isAudioPausedForDeviceChange && !vm.isAudioReady)
     }
+
+    @Test func deniedPermissionDuringNativeReconfigurationLeavesTheCallReadyForExplicitResume() async throws {
+        let engine = AVAudioEngine()
+        var microphoneAllowed = true
+        let h = AppTestSupport.makeHarness(outputEngine: engine, requestMicrophoneAccess: { microphoneAllowed })
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        vm.setSoundIsolationEnabled(false)
+        vm.selectGroup(try #require(vm.groups.first))
+        h.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        try #require(vm.isAudioReady)
+        let call = vm.currentCallReference, deadline = vm.callDisconnectDeadline
+        let starts = h.inputBackend.startCount
+
+        microphoneAllowed = false
+        NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
+        await AppTestSupport.waitUntil { vm.audioErrorMessage == IntercomViewModel.microphoneAccessRequiredMessage }
+        #expect(vm.audioPauseError == IntercomViewModel.microphoneAccessRequiredMessage)
+        #expect(vm.callStatus(for: call.groupID) == .audioPaused)
+        #expect(vm.currentCallReference == call && vm.callDisconnectDeadline == deadline)
+        #expect(h.inputBackend.startCount == starts && !vm.isAudioReady)
+
+        microphoneAllowed = true
+        vm.resumeAudioAfterDeviceChange()
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        #expect(h.inputBackend.startCount == starts + 1 && vm.isAudioReady)
+        #expect(vm.audioErrorMessage == nil && vm.audioRouteNotice == nil)
+        #expect(vm.currentCallReference == call && vm.callDisconnectDeadline == deadline)
+    }
     #endif
 
     @Test(arguments: [AudioSessionSnapshotChangeReason.interruptionBegan, .mediaServicesReset])
