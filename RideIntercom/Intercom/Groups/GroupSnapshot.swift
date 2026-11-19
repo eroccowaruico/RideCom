@@ -2,6 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
+    static let currentVersion = 12
     struct Member: Codable, Equatable {
         var id: String
         var displayName: String
@@ -55,7 +56,7 @@ struct GroupSnapshot: Codable, Equatable {
             try IntercomGroup(id: id, name: name, members: members.map { GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName) }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
         }
     }
-    var version = 11
+    var version = Self.currentVersion
     var generation = UUID()
     var groups: [Record] = []
     var users: [SavedUser] = []
@@ -87,11 +88,11 @@ struct GroupSnapshot: Codable, Equatable {
     }
 
     func upgraded() -> GroupSnapshot {
-        guard version < 11 else { return self }
+        guard version < Self.currentVersion else { return self }
         var records = groups
         if version < 3 { for index in records.indices { records[index].kind = .group } }
         if version < 5 { for index in records.indices { records[index].pendingInvitation = nil } }
-        var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations)
+        var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations, groupDeliveries: groupDeliveries)
         if version < 10 {
             for index in next.contactInvitations.indices {
                 let record = next.contactInvitations[index]
@@ -147,7 +148,7 @@ struct GroupSnapshot: Codable, Equatable {
     }
 
     func validated() throws -> GroupSnapshot {
-        guard (1...11).contains(version) else { throw GroupStorageError.unsupportedVersion }
+        guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
         guard version < 3 || groups.allSatisfy({ $0.kind != nil }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else { throw IntercomGroupError.invalidStoredGroups }
@@ -157,6 +158,8 @@ struct GroupSnapshot: Codable, Equatable {
               Set(contactInvitations.map(\.id)).count == contactInvitations.count else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 11 || groupDeliveries.isEmpty, groupDeliveries.count <= 512,
               groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count else { throw IntercomGroupError.invalidStoredGroups }
+        guard version >= 12 || groupDeliveries.allSatisfy({ $0.direction == .outgoing || $0.state == .received })
+        else { throw IntercomGroupError.invalidStoredGroups }
         let references = groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference) + groupDeliveries.compactMap(\.credentialReference)
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {
@@ -219,7 +222,8 @@ struct GroupSnapshot: Codable, Equatable {
         guard bytes.count <= 1_048_576 else { throw IntercomGroupError.invalidStoredGroups }
         // Inspect the version first, even when a future schema has different fields.
         struct Header: Decodable { let version: Int }
-        guard (1...11).contains(try JSONDecoder().decode(Header.self, from: bytes).version) else { throw GroupStorageError.unsupportedVersion }
+        guard (1...Self.currentVersion).contains(try JSONDecoder().decode(Header.self, from: bytes).version)
+        else { throw GroupStorageError.unsupportedVersion }
         do {
             return try JSONDecoder().decode(Self.self, from: bytes).validated()
         } catch is IntercomGroupError {

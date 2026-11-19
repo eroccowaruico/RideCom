@@ -74,6 +74,10 @@ import UserNotifications
         #expect(GroupDeliveryHTTPStub.submitted.count == 2 && Set(GroupDeliveryHTTPStub.submitted).count == 1, "Retries use the exact same encrypted envelope")
         GroupDeliveryHTTPStub.failNextAcknowledgement = true
         await right.viewModel.synchronizeGroupDeliveries()
+        #expect(!right.viewModel.groups.contains { $0.id == group.id })
+        #expect(right.viewModel.groupRepository.groupDeliveries.first?.state == .pending)
+        GroupDeliveryHTTPStub.legacyAcknowledgement = true
+        await right.viewModel.synchronizeGroupDeliveries()
         #expect(right.viewModel.groups.contains { $0.id == group.id })
         #expect(right.viewModel.currentCallReference == rightCall && left.viewModel.currentCallReference == leftCall)
         #expect(try right.viewModel.groupRepository.credential(for: group.id) == left.viewModel.groupRepository.credential(for: group.id))
@@ -396,7 +400,8 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; onQueued = nil }
+    nonisolated(unsafe) static var legacyAcknowledgement = false
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -437,6 +442,10 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
             return (200, ["requestID": id, "expiresAt": expiry, "status": "queued"])
         }
         if request.httpMethod == "GET" {
+            if url.lastPathComponent != "group-invitations" {
+                guard let item = items[url.lastPathComponent], item["recipientID"] as? String == caller else { return (404, [:]) }
+                return (200, item)
+            }
             let key = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
             let item = items.values.first { $0["recipientID"] as? String == caller && $0["recipientKey"] as? String == key && $0["status"] as? String == "queued" }
             return (200, ["delivery": item.map { $0 as Any } ?? NSNull()])
@@ -444,8 +453,13 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
         if request.httpMethod == "DELETE" {
             if failNextAcknowledgement { failNextAcknowledgement = false; return (503, [:]) }
             let id = url.lastPathComponent
-            if var item = items[id] { item["status"] = item["recipientID"] as? String == caller ? "received" : "cancelled"; items[id] = item }
-            return (200, [:])
+            guard var item = items[id] else { return (404, [:]) }
+            if item["status"] as? String == "queued" {
+                let discard = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(.init(name: "discard", value: "1")) == true
+                item["status"] = item["recipientID"] as? String == caller && !discard ? "received" : "cancelled"
+                items[id] = item
+            }
+            return (200, legacyAcknowledgement ? [:] : ["status": item["status"]!])
         }
         return (404, [:])
     }

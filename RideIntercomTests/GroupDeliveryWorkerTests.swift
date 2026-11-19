@@ -48,6 +48,8 @@ import Testing
             let id = UUID(); invitedGroups.insert(id)
             #expect(left.viewModel.createTalkGroup(name: "Actual Worker group \(index)", userIDs: [b.personID], id: id))
         }
+        let revokedAfterDownload = UUID()
+        #expect(left.viewModel.createTalkGroup(name: "Cancelled after download", userIDs: [b.personID], id: revokedAfterDownload))
         let revokedGroupID = UUID()
         #expect(left.viewModel.createTalkGroup(name: "Removed before receipt", userIDs: [b.personID], id: revokedGroupID))
         let cancelledBeforeSend = UUID()
@@ -77,25 +79,47 @@ import Testing
         #expect(released == 1)
         #expect(!author.groupRepository.groupDeliveries.contains { $0.id == revoked.id })
         #expect(author.savedRemoteUsers.contains { $0.id == b.personID })
+        let afterDownload = try #require(author.groupRepository.groupDeliveries.first { $0.groupID == revokedAfterDownload })
+        #expect(afterDownload.state == .queued)
+        GroupWorkerHTTPBridge.cancellation = (afterDownload.id, try b.principal.userID, sender.accessToken)
+        let lostReceipt = try #require(author.groupRepository.groupDeliveries.first { $0.groupID == group.id })
+        GroupWorkerHTTPBridge.dropReceiptForID = lostReceipt.id
+        defer {
+            GroupWorkerHTTPBridge.cancellation = nil; GroupWorkerHTTPBridge.cancellationResponse = nil
+            GroupWorkerHTTPBridge.dropReceiptForID = nil; GroupWorkerHTTPBridge.didDropReceipt = false
+        }
         await right.viewModel.synchronizeGroupDeliveries()
-        #expect(invitedGroups.isSubset(of: Set(right.viewModel.groups.map(\.id))))
-        #expect(!right.viewModel.groups.contains { $0.id == revokedGroupID })
-        #expect(!right.viewModel.groups.contains { $0.id == cancelledBeforeSend })
+        #expect(GroupWorkerHTTPBridge.didDropReceipt)
+        #expect(!right.viewModel.groups.contains { $0.id == group.id })
+        #expect(right.viewModel.groupRepository.groupDeliveries.first(where: { $0.id == lostReceipt.id })?.state == .pending)
         #expect(right.viewModel.currentCallReference == recipientCall && left.viewModel.currentCallReference == call)
-        #expect(right.viewModel.activeGroupID == nil && !right.viewModel.hasAnyActiveGroupConnection && right.callSession.connectedGroup == nil)
-        let source = try #require(try left.viewModel.groupRepository.credential(for: group.id))
-        let target = try #require(try right.viewModel.groupRepository.credential(for: group.id))
-        #expect(SHA256.hash(data: Data(source.secret.utf8)) == SHA256.hash(data: Data(target.secret.utf8)))
-        await left.viewModel.synchronizeGroupDeliveries()
-        #expect(left.viewModel.groupRepository.groupDeliveries.count == count)
-        #expect(left.viewModel.groupRepository.groupDeliveries.allSatisfy { $0.state == .received })
-        #expect(left.viewModel.groupRepository.groupDeliveries.first?.credentialReference == nil)
         right.viewModel.stopGroupDeliverySync(); right.viewModel.disconnect()
         let reopened = try b.harness(knowing: [a], onDisk: true)
         defer { reopened.viewModel.stopGroupDeliverySync(); reopened.viewModel.disconnect() }
-        #expect(invitedGroups.isSubset(of: Set(reopened.viewModel.groups.map(\.id))))
-        #expect(reopened.viewModel.groupRepository.groupDeliveries.first?.state == .received)
-        #expect(reopened.viewModel.savedRemoteUsers.count == 1)
+        let receiver = reopened.viewModel
+        #expect(!receiver.groups.contains { $0.id == group.id })
+        let reopenedCall = receiver.currentCallReference
+        receiver.groupDeliveryClient = client
+        await receiver.synchronizeGroupDeliveries()
+        #expect(GroupWorkerHTTPBridge.cancellationResponse == "cancelled")
+        #expect(!receiver.groups.contains { $0.id == revokedAfterDownload }, "Cancellation between downloading and saving should suppress the incoming group")
+        #expect(try receiver.groupRepository.credential(for: revokedAfterDownload) == nil)
+        #expect(receiver.groupRepository.groupDeliveries.first(where: { $0.id == afterDownload.id })?.credentialReference == nil)
+        #expect(invitedGroups.isSubset(of: Set(receiver.groups.map(\.id))))
+        #expect(receiver.groups.filter { $0.id == group.id }.count == 1)
+        #expect(!receiver.groups.contains { $0.id == revokedGroupID })
+        #expect(!receiver.groups.contains { $0.id == cancelledBeforeSend })
+        #expect(receiver.currentCallReference == reopenedCall)
+        #expect(receiver.activeGroupID == nil && !receiver.hasAnyActiveGroupConnection && reopened.callSession.connectedGroup == nil)
+        let source = try #require(try left.viewModel.groupRepository.credential(for: group.id))
+        let target = try #require(try receiver.groupRepository.credential(for: group.id))
+        #expect(SHA256.hash(data: Data(source.secret.utf8)) == SHA256.hash(data: Data(target.secret.utf8)))
+        await left.viewModel.synchronizeGroupDeliveries()
+        #expect(left.viewModel.groupRepository.groupDeliveries.filter { $0.state == .received }.count == count)
+        #expect(left.viewModel.groupRepository.groupDeliveries.first(where: { $0.id == afterDownload.id })?.state == .cancelled)
+        #expect(left.viewModel.groupRepository.groupDeliveries.allSatisfy { $0.credentialReference == nil })
+        #expect(receiver.groupRepository.groupDeliveries.first(where: { $0.id == lostReceipt.id })?.state == .received)
+        #expect(receiver.savedRemoteUsers.count == 1)
     }
     private func register(_ peer: GroupDeliveryTestIdentity) async throws {
         struct Registration: Decodable { let credential: InternetAccountCredential; let identity: DeviceIdentityCertificate }
@@ -114,6 +138,10 @@ private enum WorkerFixtureFailure: Error { case unavailable }
 
 private final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var origin: URL?
+    nonisolated(unsafe) static var cancellation: (id: UUID, recipient: String, token: String)?
+    nonisolated(unsafe) static var cancellationResponse: String?
+    nonisolated(unsafe) static var dropReceiptForID: UUID?
+    nonisolated(unsafe) static var didDropReceipt = false
     private var requestWork: Task<Void, Never>?
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -134,6 +162,29 @@ private final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
             do {
                 let (data, result) = try await URLSession.shared.data(for: value)
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
+                if value.httpMethod == "DELETE", status == 200,
+                   let id = Self.dropReceiptForID, value.url?.lastPathComponent == id.uuidString.lowercased(),
+                   let receipt = try? JSONSerialization.jsonObject(with: data) as? [String: String], receipt["status"] == "received" {
+                    Self.dropReceiptForID = nil
+                    Self.didDropReceipt = true
+                    client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+                    return
+                }
+                if value.httpMethod == "GET", value.url?.path == "/api/notifications/group-invitations",
+                   let cancellation = Self.cancellation,
+                   let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let delivery = result["delivery"] as? [String: Any],
+                   let id = delivery["requestID"] as? String, UUID(uuidString: id) == cancellation.id {
+                    let path = "api/notifications/group-invitations/\(cancellation.recipient)/\(id)"
+                    var cancel = URLRequest(url: base.appendingPathComponent(path))
+                    cancel.httpMethod = "DELETE"
+                    cancel.setValue("Bearer " + cancellation.token, forHTTPHeaderField: "Authorization")
+                    let (data, response) = try await URLSession.shared.data(for: cancel)
+                    if (response as? HTTPURLResponse)?.statusCode == 200,
+                       let body = try JSONSerialization.jsonObject(with: data) as? [String: String] {
+                        Self.cancellationResponse = body["status"]
+                    }
+                }
                 let response = HTTPURLResponse(url: original, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
                 client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)

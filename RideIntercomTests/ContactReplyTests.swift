@@ -298,7 +298,7 @@ struct ContactReplyTests {
         let expectedPerson = old.users.first { $0.memberIDs.contains("reply-author") }?.id
         h.groupStore.snapshot = try GroupSnapshot.decode(old.encoded())
         h.viewModel.reloadSavedGroups()
-        #expect(h.groupStore.snapshot.version == 11)
+        #expect(h.groupStore.snapshot.version == 12)
         #expect(h.viewModel.contactInvitationRecord(id)?.personID == expectedPerson)
         return url
     }

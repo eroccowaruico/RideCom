@@ -25,7 +25,7 @@ struct StandardGroupInvitationStatus: View {
 
     init(state: GroupDeliveryRecord.State?) {
         title = switch state {
-        case .received: "Added to group"
+        case .received: "Invitation received"
         case .pending, .queued: "Invitation pending"
         case .cancelled: "Invitation stopped"
         case nil: "Sharing required"

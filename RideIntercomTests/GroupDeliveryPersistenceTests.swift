@@ -17,6 +17,7 @@ import Testing
         let restored = try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: fields))
         let encoded = try #require(JSONSerialization.jsonObject(with: restored.encoded()) as? [String: Any])
         #expect((encoded["groupDeliveries"] as? [[String: Any]])?.count == 1)
+        #expect(restored.upgraded().groupDeliveries == restored.groupDeliveries)
     }
     private let author = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "a", count: 64))
     private let recipient = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "b", count: 64))
@@ -70,11 +71,23 @@ import Testing
         let envelope = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
             recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
         let opened = try envelope.open(recipient: b, local: recipient, sender: user)
+        let now = Date().timeIntervalSince1970
         let before = try f.file.read(); f.store.failCommit = true
-        #expect(throws: (any Error).self) { try repository.receiveGroupDelivery(envelope, token: opened, localDisplayName: "You", now: Date().timeIntervalSince1970) }
+        #expect(throws: (any Error).self) { try repository.stageGroupDelivery(envelope, token: opened, now: now) }
         #expect(try f.file.read() == before)
         f.store.failCommit = false; _ = try repository.load(localMemberID: "local")
-        try repository.receiveGroupDelivery(envelope, token: opened, localDisplayName: "You", now: Date().timeIntervalSince1970)
+        #expect(try repository.stageGroupDelivery(envelope, token: opened, now: now) == .pending)
+        let reference = try #require(repository.groupDeliveries.first?.credentialReference)
+        let staged = try f.file.read()
+        #expect(repository.storedGroup(token.groupID) == nil)
+        #expect(try repository.credential(for: token.groupID) == nil)
+        f.store.failCommit = true
+        #expect(throws: (any Error).self) { try repository.receiveGroupDelivery(envelope, token: opened, localDisplayName: "You", now: now) }
+        #expect(try f.file.read() == staged && f.keys.values[reference] != nil)
+        f.store.failCommit = false; _ = try repository.load(localMemberID: "local")
+        let recovered = try repository.groupDeliveryEnvelope(envelope.id)
+        try repository.receiveGroupDelivery(recovered, token: opened, localDisplayName: "You", now: now)
+        #expect(f.keys.values[reference] == nil)
         #expect(try repository.credential(for: token.groupID)?.secret == token.groupSecret)
         #expect(repository.groupDeliveries.first?.direction == .incoming && repository.groupDeliveries.first?.state == .received)
         #expect(!repository.ownsGroup(token.groupID) && repository.users == [user])
@@ -83,12 +96,28 @@ import Testing
         let packet = try GroupInvitationEnvelope.seal(conflict, sender: author, recipient: recipient,
             recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
         let saved = try f.file.read()
-        #expect(throws: (any Error).self) { try repository.receiveGroupDelivery(packet, token: conflict, localDisplayName: "You", now: Date().timeIntervalSince1970) }
+        #expect(throws: (any Error).self) { try repository.stageGroupDelivery(packet, token: conflict, now: now) }
         #expect(try f.file.read() == saved)
+        let duplicateGroup = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
+            recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
+        #expect(try repository.stageGroupDelivery(duplicateGroup, token: opened, now: now) == .pending)
         try repository.delete(token.groupID, remaining: [])
+        #expect(repository.groupDeliveries.last?.state == .cancelled)
+        #expect(try repository.receiveGroupDelivery(duplicateGroup, token: opened, localDisplayName: "You", now: now) == nil)
         let after = try f.file.read()
-        try repository.receiveGroupDelivery(envelope, token: opened, localDisplayName: "You", now: Date().timeIntervalSince1970)
+        #expect(try repository.stageGroupDelivery(envelope, token: opened, now: now) == .received)
+        try repository.receiveGroupDelivery(envelope, token: opened, localDisplayName: "You", now: now)
         #expect(try f.file.read() == after)
+        #expect(repository.storedGroup(token.groupID) == nil)
+
+        let pending = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
+            recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
+        #expect(try repository.stageGroupDelivery(pending, token: opened, now: now) == .pending)
+        let pendingReference = try #require(repository.groupDeliveries.last?.credentialReference)
+        _ = try repository.removeUser(user.id)
+        #expect(f.keys.values[pendingReference] == nil)
+        #expect(repository.groupDeliveries.last?.state == .cancelled)
+        #expect(try repository.receiveGroupDelivery(pending, token: opened, localDisplayName: "You", now: now) == nil)
         #expect(repository.storedGroup(token.groupID) == nil)
     }
 
@@ -98,7 +127,7 @@ import Testing
             credentialReference: UUID(), nickname: person.resolvedDisplayName, personID: person.id)
         var old = GroupSnapshot(users: [person], contactInvitations: [record]); old.version = 10
         let upgraded = old.upgraded()
-        #expect(upgraded.version == 11 && upgraded.users == [person])
+        #expect(upgraded.version == 12 && upgraded.users == [person])
         #expect(upgraded.contactInvitations.first?.personID == person.id && upgraded.groupDeliveries.isEmpty)
     }
 

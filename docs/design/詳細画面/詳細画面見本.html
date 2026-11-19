@@ -585,7 +585,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="linkt">Invite</div></div>
         </div>
       </div></div>
-      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued、相手の保存後のACKでreceived。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。受信は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
+      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued、相手の仮保存後に受領確認が確定するとreceived。受取側の一覧は確定後に更新する。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。受信は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
     </figure>
 
     <figure id="group-settings">
@@ -608,7 +608,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="row" style="color:var(--err)">Delete Group</div></div>
         </div>
       </div></div>
-      <figcaption><b>Group Settingsの招待と配送記録</b>Add Membersは利用権があるときに出す。メンバーの行のEdit Nameは使える。Removeは有効な利用権があるときに出る。確認中に利用権が切れたらメンバーを保ち、利用権の確認を案内する。保存できたら受信箱に残る招待の取消が始まり、設定を閉じてよい。受信箱の確認までに取り消された招待は相手の取得結果から外れる。送信が遅れても、先に反映された取消を保つ。Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。</figcaption>
+      <figcaption><b>Group Settingsの招待と配送記録</b>Add Membersは利用権があるときに出す。メンバーの行のEdit Nameは使える。Removeは有効な利用権があるときに出る。確認中に利用権が切れたらメンバーを保ち、利用権の確認を案内する。保存できたら受信箱に残る招待の取消が始まり、設定を閉じてよい。受取確定より先に取り消した招待は、相手が取得を始めていても一覧に追加されない。送信が遅れても、先に反映された取消を保つ。Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。</figcaption>
     </figure>
     <figure id="group-contact-invitation-detail">
       <div class="phone tall"><div class="screen">

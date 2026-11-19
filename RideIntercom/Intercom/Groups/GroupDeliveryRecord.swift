@@ -14,12 +14,17 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     var direction: Direction = .outgoing
     var state: State = .pending
     var credentialReference: UUID?
+    var senderMemberID: String?
 
     var isValid: Bool {
         recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)
             && !recipientMemberID.hasPrefix(GroupMember.pendingInvitePrefix)
             && DeviceIdentityProof.isValidPublicKey(recipientKey) && expiresAt.isFinite && expiresAt > 0
-            && (direction != .incoming || (state == .received && credentialReference == nil))
+            && (direction != .incoming || state != .queued)
+            && (direction != .incoming || state != .pending || credentialReference != nil)
+            && (direction == .incoming && state == .pending
+                ? senderMemberID.map(IntercomGroup.isValidMemberID) == true
+                : senderMemberID == nil)
             && (state != .queued || credentialReference != nil)
             && (state != .received && state != .cancelled || credentialReference == nil)
     }

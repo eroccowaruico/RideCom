@@ -530,7 +530,7 @@
       }
     },
     "Added to group" : {
-      "extractionState" : "manual",
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -3120,6 +3120,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "招待を保存しました。準備ができたら再試行してください。"
+          }
+        }
+      }
+    },
+    "Invitation received" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受け取り済み"
           }
         }
       }

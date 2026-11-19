@@ -144,36 +144,72 @@ extension IntercomViewModel {
         }
         guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
         guard let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID) else { return }
-        // Match the Worker mailbox capacity; stop at empty or failure without polling.
+        // Resume locally saved work before reading new mail. An acknowledged packet
+        // can disappear from the mailbox even if its response never reached this device.
         for _ in 0..<64 {
-            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
-            let item: GroupDeliveryItem
-            do {
-                guard let value = try await client.nextGroupInvitation(recipientKey: signer.publicKey, access: access) else { break }
-                item = value
-            } catch { break }
-            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications else { return }
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications
+            else { return }
+            let pending = groupRepository.groupDeliveries.first {
+                $0.direction == .incoming && $0.state == .pending && $0.recipient == access.principal
+                    && $0.recipientMemberID == signer.memberID && $0.recipientKey == signer.publicKey
+            }
+            let item: GroupDeliveryItem?
+            if pending == nil {
+                do { item = try await client.nextGroupInvitation(recipientKey: signer.publicKey, access: access) }
+                catch { break }
+                guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications
+                else { return }
+            } else {
+                item = nil
+            }
+            guard let id = pending?.id ?? item?.requestID else { break }
+            let restored: GroupInvitationEnvelope?
+            do { restored = try pending.map { try groupRepository.groupDeliveryEnvelope($0.id) } }
+            catch { reportGroupStorageError(error); return }
             let envelope: GroupInvitationEnvelope, token: GroupInviteToken
             do {
-                guard let bytes = Data(base64Encoded: item.envelope), bytes.count <= 16384 else { throw InternetAccountClient.Failure.invalidResponse }
-                envelope = try JSONDecoder().decode(GroupInvitationEnvelope.self, from: bytes)
-                guard envelope.id == item.requestID, envelope.sender.userID == item.senderUserID,
-                      abs(envelope.expiresAt * 1000 - item.expiresAt) < 1,
-                      let user = savedRemoteUsers.first(where: { $0.principal == envelope.sender }) else { throw DeviceIdentityProof.Failure.invalid }
+                if let restored {
+                    envelope = restored
+                } else {
+                    guard let item, let bytes = Data(base64Encoded: item.envelope), bytes.count <= 16384
+                    else { throw InternetAccountClient.Failure.invalidResponse }
+                    envelope = try JSONDecoder().decode(GroupInvitationEnvelope.self, from: bytes)
+                }
+                guard envelope.id == id, item.map({
+                    envelope.sender.userID == $0.senderUserID && abs(envelope.expiresAt * 1000 - $0.expiresAt) < 1
+                }) ?? true, let user = savedRemoteUsers.first(where: { $0.principal == envelope.sender })
+                else { throw DeviceIdentityProof.Failure.invalid }
                 token = try envelope.open(recipient: signer, local: access.principal, sender: user, now: callAccessNow())
             } catch {
-                do { try await client.finishGroupInvitation(recipient: access.principal, id: item.requestID, discard: true, access: access) }
+                do { try groupRepository.cancelPendingGroupReceipt(id) }
+                catch { reportGroupStorageError(error); return }
+                do { try await client.finishGroupInvitation(recipient: access.principal, id: id, discard: true, access: access) }
                 catch { break } // Do not repeatedly fetch the same invalid packet after a failed discard.
                 continue
             }
+            let state: GroupDeliveryRecord.State
+            do { state = try groupRepository.stageGroupDelivery(envelope, token: token, now: callAccessNow().timeIntervalSince1970) }
+            catch { reportGroupStorageError(error); return }
+            let outcome: GroupDeliveryRecord.State?
             do {
-                try groupRepository.receiveGroupDelivery(envelope, token: token, localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
-                if groups.contains(where: { $0.id == token.groupID }) { refreshStoredAccountCall(token.groupID) }
-                else if let saved = groupRepository.storedGroup(token.groupID) { groups.insert(saved, at: 0) }
+                if state != .pending {
+                    try await client.finishGroupInvitation(recipient: access.principal, id: id, discard: state == .cancelled, access: access)
+                    continue
+                }
+                outcome = try await client.acknowledgeGroupInvitation(id, access: access)
+            } catch { break } // The ciphertext stays committed for the next lifecycle event.
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications
+            else { return }
+            do {
+                let now = callAccessNow().timeIntervalSince1970
+                if outcome != .received || envelope.expiresAt <= now {
+                    try groupRepository.cancelPendingGroupReceipt(id)
+                } else if let saved = try groupRepository.receiveGroupDelivery(envelope, token: token, localDisplayName: localMemberIdentity.displayName, now: now) {
+                    if groups.contains(where: { $0.id == saved.id }) { refreshStoredAccountCall(saved.id) }
+                    else { groups.insert(saved, at: 0) }
+                }
                 refreshGroupStorageStatus()
             } catch { reportGroupStorageError(error); return }
-            do { try await client.finishGroupInvitation(recipient: access.principal, id: item.requestID, access: access) }
-            catch { break } // A repeated packet finds the persisted receipt without recreating the group.
         }
         refreshGroupStorageStatus()
     }

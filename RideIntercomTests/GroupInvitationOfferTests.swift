@@ -14,6 +14,8 @@ import Testing
             expiresAt: now.addingTimeInterval(3600).timeIntervalSince1970)
         let envelope = try GroupInvitationEnvelope.seal(token, sender: a.principal, recipient: b.principal,
             recipientMemberID: b.memberID, recipientKey: b.signer.publicKey, signer: a.signer, now: now)
+        #expect(try h.viewModel.groupRepository.stageGroupDelivery(envelope, token: token, now: now.timeIntervalSince1970) == .pending)
+        #expect(h.viewModel.groupTabInvitationOffer == nil)
         try h.viewModel.groupRepository.receiveGroupDelivery(envelope, token: token, localDisplayName: "Me", now: now.timeIntervalSince1970)
         let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(h.groupStore.snapshot)) as? [String: Any])
         let record = try #require((object["groups"] as? [[String: Any]])?.first)
