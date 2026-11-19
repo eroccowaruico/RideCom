@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 13
+    static let currentVersion = 14
     struct RemovedMember: Codable, Equatable {
         var memberIDs: Set<String>
         let principal: AccountPrincipal?
@@ -32,6 +32,7 @@ struct GroupSnapshot: Codable, Equatable {
         var kind: IntercomGroup.Kind?
         var accountPair: AccountCallPair?
         var accountDevices: [String: AccountDeviceBinding] = [:]
+        var invitationDeviceKeys: [String: String]?
         var pendingInvitation: DirectInvitationReceipt?
         var receivedInvitationIDs: [UUID] = []
         var lastSponsoredStart: TimeInterval?
@@ -51,7 +52,7 @@ struct GroupSnapshot: Codable, Equatable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, lastSponsoredStart, joinedByInvitation, groupTabOfferAcknowledged, removedMembers
+            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, invitationDeviceKeys, lastSponsoredStart, joinedByInvitation, groupTabOfferAcknowledged, removedMembers
         }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -62,6 +63,7 @@ struct GroupSnapshot: Codable, Equatable {
             kind = try values.decodeIfPresent(IntercomGroup.Kind.self, forKey: .kind)
             accountPair = try values.decodeIfPresent(AccountCallPair.self, forKey: .accountPair)
             accountDevices = try values.decodeIfPresent([String: AccountDeviceBinding].self, forKey: .accountDevices) ?? [:]
+            invitationDeviceKeys = try values.decodeIfPresent([String: String].self, forKey: .invitationDeviceKeys)
             pendingInvitation = try values.decodeIfPresent(DirectInvitationReceipt.self, forKey: .pendingInvitation)
             receivedInvitationIDs = try values.decodeIfPresent([UUID].self, forKey: .receivedInvitationIDs) ?? []
             lastSponsoredStart = try values.decodeIfPresent(TimeInterval.self, forKey: .lastSponsoredStart)
@@ -71,6 +73,29 @@ struct GroupSnapshot: Codable, Equatable {
         }
         func group() throws -> IntercomGroup {
             try IntercomGroup(id: id, name: name, members: members.map { GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName) }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
+        }
+
+        func matchesInvitationDeviceKey(_ key: String, for memberID: String) -> Bool {
+            invitationDeviceKeys?[memberID].map { $0 == key } ?? true
+        }
+
+        mutating func rememberInvitationDevice(_ identity: VerifiedDeviceProof) throws {
+            let memberID = identity.memberID
+            guard kind == .group, members.contains(where: { $0.id == memberID }) else { return }
+            guard matchesInvitationDeviceKey(identity.publicKey, for: memberID),
+                  accountDevices[memberID].map({ $0.publicKey == identity.publicKey }) ?? true else {
+                throw GroupStorageError.identityConflict
+            }
+            var keys = invitationDeviceKeys ?? [:]
+            keys[memberID] = identity.publicKey
+            invitationDeviceKeys = keys
+        }
+
+        mutating func discardInvitationKeysForDepartedMembers() {
+            guard let invitationDeviceKeys else { return }
+            let memberIDs = Set(members.map(\.id))
+            let remaining = invitationDeviceKeys.filter { memberIDs.contains($0.key) }
+            self.invitationDeviceKeys = remaining.isEmpty ? nil : remaining
         }
     }
     var version = Self.currentVersion
@@ -181,6 +206,14 @@ struct GroupSnapshot: Codable, Equatable {
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {
             _ = try record.group()
+            if let keys = record.invitationDeviceKeys {
+                let memberIDs = Set(record.members.map(\.id))
+                guard version >= 14, record.kind == .group, !keys.isEmpty, keys.allSatisfy({ memberID, key in
+                    memberIDs.contains(memberID) && !memberID.hasPrefix(GroupMember.pendingInvitePrefix)
+                        && DeviceIdentityProof.isValidPublicKey(key)
+                        && (record.accountDevices[memberID].map { $0.publicKey == key } ?? true)
+                }) else { throw IntercomGroupError.invalidStoredGroups }
+            }
             if let removed = record.removedMembers, !removed.isEmpty {
                 guard version >= 13, record.kind == .group, removed.allSatisfy(\.isValid),
                       !record.members.contains(where: { member in

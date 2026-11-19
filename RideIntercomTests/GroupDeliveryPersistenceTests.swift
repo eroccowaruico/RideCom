@@ -22,6 +22,23 @@ import Testing
     private let author = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "a", count: 64))
     private let recipient = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "b", count: 64))
 
+    @Test func legacyGroupKeepsItsRosterWithoutInventingAnInvitationKey() throws {
+        let group = try IntercomGroup(name: "Friends", members: [
+            .init(id: "local", displayName: "You"), .init(id: "friend", displayName: "Friend"),
+        ])
+        var legacy = GroupSnapshot(groups: [.init(group, credentialReference: UUID())])
+        legacy.version = 13
+        var upgraded = try GroupSnapshot.decode(legacy.encoded()).upgraded()
+        #expect(upgraded.version == 14)
+        #expect(upgraded.groups == legacy.groups)
+        #expect(upgraded.groups[0].invitationDeviceKeys == nil)
+        let key = testIdentitySigner("friend").publicKey
+        upgraded.groups[0].invitationDeviceKeys = ["friend": key]
+        #expect(try GroupSnapshot.decode(upgraded.encoded()).groups[0].invitationDeviceKeys == ["friend": key])
+        upgraded.groups[0].invitationDeviceKeys = ["unknown": key]
+        #expect(throws: IntercomGroupError.invalidStoredGroups) { try upgraded.encoded() }
+    }
+
     @Test func groupAndOutboxCommitTogetherAndDeletionReclaimsThePreparedPacket() throws {
         let f = try GroupStorageFixture(); defer { f.remove() }
         let a = testIdentitySigner("local"), b = testIdentitySigner("friend")
@@ -91,6 +108,7 @@ import Testing
         #expect(try repository.credential(for: token.groupID)?.secret == token.groupSecret)
         #expect(repository.groupDeliveries.first?.direction == .incoming && repository.groupDeliveries.first?.state == .received)
         #expect(!repository.ownsGroup(token.groupID) && repository.users == [user])
+        #expect(try f.file.read()?.groups.first?.invitationDeviceKeys == ["sender": a.publicKey])
         let conflict = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a, groupID: token.groupID, groupName: token.groupName,
             groupSecret: "conflicting-key", inviterMemberID: "sender")
         let packet = try GroupInvitationEnvelope.seal(conflict, sender: author, recipient: recipient,
@@ -127,7 +145,7 @@ import Testing
             credentialReference: UUID(), nickname: person.resolvedDisplayName, personID: person.id)
         var old = GroupSnapshot(users: [person], contactInvitations: [record]); old.version = 10
         let upgraded = old.upgraded()
-        #expect(upgraded.version == 13 && upgraded.users == [person])
+        #expect(upgraded.version == GroupSnapshot.currentVersion && upgraded.users == [person])
         #expect(upgraded.contactInvitations.first?.personID == person.id && upgraded.groupDeliveries.isEmpty)
     }
 

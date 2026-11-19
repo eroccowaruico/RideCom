@@ -260,9 +260,11 @@ struct RegularGroupRepresentativeTests {
             groupName: "Friends", groupSecret: "replacement-key", inviterMemberID: "phone", inviterDisplayName: "Person")
         vm.disconnect(); try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         let user = try #require(vm.savedRemoteUsers.first)
+        #expect(f.h.groupStore.snapshot.groups.first?.invitationDeviceKeys == ["phone": first.publicKey])
         #expect(vm.renameSavedUser(user.id, displayName: "Friend"))
         f.h.callSession.authenticate(["phone"]); try f.deliver(first)
         f.h.callSession.authenticate(["tablet"]); try f.deliver(second)
+        #expect(f.h.groupStore.snapshot.groups.first?.invitationDeviceKeys == nil)
         #expect(vm.groups[0].members.first { $0.id == "tablet" }?.resolvedDisplayName == "Friend")
         #expect(vm.availableUsers(for: f.groupID).isEmpty)
         #expect(vm.renameSavedUser(user.id, displayName: "Nickname"))
@@ -276,6 +278,66 @@ struct RegularGroupRepresentativeTests {
         #expect(vm.groups[0].members.first { $0.id == "tablet" }?.localName == "Nickname")
         #expect(!vm.startCall(to: .user(user.id), accountAccessID: vm.accountAccessID))
         #expect(vm.endCall(reference))
+    }
+
+    enum InvitationKeySource: String, CaseIterable { case groupLink, namedLink, namedReply }
+
+    @Test(arguments: InvitationKeySource.allCases, [RouteKind.multipeer, .webRTC])
+    func acceptedInvitationProtectsTheGroupMemberKeyAfterContactDeletion(source: InvitationKeySource, route: RouteKind) throws {
+        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "inviter")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "invitee")
+        let a = author.viewModel, b = recipient.viewModel
+        a.contactSessionFactory = { RecordingCallSession() }
+        b.contactSessionFactory = { RecordingCallSession() }
+        defer { a.stopContactInvitationSession(); b.stopContactInvitationSession(); a.disconnect(); b.disconnect() }
+        #expect(a.createTalkGroup(name: "Friends"))
+        let groupID = try #require(a.selectedGroup?.id)
+        if source == .groupLink {
+            try b.acceptInviteURL(try #require(a.makeSelectedGroupInviteURL()))
+        } else {
+            let draft = GroupInvitationDraft(name: "Friend", suggestedName: "Friend")
+            #expect(a.saveGroupInvitations(groupID: groupID, creating: false, name: "", selected: [], newPeople: [draft]) == groupID)
+            let share = try a.prepareContactPersonShare(draft.id, expectedAccountAccessID: a.accountAccessID)
+            try b.acceptContactInviteURL(share.url)
+            b.stopContactInvitationSession()
+            if source == .namedReply {
+                try a.receiveContactReplyURL(b.contactReplyURLForSharing(share.id, expectedAccountAccessID: b.accountAccessID))
+            }
+        }
+
+        let vm = source == .namedReply ? a : b
+        let peer = source == .namedReply ? b : a
+        let peerID = peer.localMemberIdentity.memberID
+        let signer = try peer.internetSettingsStore.invitationSigner(memberID: peerID)
+        #expect(signer.principal == nil)
+        let replacement = try DeviceIdentitySigner(memberID: peerID, key: P256.Signing.PrivateKey())
+        let contact = try #require(vm.savedRemoteUsers.first { $0.memberIDs.contains(peerID) })
+        let credential = try vm.groupRepository.credential(for: groupID)
+        #expect(vm.removeSavedUser(contact.id))
+        vm.stopContactInvitationSession()
+        vm.disconnect()
+        vm.reloadSavedGroups()
+        vm.selectGroup(try #require(vm.groups.first { $0.id == groupID }))
+
+        func connect(_ signer: DeviceIdentitySigner, name: String) throws {
+            vm.handleTransportEvent(.authenticated(members: [
+                .init(peer: .init(id: .init(rawValue: peerID), displayName: "Rider"),
+                      route: route, isConnected: true, membershipID: UUID())
+            ]))
+            let profile = try testPeerProfile(vm, peerID: peerID, displayName: name, revision: 1, signer: signer)
+            vm.handleTransportEvent(.receivedApplicationData(peerID: peerID,
+                message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))))
+        }
+
+        try connect(replacement, name: "Other identity")
+        #expect(vm.peerProfiles[peerID]?.verified == nil)
+        #expect(!vm.callAccessAdmittedMemberships.keys.contains(.init(rawValue: peerID)))
+        try connect(signer, name: "Original identity")
+        #expect(vm.peerProfiles[peerID]?.verified?.identity.publicKey == signer.publicKey)
+        #expect(vm.callAccessAdmittedMemberships.keys.contains(.init(rawValue: peerID)))
+        #expect(vm.groupRepository.storedGroup(groupID)?.members.contains { $0.id == peerID && $0.displayName == "Original identity" } == true)
+        #expect(try vm.groupRepository.credential(for: groupID) == credential)
+        #expect(vm.savedRemoteUsers.isEmpty)
     }
 
     @Test func failedReplacementSaveKeepsOldBindingAndDoesNotAdmitNewAudio() throws {

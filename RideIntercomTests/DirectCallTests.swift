@@ -198,6 +198,8 @@ struct DirectCallTests {
         try JSONSerialization.data(withJSONObject: json).write(to: f.file.url)
         #expect(throws: (any Error).self) { try f.restart().load(localMemberID: "local") }
         json["version"] = 2
+        records[0].removeValue(forKey: "invitationDeviceKeys")
+        json["groups"] = records
         let old = try JSONSerialization.data(withJSONObject: json)
         try old.write(to: f.file.url)
         f.store.failCommit = true
@@ -208,7 +210,7 @@ struct DirectCallTests {
         #expect(try restarted.load(localMemberID: "local").first?.kind == .group)
         #expect(restarted.users == users)
         #expect(try restarted.credential(for: group.id)?.secret == "key")
-        #expect(try f.file.read()?.version == 13)
+        #expect(try f.file.read()?.version == GroupSnapshot.currentVersion)
     }
 
     @Test func tamperedRecipientOrGroupKindCannotReinterpretExistingCall() throws {

@@ -315,15 +315,19 @@ struct AccountDirectCallTests {
         try f.introduce(b, to: a)
         var old = a.groupStore.snapshot
         old.version = 5
-        for index in old.groups.indices { old.groups[index].accountDevices = [:] }
+        for index in old.groups.indices {
+            old.groups[index].accountDevices = [:]
+            old.groups[index].invitationDeviceKeys = nil
+        }
         let receipt = try #require(old.groups.first?.pendingInvitation)
         let upgraded = try GroupSnapshot.decode(old.encoded()).upgraded()
-        #expect(upgraded.version == 13)
+        #expect(upgraded.version == GroupSnapshot.currentVersion)
         #expect(upgraded.groups.first?.pendingInvitation == receipt)
         #expect(upgraded.groups.first?.credentialReference == old.groups.first?.credentialReference)
         #expect(upgraded.users == old.users)
         #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
         var invalid = a.groupStore.snapshot; invalid.version = 5
+        for index in invalid.groups.indices { invalid.groups[index].invitationDeviceKeys = nil }
         #expect(throws: (any Error).self) { try invalid.encoded() }
     }
 

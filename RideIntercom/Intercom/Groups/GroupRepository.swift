@@ -230,7 +230,8 @@ final class GroupRepository {
         let name = profile.displayName, memberID = profile.identity.memberID, groupID = profile.groupID
         guard let snapshot else { throw IntercomGroupError.storageUnavailable }
         guard memberID != localMemberID, IntercomGroup.isValidName(name),
-              let index = snapshot.groups.firstIndex(where: { $0.id == groupID }) else { return false }
+              let index = snapshot.groups.firstIndex(where: { $0.id == groupID }),
+              snapshot.groups[index].matchesInvitationDeviceKey(profile.identity.publicKey, for: memberID) else { return false }
         var groups = try snapshot.groups.map { try $0.group() }
         var users = snapshot.users
         var principal = profile.identity.principal
@@ -356,6 +357,7 @@ final class GroupRepository {
             next.groups[index].members = GroupSnapshot.Record(group).members
             next.groups[index].accountDevices = group.accountDevices
         }
+        try next.groups[index].rememberInvitationDevice(accepted.inviter)
         next.groups[index].pendingInvitation = receipt
     }
 
@@ -373,6 +375,7 @@ final class GroupRepository {
         try amend(snapshot) { next in
             guard let index = next.groups.firstIndex(where: { $0.id == receipt.groupID }) else { throw GroupStorageError.invalidUpdate }
             try next.remember(.init(id: receipt.inviteeMemberID, displayName: receipt.displayName), identity: verified.identity)
+            try next.groups[index].rememberInvitationDevice(verified.identity)
             next.groups[index].receivedInvitationIDs.append(receipt.id)
         }
     }
@@ -414,10 +417,12 @@ final class GroupRepository {
             record.joinedByInvitation = old?.joinedByInvitation
             record.groupTabOfferAcknowledged = old?.groupTabOfferAcknowledged
             record.removedMembers = old?.removedMembers
+            record.invitationDeviceKeys = old?.invitationDeviceKeys
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations, groupDeliveries: previous.groupDeliveries)
         try modify(&next)
         reconcileInvitations(in: &next)
+        for index in next.groups.indices { next.groups[index].discardInvitationKeysForDepartedMembers() }
         next.synchronizeUserReferences()
         do { _ = try next.encoded() }
         catch { throw GroupStorageError.invalidUpdate }
@@ -617,7 +622,7 @@ extension GroupRepository {
     }
 
     func stageGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, now: TimeInterval) throws -> GroupDeliveryRecord.State {
-        let (_, _, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now)
+        let (_, identity, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now)
         let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id })
         if let old {
             guard old.direction == .incoming, old.groupID == token.groupID, old.recipient == envelope.recipient,
@@ -627,7 +632,7 @@ extension GroupRepository {
         }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == token.groupID })
-        if let existing, try !matchesSavedGroup(target, kind: existing.kind ?? .group) {
+        if let existing, try !matchesGroupDelivery(target, sender: identity, existing: existing) {
             if old != nil { try cancelPendingGroupReceipt(envelope.id) }
             return .cancelled
         }
@@ -657,7 +662,7 @@ extension GroupRepository {
         else { throw GroupStorageError.invalidUpdate }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == target.id })
-        if let existing, try !matchesSavedGroup(target, kind: existing.kind ?? .group) {
+        if let existing, try !matchesGroupDelivery(target, sender: identity, existing: existing) {
             // A manual join or local save can race with the Worker receipt.
             try cancelPendingGroupReceipt(envelope.id)
             return nil
@@ -667,11 +672,14 @@ extension GroupRepository {
         let groups = newGroup ? try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: user.displayName),
             identity: identity, localDisplayName: localDisplayName, groups: previous) : previous
         try update(groups, credential: newGroup ? .init(groupID: token.groupID, secret: token.groupSecret) : nil) { next in
-            if newGroup, let index = next.groups.firstIndex(where: { $0.id == token.groupID }) {
-                next.groups[index].joinedByInvitation = true
-                next.groups[index].groupTabOfferAcknowledged = false
-                next.groups[index].accountDevices[localMemberID] = .init(principal: envelope.recipient, publicKey: envelope.recipientKey)
-                next.groups[index].accountDevices[envelope.senderMemberID] = .init(principal: envelope.sender, publicKey: identity.publicKey)
+            if let groupIndex = next.groups.firstIndex(where: { $0.id == token.groupID }) {
+                if newGroup {
+                    next.groups[groupIndex].joinedByInvitation = true
+                    next.groups[groupIndex].groupTabOfferAcknowledged = false
+                    next.groups[groupIndex].accountDevices[localMemberID] = .init(principal: envelope.recipient, publicKey: envelope.recipientKey)
+                    next.groups[groupIndex].accountDevices[envelope.senderMemberID] = .init(principal: envelope.sender, publicKey: identity.publicKey)
+                }
+                try next.groups[groupIndex].rememberInvitationDevice(identity)
             }
             next.groupDeliveries[index].state = .received
             next.groupDeliveries[index].credentialReference = nil
@@ -716,10 +724,12 @@ extension GroupRepository {
         let joiningGroups = try groupsByJoining(token.invitedGroup, inviter: inviter, identity: accepted.inviter, localDisplayName: localDisplayName, groups: call.groups)
         let keys = token.invitedGroup.map { [GroupAccessCredential(groupID: $0.id, secret: $0.secret)] } ?? []
         try update(joiningGroups, credential: call.credential, additionalCredentials: keys) { next in
-            if let target = token.invitedGroup, !snapshot.groups.contains(where: { $0.id == target.id }),
-               let index = next.groups.firstIndex(where: { $0.id == target.id }) {
-                next.groups[index].joinedByInvitation = true
-                next.groups[index].groupTabOfferAcknowledged = false
+            if let target = token.invitedGroup, let index = next.groups.firstIndex(where: { $0.id == target.id }) {
+                if !snapshot.groups.contains(where: { $0.id == target.id }) {
+                    next.groups[index].joinedByInvitation = true
+                    next.groups[index].groupTabOfferAcknowledged = false
+                }
+                try next.groups[index].rememberInvitationDevice(accepted.inviter)
             }
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
             try next.remember(inviter, identity: accepted.inviter)
@@ -788,6 +798,7 @@ extension GroupRepository {
                     next.groups[groupIndex].members[slot] = .init(id: recipient.id, displayName: recipient.displayName)
                     if let principal = verified.identity.principal { next.groups[groupIndex].accountDevices[recipient.id] = .init(principal: principal, publicKey: verified.identity.publicKey) }
                 }
+                try next.groups[groupIndex].rememberInvitationDevice(verified.identity)
             }
             next.contactInvitations[index].credentialReference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations[index].state = .confirmed
@@ -817,6 +828,12 @@ extension GroupRepository {
         // A missing or unreadable local credential may be recoverable.
         guard let saved = try credential(for: target.id) else { throw GroupStorageError.identityConflict }
         return saved.secret == target.secret
+    }
+
+    private func matchesGroupDelivery(_ target: ContactGroupInvitation, sender: VerifiedDeviceProof, existing: GroupSnapshot.Record) throws -> Bool {
+        guard existing.matchesInvitationDeviceKey(sender.publicKey, for: sender.memberID),
+              existing.accountDevices[sender.memberID].map({ $0.publicKey == sender.publicKey }) ?? true else { return false }
+        return try matchesSavedGroup(target, kind: existing.kind ?? .group)
     }
 
     private func reconcileInvitations(in next: inout GroupSnapshot) {

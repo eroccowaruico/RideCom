@@ -64,7 +64,7 @@ struct ContactPersonTests {
         var old = h.groupStore.snapshot
         old.version = 9
         let upgraded = try GroupSnapshot.decode(old.encoded()).upgraded()
-        #expect(upgraded.version == 13 && upgraded.contactInvitations.count == 2)
+        #expect(upgraded.version == GroupSnapshot.currentVersion && upgraded.contactInvitations.count == 2)
         #expect(upgraded.users.count == 2 && Set(upgraded.users.map(\.id)).count == 2)
         #expect(upgraded.contactInvitations.allSatisfy { $0.personID != nil })
         _ = try upgraded.encoded()
