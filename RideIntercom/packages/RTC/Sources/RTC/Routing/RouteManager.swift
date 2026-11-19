@@ -206,7 +206,8 @@ public actor RouteManager: CallSession {
                 await broadcast(.presence)
             } else if state == .failed || state == .disconnected {
                 availableRoutes.remove(kind); routeMembers[kind] = []
-                if started.contains(kind), !blocked.contains(kind) {
+                // Several state events can report the same outage while a retry is already scheduled.
+                if started.contains(kind), !blocked.contains(kind), retries[kind]?.deadline.isFinite != true {
                     retries[kind] = ConnectionRetry(after: retries[kind],
                         at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
                 }

@@ -497,17 +497,21 @@ private actor ReceivedPackets {
     await manager.stopConnection()
 }
 
-@Test func pendingRouteRetryIsNotTornDownEveryRetryInterval() async throws {
-    let route = FakeRoute(kind: .multipeer)
-    let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute)
+@Test(arguments: [RouteKind.multipeer, .webRTC])
+func routeRetryWaitsOnceAndLetsTheNextAttemptFinish(kind: RouteKind) async throws {
+    let route = FakeRoute(kind: kind)
+    let configuration = CallRouteConfiguration(enabledRoutes: [kind], preferredRoute: kind, selectionMode: .singleRoute)
     let manager = RouteManager(routes: [route], configuration: configuration)
     await manager.prepare(makeRequest(configuration: configuration))
     await manager.startConnection()
-    route.yield(.stateChanged(.multipeer, .failed))
-    let deadline = ContinuousClock.now.advanced(by: .seconds(4))
-    while route.prepareCount < 2 && ContinuousClock.now < deadline {
+    route.yield(.stateChanged(kind, .failed))
+    route.yield(.stateChanged(kind, .disconnected))
+    // Both events came from the same attempt, so the first two-second delay still applies.
+    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+    while route.startConnectionCount < 2 && ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(20))
     }
+    #expect(route.startConnectionCount == 2)
     #expect(route.prepareCount == 2)
     // An in-flight attempt must survive the previous two-second retry interval.
     try await Task.sleep(for: .milliseconds(2300))
