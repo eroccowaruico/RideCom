@@ -57,7 +57,7 @@ VoiceProcessingIOについて、このE2Eが保証するのは有効化・無効
 
 受信観測は`processReceivedAudio`境界で本番の`AppAudioPipeline.processReceivedAudioPacket`を一度だけ呼び、その戻りPCMを保存する。途中から別decoderを起動して復号を重複実行しない。UIの受信通知・音量表示は通常どおり流し、観測のために音声をMainActorへ戻さない。
 
-連続性不合格でも残りの設定区間を測定してWAVとJSONを保存し、最後にテストを失敗させる。接続喪失や処理不能はその時点で失敗する。保存WAVは判定に使った同じsnapshotから書き出す。
+連続性不合格でも残りの設定区間を測定してWAVとJSONを保存し、最後にテストを失敗させる。受話を期待する区間で連続性が不合格の場合は、最終出力の `speech` に加え、実際に取得できた復号直後の `decoded` と受信ミキサー直後の `mixed` のWAVを保存する。それぞれJSONの時計と照合できる。接続喪失や処理不能はその時点で失敗する。保存WAVは判定に使った同じsnapshotから書き出す。
 
 ```sh
 python3 scripts/audio_e2e.py --matrix identity --speech-pair english
@@ -105,7 +105,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 | configuration.json / scenarios.json | run識別子、入力境界、通信経路、設定区間 |
 | source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含め、buildから受入までにsourceが変わると失敗扱い |
 | local-mac.xcresult / local-ios.xcresult / webrtc-mac.xcresult / webrtc-ios.xcresult | 通信経路・端末別の独立したXCTest結果 |
-| attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、終了時の状態 |
+| attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性不合格時の復号・ミキサーWAV、終了時の状態 |
 | simulator-id.txt | 実行に使用した端末の識別子 |
 
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。

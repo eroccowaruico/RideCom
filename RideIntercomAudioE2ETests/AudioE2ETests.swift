@@ -609,11 +609,12 @@ final class AudioE2ETests: XCTestCase {
             if let replies, !replies.passed { continuityFailures.append("\(scenario.id): short reply identity failed: \(replies)") }
             XCTAssertLessThanOrEqual(peak, 1.001, "Limiter must bound the actual output")
             let report = viewModel.audioPipeline.codecRuntimeReport
+            let continuityPassed = continuity.passed && continuity.missingActiveRatio == 0 && (replies?.passed ?? true)
             let measurement: [String: Any] = ["scenario": scenario.id, "role": role, "transport": transport,
                 "localFixture": localFixture, "remoteFixture": remoteFixture,
                 "localFixtureDurationSeconds": Double(input.samples.count) / 48_000,
                 "continuity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(continuity)),
-                "continuityPassed": continuity.passed && continuity.missingActiveRatio == 0 && (replies?.passed ?? true),
+                "continuityPassed": continuityPassed,
                 "acknowledgements": try replies.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull(),
                 "outputPlaybackResets": playbackResets,
                 "firstCaptureHostTime": firstCapture as Any? ?? NSNull(),
@@ -640,11 +641,19 @@ final class AudioE2ETests: XCTestCase {
             let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement, options: [.sortedKeys]),
                 uniformTypeIdentifier: "public.json")
             attachment.name = "endpoint-\(role)-\(scenario.id)-measurement"; attachment.lifetime = .keepAlways; add(attachment)
-            let renderedURL = directory.appendingPathComponent("rendered-\(role)-\(scenario.id).wav")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try await Task.detached { try probe.writeWAV(to: renderedURL, rendered: rendered) }.value
-            let recording = XCTAttachment(contentsOfFile: renderedURL)
-            recording.name = "endpoint-\(role)-\(scenario.id)-speech"; recording.lifetime = .keepAlways; add(recording)
+            var recordings = [("speech", rendered)]
+            if !scenario.expectsSilence && !continuityPassed {
+                recordings.append(("decoded", decodedRecording))
+                recordings.append(("mixed", mixedRecording))
+            }
+            for (stage, snapshot) in recordings where !snapshot.samples.isEmpty {
+                let name = "endpoint-\(role)-\(scenario.id)-\(stage)"
+                let url = directory.appendingPathComponent("\(name).wav")
+                try await Task.detached { try probe.writeWAV(to: url, rendered: snapshot) }.value
+                let recording = XCTAttachment(contentsOfFile: url)
+                recording.name = name; recording.lifetime = .keepAlways; add(recording)
+            }
             if scenario.expectsSilence {
                 XCTAssertLessThan(peak, 0.001, "\(scenario.id) must silence the actual render output")
             } else {
