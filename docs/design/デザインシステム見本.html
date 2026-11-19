@@ -133,6 +133,8 @@ th { font-size: 11.5px; color: var(--label2); font-weight: 600; }
 .srow { display: grid; grid-template-columns: 74px 1fr auto; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--sep); font-size: 12px; align-items: baseline; }
 .srow .k { color: var(--label2); }
 .nest { margin: 2px 0 4px 10px; padding-left: 8px; border-left: 1.5px solid var(--sep); font-size: 11.5px; }
+.effect-example { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.effect-example span { white-space: nowrap; }
 .tree { position: relative; padding-left: 14px; display: grid; gap: 6px; }
 .tree::before { content: ""; position: absolute; left: 5px; top: 12px; bottom: 16px; border-left: 2px solid var(--accent); opacity: .55; }
 .tree > div { position: relative; }
@@ -446,13 +448,13 @@ th { font-size: 11.5px; color: var(--label2); font-weight: 600; }
     <div><div class="panel" style="width:330px">
       <div class="srow"><span class="k"><span class="d ok"></span> Input</span><span>AirPods Pro · 48 kHz mono</span><span><b>48,000</b> frames/s</span></div>
       <div class="srow" style="border:0"><span class="k"><span class="d ok"></span> TX Bus</span><span><code>tx-bus</code> · 3 effects</span><span></span></div>
-      <div class="nest">SoundIsolation <span style="float:right"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:1px"></span>active</span><br>PeakLimiter <span style="float:right"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:1px"></span>active</span></div>
-    </div><div class="cap"><b>段の行</b>段名（＋ID）／状態／値／毎秒値。中身は左線付きの入れ子。</div></div>
-    <div><div class="panel" style="width:300px"><div class="tree">
-      <div class="card" style="border:1px solid var(--sep);padding:6px 9px;font-size:12px"><span class="d ok"></span> <b>Haruka</b> <span class="sub">Local · direct</span></div>
-      <div class="card" style="border:1px solid var(--sep);padding:6px 9px;font-size:12px"><span class="d warn"></span> <b>Kenta</b> <span class="sub">Relayed</span></div>
+      <div class="nest"><div class="effect-example"><b>SoundIsolation</b><span><span style="color:var(--green)" aria-hidden="true">✓</span> active</span></div><div class="effect-example"><b>PeakLimiter</b><span><span style="color:var(--green)" aria-hidden="true">✓</span> active</span></div></div>
+    </div><div class="cap"><b>段の行</b>段名（＋ID）／状態／値／毎秒値。幅が狭いとeffect名と状態を縦に並べ、大きい文字ではeffectを1列にする。</div></div>
+    <div><div class="panel" style="width:300px"><div class="sub" style="margin-bottom:6px">Yu · Offline</div><div class="tree">
+      <div class="card" style="border:1px solid var(--sep);padding:6px 9px;font-size:12px"><span class="d ok"></span> <b>Haruka</b> <span class="sub">Passing</span></div>
+      <div class="card" style="border:1px solid var(--sep);padding:6px 9px;font-size:12px"><span class="d warn"></span> <b>Kenta</b> <span class="sub">Waiting</span></div>
       <div class="merge">Mix Down<span>2 routes → rx-master</span></div>
-    </div></div><div class="cap"><b>合流する木</b>相手ごとのブロックを左の線でMix Downへまとめる。</div></div>
+    </div></div><div class="cap"><b>合流する木</b>経路のある相手を左の線でつなぎ、Mix Downで線を終える。</div></div>
   </div>
 
   <!-- アイコン -->

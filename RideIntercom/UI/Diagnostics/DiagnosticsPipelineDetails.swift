@@ -44,19 +44,20 @@ struct DiagnosticsReceiveDetails: View {
             if states.isEmpty {
                 CompactPipelineStepRow(step: presentation.receiveMixStep)
             } else {
-                VStack(alignment: .leading, spacing: AppSpacing.m) {
-                    ForEach(members.filter { states[$0.id] != nil }) { member in
-                        branch { participant(member, state: states[member.id]) }
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: AppSpacing.m) {
+                        ForEach(members.filter { states[$0.id] != nil }) { member in
+                            branch { participant(member, state: states[member.id]) }
+                        }
+                    }
+                    .padding(.bottom, AppSpacing.m)
+                    .overlay(alignment: .leading) {
+                        connectionLine.frame(width: 1).padding(.top, AppSpacing.m)
                     }
                     branch { CompactPipelineStepRow(step: presentation.receiveMixStep) }
-                }
-                .overlay(alignment: .leading) {
-                    Color.accentColor.opacity(0.55)
-                        .frame(width: 1)
-                        .padding(.top, AppSpacing.m)
-                        .padding(.bottom, AppSpacing.l)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                        .overlay(alignment: .topLeading) {
+                            connectionLine.frame(width: 1, height: AppSpacing.m)
+                        }
                 }
             }
         }
@@ -65,15 +66,19 @@ struct DiagnosticsReceiveDetails: View {
         .accessibilityIdentifier("diagnosticsReceiveDetails")
     }
 
+    private var connectionLine: some View {
+        Color.accentColor.opacity(0.55)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
     private func branch<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(.leading, AppSpacing.l + AppSpacing.xs)
             .overlay(alignment: .topLeading) {
-                Color.accentColor.opacity(0.55)
+                connectionLine
                     .frame(width: AppSpacing.l, height: 1)
                     .padding(.top, AppSpacing.m)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
             }
     }
 

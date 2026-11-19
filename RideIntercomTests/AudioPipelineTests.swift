@@ -650,6 +650,7 @@ struct AudioPipelineTests {
         defer { pipeline.stop() }
         let model = AppTestSupport.makeHarness().viewModel
         model.isAudioReady = true
+        model.masterOutputVolume = 2
         model.authenticatedPeerIDs = ["a", "b"]
         model.selectedGroup = try IntercomGroup(name: "RX mix", members: [
             GroupMember(id: "local", displayName: "Local"),

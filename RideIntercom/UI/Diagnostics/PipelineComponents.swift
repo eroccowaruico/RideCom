@@ -180,29 +180,33 @@ struct CompactPipelineStepRow: View {
 }
 
 struct CompactEffectChainGroup: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let step: PipelineStep
     let title: String
     let accessibilityIdentifier: String
     let stageIdentifierPrefix: String
     let stages: [EffectChainStage]
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 124), spacing: AppSpacing.xs, alignment: .top)
-    ]
+    private var columns: [GridItem] {
+        [GridItem(dynamicTypeSize.isAccessibilitySize ? .flexible() : .adaptive(minimum: 124),
+            spacing: AppSpacing.xs, alignment: .top)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
             CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(accessibilityIdentifier)-summary")
 
             VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
-                    Text(title)
-                        .font(AppTypography.caption2)
-                        .foregroundStyle(AppColorPalette.textTertiary)
-
-                    Text("\(stages.count) stages")
-                        .font(AppTypography.caption2Mono)
-                        .foregroundStyle(AppColorPalette.textPrimary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                        chainName
+                        stageCount
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                        chainName
+                        stageCount
+                    }
                 }
 
                 LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.xs) {
@@ -212,11 +216,23 @@ struct CompactEffectChainGroup: View {
                     }
                 }
             }
-            .padding(.leading, CompactPipelineLayout.childIndent)
+            .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : CompactPipelineLayout.childIndent)
         }
         .padding(.vertical, AppSpacing.xs)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var chainName: some View {
+        Text(title)
+            .font(AppTypography.caption2)
+            .foregroundStyle(AppColorPalette.textTertiary)
+    }
+
+    private var stageCount: some View {
+        Text("\(stages.count) stages")
+            .font(AppTypography.caption2Mono)
+            .foregroundStyle(AppColorPalette.textPrimary)
     }
 }
 
@@ -236,16 +252,15 @@ struct EffectChainStageChip: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
-                    Text(stage.name)
-                        .font(AppTypography.captionStrong)
-                        .foregroundStyle(AppColorPalette.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: AppSpacing.xs)
-                    if let runtimeState = stage.runtimeState {
-                        Text(verbatim: runtimeState)
-                            .font(AppTypography.caption2Mono)
-                            .foregroundStyle(AppColorPalette.textSecondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                        stageName
+                        stateLabel
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                        stageName
+                        stateLabel
                     }
                 }
 
@@ -263,5 +278,21 @@ struct EffectChainStageChip: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(stage.name)
         .accessibilityValue("\(stage.runtimeState ?? stage.state.statusText), \(stage.package), \(stage.detail)")
+    }
+
+    private var stageName: some View {
+        Text(stage.name)
+            .font(AppTypography.captionStrong)
+            .foregroundStyle(AppColorPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var stateLabel: some View {
+        if let runtimeState = stage.runtimeState {
+            Text(verbatim: runtimeState)
+                .font(AppTypography.caption2Mono)
+                .foregroundStyle(AppColorPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
