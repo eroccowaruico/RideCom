@@ -86,10 +86,10 @@ private actor AdmissionTestRoute: RTCCallRoute {
     }
     func startConnection() async { started = true }
     func stopConnection() async { started = false }
-    func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID> {
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
         if let localPeerID, let reception = receiver?.receive(message.payload, from: localPeerID, now: ProcessInfo.processInfo.systemUptime),
            case .application(let application) = reception.body { messages.append(application) }
-        return []
+        return .init()
     }
     func waitUntilStarted() async {
         for _ in 0..<1_000 {

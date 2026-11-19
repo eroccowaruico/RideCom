@@ -156,14 +156,15 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         }
     }
 
-    public override func sendApplicationData(_ message: ApplicationDataMessage, to peerID: PeerID) async {
+    @discardableResult
+    public override func sendApplicationData(_ message: ApplicationDataMessage, to peerID: PeerID) async -> Bool? {
         let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
-        guard let data = try? encoder.encode(message), data.count <= 49152 else { return }
+        guard let data = try? encoder.encode(message), data.count <= 49152 else { return false }
         let channel = lock.withLock { publishers[peerID]?[message.delivery].flatMap { channels[peerID]?[$0] } }
         guard let channel, channel.readyState == .open,
-              (message.delivery == .reliable ? channel.bufferedAmount <= 65536 : channel.bufferedAmount == 0) else { return }
-        guard message.delivery == .reliable || (!channel.isOrdered && channel.maxRetransmits == 0) else { return }
-        _ = channel.sendData(RTCDataBuffer(data: data, isBinary: true))
+              (message.delivery == .reliable ? channel.bufferedAmount <= 65536 : channel.bufferedAmount == 0) else { return false }
+        guard message.delivery == .reliable || (!channel.isOrdered && channel.maxRetransmits == 0) else { return false }
+        return channel.sendData(RTCDataBuffer(data: data, isBinary: true))
     }
 
     public override func closePeerConnection(peerID: PeerID) async {

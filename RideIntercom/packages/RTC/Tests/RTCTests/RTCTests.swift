@@ -659,9 +659,9 @@ private final class FakeRoute: RTCCallRoute, @unchecked Sendable {
 
     func stopConnection() async {}
 
-    func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID> {
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
         sentApplicationData.append(message)
-        return immediateRecipients
+        return .init(verifiedLocalRecipients: immediateRecipients)
     }
 
 }

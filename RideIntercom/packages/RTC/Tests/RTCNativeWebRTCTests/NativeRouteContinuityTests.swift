@@ -109,7 +109,7 @@ private actor CountedInternetRoute: RTCCallRoute {
     func prepare(_ request: CallStartRequest) async { await backend.prepare(request) }
     func startConnection() async { starts += 1; await backend.startConnection() }
     func stopConnection() async { await backend.stopConnection() }
-    func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID> {
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
         if message.delivery == .unreliable { mediaSends += 1 }
         return await backend.sendApplicationData(message)
     }
@@ -241,6 +241,9 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
             #expect(media[0].isReady(for: ids[1]) && !media[0].hasRecentMediaReceipt(for: ids[1]))
             if bothDirections { #expect(media[1].isReady(for: ids[0]) && !media[1].hasRecentMediaReceipt(for: ids[0])) }
             #expect(await internet[0].mediaSends > 0)
+            let fallbackDispatch = try #require(await managers[0].networkDiagnostics().outboundAudioDispatch)
+            #expect(fallbackDispatch.transportAcceptance == [.multipeer: true, .webRTC: true],
+                "The network can drop Local packets after the backend has accepted them")
             #expect(await server.forwardedMedia > 0, "Fallback must cross native DTLS/SCTP, not a manufactured route event")
             let control = ApplicationDataMessage(namespace: "control-proof", payload: Data([1]))
             for route in local { _ = await route.sendApplicationData(control) }
@@ -260,6 +263,9 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
             let after = [await internet[0].mediaSends, await internet[1].mediaSends]
             #expect(after == before, "Proven Local paths suppress unnecessary Internet copies")
             for i in ids.indices {
+                let dispatch = try #require(await managers[i].networkDiagnostics().outboundAudioDispatch)
+                #expect(dispatch.transportAcceptance == [.multipeer: true])
+                #expect(dispatch.internetCoveredByLocal)
                 let markers = await records[i].markers
                 #expect(Set(markers).count == markers.count, "Multiple native copies are delivered to the receiver only once")
                 if !blockedAtStart && (i == 1 || bothDirections) { #expect(!markers.contains(1000), "Lost old speech is not replayed") }

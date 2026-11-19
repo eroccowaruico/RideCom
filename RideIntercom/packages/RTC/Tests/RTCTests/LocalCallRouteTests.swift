@@ -119,7 +119,7 @@ extension RealtimeTransportTests {
         try await waitForLocal { (a.events + b.events).contains(.error(.multipeer, .handshakeRejected(.multipeer))) }
         for delivery in [ApplicationDataDelivery.reliable, .unreliable] {
             let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([2]), delivery: delivery)
-            #expect(await b.route.sendApplicationData(message).isEmpty)
+            #expect(await b.route.sendApplicationData(message).verifiedLocalRecipients.isEmpty)
             #expect(a.received(message, from: b) == 0)
         }
         #expect(!a.knows(b) && !b.knows(a))
@@ -146,7 +146,10 @@ extension RealtimeTransportTests {
         await b.start(group)
         try await waitForLocal { a.knows(b) && b.knows(a) }
         let audio = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([11]), delivery: .unreliable)
-        try await waitForLocal { await a.route.sendApplicationData(audio).contains(b.id) }
+        try await waitForLocal {
+            let send = await a.route.sendApplicationData(audio)
+            return send.transportAccepted == true && send.verifiedLocalRecipients.contains(b.id)
+        }
         try await waitForLocal { b.received(audio, from: a) > 0 }
         let fresh = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([12]), delivery: .unreliable)
         await MainActor.run {
@@ -160,7 +163,7 @@ extension RealtimeTransportTests {
         }
         #expect((await b.route.networkDiagnostics().statistics.receivedMediaDatagrams ?? 0) > 0)
         await b.route.stopConnection()
-        #expect(await b.route.sendApplicationData(audio).isEmpty)
+        #expect(await b.route.sendApplicationData(audio).transportAccepted == false)
         await a.route.stopConnection()
     }
 
@@ -244,7 +247,7 @@ extension RealtimeTransportTests {
         try await sendAndObserve(2)
         await local.route.stopConnection()
         #expect(await local.route.sendApplicationData(.init(namespace: GroupRelay.namespace,
-            payload: Data([3]), delivery: .unreliable)).isEmpty)
+            payload: Data([3]), delivery: .unreliable)).transportAccepted == false)
     }
 
     private func groupCredential() -> RTCCredential {

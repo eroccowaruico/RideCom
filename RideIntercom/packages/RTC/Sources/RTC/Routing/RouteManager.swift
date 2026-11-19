@@ -186,6 +186,7 @@ public actor RouteManager: CallSession {
         let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: data, delivery: body.delivery)
         var localRecipients: Set<PeerID> = []
         var offeredRoutes: [RouteKind] = []
+        var transportAcceptance: [RouteKind: Bool] = [:]
         var internetCoveredByLocal = false
         // Local always gets the first immediate attempt. A control connection
         // alone is insufficient: Local must report recent media receipt as well
@@ -199,14 +200,18 @@ public actor RouteManager: CallSession {
                     continue
                 }
             }
-            let recipients = await route.sendApplicationData(message)
+            let send = await route.sendApplicationData(message)
             guard generation == token else { return }
-            if recordsOutboundAudio { offeredRoutes.append(kind) }
-            if kind == .multipeer { localRecipients = recipients }
+            if recordsOutboundAudio {
+                offeredRoutes.append(kind)
+                transportAcceptance[kind] = send.transportAccepted
+            }
+            if kind == .multipeer { localRecipients = send.verifiedLocalRecipients }
         }
         if recordsOutboundAudio, !offeredRoutes.isEmpty {
             outboundAudioDispatch = .init(offeredRoutes: offeredRoutes, internetCoveredByLocal: internetCoveredByLocal,
-                                          observedAt: Date().timeIntervalSince1970)
+                                          observedAt: Date().timeIntervalSince1970,
+                                          transportAcceptance: transportAcceptance.isEmpty ? nil : transportAcceptance)
         }
     }
     private func handle(_ event: RouteEvent, generation token: UUID) async {

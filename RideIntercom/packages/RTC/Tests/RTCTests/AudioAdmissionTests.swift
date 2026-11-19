@@ -201,8 +201,8 @@ private actor AdmissionRoute: RTCCallRoute {
     func prepare(_ request: CallStartRequest) async {}
     func startConnection() async {}
     func stopConnection() async {}
-    func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID> {
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
         if message.delivery == .unreliable { audioCount += 1 }
-        return []
+        return .init()
     }
 }

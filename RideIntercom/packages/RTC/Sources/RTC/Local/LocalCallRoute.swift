@@ -50,8 +50,8 @@ public actor LocalCallRoute: RTCCallRoute {
         source.yield(.stateChanged(kind, .disconnected))
     }
 
-    public func sendApplicationData(_ message: ApplicationDataMessage) -> Set<PeerID> {
-        session?.send(message) ?? []
+    public func sendApplicationData(_ message: ApplicationDataMessage) -> RTCRouteSendResult {
+        session?.send(message) ?? .init(transportAccepted: false)
     }
 }
 
@@ -103,16 +103,19 @@ private final class Session: @unchecked Sendable {
         }
     }
 
-    func send(_ message: ApplicationDataMessage) -> Set<PeerID> {
+    func send(_ message: ApplicationDataMessage) -> RTCRouteSendResult {
         if message.namespace == GroupRelay.namespace, message.delivery == .unreliable {
-            return datagrams.synchronized { datagrams.send(message.payload, to: Array(mediaPeers)).verified }
+            return datagrams.synchronized {
+                let send = datagrams.send(message.payload, to: Array(mediaPeers))
+                return .init(transportAccepted: !send.accepted.isEmpty, verifiedLocalRecipients: send.verified)
+            }
         }
         guard let bytes = try? JSONEncoder().encode(message), bytes.count <= LocalControlFraming.maximumMessageBytes else {
             source.yield(.error(kind, .connectionFailed(kind, "Local control message exceeds frame limit")))
-            return []
+            return .init(transportAccepted: false)
         }
         control?.send(bytes)
-        return []
+        return .init()
     }
 
     private func handle(_ event: LocalControlEvent) {

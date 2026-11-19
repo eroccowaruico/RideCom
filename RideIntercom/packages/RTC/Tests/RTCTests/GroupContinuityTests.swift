@@ -214,6 +214,7 @@ extension RealtimeTransportTests {
         let local = try #require(await speaker.networkDiagnostics().outboundAudioDispatch)
         #expect(local.offeredRoutes == [.multipeer])
         #expect(local.internetCoveredByLocal)
+        #expect(local.transportAcceptance == [.multipeer: true])
         #expect(await managers[1].networkDiagnostics().peers.contains { $0.peerID == ids[0] })
         #expect(await managers[1].networkDiagnostics().outboundAudioDispatch == nil)
 
@@ -226,6 +227,18 @@ extension RealtimeTransportTests {
         #expect(mixed.offeredRoutes == [.multipeer, .webRTC])
         #expect(!mixed.internetCoveredByLocal)
         #expect(mixed.observedAt >= local.observedAt)
+        #expect(mixed.transportAcceptance == [.multipeer: true, .webRTC: true])
+
+        await network.moveLocalPeer(ids[1], to: "other-network")
+        await send(3)
+        for record in records.dropFirst() {
+            try await eventually { await record.audio.contains { $0.packet.payload.first == 3 } }
+        }
+        let internet = try #require(await speaker.networkDiagnostics().outboundAudioDispatch)
+        #expect(internet.offeredRoutes == [.multipeer, .webRTC])
+        #expect(internet.transportAcceptance == [.multipeer: false, .webRTC: true])
+        let encoded = try JSONEncoder().encode(internet)
+        #expect(try JSONDecoder().decode(RTCOutboundAudioDispatch.self, from: encoded) == internet)
         for manager in managers { await manager.stopConnection() }
         #expect(await speaker.networkDiagnostics().outboundAudioDispatch == nil)
     }
@@ -442,9 +455,10 @@ private actor VirtualRoute: RTCCallRoute {
     func prepare(_ request: CallStartRequest) async {}
     func startConnection() async { await network.join(peer, kind: kind, source: source) }
     func stopConnection() async { await network.leave(peer, kind: kind) }
-    func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID> {
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
         await network.send(peer, kind: kind, message: message)
-        return await network.reachablePeers(peer, kind: kind)
+        let recipients = await network.reachablePeers(peer, kind: kind)
+        return .init(transportAccepted: !recipients.isEmpty, verifiedLocalRecipients: kind == .multipeer ? recipients : [])
     }
 }
 private func eventually(_ description: String = "Group continuity condition timed out", timeout: Duration = .seconds(6),

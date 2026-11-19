@@ -19,6 +19,19 @@ public enum RouteEvent: Equatable, Sendable {
     case connectionBlocked(RouteKind, String)
 }
 
+public struct RTCRouteSendResult: Sendable {
+    /// Whether this backend accepted the send. Nil means acceptance was unavailable.
+    public var transportAccepted: Bool?
+    /// Peers eligible to suppress an alternate copy. Local requires acceptance
+    /// and a recent authenticated receipt; this does not acknowledge this packet.
+    public var verifiedLocalRecipients: Set<PeerID>
+
+    public init(transportAccepted: Bool? = nil, verifiedLocalRecipients: Set<PeerID> = []) {
+        self.transportAccepted = transportAccepted
+        self.verifiedLocalRecipients = verifiedLocalRecipients
+    }
+}
+
 public protocol RTCCallRoute: AnyObject, Sendable {
     var kind: RouteKind { get }
     var capabilities: RouteCapabilities { get }
@@ -28,12 +41,8 @@ public protocol RTCCallRoute: AnyObject, Sendable {
     func prepare(_ request: CallStartRequest) async
     func startConnection() async
     func stopConnection() async
-    /// Direct peers eligible to suppress an alternate media copy for this send.
-    /// Local requires immediate acceptance and recent authenticated media receipt;
-    /// this is not an acknowledgement of the current frame. Return an empty set
-    /// when the backend cannot establish individual recipients.
     @discardableResult
-    func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID>
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult
 }
 
 public extension RTCCallRoute {

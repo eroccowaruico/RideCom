@@ -54,9 +54,13 @@ private actor PacketRecorder {
     let audio = RTCAudioPacket(sequenceNumber: 1, codec: .pcm16, format: .init(sampleRate: 16000, channelCount: 1), payload: Data(repeating: 42, count: 640))
     let message = ApplicationDataMessage(namespace: "encoded-audio", payload: try JSONEncoder().encode(audio), delivery: .unreliable)
     let control = ApplicationDataMessage(namespace: "control", payload: Data([1]), delivery: .reliable)
+    var aAccepted = false, bAccepted = false
     for _ in 0..<200 {
         await a.sendApplicationData(control, to: peer.id); await b.sendApplicationData(control, to: peer.id)
-        await a.sendApplicationData(message, to: peer.id); await b.sendApplicationData(message, to: peer.id)
+        let sentA = await a.sendApplicationData(message, to: peer.id)
+        let sentB = await b.sendApplicationData(message, to: peer.id)
+        aAccepted = aAccepted || sentA == true
+        bAccepted = bAccepted || sentB == true
         let aMessages = await ar.messages, bMessages = await br.messages
         let aReady = aMessages.contains(message) && aMessages.contains(control)
         let bReady = bMessages.contains(message) && bMessages.contains(control)
@@ -64,6 +68,7 @@ private actor PacketRecorder {
         try await Task.sleep(for: .milliseconds(25))
     }
     let asText = await ar.states, bsText = await br.states
+    #expect(aAccepted && bAccepted)
     #expect(await ar.messages.contains(message), "A states: \(asText)"); #expect(await br.messages.contains(message), "B states: \(bsText)")
     #expect(await ar.messages.contains(control)); #expect(await br.messages.contains(control))
     #expect(await a.configureIceServers([.init(urls: ["stun:localhost:3478"])]))
@@ -74,6 +79,7 @@ private actor PacketRecorder {
     #expect(metrics.packetLoss == nil)
     await a.close(); await b.close()
     #expect(await a.networkStatistics(for: peer.id).bufferedBytes == nil)
+    #expect(await a.sendApplicationData(message, to: peer.id) == false)
 }
 
 @Test func internetMediaNeverFallsBackToTCPOrReliableTURN() async throws {

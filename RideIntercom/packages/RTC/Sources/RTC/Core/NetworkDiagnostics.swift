@@ -42,16 +42,18 @@ public struct RTCObservedPeerPath: Codable, Equatable, Sendable {
     }
 }
 
-/// Transport offers made for the last locally originated audio packet.
-/// An offer enters the route backend and does not establish send acceptance or peer receipt.
+/// Transport offers and observed backend acceptance for the last locally originated audio packet.
 public struct RTCOutboundAudioDispatch: Codable, Equatable, Sendable {
     public var offeredRoutes: [RouteKind]
     public var internetCoveredByLocal: Bool
     public var observedAt: TimeInterval
-    public init(offeredRoutes: [RouteKind], internetCoveredByLocal: Bool, observedAt: TimeInterval) {
+    public var transportAcceptance: [RouteKind: Bool]?
+    public init(offeredRoutes: [RouteKind], internetCoveredByLocal: Bool, observedAt: TimeInterval,
+                transportAcceptance: [RouteKind: Bool]? = nil) {
         self.offeredRoutes = offeredRoutes
         self.internetCoveredByLocal = internetCoveredByLocal
         self.observedAt = observedAt
+        self.transportAcceptance = transportAcceptance
     }
 }
 

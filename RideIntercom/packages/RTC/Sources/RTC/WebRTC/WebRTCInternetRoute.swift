@@ -125,11 +125,11 @@ public actor WebRTCInternetRoute: RTCCallRoute {
     }
 
     @discardableResult
-    public func sendApplicationData(_ message: ApplicationDataMessage) async -> Set<PeerID> {
-        guard connecting else { return [] }
-        await engine.sendApplicationData(message, to: sfuPeer.id)
+    public func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
+        guard connecting else { return .init(transportAccepted: false) }
+        let accepted = await engine.sendApplicationData(message, to: sfuPeer.id)
         // SFU fan-out does not report immediate per-subscriber delivery.
-        return []
+        return .init(transportAccepted: accepted)
     }
 
     private func bindSignalingEvents() {
@@ -255,7 +255,8 @@ open class NativeWebRTCEngine: NSObject, @unchecked Sendable {
     open func acceptAnswer(_ answer: WebRTCSessionDescription, from peerID: PeerID) async -> Bool { false }
 
     open func configureDataChannels(_ channels: [WebRTCDataChannel], for peerID: PeerID) async {}
-    open func sendApplicationData(_ message: ApplicationDataMessage, to peerID: PeerID) async {}
+    @discardableResult
+    open func sendApplicationData(_ message: ApplicationDataMessage, to peerID: PeerID) async -> Bool? { nil }
 
     open func closePeerConnection(peerID: PeerID) async {}
     open func close() async {}

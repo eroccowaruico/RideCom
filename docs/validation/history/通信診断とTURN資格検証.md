@@ -66,3 +66,11 @@ VALIDATION_DIR=/private/tmp/rtc-network-scripts-rerun scripts/validate.sh script
 Build 1404のApp検証では、DiagnosticsのTXからRTCを展開して、通話前のLocal／Internet分岐が現れることをiOS Simulatorで確認した。通話の診断snapshotを渡すApp試験では、近距離でカバーしたときにInternetがIdleとなること、混在で2経路へ渡した記録、期限を過ぎた記録と別グループの観測を有効表示しないことを確認した。混在入力を描画し、通常文字と最大文字で経路名・状態・送信待ちを読めることを確認した。証跡は `.validation/tx-dispatch-1402/app-green/app.xcresult` と `tx-dispatch-standard.png`・`tx-dispatch-accessibility.png`。物理端末と実サービスを使った通話中の表示確認は残る。
 
 Appの回帰はiOS Simulatorで23件、macOSで21件が合格した。
+
+## 自端末の音声を経路が受け付けた結果
+
+2026-11-20のRTCパッケージ検証。Localは送信条件を満たして1件以上のUDP送信を開始できたか、InternetはDataChannelが送信を受け付けたかを、最後の自端末音声について記録する。同じ音声に対し、相手到着は受信側の観測を要する。送信を優先する順序と、Internetの不要な音声コピーを省く条件を維持した。
+
+- 既存実装ではRTCのreportとnative WebRTC送信から受付結果が得られず、追加した両テストが失敗した。変更後は閉じたDataChannelの不受付と、開いた両端での受付・packet受信を確認した。
+- 実QUIC・UDPとローカルのnative WebRTCを使い、UDPを経路の途中で遮断した場合もLocalの送信受付を観測した。同じ区間の新しい音声はInternet経由で相手に届き、近距離復旧後はLocalだけに渡した。実機・本番SFUでの観測は残る。
+- `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` で140件、native WebRTC 5件が合格。Workerペアは別工程。証跡は `.validation/tx-accept-1405/red.log`・`green-focused.log`・`rtc.log`。
