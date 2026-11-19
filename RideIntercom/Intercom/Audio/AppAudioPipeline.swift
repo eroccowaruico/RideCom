@@ -300,9 +300,8 @@ final class AppAudioPipeline {
     // Preserve quiet syllables when the send and receive classifiers are stacked.
     nonisolated static let transmitIsolationConfiguration = VoiceIsolationConfiguration(mix: 0.5)
 
-    nonisolated static func receiveIsolationConfiguration(enabled: Bool) -> VoiceIsolationConfiguration {
-        VoiceIsolationConfiguration(mix: enabled ? 0.5 : 1)
-    }
+    // Keep the mix across bypass so a reconnect uses the same dry signal.
+    nonisolated static let receiveIsolationConfiguration = VoiceIsolationConfiguration(mix: 0.5)
 
     nonisolated static func makeIsolation(on bus: MixerBus, enabled: Bool,
         configuration: VoiceIsolationConfiguration) throws -> VoiceIsolationEffect? {

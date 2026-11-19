@@ -1,5 +1,6 @@
 import AVFAudio
 import AudioCore
+import Codec
 import Foundation
 import Synchronization
 import RTC
@@ -8,6 +9,80 @@ import XCTest
 @testable import RideIntercom
 
 extension AudioE2ETests {
+    @MainActor
+    func testReceiveIsolationKeepsItsEffectWhenEnabledAgain() async throws {
+        try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
+        let engine = AVAudioEngine(), native = RenderedAudioProbe()
+        let output = SystemAudioOutputStreamBackend(engine: engine)
+        try engine.mainMixerNode.installAudioTap(onBus: 0, bufferSize: 1024, format: nil) { native.append($0, time: $1) }
+        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
+        defer { pipeline.stop(); engine.mainMixerNode.removeTap(onBus: 0); try? output.stopRendering() }
+        let hardware = try output.startRendering(configuration: .intercomCall)
+        try pipeline.rebuild(configuration: .init(outputHardwareFormat: hardware,
+            transmitSoundIsolationEnabled: false, receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002),
+            peerIDs: ["one", "two"])
+
+        let frequencies = [600.0, 1100.0]
+        let fixtures = zip(["one", "two"], frequencies).map { peer, frequency in
+            let samples = (0..<480).map { Float(0.12 * sin(Double($0) * 2 * .pi * frequency / 48_000)) }
+            return (PeerID(rawValue: peer), PCM16Codec.encode(samples))
+        }
+        let format = RTCAudioFormat(sampleRate: 48_000, channelCount: 1)
+        let queue = DispatchQueue(label: "receive-isolation-fixture", qos: .userInitiated)
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let sequence = Mutex<UInt64>(0), failures = Mutex<[String]>([])
+        let start = DispatchTime.now() + .milliseconds(30)
+        let captureOrigin = Double(start.uptimeNanoseconds) / 1e9
+        timer.setEventHandler {
+            let index = sequence.withLock { value in
+                defer { value += 1 }
+                return value
+            }
+            for (peer, payload) in fixtures {
+                let packet = RTCAudioPacket(sequenceNumber: index, codec: .pcm16, format: format,
+                    capturedAt: captureOrigin + Double(index) / 100, sampleCount: 480, payload: payload)
+                do { _ = try pipeline.processReceivedAudioPacket(.init(peerID: peer, packet: packet)) }
+                catch AppAudioPipelineError.notConfigured { /* The receive graph can reject packets during a topology change. */ }
+                catch { failures.withLock { $0.append(String(describing: error)) } }
+            }
+        }
+        timer.schedule(deadline: start, repeating: .milliseconds(10), leeway: .microseconds(100))
+        timer.activate()
+        defer { timer.cancel(); queue.sync {} }
+
+        func steadyTones() async throws -> [Double] {
+            try await Task.sleep(for: .milliseconds(650))
+            native.reset()
+            try await Task.sleep(for: .milliseconds(400))
+            let recording = native.snapshot()
+            XCTAssertEqual(recording.invalid, 0)
+            let measured = ToneIntegrity.measure(samples: recording.samples, rate: recording.rate, frequencies: frequencies)
+            XCTAssertTrue(measured.passed, "\(measured.dictionary)")
+            return try XCTUnwrap(measured.amplitudes.count == frequencies.count ? measured.amplitudes : nil)
+        }
+        let baseline = try await steadyTones()
+        for peerOnly in [false, true] {
+            let peers = peerOnly ? ["one": true] : [:]
+            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: !peerOnly, peers: peers)
+            let first = try await steadyTones()
+            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
+            let bypassed = try await steadyTones()
+            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: !peerOnly, peers: peers)
+            let enabledAgain = try await steadyTones()
+            for index in frequencies.indices {
+                let expected = baseline[index] * (peerOnly && index == 1 ? 1 : 0.5)
+                XCTAssertEqual(first[index], expected, accuracy: 0.002, "First enable, peerOnly=\(peerOnly)")
+                XCTAssertEqual(bypassed[index], baseline[index], accuracy: 0.002, "Bypass, peerOnly=\(peerOnly)")
+                XCTAssertEqual(enabledAgain[index], first[index], accuracy: 0.002, "Enable again, peerOnly=\(peerOnly)")
+            }
+            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
+            _ = try await steadyTones()
+        }
+        XCTAssertTrue(failures.withLock { $0.isEmpty })
+        XCTAssertEqual(pipeline.droppedRenderFrameCount, 0)
+        XCTAssertEqual(output.playbackResetCount ?? 0, 0)
+    }
+
     @MainActor
     func testInputModeChangesRestoreTheSharedReceiveClock() async throws {
         try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))

@@ -67,7 +67,7 @@ extension IntercomViewModel {
         appendReport(&reports, package: "Codec", kind: "runtimeReport", generatedAt: generatedAt, payload: codecRuntimeReport)
         appendReport(&reports, package: "VADGate", kind: "runtimeSnapshot", generatedAt: generatedAt, payload: vadGateRuntimeSnapshot)
         appendReport(&reports, package: "SoundIsolation", kind: "transmitConfiguration", generatedAt: generatedAt, payload: AppAudioPipeline.transmitIsolationConfiguration)
-        appendReport(&reports, package: "SoundIsolation", kind: "receiveMasterConfiguration", generatedAt: generatedAt, payload: AppAudioPipeline.receiveIsolationConfiguration(enabled: receiveMasterSoundIsolationEnabled))
+        appendReport(&reports, package: "SoundIsolation", kind: "receiveMasterConfiguration", generatedAt: generatedAt, payload: AppAudioPipeline.receiveIsolationConfiguration)
         appendReport(&reports, package: "DynamicsProcessor", kind: "transmitConfiguration", generatedAt: generatedAt, payload: DynamicsProcessorConfiguration())
         appendReport(&reports, package: "PeakLimiter", kind: "transmitConfiguration", generatedAt: generatedAt, payload: PeakLimiterConfiguration())
         appendReport(&reports, package: "PeakLimiter", kind: "receiveMasterConfiguration", generatedAt: generatedAt, payload: PeakLimiterConfiguration())
