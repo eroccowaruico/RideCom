@@ -313,6 +313,61 @@ struct RegularGroupRepresentativeTests {
         #expect(vm.callAccessAdmittedMemberships.isEmpty)
     }
 
+    @Test(arguments: [RouteKind.multipeer, .webRTC], [false, true])
+    func verifiedCallStatusDoesNotGrantGroupManagement(route: RouteKind, certified: Bool) throws {
+        let f = try RegularRepresentativeFixture(enforce: true)
+        defer { f.stop() }
+        let vm = f.h.viewModel
+        let peer = try certified ? f.signer("rider") : testIdentitySigner("rider")
+        let peerID = peer.memberID
+        func authenticateTransport() {
+            vm.handleTransportEvent(.authenticated(members: [
+                .init(peer: .init(id: .init(rawValue: peerID), displayName: "Rider"),
+                      route: route, isConnected: true, membershipID: UUID())
+            ]))
+        }
+        func receiveStatus(_ signed: SharedCallAccess) throws {
+            vm.handleTransportEvent(.receivedApplicationData(peerID: peerID,
+                message: .init(namespace: SharedCallAccess.namespace, payload: try JSONEncoder().encode(signed))))
+        }
+
+        authenticateTransport()
+        let challenge = try #require(vm.peerProfiles[peerID]?.challenge)
+        let status = try SharedCallAccess(groupID: f.groupID, recipientMemberID: "local",
+            challenge: challenge, revision: 1, hasActiveRight: true, activeUntil: nil,
+            mediaReady: false, isEstablished: false, lastSponsoredStart: nil).signed(by: peer)
+        #expect(vm.groups.first?.members.map(\.id) == ["local"])
+        try receiveStatus(status)
+        #expect(vm.peerProfiles[peerID]?.callAccess == nil)
+        #expect(!vm.canPrepareCallMedia)
+
+        // This fixture has a device identity but no StoreKit evidence for the peer.
+        try f.deliver(peer)
+        let stored = try #require(vm.groupRepository.storedGroup(f.groupID))
+        #expect(stored.members.map(\.id) == ["local", peerID])
+        #expect(stored.accountDevices[peerID]?.principal == peer.principal)
+        #expect(stored.accountDevices[peerID]?.publicKey == (certified ? peer.publicKey : nil))
+        #expect(vm.savedUsers.isEmpty)
+        try receiveStatus(status)
+        #expect(vm.peerProfiles[peerID]?.callAccess == status)
+        #expect(vm.canPrepareCallMedia)
+        #expect(!vm.canManageRegularGroups)
+        #expect(!vm.removeMember(peerID, from: f.groupID))
+        #expect(vm.groupRepository.storedGroup(f.groupID) == stored)
+
+        vm.disconnect()
+        vm.reloadSavedGroups()
+        vm.selectGroup(try #require(vm.groups.first { $0.id == f.groupID }))
+        authenticateTransport()
+        try f.deliver(peer)
+        #expect(vm.peerProfiles[peerID]?.verified != nil)
+        #expect(vm.peerProfiles[peerID]?.challenge != challenge)
+        try receiveStatus(status)
+        #expect(vm.peerProfiles[peerID]?.callAccess == nil)
+        #expect(!vm.canPrepareCallMedia)
+        #expect(!vm.canManageRegularGroups)
+    }
+
     @Test func ownOtherDeviceDoesNotReplaceLocalRoleAndNormalSnapshotReloads() throws {
         let f = try RegularRepresentativeFixture(); defer { f.stop() }
         let vm = f.h.viewModel
