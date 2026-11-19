@@ -74,3 +74,5 @@ Appの回帰はiOS Simulatorで23件、macOSで21件が合格した。
 - 既存実装ではRTCのreportとnative WebRTC送信から受付結果が得られず、追加した両テストが失敗した。変更後は閉じたDataChannelの不受付と、開いた両端での受付・packet受信を確認した。
 - 実QUIC・UDPとローカルのnative WebRTCを使い、UDPを経路の途中で遮断した場合もLocalの送信受付を観測した。同じ区間の新しい音声はInternet経由で相手に届き、近距離復旧後はLocalだけに渡した。実機・本番SFUでの観測は残る。
 - `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` で140件、native WebRTC 5件が合格。Workerペアは別工程。証跡は `.validation/tx-accept-1405/red.log`・`green-focused.log`・`rtc.log`。
+
+AppはBuild 1407のiOS Simulatorで23件、Build 1408のmacOSで22件が合格。受け付けた経路と不受付の経路を同時に表示でき、受付情報のないreportは未計測として扱う。Simulatorで通話前のRTCを展開し、受付結果を与えた描画で通常文字と最大文字の読みやすさを照合した。macOSではRTCからAppへ認証済み音声を渡す既存試験も実行した。証跡は `.validation/tx-accept-1405/app-red/`・`app-green/`・`mac-green/`。

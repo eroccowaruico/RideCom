@@ -58,7 +58,8 @@ struct DiagnosticsPresentationTests {
         model.isAudioReady = true
         model.networkDiagnostics = .init(generatedAt: now,
             routes: [.init(route: .webRTC, statistics: .init(bufferedBytes: 1228))],
-            outboundAudioDispatch: .init(offeredRoutes: [.multipeer], internetCoveredByLocal: true, observedAt: now - 2))
+            outboundAudioDispatch: .init(offeredRoutes: [.multipeer], internetCoveredByLocal: true, observedAt: now - 2,
+                transportAcceptance: [.multipeer: true]))
         let otherGroup = TransmitPipelinePresentation(input: DiagnosticsInput(model)).outboundRoutes(now: now)
         #expect(otherGroup.branches.map(\.state) == [.idle, .idle])
         #expect(otherGroup.branches.first?.detail == "No audio dispatch observed")
@@ -67,12 +68,21 @@ struct DiagnosticsPresentationTests {
         let local = TransmitPipelinePresentation(input: DiagnosticsInput(model)).outboundRoutes(now: now)
         #expect(local.summary == "Last audio dispatch · 2s ago")
         #expect(local.branches.map(\.state) == [.passing, .idle])
+        #expect(local.branches.first?.detail == "Accepted by transport")
         #expect(local.branches.last?.detail == "Covered by Local / Send queue: 1228 B")
 
         model.networkDiagnostics?.outboundAudioDispatch?.offeredRoutes = [.multipeer, .webRTC]
         model.networkDiagnostics?.outboundAudioDispatch?.internetCoveredByLocal = false
+        model.networkDiagnostics?.outboundAudioDispatch?.transportAcceptance = nil
+        let older = TransmitPipelinePresentation(input: DiagnosticsInput(model)).outboundRoutes(now: now)
+        #expect(older.branches.map(\.state) == [.waiting, .waiting])
+        #expect(older.branches.first?.detail == "Acceptance not measured")
+
+        model.networkDiagnostics?.outboundAudioDispatch?.transportAcceptance = [.multipeer: true, .webRTC: false]
         let mixed = TransmitPipelinePresentation(input: DiagnosticsInput(model))
-        #expect(mixed.outboundRoutes(now: now).branches.map(\.state) == [.passing, .passing])
+        let branches = mixed.outboundRoutes(now: now).branches
+        #expect(branches.map(\.state) == [.passing, .waiting])
+        #expect(branches.last?.detail == "Not accepted by transport / Send queue: 1228 B")
         let stale = mixed.outboundRoutes(now: now + 16)
         #expect(stale.branches.map(\.state) == [.idle, .idle])
         #expect(stale.branches.last?.detail == "Last dispatch is stale / Send queue: Not measured")

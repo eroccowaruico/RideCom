@@ -244,7 +244,11 @@ struct TransmitPipelinePresentation {
                 if age > telemetryLifetime || !reportIsFresh {
                     status = (.idle, "Last dispatch is stale")
                 } else if dispatch.offeredRoutes.contains(route) {
-                    status = (.passing, "Offered to transport")
+                    switch dispatch.transportAcceptance?[route] {
+                    case .some(true): status = (.passing, "Accepted by transport")
+                    case .some(false): status = (.waiting, "Not accepted by transport")
+                    case .none: status = (.waiting, "Acceptance not measured")
+                    }
                 } else if isInternet && dispatch.internetCoveredByLocal {
                     status = (.idle, "Covered by Local")
                 } else {

@@ -91,7 +91,7 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 
 ## 送信RTCの経路分岐
 
-`RTC` の分岐は `pipeline-rtc-route-multipeer`（Local）と `pipeline-rtc-route-webRTC`（Internet）。選択中の通話の `RTCNetworkDiagnostics.outboundAudioDispatch` を使う。経路へ渡したときはPassingの記号と `Offered to transport`。近距離でInternetの相手をカバーしたときはInternetにIdleの記号と `Covered by Local`。最後のpacketで使わなかった経路は `Not used for last packet`。記録がない場合は `No audio dispatch observed`、15秒を超えた場合は `Last dispatch is stale` としてIdleにする。Internetの `Send queue` は生成から15秒以内のnetwork reportの値を使用する。相手の受信は `Peer receipt: Not measured` とする。
+`RTC` の分岐は `pipeline-rtc-route-multipeer`（Local）と `pipeline-rtc-route-webRTC`（Internet）。選択中の通話の `RTCNetworkDiagnostics.outboundAudioDispatch` を使う。経路へ渡した場合は受付結果を表示する。受付はPassingの記号と `Accepted by transport`、不受付はWaitingの記号と `Not accepted by transport`、受付結果のないreportはWaitingと `Acceptance not measured`。近距離でInternetの相手をカバーしたときはInternetにIdleの記号と `Covered by Local`。最後のpacketで使わなかった経路は `Not used for last packet`。記録がない場合は `No audio dispatch observed`、15秒を超えた場合は `Last dispatch is stale` としてIdleにする。Internetの `Send queue` は生成から15秒以内のnetwork reportの値を使用する。相手の受信は `Peer receipt: Not measured` とする。
 
 ## 受信パイプライン
 

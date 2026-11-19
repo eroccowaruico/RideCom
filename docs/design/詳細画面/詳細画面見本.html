@@ -115,6 +115,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .nest .row { grid-template-columns: 82px 1fr auto; border-bottom: 0; padding: 2px 0; }
 .nest.routes .row { grid-template-columns: 78px minmax(0, 1fr); }
 .nest.routes .passing { color: var(--ok); }
+.nest.routes .waiting { color: var(--warn); }
 .btns { display: flex; flex-wrap: wrap; gap: 4px; }
 .btns span { font-size: 9.5px; font-weight: 600; padding: 4px 7px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--accent); }
 .meter { display: inline-block; width: 40px; height: 5px; border-radius: 3px; background: var(--line); position: relative; vertical-align: middle; }
@@ -294,15 +295,15 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row" style="border-bottom:0"><span class="k"><span class="d ok"></span> RTC</span><span class="v">Local + Internet / Relay / Control Connected</span><span class="x"></span></div>
             <div class="nest routes">
               <div class="sub">Last audio dispatch · 2s ago</div>
-              <div class="row" aria-label="Local, Passing, Offered to transport"><span class="k"><span class="passing" aria-hidden="true">✓ ↳</span> Local</span><span class="v">Offered to transport</span></div>
-              <div class="row" aria-label="Internet, Passing, Offered to transport, Send queue 1228 bytes"><span class="k"><span class="passing" aria-hidden="true">✓ ↳</span> Internet</span><span class="v">Offered to transport<div class="sub num">Send queue: 1228 B</div></span></div>
+              <div class="row" aria-label="Local, Passing, Accepted by transport"><span class="k"><span class="passing" aria-hidden="true">✓ ↳</span> Local</span><span class="v">Accepted by transport</span></div>
+              <div class="row" aria-label="Internet, Waiting, Not accepted by transport, Send queue 1228 bytes"><span class="k"><span class="waiting" aria-hidden="true">Ⅱ ↳</span> Internet</span><span class="v">Not accepted by transport<div class="sub num">Send queue: 1228 B</div></span></div>
               <div class="sub">Peer receipt: Not measured</div>
             </div>
           </div>
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>TX（Live TX Pipeline）</b>Session → Input → VAD → TX Bus → Codec → RTC。TX Busの中のeffect（packageのstage名のまま）と、RTCから経路ごとへの分岐を入れ子で示す。近距離でカバーした場合、InternetはIdleの記号と Covered by Local を表示する。</figcaption>
+      <figcaption><b>TX（Live TX Pipeline）</b>Session → Input → VAD → TX Bus → Codec → RTC。TX Busの中のeffect（packageのstage名のまま）と、RTCから経路ごとへの分岐を入れ子で示す。経路の受付・不受付・未計測を区別する。近距離でカバーした場合、InternetはIdleの記号と Covered by Local を表示する。</figcaption>
     </figure>
 
     <!-- RX (tall) -->
