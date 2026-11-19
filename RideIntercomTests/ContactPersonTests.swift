@@ -46,8 +46,10 @@ struct ContactPersonTests {
         #expect(person.memberIDs == ["person-peer"] && vm.directoryUsers.count == 1)
         #expect(vm.savedRemoteUsers.map(\.id) == [id])
         _ = try vm.groupRepository.removeUser(id)
-        try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
-        #expect(vm.groupRepository.users.isEmpty, "Duplicate receipts only ACK; a deleted person stays deleted")
+        #expect(throws: GroupStorageError.invalidUpdate) {
+            try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
+        }
+        #expect(vm.groupRepository.users.isEmpty)
     }
 
     @Test func versionNineMigrationRetainsInvitationsAndAssignsSeparatePeopleEvenWithTheSameName() throws {

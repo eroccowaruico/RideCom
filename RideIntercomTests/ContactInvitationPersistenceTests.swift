@@ -206,7 +206,8 @@ struct ContactInvitationPersistenceTests {
         #expect(h.callSession.connectedGroup == nil)
     }
 
-    @Test func senderCancellationAndLateNotificationCannotRestoreARemovedUser() throws {
+    @Test(arguments: [false, true])
+    func deletingTheConfirmedContactRejectsLateRepliesAndAllowsAFreshInvitation(legacyDeletion: Bool) throws {
         let author = Fixture("sender-cancel-author"), friend = Fixture("sender-cancel-friend")
         let (a, transport) = author.make(), (b, friendTransport) = friend.make()
         defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
@@ -219,15 +220,41 @@ struct ContactInvitationPersistenceTests {
         let handler = try #require(transport.onEvent)
         handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
         let saved = try #require(a.viewModel.savedRemoteUsers.first)
-        #expect(a.viewModel.removeSavedUser(saved.id))
-        try a.viewModel.cancelContactInvitation(id)
-        handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
+        let oldReply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
+        let checkpoint = try #require(a.viewModel.groupRepository.contactInvitations.first { $0.id == id })
+        #expect(checkpoint.state == .confirmed)
+        if legacyDeletion {
+            a.viewModel.stopContactInvitationSession()
+            // Earlier builds removed the user and pair call, but left this confirmed checkpoint.
+            var snapshot = author.store.snapshot
+            snapshot.users = []
+            snapshot.groups = []
+            author.store.snapshot = snapshot
+        } else {
+            #expect(a.viewModel.removeSavedUser(saved.id))
+            let sent = transport.sentApplicationDataMessages.count
+            handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
+            #expect(transport.sentApplicationDataMessages.count == sent)
+            #expect(transport.connectedGroup == nil)
+            #expect(!a.viewModel.handleContactReplyURL(oldReply))
+        }
         let (reloaded, _) = author.make()
+        defer { reloaded.viewModel.stopContactInvitationSession() }
+        #expect(reloaded.viewModel.groupRepository.contactInvitations.first { $0.id == id }?.state == .cancelled)
         #expect(!reloaded.viewModel.resumeContactInvitation(id))
+        #expect(!reloaded.viewModel.handleContactReplyURL(oldReply))
         #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        // Deleting the person deleted their pair call and its key.
         #expect(author.credentials.values.isEmpty)
         #expect(reloaded.viewModel.regularGroups.isEmpty)
+
+        let freshURL = try #require(reloaded.viewModel.makeContactInviteURL())
+        let freshID = try #require(GroupInviteTokenCodec.decodeJoinURL(freshURL, contactBootstrap: true).directInvitation).context.id
+        #expect(freshID != id)
+        try b.viewModel.acceptContactInviteURL(freshURL)
+        let freshReply = try b.viewModel.contactReplyURLForSharing(freshID, expectedAccountAccessID: b.viewModel.accountAccessID)
+        try reloaded.viewModel.receiveContactReplyURL(freshReply)
+        #expect(reloaded.viewModel.savedRemoteUsers.map(\.memberIDs) == [["sender-cancel-friend"]])
+        #expect(!reloaded.viewModel.handleContactReplyURL(oldReply))
     }
 
     @Test func ordinaryCallStartAndSignOutStopContactTransportWithoutErasingPending() throws {

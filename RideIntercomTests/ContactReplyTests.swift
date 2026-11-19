@@ -243,13 +243,13 @@ struct ContactReplyTests {
         let person = try #require(a.viewModel.savedRemoteUsers.first).id
         #expect(a.viewModel.removeSavedUser(person))
         let afterDeletion = a.groupStore.snapshot
-        #expect(a.viewModel.contactInvitationRecord(id)?.state == .confirmed)
-        #expect(try a.viewModel.groupRepository.contactInvitationPayload(id).receipt != nil,
-                "The binding remains for duplicate control acknowledgements")
+        #expect(a.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(a.viewModel.contactInvitationRecord(id)?.credentialReference == nil)
+        #expect(throws: GroupStorageError.invalidUpdate) { try a.viewModel.groupRepository.contactInvitationPayload(id) }
         #expect(!a.viewModel.canShareContactReply(record))
         await #expect(throws: (any Error).self) { _ = try await share.exported(as: .url) }
         #expect(a.groupStore.snapshot == afterDeletion)
-        try a.viewModel.receiveContactReplyURL(reply)
+        #expect(!a.viewModel.handleContactReplyURL(reply))
         #expect(a.viewModel.directoryUsers.isEmpty && a.viewModel.groups.isEmpty)
         #expect(a.groupStore.snapshot == afterDeletion, "A duplicate reply cannot restore a deleted person")
     }

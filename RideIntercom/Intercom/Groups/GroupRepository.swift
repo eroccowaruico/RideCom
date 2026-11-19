@@ -35,7 +35,7 @@ final class GroupRepository {
             // in the same commit as orphan cleanup, before reclaiming their keys.
             let beforeMaintenance = current
             current.groups.removeAll { isOrphanedDirectGroup($0, users: current.users) }
-            reconcileGroupInvitations(in: &current)
+            reconcileInvitations(in: &current)
             if current != beforeMaintenance {
                 current.generation = UUID()
                 try store.commit(current)
@@ -243,14 +243,7 @@ final class GroupRepository {
         guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
         let removed = Set(snapshot.groups.filter { belongs($0, to: user) }.map(\.id))
         try update(snapshot.groups.filter { !removed.contains($0.id) }.map { try $0.group() },
-                   credential: nil, users: snapshot.users.filter { $0.id != id }) { next in
-            for index in next.contactInvitations.indices where next.contactInvitations[index].personID == id {
-                if next.contactInvitations[index].state == .pending {
-                    next.contactInvitations[index].state = .cancelled
-                    next.contactInvitations[index].credentialReference = nil
-                }
-            }
-        }
+                   credential: nil, users: snapshot.users.filter { $0.id != id })
         return removed
     }
 
@@ -369,7 +362,7 @@ final class GroupRepository {
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations, groupDeliveries: previous.groupDeliveries)
         try modify(&next)
-        reconcileGroupInvitations(in: &next)
+        reconcileInvitations(in: &next)
         next.synchronizeUserReferences()
         do { _ = try next.encoded() }
         catch { throw GroupStorageError.invalidUpdate }
@@ -692,7 +685,7 @@ extension GroupRepository {
         return [group] + groups
     }
 
-    private func reconcileGroupInvitations(in next: inout GroupSnapshot) {
+    private func reconcileInvitations(in next: inout GroupSnapshot) {
         for index in next.groupDeliveries.indices {
             let record = next.groupDeliveries[index]
             guard record.direction == .outgoing, record.state == .pending || record.state == .queued else { continue }
@@ -705,13 +698,19 @@ extension GroupRepository {
                 next.groupDeliveries[index].credentialReference = nil
             }
         }
+        let people = Set(next.users.map(\.id))
+        let members = Set(next.users.flatMap(\.memberIDs))
         for index in next.contactInvitations.indices {
             let record = next.contactInvitations[index]
-            guard let groupID = record.invitedGroupID else { continue }
-            let group = next.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group })
-            let targetExists = record.direction == .incoming ? group != nil
-                : (group.map { next.groups[$0].members.contains { $0.id == record.pendingGroupMemberID } } ?? false)
-            if record.state == .pending && !targetExists {
+            // After confirmation, the peer may have merged into an existing saved person.
+            let hasPerson = record.peerMemberID.map(members.contains) ?? record.personID.map(people.contains) ?? true
+            let group = record.invitedGroupID.flatMap { groupID in
+                next.groups.firstIndex { $0.id == groupID && $0.kind == .group }
+            }
+            let targetExists = record.invitedGroupID == nil || group.map { index in
+                record.direction == .incoming || next.groups[index].members.contains { $0.id == record.pendingGroupMemberID }
+            } == true
+            if !hasPerson || (record.state == .pending && !targetExists) {
                 next.contactInvitations[index].state = .cancelled
                 next.contactInvitations[index].credentialReference = nil
             }

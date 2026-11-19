@@ -64,7 +64,7 @@ iOSで「登録」を押した直後に完了・画面ロック・他のアプ�
 | StandardのshareContactConfirmationButton | outgoing・confirmed・receivedBySharing=true・canResume・期限内のときだけ「Reply received」と「Share Confirmation」。相手が確認を開くと返信待ちを解消する旨を添える |
 | Advancedの共有 | ContactInvitationRecordのreceivedBySharingをtrue／false／nilで表示。canShareContactReplyに従いincomingはShare Accepted Receipt、outgoingはShare Acknowledgement。人の詳細と相手の設定に同じ記録を内包する |
 | export／エラー | InvitationShare(contactReplyID:)がexport時にaccountAccessID・現在の記録・期限・鍵を再検証。表示時とexport時に現在の記録・相手の登録と公開鍵を照合し、削除・取消後の古い共有操作は無効にする。失敗は同じ詳細に表示。読込・保存失敗は既存の再読込へ接続し、通常通話を勝手に切断しない |
-| import／再表示 | 元の作者は同じ人・開いている詳細を登録済みに更新。受け手は検証済みACKでpendingを解消。どちらも新しいシートを強制せず、再起動後は同じ人の設定から続ける。未知・改ざん・取消・期限切れは保存しない |
+| import／再表示 | 元の作者は同じ人・開いている詳細を登録済みに更新。受け手は検証済みACKでpendingを解消。どちらも新しいシートを強制せず、再起動後は同じ人の設定から続ける。未知・改ざん・取消・期限切れは保存しない。相手を削除すると、その人との招待も同時に停止するため、古い返信を開いても一覧へ戻らない。再登録は新しい招待から行う |
 | Advancedの再試行・停止 | 同じAdvancedContactInvitationContentを登録直後の詳細・人物詳細・相手の設定で使い、相手IDと招待IDを共通操作へ渡す。受信pendingとoutgoing confirmedの停止はStop Retrying Notification。受信の確認本文は登録済み相手が残ることを伝える。成功後はstate=cancelled、canResume=false、session=stoppedと「Retries stopped on this device.」（この端末での再試行を停止しました。）。再試行・返信共有を出さず、相手と同じ詳細／設定を保つ。保存失敗では元の状態と操作を保って理由を表示 |
 | 期限切れの保存済み返信 | StandardのcontactInvitationStateは「Reply expired」（返信の有効期限が切れました）、続けて「Ask the sender for a new invitation.」。再試行・共有を出さず、登録済みの人は保つ。AdvancedはhasExpired(at:)のtrue／falseと期限・保存state・canResumeを併記し、期限内だけ再試行・取消を出す。通常通話中・保存編集不可のRetry Notificationは無効。期限到達で人を削除したり通話を切断したりしない |
 
