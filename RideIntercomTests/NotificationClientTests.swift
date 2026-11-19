@@ -344,6 +344,76 @@ struct NotificationClientTests {
         #expect(h.viewModel.groupErrorMessage == nil)
     }
 
+    @Test func expiredOrUnavailableNotificationOpensTheCurrentCallWithoutLookingUpTheSender() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let h = notificationHarness(fixture); defer { h.viewModel.disconnect() }
+        let owner = AppCallOwner(account: h.viewModel.accountSession, viewModel: h.viewModel)
+        owner.notificationBridge.bind(to: owner)
+        #expect(h.viewModel.createTalkGroup(name: "Current call", userIDs: [fixture.user.id]))
+        let groupID = try #require(h.viewModel.regularGroups.first?.id)
+        #expect(h.viewModel.hasAnyActiveGroupConnection && h.viewModel.authenticatedPeerIDs.isEmpty)
+        let current = h.viewModel.currentCallReference
+        let before = NotificationHTTPStub.requests.count
+
+        for status in [410, 503] {
+            if status == 503 {
+                h.viewModel.setSoundIsolationEnabled(false)
+                h.callSession.authenticate(["friend"])
+                await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
+                #expect(h.viewModel.isAudioReady)
+                h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+                    reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
+                #expect(h.viewModel.isAudioPausedForDeviceChange)
+            }
+            NotificationHTTPStub.status = status
+            owner.callPresentationID = nil
+            await owner.notificationBridge.respond(to: .init(requestID: UUID(), recipientID: fixture.local.userID),
+                actionIdentifier: UNNotificationDefaultActionIdentifier, categoryIdentifier: "RIDEINTERCOM_CALL_REQUEST")
+            #expect(owner.callPresentationID != nil)
+            #expect(owner.usersPresentationID == nil)
+            #expect(h.viewModel.currentCallReference == current && h.viewModel.selectedGroup?.id == groupID)
+            #expect(h.viewModel.groupErrorMessage == nil)
+        }
+        #expect(NotificationHTTPStub.requests.count == before)
+    }
+
+    @Test func callStartedDuringAnUnsuccessfulNotificationLookupTakesPriority() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let h = notificationHarness(fixture); defer { h.viewModel.disconnect() }
+        let owner = AppCallOwner(account: h.viewModel.accountSession, viewModel: h.viewModel)
+        owner.notificationBridge.bind(to: owner)
+        NotificationHTTPStub.status = 410
+        let gate = ManualAsyncGate(); NotificationHTTPStub.delayGate = gate
+        let responding = Task {
+            await owner.notificationBridge.respond(to: .init(requestID: UUID(), recipientID: fixture.local.userID),
+                actionIdentifier: "RIDEINTERCOM_CONNECT", categoryIdentifier: "RIDEINTERCOM_CALL_REQUEST")
+        }
+        await gate.waitForEntry()
+        #expect(h.viewModel.createTalkGroup(name: "Started while looking up"))
+        let groupID = h.viewModel.regularGroups.first?.id
+        let current = h.viewModel.currentCallReference
+        await gate.release()
+        _ = await responding.value
+        #expect(groupID != nil && current.groupID == groupID && h.viewModel.hasAnyActiveGroupConnection)
+        #expect(owner.callPresentationID != nil && owner.usersPresentationID == nil)
+        #expect(h.viewModel.currentCallReference == current && h.viewModel.selectedGroup?.id == groupID)
+    }
+
+    @Test func notificationForAnotherRecipientDoesNotOpenAnyScreen() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let h = notificationHarness(fixture); defer { h.viewModel.disconnect() }
+        let owner = AppCallOwner(account: h.viewModel.accountSession, viewModel: h.viewModel)
+        owner.notificationBridge.bind(to: owner)
+        let before = NotificationHTTPStub.requests.count
+        await owner.notificationBridge.respond(to: .init(requestID: UUID(), recipientID: fixture.peer.userID),
+            actionIdentifier: UNNotificationDefaultActionIdentifier, categoryIdentifier: "RIDEINTERCOM_CALL_REQUEST")
+        #expect(owner.callPresentationID == nil && owner.usersPresentationID == nil)
+        #expect(NotificationHTTPStub.requests.count == before && h.callSession.connectedGroup == nil)
+    }
+
     @Test func delayedNotificationTapCannotStartAfterTheAppChangesItsModel() async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         fixture.store.notificationRegistrationEnabled = true
