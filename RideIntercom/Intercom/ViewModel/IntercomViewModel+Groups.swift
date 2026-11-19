@@ -163,6 +163,7 @@ extension IntercomViewModel {
         updated[groupIndex].members.removeAll { $0.id == memberID }
         updated[groupIndex].accountDevices.removeValue(forKey: memberID)
         guard commitGroups(updated) else { return }
+        requestGroupDeliverySync(afterMutation: true)
         if activeGroupID == groupID {
             connectedPeerIDs.removeAll { $0 == memberID }
             authenticatedPeerIDs.removeAll { $0 == memberID }

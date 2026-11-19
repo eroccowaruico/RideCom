@@ -283,6 +283,61 @@ import UserNotifications
         }
     }
 
+    @Test(arguments: [false, true])
+    func removedMemberIsNotSentAnInvitationAfterExpiryOrDuringAnotherDelivery(duringDelivery: Bool) async throws {
+        let a = GroupDeliveryTestIdentity("removing-author"), b = GroupDeliveryTestIdentity("removed-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let h = try a.harness(knowing: [b])
+        let vm = h.viewModel
+        defer { vm.stopGroupDeliverySync(); vm.disconnect(); GroupDeliveryHTTPStub.reset() }
+        GroupDeliveryHTTPStub.reset()
+        let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        GroupDeliveryHTTPStub.users = [access.accessToken: try a.principal.userID]
+        let grant = try testCallNotificationGrant(owner: b.principal, allowedSender: a.principal, audience: "rideintercom-group-invitation")
+        let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal, revision: 1,
+            grant: nil, signer: b.signer, groupGrant: grant, groupInvitationsSupported: true)
+        try vm.notifications.receivePermission(permission, peerID: b.memberID)
+        vm.groupDeliveryClient = nil
+        #expect(vm.createTalkGroup(name: "Continue sending", userIDs: [b.personID]))
+        #expect(vm.createTalkGroup(name: "Remove before sending", userIDs: [b.personID]))
+        let queuedRecords = vm.groupRepository.groupDeliveries
+        let unaffected = try #require(queuedRecords.first)
+        let removed = try #require(queuedRecords.last)
+        #expect(unaffected.id != removed.id && removed.credentialReference == nil)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        vm.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        if duringDelivery {
+            GroupDeliveryHTTPStub.onQueued = { vm.removeMember(b.memberID, from: removed.groupID) }
+            vm.requestGroupDeliverySync()
+        } else {
+            var expire: (@MainActor () -> Void)?
+            vm.beginGroupDeliveryBackgroundTime = { onExpiration in
+                expire = onExpiration
+                return {}
+            }
+            vm.removeMember(b.memberID, from: removed.groupID)
+            let endBackgroundTime = try #require(expire)
+            endBackgroundTime()
+            #expect(GroupDeliveryHTTPStub.submitted.isEmpty)
+            #expect(vm.groupRepository.groupDeliveries.first(where: { $0.id == removed.id })?.state == .cancelled)
+            vm.requestGroupDeliverySync()
+        }
+        await vm.groupDeliveryTask?.value
+        #expect(vm.groupStorageIssue == nil)
+        #expect(vm.groupRepository.groupDeliveries.map(\.id) == [unaffected.id])
+        #expect(vm.groupRepository.groupDeliveries.first?.state == .queued)
+        let submittedIDs = try GroupDeliveryHTTPStub.submitted.map { packet in
+            let data = try #require(Data(base64Encoded: packet))
+            return try JSONDecoder().decode(GroupInvitationEnvelope.self, from: data).id
+        }
+        let expectedIDs: Set<UUID> = [unaffected.id]
+        #expect(Set(submittedIDs) == expectedIDs)
+        #expect(GroupDeliveryHTTPStub.items[removed.id.uuidString.lowercased()] == nil)
+    }
+
     @Test func aLateResponseCannotCommitAfterTheAccountSignsOut() async throws {
         let a = GroupDeliveryTestIdentity("late-author"), b = GroupDeliveryTestIdentity("late-recipient")
         defer { a.remove(); b.remove() }

@@ -48,13 +48,31 @@ import Testing
             let id = UUID(); invitedGroups.insert(id)
             #expect(left.viewModel.createTalkGroup(name: "Actual Worker group \(index)", userIDs: [b.personID], id: id))
         }
+        let revokedGroupID = UUID()
+        #expect(left.viewModel.createTalkGroup(name: "Removed before receipt", userIDs: [b.personID], id: revokedGroupID))
         left.viewModel.groupDeliveryClient = client
-        let group = try #require(left.viewModel.groups.first), call = left.viewModel.currentCallReference
+        let group = try #require(left.viewModel.groups.first(where: { invitedGroups.contains($0.id) }))
+        let call = left.viewModel.currentCallReference
         let recipientCall = right.viewModel.currentCallReference
         await left.viewModel.synchronizeGroupDeliveries()
-        #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .queued)
+        let author = left.viewModel
+        let revoked = try #require(author.groupRepository.groupDeliveries.first(where: { $0.groupID == revokedGroupID }))
+        #expect(revoked.state == .queued)
+        var requested = 0, released = 0
+        author.beginGroupDeliveryBackgroundTime = { _ in
+            requested += 1
+            return { released += 1 }
+        }
+        author.removeMember(b.memberID, from: revokedGroupID)
+        #expect(requested == 1, "Request time before returning from the removal")
+        #expect(author.groupRepository.groupDeliveries.first(where: { $0.id == revoked.id })?.state == .cancelled)
+        await author.groupDeliveryTask?.value
+        #expect(released == 1)
+        #expect(!author.groupRepository.groupDeliveries.contains { $0.id == revoked.id })
+        #expect(author.savedRemoteUsers.contains { $0.id == b.personID })
         await right.viewModel.synchronizeGroupDeliveries()
         #expect(invitedGroups.isSubset(of: Set(right.viewModel.groups.map(\.id))))
+        #expect(!right.viewModel.groups.contains { $0.id == revokedGroupID })
         #expect(right.viewModel.currentCallReference == recipientCall && left.viewModel.currentCallReference == call)
         #expect(right.viewModel.activeGroupID == nil && !right.viewModel.hasAnyActiveGroupConnection && right.callSession.connectedGroup == nil)
         let source = try #require(try left.viewModel.groupRepository.credential(for: group.id))
