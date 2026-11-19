@@ -216,6 +216,7 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertTrue(["a", "b"].contains(role))
         let groupID = try XCTUnwrap(UUID(uuidString: run))
         let transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
+        let standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         let mixed = transport == "mixed"
         let usesInternet = transport == "webrtc" || mixed
         let startsBeforeInternet = env["AUDIO_E2E_DELAY_INTERNET"] == "1"
@@ -228,6 +229,11 @@ final class AudioE2ETests: XCTestCase {
         let recovery = checksInternetRecovery || checksLocalRecovery
         let mutedWait = env["AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS"].map { Int($0) ?? -1 } ?? 0
         XCTAssertTrue((0...300).contains(mutedWait))
+        if standaloneReceiver {
+            XCTAssertTrue(role == "b" && transport == "local" && !waitsForLateParticipant && !movesToBackground
+                && !recovery && !checksBackgroundMute && !checksBackgroundSilence && mutedWait == 0)
+            XCTAssertEqual(scenarios.count, 1)
+        }
         if mutedWait > 0 { XCTAssertTrue(checksBackgroundMute && recovery) }
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
         if startsBeforeInternet { XCTAssertTrue(mixed) }
@@ -343,11 +349,17 @@ final class AudioE2ETests: XCTestCase {
             authority: DirectInvitationAuthority(keychain: keychain, namespace: namespace + ".Inviter"),
             signer: DeviceIdentitySigner(memberID: "fixture-owner", key: P256.Signing.PrivateKey()), groupID: groupID, groupName: "Audio E2E",
             groupSecret: groupSecret, inviterMemberID: "fixture-owner")
+        let invitation = try GroupInviteTokenCodec.joinURL(for: token)
+        if standaloneReceiver {
+            try await sendToStandaloneReceiver(viewModel: viewModel, invitation: invitation,
+                                               directory: directory, seconds: initial.seconds)
+            return
+        }
         if waitsForLateParticipant, role == "b" {
             try await waitForFirstParticipant(at: XCTUnwrap(workerURL), room: room, token: run, timeout: 45 + mutedWait)
         }
         let joiningStarted = ContinuousClock.now
-        try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        try viewModel.acceptInviteURL(invitation)
         let waitingCall = viewModel.currentCallReference
         let waitingDeadline = viewModel.callDisconnectDeadline
         if mutedWait > 0, role == "a" { XCTAssertTrue(viewModel.setCallMuted(true, for: waitingCall)) }
@@ -903,6 +915,42 @@ final class AudioE2ETests: XCTestCase {
         recording.name = "endpoint-\(role)-\(scenario)-speech"
         recording.lifetime = .keepAlways
         add(recording)
+    }
+
+    @MainActor
+    private func sendToStandaloneReceiver(viewModel: IntercomViewModel, invitation: URL,
+                                          directory: URL, seconds: Double) async throws {
+        XCTAssertTrue((6...20).contains(seconds))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        let invitationFile = directory.appendingPathComponent("receiver-invitation.url")
+        let joinCommand = directory.appendingPathComponent("join")
+        try Data(invitation.absoluteString.utf8).write(to: invitationFile, options: .atomic)
+        FileHandle.standardOutput.write(Data("AUDIO_E2E_STANDALONE_INVITE_READY\n".utf8))
+        // The operator releases the sender only after the receiving app has been
+        // in the intended OS state for the required duration.
+        try await waitUntil(seconds: 600, description: "Standalone receiver wait", status: { "join command missing" }) {
+            FileManager.default.fileExists(atPath: joinCommand.path)
+        }
+        try viewModel.acceptInviteURL(invitation)
+        try await waitUntil(seconds: 45, description: "Authenticated standalone receiver",
+                            status: { viewModel.routeLabel }) {
+            viewModel.availableCallRoutes == [.multipeer] && viewModel.authenticatedPeerIDs.count == 1
+                && viewModel.isAudioReady && viewModel.isCallMediaStarted
+        }
+        let call = viewModel.currentCallReference
+        let packets = viewModel.sentVoicePacketCount
+        let startedAt = Date().timeIntervalSince1970
+        try await Task.sleep(for: .seconds(seconds))
+        XCTAssertEqual(viewModel.currentCallReference, call)
+        XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
+        XCTAssertGreaterThan(viewModel.sentVoicePacketCount, packets)
+        let evidence: [String: Any] = ["startedAt": startedAt, "endedAt": Date().timeIntervalSince1970,
+            "sentVoicePackets": viewModel.sentVoicePacketCount - packets]
+        let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
+        attachment.name = "standalone-sender-observation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

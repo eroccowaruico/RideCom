@@ -25,12 +25,25 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
             "RIDEINTERCOM_BACKGROUND_FIRST_PERMISSION": firstPermission ? "1" : "0"]
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch(); app.activate()
-        let groups = app.tabBars.buttons["Groups"]; XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
-        app.buttons["standardCreateGroupButton"].tap()
-        let field = app.textFields["savedUsersGroupNameField"]
-        let original = try XCTUnwrap(field.value as? String), name = "Background " + UUID().uuidString.prefix(6)
-        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: original.count) + name + "\n")
-        app.buttons["saveUserSelectionButton"].tap()
+        let waitsForInvitation = muted && !advanced
+            && ProcessInfo.processInfo.environment["RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION"] == "1"
+        let name: String
+        if waitsForInvitation {
+            name = "Audio E2E"
+            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE\n".utf8))
+            let open = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons
+                .matching(NSPredicate(format: "label IN %@", ["Open", "開く"])).firstMatch
+            if open.waitForExistence(timeout: 10) { open.tap() }
+            XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 45))
+        } else {
+            let groups = app.tabBars.buttons["Groups"]; XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
+            app.buttons["standardCreateGroupButton"].tap()
+            let field = app.textFields["savedUsersGroupNameField"]
+            let original = try XCTUnwrap(field.value as? String)
+            name = "Background " + UUID().uuidString.prefix(6)
+            field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: original.count) + name + "\n")
+            app.buttons["saveUserSelectionButton"].tap()
+        }
         if firstPermission {
             let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts["kTCCServiceMicrophone-alert"].firstMatch
             XCTAssertTrue(alert.waitForExistence(timeout: 8), "A fresh microphone permission must present the OS prompt")

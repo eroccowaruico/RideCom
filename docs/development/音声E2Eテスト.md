@@ -185,3 +185,11 @@ fixtureの再生位置は最初のcapture時刻と現在のcapture時刻の差�
 性能測定では`--configuration Release`を明示し、通常Releaseと同じ最適化を持つ標準構成`Release-Validation`を使う。DEBUGマクロは追加せず、内部API参照に必要な`ENABLE_TESTABILITY=YES`と検証namespaceをprojectの標準設定へ置く。既定のDebugは通常検証と同じ`Debug-Validation`を使い、schemeのTestActionで明示したsigned-out fixtureから起動する。通常Debug／Release／Archiveの設定は変更しない。コンパイラ条件・namespace・署名設定をCLIから上書きしない。`configuration.json`に測定構成、`build-settings-<platform>.json`にXcodeで解決した構成と生成先を記録する。資格を含み得るbuild settings全体は保存しない。音声同一性・欠落ゼロ・125msの判定は構成によらず同じものを適用し、Releaseの成功で既存のDebug失敗を成功へ書き換えない。
 
 MacとSimulatorは同じMacのCoreAudio serviceを共有する。二つのhostのnative graph初期化を同時に開始せず、最初のhostが初期化完了を通知してから次を起動する。初期化は30秒を上限とし、失敗時は後続hostを起動せず所有processを回収する。通話開始後の双方向送受信・capture/render時計・判定閾値は変えない。
+
+## 検証用の送話側から通常の通話を始めた端末へ発話する
+
+受話端末を一度準備してマイクOFFでロックする試験には、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を送話側だけに使う。通常の音声E2Eと同じ隔離済みホストを用意し、`AUDIO_E2E_ROLE=b`、`AUDIO_E2E_TRANSPORT=local`、`AUDIO_E2E_STANDALONE_RECEIVER=1`、新しいUUIDの`AUDIO_E2E_RUN`と発話6〜20秒のsmokeシナリオ1件を設定する。受話端末は既存の[実機用検証App](自動検証.md#ios実機の準備とロック中の検証を分ける)を使う。
+
+送話側のログで`AUDIO_E2E_STANDALONE_INVITE_READY`が出たら、送話側のAppのdata containerで`tmp/RideIntercom.AudioE2E.<実行ID>.b/receiver-invitation.url`を読み、受話側で通常の招待として開く。試験用の招待リンクは操作時だけ渡し、ログ・結果の添付・Gitに残さない。利用者は必要なOS許可とリンクを開く確認を済ませ、通話画面でマイクOFFにしてロックする。
+
+受話端末の背景・単独待機・マイクOFF・受信0の継続を確認してから、同じ送話側フォルダに空の`join`ファイルを作る。送話側は合図を最大10分待ち、近距離の認証とメディア開始後に試験音声を送る。送話側の結果には発話を確認した時刻と符号化packet数だけを残す。受話側の記録で、同じ通話の識別子・期限、認証、受信と発話区間の有声出力を照合する。実機はロック中の観測を確認する。Simulatorでの手順確認では、同じ通常画面を既存の`testStandardMutedWaitingKeepsAudioInBackground`で操作し、UIテスト側の`RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION=1`で外部の招待を待つ。
