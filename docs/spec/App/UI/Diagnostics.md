@@ -95,21 +95,21 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 |---|---|---|---|---|---|---|
 | RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数 | route と総 `RX n`。破棄があれば `DROP n`。peer別の接続・認証・経路は下の参加者内訳に表示 | 受信 0 は未発話または未接続として読む |
 | Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | 現在の受信処理で空でないPCMを返したpacket数と、復号に失敗したpacket数。受信グラフを作り直すと数え直す | `No PCM observed` または `PCM n`。失敗があれば `Decode errors n` を併記。peer別のdecode codecは参加者内訳で表示 | PCMが得られるまではwaiting。RTC受信・破棄、再生予約や実出力は別の段 |
-| peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot` の RX peer bus、authenticated peer count、peer 別 RX / JIT / PLAY / level / volume / `receivePeerEffectChainSnapshot(peerID:)` | bus 数と RX count。peer別の音量・FX要約・待機frame数は下の参加者内訳に表示 | peer なしは neutral / waiting |
-| receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | `AudioMixerSnapshot.routes`、peer bus count、受信 packet count | `n routes -> rx-master` として複数 peer が master に集約されることを表示 | bus なしは waiting |
+| peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot.routes` の `rx-peer-*` → `rx-master` と各入力の `scheduledFrameCount` | `n peer buses`。peer別の音量・FX要約・待機frame数は下の参加者内訳に表示 | 音声未準備はIdle。接続された入力のいずれかでPCMの再生予約を観測するとPassing、それまではWaiting |
+| receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | Peer Busesと同じ経路・再生予約 | `n routes → rx-master`（1本は `1 route → rx-master`）。その経路がある参加者の枝線が左の縦線で合流する | Peer Busesと同じ判定。再生予約後の出力はOutputで確認する |
 | receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、played frame count、master volume、source bus count | source bus count と OUT volume。mix 後の 1 本の master bus として表示 | 再生 0 は waiting |
 | master effect chainステップ | `liveReceivePipelineView` | `receive-pipeline-master-effects-step` | Master FX | `AudioMixerSnapshot` の `rx-master.effectChain` + `rx-output.effectChain` から導出した `receiveMasterEffectChainSnapshot.stages` | RX Master 配下に適用される ordered stage chip として inline 表示（Isolation → master fader → 出力Limiter） | stage 単位で unavailable / bypassed を表示 |
 | outputステップ | `liveReceivePipelineView` | `receive-pipeline-output-step` | Output | output renderer snapshot、mute、volume | stream format、frame count、mute | mute / volume 0 は warning |
 
 ## 受信 mix topology 表示
 
-`LiveReceivePipelineView` はRTC RX、Decode、Peer Busesの段を1行ずつ並べ、その下に参加者ごとの内訳（`diagnosticsReceiveDetails`）を置く。内訳の見出し`receive-mix-topology`（Participants）の下で、自分以外のメンバーを標準DisclosureGroupで開閉する。peerが増えても巨大なcard gridへせず、開いた参加者だけ詳細行を表示する。Overviewの「I can't hear someone」「Audio drops out」は全参加者を開いた状態でこの位置へ移動する。
+`LiveReceivePipelineView` はRTC RX、Decode、Peer Busesの段を1行ずつ並べ、その下に参加者ごとの内訳（`diagnosticsReceiveDetails`）を置く。内訳の見出し`receive-mix-topology`（Participants）の下で、自分以外の登録メンバーと、名簿に反映される前の認証済みまたは経路のある相手を標準DisclosureGroupで開閉する。経路のない相手を木の上に並べる。peerが増えても巨大なcard gridへせず、開いた参加者だけ詳細行を表示する。Overviewの「I can't hear someone」「Audio drops out」は全参加者を開いた状態でこの位置へ移動する。
 
 | 項目 | accessibilityIdentifier | 表示する状態 |
 |---|---|---|
 | 参加者内訳 | `diagnosticsReceiveDetails` | 見出しと参加者の一覧。通話先がなければNo participants |
 | 内訳の見出し | `receive-mix-topology` | Participants |
-| 参加者行 | メンバーIDを`id`に持つDisclosureGroup | 表示名（2行まで）。開くと、送信側のミュート（`mic.slash.fill`と語）、送信側のcodec・bitrate・VAD・isolationと報告の経過秒（15秒超はStale）、RTC RXの接続・認証・経路（Internet／Local direct／Local relayed）、Decode codec、Peer Busの音量・FX要約・待機frame数。offlineはOfflineだけを表示する。未取得値はNot measured |
+| 参加者行 | メンバーIDを`id`に持つDisclosureGroup | 表示名と状態。経路なしはOfflineまたはNo mixer route。経路ありはPassing／Waitingを共通の記号と語で示す。開くと、送信側のミュート（`mic.slash.fill`と語）、送信側のcodec・bitrate・VAD・isolationと報告の経過秒（15秒超はStale）、RTC RXの接続・認証・経路（Internet／Local direct／Local relayed）、Decode codec、Peer Busの音量・FX要約・待機frame数。offlineはOfflineだけを表示する。未取得値はNot measured |
 | master mix row | `receive-master-mix-card` | source bus count、総 RX、PLAY、master volume / mute、RX master effect summary、出力 level |
 
 ## 受信 effect chain 表示

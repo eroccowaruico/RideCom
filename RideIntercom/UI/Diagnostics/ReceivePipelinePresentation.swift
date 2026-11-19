@@ -6,6 +6,39 @@ import SessionManager
 /// Pure projection of one captured input; owns no live state.
 struct ReceivePipelinePresentation {
     let input: DiagnosticsInput
+    let receivePeerStates: [String: PipelineStepState]
+
+    init(input: DiagnosticsInput) {
+        self.input = input
+        let peerBusPrefix = "rx-peer-"
+        var states: [String: PipelineStepState] = [:]
+        if input.isAudioReady {
+            for route in input.audioMixerSnapshot.routes
+                where route.destinationBusID == "rx-master" && route.sourceBusID.hasPrefix(peerBusPrefix) {
+                let peerID = String(route.sourceBusID.dropFirst(peerBusPrefix.count))
+                let bus = input.mixerBusSnapshot(id: route.sourceBusID)
+                let scheduled = bus?.sources.contains { $0.scheduledFrameCount > 0 } ?? false
+                states[peerID] = scheduled ? .passing : .waiting
+            }
+        }
+        receivePeerStates = states
+    }
+
+    private var receivePeerBusCount: Int { receivePeerStates.count }
+    private var hasScheduledPeerAudio: Bool { receivePeerStates.values.contains(.passing) }
+
+    var receiveParticipants: [GroupMember] {
+        let members = Array(input.selectedGroup?.members.dropFirst() ?? [])
+        let knownIDs = Set(members.map(\.id))
+        let authenticated = Set(input.authenticatedPeerIDs)
+        let extraIDs = authenticated.union(receivePeerStates.keys).subtracting(knownIDs).sorted()
+        return members + extraIDs.map { id in
+            GroupMember(id: id, displayName: id,
+                authenticationState: authenticated.contains(id) ? .authenticated : .open,
+                connectionState: authenticated.contains(id) ? .connected : .offline)
+        }
+    }
+
     var rtcReceiveStep: PipelineStep {
         guard input.isAudioReady else {
             return PipelineStep(
@@ -88,9 +121,9 @@ struct ReceivePipelinePresentation {
             id: "peer-bus",
             package: "AudioMixer",
             title: "Peer Buses",
-            detail: "\(receivePeerBusCount) peers / RX \(input.receivedVoicePacketCount)",
+            detail: "\(receivePeerBusCount) peer buses",
             icon: "person.2.wave.2",
-            state: input.receivedVoicePacketCount > 0 ? .passing : .waiting,
+            state: hasScheduledPeerAudio ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-peer-bus-step"
         )
     }
@@ -107,14 +140,14 @@ struct ReceivePipelinePresentation {
                 accessibilityIdentifier: "receive-pipeline-mix-step"
             )
         }
-        let sourceCount = receivePeerBusCount
+        let routeLabel = receivePeerBusCount == 1 ? "route" : "routes"
         return PipelineStep(
             id: "receive-mix",
             package: "AudioMixer",
             title: "Mix Down",
-            detail: "\(sourceCount) routes -> \(input.audioMixerSnapshot.outputBusID ?? "rx-master")",
+            detail: "\(receivePeerBusCount) \(routeLabel) → rx-master",
             icon: "arrow.triangle.merge",
-            state: input.receivedVoicePacketCount > 0 ? .passing : .waiting,
+            state: hasScheduledPeerAudio ? .passing : .waiting,
             accessibilityIdentifier: "receive-pipeline-mix-step"
         )
     }
@@ -136,7 +169,7 @@ struct ReceivePipelinePresentation {
             id: "master-bus",
             package: "AudioMixer",
             title: "RX Master",
-            detail: bus.map { "\($0.sourceCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
+            detail: bus.map { "\(receivePeerBusCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
                 ?? "\(receivePeerBusCount) in / OUT \(Int(input.masterOutputVolume * 100))%",
             icon: "waveform.path.ecg",
             state: input.playedAudioFrameCount > 0 ? .passing : .waiting,
@@ -207,70 +240,6 @@ struct ReceivePipelinePresentation {
         input.receiveMasterEffectChainSnapshot.stages.map(EffectChainStage.init(snapshot:))
     }
 
-    var receivePeerBuses: [ReceivePeerBusSnapshot] {
-        var snapshots: [ReceivePeerBusSnapshot] = []
-        if let selectedGroup = input.selectedGroup {
-            snapshots = selectedGroup.members.dropFirst().compactMap { member in
-                let shouldShowBus = input.authenticatedPeerIDs.contains(member.id)
-                    || member.connectionState != .offline
-                    || member.receivedAudioPacketCount > 0
-                    || member.playedAudioFrameCount > 0
-                guard shouldShowBus else { return nil }
-                let effectChain = input.receivePeerEffectChainSnapshot(peerID: member.id)
-                return ReceivePeerBusSnapshot(
-                    id: member.id,
-                    displayName: member.resolvedDisplayName,
-                    receivedFrameCount: member.receivedAudioPacketCount,
-                    queuedFrameCount: member.queuedAudioFrameCount,
-                    playedFrameCount: member.playedAudioFrameCount,
-                    level: member.voiceLevel,
-                    peakLevel: member.voicePeakLevel,
-                    connectionLabel: connectionLabel(member.connectionState),
-                    authenticationLabel: member.authenticationState.rawValue,
-                    activeCodec: member.activeCodec,
-                    outputVolume: input.remoteOutputVolume(for: member.id),
-                    effectSummary: effectChain.compactSummary,
-                    effectStages: effectChain.stages.map(EffectChainStage.init(snapshot:)),
-                    isMuted: member.isMuted,
-                    state: state(for: member.audioPipelineState)
-                )
-            }
-        }
-
-        let existingPeerIDs = Set(snapshots.map(\.id))
-        for peerID in input.authenticatedPeerIDs where !existingPeerIDs.contains(peerID) {
-            let effectChain = input.receivePeerEffectChainSnapshot(peerID: peerID)
-            snapshots.append(
-                ReceivePeerBusSnapshot(
-                    id: peerID,
-                    displayName: peerID,
-                    receivedFrameCount: 0,
-                    queuedFrameCount: 0,
-                    playedFrameCount: 0,
-                    level: 0,
-                    peakLevel: 0,
-                    connectionLabel: "Connected",
-                    authenticationLabel: PeerAuthenticationState.authenticated.rawValue,
-                    activeCodec: nil,
-                    outputVolume: input.remoteOutputVolume(for: peerID),
-                    effectSummary: effectChain.compactSummary,
-                    effectStages: effectChain.stages.map(EffectChainStage.init(snapshot:)),
-                    isMuted: false,
-                    state: input.receivedVoicePacketCount > 0 ? .passing : .waiting
-                )
-            )
-        }
-        return snapshots
-    }
-
-    var receivePeerBusCount: Int {
-        max(receivePeerBuses.count, receiveMixerRouteCount, input.authenticatedPeerCount)
-    }
-
-    var receiveMixerRouteCount: Int {
-        input.audioMixerSnapshot.routes.filter { $0.destinationBusID == "rx-master" }.count
-    }
-
     var receiveMasterMix: ReceiveMasterMixSnapshot {
         ReceiveMasterMixSnapshot(
             sourceBusCount: receivePeerBusCount,
@@ -296,32 +265,10 @@ struct ReceivePipelinePresentation {
         "\(Int(format.sampleRate / 1_000))k/\(format.channelCount)ch"
     }
 
-    private func connectionLabel(_ state: PeerConnectionState) -> String {
-        switch state {
-        case .connected:
-            return "Connected"
-        case .connecting:
-            return "Connecting"
-        case .offline:
-            return "Offline"
-        }
-    }
-
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {
         if states.contains(.blocked) { return .blocked }
         if states.contains(.waiting) { return .waiting }
         if states.contains(.passing) { return .passing }
         return .idle
-    }
-
-    private func state(for audioPipelineState: AudioPipelineState) -> PipelineStepState {
-        switch audioPipelineState {
-        case .receiving, .playing:
-            return .passing
-        case .received:
-            return .waiting
-        case .idle:
-            return .idle
-        }
     }
 }

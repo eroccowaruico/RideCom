@@ -66,12 +66,10 @@ struct DiagnosticsPresentationTests {
         let h = AppTestSupport.makeHarness(groups: [])
         var input = DiagnosticsInput(h.viewModel)
         input.authenticatedPeerIDs = ["new-peer"]
-        input.peerVolumes = ["new-peer": 0.25]
         let presentation = ReceivePipelinePresentation(input: input)
-        #expect(presentation.receivePeerBuses.count == 1)
-        #expect(presentation.receivePeerBuses[0].id == "new-peer")
-        #expect(presentation.receivePeerBuses[0].activeCodec == nil)
-        #expect(presentation.receivePeerBuses[0].outputVolume == 0.25)
+        #expect(presentation.receiveParticipants.map(\.id) == ["new-peer"])
+        #expect(presentation.receiveParticipants.first?.activeCodec == nil)
+        #expect(presentation.receivePeerStates.isEmpty)
         #expect(presentation.outputStep.accessibilityIdentifier == "receive-pipeline-output-step")
         #expect(presentation.masterEffectStages.isEmpty)
         input.isOutputMuted = true

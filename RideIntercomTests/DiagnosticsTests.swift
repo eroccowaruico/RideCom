@@ -64,6 +64,39 @@ struct DiagnosticsTests {
         #expect(presentation().codecDecodeStep.state == .idle)
     }
 
+    @Test func receiveMixCountsOnlyRoutedPeerBusesAndUsesTheirAudioEvidence() {
+        var input = DiagnosticsInput(AppTestSupport.makeHarness().viewModel)
+        input.isAudioReady = true
+        input.authenticatedPeerCount = 3
+        input.receivedVoicePacketCount = 8
+        input.audioMixerSnapshot.outputBusID = "engine-output"
+        input.audioMixerSnapshot.routes = [
+            .init(sourceBusID: "rx-peer-first", destinationBusID: "rx-master"),
+            .init(sourceBusID: "rx-peer-second", destinationBusID: "rx-master"),
+            .init(sourceBusID: "rx-master", destinationBusID: "rx-output")
+        ]
+        func presentation() -> ReceivePipelinePresentation { .init(input: input) }
+
+        #expect(presentation().receiveMixStep.detail == "2 routes → rx-master")
+        #expect(presentation().receiveMasterMix.sourceBusCount == 2)
+        #expect(presentation().receiveMixStep.state == .waiting)
+        #expect(presentation().receivePeerStates["first"] == .waiting)
+        #expect(presentation().receivePeerStates["third"] == nil)
+
+        input.audioMixerSnapshot.buses = [
+            .init(id: "rx-peer-first", volume: 1, sourceCount: 1, effectCount: 0,
+                sources: [.init(id: "pcm", typeName: "MixerPCMSource", index: 0, inputBusIndex: 0, scheduledFrameCount: 1)])
+        ]
+        #expect(presentation().receivePeerStates["first"] == .passing)
+        #expect(presentation().receivePeerStates["second"] == .waiting)
+        #expect(presentation().receiveMixStep.state == .passing)
+
+        input.audioMixerSnapshot.routes.removeFirst()
+        #expect(presentation().receivePeerStates["first"] == nil)
+        #expect(presentation().receiveMixStep.detail == "1 route → rx-master")
+        #expect(presentation().receiveMixStep.state == .waiting)
+    }
+
     @Test func viewModelExposesTransmitEffectChainFromRuntimeSettings() {
         let harness = AppTestSupport.makeHarness()
 

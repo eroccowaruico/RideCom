@@ -29,22 +29,73 @@ struct DiagnosticsTransmitRoutes: View {
 
 struct DiagnosticsReceiveDetails: View {
     @Bindable var viewModel: IntercomViewModel
+    let presentation: ReceivePipelinePresentation
     @Binding var expandedStage: String?
+
     var body: some View {
+        let members = presentation.receiveParticipants
+        let states = presentation.receivePeerStates
         VStack(alignment: .leading, spacing: AppSpacing.m) {
             Text("Participants").font(.headline).accessibilityIdentifier("receive-mix-topology")
-            if let group = viewModel.selectedGroup {
-                ForEach(Array(group.members.dropFirst())) { member in
-                    DisclosureGroup(isExpanded: Binding(get: { expandedStage == "receive-peers" || expandedStage == member.id }, set: { expandedStage = $0 ? member.id : nil })) {
-                        peer(member)
-                    } label: { Text(member.resolvedDisplayName).lineLimit(2) }
-                    .id(member.id)
+            if members.isEmpty { Text("No participants") }
+            ForEach(members.filter { states[$0.id] == nil }) { member in
+                participant(member, state: nil)
+            }
+            if states.isEmpty {
+                CompactPipelineStepRow(step: presentation.receiveMixStep)
+            } else {
+                VStack(alignment: .leading, spacing: AppSpacing.m) {
+                    ForEach(members.filter { states[$0.id] != nil }) { member in
+                        branch { participant(member, state: states[member.id]) }
+                    }
+                    branch { CompactPipelineStepRow(step: presentation.receiveMixStep) }
                 }
-            } else { Text("No participants") }
-
-        }.font(.caption)
+                .overlay(alignment: .leading) {
+                    Color.accentColor.opacity(0.55)
+                        .frame(width: 1)
+                        .padding(.top, AppSpacing.m)
+                        .padding(.bottom, AppSpacing.l)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .font(.caption)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("diagnosticsReceiveDetails")
+    }
+
+    private func branch<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.leading, AppSpacing.l + AppSpacing.xs)
+            .overlay(alignment: .topLeading) {
+                Color.accentColor.opacity(0.55)
+                    .frame(width: AppSpacing.l, height: 1)
+                    .padding(.top, AppSpacing.m)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+
+    private func participant(_ member: GroupMember, state: PipelineStepState?) -> some View {
+        DisclosureGroup(isExpanded: Binding(
+            get: { expandedStage == "receive-peers" || expandedStage == member.id },
+            set: { expandedStage = $0 ? member.id : nil }
+        )) {
+            peer(member)
+        } label: {
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                Text(member.resolvedDisplayName)
+                if let state {
+                    Label(state.statusText, systemImage: state.statusSymbol)
+                        .foregroundStyle(state.color)
+                } else {
+                    Text(member.connectionState == .offline ? "Offline" : "No mixer route")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .id(member.id)
     }
 
     private func peer(_ member: GroupMember) -> some View {

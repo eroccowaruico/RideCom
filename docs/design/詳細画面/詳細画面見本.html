@@ -124,10 +124,10 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .tree::before { content: ""; position: absolute; left: 5px; top: 12px; bottom: 15px; border-left: 2px solid var(--accent); opacity: .55; }
 .tree > .card { position: relative; }
 .tree > .card::before { content: ""; position: absolute; left: -10px; top: 12px; width: 9px; border-top: 2px solid var(--accent); opacity: .55; }
-.tree > .card.off::before { border-top-style: dashed; opacity: .35; }
-.blk-h { display: flex; gap: 5px; align-items: baseline; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.peer-unrouted { margin-bottom: 6px; }
+.blk-h { display: grid; justify-items: start; gap: 2px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
 .blk-h b { font-size: 12px; }
-.blk-h .r { margin-left: auto; color: var(--label2); font-size: 10px; white-space: nowrap; }
+.blk-h .r { color: var(--label2); font-size: 10px; white-space: nowrap; }
 .blk .row { grid-template-columns: 46px 1fr; }
 .card.off { opacity: .5; }
 .merge { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 11px; background: color-mix(in srgb, var(--accent) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); font-weight: 700; }
@@ -310,35 +310,39 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div class="ptitle">Diagnostics</div>
         <div class="pseg"><span>Overview</span><span>TX</span><span class="on">RX</span><span>Network</span><span>Applied</span></div>
         <div class="pbody">
-          <div class="hd">Live RX Pipeline <span>3 peer buses · 1 offline</span></div>
+          <div class="hd">Live RX Pipeline <span>Peers -&gt; mix -&gt; RX master -&gt; output</span></div>
           <div class="card">
             <div class="row"><span class="k">RTC RX</span><span class="v num">Local + Internet / C 3 / A 3 / RX 240 / DROP 3</span></div>
             <div class="row"><span class="k">Decode</span><span class="v num">PCM 238 / Decode errors 2</span></div>
           </div>
+          <div class="card">
+            <div class="row"><span class="k">Peer Buses</span><span class="v num">3 peer buses</span></div>
+          </div>
+          <div class="hd">Participants</div>
+          <div class="card blk off peer-unrouted">
+            <div class="blk-h" style="border-bottom:0;margin:0;padding:0"><b>Yu</b><span class="r">Offline</span></div>
+          </div>
           <div class="tree">
             <div class="card blk">
-              <div class="blk-h"><span class="d ok"></span><b>Haruka</b><span class="ok-t" style="font-weight:600">Passing</span><span class="r">Local · direct</span></div>
+              <div class="blk-h"><b>Haruka</b><span class="ok-t" style="font-weight:600"><span aria-hidden="true">✓</span> Passing</span></div>
               <div class="row"><span class="k">Sender</span><span class="v">MPEG-4 AAC-ELD · 48 kHz · 48 kbps<div class="sub">Unmuted · Speech · SoundIsolation active</div></span></div>
-              <div class="row"><span class="k">RTC RX</span><span class="v">Connected · AUTH OK</span></div>
+              <div class="row"><span class="k">RTC RX</span><span class="v">connected / authenticated / Local direct</span></div>
               <div class="row"><span class="k">Decode</span><span class="v num">MPEG-4 AAC-ELD</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 100% · Jitter buffer 24 ms<div class="sub">SoundIsolation bypassed <span class="meter"><i style="width:70%"></i></span></div></span></div>
             </div>
             <div class="card blk">
-              <div class="blk-h"><span class="d warn"></span><b>Kenta</b><span class="warn-t" style="font-weight:600">Waiting</span><span class="r">Local · relayed by Haruka</span></div>
+              <div class="blk-h"><b>Kenta</b><span class="warn-t" style="font-weight:600"><span aria-hidden="true">Ⅱ</span> Waiting</span></div>
               <div class="row"><span class="k">Sender</span><span class="v">Opus · 24 kHz · 32 kbps <span class="pill">Lower Quality</span><div class="sub">Unmuted · Silence · SoundIsolation bypassed</div></span></div>
-              <div class="row"><span class="k">RTC RX</span><span class="v">Connected · AUTH OK</span></div>
+              <div class="row"><span class="k">RTC RX</span><span class="v">connected / authenticated / Local relayed</span></div>
               <div class="row"><span class="k">Decode</span><span class="v num">Opus</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 80% · Jitter buffer 4 ms<div class="sub">SoundIsolation active <span class="meter"></span></div></span></div>
             </div>
             <div class="card blk">
-              <div class="blk-h"><span class="d ok"></span><b>Mika</b><span class="ok-t" style="font-weight:600">Passing</span><span class="r">Internet</span></div>
+              <div class="blk-h"><b>Mika</b><span class="ok-t" style="font-weight:600"><span aria-hidden="true">✓</span> Passing</span></div>
               <div class="row"><span class="k">Sender</span><span class="v">MPEG-4 AAC-ELD → PCM 16-bit · 16 kHz <span class="pill warn-t">Fallback</span><div class="sub">Unmuted · Speech · SoundIsolation unavailable · 3 s ago</div></span></div>
-              <div class="row"><span class="k">RTC RX</span><span class="v">Connected · AUTH OK<div class="sub">Local unavailable</div></span></div>
+              <div class="row"><span class="k">RTC RX</span><span class="v">connected / authenticated / Internet<div class="sub">Local unavailable</div></span></div>
               <div class="row"><span class="k">Decode</span><span class="v num">PCM 16-bit</span></div>
               <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 60% · Jitter buffer 62 ms<div class="sub">SoundIsolation bypassed <span class="meter"><i style="width:45%"></i></span></div></span></div>
-            </div>
-            <div class="card blk off">
-              <div class="blk-h" style="border-bottom:0;margin:0;padding:0"><span class="d idle"></span><b>Yu</b><span class="r">Offline</span></div>
             </div>
             <div class="merge"><span>Mix Down</span><span class="r">3 routes → rx-master</span></div>
           </div>
@@ -356,7 +360,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Peer Bus（自分側の設定）を入れ子で並べ、左の線が Mix Down へ合流し、RX Master → Master FX → Output へ続く。</figcaption>
+      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。再生予約を観測した相手は Passing、未観測なら Waiting。経路がない相手は木の上に表示する。Mix Downの下に RX Master → Master FX → Output が続く。</figcaption>
     </figure>
 
     <!-- Network -->

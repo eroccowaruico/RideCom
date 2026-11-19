@@ -36,8 +36,6 @@ struct DiagnosticsInput {
     var receiveDecodeCounts: ReceiveDecodeCounts
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
-    var peerEffectChains: [String: AudioEffectChainSnapshot]
-    var peerVolumes: [String: Float]
 
     init(_ viewModel: IntercomViewModel) {
         audioErrorMessage = viewModel.audioErrorMessage
@@ -74,11 +72,6 @@ struct DiagnosticsInput {
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount
         selectedGroup = viewModel.selectedGroup
-        let ids = Set((viewModel.selectedGroup?.members.map(\.id) ?? []) + viewModel.authenticatedPeerIDs)
-        peerEffectChains = Dictionary(uniqueKeysWithValues: ids.map { ($0, viewModel.receivePeerEffectChainSnapshot(peerID: $0)) })
-        peerVolumes = Dictionary(uniqueKeysWithValues: ids.map { ($0, viewModel.remoteOutputVolume(for: $0)) })
     }
     func mixerBusSnapshot(id: String) -> MixerBusSnapshot? { audioMixerSnapshot.buses.first { $0.id == id } }
-    func receivePeerEffectChainSnapshot(peerID: String) -> AudioEffectChainSnapshot { peerEffectChains[peerID] ?? .init(id: "rx-peer-\(peerID)", effects: []) }
-    func remoteOutputVolume(for peerID: String) -> Float { peerVolumes[peerID] ?? 1 }
 }

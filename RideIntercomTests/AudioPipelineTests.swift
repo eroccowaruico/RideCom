@@ -10,6 +10,9 @@ import Testing
 import VADGate
 import SoundIsolation
 import PeakLimiter
+#if os(iOS)
+import SwiftUI
+#endif
 @testable import RideIntercom
 
 extension AppTests {
@@ -645,10 +648,42 @@ struct AudioPipelineTests {
         pipeline.onOutputFrame = { rendered += $0.samples }
         try pipeline.rebuild(configuration: AppAudioPipelineConfiguration(masterOutputVolume: 2), peerIDs: ["a", "b"])
         defer { pipeline.stop() }
+        let model = AppTestSupport.makeHarness().viewModel
+        model.isAudioReady = true
+        model.authenticatedPeerIDs = ["a", "b"]
+        model.selectedGroup = try IntercomGroup(name: "RX mix", members: [
+            GroupMember(id: "local", displayName: "Local"),
+            GroupMember(id: "a", displayName: "Haruka", authenticationState: .authenticated, connectionState: .connected),
+            GroupMember(id: "b", displayName: "Kenta", authenticationState: .authenticated, connectionState: .connected),
+            GroupMember(id: "c", displayName: "Yu")
+        ])
+        func presentation() -> ReceivePipelinePresentation {
+            model.audioMixerSnapshot = pipeline.snapshot
+            return .init(input: DiagnosticsInput(model))
+        }
+        #expect(presentation().receivePeerStates == ["a": .waiting, "b": .waiting])
+        #expect(presentation().receiveMixStep.detail == "2 routes → rx-master")
+        #expect(presentation().masterBusStep.detail.hasPrefix("2 in /"))
         let wave = (0..<48_000).map { Float(sin(Double($0) * 2 * .pi * 440 / 48_000)) * 0.9 }
         let packet = RTCAudioPacket(sequenceNumber: 0, codec: .pcm16, format: RTCAudioFormat(sampleRate: 48_000, channelCount: 1), capturedAt: 0, sampleCount: wave.count, payload: PCM16Codec.encode(wave))
         for peer in ["a", "b"] {
             _ = try pipeline.processReceivedAudioPacket(ReceivedAudioPacket(peerID: PeerID(rawValue: peer), packet: packet))
+            if peer == "a" {
+                #expect(presentation().receivePeerStates == ["a": .passing, "b": .waiting])
+                #if os(iOS)
+                for (name, size) in [("standard", DynamicTypeSize.large), ("accessibility", .accessibility5)] {
+                    let view = LiveReceivePipelineView(viewModel: model, expandedStage: .constant(nil))
+                        .frame(width: 370)
+                        .padding()
+                        .background(AppColorPalette.listScreenBackground)
+                        .environment(\.dynamicTypeSize, size)
+                    let renderer = ImageRenderer(content: view)
+                    renderer.scale = 2
+                    let data = try #require(renderer.uiImage?.pngData())
+                    Attachment.record(data, named: "rx-mix-\(name).png")
+                }
+                #endif
+            }
         }
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
         for _ in 0..<60 {
@@ -663,6 +698,9 @@ struct AudioPipelineTests {
         #expect(output.effectChain.last?.id == "peak-limiter")
         #expect(output.sinks.first?.id == "speaker-output")
         #expect(pipeline.snapshot.routes.contains { $0.sourceBusID == "rx-master" && $0.destinationBusID == "rx-output" })
+        #expect(presentation().receivePeerStates == ["a": .passing, "b": .passing])
+        try pipeline.stopReceivePeer("a")
+        #expect(presentation().receivePeerStates == ["b": .passing])
     }
 
     @Test func actualTransmitDynamicsChangesPCMBeforeEncoding() async throws {

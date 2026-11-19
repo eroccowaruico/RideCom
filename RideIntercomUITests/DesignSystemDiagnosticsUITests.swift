@@ -41,6 +41,12 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Input level: Not measured"].firstMatch.exists)
         attachScreen("TX diagnostics before microphone analysis")
+        picker.buttons["RX"].tap()
+        let mix = app.descendants(matching: .any)["receive-pipeline-mix-step"].firstMatch
+        reveal(mix, app: app)
+        XCTAssertEqual(mix.value as? String, "Idle, Not available")
+        XCTAssertTrue(app.staticTexts["No participants"].firstMatch.exists)
+        attachScreen("RX diagnostics before a call")
     }
 
     func testDiagnosticsMenuAtAccessibilitySizeInLandscape() {
