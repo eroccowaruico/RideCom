@@ -174,16 +174,20 @@ struct GroupContactInvitationTests {
     }
 
     private struct MembershipStatement: Codable {
+        enum Kind: String, Codable { case admission, removal }
+
         let groupID: UUID
         let introductionID: UUID
         let introducerID: String
         let memberID: String
         let memberKey: String
+        var kind = Kind.admission
+        var observedRemovals: [UUID] = []
 
         func signingData() throws -> Data {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            return Data("rideintercom.membership-experiment.v1\0".utf8) + (try encoder.encode(self))
+            return Data("rideintercom.membership-experiment.v2\0".utf8) + (try encoder.encode(self))
         }
     }
 
@@ -197,11 +201,113 @@ struct GroupContactInvitationTests {
         }
 
         func verifies(in group: GroupSnapshot.Record, peer: VerifiedDeviceProof, activeIntroduction: UUID?) -> Bool {
-            guard statement.groupID == group.id, statement.introductionID == activeIntroduction,
-                  group.invitationDeviceKeys?[statement.introducerID] == proof.publicKey,
+            guard statement.kind == .admission, statement.introductionID == activeIntroduction,
                   statement.memberID == peer.memberID, statement.memberKey == peer.publicKey else { return false }
+            return hasKnownSignature(in: group)
+        }
+
+        func hasKnownSignature(in group: GroupSnapshot.Record) -> Bool {
+            guard statement.groupID == group.id,
+                  group.invitationDeviceKeys?[statement.introducerID] == proof.publicKey else { return false }
             return (try? proof.verify(statement.signingData(), purpose: .acknowledgeInvitation,
                                       memberID: statement.introducerID)) != nil
+        }
+    }
+
+    @Test func reorderedMembershipChangesConvergeAfterReloadWithOnlyExplicitReadmission() throws {
+        let now = Date()
+        let (a, b, token, _) = try prepared(now: { now })
+        let c = AppTestSupport.makeHarness(groups: [], localMemberID: "group-observer", callAccessNow: { now })
+        defer {
+            for vm in [a.viewModel, b.viewModel, c.viewModel] { vm.stopContactInvitationSession(); vm.disconnect() }
+        }
+        let inviter = try a.viewModel.internetSettingsStore.invitationSigner(memberID: token.inviterMemberID)
+        let group = try #require(token.invitedGroup)
+        let observerInvite = try GroupInviteToken.make(authority: a.viewModel.invitationAuthority, signer: inviter,
+            groupID: group.id, groupName: group.name, groupSecret: group.secret, inviterMemberID: inviter.memberID)
+        try c.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: observerInvite))
+        c.viewModel.disconnect()
+        c.viewModel.reloadSavedGroups()
+        let receiver = try #require(c.groupStore.snapshot.groups.first { $0.id == group.id })
+
+        func accept(_ url: URL, id: UUID) throws -> MembershipStatement {
+            try b.viewModel.acceptContactInviteURL(url)
+            b.viewModel.stopContactInvitationSession()
+            try a.viewModel.receiveContactReplyURL(b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID))
+            let memberID = b.viewModel.localMemberIdentity.memberID
+            let record = try #require(a.groupStore.snapshot.groups.first { $0.id == group.id })
+            let memberKey = try #require(record.invitationDeviceKeys?[memberID])
+            return MembershipStatement(groupID: group.id, introductionID: id, introducerID: inviter.memberID,
+                memberID: memberID, memberKey: memberKey)
+        }
+        let original = try accept(GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true),
+                                  id: #require(token.directInvitation).context.id)
+        #expect(a.viewModel.removeMember(original.memberID, from: group.id))
+        let removal = MembershipStatement(groupID: group.id, introductionID: UUID(), introducerID: inviter.memberID,
+            memberID: original.memberID, memberKey: original.memberKey, kind: .removal)
+        let draft = GroupInvitationDraft(name: "Ride again", suggestedName: "Rider")
+        #expect(a.viewModel.saveGroupInvitations(groupID: group.id, creating: false, name: "", selected: [], newPeople: [draft]) == group.id)
+        let share = try a.viewModel.prepareContactPersonShare(draft.id, expectedAccountAccessID: a.viewModel.accountAccessID)
+        var fresh = try accept(share.url, id: share.id)
+        fresh.observedRemovals = [removal.introductionID]
+        let events = try [original, removal, fresh].map { try MembershipEndorsement($0, signer: inviter) }
+        #expect(a.viewModel.removeMember(fresh.memberID, from: group.id))
+        let laterRemoval = MembershipStatement(groupID: group.id, introductionID: UUID(), introducerID: inviter.memberID,
+            memberID: original.memberID, memberKey: original.memberKey, kind: .removal)
+        let signedLaterRemoval = try MembershipEndorsement(laterRemoval, signer: inviter)
+        let otherKey = try DeviceIdentitySigner(memberID: inviter.memberID, key: P256.Signing.PrivateKey())
+        let untrustedRemoval = try MembershipEndorsement(laterRemoval, signer: otherKey)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RideIntercom-membership-order-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for sequence in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            let file = directory.appendingPathComponent(sequence.map(String.init).joined() + ".json")
+            var journal = MembershipJournal()
+            var received = Set<Int>()
+            for index in sequence {
+                received.insert(index)
+                let acceptedEvent = journal.receive(events[index], in: receiver)
+                #expect(acceptedEvent)
+                try JSONEncoder().encode(journal).write(to: file, options: .atomic)
+                journal = try JSONDecoder().decode(MembershipJournal.self, from: Data(contentsOf: file))
+                let expected = received.contains(1) ? (received.contains(2) ? fresh.introductionID : nil)
+                    : (received.contains(0) ? original.introductionID : nil)
+                #expect(journal.activeIntroduction(for: original.memberID) == expected)
+                let acceptedRetry = journal.receive(events[index], in: receiver)
+                #expect(!acceptedRetry, "Retry has no additional write")
+            }
+            #expect(journal.activeIntroduction(for: original.memberID) == fresh.introductionID)
+
+            let acceptedUntrusted = journal.receive(untrustedRemoval, in: receiver)
+            #expect(!acceptedUntrusted)
+            #expect(journal.activeIntroduction(for: original.memberID) == fresh.introductionID)
+            let acceptedRemoval = journal.receive(signedLaterRemoval, in: receiver)
+            #expect(acceptedRemoval)
+            try JSONEncoder().encode(journal).write(to: file, options: .atomic)
+            journal = try JSONDecoder().decode(MembershipJournal.self, from: Data(contentsOf: file))
+            let acceptedRestoreReplay = journal.receive(events[2], in: receiver)
+            #expect(!acceptedRestoreReplay)
+            #expect(journal.activeIntroduction(for: original.memberID) == nil)
+        }
+    }
+
+    private struct MembershipJournal: Codable {
+        private(set) var events: [UUID: MembershipEndorsement] = [:]
+
+        mutating func receive(_ event: MembershipEndorsement, in group: GroupSnapshot.Record) -> Bool {
+            let id = event.statement.introductionID
+            guard events[id] == nil, event.hasKnownSignature(in: group) else { return false }
+            events[id] = event
+            return true
+        }
+
+        func activeIntroduction(for memberID: String) -> UUID? {
+            let statements = events.values.map(\.statement).filter { $0.memberID == memberID }
+            let removals = Set(statements.filter { $0.kind == .removal }.map(\.introductionID))
+            let admissions = statements.filter { $0.kind == .admission && Set($0.observedRemovals) == removals }
+            // The trial leaves competing admissions unresolved.
+            return admissions.count == 1 ? admissions.first?.introductionID : nil
         }
     }
 
