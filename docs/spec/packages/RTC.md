@@ -237,6 +237,8 @@ QUICのhandshakeで認証したpeerのIDと媒体用nonceから`_ride-audio._udp
 
 UDPの待受・service解決・送信は共通のparametersを使い、`includePeerToPeer = true`、セルラー禁止、特定interfaceへの固定なしとする。アクセスポイント・Internetがない場所ではApple peer-to-peer Wi-Fiを使う。Wi-Fi機能をOFFにしたBluetooth単独の音声通話には対応しない。通話中は途中参加を受け付けるため制御serviceだけを全件探索し、通話停止時に探索・接続を解放する。
 
+UDPの待受またはQUICの待受・探索が失敗した場合は、そのLocalセッションを閉じてから経路の失敗を通知する。すでに配信待ちだった古いQUIC状態は復旧待ちを解除しない。RouteManagerは同じ通話の中で新しいLocalセッションを用意し、新しいUDP受信口で再認証・媒体確認を行う。相手とのQUICリンクだけが閉じてUDP受信口が有効な条件では、従来どおり認証済みの媒体経路を保つ。
+
 `RTCCallRoute.sendApplicationData`は、その送信で代替媒体コピーを省略できる直接peerの集合を返す。Localの音声では認証済みかつ現在のUDP flowがnative ready・送信中bytes上限内で、そのflowの最近の媒体受領確認が有効なpeerだけを返す。現在のframeの受領ACKや無線上の到着・遅延・損失の保証ではない。個別の媒体到達確認を取得できないSFUと制御送信は空集合を返す。RouteManagerがこの共通契約でLocal優先を決め、Appへnative transport判定を持ち出さない。
 
 ### Local媒体の受領確認

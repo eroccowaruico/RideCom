@@ -78,26 +78,29 @@ private final class Session: @unchecked Sendable {
     }
 
     func start() {
-        datagrams.onFailure = { [weak self] _ in
-            guard let self, self.active else { return }
-            self.fail("Local UDP listener unavailable")
+        datagrams.synchronized {
+            datagrams.onFailure = { [weak self] _ in
+                guard let self, self.active else { return }
+                self.fail("Local UDP listener unavailable")
+            }
+            do { try datagrams.start() }
+            catch { fail("Local UDP listener could not start"); return }
+            let control = LocalControlTransport(localID: peer, credential: credential, nonce: datagrams.serviceNonce) { [weak self] event in
+                guard let self else { return }
+                self.datagrams.synchronized { if self.active { self.handle(event) } }
+            }
+            self.control = control
+            control.start()
         }
-        do { try datagrams.start() }
-        catch { fail("Local UDP listener could not start"); return }
-        let control = LocalControlTransport(localID: peer, credential: credential, nonce: datagrams.serviceNonce) { [weak self] event in
-            guard let self else { return }
-            self.datagrams.synchronized { if self.active { self.handle(event) } }
-        }
-        self.control = control
-        control.start()
     }
 
     func stop() {
         datagrams.synchronized {
+            guard active else { return }
             active = false
             datagrams.stop()
+            control?.stop()
         }
-        control?.stop()
     }
 
     func send(_ message: ApplicationDataMessage) -> Set<PeerID> {
@@ -148,6 +151,8 @@ private final class Session: @unchecked Sendable {
     }
 
     private func fail(_ reason: String) {
+        // Retire both native transports before a queued QUIC event can mark the failed route available.
+        stop()
         source.yield(.error(kind, .connectionFailed(kind, reason)))
         source.yield(.stateChanged(kind, .failed))
     }

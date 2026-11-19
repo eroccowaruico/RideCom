@@ -63,6 +63,37 @@ extension RealtimeTransportTests {
         }
     }
 
+    @Test func udpListenerFailureRetiresTheSessionBeforeQueuedControlState() async throws {
+        let end = LocalEnd("listener-failure")
+        await end.start(groupCredential())
+        let (media, controlEvent) = try await localFailureCallbacks(end.route)
+        try await waitForLocal { media.port != nil }
+
+        try media.synchronized {
+            let listenerFailed = try #require(media.onFailure)
+            listenerFailed("UDP listener failed")
+        }
+        // This callback was already dispatched on the independent QUIC queue.
+        controlEvent(.state(.authenticated))
+        #expect(media.port == nil)
+        await end.route.stopConnection()
+        try await waitForLocal { end.events.last == .stateChanged(.multipeer, .disconnected) }
+        let events = end.events
+        let failed = try #require(events.firstIndex(of: .stateChanged(.multipeer, .failed)))
+        #expect(!events[failed...].contains(.stateChanged(.multipeer, .authenticated)))
+    }
+
+    private func localFailureCallbacks(_ route: isolated LocalCallRoute) throws
+        -> (LocalDatagramTransport, @Sendable (LocalControlEvent) -> Void) {
+        let session = try #require(Mirror(reflecting: route).descendant("session", 0))
+        let fields = Mirror(reflecting: session)
+        let mediaStorage = try #require(fields.children.first { $0.label?.hasSuffix("datagrams") == true })
+        let media = try #require(Mirror(reflecting: mediaStorage.value).descendant(0) as? LocalDatagramTransport)
+        let control = try #require(fields.descendant("control", 0) as? LocalControlTransport)
+        let event = try #require(Mirror(reflecting: control).descendant("onEvent") as? (@Sendable (LocalControlEvent) -> Void))
+        return (media, event)
+    }
+
     @Test func simultaneousDiscoveryOfLongIdentifiersDeliversControlExactlyOnce() async throws {
         let a = LocalEnd(String(repeating: "あ", count: 23)), b = LocalEnd(String(repeating: "b", count: 70))
         let group = groupCredential()
