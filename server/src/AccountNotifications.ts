@@ -181,12 +181,13 @@ export class AccountNotifications {
             || sender.deviceID !== verifiedSender.deviceID || sender.tokenHash !== verifiedSender.tokenHash) return null
         return { requestID, senderUserID: sender.userID, recipientKey, expiresAt: value.expiresAt, envelope: value.envelope }
     }
-    finishInvitation(userID: string, requestID: string, actorID: string, discard = false): boolean {
+    finishInvitation(userID: string, requestID: string, actorID: string, discard = false): 'received' | 'cancelled' | null {
         const value = this.invitation(userID, requestID)
-        if (!value || (actorID !== userID && actorID !== value.sender.userID)) return false
-        if (value.status === 'queued') this.storage.kv.put(invitationPrefix + requestID,
-            { ...value, envelope: null, status: actorID === userID && !discard ? 'received' : 'cancelled' })
-        return true
+        if (!value || (actorID !== userID && actorID !== value.sender.userID)) return null
+        if (value.status !== 'queued') return value.status
+        const status = actorID === userID && !discard ? 'received' : 'cancelled'
+        this.storage.kv.put(invitationPrefix + requestID, { ...value, envelope: null, status })
+        return status
     }
     invitationNeedsNotice(userID: string, requestID: string): boolean {
         const value = this.invitation(userID, requestID)

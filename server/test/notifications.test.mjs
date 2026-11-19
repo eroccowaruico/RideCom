@@ -304,9 +304,46 @@ test('group invitation delivery requires its own permission and keeps opaque off
         assert.equal((await submit({ ...body, envelope: Buffer.from('changed').toString('base64') })).status, 409);
         const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;
         assert.equal((await call(r, path, undefined, c.accessToken, 'DELETE')).status, 404);
-        assert.equal((await call(r, path, undefined, b.accessToken, 'DELETE')).status, 200);
+        const acknowledge = async user => {
+            const result = await call(r, path, undefined, user.accessToken, 'DELETE');
+            assert.equal(result.status, 200);
+            assert.deepEqual(await result.json(), { status: 'received' });
+        };
+        await acknowledge(b);
+        await acknowledge(a); // Cancellation after the receipt reports the same terminal state.
+        await acknowledge(b);
         assert.equal((await (await read(b)).json()).delivery, null);
         assert.equal((await (await submit()).json()).status, 'received'); assert.equal(requests.length, 0);
+    } finally { await r.dispose(); }
+});
+
+test('a cancellation after download is reported to a delayed or repeated acknowledgement', async () => {
+    const r = await setup();
+    try {
+        const sender = await login(r, 'downloaded-invite-sender'), recipient = await login(r, 'downloaded-invite-recipient');
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: sender.userID }, recipient.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability } = await issued.json();
+        const requestID = randomUUID(), recipientKey = 'k'.repeat(87);
+        const invitation = { capability, requestID, recipientKey, expiresAt: Date.now() + 86400000,
+            envelope: Buffer.from('opaque invitation').toString('base64') };
+        const post = () => call(r, '/api/notifications/group-invitations', invitation, sender.accessToken);
+        const initial = await post();
+        assert.equal(initial.status, 200);
+        assert.equal((await initial.json()).status, 'queued');
+        const read = () => call(r, `/api/notifications/group-invitations?recipientKey=${recipientKey}`, undefined, recipient.accessToken, 'GET');
+        const downloaded = await read();
+        assert.equal(downloaded.status, 200);
+        assert.equal((await downloaded.json()).delivery.requestID, requestID);
+
+        const path = `/api/notifications/group-invitations/${recipient.userID}/${requestID}`;
+        for (const actor of [sender, recipient, recipient]) {
+            const result = await call(r, path, undefined, actor.accessToken, 'DELETE');
+            assert.equal(result.status, 200);
+            assert.deepEqual(await result.json(), { status: 'cancelled' });
+        }
+        assert.deepEqual(await (await read()).json(), { delivery: null });
+        assert.equal((await (await post()).json()).status, 'cancelled');
     } finally { await r.dispose(); }
 });
 

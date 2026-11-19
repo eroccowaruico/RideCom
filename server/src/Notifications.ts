@@ -84,11 +84,17 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 const result = await owner.groupInvitationCancelUnstored(auth, recipient, id)
                 if (result === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
                 // Also finish a packet inserted between the first lookup and the sender's cancellation.
-                if (result === 'cancelled' && await receiver?.groupInvitationFinish(recipient, id, auth.userID)) return json({})
+                if (result === 'cancelled') {
+                    const status = await receiver?.groupInvitationFinish(recipient, id, auth.userID)
+                    if (status) return json({ status })
+                }
                 return json({ error: 'Not found' }, 404)
             }
             if (!await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.sender.userID)) return json({ error: 'Not found' }, 404)
-            if (method === 'DELETE') return await receiver!.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1') ? json({}) : json({ error: 'Not found' }, 404)
+            if (method === 'DELETE') {
+                const status = await receiver!.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1')
+                return status ? json({ status }) : json({ error: 'Not found' }, 404)
+            }
             return json({ requestID: id, expiresAt: value.expiresAt, status: value.status })
         }
         if (path === '/api/notifications/group-invitations' && method === 'GET') {
