@@ -191,8 +191,14 @@ def duplex_latencies(rows):
         row['captureToRenderLatencySeconds'] = delay
         values.append(delay)
         # Retain a 10 ms allowance for alignment resolution in the 125 ms budget.
-        if delay < -0.01 or delay + 0.01 > 0.125:
-            failures.append(f"{row['transport']} {row['scenario']} {row['role']}: {delay * 1000:.2f} ms exceeds 125 ms budget including alignment allowance")
+        allowance = 0.01
+        comparison = delay + allowance
+        endpoint = f"{row['transport']} {row['scenario']} {row['role']}"
+        if delay < -allowance:
+            failures.append(f"{endpoint}: invalid negative measured latency of {delay * 1000:.2f} ms")
+        elif comparison > 0.125:
+            failures.append(f"{endpoint}: {comparison * 1000:.2f} ms including 10 ms alignment allowance "
+                            f"({delay * 1000:.2f} ms measured) exceeds 125 ms budget")
     if failures:
         raise ValueError('; '.join(failures))
     return values

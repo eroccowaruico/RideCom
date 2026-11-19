@@ -236,7 +236,8 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(values[1], 0.08)
         rows[0]['firstOutputHostTime'] += 0.2
         rows[1]['firstOutputHostTime'] += 0.01
-        with self.assertRaisesRegex(ValueError, '125 ms'):
+        message = r'310\.00 ms including 10 ms alignment allowance \(300\.00 ms measured\) exceeds 125 ms'
+        with self.assertRaisesRegex(ValueError, message):
             duplex_latencies(rows)
         self.assertAlmostEqual(rows[1]['captureToRenderLatencySeconds'], 0.09,
                                msg='Keep every measurement even when the first endpoint fails')
