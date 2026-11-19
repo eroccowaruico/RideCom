@@ -35,7 +35,9 @@ public final class MixerPCMSource {
 	private var scheduledEndSample: AVAudioFramePosition = 0
 	public private(set) var playbackResetCount = 0
 
-	private var playbackPosition: (completed: AVAudioFramePosition, writable: AVAudioFramePosition) {
+	private typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
+
+	private var playbackPosition: PlaybackPosition {
         guard playerNode.isPlaying else { return (0, 0) }
 		return playerNode.lastRenderTime.flatMap { time in
 			guard time.isSampleTimeValid || time.isHostTimeValid,
@@ -130,111 +132,12 @@ public final class MixerPCMSource {
                     && playerNode.engine?.isInManualRenderingMode == false
                     ? min(AVAudioFramePosition(renderClock.frameCount.load(ordering: .relaxed)),
                         AVAudioFramePosition((0.002 * mixerFormat.sampleRate).rounded(.up))) : 0
-                // Device handoff and arrival jitter are independent. Taking
-                // their maximum silently removes the configured jitter margin.
-                // Reserve only the sender's measured capture/codec remainder.
-                // This is independent of network jitter; aligned codecs add zero.
-                let margin = adaptivePlayout ? retainedJitterMargin(at: capturedAt) : 0
-                let transit = arrivedAt - capturedAt
-                let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
-                    arrivedAt: arrivedAt, packetDuration: duration) : (previousDuration: 0, offset: 0)
-                if let fastest = fastestTransit,
-                   transit >= fastest.seconds + (capturedAt - fastest.observedAt) * Self.clockDriftAllowance {
-                } else { fastestTransit = (transit, capturedAt) }
-                let requestedLead = nativeLead + margin
-                    + AVAudioFramePosition(((delay + packetizationJitter) * mixerFormat.sampleRate).rounded())
-                let boundedLead = min(requestedLead, AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
-				let delayedStart = rendered + boundedLead
-				if playoutAnchor == nil { playoutAnchor = (capturedAt, delayedStart) }
-				let anchor = playoutAnchor!
-				var target = Double(anchor.sample) + (capturedAt - anchor.capturedAt) * mixerFormat.sampleRate
-                if adaptivePlayout {
-                    let contiguous = lastCapturedEnd.map { abs(capturedAt - $0) <= 2 / mixerFormat.sampleRate } ?? false
-                    // Exact sample adjacency wins over host-time rounding. Each
-                    // peer retains its own clock; a late arrival never overlaps
-                    // or trims the preceding or following packet.
-                    if contiguous {
-                        target = Double(scheduledEndSample)
-                    }
-                    let resumed = lastCapturedEnd.map { capturedAt - $0 > 0.25 } ?? false
-                    // Only the previous burst's observed duration counts as
-                    // normal tail growth. A one-off backlog can still shrink.
-                    let normalTail = min(batch.offset, batch.previousDuration)
-                    let recoveryMargin = (max(0.02, duration * 2) + normalTail) * mixerFormat.sampleRate
-                    if audible || target <= Double(delayedStart) { recoveringQuietBurst = false }
-                    // Replacing silence must use the confirmed player clock,
-                    // not the future scheduling frontier. A block currently
-                    // rendering can still contain the end of the last word.
-                    let canReduceDelay = !audible && lastAudibleEnd <= position.completed
-                        && (target > Double(delayedStart) + recoveryMargin || recoveringQuietBurst)
-                    // Omitted silence is still part of the capture clock. Do
-                    // not move a healthy returning syllable merely because the
-                    // pause was long; reduce only an accumulated excess wait.
-                    // The player reserves whole samples. A fractional clock
-                    // residue at the boundary must not shorten a healthy pause.
-                    let resumeAllowance = (max(delay, duration) * mixerFormat.sampleRate).rounded()
-                    let resumedWithExcessWait = resumed
-                        && target.rounded() > Double(delayedStart) + resumeAllowance
-                    // The writable frontier reserves a future native quantum;
-                    // crossing it does not prove that the target has rendered.
-                    // This also applies after omitted silence. Rebasing there
-                    // shifts every following syllable despite timely arrival.
-                    let expired = target.rounded() < Double(position.completed)
-                    if expired || resumedWithExcessWait || canReduceDelay {
-                        var start = delayedStart
-                        if expired, let fastest = fastestTransit,
-                           // A start-up backlog or local outage longer than the
-                           // window cannot be absorbed and is not link jitter.
-                           transit - fastest.seconds < limit {
-                            // Learn this packet's whole excess transit, not only
-                            // the part the current wait failed to cover, plus the
-                            // packet and one more for the render quantum that
-                            // must start before its first sample (one packet
-                            // alone left gaps on the audio E2E).
-                            let excessTransit = max(0, transit - fastest.seconds)
-                            let elapsedWait = excessTransit * mixerFormat.sampleRate
-                            let excess = elapsedWait + 2 * Double(buffer.frameLength)
-                            // Even after a calm link, a late packet can arrive
-                            // with all the audio captured while it was held.
-                            // Leave room for that tail before adding learned wait.
-                            let window = (limit - delay - packetizationJitter) * mixerFormat.sampleRate
-                            let remainingBatch = max(0, batch.previousDuration - batch.offset)
-                            let reserved = max(remainingBatch, excessTransit + duration) * mixerFormat.sampleRate
-                                + Double(nativeLead)
-                            let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
-                            let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
-                            let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
-                            jitterMargin = (learned, capturedAt)
-                            // This late packet has already waited through the excess transit.
-                            // Keep the full learned margin for future arrivals.
-                            let remainingWait = max(0, learned - AVAudioFramePosition(elapsedWait.rounded(.down)))
-                            start = rendered + min(requestedLead - margin + min(remainingWait, availableWait),
-                                AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
-                        }
-                        target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))
-                        playoutAnchor = (capturedAt, AVAudioFramePosition(target))
-                        if canReduceDelay {
-                            options = .interrupts // only queued silence is replaced
-                            recoveringQuietBurst = true
-                        }
-                        playoutAdjustmentCount += 1
-                    }
-                }
-				// Remote and local clocks have unrelated epochs. Retain only their
-				// relative mapping, and rebase after a restart or a discontinuity
-				// outside the bounded playout window. Never reserve arbitrary future audio.
-				if !target.isFinite || target < Double(rendered) - limit * mixerFormat.sampleRate
-					|| target > Double(rendered) + limit * mixerFormat.sampleRate
-					|| lastCapturedAt.map({ capturedAt <= $0 }) == true {
-					playoutAnchor = (capturedAt, delayedStart)
-					startSample = delayedStart
-					if scheduledEndSample > rendered { options = .interrupts }
-					playbackResetCount += 1
-				} else {
-					startSample = AVAudioFramePosition(target.rounded())
-				}
-				lastCapturedAt = capturedAt
-                lastCapturedEnd = capturedAt + duration
+                let reservation = captureTimeReservation(
+                    capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength, duration: duration,
+                    audible: audible, position: position, nativeLead: nativeLead,
+                    delay: delay, limit: limit, packetizationJitter: packetizationJitter)
+                startSample = reservation.startSample
+                options = reservation.options
 			} else {
 				// Bound the wait before this frame starts, not its completion.
 				// A full capture batch may overlap the previous batch's healthy tail.
@@ -266,6 +169,123 @@ public final class MixerPCMSource {
 			throw AudioMixerError.pcmSourceScheduleFailed(String(describing: error))
 		}
 	}
+
+    /// Update the capture-to-playout mapping using the position already observed for this packet.
+    private func captureTimeReservation(
+        capturedAt: TimeInterval, arrivedAt: TimeInterval, frameLength: AVAudioFrameCount, duration: TimeInterval,
+        audible: Bool, position: PlaybackPosition, nativeLead: AVAudioFramePosition,
+        delay: TimeInterval, limit: TimeInterval, packetizationJitter: TimeInterval
+    ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
+        let rendered = position.writable
+        var options: AVAudioPlayerNodeBufferOptions = []
+        // Device handoff and arrival jitter are independent. Taking
+        // their maximum silently removes the configured jitter margin.
+        // Reserve only the sender's measured capture/codec remainder.
+        // This is independent of network jitter; aligned codecs add zero.
+        let margin = adaptivePlayout ? retainedJitterMargin(at: capturedAt) : 0
+        let transit = arrivedAt - capturedAt
+        let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
+            arrivedAt: arrivedAt, packetDuration: duration) : (previousDuration: 0, offset: 0)
+        if let fastest = fastestTransit,
+           transit >= fastest.seconds + (capturedAt - fastest.observedAt) * Self.clockDriftAllowance {
+        } else { fastestTransit = (transit, capturedAt) }
+        let requestedLead = nativeLead + margin
+            + AVAudioFramePosition(((delay + packetizationJitter) * mixerFormat.sampleRate).rounded())
+        let boundedLead = min(requestedLead, AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
+        let delayedStart = rendered + boundedLead
+        if playoutAnchor == nil { playoutAnchor = (capturedAt, delayedStart) }
+        let anchor = playoutAnchor!
+        var target = Double(anchor.sample) + (capturedAt - anchor.capturedAt) * mixerFormat.sampleRate
+        if adaptivePlayout {
+            let contiguous = lastCapturedEnd.map { abs(capturedAt - $0) <= 2 / mixerFormat.sampleRate } ?? false
+            // Exact sample adjacency wins over host-time rounding. Each
+            // peer retains its own clock; a late arrival never overlaps
+            // or trims the preceding or following packet.
+            if contiguous {
+                target = Double(scheduledEndSample)
+            }
+            let resumed = lastCapturedEnd.map { capturedAt - $0 > 0.25 } ?? false
+            // Only the previous burst's observed duration counts as
+            // normal tail growth. A one-off backlog can still shrink.
+            let normalTail = min(batch.offset, batch.previousDuration)
+            let recoveryMargin = (max(0.02, duration * 2) + normalTail) * mixerFormat.sampleRate
+            if audible || target <= Double(delayedStart) { recoveringQuietBurst = false }
+            // Replacing silence must use the confirmed player clock,
+            // not the future scheduling frontier. A block currently
+            // rendering can still contain the end of the last word.
+            let canReduceDelay = !audible && lastAudibleEnd <= position.completed
+                && (target > Double(delayedStart) + recoveryMargin || recoveringQuietBurst)
+            // Omitted silence is still part of the capture clock. Do
+            // not move a healthy returning syllable merely because the
+            // pause was long; reduce only an accumulated excess wait.
+            // The player reserves whole samples. A fractional clock
+            // residue at the boundary must not shorten a healthy pause.
+            let resumeAllowance = (max(delay, duration) * mixerFormat.sampleRate).rounded()
+            let resumedWithExcessWait = resumed
+                && target.rounded() > Double(delayedStart) + resumeAllowance
+            // The writable frontier reserves a future native quantum;
+            // crossing it does not prove that the target has rendered.
+            // This also applies after omitted silence. Rebasing there
+            // shifts every following syllable despite timely arrival.
+            let expired = target.rounded() < Double(position.completed)
+            if expired || resumedWithExcessWait || canReduceDelay {
+                var start = delayedStart
+                if expired, let fastest = fastestTransit,
+                   // A start-up backlog or local outage longer than the
+                   // window cannot be absorbed and is not link jitter.
+                   transit - fastest.seconds < limit {
+                    // Learn this packet's whole excess transit, not only
+                    // the part the current wait failed to cover, plus the
+                    // packet and one more for the render quantum that
+                    // must start before its first sample (one packet
+                    // alone left gaps on the audio E2E).
+                    let excessTransit = max(0, transit - fastest.seconds)
+                    let elapsedWait = excessTransit * mixerFormat.sampleRate
+                    let excess = elapsedWait + 2 * Double(frameLength)
+                    // Even after a calm link, a late packet can arrive
+                    // with all the audio captured while it was held.
+                    // Leave room for that tail before adding learned wait.
+                    let window = (limit - delay - packetizationJitter) * mixerFormat.sampleRate
+                    let remainingBatch = max(0, batch.previousDuration - batch.offset)
+                    let reserved = max(remainingBatch, excessTransit + duration) * mixerFormat.sampleRate
+                        + Double(nativeLead)
+                    let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
+                    let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
+                    let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
+                    jitterMargin = (learned, capturedAt)
+                    // This late packet has already waited through the excess transit.
+                    // Keep the full learned margin for future arrivals.
+                    let remainingWait = max(0, learned - AVAudioFramePosition(elapsedWait.rounded(.down)))
+                    start = rendered + min(requestedLead - margin + min(remainingWait, availableWait),
+                        AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
+                }
+                target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))
+                playoutAnchor = (capturedAt, AVAudioFramePosition(target))
+                if canReduceDelay {
+                    options = .interrupts // only queued silence is replaced
+                    recoveringQuietBurst = true
+                }
+                playoutAdjustmentCount += 1
+            }
+        }
+        let startSample: AVAudioFramePosition
+        // Remote and local clocks have unrelated epochs. Retain only their
+        // relative mapping, and rebase after a restart or a discontinuity
+        // outside the bounded playout window. Never reserve arbitrary future audio.
+        if !target.isFinite || target < Double(rendered) - limit * mixerFormat.sampleRate
+            || target > Double(rendered) + limit * mixerFormat.sampleRate
+            || lastCapturedAt.map({ capturedAt <= $0 }) == true {
+            playoutAnchor = (capturedAt, delayedStart)
+            startSample = delayedStart
+            if scheduledEndSample > rendered { options = .interrupts }
+            playbackResetCount += 1
+        } else {
+            startSample = AVAudioFramePosition(target.rounded())
+        }
+        lastCapturedAt = capturedAt
+        lastCapturedEnd = capturedAt + duration
+        return (startSample, options)
+    }
 
 	/// A rejected native start keeps the request; the next schedule retries it
 	/// and reports the failure through the schedule result.
