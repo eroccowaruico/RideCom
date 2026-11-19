@@ -315,6 +315,7 @@ struct AccountDirectCallTests {
         try f.introduce(b, to: a)
         var old = a.groupStore.snapshot
         old.version = 5
+        old.groupLinkReceipts = []
         for index in old.groups.indices {
             old.groups[index].accountDevices = [:]
             old.groups[index].invitationDeviceKeys = nil
@@ -327,6 +328,7 @@ struct AccountDirectCallTests {
         #expect(upgraded.users == old.users)
         #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
         var invalid = a.groupStore.snapshot; invalid.version = 5
+        invalid.groupLinkReceipts = []
         for index in invalid.groups.indices { invalid.groups[index].invitationDeviceKeys = nil }
         #expect(throws: (any Error).self) { try invalid.encoded() }
     }

@@ -2,7 +2,14 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 15
+    static let currentVersion = 16
+    struct GroupLinkReceipt: Codable, Equatable {
+        let groupID: UUID
+        let receiptID: UUID
+        /// Old acknowledged receipts only recorded their IDs.
+        let expiresAt: TimeInterval?
+        var retired: Bool
+    }
     struct RemovedMember: Codable, Equatable {
         var memberIDs: Set<String>
         let principal: AccountPrincipal?
@@ -133,16 +140,19 @@ struct GroupSnapshot: Codable, Equatable {
     var users: [SavedUser] = []
     var contactInvitations: [ContactInvitationRecord] = []
     var groupDeliveries: [GroupDeliveryRecord] = []
+    var groupLinkReceipts: [GroupLinkReceipt] = []
 
-    init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [], groupDeliveries: [GroupDeliveryRecord] = []) {
+    init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [],
+         groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = []) {
         self.groups = groups
         self.users = users
         self.contactInvitations = contactInvitations
         self.groupDeliveries = groupDeliveries
+        self.groupLinkReceipts = groupLinkReceipts
         synchronizeUserReferences()
     }
 
-    private enum CodingKeys: String, CodingKey { case version, generation, groups, users, contactInvitations, groupDeliveries }
+    private enum CodingKeys: String, CodingKey { case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -156,6 +166,7 @@ struct GroupSnapshot: Codable, Equatable {
             ? (try values.decodeIfPresent([ContactInvitationRecord].self, forKey: .contactInvitations) ?? [])
             : try values.decode([ContactInvitationRecord].self, forKey: .contactInvitations)
         groupDeliveries = version < 11 ? [] : try values.decode([GroupDeliveryRecord].self, forKey: .groupDeliveries)
+        groupLinkReceipts = version < 16 ? [] : try values.decode([GroupLinkReceipt].self, forKey: .groupLinkReceipts)
     }
 
     func upgraded() -> GroupSnapshot {
@@ -163,7 +174,8 @@ struct GroupSnapshot: Codable, Equatable {
         var records = groups
         if version < 3 { for index in records.indices { records[index].kind = .group } }
         if version < 5 { for index in records.indices { records[index].pendingInvitation = nil } }
-        var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations, groupDeliveries: groupDeliveries)
+        var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations,
+                                 groupDeliveries: groupDeliveries, groupLinkReceipts: groupLinkReceipts)
         if version < 10 {
             for index in next.contactInvitations.indices {
                 let record = next.contactInvitations[index]
@@ -218,6 +230,25 @@ struct GroupSnapshot: Codable, Equatable {
         }
     }
 
+    func hasRetiredGroupLink(_ receipt: DirectInvitationReceipt) -> Bool {
+        groupLinkReceipts.contains { $0.retired && $0.groupID == receipt.groupID && $0.receiptID == receipt.id }
+    }
+
+    mutating func retireGroupLinks(from removed: Record) {
+        let known = Set(groupLinkReceipts.lazy.filter { $0.groupID == removed.id }.map(\.receiptID))
+        for index in groupLinkReceipts.indices where groupLinkReceipts[index].groupID == removed.id {
+            groupLinkReceipts[index].retired = true
+        }
+        for receiptID in removed.receivedInvitationIDs where !known.contains(receiptID) {
+            let expiry = removed.pendingInvitation.flatMap { $0.id == receiptID ? $0.invitation?.expiresAt : nil }
+            groupLinkReceipts.append(.init(groupID: removed.id, receiptID: receiptID, expiresAt: expiry, retired: true))
+        }
+    }
+
+    mutating func discardExpiredRetiredGroupLinks(now: TimeInterval) {
+        groupLinkReceipts.removeAll { $0.retired && ($0.expiresAt.map { $0 <= now } ?? false) }
+    }
+
     func validated() throws -> GroupSnapshot {
         guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
         guard version < 3 || groups.allSatisfy({ $0.kind != nil }) else { throw IntercomGroupError.invalidStoredGroups }
@@ -231,6 +262,13 @@ struct GroupSnapshot: Codable, Equatable {
               groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 12 || groupDeliveries.allSatisfy({ $0.direction == .outgoing || $0.state == .received })
         else { throw IntercomGroupError.invalidStoredGroups }
+        let regularGroupIDs = Set(groups.filter { $0.kind == .group }.map(\.id))
+        guard version >= 16 || groupLinkReceipts.isEmpty,
+              Set(groupLinkReceipts.map { [$0.groupID, $0.receiptID] }).count == groupLinkReceipts.count,
+              groupLinkReceipts.allSatisfy({ record in
+                  (record.expiresAt.map { $0.isFinite && $0 >= 0 } ?? record.retired)
+                      && (record.retired || regularGroupIDs.contains(record.groupID))
+              }) else { throw IntercomGroupError.invalidStoredGroups }
         let references = groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference) + groupDeliveries.compactMap(\.credentialReference)
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {

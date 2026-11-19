@@ -6550,6 +6550,17 @@
         }
       }
     },
+    "This link was already used to join this group. Ask the sender for a new invitation." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このリンクはすでにこのグループへの参加に使われています。送信者に新しい招待を依頼してください。"
+          }
+        }
+      }
+    },
     "This name changed. Review it again." : {
       "localizations" : {
         "ja" : {

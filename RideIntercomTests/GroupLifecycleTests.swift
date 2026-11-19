@@ -14,6 +14,76 @@ import PeakLimiter
 extension AppTests {
 @MainActor
 struct GroupLifecycleTests {
+    @Test(arguments: [false, true])
+    func leavingAGroupDoesNotAllowPreviouslyAcceptedLinksToRestoreIt(legacySnapshot: Bool) throws {
+        var now = Date().timeIntervalSince1970
+        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "local", callAccessNow: { Date(timeIntervalSince1970: now) })
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        let signer = testIdentitySigner("remote"), authority = testInvitationAuthority(), groupID = UUID()
+        func link(secret: String) throws -> URL {
+            try GroupInviteTokenCodec.joinURL(for: GroupInviteToken.make(authority: authority, signer: signer,
+                groupID: groupID, groupName: "Ride", groupSecret: secret, inviterMemberID: signer.memberID,
+                issuedAt: now, expiresAt: now + 60))
+        }
+
+        let oldLinks = try [link(secret: "first-key"), link(secret: "first-key")]
+        for url in oldLinks { try vm.acceptInviteURL(url, now: now) }
+        let receipt = try #require(vm.groupRepository.pendingInvitation(for: groupID))
+        try vm.groupRepository.acknowledgeInvitation(receipt.acknowledged(by: signer))
+        #expect(vm.groupRepository.pendingInvitation(for: groupID) == nil)
+        let contact = try #require(vm.savedRemoteUsers.first)
+        if legacySnapshot {
+            vm.disconnect()
+            var json = try #require(JSONSerialization.jsonObject(with: h.groupStore.snapshot.encoded()) as? [String: Any])
+            json["version"] = 15
+            json.removeValue(forKey: "groupLinkReceipts")
+            h.groupStore.snapshot = try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json))
+            vm.reloadSavedGroups()
+        }
+        let beforeFailedLeave = h.groupStore.snapshot, callBeforeFailedLeave = vm.currentCallReference
+        h.groupStore.failSaving = true
+        vm.deleteGroup(groupID)
+        #expect(h.groupStore.snapshot == beforeFailedLeave)
+        #expect(vm.currentCallReference == callBeforeFailedLeave)
+        h.groupStore.failSaving = false
+        vm.disconnect()
+        vm.reloadSavedGroups()
+        vm.selectGroup(try #require(vm.groups.first { $0.id == groupID }))
+        #expect(vm.activeGroupID == groupID)
+        vm.deleteGroup(groupID)
+        #expect(vm.activeGroupID == nil && h.callSession.connectedGroup == nil)
+        h.groupStore.snapshot = try GroupSnapshot.decode(h.groupStore.snapshot.encoded())
+        vm.reloadSavedGroups()
+        #expect(vm.groups.allSatisfy { $0.id != groupID })
+        #expect(try vm.groupRepository.credential(for: groupID) == nil)
+        #expect(vm.savedRemoteUsers.map(\.id) == [contact.id])
+
+        #expect(vm.createTalkGroup(name: "Keep this call"))
+        let currentCall = vm.currentCallReference, beforeReplay = h.groupStore.snapshot
+        for url in oldLinks {
+            #expect(throws: GroupInviteTokenError.retiredGroupLink) { try vm.acceptInviteURL(url, now: now) }
+            #expect(vm.currentCallReference == currentCall)
+        }
+        #expect(h.groupStore.snapshot == beforeReplay)
+        #expect(vm.groupStorageIssue == nil)
+        #expect(vm.inviteStatusMessage == nil)
+        #expect(vm.groupErrorMessage == "This link was already used to join this group. Ask the sender for a new invitation.")
+
+        vm.disconnect()
+        try vm.acceptInviteURL(link(secret: "fresh-key"), now: now)
+        #expect(try vm.groupRepository.credential(for: groupID)?.secret == "fresh-key")
+        let rejoined = vm.currentCallReference
+        #expect(throws: GroupInviteTokenError.retiredGroupLink) { try vm.acceptInviteURL(oldLinks[0], now: now) }
+        #expect(vm.currentCallReference == rejoined)
+        vm.disconnect()
+        for url in oldLinks { #expect(throws: GroupInviteTokenError.retiredGroupLink) { try vm.acceptInviteURL(url, now: now) } }
+        #expect(try vm.groupRepository.credential(for: groupID)?.secret == "fresh-key")
+        now += 61
+        vm.deleteGroup(groupID)
+        #expect(h.groupStore.snapshot.groupLinkReceipts.count == (legacySnapshot ? 2 : 0))
+    }
+
     @Test func invitationStorageFailureKeepsStorageRecoveryInsteadOfRequestingAnotherInvite() throws {
         let h = AppTestSupport.makeHarness(groups: [])
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),

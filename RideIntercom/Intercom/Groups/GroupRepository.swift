@@ -94,9 +94,10 @@ final class GroupRepository {
     func save(_ groups: [IntercomGroup], deliveries: [GroupDeliveryRecord] = []) throws {
         try update(groups, credential: nil) { try self.appendGroupDeliveries(deliveries, to: &$0) }
     }
-    func save(_ groups: [IntercomGroup], credential: GroupAccessCredential, acceptedInvitation: AcceptedDirectInvitation? = nil, inviterName: String? = nil, deliveries: [GroupDeliveryRecord] = []) throws {
+    func save(_ groups: [IntercomGroup], credential: GroupAccessCredential, acceptedInvitation: AcceptedDirectInvitation? = nil,
+              inviterName: String? = nil, deliveries: [GroupDeliveryRecord] = [], now: TimeInterval = Date().timeIntervalSince1970) throws {
         let previousGroupIDs = Set(snapshot?.groups.map(\.id) ?? [])
-        try update(groups, credential: credential) { next in
+        try update(groups, credential: credential, now: now) { next in
             try self.appendGroupDeliveries(deliveries, to: &next)
             if let receipt = acceptedInvitation {
                 try self.storeAcceptedInvitation(receipt, inviterName: inviterName, in: &next)
@@ -109,8 +110,8 @@ final class GroupRepository {
             }
         }
     }
-    func delete(_ id: UUID, remaining: [IntercomGroup]) throws {
-        try update(remaining, credential: nil) { next in
+    func delete(_ id: UUID, remaining: [IntercomGroup], now: TimeInterval = Date().timeIntervalSince1970) throws {
+        try update(remaining, credential: nil, now: now) { next in
             Self.cancelPendingGroupReceipts(in: &next) { $0.groupID == id }
         }
     }
@@ -317,14 +318,20 @@ final class GroupRepository {
         return !users.contains { belongs(record, to: $0) }
     }
 
-    func acceptInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String, retainingMemberIDs: Set<String> = []) throws {
+    func hasRetiredGroupLink(_ accepted: AcceptedDirectInvitation) -> Bool {
+        snapshot?.hasRetiredGroupLink(accepted.receipt) == true
+    }
+
+    func acceptInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String, retainingMemberIDs: Set<String> = [],
+                          now: TimeInterval = Date().timeIntervalSince1970) throws {
         guard let snapshot else { throw GroupStorageError.invalidUpdate }
-        try amend(snapshot) { next in
+        try amend(snapshot, now: now) { next in
             try self.storeAcceptedInvitation(accepted, inviterName: inviterName, retainingMemberIDs: retainingMemberIDs, in: &next)
         }
     }
 
-    private func storeAcceptedInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String? = nil, retainingMemberIDs: Set<String> = [], in next: inout GroupSnapshot) throws {
+    private func storeAcceptedInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String? = nil, retainingMemberIDs: Set<String> = [],
+                                         in next: inout GroupSnapshot) throws {
         let receipt = accepted.receipt
         guard receipt.isValid, receipt.kind == .accepted, receipt.invitation != nil, receipt.proof != nil,
               receipt.inviteeMemberID == localMemberID,
@@ -337,6 +344,12 @@ final class GroupRepository {
         if next.groups[index].removedMembers?.contains(where: {
             $0.isExcluded && $0.matches(accepted.inviter.memberID, principal: accepted.inviter.principal)
         }) == true { throw GroupStorageError.identityConflict }
+        if next.groups[index].kind == .group, let expiry = receipt.invitation?.expiresAt {
+            guard !next.hasRetiredGroupLink(receipt) else { throw GroupInviteTokenError.retiredGroupLink }
+            if !next.groupLinkReceipts.contains(where: { $0.groupID == receipt.groupID && $0.receiptID == receipt.id }) {
+                next.groupLinkReceipts.append(.init(groupID: receipt.groupID, receiptID: receipt.id, expiresAt: expiry, retired: false))
+            }
+        }
         if !next.groups[index].receivedInvitationIDs.contains(receipt.id) {
             try next.remember(.init(id: receipt.inviterMemberID, displayName: name), identity: accepted.inviter)
             next.groups[index].receivedInvitationIDs.append(receipt.id)
@@ -405,6 +418,7 @@ final class GroupRepository {
     }
 
     private func update(_ groups: [IntercomGroup], credential: GroupAccessCredential?, additionalCredentials: [GroupAccessCredential] = [], users: [SavedUser]? = nil,
+                        now: TimeInterval = Date().timeIntervalSince1970,
                         modify: (inout GroupSnapshot) throws -> Void = { _ in }) throws {
         guard isWritable, let previous = snapshot else { throw IntercomGroupError.storageUnavailable }
         try store.lock(); defer { store.unlock() }
@@ -423,8 +437,14 @@ final class GroupRepository {
             record.removedMembers = old?.removedMembers
             record.invitationDeviceKeys = old?.invitationDeviceKeys
             return record
-        }, users: users ?? previous.users, contactInvitations: previous.contactInvitations, groupDeliveries: previous.groupDeliveries)
+        }, users: users ?? previous.users, contactInvitations: previous.contactInvitations,
+           groupDeliveries: previous.groupDeliveries, groupLinkReceipts: previous.groupLinkReceipts)
         try modify(&next)
+        let retainedGroupIDs = Set(next.groups.map(\.id))
+        for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
+            next.retireGroupLinks(from: removed)
+        }
+        next.discardExpiredRetiredGroupLinks(now: now)
         reconcileInvitations(in: &next)
         for index in next.groups.indices { next.groups[index].discardInvitationKeysForDepartedMembers() }
         next.synchronizeUserReferences()
@@ -451,8 +471,9 @@ final class GroupRepository {
     }
 
     /// An edit that leaves the groups themselves as they are stored.
-    private func amend(_ snapshot: GroupSnapshot, _ modify: (inout GroupSnapshot) throws -> Void) throws {
-        try update(snapshot.groups.map { try $0.group() }, credential: nil, modify: modify)
+    private func amend(_ snapshot: GroupSnapshot, now: TimeInterval = Date().timeIntervalSince1970,
+                       _ modify: (inout GroupSnapshot) throws -> Void) throws {
+        try update(snapshot.groups.map { try $0.group() }, credential: nil, now: now, modify: modify)
     }
 
     private func cleanup(_ current: GroupSnapshot) {

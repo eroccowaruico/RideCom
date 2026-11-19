@@ -213,6 +213,7 @@ enum GroupInviteTokenError: Error, Equatable {
     case invalidTokenEncoding
     case invalidSignature
     case expired
+    case retiredGroupLink
     case credentialStorageFailed
     case activeGroupKeyChanged
     case wrongRecipient

@@ -124,7 +124,7 @@ extension IntercomViewModel {
     func deleteGroup(_ groupID: UUID) {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return }
         let remaining = groups.filter { $0.id != groupID }
-        do { try groupRepository.delete(groupID, remaining: remaining) }
+        do { try groupRepository.delete(groupID, remaining: remaining, now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return }
         refreshGroupStorageStatus()
         if activeGroupID == groupID { disconnect() }
@@ -294,6 +294,7 @@ extension IntercomViewModel {
 
         let accepted = try token.accept(signer: internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
                                         displayName: localMemberIdentity.displayName, trust: try internetSettingsStore.identityTrust(), now: now)
+        guard kind != .group || !groupRepository.hasRetiredGroupLink(accepted) else { throw GroupInviteTokenError.retiredGroupLink }
         let previous: GroupAccessCredential?
         do { previous = try groupRepository.credential(for: token.groupID) }
         catch { reportGroupStorageError(error); throw error }
@@ -309,7 +310,7 @@ extension IntercomViewModel {
         let inviterName = groupRepository.inviterName(for: token)
         if let existing, previous?.secret == token.groupSecret {
             do {
-                try groupRepository.acceptInvitation(accepted, inviterName: inviterName, retainingMemberIDs: Set(currentRepresentativeProfiles.keys))
+                try groupRepository.acceptInvitation(accepted, inviterName: inviterName, retainingMemberIDs: Set(currentRepresentativeProfiles.keys), now: now)
                 refreshStoredAccountCall(token.groupID)
                 refreshGroupStorageStatus()
             } catch { reportGroupStorageError(error); throw error }
@@ -350,7 +351,8 @@ extension IntercomViewModel {
             updated.insert(group, at: 0)
         }
         do {
-            try groupRepository.save(updated, credential: .init(groupID: token.groupID, secret: token.groupSecret), acceptedInvitation: accepted, inviterName: inviterName)
+            try groupRepository.save(updated, credential: .init(groupID: token.groupID, secret: token.groupSecret),
+                                     acceptedInvitation: accepted, inviterName: inviterName, now: now)
             refreshGroupStorageStatus()
         }
         catch {

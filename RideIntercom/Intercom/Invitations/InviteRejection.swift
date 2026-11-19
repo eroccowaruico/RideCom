@@ -5,6 +5,7 @@ import Logging
 /// to the log come from this one classification, so they cannot name different causes.
 enum InviteRejection: String {
     case expired
+    case retiredGroupLink = "retired_group_link"
     case unsupportedVersion = "unsupported_version"
     case unverified
     case wrongRecipient = "wrong_recipient"
@@ -17,6 +18,7 @@ enum InviteRejection: String {
     init(_ error: any Error) {
         switch error {
         case GroupInviteTokenError.expired: self = .expired
+        case GroupInviteTokenError.retiredGroupLink: self = .retiredGroupLink
         case GroupInviteTokenError.unsupportedVersion: self = .unsupportedVersion
         case GroupInviteTokenError.invalidURL, GroupInviteTokenError.invalidTokenEncoding,
              GroupInviteTokenError.invalidSignature: self = .unverified
@@ -33,6 +35,7 @@ enum InviteRejection: String {
     var notice: String {
         switch self {
         case .expired: "This invitation has expired. Ask the sender for a new invitation."
+        case .retiredGroupLink: "This link was already used to join this group. Ask the sender for a new invitation."
         case .unsupportedVersion: "This invitation uses a different app version. Update RideCom and ask for a new invitation."
         case .unverified: "This invitation could not be verified. Ask the sender for a new invitation."
         default: "This invitation could not be opened or saved. Check your account and saved groups, then open the link again."
