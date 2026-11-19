@@ -609,7 +609,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="row" style="color:var(--err)">Delete Group</div></div>
         </div>
       </div></div>
-      <figcaption><b>Group Settingsの招待と配送記録</b>同じグループへ同じ人を招待し直すと、前回のreceivedは配送欄から消え、新しい配送がpendingから進む。Add Membersは利用権があるときに出す。メンバーの行のEdit Nameは使える。Removeは有効な利用権があるときに出る。確認中に利用権が切れたらメンバーを保ち、利用権の確認を案内する。保存できたら受信箱に残る招待の取消が始まり、設定を閉じてよい。受取確定より先に取り消した招待は、相手が取得を始めていても一覧に追加されない。送信が遅れても、先に反映された取消を保つ。この端末では外した人の音声を停止し、再接続で一覧に戻さない。追加し直しても外す前の招待への返信では現在の通話を変更しない。他端末への除外反映は削除同期の対象。退出前に使った通常グループURLを開くと、新しい招待を依頼するよう案内する。Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。</figcaption>
+      <figcaption><b>Group Settingsの招待と配送記録</b>同じグループへ同じ人を招待し直すと、前回のreceivedは配送欄から消え、新しい配送がpendingから進む。Add Membersは利用権があるときに出す。メンバーの行のEdit Nameは使える。Removeは有効な利用権があるときに出る。確認中に利用権が切れたらメンバーを保ち、利用権の確認を案内する。保存できたら受信箱に残る招待の取消が始まり、設定を閉じてよい。次の同期では、待っている招待の送信より先に取消を試みる。受取確定より先に取り消した招待は、相手が取得を始めていても一覧に追加されない。送信が遅れても、先に反映された取消を保つ。この端末では外した人の音声を停止し、再接続で一覧に戻さない。追加し直しても外す前の招待への返信では現在の通話を変更しない。他端末への除外反映は削除同期の対象。退出前に使った通常グループURLを開くと、新しい招待を依頼するよう案内する。Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。</figcaption>
     </figure>
     <figure id="group-contact-invitation-detail">
       <div class="phone tall"><div class="screen">

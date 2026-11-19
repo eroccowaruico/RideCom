@@ -468,6 +468,63 @@ import UserNotifications
         #expect(GroupDeliveryHTTPStub.items[removed.id.uuidString.lowercased()] == nil)
     }
 
+    @Test func anOlderSendFailureDoesNotLeaveARemovedMembersInvitationAvailable() async throws {
+        let author = GroupDeliveryTestIdentity("cancellation-author")
+        let waiting = GroupDeliveryTestIdentity("waiting-recipient")
+        let removed = GroupDeliveryTestIdentity("removed-recipient")
+        defer { author.remove(); waiting.remove(); removed.remove() }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try waiting.authorizeFixture(userID: String(repeating: "b", count: 64))
+        try removed.authorizeFixture(userID: String(repeating: "c", count: 64))
+        let sender = try author.harness(knowing: [waiting, removed]).viewModel
+        let receiver = try removed.harness(knowing: [author]).viewModel
+        GroupDeliveryHTTPStub.reset()
+        defer {
+            sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync()
+            sender.disconnect(); receiver.disconnect()
+            GroupDeliveryHTTPStub.reset()
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: configuration))
+        let senderAccess = try #require(try author.store.notificationAccess(memberID: author.memberID))
+        let receiverAccess = try #require(try removed.store.notificationAccess(memberID: removed.memberID))
+        GroupDeliveryHTTPStub.users = [senderAccess.accessToken: try author.principal.userID,
+                                       receiverAccess.accessToken: try removed.principal.userID]
+        func allowDelivery(to person: GroupDeliveryTestIdentity) throws {
+            let grant = try testCallNotificationGrant(owner: person.principal, allowedSender: author.principal,
+                                                      audience: "rideintercom-group-invitation")
+            let permission = try CallNotificationPermissionMessage.make(owner: person.principal, allowedSender: author.principal,
+                revision: 1, grant: nil, signer: person.signer, groupGrant: grant, groupInvitationsSupported: true)
+            try sender.notifications.receivePermission(permission, peerID: person.memberID)
+        }
+
+        let waitingID = UUID(), removedID = UUID()
+        #expect(sender.createTalkGroup(name: "Waiting for permission", userIDs: [waiting.personID], id: waitingID))
+        #expect(sender.createTalkGroup(name: "Invitation to cancel", userIDs: [removed.personID], id: removedID))
+        try allowDelivery(to: removed)
+        sender.groupDeliveryClient = client
+        await sender.synchronizeGroupDeliveries()
+        let records = sender.groupRepository.groupDeliveries
+        let pending = try #require(records.first)
+        let queued = try #require(records.last)
+        try #require(pending.groupID == waitingID && pending.state == .pending)
+        try #require(queued.groupID == removedID && queued.state == .queued)
+
+        try allowDelivery(to: waiting)
+        GroupDeliveryHTTPStub.failNextSubmit = true
+        #expect(sender.removeMember(removed.memberID, from: removedID))
+        await sender.synchronizeGroupDeliveries()
+        #expect(sender.groupRepository.groupDeliveries.map(\.id) == [pending.id])
+        #expect(sender.groupRepository.groupDeliveries.first?.state == .pending)
+        #expect(GroupDeliveryHTTPStub.items[queued.id.uuidString.lowercased()]?["status"] as? String == "cancelled")
+        #expect(!GroupDeliveryHTTPStub.failNextSubmit, "The unrelated POST was attempted and rejected")
+
+        receiver.groupDeliveryClient = client
+        await receiver.synchronizeGroupDeliveries()
+        #expect(!receiver.groups.contains { $0.id == removedID })
+    }
+
     @Test func aLateResponseCannotCommitAfterTheAccountSignsOut() async throws {
         let a = GroupDeliveryTestIdentity("late-author"), b = GroupDeliveryTestIdentity("late-recipient")
         defer { a.remove(); b.remove() }

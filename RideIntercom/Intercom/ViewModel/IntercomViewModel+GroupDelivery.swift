@@ -99,8 +99,9 @@ extension IntercomViewModel {
         do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return }
         // One finite pass. Offline work remains in the manifest until the next explicit lifecycle event.
-        let outgoingIDs = groupRepository.groupDeliveries
-            .filter { $0.direction == .outgoing && $0.state != .received }.map(\.id)
+        let outgoing = groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.state != .received }
+        // The inbox accepts cancellations even when the Worker rejects new submissions.
+        let outgoingIDs = (outgoing.filter { $0.state == .cancelled } + outgoing.filter { $0.state != .cancelled }).map(\.id)
         for id in outgoingIDs {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
             // A member may have been removed while awaiting another delivery.
