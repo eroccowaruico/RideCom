@@ -38,7 +38,11 @@ export async function deliverNotification(device: NotificationDevice, providerTo
                 'apns-topic': device.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
                 'apns-id': requestID, 'apns-collapse-id': requestID, 'apns-expiration': String(Math.floor(expiresAt / 1000)) },
             body: JSON.stringify(kind === 'groupInvitation'
-                ? { aps: { alert: { 'title-loc-key': 'GROUP_INVITATION_TITLE', 'loc-key': 'GROUP_INVITATION_BODY' }, category: 'RIDEINTERCOM_GROUP_INVITATION' },
+                ? { aps: {
+                        alert: { 'title-loc-key': 'GROUP_INVITATION_TITLE', 'loc-key': 'GROUP_INVITATION_BODY' },
+                        category: 'RIDEINTERCOM_GROUP_INVITATION',
+                        'interruption-level': 'passive',
+                    },
                     version: 1, kind, requestID, recipientID }
                 : { aps: { alert: { 'title-loc-key': 'CALL_REQUEST_TITLE', 'loc-key': 'CALL_REQUEST_BODY' }, sound: 'default', category: 'RIDEINTERCOM_CALL_REQUEST' },
                     version: 1, requestID, recipientID })

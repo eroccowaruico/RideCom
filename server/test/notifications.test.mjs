@@ -320,7 +320,12 @@ test('group invitation alerts hide ciphertext and cancellation and grant revocat
             recipientKey: 'p'.repeat(87), envelope: Buffer.from('opaque group ciphertext').toString('base64') };
         const submit = (value = body) => call(r, '/api/notifications/group-invitations', value, a.accessToken);
         assert.equal((await submit()).status, 200); assert.equal(requests.length, 1);
-        assert.equal(requests[0].aps.category, 'RIDEINTERCOM_GROUP_INVITATION'); assert.equal(requests[0].kind, 'groupInvitation');
+        assert.deepEqual(requests[0].aps, {
+            alert: { 'title-loc-key': 'GROUP_INVITATION_TITLE', 'loc-key': 'GROUP_INVITATION_BODY' },
+            category: 'RIDEINTERCOM_GROUP_INVITATION',
+            'interruption-level': 'passive',
+        });
+        assert.equal(requests[0].kind, 'groupInvitation');
         assert.ok(!JSON.stringify(requests).includes(body.envelope));
         assert.equal((await submit()).status, 200); assert.equal(requests.length, 1);
         const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;

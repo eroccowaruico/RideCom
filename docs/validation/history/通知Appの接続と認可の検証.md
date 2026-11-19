@@ -68,3 +68,19 @@
 | 定義 | 通知仕様、通知と操作の流れのMarkdown・HTML、およびマニュアルを照合。HTMLの構造・アンカーを検査し、Chromeの印刷描画で通知操作の説明と見本を確認 |
 
 入力指紋は採番以外一致。実APNsによる配送とOS上での通知操作、実端末のロック解除・コールド起動は[実環境の受入](../未確認事項.md#通常通知の受入)に残る。
+
+## 背景に届く通知の音と割り込みレベル（2026-11-19）
+
+操作直後に別Appへ移っても会話を遮らないよう、受信時にAppが前面になくても、元の通常APNsアラートだけで静かに届くかを先に試した。Appleの仕様では、通知拡張が結果を返せない場合は元のアラートを表示する。このため、元を音なしのpassiveにし、拡張が端末で待機中と確認できた場合だけactiveと音を設定する案を試験した。[通知拡張の仕様](https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension)、[passiveの仕様](https://developer.apple.com/documentation/usernotifications/unnotificationinterruptionlevel/passive)。
+
+専用のAppと同梱した通知拡張をiOS 27.2 Simulatorでビルドし、XCUITestで通知を許可した。Appが共有領域に書く状態を変え、別Appを開いた後に `simctl push` でアラートを注入した。最初の試行はAppが背景に落ち着く前に注入し、OSの配信済み通知を取得できなかった。移行から5秒待った試行で以下の5件を取得した。
+
+| 注入した通知 | OSの配信済み内容 |
+|---|---|
+| 現行の呼び出し相当（active、default sound） | active・音の指定あり |
+| 元のアラートだけ（passive、音の指定なし） | passive・音の指定なし |
+| passiveにmutable-contentを付けた3件（接続中、待機中、状態なし） | いずれも元のpassive・音の指定なし。拡張の実行記録は0 |
+
+ローカル注入で拡張が起動しないことは[AppleのSimulatorリリースノート](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)の制約と一致する。元のアラートが静かに残ることまで確認した。待機中に音を付ける案には実APNs Sandboxと署名の確認が要る。背景の呼び出しの製品payloadは現行のまま。証跡は `.validation/background-notification-extension-probe-20261119` の `permission.xcresult`、`observations.json`、`mutable-os.log`、試験用ソース。専用Simulatorは回収済み。
+
+グループ招待は端末の通話状態によらず静かに届ける契約のため、同じ試験を根拠に、Workerの固定アラートへpassiveを指定した。1回の通知、音の指定なし、暗号文を含めないこと、呼び出しと別のcategory、既存の受信箱と取消を維持した。最初の確認で招待のpayloadに指定が欠けることをローカルWorkerで再現し、変更後に通常の呼び出しを含む全82件と型検査が成功した。再点検では割り込みレベルの既定をWorkerの用途別payloadに置き、受信箱・宛先の認可と通話処理から独立していることを確認した。前景でApp自身が返す表示オプションは次のApp工程で揃える。証跡は同ディレクトリの `group-server-red.log` と `group-server-final.log`。
