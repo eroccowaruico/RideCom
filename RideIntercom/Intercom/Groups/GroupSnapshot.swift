@@ -103,6 +103,10 @@ struct GroupSnapshot: Codable, Equatable {
             invitationDeviceKeys?[memberID].map { $0 == key } ?? true
         }
 
+        func excludesMember(_ memberID: String, principal: AccountPrincipal?) -> Bool {
+            removedMembers?.contains { $0.isExcluded && $0.matches(memberID, principal: principal) } == true
+        }
+
         mutating func rememberInvitationDevice(_ identity: VerifiedDeviceProof) throws {
             let memberID = identity.memberID
             guard kind == .group, members.contains(where: { $0.id == memberID }) else { return }
@@ -304,7 +308,7 @@ struct GroupSnapshot: Codable, Equatable {
                     $0.isValid && (version >= 15 || ($0.priorInvitationIDs == nil && $0.reinstated == nil))
                 }),
                       !record.members.contains(where: { member in
-                          removed.contains { $0.isExcluded && $0.matches(member.id, principal: record.accountDevices[member.id]?.principal) }
+                          record.excludesMember(member.id, principal: record.accountDevices[member.id]?.principal)
                       }) else { throw IntercomGroupError.invalidStoredGroups }
             }
             if let start = record.lastSponsoredStart {

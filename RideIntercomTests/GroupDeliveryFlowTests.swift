@@ -302,6 +302,70 @@ import UserNotifications
         #expect(right.currentCallReference == localCall)
     }
 
+    @Test(arguments: [false, true])
+    func removingTheSenderPreventsReceivingTheirInvitationForOnlyThatGroup(duringAcknowledgement: Bool) async throws {
+        let author = GroupDeliveryTestIdentity("excluded-inviter")
+        let recipient = GroupDeliveryTestIdentity("excluding-recipient")
+        defer { author.remove(); recipient.remove() }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try author.harness(knowing: [recipient]).viewModel
+        let receiver = try recipient.harness(knowing: [author]).viewModel
+        GroupDeliveryHTTPStub.reset()
+        defer {
+            sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync()
+            sender.disconnect(); receiver.disconnect()
+            GroupDeliveryHTTPStub.reset()
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: configuration))
+        let senderAccess = try #require(try author.store.notificationAccess(memberID: author.memberID))
+        let receiverAccess = try #require(try recipient.store.notificationAccess(memberID: recipient.memberID))
+        GroupDeliveryHTTPStub.users = [senderAccess.accessToken: try author.principal.userID,
+                                       receiverAccess.accessToken: try recipient.principal.userID]
+        let grant = try testCallNotificationGrant(owner: recipient.principal, allowedSender: author.principal,
+                                                  audience: "rideintercom-group-invitation")
+        try sender.notifications.receivePermission(CallNotificationPermissionMessage.make(owner: recipient.principal,
+            allowedSender: author.principal, revision: 1, grant: nil, signer: recipient.signer,
+            groupGrant: grant, groupInvitationsSupported: true), peerID: recipient.memberID)
+        sender.groupDeliveryClient = client
+        receiver.groupDeliveryClient = client
+
+        let groupID = UUID()
+        #expect(sender.createTalkGroup(name: "Previously joined", userIDs: [recipient.personID], id: groupID))
+        await sender.synchronizeGroupDeliveries()
+        await receiver.synchronizeGroupDeliveries()
+        await sender.synchronizeGroupDeliveries()
+        let credential = try #require(try receiver.groupRepository.credential(for: groupID))
+        let call = receiver.currentCallReference
+        #expect(sender.removeMember(recipient.memberID, from: groupID))
+        #expect(sender.addSavedUsers([recipient.personID], to: groupID))
+        await sender.synchronizeGroupDeliveries()
+        let retry = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == groupID && $0.state == .queued })
+        let retryID = retry.id.uuidString.lowercased()
+
+        if duringAcknowledgement {
+            GroupDeliveryHTTPStub.onAcknowledged = { #expect(receiver.removeMember(author.memberID, from: groupID)) }
+        } else {
+            #expect(receiver.removeMember(author.memberID, from: groupID))
+        }
+        await receiver.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.items[retryID]?["status"] as? String == (duringAcknowledgement ? "received" : "cancelled"))
+        let incoming = receiver.groupRepository.groupDeliveries.first { $0.id == retry.id }
+        #expect(incoming?.state == (duringAcknowledgement ? .cancelled : nil))
+        #expect(receiver.groupRepository.storedGroup(groupID)?.members.map(\.id) == [recipient.memberID])
+        #expect(try receiver.groupRepository.credential(for: groupID) == credential)
+        #expect(receiver.currentCallReference == call && receiver.savedRemoteUsers.contains { $0.id == author.personID })
+
+        let otherGroup = UUID()
+        #expect(sender.createTalkGroup(name: "A different group", userIDs: [recipient.personID], id: otherGroup))
+        await sender.synchronizeGroupDeliveries()
+        await receiver.synchronizeGroupDeliveries()
+        #expect(receiver.groupRepository.storedGroup(otherGroup)?.members.contains { $0.id == author.memberID } == true)
+        #expect(receiver.groupErrorMessage == nil && receiver.currentCallReference == call)
+    }
+
     @Test func aGroupMembersStateUsesTheirAccountAndKeepsOtherGroupsSeparate() throws {
         let peer = AccountPrincipal(issuer: "https://delivery.test", userID: String(repeating: "b", count: 64))
         let user = SavedUser(displayName: "Two devices", memberIDs: ["state-one", "state-two"],

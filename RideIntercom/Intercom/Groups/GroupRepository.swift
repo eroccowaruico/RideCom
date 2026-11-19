@@ -280,7 +280,7 @@ final class GroupRepository {
             users[user].displayName = name
             principal = principal ?? users[user].principal
         }
-        if snapshot.groups[index].removedMembers?.contains(where: { $0.isExcluded && $0.matches(memberID, principal: principal) }) == true { return false }
+        if snapshot.groups[index].excludesMember(memberID, principal: principal) { return false }
         if groups[index].accountPair != nil {
             guard groups[index].bindAccountDevice(profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs) else { return false }
         } else if groups[index].kind == .group {
@@ -374,9 +374,9 @@ final class GroupRepository {
         }
         let name = inviterName ?? next.groups[index].members.first(where: { $0.id == receipt.inviterMemberID })?.displayName
         guard let name, IntercomGroup.isValidName(name) else { throw GroupStorageError.invalidUpdate }
-        if next.groups[index].removedMembers?.contains(where: {
-            $0.isExcluded && $0.matches(accepted.inviter.memberID, principal: accepted.inviter.principal)
-        }) == true { throw GroupStorageError.identityConflict }
+        if next.groups[index].excludesMember(accepted.inviter.memberID, principal: accepted.inviter.principal) {
+            throw GroupStorageError.identityConflict
+        }
         if next.groups[index].kind == .group, let expiry = receipt.invitation?.expiresAt {
             guard !next.hasRetiredGroupLink(receipt) else { throw GroupInviteTokenError.retiredGroupLink }
             if !next.groupLinkReceipts.contains(where: { $0.groupID == receipt.groupID && $0.receiptID == receipt.id }) {
@@ -691,7 +691,7 @@ extension GroupRepository {
         }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == token.groupID })
-        if let existing, try !matchesGroupDelivery(target, sender: identity, existing: existing) {
+        if let existing, try !matchesGroupDelivery(target, sender: identity, principal: envelope.sender, existing: existing) {
             if old != nil { try cancelPendingGroupReceipt(envelope.id) }
             return .cancelled
         }
@@ -721,8 +721,8 @@ extension GroupRepository {
         else { throw GroupStorageError.invalidUpdate }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == target.id })
-        if let existing, try !matchesGroupDelivery(target, sender: identity, existing: existing) {
-            // A manual join or local save can race with the Worker receipt.
+        if let existing, try !matchesGroupDelivery(target, sender: identity, principal: envelope.sender, existing: existing) {
+            // A manual join, local save or removal can race with the Worker receipt.
             try cancelPendingGroupReceipt(envelope.id)
             return nil
         }
@@ -891,8 +891,10 @@ extension GroupRepository {
         return saved.secret == target.secret
     }
 
-    private func matchesGroupDelivery(_ target: ContactGroupInvitation, sender: VerifiedDeviceProof, existing: GroupSnapshot.Record) throws -> Bool {
-        guard existing.matchesInvitationDeviceKey(sender.publicKey, for: sender.memberID),
+    private func matchesGroupDelivery(_ target: ContactGroupInvitation, sender: VerifiedDeviceProof,
+                                      principal: AccountPrincipal, existing: GroupSnapshot.Record) throws -> Bool {
+        guard !existing.excludesMember(sender.memberID, principal: principal),
+              existing.matchesInvitationDeviceKey(sender.publicKey, for: sender.memberID),
               existing.accountDevices[sender.memberID].map({ $0.publicKey == sender.publicKey }) ?? true else { return false }
         return try matchesSavedGroup(target, kind: existing.kind ?? .group)
     }
