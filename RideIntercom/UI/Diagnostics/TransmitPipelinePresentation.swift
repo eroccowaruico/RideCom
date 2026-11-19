@@ -132,12 +132,17 @@ struct TransmitPipelinePresentation {
         }
         let bus = input.mixerBusSnapshot(id: "tx-bus")
         let waitingOnEffect = effectChainState == .waiting
+        var detail = bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting"
+        if waitingOnEffect {
+            detail = effectChainPipelineDetail
+        } else if let isolation = input.transmitEffectChainSnapshot.stages.first(where: { $0.id == "sound-isolation" }) {
+            detail += " · \(isolation.name) \(isolation.state.rawValue)"
+        }
         return PipelineStep(
             id: "mixer",
             package: "AudioMixer",
             title: "TX Bus",
-            detail: waitingOnEffect ? effectChainPipelineDetail
-                : bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting",
+            detail: detail,
             icon: "slider.horizontal.3",
             state: bus != nil && !waitingOnEffect ? .passing : .waiting,
             accessibilityIdentifier: "pipeline-mixer-step"

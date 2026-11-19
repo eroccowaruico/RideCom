@@ -107,6 +107,46 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         app.terminate()
     }
 
+    func testTXShowsLiveIsolationWithEffectsClosed() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
+        app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
+        app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "advanced"
+        app.launch()
+        defer { app.terminate() }
+
+        let groups = app.tabBars.buttons["Groups"].firstMatch
+        XCTAssertTrue(groups.waitForExistence(timeout: 8))
+        groups.tap()
+        let create = app.buttons["standardCreateGroupButton"].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        create.tap()
+        let name = app.textFields["savedUsersGroupNameField"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.tap()
+        name.typeText("TX Diagnostics")
+        app.buttons["saveUserSelectionButton"].firstMatch.tap()
+        let close = app.buttons["closeCallButton"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        app.closeCallIfOpen()
+
+        let diagnostics = app.tabBars.buttons["Diagnostics"].firstMatch
+        XCTAssertTrue(diagnostics.waitForExistence(timeout: 3))
+        diagnostics.tap()
+        let picker = app.segmentedControls["diagnosticsPagePicker"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+        choose("TX", in: picker, app: app)
+        let vad = app.descendants(matching: .any)["pipeline-vad-step"].firstMatch
+        let bus = app.descendants(matching: .any)["pipeline-mixer-step"].firstMatch
+        let active = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "Isolation active"), object: bus)
+        XCTAssertEqual(XCTWaiter.wait(for: [active], timeout: 15), .completed, app.debugDescription)
+        XCTAssertLessThan(vad.frame.minY, bus.frame.minY)
+        XCTAssertFalse(app.descendants(matching: .any)["pipeline-effects-step"].firstMatch.exists)
+        attachScreen("VAD and TX Bus isolation with effects closed")
+    }
+
     func testDiagnosticsPagesPreserveExistingValuesAndActionsAcrossRotation() {
         continueAfterFailure = false
         let app = XCUIApplication()

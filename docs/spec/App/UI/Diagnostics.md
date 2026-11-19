@@ -67,7 +67,7 @@ TX/RXは従来のpipeline、Networkは、経路（Local・Internet）ごとの�
 | SessionManager sessionステップ | `liveTransmitPipelineView` | `pipeline-session-step` | Session | `AudioSessionSnapshot`, `audioSessionProfile`, 直近 session report | 状態アイコン + profile | session error は blocked |
 | SessionManager inputステップ | `liveTransmitPipelineView` | `pipeline-input-step` | Input | `AudioInputStreamCapture` snapshot、voice processing report、`isMuted` | stream format、frame count、mute | ミュートは故障ではなく waiting |
 | 発話判定 | `liveTransmitPipelineView` | `vad` | VAD | `VADGateRuntimeSnapshot.lastAnalysis`、感度preset | 判定状態と感度。展開すると`Microphone input before TX Bus Effects.`と判定入力、noise floor、threshold（dBFS）、gain | メディア準備前、ミュート中、分析がないときは`Input level: Not measured` |
-| AudioMixer TX busステップ | `liveTransmitPipelineView` | `pipeline-mixer-step` | TX Bus | `AudioMixerSnapshot` の `tx-bus` / source / routing 状態 | `source count -> FX count` として表示 | mixer 未開始は neutral |
+| AudioMixer TX busステップ | `liveTransmitPipelineView` | `pipeline-mixer-step` | TX Bus | `AudioMixerSnapshot` の `tx-bus` のsource数・effect数と、`transmitEffectChainSnapshot`の`sound-isolation` | 閉じた行に `n in / n FX`。分離stageがあれば同じstageの名前と実状態を `Isolation active`／`Isolation bypassed` の形で併記する | 音声未準備はIdleの`Not available`。bus未観測はWaitingの`Snapshot waiting`。effectの待機・利用不能時は理由を優先する |
 | AudioMixer effect chainステップ | `liveTransmitPipelineView` | `pipeline-effects-step` | FX Chain | `AudioMixerSnapshot` の `tx-bus.effectChain` から導出した `transmitEffectChainSnapshot.stages` | TX bus 配下の inline stage chip として表示 | stage 内の unavailable / bypassed を warning 以下で表示 |
 | codec ステップ | `liveTransmitPipelineView` | `pipeline-codec-step` | Codec | 要求と実効codec、`AppAudioTransmitter`が生成した音声packetの現在の通話分 | requested と selected を表示。fallback 時は `requested -> selected / Fallback`。展開すると`Encoded audio packets`の累計 | fallback は warning。発話状態で生成実績があればPassing。メディア未準備は未計測。値をRTC受付・音声到着へ流用しない |
 | RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | 選択通話の制御接続と経路 | 制御の接続済みは経路と`Control Connected`。展開すると最後の自端末音声を渡した経路と観測時刻 | 制御接続は音声停止中も表示する。相手側の到着と最終出力は各端末の観測を要する |
@@ -78,10 +78,10 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 
 | stage | accessibilityIdentifier | package | 表示する状態 |
 |---|---|---|---|
-| SoundIsolation | `pipeline-effect-stage-sound-isolation` | SoundIsolation | enabled / bypassed / unavailable |
+| Isolation | `pipeline-effect-stage-sound-isolation` | SoundIsolation | `active`／`bypassed`／`unavailable`など、登録済みstageの実状態 |
 | VADGate（Mixer前段） | TX effect stage IDは持たない | VADGate | 送信パイプラインの独立したVAD行で、発話状態、感度、判定入力を表示する |
-| DynamicsProcessor | `pipeline-effect-stage-dynamics-processor` | DynamicsProcessor | leveling ready / idle |
-| PeakLimiter | `pipeline-effect-stage-peak-limiter` | PeakLimiter | peak guard ready / idle |
+| Dynamics | `pipeline-effect-stage-dynamics-processor` | DynamicsProcessor | 登録済みstageの実状態 |
+| Limiter | `pipeline-effect-stage-peak-limiter` | PeakLimiter | 登録済みstageの実状態 |
 
 | 拡張ルール | 仕様 |
 |---|---|

@@ -153,6 +153,62 @@ struct DiagnosticsTests {
         #expect(bus.detail.contains("Isolation unavailable"))
     }
 
+    @Test func transmitBusShowsAppliedIsolationBeforeExpandingEffects() async throws {
+        let harness = AppTestSupport.makeHarness()
+        let model = harness.viewModel
+        func presentation() -> TransmitPipelinePresentation { .init(input: DiagnosticsInput(model)) }
+
+        #expect(presentation().mixerBusStep.detail == "Not available")
+        model.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        defer { model.disconnect() }
+        try #require(model.isAudioReady)
+        model.applyLocalMute(false)
+        let format = AudioFormat.intercomMixer
+        let speech = (0..<480).map { Float(0.1 * sin(Double($0) * 2 * .pi / 120)) }
+        let silence = Array(repeating: Float.zero, count: speech.count)
+        var sequence: UInt64 = 0
+        func feed(_ samples: [Float], frames: Int) {
+            for _ in 0..<frames {
+                let frame = PCMFrame(sequenceNumber: sequence, format: format,
+                    capturedAt: Double(sequence * UInt64(samples.count)) / format.sampleRate, samples: samples)
+                model.audioPipeline.processMicrophoneFrame(frame)
+                model.handleMicrophoneFrame(frame)
+                sequence += 1
+            }
+        }
+
+        for enabled in [false, true] {
+            model.setSoundIsolationEnabled(enabled)
+            let graphState = try #require(model.audioPipeline.isolationRuntimeSnapshots["tx-bus"])
+            let expectedState = enabled ? "active" : "bypassed"
+            #expect(graphState.state.rawValue == expectedState)
+            let tx = presentation()
+            let effect = try #require(tx.transmitEffectStages.first { $0.id == "sound-isolation" })
+            #expect(effect.runtimeState == expectedState)
+            #expect(tx.mixerBusStep.state == .passing)
+            #expect(tx.mixerBusStep.detail.contains("Isolation \(expectedState)"))
+
+            let before = try #require(tx.encodedAudioPacketCount)
+            feed(speech, frames: 60)
+            let speaking = presentation()
+            let analysis = try #require(speaking.voiceActivityAnalysis)
+            #expect(speaking.vadStep.state == .passing)
+            #expect(abs(analysis.rmsDBFS + 23.0) < 0.2, "VAD observes the same input RMS in either TX isolation state")
+            let encoded = try #require(speaking.encodedAudioPacketCount)
+            #expect(encoded > before)
+
+            feed(silence, frames: 120)
+            let quiet = presentation()
+            #expect(quiet.vadStep.detail.hasPrefix("Silence"))
+            #expect(quiet.vadStep.state == .waiting)
+            #expect(quiet.mixerBusStep.detail.contains("Isolation \(expectedState)"))
+            feed(silence, frames: 25)
+            #expect(presentation().encodedAudioPacketCount == quiet.encodedAudioPacketCount)
+        }
+    }
+
     @Test func isolationConfigurationReportMatchesTheAppliedEffect() async throws {
         let harness = AppTestSupport.makeHarness()
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
