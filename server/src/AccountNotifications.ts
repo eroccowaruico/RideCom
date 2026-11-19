@@ -141,10 +141,22 @@ export class AccountNotifications {
         const value = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + requestID)
         return value && value.expiresAt > Date.now() ? value : null
     }
-    pendingInvitations(userID: string, recipientKey: string): NotificationGroupInvitation[] {
+    pendingInvitations(userID: string, recipientKey: string): Pick<NotificationGroupInvitation, 'requestID' | 'sender'>[] {
         this.prune()
         return [...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].map(([, v]) => v)
             .filter(v => v.recipientID === userID && v.recipientKey === recipientKey && v.status === 'queued' && this.grantActive(userID, v.grantHash))
+            .map(({ requestID, sender }) => ({ requestID, sender }))
+    }
+    invitationForDelivery(auth: NotificationAuth, recipientKey: string, requestID: string, verifiedSender: NotificationAuth) {
+        if (!this.authorized(auth)) return 'unauthorized'
+        // Read the current envelope after the Worker awaited the sender's account.
+        const value = this.invitation(auth.userID, requestID)
+        if (!value?.envelope || value.status !== 'queued' || value.recipientID !== auth.userID
+            || value.recipientKey !== recipientKey || !this.grantActive(auth.userID, value.grantHash)) return null
+        const sender = value.sender
+        if (sender.accountID !== verifiedSender.accountID || sender.userID !== verifiedSender.userID
+            || sender.deviceID !== verifiedSender.deviceID || sender.tokenHash !== verifiedSender.tokenHash) return null
+        return { requestID, senderUserID: sender.userID, recipientKey, expiresAt: value.expiresAt, envelope: value.envelope }
     }
     finishInvitation(userID: string, requestID: string, actorID: string, discard = false): boolean {
         const value = this.invitation(userID, requestID)

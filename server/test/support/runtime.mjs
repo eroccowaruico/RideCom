@@ -8,9 +8,24 @@ export const hash = createHash('sha256').update(token).digest('hex');
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns } = {}) {
-    const source = clockOffsetMs || fixedNowMs !== undefined ? { script: `const systemNow = Date.now; Date.now = () => ${fixedNowMs === undefined ? `systemNow() + ${Number(clockOffsetMs)}` : Number(fixedNowMs)};\n` + await readFile('dist/index.js', 'utf8') }
-        : { scriptPath: 'dist/index.js' };
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot } = {}) {
+    const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
+    const clock = clockOffsetMs || fixedNowMs !== undefined
+        ? `const systemNow = Date.now; Date.now = () => ${fixedNowMs === undefined ? `systemNow() + ${Number(clockOffsetMs)}` : Number(fixedNowMs)};\n`
+        : '';
+    const source = afterInboxSnapshot ? { modules: [
+        { type: 'ESModule', path: 'fixture.mjs', contents: `
+            export { default, AppleAuthAttempt, NotificationIndex, SignalingRoom, UsageGuard } from './index.js';
+            import { UserAccount as ProductionAccount } from './index.js';
+            export class UserAccount extends ProductionAccount {
+                async groupInvitationPending(...args) {
+                    const candidates = super.groupInvitationPending(...args);
+                    if (candidates.length) await fetch('${inboxSnapshotURL}');
+                    return candidates;
+                }
+            }` },
+        { type: 'ESModule', path: 'index.js', contents: clock + await readFile('dist/index.js', 'utf8') }
+    ] } : clock ? { script: clock + await readFile('dist/index.js', 'utf8') } : { scriptPath: 'dist/index.js' };
     const instance = new Miniflare({ durableObjectsPersist: storageDirectory,
         ratelimits: { ...(enrollmentLimits ? {
             APPLE_ENROLLMENT_IP_LIMIT: { namespace_id: '1001', simple: { limit: 30, period: 60 } },
@@ -24,6 +39,10 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             CLOUDFLARE_SFU_APP_ID: 'test-app', CLOUDFLARE_SFU_APP_SECRET: 'test-secret',
             MAX_ROOM_PARTICIPANTS: '4', MAX_ACTIVE_SESSIONS: '16', MONTHLY_PARTICIPANT_SECONDS: '36000', LEASE_SECONDS: '600', ...overrides },
         outboundService: async request => {
+            if (request.url === inboxSnapshotURL && afterInboxSnapshot) {
+                await afterInboxSnapshot();
+                return new Response(null, { status: 204 });
+            }
             if (request.url === 'https://appleid.apple.com/auth/keys') return Response.json({ keys: appleKeys });
             if (request.url.startsWith('https://appleid.apple.com/auth/') && appleAuthorization) {
                 assert.equal(request.method, 'POST');

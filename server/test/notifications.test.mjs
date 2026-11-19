@@ -341,6 +341,40 @@ test('group invitation alerts hide ciphertext and cancellation and grant revocat
     } finally { await r.dispose(); }
 });
 
+test('an inbox read in flight skips a cancelled candidate and delivers the next invitation', { timeout: 10_000 }, async () => {
+    const snapshot = Promise.withResolvers(), release = Promise.withResolvers();
+    const r = await setup({}, undefined, { afterInboxSnapshot: async () => {
+        snapshot.resolve();
+        await release.promise;
+    } });
+    try {
+        const a = await login(r, 'cancelling-sender'), b = await login(r, 'reading-recipient');
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: a.userID }, b.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability } = await issued.json();
+        const recipientKey = 'k'.repeat(87), expiresAt = Date.now() + 86400000;
+        const cancelled = { requestID: '00000000-0000-4000-8000-000000000001', envelope: Buffer.from('cancelled').toString('base64') };
+        const unaffected = { requestID: '00000000-0000-4000-8000-000000000002', envelope: Buffer.from('unaffected').toString('base64') };
+        for (const invitation of [cancelled, unaffected]) {
+            const submit = await call(r, '/api/notifications/group-invitations', { capability, recipientKey, expiresAt, ...invitation }, a.accessToken);
+            assert.equal((await submit.json()).status, 'queued');
+        }
+        const inbox = '/api/notifications/group-invitations?recipientKey=' + recipientKey;
+        const read = () => call(r, inbox, undefined, b.accessToken, 'GET');
+        const inFlight = read();
+        await Promise.race([snapshot.promise, inFlight.then(() => assert.fail('The inbox read finished before the candidate snapshot'))]);
+        const path = `/api/notifications/group-invitations/${b.userID}/${cancelled.requestID}`;
+        assert.equal((await call(r, path, undefined, a.accessToken, 'DELETE')).status, 200);
+        release.resolve();
+        const response = await inFlight;
+        assert.equal(response.status, 200);
+        assert.deepEqual((await response.json()).delivery, { ...unaffected, recipientKey, expiresAt, senderUserID: a.userID });
+        const receiptPath = `/api/notifications/group-invitations/${b.userID}/${unaffected.requestID}`;
+        assert.equal((await call(r, receiptPath, undefined, b.accessToken, 'DELETE')).status, 200);
+        assert.deepEqual(await (await read()).json(), { delivery: null });
+    } finally { release.resolve(); await r.dispose(); }
+});
+
 test('group invitation receipt requires a current resubmission after sender sign-in', async () => {
     const r = await setup();
     try {

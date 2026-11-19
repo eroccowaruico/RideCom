@@ -87,11 +87,11 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const key = url.searchParams.get('recipientKey') ?? ''
             if (!/^[A-Za-z0-9_-]{87}$/.test(key)) throw new Error('body')
             const pending = await owner.groupInvitationPending(auth.userID, key)
-            for (const value of pending) {
-                if (!await account(env, value.sender.accountID).notificationAuthorized(value.sender)) continue
-                if (!await owner.notificationAuthorized(auth) || !await owner.notificationGrantActive(auth.userID, value.grantHash)) break
-                return json({ delivery: { requestID: value.requestID, senderUserID: value.sender.userID,
-                    recipientKey: key, expiresAt: value.expiresAt, envelope: value.envelope } })
+            for (const { requestID, sender } of pending) {
+                if (!await account(env, sender.accountID).notificationAuthorized(sender)) continue
+                const delivery = await owner.groupInvitationDelivery(auth, key, requestID, sender)
+                if (delivery === 'unauthorized') break
+                if (delivery) return json({ delivery })
             }
             return json({ delivery: null })
         }

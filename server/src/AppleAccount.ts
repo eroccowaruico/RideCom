@@ -72,6 +72,9 @@ export class UserAccount extends DurableObject<Env> {
     async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
     groupInvitationPending(userID: string, recipientKey: string) { return this.notifications.pendingInvitations(userID, recipientKey) }
+    groupInvitationDelivery(auth: NotificationAuth, recipientKey: string, requestID: string, verifiedSender: NotificationAuth) {
+        return this.notifications.invitationForDelivery(auth, recipientKey, requestID, verifiedSender)
+    }
     groupInvitationFinish(userID: string, requestID: string, actorID: string, discard = false) { return this.notifications.finishInvitation(userID, requestID, actorID, discard) }
     groupInvitationNeedsNotice(userID: string, requestID: string) { return this.notifications.invitationNeedsNotice(userID, requestID) }
     groupInvitationCandidates(userID: string, requestID: string) { return this.notifications.invitationCandidates(userID, requestID) }
