@@ -180,3 +180,10 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 Cloudflare APIのWorker一覧・settings・secret名一覧をGETし、対象rideintercomを確認した。5 DOとmigration v3、App IDのAPNS_TOPICとproduction環境、APPLE_CLIENT_IDは配置へ反映済みだった。APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse。secret名は0件でSFU App IDの通常bindingもなかった。Previewは未監査。
 
 `.validation/notification-cloudflare-state-20261118/production.json`に公開値・binding名と未確認範囲だけを保存した。secretの値を取得せず、変更API・手動デプロイを行っていない。実状態の証拠は設定読取の範囲であり、配置されたコードの同一性や実配達の受入とは区別する。必要な外部設定は[試用手順](../../development/Cloudflare試用手順.md#外部設定の確認状況)へ集約した。
+
+
+## Productionと固定Previewの読取（2026-11-19）
+
+管理APIのGETを使い、現在のProductionのWorker設定・secret名一覧・migration、固定Previewの配置番号382に含まれる公開設定・binding名を照合した。両環境でApp IDと5つのDO、migration v3を確認した。Productionはsecret名0件、SFU App IDのbindingなし。固定PreviewはSFU App ID、`CLOUDFLARE_SFU_APP_SECRET`、`CLIENT_TOKENS_JSON`があり、SERVICE_ENABLEDがtrueだった。両環境でAPPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。
+
+公開設定とsecret名の証跡は `.validation/notification-cloudflare-state-20261119/settings.json`。Previews Baseには照合を広げていない。アカウント固有のsecret値を記録していない。固定PreviewとBaseの入力先の違いはCloudflare公式手順と、リポジトリのWrangler 4.151.3のヘルプで照合した。同じ試用手順で、1対1の呼び出しを開く操作、通話を開始しないグループ招待、実音声の受入を明記した。[試用手順](../../development/Cloudflare試用手順.md#外部設定の確認状況)

@@ -149,24 +149,29 @@ App・serverのコードと公開値はrepoへ置き、アカウント固有の�
 | 3 | Worker配置 | repoの5 bindingを配置する。SIGNALING_ROOM・USAGE_GUARDはv1、APPLE_AUTH_ATTEMPT・USER_ACCOUNTはv2、NOTIFICATION_INDEXはv3のSQLite migration。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
 | 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
-| 6 | 呼出しとgroup配送 | 既存の相手とは次の認証済み個別接続で新しい用途別許可を交換する。登録済み相手をgroupへ招待し、送信側pending→queued、相手側の保存後にreceivedになることを確認する。通知の受取・タップで通話が始まらず、OS通知OFFでも前面復帰で受け取ることを確認する |
+| 6 | 1対1の呼び出し | 次の認証済み個別接続で既存相手と用途別許可を交換する。呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する |
+| 7 | グループ招待 | 登録済みの相手への招待を保存し、送信側のpending→queued、相手の保存後のreceivedを確認する。招待は通知を開いても新しい通話を始めない。OS通知を切った状態でも、前面復帰で招待を受け取ることを確認する |
+| 8 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる |
 
 グループ鍵・名前は端末で暗号化されるため、group専用のserver secretを作らない。用途別grantは既存のDEVICE_IDENTITY_SIGNING_KEYで発行する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。
 
-secretは[Workersのsecret設定](https://developers.cloudflare.com/workers/configuration/secrets/)から入力する。ProductionとPreviewの区別、Baseの継承と既存Previewへの反映は[Previewsの設定](https://developers.cloudflare.com/workers/previews/configuration/)に従う。通常の`wrangler secret put`は即座に配置する操作なので、適用先と検証済みのコードを揃えて実行する。実値をGit・通常変数・ログへ置かない。
+secretは対象の環境を選んで入力する。CLIを使う場合は`server/`で、今後作成するPreviewに渡す値を`npx wrangler preview base-config secret put SECRET_NAME`、既存の固定Previewへは`npx wrangler preview secret put SECRET_NAME --name preview`で設定する。固定Previewへの設定は新しい配置を作る。Productionの`npx wrangler secret put SECRET_NAME`もその場で新しいバージョンを配置する。対象環境と配置するコードを照合し、値は対話入力へ渡す。実値はGit・通常変数・ログへ置かない。[Workersのsecret設定](https://developers.cloudflare.com/workers/configuration/secrets/)、[Previewsの設定](https://developers.cloudflare.com/workers/previews/configuration/)
 
 コード側は2026-11-18に、実Workerのローカル結合とAppの送受信・ファイル保存・ACKまで検証済み（[招待の検証記録](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)）。配置後のAPNs・2実機・実SFUは[未確認事項](../validation/未確認事項.md)の対応項目を通して受け入れる。
 
 ## 外部設定の確認状況
 
-2026-11-18、接続済みCloudflareの読取APIでProductionのrideintercomを確認した。secretは値を読まず、名前の一覧だけを確認した。PreviewとPreviews Baseは今回の読取対象外であり、Productionの結果を流用しない。
+2026-11-19、Cloudflareの読取APIで、Productionの`rideintercom`と固定`preview`の配置番号382を確認した。許可された公開値、bindingとsecretの名前を照合した。Previews Baseの現在値、配置ソースとGitの一致、Appleの実署名・端末許可、実APNsと実SFUは引き続き受入対象。
 
-| 項目 | 確認した状態 | 利用者側で残ること |
+| 項目 | Production | 固定Preview |
 |---|---|---|
-| 公開値 | APNS_TOPICはApp ID、APNS_ENVIRONMENTはproduction、APPLE_CLIENT_IDも一致 | 同じ環境へ接続するAppの署名・Infoと照合する |
-| Durable Objects | 5 bindingとmigration v3まで反映済み | 現状のnamespaceを継続し、今後の変更はmigration履歴と合わせる |
-| Secret | リストAPIは0件。SFU App IDの通常bindingも未登録 | DEVICE_IDENTITY_SIGNING_KEY、APNsの3項目、必要なCLOUDFLARE_SFU_APP_ID／CLOUDFLARE_SFU_APP_SECRETを登録する。Apple認可取消にはAPPLE_CLIENT_SECRETも登録する |
-| 有効化 | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse | 対応する鍵・権限が揃った機能を個別に有効化して受け入れる |
-| 実サービス受入 | 設定値・bindingの読取まで | 配置コードの同一性、実Apple認証・APNs・実SFUを確認する |
+| APNsとAppleの公開値 | APNS_ENVIRONMENTはproduction。APNS_TOPICとAPPLE_CLIENT_IDはApp IDと一致 | APNS_ENVIRONMENTはsandbox。APNS_TOPICとAPPLE_CLIENT_IDは同じApp ID |
+| Durable Objects | 5 binding、migration v3 | 5 binding、migration v3 |
+| 現在の設定 | secret名一覧は空。SFU App IDのbindingも未登録 | SFU App IDと`CLOUDFLARE_SFU_APP_SECRET`、旧手動試用の`CLIENT_TOKENS_JSON`を確認 |
+| Apple・通知で残る設定 | `DEVICE_IDENTITY_SIGNING_KEY`とAPNsの3項目を登録。Apple認可取消には`APPLE_CLIENT_SECRET`も登録 | 同じ項目をsandbox用に登録。既存の固定Previewを対象にする |
+| SFUで残る設定 | `CLOUDFLARE_SFU_APP_ID`と`CLOUDFLARE_SFU_APP_SECRET`を登録し、SERVICE_ENABLEDを有効にする | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
+| 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。SERVICE_ENABLEDはtrue |
 
-読取時点の設定は`.validation/notification-cloudflare-state-20261118/production.json`と[検証記録](../validation/history/Cloudflare検証.md)へ残した。接続先の値やsecretを変更するAPIは実行していない。
+Apple登録と通知は鍵・プロフィール・APNsの環境を揃えてから、対象環境でAPPLE_AUTH_ENABLEDとNOTIFICATIONS_ENABLEDを有効にする。TestFlightで固定Previewを使う場合は、production APNsに対応する設定と署名を同じPreviewへ揃える。
+
+照合結果は `.validation/notification-cloudflare-state-20261119/settings.json` に保存した。Worker管理APIは読取だけを実行した。[検証記録](../validation/history/Cloudflare検証.md#productionと固定previewの読取2026-11-19)
