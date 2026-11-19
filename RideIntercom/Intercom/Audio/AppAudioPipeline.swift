@@ -97,6 +97,7 @@ enum AppAudioPipelineError: Error, Equatable {
 }
 
 final class AppAudioPipeline {
+    nonisolated static let nativeOutputObservationLifetime: TimeInterval = 2
 
     var onTransmitPacket: (@Sendable (RTC.RTCAudioPacket) -> Void)? {
         get { transmitter.onPacket }
@@ -114,6 +115,9 @@ final class AppAudioPipeline {
     private var hardwareOutputEnabled = true
     private var frameDeliveries: [AudioFrameDelivery] = []
     private var nativeOutputActivity: NativeOutputActivity?
+    var lastNativeRenderAt: TimeInterval? {
+        rendersToHardware ? nativeOutputActivity?.lastRenderAt : nil
+    }
     var lastNativeAudibleOutputAt: TimeInterval? {
         rendersToHardware ? nativeOutputActivity?.lastAudibleAt : nil
     }
@@ -348,7 +352,8 @@ nonisolated struct NativeOutputObservation: Sendable {
 
 /// The existing call tick reads this bounded state without enqueueing PCM.
 private nonisolated final class NativeOutputActivity: Sendable {
-    private let timestampBits = Atomic<UInt64>(0)
+    private let renderTimestampBits = Atomic<UInt64>(0)
+    private let audibleTimestampBits = Atomic<UInt64>(0)
     private let meter = Mutex(Meter())
 
     private struct Meter {
@@ -358,19 +363,29 @@ private nonisolated final class NativeOutputActivity: Sendable {
         var peakWindow = VoicePeakWindow()
     }
 
+    var lastRenderAt: TimeInterval? {
+        let bits = renderTimestampBits.load(ordering: .relaxed)
+        return bits == 0 ? nil : TimeInterval(bitPattern: bits)
+    }
+
     var lastAudibleAt: TimeInterval? {
-        let bits = timestampBits.load(ordering: .relaxed)
+        let bits = audibleTimestampBits.load(ordering: .relaxed)
         return bits == 0 ? nil : TimeInterval(bitPattern: bits)
     }
 
     func record(_ frame: PCMFrame) {
+        let now = Date().timeIntervalSince1970
         let level = AudioLevelMeter.rmsLevel(samples: frame.samples)
         meter.withLock {
+            if let lastRenderAt, now - lastRenderAt > AppAudioPipeline.nativeOutputObservationLifetime {
+                $0.peakWindow = VoicePeakWindow()
+            }
             $0.pendingFrames += 1
             $0.rms = level
             $0.peakRMS = $0.peakWindow.record(level)
+            renderTimestampBits.store(now.bitPattern, ordering: .relaxed)
             if level > AudioLevelMeter.audibleOutputThreshold {
-                timestampBits.store(Date().timeIntervalSince1970.bitPattern, ordering: .relaxed)
+                audibleTimestampBits.store(now.bitPattern, ordering: .relaxed)
             }
         }
     }

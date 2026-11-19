@@ -133,9 +133,12 @@ struct ReceivePipelinePresentation {
         } else if !input.isAudioReady {
             value = ("Not available", "speaker", .idle)
         } else if input.usesNativeOutput {
-            let output = observation(input.lastNativeAudibleOutputAt)
-            value = (output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed",
-                     "speaker.wave.2.fill", output.state)
+            let lifetime = AppAudioPipeline.nativeOutputObservationLifetime
+            let output = observation(input.lastNativeAudibleOutputAt, maximumAge: lifetime)
+            let audible = output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed"
+            let rendered = observation(input.lastNativeRenderAt, maximumAge: lifetime)
+            let render = rendered.elapsed.map { " / Last render · \($0)" } ?? ""
+            value = (audible + render, "speaker.wave.2.fill", output.state)
         } else if let elapsed = observation(input.lastPlaybackScheduledAt).elapsed {
             value = ("Playback scheduled · \(elapsed) / Render not measured", "speaker.wave.2.fill", .waiting)
         } else {
@@ -164,10 +167,10 @@ struct ReceivePipelinePresentation {
         )
     }
 
-    private func observation(_ timestamp: TimeInterval?) -> (state: PipelineStepState, elapsed: String?) {
+    private func observation(_ timestamp: TimeInterval?, maximumAge: TimeInterval = 2) -> (state: PipelineStepState, elapsed: String?) {
         guard let timestamp else { return (.waiting, nil) }
         let age = max(0, input.capturedAt - timestamp)
-        return (age <= 2 ? .passing : .waiting, "\(Int(age))s ago")
+        return (age <= maximumAge ? .passing : .waiting, "\(Int(age))s ago")
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {

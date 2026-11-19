@@ -103,9 +103,11 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 | receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | Peer Busesと同じ経路・再生予約 | `n routes → rx-master`（1本は `1 route → rx-master`）。その経路がある参加者の枝線が左の縦線で合流し、Mix Downで線が終わる | Peer Busesと同じ判定。再生予約後の出力はOutputで確認する |
 | receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、master volume、経路数と入力のPCM再生予約 | source bus count と OUT volume。mix 後の 1 本の master bus として表示。アクセシビリティ文字サイズではメーターを集計の下に置く | 入力の再生予約を観測するとPassing。未観測はWaiting |
 | master effect chainステップ | `liveReceivePipelineView` | `receive-pipeline-master-effects-step` | Master FX | `AudioMixerSnapshot` の `rx-master.effectChain` + `rx-output.effectChain` から導出した `receiveMasterEffectChainSnapshot.stages` | RX Master 配下に適用される ordered stage chip として inline 表示（Isolation → master fader → 出力Limiter） | stage 単位で unavailable / bypassed を表示 |
-| outputステップ | `liveReceivePipelineView` | `receive-pipeline-output-step` | Output | native出力tapで最後に有声PCMを観測した時刻、別rendererで最後の再生予約が通った時刻、mute、volume | 最終観測と経過秒。展開時に機器名、取得した実形式・buffer・reset数 | muteはMuted、音量0はWaiting。直近2秒にnativeの有声PCMを観測していればPassing |
+| outputステップ | `liveReceivePipelineView` | `receive-pipeline-output-step` | Output | native出力を最後に描画した時刻と最後の有声PCMの時刻、別rendererの最終再生予約時刻、mute、volume | nativeは `Last audible PCM` と `Last render` の経過秒。展開時に機器名、取得した実形式・buffer・reset数 | muteはMuted、音量0はWaiting。直近2秒にnativeの有声PCMを観測していればPassing |
 
 OverviewとRXは同じ判定を使い、表示中に経過秒を更新する。RTC RXとDecodeは該当する最新の観測が2秒を超えるとWaitingに戻り、累計と最後の観測を表示する。DecodeがBlockedの間はOverviewにも段名と直近の失敗が出る。別のpacketからPCMが得られればDecodeはPassingに戻る。再生予約と実出力は後の段で独立に観測する。nativeの有声PCMは `Last audible PCM · n s ago`（画面では `3s ago` の形）。2秒を超えると時刻は残したままWaitingになる。未観測は `No audible PCM observed`。別rendererは `Playback scheduled` または `No playback scheduled` に `Render not measured` を併記し、出力段はWaitingとする。音声処理が停止・再構築されると出力の時刻を初期化する。
+
+native出力は無音の間も `Last render` を更新する。描画が2秒を超えて途絶えたら、共通の出力メーターのレベルとピークを0にする。再開した描画からメーターを更新する。
 
 ## 受信 mix topology 表示
 

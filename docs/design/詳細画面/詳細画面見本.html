@@ -96,10 +96,11 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .row .k { color: var(--label2); white-space: nowrap; }
 .row .v { min-width: 0; }
 .row.rx-master { grid-template-columns: 72px minmax(0, 1fr) auto; }
-#rx-decode-blocked { max-width: 350px; }
-#rx-decode-blocked .row { grid-template-columns: 74px minmax(0, 1fr); }
-#rx-decode-blocked .ok-t { color: var(--ok); }
-#rx-decode-blocked .err-t { color: var(--err); }
+.rx-stop-example { max-width: 350px; }
+.rx-stop-example .row { grid-template-columns: 74px minmax(0, 1fr); }
+.rx-stop-example .ok-t { color: var(--ok); }
+.rx-stop-example .err-t { color: var(--err); }
+.rx-stop-example .warn-t { color: var(--warn); }
 .form-actions { display: flex; justify-content: flex-end; padding: 0 14px 4px; }
 .form-fields .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; }
 .form-fields .v, .person-entry .sub { overflow-wrap: anywhere; }
@@ -363,7 +364,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
               <div class="row"><span class="k">Master fader</span><span class="v"></span><span class="x num">120% · Unmuted</span></div>
               <div class="row"><span class="k">PeakLimiter</span><span class="v"><span class="sub mono">rx-output</span></span><span class="x ok-t">active</span></div>
             </div>
-            <div class="row" style="border-top:1px solid var(--line)"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Output</span><span class="v">Last audible PCM · 0s ago<div class="sub">Device: AirPods Pro</div><div class="sub">Format: 48000 Hz / 2 channels</div><div class="sub">Buffered: Not measured / Resets: Not measured</div></span><span class="x"></span></div>
+            <div class="row" style="border-top:1px solid var(--line)"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Output</span><span class="v">Last audible PCM · 0s ago / Last render · 0s ago<div class="sub">Device: AirPods Pro</div><div class="sub">Format: 48000 Hz / 2 channels</div><div class="sub">Buffered: Not measured / Resets: Not measured</div></span><span class="x"></span></div>
           </div>
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
@@ -443,12 +444,19 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   </div>
 
   <h2 id="stopped">停止の例</h2>
-  <div class="card" id="rx-decode-blocked">
+  <div class="card rx-stop-example" id="rx-decode-blocked">
     <div class="hd">Live RX Pipeline</div>
     <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / C 1 / A 1 / RX 241 / Last receipt · 0s ago</span></div>
     <div class="row"><span class="k"><span class="err-t" role="img" aria-label="Blocked">×</span> Decode</span><span class="v num">PCM 238 / Last PCM · 3s ago / Decode errors 3 / Last error · 0s ago</span></div>
   </div>
   <p class="note">受信が続く間に復号だけが止まった例。Overviewでも RX: Blocked at Decode と表示する。</p>
+  <div class="card rx-stop-example" id="rx-output-stalled">
+    <div class="hd">Live RX Pipeline</div>
+    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / C 1 / A 1 / RX 460 / Last receipt · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 460 / Last PCM · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="warn-t" role="img" aria-label="Waiting">Ⅱ</span> Output</span><span class="v num">Last audible PCM · 3s ago / Last render · 3s ago</span></div>
+  </div>
+  <p class="note">受信と復号が続く間に出力の描画が止まった例。Overviewで RX: Waiting at Output と表示する。</p>
   <p class="note">使用中のAirPodsが切断された場合。最初に止まった段だけを赤で示し、下流は Idle として薄くする。下流の0を故障に見せない。</p>
   <div class="gallery">
     <figure>

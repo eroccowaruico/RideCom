@@ -108,6 +108,7 @@ final class FakeInputStreamBackend: SessionManager.AudioInputStreamBackend {
 
 final class FakeOutputStreamBackend: SessionManager.AudioOutputStreamBackend {
     let renderingEngine: AVAudioEngine?
+    var rendersToHardware = false
     private(set) var configurations: [SessionManager.AudioOutputStreamConfiguration] = []
     private(set) var startCount = 0
     private(set) var stopCount = 0

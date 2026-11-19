@@ -52,20 +52,21 @@ extension IntercomViewModel {
         #endif
     }
 
-    func refreshNativeOutputObservation() {
-        guard isAudioReady, audioCheckPhase == .idle,
-              let observation = audioPipeline.takeNativeOutputObservation() else { return }
-        if isOutputMuted || masterOutputVolume <= 0 {
+    func refreshNativeOutputObservation(now: TimeInterval) {
+        guard isAudioReady, audioCheckPhase == .idle, audioPipeline.rendersToHardware else { return }
+        let observation = audioPipeline.takeNativeOutputObservation()
+        let fresh = audioPipeline.lastNativeRenderAt.map { now - $0 <= AppAudioPipeline.nativeOutputObservationLifetime } ?? false
+        if isOutputMuted || masterOutputVolume <= 0 || !fresh {
             lastScheduledOutputRMS = 0
             lastScheduledOutputPeakRMS = 0
-        } else {
+        } else if let observation {
             lastScheduledOutputRMS = observation.rms
             lastScheduledOutputPeakRMS = observation.peakRMS
             lastAudibleReceivedAudioAt = observation.lastAudibleAt
             nativeRenderedOutputBatchCount += observation.frameCount
         }
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
-        BackgroundCallValidationObservation.observe(self, output: true)
+        if observation != nil { BackgroundCallValidationObservation.observe(self, output: true) }
         #endif
     }
 

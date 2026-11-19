@@ -269,7 +269,7 @@ struct AudioPipelineTests {
         #expect(model.diagnosticsOutputLevel == 0, "Late meter refresh must show the current silence as well as the recent peak")
         let stale = ReceivePipelinePresentation(input: DiagnosticsInput(model, now: first + 3)).outputStep
         #expect(stale.state == .waiting)
-        #expect(stale.detail == "Last audible PCM · 3s ago")
+        #expect(stale.detail.hasPrefix("Last audible PCM · 3s ago / Last render"))
 
         let resumed = PCMFrame(sequenceNumber: 1, format: frame.format, samples: frame.samples)
         _ = try pipeline.processReceivedAudioPacket(
@@ -291,6 +291,86 @@ struct AudioPipelineTests {
         model.handleCallTick(now: Date().timeIntervalSince1970)
         #expect(model.nativeRenderedOutputBatchCount == batchCount)
         #expect(ReceivePipelinePresentation(input: DiagnosticsInput(model)).outputStep.detail == "No audible PCM observed")
+    }
+
+    @Test func receiveDiagnosticsSeparateStalledRenderingFromContinuingDecoding() async throws {
+        let engine = AVAudioEngine()
+        let nativeFormat = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        try engine.enableManualRenderingMode(.offline, format: nativeFormat, maximumFrameCount: 480)
+        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
+        let harness = AppTestSupport.makeHarness(audioPipeline: pipeline)
+        harness.outputBackend.rendersToHardware = true
+        let model = harness.viewModel
+        model.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        defer { model.disconnect() }
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        try #require(model.isAudioReady && pipeline.rendersToHardware)
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: nativeFormat, frameCapacity: 480))
+        var sequence: UInt64 = 0
+
+        func receive(_ value: Float, count: Int) throws {
+            let frame = PCMFrame(sequenceNumber: sequence, format: .intercomMixer,
+                samples: Array(repeating: value, count: count))
+            sequence += 1
+            harness.callSession.receive(try AppTestSupport.receivedAudioPacket(
+                peerID: "member-108", frame: frame, codec: .pcm16))
+        }
+        func renderUntil(after previous: TimeInterval = 0, _ containsMarker: ([Float]) -> Bool) async throws -> Bool {
+            var markerRendered = false
+            for _ in 0..<60 {
+                try #require(try engine.renderOffline(480, to: buffer) == .success)
+                let samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData?[0], count: Int(buffer.frameLength)))
+                try await Task.sleep(for: .milliseconds(3))
+                model.handleCallTick(now: Date().timeIntervalSince1970)
+                markerRendered = markerRendered || containsMarker(samples)
+                if markerRendered, (pipeline.lastNativeAudibleOutputAt ?? 0) > previous,
+                   model.diagnosticsOutputLevel > 0.05 { return true }
+            }
+            return false
+        }
+        func diagnostics() -> ReceivePipelinePresentation {
+            model.publishRuntimePackageReports(force: true)
+            return .init(input: DiagnosticsInput(model))
+        }
+
+        try receive(0.2, count: 2_880)
+        let firstRendered = try await renderUntil { $0.contains { $0 > 0.05 } }
+        try #require(firstRendered)
+        try await Task.sleep(for: .milliseconds(40))
+        model.handleCallTick(now: Date().timeIntervalSince1970)
+        let first = try #require(pipeline.lastNativeAudibleOutputAt)
+        let pausedAt = engine.manualRenderingSampleTime
+        let firstDecodeCount = pipeline.receiveDecodeCounts.pcmPackets
+        let deadline = ContinuousClock.now + .milliseconds(2_100)
+        repeat {
+            try receive(-0.2, count: 480)
+            try await Task.sleep(for: .milliseconds(12))
+        } while ContinuousClock.now < deadline
+
+        model.handleCallTick(now: Date().timeIntervalSince1970)
+        let stalled = diagnostics()
+        #expect(engine.manualRenderingSampleTime == pausedAt)
+        #expect(pipeline.lastNativeAudibleOutputAt == first)
+        #expect(pipeline.receiveDecodeCounts.pcmPackets > firstDecodeCount + 1)
+        #expect(stalled.rtcReceiveStep.state == .passing)
+        #expect(stalled.codecDecodeStep.state == .passing)
+        #expect(stalled.outputStep.state == .waiting)
+        #expect(stalled.outputStep.detail.contains("Last render"))
+        #expect(stalled.receiveMasterMix.outputLevel == 0)
+        #expect(stalled.receiveMasterMix.outputPeakLevel == 0)
+        #if os(iOS)
+        let renderer = ImageRenderer(content: LiveReceivePipelineView(viewModel: model, expandedStage: .constant("receive-output"))
+            .frame(width: 370).padding().background(AppColorPalette.listScreenBackground))
+        renderer.scale = 2
+        Attachment.record(try #require(renderer.uiImage?.pngData()), named: "rx-output-stalled.png")
+        #endif
+
+        try receive(-0.2, count: 2_880)
+        let resumed = try await renderUntil(after: first) { $0.contains { $0 < -0.05 } }
+        #expect(resumed)
+        #expect((pipeline.lastNativeAudibleOutputAt ?? 0) > first)
+        #expect(diagnostics().outputStep.state == .passing)
     }
 
     @Test func appDecodeRejectsUnknownCodecAndInvalidFormatBeforeConversion() throws {

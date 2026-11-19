@@ -35,6 +35,7 @@ struct DiagnosticsInput {
     var lastOutputStreamOperationReport: SessionManager.AudioStreamOperationReport?
     var masterOutputVolume: Float
     var usesNativeOutput: Bool
+    var lastNativeRenderAt: TimeInterval?
     var lastNativeAudibleOutputAt: TimeInterval?
     var lastPlaybackScheduledAt: TimeInterval?
     let capturedAt: TimeInterval
@@ -82,6 +83,7 @@ struct DiagnosticsInput {
         masterOutputVolume = viewModel.masterOutputVolume
         usesNativeOutput = viewModel.audioPipeline.rendersToHardware
         lastNativeAudibleOutputAt = viewModel.audioPipeline.lastNativeAudibleOutputAt
+        lastNativeRenderAt = viewModel.audioPipeline.lastNativeRenderAt
         lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
         receiveMasterEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
