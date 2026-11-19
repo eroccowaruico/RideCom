@@ -306,10 +306,10 @@ extension IntercomViewModel {
                 return
             }
             guard self.isAudioReady else { return }
+            self.scheduleOutputFrame(frame: frame, receivedAt: Date().timeIntervalSince1970)
             #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
             BackgroundCallValidationObservation.observe(self, output: true)
             #endif
-            self.scheduleOutputFrame(frame: frame, receivedAt: Date().timeIntervalSince1970)
         }
     }
 

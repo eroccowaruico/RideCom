@@ -81,8 +81,16 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                     for kind in kinds:
                         samples=[v for v in rows if v['background'] and v.get(kind)]
                         span=samples[-1]['uptime']-samples[0]['uptime'] if samples else 0
+                        call_instances = {v.get('connectionInstance') for v in samples}
+                        same_call = len(call_instances) == 1 and None not in call_instances
+                        waiting_without_remote_audio = all(
+                            v.get('usesNativeOutput') is True and v.get('receivedVoicePackets') == 0
+                            and isinstance(v.get('availableRoutes'), list)
+                            and 'lastAudibleOutputAt' in v and v['lastAudibleOutputAt'] is None for v in samples)
                         ok=len(samples)>=20 and span>=29 and len({v['deadline'] for v in samples})==1 and all(v['audioReady'] and v['inputRunning'] and v['outputRunning'] and not v['mediaStarted'] and v['authenticatedPeers']==0 and v['muted']==muted and v['microphonePermission']=='granted' for v in samples)
-                        details.append(dict(kind=kind,samples=len(samples),span=span,passed=ok))
+                        details.append(dict(kind=kind, samples=len(samples), span=span,
+                                            sameCall=same_call, waitingWithoutRemoteAudio=waiting_without_remote_audio,
+                                            passed=ok and same_call and waiting_without_remote_audio))
                     outcome.update(passed=context_ok and all(v['passed'] for v in details),observations=details,
                                    runtimeContextValid=context_ok)
                 else:

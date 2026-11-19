@@ -3,6 +3,7 @@ import AudioCore
 import AVFAudio
 import Darwin
 import Foundation
+import RTC
 import SessionManager
 import UIKit
 
@@ -63,6 +64,8 @@ import UIKit
         let environment = ProcessInfo.processInfo.environment
         let testRunner = NSClassFromString("XCTestCase") != nil || NSClassFromString("XCTest.XCTestCase") != nil
             || ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"].contains { environment[$0] != nil }
+        let usesNativeOutput = model.audioPipeline.rendersToHardware
+        let lastAudibleOutputAt = usesNativeOutput ? model.lastAudibleReceivedAudioAt : nil
         records.append(["uptime": now, "background": UIApplication.shared.applicationState == .background,
             "recordedAt": Date().timeIntervalSince1970, "processInstance": processInstance,
             "processID": ProcessInfo.processInfo.processIdentifier, "platform": platform,
@@ -76,6 +79,11 @@ import UIKit
             "inputRunning": model.lastInputStreamOperationReport?.snapshot.isRunning == true,
             "outputRunning": model.lastOutputStreamOperationReport?.snapshot.isRunning == true,
             "authenticatedPeers": model.authenticatedPeerIDs.count,
+            "connectionInstance": model.connectionGeneration.uuidString,
+            "availableRoutes": model.availableCallRoutes.map(\.rawValue).sorted(),
+            "receivedVoicePackets": model.receivedVoicePacketCount,
+            "usesNativeOutput": usesNativeOutput,
+            "lastAudibleOutputAt": lastAudibleOutputAt as Any? ?? NSNull(),
             "deadline": model.callDisconnectDeadline?.timeIntervalSince1970 as Any? ?? NSNull()])
         if records.count > 256 { records.removeFirst(records.count - 256) }
         let layout = ProcessInfo.processInfo.environment["RIDEINTERCOM_INTERFACE_FIXTURE"] == "advanced" ? "advanced" : "standard"
