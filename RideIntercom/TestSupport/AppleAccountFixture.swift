@@ -64,6 +64,33 @@ enum AppleAccountFixture {
 
     enum RecoveryFailure: Error { case invalidScope, unsafePath, verificationFailed }
 
+    static func groupStore(directory: URL, namespace: String) -> any GroupStoring {
+        let store = FileGroupStore(directory: directory)
+        let environment = ProcessInfo.processInfo.environment
+        guard namespace.hasPrefix("RideIntercom.Validation."),
+              environment["RIDEINTERCOM_LOCAL_TESTING"] == "1",
+              environment["RIDEINTERCOM_FAIL_GROUP_REMOVAL"] == "1" else { return store }
+        return GroupRemovalFailureStore(store: store)
+    }
+
+    private final class GroupRemovalFailureStore: GroupStoring {
+        let store: FileGroupStore
+
+        init(store: FileGroupStore) { self.store = store }
+        func read() throws -> GroupSnapshot? { try store.read() }
+        func lock() throws { try store.lock() }
+        func unlock() { store.unlock() }
+        func archive(legacyData: Data?) throws { try store.archive(legacyData: legacyData) }
+
+        func commit(_ snapshot: GroupSnapshot) throws {
+            let remainingIDs = Set(snapshot.groups.map(\.id))
+            if try store.read()?.groups.contains(where: { !remainingIDs.contains($0.id) }) == true {
+                throw GroupStorageError.busy
+            }
+            try store.commit(snapshot)
+        }
+    }
+
     /// Recreates the older outgoing record without a linked SavedUser.
     static func stageLegacyContactInvitationIfRequested(_ viewModel: IntercomViewModel?) {
         let environment = ProcessInfo.processInfo.environment

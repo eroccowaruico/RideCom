@@ -28,10 +28,13 @@ extension IntercomViewModel {
            environment["RIDEINTERCOM_NAME_PROMPT"] != "1", !localMemberIdentityStore.loadOrCreate().hasChosenName {
             localMemberIdentityStore.saveDisplayName(localMemberIdentityStore.loadOrCreate().displayName)
         }
+        let groupStore = AppleAccountFixture.groupStore(directory: directory, namespace: namespace)
+        #else
+        let groupStore = FileGroupStore(directory: directory)
         #endif
         return IntercomViewModel(
             accountSession: accountSession,
-            groupRepository: GroupRepository(store: FileGroupStore(directory: directory), credentials: KeychainGroupCredentialStore(namespace: namespace)),
+            groupRepository: GroupRepository(store: groupStore, credentials: KeychainGroupCredentialStore(namespace: namespace)),
             appSettingsStore: UserDefaultsAppSettingsStore(defaults: defaults),
             internetSettingsStore: InternetConnectionSettingsStore.makeForCurrentProcess(namespace: namespace),
             localMemberIdentityStore: localMemberIdentityStore,

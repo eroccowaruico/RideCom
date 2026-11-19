@@ -324,6 +324,53 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor
+    func testStandardGroupDeleteSaveFailureKeepsSettingsAndCall() throws {
+        try checkGroupRemovalSaveFailure(advanced: false)
+    }
+
+    @MainActor
+    func testAdvancedGroupLeaveSaveFailureKeepsSettingsAndCall() throws {
+        try checkGroupRemovalSaveFailure(advanced: true)
+    }
+
+    @MainActor
+    private func checkGroupRemovalSaveFailure(advanced: Bool) throws {
+        app = XCUIApplication()
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard", "RIDEINTERCOM_FAIL_GROUP_REMOVAL": "1"]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        let groupName: String
+        if advanced {
+            groupName = "Joined " + UUID().uuidString.prefix(6)
+            app.open(try InvitationURLFixture.make(inviter: "ui-failed-leave-" + UUID().uuidString, name: groupName))
+        } else {
+            tab("Groups", id: "groupsTab")
+            app.buttons["standardCreateGroupButton"].firstMatch.tap()
+            let name = app.textFields["savedUsersGroupNameField"].firstMatch
+            XCTAssertTrue(name.waitForExistence(timeout: 3))
+            groupName = try XCTUnwrap(name.value as? String)
+            app.buttons["saveUserSelectionButton"].firstMatch.tap()
+        }
+        let end = app.buttons[advanced ? "disconnectButton" : "standardEndCallButton"].firstMatch
+        XCTAssertTrue(end.waitForExistence(timeout: 5))
+        app.openCallMoreMenuItem("callGroupSettingsButton").tap()
+        let remove = app.buttons[advanced ? "leaveGroupButton" : "deleteGroupButton"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 3))
+        remove.tap()
+        let confirm = app.alerts.firstMatch.buttons[advanced ? "confirmLeaveGroupButton" : "confirmDeleteGroupButton"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+
+        let error = app.staticTexts["groupSettingsError"].firstMatch
+        XCTAssertTrue(error.waitForExistence(timeout: 5), "A failed save must explain recovery in the same settings")
+        XCTAssertEqual(app.textFields["groupSettingsNameField"].firstMatch.value as? String, groupName)
+        app.buttons["closeGroupSettingsButton"].firstMatch.tap()
+        XCTAssertTrue(end.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testJapaneseAdvancedJoinedGroupCanLeaveWithSharedConfirmation() throws {
         launch(japanese: true, interface: "advanced")
         let groupName = "招待 " + UUID().uuidString.prefix(6)

@@ -29,8 +29,7 @@ struct GroupRemovalSection: View {
         }
         .alert(confirmationTitle, isPresented: $confirmsRemoval) {
             Button(confirmationAction, role: .destructive) {
-                viewModel.deleteGroup(group.id)
-                onRemoved()
+                if viewModel.deleteGroup(group.id) { onRemoved() }
             }
             .accessibilityIdentifier(ownsGroup ? "confirmDeleteGroupButton" : "confirmLeaveGroupButton")
             Button("Cancel", role: .cancel) { }
