@@ -6,14 +6,12 @@ struct StandardGroupMemberView: View {
     @Bindable var viewModel: IntercomViewModel
     let groupID: UUID
     let member: GroupMember
-    /// Nil when this person may not change the group's members.
-    let remove: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
-    @State private var confirmsRemove = false
+    @State private var pendingRemoval: PendingMemberRemoval?
 
-    init(viewModel: IntercomViewModel, groupID: UUID, member: GroupMember, remove: (() -> Void)?) {
-        self.viewModel = viewModel; self.groupID = groupID; self.member = member; self.remove = remove
+    init(viewModel: IntercomViewModel, groupID: UUID, member: GroupMember) {
+        self.viewModel = viewModel; self.groupID = groupID; self.member = member
         // Opens with your own name for them; empty shows (and returns to) the name they share.
         _name = State(initialValue: member.localName ?? "")
     }
@@ -33,10 +31,14 @@ struct StandardGroupMemberView: View {
                 if let message = viewModel.groupErrorMessage {
                     Section { Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger) }
                 }
-                if remove != nil {
+                if viewModel.canManageRegularGroups {
                     Section {
-                        Button("Remove from Group", role: .destructive) { confirmsRemove = true }
-                            .accessibilityIdentifier("removeGroupMemberButton")
+                        Button("Remove from Group", role: .destructive) {
+                            pendingRemoval = PendingMemberRemoval(name: current.resolvedDisplayName) {
+                                if viewModel.removeMember(member.id, from: groupID) { dismiss() }
+                            }
+                        }
+                        .accessibilityIdentifier("removeGroupMemberButton")
                     }
                 }
             }
@@ -44,11 +46,7 @@ struct StandardGroupMemberView: View {
             .screenBackground(AppColorPalette.listScreenBackground)
             .navigationTitle(Text(verbatim: current.resolvedDisplayName))
             .accessibilityIdentifier("groupMemberView")
-            .alert(Text("Remove \(current.resolvedDisplayName) from the group?"), isPresented: $confirmsRemove) {
-                Button("Remove", role: .destructive) { remove?(); dismiss() }
-                    .accessibilityIdentifier("confirmRemoveMemberButton")
-                Button("Cancel", role: .cancel) { }
-            }
+            .memberRemoveConfirmation($pendingRemoval)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

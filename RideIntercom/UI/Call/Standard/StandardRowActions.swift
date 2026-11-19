@@ -4,7 +4,7 @@ import SwiftUI
 /// right-click. The Users and Groups rows share `destinationRowActions` with Advanced.
 extension View {
     /// A group member's swipe removes them (asks first); the row's tap opens the member's own page.
-    func standardMemberRowActions(canRemove: Bool = true, pending: Binding<PendingMemberRemoval?>, name: String,
+    func standardMemberRowActions(canRemove: Bool, pending: Binding<PendingMemberRemoval?>, name: String,
                                   remove: @escaping () -> Void) -> some View {
         let ask = { pending.wrappedValue = PendingMemberRemoval(name: name, perform: remove) }
         return swipeActions(edge: .trailing, allowsFullSwipe: false) {

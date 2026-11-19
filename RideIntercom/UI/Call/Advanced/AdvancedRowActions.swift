@@ -4,7 +4,7 @@ import SwiftUI
 /// The Users and Groups rows share `destinationRowActions` with Standard.
 extension View {
     /// Member names are changed from the row's menu or swipe, not a pencil button.
-    func advancedMemberRowActions(edit: @escaping () -> Void, canRemove: Bool = true,
+    func advancedMemberRowActions(edit: @escaping () -> Void, canRemove: Bool,
                                   pending: Binding<PendingMemberRemoval?>, name: String,
                                   remove: @escaping () -> Void) -> some View {
         let ask = { pending.wrappedValue = PendingMemberRemoval(name: name, perform: remove) }

@@ -202,6 +202,51 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor
+    func testMemberRemovalRequiresAnActivePassInBothLayouts() throws {
+        launch(storeCatalog: "unavailable")
+        let suffix = UUID().uuidString
+        let inviter = "ui-member-access-" + suffix
+        let groupName = "Joined " + suffix.prefix(6)
+        let riderName = "Rider " + suffix.prefix(6)
+        app.open(try InvitationURLFixture.make(inviter: inviter, sharedName: riderName, name: groupName))
+        for mode in ["Standard", "Advanced"] {
+            if mode == "Advanced" {
+                tab("Settings", id: "settingsTab")
+                selectLayout(mode)
+            }
+            tab("Groups", id: "groupsTab")
+            let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                       "standardGroup-", groupName)).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 5))
+            row.swipeLeft()
+            let settings = app.buttons["Group Settings"].firstMatch
+            XCTAssertTrue(settings.waitForExistence(timeout: 3))
+            settings.tap()
+
+            let rider = app.staticTexts[riderName].firstMatch
+            XCTAssertTrue(rider.waitForExistence(timeout: 3))
+            rider.swipeLeft()
+            let editName = app.buttons["Edit Name"].firstMatch
+            if mode == "Advanced" { XCTAssertTrue(editName.waitForExistence(timeout: 3)) }
+            XCTAssertFalse(app.buttons["Remove"].firstMatch.exists, "The swipe hides Remove in \(mode)")
+            if mode == "Standard" {
+                app.buttons["groupSettingsMember-" + inviter].firstMatch.tap()
+                let name = app.textFields["groupMemberNameField"].firstMatch
+                XCTAssertTrue(name.waitForExistence(timeout: 3))
+                XCTAssertFalse(app.buttons["removeGroupMemberButton"].firstMatch.exists)
+                app.navigationBars.buttons["Cancel"].firstMatch.tap()
+            } else {
+                editName.tap()
+                XCTAssertTrue(app.textFields["groupMemberNameField"].firstMatch.waitForExistence(timeout: 3))
+                app.navigationBars.buttons["Cancel"].firstMatch.tap()
+            }
+            let close = app.buttons["closeGroupSettingsButton"].firstMatch
+            XCTAssertTrue(close.waitForExistence(timeout: 3))
+            close.tap()
+        }
+    }
+
+    @MainActor
     func testAdvancedOwnerCanDeleteFromGroupSettings() {
         launch(interface: "advanced")
         tab("Groups", id: "groupsTab")
@@ -1329,13 +1374,14 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor private func launch(japanese: Bool = false, throttled: Bool = false, interface: String = "standard",
-                                  legacyContactInvitation: Bool = false) {
+                                  legacyContactInvitation: Bool = false, storeCatalog: String? = nil) {
         app = XCUIApplication()
         app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
         app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
         app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = interface
         if throttled { app.launchEnvironment["RIDEINTERCOM_INTERNET_ACCOUNT_FIXTURE"] = "throttled" }
         if legacyContactInvitation { app.launchEnvironment["RIDEINTERCOM_LEGACY_CONTACT_INVITATION_FIXTURE"] = "1" }
+        if let storeCatalog { app.launchEnvironment["RIDEINTERCOM_STOREKIT_CATALOG_FIXTURE"] = storeCatalog }
         app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
         app.launch(); app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))

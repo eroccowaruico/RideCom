@@ -40,7 +40,8 @@ struct AdvancedGroupSettingsView: View {
                                     .accessibilityIdentifier("groupSettingsMember-\(member.id)")
                                 } else { Label { Text(member.resolvedDisplayName) } icon: { DestinationAvatar(isGroup: false, diameter: 28) } }
                             }
-                                .advancedMemberRowActions(edit: { editingMember = member }, pending: $pendingRemoval,
+                                .advancedMemberRowActions(edit: { editingMember = member }, canRemove: viewModel.canManageRegularGroups,
+                                                  pending: $pendingRemoval,
                                                   name: member.resolvedDisplayName) {
                                     viewModel.removeMember(member.id, from: groupID)
                                 }
@@ -53,7 +54,7 @@ struct AdvancedGroupSettingsView: View {
                     } footer: {
                         // iPhone and iPad swipe the row (no long-press menu); a mouse cannot swipe, so a Mac right-clicks.
                         #if os(macOS)
-                        Text("Control-click a member to rename or remove them.")
+                        Text("Control-click a member for available actions.")
                         #endif
                     }
                     AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(in: groupID))

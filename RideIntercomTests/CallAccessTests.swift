@@ -50,6 +50,34 @@ struct CallAccessTests {
         try restarted.delete(group.id, remaining: [])
         #expect(restarted.lastSponsoredStart(for: group.id) == nil)
     }
+
+    @Test func confirmationUsesCurrentGroupManagementAccess() throws {
+        let source = CallAccessSourceFixture()
+        let expiresAt = source.now.addingTimeInterval(1)
+        source.value = .init(status: .active, activeUntil: expiresAt)
+        let h = AppTestSupport.makeHarness(enforceCallAccess: true,
+            callAccessEvaluation: { _ in source.value }, callAccessNow: { source.now })
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        let group = try #require(vm.groups.first)
+        let rider = try #require(group.members.dropFirst().first)
+        let saves = h.groupStore.saveCount
+        #expect(vm.canManageRegularGroups, "A valid pass can open the confirmation")
+
+        source.now = expiresAt
+        #expect(!vm.canManageRegularGroups)
+        #expect(!vm.removeMember(rider.id, from: group.id))
+        #expect(vm.groupErrorMessage == "An active pass is required to remove a member. Check Access in Settings.")
+        #expect(vm.groups.first?.members == group.members)
+        #expect(h.groupStore.saveCount == saves)
+        #expect(vm.groupDeliveryTask == nil)
+
+        source.value = .init(status: .active, activeUntil: .distantFuture)
+        #expect(vm.removeMember(rider.id, from: group.id))
+        #expect(vm.groupErrorMessage == nil)
+        #expect(vm.groups.first?.members.contains { $0.id == rider.id } == false)
+        #expect(h.groupStore.saveCount == saves + 1)
+    }
 }
 
 @MainActor @Observable

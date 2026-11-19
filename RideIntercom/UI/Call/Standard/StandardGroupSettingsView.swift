@@ -117,9 +117,7 @@ struct StandardGroupSettingsView: View {
                 ContactPersonSheet(viewModel: viewModel, personID: person.id, onClose: { invitationPerson = nil })
             }
             .sheet(item: $editingMember) { member in
-                // The member's own page ends with removing them, for whoever can edit the group.
-                StandardGroupMemberView(viewModel: viewModel, groupID: groupID, member: member,
-                                        remove: viewModel.canManageRegularGroups ? { viewModel.removeMember(member.id, from: groupID) } : nil)
+                StandardGroupMemberView(viewModel: viewModel, groupID: groupID, member: member)
             }
             .memberRemoveConfirmation($pendingRemoval)
             .accessibilityIdentifier("groupSettingsView")

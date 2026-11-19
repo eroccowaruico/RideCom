@@ -657,6 +657,17 @@
         }
       }
     },
+    "An active pass is required to remove a member. Check Access in Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メンバーを外すには有効な利用権が必要です。設定の「利用権」を確認してください。"
+          }
+        }
+      }
+    },
     "An individual call has only two participants. Create a group to include more people." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1867,6 +1878,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "マイクはApple Watchで操作"
+          }
+        }
+      }
+    },
+    "Control-click a member for available actions." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メンバーをControlキーを押しながらクリックすると、使える操作を選べます。"
           }
         }
       }

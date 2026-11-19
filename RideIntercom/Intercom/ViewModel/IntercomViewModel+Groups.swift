@@ -151,18 +151,21 @@ extension IntercomViewModel {
         return true
     }
 
-    func canRemoveMember(_ memberID: String) -> Bool {
-        memberID != localMemberIdentity.memberID
-    }
-
-    func removeMember(_ memberID: String, from groupID: UUID) {
-        guard canRemoveMember(memberID),
-              let groupIndex = groups.firstIndex(where: { $0.id == groupID }), groups[groupIndex].kind == .group else { return }
+    @discardableResult
+    func removeMember(_ memberID: String, from groupID: UUID) -> Bool {
+        guard memberID != localMemberIdentity.memberID,
+              let groupIndex = groups.firstIndex(where: { $0.id == groupID && $0.kind == .group }),
+              groups[groupIndex].members.contains(where: { $0.id == memberID }) else { return false }
+        guard canManageRegularGroups else {
+            groupErrorMessage = groupStorageNotice ?? "An active pass is required to remove a member. Check Access in Settings."
+            return false
+        }
 
         var updated = groups
         updated[groupIndex].members.removeAll { $0.id == memberID }
         updated[groupIndex].accountDevices.removeValue(forKey: memberID)
-        guard commitGroups(updated) else { return }
+        guard commitGroups(updated) else { return false }
+        groupErrorMessage = nil
         requestGroupDeliverySync(afterMutation: true)
         if activeGroupID == groupID {
             connectedPeerIDs.removeAll { $0 == memberID }
@@ -179,6 +182,7 @@ extension IntercomViewModel {
         if selectedGroup?.id == groupID {
             selectedGroup = groups[groupIndex]
         }
+        return true
     }
 
     @discardableResult
