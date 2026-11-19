@@ -91,6 +91,16 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .row:last-child { border-bottom: 0; }
 .row .k { color: var(--label2); white-space: nowrap; }
 .row .v { min-width: 0; }
+.form-actions { display: flex; justify-content: flex-end; padding: 0 14px 4px; }
+.form-fields .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; }
+.form-fields .v, .person-entry .sub { overflow-wrap: anywhere; }
+.form-fields .v { color: var(--label2); }
+.form-fields .v.mono { font-size: 9.5px; }
+.person-entry { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.person-entry .sub { display: block; }
+#advanced-users .screen { padding-bottom: 122px; }
+#advanced-users .user-entry { display: block; }
+
 .row .x { text-align: right; white-space: nowrap; }
 .row .x b { font-size: 11.5px; }
 .row.dim { opacity: .45; }
@@ -532,12 +542,12 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div class="ptitle">Users</div>
         <div class="pbody">
           <div class="hd">Current Call</div>
-          <div class="card"><div class="row"><b>Weekend Touring</b><span class="v">Group · 4 members<div class="sub mono">3f9a2c1e</div></span><span class="x"></span></div></div>
+          <div class="card"><div class="vline"><svg class="i" aria-hidden="true"><use href="#phone"/></svg><span>Weekend Touring</span></div></div>
           <div class="hd">Saved Users <span>3</span></div>
           <div class="card">
-            <div class="row"><b>Haruka</b><span class="v">Direct 7c1e90ab · 2 devices<div class="sub">Name shared by this person: Haruka</div></span><span class="x"><span class="d ok"></span> Connected</span></div>
-            <div class="row"><b>Ken</b><span class="v">Direct 5d22c0f1 · 1 device<div class="sub">Name shared by this person: Kenta</div></span><span class="x"><span class="d idle"></span></span></div>
-            <div class="row"><b>Mika</b><span class="v">No direct group yet<div class="sub">Name shared by this person: Mika</div></span><span class="x"></span></div>
+            <div class="row user-entry"><b>Haruka</b><div>Direct 7c1e90ab · 2 devices</div><div class="sub">Name shared by this person: Haruka</div></div>
+            <div class="row user-entry"><b>Ken</b><div>Direct 5d22c0f1 · 1 device</div><div class="sub">Name shared by this person: Kenta</div></div>
+            <div class="row user-entry"><b>Mika</b><div>No direct group yet</div><div class="sub">Name shared by this person: Mika</div></div>
           </div>
           <div class="hd">Invitations <span>ContactInvitationRecord</span></div>
           <div class="card"><div class="row"><b>4f2a91c0</b><span class="v mono">outgoing · pending · canResume<div class="sub">expiresAt 2026-11-14 09:41</div></span><span class="x linkt">Details</span></div><div class="row"><b>9b07e3d2</b><span class="v mono">incoming · pending · canResume<div class="sub">expiresAt 2026-11-10 18:20</div></span><span class="x"></span></div></div>
@@ -549,24 +559,33 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     </figure>
 
     <figure id="registered-group-delivery">
-      <div class="phone"><div class="screen">
+      <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
-        <div class="body">
-          <div class="ptitle">Invitation <span class="linkt">Done</span></div>
-          <div class="sect">IntercomGroup</div><div class="card"><div class="row"><b>id</b><span class="v mono">12ab34cd-0000-4000-8000-000000000001</span></div><div class="row"><b>name</b><span class="v">Weekend Touring</span></div></div>
-          <div class="sect">SavedUser</div><div class="card"><div class="row"><b>Maki</b><span class="v mono">isRegistered true<div class="sub">id 12ab34cd-0000-4000-8000-000000000002</div></span><span>›</span></div></div>
-          <div class="sect">GroupDeliveryRecord</div>
-          <div class="card">
-            <div class="row"><b>id</b><span class="v mono">7a6d2140-8336-4afb-9146-e55f92b86029</span></div>
-            <div class="row"><b>recipientMemberID</b><span class="v mono">maki-phone</span></div>
-            <div class="row"><b>state</b><span class="v mono">pending</span></div>
-            <div class="row"><b>expiresAt</b><span class="v mono">1795564800.0</span></div>
-            <div class="row"><b>credentialReference</b><span class="v mono">nil</span></div>
+        <div class="form-actions"><span class="btn">Done</span></div>
+        <div class="ptitle">Invitation</div>
+        <div class="pbody">
+          <div class="hd"><span>IntercomGroup</span></div>
+          <div class="card form-fields">
+            <div class="row"><span>id</span><span class="v mono">12ab34cd-0000-4000-8000-000000000001</span></div>
+            <div class="row"><span>name</span><span class="v">Weekend Touring</span></div>
           </div>
-          <div class="card"><div class="row linkt">Invite</div></div>
+          <div class="hd"><span>SavedUser</span></div>
+          <div class="card person-entry">
+            <div><b>Maki</b><div>isRegistered true</div><span class="sub mono">id 12ab34cd-0000-4000-8000-000000000002</span></div>
+            <span aria-hidden="true">›</span>
+          </div>
+          <div class="hd"><span>GroupDeliveryRecord</span></div>
+          <div class="card form-fields">
+            <div class="row"><span>id</span><span class="v mono">7a6d2140-8336-4afb-9146-e55f92b86029</span></div>
+            <div class="row"><span>recipientMemberID</span><span class="v mono">rider-device-94120d02-0b85-459c-ae72-c7cf9a5f20fd-6</span></div>
+            <div class="row"><span>state</span><span class="v mono">pending</span></div>
+            <div class="row"><span>expiresAt</span><span class="v mono">1795564800.0</span></div>
+            <div class="row"><span>credentialReference</span><span class="v mono">nil</span></div>
+          </div>
+          <div class="card"><div class="linkt">Invite</div></div>
         </div>
       </div></div>
-      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。保存でpending、暗号文のserver受付でqueued、相手の保存後のACKでreceived。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。受信は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
+      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued、相手の保存後のACKでreceived。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。受信は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
     </figure>
 
     <figure id="group-settings">
