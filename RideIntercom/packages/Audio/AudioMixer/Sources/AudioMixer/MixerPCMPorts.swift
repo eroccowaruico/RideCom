@@ -170,8 +170,11 @@ public final class MixerPCMSource {
                     // Omitted silence is still part of the capture clock. Do
                     // not move a healthy returning syllable merely because the
                     // pause was long; reduce only an accumulated excess wait.
+                    // The player reserves whole samples. A fractional clock
+                    // residue at the boundary must not shorten a healthy pause.
+                    let resumeAllowance = (max(delay, duration) * mixerFormat.sampleRate).rounded()
                     let resumedWithExcessWait = resumed
-                        && target > Double(delayedStart) + max(delay, duration) * mixerFormat.sampleRate
+                        && target.rounded() > Double(delayedStart) + resumeAllowance
                     // The writable frontier reserves a future native quantum;
                     // crossing it does not prove that the target has rendered.
                     // This also applies after omitted silence. Rebasing there

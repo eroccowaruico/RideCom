@@ -128,6 +128,59 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
     #expect(source.playbackResetCount == 0)
 }
 
+@Test(arguments: [0, 1])
+func omittedSilenceComparesExcessWaitInWholeSamples(extraSamples: Int) throws {
+    let rate = 48_000.0
+    let quantum = 512
+    let captureOrigin = 2_000_000.0
+    let mixer = try AudioMixer(audioFormat: .init())
+    try mixer.engine.enableManualRenderingMode(.offline, format: mixer.format,
+        maximumFrameCount: AVAudioFrameCount(quantum))
+    let bus = try mixer.createBus("omitted-silence-boundary")
+    let source = try bus.addPCMSource(id: "peer", maximumBufferedDuration: 0.12,
+        captureTimePlayoutDelay: Double(quantum) / rate, adaptivePlayout: true)
+    try mixer.routeToOutput(bus)
+    try mixer.start(); source.start()
+    defer { mixer.stop() }
+
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: mixer.format, frameCapacity: AVAudioFrameCount(quantum)))
+    var rendered: [Float] = []
+    func renderBlock() throws {
+        try #require(mixer.engine.renderOffline(AVAudioFrameCount(quantum), to: output) == .success)
+        rendered += UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength))
+    }
+
+    try source.schedule(.init(sequenceNumber: 0, capturedAt: captureOrigin,
+        samples: Array(repeating: 0.2, count: quantum)), arrivedAt: 100.012)
+    Thread.sleep(forTimeInterval: 0.002)
+    for _ in 0..<50 { try renderBlock() }
+    let renderTime = try #require(source.playerNode.lastRenderTime)
+    let played = try #require(source.playerNode.playerTime(forNodeTime: renderTime))
+    let intendedSample = Int(played.sampleTime) + quantum + extraSamples
+    // A remote monotonic clock at this uptime cannot represent the exact
+    // sample interval. Make the negligible residue positive at the boundary.
+    let returningCaptureTime = (captureOrigin + Double(intendedSample) / rate).nextUp
+    let target = (returningCaptureTime - captureOrigin) * rate
+    #expect(target > Double(intendedSample))
+    #expect(target.rounded() == Double(intendedSample))
+
+    try source.schedule(.init(sequenceNumber: 1, capturedAt: returningCaptureTime,
+        samples: Array(repeating: 0.4, count: quantum)), arrivedAt: 100.014 + Double(intendedSample) / rate)
+    Thread.sleep(forTimeInterval: 0.002)
+    for _ in 0..<4 { try renderBlock() }
+    let first = try #require(rendered.firstIndex { abs($0 - 0.2) < 0.00001 })
+    let reply = try #require(rendered.firstIndex { abs($0 - 0.4) < 0.00001 })
+    #expect(rendered.filter { abs($0 - 0.4) < 0.00001 }.count == quantum)
+    #expect(source.playbackResetCount == 0)
+    if extraSamples == 0 {
+        #expect(source.playoutAdjustmentCount == 0)
+        #expect(reply - first == intendedSample)
+    } else {
+        #expect(source.playoutAdjustmentCount == 1)
+        #expect(reply - first < intendedSample)
+    }
+}
+
 @Test(arguments: [0, 21, 33, 50])
 func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovementMilliseconds: Int) throws {
     let mixer = try AudioMixer(audioFormat: .init())

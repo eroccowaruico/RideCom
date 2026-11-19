@@ -453,7 +453,7 @@ capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.sche
 | beginSinkTransition | native処理遅延だけフェード付き無音へ切替。queue・繰り返し・伸縮を追加しない |
 | droppedCaptureFrameCount | render配送ringのoverflowを累計。診断値であり通常のframeごとのログにはしない |
 
-adaptivePlayoutは相手ごとのcapture clockとsample clockを対応付け、連続frame（2sample以内）は末尾へ正確につなぐ。遅れた到着は未再生発話を切らず再基準化し、250msを超える省略無音からの復帰でも健全なcapture時計を保ち、過剰に蓄積した待ちだけを削る。既に発話を出力し終えた無音区間だけ、余分な予約を短縮できる。無音はRMSが0.0001未満かつpeakが0.001未満で判断し、圧縮codecの小さな尾で遅延を固定しない。通常の発話は置換しない。
+adaptivePlayoutは相手ごとのcapture clockとsample clockを対応付け、連続frame（2sample以内）は末尾へ正確につなぐ。遅れた到着は未再生発話を切らず再基準化し、250msを超える省略無音からの復帰でも健全なcapture時計を保ち、過剰に蓄積した待ちだけを削る。省略無音から戻るときの短縮判定は、予約希望位置と許容する待ちを、それぞれ実際の予約と同じ整数sampleに丸めて比較する。境界と一致する予約は現在の時計を保つ。既に発話を出力し終えた無音区間だけ、余分な予約を短縮できる。無音はRMSが0.0001未満かつpeakが0.001未満で判断し、圧縮codecの小さな尾で遅延を固定しない。通常の発話は置換しない。
 
 ## 無音の滞留と入力バッチ
 
