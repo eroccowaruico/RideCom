@@ -51,6 +51,7 @@ enum AppTestSupport {
         enforceCallAccess: Bool? = nil,
         callAccessEvaluation: (@MainActor (Date) -> StoreAccessEvaluation)? = nil,
         callAccessNow: @escaping @MainActor () -> Date = Date.init,
+        outputEngine: AVAudioEngine? = nil,
         requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { true }
     ) -> Harness {
         let groups = groups ?? IntercomSeedData.recentGroups
@@ -66,7 +67,7 @@ enum AppTestSupport {
         }
         let audioSessionBackend = FakeAudioSessionBackend()
         let inputBackend = FakeInputStreamBackend()
-        let outputBackend = FakeOutputStreamBackend()
+        let outputBackend = FakeOutputStreamBackend(renderingEngine: outputEngine)
         let audioDriver = OfflineAudioDriver()
         let identityStore = InMemoryLocalMemberIdentityStore(
             identity: LocalMemberIdentity(memberID: localMemberID ?? groups.first?.members.first?.id ?? "member-local", displayName: "You")

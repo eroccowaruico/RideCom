@@ -209,6 +209,9 @@ final class IntercomViewModel {
     let requestMicrophoneAccess: @MainActor () async -> Bool
     let nativeAudioInputCapture: SessionManager.AudioInputStreamCapture
     let nativeAudioOutputRenderer: SessionManager.AudioOutputStreamRenderer
+    #if os(iOS)
+    @ObservationIgnored private var audioEngineConfigurationObserver: NSObjectProtocol?
+    #endif
     var audioInputCapture: SessionManager.AudioInputStreamCapture
     var audioOutputRenderer: SessionManager.AudioOutputStreamRenderer
     let callTicker: CallTicking
@@ -382,11 +385,27 @@ final class IntercomViewModel {
         self.audioSessionManager.setRuntimeEventHandler { [weak self] event in
             DispatchQueue.main.async { self?.handleAudioSessionRuntimeEvent(event) }
         }
+        #if os(iOS)
+        if let engine = output.renderingEngine {
+            audioEngineConfigurationObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+            ) { [weak self] _ in
+                // AVAudioEngine delivers this on its internal queue. Leave that queue before rebuilding.
+                DispatchQueue.main.async { self?.recoverStoppedNativeCallAudio() }
+            }
+        }
+        #endif
         bindAudioEvents()
         self.callTicker.onTick = { [weak self] now in
             self?.handleCallTick(now: now)
         }
         accountSession.onAccessRevoked = { [weak self] in self?.endAccountAccess() }
         observeCallAccess()
+    }
+
+    deinit {
+        #if os(iOS)
+        if let audioEngineConfigurationObserver { NotificationCenter.default.removeObserver(audioEngineConfigurationObserver) }
+        #endif
     }
 }

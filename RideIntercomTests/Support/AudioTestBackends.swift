@@ -107,11 +107,16 @@ final class FakeInputStreamBackend: SessionManager.AudioInputStreamBackend {
 }
 
 final class FakeOutputStreamBackend: SessionManager.AudioOutputStreamBackend {
+    let renderingEngine: AVAudioEngine?
     private(set) var configurations: [SessionManager.AudioOutputStreamConfiguration] = []
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var scheduledFrames: [PCMFrame] = []
     var startError: Error?
+
+    init(renderingEngine: AVAudioEngine? = nil) {
+        self.renderingEngine = renderingEngine
+    }
 
     func startRendering(configuration: SessionManager.AudioOutputStreamConfiguration) throws -> AudioFormat {
         configurations.append(configuration)

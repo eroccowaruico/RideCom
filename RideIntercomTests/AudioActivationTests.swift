@@ -1,3 +1,4 @@
+import AVFAudio
 import Foundation
 import AudioMixer
 import SessionManager
@@ -274,6 +275,49 @@ struct AudioActivationTests {
         vm.disconnect()
         _ = await vm.audioSessionManager.requestActive(false).value
     }
+
+    #if os(iOS)
+    @Test func nativeConfigurationChangeRestartsAnActiveCallOnTheSameDevices() async throws {
+        let engine = AVAudioEngine()
+        let h = AppTestSupport.makeHarness(outputEngine: engine)
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        vm.setSoundIsolationEnabled(false)
+        vm.selectGroup(try #require(vm.groups.first))
+        h.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        try #require(vm.isAudioReady)
+        let call = vm.currentCallReference, deadline = vm.callDisconnectDeadline
+        try #require(vm.setCallMuted(true, for: call))
+        let originalOutput = h.audioSessionBackend.current.currentOutput
+        let starts = h.outputBackend.startCount
+
+        func postConfigurationChange(for engine: AVAudioEngine) async {
+            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
+            await withCheckedContinuation { (finished: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { finished.resume() }
+            }
+        }
+
+        await postConfigurationChange(for: AVAudioEngine())
+        #expect(h.outputBackend.startCount == starts && vm.isAudioReady)
+        h.audioSessionBackend.current.currentOutput = .builtInSpeaker
+        await postConfigurationChange(for: engine)
+        #expect(h.outputBackend.startCount == starts && vm.isAudioReady)
+        h.audioSessionBackend.current.currentOutput = originalOutput
+
+        await postConfigurationChange(for: engine)
+        await AppTestSupport.waitUntil { h.outputBackend.startCount > starts && vm.isAudioReady }
+        #expect(h.outputBackend.startCount == starts + 1 && vm.isAudioReady)
+        #expect(vm.currentCallReference == call && vm.callDisconnectDeadline == deadline)
+        #expect(vm.effectiveInputMuted)
+
+        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionBegan, snapshot: h.audioSessionBackend.current)))
+        await postConfigurationChange(for: engine)
+        #expect(h.outputBackend.startCount == starts + 1)
+        #expect(vm.isAudioPausedForDeviceChange && !vm.isAudioReady)
+    }
+    #endif
 
     @Test(arguments: [AudioSessionSnapshotChangeReason.interruptionBegan, .mediaServicesReset])
     func nativeInterruptionPausesActiveCallUntilExplicitResume(reason: AudioSessionSnapshotChangeReason) async {

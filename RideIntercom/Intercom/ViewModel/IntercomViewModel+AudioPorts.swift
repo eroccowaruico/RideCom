@@ -1,6 +1,6 @@
+import AVFAudio
 import Foundation
 import Logging
-import Foundation
 import SessionManager
 
 extension IntercomViewModel {
@@ -95,6 +95,19 @@ extension IntercomViewModel {
         selectedInputPort = normalizedInputPort(selectedInputPort, snapshot: snapshot)
         selectedOutputPort = normalizedOutputPort(selectedOutputPort, snapshot: snapshot)
     }
+
+    #if os(iOS)
+    func recoverStoppedNativeCallAudio() {
+        guard activeGroupID != nil, isAudioReady, audioCheckPhase == .idle,
+              !isAudioPausedForDeviceChange, !isUsingWatchAudio,
+              audioOutputRenderer === nativeAudioOutputRenderer,
+              nativeAudioOutputRenderer.renderingEngine?.isRunning == false,
+              let current = try? audioSessionManager.snapshot(), current.isActive,
+              current.currentInput.id == audioSessionSnapshot.currentInput.id,
+              current.currentOutput.id == audioSessionSnapshot.currentOutput.id else { return }
+        refreshAudioDevicesIfNeeded()
+    }
+    #endif
 
     func refreshAudioDevicesIfNeeded() {
         if audioCheckPhase.isInProgress {
