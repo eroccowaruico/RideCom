@@ -63,6 +63,9 @@ extension RealtimeTransportTests {
         #expect(first.accepted == [bID] && first.verified.isEmpty)
         try await waitForMedia { a.hasRecentMediaReceipt(for: bID) }
         proxy.setBlocked(true)
+        // A new control authentication of the same peer must keep the explicit media path.
+        a.connect(to: bID, nonce: b.serviceNonce)
+        try await waitForMedia { a.isReady(for: bID) }
         for value in 1...90 {
             let result = a.send(Data(repeating: UInt8(value), count: 256), to: [bID])
             #expect(result.accepted == [bID])

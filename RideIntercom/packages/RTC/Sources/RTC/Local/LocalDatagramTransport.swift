@@ -141,11 +141,18 @@ final class LocalDatagramTransport: @unchecked Sendable {
         let name = serviceName(for: peer)
         synchronized {
             guard listener != nil, endpoints[name] != nil || endpoints.count < 7 else { return }
-            if let previous = peerNonces[peer], previous != nonce { removeOutgoing(name) }
+            let previousNonce = peerNonces[peer]
+            if let previousNonce, previousNonce != nonce { removeOutgoing(name) }
             // Authentication authorizes a fresh resolution, not media delivery.
             // Ordinary audio never clears a failed connection's backoff.
             retryAfter[name] = nil
             peerNonces[peer] = nonce
+            // An explicit test address belongs to this authenticated listener
+            // generation. Its proxy keeps one client address for return traffic.
+            if previousNonce == nonce, let current = endpoints[name], case .hostPort = current {
+                connectOnQueue(peer: peer, nonce: nonce, endpoint: current)
+                return
+            }
             // A new authenticated control session may belong to a restarted
             // peer with a new UDP port. The signed nonce selects a fresh service
             // name, so stale Bonjour port caches cannot redirect new speech.
