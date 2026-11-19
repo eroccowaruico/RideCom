@@ -17,6 +17,7 @@ struct LiveReceivePipelineView: View {
         VStack(alignment: .leading, spacing: AppSpacing.m) {
             CompactPipelineHeader(title: "Live RX Pipeline", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath", detail: "Peers -> mix -> RX master -> output")
             CompactPipelineStepRow(step: presentation.rtcReceiveStep)
+                .id("receive-input")
             CompactPipelineStepRow(step: presentation.codecDecodeStep)
             CompactPipelineStepRow(step: presentation.peerBusStep)
             DiagnosticsReceiveDetails(viewModel: viewModel, presentation: presentation, expandedStage: $expandedStage)

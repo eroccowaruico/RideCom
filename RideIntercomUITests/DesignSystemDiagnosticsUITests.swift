@@ -230,6 +230,15 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
             reveal(symptom, app: app)
             symptom.tap()
             XCTAssertTrue(app.descendants(matching: .any)[expected].firstMatch.waitForExistence(timeout: 3))
+            if identifier == "diagnosticsAudioDropsButton" {
+                let receipt = app.descendants(matching: .any)["receive-pipeline-rtc-step"].firstMatch
+                let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    receipt.exists && receipt.isHittable && receipt.frame.minY >= picker.frame.maxY
+                }, object: nil)
+                XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 3), .completed,
+                    "The symptom should start at RTC RX so the receive flow can be read in order.")
+                attachScreen("RX entry for Audio drops out")
+            }
         }
         choose("Applied", in: picker, app: app)
         reveal(status, app: app)

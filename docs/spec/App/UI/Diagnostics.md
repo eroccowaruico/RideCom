@@ -111,7 +111,7 @@ native出力は無音の間も `Last render` を更新する。描画が2秒を�
 
 ## 受信 mix topology 表示
 
-`LiveReceivePipelineView` はRTC RX、Decode、Peer Busesの段を1行ずつ並べ、その下に参加者ごとの内訳（`diagnosticsReceiveDetails`）を置く。内訳の見出し`receive-mix-topology`（Participants）の下で、自分以外の登録メンバーと、名簿に反映される前の認証済みまたは経路のある相手を標準DisclosureGroupで開閉する。経路のない相手を木の上に並べる。peerが増えても巨大なcard gridへせず、開いた参加者だけ詳細行を表示する。Overviewの「I can't hear someone」「Audio drops out」は全参加者を開いた状態でこの位置へ移動する。
+`LiveReceivePipelineView` はRTC RX、Decode、Peer Busesの段を1行ずつ並べ、その下に参加者ごとの内訳（`diagnosticsReceiveDetails`）を置く。内訳の見出し`receive-mix-topology`（Participants）の下で、自分以外の登録メンバーと、名簿に反映される前の認証済みまたは経路のある相手を標準DisclosureGroupで開閉する。経路のない相手を木の上に並べる。peerが増えても巨大なcard gridへせず、開いた参加者だけ詳細行を表示する。Overviewの「I can't hear someone」は全参加者を開いた状態でこの位置へ移動する。「Audio drops out」は同じく全参加者を開き、RTC RXから表示する。RTC RXの破棄、Decodeの復号失敗、各相手のPlayoutを処理順にたどれる。LossとEvent dropsはNetworkを選んで確認する。
 
 | 項目 | accessibilityIdentifier | 表示する状態 |
 |---|---|---|
@@ -180,7 +180,7 @@ AudioMixer package は UI 描画用の専用 DTO ではなく、現在の信号�
 | 表示順 | Appliedの`Requested → Applied`の後に、Call、Inviteの順。各カードは`State`の行（summary）と補足（detail）。RTT・loss・jitterはNetworkの経路ごとのカードに出す |
 | ログとの関係 | Diagnostics で現在値を読み、ログは操作境界や失敗の後追い調査に使う |
 | 環境差異 | unsupported / ignored は warning 以下に留め、継続可能な状態として表示する |
-| パイプライン表示 | 各 pipeline step を大きな独立 card にしない。1 step は compact row、stage は親 row の内側の chip として表示する |
+| パイプライン表示 | 各 pipeline step を大きな独立 card にしない。1 step は compact row、stage は親 row の内側の chip として表示する。狭い幅では段名の下に観測値を折り返す |
 | 受信 peer 表示 | peer bus は複数人を前提に 1 peer 1 行で表示する。peer 数が増えても topology 全体を巨大 card grid にしない |
 | overview の重複禁止 | Session、Input、Output、Codec、Mixer、Authentication など pipeline で読める値は現在状態一覧へ再掲しない |
 

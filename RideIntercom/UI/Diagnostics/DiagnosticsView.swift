@@ -179,7 +179,7 @@ struct DiagnosticsView: View {
                 .accessibilityIdentifier("diagnosticsOthersCannotHearButton")
             Button("I can't hear someone") { navigate(.rx, target: "receive-peers") }
                 .accessibilityIdentifier("diagnosticsCannotHearButton")
-            Button("Audio drops out") { navigate(.rx, target: "receive-peers") }
+            Button("Audio drops out") { navigate(.rx, target: "receive-input", expanding: "receive-peers") }
                 .accessibilityIdentifier("diagnosticsAudioDropsButton")
             Button("Audio is delayed") { navigate(.rx, target: "receive-output") }
                 .accessibilityIdentifier("diagnosticsAudioDelayedButton")
@@ -188,8 +188,8 @@ struct DiagnosticsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func navigate(_ destination: DiagnosticsPage, target: String) {
-        expandedStage = target
+    private func navigate(_ destination: DiagnosticsPage, target: String, expanding detail: String? = nil) {
+        expandedStage = detail ?? target
         scrollTarget = nil
         page = destination
         DispatchQueue.main.async { scrollTarget = target }
