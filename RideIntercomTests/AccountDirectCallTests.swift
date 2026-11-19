@@ -131,6 +131,69 @@ struct AccountDirectCallTests {
         #expect(try b.viewModel.groupRepository.credential(for: id) == winner)
     }
 
+    @Test(arguments: [false, true]) func groupContactRegistrationUsesTheAccountCallForStartingAndResharing(existingCalls: Bool) throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("author-phone", account: "a")
+        let recipient = try fixture.peer("recipient-phone", account: "b")
+        author.viewModel.contactSessionFactory = { RecordingCallSession() }
+        recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
+        if existingCalls {
+            try fixture.introduce(recipient, to: author)
+            try fixture.introduce(author, to: recipient)
+            for peer in [author, recipient] {
+                peer.viewModel.disconnect()
+                let person = try #require(peer.viewModel.savedRemoteUsers.first)
+                try #require(peer.viewModel.selectUser(person.id, connectIfIdle: false))
+            }
+            let oldID = try #require(author.viewModel.selectedGroup?.id)
+            #expect(recipient.viewModel.selectedGroup?.id == oldID)
+            #expect(try author.viewModel.groupRepository.credential(for: oldID) != recipient.viewModel.groupRepository.credential(for: oldID))
+        }
+        let groupID = UUID()
+        let draft = GroupInvitationDraft(name: "Other rider", suggestedName: "New person")
+        try #require(author.viewModel.saveGroupInvitations(groupID: groupID, creating: true, name: "Mountain riders", selected: [], newPeople: [draft]) == groupID)
+        author.viewModel.disconnect()
+        let share = try author.viewModel.prepareContactPersonShare(draft.id, expectedAccountAccessID: author.viewModel.accountAccessID)
+        try recipient.viewModel.acceptContactInviteURL(share.url)
+        let reply = try recipient.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: recipient.viewModel.accountAccessID)
+        try author.viewModel.receiveContactReplyURL(reply)
+        let ack = try author.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: author.viewModel.accountAccessID)
+        try recipient.viewModel.receiveContactReplyURL(ack)
+
+        let authorPerson = try #require(author.viewModel.savedRemoteUsers.first)
+        let recipientPerson = try #require(recipient.viewModel.savedRemoteUsers.first)
+        let authorPrincipal = try #require(author.viewModel.localAccountPrincipal)
+        let recipientPrincipal = try #require(recipient.viewModel.localAccountPrincipal)
+        #expect(authorPerson.principal == recipientPrincipal)
+        #expect(recipientPerson.principal == authorPrincipal)
+        let expectedID = AccountCallPair(authorPrincipal, recipientPrincipal).id
+        for (peer, person) in [(author, authorPerson), (recipient, recipientPerson)] {
+            #expect(peer.viewModel.existingDirectCall(for: person.id)?.id == (existingCalls ? expectedID : nil))
+            peer.viewModel.setRTCTransportRoutes([.multipeer])
+        }
+        if existingCalls {
+            let settingsCall = try #require(author.viewModel.existingDirectCall(for: authorPerson.id))
+            let url = try #require(author.viewModel.makeGroupInviteURL(for: settingsCall.id))
+            let invite = try GroupInviteTokenCodec.decodeJoinURL(url)
+            #expect(invite.groupID == expectedID)
+            #expect(invite.recipientAccount == recipientPrincipal)
+            #expect(invite.recipientMemberID == nil)
+            try recipient.viewModel.acceptInviteURL(url)
+        }
+
+        for peer in [author, recipient] {
+            let person = try #require(peer.viewModel.savedRemoteUsers.first)
+            try #require(peer.viewModel.startCall(to: .user(person.id), accountAccessID: peer.viewModel.accountAccessID))
+            #expect(peer.viewModel.existingDirectCall(for: person.id)?.id == expectedID)
+            #expect(peer.viewModel.activeGroupID == expectedID)
+        }
+        let callID = try #require(author.viewModel.activeGroupID)
+        let authorKey = try #require(try author.viewModel.groupRepository.credential(for: callID))
+        let recipientKey = try #require(try recipient.viewModel.groupRepository.credential(for: callID))
+        #expect(authorKey.secret != (try author.viewModel.groupRepository.credential(for: groupID)?.secret))
+        #expect(authorKey.secret == recipientKey.secret)
+    }
+
     @Test func expiredLocalCertificateKeepsStableIdentityButCannotIssueNewAccountInvitation() throws {
         let f = AccountCallFixture(); defer { f.disconnect() }
         let a = try f.peer("a", account: "a", at: Date().addingTimeInterval(-3600))

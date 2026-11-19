@@ -22,9 +22,11 @@ extension IntercomViewModel {
         return savedRemoteUsers.first { !remote.isDisjoint(with: $0.memberIDs) }?.id
     }
 
-    /// The direct call already saved for a user, without selecting or creating it.
+    /// The saved call the Users row would start, without selecting or creating it.
     func existingDirectCall(for userID: UUID) -> IntercomGroup? {
-        groups.first { $0.kind == .direct && savedUserID(forDirectCall: $0) == userID }
+        guard let user = savedRemoteUsers.first(where: { $0.id == userID }),
+              let target = directCallTarget(for: user) else { return nil }
+        return groups.first { $0.id == target.id && $0.kind == .direct }
     }
 
     /// True while a call with this destination is live, for the list rows' status.
@@ -40,22 +42,10 @@ extension IntercomViewModel {
             groupErrorMessage = "This saved user is no longer available for an individual call."
             return false
         }
-        let pair: AccountCallPair?
-        if let remote = user.principal {
-            guard let local = localAccountPrincipal else {
-                groupErrorMessage = "Verify your account in Internet Connection to call this user."
-                return false
-            }
-            pair = AccountCallPair(local, remote)
-        } else { pair = nil }
-        guard pair != nil || user.memberIDs.count == 1 else {
+        guard let (id, pair) = directCallTarget(for: user) else {
             groupErrorMessage = "Verify your account in Internet Connection to call this user."
             return false
         }
-        let remoteIDs = user.memberIDs.sorted().prefix(IntercomGroup.maximumMemberCount - 1)
-        let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
-            + remoteIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
-        let id = pair?.id ?? IntercomGroup.directCallID(memberIDs: members.map(\.id))
         if let existing = groups.first(where: { $0.id == id }) {
             guard existing.kind == .direct else {
                 groupErrorMessage = "The saved call conflicts with another group. Reload your saved groups."
@@ -64,6 +54,9 @@ extension IntercomViewModel {
             selectGroup(existing, connectIfIdle: connectIfIdle)
             return true
         }
+        let remoteIDs = user.memberIDs.sorted().prefix(IntercomGroup.maximumMemberCount - 1)
+        let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
+            + remoteIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
         do {
             var devices: [String: AccountDeviceBinding] = [:]
             if let pair, let local = localAccountPrincipal, let remote = pair.other(than: local) {
@@ -88,6 +81,17 @@ extension IntercomViewModel {
             selectGroup(group, connectIfIdle: connectIfIdle)
             return true
         } catch { reportGroupStorageError(error); return false }
+    }
+
+    private func directCallTarget(for user: SavedUser) -> (id: UUID, pair: AccountCallPair?)? {
+        if let remote = user.principal {
+            guard let local = localAccountPrincipal else { return nil }
+            let pair = AccountCallPair(local, remote)
+            return (pair.id, pair)
+        }
+        guard user.memberIDs.count == 1, let remoteID = user.memberIDs.first else { return nil }
+        let id = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, remoteID])
+        return (id, nil)
     }
 
     /// Contact registration commits the pair call. Keep it in the in-memory list so
