@@ -22,6 +22,33 @@ import Testing
     private let author = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "a", count: 64))
     private let recipient = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "b", count: 64))
 
+    @Test func reopeningAnOldStoreDropsOnlySupersededOutgoingReceipts() throws {
+        let f = try GroupStorageFixture(); defer { f.remove() }
+        let keys = ["friend-one": testIdentitySigner("friend-one").publicKey, "friend-two": testIdentitySigner("friend-two").publicKey]
+        let user = SavedUser(displayName: "Friend", memberIDs: ["friend-one", "friend-two"], deviceKeys: keys, principal: recipient)
+        let local = GroupMember(id: "local", displayName: "You")
+        let peer = GroupMember(id: "friend-one", displayName: "Friend")
+        let group = try IntercomGroup(name: "Current group", members: [local, peer])
+        let other = try IntercomGroup(name: "Other group", members: [local, peer])
+        let expiry = Date().addingTimeInterval(86400).timeIntervalSince1970
+        let old = GroupDeliveryRecord(groupID: group.id, recipient: recipient, recipientMemberID: peer.id,
+            recipientKey: try #require(keys[peer.id]), expiresAt: expiry, state: .received)
+        let current = GroupDeliveryRecord(groupID: group.id, recipient: recipient, recipientMemberID: peer.id,
+            recipientKey: old.recipientKey, expiresAt: expiry, state: .received)
+        let secondDevice = GroupDeliveryRecord(noticeID: current.noticeID, groupID: group.id, recipient: recipient,
+            recipientMemberID: "friend-two", recipientKey: try #require(keys["friend-two"]), expiresAt: expiry)
+        let unrelated = GroupDeliveryRecord(groupID: other.id, recipient: recipient, recipientMemberID: peer.id,
+            recipientKey: old.recipientKey, expiresAt: expiry, state: .received)
+        let incoming = GroupDeliveryRecord(groupID: group.id, recipient: author, recipientMemberID: local.id,
+            recipientKey: testIdentitySigner(local.id).publicKey, expiresAt: expiry, direction: .incoming, state: .received)
+        let expected = [unrelated, current, secondDevice, incoming]
+        try f.file.commit(GroupSnapshot(groups: [.init(group), .init(other)], users: [user],
+            groupDeliveries: [old] + expected))
+        let reopened = f.restart(); _ = try reopened.load(localMemberID: local.id)
+        #expect(reopened.groupDeliveries == expected)
+        #expect(try f.file.read()?.groupDeliveries == expected)
+    }
+
     @Test func legacyGroupKeepsItsRosterWithoutInventingAnInvitationKey() throws {
         let group = try IntercomGroup(name: "Friends", members: [
             .init(id: "local", displayName: "You"), .init(id: "friend", displayName: "Friend"),

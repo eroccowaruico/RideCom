@@ -898,6 +898,15 @@ extension GroupRepository {
     }
 
     private func reconcileInvitations(in next: inout GroupSnapshot) {
+        // Append order identifies the latest invitation even when the device clock changes.
+        var latestNotices: [UUID: [AccountPrincipal: UUID]] = [:]
+        for record in next.groupDeliveries where record.direction == .outgoing {
+            latestNotices[record.groupID, default: [:]][record.recipient] = record.noticeID
+        }
+        next.groupDeliveries.removeAll { record in
+            record.direction == .outgoing && record.state == .received
+                && latestNotices[record.groupID]?[record.recipient] != record.noticeID
+        }
         for index in next.groupDeliveries.indices {
             let record = next.groupDeliveries[index]
             guard record.direction == .outgoing, record.state == .pending || record.state == .queued else { continue }

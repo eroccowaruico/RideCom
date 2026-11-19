@@ -141,6 +141,24 @@ import Testing
         #expect(receiver.groups.first(where: { $0.id == collision })?.name == "Saved locally")
         #expect(try receiver.groupRepository.credential(for: collision) == localCredential)
         #expect(receiver.currentCallReference == localCall && receiver.groupErrorMessage == nil)
+
+        let person = try b.savedUser()
+        let firstReceipt = try #require(author.groupInvitationDeliveries(in: followUp).first)
+        #expect(firstReceipt.state == .received)
+        #expect(author.removeMember(b.memberID, from: followUp))
+        #expect(receiver.deleteGroup(followUp))
+        #expect(author.addSavedUsers([person.id], to: followUp))
+        #expect(author.groupInvitationDeliveryState(for: person, in: followUp) == .pending)
+        #expect(author.groupInvitationDeliveries(in: followUp).count == 1)
+        let newDelivery = try #require(author.groupInvitationDeliveries(in: followUp).first { $0.id != firstReceipt.id })
+        await author.synchronizeGroupDeliveries()
+        #expect(author.groupInvitationDeliveryState(for: person, in: followUp) == .pending)
+        #expect(!receiver.groups.contains { $0.id == followUp })
+        await receiver.synchronizeGroupDeliveries()
+        await author.synchronizeGroupDeliveries()
+        #expect(author.groupInvitationDeliveries(in: followUp).map(\.id) == [newDelivery.id])
+        #expect(author.groupInvitationDeliveryState(for: person, in: followUp) == .received)
+        #expect(receiver.groups.filter { $0.id == followUp }.count == 1)
     }
     private func register(_ peer: GroupDeliveryTestIdentity) async throws {
         struct Registration: Decodable { let credential: InternetAccountCredential; let identity: DeviceIdentityCertificate }
