@@ -749,6 +749,65 @@ struct AudioPipelineTests {
         }
     }
 
+    @Test func receivePlayoutDiagnosticsKeepsTheAdjustmentWithItsPeer() throws {
+        let engine = AVAudioEngine()
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480))
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 480)
+        let pipeline = AppAudioPipeline(makeEngine: { engine })
+        let model = AppTestSupport.makeHarness(localMemberID: "local", audioPipeline: pipeline).viewModel
+        try pipeline.rebuild(configuration: .init(receiveMaximumBufferedDuration: 0.12,
+            receivePlayoutDelay: 0.002), peerIDs: ["a", "b"])
+        defer { pipeline.stop() }
+        model.isAudioReady = true
+        model.selectedGroup = try IntercomGroup(name: "RX playout", members: [
+            GroupMember(id: "local", displayName: "Local"),
+            GroupMember(id: "a", displayName: "Haruka", authenticationState: .authenticated, connectionState: .connected),
+            GroupMember(id: "b", displayName: "Kenta", authenticationState: .authenticated, connectionState: .connected),
+            GroupMember(id: "c", displayName: "Mika", authenticationState: .authenticated, connectionState: .connected)
+        ])
+
+        let payload = PCM16Codec.encode(Array(repeating: Float(0.2), count: 480))
+        func receive(_ peer: String, sequence: UInt64, capturedAt: TimeInterval) throws {
+            let packet = RTCAudioPacket(sequenceNumber: sequence, codec: .pcm16,
+                format: RTCAudioFormat(sampleRate: 48_000, channelCount: 1),
+                capturedAt: capturedAt, sampleCount: 480, payload: payload)
+            _ = try pipeline.processReceivedAudioPacket(.init(peerID: PeerID(rawValue: peer), packet: packet))
+        }
+        try receive("a", sequence: 0, capturedAt: 1_000)
+        try receive("b", sequence: 0, capturedAt: 1_000)
+        for _ in 0..<30 { try #require(engine.renderOffline(480, to: buffer) == .success) }
+        try receive("a", sequence: 1, capturedAt: 1_000.36)
+        model.refreshPackageRuntimeSnapshots()
+        let input = DiagnosticsInput(model)
+        let sourceA = try #require(input.mixerBusSnapshot(id: "rx-peer-a")?.sources.first)
+        let sourceB = try #require(input.mixerBusSnapshot(id: "rx-peer-b")?.sources.first)
+        #expect(sourceA.playoutAdjustmentCount == 1)
+        #expect(sourceB.playoutAdjustmentCount == 0)
+        #expect(sourceA.playbackResetCount == 0)
+        #expect(input.mixerBusSnapshot(id: "rx-peer-c") == nil)
+        let presentation = ReceivePipelinePresentation(input: input)
+        #expect(presentation.playoutDetail(for: "a") == "Playout: 12 ms queued / Adjustments: 1 / Resets: 0")
+        #expect(presentation.playoutDetail(for: "b") == "Playout: 0 ms queued / Adjustments: 0 / Resets: 0")
+        #expect(presentation.playoutDetail(for: "c") == "Playout: Not measured")
+        #expect(presentation.receiveMixStep.detail == "2 routes → rx-master")
+        #if os(iOS)
+        for size: DynamicTypeSize in [.large, .accessibility5] {
+            let expandedStage = size == .large ? "receive-peers" : "a"
+            let view = DiagnosticsReceiveDetails(viewModel: model, presentation: presentation,
+                expandedStage: .constant(expandedStage))
+                .frame(width: 320)
+                .padding()
+                .background(AppColorPalette.listScreenBackground)
+                .environment(\.dynamicTypeSize, size)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let data = try #require(renderer.uiImage?.pngData())
+            Attachment.record(data, named: size == .large ? "rx-playout-standard.png" : "rx-playout-accessibility.png")
+        }
+        #endif
+    }
+
     @Test func actualOutputLimiterProtectsCombinedPeersAfterMasterGain() async throws {
         let engine = AVAudioEngine()
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!

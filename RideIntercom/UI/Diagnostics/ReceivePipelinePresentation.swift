@@ -5,23 +5,33 @@ import Foundation
 
 /// Pure projection of one captured input; owns no live state.
 struct ReceivePipelinePresentation {
+    private static let peerBusPrefix = "rx-peer-"
     let input: DiagnosticsInput
     let receivePeerStates: [String: PipelineStepState]
 
     init(input: DiagnosticsInput) {
         self.input = input
-        let peerBusPrefix = "rx-peer-"
         var states: [String: PipelineStepState] = [:]
         if input.isAudioReady {
             for route in input.audioMixerSnapshot.routes
-                where route.destinationBusID == "rx-master" && route.sourceBusID.hasPrefix(peerBusPrefix) {
-                let peerID = String(route.sourceBusID.dropFirst(peerBusPrefix.count))
+                where route.destinationBusID == "rx-master" && route.sourceBusID.hasPrefix(Self.peerBusPrefix) {
+                let peerID = String(route.sourceBusID.dropFirst(Self.peerBusPrefix.count))
                 let bus = input.mixerBusSnapshot(id: route.sourceBusID)
                 let lastScheduledAt = bus?.sources.compactMap(\.lastScheduledAt).max()
                 states[peerID] = Self.observation(lastScheduledAt, now: input.capturedAt).state
             }
         }
         receivePeerStates = states
+    }
+
+    func playoutDetail(for peerID: String) -> String {
+        guard receivePeerStates[peerID] != nil,
+              let bus = input.mixerBusSnapshot(id: Self.peerBusPrefix + peerID),
+              let source = bus.sources.first(where: { $0.bufferedDuration != nil }),
+              let duration = source.bufferedDuration else { return "Playout: Not measured" }
+        let queued = String(format: "%.0f ms", duration * 1_000)
+        let adjustments = source.playoutAdjustmentCount.map(String.init) ?? "Not measured"
+        return "Playout: \(queued) queued / Adjustments: \(adjustments) / Resets: \(source.playbackResetCount)"
     }
 
     private var receivePeerBusCount: Int { receivePeerStates.count }

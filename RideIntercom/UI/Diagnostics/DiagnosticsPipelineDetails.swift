@@ -119,7 +119,9 @@ struct DiagnosticsReceiveDetails: View {
                 }
                 Text("RTC RX: \(member.connectionState.rawValue) / \(member.authenticationState.rawValue) / \(paths.isEmpty ? "Path not measured" : paths.map { $0.route == .webRTC ? "Internet" : ($0.path.count > 2 ? "Local relayed" : "Local direct") }.joined(separator: ", "))")
                 Text("Decode: \(member.activeCodec?.rawValue ?? "Not measured") / packets/s: Not measured")
-                Text("Peer Bus: volume \(Int(viewModel.remoteOutputVolume(for: member.id) * 100))% / FX \(effects.summary) / queued \(member.queuedAudioFrameCount) frames")
+                Text(presentation.playoutDetail(for: member.id))
+                    .accessibilityIdentifier("receive-peer-playout")
+                Text("Peer Bus: volume \(Int(viewModel.remoteOutputVolume(for: member.id) * 100))% / FX \(effects.summary)")
             } else { Text("Offline").foregroundStyle(.secondary) }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
