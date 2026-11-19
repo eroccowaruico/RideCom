@@ -96,7 +96,7 @@ import Testing
         let packet = try GroupInvitationEnvelope.seal(conflict, sender: author, recipient: recipient,
             recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
         let saved = try f.file.read()
-        #expect(throws: (any Error).self) { try repository.stageGroupDelivery(packet, token: conflict, now: now) }
+        #expect(try repository.stageGroupDelivery(packet, token: conflict, now: now) == .cancelled)
         #expect(try f.file.read() == saved)
         let duplicateGroup = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
             recipientMemberID: "local", recipientKey: b.publicKey, signer: a)

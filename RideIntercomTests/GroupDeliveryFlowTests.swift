@@ -176,6 +176,75 @@ import UserNotifications
         #expect(GroupDeliveryHTTPStub.requestCount == 5, "A later lifecycle pass retries discard and then observes an empty inbox")
     }
 
+    enum KeyConflictTiming: String, CaseIterable { case alreadySaved, beforeReceiptRetry, afterReceipt }
+
+    @Test(arguments: KeyConflictTiming.allCases)
+    func aConflictingGroupKeyDoesNotBlockTheNextInvitation(timing: KeyConflictTiming) async throws {
+        let author = GroupDeliveryTestIdentity("conflicting-group-author")
+        let recipient = GroupDeliveryTestIdentity("conflicting-group-recipient")
+        defer { author.remove(); recipient.remove() }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let left = try author.harness(knowing: [recipient]).viewModel
+        let right = try recipient.harness(knowing: [author]).viewModel
+        GroupDeliveryHTTPStub.reset()
+        defer {
+            left.stopGroupDeliverySync(); right.stopGroupDeliverySync()
+            left.disconnect(); right.disconnect()
+            GroupDeliveryHTTPStub.reset()
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: configuration))
+        let senderAccess = try #require(try author.store.notificationAccess(memberID: author.memberID))
+        let recipientAccess = try #require(try recipient.store.notificationAccess(memberID: recipient.memberID))
+        GroupDeliveryHTTPStub.users = [senderAccess.accessToken: try author.principal.userID,
+                                       recipientAccess.accessToken: try recipient.principal.userID]
+        left.groupDeliveryClient = client
+        let grant = try testCallNotificationGrant(owner: recipient.principal, allowedSender: author.principal,
+            audience: "rideintercom-group-invitation")
+        try left.notifications.receivePermission(CallNotificationPermissionMessage.make(owner: recipient.principal,
+            allowedSender: author.principal, revision: 1, grant: nil, signer: recipient.signer,
+            groupGrant: grant, groupInvitationsSupported: true), peerID: recipient.memberID)
+
+        let collision = UUID()
+        var localCall: CallReference?
+        func saveLocalGroup() {
+            #expect(right.createTalkGroup(name: "Saved locally", id: collision))
+            localCall = right.currentCallReference
+        }
+        if timing == .afterReceipt { GroupDeliveryHTTPStub.onAcknowledged = saveLocalGroup }
+        if timing == .alreadySaved { saveLocalGroup() }
+        #expect(left.createTalkGroup(name: "Conflicting invitation", userIDs: [recipient.personID], id: collision))
+        await left.synchronizeGroupDeliveries()
+        let record = try #require(left.groupRepository.groupDeliveries.first { $0.groupID == collision })
+        let conflictID = record.id.uuidString.lowercased()
+        #expect(GroupDeliveryHTTPStub.items[conflictID]?["status"] as? String == "queued")
+        right.groupDeliveryClient = client
+        if timing == .beforeReceiptRetry {
+            GroupDeliveryHTTPStub.failNextAcknowledgement = true
+            await right.synchronizeGroupDeliveries()
+            #expect(right.groupRepository.groupDeliveries.first(where: { $0.id == record.id })?.state == .pending)
+            saveLocalGroup()
+        }
+        await right.synchronizeGroupDeliveries()
+        let localCredential = try #require(try right.groupRepository.credential(for: collision))
+        #expect(localCredential != (try left.groupRepository.credential(for: collision)))
+        #expect(GroupDeliveryHTTPStub.items[conflictID]?["status"] as? String == (timing == .afterReceipt ? "received" : "cancelled"))
+        #expect(!right.groupRepository.groupDeliveries.contains { $0.id == record.id && $0.state == .pending })
+        #expect(right.groupStorageIssue == nil)
+        #expect(right.groupErrorMessage == nil)
+
+        let valid = UUID()
+        #expect(left.createTalkGroup(name: "Valid invitation", userIDs: [recipient.personID], id: valid))
+        await left.synchronizeGroupDeliveries()
+        await right.synchronizeGroupDeliveries()
+        #expect(right.groups.first(where: { $0.id == valid })?.name == "Valid invitation")
+        #expect(right.groups.first(where: { $0.id == collision })?.name == "Saved locally")
+        #expect(try right.groupRepository.credential(for: collision) == localCredential)
+        #expect(right.currentCallReference == localCall)
+    }
+
     @Test func aGroupMembersStateUsesTheirAccountAndKeepsOtherGroupsSeparate() throws {
         let peer = AccountPrincipal(issuer: "https://delivery.test", userID: String(repeating: "b", count: 64))
         let user = SavedUser(displayName: "Two devices", memberIDs: ["state-one", "state-two"],
@@ -396,12 +465,13 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var items: [String: [String: Any]] = [:]
     nonisolated(unsafe) static var submitted: [String] = []
     nonisolated(unsafe) static var onQueued: (@MainActor () -> Void)?
+    nonisolated(unsafe) static var onAcknowledged: (@MainActor () -> Void)?
     nonisolated(unsafe) static var rejectedRecipientID: String?
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
     nonisolated(unsafe) static var legacyAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -458,6 +528,11 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
                 let discard = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(.init(name: "discard", value: "1")) == true
                 item["status"] = item["recipientID"] as? String == caller && !discard ? "received" : "cancelled"
                 items[id] = item
+                if item["status"] as? String == "received" {
+                    let action = onAcknowledged
+                    onAcknowledged = nil
+                    action?()
+                }
             }
             return (200, legacyAcknowledgement ? [:] : ["status": item["status"]!])
         }

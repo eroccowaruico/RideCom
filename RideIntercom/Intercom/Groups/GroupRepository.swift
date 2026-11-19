@@ -618,18 +618,21 @@ extension GroupRepository {
 
     func stageGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, now: TimeInterval) throws -> GroupDeliveryRecord.State {
         let (_, _, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now)
-        if let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id }) {
+        let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id })
+        if let old {
             guard old.direction == .incoming, old.groupID == token.groupID, old.recipient == envelope.recipient,
                   old.recipientMemberID == envelope.recipientMemberID, old.recipientKey == envelope.recipientKey,
                   old.expiresAt == envelope.expiresAt else { throw GroupStorageError.identityConflict }
-            return old.state
+            if old.state != .pending { return old.state }
         }
-        if let existing = snapshot.groups.first(where: { $0.id == token.groupID }) {
-            guard existing.kind == .group, try credential(for: token.groupID)?.secret == token.groupSecret
-            else { throw GroupStorageError.identityConflict }
-        } else {
-            guard snapshot.groups.count < 256 else { throw GroupStorageError.invalidUpdate }
+        let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
+        let existing = snapshot.groups.first(where: { $0.id == token.groupID })
+        if let existing, try !matchesSavedGroup(target, kind: existing.kind ?? .group) {
+            if old != nil { try cancelPendingGroupReceipt(envelope.id) }
+            return .cancelled
         }
+        if old != nil { return .pending }
+        guard existing != nil || snapshot.groups.count < 256 else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
             let packet = String(decoding: try JSONEncoder().encode(envelope), as: UTF8.self)
             next.groupDeliveries.append(.init(id: envelope.id, noticeID: envelope.id, groupID: token.groupID,
@@ -653,10 +656,16 @@ extension GroupRepository {
               record.senderMemberID == envelope.senderMemberID, record.expiresAt == envelope.expiresAt
         else { throw GroupStorageError.invalidUpdate }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
+        let existing = snapshot.groups.first(where: { $0.id == target.id })
+        if let existing, try !matchesSavedGroup(target, kind: existing.kind ?? .group) {
+            // A manual join or local save can race with the Worker receipt.
+            try cancelPendingGroupReceipt(envelope.id)
+            return nil
+        }
         let previous = try snapshot.groups.map { try $0.group() }
-        let groups = try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: user.displayName),
-            identity: identity, localDisplayName: localDisplayName, groups: previous)
-        let newGroup = !previous.contains(where: { $0.id == token.groupID })
+        let newGroup = existing == nil
+        let groups = newGroup ? try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: user.displayName),
+            identity: identity, localDisplayName: localDisplayName, groups: previous) : previous
         try update(groups, credential: newGroup ? .init(groupID: token.groupID, secret: token.groupSecret) : nil) { next in
             if newGroup, let index = next.groups.firstIndex(where: { $0.id == token.groupID }) {
                 next.groups[index].joinedByInvitation = true
@@ -793,7 +802,7 @@ extension GroupRepository {
                                  localDisplayName: String, groups: [IntercomGroup]) throws -> [IntercomGroup] {
         guard let target else { return groups }
         if let existing = groups.first(where: { $0.id == target.id }) {
-            guard existing.kind == .group, try credential(for: target.id)?.secret == target.secret else { throw GroupStorageError.identityConflict }
+            guard try matchesSavedGroup(target, kind: existing.kind) else { throw GroupStorageError.identityConflict }
             return groups
         }
         guard let localMemberID else { throw GroupStorageError.invalidUpdate }
@@ -801,6 +810,13 @@ extension GroupRepository {
         let group = try IntercomGroup(id: target.id, name: target.name,
             members: [.init(id: localMemberID, displayName: localDisplayName), inviter], accountDevices: devices)
         return [group] + groups
+    }
+
+    private func matchesSavedGroup(_ target: ContactGroupInvitation, kind: IntercomGroup.Kind) throws -> Bool {
+        guard kind == .group else { return false }
+        // A missing or unreadable local credential may be recoverable.
+        guard let saved = try credential(for: target.id) else { throw GroupStorageError.identityConflict }
+        return saved.secret == target.secret
     }
 
     private func reconcileInvitations(in next: inout GroupSnapshot) {

@@ -120,6 +120,27 @@ import Testing
         #expect(left.viewModel.groupRepository.groupDeliveries.allSatisfy { $0.credentialReference == nil })
         #expect(receiver.groupRepository.groupDeliveries.first(where: { $0.id == lostReceipt.id })?.state == .received)
         #expect(receiver.savedRemoteUsers.count == 1)
+
+        let collision = UUID(), followUp = UUID()
+        #expect(receiver.createTalkGroup(name: "Saved locally", id: collision))
+        let localCredential = try #require(try receiver.groupRepository.credential(for: collision))
+        let localCall = receiver.currentCallReference
+        #expect(author.createTalkGroup(name: "Conflicting invitation", userIDs: [b.personID], id: collision))
+        await author.synchronizeGroupDeliveries()
+        let conflict = try #require(author.groupRepository.groupDeliveries.first { $0.groupID == collision })
+        #expect(conflict.state == .queued)
+        await receiver.synchronizeGroupDeliveries()
+        #expect(author.createTalkGroup(name: "Valid invitation after conflict", userIDs: [b.personID], id: followUp))
+        await author.synchronizeGroupDeliveries()
+        await receiver.synchronizeGroupDeliveries()
+        await author.synchronizeGroupDeliveries()
+        let recipientAccess = try #require(try b.store.notificationAccess(memberID: b.memberID))
+        #expect(try await client.acknowledgeGroupInvitation(conflict.id, access: recipientAccess) == .cancelled)
+        #expect(!author.groupRepository.groupDeliveries.contains { $0.id == conflict.id && $0.state != .cancelled })
+        #expect(receiver.groups.first(where: { $0.id == followUp })?.name == "Valid invitation after conflict")
+        #expect(receiver.groups.first(where: { $0.id == collision })?.name == "Saved locally")
+        #expect(try receiver.groupRepository.credential(for: collision) == localCredential)
+        #expect(receiver.currentCallReference == localCall && receiver.groupErrorMessage == nil)
     }
     private func register(_ peer: GroupDeliveryTestIdentity) async throws {
         struct Registration: Decodable { let credential: InternetAccountCredential; let identity: DeviceIdentityCertificate }
