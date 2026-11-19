@@ -267,8 +267,7 @@ struct DiagnosticsTests {
                 let configuration = try report.decodeJSON(VoiceIsolationConfiguration.self)
                 let runtime = try #require(harness.viewModel.audioPipeline.isolationRuntimeSnapshots[bus])
                 #expect(configuration == runtime.configuration)
-                let expectedMix: Float = bus == "tx-bus" || enabled ? 0.5 : 1
-                #expect(configuration.mix == expectedMix)
+                #expect(configuration.mix == 0.5, "Changing bypass preserves the configured mix")
                 #expect(runtime.state == (enabled ? .active : .bypassed))
             }
         }

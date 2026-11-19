@@ -29,7 +29,7 @@ Settings の `Voice Isolation Effect` は送信用 `SoundIsolation` package の 
 
 | 値 | 扱い |
 |---|---|
-| wet / dry mix | 送信は0.5で固定。受信は有効設定から導出 |
+| wet / dry mix | 送信・相手別受信・全体受信で0.5に固定し、ON／OFFの切替でも保持する |
 | Audio Unit parameter | package 仕様を正とする |
 | support check / fallback の詳細 | package adapter で扱う |
 
