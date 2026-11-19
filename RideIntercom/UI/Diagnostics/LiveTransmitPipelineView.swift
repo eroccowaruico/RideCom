@@ -25,7 +25,7 @@ struct LiveTransmitPipelineView: View {
                     Text("Hardware: \(Int(snapshot.actualHardwareFormat.sampleRate)) Hz / \(snapshot.actualHardwareFormat.channelCount) channels / frames: \(snapshot.processedFrameCount)")
                 } else { Text("Hardware format: Not measured") }
             }
-            DisclosureGroup(isExpanded: expanded("vad")) {
+            stage(presentation.vadStep) {
                 Text("Microphone input before TX Bus Effects.")
                     .font(.caption)
                 Text(presentation.voiceActivityAnalysis.map {
@@ -33,10 +33,7 @@ struct LiveTransmitPipelineView: View {
                            $0.rmsDBFS, $0.noiseFloorDBFS, $0.speechThresholdDBFS, $0.gain)
                 } ?? "Input level: Not measured")
                 .font(.caption)
-            } label: {
-                let state = presentation.voiceActivityAnalysis?.state.rawValue.capitalized ?? "Not measured"
-                Text("VAD: \(state) / \(viewModel.vadSensitivity.label)")
-            }.id("vad")
+            }
             stage(presentation.mixerBusStep) {
                 CompactEffectChainGroup(step: presentation.mixerEffectChainStep, title: "TX Bus Effects", accessibilityIdentifier: "pipeline-effects-step", stageIdentifierPrefix: "pipeline-effect-stage", stages: presentation.transmitEffectStages)
             }

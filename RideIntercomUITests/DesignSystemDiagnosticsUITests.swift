@@ -21,12 +21,21 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
             XCTAssertTrue(picker.buttons[page].isHittable, page)
         }
         XCTAssertTrue(picker.buttons["Overview"].isSelected)
+        let flow = app.descendants(matching: .any)["diagnosticsStageDots-TX"].firstMatch
+        XCTAssertTrue(flow.waitForExistence(timeout: 3))
+        let txLabel = flow.label
+        guard let input = txLabel.range(of: "Input "), let vadStage = txLabel.range(of: "VAD "),
+              let bus = txLabel.range(of: "TX Bus ") else {
+            return XCTFail("The transmit flow must include Input, VAD and TX Bus. \(txLabel)")
+        }
+        XCTAssertLessThan(input.lowerBound, vadStage.lowerBound)
+        XCTAssertLessThan(vadStage.lowerBound, bus.lowerBound)
         attachScreen("Diagnostics pages as segments")
         picker.buttons["Network"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["diagnosticsNetworkPaths"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.buttons["Network"].isSelected)
         picker.buttons["TX"].tap()
-        let vad = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "VAD:")).firstMatch
+        let vad = app.descendants(matching: .any)["pipeline-vad-step"].firstMatch
         XCTAssertTrue(vad.waitForExistence(timeout: 3), app.debugDescription)
         vad.tap()
         XCTAssertTrue(app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))

@@ -10,6 +10,7 @@ struct DiagnosticsInput {
     var isMicrophoneCaptureRunning: Bool
     var isMuted: Bool
     var isVoiceActive: Bool
+    var vadSensitivity: VoiceActivitySensitivity
     var vadGateRuntimeSnapshot: VADGateRuntimeSnapshot
     var lastAudioSessionConfigurationReport: SessionManager.AudioSessionConfigurationReport?
     var lastInputStreamOperationReport: SessionManager.AudioStreamOperationReport?
@@ -46,6 +47,7 @@ struct DiagnosticsInput {
         isMicrophoneCaptureRunning = viewModel.isMicrophoneCaptureRunning
         isMuted = viewModel.isMuted
         isVoiceActive = viewModel.isVoiceActive
+        vadSensitivity = viewModel.vadSensitivity
         vadGateRuntimeSnapshot = viewModel.vadGateRuntimeSnapshot
         lastAudioSessionConfigurationReport = viewModel.lastAudioSessionConfigurationReport
         lastInputStreamOperationReport = viewModel.lastInputStreamOperationReport

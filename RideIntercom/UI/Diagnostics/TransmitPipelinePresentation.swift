@@ -1,5 +1,6 @@
 import AudioCore
 import AudioMixer
+import Foundation
 import RTC
 import SessionManager
 import VADGate
@@ -15,6 +16,10 @@ struct TransmitPipelinePresentation {
 
     var encodedAudioPacketCount: Int? {
         input.isAudioReady ? input.encodedAudioPacketCount : nil
+    }
+
+    var flowSteps: [PipelineStep] {
+        [sessionStep, inputStreamStep, vadStep, mixerBusStep, codecStep, rtcStep]
     }
 
     var sessionStep: PipelineStep {
@@ -98,6 +103,21 @@ struct TransmitPipelinePresentation {
         )
     }
 
+    var vadStep: PipelineStep {
+        let analysis = voiceActivityAnalysis
+        let state: PipelineStepState
+        if !input.isAudioReady || input.isMuted {
+            state = .idle
+        } else {
+            state = analysis?.state == .speech ? .passing : .waiting
+        }
+        let value = analysis?.state.rawValue.capitalized ?? "Not measured"
+        return PipelineStep(
+            id: "vad", package: "VADGate", title: "VAD", detail: "\(value) / \(input.vadSensitivity.label)",
+            icon: "waveform", state: state, accessibilityIdentifier: "pipeline-vad-step"
+        )
+    }
+
     var mixerBusStep: PipelineStep {
         guard input.isAudioReady else {
             return PipelineStep(
@@ -111,13 +131,15 @@ struct TransmitPipelinePresentation {
             )
         }
         let bus = input.mixerBusSnapshot(id: "tx-bus")
+        let waitingOnEffect = effectChainState == .waiting
         return PipelineStep(
             id: "mixer",
             package: "AudioMixer",
             title: "TX Bus",
-            detail: bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting",
+            detail: waitingOnEffect ? effectChainPipelineDetail
+                : bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting",
             icon: "slider.horizontal.3",
-            state: .passing,
+            state: bus != nil && !waitingOnEffect ? .passing : .waiting,
             accessibilityIdentifier: "pipeline-mixer-step"
         )
     }

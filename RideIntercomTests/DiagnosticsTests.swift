@@ -73,6 +73,43 @@ struct DiagnosticsTests {
         #expect(harness.viewModel.transmitEffectChainSnapshot.stages.isEmpty)
     }
 
+    @Test func transmitFlowUsesObservedVoiceActivityForVAD() {
+        let model = AppTestSupport.makeHarness().viewModel
+        var input = DiagnosticsInput(model)
+        input.isAudioReady = true
+        input.isMuted = false
+        let gate = VADGate(configuration: VoiceActivitySensitivity.standard.configuration)
+
+        _ = gate.process(rmsDBFS: -120, duration: 0.02)
+        input.vadGateRuntimeSnapshot = gate.runtimeSnapshot
+        var presentation = TransmitPipelinePresentation(input: input)
+        #expect(presentation.flowSteps.map(\.id) == ["session", "input", "vad", "mixer", "codec", "rtc"])
+        #expect(presentation.vadStep.state == .waiting)
+        #expect(presentation.vadStep.detail.hasPrefix("Silence"))
+
+        _ = gate.process(rmsDBFS: -20, duration: 0.1)
+        input.vadGateRuntimeSnapshot = gate.runtimeSnapshot
+        presentation = .init(input: input)
+        #expect(presentation.vadStep.state == .passing)
+
+        input.isMuted = true
+        #expect(TransmitPipelinePresentation(input: input).vadStep.state == .idle)
+    }
+
+    @Test func transmitBusShowsAnUnavailableEffectInTheFlow() {
+        let model = AppTestSupport.makeHarness().viewModel
+        var input = DiagnosticsInput(model)
+        input.isAudioReady = true
+        #expect(TransmitPipelinePresentation(input: input).mixerBusStep.state == .waiting)
+
+        input.audioMixerSnapshot.buses = [.init(id: "tx-bus", volume: 1, sourceCount: 1, effectCount: 1)]
+        input.transmitEffectChainSnapshot = .init(id: "tx-bus",
+            effects: [.init(id: "Isolation", typeName: "SoundIsolation", index: 0, state: .unavailable)])
+        let bus = TransmitPipelinePresentation(input: input).mixerBusStep
+        #expect(bus.state == .waiting)
+        #expect(bus.detail.contains("Isolation unavailable"))
+    }
+
     @Test func isolationConfigurationReportMatchesTheAppliedEffect() async throws {
         let harness = AppTestSupport.makeHarness()
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])

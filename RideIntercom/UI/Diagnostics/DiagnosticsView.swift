@@ -94,9 +94,10 @@ struct DiagnosticsView: View {
 
     // The former summary cards are retired; Overview is the pipeline summary and the symptom actions.
     private var overviewContent: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.l) {
-            verdicts
-            pipelineOverview
+        let steps = pipelineSteps
+        return VStack(alignment: .leading, spacing: AppSpacing.l) {
+            verdicts(tx: steps.tx, rx: steps.rx)
+            pipelineOverview(tx: steps.tx, rx: steps.rx)
             participantsOverview
             networkOverview
             symptomButtons
@@ -107,17 +108,16 @@ struct DiagnosticsView: View {
         let input = DiagnosticsInput(viewModel)
         let tx = TransmitPipelinePresentation(input: input)
         let rx = ReceivePipelinePresentation(input: input)
-        return ([tx.sessionStep, tx.inputStreamStep, tx.mixerBusStep, tx.mixerEffectChainStep, tx.codecStep, tx.rtcStep],
+        return (tx.flowSteps,
                 [rx.rtcReceiveStep, rx.codecDecodeStep, rx.peerBusStep, rx.receiveMixStep, rx.masterBusStep, rx.masterEffectChainStep, rx.outputStep])
     }
 
     /// The conclusion first: one verdict per direction with the reason the stages report.
-    private var verdicts: some View {
-        let steps = pipelineSteps
-        return GroupBox {
+    private func verdicts(tx: [PipelineStep], rx: [PipelineStep]) -> some View {
+        GroupBox {
             VStack(alignment: .leading, spacing: AppSpacing.m) {
-                verdictRow("TX", verdict: PipelineVerdict(steps: steps.tx))
-                verdictRow("RX", verdict: PipelineVerdict(steps: steps.rx))
+                verdictRow("TX", verdict: PipelineVerdict(steps: tx))
+                verdictRow("RX", verdict: PipelineVerdict(steps: rx))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -147,15 +147,20 @@ struct DiagnosticsView: View {
         .accessibilityIdentifier("diagnosticsPagePicker")
     }
 
-    /// One line per direction: the direction, then every stage as a state dot and its name, wrapping.
-    private func stageDots(_ name: String, steps: [PipelineStep]) -> some View {
+    private func stageFlow(_ name: String, steps: [PipelineStep]) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
             Text(verbatim: name).font(.subheadline.bold()).frame(minWidth: 28, alignment: .leading)
-            WrappingRow(spacing: AppSpacing.m, lineSpacing: AppSpacing.xs) {
+            WrappingRow(spacing: AppSpacing.xs, lineSpacing: AppSpacing.xs) {
                 ForEach(steps) { step in
                     HStack(spacing: AppSpacing.xs) {
-                        PipelineStateDot(state: step.state)
-                        Text(verbatim: step.title).lineLimit(1)
+                        if step.id != steps.first?.id {
+                            Image(systemName: "arrow.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: step.state.statusSymbol)
+                            .foregroundStyle(step.state.color)
+                        Text(verbatim: step.title).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -190,17 +195,15 @@ struct DiagnosticsView: View {
 
     private var firstTransmitIssue: String {
         let tx = TransmitPipelinePresentation(input: DiagnosticsInput(viewModel))
-        let steps = [tx.sessionStep, tx.inputStreamStep, tx.mixerBusStep, tx.codecStep, tx.rtcStep]
-        return steps.first { $0.state != .passing }?.id ?? "session"
+        return tx.flowSteps.first { $0.state != .passing }?.id ?? "session"
     }
 
-    private var pipelineOverview: some View {
-        let (txSteps, rxSteps) = pipelineSteps
-        return GroupBox("Pipeline") {
+    private func pipelineOverview(tx: [PipelineStep], rx: [PipelineStep]) -> some View {
+        GroupBox("Pipeline") {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
-                stageDots("TX", steps: txSteps)
+                stageFlow("TX", steps: tx)
                 Divider()
-                stageDots("RX", steps: rxSteps)
+                stageFlow("RX", steps: rx)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }

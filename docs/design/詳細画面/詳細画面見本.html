@@ -84,9 +84,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .vline { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
 .vline b { font-size: 12px; }
 .vline .r { color: var(--label2); }
-.dots { display: flex; flex-wrap: wrap; gap: 3px 9px; padding: 3px 0; }
+.dots { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.dots .flow { display: flex; flex-wrap: wrap; gap: 3px 6px; min-width: 0; }
+.dots .flow-stage + .flow-stage::before { content: "→"; color: var(--label2); }
+.dots .flow-stage .ok-t { color: var(--ok); }
+.dots .flow-stage .err-t { color: var(--err); }
 .dots span { display: inline-flex; gap: 3px; align-items: center; white-space: nowrap; }
-.dots .lab { font-weight: 700; width: 52px; }
+.dots .lab { font-weight: 700; min-width: 28px; }
 .row { display: grid; grid-template-columns: 58px 1fr auto; gap: 1px 6px; padding: 4px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
 .row:last-child { border-bottom: 0; }
 .row .k { color: var(--label2); white-space: nowrap; }
@@ -223,7 +227,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 <main class="wrap">
   <h1>相手ごとの条件が、1つのミックスへ合流するまで</h1>
   <p class="lead">詳細表示（Advanced）の見本。主な端末はiPhone。画面内は英語のみで、語は現行コードの表示語（<code>Live TX Pipeline</code>、<code>TX Bus</code>、<code>Peer Buses</code>、<code>Mix Down</code>、<code>RX Master</code>、<code>Connect</code>、<code>Participants</code>など）に合わせ、説明は現行の注記程度に留める。定義の正本は <a href="診断と詳細画面の構成.md">診断と詳細画面の構成</a>。数値は説明用の例。</p>
-  <p class="note" style="margin-top:10px">状態の語と記号・色・寸法・部品（状態ドット列・段の行・合流する木）は <a href="../デザインシステム見本.html">デザインシステム見本</a> を参照する。ここでは詳細表示（Advanced）の画面の組み合わせだけを示す。</p>
+  <p class="note" style="margin-top:10px">状態の語と記号・色・寸法・部品（Pipelineの流れ・段の行・合流する木）は <a href="../デザインシステム見本.html">デザインシステム見本</a> を参照する。ここでは詳細表示（Advanced）の画面の組み合わせだけを示す。</p>
 
   <h2 id="diag">診断（Diagnostics）</h2>
   <p class="note">例: グループ通話中。Harukaは近距離で直接、KentaはHaruka経由の中継で低帯域のOpus、MikaはインターネットでPCMへフォールバック、Yuは未接続。相手ごとに送信条件と自分側の設定がばらばらな状態。</p>
@@ -244,8 +248,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="hd">Pipeline</div>
           <div class="card">
-            <div class="dots"><span class="lab">TX</span><span><span class="d ok"></span>Session</span><span><span class="d ok"></span>Input</span><span><span class="d ok"></span>VAD</span><span><span class="d ok"></span>TX Bus</span><span><span class="d ok"></span>Codec</span><span><span class="d ok"></span>RTC</span></div>
-            <div class="dots" style="border-top:1px solid var(--line);margin-top:3px;padding-top:5px"><span class="lab">RX</span><span><span class="d ok"></span>RTC RX</span><span><span class="d ok"></span>Decode</span><span><span class="d ok"></span>Peer Buses</span><span><span class="d ok"></span>Mix Down</span><span><span class="d ok"></span>RX Master</span><span><span class="d ok"></span>Master FX</span><span><span class="d ok"></span>Output</span></div>
+            <div class="dots"><span class="lab">TX</span><div class="flow"><span class="flow-stage" aria-label="Session Passing"><span class="ok-t" aria-hidden="true">✓</span>Session</span><span class="flow-stage" aria-label="Input Passing"><span class="ok-t" aria-hidden="true">✓</span>Input</span><span class="flow-stage" aria-label="VAD Passing"><span class="ok-t" aria-hidden="true">✓</span>VAD</span><span class="flow-stage" aria-label="TX Bus Passing"><span class="ok-t" aria-hidden="true">✓</span>TX Bus</span><span class="flow-stage" aria-label="Codec Passing"><span class="ok-t" aria-hidden="true">✓</span>Codec</span><span class="flow-stage" aria-label="RTC Passing"><span class="ok-t" aria-hidden="true">✓</span>RTC</span></div></div>
+            <div class="dots" style="border-top:1px solid var(--line);margin-top:3px;padding-top:5px"><span class="lab">RX</span><div class="flow"><span class="flow-stage" aria-label="RTC RX Passing"><span class="ok-t" aria-hidden="true">✓</span>RTC RX</span><span class="flow-stage" aria-label="Decode Passing"><span class="ok-t" aria-hidden="true">✓</span>Decode</span><span class="flow-stage" aria-label="Peer Buses Passing"><span class="ok-t" aria-hidden="true">✓</span>Peer Buses</span><span class="flow-stage" aria-label="Mix Down Passing"><span class="ok-t" aria-hidden="true">✓</span>Mix Down</span><span class="flow-stage" aria-label="RX Master Passing"><span class="ok-t" aria-hidden="true">✓</span>RX Master</span><span class="flow-stage" aria-label="Master FX Passing"><span class="ok-t" aria-hidden="true">✓</span>Master FX</span><span class="flow-stage" aria-label="Output Passing"><span class="ok-t" aria-hidden="true">✓</span>Output</span></div></div>
           </div>
           <div class="hd">Participants <span>4 members</span></div>
           <div class="card">
@@ -263,7 +267,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Overview（スクロール全体）</b>判定2行、Live TX／RX Pipelineの全段を状態ドットで1行ずつ、ParticipantsとNetworkを1行ずつ。ここだけで全体を一覧できる。</figcaption>
+      <figcaption><b>Overview（スクロール全体）</b>TXとRXの判定に続けて、処理順を矢印、状態を記号と色で示す。ParticipantsとNetworkは各1行で一覧する。</figcaption>
     </figure>
 
     <!-- TX -->
@@ -443,8 +447,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="hd">Pipeline</div>
           <div class="card">
-            <div class="dots"><span class="lab">TX</span><span><span class="d ok"></span>Session</span><span class="err-t"><span class="d err"></span>Input</span><span class="idle-t"><span class="d idle"></span>VAD</span><span class="idle-t"><span class="d idle"></span>TX Bus</span><span class="idle-t"><span class="d idle"></span>Codec</span><span><span class="d ok"></span>RTC</span></div>
-            <div class="dots" style="border-top:1px solid var(--line);margin-top:3px;padding-top:5px"><span class="lab">RX</span><span><span class="d ok"></span>RTC RX</span><span class="idle-t"><span class="d idle"></span>Decode</span><span class="idle-t"><span class="d idle"></span>Peer Buses</span><span class="idle-t"><span class="d idle"></span>Mix Down</span><span class="idle-t"><span class="d idle"></span>RX Master</span><span class="idle-t"><span class="d idle"></span>Master FX</span><span class="idle-t"><span class="d idle"></span>Output</span></div>
+            <div class="dots"><span class="lab">TX</span><div class="flow"><span class="flow-stage" aria-label="Session Passing"><span class="ok-t" aria-hidden="true">✓</span>Session</span><span class="flow-stage" aria-label="Input Blocked"><span class="err-t" aria-hidden="true">×</span>Input</span><span class="flow-stage" aria-label="VAD Idle"><span class="idle-t" aria-hidden="true">◌</span>VAD</span><span class="flow-stage" aria-label="TX Bus Idle"><span class="idle-t" aria-hidden="true">◌</span>TX Bus</span><span class="flow-stage" aria-label="Codec Idle"><span class="idle-t" aria-hidden="true">◌</span>Codec</span><span class="flow-stage" aria-label="RTC Passing"><span class="ok-t" aria-hidden="true">✓</span>RTC</span></div></div>
+            <div class="dots" style="border-top:1px solid var(--line);margin-top:3px;padding-top:5px"><span class="lab">RX</span><div class="flow"><span class="flow-stage" aria-label="RTC RX Passing"><span class="ok-t" aria-hidden="true">✓</span>RTC RX</span><span class="flow-stage" aria-label="Decode Idle"><span class="idle-t" aria-hidden="true">◌</span>Decode</span><span class="flow-stage" aria-label="Peer Buses Idle"><span class="idle-t" aria-hidden="true">◌</span>Peer Buses</span><span class="flow-stage" aria-label="Mix Down Idle"><span class="idle-t" aria-hidden="true">◌</span>Mix Down</span><span class="flow-stage" aria-label="RX Master Idle"><span class="idle-t" aria-hidden="true">◌</span>RX Master</span><span class="flow-stage" aria-label="Master FX Idle"><span class="idle-t" aria-hidden="true">◌</span>Master FX</span><span class="flow-stage" aria-label="Output Idle"><span class="idle-t" aria-hidden="true">◌</span>Output</span></div></div>
           </div>
           <div class="hd">Live TX Pipeline</div>
           <div class="card">
