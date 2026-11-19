@@ -38,6 +38,7 @@ actor AudioE2EWorker {
     private var dropsMedia = false
     private(set) var droppedMediaPackets = 0
     private var waitingParticipantReady = false
+    private var pairStages: [String: Set<String>] = [:]
     private var readyForInternetOutage: Set<String> = []
     private var stillObservingInternetOutage: Set<String> = []
     private var holdsInternetSignaling: Bool
@@ -92,6 +93,25 @@ actor AudioE2EWorker {
     func enableInternetSignaling() { holdsInternetSignaling = false }
 
     func markWaitingParticipantReady() { waitingParticipantReady = true }
+
+    static func waitForPairStage(at worker: URL, room: String, run: String, role: String,
+                                 phase: String, timeout: Double) async throws {
+        let url = worker.appendingPathComponent("api/rooms/\(room)/test-pair-stage")
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.httpMethod = "POST"
+        request.setValue("Bearer " + run, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["participantId": "e2e-\(role)-\(run.prefix(8))", "stage": phase])
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        print("Audio E2E: Synchronizing \(phase) through the fixture worker")
+        repeat {
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               try JSONDecoder().decode([String: Bool].self, from: data)["ready"] == true { return }
+            try await Task.sleep(for: .milliseconds(100))
+        } while ContinuousClock.now < deadline
+        throw NSError(domain: "AudioE2E.PairStage.\(phase)", code: 1)
+    }
 
     private func accept(_ connection: NWConnection) async {
         guard !stopped else { connection.cancel(); return }
@@ -185,6 +205,12 @@ actor AudioE2EWorker {
         requests[operation, default: 0] += 1
         if operation == "test-waiting-participant" {
             try await Self.respond(connection, body: ["ready": waitingParticipantReady])
+        } else if operation == "test-pair-stage" {
+            guard request.method == "POST", let id = request.body["participantId"] as? String,
+                  allowedPeers.contains(id), let stage = request.body["stage"] as? String, (1...80).contains(stage.count)
+            else { throw Failure.invalidRequest }
+            pairStages[stage, default: []].insert(id)
+            try await Self.respond(connection, body: ["ready": pairStages[stage] == allowedPeers])
         } else if operation == "test-internet-outage-ready" || operation == "test-internet-outage-observed" {
             guard checksInternetRecovery, let id = request.body["participantId"] as? String,
                   allowedPeers.contains(id) else { throw Failure.invalidRequest }

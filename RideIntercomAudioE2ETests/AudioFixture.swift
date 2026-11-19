@@ -20,14 +20,18 @@ final class FixtureKeychain: KeychainSecretStoring {
     func deleteSecret(service: String, account: String) { values[service]?[account] = nil }
 }
 
-/// Coordination travels over the same authenticated, encrypted connection.
+/// Legacy scenarios coordinate over the same authenticated, encrypted connection.
+/// Long outage scenarios can coordinate through their independent fixture worker.
 @MainActor
 final class AudioE2EBarrier {
     private var received: Set<String> = []
     private let session: any RideIntercom.CallSession
+    private let rendezvous: (@MainActor (String, Double) async throws -> Void)?
 
-    init(session: any RideIntercom.CallSession) {
+    init(session: any RideIntercom.CallSession, rendezvous: (@MainActor (String, Double) async throws -> Void)? = nil) {
         self.session = session
+        self.rendezvous = rendezvous
+        guard rendezvous == nil else { return }
         let original = session.onEvent
         session.onEvent = { [weak self] event in
             original?(event)
@@ -39,6 +43,7 @@ final class AudioE2EBarrier {
     }
 
     func meet(_ phase: String, timeout: Double = 30) async throws {
+        if let rendezvous { try await rendezvous(phase, timeout); return }
         for suffix in ["ready", "ack"] {
             let token = phase + ":" + suffix
             let start = ContinuousClock.now

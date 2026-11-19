@@ -70,6 +70,12 @@ python3 scripts/audio_e2e.py --pipeline-only
 
 コーデックの要求と実選択は別に記録する。現行AACはnative AAC-ELD monoであり、AAC条件では実選択がAAC-ELDかつfallback=falseを要求する。旧AAC-ELD v2の非対応時にPCMへ代替した結果はAAC成功として数えない。
 
+### マイクOFFで待ち、後参加と経路復旧を続けて検証する
+
+2台のiOS Simulatorで `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端の試験構成に、同じ実行IDと試験Worker URL、異なるrole、`AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT=1`、`AUDIO_E2E_BACKGROUND_AFTER_START=1`、`AUDIO_E2E_BACKGROUND_MIC_OFF=1`、`AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS=300` を指定する。近距離は `AUDIO_E2E_TRANSPORT=local` と `AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY=1`、Internetは `AUDIO_E2E_TRANSPORT=webrtc` と `AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY=1` で実行する。近距離のUDP受信口の中断にはDebug-Validationを使う。
+
+先に入った側をマイクOFFのまま別アプリへ移し、受信音声0のまま同じ通話で待つ。後から入る側が発話を送り、先に入った側の実出力と照合する。続いて双方が約60秒マイクOFFのまま送受信0を確認し、同じ通話中の経路を一時中断する。試験の段階を揃える合図には試験WorkerへのHTTPを使う。音声と相手の認証は製品の通話経路を通す。経路の復旧後に話す側だけ送話を許可し、聞く側の実出力に再び相手の発話が現れること、反対向きの受信は0であること、最初の通話参照と終了期限が保たれることを確認する。Simulatorの別アプリ移行を使うため、実機の画面ロックと実ネットワークは[未確認事項](../validation/未確認事項.md)で管理する。
+
 ## 再利用と後片付け
 
 通常実行では通常検証（`validate.py`）と共通の専用Simulatorを1台だけ再利用する。終了時に停止し、毎回端末を増やさない。mainの通常作業フォルダのprojectを使い、build cacheはXcode既定のDerivedDataを再利用する。projectコピーや`/tmp`専用build、`--build-root`による別cacheは使用しない。生成先はXcodeの`-showBuildSettings -json`から必要なpathだけを取得する。MacとiOS Simulatorは同じBuild/Productsを使うため、生成xctestrun名にはplatformを含める。
