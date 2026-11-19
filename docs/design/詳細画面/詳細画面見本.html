@@ -96,6 +96,10 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .row .k { color: var(--label2); white-space: nowrap; }
 .row .v { min-width: 0; }
 .row.rx-master { grid-template-columns: 72px minmax(0, 1fr) auto; }
+#rx-decode-blocked { max-width: 350px; }
+#rx-decode-blocked .row { grid-template-columns: 74px minmax(0, 1fr); }
+#rx-decode-blocked .ok-t { color: var(--ok); }
+#rx-decode-blocked .err-t { color: var(--err); }
 .form-actions { display: flex; justify-content: flex-end; padding: 0 14px 4px; }
 .form-fields .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; }
 .form-fields .v, .person-entry .sub { overflow-wrap: anywhere; }
@@ -317,7 +321,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="hd">Live RX Pipeline <span>Peers -&gt; mix -&gt; RX master -&gt; output</span></div>
           <div class="card">
             <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local + Internet / C 3 / A 3 / RX 240 / Last receipt · 0s ago / DROP 3</span></div>
-            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 238 / Last PCM · 0s ago / Decode errors 2</span></div>
+            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 238 / Last PCM · 0s ago / Decode errors 2 / Last error · 4s ago</span></div>
           </div>
           <div class="card">
             <div class="row"><span class="k">Peer Buses</span><span class="v num">3 peer buses</span></div>
@@ -439,6 +443,12 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   </div>
 
   <h2 id="stopped">停止の例</h2>
+  <div class="card" id="rx-decode-blocked">
+    <div class="hd">Live RX Pipeline</div>
+    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / C 1 / A 1 / RX 241 / Last receipt · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="err-t" role="img" aria-label="Blocked">×</span> Decode</span><span class="v num">PCM 238 / Last PCM · 3s ago / Decode errors 3 / Last error · 0s ago</span></div>
+  </div>
+  <p class="note">受信が続く間に復号だけが止まった例。Overviewでも RX: Blocked at Decode と表示する。</p>
   <p class="note">使用中のAirPodsが切断された場合。最初に止まった段だけを赤で示し、下流は Idle として薄くする。下流の0を故障に見せない。</p>
   <div class="gallery">
     <figure>

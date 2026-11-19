@@ -86,7 +86,10 @@ struct ReceivePipelinePresentation {
             let decoded = observation(counts.lastPCMAt)
             let lastPCM = decoded.elapsed.map { " / Last PCM · \($0)" } ?? ""
             let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
-            value = (pcm + lastPCM + failures, decoded.state)
+            let failure = observation(counts.lastFailureAt)
+            let lastError = failure.elapsed.map { " / Last error · \($0)" } ?? ""
+            let blocked = decoded.state == .waiting && failure.state == .passing
+            value = (pcm + lastPCM + failures + lastError, blocked ? .blocked : decoded.state)
         } else {
             value = ("Not available", .idle)
         }

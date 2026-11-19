@@ -9,6 +9,9 @@ import Testing
 import VADGate
 import SoundIsolation
 import PeakLimiter
+#if os(iOS)
+import SwiftUI
+#endif
 @testable import RideIntercom
 
 extension AppTests {
@@ -38,6 +41,7 @@ struct DiagnosticsTests {
         harness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { model.isAudioReady }
         defer { model.disconnect() }
+        try #require(model.isAudioReady)
         func presentation() -> ReceivePipelinePresentation { .init(input: DiagnosticsInput(model)) }
 
         harness.callSession.publishMetrics(.init(route: .multipeer, activePeerCount: 1,
@@ -52,9 +56,10 @@ struct DiagnosticsTests {
         var invalid = valid
         invalid.packet.payload = Data([0xff])
         harness.callSession.receive(invalid)
-        #expect(presentation().codecDecodeStep.detail == "PCM 0 / Decode errors 1")
+        #expect(presentation().codecDecodeStep.detail.contains("PCM 0 / Decode errors 1"))
+        #expect(presentation().codecDecodeStep.detail.contains("Last error"))
         #expect(presentation().rtcReceiveStep.state == .passing)
-        #expect(presentation().codecDecodeStep.state == .waiting)
+        #expect(presentation().codecDecodeStep.state == .blocked)
 
         harness.callSession.receive(valid)
         harness.callSession.publishMetrics(.init(route: .multipeer, activePeerCount: 1,
@@ -62,11 +67,44 @@ struct DiagnosticsTests {
         #expect(presentation().codecDecodeStep.state == .passing)
         #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 1 / Last PCM"))
         #expect(presentation().rtcReceiveStep.detail.hasSuffix("DROP 2"))
+        await AppTestSupport.waitUntil(timeout: .seconds(3)) {
+            harness.outputBackend.scheduledFrames.contains { $0.samples.contains { $0 > 0.05 } }
+        }
+        try #require(harness.outputBackend.scheduledFrames.contains { $0.samples.contains { $0 > 0.05 } })
+        harness.callSession.receive(invalid)
+        #expect(presentation().codecDecodeStep.state == .passing, "A recent successful PCM observation remains visible")
+
+        try await Task.sleep(for: .milliseconds(2_100))
+        let beforeFailure = harness.outputBackend.scheduledFrames.count
+        harness.callSession.receive(invalid)
+        model.publishRuntimePackageReports(force: true)
+        let failed = presentation()
+        #expect(failed.rtcReceiveStep.state == .passing)
+        #expect(failed.codecDecodeStep.state == .blocked)
+        #expect(failed.codecDecodeStep.detail.contains("Decode errors 3 / Last error"))
+        #expect(PipelineVerdict(steps: [failed.rtcReceiveStep, failed.codecDecodeStep]).text == "Blocked at Decode")
+        #if os(iOS)
+        let renderer = ImageRenderer(content: LiveReceivePipelineView(viewModel: model, expandedStage: .constant(nil))
+            .frame(width: 370).padding().background(AppColorPalette.listScreenBackground))
+        renderer.scale = 2
+        Attachment.record(try #require(renderer.uiImage?.pngData()), named: "rx-decode-blocked.png")
+        #endif
+        try await Task.sleep(for: .milliseconds(70))
+        let duringFailure = harness.outputBackend.scheduledFrames.dropFirst(beforeFailure)
+        #expect(!duringFailure.isEmpty)
+        #expect(duringFailure.allSatisfy { $0.samples.allSatisfy { abs($0) < 0.001 } })
+
         let later = DiagnosticsInput(model, now: Date().timeIntervalSince1970 + 3)
         let stale = ReceivePipelinePresentation(input: later)
         #expect(stale.rtcReceiveStep.state == .waiting)
         #expect(stale.codecDecodeStep.state == .waiting)
-        harness.callSession.receive(valid)
+        let resumed = PCMFrame(sequenceNumber: 1, format: frame.format,
+            samples: Array(repeating: -0.2, count: 480))
+        harness.callSession.receive(try AppTestSupport.receivedAudioPacket(peerID: "member-108", frame: resumed, codec: .pcm16))
+        await AppTestSupport.waitUntil(timeout: .seconds(3)) {
+            harness.outputBackend.scheduledFrames.dropFirst(beforeFailure).contains { $0.samples.contains { $0 < -0.05 } }
+        }
+        #expect(harness.outputBackend.scheduledFrames.dropFirst(beforeFailure).contains { $0.samples.contains { $0 < -0.05 } })
         #expect(presentation().rtcReceiveStep.state == .passing)
         #expect(presentation().codecDecodeStep.state == .passing)
         model.disconnect()

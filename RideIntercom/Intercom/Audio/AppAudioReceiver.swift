@@ -12,6 +12,7 @@ nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
     var pcmPackets = 0
     var failures = 0
     var lastPCMAt: TimeInterval?
+    var lastFailureAt: TimeInterval?
 }
 
 /// The receive graph has one serial owner independent of UI/control. The lock
@@ -118,6 +119,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             frame = try AppAudioCodecBridge.decode(received.packet, using: decoder)
         } catch {
             decodeCounts.failures += 1
+            decodeCounts.lastFailureAt = Date().timeIntervalSince1970
             throw error
         }
         if !frame.samples.isEmpty {
