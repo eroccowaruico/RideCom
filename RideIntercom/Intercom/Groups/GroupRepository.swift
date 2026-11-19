@@ -115,6 +115,46 @@ final class GroupRepository {
         }
     }
 
+    func removeGroupMember(_ memberID: String, from groupID: UUID, now: TimeInterval) throws -> Set<String> {
+        guard let snapshot, let localMemberID, memberID != localMemberID,
+              let index = snapshot.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group }),
+              snapshot.groups[index].members.contains(where: { $0.id == memberID }) else { throw GroupStorageError.invalidUpdate }
+        var groups = try snapshot.groups.map { try $0.group() }
+        let binding = groups[index].accountDevices[memberID]
+        let user = snapshot.users.first { $0.memberIDs.contains(memberID) || (binding != nil && $0.principal == binding?.principal) }
+        let ids = Set(user?.memberIDs ?? []).union([memberID]).subtracting([localMemberID])
+        groups[index].members.removeAll { ids.contains($0.id) }
+        groups[index].accountDevices = groups[index].accountDevices.filter { !ids.contains($0.key) }
+        try update(groups, credential: nil) { next in
+            guard !memberID.hasPrefix(GroupMember.pendingInvitePrefix) else { return }
+            let removed = GroupSnapshot.RemovedMember(memberIDs: ids, principal: binding?.principal ?? user?.principal, removedAt: now)
+            next.groups[index].removedMembers = (next.groups[index].removedMembers ?? []) + [removed]
+        }
+        return ids
+    }
+
+    func saveGroupMembers(_ group: IntercomGroup, selectedUsers: Set<UUID>, deliveries: [GroupDeliveryRecord]) throws {
+        guard let snapshot, group.kind == .group,
+              let index = snapshot.groups.firstIndex(where: { $0.id == group.id && $0.kind == .group })
+        else { throw GroupStorageError.invalidUpdate }
+        var groups = try snapshot.groups.map { try $0.group() }
+        groups[index] = group
+        try update(groups, credential: nil) { next in
+            Self.restoreExplicitlySelectedMembers(selectedUsers, in: group.id, snapshot: &next)
+            try self.appendGroupDeliveries(deliveries, to: &next)
+        }
+    }
+
+    private static func restoreExplicitlySelectedMembers(_ ids: Set<UUID>, in groupID: UUID, snapshot: inout GroupSnapshot) {
+        guard !ids.isEmpty, let index = snapshot.groups.firstIndex(where: { $0.id == groupID }),
+              let removed = snapshot.groups[index].removedMembers else { return }
+        let users = snapshot.users.filter { ids.contains($0.id) }
+        let remaining = removed.filter { record in
+            !users.contains { user in user.memberIDs.contains { record.matches($0, principal: user.principal) } }
+        }
+        snapshot.groups[index].removedMembers = remaining.isEmpty ? nil : remaining
+    }
+
     func lastSponsoredStart(for groupID: UUID) -> TimeInterval? {
         snapshot?.groups.first { $0.id == groupID }?.lastSponsoredStart
     }
@@ -193,12 +233,15 @@ final class GroupRepository {
               let index = snapshot.groups.firstIndex(where: { $0.id == groupID }) else { return false }
         var groups = try snapshot.groups.map { try $0.group() }
         var users = snapshot.users
+        var principal = profile.identity.principal
         if let user = users.firstIndex(where: { $0.memberIDs.contains(memberID) }) {
             guard users[user].deviceKeys?[memberID] == profile.identity.publicKey,
                   users[user].principal == nil || profile.identity.principal == nil
                     || users[user].principal == profile.identity.principal else { return false }
             users[user].displayName = name
+            principal = principal ?? users[user].principal
         }
+        if snapshot.groups[index].removedMembers?.contains(where: { $0.matches(memberID, principal: principal) }) == true { return false }
         if groups[index].accountPair != nil {
             guard groups[index].bindAccountDevice(profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs) else { return false }
         } else if groups[index].kind == .group {
@@ -286,6 +329,9 @@ final class GroupRepository {
         }
         let name = inviterName ?? next.groups[index].members.first(where: { $0.id == receipt.inviterMemberID })?.displayName
         guard let name, IntercomGroup.isValidName(name) else { throw GroupStorageError.invalidUpdate }
+        if next.groups[index].removedMembers?.contains(where: {
+            $0.matches(accepted.inviter.memberID, principal: accepted.inviter.principal)
+        }) == true { throw GroupStorageError.identityConflict }
         if !next.groups[index].receivedInvitationIDs.contains(receipt.id) {
             try next.remember(.init(id: receipt.inviterMemberID, displayName: name), identity: accepted.inviter)
             next.groups[index].receivedInvitationIDs.append(receipt.id)
@@ -367,6 +413,7 @@ final class GroupRepository {
             record.receivedInvitationIDs = old?.receivedInvitationIDs ?? []
             record.joinedByInvitation = old?.joinedByInvitation
             record.groupTabOfferAcknowledged = old?.groupTabOfferAcknowledged
+            record.removedMembers = old?.removedMembers
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations, groupDeliveries: previous.groupDeliveries)
         try modify(&next)
@@ -469,7 +516,8 @@ extension GroupRepository {
 
     /// A selection of new people and its group is one operation, including every reserved slot.
     func saveGroupInvitationSelection(_ group: IntercomGroup, credential: GroupAccessCredential,
-                                     invitees: [(person: SavedUser, token: GroupInviteToken)], now: TimeInterval, deliveries: [GroupDeliveryRecord] = []) throws {
+                                     invitees: [(person: SavedUser, token: GroupInviteToken)], now: TimeInterval,
+                                     selectedUsers: Set<UUID>, deliveries: [GroupDeliveryRecord]) throws {
         guard let snapshot, group.kind == .group, credential.groupID == group.id, !invitees.isEmpty,
               group.members.count + invitees.count <= IntercomGroup.maximumMemberCount,
               Set(invitees.map { $0.person.id }).count == invitees.count else { throw GroupStorageError.invalidUpdate }
@@ -489,6 +537,7 @@ extension GroupRepository {
             reserved.members.append(.init(id: GroupMember.pendingInvitePrefix + "contact-" + context.id.uuidString.lowercased(), displayName: person.resolvedDisplayName))
         }
         try update([reserved] + snapshot.groups.filter { $0.id != group.id }.map { try $0.group() }, credential: credential) { next in
+            Self.restoreExplicitlySelectedMembers(selectedUsers, in: group.id, snapshot: &next)
             try self.appendGroupDeliveries(deliveries, to: &next)
             for (person, token) in invitees {
                 guard let context = token.directInvitation?.context else { throw GroupStorageError.invalidUpdate }
@@ -717,6 +766,12 @@ extension GroupRepository {
             if let targetID = old.invitedGroupID {
                 guard let groupIndex = next.groups.firstIndex(where: { $0.id == targetID && $0.kind == .group }),
                       let slot = next.groups[groupIndex].members.firstIndex(where: { $0.id == old.pendingGroupMemberID }) else { throw GroupStorageError.invalidUpdate }
+                if let removed = next.groups[groupIndex].removedMembers {
+                    let matching = removed.filter { $0.matches(recipient.id, principal: verified.identity.principal) }
+                    guard matching.allSatisfy({ $0.removedAt < payload.token.issuedAt }) else { throw GroupStorageError.identityConflict }
+                    let remaining = removed.filter { !$0.matches(recipient.id, principal: verified.identity.principal) }
+                    next.groups[groupIndex].removedMembers = remaining.isEmpty ? nil : remaining
+                }
                 let alreadyMember = next.groups[groupIndex].members.contains { $0.id == recipient.id }
                     || (verified.identity.principal.map { principal in next.groups[groupIndex].accountDevices.values.contains { $0.principal == principal } } ?? false)
                 if alreadyMember { next.groups[groupIndex].members.remove(at: slot) }

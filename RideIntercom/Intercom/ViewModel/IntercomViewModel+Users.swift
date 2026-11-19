@@ -65,11 +65,13 @@ extension IntercomViewModel {
             groupErrorMessage = "Choose users who are not already in this group, up to 8 members including you."
             return false
         }
-        var updated = groups
-        updated[index].members = combined
-        updated[index].accountDevices.merge(groupAccountDevices(for: members)) { old, _ in old }
-        guard commitGroups(updated, deliveries: groupDeliveryRecords(for: ids, groupID: groupID)) else { return false }
-        if selectedGroup?.id == groupID { selectedGroup = groups[index] }
+        var updated = groups[index]
+        updated.members = combined
+        updated.accountDevices.merge(groupAccountDevices(for: members)) { old, _ in old }
+        do { try groupRepository.saveGroupMembers(updated, selectedUsers: ids, deliveries: groupDeliveryRecords(for: ids, groupID: groupID)) }
+        catch { reportGroupStorageError(error); return false }
+        refreshStoredAccountCall(groupID)
+        refreshGroupStorageStatus()
         requestGroupDeliverySync(afterMutation: true)
         return true
     }

@@ -48,6 +48,45 @@ struct ContactReplyTests {
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
     }
 
+    @Test func anOlderGroupInvitationCannotUndoRemovalButANewOneCan() throws {
+        var now = Date()
+        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "group-inviter", callAccessNow: { now })
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "group-invitee", callAccessNow: { now })
+        let a = author.viewModel, b = recipient.viewModel
+        defer { a.stopContactInvitationSession(); b.stopContactInvitationSession(); a.disconnect(); b.disconnect() }
+        a.contactSessionFactory = { RecordingCallSession() }
+        b.contactSessionFactory = { RecordingCallSession() }
+        let groupID = UUID()
+        #expect(a.createTalkGroup(name: "Ready to ride", id: groupID))
+        a.disconnect()
+
+        func makeReply(for draft: GroupInvitationDraft) throws -> URL {
+            try #require(a.saveGroupInvitations(groupID: groupID, creating: false, name: "", selected: [], newPeople: [draft]) == groupID)
+            let share = try a.prepareContactPersonShare(draft.id, expectedAccountAccessID: a.accountAccessID)
+            try b.acceptContactInviteURL(share.url)
+            b.stopContactInvitationSession()
+            return try b.contactReplyURLForSharing(share.id, expectedAccountAccessID: b.accountAccessID)
+        }
+
+        let first = GroupInvitationDraft(name: "Rider", suggestedName: "Rider")
+        try a.receiveContactReplyURL(makeReply(for: first))
+        let memberID = b.localMemberIdentity.memberID
+        #expect(a.groups.first { $0.id == groupID }?.members.contains { $0.id == memberID } == true)
+        let old = GroupInvitationDraft(name: "Earlier invitation", suggestedName: "Rider")
+        let delayedReply = try makeReply(for: old)
+        now.addTimeInterval(1)
+        #expect(a.removeMember(memberID, from: groupID))
+        let removed = author.groupStore.snapshot
+        #expect(throws: (any Error).self) { try a.receiveContactReplyURL(delayedReply) }
+        #expect(author.groupStore.snapshot == removed)
+
+        now.addTimeInterval(1)
+        let fresh = GroupInvitationDraft(name: "Invite the rider again", suggestedName: "Rider")
+        try a.receiveContactReplyURL(makeReply(for: fresh))
+        #expect(a.groups.first { $0.id == groupID }?.members.contains { $0.id == memberID } == true)
+        #expect(author.groupStore.snapshot.groups.first { $0.id == groupID }?.removedMembers == nil)
+    }
+
     @Test func duplicateRepliesAndConfirmationsAreIdempotentAndContainNoInviteSecrets() throws {
         let (a, b, id) = try pair()
         let reply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
@@ -298,7 +337,7 @@ struct ContactReplyTests {
         let expectedPerson = old.users.first { $0.memberIDs.contains("reply-author") }?.id
         h.groupStore.snapshot = try GroupSnapshot.decode(old.encoded())
         h.viewModel.reloadSavedGroups()
-        #expect(h.groupStore.snapshot.version == 12)
+        #expect(h.groupStore.snapshot.version == 13)
         #expect(h.viewModel.contactInvitationRecord(id)?.personID == expectedPerson)
         return url
     }

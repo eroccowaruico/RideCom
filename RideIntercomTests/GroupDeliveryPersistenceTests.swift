@@ -127,7 +127,7 @@ import Testing
             credentialReference: UUID(), nickname: person.resolvedDisplayName, personID: person.id)
         var old = GroupSnapshot(users: [person], contactInvitations: [record]); old.version = 10
         let upgraded = old.upgraded()
-        #expect(upgraded.version == 12 && upgraded.users == [person])
+        #expect(upgraded.version == 13 && upgraded.users == [person])
         #expect(upgraded.contactInvitations.first?.personID == person.id && upgraded.groupDeliveries.isEmpty)
     }
 

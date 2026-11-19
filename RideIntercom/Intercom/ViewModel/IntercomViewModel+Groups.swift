@@ -161,26 +161,25 @@ extension IntercomViewModel {
             return false
         }
 
-        var updated = groups
-        updated[groupIndex].members.removeAll { $0.id == memberID }
-        updated[groupIndex].accountDevices.removeValue(forKey: memberID)
-        guard commitGroups(updated) else { return false }
+        let removed: Set<String>
+        do { removed = try groupRepository.removeGroupMember(memberID, from: groupID, now: callAccessNow().timeIntervalSince1970) }
+        catch { reportGroupStorageError(error); return false }
+        refreshStoredAccountCall(groupID)
+        refreshGroupStorageStatus()
         groupErrorMessage = nil
         requestGroupDeliverySync(afterMutation: true)
         if activeGroupID == groupID {
-            connectedPeerIDs.removeAll { $0 == memberID }
-            authenticatedPeerIDs.removeAll { $0 == memberID }
-            peerProfiles.removeValue(forKey: memberID)
+            connectedPeerIDs.removeAll { removed.contains($0) }
+            authenticatedPeerIDs.removeAll { removed.contains($0) }
+            for id in removed { peerProfiles.removeValue(forKey: id) }
             callSession.setAudioPolicy(currentCallAudioPolicy())
             refreshCallAccess()
-            remoteVoiceReceivedAt.removeValue(forKey: memberID)
-            remoteVoicePeakWindows.removeValue(forKey: memberID)
-            do { try audioPipeline.stopReceivePeer(memberID) }
-            catch { audioErrorMessage = "Could not release the rider's audio. Reconnect to reset audio." }
-        }
-
-        if selectedGroup?.id == groupID {
-            selectedGroup = groups[groupIndex]
+            for id in removed {
+                remoteVoiceReceivedAt.removeValue(forKey: id)
+                remoteVoicePeakWindows.removeValue(forKey: id)
+                do { try audioPipeline.stopReceivePeer(id) }
+                catch { audioErrorMessage = "Could not release the rider's audio. Reconnect to reset audio." }
+            }
         }
         return true
     }

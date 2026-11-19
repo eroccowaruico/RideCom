@@ -2,7 +2,22 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 12
+    static let currentVersion = 13
+    struct RemovedMember: Codable, Equatable {
+        var memberIDs: Set<String>
+        let principal: AccountPrincipal?
+        let removedAt: TimeInterval
+
+        func matches(_ memberID: String, principal: AccountPrincipal?) -> Bool {
+            memberIDs.contains(memberID) || (principal != nil && self.principal == principal)
+        }
+
+        var isValid: Bool {
+            !memberIDs.isEmpty && memberIDs.allSatisfy {
+                IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix)
+            } && (principal?.isValid ?? true) && removedAt.isFinite && removedAt >= 0
+        }
+    }
     struct Member: Codable, Equatable {
         var id: String
         var displayName: String
@@ -25,6 +40,7 @@ struct GroupSnapshot: Codable, Equatable {
         var joinedByInvitation: Bool?
         /// Only newly received groups have false; nil preserves the behavior of legacy records.
         var groupTabOfferAcknowledged: Bool?
+        var removedMembers: [RemovedMember]?
 
         init(_ group: IntercomGroup, credentialReference: UUID? = nil) {
             id = group.id; name = group.name
@@ -35,7 +51,7 @@ struct GroupSnapshot: Codable, Equatable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, lastSponsoredStart, joinedByInvitation, groupTabOfferAcknowledged
+            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, lastSponsoredStart, joinedByInvitation, groupTabOfferAcknowledged, removedMembers
         }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -51,6 +67,7 @@ struct GroupSnapshot: Codable, Equatable {
             lastSponsoredStart = try values.decodeIfPresent(TimeInterval.self, forKey: .lastSponsoredStart)
             joinedByInvitation = try values.decodeIfPresent(Bool.self, forKey: .joinedByInvitation)
             groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
+            removedMembers = try values.decodeIfPresent([RemovedMember].self, forKey: .removedMembers)
         }
         func group() throws -> IntercomGroup {
             try IntercomGroup(id: id, name: name, members: members.map { GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName) }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
@@ -164,6 +181,12 @@ struct GroupSnapshot: Codable, Equatable {
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {
             _ = try record.group()
+            if let removed = record.removedMembers, !removed.isEmpty {
+                guard version >= 13, record.kind == .group, removed.allSatisfy(\.isValid),
+                      !record.members.contains(where: { member in
+                          removed.contains { $0.matches(member.id, principal: record.accountDevices[member.id]?.principal) }
+                      }) else { throw IntercomGroupError.invalidStoredGroups }
+            }
             if let start = record.lastSponsoredStart {
                 guard start.isFinite, start > 0 else { throw IntercomGroupError.invalidStoredGroups }
             }

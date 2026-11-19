@@ -175,6 +175,53 @@ struct RegularGroupRepresentativeTests {
         #expect(vm.standardCallStatus == .connecting)
     }
 
+    @Test(arguments: [false, true])
+    func removingAMemberKeepsThatPersonOutWhenTheCallRestarts(internet: Bool) throws {
+        let f = try RegularRepresentativeFixture(); defer { f.stop() }
+        let vm = f.h.viewModel
+        let removed = try f.signer("phone")
+        let secondDevice = try f.signer("tablet")
+        let remaining = try f.signer("remaining", account: "c")
+        f.h.callSession.authenticate(["phone", "remaining"])
+        try f.deliver(removed); try f.deliver(remaining)
+        #expect(Set(vm.callAccessAdmittedMemberships.keys.map(\.rawValue)) == ["phone", "remaining"])
+        let call = vm.currentCallReference
+        #expect(vm.removeMember("phone", from: f.groupID))
+        #expect(vm.currentCallReference == call)
+        #expect(Set(vm.callAccessAdmittedMemberships.keys.map(\.rawValue)) == ["remaining"])
+        vm.disconnect()
+        vm.reloadSavedGroups()
+        vm.selectGroup(try #require(vm.groups.first { $0.id == f.groupID }))
+        vm.handleTransportEvent(.authenticated(members: ["phone", "tablet", "remaining"].map {
+            .init(peer: .init(id: .init(rawValue: $0), displayName: $0),
+                  route: internet ? .webRTC : .multipeer, isConnected: true, membershipID: UUID())
+        }))
+        try f.deliver(removed); try f.deliver(secondDevice); try f.deliver(remaining)
+        #expect(Set(vm.groups[0].members.map(\.id)) == ["local", "remaining"])
+        #expect(Set(vm.callAccessAdmittedMemberships.keys.map(\.rawValue)) == ["remaining"])
+    }
+
+    @Test func onlyExplicitlyAddingTheSavedPersonRestoresTheirGroupAccess() throws {
+        let f = try RegularRepresentativeFixture(); defer { f.stop() }
+        let vm = f.h.viewModel, signer = try f.signer("phone")
+        let secret = try #require(vm.groupRepository.credential(for: f.groupID)?.secret)
+        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: signer,
+            groupID: f.groupID, groupName: "Friends", groupSecret: secret, inviterMemberID: "phone")
+        let link = try GroupInviteTokenCodec.joinURL(for: token)
+        try vm.acceptInviteURL(link)
+        let person = try #require(vm.savedRemoteUsers.first)
+        #expect(vm.removeMember("phone", from: f.groupID))
+        #expect(vm.savedRemoteUsers.first?.id == person.id)
+        let excluded = try GroupSnapshot.decode(f.h.groupStore.snapshot.encoded())
+        #expect(excluded.groups.first?.removedMembers?.first?.principal == signer.principal)
+        #expect(throws: (any Error).self) { try vm.acceptInviteURL(link) }
+        #expect(vm.addSavedUsers([person.id], to: f.groupID))
+        f.h.callSession.authenticate(["phone"])
+        try f.deliver(signer)
+        #expect(vm.callAccessAdmittedMemberships.keys.map(\.rawValue) == ["phone"])
+        #expect(f.h.groupStore.snapshot.groups.first?.removedMembers == nil)
+    }
+
     @Test func replacementCannotUseCopiedKeyDifferentAccountOrOldConnectionProof() throws {
         let f = try RegularRepresentativeFixture(); defer { f.stop() }
         let vm = f.h.viewModel, first = try f.signer("phone")

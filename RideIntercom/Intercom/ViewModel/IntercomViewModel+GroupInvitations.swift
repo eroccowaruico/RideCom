@@ -43,7 +43,8 @@ extension IntercomViewModel {
                 (person: draft.person, token: try ContactInvitationSession.makeToken(authority: invitationAuthority, signer: signer,
                     displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970, invitedGroup: target))
             }
-            try groupRepository.saveGroupInvitationSelection(group, credential: key, invitees: invitees, now: callAccessNow().timeIntervalSince1970, deliveries: groupDeliveryRecords(for: selected, groupID: groupID))
+            try groupRepository.saveGroupInvitationSelection(group, credential: key, invitees: invitees,
+                now: callAccessNow().timeIntervalSince1970, selectedUsers: selected, deliveries: groupDeliveryRecords(for: selected, groupID: groupID))
             if groups.contains(where: { $0.id == groupID }) { refreshStoredAccountCall(groupID) }
             else if let saved = groupRepository.storedGroup(groupID) { groups.insert(saved, at: 0) }
             refreshGroupStorageStatus()
