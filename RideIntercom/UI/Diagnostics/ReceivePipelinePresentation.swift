@@ -25,7 +25,22 @@ struct ReceivePipelinePresentation {
     }
 
     private var receivePeerBusCount: Int { receivePeerStates.count }
-    private var hasScheduledPeerAudio: Bool { receivePeerStates.values.contains(.passing) }
+    private var mixState: PipelineStepState { receivePeerStates.values.contains(.passing) ? .passing : .waiting }
+
+    private var masterBusDetail: String {
+        let bus = input.mixerBusSnapshot(id: "rx-master")
+        return bus.map { "\(receivePeerBusCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
+            ?? "\(receivePeerBusCount) in / OUT \(Int(input.masterOutputVolume * 100))%"
+    }
+
+    private func receiveMixerStep(id: String, title: String, icon: String,
+                                  detail: @autoclosure () -> String, state: @autoclosure () -> PipelineStepState,
+                                  accessibilityIdentifier: String) -> PipelineStep {
+        PipelineStep(
+            id: id, package: "AudioMixer", title: title, detail: input.isAudioReady ? detail() : "Not available",
+            icon: icon, state: input.isAudioReady ? state() : .idle, accessibilityIdentifier: accessibilityIdentifier
+        )
+    }
 
     var receiveParticipants: [GroupMember] {
         let members = Array(input.selectedGroup?.members.dropFirst() ?? [])
@@ -40,213 +55,92 @@ struct ReceivePipelinePresentation {
     }
 
     var rtcReceiveStep: PipelineStep {
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "rtc-receive",
-                package: "RTC",
-                title: "RTC RX",
-                detail: "Media Idle",
-                icon: "dot.radiowaves.left.and.right",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-rtc-step"
-            )
+        let value: (detail: String, state: PipelineStepState)
+        if !input.isAudioReady {
+            value = ("Media Idle", .idle)
+        } else if input.selectedGroupConnectionState != .localConnected && input.selectedGroupConnectionState != .internetConnected {
+            value = ("Control Waiting", .waiting)
+        } else {
+            let received = input.receivedVoicePacketCount
+            let dropped = input.droppedAudioPacketCount
+            let peers = "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount)"
+            let receipt = observation(input.lastReceivedAudioAt)
+            let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? " / Receipt time not measured"
+            let media = received > 0 || dropped > 0 ? " / RX \(received)" : ""
+            let failures = dropped > 0 ? " / DROP \(dropped)" : ""
+            value = (peers + media + lastReceipt + failures, receipt.state)
         }
-        guard input.selectedGroupConnectionState == .localConnected || input.selectedGroupConnectionState == .internetConnected else {
-            return PipelineStep(
-                id: "rtc-receive",
-                package: "RTC",
-                title: "RTC RX",
-                detail: "Control Waiting",
-                icon: "dot.radiowaves.left.and.right",
-                state: .waiting,
-                accessibilityIdentifier: "receive-pipeline-rtc-step"
-            )
-        }
-        let received = input.receivedVoicePacketCount
-        let dropped = input.droppedAudioPacketCount
-        let peers = "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount)"
-        let receipt = observation(input.lastReceivedAudioAt)
-        let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? " / Receipt time not measured"
-        let media = received > 0 || dropped > 0 ? " / RX \(received)" : ""
-        let failures = dropped > 0 ? " / DROP \(dropped)" : ""
         return PipelineStep(
-            id: "rtc-receive",
-            package: "RTC",
-            title: "RTC RX",
-            detail: peers + media + lastReceipt + failures,
-            icon: "dot.radiowaves.left.and.right",
-            state: receipt.state,
+            id: "rtc-receive", package: "RTC", title: "RTC RX", detail: value.detail,
+            icon: "dot.radiowaves.left.and.right", state: value.state,
             accessibilityIdentifier: "receive-pipeline-rtc-step"
         )
     }
 
     var codecDecodeStep: PipelineStep {
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "codec-decode",
-                package: "Codec",
-                title: "Decode",
-                detail: "Not available",
-                icon: "cpu",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-codec-step"
-            )
-        }
         let counts = input.receiveDecodeCounts
-        let hasPCM = counts.pcmPackets > 0
-        let pcm = hasPCM || counts.failures > 0 ? "PCM \(counts.pcmPackets)" : "No PCM observed"
-        let decoded = observation(counts.lastPCMAt)
-        let lastPCM = decoded.elapsed.map { " / Last PCM · \($0)" } ?? ""
-        let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
+        let hasPCM = input.isAudioReady && counts.pcmPackets > 0
+        let value: (detail: String, state: PipelineStepState)
+        if input.isAudioReady {
+            let pcm = hasPCM || counts.failures > 0 ? "PCM \(counts.pcmPackets)" : "No PCM observed"
+            let decoded = observation(counts.lastPCMAt)
+            let lastPCM = decoded.elapsed.map { " / Last PCM · \($0)" } ?? ""
+            let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
+            value = (pcm + lastPCM + failures, decoded.state)
+        } else {
+            value = ("Not available", .idle)
+        }
         return PipelineStep(
-            id: "codec-decode",
-            package: "Codec",
-            title: "Decode",
-            detail: pcm + lastPCM + failures,
-            icon: hasPCM ? "cpu.fill" : "cpu",
-            state: decoded.state,
+            id: "codec-decode", package: "Codec", title: "Decode", detail: value.detail,
+            icon: hasPCM ? "cpu.fill" : "cpu", state: value.state,
             accessibilityIdentifier: "receive-pipeline-codec-step"
         )
     }
 
     var peerBusStep: PipelineStep {
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "peer-bus",
-                package: "AudioMixer",
-                title: "Peer Buses",
-                detail: "Not available",
-                icon: "person.2.wave.2",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-peer-bus-step"
-            )
-        }
-        return PipelineStep(
-            id: "peer-bus",
-            package: "AudioMixer",
-            title: "Peer Buses",
-            detail: "\(receivePeerBusCount) peer buses",
-            icon: "person.2.wave.2",
-            state: hasScheduledPeerAudio ? .passing : .waiting,
-            accessibilityIdentifier: "receive-pipeline-peer-bus-step"
-        )
+        receiveMixerStep(id: "peer-bus", title: "Peer Buses", icon: "person.2.wave.2",
+            detail: "\(receivePeerBusCount) peer buses", state: mixState,
+            accessibilityIdentifier: "receive-pipeline-peer-bus-step")
     }
 
     var receiveMixStep: PipelineStep {
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "receive-mix",
-                package: "AudioMixer",
-                title: "Mix Down",
-                detail: "Not available",
-                icon: "arrow.triangle.merge",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-mix-step"
-            )
-        }
         let routeLabel = receivePeerBusCount == 1 ? "route" : "routes"
-        return PipelineStep(
-            id: "receive-mix",
-            package: "AudioMixer",
-            title: "Mix Down",
-            detail: "\(receivePeerBusCount) \(routeLabel) → rx-master",
-            icon: "arrow.triangle.merge",
-            state: hasScheduledPeerAudio ? .passing : .waiting,
-            accessibilityIdentifier: "receive-pipeline-mix-step"
-        )
+        return receiveMixerStep(id: "receive-mix", title: "Mix Down", icon: "arrow.triangle.merge",
+            detail: "\(receivePeerBusCount) \(routeLabel) → rx-master", state: mixState,
+            accessibilityIdentifier: "receive-pipeline-mix-step")
     }
 
     var masterBusStep: PipelineStep {
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "master-bus",
-                package: "AudioMixer",
-                title: "RX Master",
-                detail: "Not available",
-                icon: "waveform.path.ecg",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-master-bus-step"
-            )
-        }
-        let bus = input.mixerBusSnapshot(id: "rx-master")
-        return PipelineStep(
-            id: "master-bus",
-            package: "AudioMixer",
-            title: "RX Master",
-            detail: bus.map { "\(receivePeerBusCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
-                ?? "\(receivePeerBusCount) in / OUT \(Int(input.masterOutputVolume * 100))%",
-            icon: "waveform.path.ecg",
-            state: hasScheduledPeerAudio ? .passing : .waiting,
-            accessibilityIdentifier: "receive-pipeline-master-bus-step"
-        )
+        receiveMixerStep(id: "master-bus", title: "RX Master", icon: "waveform.path.ecg",
+            detail: masterBusDetail, state: mixState, accessibilityIdentifier: "receive-pipeline-master-bus-step")
     }
 
     var masterEffectChainStep: PipelineStep {
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "master-effects",
-                package: "AudioMixer",
-                title: "Master FX",
-                detail: "Not available",
-                icon: "wand.and.sparkles",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-master-effects-step"
-            )
-        }
-        return PipelineStep(
-            id: "master-effects",
-            package: "AudioMixer",
-            title: "Master FX",
-            detail: input.receiveMasterEffectChainSnapshot.summary,
-            icon: "wand.and.sparkles",
-            state: aggregateState(masterEffectStages.map(\.state)),
-            accessibilityIdentifier: "receive-pipeline-master-effects-step"
-        )
+        receiveMixerStep(id: "master-effects", title: "Master FX", icon: "wand.and.sparkles",
+            detail: input.receiveMasterEffectChainSnapshot.summary, state: aggregateState(masterEffectStages.map(\.state)),
+            accessibilityIdentifier: "receive-pipeline-master-effects-step")
     }
 
     var outputStep: PipelineStep {
-        if input.isOutputMuted || input.masterOutputVolume == 0 {
-            return PipelineStep(
-                id: "output",
-                package: "SessionManager",
-                title: "Output",
-                detail: input.isOutputMuted ? "Muted" : "Volume 0%",
-                icon: "speaker.slash.fill",
-                state: input.isOutputMuted ? .muted : .waiting,
-                accessibilityIdentifier: "receive-pipeline-output-step"
-            )
-        }
-        guard input.isAudioReady else {
-            return PipelineStep(
-                id: "output",
-                package: "SessionManager",
-                title: "Output",
-                detail: "Not available",
-                icon: "speaker",
-                state: .idle,
-                accessibilityIdentifier: "receive-pipeline-output-step"
-            )
-        }
-        var state = PipelineStepState.waiting
-        let detail: String
-        if input.usesNativeOutput {
+        let value: (detail: String, icon: String, state: PipelineStepState)
+        if input.isOutputMuted {
+            value = ("Muted", "speaker.slash.fill", .muted)
+        } else if input.masterOutputVolume == 0 {
+            value = ("Volume 0%", "speaker.slash.fill", .waiting)
+        } else if !input.isAudioReady {
+            value = ("Not available", "speaker", .idle)
+        } else if input.usesNativeOutput {
             let output = observation(input.lastNativeAudibleOutputAt)
-            state = output.state
-            detail = output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed"
-        } else if let timestamp = input.lastPlaybackScheduledAt {
-            let age = max(0, input.capturedAt - timestamp)
-            detail = "Playback scheduled · \(Int(age))s ago / Render not measured"
+            value = (output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed",
+                     "speaker.wave.2.fill", output.state)
+        } else if let elapsed = observation(input.lastPlaybackScheduledAt).elapsed {
+            value = ("Playback scheduled · \(elapsed) / Render not measured", "speaker.wave.2.fill", .waiting)
         } else {
-            detail = "No playback scheduled / Render not measured"
+            value = ("No playback scheduled / Render not measured", "speaker.wave.2.fill", .waiting)
         }
         return PipelineStep(
-            id: "output",
-            package: "SessionManager",
-            title: "Output",
-            detail: detail,
-            icon: "speaker.wave.2.fill",
-            state: state,
-            accessibilityIdentifier: "receive-pipeline-output-step"
+            id: "output", package: "SessionManager", title: "Output", detail: value.detail,
+            icon: value.icon, state: value.state, accessibilityIdentifier: "receive-pipeline-output-step"
         )
     }
 
