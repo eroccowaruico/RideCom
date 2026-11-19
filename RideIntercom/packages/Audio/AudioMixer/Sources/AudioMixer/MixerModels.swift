@@ -85,6 +85,9 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 	public var normalizationReport: AudioProcessingReport?
 	public var bufferedDuration: TimeInterval?
 	public var playbackResetCount: Int
+	/// Number of adaptive playout position changes over this PCM source's lifetime.
+	/// Absent for sources without a PCM player and snapshots from older versions.
+	public var playoutAdjustmentCount: Int?
 	public var lastFailure: String?
 
 	public init(
@@ -99,7 +102,8 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 		lastFailure: String? = nil,
 		bufferedDuration: TimeInterval? = nil,
 		playbackResetCount: Int = 0,
-		lastScheduledAt: TimeInterval? = nil
+		lastScheduledAt: TimeInterval? = nil,
+		playoutAdjustmentCount: Int? = nil
 	) {
 		self.id = id
 		self.typeName = typeName
@@ -113,6 +117,7 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 		self.lastFailure = lastFailure
 		self.bufferedDuration = bufferedDuration
 		self.playbackResetCount = playbackResetCount
+		self.playoutAdjustmentCount = playoutAdjustmentCount
 	}
 }
 

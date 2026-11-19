@@ -1,5 +1,6 @@
 import AudioCore
 import AVFAudio
+import Foundation
 import Synchronization
 import Testing
 
@@ -172,6 +173,14 @@ func omittedSilenceComparesExcessWaitInWholeSamples(extraSamples: Int) throws {
     let reply = try #require(rendered.firstIndex { abs($0 - 0.4) < 0.00001 })
     #expect(rendered.filter { abs($0 - 0.4) < 0.00001 }.count == quantum)
     #expect(source.playbackResetCount == 0)
+    let snapshot = try #require(bus.snapshot().sources.first)
+    let data = try JSONEncoder().encode(snapshot)
+    var fields = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(fields.removeValue(forKey: "playoutAdjustmentCount") as? Int == extraSamples)
+    let legacy = try JSONSerialization.data(withJSONObject: fields)
+    let decoded = try JSONDecoder().decode(MixerSourceSnapshot.self, from: legacy)
+    #expect(decoded.playoutAdjustmentCount == nil)
+    #expect(decoded.id == snapshot.id)
     if extraSamples == 0 {
         #expect(source.playoutAdjustmentCount == 0)
         #expect(reply - first == intendedSample)

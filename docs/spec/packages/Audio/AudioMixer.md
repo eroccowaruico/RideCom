@@ -210,7 +210,7 @@ external caller
 | `MixerPCMSource` | 任意formatの `PCMFrame` を bus processing format に正規化して graph へ入れる |
 | `MixerPCMSink` | bus processing format の PCM を target format に正規化して emit する |
 | `AudioMixerSnapshot` | bus、source、sink、effect、route、graph を診断する |
-| `MixerSourceSnapshot` | source original format、mixer format、scheduled count、`lastScheduledAt`、normalization report、last failure を持つ |
+| `MixerSourceSnapshot` | source original format、mixer format、scheduled count、`lastScheduledAt`、normalization report、last failure とPCM sourceの再生予約情報を持つ |
 | `MixerSinkSnapshot` | mixer format、target format、emitted count、normalization report、last failure を持つ |
 | `MixerEffectSnapshot` | effect id、型名、順序、状態、表示用parameterを持つ |
 | `MixerGraphSnapshot` | node / edge として現在の信号経路を表す |
@@ -388,7 +388,7 @@ snapshot は Codable とし、RTC runtime package report へ載せられる。
 | 計測 | source playerの有効な再生sample時刻と予約末尾の差。停止前・開始直後の無効なAVAudioTimeを照会しない |
 | 超過 | 新frameを加える前の予約量が上限以上なら、`.interrupts`で古い予約を最新bufferへ置換する。player時計、他peerのsource、effect instanceは維持する |
 | 単一frameが上限超過 | schedule失敗として報告。長いframeを遅延再生したり、formatを偽装して短く扱わない |
-| snapshot | `bufferedDuration`と`playbackResetCount`をsourceごとに報告 |
+| snapshot | `bufferedDuration`、`playbackResetCount`、`playoutAdjustmentCount`をsourceごとに報告。調整回数はadaptive playoutによる予約位置の調整の累計で、PCM sourceの生成時に0から始まる。PCM playerのないsourceや旧形式のsnapshotの調整回数はnil |
 | Mixer停止 | 全PCM sourceを停止して予約も解放する。再開後に旧音声を出さない |
 
 これは新frameが再生開始を待つ時間の上限であり、OS・実機の出力遅延保証ではない。瞬間的な欠落よりも過去の会話が遅れて続くことを避けるlive用途と、録音再生用途を明示的に分ける。

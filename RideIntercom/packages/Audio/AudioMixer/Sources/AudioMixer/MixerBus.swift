@@ -249,7 +249,8 @@ public final class MixerBus {
 		defer { metadataLock.unlock() }
 		let sourceSnapshots = sourceNodeOrder.enumerated().compactMap { index, nodeID in
 			sourceMetadataByNodeID[nodeID].map {
-				MixerSourceSnapshot(
+				let pcmSource = pcmSourceByNodeID[nodeID]
+				return MixerSourceSnapshot(
 					id: $0.id,
 					typeName: $0.typeName,
 					index: index,
@@ -259,9 +260,10 @@ public final class MixerBus {
 					scheduledFrameCount: $0.scheduledFrameCount,
 					normalizationReport: $0.normalizationReport,
 					lastFailure: $0.lastFailure,
-					bufferedDuration: pcmSourceByNodeID[nodeID]?.bufferedDuration,
-					playbackResetCount: pcmSourceByNodeID[nodeID]?.playbackResetCount ?? 0,
-					lastScheduledAt: $0.lastScheduledAt
+					bufferedDuration: pcmSource?.bufferedDuration,
+					playbackResetCount: pcmSource?.playbackResetCount ?? 0,
+					lastScheduledAt: $0.lastScheduledAt,
+					playoutAdjustmentCount: pcmSource?.playoutAdjustmentCount
 				)
 			}
 		}
