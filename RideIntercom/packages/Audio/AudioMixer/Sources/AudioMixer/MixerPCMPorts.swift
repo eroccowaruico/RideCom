@@ -38,7 +38,7 @@ public final class MixerPCMSource {
 	private typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
 
 	private var playbackPosition: PlaybackPosition {
-        guard playerNode.isPlaying else { return (0, 0) }
+		// playerTime also checks that the node is playing.
 		return playerNode.lastRenderTime.flatMap { time in
 			guard time.isSampleTimeValid || time.isHostTimeValid,
 			      let played = playerNode.playerTime(forNodeTime: time), played.isSampleTimeValid else { return nil }

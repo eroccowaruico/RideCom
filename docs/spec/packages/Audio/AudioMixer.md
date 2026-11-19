@@ -385,7 +385,7 @@ snapshot は Codable とし、RTC runtime package report へ載せられる。
 | 項目 | 契約 |
 |---|---|
 | `addPCMSource(id:maximumBufferedDuration:captureTimePlayoutDelay:)` | nilは録音済み音声などの連続予約。正の秒数を指定すると新frameの再生開始までの待ち時間上限。同じ値を単一frame長の上限にも使う |
-| 計測 | source playerの有効な再生sample時刻と予約末尾の差。停止前・開始直後の無効なAVAudioTimeを照会しない |
+| 計測 | source playerの有効な再生sample時刻と予約末尾の差。描画時刻が有効なときにplayer時刻へ変換し、時刻が得られない停止中・一時停止中・開始直後は再生位置0として扱う |
 | 超過 | 新frameを加える前の予約量が上限以上なら、`.interrupts`で古い予約を最新bufferへ置換する。player時計、他peerのsource、effect instanceは維持する |
 | 単一frameが上限超過 | schedule失敗として報告。長いframeを遅延再生したり、formatを偽装して短く扱わない |
 | snapshot | `bufferedDuration`、`playbackResetCount`、`playoutAdjustmentCount`をsourceごとに報告。調整回数はadaptive playoutによる予約位置の調整の累計で、PCM sourceの生成時に0から始まる。PCM playerのないsourceや旧形式のsnapshotの調整回数はnil |

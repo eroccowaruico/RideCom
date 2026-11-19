@@ -69,6 +69,51 @@ private final class QuantumFrames: @unchecked Sendable {
 // Hardware-clock checks run in XCTest's serial phase, separately from the
 // parallel offline graph tests that create and destroy many native Audio Units.
 final class RealtimeRenderBoundaryTests: XCTestCase {
+    func testPausedAndStoppedPlayersPreserveTheirPlaybackBoundaries() throws {
+        let mixer = try AudioMixer(audioFormat: .init())
+        let bus = try mixer.createBus("player-lifecycle")
+        let source = try bus.addPCMSource(id: "voice", maximumBufferedDuration: 0.12,
+            captureTimePlayoutDelay: 0.002, adaptivePlayout: true)
+        try mixer.routeToOutput(bus)
+        try mixer.engine.enableManualRenderingMode(.offline, format: mixer.format, maximumFrameCount: 480)
+        try mixer.start()
+        defer { mixer.stop() }
+        let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: mixer.format, frameCapacity: 480))
+
+        func render() throws -> [Float] {
+            XCTAssertEqual(try mixer.engine.renderOffline(480, to: output), .success)
+            let samples = try XCTUnwrap(output.floatChannelData)[0]
+            return Array(UnsafeBufferPointer(start: samples, count: Int(output.frameLength)))
+        }
+
+        try source.schedule(.init(sequenceNumber: 0, capturedAt: 100,
+            samples: Array(repeating: 0.2, count: 4_800)))
+        let queuedBeforePlayback = source.bufferedDuration
+        XCTAssertEqual(queuedBeforePlayback, 0.102, accuracy: 1 / 48_000)
+        source.start()
+        var played = try render()
+        played += try render()
+        XCTAssertLessThan(source.bufferedDuration, queuedBeforePlayback)
+
+        source.playerNode.pause()
+        XCTAssertTrue(try render().allSatisfy { abs($0) < 0.001 })
+        XCTAssertEqual(source.bufferedDuration, queuedBeforePlayback, accuracy: 1 / 48_000)
+        source.start()
+        for _ in 0..<10 { played += try render() }
+        XCTAssertEqual(played.filter { abs($0 - 0.2) < 0.001 }.count, 4_800)
+
+        source.stop()
+        XCTAssertEqual(source.bufferedDuration, 0)
+        XCTAssertTrue(try render().allSatisfy { abs($0) < 0.001 })
+        try source.schedule(.init(sequenceNumber: 1, capturedAt: 101,
+            samples: Array(repeating: 0.3, count: 480)))
+        XCTAssertTrue(try render().allSatisfy { abs($0) < 0.001 })
+        source.start()
+        let replayed = try render() + render()
+        XCTAssertEqual(replayed.filter { abs($0 - 0.3) < 0.001 }.count, 480)
+        XCTAssertEqual(replayed.filter { abs($0 - 0.2) < 0.001 }.count, 0)
+    }
+
 func testAdaptivePlayerPreparesItsClockBeforeTheFirstUtterance() async throws {
     let mixer = try AudioMixer(audioFormat: .init())
     let bus = try mixer.createBus("ready-clock")
