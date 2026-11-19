@@ -1,5 +1,6 @@
 import AudioMixer
 import SessionManager
+import VADGate
 
 struct DiagnosticsInput {
     var audioErrorMessage: String?
@@ -9,6 +10,7 @@ struct DiagnosticsInput {
     var isMicrophoneCaptureRunning: Bool
     var isMuted: Bool
     var isVoiceActive: Bool
+    var vadGateRuntimeSnapshot: VADGateRuntimeSnapshot
     var lastAudioSessionConfigurationReport: SessionManager.AudioSessionConfigurationReport?
     var lastInputStreamOperationReport: SessionManager.AudioStreamOperationReport?
     var lastVoiceProcessingOperationReport: SessionManager.AudioStreamOperationReport?
@@ -16,7 +18,7 @@ struct DiagnosticsInput {
     var routeLabel: String
     var selectedGroupConnectionState: CallConnectionState
     var selectedTransmitCodec: AudioCodecIdentifier
-    var sentVoicePacketCount: Int
+    var encodedAudioPacketCount: Int
     var transmitEffectChainSnapshot: AudioEffectChainSnapshot
     var audioMixerSnapshot: AudioMixerSnapshot
     var authenticatedPeerCount: Int
@@ -43,6 +45,7 @@ struct DiagnosticsInput {
         isMicrophoneCaptureRunning = viewModel.isMicrophoneCaptureRunning
         isMuted = viewModel.isMuted
         isVoiceActive = viewModel.isVoiceActive
+        vadGateRuntimeSnapshot = viewModel.vadGateRuntimeSnapshot
         lastAudioSessionConfigurationReport = viewModel.lastAudioSessionConfigurationReport
         lastInputStreamOperationReport = viewModel.lastInputStreamOperationReport
         lastVoiceProcessingOperationReport = viewModel.lastVoiceProcessingOperationReport
@@ -50,7 +53,8 @@ struct DiagnosticsInput {
         routeLabel = viewModel.routeLabel
         selectedGroupConnectionState = viewModel.selectedGroupConnectionState
         selectedTransmitCodec = viewModel.selectedTransmitCodec
-        sentVoicePacketCount = viewModel.sentVoicePacketCount
+        // The transmitter increments this count as it collects encoded frames for delivery.
+        encodedAudioPacketCount = viewModel.sentVoicePacketCount
         transmitEffectChainSnapshot = viewModel.transmitEffectChainSnapshot
         audioMixerSnapshot = viewModel.audioMixerSnapshot
         authenticatedPeerCount = viewModel.authenticatedPeerCount

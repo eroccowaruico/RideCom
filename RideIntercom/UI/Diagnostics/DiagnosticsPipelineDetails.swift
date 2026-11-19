@@ -9,7 +9,7 @@ struct DiagnosticsTransmitRoutes: View {
     @Bindable var viewModel: IntercomViewModel
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.s) {
-            Text("Packets/s: Not measured")
+            Text("Audio delivery: Not measured")
             ForEach(RouteKind.allCases, id: \.rawValue) { route in
                 let paths = viewModel.networkDiagnostics?.peers.filter { $0.route == route } ?? []
                 VStack(alignment: .leading) {

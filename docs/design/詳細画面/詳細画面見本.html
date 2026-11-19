@@ -277,7 +277,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card">
             <div class="row"><span class="k"><span class="d ok"></span> Session</span><span class="v">Burst mode · active</span><span class="x"></span></div>
             <div class="row"><span class="k"><span class="d ok"></span> Input</span><span class="v">AirPods Pro · 48 kHz mono</span><span class="x num"><b>48,000</b> frames/s</span></div>
-            <div class="row"><span class="k"><span class="d ok"></span> VAD</span><span class="v">Speech · Standard<div class="sub num">Noise floor −52 dBFS · Threshold −40 dBFS</div></span><span class="x"></span></div>
+            <div class="row"><span class="k"><span class="d ok"></span> VAD</span><span class="v">Speech · Standard<div class="sub">Microphone input before TX Bus Effects.</div><div class="sub num">Input −28.0 dBFS / Noise floor −52.0 dBFS / Threshold −40.0 dBFS / Gain 1.00</div></span><span class="x"></span></div>
             <div class="row" style="border-bottom:0"><span class="k"><span class="d ok"></span> TX Bus</span><span class="v"><span class="sub mono">tx-bus</span> · 1 source · 3 effects</span><span class="x"></span></div>
             <div class="nest">
               <div class="sub" style="font-weight:600">TX Bus Effects</div>
@@ -285,9 +285,10 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
               <div class="row"><span class="k">DynamicsProcessor</span><span class="v"></span><span class="x ok-t">active</span></div>
               <div class="row"><span class="k">PeakLimiter</span><span class="v"></span><span class="x ok-t">active</span></div>
             </div>
-            <div class="row" style="border-top:1px solid var(--line)"><span class="k"><span class="d ok"></span> Codec</span><span class="v">MPEG-4 AAC-ELD · 48 kHz · 48 kbps</span><span class="x num"><b>100</b> packets/s</span></div>
-            <div class="row" style="border-bottom:0"><span class="k"><span class="d ok"></span> RTC</span><span class="v">Local + Internet / Relay</span><span class="x num">TX <b>100</b>/s</span></div>
+            <div class="row" style="border-top:1px solid var(--line)"><span class="k"><span class="d ok"></span> Codec</span><span class="v">MPEG-4 AAC-ELD · 48 kHz · 48 kbps<div class="sub num">Encoded audio packets: 1,024</div></span><span class="x"></span></div>
+            <div class="row" style="border-bottom:0"><span class="k"><span class="d ok"></span> RTC</span><span class="v">Local + Internet / Relay / Control Connected</span><span class="x"></span></div>
             <div class="nest routes">
+              <div class="sub">Audio delivery: Not measured</div>
               <div class="row"><span class="k"><span class="d ok"></span> Local</span><span class="v">Haruka · direct<div>Kenta · relayed by Haruka</div></span><span class="x"></span></div>
               <div class="row"><span class="k"><span class="d ok"></span> Internet</span><span class="v">Mika<div class="sub num">Send queue 1.2 KB</div></span><span class="x"></span></div>
             </div>
@@ -447,8 +448,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row cur"><span class="k err-t"><span class="d err"></span> Input</span><span class="v">AirPods Pro disconnected<div class="sub mono">oldDeviceUnavailable</div></span><span class="x err-t">Blocked</span></div>
             <div class="row dim"><span class="k">VAD</span><span class="v">—</span><span class="x">Idle</span></div>
             <div class="row dim"><span class="k">TX Bus</span><span class="v">—</span><span class="x">Idle</span></div>
-            <div class="row dim"><span class="k">Codec</span><span class="v">—</span><span class="x num">0 packets/s</span></div>
-            <div class="row"><span class="k"><span class="d ok"></span> RTC</span><span class="v">Local + Internet / Relay · Audio Paused</span><span class="x"></span></div>
+            <div class="row dim"><span class="k">Codec</span><span class="v">Encoded audio packets: Not measured</span><span class="x"></span></div>
+            <div class="row"><span class="k"><span class="d ok"></span> RTC</span><span class="v">Local + Internet / Relay / Control Connected</span><span class="x"></span></div>
           </div>
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>

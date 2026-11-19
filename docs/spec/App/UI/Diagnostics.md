@@ -27,7 +27,7 @@ Diagnostics は package から得た runtime snapshot / report を正とする�
 | `AudioMixerSnapshot` | `audioMixerSnapshot` | TX Bus、TX FX、Peer Buses、Mix Down、RX Master、Master FX、mixer graph |
 | `MixerBusSnapshot.effectChain` | `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMasterEffectChainSnapshot` | effect stage chip の順序、状態、detail |
 | `CodecRuntimeReport` | `codecRuntimeReport`、`selectedTransmitCodec` | Codec / Decode |
-| `VADGateRuntimeSnapshot` | `vadGateRuntimeSnapshot` | VAD stage、発話状態、noise floor、threshold、gain |
+| `VADGateRuntimeSnapshot` | `vadGateRuntimeSnapshot` | VAD stage、発話状態、判定入力のRMS、noise floor、threshold、gain |
 | `VoiceIsolationRuntimeSnapshot` | SoundIsolation report / AudioMixer effect metadata | SoundIsolation stage |
 | `DynamicsProcessorRuntimeSnapshot` | DynamicsProcessor report / AudioMixer effect metadata | DynamicsProcessor stage |
 | `PeakLimiterRuntimeSnapshot` | 接続したTX / RX出力Limiterの実設定 | 起動前・停止後はruntime stageを表示しない |
@@ -66,10 +66,11 @@ TX/RXは従来のpipeline、Networkは、経路（Local・Internet）ごとの�
 |---|---|---|---|---|---|---|
 | SessionManager sessionステップ | `liveTransmitPipelineView` | `pipeline-session-step` | Session | `AudioSessionSnapshot`, `audioSessionProfile`, 直近 session report | 状態アイコン + profile | session error は blocked |
 | SessionManager inputステップ | `liveTransmitPipelineView` | `pipeline-input-step` | Input | `AudioInputStreamCapture` snapshot、voice processing report、`isMuted` | stream format、frame count、mute | ミュートは故障ではなく waiting |
+| 発話判定 | `liveTransmitPipelineView` | `vad` | VAD | `VADGateRuntimeSnapshot.lastAnalysis`、感度preset | 判定状態と感度。展開すると`Microphone input before TX Bus Effects.`と判定入力、noise floor、threshold（dBFS）、gain | メディア準備前、ミュート中、分析がないときは`Input level: Not measured` |
 | AudioMixer TX busステップ | `liveTransmitPipelineView` | `pipeline-mixer-step` | TX Bus | `AudioMixerSnapshot` の `tx-bus` / source / routing 状態 | `source count -> FX count` として表示 | mixer 未開始は neutral |
 | AudioMixer effect chainステップ | `liveTransmitPipelineView` | `pipeline-effects-step` | FX Chain | `AudioMixerSnapshot` の `tx-bus.effectChain` から導出した `transmitEffectChainSnapshot.stages` | TX bus 配下の inline stage chip として表示 | stage 内の unavailable / bypassed を warning 以下で表示 |
-| codec ステップ | `liveTransmitPipelineView` | `pipeline-codec-step` | Codec | `preferredTransmitCodec`, `selectedTransmitCodec` | requested と selected を表示。fallback 時は `requested -> selected / Fallback` | fallback は warning |
-| RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | `sentVoicePacketCount`, route, media ownership | packet 送信数と route | 送信 0 は未発話または未接続として読む |
+| codec ステップ | `liveTransmitPipelineView` | `pipeline-codec-step` | Codec | 要求と実効codec、`AppAudioTransmitter`が生成した音声packetの現在の通話分 | requested と selected を表示。fallback 時は `requested -> selected / Fallback`。展開すると`Encoded audio packets`の累計 | fallback は warning。発話状態で生成実績があればPassing。メディア未準備は未計測。値をRTC受付・音声到着へ流用しない |
+| RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | 選択通話の制御接続と経路 | 制御の接続済みは経路と`Control Connected`。展開すると`Audio delivery: Not measured`と経路別情報 | 制御接続は音声停止中も表示する。相手側の到着と最終出力は各端末の観測を要する |
 
 ## 送信 effect chain 表示
 
@@ -78,7 +79,7 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 | stage | accessibilityIdentifier | package | 表示する状態 |
 |---|---|---|---|
 | SoundIsolation | `pipeline-effect-stage-sound-isolation` | SoundIsolation | enabled / bypassed / unavailable |
-| VADGate（Mixer前段） | TX effect stage IDは持たない | VADGate | speech / silent / muted、感度preset、noise floor、threshold、gainはruntime reportに保持するが、現行画面に専用詳細行はない。tx-busのFX chipには含めない |
+| VADGate（Mixer前段） | TX effect stage IDは持たない | VADGate | 送信パイプラインの独立したVAD行で、発話状態、感度、判定入力を表示する |
 | DynamicsProcessor | `pipeline-effect-stage-dynamics-processor` | DynamicsProcessor | leveling ready / idle |
 | PeakLimiter | `pipeline-effect-stage-peak-limiter` | PeakLimiter | peak guard ready / idle |
 

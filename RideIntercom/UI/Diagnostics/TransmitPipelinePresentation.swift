@@ -2,10 +2,21 @@ import AudioCore
 import AudioMixer
 import RTC
 import SessionManager
+import VADGate
 
 /// Pure projection of one captured input; owns no live state.
 struct TransmitPipelinePresentation {
     let input: DiagnosticsInput
+
+    var voiceActivityAnalysis: VADGateAnalysis? {
+        guard input.isAudioReady, !input.isMuted else { return nil }
+        return input.vadGateRuntimeSnapshot.lastAnalysis
+    }
+
+    var encodedAudioPacketCount: Int? {
+        input.isAudioReady ? input.encodedAudioPacketCount : nil
+    }
+
     var sessionStep: PipelineStep {
         if input.audioErrorMessage != nil {
             return PipelineStep(
@@ -160,6 +171,17 @@ struct TransmitPipelinePresentation {
     }
 
     var rtcStep: PipelineStep {
+        if input.selectedGroupConnectionState == .localConnected || input.selectedGroupConnectionState == .internetConnected {
+            return PipelineStep(
+                id: "rtc",
+                package: "RTC",
+                title: "RTC",
+                detail: "\(input.routeLabel) / Control Connected",
+                icon: "dot.radiowaves.left.and.right",
+                state: .passing,
+                accessibilityIdentifier: "pipeline-rtc-step"
+            )
+        }
         guard input.isAudioReady else {
             return PipelineStep(
                 id: "rtc",
@@ -171,35 +193,13 @@ struct TransmitPipelinePresentation {
                 accessibilityIdentifier: "pipeline-rtc-step"
             )
         }
-        guard input.selectedGroupConnectionState == .localConnected || input.selectedGroupConnectionState == .internetConnected else {
-            return PipelineStep(
-                id: "rtc",
-                package: "RTC",
-                title: "RTC",
-                detail: "Control Waiting",
-                icon: "dot.radiowaves.left.and.right",
-                state: .waiting,
-                accessibilityIdentifier: "pipeline-rtc-step"
-            )
-        }
-        guard input.sentVoicePacketCount > 0 else {
-            return PipelineStep(
-                id: "rtc",
-                package: "RTC",
-                title: "RTC",
-                detail: "\(input.routeLabel) Ready",
-                icon: "dot.radiowaves.left.and.right",
-                state: .waiting,
-                accessibilityIdentifier: "pipeline-rtc-step"
-            )
-        }
         return PipelineStep(
             id: "rtc",
             package: "RTC",
             title: "RTC",
-            detail: "\(input.routeLabel) TX \(input.sentVoicePacketCount)",
+            detail: "Control Waiting",
             icon: "dot.radiowaves.left.and.right",
-            state: .passing,
+            state: .waiting,
             accessibilityIdentifier: "pipeline-rtc-step"
         )
     }
@@ -209,7 +209,7 @@ struct TransmitPipelinePresentation {
     }
 
     var codecState: PipelineStepState {
-        input.isVoiceActive ? .passing : .waiting
+        input.isVoiceActive && input.encodedAudioPacketCount > 0 ? .passing : .waiting
     }
 
     var transmitEffectStages: [EffectChainStage] {

@@ -26,10 +26,16 @@ struct LiveTransmitPipelineView: View {
                 } else { Text("Hardware format: Not measured") }
             }
             DisclosureGroup(isExpanded: expanded("vad")) {
-                let analysis = viewModel.vadGateRuntimeSnapshot.lastAnalysis
-                Text(analysis.map { String(format: "Threshold %.1f dBFS / Noise floor %.1f dBFS / gain %.2f", $0.speechThresholdDBFS, $0.noiseFloorDBFS, $0.gain) } ?? "Not measured")
+                Text("Microphone input before TX Bus Effects.")
+                    .font(.caption)
+                Text(presentation.voiceActivityAnalysis.map {
+                    String(format: "Input %.1f dBFS / Noise floor %.1f dBFS / Threshold %.1f dBFS / Gain %.2f",
+                           $0.rmsDBFS, $0.noiseFloorDBFS, $0.speechThresholdDBFS, $0.gain)
+                } ?? "Input level: Not measured")
+                .font(.caption)
             } label: {
-                Text("VAD: \(viewModel.vadGateRuntimeSnapshot.lastAnalysis.map { String(describing: $0.state) } ?? "Not measured") / \(String(describing: viewModel.vadSensitivity))")
+                let state = presentation.voiceActivityAnalysis?.state.rawValue.capitalized ?? "Not measured"
+                Text("VAD: \(state) / \(viewModel.vadSensitivity.label)")
             }.id("vad")
             stage(presentation.mixerBusStep) {
                 CompactEffectChainGroup(step: presentation.mixerEffectChainStep, title: "TX Bus Effects", accessibilityIdentifier: "pipeline-effects-step", stageIdentifierPrefix: "pipeline-effect-stage", stages: presentation.transmitEffectStages)
@@ -37,7 +43,11 @@ struct LiveTransmitPipelineView: View {
             stage(presentation.codecStep) {
                 let report = viewModel.codecRuntimeReport
                 Text("Requested: \(report.requestedConfiguration.codec.rawValue) / Applied: \(report.activeConfiguration.codec.rawValue) / \(Int(report.activeConfiguration.format.sampleRate)) Hz / \(report.activeConfiguration.activeBitRate.map(String.init) ?? "Not measured") bps")
-                Text("Packets/s: Not measured")
+                if let count = presentation.encodedAudioPacketCount {
+                    Text("Encoded audio packets: \(count)")
+                } else {
+                    Text("Encoded audio packets: Not measured")
+                }
             }
             stage(presentation.rtcStep) {
                 DiagnosticsTransmitRoutes(viewModel: viewModel)

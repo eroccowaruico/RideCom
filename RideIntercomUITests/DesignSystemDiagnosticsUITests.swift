@@ -25,6 +25,13 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         picker.buttons["Network"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["diagnosticsNetworkPaths"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.buttons["Network"].isSelected)
+        picker.buttons["TX"].tap()
+        let vad = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "VAD:")).firstMatch
+        XCTAssertTrue(vad.waitForExistence(timeout: 3), app.debugDescription)
+        vad.tap()
+        XCTAssertTrue(app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Input level: Not measured"].firstMatch.exists)
+        attachScreen("TX diagnostics before microphone analysis")
     }
 
     func testDiagnosticsMenuAtAccessibilitySizeInLandscape() {
