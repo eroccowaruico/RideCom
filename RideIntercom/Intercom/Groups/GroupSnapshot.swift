@@ -2,11 +2,20 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 14
+    static let currentVersion = 15
     struct RemovedMember: Codable, Equatable {
         var memberIDs: Set<String>
         let principal: AccountPrincipal?
         let removedAt: TimeInterval
+        /// Nil for removals from before the invitation IDs were recorded.
+        var priorInvitationIDs: Set<UUID>?
+        var reinstated: Bool?
+
+        var isExcluded: Bool { reinstated != true }
+
+        func blocksInvitation(_ id: UUID, issuedAt: TimeInterval) -> Bool {
+            priorInvitationIDs?.contains(id) ?? (issuedAt <= removedAt)
+        }
 
         func matches(_ memberID: String, principal: AccountPrincipal?) -> Bool {
             memberIDs.contains(memberID) || (principal != nil && self.principal == principal)
@@ -96,6 +105,26 @@ struct GroupSnapshot: Codable, Equatable {
             let memberIDs = Set(members.map(\.id))
             let remaining = invitationDeviceKeys.filter { memberIDs.contains($0.key) }
             self.invitationDeviceKeys = remaining.isEmpty ? nil : remaining
+        }
+
+        mutating func reinstateMembers(matching matches: (RemovedMember) -> Bool) {
+            guard let removals = removedMembers else { return }
+            removedMembers = removals.map { removal in
+                guard matches(removal) else { return removal }
+                var reinstated = removal
+                reinstated.reinstated = true
+                return reinstated
+            }
+        }
+
+        mutating func discardRemovalHistory(withPendingInvitations pending: Set<UUID>) {
+            guard let removals = removedMembers else { return }
+            let retained = removals.compactMap { removal -> RemovedMember? in
+                var removal = removal
+                removal.priorInvitationIDs?.formIntersection(pending)
+                return removal.isExcluded || !(removal.priorInvitationIDs ?? pending).isEmpty ? removal : nil
+            }
+            removedMembers = retained.isEmpty ? nil : retained
         }
     }
     var version = Self.currentVersion
@@ -215,9 +244,11 @@ struct GroupSnapshot: Codable, Equatable {
                 }) else { throw IntercomGroupError.invalidStoredGroups }
             }
             if let removed = record.removedMembers, !removed.isEmpty {
-                guard version >= 13, record.kind == .group, removed.allSatisfy(\.isValid),
+                guard version >= 13, record.kind == .group, removed.allSatisfy({
+                    $0.isValid && (version >= 15 || ($0.priorInvitationIDs == nil && $0.reinstated == nil))
+                }),
                       !record.members.contains(where: { member in
-                          removed.contains { $0.matches(member.id, principal: record.accountDevices[member.id]?.principal) }
+                          removed.contains { $0.isExcluded && $0.matches(member.id, principal: record.accountDevices[member.id]?.principal) }
                       }) else { throw IntercomGroupError.invalidStoredGroups }
             }
             if let start = record.lastSponsoredStart {

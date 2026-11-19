@@ -177,7 +177,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 
 Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）は `outgoingGroupInvitation(forPendingMember:in:)` で対象のグループと予約枠に一致する `ContactInvitationRecord` を読む。メンバー名に `direction · state · sent {true|false|nil}` とISO 8601の `expiresAt` を添える。人物IDが一致する詳細を開き、OS共有取消で状態を維持し、共有完了で同じ行の `sent` を更新する。署名付き返信が保存されるとその枠を通常メンバーとして表示する。登録済み相手への配送は同じgroupの `GroupDeliveryRecord` を別Sectionで確認する。
 
-対象groupの消失・種別不一致では設定の内容を表示しない。設定の招待は対象group IDに固定した共有（`InvitationShare(settingsGroupID:)`）を使い、表示中の通話が別のgroupでも、共有時に対象groupの存在・鍵・権限を再検証する。通話画面の招待は従来どおり表示中の通話に固定し、選択が変われば共有しない。Advancedの通話の参加者は状態と音声操作だけを表示する。Standardで新しい相手の招待枠をタップすると人物詳細を開く。名前の編集と通常groupから外す操作はGroup Settingsで行う。
+対象groupの消失・種別不一致では設定の内容を表示しない。設定の招待は対象group IDに固定した共有（`InvitationShare(settingsGroupID:)`）を使い、表示中の通話が別のgroupでも、共有時に対象groupの存在・鍵・権限を再検証する。通話画面の招待は従来どおり表示中の通話に固定し、選択が変われば共有しない。Advancedの通話の参加者は状態と音声操作だけを表示する。Standardで新しい相手の招待枠をタップすると人物詳細を開く。名前の編集と通常groupから外す操作はGroup Settingsで行う。相手を追加し直した後も、外す前に保存した名前付き招待への遅れた返信では、その相手の行や現在の通話を更新しない。
 
 ## 通話画面
 

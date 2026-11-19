@@ -48,42 +48,77 @@ struct ContactReplyTests {
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
     }
 
-    @Test func anOlderGroupInvitationCannotUndoRemovalButANewOneCan() throws {
+    @Test(arguments: [false, true], [false, true])
+    func anOlderGroupInvitationStaysBlockedAfterExplicitReadmission(selectSavedRider: Bool, legacyRemoval: Bool) throws {
         var now = Date()
         let author = AppTestSupport.makeHarness(groups: [], localMemberID: "group-inviter", callAccessNow: { now })
         let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "group-invitee", callAccessNow: { now })
+        let other = AppTestSupport.makeHarness(groups: [], localMemberID: "other-invitee", callAccessNow: { now })
         let a = author.viewModel, b = recipient.viewModel
-        defer { a.stopContactInvitationSession(); b.stopContactInvitationSession(); a.disconnect(); b.disconnect() }
-        a.contactSessionFactory = { RecordingCallSession() }
-        b.contactSessionFactory = { RecordingCallSession() }
+        for vm in [a, b, other.viewModel] { vm.contactSessionFactory = { RecordingCallSession() } }
+        defer {
+            for vm in [a, b, other.viewModel] { vm.stopContactInvitationSession(); vm.disconnect() }
+        }
         let groupID = UUID()
         #expect(a.createTalkGroup(name: "Ready to ride", id: groupID))
         a.disconnect()
 
-        func makeReply(for draft: GroupInvitationDraft) throws -> URL {
+        func share(_ draft: GroupInvitationDraft) throws -> (id: UUID, url: URL) {
             try #require(a.saveGroupInvitations(groupID: groupID, creating: false, name: "", selected: [], newPeople: [draft]) == groupID)
             let share = try a.prepareContactPersonShare(draft.id, expectedAccountAccessID: a.accountAccessID)
-            try b.acceptContactInviteURL(share.url)
-            b.stopContactInvitationSession()
-            return try b.contactReplyURLForSharing(share.id, expectedAccountAccessID: b.accountAccessID)
+            return (share.id, share.url)
+        }
+        func reply(to share: (id: UUID, url: URL), from recipient: IntercomViewModel) throws -> URL {
+            try recipient.acceptContactInviteURL(share.url)
+            recipient.stopContactInvitationSession()
+            return try recipient.contactReplyURLForSharing(share.id, expectedAccountAccessID: recipient.accountAccessID)
         }
 
         let first = GroupInvitationDraft(name: "Rider", suggestedName: "Rider")
-        try a.receiveContactReplyURL(makeReply(for: first))
+        try a.receiveContactReplyURL(reply(to: share(first), from: b))
         let memberID = b.localMemberIdentity.memberID
         #expect(a.groups.first { $0.id == groupID }?.members.contains { $0.id == memberID } == true)
         let old = GroupInvitationDraft(name: "Earlier invitation", suggestedName: "Rider")
-        let delayedReply = try makeReply(for: old)
+        let oldShare = try share(old)
+        let delayedReply = try reply(to: oldShare, from: b)
         now.addTimeInterval(1)
         #expect(a.removeMember(memberID, from: groupID))
+        if legacyRemoval {
+            var previous = author.groupStore.snapshot
+            previous.version = 14
+            let index = try #require(previous.groups.firstIndex { $0.id == groupID })
+            previous.groups[index].removedMembers?[0].priorInvitationIDs = nil
+            author.groupStore.snapshot = try GroupSnapshot.decode(previous.encoded())
+            a.reloadSavedGroups()
+        }
         let removed = author.groupStore.snapshot
         #expect(throws: (any Error).self) { try a.receiveContactReplyURL(delayedReply) }
         #expect(author.groupStore.snapshot == removed)
 
-        now.addTimeInterval(1)
-        let fresh = GroupInvitationDraft(name: "Invite the rider again", suggestedName: "Rider")
-        try a.receiveContactReplyURL(makeReply(for: fresh))
+        if selectSavedRider {
+            let saved = try #require(a.savedRemoteUsers.first { $0.memberIDs.contains(memberID) })
+            #expect(a.addSavedUsers([saved.id], to: groupID))
+        } else {
+            // The order of local saves remains meaningful if the clock moves back.
+            now.addTimeInterval(legacyRemoval ? 1 : -2)
+            let fresh = GroupInvitationDraft(name: "Invite the rider again", suggestedName: "Rider")
+            try a.receiveContactReplyURL(reply(to: share(fresh), from: b))
+        }
         #expect(a.groups.first { $0.id == groupID }?.members.contains { $0.id == memberID } == true)
+        a.disconnect()
+        author.groupStore.snapshot = try GroupSnapshot.decode(author.groupStore.snapshot.encoded())
+        a.reloadSavedGroups()
+        let beforeReplay = author.groupStore.snapshot
+        let pair = IntercomGroup.directCallID(memberIDs: [a.localMemberIdentity.memberID, memberID])
+        let pairCredential = try #require(try a.groupRepository.credential(for: pair))
+        #expect(throws: (any Error).self) { try a.receiveContactReplyURL(delayedReply) }
+        #expect(author.groupStore.snapshot == beforeReplay)
+        #expect(try a.groupRepository.credential(for: pair) == pairCredential)
+
+        // The exclusion applies to that rider, not to another recipient of the unaddressed link.
+        try a.receiveContactReplyURL(reply(to: oldShare, from: other.viewModel))
+        #expect(a.groups.first { $0.id == groupID }?.members.contains { $0.id == other.viewModel.localMemberIdentity.memberID } == true)
+        #expect(try a.groupRepository.credential(for: pair) == pairCredential)
         #expect(author.groupStore.snapshot.groups.first { $0.id == groupID }?.removedMembers == nil)
     }
 

@@ -127,8 +127,14 @@ final class GroupRepository {
         groups[index].accountDevices = groups[index].accountDevices.filter { !ids.contains($0.key) }
         try update(groups, credential: nil) { next in
             guard !memberID.hasPrefix(GroupMember.pendingInvitePrefix) else { return }
-            let removed = GroupSnapshot.RemovedMember(memberIDs: ids, principal: binding?.principal ?? user?.principal, removedAt: now)
-            next.groups[index].removedMembers = (next.groups[index].removedMembers ?? []) + [removed]
+            let pending = next.contactInvitations.filter { $0.direction == .outgoing && $0.state == .pending && $0.invitedGroupID == groupID }
+            let principal = binding?.principal ?? user?.principal
+            let removed = GroupSnapshot.RemovedMember(memberIDs: ids, principal: principal, removedAt: now,
+                priorInvitationIDs: Set(pending.map(\.id)))
+            var removals = next.groups[index].removedMembers ?? []
+            // Every still-pending invitation covered by a previous removal is covered again.
+            removals.removeAll { $0.memberIDs == ids && $0.principal == principal }
+            next.groups[index].removedMembers = removals + [removed]
         }
         return ids
     }
@@ -146,13 +152,11 @@ final class GroupRepository {
     }
 
     private static func restoreExplicitlySelectedMembers(_ ids: Set<UUID>, in groupID: UUID, snapshot: inout GroupSnapshot) {
-        guard !ids.isEmpty, let index = snapshot.groups.firstIndex(where: { $0.id == groupID }),
-              let removed = snapshot.groups[index].removedMembers else { return }
+        guard !ids.isEmpty, let index = snapshot.groups.firstIndex(where: { $0.id == groupID }) else { return }
         let users = snapshot.users.filter { ids.contains($0.id) }
-        let remaining = removed.filter { record in
-            !users.contains { user in user.memberIDs.contains { record.matches($0, principal: user.principal) } }
+        snapshot.groups[index].reinstateMembers { removal in
+            users.contains { user in user.memberIDs.contains { removal.matches($0, principal: user.principal) } }
         }
-        snapshot.groups[index].removedMembers = remaining.isEmpty ? nil : remaining
     }
 
     func lastSponsoredStart(for groupID: UUID) -> TimeInterval? {
@@ -242,7 +246,7 @@ final class GroupRepository {
             users[user].displayName = name
             principal = principal ?? users[user].principal
         }
-        if snapshot.groups[index].removedMembers?.contains(where: { $0.matches(memberID, principal: principal) }) == true { return false }
+        if snapshot.groups[index].removedMembers?.contains(where: { $0.isExcluded && $0.matches(memberID, principal: principal) }) == true { return false }
         if groups[index].accountPair != nil {
             guard groups[index].bindAccountDevice(profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs) else { return false }
         } else if groups[index].kind == .group {
@@ -331,7 +335,7 @@ final class GroupRepository {
         let name = inviterName ?? next.groups[index].members.first(where: { $0.id == receipt.inviterMemberID })?.displayName
         guard let name, IntercomGroup.isValidName(name) else { throw GroupStorageError.invalidUpdate }
         if next.groups[index].removedMembers?.contains(where: {
-            $0.matches(accepted.inviter.memberID, principal: accepted.inviter.principal)
+            $0.isExcluded && $0.matches(accepted.inviter.memberID, principal: accepted.inviter.principal)
         }) == true { throw GroupStorageError.identityConflict }
         if !next.groups[index].receivedInvitationIDs.contains(receipt.id) {
             try next.remember(.init(id: receipt.inviterMemberID, displayName: name), identity: accepted.inviter)
@@ -757,6 +761,11 @@ extension GroupRepository {
         }
         var payload = try contactInvitationPayload(context.id)
         guard payload.token.directInvitation?.context == context else { throw GroupStorageError.identityConflict }
+        if let targetID = old.invitedGroupID,
+           snapshot.groups.first(where: { $0.id == targetID })?.removedMembers?.contains(where: {
+               $0.matches(verified.identity.memberID, principal: verified.identity.principal)
+                   && $0.blocksInvitation(context.id, issuedAt: payload.token.issuedAt)
+           }) == true { throw GroupStorageError.identityConflict }
         payload.receipt = receipt
         let recipient = GroupMember(id: verified.identity.memberID, displayName: receipt.displayName)
         let call = try contactDirectCall(with: recipient, localDisplayName: localDisplayName, token: payload.token,
@@ -785,11 +794,8 @@ extension GroupRepository {
             if let targetID = old.invitedGroupID {
                 guard let groupIndex = next.groups.firstIndex(where: { $0.id == targetID && $0.kind == .group }),
                       let slot = next.groups[groupIndex].members.firstIndex(where: { $0.id == old.pendingGroupMemberID }) else { throw GroupStorageError.invalidUpdate }
-                if let removed = next.groups[groupIndex].removedMembers {
-                    let matching = removed.filter { $0.matches(recipient.id, principal: verified.identity.principal) }
-                    guard matching.allSatisfy({ $0.removedAt < payload.token.issuedAt }) else { throw GroupStorageError.identityConflict }
-                    let remaining = removed.filter { !$0.matches(recipient.id, principal: verified.identity.principal) }
-                    next.groups[groupIndex].removedMembers = remaining.isEmpty ? nil : remaining
+                next.groups[groupIndex].reinstateMembers {
+                    $0.matches(recipient.id, principal: verified.identity.principal)
                 }
                 let alreadyMember = next.groups[groupIndex].members.contains { $0.id == recipient.id }
                     || (verified.identity.principal.map { principal in next.groups[groupIndex].accountDevices.values.contains { $0.principal == principal } } ?? false)
@@ -868,6 +874,14 @@ extension GroupRepository {
             if record.direction == .outgoing, next.contactInvitations[index].state == .cancelled, let group {
                 next.groups[group].members.removeAll { $0.id == record.pendingGroupMemberID }
             }
+        }
+        var pendingByGroup: [UUID: Set<UUID>] = [:]
+        for invitation in next.contactInvitations where invitation.direction == .outgoing && invitation.state == .pending {
+            if let group = invitation.invitedGroupID { pendingByGroup[group, default: []].insert(invitation.id) }
+        }
+        for index in next.groups.indices {
+            let groupID = next.groups[index].id
+            next.groups[index].discardRemovalHistory(withPendingInvitations: pendingByGroup[groupID] ?? [])
         }
     }
 

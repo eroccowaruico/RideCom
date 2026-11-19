@@ -29,7 +29,7 @@ import Testing
         var legacy = GroupSnapshot(groups: [.init(group, credentialReference: UUID())])
         legacy.version = 13
         var upgraded = try GroupSnapshot.decode(legacy.encoded()).upgraded()
-        #expect(upgraded.version == 14)
+        #expect(upgraded.version == GroupSnapshot.currentVersion)
         #expect(upgraded.groups == legacy.groups)
         #expect(upgraded.groups[0].invitationDeviceKeys == nil)
         let key = testIdentitySigner("friend").publicKey
