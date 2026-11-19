@@ -200,7 +200,8 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         }
         for (id, effect, value) in changes {
             guard let bus = mixer?.bus(id) else { throw AppAudioPipelineError.notConfigured }
-            try AppAudioPipeline.applyIsolation(effect, on: bus, enabled: value)
+            try effect.apply(AppAudioPipeline.receiveIsolationConfiguration(enabled: value))
+            try AppAudioPipeline.setIsolationEnabled(effect, on: bus, enabled: value)
         }
     }
 
@@ -221,7 +222,10 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     }
 
     private func installIsolation(on bus: MixerBus, enabled: Bool) throws {
-        if let effect = try AppAudioPipeline.makeIsolation(on: bus, enabled: enabled) { effects[bus.id] = effect }
+        if let effect = try AppAudioPipeline.makeIsolation(on: bus, enabled: enabled,
+            configuration: AppAudioPipeline.receiveIsolationConfiguration(enabled: enabled)) {
+            effects[bus.id] = effect
+        }
     }
 
     deinit { mixer?.stop() }

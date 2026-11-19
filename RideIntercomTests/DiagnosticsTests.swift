@@ -46,7 +46,7 @@ struct DiagnosticsTests {
         harness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
         defer { harness.viewModel.disconnect() }
-        for enabled in [true, false] {
+        for enabled in [true, false, true] {
             harness.viewModel.setSoundIsolationEnabled(enabled)
             harness.viewModel.setReceiveMasterSoundIsolationEnabled(enabled)
             let reports = harness.viewModel.makeRuntimePackageReports(generatedAt: 100)
@@ -55,7 +55,8 @@ struct DiagnosticsTests {
                 let configuration = try report.decodeJSON(VoiceIsolationConfiguration.self)
                 let runtime = try #require(harness.viewModel.audioPipeline.isolationRuntimeSnapshots[bus])
                 #expect(configuration == runtime.configuration)
-                #expect(configuration.mix == (enabled ? 0.5 : 1))
+                let expectedMix: Float = bus == "tx-bus" || enabled ? 0.5 : 1
+                #expect(configuration.mix == expectedMix)
                 #expect(runtime.state == (enabled ? .active : .bypassed))
             }
         }

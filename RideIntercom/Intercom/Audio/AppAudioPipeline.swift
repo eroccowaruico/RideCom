@@ -292,16 +292,17 @@ final class AppAudioPipeline {
         try receiver.updateIsolation(master: receiveMaster, peers: peers)
     }
 
-    nonisolated static func isolationConfiguration(enabled: Bool) -> VoiceIsolationConfiguration {
-        // TX, peer and master isolation can be stacked. Retain quiet phonemes
-        // even when all three native classifiers reject the same interval.
+    // Preserve quiet syllables when the send and receive classifiers are stacked.
+    nonisolated static let transmitIsolationConfiguration = VoiceIsolationConfiguration(mix: 0.5)
+
+    nonisolated static func receiveIsolationConfiguration(enabled: Bool) -> VoiceIsolationConfiguration {
         VoiceIsolationConfiguration(mix: enabled ? 0.5 : 1)
     }
 
-    nonisolated static func makeIsolation(on bus: MixerBus, enabled: Bool) throws -> VoiceIsolationEffect? {
+    nonisolated static func makeIsolation(on bus: MixerBus, enabled: Bool,
+        configuration: VoiceIsolationConfiguration) throws -> VoiceIsolationEffect? {
         guard VoiceIsolationSupport.isAvailable else { return nil }
-        // Retain quiet syllables that the system speech classifier suppresses.
-        let effect = try VoiceIsolationEffect.make(configuration: Self.isolationConfiguration(enabled: enabled))
+        let effect = try VoiceIsolationEffect.make(configuration: configuration)
         effect.avAudioUnitEffect.bypass = !enabled
         try bus.addEffect(effect.node, id: "sound-isolation", bypassed: !enabled, state: enabled ? .active : .bypassed,
             parameters: Self.effectParameters(package: "SoundIsolation", label: "Isolation", detail: effect.configuration.soundType.rawValue))
@@ -311,8 +312,7 @@ final class AppAudioPipeline {
     /// Settings and diagnostics change together for TX, each peer and RX master.
     /// Their owners retain preparation, locking and measured settling duration:
     /// TX is synchronous DSP; RX also has native render and playout reservations.
-    nonisolated static func applyIsolation(_ effect: VoiceIsolationEffect, on bus: MixerBus, enabled: Bool) throws {
-        try effect.apply(isolationConfiguration(enabled: enabled))
+    nonisolated static func setIsolationEnabled(_ effect: VoiceIsolationEffect, on bus: MixerBus, enabled: Bool) throws {
         effect.avAudioUnitEffect.bypass = !enabled
         try bus.setEffectBypassed(id: "sound-isolation", bypassed: !enabled)
         try bus.updateEffectSnapshot(id: "sound-isolation", state: enabled ? .active : .bypassed)

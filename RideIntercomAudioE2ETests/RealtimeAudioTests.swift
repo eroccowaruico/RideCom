@@ -1,5 +1,6 @@
 import AVFAudio
 import AudioCore
+import AudioMixer
 import Codec
 import Foundation
 import Synchronization
@@ -9,6 +10,62 @@ import XCTest
 @testable import RideIntercom
 
 extension AudioE2ETests {
+    @MainActor
+    func testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass() throws {
+        let format = AudioFormat.intercomMixer
+        let rate = Int(format.sampleRate)
+        let speech = try SpeechFileInput(name: "speech-ja").samples.prefix(8 * rate)
+        let angularFrequency = 2 * Double.pi * 397 / format.sampleRate
+        let input = speech.enumerated().map { index, sample in
+            sample + Float(0.03 * sin(angularFrequency * Double(index)))
+        }
+        let probe = RenderedAudioProbe()
+        let processor = try AudioFrameProcessor(format: format, outputFormat: format, busID: "tx-bus") { frame, _ in
+            probe.append(frame, preservingTimeline: true)
+        }
+        let effect = try XCTUnwrap(AppAudioPipeline.makeIsolation(on: processor.bus, enabled: true,
+            configuration: AppAudioPipeline.transmitIsolationConfiguration))
+        try processor.start()
+        defer { processor.stop() }
+        var sequence: UInt64 = 0
+        var processed = 0
+
+        func renderToneAmplitude() throws -> Double {
+            probe.reset()
+            for offset in stride(from: 0, to: input.count, by: 512) {
+                let end = min(input.count, offset + 512)
+                try processor.process(.init(sequenceNumber: sequence, format: format,
+                    capturedAt: Double(processed) / format.sampleRate, samples: Array(input[offset..<end])))
+                sequence += 1
+                processed += end - offset
+            }
+            let rendered = probe.snapshot()
+            XCTAssertEqual(rendered.samples.count, input.count)
+            XCTAssertEqual(rendered.invalid, 0)
+
+            // Integrate whole tone cycles in the steady-state window.
+            let window = Array(rendered.samples.dropFirst(rate).prefix(6 * rate))
+            var real = 0.0, imaginary = 0.0
+            for (index, sample) in window.enumerated() {
+                let angle = angularFrequency * Double(index)
+                real += Double(sample) * cos(angle)
+                imaginary += Double(sample) * sin(angle)
+            }
+            return 2 * hypot(real, imaginary) / Double(window.count)
+        }
+
+        let initial = try renderToneAmplitude()
+        try AppAudioPipeline.setIsolationEnabled(effect, on: processor.bus, enabled: false)
+        let bypassed = try renderToneAmplitude()
+        try processor.bus.prepareEffect(id: "sound-isolation")
+        try AppAudioPipeline.setIsolationEnabled(effect, on: processor.bus, enabled: true)
+        let restored = try renderToneAmplitude()
+        print("Tone amplitude at 397 Hz: initial=\(initial) bypassed=\(bypassed) restored=\(restored)")
+        XCTAssertGreaterThan(initial, 0.005, "The enabled mix should retain part of the original signal")
+        XCTAssertLessThan(initial, bypassed * 0.8, "The enabled effect should attenuate the tone")
+        XCTAssertEqual(restored, initial, accuracy: initial * 0.2)
+    }
+
     @MainActor
     func activateAudioSessionForTest(configuration: AudioSessionConfiguration = .init()) async throws {
         let session = AudioSessionManager()

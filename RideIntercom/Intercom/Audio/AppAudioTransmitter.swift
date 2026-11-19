@@ -73,7 +73,8 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
                 self?.encodeAndCollect(frame)
             }
         self.processor = processor
-        isolation = try AppAudioPipeline.makeIsolation(on: processor.bus, enabled: configuration.transmitSoundIsolationEnabled)
+        isolation = try AppAudioPipeline.makeIsolation(on: processor.bus, enabled: configuration.transmitSoundIsolationEnabled,
+            configuration: AppAudioPipeline.transmitIsolationConfiguration)
         let dynamics = try DynamicsProcessorEffect.make()
         try processor.bus.addEffect(dynamics.node, id: "dynamics-processor", state: .active,
             parameters: AppAudioPipeline.effectParameters(package: "DynamicsProcessor", label: "Dynamics",
@@ -144,7 +145,9 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let effect = isolation, let bus = processor?.bus,
               effect.avAudioUnitEffect.bypass != !enabled else { return }
-        try AppAudioPipeline.applyIsolation(effect, on: bus, enabled: enabled)
+        // A mix written during bypass can survive reactivation in the rendered
+        // signal even when the unit reports the expected value. Keep the TX mix fixed.
+        try AppAudioPipeline.setIsolationEnabled(effect, on: bus, enabled: enabled)
         bus.beginSinkTransition(settlingDuration: bus.processingLatency)
     }
 

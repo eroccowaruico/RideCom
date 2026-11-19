@@ -333,19 +333,23 @@ def execute(args, runner, resource_root):
         ios_settings, ios_run = products_by_platform['ios']
         command('microphone-permission', ['xcrun', 'simctl', 'privacy', simulator, 'grant', 'microphone',
                 'com.yowamushi-inc.RideIntercom.RideIntercom'], 60)
-        preflight = configure_test_run(ios_run, 'preflight', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=[
+        ios_preflight_tests = [
             'AudioE2ETests/testSpeechMatcherRejectsSilenceAndWrongSpeaker',
             'AudioE2ETests/testContinuityRejectsGapsRepeatsAndMissingSpeech',
             'AudioE2ETests/testMicroGapOverlapAndClickAreRejected',
             'AudioE2ETests/testConversationOracleRejectsMissingAcknowledgements',
-            'AudioE2ETests/testSystemSessionAcceptsCallProfiles'])
+            'AudioE2ETests/testSystemSessionAcceptsCallProfiles']
+        if args.switches_only:
+            ios_preflight_tests.append('AudioE2ETests/testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass')
+        preflight = configure_test_run(ios_run, 'preflight', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
+                                       {}, identifiers=ios_preflight_tests)
         command('preflight', ['xcodebuild', 'test-without-building', '-xctestrun', str(preflight),
             '-destination', 'platform=iOS Simulator,id=' + simulator, '-parallel-testing-enabled', 'NO',
             '-resultBundlePath', str(out / 'preflight.xcresult')], 120)
         command('preflight-summary', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
             '--path', str(out / 'preflight.xcresult'), '--format', 'json'], 60)
         preflight_summary = json.loads((out / 'preflight-summary.log').read_text())
-        if not xcode_tests_passed(preflight_summary) or preflight_summary['totalTestCount'] != 5:
+        if not xcode_tests_passed(preflight_summary) or preflight_summary['totalTestCount'] != len(ios_preflight_tests):
             raise RuntimeError('Speech oracle and real iOS session preflight must both pass')
         mac_settings, mac_run = products_by_platform['mac']
         mac_preflight = configure_test_run(mac_run, 'preflight', 'mac', mac_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=[
