@@ -32,6 +32,7 @@ public actor RouteManager: CallSession {
     private var receiveBuffer = PacketAudioReceiveBuffer()
     private var memberSnapshot: [CallMemberState] = []
     private var observedPaths: [PeerID: RTCObservedPeerPath] = [:]
+    private var outboundAudioDispatch: RTCOutboundAudioDispatch?
     private var memberRoutes: [PeerID: RouteKind] = [:]
     private var lastPresence: TimeInterval = 0
     private var lastRuntimeStatus: TimeInterval = 0
@@ -53,6 +54,7 @@ public actor RouteManager: CallSession {
         configuration = request.configuration.normalized()
         relay = GroupRelay(request: request)
         observedPaths = [:]; lastPresence = 0; lastRuntimeStatus = 0; eventSource.resetDiagnostics()
+        outboundAudioDispatch = nil
         receiveBuffer.reset(); memberSnapshot = []; memberRoutes = [:]; routeMembers = [:]
         routeStates = [:]; routeAvailabilities = [:]; started = []; retries = [:]; blocked = []
         availableRoutes = []; activeRoute = nil; isMediaStarted = false
@@ -115,6 +117,7 @@ public actor RouteManager: CallSession {
         isConnectionStarted = false
         routeTasks.forEach { $0.cancel() }; routeTasks = []
         observedPaths = [:]; lastPresence = 0; lastRuntimeStatus = 0; eventSource.resetDiagnostics()
+        outboundAudioDispatch = nil
         request = nil; relay = nil; started = []; retries = [:]; blocked = []; availableRoutes = []
         activeRoute = nil; isMediaStarted = false; receiveBuffer.reset()
         memberSnapshot = []; memberRoutes = [:]; routeMembers = [:]
@@ -142,7 +145,7 @@ public actor RouteManager: CallSession {
             let now = ProcessInfo.processInfo.systemUptime
             guard admitted.contains(where: { relay?.membershipID(for: $0.key, now: now) == $0.value }) else { return }
         }
-        await broadcast(.audio(packet))
+        await broadcast(.audio(packet), recordsOutboundAudio: true)
     }
     public func sendApplicationData(_ message: ApplicationDataMessage) async {
         guard message.namespace != GroupRelay.namespace, message.payload.count <= 12000 else { return }
@@ -173,25 +176,37 @@ public actor RouteManager: CallSession {
         }
         await sendRuntimeStatus(reason: .localControlsChanged)
     }
-    private func broadcast(_ body: RelayBody) async {
+    private func broadcast(_ body: RelayBody, recordsOutboundAudio: Bool = false) async {
         guard let data = try? relay?.make(body, now: ProcessInfo.processInfo.systemUptime), data.count <= 32768 else { return }
-        await forward(data, body: body)
+        await forward(data, body: body, recordsOutboundAudio: recordsOutboundAudio)
     }
-    private func forward(_ data: Data, body: RelayBody, excluding: RouteKind? = nil) async {
+    private func forward(_ data: Data, body: RelayBody, excluding: RouteKind? = nil,
+                         recordsOutboundAudio: Bool = false) async {
         let token = generation
         let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: data, delivery: body.delivery)
         var localRecipients: Set<PeerID> = []
+        var offeredRoutes: [RouteKind] = []
+        var internetCoveredByLocal = false
         // Local always gets the first immediate attempt. A control connection
         // alone is insufficient: Local must report recent media receipt as well
         // as immediate acceptance on the flow that actually sends this frame.
         for kind in [RouteKind.multipeer, .webRTC] where started.contains(kind) && kind != excluding {
+            guard let route = routes[kind] else { continue }
             if case .audio = body, kind == .webRTC {
                 let internetPeers = routeMembers[.webRTC, default: []]
-                if !internetPeers.isEmpty, internetPeers.isSubset(of: localRecipients) { continue }
+                if !internetPeers.isEmpty, internetPeers.isSubset(of: localRecipients) {
+                    internetCoveredByLocal = true
+                    continue
+                }
             }
-            let recipients = await routes[kind]?.sendApplicationData(message) ?? []
+            let recipients = await route.sendApplicationData(message)
             guard generation == token else { return }
+            if recordsOutboundAudio { offeredRoutes.append(kind) }
             if kind == .multipeer { localRecipients = recipients }
+        }
+        if recordsOutboundAudio, !offeredRoutes.isEmpty {
+            outboundAudioDispatch = .init(offeredRoutes: offeredRoutes, internetCoveredByLocal: internetCoveredByLocal,
+                                          observedAt: Date().timeIntervalSince1970)
         }
     }
     private func handle(_ event: RouteEvent, generation token: UUID) async {
@@ -384,7 +399,8 @@ public actor RouteManager: CallSession {
                 && path.path.dropLast().last.map { routeMembers[path.route, default: []].contains($0) } == true
         }
         return .init(generatedAt: now, eventDrops: eventSource.report, routes: diagnostics,
-                     peers: paths.sorted { $0.peerID.rawValue < $1.peerID.rawValue })
+                     peers: paths.sorted { $0.peerID.rawValue < $1.peerID.rawValue },
+                     outboundAudioDispatch: outboundAudioDispatch)
     }
 
     private func makeRuntimeStatus(reason: RTCRuntimeStatusReason) -> RTCRuntimeStatus {

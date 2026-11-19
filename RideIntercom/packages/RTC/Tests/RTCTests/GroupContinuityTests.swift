@@ -177,6 +177,59 @@ extension RealtimeTransportTests {
         for manager in managers { await manager.stopConnection() }
     }
 
+    @Test(.timeLimit(.minutes(1))) func outboundAudioDiagnosticsFollowLocalCoverageAndInternetFallback() async throws {
+        let network = VirtualNetwork()
+        let ids = ["speaker", "nearby", "remote"].map(PeerID.init(rawValue:))
+        let kinds: [RouteKind] = [.multipeer, .webRTC]
+        let config = CallRouteConfiguration(enabledRoutes: Set(kinds), preferredRoute: .multipeer, fallbackDelay: 0)
+        let managers = ids.map { id in
+            RouteManager(routes: kinds.map { VirtualRoute(peer: id, kind: $0, network: network) },
+                runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
+        }
+        let records = ids.map { _ in CallRecorder() }
+        let listeners = managers.indices.map { i in
+            let events = managers[i].events
+            return Task { for await event in events { await records[i].record(event) } }
+        }
+        defer { listeners.forEach { $0.cancel() } }
+        for i in ids.indices {
+            await managers[i].prepare(.init(sessionID: "outbound", localPeer: .init(id: ids[i], displayName: ids[i].rawValue),
+                credential: .derived(groupID: "outbound", secret: "fixture"), configuration: config))
+            await managers[i].startConnection()
+            await managers[i].startMedia()
+        }
+        for id in ids { try await eventually { await network.isJoined(id, kind: .webRTC) } }
+        for record in records { try await eventually { await record.memberCount == 2 } }
+        let speaker = managers[0]
+        func send(_ marker: UInt8) async {
+            await speaker.sendAudioPacket(.init(sequenceNumber: UInt64(marker), codec: .pcm16,
+                payload: Data(repeating: marker, count: 960)))
+        }
+
+        #expect(await speaker.networkDiagnostics().outboundAudioDispatch == nil)
+        await send(1)
+        for record in records.dropFirst() {
+            try await eventually { await record.audio.contains { $0.packet.payload.first == 1 } }
+        }
+        let local = try #require(await speaker.networkDiagnostics().outboundAudioDispatch)
+        #expect(local.offeredRoutes == [.multipeer])
+        #expect(local.internetCoveredByLocal)
+        #expect(await managers[1].networkDiagnostics().peers.contains { $0.peerID == ids[0] })
+        #expect(await managers[1].networkDiagnostics().outboundAudioDispatch == nil)
+
+        await network.moveLocalPeer(ids[2], to: "other-network")
+        await send(2)
+        for record in records.dropFirst() {
+            try await eventually { await record.audio.contains { $0.packet.payload.first == 2 } }
+        }
+        let mixed = try #require(await speaker.networkDiagnostics().outboundAudioDispatch)
+        #expect(mixed.offeredRoutes == [.multipeer, .webRTC])
+        #expect(!mixed.internetCoveredByLocal)
+        #expect(mixed.observedAt >= local.observedAt)
+        for manager in managers { await manager.stopConnection() }
+        #expect(await speaker.networkDiagnostics().outboundAudioDispatch == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func independentNetworkFailuresRecoverInEitherOrder(internetOnlyPeerFirst: Bool) async throws {
         let network = VirtualNetwork()

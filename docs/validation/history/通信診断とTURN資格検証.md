@@ -54,3 +54,11 @@ VALIDATION_DIR=/private/tmp/rtc-network-scripts-rerun scripts/validate.sh script
 結果ディレクトリは毎回新しい名前を使う。ツールチェーン・依存版・Simulator IDは各validationディレクトリのenvironment.txt / simulator-id.txt、UI操作の添付はxcresultへ保存する。`/private/tmp`の証跡は一時保存であり、必要なら別途保存する。この変更で全9パッケージを再実行したとは扱わない。音声系の既存結果は各履歴を参照する。
 
 ツールチェーンはXcode 27.1 (27A9275)、Swift 6.4、macOS 27.0.1、Node 26.12.0 / npm 11.20.0。今回依存版の更新はない。XcodeのAppIntents metadata extraction skipped警告とSimulatorのSDK build記録診断が残るが、コンパイル・テストは成功。警告ゼロとは記録しない。UI添付画面でNetworkの折返し・スクロール到達を確認した。実機VoiceOver操作や全サイズの表示確認を代替しない。
+
+## 自端末の音声を渡した経路
+
+2026-11-20のRTCパッケージ検証。3台の代替transportでRouteManagerと認証・中継を実行した。近距離で全員をカバーするとLocalだけ、1台を別の近距離網へ移すとLocalとInternetの両方へ最後の音声を渡した。両方の場面で受信側2台に音声packetが届いた。受信・中継と制御では自端末の送信記録を作らず、切断後は消去された。追加前は経路の記録が得られず同じテストが失敗した。
+
+- 回帰は `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` でRTCTests 140件、RTCNativeWebRTCTests 5件が合格。Workerペアは別工程。
+- ローカル証跡は `.validation/tx-dispatch-1402/` の `red.log`・`green-focused.log`・`rtc.log`。
+- この記録が示すのはRTCから各経路に渡した時点。backendの受付、実サービス・実機の相手への到着と実出力、Appの表示は別の確認を要する。
