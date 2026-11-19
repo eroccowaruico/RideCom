@@ -9,6 +9,8 @@
 | 記録の仕方 | [文書作成規約](docs/policies/文書作成規約.md) | 計画、見出しによる識別、情報保持、文書更新・命名・要求管理 |
 | ログの実装 | [ログ記録規約](docs/policies/ログ記録規約.md) | レベル、構造、機密情報の保護 |
 
+すべての作業で[責務分離スキル](.agents/skills/architecture-refinement/SKILL.md#常時適用)の入口を適用し、変更に関係する節だけを読む。
+
 **作業の着手前と区切りには、[小さく動く単位での検証・コミットと未コミットの滞留管理](docs/policies/開発方針.md#小さく動く単位で検証・コミットする)を必ず適用する。**
 
 GUIの実装・変更・点検では、[UI Stackを含むUI・UX方針](docs/policies/開発方針.md#uiux方針)を必ず適用する。Standard（一般向け）とAdvanced（詳細表示）の画面は、[StandardとAdvancedの設計の絶対ルール](docs/policies/開発方針.md#standardとadvancedの設計の絶対ルール)に例外なく従う。
