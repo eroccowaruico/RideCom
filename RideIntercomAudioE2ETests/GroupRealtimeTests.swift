@@ -215,8 +215,10 @@ private actor DelayedGroupRoute: RTCCallRoute {
     func prepare(_ request:CallStartRequest) async {}
     func startConnection() async {await network.join(peer,kind:kind,source:stream.continuation)}
     func stopConnection() async {await network.leave(peer,kind:kind)}
-    func sendApplicationData(_ message:ApplicationDataMessage) async -> Set<PeerID> {
-        await network.send(peer,kind:kind,message:message)
-        return Set(await network.routes[kind,default:[:]].keys).subtracting([peer])
+    func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
+        await network.send(peer, kind: kind, message: message)
+        guard kind == .multipeer else { return .init() }
+        let recipients = Set(await network.routes[kind, default: [:]].keys).subtracting([peer])
+        return .init(verifiedLocalRecipients: recipients)
     }
 }
