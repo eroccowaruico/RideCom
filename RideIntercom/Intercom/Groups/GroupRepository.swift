@@ -118,8 +118,12 @@ final class GroupRepository {
 
     func removeGroupMember(_ memberID: String, from groupID: UUID, now: TimeInterval) throws -> Set<String> {
         guard let snapshot, let localMemberID, memberID != localMemberID,
-              let index = snapshot.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group }),
-              snapshot.groups[index].members.contains(where: { $0.id == memberID }) else { throw GroupStorageError.invalidUpdate }
+              IntercomGroup.isValidMemberID(memberID),
+              let index = snapshot.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group })
+        else { throw GroupStorageError.invalidUpdate }
+        let isPendingSlot = memberID.hasPrefix(GroupMember.pendingInvitePrefix)
+        guard !isPendingSlot || snapshot.groups[index].members.contains(where: { $0.id == memberID })
+        else { throw GroupStorageError.invalidUpdate }
         var groups = try snapshot.groups.map { try $0.group() }
         let binding = groups[index].accountDevices[memberID]
         let user = snapshot.users.first { $0.memberIDs.contains(memberID) || (binding != nil && $0.principal == binding?.principal) }
@@ -127,7 +131,8 @@ final class GroupRepository {
         groups[index].members.removeAll { ids.contains($0.id) }
         groups[index].accountDevices = groups[index].accountDevices.filter { !ids.contains($0.key) }
         try update(groups, credential: nil) { next in
-            guard !memberID.hasPrefix(GroupMember.pendingInvitePrefix) else { return }
+            // A verified removal can arrive before this device ever sees the member.
+            guard !isPendingSlot else { return }
             let pending = next.contactInvitations.filter { $0.direction == .outgoing && $0.state == .pending && $0.invitedGroupID == groupID }
             let principal = binding?.principal ?? user?.principal
             let removed = GroupSnapshot.RemovedMember(memberIDs: ids, principal: principal, removedAt: now,

@@ -121,17 +121,19 @@ extension IntercomViewModel {
         }
     }
 
-    func deleteGroup(_ groupID: UUID) {
-        guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return }
+    @discardableResult
+    func deleteGroup(_ groupID: UUID) -> Bool {
+        guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         let remaining = groups.filter { $0.id != groupID }
         do { try groupRepository.delete(groupID, remaining: remaining, now: callAccessNow().timeIntervalSince1970) }
-        catch { reportGroupStorageError(error); return }
+        catch { reportGroupStorageError(error); return false }
         refreshGroupStorageStatus()
         if activeGroupID == groupID { disconnect() }
         if selectedGroup?.id == groupID { selectedGroup = nil }
         groups = remaining
         discardUnavailableRecentCall()
         requestGroupDeliverySync(afterMutation: true)
+        return true
     }
 
     /// The name stays on this device; renaming does not touch the call.
@@ -160,7 +162,17 @@ extension IntercomViewModel {
             groupErrorMessage = groupStorageNotice ?? "An active pass is required to remove a member. Check Access in Settings."
             return false
         }
+        return applyGroupMemberRemoval(memberID, from: groupID)
+    }
 
+    /// The caller authorizes the removal. Applying it requires writable saved groups,
+    /// regardless of the local recipient's pass.
+    func applyGroupMemberRemoval(_ memberID: String, from groupID: UUID) -> Bool {
+        guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
+        if memberID == localMemberIdentity.memberID {
+            guard groups.contains(where: { $0.id == groupID && $0.kind == .group }) else { return false }
+            return deleteGroup(groupID)
+        }
         let removed: Set<String>
         do { removed = try groupRepository.removeGroupMember(memberID, from: groupID, now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return false }

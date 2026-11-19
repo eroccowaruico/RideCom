@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import RTC
 import Testing
 @testable import RideIntercom
 
@@ -309,6 +310,125 @@ struct GroupContactInvitationTests {
             // The trial leaves competing admissions unresolved.
             return admissions.count == 1 ? admissions.first?.introductionID : nil
         }
+    }
+
+    @Test(arguments: [RouteKind.multipeer, .webRTC], [false, true])
+    func verifiedRemovalUsesRecipientAndRemainingRiderState(route: RouteKind, riderAlreadyKnown: Bool) async throws {
+        let a = AppTestSupport.makeHarness(groups: [], localMemberID: "group-author", enforceCallAccess: true,
+            callAccessEvaluation: { _ in .init(status: .active) })
+        let targetStore = try GroupStorageFixture(), observerStore = try GroupStorageFixture()
+        defer { targetStore.remove(); observerStore.remove() }
+        let b = AppTestSupport.makeHarness(groups: [], groupRepository: targetStore.repository, credentialStore: targetStore.keys,
+            localMemberID: "group-target")
+        let c = AppTestSupport.makeHarness(groups: [], groupRepository: observerStore.repository, credentialStore: observerStore.keys,
+            localMemberID: "group-observer", enforceCallAccess: true, callAccessEvaluation: { _ in .init(status: .notPurchased) })
+        let author = a.viewModel, target = b.viewModel, observer = c.viewModel
+        defer { for vm in [author, target, observer] { vm.disconnect() } }
+
+        #expect(author.createTalkGroup(name: "Mountain riders"))
+        let group = try #require(author.selectedGroup)
+        let inviterID = author.localMemberIdentity.memberID, targetID = target.localMemberIdentity.memberID
+        let observerID = observer.localMemberIdentity.memberID
+        let signer = try author.internetSettingsStore.invitationSigner(memberID: inviterID)
+        let targetSigner = try target.internetSettingsStore.invitationSigner(memberID: targetID)
+        let observerSigner = try observer.internetSettingsStore.invitationSigner(memberID: observerID)
+        let oldURL = try #require(author.makeSelectedGroupInviteURL())
+        try target.acceptInviteURL(oldURL)
+        try observer.acceptInviteURL(try #require(author.makeSelectedGroupInviteURL()))
+
+        func authenticate(_ vm: IntercomViewModel, peers: [DeviceIdentitySigner]) throws {
+            vm.handleTransportEvent(.authenticated(members: peers.map {
+                .init(peer: .init(id: .init(rawValue: $0.memberID), displayName: "Rider"),
+                      route: route, isConnected: true, membershipID: UUID())
+            }))
+            for peer in peers {
+                let name = String(peer.memberID.split(separator: "-").last ?? "Rider")
+                let profile = try testPeerProfile(vm, peerID: peer.memberID, displayName: name, signer: peer)
+                vm.handleTransportEvent(.receivedApplicationData(peerID: peer.memberID,
+                    message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))))
+            }
+        }
+
+        try authenticate(author, peers: [targetSigner, observerSigner])
+        try authenticate(target, peers: [signer, observerSigner])
+        try authenticate(observer, peers: riderAlreadyKnown ? [signer, targetSigner] : [signer])
+        for peer in riderAlreadyKnown ? [signer, targetSigner] : [signer] {
+            let active = SharedCallAccess(groupID: group.id, recipientMemberID: observerID,
+                challenge: try #require(observer.peerProfiles[peer.memberID]?.challenge), revision: 1,
+                hasActiveRight: peer.memberID == inviterID, activeUntil: nil, mediaReady: true, isEstablished: true, lastSponsoredStart: nil)
+            observer.handleTransportEvent(.receivedApplicationData(peerID: peer.memberID,
+                message: .init(namespace: SharedCallAccess.namespace, payload: try JSONEncoder().encode(active.signed(by: peer)))))
+        }
+        await AppTestSupport.waitUntil { observer.callAccessState.isEstablished }
+        #expect(!observer.canManageRegularGroups)
+        #expect(observer.callAccessAdmittedMemberships.keys.contains(.init(rawValue: inviterID)))
+        #expect(observer.callAccessAdmittedMemberships.keys.contains(.init(rawValue: targetID)) == riderAlreadyKnown)
+        let continuingCall = observer.currentCallReference, targetCall = target.currentCallReference
+        let targetContact = try #require(target.savedRemoteUsers.first { $0.memberIDs.contains(inviterID) })
+        let observerCredential = try observer.groupRepository.credential(for: group.id)
+
+        #expect(author.removeMember(targetID, from: group.id))
+        let event = MembershipStatement(groupID: group.id, introductionID: UUID(), introducerID: inviterID,
+            memberID: targetID, memberKey: targetSigner.publicKey, kind: .removal)
+        let signed = try MembershipEndorsement(event, signer: signer)
+        let otherKey = try DeviceIdentitySigner(memberID: inviterID, key: P256.Signing.PrivateKey())
+        let untrusted = try MembershipEndorsement(event, signer: otherKey)
+        var targetJournal = MembershipJournal(), observerJournal = MembershipJournal()
+
+        // A fixture supplies the author's authorization. The signed message and actual saved
+        // introducer key still have to match before applying it to the recipient App.
+        func deliver(_ removal: MembershipEndorsement, to vm: IntercomViewModel, store: FileGroupStore,
+                     journal: inout MembershipJournal) throws -> Bool {
+            let statement = removal.statement
+            guard statement.kind == .removal,
+                  let roster = try store.read()?.groups.first(where: { $0.id == statement.groupID }) else { return false }
+            var proposed = journal
+            guard proposed.receive(removal, in: roster),
+                  vm.applyGroupMemberRemoval(statement.memberID, from: statement.groupID) else { return false }
+            journal = proposed
+            return true
+        }
+
+        let rejected = try deliver(untrusted, to: observer, store: observerStore.file, journal: &observerJournal)
+        #expect(!rejected)
+        #expect(observer.currentCallReference == continuingCall)
+        let beforeFailure = try targetStore.file.read()
+        targetStore.store.failCommit = true
+        let failed = try deliver(signed, to: target, store: targetStore.file, journal: &targetJournal)
+        #expect(!failed)
+        #expect(try targetStore.file.read() == beforeFailure)
+        #expect(target.currentCallReference == targetCall)
+        targetStore.store.failCommit = false
+        target.disconnect()
+        target.reloadSavedGroups()
+        target.selectGroup(try #require(target.groups.first { $0.id == group.id }))
+
+        let appliedToTarget = try deliver(signed, to: target, store: targetStore.file, journal: &targetJournal)
+        let appliedToObserver = try deliver(signed, to: observer, store: observerStore.file, journal: &observerJournal)
+        #expect(appliedToTarget && appliedToObserver)
+        #expect(target.activeGroupID == nil && b.callSession.connectedGroup == nil)
+        #expect(try target.groupRepository.credential(for: group.id) == nil)
+        #expect(target.savedRemoteUsers.contains { $0.id == targetContact.id })
+        #expect(observer.groups.first { $0.id == group.id }?.members.map(\.id) == [observerID, inviterID])
+        #expect(observer.currentCallReference == continuingCall)
+        #expect(try observer.groupRepository.credential(for: group.id) == observerCredential)
+        #expect(Set(observer.callAccessAdmittedMemberships.keys.map(\.rawValue)) == [inviterID])
+        #expect(c.callSession.audioPolicies.last?.peerPolicy == .admittedMemberships(observer.callAccessAdmittedMemberships))
+        #expect(observer.peerProfiles[targetID] == nil)
+
+        let savedObserver = try observerStore.file.read()
+        observerJournal = try JSONDecoder().decode(MembershipJournal.self, from: JSONEncoder().encode(observerJournal))
+        let retry = try deliver(signed, to: observer, store: observerStore.file, journal: &observerJournal)
+        let afterRetry = try observerStore.file.read()
+        #expect(!retry && afterRetry == savedObserver)
+        target.reloadSavedGroups()
+        #expect(throws: GroupInviteTokenError.retiredGroupLink) { try target.acceptInviteURL(oldURL) }
+        observer.disconnect()
+        observer.reloadSavedGroups()
+        observer.selectGroup(try #require(observer.groups.first { $0.id == group.id }))
+        try authenticate(observer, peers: [signer, targetSigner])
+        #expect(observer.peerProfiles[targetID]?.verified == nil)
+        #expect(observer.groups.first?.members.contains { $0.id == targetID } == false)
     }
 
     @Test func failedRegistrationDoesNotLeaveOnlyAContactOrOnlyAGroup() throws {
