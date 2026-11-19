@@ -65,6 +65,86 @@ extension RealtimeTransportTests {
         }
     }
 
+    enum CredentialTopology: String, CaseIterable, Sendable {
+        case localDirect, localRelay, internet, mixed
+
+        var routes: [Set<RouteKind>] {
+            switch self {
+            case .localDirect, .localRelay: [[.multipeer], [.multipeer], [.multipeer]]
+            case .internet: [[.webRTC], [.webRTC], [.webRTC]]
+            case .mixed: [[.multipeer], [.multipeer, .webRTC], [.webRTC]]
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: CredentialTopology.allCases)
+    func aNewCredentialSeparatesRetainedRidersFromThePreviousCall(topology: CredentialTopology) async throws {
+        let ids = ["speaker", "remaining", "removed"].map { PeerID(rawValue: $0) }
+        let kinds = topology.routes
+        let network = VirtualNetwork(localLine: topology == .localRelay ? ids : [])
+        let configurations = kinds.map { routes in
+            CallRouteConfiguration(enabledRoutes: routes,
+                preferredRoute: routes.contains(.multipeer) ? .multipeer : .webRTC, fallbackDelay: 0)
+        }
+        let sessionID = "credential-\(topology.rawValue)"
+        let original = RTCCredential.derived(groupID: sessionID, secret: "before-removal")
+        let replacement = RTCCredential.derived(groupID: sessionID, secret: "after-removal")
+        let managers = ids.indices.map { i in
+            RouteManager(routes: kinds[i].map { VirtualRoute(peer: ids[i], kind: $0, network: network) },
+                configuration: configurations[i], runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
+        }
+        let records = ids.map { _ in CallRecorder() }
+        let listeners = managers.indices.map { i in
+            let events = managers[i].events
+            return Task { for await event in events { await records[i].record(event) } }
+        }
+        defer { listeners.forEach { $0.cancel() } }
+        func start(_ index: Int, credential: RTCCredential) async {
+            await managers[index].prepare(.init(sessionID: sessionID, localPeer: .init(id: ids[index], displayName: "Rider"),
+                credential: credential, configuration: configurations[index]))
+            await managers[index].startConnection()
+            await managers[index].startMedia()
+        }
+        func send(_ index: Int, marker: UInt8) async {
+            await managers[index].sendAudioPacket(.init(sequenceNumber: UInt64(marker), codec: .pcm16,
+                payload: Data(repeating: marker, count: 960)))
+        }
+        func markers(on index: Int) async -> Set<UInt8> {
+            Set(await records[index].audio.compactMap { $0.packet.payload.first })
+        }
+        func stop() async {
+            for manager in managers { await manager.stopConnection() }
+        }
+
+        do {
+            for index in ids.indices { await start(index, credential: original) }
+            for record in records { try await eventually { await record.memberCount == 2 } }
+            await send(0, marker: 1)
+            try await eventually { await markers(on: 1).contains(1) }
+            try await eventually { await markers(on: 2).contains(1) }
+
+            // All three still share transport paths. Only two know the new credential.
+            await start(0, credential: replacement)
+            await start(1, credential: replacement)
+            try await eventually { await records[0].members.map(\.peer.id) == [ids[1]] }
+            try await eventually { await records[1].members.map(\.peer.id) == [ids[0]] }
+            let removedRoute: RouteKind = kinds[2].contains(.multipeer) ? .multipeer : .webRTC
+            #expect(await network.reachablePeers(ids[2], kind: removedRoute).contains(ids[1]))
+
+            await send(2, marker: 2)
+            await send(0, marker: 3); await send(1, marker: 4)
+            try await eventually { await markers(on: 1).contains(3) }
+            try await eventually { await markers(on: 0).contains(4) }
+            #expect(await markers(on: 2) == [1])
+            #expect(await !markers(on: 0).contains(2))
+            #expect(await !markers(on: 1).contains(2))
+            await stop()
+        } catch {
+            await stop()
+            throw error
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func eightLocalPeersTalkWhileInternetIsUnavailable() async throws {
         let network = VirtualNetwork(internetAvailable: false)
         var managers: [RouteManager] = [], records: [CallRecorder] = [], tasks: [Task<Void, Never>] = []
