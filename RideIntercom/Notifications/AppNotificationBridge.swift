@@ -52,7 +52,7 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
               let access = try? model.internetSettingsStore.notificationAccess(memberID: model.localMemberIdentity.memberID),
               access.principal.userID == tap.recipientID else { return [] }
         model.requestGroupDeliverySync(afterMutation: true)
-        return model.hasAnyActiveGroupConnection ? [.list] : [.banner, .list]
+        return [.list]
     }
     func presentationOptions(for tap: CallNotificationTap) -> UNNotificationPresentationOptions {
         guard let owner, let model = owner.viewModel, model.accountSession === owner.account,

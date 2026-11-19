@@ -83,4 +83,8 @@
 
 ローカル注入で拡張が起動しないことは[AppleのSimulatorリリースノート](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)の制約と一致する。元のアラートが静かに残ることまで確認した。待機中に音を付ける案には実APNs Sandboxと署名の確認が要る。背景の呼び出しの製品payloadは現行のまま。証跡は `.validation/background-notification-extension-probe-20261119` の `permission.xcresult`、`observations.json`、`mutable-os.log`、試験用ソース。専用Simulatorは回収済み。
 
-グループ招待は端末の通話状態によらず静かに届ける契約のため、同じ試験を根拠に、Workerの固定アラートへpassiveを指定した。1回の通知、音の指定なし、暗号文を含めないこと、呼び出しと別のcategory、既存の受信箱と取消を維持した。最初の確認で招待のpayloadに指定が欠けることをローカルWorkerで再現し、変更後に通常の呼び出しを含む全82件と型検査が成功した。再点検では割り込みレベルの既定をWorkerの用途別payloadに置き、受信箱・宛先の認可と通話処理から独立していることを確認した。前景でApp自身が返す表示オプションは次のApp工程で揃える。証跡は同ディレクトリの `group-server-red.log` と `group-server-final.log`。
+グループ招待は端末の通話状態によらず静かに届ける契約のため、同じ試験を根拠に、Workerの固定アラートへpassiveを指定した。1回の通知、音の指定なし、暗号文を含めないこと、呼び出しと別のcategory、既存の受信箱と取消を維持した。最初の確認で招待のpayloadに指定が欠けることをローカルWorkerで再現し、変更後に通常の呼び出しを含む全82件と型検査が成功した。再点検では割り込みレベルの既定をWorkerの用途別payloadに置き、受信箱・宛先の認可と通話処理から独立していることを確認した。証跡は同ディレクトリの `group-server-red.log` と `group-server-final.log`。
+
+続くApp工程で、前面の受信時に未接続ならバナーを要求する差を再現した。現在のアカウント宛てのグループ招待は、接続状態にかかわらず `AppNotificationBridge` から `[.list]` を返す。受信箱の取り込みを引き続き依頼し、表示中の画面と通話を維持する。最初の66件では未接続の表示検査1件が失敗し、修正後はiOSとmacOSで各66件が成功した。他アカウント宛ての通知拒否、受信・タップの画面遷移、暗号文の保存・受領も回帰した。失敗・skip・実行時警告は0。対象のAppコードと検証結果は両OSとも採番以外で一致した。試験ログは `.validation/group-invitation-passive-app-{red,final}-20261119` と `.validation/group-invitation-passive-mac-final-20261119`。ビルド後採番1226。
+
+通知の仕様、デザインのMarkdownとHTML、使い方、AppleとCloudflareを設定した後の受入順を同じ操作に揃えた。HTMLはChromeで描画して確認した。グループ招待の実APNsは配布署名と端末の設定を揃えて受け入れる。呼び出しの待機中の音を通知拡張で付ける案も、同じAPNs Sandboxで検証する。

@@ -150,7 +150,7 @@ App・serverのコードと公開値はrepoへ置き、アカウント固有の�
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
 | 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
 | 6 | 1対1の呼び出し | 次の認証済み個別接続で既存相手と用途別許可を交換する。呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する |
-| 7 | グループ招待 | 登録済みの相手への招待を保存し、送信側のpending→queued、相手の保存後のreceivedを確認する。招待は通知を開いても新しい通話を始めない。OS通知を切った状態でも、前面復帰で招待を受け取ることを確認する |
+| 7 | グループ招待 | 登録済みの相手への招待を保存し、送信側のpending→queued、相手の保存後のreceivedを確認する。招待の通知が音やバナーを出さず通知センターに届くことを、RideComを開いているときと背景にいるときに確認する。通知を開いたときは現在の通話を維持する。OS通知を切った状態でも、前面復帰で招待を受け取ることを確認する |
 | 8 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる |
 
 グループ鍵・名前は端末で暗号化されるため、group専用のserver secretを作らない。用途別grantは既存のDEVICE_IDENTITY_SIGNING_KEYで発行する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。

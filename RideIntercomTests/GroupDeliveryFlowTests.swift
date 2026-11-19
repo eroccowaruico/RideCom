@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
@@ -197,6 +198,33 @@ import Testing
         #expect(CallNotificationTap(payload: payload) == nil)
         #expect(GroupInvitationTap(payload: payload) != nil)
         #expect(GroupInvitationTap(payload: ["version": 1, "requestID": UUID().uuidString, "recipientID": String(repeating: "a", count: 64)]) == nil)
+    }
+
+    @Test func foregroundGroupInvitationOnlyAppearsInNotificationCenter() throws {
+        let identity = GroupDeliveryTestIdentity("quiet-group-invitation")
+        defer { identity.remove() }
+        try identity.authorizeFixture(userID: String(repeating: "a", count: 64))
+        let model = try identity.harness(knowing: []).viewModel
+        defer { model.stopGroupDeliverySync(); model.disconnect() }
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        owner.notificationBridge.bind(to: owner)
+        let notice = try #require(GroupInvitationTap(payload: [
+            "version": 1, "kind": "groupInvitation", "requestID": UUID().uuidString,
+            "recipientID": try identity.principal.userID
+        ]))
+        let wrongRecipient = try #require(GroupInvitationTap(payload: [
+            "version": 1, "kind": "groupInvitation", "requestID": UUID().uuidString,
+            "recipientID": String(repeating: "b", count: 64)
+        ]))
+
+        #expect(owner.notificationBridge.groupPresentationOptions(for: notice) == [.list])
+        #expect(model.activeGroupID == nil)
+        #expect(model.createTalkGroup(name: "Keep this call"))
+        let call = model.currentCallReference
+        #expect(owner.notificationBridge.groupPresentationOptions(for: notice) == [.list])
+        #expect(owner.notificationBridge.groupPresentationOptions(for: wrongRecipient).isEmpty)
+        #expect(model.currentCallReference == call)
+        #expect(owner.callPresentationID == nil && owner.groupsPresentationID == nil)
     }
 
     @Test(arguments: [false, true])
