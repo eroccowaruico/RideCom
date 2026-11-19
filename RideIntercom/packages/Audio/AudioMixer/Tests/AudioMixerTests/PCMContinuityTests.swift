@@ -780,3 +780,52 @@ func regularHundredMillisecondBurstsKeepTheirTailInsideTheCallWindow(withPauses:
     try packet(11, arrived: 0.11 + 0.093)
     #expect(source.bufferedDuration >= learned - 0.011, "Learned \(learned), after restart \(source.bufferedDuration)")
 }
+
+@Test func releasingAnUnexpectedBurstPreservesItsQueuedSpeech() throws {
+    let rate = 48_000
+    let packetCount = 80
+    let delayedIndex = 40
+    let framesPerPacket = 480
+    let framesPerStep: AVAudioFrameCount = 48
+    let extraDelay = 60
+    let speech = (0..<packetCount).map { Float(0.25) + Float($0) / 400 }
+    let engine = AVAudioEngine()
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: Double(rate), channels: 1))
+    try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: framesPerStep)
+    let mixer = try AudioMixer(engine: engine, audioFormat: .init())
+    let bus = try mixer.createBus("controlled-arrival")
+    let source = try bus.addPCMSource(id: "peer", maximumBufferedDuration: 0.12,
+        captureTimePlayoutDelay: 0.002, adaptivePlayout: true)
+    try mixer.routeToOutput(bus)
+    try mixer.start(); source.start()
+    defer { mixer.stop() }
+
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: framesPerStep))
+    var rendered: [Float] = []
+    var next = 0
+    var maximumBufferedDuration = 0.0
+    for now in 0..<1100 {
+        let previous = next
+        while next < packetCount {
+            let sent = (next + 1) * 10
+            let release = (delayedIndex + 1) * 10 + extraDelay
+            let arrival = next < delayedIndex ? sent : max(release, sent)
+            guard arrival <= now else { break }
+            try source.schedule(.init(sequenceNumber: UInt64(next), capturedAt: Double(next) / 100,
+                samples: Array(repeating: speech[next], count: framesPerPacket)), arrivedAt: Double(arrival) / 1000)
+            maximumBufferedDuration = max(maximumBufferedDuration, source.bufferedDuration)
+            next += 1
+        }
+        if next > previous { Thread.sleep(forTimeInterval: 0.002) }
+        try #require(engine.renderOffline(framesPerStep, to: output) == .success)
+        rendered += UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(framesPerStep))
+    }
+    // The missed deadline can insert silence, but the newly queued burst
+    // must play each packet once and need not reset to stay inside the window.
+    let renderedSpeech = rendered.filter { $0 > 0.1 }
+    let expected = speech.flatMap { Array(repeating: $0, count: framesPerPacket) }
+    #expect(renderedSpeech.count == expected.count)
+    #expect(zip(renderedSpeech, expected).allSatisfy { abs($0 - $1) < 0.00001 })
+    #expect(maximumBufferedDuration <= 0.13) // Start within 120 ms, plus one 10 ms packet.
+    #expect(source.playbackResetCount == 0)
+}

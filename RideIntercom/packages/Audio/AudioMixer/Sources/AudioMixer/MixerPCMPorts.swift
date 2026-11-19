@@ -188,18 +188,21 @@ public final class MixerPCMSource {
                             // packet and one more for the render quantum that
                             // must start before its first sample (one packet
                             // alone left gaps on the audio E2E).
-                            let excess = (transit - fastest.seconds) * mixerFormat.sampleRate + 2 * Double(buffer.frameLength)
-                            // Leave room for the previous burst's full duration
-                            // as well as the wait. The half-window cap remains
-                            // the bound when deliveries are shorter.
+                            let excessTransit = max(0, transit - fastest.seconds)
+                            let excess = excessTransit * mixerFormat.sampleRate + 2 * Double(buffer.frameLength)
+                            // Even after a calm link, a late packet can arrive
+                            // with all the audio captured while it was held.
+                            // Leave room for that tail before adding learned wait.
                             let window = (limit - delay - packetizationJitter) * mixerFormat.sampleRate
                             let remainingBatch = max(0, batch.previousDuration - batch.offset)
-                            let reserved = remainingBatch * mixerFormat.sampleRate + Double(nativeLead)
-                            let ceiling = AVAudioFramePosition(max(0, min(window / 2, window - reserved)).rounded(.down))
+                            let reserved = max(remainingBatch, excessTransit + duration) * mixerFormat.sampleRate
+                                + Double(nativeLead)
+                            let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
+                            let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
                             let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
                             jitterMargin = (learned, capturedAt)
-                            // Resume this burst with the wait just learned.
-                            start = rendered + min(requestedLead - margin + learned,
+                            // Retain past learning without displacing this batch.
+                            start = rendered + min(requestedLead - margin + min(learned, availableWait),
                                 AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
                         }
                         target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))
