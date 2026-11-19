@@ -1893,6 +1893,7 @@
       }
     },
     "Control-click a member to rename or remove them." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -3114,16 +3115,6 @@
         }
       }
     },
-    "Invitation saved. Retry when ready." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "招待を保存しました。準備ができたら再試行してください。"
-          }
-        }
-      }
-    },
     "Invitation received" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3131,6 +3122,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "受け取り済み"
+          }
+        }
+      }
+    },
+    "Invitation saved. Retry when ready." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "招待を保存しました。準備ができたら再試行してください。"
           }
         }
       }
