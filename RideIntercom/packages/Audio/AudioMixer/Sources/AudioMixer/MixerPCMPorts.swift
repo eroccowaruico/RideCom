@@ -189,7 +189,8 @@ public final class MixerPCMSource {
                             // must start before its first sample (one packet
                             // alone left gaps on the audio E2E).
                             let excessTransit = max(0, transit - fastest.seconds)
-                            let excess = excessTransit * mixerFormat.sampleRate + 2 * Double(buffer.frameLength)
+                            let elapsedWait = excessTransit * mixerFormat.sampleRate
+                            let excess = elapsedWait + 2 * Double(buffer.frameLength)
                             // Even after a calm link, a late packet can arrive
                             // with all the audio captured while it was held.
                             // Leave room for that tail before adding learned wait.
@@ -201,8 +202,10 @@ public final class MixerPCMSource {
                             let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
                             let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
                             jitterMargin = (learned, capturedAt)
-                            // Retain past learning without displacing this batch.
-                            start = rendered + min(requestedLead - margin + min(learned, availableWait),
+                            // This late packet has already waited through the excess transit.
+                            // Keep the full learned margin for future arrivals.
+                            let remainingWait = max(0, learned - AVAudioFramePosition(elapsedWait.rounded(.down)))
+                            start = rendered + min(requestedLead - margin + min(remainingWait, availableWait),
                                 AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
                         }
                         target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))

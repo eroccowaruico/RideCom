@@ -92,13 +92,13 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
     // The link has proven it can hold a packet: a reply after a short pause
     // keeps that wait instead of losing its first syllables again.
     for index in 0..<30 { #expect(try engine.renderOffline(4800, to: output) == .success, "silence \(index)") }
-    try source.schedule(.init(sequenceNumber: 2, capturedAt: 1003.1, samples: Array(repeating: 0.3, count: 960)), arrivedAt: 53.1)
+    try source.schedule(.init(sequenceNumber: 2, capturedAt: 1003.15, samples: Array(repeating: 0.3, count: 960)), arrivedAt: 53.15)
     #expect(source.bufferedDuration > 0.041, "The learned wait survives a 3 s pause")
     // After the link stays calm, the wait is released for a low-delay reply.
     for _ in 0..<10 { #expect(try engine.renderOffline(4800, to: output) == .success) }
     for index in 0..<130 { #expect(try engine.renderOffline(4800, to: output) == .success, "calm \(index)") }
-    for _ in 0..<50 { #expect(try engine.renderOffline(4800, to: output) == .success) }
-    try source.schedule(.init(sequenceNumber: 3, capturedAt: 1023.1, samples: Array(repeating: 0.3, count: 960)), arrivedAt: 73.1)
+    for _ in 0..<60 { #expect(try engine.renderOffline(4800, to: output) == .success) }
+    try source.schedule(.init(sequenceNumber: 3, capturedAt: 1023.15, samples: Array(repeating: 0.3, count: 960)), arrivedAt: 73.15)
     #expect(source.bufferedDuration <= 0.041)
     #expect(source.playbackResetCount == 0, "Natural conversation pauses are not corrupt clocks")
 }
@@ -773,21 +773,19 @@ func regularHundredMillisecondBurstsKeepTheirTailInsideTheCallWindow(withPauses:
     #expect(try engine.renderOffline(480, to: output) == .success)
     #expect(try engine.renderOffline(480, to: output) == .success)
     try packet(10, arrived: 0.1 + 0.053)
-    let learned = source.bufferedDuration
-    #expect(learned > 0.04)
     // An output route change restarts the local player, not the link.
     source.stop(); source.start()
     try packet(11, arrived: 0.11 + 0.093)
-    #expect(source.bufferedDuration >= learned - 0.011, "Learned \(learned), after restart \(source.bufferedDuration)")
+    #expect(source.bufferedDuration >= 0.059, "The new playback anchor keeps the learned 59 ms margin")
 }
 
-@Test func releasingAnUnexpectedBurstPreservesItsQueuedSpeech() throws {
+@Test(arguments: [14, 24, 60])
+func releasingAnUnexpectedBurstPreservesItsQueuedSpeech(extraDelay: Int) throws {
     let rate = 48_000
     let packetCount = 80
     let delayedIndex = 40
     let framesPerPacket = 480
     let framesPerStep: AVAudioFrameCount = 48
-    let extraDelay = 60
     let speech = (0..<packetCount).map { Float(0.25) + Float($0) / 400 }
     let engine = AVAudioEngine()
     let format = try #require(AVAudioFormat(standardFormatWithSampleRate: Double(rate), channels: 1))
@@ -824,6 +822,12 @@ func regularHundredMillisecondBurstsKeepTheirTailInsideTheCallWindow(withPauses:
     // must play each packet once and need not reset to stay inside the window.
     let renderedSpeech = rendered.filter { $0 > 0.1 }
     let expected = speech.flatMap { Array(repeating: $0, count: framesPerPacket) }
+    let first = try #require(rendered.firstIndex { $0 > 0.1 })
+    let last = try #require(rendered.lastIndex { $0 > 0.1 })
+    let silence = last - first + 1 - renderedSpeech.count
+    // The observed delay has already elapsed. In this 10 ms packet fixture,
+    // allow two packets of headroom and the 2 ms initial scheduling allowance.
+    #expect(silence <= (extraDelay + 22) * Int(framesPerStep))
     #expect(renderedSpeech.count == expected.count)
     #expect(zip(renderedSpeech, expected).allSatisfy { abs($0 - $1) < 0.00001 })
     #expect(maximumBufferedDuration <= 0.13) // Start within 120 ms, plus one 10 ms packet.
