@@ -890,19 +890,38 @@ final class AudioE2ETests: XCTestCase {
         }
         try await barrier.meet("\(scenario)-ready")
         checkBackgroundIfRequested(movesToBackground)
+        func localUDPObservation() -> [String: Any]? {
+            guard route == .multipeer, let report = viewModel.networkDiagnostics,
+                  let local = report.routes.first(where: { $0.route == .multipeer }) else { return nil }
+            return ["observedAt": report.generatedAt,
+                    "sentDatagrams": local.statistics.sentMediaDatagrams as Any? ?? NSNull(),
+                    "receivedDatagrams": local.statistics.receivedMediaDatagrams as Any? ?? NSNull(),
+                    "routeEventDrops": local.eventDrops["route"].map { $0.overflow + $0.expired } as Any? ?? NSNull(),
+                    "sessionEventDrops": report.eventDrops.overflow + report.eventDrops.expired]
+        }
+        let udpBefore = localUDPObservation()
+        let decodeBefore = viewModel.audioPipeline.receiveDecodeCounts
         probe.reset()
+        let start = Date().timeIntervalSince1970
+        let firstSent = viewModel.sentVoicePacketCount
         let firstReceived = viewModel.receivedVoicePacketCount
         try await Task.sleep(for: .seconds(seconds))
+        let end = Date().timeIntervalSince1970
         let rendered = probe.snapshot()
+        let udpAfter = localUDPObservation()
+        let decodeAfter = viewModel.audioPipeline.receiveDecodeCounts
         checkBackgroundIfRequested(movesToBackground)
+        let sent = viewModel.sentVoicePacketCount - firstSent
         let received = viewModel.receivedVoicePacketCount - firstReceived
         XCTAssertEqual(viewModel.availableCallRoutes, [route])
         XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
         XCTAssertNil(viewModel.audioErrorMessage)
         try await barrier.meet("\(scenario)-measured")
-        let (remoteMatch, localMatch) = await Task.detached {
+        let (remoteMatch, localMatch, continuity) = await Task.detached {
             (RenderedAudioProbe.speechMatch(reference: remote, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate),
-             RenderedAudioProbe.speechMatch(reference: local, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate))
+             RenderedAudioProbe.speechMatch(reference: local, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate),
+             expectsRemoteSpeech ? SpeechContinuity.measure(reference: remote, referenceRate: 48000,
+                 output: rendered.samples, outputRate: rendered.rate) : nil)
         }.value
         XCTAssertEqual(rendered.invalid, 0)
         XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * seconds * 0.8))
@@ -916,6 +935,11 @@ final class AudioE2ETests: XCTestCase {
         }
         let evidence: [String: Any] = ["scenario": scenario, "role": role, "transport": transport,
             "background": movesToBackground, "expectsRemoteSpeech": expectsRemoteSpeech,
+            "measurementStartedAt": start, "measurementEndedAt": end,
+            "localUDPBefore": udpBefore as Any? ?? NSNull(), "localUDPAfter": udpAfter as Any? ?? NSNull(),
+            "sentVoicePackets": sent, "decodedPCMPackets": decodeAfter.pcmPackets - decodeBefore.pcmPackets,
+            "decodeFailures": decodeAfter.failures - decodeBefore.failures,
+            "continuity": try continuity.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull(),
             "received": received, "remoteMatch": remoteMatch, "localMatch": localMatch,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
