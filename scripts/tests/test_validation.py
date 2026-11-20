@@ -95,6 +95,17 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(coverage['unexpected'], ['RideIntercomTests/OtherTests/unrelated()'])
         self.assertEqual(len(coverage['executed']), 3)
 
+    def test_nested_swift_testing_selectors_preserve_suite_path_and_method_signature(self):
+        matches = self.module.includes_test
+        suite = 'RideIntercomTests/AppTests/RealtimeConversationTests'
+        self.assertTrue(matches(suite, suite + '/receiverReports()'))
+        self.assertTrue(matches(suite + '/receiverReports', suite + '/receiverReports()'))
+        self.assertTrue(matches(suite + '/shortReplies', suite + '/shortReplies(sensitivity:)'))
+        self.assertTrue(matches(suite + '/shortReplies(sensitivity:)', suite + '/shortReplies(sensitivity:)'))
+        self.assertFalse(matches(suite + '/shortReplies()', suite + '/shortReplies(sensitivity:)'))
+        self.assertFalse(matches(suite + '/shortReplies(duration:)', suite + '/shortReplies(sensitivity:)'))
+        self.assertFalse(matches(suite + '/receiverReports()', 'RideIntercomTests/AppTests/OtherTests/receiverReports()'))
+
     def test_selection_is_a_separate_gate_even_when_xcode_succeeds(self):
         present = 'RideIntercomTests/ContactTests/accept'
         missing = 'RideIntercomTests/ContactTests/missing'

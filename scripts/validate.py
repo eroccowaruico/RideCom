@@ -79,7 +79,7 @@ def xcode_tests_passed(summary):
 def includes_test(selector, identifier):
     requested = selector.split('/')
     actual = identifier.split('/')
-    if len(requested) == len(actual) == 3:
+    if len(requested) == len(actual) and len(requested) >= 3:
         if '(' not in requested[-1]:
             actual[-1] = actual[-1].split('(', 1)[0]
         else:
@@ -528,7 +528,7 @@ def main():
     parser.add_argument('mode', nargs='?', default='all', choices=['all', 'headless', 'packages', 'worker', 'pair', 'macos', 'ios', 'ios-ui', 'scripts'])
     parser.add_argument('--clean', action='store_true', help='Run standard swift package clean before package tests, using each package .build directory')
     parser.add_argument('--thread-sanitizer', action='store_true', help='Run supported Swift package tests under Thread Sanitizer')
-    parser.add_argument('--only-testing', action='append', default=[], metavar='TARGET[/SUITE[/METHOD]]',
+    parser.add_argument('--only-testing', action='append', default=[], metavar='TARGET[/SUITE/...[/METHOD]]',
                         help='Run selected Xcode tests in macos, ios or ios-ui; repeat to add selections')
     args = parser.parse_args()
     targets = {
@@ -540,7 +540,7 @@ def main():
         parser.error('--only-testing requires macos, ios or ios-ui')
     for selector in args.only_testing:
         parts = selector.split('/')
-        if len(parts) > 3 or not all(re.fullmatch(r'[^\s/]+', part) for part in parts) or parts[0] not in targets[args.mode]:
+        if not all(re.fullmatch(r'[^\s/]+', part) for part in parts) or parts[0] not in targets[args.mode]:
             parser.error(f'Invalid test selector for {args.mode}: {selector!r}')
     os.environ.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
     os.environ['NO_COLOR'] = '1'
