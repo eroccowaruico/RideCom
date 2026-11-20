@@ -31,7 +31,7 @@ struct LocalControlTLSTests {
             listener.newConnectionGroupHandler = { group in
                 record.groups.withLock { $0.append(group) }
                 group.newConnectionHandler = { stream in
-                    let link = LocalControlLink(connection: stream, identity: listenerIdentity, credential: listenerCredential,
+                    let link = LocalControlLink(connection: stream, identity: listenerIdentity, authentication: .shared(listenerCredential),
                                                 localID: .init(rawValue: "listener"), nonce: "listener-nonce", queue: queue) { event in
                         record.events.withLock { $0["listener", default: []].append(event) }
                     }
@@ -57,7 +57,7 @@ struct LocalControlTLSTests {
             }
             let dialer = LocalControlLink(connection: NWConnection(host: "127.0.0.1", port: port,
                                                                    using: LocalControlTLS.parameters(identity: dialerIdentity)),
-                                          identity: dialerIdentity, credential: dialerCredential,
+                                          identity: dialerIdentity, authentication: .shared(dialerCredential),
                                           localID: .init(rawValue: "dialer"), nonce: "dialer-nonce", queue: queue) { event in
                 record.events.withLock { $0["dialer", default: []].append(event) }
             }

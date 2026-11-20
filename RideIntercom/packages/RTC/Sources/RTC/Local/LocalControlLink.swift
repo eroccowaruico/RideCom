@@ -17,11 +17,26 @@ final class LocalControlLink: @unchecked Sendable {
         case closed
     }
 
+    enum Authentication: Sendable {
+        case shared(RTCCredential)
+        case dialing(RTCCredential, peer: PeerID, fingerprint: Data)
+        case accepting([PeerID: RTCCredential])
+
+        func credential(for peer: PeerID, fingerprint: Data) -> RTCCredential? {
+            switch self {
+            case .shared(let credential): credential
+            case .dialing(let credential, let expected, let advertised):
+                expected == peer && advertised == fingerprint ? credential : nil
+            case .accepting(let offered): offered[peer]
+            }
+        }
+    }
+
     static let handshakeTimeout: TimeInterval = 10
 
     private let connection: NWConnection
     private let queue: DispatchQueue
-    private let credential: RTCCredential
+    private let authentication: Authentication
     private let localID: PeerID
     private let nonce: String
     private let localFingerprint: Data
@@ -32,9 +47,9 @@ final class LocalControlLink: @unchecked Sendable {
     private var isClosed = false
     private var hasStarted = false
 
-    init(connection: NWConnection, identity: LocalControlIdentity, credential: RTCCredential, localID: PeerID,
+    init(connection: NWConnection, identity: LocalControlIdentity, authentication: Authentication, localID: PeerID,
          nonce: String, queue: DispatchQueue, onEvent: @escaping @Sendable (Event) -> Void) {
-        self.connection = connection; self.queue = queue; self.credential = credential
+        self.connection = connection; self.queue = queue; self.authentication = authentication
         self.localID = localID; self.nonce = nonce; self.localFingerprint = identity.fingerprint; self.onEvent = onEvent
     }
 
@@ -45,7 +60,7 @@ final class LocalControlLink: @unchecked Sendable {
             connection.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 switch state {
-                case .ready: self.sendHandshake()
+                case .ready: self.beginHandshake()
                 case .failed, .cancelled: self.finish()
                 default: break
                 }
@@ -71,8 +86,20 @@ final class LocalControlLink: @unchecked Sendable {
 
     func close() { queue.async { [self] in finish() } }
 
-    private func sendHandshake() {
-        guard !isClosed, let peer = Self.peerFingerprint(of: connection) else { finish(); return }
+    private func beginHandshake() {
+        guard !isClosed, let fingerprint = Self.peerFingerprint(of: connection) else { finish(); return }
+        switch authentication {
+        case .shared(let credential):
+            sendHandshake(credential: credential, peer: fingerprint)
+        case .dialing(let credential, _, let expected):
+            guard fingerprint == expected else { finish(); return }
+            sendHandshake(credential: credential, peer: fingerprint)
+        case .accepting:
+            break // Wait for the dialer to prove it is one of the intended recipients.
+        }
+    }
+
+    private func sendHandshake(credential: RTCCredential, peer: Data) {
         let handshake = LocalControlHandshake.make(credential: credential, senderID: localID, nonce: nonce,
                                                    senderFingerprint: localFingerprint, receiverFingerprint: peer)
         guard let payload = try? JSONEncoder().encode(handshake), let frame = try? LocalControlFraming.frame(payload) else { finish(); return }
@@ -103,7 +130,10 @@ final class LocalControlLink: @unchecked Sendable {
         guard !isAuthenticated else { onEvent(.message(message)); return true }
         guard let peer = Self.peerFingerprint(of: connection),
               let handshake = try? JSONDecoder().decode(LocalControlHandshake.self, from: message),
+              let credential = authentication.credential(for: handshake.senderID, fingerprint: peer),
               handshake.verify(credential: credential, localID: localID, senderFingerprint: peer, receiverFingerprint: localFingerprint) else { return false }
+        if case .accepting = authentication { sendHandshake(credential: credential, peer: peer) }
+        guard !isClosed else { return false }
         isAuthenticated = true
         onEvent(.authenticated(handshake.senderID, nonce: handshake.nonce))
         return true

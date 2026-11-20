@@ -14,17 +14,26 @@ enum LocalControlEvent: Equatable, Sendable {
     case handshakeRejected
 }
 
-/// Local control: every member advertises one QUIC listener under a
-/// name made for this start, browses for the others, and holds one authenticated `LocalControlLink`
-/// to each member in reach. Members out of reach are served by relaying, not by this class.
+/// Browses for a shared group or for offers from known peers. A group member or a node making
+/// addressed offers advertises one QUIC listener with a new name and certificate for each start.
 final class LocalControlTransport: @unchecked Sendable {
     static let serviceType = "_ride-control._udp"
     static let groupHashKey = "g"
     static let maximumPeers = 7
     static let redialDelay: TimeInterval = 2
 
+    private enum Discovery {
+        case shared(RTCCredential)
+        case addressed(known: [PeerID: RTCCredential], offered: [PeerID: RTCCredential])
+    }
+
+    private struct Destination {
+        let endpoint: NWEndpoint
+        let authentication: LocalControlLink.Authentication
+    }
+
     private let localID: PeerID
-    private let credential: RTCCredential
+    private let discovery: Discovery
     private let nonce: String
     private let onEvent: @Sendable (LocalControlEvent) -> Void
     private let queue = DispatchQueue(label: "RideIntercom.LocalControlTransport")
@@ -38,14 +47,23 @@ final class LocalControlTransport: @unchecked Sendable {
     private var browser: NWBrowser?
     private var groups: [ObjectIdentifier: NWConnectionGroup] = [:]
     private var dialed: [String: LocalControlLink] = [:]
-    private var visible: [String: NWEndpoint] = [:]
+    private var visible: [String: Destination] = [:]
     private var pending: [ObjectIdentifier: LocalControlLink] = [:]
     private var members: [PeerID: LocalControlLink] = [:]
     private var hadMembers = false
 
     /// - Parameter nonce: names this end's UDP audio listener; peers receive it in the handshake.
     init(localID: PeerID, credential: RTCCredential, nonce: String, onEvent: @escaping @Sendable (LocalControlEvent) -> Void) {
-        self.localID = localID; self.credential = credential; self.nonce = nonce; self.onEvent = onEvent
+        self.localID = localID; self.discovery = .shared(credential); self.nonce = nonce; self.onEvent = onEvent
+    }
+
+    init(localID: PeerID, knownPeers: [PeerID: RTCCredential], offeredPeers: Set<PeerID>,
+         onEvent: @escaping @Sendable (LocalControlEvent) -> Void) {
+        let known = knownPeers.filter { $0.key != localID && $0.key.isValidRelayID }
+        self.localID = localID
+        self.discovery = .addressed(known: known, offered: known.filter { offeredPeers.contains($0.key) })
+        self.nonce = UUID().uuidString
+        self.onEvent = onEvent
     }
 
     func start() {
@@ -58,40 +76,30 @@ final class LocalControlTransport: @unchecked Sendable {
             do {
                 let identity = try LocalControlIdentity.make()
                 self.identity = identity
-                let listener = try NWListener(using: LocalControlTLS.parameters(identity: identity), on: .any)
-                listener.service = .init(name: serviceName, type: Self.serviceType, domain: nil,
-                                         txtRecord: NWTXTRecord([Self.groupHashKey: credential.groupHash]))
-                // A QUIC listener hands over the connection as a group; its streams arrive through the group.
-                listener.newConnectionGroupHandler = { [weak self] group in
-                    guard let self, self.generation == token else { group.cancel(); return }
-                    let id = ObjectIdentifier(group)
-                    self.groups[id] = group
-                    group.stateUpdateHandler = { [weak self] state in
-                        guard let self, self.generation == token else { return }
-                        switch state {
-                        case .cancelled, .failed: self.groups.removeValue(forKey: id)?.cancel()
-                        default: break
-                        }
+                switch discovery {
+                case .shared(let credential):
+                    try startListener(identity: identity, advertisement: NWTXTRecord([Self.groupHashKey: credential.groupHash]),
+                                      authentication: .shared(credential), token: token)
+                case .addressed(let known, let offered):
+                    guard localID.isValidRelayID, offered.count <= Self.maximumPeers else {
+                        onEvent(.failed("Invalid local data offers"))
+                        return
                     }
-                    group.newConnectionHandler = { [weak self] stream in
-                        guard let self, self.generation == token else { stream.cancel(); return }
-                        self.adopt(stream, dialedName: nil, token: token)
+                    guard !known.isEmpty else { return }
+                    if !offered.isEmpty {
+                        let advertisement = LocalAddressedAdvertisement(name: serviceName, fingerprint: identity.fingerprint,
+                                                                        credentials: offered.values)
+                        try startListener(identity: identity, advertisement: advertisement.record,
+                                          authentication: .accepting(offered), token: token)
                     }
-                    group.start(queue: self.queue)
                 }
-                listener.stateUpdateHandler = { [weak self] state in
-                    guard let self, self.generation == token, case .failed = state else { return }
-                    self.onEvent(.failed("Local control listener unavailable"))
-                }
-                listener.start(queue: queue)
-                self.listener = listener
 
                 let parameters = NWParameters()
                 parameters.includePeerToPeer = true
                 let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters)
                 browser.browseResultsChangedHandler = { [weak self] results, _ in
                     guard let self, self.generation == token else { return }
-                    self.visible = Self.sameGroup(results, groupHash: self.credential.groupHash)
+                    self.visible = self.destinations(in: results)
                     self.dialVisible(token: token)
                 }
                 browser.stateUpdateHandler = { [weak self] state in
@@ -106,11 +114,47 @@ final class LocalControlTransport: @unchecked Sendable {
         }
     }
 
+    private func startListener(identity: LocalControlIdentity, advertisement: NWTXTRecord,
+                               authentication: LocalControlLink.Authentication, token: UUID) throws {
+        let listener = try NWListener(using: LocalControlTLS.parameters(identity: identity), on: .any)
+        listener.service = .init(name: serviceName, type: Self.serviceType, domain: nil, txtRecord: advertisement)
+        // A QUIC listener hands over the connection as a group; its streams arrive through the group.
+        listener.newConnectionGroupHandler = { [weak self] group in
+            guard let self, self.generation == token else { group.cancel(); return }
+            if case .accepting = authentication, self.groups.count >= 2 * Self.maximumPeers { group.cancel(); return }
+            let id = ObjectIdentifier(group)
+            self.groups[id] = group
+            group.stateUpdateHandler = { [weak self] state in
+                guard let self, self.generation == token else { return }
+                switch state {
+                case .cancelled, .failed: self.groups.removeValue(forKey: id)?.cancel()
+                default: break
+                }
+            }
+            group.newConnectionHandler = { [weak self] stream in
+                guard let self, self.generation == token else { stream.cancel(); return }
+                self.adopt(stream, authentication: authentication, dialedName: nil, token: token)
+            }
+            group.start(queue: self.queue)
+        }
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self, self.generation == token, case .failed = state else { return }
+            self.onEvent(.failed("Local control listener unavailable"))
+        }
+        listener.start(queue: queue)
+        self.listener = listener
+    }
+
     func stop() { queue.async { [self] in stopOnQueue() } }
 
-    /// Reliable and in order to every member connected now. Returns nothing: delivery is the link's.
+    /// A shared group may broadcast to its connected members. Addressed traffic requires a target.
     func send(_ message: Data) {
+        guard case .shared = discovery else { return }
         queue.async { [self] in members.values.forEach { $0.send(message) } }
+    }
+
+    func send(_ message: Data, to peer: PeerID) {
+        queue.async { [self] in members[peer]?.send(message) }
     }
 
     private func stopOnQueue() {
@@ -125,29 +169,45 @@ final class LocalControlTransport: @unchecked Sendable {
         if hadMembers { hadMembers = false; onEvent(.members([])); onEvent(.state(.disconnected)) }
     }
 
-    private static func sameGroup(_ results: Set<NWBrowser.Result>, groupHash: String) -> [String: NWEndpoint] {
-        var found: [String: NWEndpoint] = [:]
+    private func destinations(in results: Set<NWBrowser.Result>) -> [String: Destination] {
+        var found: [String: Destination] = [:]
         for result in results {
-            guard case .service(let name, _, _, _) = result.endpoint, case .bonjour(let record) = result.metadata,
-                  record[groupHashKey] == groupHash else { continue }
-            found[name] = result.endpoint
+            guard case .service(let name, _, _, _) = result.endpoint, name != serviceName,
+                  case .bonjour(let record) = result.metadata else { continue }
+            let authentication: LocalControlLink.Authentication
+            switch discovery {
+            case .shared(let credential):
+                guard serviceName < name, record[Self.groupHashKey] == credential.groupHash else { continue }
+                authentication = .shared(credential)
+            case .addressed(let known, let offered):
+                guard let advertisement = LocalAddressedAdvertisement(name: name, record: record, maximumOffers: Self.maximumPeers),
+                      let (peer, credential) = known.first(where: { advertisement.offers($0.value) }),
+                      offered[peer] == nil || serviceName < name
+                else { continue }
+                authentication = .dialing(credential, peer: peer, fingerprint: advertisement.fingerprint)
+            }
+            found[name] = Destination(endpoint: result.endpoint, authentication: authentication)
         }
         return found
     }
 
-    /// Both ends advertise and browse. The smaller name dials, so a pair never opens two connections.
+    /// For mutual offers the smaller service name dials. For a one-way offer the recipient dials.
     private func dialVisible(token: UUID) {
         guard let identity else { return }
-        for (name, endpoint) in visible where serviceName < name && dialed[name] == nil {
-            adopt(NWConnection(to: endpoint, using: LocalControlTLS.parameters(identity: identity)), dialedName: name, token: token)
+        for (name, destination) in visible where dialed[name] == nil {
+            if case .addressed = discovery, pending.count >= 2 * Self.maximumPeers { return }
+            adopt(NWConnection(to: destination.endpoint, using: LocalControlTLS.parameters(identity: identity)),
+                  authentication: destination.authentication, dialedName: name, token: token)
         }
     }
 
-    private func adopt(_ connection: NWConnection, dialedName: String?, token: UUID) {
+    private func adopt(_ connection: NWConnection, authentication: LocalControlLink.Authentication,
+                       dialedName: String?, token: UUID) {
         guard let identity else { connection.cancel(); return }
+        if case .addressed = discovery, pending.count >= 2 * Self.maximumPeers { connection.cancel(); return }
         // The link reports on this queue; it is identified by itself, since a name is not an identity.
         let box = LinkBox()
-        let link = LocalControlLink(connection: connection, identity: identity, credential: credential, localID: localID,
+        let link = LocalControlLink(connection: connection, identity: identity, authentication: authentication, localID: localID,
                                     nonce: nonce, queue: queue) { [weak self] event in
             guard let self, self.generation == token, let link = box.link else { return }
             self.handle(event, from: link, dialedName: dialedName, token: token)

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Synchronization
 import Testing
 @testable import RTC
@@ -76,6 +77,85 @@ struct LocalControlTransportTests {
             if case .message = event { return false }
             return true
         })
+    }
+
+    @Test
+    func addressedAdvertisementMatchesOnlyThePairKeyAndTheAdvertisedCertificate() throws {
+        let name = UUID().uuidString
+        let fingerprint = Data(repeating: 1, count: 32)
+        let key = RTCCredential.derived(groupID: "intended-pair", secret: "fixture-key")
+        let anotherKey = RTCCredential.derived(groupID: "other-pair", secret: "fixture-key")
+        let published = LocalAddressedAdvertisement(name: name, fingerprint: fingerprint, credentials: [key, anotherKey])
+        let encoded = published.record
+        let decoded = try #require(LocalAddressedAdvertisement(name: name, record: encoded, maximumOffers: 2))
+        #expect(decoded.offers(key))
+        #expect(decoded.offers(anotherKey))
+        let unrelated = RTCCredential.derived(groupID: "intended-pair", secret: "other-key")
+        #expect(!decoded.offers(unrelated))
+        #expect(LocalAddressedAdvertisement(name: name, record: encoded, maximumOffers: 1) == nil)
+
+        let changedName = try #require(LocalAddressedAdvertisement(name: UUID().uuidString, record: encoded, maximumOffers: 2))
+        #expect(!changedName.offers(key))
+        let offers = try #require(encoded["p"])
+        let replacedCertificate = NWTXTRecord(["p": offers, "f": Data(repeating: 2, count: 32).base64EncodedString()])
+        let changedIdentity = try #require(LocalAddressedAdvertisement(name: name, record: replacedCertificate, maximumOffers: 2))
+        #expect(!changedIdentity.offers(key))
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    func addressedOffersReachOnlyTheirAuthenticatedRecipients() async throws {
+        let a = PeerID(rawValue: "author"), b = PeerID(rawValue: "first"), c = PeerID(rawValue: "second")
+        let stranger = PeerID(rawValue: "unregistered")
+        let ab = RTCCredential.derived(groupID: UUID().uuidString, secret: "first-pair")
+        let ac = RTCCredential.derived(groupID: UUID().uuidString, secret: "second-pair")
+        let bc = RTCCredential.derived(groupID: UUID().uuidString, secret: "unoffered-pair")
+        let books = Mutex<[PeerID: [RTCLocalDataChannel.Event]]>([:])
+        func channel(_ id: PeerID, peers: [PeerID: RTCCredential], offers: Set<PeerID> = []) -> RTCLocalDataChannel {
+            RTCLocalDataChannel(localID: id, knownPeers: peers, offeredPeers: offers) { event in
+                books.withLock { $0[id, default: []].append(event) }
+            }
+        }
+        let author = channel(a, peers: [b: ab, c: ac], offers: [b, c])
+        let first = channel(b, peers: [a: ab, c: bc])
+        let second = channel(c, peers: [a: ac, b: bc])
+        // A matching discovery tag still cannot authenticate an identity absent from the offer.
+        let unknown = channel(stranger, peers: [a: ab])
+        let call = End("active-call", credential: ab)
+        defer {
+            [author, first, second, unknown].forEach { $0.stop() }
+            call.transport.stop()
+        }
+        first.start()
+        second.start()
+        unknown.start()
+        call.transport.start()
+        author.start()
+        await eventually {
+            books.withLock { ($0[a] ?? []).contains { event in
+                if case .members(let peers) = event { return Set(peers) == [b, c] }
+                return false
+            } }
+        }
+        try #require(books.withLock { ($0[a] ?? []).contains { event in
+            if case .members(let peers) = event { return Set(peers) == [b, c] }
+            return false
+        } })
+        let invitation = Data("only first".utf8), receipt = Data("first receipt".utf8)
+        let broadcast = Data("no destination".utf8)
+        author.send(broadcast)
+        author.send(invitation, to: b)
+        await eventually { books.withLock { $0[b]?.contains(.message(invitation, from: a)) == true } }
+        try #require(books.withLock { $0[b]?.contains(.message(invitation, from: a)) == true })
+        first.send(receipt, to: a)
+        await eventually { books.withLock { $0[a]?.contains(.message(receipt, from: b)) == true } }
+        #expect(books.withLock { $0[a]?.contains(.message(receipt, from: b)) == true })
+        #expect(books.withLock { $0[b]?.contains(.message(broadcast, from: a)) == false })
+        #expect(books.withLock { $0[c]?.contains(.message(invitation, from: a)) == false })
+        #expect(books.withLock { $0[stranger, default: []].isEmpty })
+        #expect(call.members.isEmpty)
+        author.stop()
+        await eventually { books.withLock { $0[b]?.last == .members([]) && $0[c]?.last == .members([]) } }
+        #expect(books.withLock { $0[b]?.last == .members([]) && $0[c]?.last == .members([]) })
     }
 
     @Test(.timeLimit(.minutes(2)))
