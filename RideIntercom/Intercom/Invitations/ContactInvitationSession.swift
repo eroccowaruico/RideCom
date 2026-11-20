@@ -6,11 +6,10 @@ import RTC
 /// remain owned by callers; an instance cannot be reused after stopping.
 @MainActor
 final class ContactInvitationSession {
-    private let transport: CallSession
+    private let transport: ContactInvitationTransport
     private let authority: DirectInvitationAuthority
     private let signer: DeviceIdentitySigner
     private let name: String
-    private let routes: Set<RTC.RouteKind>
     private let trust: DeviceIdentityTrust?
     private let now: () -> TimeInterval
     private let confirm: (VerifiedDeviceProof, String) throws -> Void
@@ -32,24 +31,27 @@ final class ContactInvitationSession {
     /// A notification permission from the registered person, while they are the only one connected.
     var onNotificationPermission: ((String, ApplicationDataMessage) -> Void)?
 
-    init(transport: CallSession, authority: DirectInvitationAuthority, signer: DeviceIdentitySigner,
+    init(transport: CallSession? = nil, authority: DirectInvitationAuthority, signer: DeviceIdentitySigner,
          displayName: String, trust: DeviceIdentityTrust? = nil,
          routes: Set<RTC.RouteKind> = AppRTCTransportRoutePolicy.supportedRoutes,
+         internetConfiguration: RTC.CloudflareRealtimeConfiguration? = nil,
          now: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 },
          confirmReceipt: ((VerifiedDirectInvitation) throws -> Void)? = nil,
          acknowledged: (() throws -> Void)? = nil,
          confirm: @escaping (VerifiedDeviceProof, String) throws -> Void) {
-        self.transport = transport; self.authority = authority; self.signer = signer
+        self.transport = ContactInvitationTransport(memberID: signer.memberID, routes: routes,
+            internetConfiguration: internetConfiguration, injectedSession: transport)
+        self.authority = authority; self.signer = signer
         self.confirmReceipt = confirmReceipt; self.acknowledged = acknowledged
-        self.name = displayName; self.trust = trust; self.routes = routes; self.now = now; self.confirm = confirm
-        transport.onEvent = { [weak self] event in self?.receive(event) }
+        self.name = displayName; self.trust = trust; self.now = now; self.confirm = confirm
+        self.transport.onEvent = { [weak self] event in self?.receive(event) }
     }
 
     func issue() throws -> URL {
         guard !isStopped, issued == nil, received == nil else { throw GroupInviteTokenError.incompatibleCall }
         let token = try Self.makeToken(authority: authority, signer: signer, displayName: name, now: now())
         issued = token
-        try start(token)
+        try transport.start(token, displayName: name)
         return try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
     }
 
@@ -87,7 +89,7 @@ final class ContactInvitationSession {
             received = (token, accepted)
             isConfirmed = true
         }
-        try start(token)
+        try transport.start(token, displayName: name)
     }
 
     func accept(_ url: URL) throws {
@@ -97,25 +99,13 @@ final class ContactInvitationSession {
         try confirm(acceptance.inviter, token.inviterDisplayName ?? "Inviter")
         received = (token, acceptance)
         isConfirmed = true
-        try start(token)
-    }
-
-    private func start(_ token: GroupInviteToken) throws {
-        var members = [GroupMember(id: signer.memberID, displayName: name)]
-        if token.inviterMemberID != signer.memberID {
-            members.append(.init(id: token.inviterMemberID, displayName: token.inviterDisplayName ?? "Inviter"))
-        }
-        let rendezvous = try IntercomGroup(id: token.groupID, name: "Contact Invitation", members: members,
-                                         accessSecret: token.groupSecret)
-        transport.setEnabledRoutes(routes)
-        transport.connect(group: rendezvous)
+        try transport.start(token, displayName: name)
     }
 
     func stop() {
         guard !isStopped else { return }
         isStopped = true
-        transport.onEvent = nil
-        transport.disconnect()
+        transport.stop()
         issued = nil; received = nil; boundReceipt = nil; peers = []
     }
 
@@ -130,7 +120,7 @@ final class ContactInvitationSession {
     func sendNotificationPermission(_ payload: Data, namespace: String = CallNotificationPermissionMessage.namespace) -> Bool {
         guard !isStopped, registeredPeerIsAlone, payload.count <= 8192,
               [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(namespace) else { return false }
-        transport.sendApplicationData(.init(namespace: namespace, payload: payload))
+        transport.send(.init(namespace: namespace, payload: payload))
         return true
     }
 
@@ -143,18 +133,18 @@ final class ContactInvitationSession {
 
     private func send(_ receipt: DirectInvitationReceipt) {
         guard let payload = try? JSONEncoder().encode(receipt) else { return }
-        transport.sendApplicationData(.init(namespace: DirectInvitationReceipt.namespace, payload: payload))
+        transport.send(.init(namespace: DirectInvitationReceipt.namespace, payload: payload))
     }
 
-    private func receive(_ event: TransportEvent) {
+    private func receive(_ event: ContactInvitationTransport.Event) {
         guard !isStopped else { return }
         do {
             switch event {
-            case .authenticated(let members):
-                peers = Set(members.filter { $0.isConnected }.map { $0.peer.id.rawValue })
+            case .members(let members):
+                peers = members
                 retry()
                 announceRegisteredPeer()
-            case .receivedApplicationData(let peer, let message):
+            case .message(let peer, let message):
                 if [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(message.namespace) {
                     if registeredPeerIsAlone, peer == registeredPeerID, message.payload.count <= 8192 {
                         onNotificationPermission?(peer, message)
@@ -193,7 +183,6 @@ final class ContactInvitationSession {
                     failure = nil
                     announceRegisteredPeer()
                 }
-            default: break
             }
         } catch { failure = error }
     }

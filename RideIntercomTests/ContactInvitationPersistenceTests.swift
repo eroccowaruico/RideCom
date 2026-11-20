@@ -292,22 +292,41 @@ struct ContactInvitationPersistenceTests {
         #expect(throws: (any Error).self) { try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json)) }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload(includesGroup: Bool) async throws {
         let suffix = String(UUID().uuidString.prefix(8))
         let authorID = "native-vm-author-" + suffix, friendID = "native-vm-friend-" + suffix
         let author = Fixture(authorID), friend = Fixture(friendID)
         let (a, _) = author.make(), (b, _) = friend.make()
-        a.viewModel.contactSessionFactory = { RideIntercomCallSessionAdapter(memberID: authorID) }
-        b.viewModel.contactSessionFactory = { RideIntercomCallSessionAdapter(memberID: friendID) }
-        a.viewModel.enabledRTCTransportRoutes = [.multipeer]
-        b.viewModel.enabledRTCTransportRoutes = [.multipeer]
+        a.viewModel.contactSessionFactory = nil
+        b.viewModel.contactSessionFactory = nil
+        a.viewModel.enabledRTCTransportRoutes = [.multipeer, .webRTC]
+        b.viewModel.enabledRTCTransportRoutes = [.multipeer, .webRTC]
         #expect(!a.viewModel.hasInternetCredentials && !b.viewModel.hasInternetCredentials,
                 "Local invitation acceptance does not depend on Internet registration")
         defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        a.viewModel.beginContactInvitationPresentation()
-        guard case .person(let personID) = a.viewModel.contactInvitationPresentation else { Issue.record("Expected person"); return }
-        #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner", usesProvisionalName: true))
+        let personID: UUID
+        let groupID: UUID?
+        if includesGroup {
+            let draft = GroupInvitationDraft(suggestedName: "Native Partner")
+            personID = draft.id
+            let savedGroup = try #require(a.viewModel.saveGroupInvitations(groupID: UUID(), creating: true,
+                name: "Native Group", selected: [], newPeople: [draft]))
+            groupID = savedGroup
+            // Creation's explicit "Create and Connect" is separate from sharing the saved invite.
+            a.viewModel.disconnect()
+            a.viewModel.showContactPerson(personID)
+        } else {
+            a.viewModel.beginContactInvitationPresentation()
+            guard case .person(let id) = a.viewModel.contactInvitationPresentation else {
+                Issue.record("Expected person")
+                return
+            }
+            personID = id
+            groupID = nil
+            #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner", usesProvisionalName: true))
+        }
+        let mediaStartsBeforeSharing = a.callSession.startMediaCallCount
         let share = try a.viewModel.prepareContactPersonShare(personID, expectedAccountAccessID: a.viewModel.accountAccessID)
         a.viewModel.completeContactInvitationSharing(share)
         let url = share.url
@@ -323,7 +342,7 @@ struct ContactInvitationPersistenceTests {
         while (a.viewModel.savedRemoteUsers.isEmpty || !b.viewModel.pendingContactInvitations.isEmpty), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
         }
-        #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]], "Actual RTC acceptance notification reaches the author's atomic registration")
+        #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]], "Actual near-range acceptance reaches the author's atomic registration")
         #expect(b.viewModel.pendingContactInvitations.isEmpty, "Actual acknowledgement completes the recipient's durable notification")
         #expect(b.viewModel.contactInvitationID == nil)
         #expect(a.viewModel.pendingContactInvitations.isEmpty)
@@ -339,16 +358,24 @@ struct ContactInvitationPersistenceTests {
         a.viewModel.dismissContactInvitationPresentation()
         #expect(a.viewModel.contactInvitationPresentation == nil)
         #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
-        #expect(a.callSession.startMediaCallCount == 0 && b.callSession.startMediaCallCount == 0)
+        #expect(a.callSession.startMediaCallCount == mediaStartsBeforeSharing && b.callSession.startMediaCallCount == 0)
         a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()
         let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
         #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]])
         #expect(reloadedA.viewModel.directoryUsers.map(\.id) == [personID])
         #expect(reloadedA.viewModel.directoryUsers.first?.usesProvisionalName == false)
         #expect(reloadedB.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
-        #expect(reloadedA.viewModel.regularGroups.isEmpty && reloadedB.viewModel.regularGroups.isEmpty)
+        let expectedGroups = groupID.map { [$0] } ?? []
+        #expect(reloadedA.viewModel.regularGroups.map(\.id) == expectedGroups)
+        #expect(reloadedB.viewModel.regularGroups.map(\.id) == expectedGroups)
+        if let groupID {
+            let group = try #require(reloadedA.viewModel.regularGroups.first)
+            #expect(Set(group.members.map(\.id)) == [authorID, friendID])
+            let credential = try #require(try reloadedA.viewModel.groupRepository.credential(for: groupID))
+            #expect(try reloadedB.viewModel.groupRepository.credential(for: groupID) == credential)
+        }
         #expect(reloadedB.viewModel.pendingContactInvitations.isEmpty)
-        // The real RTC notification leaves both sides with one pair call key.
+        // The real exchange leaves both sides with one pair call key.
         let call = IntercomGroup.directCallID(memberIDs: [authorID, friendID])
         let key = try #require(try reloadedA.viewModel.groupRepository.credential(for: call))
         #expect(try reloadedB.viewModel.groupRepository.credential(for: call) == key)

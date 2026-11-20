@@ -67,15 +67,21 @@ extension IntercomViewModel {
             let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)
             let trust = try internetSettingsStore.identityTrust()
             stopContactInvitationSession()
-            let transport: CallSession
-            if let contactSessionFactory { transport = contactSessionFactory() }
-            else {
-                transport = RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID,
-                    internetConfiguration: try internetSettingsStore.load())
+            let transport = contactSessionFactory?()
+            let configuration: RTC.CloudflareRealtimeConfiguration?
+            if transport == nil, enabledRTCTransportRoutes.contains(.webRTC) {
+                do { configuration = try internetSettingsStore.load() }
+                catch {
+                    guard enabledRTCTransportRoutes.contains(.multipeer) else { throw error }
+                    configuration = nil
+                }
+            } else {
+                configuration = nil
             }
             let access = accountAccessID
             let session = ContactInvitationSession(transport: transport, authority: invitationAuthority, signer: signer,
                 displayName: localMemberIdentity.displayName, trust: trust, routes: enabledRTCTransportRoutes,
+                internetConfiguration: configuration,
                 now: { [weak self] in self?.callAccessNow().timeIntervalSince1970 ?? .infinity },
                 confirmReceipt: { [weak self] verified in
                     guard let self, self.canEditSavedGroups, self.accountAccessID == access,

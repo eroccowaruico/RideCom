@@ -5,24 +5,22 @@ import Testing
 
 @MainActor
 struct ContactInvitationSessionTests {
-    /// Exercise Bonjour discovery, QUIC authentication and acceptance delivery through the RTC adapters.
+    /// Exercise Bonjour discovery, QUIC authentication and signed acceptance through the standalone data route.
     @Test(.timeLimit(.minutes(1)))
     func nativeControlOnlyReceivesAcceptanceFromPreviouslyUnknownPeer() async throws {
         let suffix = UUID().uuidString.prefix(8)
         let authorID = "contact-author-\(suffix)"
         let friendID = "contact-friend-\(suffix)"
         let authorSigner = testIdentitySigner(authorID), friendSigner = testIdentitySigner(friendID)
-        let authorTransport = RideIntercomCallSessionAdapter(memberID: authorID)
-        let friendTransport = RideIntercomCallSessionAdapter(memberID: friendID)
         var authorsContacts: [String] = []
         var friendsContacts: [String] = []
-        let author = ContactInvitationSession(transport: authorTransport, authority: testInvitationAuthority(),
+        let author = ContactInvitationSession(authority: testInvitationAuthority(),
             signer: authorSigner, displayName: "Author", routes: [.multipeer]) { identity, name in
                 #expect(identity.memberID == friendID)
                 #expect(name == "Friend")
                 authorsContacts.append(identity.memberID)
             }
-        let friend = ContactInvitationSession(transport: friendTransport, authority: testInvitationAuthority(),
+        let friend = ContactInvitationSession(authority: testInvitationAuthority(),
             signer: friendSigner, displayName: "Friend", routes: [.multipeer]) { identity, name in
                 #expect(identity.memberID == authorID)
                 #expect(name == "Author")
@@ -59,7 +57,5 @@ struct ContactInvitationSessionTests {
         let permissionDeadline = ContinuousClock.now + .seconds(5)
         while !receivedGroupPermission, ContinuousClock.now < permissionDeadline { try await Task.sleep(for: .milliseconds(25)) }
         #expect(receivedGroupPermission, "The separate group permission crosses the real QUIC exchange")
-        // These coordinators own only CallSession control; no App audio pipeline
-        // or ordinary group repository is constructed by this experiment.
     }
 }
