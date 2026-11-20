@@ -178,7 +178,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 await receiver.groupInvitationFinish(grant.recipient, id, auth.userID)
                 return cancelled()
             }
-            if (started.fresh && await receiver.groupInvitationNeedsNotice(grant.recipient, id)) {
+            if (started === 'notify') {
                 const candidates = await receiver.groupInvitationCandidates(grant.recipient, id)
                 if (candidates.length) {
                     const providerToken = await notificationProviderToken(env)

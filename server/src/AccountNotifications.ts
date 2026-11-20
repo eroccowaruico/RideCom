@@ -138,7 +138,7 @@ export class AccountNotifications {
         this.storage.kv.put(callPrefix + requestID, { ...call, status: 'cancelled' })
         return true
     }
-    beginInvitation(value: NotificationGroupInvitation): { value: NotificationGroupInvitation; fresh: boolean } | 'forbidden' | 'limited' | 'conflict' | 'expired' {
+    beginInvitation(value: NotificationGroupInvitation): 'notify' | 'stored' | 'forbidden' | 'limited' | 'conflict' | 'expired' {
         this.prune()
         if (value.expiresAt <= Date.now()) return 'expired'
         if (!this.grantActive(value.recipientID, value.grantHash)) return 'forbidden'
@@ -149,15 +149,18 @@ export class AccountNotifications {
             // A current authenticated sender may resume its exact persisted packet after sign-in.
             // Merely retaining a packet from a signed-out credential cannot make it receivable.
             if (old.status === 'queued') {
-                const resumed = { ...old, sender: value.sender }
-                this.storage.kv.put(invitationPrefix + value.requestID, resumed)
-                return { value: resumed, fresh: false }
+                this.storage.kv.put(invitationPrefix + value.requestID, { ...old, sender: value.sender })
             }
-            return { value: old, fresh: false }
+            return 'stored'
         }
-        if (!this.takeBudget('group-recipient', 20) || [...this.storage.kv.list({ prefix: invitationPrefix })].length >= 64) return 'limited'
+        if (!this.takeBudget('group-recipient', 20)) return 'limited'
+        const inbox = [...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })]
+        if (inbox.length >= 64) return 'limited'
+        // Decide before inserting, in the same synchronous storage operation.
+        // Parallel submissions must not each suppress the alert because the other one exists.
+        const shouldNotify = !inbox.some(([, other]) => other.sender.userID === value.sender.userID && other.noticeID === value.noticeID)
         this.storage.kv.put(invitationPrefix + value.requestID, value)
-        return { value, fresh: true }
+        return shouldNotify ? 'notify' : 'stored'
     }
     invitation(userID: string, requestID: string): NotificationGroupInvitation | null {
         if (!this.isCurrent(userID)) return null
@@ -188,11 +191,6 @@ export class AccountNotifications {
         const status = actorID === userID && !discard ? 'received' : 'cancelled'
         this.storage.kv.put(invitationPrefix + requestID, { ...value, envelope: null, status })
         return status
-    }
-    invitationNeedsNotice(userID: string, requestID: string): boolean {
-        const value = this.invitation(userID, requestID)
-        return !!value && ![...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].some(([, other]) =>
-            other.requestID !== requestID && other.sender.userID === value.sender.userID && other.noticeID === value.noticeID)
     }
     invitationCandidates(userID: string, requestID: string): NotificationDevice[] {
         const value = this.invitation(userID, requestID)

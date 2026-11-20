@@ -378,6 +378,55 @@ test('group invitation alerts hide ciphertext and cancellation and grant revocat
     } finally { await r.dispose(); }
 });
 
+test('concurrent device deliveries for one invitation send one alert to each registered device', { timeout: 10_000 }, async () => {
+    const savedBoth = Promise.withResolvers();
+    let saved = 0;
+    const pushes = [];
+    const r = await setup({}, async request => {
+        pushes.push({ destination: new URL(request.url).pathname, payload: await request.json() });
+        return Response.json({});
+    }, {
+        onInvitationStore: async phase => {
+            if (phase !== 'after') return;
+            if (++saved === 2) savedBoth.resolve();
+            // Both packets must be committed before either request sends the alert.
+            await savedBoth.promise;
+        },
+    });
+    try {
+        const sender = await login(r, 'concurrent-invite-sender');
+        const recipient = await login(r, 'concurrent-invite-recipient');
+        const secondDevice = await login(r, 'concurrent-invite-recipient');
+        assert.equal((await register(r, recipient)).status, 200);
+        assert.equal((await register(r, secondDevice, 'cd'.repeat(48))).status, 200);
+        const issued = await call(r, '/api/notifications/group-invitations/grants', { senderUserID: sender.userID }, recipient.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability } = await issued.json();
+        const noticeID = randomUUID(), expiresAt = Date.now() + 86400000;
+        const invitations = ['p', 'q'].map(key => ({
+            capability, noticeID, expiresAt, requestID: randomUUID(), recipientKey: key.repeat(87),
+            envelope: Buffer.from('opaque packet ' + key).toString('base64'),
+        }));
+        const submit = payload => call(r, '/api/notifications/group-invitations', payload, sender.accessToken);
+        const responses = await Promise.all(invitations.map(submit));
+        for (const response of responses) {
+            assert.equal(response.status, 200);
+            assert.equal((await response.json()).status, 'queued');
+        }
+        for (const [index, device] of [recipient, secondDevice].entries()) {
+            const invitation = invitations[index];
+            const inbox = await call(r, '/api/notifications/group-invitations?recipientKey=' + invitation.recipientKey,
+                undefined, device.accessToken, 'GET');
+            assert.equal((await inbox.json()).delivery.requestID, invitation.requestID);
+        }
+        assert.equal(pushes.length, 2);
+        assert.equal(new Set(pushes.map(push => push.destination)).size, 2);
+        assert.equal(new Set(pushes.map(push => push.payload.requestID)).size, 1);
+        await Promise.all(invitations.map(submit));
+        assert.equal(pushes.length, 2);
+    } finally { savedBoth.resolve(); await r.dispose(); }
+});
+
 test('an inbox read in flight skips a cancelled candidate and delivers the next invitation', { timeout: 10_000 }, async () => {
     const snapshot = Promise.withResolvers(), release = Promise.withResolvers();
     const r = await setup({}, undefined, { afterInboxSnapshot: async () => {
