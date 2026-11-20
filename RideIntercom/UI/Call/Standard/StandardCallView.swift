@@ -417,11 +417,9 @@ struct StandardCallView: View {
         }
     }
 
-    /// The volume of where the sound goes now: the slider alone, no number. A tick marks 100%;
-    /// above it, "Louder" says it is raised.
+    /// The slider uses the space between the output indicators, with a visual reference at 100%.
     private func audioDetails(for kind: IntercomGroup.Kind) -> some View {
-        let louder = Text("Louder").font(.footnote).foregroundStyle(.secondary)
-        return Section {
+        Section {
             HStack(spacing: AppSpacing.s) {
                 Image(systemName: "speaker").foregroundStyle(.secondary).accessibilityHidden(true)
                 Slider(value: Binding(get: { Double(viewModel.masterOutputVolume) }, set: { viewModel.setMasterOutputVolume(Float($0)) }),
@@ -441,11 +439,6 @@ struct StandardCallView: View {
                 StandardVoiceIndicator(kind: .output, level: viewModel.diagnosticsOutputLevel,
                                        isSilenced: viewModel.isOutputMuted, label: Text("Output"))
                     .accessibilityIdentifier("standardVoiceIndicatorOutput")
-                if viewModel.masterOutputVolume > 1 {
-                    louder.accessibilityIdentifier("standardVolumeLouder")
-                } else {
-                    louder.hidden().accessibilityHidden(true)
-                }
             }
             .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
             if viewModel.supportsSoundIsolation {

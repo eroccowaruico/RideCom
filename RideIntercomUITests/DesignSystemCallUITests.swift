@@ -245,26 +245,27 @@ final class DesignSystemCallUITests: XCTestCase {
         XCTAssertTrue(state.waitForExistence(timeout: 3))
         XCTAssertEqual(state.label, "Muted")
         XCTAssertEqual(mute.value as? String, "Muted")
-        // The volume is the slider alone: no number, and "Louder" only above 100%.
+        // Keep the track wide, including when the value is above the reference mark.
         let volume = app.sliders["standardVolumeSlider"].firstMatch
         for _ in 0..<4 where !volume.exists { app.swipeUp() }
         XCTAssertTrue(volume.waitForExistence(timeout: 3))
         XCTAssertEqual(volume.label, "Volume")
         XCTAssertFalse(app.staticTexts["100%"].exists)
-        XCTAssertFalse(app.staticTexts["standardVolumeLouder"].exists, "100% is not louder")
+        XCTAssertFalse(app.staticTexts["standardVolumeLouder"].exists)
         XCTAssertEqual(Double(volume.value as? String ?? ""), 1)
         let initialSliderFrame = volume.frame
         let louder = app.staticTexts["standardVolumeLouder"]
         volume.adjust(toNormalizedSliderPosition: 0.75)
-        XCTAssertTrue(louder.waitForExistence(timeout: 3))
+        attachEvidence("Volume above the reference mark at \(Int(volume.frame.width.rounded())) pt")
+        XCTAssertFalse(louder.exists, "Above 100% the track still uses the caption's space. Width: \(volume.frame.width) pt")
+        XCTAssertGreaterThan(volume.frame.width, app.frame.width * 0.60)
         let raisedVolume = try XCTUnwrap(Double(volume.value as? String ?? ""))
         XCTAssertGreaterThan(raisedVolume, 1)
         XCTAssertLessThan(raisedVolume, 2)
         XCTAssertEqual(volume.frame.minX, initialSliderFrame.minX, accuracy: 1)
         XCTAssertEqual(volume.frame.width, initialSliderFrame.width, accuracy: 1)
-        attachEvidence("Volume above the reference mark")
         volume.adjust(toNormalizedSliderPosition: 0.25)
-        XCTAssertTrue(louder.waitForNonExistence(timeout: 3))
+        XCTAssertFalse(louder.exists)
         let loweredVolume = try XCTUnwrap(Double(volume.value as? String ?? ""))
         XCTAssertGreaterThan(loweredVolume, 0)
         XCTAssertLessThan(loweredVolume, 1)
@@ -332,6 +333,10 @@ final class DesignSystemCallUITests: XCTestCase {
         lower.press(forDuration: 0.05, thenDragTo: upper)
         // The list is lazy: scrolling may move the status out of the hierarchy entirely.
         XCTAssertTrue(!state.exists || state.frame.minY != originalY, "The information region must scroll")
+        let volume = app.sliders["standardVolumeSlider"].firstMatch
+        for _ in 0..<3 where !volume.isHittable { lower.press(forDuration: 0.05, thenDragTo: upper) }
+        XCTAssertTrue(volume.isHittable, volume.debugDescription)
+        XCTAssertFalse(app.staticTexts["standardVolumeLouder"].exists)
         for control in [mute, speaker, end] { XCTAssertTrue(control.isHittable, control.debugDescription) }
     }
 
@@ -391,6 +396,13 @@ final class DesignSystemCallUITests: XCTestCase {
         name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0) + "Design " + UUID().uuidString.prefix(6))
         app.buttons["saveUserSelectionButton"].tap()
         XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        let microphone = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts["kTCCServiceMicrophone-alert"].firstMatch
+        if microphone.waitForExistence(timeout: 3) {
+            let allow = microphone.buttons["kTCCServiceMicrophone-allow-button"].firstMatch
+            XCTAssertTrue(allow.waitForExistence(timeout: 3))
+            allow.tap()
+            XCTAssertTrue(microphone.waitForNonExistence(timeout: 5))
+        }
     }
 
     @MainActor private func openGroups() {
