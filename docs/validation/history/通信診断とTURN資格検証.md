@@ -76,3 +76,13 @@ Appの回帰はiOS Simulatorで23件、macOSで21件が合格した。
 - `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` で140件、native WebRTC 5件が合格。Workerペアは別工程。証跡は `.validation/tx-accept-1405/red.log`・`green-focused.log`・`rtc.log`。
 
 AppはBuild 1407のiOS Simulatorで23件、Build 1408のmacOSで22件が合格。受け付けた経路と不受付の経路を同時に表示でき、受付情報のないreportは未計測として扱う。Simulatorで通話前のRTCを展開し、受付結果を与えた描画で通常文字と最大文字の読みやすさを照合した。macOSではRTCからAppへ認証済み音声を渡す既存試験も実行した。証跡は `.validation/tx-accept-1405/app-red/`・`app-green/`・`mac-green/`。
+
+## Networkで認証済みの中継順を読む（2026-11-20）
+
+Build 1465のiOS Simulatorで、画面を320pt幅に置き、近距離で2台の中継を経た相手とInternetで直接届いた相手の観測値を入力した。標準文字では相手の長い名前を2行で省略し、最大のアクセシビリティ文字では、経路名・短縮ID・時刻が横の3列に押し込まれ、`Stale`まで途中で分かれた。変更前の描画は `.validation/isolation-labels-1460/network-baseline` に保存した。
+
+Pathsでは、相手名、Local／Internetと経路種別、送信元から自端末までの矢印、最後の観測時点を縦に配置する。Networkの表示が既存のRTC観測値をその順序のまま使い、15秒を超えた観測値は `Stale` と表示する。到着の観測は認証済みデータを対象とし、音声の復号と出力はRXで確認する。[表示仕様](../../spec/App/UI/Diagnostics.md#network診断)、[デザイン定義](../../design/詳細画面/診断と詳細画面の構成.md#network)、[HTML見本](../../design/詳細画面/詳細画面見本.html)。
+
+Build 1466のiOS 27.2 Simulatorでは診断のページ切替と回転、最大文字での操作を含む11テスト・15実行が成功した。続くBuild 1467では、最大文字の経路を1行1IDと下向きの矢印で描き、通常文字と最大文字の320pt幅で相手名、全ID、順序、`Stale`を確認した。7テストが成功し、両Buildとも失敗・skip・実行時警告は0。Chromeの390px幅でもHTML内の直接・中継・古い観測の3例を確認した。証跡は `.validation/isolation-labels-1460/network-final`。
+
+Appの描画には既存RTC契約と同じ観測値を入力した。RTC側では、近距離とInternetの混在で、中継を経て受信した相手の経路をreportに含めることを既存の `localOnlyMemberKeepsTalkingAcrossMixedRoutesAndGatewayDeparture` が検証している。実無線での照合は[画面デザインの実環境受入](../未確認事項.md#画面デザインの実環境受入)へ残し、計測カードの狭い幅での省略は[Networkの表示差](../../backlog/画面実装とデザイン見本の差分.md#network)へ記録した。

@@ -95,6 +95,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .row:last-child { border-bottom: 0; }
 .row .k { color: var(--label2); white-space: nowrap; }
 .row .v { min-width: 0; }
+.network-path { display: grid; gap: 2px; padding: 5px 0; }
+.network-path + .network-path { border-top: 1px solid var(--line); }
+.network-path .mono { overflow-wrap: anywhere; }
 .rx-entry .row { grid-template-columns: minmax(0, 1fr); }
 .rx-entry .k { font-weight: 600; white-space: normal; }
 .rx-entry .v { padding-inline-start: 13px; }
@@ -400,15 +403,15 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="hd">Paths</div>
           <div class="card">
-            <div class="row"><b>Haruka</b><span class="v">Direct group path</span><span class="x sub mono">1a2b3c4d</span></div>
-            <div class="row"><b>Kenta</b><span class="v">Relayed</span><span class="x sub mono">5e6f7a8b → 1a2b3c4d</span></div>
-            <div class="row"><b>Mika</b><span class="v">Direct group path</span><span class="x sub mono">9c0d1e2f</span></div>
+            <div class="network-path"><b>Haruka</b><span>Local · Direct group path</span><span class="mono">1a2b3c4d → 7f7f7f7f</span><span class="sub">Last received 2 s ago</span></div>
+            <div class="network-path"><b>Kenta</b><span>Local · Relayed</span><span class="mono">5e6f7a8b → 1a2b3c4d → 7f7f7f7f</span><span class="sub">Last received 3 s ago</span></div>
+            <div class="network-path"><b>Mika</b><span>Internet · Direct group path</span><span class="mono">9c0d1e2f → 7f7f7f7f</span><span class="sub">Last received 20 s ago · Stale</span></div>
           </div>
           <div class="foot">RTT measures this device's ICE connection, not audio delay. Event drops occur inside this device. Paths show the last authenticated reception, not guaranteed reachability.</div>
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Network</b>現行の1つの長文を、経路（Local・Internet）ごとのカードと相手ごとのPathへ分ける。注記は現行の文をそのまま使う。</figcaption>
+      <figcaption><b>Network</b>LocalとInternetの計測を別々のカードに置く。Pathsでは相手ごとに、最後に観測した経路、送信元から自端末までの中継順、観測の古さを上から読める。アクセシビリティ文字サイズではIDを1行ずつ置き、下向きの矢印でつなぐ。</figcaption>
     </figure>
 
     <!-- Applied -->

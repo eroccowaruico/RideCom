@@ -10,6 +10,45 @@ import SwiftUI
 extension AppTests {
 @MainActor
 struct DiagnosticsPresentationTests {
+    #if os(iOS)
+    @Test func renderNetworkPathsAtStandardAndLargestTextSizes() throws {
+        let model = AppTestSupport.makeHarness().viewModel
+        let origin = PeerID(rawValue: "11111111-origin")
+        let firstRelay = PeerID(rawValue: "22222222-relay")
+        let secondRelay = PeerID(rawValue: "33333333-relay")
+        let receiver = PeerID(rawValue: "44444444-receiver")
+        let direct = PeerID(rawValue: "55555555-direct")
+        let group = try IntercomGroup(name: "Paths Ride", members: [
+            .init(id: origin.rawValue, displayName: "Haruka from the Ridge Team"),
+            .init(id: direct.rawValue, displayName: "Kenta"),
+            .init(id: receiver.rawValue, displayName: "Me"),
+        ])
+        model.selectedGroup = group
+        model.activeGroupID = group.id
+        let now = Date().timeIntervalSince1970
+        model.networkDiagnostics = .init(generatedAt: now, peers: [
+            .init(peerID: origin, route: .multipeer, path: [origin, firstRelay, secondRelay, receiver], observedAt: now - 2),
+            .init(peerID: direct, route: .webRTC, path: [direct, receiver], observedAt: now - 20),
+        ])
+
+        for (name, size) in [("standard", DynamicTypeSize.large), ("accessibility", .accessibility5)] {
+            let view = DiagnosticsNetworkView(viewModel: model)
+                .padding(12)
+                .frame(width: 320)
+                .background(AppColorPalette.listScreenBackground)
+                .environment(\.dynamicTypeSize, size)
+            let renderer = ImageRenderer(content: view)
+            let frame = try #require(renderer.uiImage?.cgImage)
+            let height = min(frame.height, 2500)
+            let focused = try #require(frame.cropping(to: CGRect(
+                x: 0, y: frame.height - height, width: frame.width, height: height
+            )))
+            let data = try #require(UIImage(cgImage: focused).pngData())
+            Attachment.record(data, named: "network-paths-\(name).png")
+        }
+    }
+    #endif
+
     @Test func transmitProjectionPreservesFailureMuteAndFallbackWithoutReadingLiveState() {
         let h = AppTestSupport.makeHarness()
         var input = DiagnosticsInput(h.viewModel)

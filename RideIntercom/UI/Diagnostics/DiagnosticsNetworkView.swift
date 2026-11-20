@@ -4,6 +4,7 @@ import RTC
 /// One card per route with label and value rows, then one row per observed path.
 struct DiagnosticsNetworkView: View {
     @Bindable var viewModel: IntercomViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         let report = viewModel.networkDiagnostics
@@ -73,16 +74,21 @@ struct DiagnosticsNetworkView: View {
                 ForEach(peers, id: \.peerID) { peer in
                     let age = max(0, Date().timeIntervalSince1970 - peer.observedAt)
                     let name = members.first { $0.id == peer.peerID.rawValue }?.resolvedDisplayName ?? String(peer.peerID.rawValue.prefix(8))
-                    let hops = peer.path.map { String($0.rawValue.prefix(8)) }.joined(separator: " → ")
-                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
-                        Text(verbatim: name).font(.subheadline.bold()).lineLimit(2)
-                        Text(verbatim: "\(peer.path.count > 2 ? "Relayed" : "Direct group path") · \(peer.route == .webRTC ? "Internet" : "Local")")
-                            .font(.subheadline)
-                        Spacer(minLength: AppSpacing.s)
-                        Text(verbatim: "\(hops) · \(Int(age)) s\(age > 15 ? " · Stale" : "")")
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                    let route = peer.route == .webRTC ? "Internet" : "Local"
+                    let topology = peer.path.count > 2 ? "Relayed" : "Direct group path"
+                    let arrow = dynamicTypeSize.isAccessibilitySize ? "\n↓\n" : " → "
+                    let hops = peer.path.map { String($0.rawValue.prefix(8)) }.joined(separator: arrow)
+                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                        Text(verbatim: name).font(.subheadline.bold())
+                        Text(verbatim: "\(route) · \(topology)").font(.subheadline)
+                        Text(verbatim: hops).font(.caption.monospaced())
+                        Text(verbatim: "Last received \(Int(age)) s ago\(age > 15 ? " · Stale" : "")")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityElement(children: .combine)
+                    if peer.peerID != peers.last?.peerID { Divider() }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         } label: {
