@@ -92,6 +92,19 @@ Release-Validationを既定のDerivedDataでビルドした。Mac側では署名
 
 事前試験7件・各端の実音声試験・素材とソースの照合・音声選択の復元・Simulator停止・一時Mac Appの回収は成功。125ms判定は3条件で未達のためrun全体は不合格。証跡は `.validation/local-aac-and-pcm16-current-20261119` の波形・`measurements.json`・両端のpacket時刻。近距離のローカル測定であり、物理iPhoneのマイク、ロック、Bluetooth、実無線移動の観測は残る。
 
+### PCM16 16kHzの欠落をiPhone Simulator 2台で再確認する
+
+2026-11-21。`01e8fcb4` のRelease-Validation Build 1703をiOS 27.2 Simulator 2台で使った。標準のquickから `pcm16-16k-voicechat` をそのまま選び、保存済みグループの近距離通話で英語の合成発話を両方向へ8秒流した。PCM16・16kHz・Voice Chat、送信分離ON、相手別受信分離ON、VADはNoisy。実UDPの送受信と最終出力を通常の試験で確認した。両端で同じPCM16・mono16kを適用し、fallbackはなかった。
+
+| 受信側 | 復号／Mixer／最終出力の有声欠落 | 復号波形の時間位置 | Mixerと最終出力の時間位置 | 実出力＋計測余裕10ms |
+|---|---:|---:|---:|---:|
+| A | 0／0／0% | 63.12ms | 210.46ms | 220.46ms |
+| B | 0／0／0% | 63.04ms | 204.04ms | 214.04ms |
+
+時間位置は同じ参照発話から換算した。復号側は復号波形の収録時刻を使い、復号処理の完了時刻とは区別する。両端で収録・配送・描画・送信の内部破棄0と出力リセット0。旧報告の有声欠落は、この8秒の条件では再現しなかった。受信分離を重ねた状態で復号波形から実出力までの位置差は約141〜147ms。次に差を分ける場合は、同じ送信条件で相手別受信分離だけを変え、復号と実出力の両方を比較する。125msは既定条件の製品目標で、今回の相手別分離を有効にした構成でも汎用検証の125ms判定は両方向とも未達だった。
+
+事前5件、両側の試験各1件、ソース照合、入出力設定の復元と専用Simulatorの回収を確認した。証跡は `.validation/pcm16-16k-current-1703/nearby/`、選択入口は同じ親フォルダの `run_pcm16.py`。他OSとの組合せや実機の異なる機器・長時間での再現性は引き続き確認対象。
+
 ## 間欠的に失敗する実Multipeerの招待テスト
 
 2026-11-15〜16、iPhone 17 Pro Simulator（iOS 27.2）で`ContactInvitationPersistenceTests.nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload`が間欠的に60秒の制限時間を超えた。同一プロセス内の2つのViewModelを実Multipeer（Bonjour）でつなぐテストで、成功時は1.5〜2.5秒で終わる。
