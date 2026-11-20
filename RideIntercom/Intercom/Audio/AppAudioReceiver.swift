@@ -16,7 +16,7 @@ nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
 }
 
 nonisolated struct ReceiveProcessingTiming: Encodable, Sendable {
-    let lockRequestedAt = ProcessInfo.processInfo.systemUptime
+    let lockRequestedAt: TimeInterval
     var lockAcquiredAt: TimeInterval?
     var decodedAt: TimeInterval?
     var reservedAt: TimeInterval?
@@ -137,7 +137,9 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let generation = graphGeneration.load(ordering: .acquiring)
         guard generation.isMultiple(of: 2) else { throw AppAudioPipelineError.notConfigured }
         var observation: ReceivePlayoutDiagnostics?
-        var timing = onPlayout == nil ? nil : ReceiveProcessingTiming()
+        // Jitter learning uses arrival at the App, before the graph lock and decoder.
+        let arrivedAt = ProcessInfo.processInfo.systemUptime
+        var timing = onPlayout.map { _ in ReceiveProcessingTiming(lockRequestedAt: arrivedAt) }
         lock.lock()
         timing?.lockAcquiredAt = ProcessInfo.processInfo.systemUptime
         defer {
@@ -166,7 +168,8 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         if !frame.samples.isEmpty {
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCMAt = Date().timeIntervalSince1970
-            try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
+            try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration,
+                                arrivedAt: arrivedAt)
             timing?.reservedAt = ProcessInfo.processInfo.systemUptime
         }
         if let previousAdjustmentCount, let source = sources[id] {
@@ -180,9 +183,11 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     }
 
     // Both receive and Audio Check hold the graph lock before scheduling.
-    private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval) throws {
+    private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval,
+                                 arrivedAt: TimeInterval? = nil) throws {
         let source = try source(for: peer)
-        _ = try source.schedule(frame, packetizationJitter: packetizationJitter)
+        _ = try source.schedule(frame, packetizationJitter: packetizationJitter,
+                                arrivedAt: arrivedAt ?? ProcessInfo.processInfo.systemUptime)
     }
 
     func removePeer(_ peer: String) throws {

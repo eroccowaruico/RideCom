@@ -87,6 +87,60 @@ struct RealtimeConversationTests {
         #expect(!receiver.snapshot.busIDs.contains("rx-peer-old-call"))
     }
 
+    @Test(arguments: [false, true])
+    func receiveLearnsLinkDelayWithoutLearningTimeSpentWaitingForTheGraph(lateArrival: Bool) throws {
+        let engine = AVAudioEngine()
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4800)
+        let receiver = AppAudioReceiver()
+        try receiver.rebuild(engine: engine, configuration: .init(transmitSoundIsolationEnabled: false,
+            receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002), peers: ["peer"],
+            rendersToHardware: false, onOutput: { _ in })
+        defer { receiver.stop() }
+        let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800))
+        func packet(_ number: UInt64, at capture: TimeInterval) throws -> RTC.ReceivedAudioPacket {
+            try AppTestSupport.receivedAudioPacket(peerID: "peer",
+                frame: .init(sequenceNumber: number, capturedAt: capture, samples: Array(repeating: 0.2, count: 480)),
+                codec: .pcm16)
+        }
+        _ = try receiver.receive(packet(0, at: ProcessInfo.processInfo.systemUptime))
+        #expect(try engine.renderOffline(4800, to: output) == .success)
+        let capture = ProcessInfo.processInfo.systemUptime + 0.01
+        let delayed = try packet(1, at: capture)
+        while ProcessInfo.processInfo.systemUptime < capture { Thread.sleep(forTimeInterval: 0.001) }
+        if lateArrival {
+            Thread.sleep(forTimeInterval: 0.06)
+            _ = try receiver.receive(delayed)
+        } else {
+            // The packet has already reached the App while the graph owner is busy.
+            let lock = try #require(Mirror(reflecting: receiver).children.first { $0.label == "lock" }?.value as? NSRecursiveLock)
+            let started = DispatchSemaphore(value: 0), completed = DispatchSemaphore(value: 0)
+            let decoded = Mutex(false)
+            lock.lock()
+            DispatchQueue.global(qos: .userInteractive).async {
+                started.signal()
+                decoded.withLock { $0 = (try? receiver.receive(delayed)) != nil }
+                completed.signal()
+            }
+            let entered = started.wait(timeout: .now() + 1)
+            let waited = completed.wait(timeout: .now() + .milliseconds(60))
+            lock.unlock()
+            #expect(entered == .success && waited == .timedOut)
+            #expect(completed.wait(timeout: .now() + 1) == .success)
+            #expect(decoded.withLock { $0 })
+        }
+        #expect(receiver.playoutDiagnostics(peer: "peer")?.adjustments == 1)
+        // Drain the rebooked voice so the next reservation shows only the retained allowance.
+        #expect(try engine.renderOffline(4800, to: output) == .success)
+        _ = try receiver.receive(packet(2, at: capture + 1))
+        let buffered = try #require(receiver.playoutDiagnostics(peer: "peer")?.bufferedDuration)
+        if lateArrival {
+            #expect(buffered >= 0.05)
+        } else {
+            #expect(buffered <= 0.035)
+        }
+    }
+
     @Test func receiverReportsTheAdjustmentOnlyForThePacketThatMoved() throws {
         let engine = AVAudioEngine()
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
