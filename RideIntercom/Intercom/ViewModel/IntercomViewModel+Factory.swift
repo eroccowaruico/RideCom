@@ -29,11 +29,14 @@ extension IntercomViewModel {
             localMemberIdentityStore.saveDisplayName(localMemberIdentityStore.loadOrCreate().displayName)
         }
         let groupStore = AppleAccountFixture.groupStore(directory: directory, namespace: namespace)
+        let callAccessNow = AppleAccountFixture.groupInvitationClock(namespace: namespace)
         #else
         let groupStore = FileGroupStore(directory: directory)
+        let callAccessNow: @MainActor () -> Date = Date.init
         #endif
         return IntercomViewModel(
             accountSession: accountSession,
+            callAccessNow: callAccessNow,
             groupRepository: GroupRepository(store: groupStore, credentials: KeychainGroupCredentialStore(namespace: namespace)),
             appSettingsStore: UserDefaultsAppSettingsStore(defaults: defaults),
             internetSettingsStore: InternetConnectionSettingsStore.makeForCurrentProcess(namespace: namespace),

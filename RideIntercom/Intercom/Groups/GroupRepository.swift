@@ -1131,7 +1131,8 @@ extension GroupRepository {
             let targetExists = record.invitedGroupID == nil || group.map { index in
                 record.direction == .incoming || next.groups[index].members.contains { $0.id == record.pendingGroupMemberID }
             } == true
-            if !hasPerson || (record.state == .pending && !targetExists) {
+            // An expired outgoing record can still renew its group invitation while its slot exists.
+            if !hasPerson || ((record.state == .pending || record.isExpiredTombstone) && !targetExists) {
                 next.contactInvitations[index].state = .cancelled
                 next.contactInvitations[index].credentialReference = nil
             }

@@ -674,7 +674,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="hd">SavedUser</div><div class="card"><div class="row"><b>Sora</b><span class="v mono">isRegistered false<div class="sub">id 12ab34cd-0000-4000-8000-000000000003</div></span><span>›</span></div></div>
         </div>
       </div></div>
-      <figcaption><b>新しい相手へのgroup招待</b>図はNew Peopleで入力した保存後の一覧。IntercomGroupとSavedUserの値を表示し、人物行からContactInvitationRecordを含む同じ人物詳細へ進む。人物IDとinvitedGroupIDで同じ人・groupの予約枠・招待を結ぶ。実装は完全なID・期限・その他の保存値も従来どおり表示し、表示のためにtokenやgroup鍵を読み出さない。共有取消で同じ詳細を保ち、署名付き返信でstateがconfirmed、SavedUserが登録済み、対応枠が参加者になる。相手の登録とgroup保存は原子的に行う。対象groupから抜けたincoming pendingはstate=cancelledとなり、credentialReferenceはnil、canResumeはfalseになる。SavedUserと個人通話は保持し、旧URLの再登録は失敗として表示する。</figcaption>
+      <figcaption><b>新しい相手へのgroup招待</b>図はNew Peopleで入力した保存後の一覧。IntercomGroupとSavedUserの値を表示し、人物行からContactInvitationRecordを含む同じ人物詳細へ進む。人物IDとinvitedGroupIDで同じ人・groupの予約枠・招待を結ぶ。期限切れの枠またはgroupを外すと招待はcancelledになり、SavedUserは残る。人物詳細からの次の共有はinvitedGroupIDがnilの個人招待になる。実装は完全なID・期限・その他の保存値も従来どおり表示し、表示のためにtokenやgroup鍵を読み出さない。共有取消で同じ詳細を保ち、署名付き返信でstateがconfirmed、SavedUserが登録済み、対応枠が参加者になる。相手の登録とgroup保存は原子的に行う。対象groupから抜けたincoming pendingはstate=cancelledとなり、credentialReferenceはnil、canResumeはfalseになる。SavedUserと個人通話は保持し、旧URLの再登録は失敗として表示する。</figcaption>
     </figure>
 
     <figure id="contact-reply-stopped">

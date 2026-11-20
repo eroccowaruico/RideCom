@@ -71,6 +71,16 @@ enum AppleAccountFixture {
 
     enum RecoveryFailure: Error { case invalidScope, unsafePath, verificationFailed }
 
+    static func groupInvitationClock(namespace: String) -> @MainActor () -> Date {
+        let environment = ProcessInfo.processInfo.environment
+        guard namespace.hasPrefix("RideIntercom.Validation."),
+              environment["RIDEINTERCOM_LOCAL_TESTING"] == "1",
+              environment["RIDEINTERCOM_ACCOUNT_FIXTURE"] == "signed-in",
+              environment["RIDEINTERCOM_PAST_GROUP_INVITATION_FIXTURE"] == "1" else { return Date.init }
+        // Save through the real UI, then relaunch with the normal clock to see the expired invitation.
+        return { Date().addingTimeInterval(-8 * 86_400) }
+    }
+
     static func groupStore(directory: URL, namespace: String) -> any GroupStoring {
         let store = FileGroupStore(directory: directory)
         let environment = ProcessInfo.processInfo.environment

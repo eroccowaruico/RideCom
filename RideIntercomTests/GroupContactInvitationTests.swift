@@ -547,6 +547,65 @@ struct GroupContactInvitationTests {
         #expect(a.viewModel.savedRemoteUsers.isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func removingAnExpiredGroupInvitationKeepsThePersonWithoutRenewingTheGroup(wholeGroup: Bool) throws {
+        var now = Date()
+        let (a, b, token, person) = try prepared(now: { now })
+        let vm = a.viewModel
+        defer { vm.disconnect(); b.viewModel.disconnect() }
+        let target = try #require(token.invitedGroup)
+        let context = try #require(token.directInvitation?.context)
+        now = Date(timeIntervalSince1970: context.expiresAt)
+        try vm.groupRepository.removeExpiredContactInvitations(now: now.timeIntervalSince1970)
+        let expired = try #require(vm.contactInvitationRecord(context.id))
+        try #require(expired.state == .expired)
+
+        if wholeGroup {
+            #expect(vm.deleteGroup(target.id))
+        } else {
+            #expect(vm.removeMember(expired.pendingGroupMemberID, from: target.id))
+        }
+        #expect(vm.contactInvitationRecord(context.id)?.state == .cancelled)
+
+        // Simulate an older build that removed the target but left the expired record renewable.
+        var oldSnapshot = a.groupStore.snapshot
+        oldSnapshot.contactInvitations.removeAll { $0.id == expired.id }
+        oldSnapshot.contactInvitations.append(expired)
+        try a.groupStore.commit(oldSnapshot)
+        vm.reloadSavedGroups()
+        #expect(vm.contactInvitationRecord(context.id)?.state == .cancelled)
+        #expect(vm.contactPerson(person)?.resolvedDisplayName == "My new rider")
+        #expect(vm.contactPersonInvitationForSharing(person) == nil)
+
+        let share = try vm.prepareContactPersonShare(person, expectedAccountAccessID: vm.accountAccessID)
+        let replacement = try GroupInviteTokenCodec.decodeJoinURL(share.url, contactBootstrap: true)
+        #expect(replacement.invitedGroup == nil)
+        #expect(vm.contactInvitationRecord(share.id)?.personID == person)
+        #expect(vm.groups.first(where: { $0.id == target.id })?.members.map(\.id) == (wholeGroup ? nil : ["group-author"]))
+    }
+
+    @Test func sharingAnExpiredInvitationWithItsGroupSlotIntactRenewsTheSamePersonAndGroup() throws {
+        var now = Date()
+        let (a, b, token, person) = try prepared(now: { now })
+        let vm = a.viewModel
+        defer { vm.disconnect(); b.viewModel.disconnect() }
+        let target = try #require(token.invitedGroup)
+        let id = try #require(token.directInvitation?.context.id)
+        let initial = try #require(vm.contactInvitationRecord(id))
+        now = Date(timeIntervalSince1970: initial.expiresAt)
+        try vm.groupRepository.removeExpiredContactInvitations(now: now.timeIntervalSince1970)
+        vm.reloadSavedGroups()
+        #expect(vm.contactPersonInvitationForSharing(person)?.state == .expired)
+
+        let renewed = try vm.prepareContactPersonShare(person, expectedAccountAccessID: vm.accountAccessID)
+        let replacement = try GroupInviteTokenCodec.decodeJoinURL(renewed.url, contactBootstrap: true)
+        let record = try #require(vm.contactInvitationRecord(renewed.id))
+        #expect(renewed.id != id && vm.contactInvitationRecord(id) == nil)
+        #expect(record.personID == person && record.sent == false)
+        #expect(replacement.invitedGroup == target)
+        #expect(vm.groups.first(where: { $0.id == target.id })?.members.map(\.id) == ["group-author", record.pendingGroupMemberID])
+    }
+
     @Test func deletingAReceivedGroupStopsItsReplyAndKeepsTheRegisteredContactAndPairCall() throws {
         let keys = InMemoryGroupCredentialStore()
         let (a, b, token, _) = try prepared(recipientCredentials: keys)
