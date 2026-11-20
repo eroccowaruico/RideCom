@@ -13,13 +13,14 @@ final class ContactInvitationTransport {
     private static let maximumLocalFrameBytes = 12 * 1024
 
     private let memberID: String
-    private let session: CallSession?
+    private var session: CallSession?
     private let sessionRoutes: Set<RTC.RouteKind>
     private let localEnabled: Bool
     private var local: RTCLocalDataChannel?
     private var localPeers: Set<String> = []
     private var sessionPeers: Set<String> = []
     var onEvent: ((Event) -> Void)?
+    var hasLocalChannel: Bool { local != nil }
 
     init(memberID: String, routes: Set<RTC.RouteKind>, internetConfiguration: RTC.CloudflareRealtimeConfiguration?,
          injectedSession: CallSession?) {
@@ -61,12 +62,21 @@ final class ContactInvitationTransport {
 
     func stop() {
         onEvent = nil
-        session?.onEvent = nil
-        session?.disconnect()
+        stopCallRoute()
         local?.stop()
         local = nil
         localPeers = []
-        sessionPeers = []
+    }
+
+    func stopCallRoute() {
+        guard let session else { return }
+        self.session = nil
+        session.onEvent = nil
+        session.disconnect()
+        if !sessionPeers.isEmpty {
+            sessionPeers = []
+            publishMembers()
+        }
     }
 
     func send(_ message: ApplicationDataMessage) {
@@ -77,6 +87,7 @@ final class ContactInvitationTransport {
     }
 
     private func receiveSession(_ event: TransportEvent) {
+        guard session != nil else { return }
         switch event {
         case .authenticated(let members):
             sessionPeers = Set(members.lazy.filter(\.isConnected).map { $0.peer.id.rawValue })

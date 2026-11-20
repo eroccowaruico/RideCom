@@ -23,6 +23,7 @@ extension IntercomViewModel {
         stopGroupDeliverySync()
         stopCallAccessObservation()
         storeAccess.stop()
+        stopContactInvitationSession()
         disconnect()
         internetCheckGeneration = UUID()
         isCheckingInternet = false
@@ -57,6 +58,7 @@ extension IntercomViewModel {
                 requiresAccountDataReset = true
                 internetCheckGeneration = UUID()
                 isCheckingInternet = false
+                stopContactInvitationSession()
                 disconnect()
                 localAccountPrincipal = nil
                 hasInternetCredentials = false
@@ -67,6 +69,7 @@ extension IntercomViewModel {
         guard let configuration = try internetSettingsStore.load() else { throw InternetConnectionSettingsStore.ValidationError.missingToken }
         internetCheckGeneration = UUID()
         isCheckingInternet = false
+        stopContactInvitationSession()
         disconnect()
         callSession.updateInternetConfiguration(configuration)
         internetWorkerURL = configuration.workerURL.absoluteString

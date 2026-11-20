@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import RTC
 import Testing
 @testable import RideIntercom
 
@@ -206,7 +207,9 @@ struct ContactInvitationPresentationTests {
         #expect(friend.viewModel.isMuted)
         #expect(friend.callSession.disconnectCallCount == disconnects)
         #expect(friend.callSession.connectedGroup?.id == group.id)
-        #expect(notification.connectedGroup == nil)
+        #expect(notification.connectedGroup != nil && notification.connectedGroup?.id != group.id)
+        #expect(notification.enabledRouteValues.last == [.multipeer])
+        #expect(notification.startMediaCallCount == 0)
         #expect(friend.viewModel.regularGroups.map(\.id) == [group.id])
     }
 }

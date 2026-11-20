@@ -2,6 +2,12 @@ import Foundation
 import RTC
 
 extension IntercomViewModel {
+    private var contactInvitationRoutes: Set<RTC.RouteKind> {
+        activeGroupID == nil ? enabledRTCTransportRoutes : enabledRTCTransportRoutes.intersection([.multipeer])
+    }
+
+    var contactInvitationWaitsForCurrentCall: Bool { contactInvitationRoutes.isEmpty }
+
     var pendingContactInvitations: [ContactInvitationRecord] {
         _ = contactInvitationRevision
         let now = callAccessNow().timeIntervalSince1970
@@ -46,7 +52,8 @@ extension IntercomViewModel {
 
     @discardableResult
     func resumeContactInvitation(_ id: UUID, continuingInBackground: Bool = false) -> Bool {
-        guard canEditSavedGroups, activeGroupID == nil, !hasAnyActiveGroupConnection,
+        let routes = contactInvitationRoutes
+        guard canEditSavedGroups, !routes.isEmpty,
               let record = groupRepository.contactInvitations.first(where: { $0.id == id }),
               record.canResume else { return false }
         guard !record.hasExpired(at: callAccessNow().timeIntervalSince1970) else {
@@ -69,10 +76,10 @@ extension IntercomViewModel {
             stopContactInvitationSession()
             let transport = contactSessionFactory?()
             let configuration: RTC.CloudflareRealtimeConfiguration?
-            if transport == nil, enabledRTCTransportRoutes.contains(.webRTC) {
+            if transport == nil, routes.contains(.webRTC) {
                 do { configuration = try internetSettingsStore.load() }
                 catch {
-                    guard enabledRTCTransportRoutes.contains(.multipeer) else { throw error }
+                    guard routes.contains(.multipeer) else { throw error }
                     configuration = nil
                 }
             } else {
@@ -80,7 +87,7 @@ extension IntercomViewModel {
             }
             let access = accountAccessID
             let session = ContactInvitationSession(transport: transport, authority: invitationAuthority, signer: signer,
-                displayName: localMemberIdentity.displayName, trust: trust, routes: enabledRTCTransportRoutes,
+                displayName: localMemberIdentity.displayName, trust: trust, routes: routes,
                 internetConfiguration: configuration,
                 now: { [weak self] in self?.callAccessNow().timeIntervalSince1970 ?? .infinity },
                 confirmReceipt: { [weak self] verified in

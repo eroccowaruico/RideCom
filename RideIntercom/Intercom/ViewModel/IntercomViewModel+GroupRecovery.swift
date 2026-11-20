@@ -68,6 +68,7 @@ extension IntercomViewModel {
     func resetSavedGroups() {
         guard canStartCalls else { groupErrorMessage = groupStorageNotice; return }
         guard groupStorageIssue != .unsupportedVersion else { return }
+        stopContactInvitationSession()
         disconnect()
         do {
             try groupRepository.reset()

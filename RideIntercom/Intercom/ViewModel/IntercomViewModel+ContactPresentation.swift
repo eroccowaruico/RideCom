@@ -235,7 +235,7 @@ extension IntercomViewModel {
                 : "This invitation was already accepted. Confirmation can be resent."
         }
         if contactInvitationIsUnsent(record) { return "This invitation has not been sent to anyone yet." }
-        if activeGroupID != nil || hasAnyActiveGroupConnection {
+        if contactInvitationWaitsForCurrentCall {
             return record.direction == .incoming
                 ? "Contact saved. Waiting for the current call to end."
                 : "Waiting for the current call to end."

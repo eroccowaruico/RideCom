@@ -216,6 +216,7 @@ extension IntercomViewModel {
     func setRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) {
         let normalizedRoutes = Self.normalizedRTCTransportRoutes(routes)
         guard normalizedRoutes != enabledRTCTransportRoutes else { return }
+        stopContactInvitationSession()
 
         if hasAnyActiveGroupConnection {
             disconnect()

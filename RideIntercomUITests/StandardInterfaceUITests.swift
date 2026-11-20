@@ -804,8 +804,33 @@ final class StandardInterfaceUITests: XCTestCase {
     }
 
     @MainActor
-    func testReceivedContactReplyExplainsWaitingForCurrentCall() throws {
+    func testReceivedContactReplyExplainsWaitingForCurrentCallWhenNearRangeIsOff() throws {
+        try receiveContactDuringCall(nearRange: false)
+    }
+
+    @MainActor
+    func testReceivedContactShowsActiveNearRangeReplyDuringCall() throws {
+        try receiveContactDuringCall(nearRange: true)
+    }
+
+    @MainActor
+    private func receiveContactDuringCall(nearRange: Bool) throws {
         launch()
+        tab("Settings", id: "settingsTab")
+        let communication = app.buttons["communicationSettingsLink"].firstMatch
+        revealStandardSettingsControl(communication)
+        communication.tap()
+        let internet = app.switches["internetRouteToggle"].firstMatch
+        XCTAssertTrue(internet.waitForExistence(timeout: 5))
+        if internet.value as? String == "0" {
+            internet.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        let local = app.switches["localNetworkRouteToggle"].firstMatch
+        let expectedLocal = nearRange ? "1" : "0"
+        if local.value as? String != expectedLocal {
+            local.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(local.value as? String, expectedLocal)
         let suffix = String(UUID().uuidString.prefix(6)), inviter = "Reply during call " + suffix
         app.open(try InvitationURLFixture.make(inviter: "ui-active-reply-" + suffix, sharedName: inviter, contact: true))
         let register = app.buttons["acceptContactInvitationButton"].firstMatch
@@ -828,9 +853,16 @@ final class StandardInterfaceUITests: XCTestCase {
         openUserSettings(from: inviterRows(inviter).firstMatch)
         let state = app.descendants(matching: .any)["contactInvitationState"].firstMatch
         XCTAssertTrue(state.waitForExistence(timeout: 3))
-        XCTAssertEqual(state.label, "Waiting for the current call to end.")
-        XCTAssertFalse(app.buttons["retryContactInvitationButton"].exists, "Do not offer a retry that cannot run during a call")
-        screenshot("Received contact waits inside the same person's settings without interrupting a call")
+        let retry = app.buttons["retryContactInvitationButton"]
+        if nearRange && state.label == "Reply not delivered" {
+            // This fixture has no sender. A stopped attempt must be retryable in the same call.
+            XCTAssertTrue(retry.waitForExistence(timeout: 3))
+            retry.tap()
+        }
+        XCTAssertEqual(state.label, nearRange ? "Sending a reply" : "Waiting for the current call to end.")
+        XCTAssertFalse(retry.exists)
+        XCTAssertTrue(app.buttons["shareContactReplyButton"].exists)
+        screenshot(nearRange ? "Near-range reply during the call" : "Internet-only reply waits for the call to end")
         app.buttons["closeUserSettingsButton"].tap()
         tab("Call", id: "callTab")
         XCTAssertTrue(app.staticTexts[groupName].firstMatch.exists)

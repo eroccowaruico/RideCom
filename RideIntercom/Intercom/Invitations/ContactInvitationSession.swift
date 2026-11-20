@@ -23,6 +23,7 @@ final class ContactInvitationSession {
     private(set) var isConfirmed = false
     private(set) var isAcknowledged = false
     private(set) var failure: Error?
+    var canContinueDuringCall: Bool { transport.hasLocalChannel }
     /// The person this exchange registered, once both sides have saved each other: the invitee after the
     /// inviter bound their receipt, the inviter after their acknowledgement arrived.
     private(set) var registeredPeerID: String?
@@ -108,6 +109,8 @@ final class ContactInvitationSession {
         transport.stop()
         issued = nil; received = nil; boundReceipt = nil; peers = []
     }
+
+    func stopCallRoute() { transport.stopCallRoute() }
 
     private var registeredPeerIsAlone: Bool { registeredPeerID.map { peers == [$0] } ?? false }
     private func announceRegisteredPeer() {

@@ -62,7 +62,7 @@ struct StandardContactReplyStatus: View {
                 if reply.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Text("Reply expired").accessibilityIdentifier("contactInvitationState")
                     Text("Ask the sender for a new invitation.")
-                } else if viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection {
+                } else if viewModel.contactInvitationWaitsForCurrentCall {
                     Text("Waiting for the current call to end.").accessibilityIdentifier("contactInvitationState")
                 } else if viewModel.contactInvitationID == reply.id {
                     HStack { ProgressView(); Text("Sending a reply") }

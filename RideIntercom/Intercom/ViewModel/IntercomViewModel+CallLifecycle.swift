@@ -26,7 +26,10 @@ extension IntercomViewModel {
             groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
             return
         }
-        stopContactInvitationSession()
+        if let invitation = contactInvitationSession {
+            if invitation.canContinueDuringCall { invitation.stopCallRoute() }
+            else { stopContactInvitationSession() }
+        }
         groupErrorMessage = nil
         connectivityNotice = nil
         internetFailureDetail = nil
@@ -218,7 +221,7 @@ extension IntercomViewModel {
     }
 
     func disconnect() {
-        stopContactInvitationSession()
+        if contactInvitationSession?.canContinueDuringCall == false { stopContactInvitationSession() }
         stopWatchAudioLink()
         callDisconnectDeadline = nil
         callTicker.stop()

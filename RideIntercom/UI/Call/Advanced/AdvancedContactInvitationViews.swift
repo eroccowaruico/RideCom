@@ -105,7 +105,7 @@ struct AdvancedContactInvitationContent: View {
                             _ = viewModel.retryContactPersonInvitation(record.id, personID: personID)
                         } else { viewModel.retryPresentedContactInvitation(record.id) }
                     }
-                    .disabled(!viewModel.canEditSavedGroups || viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection)
+                    .disabled(!viewModel.canEditSavedGroups || viewModel.contactInvitationWaitsForCurrentCall)
                     .accessibilityIdentifier("retryContactInvitationButton")
                     Button(stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation", role: .destructive) {
                         confirmsCancellation = true

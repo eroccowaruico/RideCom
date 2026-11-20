@@ -46,7 +46,7 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | `standardUser-{id}` | 一覧は`directoryUsers`で未登録を含む同じ人を1行表示。未登録は破線の人物と「Not registered」、タップで詳細（通話を始めない）。識別済みは通常の行で、従来どおりタップで個別通話を開始する。名前の編集・削除は両モード共通の行操作から可能。未登録の人の設定に「本人の名前」を捏造しない |
 | `editContactPersonNameButton` | Standardの保存済み詳細から名前の設定を開く。編集は保存ボタンで確定し、取消は保持。完了後は同じ相手の詳細へ戻る |
 | Advancedの人の詳細 | `SavedUser`の`id`・`displayName`・`localName`・`memberIDs`・`principal`と、対応する配送記録を同じ詳細に内包する。`ContactInvitationRecord`の`id`・`personID`・`direction`・`state`・`canResume`・`expiresAt`・`peerMemberID`・`nickname`・通知の`session`（running/stopped）をその値で表示する。`Retry Notification`と`Cancel Pending Invitation`／`Stop Retrying Notification`は実装の条件どおり。取消はその端末の再試行を止め、保存した人の詳細を維持する |
-| 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、未配送の返信はその人の詳細・設定内で扱う。利用可能な近距離の経路では返信と到着確認を自動で届ける。通常通話中は「Waiting for the current call to end.」を表示し、実行できない再試行を出さない。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
+| 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、未配送の返信はその人の詳細・設定内で扱う。利用可能な近距離の経路では返信と到着確認を自動で届ける。通常通話中も近距離で返信できる。近距離を無効にしている通話中だけ「Waiting for the current call to end.」を表示し、再試行を出さない。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
 | `contactInvitationPreview` | URLの署名・期限・宛先を検証し、本人名と登録・拒否の効果を表示する。URLを開くだけではユーザー／pending／署名鍵を保存しない |
 | `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、同じacceptingのシートIDを保って保存済み詳細へ更新する。「Done」（完了）でUsersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
 
@@ -67,7 +67,7 @@ iOSで「登録」を押した直後に完了・画面ロック・他のアプ�
 | export／エラー | InvitationShare(contactReplyID:)がexport時にaccountAccessID・現在の記録・期限・鍵を再検証。表示時とexport時に現在の記録・相手の登録と公開鍵を照合し、削除・取消後の古い共有操作は無効にする。失敗は同じ詳細に表示。読込・保存失敗は既存の再読込へ接続し、通常通話を勝手に切断しない |
 | import／再表示 | 元の作者は同じ人・開いている詳細を登録済みに更新。受け手は検証済みACKでpendingを解消。どちらも新しいシートを強制せず、再起動後は同じ人の設定から続ける。未知・改ざん・取消・期限切れは保存しない。相手を削除すると、その人との招待も同時に停止するため、古い返信を開いても一覧へ戻らない。再登録は新しい招待から行う |
 | Advancedの再試行・停止 | 同じAdvancedContactInvitationContentを登録直後の詳細・人物詳細・相手の設定で使い、相手IDと招待IDを共通操作へ渡す。受信pendingとoutgoing confirmedの停止はStop Retrying Notification。受信の確認本文は登録済み相手が残ることを伝える。成功後はstate=cancelled、canResume=false、session=stoppedと「Retries stopped on this device.」（この端末での再試行を停止しました。）。再試行・返信共有を出さず、相手と同じ詳細／設定を保つ。保存失敗では元の状態と操作を保って理由を表示 |
-| 期限切れの保存済み返信 | StandardのcontactInvitationStateは「Reply expired」（返信の有効期限が切れました）、続けて「Ask the sender for a new invitation.」。再試行・共有を出さず、登録済みの人は保つ。AdvancedはhasExpired(at:)のtrue／falseと期限・保存state・canResumeを併記し、期限内だけ再試行・取消を出す。通常通話中・保存編集不可のRetry Notificationは無効。期限到達で人を削除したり通話を切断したりしない |
+| 期限切れの保存済み返信 | StandardのcontactInvitationStateは「Reply expired」（返信の有効期限が切れました）、続けて「Ask the sender for a new invitation.」。再試行・共有を出さず、登録済みの人は保つ。AdvancedはhasExpired(at:)のtrue／falseと期限・保存state・canResumeを併記し、期限内だけ再試行・取消を出す。近距離が無効な通話中、または保存を編集できない場合はRetry Notificationを無効にする。期限到達で人を削除したり通話を切断したりしない |
 
 ### 登録後の呼び名の確認
 
@@ -93,7 +93,7 @@ iOSで「登録」を押した直後に完了・画面ロック・他のアプ�
 | Error | 名前の保存・リンク準備・検証失敗 | 入力／保存した人と通常通話を保ち、その場で再試行。保存の成否不明では既存の再読込による復旧を使う |
 | Loading | 実際の有限な返信試行中 | 現在の通信状態から進捗を出す。ローカル保存に独立したLoading画面・UI用timerを作らず、未登録の人を無期限に待機表示しない |
 
-Appがbackgroundへ移ると招待通信を停止し、停止対象とログイン世代だけを一時保持する。前面復帰時に同じ世代・有効期限・通常通話との排他を確認し、同じ招待を1回だけ再開する。Internet資格や購入の更新を、近距離の再開の前提にしない。サインアウト・別アカウント・期限切れでは再開せず、常時scan・background polling・通知送信を増やさない。各試行は既存の最大60秒に従う。通知は通常のAPNsとUserNotificationsのみで、CallKit・VoIP Push・Apple PushToTalkを使わない。
+Appがbackgroundへ移ると、OSから有限の実行時間を得ている返信はその間継続する。それ以外の招待通信は停止し、対象とログイン世代を一時保持する。前面復帰時に同じ世代・有効期限と利用できる経路を確認し、同じ招待を1回だけ再開する。Internet資格や購入の更新を、近距離の再開の前提にしない。サインアウト・別アカウント・期限切れでは再開せず、常時scan・background polling・通知送信を増やさない。各試行は既存の最大60秒に従う。通知は通常のAPNsとUserNotificationsのみで、CallKit・VoIP Push・Apple PushToTalkを使わない。
 
 ## Advancedの接続先未選択
 

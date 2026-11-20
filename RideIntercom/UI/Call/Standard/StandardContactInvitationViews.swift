@@ -125,7 +125,7 @@ struct StandardContactInvitationDetail: View {
     }
 
     @ViewBuilder private var stateAndAction: some View {
-        let inCall = viewModel.activeGroupID != nil || viewModel.hasAnyActiveGroupConnection
+        let waitsForCall = viewModel.contactInvitationWaitsForCurrentCall
         if isExpired {
             stateWord("Expired", busy: false)
             sentence("This invitation can no longer be used.")
@@ -142,11 +142,11 @@ struct StandardContactInvitationDetail: View {
                 try viewModel.prepareContactInvitationShare(record.id, expectedAccountAccessID: viewModel.accountAccessID)
             }
             .appProminentButtonStyle()
-        } else if viewModel.contactInvitationID == record.id || inCall {
+        } else if waitsForCall {
+            sentence("Waiting for the current call to end.")
+        } else if viewModel.contactInvitationID == record.id {
             stateWord("Sending a reply", busy: true)
-            if inCall {
-                sentence("Waiting for the current call to end.")
-            } else if outgoing {
+            if outgoing {
                 sentence("\(person) accepted the invitation. Once the reply arrives, you can call each other.")
             } else {
                 sentence("You accepted \(person)'s invitation. Once the reply arrives, you can call each other.")

@@ -155,12 +155,13 @@ struct ContactInvitationPersistenceTests {
         #expect(reloaded.viewModel.regularGroups.isEmpty)
     }
 
-    @Test func contactWaitingDoesNotTakeOverARegularCall() throws {
+    @Test func internetOnlyContactReplyWaitsDuringARegularCall() throws {
         let group = try IntercomGroup(name: "Current Group", members: [.init(id: "call-author", displayName: "Author")], accessSecret: "existing-call-key")
         let harness = AppTestSupport.makeHarness(groups: [group], localMemberID: "call-author")
         let vm = harness.viewModel
         let contact = RecordingCallSession()
         vm.contactSessionFactory = { contact }
+        vm.enabledRTCTransportRoutes = [.webRTC]
         defer { vm.stopContactInvitationSession(); vm.disconnect() }
         vm.selectGroup(group)
         #expect(harness.callSession.connectedGroup?.id == group.id)
@@ -168,10 +169,62 @@ struct ContactInvitationPersistenceTests {
         let url = try #require(vm.makeContactInviteURL())
         let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
         #expect(!vm.resumeContactInvitation(id))
+        #expect(vm.contactInvitationWaitsForCurrentCall)
         #expect(harness.callSession.connectedGroup?.id == group.id)
         #expect(harness.callSession.disconnectCallCount == disconnects)
         #expect(contact.connectedGroup == nil)
         #expect(vm.pendingContactInvitations.map(\.id) == [id])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func nearRangeReplyCompletesDuringBothCallsWithoutChangingTheAudio() async throws {
+        let suffix = String(UUID().uuidString.prefix(8))
+        let authorID = "live-author-" + suffix, friendID = "live-friend-" + suffix
+        let groups = try [authorID, friendID].map { id in
+            try IntercomGroup(name: "Current Group", members: [.init(id: id, displayName: id)], accessSecret: "existing-call-key")
+        }
+        let a = AppTestSupport.makeHarness(groups: [groups[0]], localMemberID: authorID)
+        let b = AppTestSupport.makeHarness(groups: [groups[1]], localMemberID: friendID)
+        let author = a.viewModel, friend = b.viewModel
+        defer {
+            for vm in [author, friend] { vm.stopContactInvitationSession(); vm.disconnect() }
+        }
+        let url = try #require(author.makeContactInviteURL())
+        let beforeCall = try #require(author.contactInvitationSession)
+        for (vm, group) in zip([author, friend], groups) {
+            vm.selectGroup(group)
+            vm.applyLocalMute(true)
+        }
+        try #require(author.contactInvitationSession === beforeCall)
+        await AppTestSupport.waitUntil { author.isAudioReady && friend.isAudioReady }
+        try #require(author.isAudioReady && friend.isAudioReady)
+        let calls = [a.callSession, b.callSession]
+        let deadlines = [author.callDisconnectDeadline, friend.callDisconnectDeadline]
+        let mediaStarts = calls.map(\.startMediaCallCount)
+        let mediaStops = calls.map(\.stopMediaCallCount)
+        let disconnects = calls.map(\.disconnectCallCount)
+
+        try friend.acceptContactInviteURL(url)
+        try #require(friend.contactInvitationSession != nil)
+        #expect(!friend.contactInvitationWaitsForCurrentCall)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            author.savedRemoteUsers.map(\.memberIDs) == [[friendID]] && friend.pendingContactInvitations.isEmpty
+        }
+        #expect(author.savedRemoteUsers.map(\.memberIDs) == [[friendID]])
+        #expect(friend.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
+        #expect(friend.pendingContactInvitations.isEmpty)
+        #expect(author.pendingContactInvitations.isEmpty)
+        #expect([author.activeGroupID, friend.activeGroupID] == groups.map { Optional($0.id) })
+        #expect([author.callDisconnectDeadline, friend.callDisconnectDeadline] == deadlines)
+        #expect(author.isMuted && friend.isMuted)
+        #expect(author.isAudioReady && friend.isAudioReady)
+        #expect(calls.map(\.startMediaCallCount) == mediaStarts)
+        #expect(calls.map(\.stopMediaCallCount) == mediaStops)
+        #expect(calls.map(\.disconnectCallCount) == disconnects)
+        author.disconnect()
+        #expect(author.contactInvitationSession === beforeCall)
+        author.accountSession.signOut()
+        #expect(author.contactInvitationSession == nil)
     }
 
     @Test func schemaEightUpgradesAndOrdinarySnapshotUpdatesKeepPendingUntilReset() throws {
