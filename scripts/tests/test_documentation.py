@@ -102,6 +102,31 @@ class DocumentationTests(unittest.TestCase):
             index.write_text(f'## 着手順\n\n{active}\n')
             self.assertTrue(any('unindexed detail heading #再開待ち' in error for error in DOCS.check(root)))
 
+    def test_backlog_requires_each_design_item_and_complete_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backlog = Path(tmp)
+            (backlog / '未実装課題.md').write_text('# 未実装課題\n')
+            (backlog / '画面実装とデザイン見本の差分.md').write_text(
+                '## 通話\n\n### 操作列\n\n### 接続の表示\n')
+            index = backlog / 'README.md'
+            active = '| [操作列](画面実装とデザイン見本の差分.md#操作列) | デザイン | 未着手 | 実画面で照合する |\n'
+            paused = '| [接続の表示](画面実装とデザイン見本の差分.md#接続の表示) | デザイン | 機能待ち | 接続の実装と同時に直す |\n'
+            for current, waiting, message in [
+                (active, paused, None),
+                (active, '', 'unindexed detail heading #接続の表示'),
+                (active, active + paused, 'duplicate index link #操作列'),
+                (active.replace('#操作列', '#通話'), paused, 'unknown detail heading #通話'),
+                (active, paused.replace(' | デザイン | ', ' | 改善 | '), 'invalid design classification 改善'),
+                (active, paused.replace('機能待ち', ''), 'incomplete backlog row'),
+                (active + '| 実機だけの確認 | 改善 | 実機待ち | 計測する |\n', paused, 'missing backlog detail link'),
+            ]:
+                with self.subTest(message=message):
+                    index.write_text(f'## 着手順\n\n{current}\n## 判断や再開を待つもの\n\n{waiting}')
+                    if message:
+                        self.assertTrue(any(message in error for error in DOCS.check_backlog(backlog)))
+                    else:
+                        self.assertEqual(DOCS.check_backlog(backlog), [])
+
     def test_agent_entrypoint_links_are_checked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); self.fixture(root)

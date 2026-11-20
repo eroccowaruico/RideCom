@@ -35,15 +35,22 @@ def without_fences(text):
 
 
 def check_backlog(backlog):
-    details = backlog / '未実装課題.md'
-    if not details.exists():
+    issues = '未実装課題.md'
+    design = '画面実装とデザイン見本の差分.md'
+    candidates = '改善候補.md'
+    if not (backlog / issues).exists():
         return []
     index = backlog / 'README.md'
     prefix = 'docs/backlog/README.md'
     if not index.exists():
         return [f'{prefix}: missing backlog index']
-    headings = re.findall(r'^## (.+)$', without_fences(details.read_text()), re.M)
-    anchors = Counter(re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-') for title in headings)
+    anchors = Counter()
+    for name, level in ((issues, 2), (design, 3), (candidates, 2)):
+        document = backlog / name
+        if document.exists():
+            headings = re.findall(rf'^{level * "#"} (.+)$', without_fences(document.read_text()), re.M)
+            anchors.update((name, re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-'))
+                           for title in headings)
     parts = re.split(r'^## (.+)\n', without_fences(index.read_text()), flags=re.M)
     sections = dict(zip(parts[1::2], parts[2::2]))
     errors, indexed = [], Counter()
@@ -52,25 +59,37 @@ def check_backlog(backlog):
             if not row.startswith('|'):
                 continue
             cells = [cell.strip() for cell in row.strip('|').split('|')]
-            links = list(LINK.finditer(row))
-            for link in links:
-                destination = urlsplit(link[1].strip('<>'))
-                if not destination.scheme and unquote(destination.path) == details.name:
-                    indexed[unquote(destination.fragment)] += 1
-            if section == '着手順' and links:
-                classification = cells[1] if len(cells) > 1 else ''
-                if classification not in ('改善', 'デザイン', '機能'):
-                    errors.append(f'{prefix}: invalid backlog classification {classification or "(missing)"}')
-    for anchor, count in sorted(anchors.items()):
+            if cells[0] == '課題' or re.fullmatch(r':?-{3,}:?', cells[0]):
+                continue
+            if len(cells) != 4 or not all(cells):
+                errors.append(f'{prefix}: incomplete backlog row: {cells[0]}')
+                continue
+            link = LINK.fullmatch(cells[0])
+            if not link:
+                errors.append(f'{prefix}: missing backlog detail link: {cells[0]}')
+                continue
+            destination = urlsplit(link[1].strip('<>'))
+            target = unquote(destination.path)
+            allowed = (issues, design) if section == '着手順' else (issues, design, candidates)
+            if destination.scheme or target not in allowed or not destination.fragment:
+                errors.append(f'{prefix}: invalid backlog detail link: {link[1]}')
+                continue
+            indexed[target, unquote(destination.fragment)] += 1
+            classification = cells[1]
+            if classification not in ('改善', 'デザイン', '機能'):
+                errors.append(f'{prefix}: invalid backlog classification {classification}')
+            elif target == design and classification != 'デザイン':
+                errors.append(f'{prefix}: invalid design classification {classification}')
+    for (name, anchor), count in sorted(anchors.items()):
         if count > 1:
-            errors.append(f'docs/backlog/{details.name}: duplicate detail heading #{anchor}')
-        if anchor not in indexed:
-            errors.append(f'{prefix}: unindexed detail heading #{anchor}')
-    for anchor, count in sorted(indexed.items()):
-        if anchor not in anchors:
-            errors.append(f'{prefix}: unknown detail heading #{anchor}')
+            errors.append(f'docs/backlog/{name}: duplicate detail heading #{anchor}')
+        if name != candidates and (name, anchor) not in indexed:
+            errors.append(f'{prefix}: unindexed detail heading #{anchor} in {name}')
+    for (name, anchor), count in sorted(indexed.items()):
+        if (name, anchor) not in anchors:
+            errors.append(f'{prefix}: unknown detail heading #{anchor} in {name}')
         if count > 1:
-            errors.append(f'{prefix}: duplicate index link #{anchor}')
+            errors.append(f'{prefix}: duplicate index link #{anchor} in {name}')
     return errors
 
 
