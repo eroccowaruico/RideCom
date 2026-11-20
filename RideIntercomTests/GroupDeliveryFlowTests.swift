@@ -15,7 +15,7 @@ import UserNotifications
         try a.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
         try b.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer)
         let sender = try a.harness(knowing: [], onDisk: true).viewModel
-        let recipient = try b.harness(knowing: []).viewModel
+        let recipient = try b.harness(knowing: [], onDisk: true).viewModel
         for model in [sender, recipient] {
             model.groupDeliveryClient = nil
             model.contactSessionFactory = { RecordingCallSession() }
@@ -41,15 +41,15 @@ import UserNotifications
         let publication = try #require(sender.groupRepository.contactDeletionPublications.first)
         #expect(publication.id == notice.id)
         #expect(publication.sender == senderPrincipal && publication.payload?.recipient == recipientPrincipal)
-        #expect(publication.slot == ContactDeletionPublication.slot(pairSecret: oldSecret, senderID: a.memberID, recipientID: b.memberID))
-        #expect(publication.slot != ContactDeletionPublication.slot(pairSecret: oldSecret, senderID: b.memberID, recipientID: a.memberID))
+        #expect(publication.slot == ContactDeletionRelayPacket.slot(pairSecret: oldSecret, senderID: a.memberID, recipientID: b.memberID))
+        #expect(publication.slot != ContactDeletionRelayPacket.slot(pairSecret: oldSecret, senderID: b.memberID, recipientID: a.memberID))
         let packet = try #require(publication.payload?.packet)
         let recipientSigner = try b.signer
         let senderKey = try a.signer.publicKey
         let reopened = try ContactDeletionPublication.openNotice(packet, slot: publication.slot, recipient: recipientSigner,
                                                                 senderID: a.memberID, senderKey: senderKey)
         #expect(reopened == notice)
-        let otherSlot = ContactDeletionPublication.slot(pairSecret: "new-pair-key", senderID: a.memberID, recipientID: b.memberID)
+        let otherSlot = ContactDeletionRelayPacket.slot(pairSecret: "new-pair-key", senderID: a.memberID, recipientID: b.memberID)
         #expect(throws: (any Error).self) {
             try ContactDeletionPublication.openNotice(packet, slot: otherSlot, recipient: recipientSigner,
                                                       senderID: a.memberID, senderKey: senderKey)
@@ -65,8 +65,26 @@ import UserNotifications
         defer { restarted.stopGroupDeliverySync() }
         restarted.groupDeliveryClient = nil
         #expect(restarted.groupRepository.contactDeletionPublications == [publication])
-        let receipt = try recipient.receiveContactDeletion(reopened, from: a.memberID)
-        try restarted.acknowledgeContactDeletion(receipt, from: b.memberID)
+        let receipt = try recipient.receiveContactDeletion(notice, from: a.memberID)
+        #expect(try recipient.groupRepository.credential(for: pairID) == nil)
+        let sealedReceipt = try #require(recipient.groupRepository.contactDeletionRelayReceipts.first)
+        #expect(sealedReceipt.id == publication.id && sealedReceipt.slot == publication.slot)
+        #expect(sealedReceipt.expiresAt == publication.expiresAt)
+        #expect(sealedReceipt.owner == senderPrincipal && sealedReceipt.recipient == recipientPrincipal)
+        let restartedRecipient = try b.harness(knowing: [], onDisk: true).viewModel
+        defer { restartedRecipient.stopGroupDeliverySync() }
+        restartedRecipient.groupDeliveryClient = nil
+        #expect(try restartedRecipient.receiveContactDeletion(reopened, from: a.memberID) == receipt)
+        #expect(restartedRecipient.groupRepository.contactDeletionRelayReceipts == [sealedReceipt])
+        let senderSigner = try a.signer
+        let openedReceipt = try ContactDeletionRelayReceipt.open(sealedReceipt.packet, slot: publication.slot,
+            sender: senderSigner, recipientID: b.memberID, recipientKey: recipientSigner.publicKey)
+        #expect(openedReceipt == receipt)
+        #expect(throws: (any Error).self) {
+            try ContactDeletionPublication.openNotice(sealedReceipt.packet, slot: publication.slot,
+                recipient: recipientSigner, senderID: a.memberID, senderKey: senderKey)
+        }
+        try restarted.acknowledgeContactDeletion(openedReceipt, from: b.memberID)
         #expect(restarted.groupRepository.contactDeletions.isEmpty)
         let retirement = try #require(restarted.groupRepository.contactDeletionPublications.first)
         #expect(retirement.id == publication.id && retirement.slot == publication.slot && retirement.payload == nil)

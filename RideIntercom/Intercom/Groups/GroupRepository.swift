@@ -18,6 +18,7 @@ final class GroupRepository {
     var contactDeletions: [ContactDeletionNotice] { snapshot?.contactDeletions ?? [] }
     var contactDeletionReceipts: [ContactDeletionReceipt] { snapshot?.contactDeletionReceipts ?? [] }
     var contactDeletionPublications: [ContactDeletionPublication] { snapshot?.contactDeletionPublications ?? [] }
+    var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] { snapshot?.contactDeletionRelayReceipts ?? [] }
 
     init(store: GroupStoring, credentials: GroupCredentialStoring, legacy: LegacyGroupReader? = nil) {
         self.store = store; self.credentials = credentials; self.legacy = legacy
@@ -357,7 +358,8 @@ final class GroupRepository {
     }
 
     func receiveContactDeletion(_ notice: ContactDeletionNotice, from peerID: String,
-                                recipient: DeviceIdentitySigner, now: Date, beforeRemoving: (UUID) throws -> Void)
+                                recipient: DeviceIdentitySigner, localAccount: AccountPrincipal?, now: Date,
+                                beforeRemoving: (UUID) throws -> Void)
         throws -> (receipt: ContactDeletionReceipt, removedGroups: Set<UUID>?) {
         guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
         let target = notice.target
@@ -380,6 +382,10 @@ final class GroupRepository {
         try notice.verify(from: peerID, senderKey: senderKey, recipient: recipient, pairSecret: pair.secret, now: now)
         let receipt = try ContactDeletionReceipt(for: notice, recipient: recipient)
         let removed = try removeUser(user, from: snapshot, now: now) { _, next in
+            if let owner = user.principal, let localAccount, owner.issuer == localAccount.issuer, owner != localAccount {
+                next.contactDeletionRelayReceipts.append(try ContactDeletionRelayReceipt(
+                    receipt: receipt, owner: owner, recipient: localAccount, signer: recipient, pairSecret: pair.secret))
+            }
             try beforeRemoving(user.id)
             next.contactDeletionReceipts.append(receipt)
         }
@@ -557,7 +563,8 @@ final class GroupRepository {
            nearbyGroupCancellations: previous.nearbyGroupCancellations.filter { $0.expiresAt > now },
            contactDeletions: previous.contactDeletions.filter { $0.target.expiresAt > now },
            contactDeletionReceipts: previous.contactDeletionReceipts.filter { $0.target.expiresAt > now },
-           contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 })
+           contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 },
+           contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter { Double($0.expiresAt) > now * 1_000 })
         try modify(&next)
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {

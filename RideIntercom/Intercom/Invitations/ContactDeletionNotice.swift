@@ -132,39 +132,90 @@ nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable,
     let senderKey: String
     private(set) var payload: Payload?
 
-    private static let noticeHeader = Data("rideintercom.contact-deletion.notice.v1".utf8)
-
     init(notice: ContactDeletionNotice, sender: AccountPrincipal, recipient: AccountPrincipal,
          signer: DeviceIdentitySigner, pairSecret: String) throws {
         let target = notice.target
-        guard target.senderMemberID == signer.memberID, notice.proof.publicKey == signer.publicKey,
-              let expiry = Int64(exactly: (target.expiresAt * 1_000).rounded(.down))
+        guard target.senderMemberID == signer.memberID, notice.proof.publicKey == signer.publicKey
         else { throw DeviceIdentityProof.Failure.invalid }
         id = target.id
-        expiresAt = expiry
-        slot = Self.slot(pairSecret: pairSecret, senderID: signer.memberID, recipientID: target.recipientMemberID)
+        expiresAt = try ContactDeletionRelayPacket.expiry(target)
+        slot = ContactDeletionRelayPacket.slot(pairSecret: pairSecret, senderID: signer.memberID, recipientID: target.recipientMemberID)
         self.sender = sender
         senderKey = signer.publicKey
-        let key = try signer.contactDeletionRelayKey(peerMemberID: target.recipientMemberID,
-                                                     peerPublicKey: target.recipientKey, slot: slot)
-        let plaintext = try ContactDeletionNotice.canonicalJSON(notice)
-        guard let bytes = try AES.GCM.seal(plaintext, using: key, authenticating: Self.noticeHeader).combined
-        else { throw DeviceIdentityProof.Failure.invalid }
-        payload = .init(recipient: recipient, recipientKey: target.recipientKey, packet: bytes.base64EncodedString())
+        let packet = try ContactDeletionRelayPacket.notice.seal(notice, slot: slot, signer: signer,
+                                                               peerID: target.recipientMemberID, peerKey: target.recipientKey)
+        payload = .init(recipient: recipient, recipientKey: target.recipientKey, packet: packet)
         guard isValid else { throw DeviceIdentityProof.Failure.invalid }
     }
 
     mutating func markForRetirement() { payload = nil }
 
     var isValid: Bool {
-        guard (1...9_007_199_254_740_991).contains(expiresAt), slot.utf8.count == 64,
-              slot.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+        guard ContactDeletionRelayPacket.isValid(expiresAt: expiresAt, slot: slot),
               sender.isValid, DeviceIdentityProof.isValidPublicKey(senderKey)
         else { return false }
         guard let payload else { return true }
         return payload.recipient.isValid && payload.recipient.issuer == sender.issuer && payload.recipient != sender
             && payload.recipientKey != senderKey && DeviceIdentityProof.isValidPublicKey(payload.recipientKey)
-            && Self.packetBytes(payload.packet) != nil
+            && ContactDeletionRelayPacket.packetBytes(payload.packet) != nil
+    }
+
+    static func openNotice(_ packet: String, slot: String, recipient: DeviceIdentitySigner,
+                           senderID: String, senderKey: String) throws -> ContactDeletionNotice {
+        try ContactDeletionRelayPacket.notice.open(packet, slot: slot, signer: recipient, peerID: senderID, peerKey: senderKey)
+    }
+}
+
+/// Kept separately from the signed receipt, which is also returned over the nearby channel.
+nonisolated struct ContactDeletionRelayReceipt: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    let expiresAt: Int64
+    let slot: String
+    let owner: AccountPrincipal
+    let recipient: AccountPrincipal
+    let packet: String
+
+    init(receipt: ContactDeletionReceipt, owner: AccountPrincipal, recipient: AccountPrincipal,
+         signer: DeviceIdentitySigner, pairSecret: String) throws {
+        let target = receipt.target
+        guard target.recipientMemberID == signer.memberID, target.recipientKey == signer.publicKey
+        else { throw DeviceIdentityProof.Failure.invalid }
+        id = receipt.id
+        expiresAt = try ContactDeletionRelayPacket.expiry(target)
+        slot = ContactDeletionRelayPacket.slot(pairSecret: pairSecret, senderID: target.senderMemberID, recipientID: signer.memberID)
+        self.owner = owner
+        self.recipient = recipient
+        packet = try ContactDeletionRelayPacket.receipt.seal(receipt, slot: slot, signer: signer,
+                                                            peerID: target.senderMemberID, peerKey: receipt.senderKey)
+        guard isValid else { throw DeviceIdentityProof.Failure.invalid }
+    }
+
+    var isValid: Bool {
+        ContactDeletionRelayPacket.isValid(expiresAt: expiresAt, slot: slot)
+            && owner.isValid && recipient.isValid && owner.issuer == recipient.issuer && owner != recipient
+            && ContactDeletionRelayPacket.packetBytes(packet) != nil
+    }
+
+    static func open(_ packet: String, slot: String, sender: DeviceIdentitySigner,
+                     recipientID: String, recipientKey: String) throws -> ContactDeletionReceipt {
+        try ContactDeletionRelayPacket.receipt.open(packet, slot: slot, signer: sender, peerID: recipientID, peerKey: recipientKey)
+    }
+}
+
+nonisolated enum ContactDeletionRelayPacket: String {
+    case notice, receipt
+
+    private var header: Data { Data("rideintercom.contact-deletion.\(rawValue).v1".utf8) }
+
+    static func expiry(_ target: ContactDeletionNotice.Target) throws -> Int64 {
+        guard let expiry = Int64(exactly: (target.expiresAt * 1_000).rounded(.down))
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return expiry
+    }
+
+    static func isValid(expiresAt: Int64, slot: String) -> Bool {
+        (1...9_007_199_254_740_991).contains(expiresAt) && slot.utf8.count == 64
+            && slot.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 
     static func slot(pairSecret: String, senderID: String, recipientID: String) -> String {
@@ -174,15 +225,24 @@ nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable,
         return key.withUnsafeBytes { $0.map { String(format: "%02x", $0) }.joined() }
     }
 
-    static func openNotice(_ packet: String, slot: String, recipient: DeviceIdentitySigner,
-                           senderID: String, senderKey: String) throws -> ContactDeletionNotice {
-        guard let bytes = packetBytes(packet) else { throw DeviceIdentityProof.Failure.invalid }
-        let key = try recipient.contactDeletionRelayKey(peerMemberID: senderID, peerPublicKey: senderKey, slot: slot)
-        let plaintext = try AES.GCM.open(.init(combined: bytes), using: key, authenticating: noticeHeader)
-        return try JSONDecoder().decode(ContactDeletionNotice.self, from: plaintext)
+    fileprivate func seal(_ body: some Encodable, slot: String, signer: DeviceIdentitySigner,
+                          peerID: String, peerKey: String) throws -> String {
+        let key = try signer.contactDeletionRelayKey(peerMemberID: peerID, peerPublicKey: peerKey, slot: slot)
+        let plaintext = try ContactDeletionNotice.canonicalJSON(body)
+        guard let bytes = try AES.GCM.seal(plaintext, using: key, authenticating: header).combined
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return bytes.base64EncodedString()
     }
 
-    private static func packetBytes(_ packet: String) -> Data? {
+    fileprivate func open<Body: Decodable>(_ packet: String, slot: String, signer: DeviceIdentitySigner,
+                                           peerID: String, peerKey: String) throws -> Body {
+        guard let bytes = Self.packetBytes(packet) else { throw DeviceIdentityProof.Failure.invalid }
+        let key = try signer.contactDeletionRelayKey(peerMemberID: peerID, peerPublicKey: peerKey, slot: slot)
+        let plaintext = try AES.GCM.open(.init(combined: bytes), using: key, authenticating: header)
+        return try JSONDecoder().decode(Body.self, from: plaintext)
+    }
+
+    fileprivate static func packetBytes(_ packet: String) -> Data? {
         guard (40...4096).contains(packet.utf8.count) else { return nil }
         return Data(base64Encoded: packet)
     }

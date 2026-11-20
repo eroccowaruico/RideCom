@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 21
+    static let currentVersion = 22
     static let maximumGroupDeliveries = 512
     struct GroupRemovalReceipt: Codable, Equatable {
         let groupID: UUID
@@ -159,12 +159,14 @@ struct GroupSnapshot: Codable, Equatable {
     var contactDeletions: [ContactDeletionNotice] = []
     var contactDeletionReceipts: [ContactDeletionReceipt] = []
     var contactDeletionPublications: [ContactDeletionPublication] = []
+    var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []
 
     init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [],
          groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = [],
          groupRemovalReceipts: [GroupRemovalReceipt] = [], nearbyGroupCancellations: [GroupInvitationCancellation.Target] = [],
          contactDeletions: [ContactDeletionNotice] = [], contactDeletionReceipts: [ContactDeletionReceipt] = [],
-         contactDeletionPublications: [ContactDeletionPublication] = []) {
+         contactDeletionPublications: [ContactDeletionPublication] = [],
+         contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []) {
         self.groups = groups
         self.users = users
         self.contactInvitations = contactInvitations
@@ -175,13 +177,14 @@ struct GroupSnapshot: Codable, Equatable {
         self.contactDeletions = contactDeletions
         self.contactDeletionReceipts = contactDeletionReceipts
         self.contactDeletionPublications = contactDeletionPublications
+        self.contactDeletionRelayReceipts = contactDeletionRelayReceipts
         synchronizeUserReferences()
     }
 
     private enum CodingKeys: String, CodingKey {
         case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts, groupRemovalReceipts
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
-        case contactDeletionPublications
+        case contactDeletionPublications, contactDeletionRelayReceipts
     }
 
     init(from decoder: Decoder) throws {
@@ -203,6 +206,8 @@ struct GroupSnapshot: Codable, Equatable {
         contactDeletionReceipts = version < 20 ? [] : try values.decode([ContactDeletionReceipt].self, forKey: .contactDeletionReceipts)
         contactDeletionPublications = version < 21 ? []
             : try values.decode([ContactDeletionPublication].self, forKey: .contactDeletionPublications)
+        contactDeletionRelayReceipts = version < 22 ? []
+            : try values.decode([ContactDeletionRelayReceipt].self, forKey: .contactDeletionRelayReceipts)
     }
 
     func upgraded() -> GroupSnapshot {
@@ -213,7 +218,8 @@ struct GroupSnapshot: Codable, Equatable {
         var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations,
                                  groupDeliveries: groupDeliveries, groupLinkReceipts: groupLinkReceipts,
                                  groupRemovalReceipts: groupRemovalReceipts, nearbyGroupCancellations: nearbyGroupCancellations,
-                                 contactDeletions: contactDeletions, contactDeletionReceipts: contactDeletionReceipts)
+                                 contactDeletions: contactDeletions, contactDeletionReceipts: contactDeletionReceipts,
+                                 contactDeletionPublications: contactDeletionPublications)
         if version < 10 {
             for index in next.contactInvitations.indices {
                 let record = next.contactInvitations[index]
@@ -321,6 +327,11 @@ struct GroupSnapshot: Codable, Equatable {
               contactDeletionPublications.allSatisfy({
                   $0.isValid && ($0.payload != nil) == pendingContactDeletionIDs.contains($0.id)
               })
+        else { throw IntercomGroupError.invalidStoredGroups }
+        let contactDeletionReceiptIDs = Set(contactDeletionReceipts.map(\.id))
+        guard version >= 22 || contactDeletionRelayReceipts.isEmpty,
+              Set(contactDeletionRelayReceipts.map(\.id)).count == contactDeletionRelayReceipts.count,
+              contactDeletionRelayReceipts.allSatisfy({ $0.isValid && contactDeletionReceiptIDs.contains($0.id) })
         else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 16 || groupLinkReceipts.isEmpty,
               Set(groupLinkReceipts.map { [$0.groupID, $0.receiptID] }).count == groupLinkReceipts.count,

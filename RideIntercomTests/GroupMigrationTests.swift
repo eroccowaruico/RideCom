@@ -4,6 +4,29 @@ import Testing
 
 @MainActor
 struct GroupMigrationTests {
+    @Test func version21PreservesTheOriginalPacketWhenAddingRelayReceipts() throws {
+        let f = try GroupStorageFixture(); defer { f.remove() }
+        var old = try #require(try f.file.read())
+        old.version = 21
+        let local = testIdentitySigner("local"), peer = testIdentitySigner("peer")
+        let owner = AccountPrincipal(issuer: "https://ride.example", userID: String(repeating: "a", count: 64))
+        let recipient = AccountPrincipal(issuer: owner.issuer, userID: String(repeating: "b", count: 64))
+        let secret = "migration-pair-key"
+        let notice = try ContactDeletionNotice(signer: local, recipientMemberID: peer.memberID,
+            recipientKey: peer.publicKey, pairSecret: secret, now: Date())
+        let publication = try ContactDeletionPublication(notice: notice, sender: owner, recipient: recipient,
+            signer: local, pairSecret: secret)
+        old.contactDeletions = [notice]
+        old.contactDeletionPublications = [publication]
+        try f.file.commit(old)
+
+        _ = try f.restart().load(localMemberID: "local")
+        let migrated = try #require(try f.file.read())
+        #expect(migrated.version == GroupSnapshot.currentVersion)
+        #expect(migrated.contactDeletions == [notice] && migrated.contactDeletionPublications == [publication])
+        #expect(migrated.contactDeletionRelayReceipts.isEmpty)
+    }
+
     @Test func version18PreservesNearbyCancellationWhenAddingContactDeletions() throws {
         let f = try GroupStorageFixture(); defer { f.remove() }
         var old = try #require(try f.file.read())
