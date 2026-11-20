@@ -33,9 +33,11 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-start --unanswered-internet --seconds 6
 ```
 
-近距離とInternetの両方を有効にし、通話用の接続資格にはローカルの試験用Workerを与える。Workerは端末を識別できる最初のICE設定要求を受け取るが、応答を返さない。測定の前後に両端の要求が待機中で、利用できる経路が近距離だけであることを確認する。各端末で相手の発話がQUIC認証済みのUDP経路から実出力に届くことを既存の波形判定にかける。`smoke`の単一条件、6〜10秒で実行し、Internet側の要求が時間切れになる前に測定する。
+近距離とInternetの両方を有効にし、通話用の接続資格にはローカルの試験用Workerを与える。Workerは端末を識別できる最初のICE設定要求を受け取るが、応答を返さない。両端の要求を観測してから測定区間へ進む。測定の前後に両端の要求が待機中で、利用できる経路が近距離だけであることを確認する。各端末で相手の発話がQUIC認証済みのUDP経路から実出力に届くことを既存の波形判定にかける。`smoke`の単一条件、6〜10秒で実行し、Internet側の要求が時間切れになる前に測定する。
 
 各端末で、復号・Mixer出力・native出力のWAVと`packet-timing`を成功時にも保存する。`received`の各`playoutReservation`が描画時計を取得した行では、`renderAnchorHostTime + (startSample - renderAnchorSample) / sampleRate`が予約した先頭の予測描画時刻になる。復号WAVの対応位置をその前後のMixer・native出力の波形と照合する。録音は試験用発話を使い、判定値は従来どおり最終出力で求める。
+
+接続直後から定常区間の開始までを、`startupReceived`、`startup-decoded.wav`、`startup-speech.wav`に保存する。呼び出し直後に既存の受信処理を観測し、最初の予約と再調整を残す。復号WAVの先頭は`startupFirstDecodedCaptureTime`。native出力のWAVでは、`startupRenderClock`の各ブロックが`startSample`（WAV内の先頭）、`frameCount`、`hostTime`（その先頭の単調時計時刻）を対応付ける。照合したサンプルの時刻は、そのブロックの`hostTime`にブロック内の位置を秒に換算して加える。音声エンジン起動時などの時計の飛びはWAVの連続したサンプル位置に現れないため、ファイル全体を先頭の時刻で換算しない。開始区間の観測は最初の予約と再調整を切り分けるために使い、定常区間の波形・125msの判定は従来どおり行う。
 
 端末2台を自動で用意するには、上のコマンドに`--two-simulators`を追加する。Xcodeから設定する場合は保存済みグループの設定に、両端で`AUDIO_E2E_UNANSWERED_INTERNET=1`と同じ`AUDIO_E2E_WORKER_URL`（例 `http://127.0.0.1:49152`、空きポートを選ぶ）を加える。役割`a`の試験がローカルWorkerを起動する。[測定結果](../validation/history/近距離オフライン通信.md#internetの応答がない間に保存済みグループの近距離音声を測る)
 

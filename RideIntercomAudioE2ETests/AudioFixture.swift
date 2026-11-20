@@ -235,14 +235,22 @@ final class SpeechFileInput: AudioInputStreamBackend {
 /// Reads the actual output engine's render tap, after scheduleBuffer and mixing.
 /// Retains only the known fixture output, never microphone audio.
 final class RenderedAudioProbe: @unchecked Sendable {
+    struct RenderClockBlock: Encodable, Sendable {
+        let startSample: Int
+        let frameCount: Int
+        let hostTime: Double
+    }
+
     private let lock = NSLock()
     private let capacity = 96_000 * 90
     private let storage: UnsafeMutablePointer<Float>
     private var count = 0
     private var rate: Double = 0
     private var invalidSampleCount = 0
+    private var renderClockBlocks: [RenderClockBlock]?
 
-    init() {
+    init(recordsRenderClock: Bool = false) {
+        renderClockBlocks = recordsRenderClock ? [] : nil
         storage = .allocate(capacity: capacity)
         storage.initialize(repeating: 0, count: capacity)
     }
@@ -251,6 +259,13 @@ final class RenderedAudioProbe: @unchecked Sendable {
     private var firstRenderTime: Double?
     var firstOutputTime: Double? { lock.withLock { firstRenderTime } }
     var sampleCount: Int { lock.withLock { count } }
+
+    func stopRecordingRenderClock() -> [RenderClockBlock]? {
+        lock.withLock {
+            defer { renderClockBlocks = nil }
+            return renderClockBlocks
+        }
+    }
 
     func append(_ frame: PCMFrame, preservingTimeline: Bool = false) {
         lock.withLock {
@@ -280,7 +295,14 @@ final class RenderedAudioProbe: @unchecked Sendable {
     func append(_ buffer: AVReadOnlyAudioPCMBuffer, time: AVAudioTime? = nil) {
         guard case .float(let data) = buffer.channelData(0) else { return }
         lock.withLock {
-            if count == 0, let time, time.isHostTimeValid { firstRenderTime = AVAudioTime.seconds(forHostTime: time.hostTime) }
+            if count == 0 || renderClockBlocks != nil, let time, time.isHostTimeValid {
+                let hostTime = AVAudioTime.seconds(forHostTime: time.hostTime)
+                if count == 0 { firstRenderTime = hostTime }
+                if renderClockBlocks != nil, count < capacity {
+                    renderClockBlocks?.append(.init(startSample: count,
+                        frameCount: min(Int(buffer.frameLength), capacity - count), hostTime: hostTime))
+                }
+            }
             rate = buffer.format.sampleRate
             for index in 0..<Int(buffer.frameLength) {
                 guard count < capacity else { invalidSampleCount += 1; continue }

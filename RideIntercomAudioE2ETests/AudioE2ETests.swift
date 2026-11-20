@@ -43,6 +43,9 @@ private struct PacketTimingTrace: Encodable {
     var traceForScenario: String?
     let transmitted: [PacketTiming]
     let received: [PacketTiming]
+    var startupReceived: [PacketTiming]?
+    var startupFirstDecodedCaptureTime: Double?
+    var startupRenderClock: [RenderedAudioProbe.RenderClockBlock]?
     var output: [[String: Double]]?
 }
 
@@ -360,7 +363,7 @@ final class AudioE2ETests: XCTestCase {
         let input = try SpeechFileInput(name: localFixture, engine: outputEngine)
         if mixed { input.setFrameDeliveryEnabled(false) }
         let remote = try SpeechFileInput(name: remoteFixture)
-        let probe = RenderedAudioProbe()
+        let probe = RenderedAudioProbe(recordsRenderClock: waitsForInternet)
         let mixedProbe = RenderedAudioProbe(), decodedProbe = RenderedAudioProbe()
         let output = SystemAudioOutputStreamBackend(engine: outputEngine)
         try outputEngine.mainMixerNode.installAudioTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, time in probe.append(buffer, time: time) }
@@ -478,6 +481,21 @@ final class AudioE2ETests: XCTestCase {
             XCTAssertEqual(viewModel.activeGroupID, groupID)
         } else {
             try viewModel.acceptInviteURL(invitation)
+        }
+        let receivedTiming = Mutex<[PacketTiming]>([])
+        let decodeFailures = Mutex(0)
+        // Observe the same decoder and reservation used for playback. Starting
+        // a second decoder would introduce a different priming history.
+        let tracedReceive = tracedAudioReception(pipeline: viewModel.audioPipeline) { frame, entry in
+            receivedTiming.withLock { $0.append(entry) }
+            decodedProbe.append(frame, preservingTimeline: true)
+        } onFailure: {
+            decodeFailures.withLock { $0 += 1 }
+        }
+        if waitsForInternet {
+            // Starting the call binds its receiver synchronously. Install the
+            // observation before yielding for authentication and the first speech.
+            viewModel.callSession.processReceivedAudio = tracedReceive
         }
         let waitingCall = viewModel.currentCallReference
         let waitingDeadline = viewModel.callDisconnectDeadline
@@ -617,17 +635,7 @@ final class AudioE2ETests: XCTestCase {
             return
         }
         #endif
-        let receivedTiming = Mutex<[PacketTiming]>([])
-        let decodeFailures = Mutex(0)
-        // Observe the PCM returned by the shipping receive path. Starting an
-        // additional decoder in the middle of a stream has different priming
-        // history, adds CPU load and cannot measure the real decode boundary.
-        viewModel.callSession.processReceivedAudio = tracedAudioReception(pipeline: viewModel.audioPipeline) { frame, entry in
-            receivedTiming.withLock { $0.append(entry) }
-            decodedProbe.append(frame, preservingTimeline: true)
-        } onFailure: {
-            decodeFailures.withLock { $0 += 1 }
-        }
+        if !waitsForInternet { viewModel.callSession.processReceivedAudio = tracedReceive }
         // Preserve every failing quality condition and its recording. Connection
         // setup still throws on timeout, so a missing peer cannot count as a run.
         continueAfterFailure = true
@@ -638,15 +646,28 @@ final class AudioE2ETests: XCTestCase {
             try await waitUntil(seconds: 60, description: "Reconfigured audio " + scenario.id, status: status) {
                 viewModel.authenticatedPeerIDs.count == 1 && viewModel.isAudioReady
             }
+            let waitingWorker = waitsForInternet ? worker : nil
+            if let waitingWorker {
+                try await waitUntil(seconds: 5, description: "Both Internet requests are pending", status: status) {
+                    await waitingWorker.pendingICEPeers.count == 2
+                }
+            }
             try await barrier.meet("configured-" + scenario.id)
             // Drain bounded playback and effect tails before measuring a mute.
             try await Task.sleep(for: .seconds(2))
             scenario.verifyApplied(to: viewModel, peerID: peerID)
+            let startupDecoded = waitsForInternet ? decodedProbe.snapshot() : nil
+            let startupRenderClock = waitsForInternet ? probe.stopRecordingRenderClock() : nil
+            let startupOutput = waitsForInternet ? probe.snapshot() : nil
+            let startupFirstDecoded = waitsForInternet ? decodedProbe.firstOutputTime : nil
             probe.reset()
             let originalTransmit = viewModel.audioPipeline.onTransmitPacket
             let originalOutput = viewModel.audioPipeline.onOutputFrame
             mixedProbe.reset(); decodedProbe.reset()
-            receivedTiming.withLock { $0.removeAll(keepingCapacity: true) }
+            let startupTrace = receivedTiming.withLock { records -> [PacketTiming]? in
+                defer { records.removeAll(keepingCapacity: true) }
+                return waitsForInternet ? records : nil
+            }
             let failuresBefore = decodeFailures.withLock { $0 }
             var outputTiming: [[String: Double]] = []
             viewModel.audioPipeline.onOutputFrame = { frame in
@@ -670,7 +691,6 @@ final class AudioE2ETests: XCTestCase {
             let before = (viewModel.sentVoicePacketCount, viewModel.receivedVoicePacketCount,
                           observedOutputBatches(viewModel), output.playbackResetCount ?? 0)
             let start = ContinuousClock.now
-            let waitingWorker = waitsForInternet ? worker : nil
             if let waitingWorker {
                 let peers = await waitingWorker.pendingICEPeers.count
                 XCTAssertEqual(peers, 2, "Both Internet connection requests must be unanswered when measuring Local audio")
@@ -705,10 +725,16 @@ final class AudioE2ETests: XCTestCase {
             if waitsForInternet {
                 let nativeClockObservations = receivedTrace.filter { $0.playoutReservation?.renderAnchorHostTime != nil }
                 XCTAssertGreaterThan(nativeClockObservations.count, 20, "Collect native render clock positions for the Local packets")
+                XCTAssertTrue(startupTrace?.contains { $0.playoutReservation != nil } == true,
+                              "Collect Local reservations before the steady-state sample")
+                XCTAssertNotNil(startupFirstDecoded)
+                XCTAssertFalse(startupRenderClock?.isEmpty ?? true, "Record the native render clock before the steady-state sample")
             }
             let traceData = try await Task.detached {
                 try JSONEncoder().encode(PacketTimingTrace(traceForScenario: scenarioID,
-                    transmitted: sentTrace, received: receivedTrace, output: renderedTrace))
+                    transmitted: sentTrace, received: receivedTrace, startupReceived: startupTrace,
+                    startupFirstDecodedCaptureTime: startupFirstDecoded,
+                    startupRenderClock: startupRenderClock, output: renderedTrace))
             }.value
             let trace = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
             trace.name = "endpoint-\(role)-\(scenario.id)-packet-timing"; trace.lifetime = .keepAlways; add(trace)
@@ -786,6 +812,10 @@ final class AudioE2ETests: XCTestCase {
             if !scenario.expectsSilence && (!continuityPassed || waitsForInternet) {
                 recordings.append(("decoded", decodedRecording))
                 recordings.append(("mixed", mixedRecording))
+            }
+            if let startupDecoded, let startupOutput {
+                recordings.append(("startup-decoded", startupDecoded))
+                recordings.append(("startup-speech", startupOutput))
             }
             for (stage, snapshot) in recordings where !snapshot.samples.isEmpty {
                 let name = "endpoint-\(role)-\(scenario.id)-\(stage)"
@@ -1168,10 +1198,10 @@ final class AudioE2ETests: XCTestCase {
     }
 
     @MainActor
-    private func waitUntil(seconds: Double, description: String, status: () -> String, condition: () -> Bool) async throws {
+    private func waitUntil(seconds: Double, description: String, status: () -> String, condition: () async -> Bool) async throws {
         let start = ContinuousClock.now
-        while !condition(), start.duration(to: .now) < .seconds(seconds) { try await Task.sleep(for: .milliseconds(50)) }
-        guard condition() else {
+        while !(await condition()), start.duration(to: .now) < .seconds(seconds) { try await Task.sleep(for: .milliseconds(50)) }
+        guard await condition() else {
             XCTFail("\(description) timed out: \(status())")
             throw NSError(domain: "AudioE2E", code: 1)
         }
