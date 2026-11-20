@@ -7,8 +7,10 @@ import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
-    @Test(arguments: [false, true])
-    func internetContactDeletionCompletesWithoutNotificationPermissions(nearbyFirst: Bool) async throws {
+    enum ContactDeletionOrder: CaseIterable { case internet, nearbyFirst, bothRemoved }
+
+    @Test(arguments: ContactDeletionOrder.allCases)
+    func internetContactDeletionCompletesWithoutNotificationPermissions(order: ContactDeletionOrder) async throws {
         let a = GroupDeliveryTestIdentity("internet-delete-author"), b = GroupDeliveryTestIdentity("internet-delete-recipient")
         let issuer = P256.Signing.PrivateKey()
         try a.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
@@ -42,8 +44,15 @@ import UserNotifications
         GroupDeliveryHTTPStub.users = [senderToken: owner.userID, recipientToken: target.userID]
         let relay = ContactDeletionHTTPFixture(owner: owner.userID, recipient: target.userID,
             memberID: b.memberID, trust: try #require(try b.store.identityTrust()))
-        relay.dropFirstReceiptResponse = nearbyFirst
-        GroupDeliveryHTTPStub.onContactDeletion = relay.respond
+        relay.dropFirstReceiptResponse = order == .nearbyFirst
+        let reverse = ContactDeletionHTTPFixture(owner: target.userID, recipient: owner.userID,
+            memberID: a.memberID, trust: try #require(try a.store.identityTrust()))
+        GroupDeliveryHTTPStub.onContactDeletion = { request, caller in
+            guard order == .bothRemoved else { return relay.respond(request, caller) }
+            let body = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let sender = body?["owner"] as? String ?? caller
+            return (sender == owner.userID ? relay : reverse).respond(request, caller)
+        }
         defer { GroupDeliveryHTTPStub.reset() }
         sender.groupDeliveryClient = client
         var backgroundStarts = 0
@@ -59,9 +68,11 @@ import UserNotifications
         #expect(relay.entry == nil && relay.submitted == [packet])
         sender.stopGroupDeliverySync()
 
-        if nearbyFirst {
+        if order == .nearbyFirst {
             let notice = try #require(sender.groupRepository.contactDeletions.first)
             _ = try recipient.receiveContactDeletion(notice, from: a.memberID)
+        } else if order == .bothRemoved {
+            try #require(recipient.removeSavedUser(try #require(recipient.savedRemoteUsers.first).id))
         }
         let reopenedSender = try a.harness(knowing: [], onDisk: true).viewModel
         let reopenedRecipient = try b.harness(knowing: [], onDisk: true).viewModel
@@ -74,19 +85,31 @@ import UserNotifications
         await reopenedRecipient.synchronizeGroupDeliveries()
         #expect(reopenedRecipient.savedRemoteUsers.isEmpty)
         #expect(relay.entry?.state == "received")
-        if nearbyFirst {
+        if order == .nearbyFirst {
             let kept = try #require(reopenedRecipient.groupRepository.contactDeletionRelayReceipts.first)
             #expect(relay.received == [kept.packet])
             await reopenedRecipient.synchronizeGroupDeliveries()
             #expect(relay.received == [kept.packet, kept.packet])
         }
         #expect(reopenedRecipient.groupRepository.contactDeletionRelayReceipts.isEmpty)
+        if order == .bothRemoved {
+            await reopenedRecipient.synchronizeGroupDeliveries()
+            #expect(reverse.entry?.state == "pending")
+        }
         await reopenedSender.synchronizeGroupDeliveries()
         #expect(reopenedSender.groupRepository.contactDeletions.isEmpty)
         #expect(reopenedSender.groupRepository.contactDeletionPublications.isEmpty)
         #expect(relay.entry?.state == "retired" && relay.entry?.packet == nil)
-        #expect(relay.readCount == (nearbyFirst ? 0 : 1))
-        #expect(relay.received.count == (nearbyFirst ? 2 : 1))
+        #expect(relay.readCount == (order == .nearbyFirst ? 0 : 1))
+        #expect(relay.received.count == (order == .nearbyFirst ? 2 : 1))
+        if order == .bothRemoved {
+            await reopenedRecipient.synchronizeGroupDeliveries()
+            #expect(reverse.entry?.state == "retired" && reverse.entry?.packet == nil)
+            #expect(reverse.readCount == 1)
+            #expect(reopenedRecipient.groupRepository.contactDeletions.isEmpty)
+            #expect(reopenedRecipient.groupRepository.contactDeletionFormerPairs.isEmpty)
+            #expect(reopenedSender.groupRepository.contactDeletionFormerPairs.isEmpty)
+        }
     }
 
     @Test func contactDeletionSealsOneInternetPacketBeforeDiscardingThePairKey() throws {
@@ -175,8 +198,10 @@ import UserNotifications
         #expect(afterReceipt.groupRepository.contactDeletionPublications == [retirement])
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func nearbyContactDeletionResumesAfterRestartAndClearsTheSendQueue(dropsFirstReceipt: Bool) async throws {
+    enum NearbyContactDeletionOrder: CaseIterable { case ordinary, responseLost, bothRemoved }
+
+    @Test(.timeLimit(.minutes(1)), arguments: NearbyContactDeletionOrder.allCases)
+    func nearbyContactDeletionResumesAfterRestartAndClearsTheSendQueue(order: NearbyContactDeletionOrder) async throws {
         let a = GroupDeliveryTestIdentity("nearby-contact-removal-author")
         let b = GroupDeliveryTestIdentity("nearby-contact-removal-recipient")
         defer { a.remove(); b.remove() }
@@ -211,6 +236,10 @@ import UserNotifications
         #expect(released == 1)
         #expect(sender.nearbyGroupDeliveryExchange == nil)
         #expect(recipient.savedRemoteUsers.count == 1)
+        if order == .bothRemoved {
+            recipient.allowsNearbyGroupDelivery = false
+            try #require(recipient.removeSavedUser(try #require(recipient.savedRemoteUsers.first).id))
+        }
 
         let restarted = try a.harness(knowing: [], onDisk: true).viewModel
         defer { restarted.stopGroupDeliverySync() }
@@ -221,7 +250,12 @@ import UserNotifications
 
         var receivingModel = recipient
         defer { receivingModel.stopGroupDeliverySync() }
-        if dropsFirstReceipt {
+        if order == .bothRemoved {
+            receivingModel = try b.harness(knowing: [], onDisk: true).viewModel
+            receivingModel.groupDeliveryClient = nil
+            receivingModel.allowsNearbyGroupDelivery = true
+        }
+        if order == .responseLost {
             let captured = Mutex<ContactDeletionNotice?>(nil)
             let interceptor = RTCLocalDataChannel(localID: .init(rawValue: b.memberID),
                                                    knownPeers: recipient.nearbyGroupDeliveryCredentials()) { event in
@@ -250,11 +284,18 @@ import UserNotifications
 
         receivingModel.setNearbyGroupDeliveryForeground(true)
         restarted.setNearbyGroupDeliveryForeground(true)
-        await AppTestSupport.waitUntil(timeout: .seconds(12)) { restarted.groupRepository.contactDeletions.isEmpty }
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            restarted.groupRepository.contactDeletions.isEmpty && receivingModel.groupRepository.contactDeletions.isEmpty
+        }
         #expect(restarted.groupRepository.contactDeletions.isEmpty)
+        #expect(receivingModel.groupRepository.contactDeletions.isEmpty)
         #expect(receivingModel.savedRemoteUsers.isEmpty)
         #expect(receivingModel.groups.isEmpty)
         #expect(restarted.nearbyGroupDeliveryWindow == nil)
+        if order == .bothRemoved {
+            #expect(restarted.groupRepository.contactDeletionFormerPairs.isEmpty)
+            #expect(receivingModel.groupRepository.contactDeletionFormerPairs.isEmpty)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

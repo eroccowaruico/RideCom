@@ -4,6 +4,31 @@ import Testing
 
 @MainActor
 struct GroupMigrationTests {
+    @Test func version22PreservesAQueuedInternetReceiptWhenAddingFormerPairs() throws {
+        let f = try GroupStorageFixture(); defer { f.remove() }
+        var old = try #require(try f.file.read())
+        old.version = 22
+        let local = testIdentitySigner("local"), peer = testIdentitySigner("peer")
+        let owner = AccountPrincipal(issuer: "https://ride.example", userID: String(repeating: "a", count: 64))
+        let recipient = AccountPrincipal(issuer: owner.issuer, userID: String(repeating: "b", count: 64))
+        let secret = "migration-receipt-pair-key"
+        let notice = try ContactDeletionNotice(signer: peer, recipientMemberID: local.memberID,
+            recipientKey: local.publicKey, pairSecret: secret, now: Date())
+        let receipt = try ContactDeletionReceipt(for: notice, recipient: local)
+        let address = try #require(ContactDeletionRelayAddress(owner: owner, recipient: recipient, pairSecret: secret,
+            senderID: peer.memberID, recipientID: local.memberID))
+        let relay = try ContactDeletionRelayReceipt(receipt: receipt, address: address, signer: local)
+        old.contactDeletionReceipts = [receipt]
+        old.contactDeletionRelayReceipts = [relay]
+        try f.file.commit(old)
+
+        _ = try f.restart().load(localMemberID: "local")
+        let migrated = try #require(try f.file.read())
+        #expect(migrated.version == GroupSnapshot.currentVersion)
+        #expect(migrated.contactDeletionReceipts == [receipt] && migrated.contactDeletionRelayReceipts == [relay])
+        #expect(migrated.contactDeletionFormerPairs.isEmpty)
+    }
+
     @Test func version21PreservesTheOriginalPacketWhenAddingRelayReceipts() throws {
         let f = try GroupStorageFixture(); defer { f.remove() }
         var old = try #require(try f.file.read())

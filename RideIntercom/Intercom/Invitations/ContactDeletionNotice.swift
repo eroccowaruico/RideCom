@@ -55,11 +55,16 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
 
     func verify(from peerID: String, senderKey: String, recipient: DeviceIdentitySigner,
                 pairSecret: String, now: Date) throws {
+        try verify(from: peerID, senderKey: senderKey, recipient: recipient, pairKey: Self.pairKey(pairSecret), now: now)
+    }
+
+    func verify(from peerID: String, senderKey: String, recipient: DeviceIdentitySigner,
+                pairKey: SymmetricKey, now: Date) throws {
         guard isValid, peerID == target.senderMemberID, senderKey == proof.publicKey,
               target.recipientMemberID == recipient.memberID, target.recipientKey == recipient.publicKey,
               target.isCurrent(at: now),
               try HMAC<SHA256>.isValidAuthenticationCode(claim.pairAuthentication, authenticating: Self.canonicalJSON(target),
-                                                         using: Self.pairKey(pairSecret))
+                                                         using: pairKey)
         else { throw DeviceIdentityProof.Failure.invalid }
         _ = try proof.verify(Self.canonicalJSON(claim), purpose: .deleteContact, memberID: peerID)
     }
@@ -74,9 +79,51 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
         return try encoder.encode(value)
     }
 
-    private static func pairKey(_ secret: String) -> SymmetricKey {
+    static func pairKey(_ secret: String) -> SymmetricKey {
         HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(secret.utf8)),
                               salt: Data("rideintercom.contact-deletion.v1".utf8), outputByteCount: 32)
+    }
+}
+
+/// The old call key is erased. The retained Keychain reference authenticates only a crossed deletion.
+nonisolated struct ContactDeletionFormerPair: Codable, Equatable, Sendable {
+    let localMemberID: String
+    let localKey: String
+    let peerID: String
+    let peerKey: String
+    let expiresAt: TimeInterval
+    let keyReference: UUID
+    let relay: ContactDeletionRelayAddress?
+
+    var isValid: Bool {
+        localMemberID != peerID && [localMemberID, peerID].allSatisfy {
+            IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix)
+        } && localKey != peerKey && DeviceIdentityProof.isValidPublicKey(localKey)
+            && DeviceIdentityProof.isValidPublicKey(peerKey) && expiresAt.isFinite && expiresAt > 0
+            && (relay?.isValid ?? true)
+    }
+
+    func canVerify(for signer: DeviceIdentitySigner, now: Date) -> Bool {
+        localKey == signer.publicKey && localMemberID == signer.memberID && expiresAt > now.timeIntervalSince1970
+    }
+
+}
+
+nonisolated struct ContactDeletionRelayAddress: Codable, Equatable, Sendable {
+    let owner: AccountPrincipal
+    let recipient: AccountPrincipal
+    let slot: String
+
+    init?(owner: AccountPrincipal?, recipient: AccountPrincipal?, pairSecret: String, senderID: String, recipientID: String) {
+        guard let owner, let recipient, owner.issuer == recipient.issuer, owner != recipient else { return nil }
+        self.owner = owner
+        self.recipient = recipient
+        slot = ContactDeletionRelayPacket.slot(pairSecret: pairSecret, senderID: senderID, recipientID: recipientID)
+    }
+
+    var isValid: Bool {
+        owner.isValid && recipient.isValid && owner.issuer == recipient.issuer && owner != recipient
+            && ContactDeletionRelayPacket.isValidSlot(slot)
     }
 }
 
@@ -175,16 +222,15 @@ nonisolated struct ContactDeletionRelayReceipt: Codable, Equatable, Identifiable
     let recipient: AccountPrincipal
     let packet: String
 
-    init(receipt: ContactDeletionReceipt, owner: AccountPrincipal, recipient: AccountPrincipal,
-         signer: DeviceIdentitySigner, pairSecret: String) throws {
+    init(receipt: ContactDeletionReceipt, address: ContactDeletionRelayAddress, signer: DeviceIdentitySigner) throws {
         let target = receipt.target
         guard target.recipientMemberID == signer.memberID, target.recipientKey == signer.publicKey
         else { throw DeviceIdentityProof.Failure.invalid }
         id = receipt.id
         expiresAt = try ContactDeletionRelayPacket.expiry(target)
-        slot = ContactDeletionRelayPacket.slot(pairSecret: pairSecret, senderID: target.senderMemberID, recipientID: signer.memberID)
-        self.owner = owner
-        self.recipient = recipient
+        slot = address.slot
+        owner = address.owner
+        recipient = address.recipient
         packet = try ContactDeletionRelayPacket.receipt.seal(receipt, slot: slot, signer: signer,
                                                             peerID: target.senderMemberID, peerKey: receipt.senderKey)
         guard isValid else { throw DeviceIdentityProof.Failure.invalid }
@@ -214,8 +260,11 @@ nonisolated enum ContactDeletionRelayPacket: String {
     }
 
     static func isValid(expiresAt: Int64, slot: String) -> Bool {
-        (1...9_007_199_254_740_991).contains(expiresAt) && slot.utf8.count == 64
-            && slot.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+        (1...9_007_199_254_740_991).contains(expiresAt) && isValidSlot(slot)
+    }
+
+    static func isValidSlot(_ slot: String) -> Bool {
+        slot.utf8.count == 64 && slot.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 
     static func slot(pairSecret: String, senderID: String, recipientID: String) -> String {

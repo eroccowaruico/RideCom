@@ -144,14 +144,16 @@ struct ContactInvitationPersistenceTests {
         let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
         try b.viewModel.acceptContactInviteURL(url)
         let user = try #require(b.viewModel.savedRemoteUsers.first)
+        let pairKey = try #require(friend.store.snapshot.groups.first(where: { $0.kind == .direct })?.credentialReference)
         #expect(b.viewModel.removeSavedUser(user.id))
         try b.viewModel.cancelContactInvitation(id)
         let (reloaded, _) = friend.make()
         #expect(!reloaded.viewModel.resumeContactInvitation(id))
         #expect(throws: (any Error).self) { try reloaded.viewModel.acceptContactInviteURL(url) }
         #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        // Deleting the person deleted their pair call and its key.
-        #expect(friend.credentials.values.isEmpty)
+        #expect(friend.credentials.values[pairKey] == nil)
+        let former = try #require(reloaded.viewModel.groupRepository.contactDeletionFormerPairs.first)
+        #expect(Set(friend.credentials.values.keys) == [former.keyReference])
         #expect(reloaded.viewModel.regularGroups.isEmpty)
     }
 
@@ -275,6 +277,7 @@ struct ContactInvitationPersistenceTests {
         let saved = try #require(a.viewModel.savedRemoteUsers.first)
         let oldReply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
         let checkpoint = try #require(a.viewModel.groupRepository.contactInvitations.first { $0.id == id })
+        let pairKey = try #require(author.store.snapshot.groups.first(where: { $0.kind == .direct })?.credentialReference)
         #expect(checkpoint.state == .confirmed)
         if legacyDeletion {
             a.viewModel.stopContactInvitationSession()
@@ -297,7 +300,10 @@ struct ContactInvitationPersistenceTests {
         #expect(!reloaded.viewModel.resumeContactInvitation(id))
         #expect(!reloaded.viewModel.handleContactReplyURL(oldReply))
         #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        #expect(author.credentials.values.isEmpty)
+        #expect(author.credentials.values[pairKey] == nil)
+        let references = reloaded.viewModel.groupRepository.contactDeletionFormerPairs.map(\.keyReference)
+        #expect(Set(author.credentials.values.keys) == Set(references))
+        #expect(references.count == (legacyDeletion ? 0 : 1))
         #expect(reloaded.viewModel.regularGroups.isEmpty)
 
         let freshURL = try #require(reloaded.viewModel.makeContactInviteURL())

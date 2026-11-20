@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 22
+    static let currentVersion = 23
     static let maximumGroupDeliveries = 512
     struct GroupRemovalReceipt: Codable, Equatable {
         let groupID: UUID
@@ -160,13 +160,20 @@ struct GroupSnapshot: Codable, Equatable {
     var contactDeletionReceipts: [ContactDeletionReceipt] = []
     var contactDeletionPublications: [ContactDeletionPublication] = []
     var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []
+    var contactDeletionFormerPairs: [ContactDeletionFormerPair] = []
+
+    var credentialReferences: [UUID] {
+        groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
+            + groupDeliveries.compactMap(\.credentialReference) + contactDeletionFormerPairs.map(\.keyReference)
+    }
 
     init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [],
          groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = [],
          groupRemovalReceipts: [GroupRemovalReceipt] = [], nearbyGroupCancellations: [GroupInvitationCancellation.Target] = [],
          contactDeletions: [ContactDeletionNotice] = [], contactDeletionReceipts: [ContactDeletionReceipt] = [],
          contactDeletionPublications: [ContactDeletionPublication] = [],
-         contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []) {
+         contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = [],
+         contactDeletionFormerPairs: [ContactDeletionFormerPair] = []) {
         self.groups = groups
         self.users = users
         self.contactInvitations = contactInvitations
@@ -178,13 +185,14 @@ struct GroupSnapshot: Codable, Equatable {
         self.contactDeletionReceipts = contactDeletionReceipts
         self.contactDeletionPublications = contactDeletionPublications
         self.contactDeletionRelayReceipts = contactDeletionRelayReceipts
+        self.contactDeletionFormerPairs = contactDeletionFormerPairs
         synchronizeUserReferences()
     }
 
     private enum CodingKeys: String, CodingKey {
         case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts, groupRemovalReceipts
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
-        case contactDeletionPublications, contactDeletionRelayReceipts
+        case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
     }
 
     init(from decoder: Decoder) throws {
@@ -208,18 +216,17 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactDeletionPublication].self, forKey: .contactDeletionPublications)
         contactDeletionRelayReceipts = version < 22 ? []
             : try values.decode([ContactDeletionRelayReceipt].self, forKey: .contactDeletionRelayReceipts)
+        contactDeletionFormerPairs = version < 23 ? []
+            : try values.decode([ContactDeletionFormerPair].self, forKey: .contactDeletionFormerPairs)
     }
 
     func upgraded() -> GroupSnapshot {
         guard version < Self.currentVersion else { return self }
-        var records = groups
-        if version < 3 { for index in records.indices { records[index].kind = .group } }
-        if version < 5 { for index in records.indices { records[index].pendingInvitation = nil } }
-        var next = GroupSnapshot(groups: records, users: users, contactInvitations: contactInvitations,
-                                 groupDeliveries: groupDeliveries, groupLinkReceipts: groupLinkReceipts,
-                                 groupRemovalReceipts: groupRemovalReceipts, nearbyGroupCancellations: nearbyGroupCancellations,
-                                 contactDeletions: contactDeletions, contactDeletionReceipts: contactDeletionReceipts,
-                                 contactDeletionPublications: contactDeletionPublications)
+        var next = self
+        next.version = Self.currentVersion
+        next.generation = UUID()
+        if version < 3 { for index in next.groups.indices { next.groups[index].kind = .group } }
+        if version < 5 { for index in next.groups.indices { next.groups[index].pendingInvitation = nil } }
         if version < 10 {
             for index in next.contactInvitations.indices {
                 let record = next.contactInvitations[index]
@@ -333,13 +340,15 @@ struct GroupSnapshot: Codable, Equatable {
               Set(contactDeletionRelayReceipts.map(\.id)).count == contactDeletionRelayReceipts.count,
               contactDeletionRelayReceipts.allSatisfy({ $0.isValid && contactDeletionReceiptIDs.contains($0.id) })
         else { throw IntercomGroupError.invalidStoredGroups }
+        guard version >= 23 || contactDeletionFormerPairs.isEmpty, contactDeletionFormerPairs.allSatisfy(\.isValid)
+        else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 16 || groupLinkReceipts.isEmpty,
               Set(groupLinkReceipts.map { [$0.groupID, $0.receiptID] }).count == groupLinkReceipts.count,
               groupLinkReceipts.allSatisfy({ record in
                   (record.expiresAt.map { $0.isFinite && $0 >= 0 } ?? record.retired)
                       && (record.retired || regularGroupIDs.contains(record.groupID))
               }) else { throw IntercomGroupError.invalidStoredGroups }
-        let references = groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference) + groupDeliveries.compactMap(\.credentialReference)
+        let references = credentialReferences
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {
             _ = try record.group()

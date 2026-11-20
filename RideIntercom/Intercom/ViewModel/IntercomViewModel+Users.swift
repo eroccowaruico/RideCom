@@ -98,8 +98,8 @@ extension IntercomViewModel {
         else { throw DeviceIdentityProof.Failure.invalid }
         let result = try groupRepository.receiveContactDeletion(notice, from: peerID, recipient: recipient,
             localAccount: localAccountPrincipal, now: callAccessNow(), beforeRemoving: notifications.suppressContact)
-        if let removed = result.removedGroups {
-            finishSavedUserRemoval(removed)
+        if let removed = result.removedGroups { finishSavedUserRemoval(removed) }
+        if result.saved {
             // Let the caller return the receipt on the current connection before recomputing offers.
             Task { [weak self] in self?.requestGroupDeliverySync(.localChange) }
         }

@@ -1,16 +1,19 @@
 import CoreTransferable
 import Foundation
+import RTC
 import UniformTypeIdentifiers
 import Testing
 @testable import RideIntercom
 
 @MainActor
 struct ContactReplyTests {
-    private func pair(now: @escaping @MainActor () -> Date = Date.init, authorCredentials: GroupCredentialStoring? = nil)
+    private func pair(now: @escaping @MainActor () -> Date = Date.init, authorCredentials: GroupCredentialStoring? = nil,
+                      friendCredentials: GroupCredentialStoring? = nil)
         throws -> (AppTestSupport.Harness, AppTestSupport.Harness, UUID) {
         let author = AppTestSupport.makeHarness(groups: [], credentialStore: authorCredentials,
                                                localMemberID: "reply-author", callAccessNow: now)
-        let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "reply-friend", callAccessNow: now)
+        let friend = AppTestSupport.makeHarness(groups: [], credentialStore: friendCredentials,
+                                               localMemberID: "reply-friend", callAccessNow: now)
         author.viewModel.contactSessionFactory = { RecordingCallSession() }
         friend.viewModel.contactSessionFactory = { RecordingCallSession() }
         author.viewModel.beginContactInvitationPresentation()
@@ -22,6 +25,60 @@ struct ContactReplyTests {
         author.viewModel.stopContactInvitationSession(); friend.viewModel.stopContactInvitationSession()
         let id = try #require(friend.viewModel.pendingContactInvitations.first).id
         return (author, friend, id)
+    }
+
+    @Test func independentlyRemovedContactsConfirmBothDeletionsAfterRestart() throws {
+        let aKeys = InMemoryGroupCredentialStore(), bKeys = InMemoryGroupCredentialStore()
+        let (author, friend, id) = try pair(authorCredentials: aKeys, friendCredentials: bKeys)
+        let a = author.viewModel, b = friend.viewModel
+        defer { a.disconnect(); b.disconnect() }
+        try a.receiveContactReplyURL(b.contactReplyURLForSharing(id, expectedAccountAccessID: b.accountAccessID))
+        let pairID = IntercomGroup.directCallID(memberIDs: ["reply-author", "reply-friend"])
+        let oldKey = try #require(try a.groupRepository.credential(for: pairID)).secret
+        try #require(a.removeSavedUser(try #require(a.savedRemoteUsers.first).id))
+        try #require(b.removeSavedUser(try #require(b.savedRemoteUsers.first).id))
+        #expect(!aKeys.values.values.contains(oldKey) && !bKeys.values.values.contains(oldKey))
+        let aDeletion = try #require(a.groupRepository.contactDeletions.first)
+        let bDeletion = try #require(b.groupRepository.contactDeletions.first)
+        author.groupStore.snapshot = try GroupSnapshot.decode(author.groupStore.snapshot.encoded())
+        friend.groupStore.snapshot = try GroupSnapshot.decode(friend.groupStore.snapshot.encoded())
+        let left = AppTestSupport.makeHarness(groups: [], groupStore: author.groupStore, credentialStore: aKeys,
+                                              localMemberID: "reply-author").viewModel
+        let right = AppTestSupport.makeHarness(groups: [], groupStore: friend.groupStore, credentialStore: bKeys,
+                                               localMemberID: "reply-friend").viewModel
+        defer { left.disconnect(); right.disconnect() }
+        let rightSigner = try #require(try right.internetSettingsStore.contactDeletionSigner(memberID: "reply-friend"))
+        let wrong = try ContactDeletionNotice(signer: rightSigner, recipientMemberID: "reply-author",
+            recipientKey: bDeletion.target.recipientKey, pairSecret: "unrelated-relationship", now: Date())
+        #expect(throws: (any Error).self) { try left.receiveContactDeletion(wrong, from: "reply-friend") }
+        let aReceipt = try right.receiveContactDeletion(aDeletion, from: "reply-author")
+        try left.acknowledgeContactDeletion(aReceipt, from: "reply-friend")
+        #expect(left.groupRepository.contactDeletions.isEmpty)
+        #expect(left.nearbyGroupDeliveryCredentials()[.init(rawValue: "reply-friend")] != nil)
+        let bReceipt = try left.receiveContactDeletion(bDeletion, from: "reply-friend")
+        let saves = author.groupStore.saveCount
+        #expect(try left.receiveContactDeletion(bDeletion, from: "reply-friend") == bReceipt)
+        #expect(author.groupStore.saveCount == saves)
+        try right.acknowledgeContactDeletion(bReceipt, from: "reply-author")
+        #expect(left.savedRemoteUsers.isEmpty && right.savedRemoteUsers.isEmpty)
+        #expect(left.groupRepository.contactDeletions.isEmpty && right.groupRepository.contactDeletions.isEmpty)
+        #expect(aKeys.values.isEmpty && bKeys.values.isEmpty)
+    }
+
+    @Test func aFormerContactKeyCannotAuthorizeDeletingTheNewRegistration() throws {
+        let (author, friend, id) = try pair()
+        let a = author.viewModel, b = friend.viewModel
+        defer { a.disconnect(); b.disconnect() }
+        try a.receiveContactReplyURL(b.contactReplyURLForSharing(id, expectedAccountAccessID: b.accountAccessID))
+        try #require(a.removeSavedUser(try #require(a.savedRemoteUsers.first).id))
+        try #require(b.removeSavedUser(try #require(b.savedRemoteUsers.first).id))
+        let old = try #require(a.groupRepository.contactDeletions.first)
+        try #require(b.groupRepository.contactDeletionFormerPairs.count == 1)
+        try b.acceptContactInviteURL(try #require(a.makeContactInviteURL()))
+        let before = friend.groupStore.snapshot
+        #expect(throws: (any Error).self) { try b.receiveContactDeletion(old, from: "reply-author") }
+        #expect(friend.groupStore.snapshot == before)
+        #expect(b.savedRemoteUsers.count == 1)
     }
 
     @Test func offlineContactRemovalKeepsOnlyADeliverableDeletionAfterRestart() throws {
@@ -49,10 +106,11 @@ struct ContactReplyTests {
         #expect(a.removeSavedUser(person.id))
         #expect(a.savedRemoteUsers.isEmpty)
         #expect(try a.groupRepository.credential(for: pairID) == nil)
-        #expect(keys.values.isEmpty)
+        #expect(keys.values.count == 1 && !keys.values.values.contains(oldSecret))
         #expect(!a.handleContactReplyURL(reply))
         var older = author.groupStore.snapshot
         older.version = 19
+        older.contactDeletionFormerPairs = []
         author.groupStore.snapshot = try GroupSnapshot.decode(older.encoded())
         let restarted = AppTestSupport.makeHarness(groups: [], groupStore: author.groupStore,
             credentialStore: keys, localMemberID: "reply-author", callAccessNow: { now })

@@ -111,6 +111,10 @@ extension IntercomViewModel {
         where receipt.target.recipientKey == signer.publicKey && receipt.target.isCurrent(at: now) {
             keys[receipt.target.senderMemberID] = receipt.senderKey
         }
+        for former in groupRepository.contactDeletionFormerPairs
+        where groupRepository.canUseFormerContactDeletionPair(former, signer: signer, now: now) {
+            keys[former.peerID] = former.peerKey
+        }
         for notice in groupRepository.contactDeletions
         where notice.proof.publicKey == signer.publicKey && notice.target.isCurrent(at: now) {
             keys[notice.target.recipientMemberID] = notice.target.recipientKey

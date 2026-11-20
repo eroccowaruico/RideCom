@@ -19,6 +19,7 @@ final class GroupRepository {
     var contactDeletionReceipts: [ContactDeletionReceipt] { snapshot?.contactDeletionReceipts ?? [] }
     var contactDeletionPublications: [ContactDeletionPublication] { snapshot?.contactDeletionPublications ?? [] }
     var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] { snapshot?.contactDeletionRelayReceipts ?? [] }
+    var contactDeletionFormerPairs: [ContactDeletionFormerPair] { snapshot?.contactDeletionFormerPairs ?? [] }
 
     init(store: GroupStoring, credentials: GroupCredentialStoring, legacy: LegacyGroupReader? = nil) {
         self.store = store; self.credentials = credentials; self.legacy = legacy
@@ -60,7 +61,8 @@ final class GroupRepository {
 
     private func validateIdentity(_ current: GroupSnapshot, localMemberID: String) throws -> [IntercomGroup] {
         guard current.contactDeletions.allSatisfy({ $0.target.senderMemberID == localMemberID }),
-              current.contactDeletionReceipts.allSatisfy({ $0.target.recipientMemberID == localMemberID }) else {
+              current.contactDeletionReceipts.allSatisfy({ $0.target.recipientMemberID == localMemberID }),
+              current.contactDeletionFormerPairs.allSatisfy({ $0.localMemberID == localMemberID }) else {
             throw IntercomGroupError.invalidStoredGroups
         }
         return try current.groups.map { record in
@@ -360,7 +362,7 @@ final class GroupRepository {
     func receiveContactDeletion(_ notice: ContactDeletionNotice, from peerID: String,
                                 recipient: DeviceIdentitySigner, localAccount: AccountPrincipal?, now: Date,
                                 beforeRemoving: (UUID) throws -> Void)
-        throws -> (receipt: ContactDeletionReceipt, removedGroups: Set<UUID>?) {
+        throws -> (receipt: ContactDeletionReceipt, removedGroups: Set<UUID>?, saved: Bool) {
         guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
         let target = notice.target
         guard peerID == target.senderMemberID, localMemberID == recipient.memberID,
@@ -371,7 +373,12 @@ final class GroupRepository {
             try store.lock()
             defer { store.unlock() }
             guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
-            return (receipt, nil)
+            return (receipt, nil, false)
+        }
+        if !snapshot.users.contains(where: { $0.memberIDs.contains(peerID) }) {
+            let receipt = try receiveDeletionOfFormerContact(notice, snapshot: snapshot, recipient: recipient,
+                                                              localAccount: localAccount, now: now)
+            return (receipt, nil, true)
         }
         // A single device's pair credential cannot authorize removal of a multi-device entry.
         guard let user = snapshot.users.first(where: { $0.memberIDs == [peerID] }),
@@ -381,15 +388,51 @@ final class GroupRepository {
               let pair = try credential(for: pairID) else { throw DeviceIdentityProof.Failure.invalid }
         try notice.verify(from: peerID, senderKey: senderKey, recipient: recipient, pairSecret: pair.secret, now: now)
         let receipt = try ContactDeletionReceipt(for: notice, recipient: recipient)
+        let address = ContactDeletionRelayAddress(owner: user.principal, recipient: localAccount, pairSecret: pair.secret,
+                                                   senderID: peerID, recipientID: recipient.memberID)
         let removed = try removeUser(user, from: snapshot, now: now) { _, next in
-            if let owner = user.principal, let localAccount, owner.issuer == localAccount.issuer, owner != localAccount {
-                next.contactDeletionRelayReceipts.append(try ContactDeletionRelayReceipt(
-                    receipt: receipt, owner: owner, recipient: localAccount, signer: recipient, pairSecret: pair.secret))
-            }
+            try Self.stageContactDeletionReceipt(receipt, address: address, signer: recipient, in: &next)
             try beforeRemoving(user.id)
-            next.contactDeletionReceipts.append(receipt)
         }
-        return (receipt, removed)
+        return (receipt, removed, true)
+    }
+
+    func canUseFormerContactDeletionPair(_ former: ContactDeletionFormerPair, signer: DeviceIdentitySigner, now: Date) -> Bool {
+        guard former.canVerify(for: signer, now: now), let snapshot else { return false }
+        return !snapshot.users.contains {
+            $0.memberIDs.contains(former.peerID) || (former.relay != nil && $0.principal == former.relay?.owner)
+        }
+    }
+
+    private func receiveDeletionOfFormerContact(_ notice: ContactDeletionNotice, snapshot: GroupSnapshot,
+                                                recipient: DeviceIdentitySigner, localAccount: AccountPrincipal?,
+                                                now: Date) throws -> ContactDeletionReceipt {
+        let peerID = notice.target.senderMemberID
+        for former in snapshot.contactDeletionFormerPairs.reversed()
+        where former.peerID == peerID && former.peerKey == notice.proof.publicKey
+            && canUseFormerContactDeletionPair(former, signer: recipient, now: now) {
+            guard let stored = try credentials.secret(reference: former.keyReference),
+                  let bytes = IdentityEncoding.decode(stored), bytes.count == 32,
+                  (try? notice.verify(from: peerID, senderKey: former.peerKey, recipient: recipient,
+                                      pairKey: SymmetricKey(data: bytes), now: now)) != nil
+            else { continue }
+            let receipt = try ContactDeletionReceipt(for: notice, recipient: recipient)
+            let address = former.relay.flatMap { $0.recipient == localAccount ? $0 : nil }
+            try amend(snapshot, now: now.timeIntervalSince1970) { next in
+                try Self.stageContactDeletionReceipt(receipt, address: address, signer: recipient, in: &next)
+                next.contactDeletionFormerPairs.removeAll { $0.keyReference == former.keyReference }
+            }
+            return receipt
+        }
+        throw DeviceIdentityProof.Failure.invalid
+    }
+
+    private static func stageContactDeletionReceipt(_ receipt: ContactDeletionReceipt, address: ContactDeletionRelayAddress?,
+                                                    signer: DeviceIdentitySigner, in next: inout GroupSnapshot) throws {
+        if let address {
+            next.contactDeletionRelayReceipts.append(try ContactDeletionRelayReceipt(receipt: receipt, address: address, signer: signer))
+        }
+        next.contactDeletionReceipts.append(receipt)
     }
 
     func acknowledgeContactDeletion(_ receipt: ContactDeletionReceipt, from peerID: String, now: Date) throws {
@@ -430,6 +473,12 @@ final class GroupRepository {
             else { continue }
             let notice = try ContactDeletionNotice(signer: signer, recipientMemberID: peer.id, recipientKey: peerKey,
                                                    pairSecret: secret, now: now)
+            let verificationKey = ContactDeletionNotice.pairKey(secret).withUnsafeBytes { IdentityEncoding.encode(Data($0)) }
+            let address = ContactDeletionRelayAddress(owner: user.principal, recipient: sender, pairSecret: secret,
+                                                       senderID: peer.id, recipientID: signer.memberID)
+            next.contactDeletionFormerPairs.append(.init(localMemberID: signer.memberID, localKey: signer.publicKey,
+                peerID: peer.id, peerKey: peerKey, expiresAt: notice.target.expiresAt,
+                keyReference: try prepareKey(verificationKey), relay: address))
             next.contactDeletions.append(notice)
             if let sender, let recipient = user.principal, sender.issuer == recipient.issuer, sender != recipient {
                 next.contactDeletionPublications.append(try ContactDeletionPublication(
@@ -578,7 +627,8 @@ final class GroupRepository {
            contactDeletions: previous.contactDeletions.filter { $0.target.expiresAt > now },
            contactDeletionReceipts: previous.contactDeletionReceipts.filter { $0.target.expiresAt > now },
            contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 },
-           contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter { Double($0.expiresAt) > now * 1_000 })
+           contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter { Double($0.expiresAt) > now * 1_000 },
+           contactDeletionFormerPairs: previous.contactDeletionFormerPairs.filter { $0.expiresAt > now })
         try modify(&next)
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
@@ -618,7 +668,7 @@ final class GroupRepository {
 
     private func cleanup(_ current: GroupSnapshot) {
         do {
-            let live = Set(current.groups.compactMap(\.credentialReference) + current.contactInvitations.compactMap(\.credentialReference) + current.groupDeliveries.compactMap(\.credentialReference))
+            let live = Set(current.credentialReferences)
             for reference in try credentials.references().subtracting(live) { try credentials.delete(reference: reference) }
             try legacy?.cleanup()
             needsCleanup = false
