@@ -23,6 +23,70 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         try verifyExternalGroupInvitation(from: .background)
     }
 
+    @MainActor func testSavedGroupStartsLocalAfterColdOfflineLaunch() throws {
+        let app = XCUIApplication(); defer { app.terminate() }
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        let suffix = UUID().uuidString.prefix(8)
+        let name = "Offline " + suffix
+        let invitation = try InvitationURLFixture.make(inviter: "offline-" + suffix, name: name)
+        let groupID = try XCTUnwrap(InvitationURLFixture.fields(from: invitation)["groupID"] as? String)
+
+        app.open(invitation)
+        let end = app.buttons["standardEndCallButton"].firstMatch
+        XCTAssertTrue(end.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
+        end.tap()
+        app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
+        XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+
+        openCommunication(in: app)
+        let local = app.switches["localNetworkRouteToggle"].firstMatch
+        let internet = app.switches["internetRouteToggle"].firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 5))
+        if local.value as? String == "0" { local.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+        if internet.value as? String == "1" { internet.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+        XCTAssertEqual(local.value as? String, "1")
+        XCTAssertEqual(internet.value as? String, "0")
+
+        app.terminate()
+        XCTAssertEqual(app.state, .notRunning)
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "restored-offline",
+            "RIDEINTERCOM_BACKGROUND_OBSERVATION": "1"]
+        app.launch()
+        openCommunication(in: app)
+        XCTAssertEqual(local.value as? String, "1")
+        XCTAssertEqual(internet.value as? String, "0")
+
+        let groups = app.tabBars.buttons["Groups"]
+        XCTAssertTrue(groups.waitForExistence(timeout: 5))
+        groups.tap()
+        XCTAssertFalse(end.exists, "Relaunch must wait for an explicit choice of group")
+        let row = app.buttons["standardGroup-" + groupID].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        for _ in 0..<6 where !row.isHittable { app.collectionViews.firstMatch.swipeUp() }
+        row.tap()
+        XCTAssertTrue(end.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Waiting for others"].firstMatch.waitForExistence(timeout: 5))
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = "Saved group awaiting riders after offline relaunch"; image.lifetime = .keepAlways; add(image)
+        end.tap()
+        app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
+        XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor private func openCommunication(in app: XCUIApplication) {
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        let link = app.buttons["communicationSettingsLink"].firstMatch
+        for _ in 0..<8 where !link.isHittable { app.collectionViews.firstMatch.swipeUp() }
+        XCTAssertTrue(link.isHittable)
+        link.tap()
+    }
+
     @MainActor func testStandardResumeWhileWaitingContinuesInBackground() throws { try waitingRoundTrip(resuming: true) }
     @MainActor func testAdvancedResumeWhileWaitingContinuesInBackground() throws { try waitingRoundTrip(advanced: true, resuming: true) }
 

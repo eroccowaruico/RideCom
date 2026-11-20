@@ -24,7 +24,7 @@ enum AppleAccountFixture {
         guard namespace.hasPrefix("RideIntercom.Validation."),
               environment["RIDEINTERCOM_LOCAL_TESTING"] == "1",
               let mode = environment["RIDEINTERCOM_ACCOUNT_FIXTURE"],
-              mode == "signed-in" || mode == "signed-out" else { return nil }
+              ["signed-in", "signed-out", "restored-offline"].contains(mode) else { return nil }
         if let recovery = environment["RIDEINTERCOM_GROUP_RECOVERY_FIXTURE"] {
             do {
                 try processGroupRecovery(recovery, namespace: namespace,
@@ -55,7 +55,10 @@ enum AppleAccountFixture {
         }
         let defaults = UserDefaults(suiteName: namespace + ".AccountFixture")!
         let session = AppleAccountSession(keychain: FixtureKeychain(defaults: defaults), defaults: defaults,
-            namespace: namespace, credentialState: { _ in .authorized })
+            namespace: namespace, credentialState: { _ in
+                if mode == "restored-offline" { throw URLError(.notConnectedToInternet) }
+                return .authorized
+            })
         if mode == "signed-in" {
             let request = ASAuthorizationAppleIDProvider().createRequest()
             session.prepare(request)
@@ -66,7 +69,7 @@ enum AppleAccountFixture {
                 UserDefaults(suiteName: scoped)!.set(true, forKey: "InternetAccount.requiresDataReset")
                 defaults.set(seed, forKey: "replacementSeed")
             }
-        } else {
+        } else if mode == "signed-out" {
             session.signOut()
         }
         return session
