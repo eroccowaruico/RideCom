@@ -31,6 +31,104 @@ async function setup(overrides = {}, apns = async () => Response.json({}), runti
     return makeRuntime({ ...options, ...overrides }, { appleKeys: [applePublic], apns, ...runtimeOptions });
 }
 
+test('contact deletion relay requires the pair slot and recipient device even after grants are revoked', async () => {
+    let notifications = 0;
+    const r = await setup({}, async () => { notifications++; return Response.json({}) });
+    try {
+        const a = await login(r, 'delete-author'), a2 = await login(r, 'delete-author');
+        const b = await login(r, 'delete-recipient'), b2 = await login(r, 'delete-recipient'), c = await login(r, 'delete-outsider');
+        const permit = await grant(r, b, a);
+        assert.equal((await call(r, '/api/notifications/grants/' + permit.grantID, undefined, b.accessToken, 'DELETE')).status, 200);
+        const key = await generateKeyPair('ES256', { extractable: true });
+        const jwk = await exportJWK(key.publicKey);
+        const recipientKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+        const memberID = 'delete-recipient';
+        const identity = await (await call(r, '/api/auth/identity', { memberID, deviceKey: recipientKey }, b.accessToken)).json();
+        const slot = '12'.repeat(32), id = randomUUID(), expiresAt = Date.now() + 60_000;
+        const packet = Buffer.alloc(64, 7).toString('base64'), receipt = Buffer.alloc(64, 9).toString('base64');
+        const path = '/api/contact-deletions';
+        async function proof(purpose, values) {
+            const fields = [purpose, memberID, recipientKey, identity.certificate, identity.issuerKey, JSON.stringify(values)];
+            const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
+            for (const field of fields) {
+                const bytes = Buffer.from(field), size = Buffer.alloc(4);
+                size.writeUInt32BE(bytes.length);
+                parts.push(size, bytes);
+            }
+            const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, Buffer.concat(parts));
+            return { publicKey: recipientKey, certificate: identity, signature: Buffer.from(signature).toString('base64url') };
+        }
+        const message = { slot, id, expiresAt, recipient: b.userID, recipientKey, packet };
+        const read = { owner: a.userID, slot, proof: await proof('readContactDeletion', [a.userID, slot]) };
+        const ack = { owner: a.userID, slot, id, packet: receipt,
+            proof: await proof('acknowledgeContactDeletionRelay', [a.userID, slot, id, receipt]) };
+        const state = async (response, expected) => {
+            assert.equal(response.status, 200);
+            assert.deepEqual(await response.json(), { state: expected });
+        };
+        await state(await call(r, path, message, a.accessToken, 'PUT'), 'pending');
+        await state(await call(r, path, message, a.accessToken, 'PUT'), 'pending');
+        assert.equal((await call(r, path, { ...message, packet: receipt }, a.accessToken, 'PUT')).status, 409);
+        assert.equal((await call(r, path, message, a2.accessToken, 'PUT')).status, 409);
+        assert.equal((await call(r, path + '/read', read, b2.accessToken)).status, 404);
+        assert.equal((await call(r, path + '/read', read, c.accessToken)).status, 404);
+        assert.equal((await call(r, path + '/read', { ...read, slot: '34'.repeat(32) }, b.accessToken)).status, 404);
+        assert.deepEqual(await (await call(r, path + '/read', read, b.accessToken)).json(), { deletion: { id, expiresAt, packet } });
+        assert.equal((await call(r, path + '/receipt', { ...ack, packet }, b.accessToken, 'PUT')).status, 404);
+        await state(await call(r, path + '/receipt', ack, b.accessToken, 'PUT'), 'received');
+        await state(await call(r, path + '/receipt', ack, b.accessToken, 'PUT'), 'received');
+        const authorRead = { owner: a.userID, slot };
+        assert.equal((await call(r, path + '/read', authorRead, a2.accessToken)).status, 404);
+        assert.deepEqual(await (await call(r, path + '/read', authorRead, a.accessToken)).json(), { receipt: { id, expiresAt, packet: receipt } });
+        await state(await call(r, path, { slot, id, expiresAt }, a.accessToken, 'DELETE'), 'retired');
+        await state(await call(r, path, message, a.accessToken, 'PUT'), 'retired');
+        assert.equal((await call(r, path + '/read', read, b.accessToken)).status, 404);
+        const late = { ...message, slot: 'ab'.repeat(32), id: randomUUID() };
+        await state(await call(r, path, { slot: late.slot, id: late.id, expiresAt }, a.accessToken, 'DELETE'), 'retired');
+        await state(await call(r, path, late, a.accessToken, 'PUT'), 'retired');
+        assert.equal(notifications, 0);
+    } finally { await r.dispose(); }
+});
+
+test('contact deletion relay bounds retained slots and clears them with account deletion without APNs', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-contact-deletion-'));
+    const local = (clockOffsetMs = 0) => setup({ NOTIFICATIONS_ENABLED: 'false', APNS_PRIVATE_KEY: '' },
+        async () => { throw new Error('Unexpected notification delivery'); }, { storageDirectory, clockOffsetMs });
+    let r = await local();
+    try {
+        const sender = await login(r, 'bounded-deletion-author');
+        const recipient = await login(r, 'bounded-deletion-recipient');
+        const key = await generateKeyPair('ES256', { extractable: true });
+        const jwk = await exportJWK(key.publicKey);
+        const recipientKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+        const path = '/api/contact-deletions', expiresAt = Date.now() + 60_000;
+        const items = Array.from({ length: 65 }, (_, index) => ({ id: randomUUID(), expiresAt,
+            slot: index.toString(16).padStart(64, '0'), recipient: recipient.userID, recipientKey,
+            packet: Buffer.alloc(64, 5).toString('base64') }));
+        const write = (item, author = sender) => call(r, path, item, author.accessToken, 'PUT');
+        assert.equal((await write({ ...items[0], expiresAt: Date.now() - 1 })).status, 400);
+        const writes = await Promise.all(items.slice(0, 64).map(item => write(item)));
+        assert.deepEqual(new Set(writes.map(response => response.status)), new Set([200]));
+        assert.equal((await write(items[64])).status, 429);
+        assert.equal((await write(items[0])).status, 200, 'An exact retry does not consume another slot');
+
+        await r.dispose();
+        r = await local(61_000);
+        const newItem = { ...items[64], expiresAt: Date.now() + 120_000 };
+        assert.equal((await write(items[0])).status, 400);
+        assert.equal((await write(newItem)).status, 200, 'Expired entries free space after restart');
+
+        assert.equal((await call(r, '/api/auth/account', undefined, sender.accessToken, 'DELETE')).status, 200);
+        assert.equal((await write(newItem)).status, 401);
+        const replacement = await login(r, 'bounded-deletion-author', sender.deviceID);
+        assert.notEqual(replacement.userID, sender.userID);
+        assert.equal((await write({ ...newItem, id: randomUUID() }, replacement)).status, 200, 'Account deletion removes the old slot');
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
 test('notifications stay unavailable without configuration and do not disable authentication', async () => {
     const r = await setup({ NOTIFICATIONS_ENABLED: 'false' });
     try {

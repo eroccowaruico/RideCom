@@ -248,3 +248,20 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 HTTP JSONはobjectだけを受け入れ、最大64 KiB・読取完了まで3秒。停滞したbodyをcancelしてroomを解放する。joinのparticipantIdは文字列のASCII英数/ハイフン/アンダースコア1–63字、displayNameは空白のみ不可・制御文字不可・UTF-8最大320 byte、SCTP属性は`a=sctp-port:5000`行の完全一致を要求する。WebSocketのnull/array/primitiveは例外にせず1008で切断する。
 
 alarmは開始時点のmemberとTURN leaseを取得し、member cleanup（status取得・channel close・TURN revoke）と、memberを所有者に持たないorphan資格の失効を同時に始める。同じ資格を二重失効しない。独立batchを順番に待って8秒の上限を余分に足さない。各provider操作の上限は8秒、失敗記録は保持して再試行する。
+
+## 個人削除の暗号文中継
+
+既存の端末Bearerで、署名済み削除と受取確認の暗号文を送信側の `UserAccount` に一時保存する。Workerが扱う `slot` は端末対が持つ推測困難な64桁小文字hexの値で、保存するキーにはそのSHA-256を使う。受取側は公開アカウントID・同じslot・受取端末の署名を提示する。第三者の公開IDだけを指定しても、その人の受信領域に情報を追加できない。暗号文の生成と[個人削除の署名・適用](../App/通信仕様.md#個人削除の送信待ち)はAppが所有する。
+
+| 操作 | 本文と成功応答 |
+|---|---|
+| PUT `/api/contact-deletions` | `{slot,id,expiresAt,recipient,recipientKey,packet}`。送信端末に記録を結び付け、`{state}` を返す。アカウントが同じでも別の送信端末からの置換は409 |
+| POST `/api/contact-deletions/read` | 受取側は `{owner,slot,proof}` を送り、`{deletion:{id,expiresAt,packet}}` を得る。送信側は自身の公開IDを `owner` に指定して `{owner,slot}` を送り、`{receipt:{id,expiresAt,packet}}` を得る。対象の状態にない場合や対象違いは404 |
+| PUT `/api/contact-deletions/receipt` | `{owner,slot,id,packet,proof}`。受取人と指定の公開鍵を照合し、削除の暗号文を確認の暗号文に置き換えて `{state:"received"}` を返す。同じ確認の再送は同じ応答 |
+| DELETE `/api/contact-deletions` | `{slot,id,expiresAt}`。送出元端末が `{state:"retired"}` にする。元の暗号文と宛先情報を回収し、元の期限までID・期限・送出元端末のみを残す。未登録のslotでも同じ印を残せるため、先に近距離で終了した削除を遅れた送出で復活させない |
+
+`owner` と `recipient` は各公開アカウントID。 `id` は小文字UUID、`expiresAt` はUnix msの整数で、`now < expiresAt <= now + 28日 + 5分`。 `recipientKey` はP-256公開鍵のbase64url値、`packet` は40〜4096文字の標準base64。受取の `proof` は既存の端末証明と長さ付き署名を使う。用途 `readContactDeletion` は `JSON.stringify([owner,slot])`、用途 `acknowledgeContactDeletionRelay` は `JSON.stringify([owner,slot,id,packet])` を署名対象にする。JSONに空白を足さず、base64中のスラッシュはエスケープしない。Workerは証明のアカウントと端末がBearerと一致すること、および証明の鍵が記録の宛先鍵と一致することを確認する。
+
+送信アカウント1件につき有効なslotを最大64件保持する。要求頻度は既存 `CALL_API_LIMIT` の個人削除用キーで制限する。送出の完全一致は重ねず、異なる内容への差替えは409。期限は既存のアカウントalarmで回収し、送信アカウントを削除した場合も同じ処理で回収する。受取アカウントの削除後は新しい公開IDから旧宛先の内容へアクセスできなくなり、送信側に残る暗号文は期限で回収される。[Durable Objectsのアラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
+
+Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appの暗号化・ライフサイクル接続と実サービスの受入は[個人削除の同期](../../backlog/未実装課題.md#個人の削除を相手側へ同期する)で追う。

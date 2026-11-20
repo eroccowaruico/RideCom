@@ -23,6 +23,10 @@ export interface Member {
 export function json(body: unknown, status = 200): Response {
     return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 }
+export async function sha256Hex(value: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+}
 export function limit(value: string | undefined, fallback: number, max: number): number {
     const n = Number(value)
     return Number.isSafeInteger(n) && n > 0 ? Math.min(n, max) : fallback

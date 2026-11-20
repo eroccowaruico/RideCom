@@ -3,6 +3,7 @@ import { UsageGuard } from './UsageGuard'
 import { Env, json } from './types'
 import { accountRequest, authenticateDevice } from './AppleAccount'
 import { notificationRequest } from './Notifications'
+import { contactDeletionRequest } from './ContactDeletions'
 export { NotificationIndex } from './NotificationIndex'
 export { SignalingRoom, UsageGuard }
 export { AppleAuthAttempt, UserAccount } from './AppleAccount'
@@ -12,6 +13,9 @@ export default {
         const url = new URL(request.url)
         if (url.pathname === '/health' && request.method === 'GET') return json({ service: 'RideCom SFU', protocol: 1 })
         if (url.pathname.startsWith('/api/notifications/')) return notificationRequest(request, env)
+        if (url.pathname === '/api/contact-deletions' || url.pathname.startsWith('/api/contact-deletions/')) {
+            return contactDeletionRequest(request, env)
+        }
         if (url.pathname.startsWith('/api/auth/')) return accountRequest(request, env)
         // Every billable operation is behind a per-device credential. No shared application secret in clients.
         const authorization = request.headers.get('Authorization') ?? ''

@@ -3,7 +3,7 @@ import { notificationAuth } from './AppleAccount'
 import { callLifetime, dedupeLifetime, groupInvitationLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
 import { verifyDeviceProof } from './DeviceIdentity'
 import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
-import { json, readJSON, type Env } from './types'
+import { json, readJSON, sha256Hex as notificationHash, type Env } from './types'
 
 const publicIDPattern = /^[a-f0-9]{64}$/
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -11,7 +11,6 @@ const audience = 'rideintercom-call-notification'
 const groupAudience = 'rideintercom-group-invitation'
 const account = (env: Env, id: string) => env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(id))
 const index = (env: Env, name: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName(name))
-export const notificationHash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('')
 function fields(body: Record<string, unknown>, allowed: string[]) {
     if (Object.keys(body).some(key => !allowed.includes(key))) throw new Error('body')
 }

@@ -4,6 +4,7 @@ import { errors, jwtVerify } from 'jose'
 import { Env, json, readJSON } from './types'
 import { certifyDevice } from './DeviceIdentity'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
+import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
 
 import { appleKeys, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
 const devicePattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -69,6 +70,28 @@ export class AppleAuthAttempt extends DurableObject<Env> {
 
 export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
+    private readonly contactDeletions = new AccountContactDeletions(this.ctx.storage)
+    async contactDeletionPublish(auth: NotificationAuth, slotHash: string, packet: ContactDeletionRelayPacket) {
+        if (!this.notifications.authorized(auth)) return 'unauthorized'
+        const state = this.contactDeletions.publish(auth, slotHash, packet)
+        if (state === 'pending' || state === 'received') await this.scheduleExpiry()
+        return state
+    }
+    async contactDeletionRetire(auth: NotificationAuth, slotHash: string, value: { id: string; expiresAt: number }) {
+        if (!this.notifications.authorized(auth)) return 'unauthorized'
+        const state = this.contactDeletions.retire(auth, slotHash, value)
+        if (state === 'retired') await this.scheduleExpiry()
+        return state
+    }
+    contactDeletionReceipt(auth: NotificationAuth, slotHash: string) {
+        return this.notifications.authorized(auth) ? this.contactDeletions.readReceipt(auth, slotHash) : null
+    }
+    contactDeletionNotice(owner: string, slotHash: string, recipient: string, key: string) {
+        return this.contactDeletions.readNotice(owner, slotHash, recipient, key)
+    }
+    contactDeletionAcknowledge(owner: string, slotHash: string, recipient: string, key: string, id: string, packet: string) {
+        return this.contactDeletions.acknowledge(owner, slotHash, recipient, key, id, packet)
+    }
     async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
     groupInvitationIDsForAdditionalDevice(auth: NotificationAuth, recipientKey: string) {
@@ -226,6 +249,7 @@ export class UserAccount extends DurableObject<Env> {
             this.ctx.storage.transactionSync(() => {
                 this.ctx.storage.kv.delete('userID')
                 this.notifications.invalidateAll()
+                this.contactDeletions.clear()
                 for (const prefix of ['device:', 'room:']) for (const [key] of this.ctx.storage.kv.list({ prefix })) this.ctx.storage.kv.delete(key)
                 // The token is held only for deletion retries, never routine login.
                 this.ctx.storage.kv.put('deletion', { userID: userID ?? expectedUserID, deviceID, tokenHash, deletedAt: now, expiresAt: now + 86400000,
@@ -298,6 +322,7 @@ export class UserAccount extends DurableObject<Env> {
     private prune() {
         this.notifications.prune()
         this.notifications.pruneUnstoredGroupCancellations()
+        this.contactDeletions.prune()
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         if (preparation && preparation.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletionPreparation')
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
@@ -311,7 +336,8 @@ export class UserAccount extends DurableObject<Env> {
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         const pending = !!receipt?.appleToken || !!receipt?.rooms?.length
-        const deadlines = [...this.notifications.deadlines(), ...devices.map(device => device.expiresAt), ...(preparation ? [preparation.expiresAt] : []),
+        const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(),
+            ...devices.map(device => device.expiresAt), ...(preparation ? [preparation.expiresAt] : []),
             ...(receipt?.appleToken && receipt.retryAt !== undefined && (receipt.attempts ?? 0) <= retryDelays.length ? [receipt.retryAt] : []),
             ...(receipt?.rooms?.length && receipt.mediaRetryAt !== undefined && (receipt.mediaAttempts ?? 0) <= retryDelays.length ? [receipt.mediaRetryAt] : []),
             ...(receipt && !pending ? [receipt.expiresAt] : [])]
