@@ -87,6 +87,26 @@ extension IntercomViewModel {
             removedGroups = try groupRepository.removeUser(id, signer: signer, now: callAccessNow())
         }
         catch { reportGroupStorageError(error); return false }
+        finishSavedUserRemoval(removedGroups)
+        return true
+    }
+
+    func receiveContactDeletion(_ notice: ContactDeletionNotice, from peerID: String) throws -> ContactDeletionReceipt {
+        guard canEditSavedGroups,
+              let recipient = try internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
+        else { throw DeviceIdentityProof.Failure.invalid }
+        let result = try groupRepository.receiveContactDeletion(notice, from: peerID, recipient: recipient, now: callAccessNow(),
+                                                                beforeRemoving: notifications.suppressContact)
+        if let removed = result.removedGroups { finishSavedUserRemoval(removed) }
+        return result.receipt
+    }
+
+    func acknowledgeContactDeletion(_ receipt: ContactDeletionReceipt, from peerID: String) throws {
+        guard canEditSavedGroups else { throw DeviceIdentityProof.Failure.invalid }
+        try groupRepository.acknowledgeContactDeletion(receipt, from: peerID, now: callAccessNow())
+    }
+
+    private func finishSavedUserRemoval(_ removedGroups: Set<UUID>) {
         if let active = activeGroupID, removedGroups.contains(active) { disconnect() }
         if let selected = selectedGroup?.id, removedGroups.contains(selected) { selectedGroup = nil }
         groups.removeAll { removedGroups.contains($0.id) }
@@ -94,7 +114,6 @@ extension IntercomViewModel {
         Task { await notifications.retryRevocations() }
         requestGroupDeliverySync(.localChange)
         groupErrorMessage = nil
-        return true
     }
 
     @discardableResult

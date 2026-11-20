@@ -56,7 +56,8 @@ final class GroupRepository {
     }
 
     private func validateIdentity(_ current: GroupSnapshot, localMemberID: String) throws -> [IntercomGroup] {
-        guard current.contactDeletions.allSatisfy({ $0.target.senderMemberID == localMemberID }) else {
+        guard current.contactDeletions.allSatisfy({ $0.target.senderMemberID == localMemberID }),
+              current.contactDeletionReceipts.allSatisfy({ $0.target.recipientMemberID == localMemberID }) else {
             throw IntercomGroupError.invalidStoredGroups
         }
         return try current.groups.map { record in
@@ -331,18 +332,65 @@ final class GroupRepository {
     @discardableResult
     func removeUser(_ id: UUID, signer: DeviceIdentitySigner? = nil, now: Date = Date()) throws -> Set<UUID> {
         guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+        return try removeUser(user, from: snapshot, now: now) { calls, next in
+            if let signer, signer.memberID == self.localMemberID {
+                try self.stageContactDeletions(for: user, directCalls: calls, signer: signer, now: now, in: &next)
+            }
+        }
+    }
+
+    private func removeUser(_ user: SavedUser, from snapshot: GroupSnapshot, now: Date,
+                            modify: ([GroupSnapshot.Record], inout GroupSnapshot) throws -> Void) throws -> Set<UUID> {
         let directCalls = snapshot.groups.filter { belongs($0, to: user) }
         let removed = Set(directCalls.map(\.id))
         try update(snapshot.groups.filter { !removed.contains($0.id) }.map { try $0.group() },
-                   credential: nil, users: snapshot.users.filter { $0.id != id }, now: now.timeIntervalSince1970) { next in
+                   credential: nil, users: snapshot.users.filter { $0.id != user.id }, now: now.timeIntervalSince1970) { next in
             Self.cancelPendingGroupReceipts(in: &next) { record in
                 record.senderMemberID.map(user.memberIDs.contains) == true
             }
-            if let signer, signer.memberID == self.localMemberID {
-                try self.stageContactDeletions(for: user, directCalls: directCalls, signer: signer, now: now, in: &next)
-            }
+            try modify(directCalls, &next)
         }
         return removed
+    }
+
+    func receiveContactDeletion(_ notice: ContactDeletionNotice, from peerID: String,
+                                recipient: DeviceIdentitySigner, now: Date, beforeRemoving: (UUID) throws -> Void)
+        throws -> (receipt: ContactDeletionReceipt, removedGroups: Set<UUID>?) {
+        guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
+        let target = notice.target
+        guard peerID == target.senderMemberID, localMemberID == recipient.memberID,
+              target.recipientMemberID == recipient.memberID, target.recipientKey == recipient.publicKey
+        else { throw DeviceIdentityProof.Failure.invalid }
+        if let receipt = snapshot.contactDeletionReceipts.first(where: { $0.id == notice.id }) {
+            try receipt.verify(for: notice, now: now)
+            try store.lock()
+            defer { store.unlock() }
+            guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
+            return (receipt, nil)
+        }
+        // A single device's pair credential cannot authorize removal of a multi-device entry.
+        guard let user = snapshot.users.first(where: { $0.memberIDs == [peerID] }),
+              let senderKey = user.deviceKeys?[peerID] else { throw DeviceIdentityProof.Failure.invalid }
+        let pairID = IntercomGroup.directCallID(memberIDs: [recipient.memberID, peerID])
+        guard snapshot.groups.contains(where: { $0.id == pairID && $0.kind == .direct && $0.accountPair == nil }),
+              let pair = try credential(for: pairID) else { throw DeviceIdentityProof.Failure.invalid }
+        try notice.verify(from: peerID, senderKey: senderKey, recipient: recipient, pairSecret: pair.secret, now: now)
+        let receipt = try ContactDeletionReceipt(for: notice, recipient: recipient)
+        let removed = try removeUser(user, from: snapshot, now: now) { _, next in
+            try beforeRemoving(user.id)
+            next.contactDeletionReceipts.append(receipt)
+        }
+        return (receipt, removed)
+    }
+
+    func acknowledgeContactDeletion(_ receipt: ContactDeletionReceipt, from peerID: String, now: Date) throws {
+        guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
+        guard let notice = snapshot.contactDeletions.first(where: { $0.id == receipt.id }) else { return }
+        guard peerID == notice.target.recipientMemberID else { throw DeviceIdentityProof.Failure.invalid }
+        try receipt.verify(for: notice, now: now)
+        try amend(snapshot, now: now.timeIntervalSince1970) { next in
+            next.contactDeletions.removeAll { $0.id == receipt.id }
+        }
     }
 
     private func stageContactDeletions(for user: SavedUser, directCalls: [GroupSnapshot.Record],
@@ -496,7 +544,8 @@ final class GroupRepository {
            groupDeliveries: previous.groupDeliveries, groupLinkReceipts: previous.groupLinkReceipts,
            groupRemovalReceipts: previous.groupRemovalReceipts.filter { $0.expiresAt > now },
            nearbyGroupCancellations: previous.nearbyGroupCancellations.filter { $0.expiresAt > now },
-           contactDeletions: previous.contactDeletions.filter { $0.target.expiresAt > now })
+           contactDeletions: previous.contactDeletions.filter { $0.target.expiresAt > now },
+           contactDeletionReceipts: previous.contactDeletionReceipts.filter { $0.target.expiresAt > now })
         try modify(&next)
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
