@@ -405,6 +405,20 @@ final class GroupRepository {
         }
     }
 
+    func finishContactDeletionRelay(_ publication: ContactDeletionPublication, now: Date) throws {
+        guard publication.payload == nil, let snapshot, snapshot.contactDeletionPublications.contains(publication) else { return }
+        try amend(snapshot, now: now.timeIntervalSince1970) { next in
+            next.contactDeletionPublications.removeAll { $0 == publication }
+        }
+    }
+
+    func finishContactDeletionRelay(_ receipt: ContactDeletionRelayReceipt, now: Date) throws {
+        guard let snapshot, snapshot.contactDeletionRelayReceipts.contains(receipt) else { return }
+        try amend(snapshot, now: now.timeIntervalSince1970) { next in
+            next.contactDeletionRelayReceipts.removeAll { $0 == receipt }
+        }
+    }
+
     private func stageContactDeletions(for user: SavedUser, directCalls: [GroupSnapshot.Record],
                                        signer: DeviceIdentitySigner, sender: AccountPrincipal?, now: Date,
                                        in next: inout GroupSnapshot) throws {

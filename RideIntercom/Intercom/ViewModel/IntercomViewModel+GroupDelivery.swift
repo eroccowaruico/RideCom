@@ -62,16 +62,16 @@ extension IntercomViewModel {
         } else if trigger != .refresh {
             groupDeliveryNeedsSync = true
         }
-        if trigger == .notification || (trigger == .localChange && groupRepository.groupDeliveries.contains {
-            $0.internetAction != nil
-        }) {
+        let outgoingInvitation = trigger == .localChange && groupRepository.groupDeliveries.contains { $0.internetAction != nil }
+        let outgoingDeletion = trigger == .localChange && hasPendingContactDeletionRelay
+        if outgoingDeletion || ((trigger == .notification || outgoingInvitation) && notifications.canUseNotifications) {
             requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
         }
     }
 
     /// Request time before the save or notification callback yields, even if a pass is already running.
     private func requestGroupDeliveryBackgroundTime(run: UUID) {
-        guard endGroupDeliveryBackgroundTime == nil, canEditSavedGroups, notifications.canUseNotifications
+        guard endGroupDeliveryBackgroundTime == nil, canEditSavedGroups
         else { return }
         let end = beginGroupDeliveryBackgroundTime { [weak self] in
             guard let self, self.groupDeliveryRunID == run else { return }
@@ -102,14 +102,16 @@ extension IntercomViewModel {
         groupDeliveryRunID = UUID(); groupDeliveryTask?.cancel(); groupDeliveryTask = nil; groupDeliveryNeedsSync = false
         finishGroupDeliveryBackgroundTime()
     }
-    private func groupDeliveryIsCurrent(_ access: CallNotificationServiceAccess, accountID: UUID) -> Bool {
+    func groupDeliveryIsCurrent(_ access: CallNotificationServiceAccess, accountID: UUID) -> Bool {
         hasCurrentAccountAccess && accountAccessID == accountID && !Task.isCancelled
             && (try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)) == access
     }
     private func performGroupDeliverySync() async {
-        guard canEditSavedGroups, notifications.canUseNotifications, let client = groupDeliveryClient,
+        guard canEditSavedGroups, let client = groupDeliveryClient,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return }
         let generation = accountAccessID
+        await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
+        guard canEditSavedGroups, notifications.canUseNotifications, groupDeliveryIsCurrent(access, accountID: generation) else { return }
         do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return }
         // One finite pass. Offline work remains in the manifest until the next explicit lifecycle event.

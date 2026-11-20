@@ -7,6 +7,88 @@ import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
+    @Test(arguments: [false, true])
+    func internetContactDeletionCompletesWithoutNotificationPermissions(nearbyFirst: Bool) async throws {
+        let a = GroupDeliveryTestIdentity("internet-delete-author"), b = GroupDeliveryTestIdentity("internet-delete-recipient")
+        let issuer = P256.Signing.PrivateKey()
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer)
+        for identity in [a, b] {
+            try identity.keychain.saveSecret("unreadable", service: identity.namespace + ".InternetConnection", account: "notification-permissions")
+        }
+        let sender = try a.harness(knowing: [], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [], onDisk: true).viewModel
+        defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync(); a.remove(); b.remove() }
+        for model in [sender, recipient] {
+            model.groupDeliveryClient = nil
+            model.contactSessionFactory = { RecordingCallSession() }
+            #expect(!model.notifications.canUseNotifications)
+        }
+        try recipient.acceptContactInviteURL(try #require(sender.makeContactInviteURL()))
+        let invitationID = try #require(recipient.pendingContactInvitations.first?.id)
+        try sender.receiveContactReplyURL(recipient.contactReplyURLForSharing(invitationID,
+            expectedAccountAccessID: recipient.accountAccessID))
+        sender.stopContactInvitationSession()
+        recipient.stopContactInvitationSession()
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: config))
+        GroupDeliveryHTTPStub.reset()
+        let owner = try a.principal
+        let target = try b.principal
+        let senderToken = try #require(try a.store.notificationAccess(memberID: a.memberID)).accessToken
+        let recipientToken = try #require(try b.store.notificationAccess(memberID: b.memberID)).accessToken
+        GroupDeliveryHTTPStub.users = [senderToken: owner.userID, recipientToken: target.userID]
+        let relay = ContactDeletionHTTPFixture(owner: owner.userID, recipient: target.userID,
+            memberID: b.memberID, trust: try #require(try b.store.identityTrust()))
+        relay.dropFirstReceiptResponse = nearbyFirst
+        GroupDeliveryHTTPStub.onContactDeletion = relay.respond
+        defer { GroupDeliveryHTTPStub.reset() }
+        sender.groupDeliveryClient = client
+        var backgroundStarts = 0
+        sender.beginGroupDeliveryBackgroundTime = { _ in
+            backgroundStarts += 1
+            return {}
+        }
+        try #require(sender.removeSavedUser(try #require(sender.savedRemoteUsers.first).id))
+        #expect(backgroundStarts == 1)
+        await sender.synchronizeGroupDeliveries()
+        let pending = try #require(sender.groupRepository.contactDeletionPublications.first)
+        let packet = try #require(pending.payload?.packet)
+        #expect(relay.entry == nil && relay.submitted == [packet])
+        sender.stopGroupDeliverySync()
+
+        if nearbyFirst {
+            let notice = try #require(sender.groupRepository.contactDeletions.first)
+            _ = try recipient.receiveContactDeletion(notice, from: a.memberID)
+        }
+        let reopenedSender = try a.harness(knowing: [], onDisk: true).viewModel
+        let reopenedRecipient = try b.harness(knowing: [], onDisk: true).viewModel
+        defer { reopenedSender.stopGroupDeliverySync(); reopenedRecipient.stopGroupDeliverySync() }
+        reopenedSender.groupDeliveryClient = client
+        reopenedRecipient.groupDeliveryClient = client
+        await reopenedSender.synchronizeGroupDeliveries()
+        #expect(relay.entry?.state == "pending")
+        #expect(relay.submitted == [packet, packet])
+        await reopenedRecipient.synchronizeGroupDeliveries()
+        #expect(reopenedRecipient.savedRemoteUsers.isEmpty)
+        #expect(relay.entry?.state == "received")
+        if nearbyFirst {
+            let kept = try #require(reopenedRecipient.groupRepository.contactDeletionRelayReceipts.first)
+            #expect(relay.received == [kept.packet])
+            await reopenedRecipient.synchronizeGroupDeliveries()
+            #expect(relay.received == [kept.packet, kept.packet])
+        }
+        #expect(reopenedRecipient.groupRepository.contactDeletionRelayReceipts.isEmpty)
+        await reopenedSender.synchronizeGroupDeliveries()
+        #expect(reopenedSender.groupRepository.contactDeletions.isEmpty)
+        #expect(reopenedSender.groupRepository.contactDeletionPublications.isEmpty)
+        #expect(relay.entry?.state == "retired" && relay.entry?.packet == nil)
+        #expect(relay.readCount == (nearbyFirst ? 0 : 1))
+        #expect(relay.received.count == (nearbyFirst ? 2 : 1))
+    }
+
     @Test func contactDeletionSealsOneInternetPacketBeforeDiscardingThePairKey() throws {
         let a = GroupDeliveryTestIdentity("relay-contact-author")
         let b = GroupDeliveryTestIdentity("relay-contact-recipient")
@@ -1330,6 +1412,89 @@ import UserNotifications
 }
 
 
+@MainActor private final class ContactDeletionHTTPFixture {
+    struct Entry {
+        let id: String
+        let slot: String
+        let expiresAt: Int64
+        let recipientKey: String
+        var state = "pending"
+        var packet: String?
+    }
+    let owner: String
+    let recipient: String
+    let memberID: String
+    let trust: DeviceIdentityTrust
+    var entry: Entry?
+    var submitted: [String] = []
+    var received: [String] = []
+    var readCount = 0
+    var dropFirstReceiptResponse = false
+
+    init(owner: String, recipient: String, memberID: String, trust: DeviceIdentityTrust) {
+        self.owner = owner
+        self.recipient = recipient
+        self.memberID = memberID
+        self.trust = trust
+    }
+
+    func respond(_ request: URLRequest, _ caller: String) -> (Int, [String: Any]) {
+        guard let body = request.httpBody, let fields = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let slot = fields["slot"] as? String, slot.utf8.count == 64
+        else { return (400, [:]) }
+        let id = fields["id"] as? String
+        let expiresAt = fields["expiresAt"] as? Int64
+        let packet = fields["packet"] as? String
+        let route = request.url?.path
+        switch (request.httpMethod, route) {
+        case ("PUT", "/api/contact-deletions"):
+            guard caller == owner, fields["recipient"] as? String == recipient, let id, id == id.lowercased(),
+                  let expiresAt, let packet, let recipientKey = fields["recipientKey"] as? String
+            else { return (400, [:]) }
+            submitted.append(packet)
+            if submitted.count == 1 { return (503, [:]) }
+            if let entry { return (200, ["state": entry.state]) }
+            entry = Entry(id: id, slot: slot, expiresAt: expiresAt, recipientKey: recipientKey, packet: packet)
+            return (200, ["state": "pending"])
+        case ("POST", "/api/contact-deletions/read"):
+            guard let entry, entry.slot == slot, fields["owner"] as? String == owner, let packet = entry.packet
+            else { return (404, [:]) }
+            let record: [String: Any] = ["id": entry.id, "expiresAt": entry.expiresAt, "packet": packet]
+            if caller == owner, entry.state == "received", fields["proof"] == nil { return (200, ["receipt": record]) }
+            guard caller == recipient, entry.state == "pending", verified(fields, [owner, slot],
+                    purpose: .readContactDeletion, key: entry.recipientKey) else { return (404, [:]) }
+            readCount += 1
+            return (200, ["deletion": record])
+        case ("PUT", "/api/contact-deletions/receipt"):
+            guard let entry, entry.slot == slot, caller == recipient, fields["owner"] as? String == owner,
+                  let id, id == entry.id, let packet,
+                  verified(fields, [owner, slot, id, packet], purpose: .acknowledgeContactDeletionRelay, key: entry.recipientKey)
+            else { return (404, [:]) }
+            received.append(packet)
+            self.entry?.packet = packet
+            self.entry?.state = "received"
+            if dropFirstReceiptResponse && received.count == 1 { return (503, [:]) }
+            return (200, ["state": "received"])
+        case ("DELETE", "/api/contact-deletions"):
+            guard let entry, entry.slot == slot, caller == owner, entry.id == id, entry.expiresAt == expiresAt
+            else { return (409, [:]) }
+            self.entry?.packet = nil
+            self.entry?.state = "retired"
+            return (200, ["state": "retired"])
+        default: return (404, [:])
+        }
+    }
+
+    private func verified(_ fields: [String: Any], _ values: [String], purpose: DeviceIdentityProof.Purpose, key: String) -> Bool {
+        guard let object = fields["proof"], let encoded = try? JSONSerialization.data(withJSONObject: object),
+              let proof = try? JSONDecoder().decode(DeviceIdentityProof.self, from: encoded), proof.publicKey == key,
+              let payload = try? JSONSerialization.data(withJSONObject: values, options: .withoutEscapingSlashes),
+              let result = try? proof.verify(payload, purpose: purpose, memberID: memberID, trust: trust)
+        else { return false }
+        return result.principal?.userID == recipient
+    }
+}
+
 private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var requestCount = 0
     nonisolated(unsafe) static var users: [String: String] = [:]
@@ -1339,12 +1504,13 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var onQueued: (@MainActor () -> Void)?
     nonisolated(unsafe) static var onAcknowledged: (@MainActor () -> Void)?
     @MainActor static var beforeReturningInbox: (@MainActor () async -> Void)?
+    @MainActor static var onContactDeletion: ((URLRequest, String) -> (Int, [String: Any]))?
     nonisolated(unsafe) static var rejectedRecipientID: String?
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
     nonisolated(unsafe) static var legacyAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil; onContactDeletion = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -1371,6 +1537,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     @MainActor private static func respond(_ request: URLRequest) -> (Int, [String: Any]) {
         let bearer = String((request.value(forHTTPHeaderField: "Authorization") ?? "").dropFirst(7))
         guard let caller = users[bearer], let url = request.url else { return (401, [:]) }
+        if url.path.hasPrefix("/api/contact-deletions") { return onContactDeletion?(request, caller) ?? (404, [:]) }
         if request.httpMethod == "POST", let body = request.httpBody,
            let fields = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
            let id = fields["requestID"] as? String, let expiry = fields["expiresAt"] as? Double,

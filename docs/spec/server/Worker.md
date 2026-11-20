@@ -264,4 +264,4 @@ alarmは開始時点のmemberとTURN leaseを取得し、member cleanup（status
 
 送信アカウント1件につき有効なslotを最大64件保持する。要求頻度は既存 `CALL_API_LIMIT` の個人削除用キーで制限する。送出の完全一致は重ねず、異なる内容への差替えは409。期限は既存のアカウントalarmで回収し、送信アカウントを削除した場合も同じ処理で回収する。受取アカウントの削除後は新しい公開IDから旧宛先の内容へアクセスできなくなり、送信側に残る暗号文は期限で回収される。[Durable Objectsのアラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
 
-Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appの暗号化・ライフサイクル接続と実サービスの受入は[個人削除の同期](../../backlog/未実装課題.md#個人の削除を相手側へ同期する)で追う。
+Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appは保存済みの暗号文を送信・取得し、受取確認を照合して回収する。[Appの配送と再開](../App/通信仕様.md#個人削除の送信待ち)、[Internetの実環境受入](../../validation/未確認事項.md#internetの個人削除の実環境受入)

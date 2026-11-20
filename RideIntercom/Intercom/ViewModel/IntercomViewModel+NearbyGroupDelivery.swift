@@ -306,6 +306,7 @@ extension IntercomViewModel {
                 case .contactDeletionReceipt(let receipt):
                     try acknowledgeContactDeletion(receipt, from: peer.rawValue)
                     finishNearbyGroupDeliveryIfComplete()
+                    if hasPendingContactDeletionRelay { requestGroupDeliverySync(.localChange) }
                 }
             } catch let error as GroupStorageError {
                 reportGroupStorageError(error)
