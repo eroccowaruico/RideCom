@@ -103,7 +103,7 @@ extension IntercomViewModel {
         if groupRepository.groupDeliveries.contains(where: {
             $0.direction == .outgoing && $0.state == .pending && $0.recipientMemberID == memberID
         }) {
-            requestGroupDeliverySync(forNewWork: true)
+            requestGroupDeliverySync(.localChange)
         }
     }
 

@@ -97,7 +97,8 @@ import UserNotifications
         #expect(!(await owner.respondToGroupInvitation(unrelated)))
     }
 
-    @Test func openingAnInvitationWhileAnOlderEmptyInboxResponseIsPendingReceivesTheGroup() async throws {
+    @Test(arguments: [false, true])
+    func openingAnInvitationWhileAnOlderEmptyInboxResponseIsPendingReceivesTheGroup(expiresAfterReceipt: Bool) async throws {
         let author = GroupDeliveryTestIdentity("notice-author")
         let recipient = GroupDeliveryTestIdentity("notice-recipient")
         defer { author.remove(); recipient.remove() }
@@ -142,6 +143,17 @@ import UserNotifications
         #expect(delivery.state == .queued)
         let notice = try #require(GroupInvitationTap(payload: ["version": 1, "kind": "groupInvitation",
             "requestID": delivery.noticeID.uuidString, "recipientID": try recipient.principal.userID]))
+        var started = 0, ended = 0
+        var expire: (@MainActor () -> Void)?
+        receiver.beginGroupDeliveryBackgroundTime = { expiration in
+            started += 1
+            expire = expiration
+            return { ended += 1 }
+        }
+        GroupDeliveryHTTPStub.onAcknowledged = {
+            #expect(started == 1 && ended == 0)
+            if expiresAfterReceipt { expire?() }
+        }
 
         // The tap and the older request join the same sync task on the main actor.
         Task { @MainActor in
@@ -149,8 +161,16 @@ import UserNotifications
             staleResponse.resume()
         }
         #expect(await owner.respondToGroupInvitation(notice))
-        #expect(receiver.groups.contains { $0.id == groupID })
+        #expect(started == 1 && ended == 1)
         #expect(GroupDeliveryHTTPStub.items[delivery.id.uuidString.lowercased()]?["status"] as? String == "received")
+        if expiresAfterReceipt {
+            #expect(!receiver.groups.contains { $0.id == groupID })
+            #expect(receiver.groupRepository.groupDeliveries.first?.id == delivery.id)
+            #expect(receiver.groupRepository.groupDeliveries.first?.state == .pending)
+            await receiver.synchronizeGroupDeliveries()
+            #expect(started == 1 && ended == 1)
+        }
+        #expect(receiver.groups.filter { $0.id == groupID }.count == 1)
         #expect(owner.groupsPresentationID != nil && owner.callPresentationID == nil && !receiver.hasAnyActiveGroupConnection)
     }
 

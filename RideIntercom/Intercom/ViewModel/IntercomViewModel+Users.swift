@@ -72,7 +72,7 @@ extension IntercomViewModel {
         catch { reportGroupStorageError(error); return false }
         refreshStoredAccountCall(groupID)
         refreshGroupStorageStatus()
-        requestGroupDeliverySync(forNewWork: true)
+        requestGroupDeliverySync(.localChange)
         return true
     }
 
@@ -91,7 +91,7 @@ extension IntercomViewModel {
         groups.removeAll { removedGroups.contains($0.id) }
         refreshGroupStorageStatus()
         Task { await notifications.retryRevocations() }
-        requestGroupDeliverySync(forNewWork: true)
+        requestGroupDeliverySync(.localChange)
         groupErrorMessage = nil
         return true
     }

@@ -1,6 +1,12 @@
 import Foundation
 
 extension IntercomViewModel {
+    enum GroupDeliveryTrigger {
+        case refresh
+        case localChange
+        case notification
+    }
+
     func groupDeliveryRecords(for selected: Set<UUID>, groupID: UUID) -> [GroupDeliveryRecord] {
         let expiry = callAccessNow().addingTimeInterval(7 * 86400).timeIntervalSince1970
         return savedRemoteUsers.filter { selected.contains($0.id) }.flatMap { user -> [GroupDeliveryRecord] in
@@ -35,7 +41,7 @@ extension IntercomViewModel {
         return records.isEmpty ? nil : .cancelled
     }
 
-    func requestGroupDeliverySync(forNewWork: Bool = false) {
+    func requestGroupDeliverySync(_ trigger: GroupDeliveryTrigger = .refresh) {
         guard groupDeliveryClient != nil, hasCurrentAccountAccess else { return }
         if groupDeliveryTask == nil {
             groupDeliveryNeedsSync = true
@@ -52,16 +58,19 @@ extension IntercomViewModel {
                     await performGroupDeliverySync()
                 }
             }
-        } else if forNewWork {
+        } else if trigger != .refresh {
             groupDeliveryNeedsSync = true
         }
-        if forNewWork { requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID) }
+        if trigger == .notification || (trigger == .localChange && groupRepository.groupDeliveries.contains {
+            $0.direction == .outgoing && $0.state != .received
+        }) {
+            requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
+        }
     }
 
-    /// Request time before the save action returns, including when a pass is already running.
+    /// Request time before the save or notification callback yields, even if a pass is already running.
     private func requestGroupDeliveryBackgroundTime(run: UUID) {
-        guard endGroupDeliveryBackgroundTime == nil, canEditSavedGroups, notifications.canUseNotifications,
-              groupRepository.groupDeliveries.contains(where: { $0.direction == .outgoing && $0.state != .received })
+        guard endGroupDeliveryBackgroundTime == nil, canEditSavedGroups, notifications.canUseNotifications
         else { return }
         let end = beginGroupDeliveryBackgroundTime { [weak self] in
             guard let self, self.groupDeliveryRunID == run else { return }
@@ -80,8 +89,8 @@ extension IntercomViewModel {
         end?()
     }
 
-    func synchronizeGroupDeliveries(forNewWork: Bool = false) async {
-        requestGroupDeliverySync(forNewWork: forNewWork)
+    func synchronizeGroupDeliveries(_ trigger: GroupDeliveryTrigger = .refresh) async {
+        requestGroupDeliverySync(trigger)
         await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {

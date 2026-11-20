@@ -41,7 +41,7 @@ extension IntercomViewModel {
         guard [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(message.namespace), message.payload.count <= 8192,
               notificationExchangeContext()?.peerID == peerID,
               let value = message.decodedPayload(CallNotificationPermissionMessage.self, from: peerID) else { return }
-        do { try notifications.receivePermission(value, peerID: peerID); requestGroupDeliverySync(forNewWork: message.namespace == CallNotificationPermissionMessage.groupNamespace) }
+        do { try notifications.receivePermission(value, peerID: peerID); requestGroupDeliverySync(message.namespace == CallNotificationPermissionMessage.groupNamespace ? .localChange : .refresh) }
         catch { /* Untrusted or unrelated capabilities cannot authorize a call. */ }
     }
 }

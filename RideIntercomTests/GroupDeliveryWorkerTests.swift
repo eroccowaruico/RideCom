@@ -169,6 +169,11 @@ import Testing
         let secondReceiver = try second.harness(knowing: [], onDisk: true).viewModel
         defer { secondReceiver.stopGroupDeliverySync(); secondReceiver.stopContactInvitationSession(); secondReceiver.disconnect() }
         secondReceiver.groupDeliveryClient = client
+        await author.synchronizeGroupDeliveries()
+        await secondReceiver.synchronizeGroupDeliveries()
+        #expect(secondReceiver.savedRemoteUsers.isEmpty && secondReceiver.groups.isEmpty)
+        #expect(!author.groupInvitationDeliveries(in: followUp).contains { $0.recipientMemberID == second.memberID })
+
         let contact = try #require(author.makeContactInviteURL())
         author.stopContactInvitationSession()
         try secondReceiver.acceptContactInviteURL(contact)
@@ -188,7 +193,16 @@ import Testing
         }
         #expect(!author.groupInvitationDeliveries(in: revokedAfterDownload).contains { $0.recipientMemberID == second.memberID })
         await author.groupDeliveryTask?.value
-        await secondReceiver.synchronizeGroupDeliveries()
+        var receivingStarts = 0, receivingEnds = 0
+        secondReceiver.beginGroupDeliveryBackgroundTime = { _ in
+            receivingStarts += 1
+            return { receivingEnds += 1 }
+        }
+        let notice = try #require(GroupInvitationTap(payload: ["version": 1, "kind": "groupInvitation",
+            "requestID": newDelivery.noticeID.uuidString, "recipientID": try second.principal.userID]))
+        let owner = AppCallOwner(account: secondReceiver.accountSession, viewModel: secondReceiver)
+        #expect(await owner.respondToGroupInvitation(notice))
+        #expect(receivingStarts == 1 && receivingEnds == 1)
         #expect(secondReceiver.groups.filter { $0.id == followUp }.count == 1)
         #expect(!secondReceiver.groups.contains { $0.id == revokedAfterDownload })
         #expect(secondReceiver.currentCallReference == secondCall && secondReceiver.activeGroupID == nil)

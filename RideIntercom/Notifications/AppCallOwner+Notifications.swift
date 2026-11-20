@@ -8,7 +8,7 @@ extension AppCallOwner {
               access.principal.userID == tap.recipientID else { return false }
         let generation = model.accountAccessID
         // An in-flight read may have taken its snapshot before this invitation arrived.
-        await model.synchronizeGroupDeliveries(forNewWork: true)
+        await model.synchronizeGroupDeliveries(.notification)
         guard viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == generation else { return false }
         if model.hasAnyActiveGroupConnection { model.showLiveCall(); callPresentationID = UUID() }
         else { groupsPresentationID = UUID() }
