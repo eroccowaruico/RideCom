@@ -149,15 +149,16 @@ App・serverのコードと公開値はrepoへ置き、アカウント固有の�
 | 3 | Worker配置 | repoの5 bindingを配置する。SIGNALING_ROOM・USAGE_GUARDはv1、APPLE_AUTH_ATTEMPT・USER_ACCOUNTはv2、NOTIFICATION_INDEXはv3のSQLite migration。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
 | 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
-| 6 | 1対1の呼び出し | 次の認証済み個別接続で既存相手と用途別許可を交換する。呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する |
-| 7 | グループ招待 | 登録済みの相手への招待を保存し、送信側のpending→queued、相手の保存後のreceivedを確認する。招待の通知が音やバナーを出さず通知センターに届くことを、RideComを開いているときと背景にいるときに確認する。通知を開いたときは現在の通話を維持する。OS通知を切った状態でも、前面復帰で招待を受け取ることを確認する |
-| 8 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる |
+| 6 | 新しい相手へのグループ招待 | 未登録の相手への招待を名前付きで保存し、OS共有で相手に渡す。相手の登録とグループ保存、署名付き返信と、送り手の返信待ちが消えるところまで確認する。[実環境受入](../validation/未確認事項.md#新規相手招待の実環境受入) |
+| 7 | 登録済み相手へのグループ自動配送 | 登録済みの相手と認証済み個別接続で用途別許可を交換し、招待を保存する。送信側のpending→queued、相手の保存後のreceivedを確認する。前面・背景で音やバナーを出さず通知センターに届くこと、通知を開いても現在の通話を維持すること、通知許可がない場合の前面復帰での受取を確認する。同じアカウントの追加端末への配送も試す。[実環境受入](../validation/未確認事項.md#登録済み相手へのグループ自動配送の実環境受入) |
+| 8 | 1対1の呼び出し | 呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する。[通常通知の受入](../validation/未確認事項.md#通常通知の受入) |
+| 9 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
 
 グループ鍵・名前は端末で暗号化されるため、group専用のserver secretを作らない。用途別grantは既存のDEVICE_IDENTITY_SIGNING_KEYで発行する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。
 
 secretは対象の環境を選んで入力する。CLIを使う場合は`server/`で、今後作成するPreviewに渡す値を`npx wrangler preview base-config secret put SECRET_NAME`、既存の固定Previewへは`npx wrangler preview secret put SECRET_NAME --name preview`で設定する。固定Previewへの設定は新しい配置を作る。Productionの`npx wrangler secret put SECRET_NAME`もその場で新しいバージョンを配置する。対象環境と配置するコードを照合し、値は対話入力へ渡す。実値はGit・通常変数・ログへ置かない。[Workersのsecret設定](https://developers.cloudflare.com/workers/configuration/secrets/)、[Previewsの設定](https://developers.cloudflare.com/workers/previews/configuration/)
 
-コード側は2026-11-18に、実Workerのローカル結合とAppの送受信・ファイル保存・ACKまで検証済み（[招待の検証記録](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)）。配置後のAPNs・2実機・実SFUは[未確認事項](../validation/未確認事項.md)の対応項目を通して受け入れる。
+登録済み相手への配送は、ローカルWorkerとAppの送受信・ファイル保存・ACKまで[検証済み](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)。同じアカウントの追加端末では、個人招待の交換なしで、元の招待と同じグループを保存できることも[ローカルで検証済み](../validation/history/招待返信の手動共有.md#新端末で個人招待を交換せずグループを保存する)。配置後は表の実APNs・実機・実SFUの受入へ進む。
 
 ## 外部設定の確認状況
 
