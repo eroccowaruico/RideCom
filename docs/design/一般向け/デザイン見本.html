@@ -620,30 +620,43 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     <figure>
       <div class="phone"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span class="sys"><svg class="i"><use href="#antenna"/></svg><span class="bat"></span></span></div>
-        <div class="navbar"></div>
+        <div class="navbar" style="justify-content:space-between">
+          <span class="navbtn" aria-label="閉じる"><svg class="i" style="transform:rotate(90deg)"><use href="#chev"/></svg></span>
+          <span class="navbtn" aria-label="グループの設定"><svg class="i"><use href="#gear"/></svg></span>
+        </div>
         <div class="body" style="padding-top:4px">
           <div class="glass card" style="margin-bottom:14px">
-            <div class="kind"><svg class="i"><use href="#person3"/></svg>グループ・4人</div>
+            <div class="kind"><svg class="i"><use href="#person3"/></svg>グループ・2人</div>
             <div class="dest">週末ツーリング</div>
             <div class="status wait"><span class="spin"></span>接続中</div>
             <div class="route">相手の参加を待っています</div>
           </div>
           <div class="ctrls">
-            <div class="ctrl"><span class="cbtn gl"><svg class="i"><use href="#mic-slash"/></svg></span>ミュート</div>
+            <div class="ctrl"><span class="cbtn muted"><svg class="i"><use href="#mic-slash"/></svg></span>ミュート中</div>
             <div class="ctrl"><span class="cbtn gl"><svg class="i"><use href="#speaker-slash"/></svg></span>消音</div>
             <div class="ctrl"><span class="cbtn end"><svg class="i"><use href="#phone-down"/></svg></span>切断</div>
           </div>
+          <div class="slider call-volume"><svg class="i"><use href="#speaker-low"/></svg><span class="track"><i style="width:50%"></i><b style="left:50%"></b></span><span class="vi l0" role="img" aria-label="出力：無音"><svg class="i"><use href="#speaker"/></svg><i></i><i></i><i></i><i></i><i></i></span></div>
+          <div class="group"><div class="row"><span class="grow">受信する声を分離</span><span class="toggle offt"></span></div></div>
+          <div class="group-h">メンバー</div>
+          <div class="group">
+            <div class="row link"><svg class="i"><use href="#person-add"/></svg>メンバーを招待</div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">自分<div class="sub">ミュート中</div></span><span class="tail" style="color:var(--red)"><svg class="i"><use href="#mic-slash"/></svg></span></div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub">接続していません</div></span></div>
+          </div>
         </div>
-        <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>通話のシート：接続待ち</b>一覧で選ぶとこのシートが開く。状態「接続中」と補足の2行。相手のいない場所に入って待つ正常な状態で、時間が経っても、通知を送れなくても、圏外で近距離だけでもこのまま。呼び出し中・応答なし・取り消しの表示は足さない。進行表示だけ warning 色。成功・失敗の色を確定表示しない。操作の列は会話中と同じ位置・同じ構成（やめるときも「切断」）。</figcaption>
+      <figcaption><b>通話のシート：接続待ち</b>一覧で選ぶと「接続中」と「相手の参加を待っています」を表示する。図はミュート中の通常グループ。会話中と同じ位置にミュート・消音・切断を置き、音量とメンバーも操作できる。右上からグループの設定を開く。左上の「閉じる」は待機を保ち、「切断」は確認して待機を終える。</figcaption>
     </figure>
 
     <!-- 通話 会話中 -->
     <figure>
       <div class="phone"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span class="sys"><svg class="i"><use href="#antenna"/></svg><span class="bat"></span></span></div>
-        <div class="navbar"></div>
+        <div class="navbar" style="justify-content:space-between">
+          <span class="navbtn" aria-label="閉じる"><svg class="i" style="transform:rotate(90deg)"><use href="#chev"/></svg></span>
+          <span class="navbtn" aria-label="グループの設定"><svg class="i"><use href="#gear"/></svg></span>
+        </div>
         <div class="body" style="padding-top:0">
           <div class="glass card" style="margin-bottom:14px">
             <div class="kind"><svg class="i"><use href="#person3"/></svg>グループ・4人</div>
@@ -664,13 +677,12 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row link"><svg class="i"><use href="#person-add"/></svg>メンバーを招待</div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">自分</span><span class="vi l2" role="img" aria-label="自分の声"><svg class="i"><use href="#mic"/></svg><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub">話しています</div></span><span class="vi l4" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span><span class="tail"><svg class="i chev"><use href="#chev"/></svg></span></div>
-            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span><span class="tail"><span class="link">呼び出す</span></span></div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span></div>
             <div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">ソラ<div class="sub">まだ送っていません</div></span><svg class="i chev"><use href="#chev"/></svg></div>
           </div>
         </div>
-        <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>通話のシート：会話中</b>下へ閉じても接続は続き、タブバーの上の通話表示から戻れる。ミュート（常に斜線入りのマイクの切替）・消音・切断を円形ガラスボタンで横並び。塗りの主操作は置かない。自分の行（マイクの入力）、相手ごと（届いている声）、音量の右端（実際の出力）に、声の大小を記号の段で示す（数値は出さない）。止まっている場所が、動いていない記号で分かる。未接続のメンバーで呼び出せる人には「呼び出す」。先頭の「メンバーを招待」から追加できる。未送信のソラは行を開いて共有でき、返信後は通常のメンバーの行に変わる。</figcaption>
+      <figcaption><b>通話のシート：会話中</b>左上で閉じても接続は続き、タブバーの上の通話表示から戻れる。ミュート・消音・赤い切断を円形ガラスボタンで並べる。自分の行（マイクの入力）、相手ごと（届いている声）、音量の右端（実際の出力）に声の大小を記号の段で示す。先頭の「メンバーを招待」から追加できる。未送信のソラは行を開いて共有でき、返信後は通常のメンバーの行に変わる。</figcaption>
     </figure>
 
     <!-- 通話 ミュート -->
@@ -803,7 +815,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div style="padding:10px 14px;flex-shrink:0"><div class="btn prom">保存</div></div>
         <div style="height:190px;flex-shrink:0;display:grid;place-items:center;background:var(--fill);color:var(--label2)">キーボード</div>
       </div></div>
-      <figcaption><b>相手を追加（入力中）</b>保存前は無書込。「保存」はキーボードの上に固定し、押した後は同じシートの保存済み詳細へ切り替える。共有せず保存できる。キーボードは領域だけを簡略表示。</figcaption>
+      <figcaption><b>相手を追加（入力中）</b>保存前の「キャンセル」は書き込まずに一覧へ戻る。「保存」はキーボードの上に固定し、押すと同じシートの<a href="../操作の流れ見本.html#register">保存済みの個人の詳細</a>へ進む。確定した名前と「未登録」を表示し、共有せず「完了」で閉じられる。キーボードは領域だけを簡略表示。</figcaption>
     </figure>
 
     <!-- 保存済みの同じ相手：共有取消でもこの詳細へ戻る -->
@@ -822,7 +834,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div style="position:absolute;bottom:14px;left:14px;right:14px"><div class="btn prom"><svg class="i"><use href="#share"/></svg>招待を共有</div></div>
       </div></div>
-      <figcaption><b>保存済みの相手の詳細</b>名前は保存で確定済み。例はグループ招待を保存して共有する前。OS共有を取り消すと同じ詳細で「まだ送っていません」、共有操作かコピーの完了で「受け取り待ち」に変わる。有効期限に達すると「期限切れ」。グループに予約枠がある間は「招待を共有」で同じ相手・参加先の招待を作り直す。新しい共有を取り消した場合は「まだ送っていません」。期限切れの枠やグループを外した後は、同じ相手の詳細から個人招待を共有できる。「完了」で元の画面に戻り、後で同じ人を再び開ける。登録完了時は「登録済み」に変わり、送信招待の状態は消える。<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">招待の状態遷移</a>と対応する設計見本。</figcaption>
+      <figcaption><b>グループ招待を保存した相手の詳細</b>名前と参加先は保存で確定済み。OS共有を取り消すと同じ詳細で「まだ送っていません」、共有操作かコピーの完了で「受け取り待ち」に変わる。有効期限に達すると「期限切れ」。グループに予約枠がある間は「招待を共有」で同じ相手・参加先の招待を作り直す。新しい共有を取り消した場合は「まだ送っていません」。期限切れの枠やグループを外した後は、同じ相手の詳細から個人招待を共有できる。「完了」で元の画面に戻り、後で同じ人を再び開ける。登録完了時は「登録済み」に変わり、送信招待の状態は消える。<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">招待の状態遷移</a>と対応する設計見本。</figcaption>
     </figure>
 
     <figure id="legacy-contact-invitation">
@@ -1156,7 +1168,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">自分</span><span class="vi l2" role="img" aria-label="自分の声"><svg class="i"><use href="#mic"/></svg><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub">話しています</div></span><span class="vi l4" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ケンタ</span><span class="vi l0" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span></div>
-            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span><span class="tail"><span class="link">呼び出す</span></span></div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span></div>
           </div>
         </div>
         <div class="sheetgrab"></div>
@@ -1195,7 +1207,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">自分</span><span class="vi l2" role="img" aria-label="自分の声"><svg class="i"><use href="#mic"/></svg><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub">話しています</div></span><span class="vi l4" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span></div>
             <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ケンタ</span><span class="vi l0" role="img" aria-label="声"><i></i><i></i><i></i><i></i><i></i></span></div>
-            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span><span class="tail"><span class="link">呼び出す</span></span></div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span></div>
           </div>
           <div class="group-h">ユーザー</div>
           <div class="group"><div class="row"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><span class="grow">マキ<div class="sub">未登録</div></span><svg class="i chev"><use href="#chev"/></svg></div></div>
