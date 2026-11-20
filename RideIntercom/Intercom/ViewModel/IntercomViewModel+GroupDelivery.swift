@@ -150,8 +150,11 @@ extension IntercomViewModel {
             if current.state == .cancelled { groupDeliveryNeedsSync = true; continue }
             do { if current.state != reply.status { try groupRepository.setGroupDeliveryState(record.id, state: reply.status) } }
             catch { reportGroupStorageError(error); return }
-
         }
+        await receiveGroupDeliveries(client: client, access: access, generation: generation)
+    }
+
+    private func receiveGroupDeliveries(client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID) async {
         guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
         guard let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID) else { return }
         // Resume locally saved work before reading new mail. An acknowledged packet

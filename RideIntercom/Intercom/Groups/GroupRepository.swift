@@ -617,12 +617,17 @@ extension GroupRepository {
         for record in records {
             guard record.isValid, record.direction == .outgoing, record.state == .pending, record.credentialReference == nil,
                   !next.groupDeliveries.contains(where: { $0.id == record.id }),
-                  let group = next.groups.first(where: { $0.id == record.groupID && $0.kind == .group }),
-                  let user = next.users.first(where: { $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
-                      && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey }),
-                  isSelectedGroupDeliveryRecipient(user, in: group) else { throw GroupStorageError.invalidUpdate }
+                  isSelectedGroupDelivery(record, in: next) else { throw GroupStorageError.invalidUpdate }
             next.groupDeliveries.append(record)
         }
+    }
+
+    private func isSelectedGroupDelivery(_ record: GroupDeliveryRecord, in snapshot: GroupSnapshot) -> Bool {
+        guard let group = snapshot.groups.first(where: { $0.id == record.groupID && $0.kind == .group }),
+              let user = snapshot.users.first(where: { $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
+                  && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey })
+        else { return false }
+        return isSelectedGroupDeliveryRecipient(user, in: group)
     }
 
     private func isSelectedGroupDeliveryRecipient(_ user: SavedUser, in group: GroupSnapshot.Record) -> Bool {
@@ -941,11 +946,7 @@ extension GroupRepository {
         for index in next.groupDeliveries.indices {
             let record = next.groupDeliveries[index]
             guard record.direction == .outgoing, record.state == .pending || record.state == .queued else { continue }
-            let group = next.groups.first(where: { $0.id == record.groupID && $0.kind == .group })
-            let user = next.users.first { $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
-                && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey }
-            let remainsSelected = group.flatMap { group in user.map { isSelectedGroupDeliveryRecipient($0, in: group) } } ?? false
-            if !remainsSelected {
+            if !isSelectedGroupDelivery(record, in: next) {
                 next.groupDeliveries[index].state = .cancelled
                 next.groupDeliveries[index].credentialReference = nil
             }
