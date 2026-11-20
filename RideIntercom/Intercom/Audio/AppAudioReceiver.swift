@@ -256,21 +256,20 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     func reconfigureInput<Result>(_ change: () -> Result) -> Result {
         lock.lock(); defer { lock.unlock() }
         graphGeneration.wrappingAdd(1, ordering: .releasing)
+        defer { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         let output = mixer?.bus("rx-output")
-        output?.beginSinkTransition(settlingDuration: 0, holding: true)
-        defer {
+        return withOutputProtection(output, settlingDuration: { output?.processingLatency ?? 0 }) {
+            let result = change()
             for source in sources.values { source.stop(); source.start() }
-            output?.beginSinkTransition(settlingDuration: output?.processingLatency ?? 0)
-            graphGeneration.wrappingAdd(1, ordering: .releasing)
+            return result
         }
-        return change()
     }
 
     /// Protect only the output whose native receive connections change.
     func updateIsolation(master enabled: Bool, peers: [String: Bool]) throws {
-        // Allocate only effects requested ON, while the old graph still plays.
-        // Capture/receive workers do not mutate topology; settings and lifecycle
-        // must retain their existing serial ownership across this preparation.
+        // Allocate existing disconnected effects while the old graph plays.
+        // Settings and lifecycle serialize changes to these effects. Reception
+        // can add a peer, so select the affected buses again under the lock.
         let preparation = lock.withLock {
             isolationChanges(master: enabled, peers: peers).compactMap { change in
                 change.enabled ? mixer?.bus(change.target.busID) : nil
@@ -287,29 +286,35 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let output = changesMaster ? mixer?.bus("rx-output") : nil
         let playoutDelay = configuration.receivePlayoutDelay ?? 0
         if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
-        var settling = changes.filter { !$0.enabled }.map { $0.effect.node.latency }.max() ?? 0
-        output?.beginSinkTransition(settlingDuration: 0, holding: true)
         defer {
-            if let output {
-                settling = max(settling, changes.filter { $0.enabled }.map { $0.effect.node.latency }.max() ?? 0)
-                output.beginSinkTransition(settlingDuration: settling + output.processingLatency
-                    + playoutDelay)
-            }
             if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         }
-        for (target, effect, value) in changes {
-            guard let bus = mixer?.bus(target.busID) else { throw AppAudioPipelineError.notConfigured }
-            let transitionBus = changesMaster ? nil : bus
-            let previousLatency = value ? 0 : effect.node.latency
-            transitionBus?.beginSinkTransition(settlingDuration: 0, holding: true)
-            defer {
-                if let transitionBus {
+        let previousLatency = changes.filter { !$0.enabled }.map { $0.effect.node.latency }.max() ?? 0
+        try withOutputProtection(output, settlingDuration: {
+            let nextLatency = changes.filter { $0.enabled }.map { $0.effect.node.latency }.max() ?? 0
+            return max(previousLatency, nextLatency) + (output?.processingLatency ?? 0) + playoutDelay
+        }) {
+            for (target, effect, value) in changes {
+                guard let bus = mixer?.bus(target.busID) else { throw AppAudioPipelineError.notConfigured }
+                let previousLatency = value ? 0 : effect.node.latency
+                try withOutputProtection(changesMaster ? nil : bus, settlingDuration: {
                     let nextLatency = value ? effect.node.latency : 0
-                    transitionBus.beginSinkTransition(settlingDuration: max(previousLatency, nextLatency) + playoutDelay)
+                    return max(previousLatency, nextLatency) + playoutDelay
+                }) {
+                    try AppAudioPipeline.setIsolationEnabled(effect, on: bus, enabled: value)
                 }
             }
-            try AppAudioPipeline.setIsolationEnabled(effect, on: bus, enabled: value)
         }
+    }
+
+    /// Hold this output through the native change and always release it, using
+    /// the settling time observed after the change. Callers choose the scope.
+    private func withOutputProtection<Result>(_ bus: MixerBus?, settlingDuration: () -> TimeInterval,
+                                              _ change: () throws -> Result) rethrows -> Result {
+        guard let bus else { return try change() }
+        bus.beginSinkTransition(settlingDuration: 0, holding: true)
+        defer { bus.beginSinkTransition(settlingDuration: settlingDuration()) }
+        return try change()
     }
 
     private func isolationChanges(master: Bool, peers: [String: Bool])
