@@ -18,6 +18,49 @@ import UIKit
 #endif
 @testable import RideIntercom
 
+private func packetTiming(_ packet: RTCAudioPacket) -> [String: Double] {
+    ["sequence": Double(packet.sequenceNumber), "capture": packet.capturedAt,
+     "host": ProcessInfo.processInfo.systemUptime,
+     "duration": Double(packet.sampleCount ?? 0) / Double(packet.format.channelCount) / packet.format.sampleRate]
+}
+
+private func tracedAudioReception(
+    pipeline: AppAudioPipeline,
+    observe: @escaping @Sendable (PCMFrame, [String: Double]) -> Void,
+    onFailure: @escaping @Sendable () -> Void = {}
+) -> @Sendable (RTC.ReceivedAudioPacket) -> AudioPacketReception {
+    { received in
+        var entry = packetTiming(received.packet)
+        do {
+            let frame = try pipeline.processReceivedAudioPacket(received)
+            entry["handled"] = ProcessInfo.processInfo.systemUptime
+            if let playout = pipeline.receivePlayoutDiagnostics(peerID: received.peerID.rawValue) {
+                entry["buffered"] = playout.bufferedDuration
+                entry["adjustments"] = Double(playout.adjustments)
+                entry["resets"] = Double(playout.resets)
+            }
+            observe(frame, entry)
+            return .processed(level: (try? AudioSignalMeter.measure(frame).rms) ?? 0)
+        } catch {
+            let failure = AudioPacketReception.failure(error)
+            if failure != .unavailable { onFailure() }
+            return failure
+        }
+    }
+}
+
+private final class PairedAudioTrace: Sendable {
+    let decoded = RenderedAudioProbe()
+    let transmitted = Mutex<[[String: Double]]>([])
+    let received = Mutex<[[String: Double]]>([])
+
+    func reset() {
+        decoded.reset()
+        transmitted.withLock { $0.removeAll(keepingCapacity: true) }
+        received.withLock { $0.removeAll(keepingCapacity: true) }
+    }
+}
+
 final class AudioE2ETests: XCTestCase {
     @MainActor
     private func observedOutputBatches(_ model: IntercomViewModel) -> Int {
@@ -421,10 +464,28 @@ final class AudioE2ETests: XCTestCase {
         }
         let peerID = try XCTUnwrap(viewModel.authenticatedPeerIDs.first)
         if waitsForLateParticipant {
+            let trace = PairedAudioTrace()
+            let pipeline = viewModel.audioPipeline
+            let originalTransmit = pipeline.onTransmitPacket
+            let originalReceive = viewModel.callSession.processReceivedAudio
+            pipeline.onTransmitPacket = { packet in
+                trace.transmitted.withLock { $0.append(packetTiming(packet)) }
+                originalTransmit?(packet)
+            }
+            // Install once. Assigning processReceivedAudio replaces the media
+            // subscription, so do not rebind it at measurement boundaries.
+            viewModel.callSession.processReceivedAudio = tracedAudioReception(pipeline: pipeline) { frame, entry in
+                trace.received.withLock { $0.append(entry) }
+                trace.decoded.append(frame, preservingTimeline: true)
+            }
+            defer {
+                pipeline.onTransmitPacket = originalTransmit
+                viewModel.callSession.processReceivedAudio = originalReceive
+            }
             XCTAssertEqual(viewModel.availableCallRoutes, [soleRoute])
             XCTAssertEqual(viewModel.activeGroupID, groupID)
             print("Audio E2E: Authenticated remote over \(transport) after \(joiningStarted.duration(to: .now))")
-            try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+            try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe, trace: trace,
                 scenario: usesInternet ? "late-internet" : "late-local", route: soleRoute,
                 transport: transport, role: role, local: input.samples, remote: remote.samples,
                 directory: directory, seconds: initial.seconds, movesToBackground: movesToBackground,
@@ -435,7 +496,7 @@ final class AudioE2ETests: XCTestCase {
                     route: soleRoute, peerID: peerID, groupID: groupID, role: role, transport: transport,
                     scenario: scenario, bothMute: checksBackgroundMute, keepMuted: recovery)
                 if !recovery {
-                    try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+                    try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe, trace: trace,
                         scenario: "\(scenario)-resumed", route: soleRoute, transport: transport,
                         role: role, local: input.samples, remote: remote.samples,
                         directory: directory, seconds: initial.seconds, movesToBackground: true,
@@ -459,7 +520,7 @@ final class AudioE2ETests: XCTestCase {
                     XCTAssertTrue(viewModel.effectiveInputMuted)
                     if role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: waitingCall)) }
                 }
-                try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe,
+                try await verifyPairedAudio(viewModel: viewModel, barrier: barrier, probe: probe, trace: trace,
                     scenario: checksInternetRecovery ? "background-internet-recovered" : "background-local-recovered",
                     route: soleRoute, transport: transport, role: role, local: input.samples, remote: remote.samples,
                     directory: directory, seconds: initial.seconds, movesToBackground: true,
@@ -482,33 +543,14 @@ final class AudioE2ETests: XCTestCase {
         #endif
         let receivedTiming = Mutex<[[String: Double]]>([])
         let decodeFailures = Mutex(0)
-        @Sendable func timing(_ packet: RTCAudioPacket) -> [String: Double] {
-            ["sequence": Double(packet.sequenceNumber), "capture": packet.capturedAt,
-             "host": ProcessInfo.processInfo.systemUptime,
-             "duration": Double(packet.sampleCount ?? 0) / Double(packet.format.channelCount) / packet.format.sampleRate]
-        }
         // Observe the PCM returned by the shipping receive path. Starting an
         // additional decoder in the middle of a stream has different priming
         // history, adds CPU load and cannot measure the real decode boundary.
-        viewModel.callSession.processReceivedAudio = { [pipeline = viewModel.audioPipeline] received in
-            var entry = timing(received.packet)
-            do {
-                let frame = try pipeline.processReceivedAudioPacket(received)
-                entry["handled"] = ProcessInfo.processInfo.systemUptime
-                if let playout = pipeline.receivePlayoutDiagnostics(peerID: received.peerID.rawValue) {
-                    entry["buffered"] = playout.bufferedDuration
-                    entry["adjustments"] = Double(playout.adjustments)
-                    entry["resets"] = Double(playout.resets)
-                }
-                receivedTiming.withLock { $0.append(entry) }
-                decodedProbe.append(frame, preservingTimeline: true)
-                return .processed(level: (try? AudioSignalMeter.measure(frame).rms) ?? 0)
-            } catch AppAudioPipelineError.notConfigured {
-                return .unavailable
-            } catch {
-                decodeFailures.withLock { $0 += 1 }
-                return .failed(String(describing: type(of: error)))
-            }
+        viewModel.callSession.processReceivedAudio = tracedAudioReception(pipeline: viewModel.audioPipeline) { frame, entry in
+            receivedTiming.withLock { $0.append(entry) }
+            decodedProbe.append(frame, preservingTimeline: true)
+        } onFailure: {
+            decodeFailures.withLock { $0 += 1 }
         }
         // Preserve every failing quality condition and its recording. Connection
         // setup still throws on timeout, so a missing peer cannot count as a run.
@@ -540,7 +582,7 @@ final class AudioE2ETests: XCTestCase {
             }
             let transmittedTiming = Mutex<[[String: Double]]>([])
             viewModel.audioPipeline.onTransmitPacket = { packet in
-                transmittedTiming.withLock { $0.append(timing(packet)) }; originalTransmit?(packet)
+                transmittedTiming.withLock { $0.append(packetTiming(packet)) }; originalTransmit?(packet)
             }
             func dropCounts() -> [String: Int] {
                 ["capture": input.droppedCaptureFrameCount,
@@ -881,6 +923,7 @@ final class AudioE2ETests: XCTestCase {
     @MainActor
     private func verifyPairedAudio(
         viewModel: IntercomViewModel, barrier: AudioE2EBarrier, probe: RenderedAudioProbe,
+        trace: PairedAudioTrace,
         scenario: String, route: RouteKind, transport: String, role: String,
         local: [Float], remote: [Float], directory: URL, seconds: Double, movesToBackground: Bool,
         expectsRemoteSpeech: Bool = true
@@ -902,12 +945,18 @@ final class AudioE2ETests: XCTestCase {
         let udpBefore = localUDPObservation()
         let decodeBefore = viewModel.audioPipeline.receiveDecodeCounts
         probe.reset()
+        trace.reset()
         let start = Date().timeIntervalSince1970
         let firstSent = viewModel.sentVoicePacketCount
         let firstReceived = viewModel.receivedVoicePacketCount
         try await Task.sleep(for: .seconds(seconds))
         let end = Date().timeIntervalSince1970
         let rendered = probe.snapshot()
+        let decoded = trace.decoded.snapshot()
+        let firstDecodedCaptureTime = trace.decoded.firstOutputTime
+        let firstRenderedHostTime = probe.firstOutputTime
+        let transmitted = trace.transmitted.withLock { $0 }
+        let receivedTrace = trace.received.withLock { $0 }
         let udpAfter = localUDPObservation()
         let decodeAfter = viewModel.audioPipeline.receiveDecodeCounts
         checkBackgroundIfRequested(movesToBackground)
@@ -917,11 +966,13 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
         XCTAssertNil(viewModel.audioErrorMessage)
         try await barrier.meet("\(scenario)-measured")
-        let (remoteMatch, localMatch, continuity) = await Task.detached {
+        let (remoteMatch, localMatch, continuity, decodedContinuity) = await Task.detached {
             (RenderedAudioProbe.speechMatch(reference: remote, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate),
              RenderedAudioProbe.speechMatch(reference: local, referenceRate: 48000, output: rendered.samples, outputRate: rendered.rate),
              expectsRemoteSpeech ? SpeechContinuity.measure(reference: remote, referenceRate: 48000,
-                 output: rendered.samples, outputRate: rendered.rate) : nil)
+                 output: rendered.samples, outputRate: rendered.rate) : nil,
+             expectsRemoteSpeech ? SpeechContinuity.measure(reference: remote, referenceRate: 48000,
+                 output: decoded.samples, outputRate: decoded.rate) : nil)
         }.value
         XCTAssertEqual(rendered.invalid, 0)
         XCTAssertGreaterThan(rendered.samples.count, Int(rendered.rate * seconds * 0.8))
@@ -940,6 +991,9 @@ final class AudioE2ETests: XCTestCase {
             "sentVoicePackets": sent, "decodedPCMPackets": decodeAfter.pcmPackets - decodeBefore.pcmPackets,
             "decodeFailures": decodeAfter.failures - decodeBefore.failures,
             "continuity": try continuity.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull(),
+            "decodedContinuity": try decodedContinuity.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull(),
+            "decodedInvalidSamples": decoded.invalid, "firstDecodedCaptureTime": firstDecodedCaptureTime as Any? ?? NSNull(),
+            "firstOutputHostTime": firstRenderedHostTime as Any? ?? NSNull(),
             "received": received, "remoteMatch": remoteMatch, "localMatch": localMatch,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
@@ -953,6 +1007,19 @@ final class AudioE2ETests: XCTestCase {
         recording.name = "endpoint-\(role)-\(scenario)-speech"
         recording.lifetime = .keepAlways
         add(recording)
+        let traceData = try JSONSerialization.data(withJSONObject: ["transmitted": transmitted, "received": receivedTrace])
+        let timing = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
+        timing.name = "endpoint-\(role)-\(scenario)-packet-timing"
+        timing.lifetime = .keepAlways
+        add(timing)
+        if !decoded.samples.isEmpty {
+            let url = directory.appendingPathComponent("\(scenario)-\(role)-decoded.wav")
+            try await Task.detached { try trace.decoded.writeWAV(to: url, rendered: decoded) }.value
+            let recording = XCTAttachment(contentsOfFile: url)
+            recording.name = "endpoint-\(role)-\(scenario)-decoded"
+            recording.lifetime = .keepAlways
+            add(recording)
+        }
     }
 
     @MainActor
