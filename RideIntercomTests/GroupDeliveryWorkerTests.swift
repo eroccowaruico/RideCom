@@ -169,8 +169,25 @@ import Testing
         let secondReceiver = try second.harness(knowing: [], onDisk: true).viewModel
         defer { secondReceiver.stopGroupDeliverySync(); secondReceiver.stopContactInvitationSession(); secondReceiver.disconnect() }
         secondReceiver.groupDeliveryClient = client
+        struct AdditionalAddress: Decodable, Equatable, Sendable {
+            let memberID: String
+            let recipientKey: String
+        }
+        struct AdditionalDevices: Decodable, Sendable {
+            let devices: [AdditionalAddress]
+        }
+        let path = "api/notifications/group-invitations/\(newDelivery.recipient.userID)/\(newDelivery.id.uuidString.lowercased())/additional-devices"
+        func workerAddresses() async throws -> [AdditionalAddress] {
+            let response: AdditionalDevices = try await client.sendJSON(origin: sender.origin, path: path,
+                method: "GET", token: sender.accessToken)
+            return response.devices
+        }
+        #expect(try await workerAddresses().isEmpty)
         await author.synchronizeGroupDeliveries()
         await secondReceiver.synchronizeGroupDeliveries()
+        await secondReceiver.synchronizeGroupDeliveries()
+        let address = AdditionalAddress(memberID: second.memberID, recipientKey: try second.signer.publicKey)
+        #expect(try await workerAddresses() == [address])
         #expect(secondReceiver.savedRemoteUsers.isEmpty && secondReceiver.groups.isEmpty)
         #expect(!author.groupInvitationDeliveries(in: followUp).contains { $0.recipientMemberID == second.memberID })
 

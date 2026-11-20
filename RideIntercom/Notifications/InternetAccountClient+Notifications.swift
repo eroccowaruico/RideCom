@@ -106,6 +106,7 @@ nonisolated struct GroupDeliveryItem: Decodable, Sendable {
 }
 extension InternetAccountClient {
     nonisolated private struct GroupInbox: Decodable, Sendable { let delivery: GroupDeliveryItem? }
+    nonisolated private struct AdditionalDeviceInvitations: Decodable, Sendable { let requestIDs: [UUID]? }
     nonisolated private struct GroupAcknowledgement: Decodable, Sendable {
         let status: GroupDeliveryRecord.State?
     }
@@ -135,6 +136,28 @@ extension InternetAccountClient {
         }
         return result.delivery
     }
+    func invitationsForAdditionalDevice(recipientKey: String, access: CallNotificationServiceAccess) async throws -> [UUID] {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        guard DeviceIdentityProof.isValidPublicKey(recipientKey) else { throw Failure.invalidResponse }
+        let result: AdditionalDeviceInvitations = try await sendJSON(origin: access.origin,
+            path: "api/notifications/group-invitations/additional-devices", method: "GET", token: access.accessToken,
+            query: [.init(name: "recipientKey", value: recipientKey)], acceptsMissing: true)
+        let ids = result.requestIDs ?? []
+        guard ids.count <= 64, Set(ids).count == ids.count else { throw Failure.invalidResponse }
+        return ids
+    }
+
+    func requestGroupInvitationForAdditionalDevice(_ id: UUID, signer: DeviceIdentitySigner,
+                                                   access: CallNotificationServiceAccess) async throws {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        guard access.principal.isValid, signer.principal == access.principal else { throw Failure.invalidResponse }
+        let requestID = id.uuidString.lowercased()
+        let proof = try signer.sign(Data(requestID.utf8), purpose: .requestGroupInvitationRedelivery)
+        let _: GroupAcknowledgement = try await sendJSON(origin: access.origin,
+            path: "api/notifications/group-invitations/\(access.principal.userID)/\(requestID)/additional-devices",
+            body: JSONEncoder().encode(proof), token: access.accessToken, acceptsMissing: true)
+    }
+
     @discardableResult
     func finishGroupInvitation(recipient: AccountPrincipal, id: UUID, discard: Bool = false,
                                access: CallNotificationServiceAccess) async throws -> GroupDeliveryRecord.State? {

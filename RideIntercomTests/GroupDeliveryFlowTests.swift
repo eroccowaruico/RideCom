@@ -250,7 +250,7 @@ import UserNotifications
         #expect(GroupDeliveryHTTPStub.requestCount == 2, "GET and one failed discard, without re-fetching the same invalid packet")
         #expect(h.viewModel.groups.map(\.id) == initialGroups)
         await h.viewModel.synchronizeGroupDeliveries()
-        #expect(GroupDeliveryHTTPStub.requestCount == 5, "A later lifecycle pass retries discard and then observes an empty inbox")
+        #expect(GroupDeliveryHTTPStub.requestCount == 6, "A later pass retries discard before checking the empty inbox and additional invitations")
     }
 
     enum KeyConflictTiming: String, CaseIterable { case alreadySaved, beforeReceiptRetry, afterReceipt }

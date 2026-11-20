@@ -172,7 +172,10 @@ extension IntercomViewModel {
             } else {
                 item = nil
             }
-            guard let id = pending?.id ?? item?.requestID else { break }
+            guard let id = pending?.id ?? item?.requestID else {
+                await requestInvitationsForAdditionalDevice(client: client, signer: signer, access: access, generation: generation)
+                break
+            }
             let restored: GroupInvitationEnvelope?
             do { restored = try pending.map { try groupRepository.groupDeliveryEnvelope($0.id) } }
             catch { reportGroupStorageError(error); return }
@@ -222,5 +225,19 @@ extension IntercomViewModel {
             } catch { reportGroupStorageError(error); return }
         }
         refreshGroupStorageStatus()
+    }
+
+    private func requestInvitationsForAdditionalDevice(client: InternetAccountClient, signer: DeviceIdentitySigner,
+                                                       access: CallNotificationServiceAccess, generation: UUID) async {
+        guard signer.principal == access.principal,
+              let ids = try? await client.invitationsForAdditionalDevice(recipientKey: signer.publicKey, access: access)
+        else { return }
+        for id in ids {
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications
+            else { return }
+            do { try await client.requestGroupInvitationForAdditionalDevice(id, signer: signer, access: access) }
+            catch InternetAccountClient.Failure.forbidden { continue }
+            catch { return }
+        }
     }
 }
