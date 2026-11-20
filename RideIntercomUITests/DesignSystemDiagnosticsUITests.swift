@@ -70,6 +70,12 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         output.tap()
         let details = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Buffered: ")).firstMatch
         XCTAssertTrue(details.waitForExistence(timeout: 3))
+        picker.buttons["Applied"].tap()
+        let call = app.staticTexts["Call"].firstMatch
+        let invite = app.staticTexts["Invite"].firstMatch
+        reveal(invite, app: app)
+        XCTAssertTrue(call.exists)
+        XCTAssertLessThan(call.frame.minY, invite.frame.minY)
     }
 
     func testDiagnosticsMenuAtAccessibilitySizeInLandscape() {

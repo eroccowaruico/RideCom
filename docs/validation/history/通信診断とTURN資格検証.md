@@ -98,3 +98,7 @@ Build 1469のiOS Simulatorで、同じ320ptの通常・最大文字を描画し�
 ## Build 1470の定期整理で診断の表示を現行の画面に揃える（2026-11-20）
 
 第一巡では、RTCから届く `networkDiagnostics` がViewModelに入り、Networkと送受信の診断がそれぞれ必要な値を読む経路をたどった。旧Networkの長文を作る `networkDiagnosticsSummary` はAppの画面から参照されず、古い単体試験だけが使っていた。長文の処理を外し、観測時刻・未取得の損失率を保持し、通話終了時に破棄する契約を、現在の観測値で検査する形へ変更した。画面側は320ptの実描画で既定・最大文字の計測値と `Stale` を引き続き照合した。新しいファイルや中継処理は増やさず既存の所有元を使った。Build 1470のiOS Simulatorで診断24テストが成功した。証跡は `.validation/isolation-labels-1460/diagnostics-refactor-1470-first`。
+
+第二巡では、AppliedのCall・Inviteへ実際に渡る状態を再度追った。ViewModelで旧概要カードを4枚組み、画面で2枚を捨てていたため、表示する2枚だけを既存のViewModelから渡す形にした。Networkの経路値はRTCのレポート、Appliedの現在状態は通話と招待の状態を使う。現行の画面が使わない数値の整形・アイコン・severityを整理し、仕様の表示と識別子を実態に合わせた。既存App target内で経路を閉じ、招待キーの読込や生成を表示更新に持ち込まないことを回帰した。
+
+Build 1471のiOS Simulatorで、診断・設定・招待保存と、実画面でのAppliedのCall→Inviteを含む43テストが成功した。失敗・skip・実行時警告は0。証跡は `.validation/isolation-labels-1460/diagnostics-refactor-1470-second`。実機での診断確認は[実環境受入](../未確認事項.md#画面デザインの実環境受入)に残した。

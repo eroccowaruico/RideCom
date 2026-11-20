@@ -399,17 +399,16 @@ struct DiagnosticsTests {
         #expect([quiet, loud].allSatisfy { ($0 * 4).rounded() == $0 * 4 }, "Steps, so the symbol does not flicker")
     }
 
-    @Test func diagnosticsRowsSummarizeCurrentAppState() {
-        let harness = AppTestSupport.makeHarness()
-        let overviewRows = harness.viewModel.diagnosticsOverviewRows
-        #expect(overviewRows.map(\.id) == ["media", "call", "network", "invite"])
-        #expect(overviewRows.map(\.title) == ["Audio Path", "Call", "Network Quality", "Invite"])
-        #expect(overviewRows.contains { $0.accessibilityIdentifier == "audioSessionSummaryLabel" } == false)
-        #expect(overviewRows.contains { $0.accessibilityIdentifier == "audioInputProcessingSummaryLabel" } == false)
-        #expect(overviewRows.contains { $0.accessibilityIdentifier == "playbackDebugSummaryLabel" } == false)
-        #expect(overviewRows.contains { $0.accessibilityIdentifier == "codecDebugSummaryLabel" } == false)
-        #expect(overviewRows.contains { $0.accessibilityIdentifier == "audioDebugSummaryLabel" } == false)
-        #expect(overviewRows.contains { $0.accessibilityIdentifier == "authenticationDebugSummaryLabel" } == false)
+    @Test func appliedDiagnosticsSummarizeCallAndInvitationInOrder() {
+        let model = AppTestSupport.makeHarness().viewModel
+        let group = IntercomSeedData.recentGroups[0]
+        model.selectedGroup = group
+        let rows = model.diagnosticsAppliedRows
+        #expect(rows.map(\.id) == ["call", "invite"])
+        #expect(rows.map(\.title) == ["Call", "Invite"])
+        #expect(rows.first?.summary == "CALL \(model.connectionLabel)")
+        let detail = "GROUP \(group.id.uuidString.prefix(8)) / MEMBERS \(group.members.count)"
+        #expect(rows.map(\.detail) == [detail, detail])
     }
 
     @Test func diagnosticsReportOnlyTheGraphActuallyProcessingAudio() async {

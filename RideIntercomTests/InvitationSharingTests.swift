@@ -15,7 +15,7 @@ struct InvitationSharingTests {
         h.viewModel.selectedGroup = group
         let reads = keychain.readCount
         let snapshot = h.groupStore.snapshot
-        for _ in 0..<20 { _ = h.viewModel.diagnosticsOverviewRows }
+        for _ in 0..<20 { _ = h.viewModel.diagnosticsAppliedRows }
         #expect(keychain.readCount == reads)
         #expect(keychain.accounts(service: "lazy-share.DirectInvitations").isEmpty)
         #expect(keychain.accounts(service: "lazy-share.InternetConnection").isEmpty)

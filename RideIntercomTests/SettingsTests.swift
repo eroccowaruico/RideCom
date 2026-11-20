@@ -410,7 +410,6 @@ struct SettingsTests {
         #expect(harness.viewModel.internetWorkerURL == "https://worker.test")
         #expect(!harness.viewModel.internetCheckMessage.contains("private-token"))
         #expect(harness.callSession.startMediaCallCount == 0)
-        #expect(harness.viewModel.diagnosticsOverviewRows.first?.summary == "Shared packet audio")
     }
 
 }

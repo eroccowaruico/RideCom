@@ -58,7 +58,7 @@ struct DiagnosticsAppliedView: View {
             } label: {
                 DiagnosticsCardHeader("Requested → Applied", trailing: nil)
             }
-            ForEach(viewModel.diagnosticsOverviewRows.filter { $0.id == "call" || $0.id == "invite" }) { row in
+            ForEach(viewModel.diagnosticsAppliedRows) { row in
                 GroupBox(row.title) {
                     VStack(alignment: .leading, spacing: AppSpacing.s) {
                         DiagnosticsValueRow("State", value: row.summary)
