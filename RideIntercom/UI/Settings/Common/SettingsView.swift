@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct SettingsView: View {
     @Bindable var viewModel: IntercomViewModel
@@ -7,9 +10,11 @@ struct SettingsView: View {
     var body: some View {
         Form {
             if viewModel.interfaceMode == .standard {
-                StandardSettingsView(viewModel: viewModel, isEditingInternet: $isEditingInternet)
+                StandardSettingsView(viewModel: viewModel, isEditingInternet: $isEditingInternet,
+                                     showsWatchSettings: showsWatchSettings)
             } else {
-                AdvancedSettingsView(viewModel: viewModel, isEditingInternet: $isEditingInternet)
+                AdvancedSettingsView(viewModel: viewModel, isEditingInternet: $isEditingInternet,
+                                     showsWatchSettings: showsWatchSettings)
             }
         }
         .formStyle(.grouped)
@@ -39,6 +44,14 @@ struct SettingsView: View {
             .frame(minWidth: 480, minHeight: 320)
             #endif
         }
+    }
+
+    private var showsWatchSettings: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
     }
 }
 

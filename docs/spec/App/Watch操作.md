@@ -1,6 +1,6 @@
 # iPhone依存のWatch操作
 
-Watchは当面開発・検証用とする。通常のiOS ReleaseにはWatch Appを組み込まず、iPhone側のWatch Connectivity bridgeも起動しない。配布見送り中はiPhoneのStandardでWatchの設定を非表示にし、AdvancedのWatch自動切断Pickerを無効にする。[製品要求](../../requirements/製品要求.md#利用者に提供すること)、[設定仕様](UI/Settings.md#自動切断)、[配布生成物の確認](../../development/OS権限と配布設定.md#生成物での確認)
+Watchは当面開発・検証用とする。通常のiOS ReleaseにはWatch Appを組み込まず、iPhone側のWatch Connectivity bridgeも起動しない。配布見送り中はiPhoneのStandardでWatchの設定を非表示にし、AdvancedのWatch自動切断Pickerを無効にする。iPad・Macの設定からはWatch専用の操作を提供しない。[製品要求](../../requirements/製品要求.md#利用者に提供すること)、[設定仕様](UI/Settings.md#自動切断)、[配布生成物の確認](../../development/OS権限と配布設定.md#生成物での確認)
 
 再公開の判断には、iPhoneをロックした状態と、別のアプリを使うなどRideComを背景化した状態の両方で、公開するリモコンの全操作がiPhoneへ反映され、結果をWatchで確認できる実機の記録を使う。最低限、通話先の取得と選択、待受からの開始、ミュートと解除、終了、状態の取得を含める。呼出し通知の送信・取消を提供する場合も対象に含める。操作直後のiPhoneのロック、通信が切れた場合の失敗表示と復帰後の再操作も確かめる。Watch自身の端末ロック、手首を下げた暗転、アプリの背景化は区別して記録する。Watchのマイク・スピーカーを用いる音声は別の受入とする。
 

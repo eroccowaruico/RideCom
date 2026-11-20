@@ -4,6 +4,7 @@ import RTC
 struct StandardSettingsView: View {
     @Bindable var viewModel: IntercomViewModel
     @Binding var isEditingInternet: Bool
+    let showsWatchSettings: Bool
 
     var body: some View {
         // Groups of the same purpose (you, connecting, routes, audio, advanced, reset). SwiftUI uses the larger
@@ -54,13 +55,15 @@ struct StandardSettingsView: View {
                     }
                     StandardInterfaceModeSection(viewModel: viewModel)
                     #if os(iOS) && (DEBUG || RIDEINTERCOM_VALIDATION)
-                    Section {
-                        WatchDisconnectTimerPicker(selection: Binding(
-                            get: { viewModel.watchCallDisconnectInterval },
-                            set: { viewModel.setCallDisconnectInterval($0, usingWatch: true) }
-                        ))
-                    } header: {
-                        Text(verbatim: "Apple Watch")
+                    if showsWatchSettings {
+                        Section {
+                            WatchDisconnectTimerPicker(selection: Binding(
+                                get: { viewModel.watchCallDisconnectInterval },
+                                set: { viewModel.setCallDisconnectInterval($0, usingWatch: true) }
+                            ))
+                        } header: {
+                            Text(verbatim: "Apple Watch")
+                        }
                     }
                     #endif
                     StandardInternetConnectionSection(viewModel: viewModel, isEditing: $isEditingInternet)

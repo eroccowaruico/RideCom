@@ -591,17 +591,25 @@ final class RideIntercomUITests: XCTestCase {
         }
         // Start from the marked defaults: a run that failed part-way leaves its choices saved.
         select(regular, "3 hours (Default)")
-        XCTAssertTrue(watch.exists)
-        XCTAssertFalse(watch.isEnabled)
-        let watchValue = watch.value as? String
+        #if os(iOS)
+        let expectsWatch = UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        let expectsWatch = false
+        #endif
+        XCTAssertEqual(watch.exists, expectsWatch)
+        if expectsWatch { XCTAssertFalse(watch.isEnabled) }
+        let watchValue = expectsWatch ? watch.value as? String : nil
         select(regular, "15 minutes")
         openGroupsTab(); openSettingsTab()
         expect(regular, "15 minutes")
         app.terminate(); app.launch(); app.activate()
         openSettingsTab()
         expect(regular, "15 minutes")
-        XCTAssertFalse(watch.isEnabled)
-        XCTAssertEqual(watch.value as? String, watchValue)
+        XCTAssertEqual(watch.exists, expectsWatch)
+        if expectsWatch {
+            XCTAssertFalse(watch.isEnabled)
+            XCTAssertEqual(watch.value as? String, watchValue)
+        }
         attachScreen("Regular call disconnection timer")
         select(regular, "3 hours (Default)")
     }

@@ -3,6 +3,7 @@ import SwiftUI
 struct AdvancedSettingsView: View {
     @Bindable var viewModel: IntercomViewModel
     @Binding var isEditingInternet: Bool
+    let showsWatchSettings: Bool
 
     var body: some View {
         AdvancedInterfaceModeSection(viewModel: viewModel)
@@ -10,7 +11,7 @@ struct AdvancedSettingsView: View {
         StoreAccessSection(access: viewModel.storeAccess)
         LocalDisplayNameSection(viewModel: viewModel)
         CallDisconnectTimerSection(viewModel: viewModel, marksDefault: true,
-                                   disabledWatchInterval: viewModel.watchCallDisconnectInterval)
+                                   disabledWatchInterval: showsWatchSettings ? viewModel.watchCallDisconnectInterval : nil)
         AdvancedCallNotificationStatusSection(notifications: viewModel.notifications)
         CallStatusDisplaySection(viewModel: viewModel)
         CommunicationPanel(viewModel: viewModel)

@@ -42,3 +42,11 @@
 Build 1638のiPhone Simulatorで、Standardの通常設定の非表示と開発者向け設定での保存、AdvancedでWatchのPickerが見えて操作できないこと、通常の自動切断が再起動後も保存されることを3件の画面テストで確認した。Advancedに理由の文言が増えていないことを画面添付で照合した。Macにも同じコントロール無効化を適用し、Build 1640でMacビルドと自動切断のApp回帰15件を確認した。Macでの画面操作は未確認。Build 1641のiPhone Simulatorで最終構成の表示と操作可否を再確認し、画面テスト2件が通った。
 
 Build 1639のiOS Release Archiveでは、本体とWidgetがともに1639、Watch Appの非同梱と署名検証の成功を確認した。証跡は`.validation/watch-release-hold/`の`verification-final.txt`、`settings-verified/`、`settings-macos/`、`settings-cross-platform/`。ロック中に実Watchから操作できることの受入は引き続き[未確認](../未確認事項.md#iphone依存watchの実機操作と音声)。
+
+### Watch設定を表示する端末
+
+端末別の要求更新後、iPhoneのAdvancedだけに無効化したPickerを表示するよう揃えた。Apple Watchのペアリング先はiPhoneであり、iPadとMacではWatch専用設定を表示しない。iPhoneのStandardは通常設定で非表示、開発・検証ビルドの開発者向け設定で編集できる。[Appleのペアリング手順](https://support.apple.com/en-ca/guide/watch/-apdde4d6f98e/watchos)、[設定仕様](../../spec/App/UI/Settings.md#自動切断)
+
+iPhone SimulatorのBuild 1642、iPad SimulatorのBuild 1643で各2件の画面テストが通った。iPhoneではAdvancedの操作不可と開発者向け設定での保存、iPadでは両モードと開発者向け設定での非表示を確認した。Mac Build 1644はコンパイルと自動切断のApp回帰15件を確認した。Mac画面の実操作は未確認。証跡は`.validation/watch-release-hold/`の`device-iphone/`、`device-ipad/`、`device-macos/`。
+
+端末別の表示を反映した標準iOS ReleaseのArchiveでは、iPhone App・WidgetともにBuild 1645。Watch Appが含まれないことと署名のstrict検証を再確認した。証跡は`archive-device-scope.log`と`verification-device-scope.txt`。

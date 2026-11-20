@@ -1360,7 +1360,6 @@ final class StandardInterfaceUITests: XCTestCase {
             revealStandardSettingsControl(more)
             more.tap()
             XCTAssertTrue(app.navigationBars["Advanced Settings for Developers"].waitForExistence(timeout: 3))
-            revealStandardSettingsControl(watch)
         }
         func selectWatchInterval(_ title: String) {
             watch.tap()
@@ -1370,6 +1369,12 @@ final class StandardInterfaceUITests: XCTestCase {
         }
 
         openDeveloperSettings()
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            XCTAssertFalse(watch.exists)
+            XCTAssertFalse(app.staticTexts["Apple Watch"].exists)
+            return
+        }
+        revealStandardSettingsControl(watch)
         XCTAssertTrue(watch.label.contains("Calls Started from Watch"))
         XCTAssertTrue(watch.isEnabled)
         XCTAssertFalse(regular.exists)
@@ -1377,22 +1382,24 @@ final class StandardInterfaceUITests: XCTestCase {
         app.terminate(); app.launch(); app.activate()
         tab("Settings", id: "settingsTab")
         openDeveloperSettings()
+        revealStandardSettingsControl(watch)
         XCTAssertTrue(watch.label.contains("1 minute") || (watch.value as? String) == "1 minute")
         screenshot("Watch timer separated into developer settings")
         selectWatchInterval("5 minutes (Default)")
     }
 
     @MainActor
-    func testAdvancedSettingsDisablesWatchTimer() {
+    func testAdvancedSettingsDisablesWatchTimerOnIPhoneOnly() {
         launch(interface: "advanced")
         tab("Settings", id: "settingsTab")
         let regular = app.buttons["callDisconnectIntervalPicker"].firstMatch
         revealStandardSettingsControl(regular)
         XCTAssertTrue(regular.isEnabled)
         let watch = app.buttons["watchCallDisconnectIntervalPicker"].firstMatch
-        XCTAssertTrue(watch.exists)
-        XCTAssertFalse(watch.isEnabled)
-        screenshot("Disabled Watch timer in Advanced Settings")
+        let expectsWatch = UIDevice.current.userInterfaceIdiom == .phone
+        XCTAssertEqual(watch.exists, expectsWatch)
+        if expectsWatch { XCTAssertFalse(watch.isEnabled) }
+        screenshot("Watch timer availability in Advanced Settings")
     }
     #endif
 
