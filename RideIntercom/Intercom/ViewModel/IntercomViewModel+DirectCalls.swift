@@ -74,6 +74,7 @@ extension IntercomViewModel {
             let contactCall = remoteIDs.count == 1
                 ? IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, remoteIDs[0]]) : nil
             let secret = try contactCall.flatMap { try groupRepository.credential(for: $0)?.secret }
+                ?? pendingOrdinaryGroupDirectCallSecret(for: user)
                 ?? SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
             try groupRepository.save([group] + groups, credential: .init(groupID: id, secret: secret))
             refreshGroupStorageStatus()
@@ -81,6 +82,16 @@ extension IntercomViewModel {
             selectGroup(group, connectIfIdle: connectIfIdle)
             return true
         } catch { reportGroupStorageError(error); return false }
+    }
+
+    private func pendingOrdinaryGroupDirectCallSecret(for user: SavedUser) throws -> String? {
+        guard localAccountPrincipal == nil,
+              let receipt = groupRepository.pendingOrdinaryGroupReceipt(for: user, now: Date().timeIntervalSince1970),
+              let localKey = receipt.inviteeDeviceKey, let peerKey = receipt.invitation?.inviterDeviceKey,
+              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: localKey),
+              signer.principal == nil else { return nil }
+        return try signer.ordinaryGroupDirectCallSecret(peerMemberID: receipt.inviterMemberID, peerPublicKey: peerKey,
+                                                        receiptID: receipt.id)
     }
 
     private func directCallTarget(for user: SavedUser) -> (id: UUID, pair: AccountCallPair?)? {

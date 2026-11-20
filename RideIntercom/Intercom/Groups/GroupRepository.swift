@@ -565,6 +565,23 @@ final class GroupRepository {
         snapshot?.groups.first { $0.id == groupID }?.pendingInvitation
     }
 
+    func pendingOrdinaryGroupReceipt(for user: SavedUser, now: TimeInterval) -> DirectInvitationReceipt? {
+        guard let snapshot, let localMemberID, user.principal == nil, user.memberIDs.count == 1,
+              let inviter = user.memberIDs.first, let key = user.deviceKeys?[inviter] else { return nil }
+        let candidates = snapshot.groups.compactMap { group -> DirectInvitationReceipt? in
+            guard group.kind == .group, group.accountDevices[inviter] == nil,
+                  group.invitationDeviceKeys?[inviter] == key, !group.excludesMember(inviter, principal: nil),
+                  let pending = group.pendingInvitation, pending.inviteeMemberID == localMemberID,
+                  pending.inviterMemberID == inviter, let acceptance = pending.acceptanceProof,
+                  acceptance.certificate == nil, acceptance.publicKey == pending.inviteeDeviceKey,
+                  let invitation = pending.invitation, invitation.recipientAccount == nil,
+                  invitation.inviterDeviceKey == key, invitation.expiresAt > now else { return nil }
+            return pending
+        }
+        // Either invitation could be the first one the other device accepted.
+        return candidates.count == 1 ? candidates.first : nil
+    }
+
     func receiveInvitation(_ verified: VerifiedDirectInvitation, signer: DeviceIdentitySigner? = nil) throws {
         let receipt = verified.receipt
         guard receipt.isValid, receipt.kind == .accepted, receipt.inviterMemberID == localMemberID,
@@ -623,12 +640,12 @@ final class GroupRepository {
             let id = IntercomGroup.directCallID(memberIDs: [signer.memberID, peer.memberID])
             if !groups.contains(where: { $0.id == id }) {
                 // Bind the fresh key to the signed receipt without using the ordinary group secret.
-                let key = try signer.ordinaryGroupDirectCallKey(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey,
-                                                               receiptID: receipt.id)
+                let secret = try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey,
+                                                                     receiptID: receipt.id)
                 let direct = try IntercomGroup(id: id, name: "Direct Call",
                                                members: [local, .init(id: peer.memberID, displayName: name)], kind: .direct)
                 groups.append(direct)
-                credential = .init(groupID: id, secret: key.withUnsafeBytes { Data($0).base64EncodedString() })
+                credential = .init(groupID: id, secret: secret)
             }
         }
         try update(groups, credential: credential, modify: modify)

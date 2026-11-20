@@ -54,7 +54,9 @@ struct VerifiedContactTests {
         var pending = try #require(groups[0]["pendingInvitation"] as? [String: Any])
         var invitation = try #require(pending["invitation"] as? [String: Any])
         invitation["inviterDeviceKey"] = nil; pending["invitation"] = invitation; pending["acceptanceProof"] = nil; pending["inviteeDeviceKey"] = nil
-        groups[0]["pendingInvitation"] = pending; object["groups"] = groups
+        groups[0]["pendingInvitation"] = pending
+        groups[0]["invitationDeviceKeys"] = nil
+        object["groups"] = groups
         var users = try #require(object["users"] as? [[String: Any]])
         users[0]["deviceKeys"] = nil; users[0]["principal"] = nil; object["users"] = users
         try JSONSerialization.data(withJSONObject: object).write(to: f.file.url)
@@ -64,7 +66,7 @@ struct VerifiedContactTests {
         #expect(restarted.users.first?.deviceKeys == nil)
         #expect(restarted.pendingInvitation(for: group.id) == nil)
         #expect(try restarted.credential(for: group.id)?.secret == "group-key")
-        #expect(try f.file.read()?.version == 9)
+        #expect(try f.file.read()?.version == GroupSnapshot.currentVersion)
     }
 
     private func group(_ member: String) throws -> IntercomGroup {
