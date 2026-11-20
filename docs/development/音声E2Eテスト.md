@@ -110,6 +110,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 
 背景通話の後参加と受話再開では、各端末の `packet-timing` に符号化済みpacketの収録時刻、受信側で処理を始めた時刻と予約後の待ち量・調整回数を記録する。相手音声を受ける測定では復号直後のWAVとnative出力WAVを保存し、それぞれの固定時刻での連続性を測定する。両端のpacketは収録時刻を基準に照合し、記録区間の前後は重なる範囲を使う。音声は試験fixtureの内容を専用の検証成果物に保存する。
 
+`receiveProcessing` は観測を明示した受信処理でのみ記録する。同じ端末の単調時計の秒で、`lockRequestedAt`（受信グラフのlock取得直前）、`lockAcquiredAt`、`decodedAt`（decoderの取得と復号後）、`reservedAt`（再生予約と必要なplayer開始の後）を並べる。復号結果にPCMがなければ `reservedAt` を省く。`handled` は予約量の診断取得とlock解放後の時刻なので、`reservedAt` との差から予約後の観測に費やした時間も分けられる。各差は経過時間であり、各段のCPU実行時間とOSやフレームワーク内部で待った時間を区別する測定ではない。
+
 再生位置を調整した受信packetの行には `playoutAdjustment` が付く。送受信の境界で `sequence` が異なる場合があるため、送受信は外側の `capture` と `duration` で照合する。内側の `capturedAt` と三つのsample位置は、復号後に予約した音声との照合に使う。sample位置の単位と `reason` の意味は[AudioMixerの現行仕様](../spec/packages/Audio/AudioMixer.md)に従う。次のpacketに同じ調整を繰り返し記録しない。通常の双方向試験でも同じ観測を使う。
 
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。

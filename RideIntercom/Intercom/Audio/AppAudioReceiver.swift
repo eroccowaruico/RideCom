@@ -15,16 +15,25 @@ nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
     var lastFailureAt: TimeInterval?
 }
 
+nonisolated struct ReceiveProcessingTiming: Encodable, Sendable {
+    let lockRequestedAt = ProcessInfo.processInfo.systemUptime
+    var lockAcquiredAt: TimeInterval?
+    var decodedAt: TimeInterval?
+    var reservedAt: TimeInterval?
+}
+
 nonisolated struct ReceivePlayoutDiagnostics: Sendable {
     let bufferedDuration: Double
     let adjustments: Int
     let resets: Int
     let adjustment: MixerPlayoutAdjustment?
+    let processingTiming: ReceiveProcessingTiming?
 
-    init(source: MixerPCMSource, previousAdjustmentCount: Int? = nil) {
+    init(source: MixerPCMSource, previousAdjustmentCount: Int? = nil, processingTiming: ReceiveProcessingTiming? = nil) {
         bufferedDuration = source.bufferedDuration
         adjustments = source.playoutAdjustmentCount
         resets = source.playbackResetCount
+        self.processingTiming = processingTiming
         if let previousAdjustmentCount, previousAdjustmentCount != adjustments {
             adjustment = source.lastPlayoutAdjustment
         } else {
@@ -128,7 +137,9 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let generation = graphGeneration.load(ordering: .acquiring)
         guard generation.isMultiple(of: 2) else { throw AppAudioPipelineError.notConfigured }
         var observation: ReceivePlayoutDiagnostics?
+        var timing = onPlayout == nil ? nil : ReceiveProcessingTiming()
         lock.lock()
+        timing?.lockAcquiredAt = ProcessInfo.processInfo.systemUptime
         defer {
             lock.unlock()
             if let observation { onPlayout?(observation) }
@@ -151,13 +162,15 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             decodeCounts.lastFailureAt = Date().timeIntervalSince1970
             throw error
         }
+        timing?.decodedAt = ProcessInfo.processInfo.systemUptime
         if !frame.samples.isEmpty {
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCMAt = Date().timeIntervalSince1970
             try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
+            timing?.reservedAt = ProcessInfo.processInfo.systemUptime
         }
         if let previousAdjustmentCount, let source = sources[id] {
-            observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount)
+            observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount, processingTiming: timing)
         }
         return frame
     }

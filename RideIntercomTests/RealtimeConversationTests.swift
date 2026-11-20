@@ -112,6 +112,17 @@ struct RealtimeConversationTests {
         #expect(observed.map(\.adjustments) == [0, 1, 1])
         #expect(observed.map { $0.adjustment?.reason } == [nil, .pastRenderPosition, nil])
         #expect(observed[1].adjustment?.capturedAt == start + 0.02)
+        for packet in observed {
+            let timing = try #require(packet.processingTiming)
+            let acquired = try #require(timing.lockAcquiredAt)
+            let decoded = try #require(timing.decodedAt)
+            let reserved = try #require(timing.reservedAt)
+            #expect(start <= timing.lockRequestedAt)
+            #expect(timing.lockRequestedAt <= acquired)
+            #expect(acquired <= decoded)
+            #expect(decoded <= reserved)
+        }
+        #expect(receiver.playoutDiagnostics(peer: "peer")?.processingTiming == nil)
     }
 
     @Test func codecChangesFinishTheOldFadeAndCoalesceOnlySettings() throws {

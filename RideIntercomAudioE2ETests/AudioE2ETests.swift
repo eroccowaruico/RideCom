@@ -29,6 +29,7 @@ private struct PacketTiming: Encodable {
     var adjustments: Int?
     var resets: Int?
     var playoutAdjustment: MixerPlayoutAdjustment?
+    var receiveProcessing: ReceiveProcessingTiming?
 
     init(_ packet: RTCAudioPacket) {
         sequence = packet.sequenceNumber
@@ -57,6 +58,7 @@ private func tracedAudioReception(
                 entry.adjustments = playout.adjustments
                 entry.resets = playout.resets
                 entry.playoutAdjustment = playout.adjustment
+                entry.receiveProcessing = playout.processingTiming
             }
             entry.handled = ProcessInfo.processInfo.systemUptime
             observe(frame, entry)
