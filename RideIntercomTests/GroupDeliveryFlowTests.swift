@@ -332,6 +332,80 @@ import UserNotifications
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func savedNearbyCancellationResumesAfterRestartAndUsesTheRecipientsOutcome() async throws {
+        let a = GroupDeliveryTestIdentity("cancel-resuming-author")
+        let b = GroupDeliveryTestIdentity("cancel-resuming-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try a.harness(knowing: [b], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [a], onDisk: true).viewModel
+        defer { sender.stopGroupDeliverySync(); sender.disconnect(); recipient.stopGroupDeliverySync() }
+        sender.groupDeliveryClient = nil
+        sender.allowsNearbyGroupDelivery = true
+        recipient.groupDeliveryClient = nil
+        recipient.allowsNearbyGroupDelivery = true
+
+        let sent = Mutex<[UUID: GroupInvitationEnvelope]>([:])
+        let interceptor = RTCLocalDataChannel(localID: .init(rawValue: b.memberID),
+                                               knownPeers: recipient.nearbyGroupDeliveryCredentials()) { event in
+            if case .message(let bytes, _) = event,
+               case .invitation(let envelope) = try? JSONDecoder().decode(NearbyGroupDeliveryFrame.self, from: bytes) {
+                sent.withLock { $0[envelope.id] = envelope }
+            }
+        }
+        defer { interceptor.stop() }
+        interceptor.start()
+        sender.setNearbyGroupDeliveryForeground(true)
+        let first = UUID(), second = UUID()
+        try #require(sender.createTalkGroup(name: "Delayed before save", userIDs: [b.personID], id: first))
+        try #require(sender.createTalkGroup(name: "Saved without reply", userIDs: [b.personID], id: second))
+        let late = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == first })
+        let accepted = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == second })
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) { sent.withLock { $0.count == 2 } }
+        let lateEnvelope = try #require(sent.withLock { $0[late.id] })
+        let acceptedEnvelope = try #require(sent.withLock { $0[accepted.id] })
+        _ = try #require(try recipient.receiveNearbyGroupInvitation(acceptedEnvelope, from: a.memberID))
+        interceptor.stop()
+
+        try #require(sender.removeMember(b.memberID, from: first))
+        try #require(sender.removeMember(b.memberID, from: second))
+        sender.stopGroupDeliverySync()
+        let restarted = try a.harness(knowing: [b], onDisk: true).viewModel
+        defer { restarted.stopGroupDeliverySync() }
+        restarted.groupDeliveryClient = nil
+        restarted.allowsNearbyGroupDelivery = true
+        recipient.setNearbyGroupDeliveryForeground(true)
+        restarted.setNearbyGroupDeliveryForeground(true)
+
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            restarted.groupRepository.groupDeliveries.contains { $0.id == late.id && $0.nearbyHandoff == nil }
+                && restarted.groupRepository.groupDeliveries.contains { $0.id == accepted.id && $0.nearbyHandoff?.recipientAlreadyReceived == true }
+        }
+        try #require(restarted.groupRepository.groupDeliveries.contains {
+            $0.id == late.id && $0.state == .cancelled && $0.nearbyHandoff == nil && $0.internetAction == .cancel
+        })
+        #expect(restarted.groupRepository.groupDeliveries.contains {
+            $0.id == accepted.id && $0.nearbyHandoff?.recipientAlreadyReceived == true && $0.nearbyWork == nil
+        })
+        #expect(try recipient.receiveNearbyGroupInvitation(lateEnvelope, from: a.memberID) == nil)
+        #expect(recipient.groups.map(\.id) == [second])
+
+        GroupDeliveryHTTPStub.reset()
+        defer { GroupDeliveryHTTPStub.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        GroupDeliveryHTTPStub.users = [access.accessToken: try a.principal.userID]
+        restarted.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        await restarted.synchronizeGroupDeliveries()
+        #expect(!restarted.groupRepository.groupDeliveries.contains { $0.id == late.id })
+        #expect(restarted.groupRepository.groupDeliveries.contains {
+            $0.id == accepted.id && $0.nearbyHandoff?.recipientAlreadyReceived == true && $0.internetAction == nil
+        })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func nearbyReceiptRequiresTheSameEnvelopeAndSurvivesLostReply() async throws {
         let a = GroupDeliveryTestIdentity("nearby-group-author")
         let b = GroupDeliveryTestIdentity("nearby-group-recipient")

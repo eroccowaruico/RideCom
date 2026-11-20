@@ -207,6 +207,32 @@ extension IntercomViewModel {
         refreshGroupStorageStatus()
     }
 
+    private func nearbyCancellationTarget(for record: GroupDeliveryRecord, sender: AccountPrincipal) throws
+        -> GroupInvitationCancellation.Target {
+        guard record.nearbyWork == .cancellation(record.id), let handoff = record.nearbyHandoff
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return .init(id: record.id, groupID: record.groupID, sender: sender, senderMemberID: localMemberIdentity.memberID,
+                     recipient: record.recipient, recipientMemberID: record.recipientMemberID, recipientKey: record.recipientKey,
+                     expiresAt: record.expiresAt, envelopeDigest: handoff.envelopeDigest)
+    }
+
+    func makeNearbyGroupCancellation(for record: GroupDeliveryRecord, sender: AccountPrincipal) throws -> GroupInvitationCancellation {
+        let target = try nearbyCancellationTarget(for: record, sender: sender)
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+        return try GroupInvitationCancellation(target: target, signer: signer)
+    }
+
+    func acknowledgeNearbyGroupCancellation(_ receipt: GroupInvitationCancellationReceipt, from peerID: String) throws {
+        let now = callAccessNow().timeIntervalSince1970
+        guard canEditSavedGroups, let localAccountPrincipal,
+              let record = groupRepository.groupDeliveries.first(where: { $0.id == receipt.target.id }),
+              record.recipientMemberID == peerID, record.nearbyWork == .cancellation(record.id), record.expiresAt > now else { return }
+        let target = try nearbyCancellationTarget(for: record, sender: localAccountPrincipal)
+        try receipt.verify(for: target)
+        try groupRepository.confirmNearbyGroupCancellation(record.id, outcome: receipt.outcome, now: now)
+        refreshGroupStorageStatus()
+    }
+
     private func publishReceivedGroup(_ group: IntercomGroup?) {
         if let group {
             if groups.contains(where: { $0.id == group.id }) { refreshStoredAccountCall(group.id) }

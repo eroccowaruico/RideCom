@@ -766,6 +766,24 @@ extension GroupRepository {
             next.groupDeliveries[index].moveOutgoing(to: state)
         }
     }
+    func confirmNearbyGroupCancellation(_ id: UUID, outcome: GroupInvitationCancellationReceipt.Outcome, now: TimeInterval) throws {
+        guard let snapshot, let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == id }),
+              snapshot.groupDeliveries[index].nearbyWork == .cancellation(id),
+              snapshot.groupDeliveries[index].expiresAt > now else { throw GroupStorageError.invalidUpdate }
+        try amend(snapshot, now: now) { next in
+            switch outcome {
+            case .cancelled:
+                if next.groupDeliveries[index].nearbyHandoff?.internetCancellationConfirmed == true {
+                    next.groupDeliveries.remove(at: index)
+                } else {
+                    next.groupDeliveries[index].nearbyHandoff = nil
+                }
+            case .alreadyReceived:
+                next.groupDeliveries[index].nearbyHandoff?.recipientAlreadyReceived = true
+            }
+        }
+    }
+
     func removeFinishedGroupDeliveries(now: TimeInterval, internetCancelledID: UUID? = nil) throws {
         guard let snapshot else { throw IntercomGroupError.storageUnavailable }
         let confirmed = snapshot.groupDeliveries.firstIndex {

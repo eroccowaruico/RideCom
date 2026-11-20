@@ -10,10 +10,12 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     enum Direction: String, Codable, Sendable { case outgoing, incoming }
     enum State: String, Codable, Sendable { case pending, queued, received, cancelled }
     enum InternetAction: Equatable { case send, cancel }
+    enum NearbyWork: Hashable { case invitation(UUID), cancellation(UUID) }
 
     struct NearbyHandoff: Codable, Equatable, Sendable {
         let envelopeDigest: Data
         var internetCancellationConfirmed = false
+        var recipientAlreadyReceived: Bool?
     }
 
     var id: UUID = UUID()
@@ -36,6 +38,17 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
         switch state {
         case .pending, .queued: return .send
         case .cancelled: return nearbyHandoff?.internetCancellationConfirmed == true ? nil : .cancel
+        case .received: return nil
+        }
+    }
+
+    var nearbyWork: NearbyWork? {
+        guard direction == .outgoing, sourceRequestID == nil else { return nil }
+        switch state {
+        case .pending, .queued: return .invitation(id)
+        case .cancelled:
+            guard let nearbyHandoff, nearbyHandoff.recipientAlreadyReceived != true else { return nil }
+            return .cancellation(id)
         case .received: return nil
         }
     }
@@ -66,5 +79,6 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
         return direction == .outgoing && sourceRequestID == nil && nearbyHandoff.envelopeDigest.count == 32
             && state != .received && (state == .cancelled || credentialReference != nil)
             && (!nearbyHandoff.internetCancellationConfirmed || state == .cancelled)
+            && (nearbyHandoff.recipientAlreadyReceived == nil || (nearbyHandoff.recipientAlreadyReceived == true && state == .cancelled))
     }
 }

@@ -11,13 +11,14 @@ final class NearbyGroupDeliveryWindow {
 
 /// The order of outstanding work stays with the account model, across finite attempts.
 struct NearbyGroupDeliverySchedule {
-    private var eligibleDeliveryIDs: Set<UUID> = []
+    private var eligibleWork: Set<GroupDeliveryRecord.NearbyWork> = []
     private var offeredInSweep: Set<PeerID> = []
 
     mutating func update(with pending: [GroupDeliveryRecord], afterSave: Bool) -> Set<PeerID> {
-        let newPeers = afterSave ? Set(pending.filter { !eligibleDeliveryIDs.contains($0.id) }
-            .map { PeerID(rawValue: $0.recipientMemberID) }) : []
-        eligibleDeliveryIDs = Set(pending.map(\.id))
+        let newPeers = afterSave ? Set(pending.filter { record in
+            record.nearbyWork.map { !eligibleWork.contains($0) } == true
+        }.map { PeerID(rawValue: $0.recipientMemberID) }) : []
+        eligibleWork = Set(pending.compactMap(\.nearbyWork))
         offeredInSweep.formIntersection(pending.map { PeerID(rawValue: $0.recipientMemberID) })
         return newPeers
     }
@@ -48,7 +49,7 @@ final class NearbyGroupDeliveryExchange {
     let credentials: [PeerID: RTCCredential]
     let offeredPeers: Set<PeerID>
     let channel: RTCLocalDataChannel
-    var sent: [PeerID: Set<UUID>] = [:]
+    var sent: [PeerID: Set<GroupDeliveryRecord.NearbyWork>] = [:]
     var connected: Set<PeerID> = []
 
     init(id: UUID, credentials: [PeerID: RTCCredential], offeredPeers: Set<PeerID>, channel: RTCLocalDataChannel) {
@@ -143,8 +144,7 @@ extension IntercomViewModel {
     private func pendingNearbyGroupDeliveries() -> [GroupDeliveryRecord] {
         let now = callAccessNow().timeIntervalSince1970
         return groupRepository.groupDeliveries.filter { record in
-            record.direction == .outgoing && (record.state == .pending || record.state == .queued)
-                && record.expiresAt > now && record.sourceRequestID == nil
+            record.nearbyWork != nil && record.expiresAt > now
                 && savedRemoteUsers.contains {
                     $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
                         && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey
@@ -242,8 +242,9 @@ extension IntercomViewModel {
                     let receipt = try receiveNearbyGroupInvitationCancellation(cancellation, from: peer.rawValue)
                     let response = try JSONEncoder().encode(NearbyGroupDeliveryFrame.cancellationReceipt(receipt))
                     exchange.channel.send(response, to: peer)
-                case .cancellationReceipt:
-                    break
+                case .cancellationReceipt(let receipt):
+                    try acknowledgeNearbyGroupCancellation(receipt, from: peer.rawValue)
+                    finishNearbyGroupDeliveryIfComplete()
                 }
             } catch let error as GroupStorageError {
                 reportGroupStorageError(error)
@@ -257,18 +258,27 @@ extension IntercomViewModel {
 
     private func sendNearbyGroupDeliveries(on exchange: NearbyGroupDeliveryExchange) {
         guard let localAccountPrincipal, !exchange.offeredPeers.isDisjoint(with: exchange.connected) else { return }
-        for record in pendingNearbyGroupDeliveries() {
+        let pending = pendingNearbyGroupDeliveries()
+        for record in pending.filter({ $0.state == .cancelled }) + pending.filter({ $0.state != .cancelled }) {
             let peer = PeerID(rawValue: record.recipientMemberID)
-            guard exchange.offeredPeers.contains(peer), exchange.connected.contains(peer),
-                  exchange.sent[peer]?.contains(record.id) != true else { continue }
+            guard let work = record.nearbyWork, exchange.offeredPeers.contains(peer), exchange.connected.contains(peer),
+                  exchange.sent[peer]?.contains(work) != true else { continue }
             do {
-                if let envelope = try prepareGroupDeliveryEnvelope(record, sender: localAccountPrincipal) {
-                    let data = try JSONEncoder().encode(NearbyGroupDeliveryFrame.invitation(envelope))
-                    guard data.count <= 65_536 else { continue }
-                    try groupRepository.recordNearbyGroupHandoff(record.id)
-                    exchange.channel.send(data, to: peer)
-                    exchange.sent[peer, default: []].insert(record.id)
+                let frame: NearbyGroupDeliveryFrame
+                switch work {
+                case .invitation:
+                    guard let envelope = try prepareGroupDeliveryEnvelope(record, sender: localAccountPrincipal) else { continue }
+                    frame = .invitation(envelope)
+                case .cancellation:
+                    frame = .cancellation(try makeNearbyGroupCancellation(for: record, sender: localAccountPrincipal))
                 }
+                let data = try JSONEncoder().encode(frame)
+                guard data.count <= 65_536 else { continue }
+                if case .invitation = work {
+                    try groupRepository.recordNearbyGroupHandoff(record.id)
+                }
+                exchange.channel.send(data, to: peer)
+                exchange.sent[peer, default: []].insert(work)
             } catch {
                 reportGroupStorageError(error)
                 return

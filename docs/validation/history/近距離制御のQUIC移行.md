@@ -134,7 +134,7 @@ QUIC移行後に同じ招待テストは標準配置のMacとiOS Simulatorでそ
 
 2026-11-20。保存済み招待を通話の設定と寿命に依存させず届けるため、RTC packageで近距離の実経路を確認した。追加した試験は開始時にAPIがないためコンパイルに失敗した。`RTCLocalDataChannel`の実装後、同じ資格を持つ二者の間で実Bonjour探索・QUIC認証・データの往復が成立した。同じ元の資格で並行起動した通話の制御側には、相手の認証もデータも届かなかった。片側を止めて他方が離脱を検出し、再開後に同じ相手を認証した。共通制御のリンク通知は弱参照にし、閉じたリンクと通知の循環保持を解消した。[RTCの契約](../../spec/packages/RTC.md#通話を開始しない近距離データ交換)
 
-最終ソースでmacOSの近距離制御・framing・通話回帰18件と、iOS 27.2 Simulatorの標準`RTC-Package`スキームによる近距離制御・通話・混在経路の35件が成功した。Simulatorは専用端末を回収した。証跡は `.validation/local-control-data/macos-final.log` と `.validation/local-control-data/ios-final/`。次はAppの署名付き返信・受領確認と保存をこの経路につなぐ。端末ロック中の配送、実機同士の圏外受取、登録済み相手への暗号化したグループ招待は[招待の残課題](../../backlog/未実装課題.md#通話を始めずに近距離で招待と返信を届ける)で追う。
+最終ソースでmacOSの近距離制御・framing・通話回帰18件と、iOS 27.2 Simulatorの標準`RTC-Package`スキームによる近距離制御・通話・混在経路の35件が成功した。Simulatorは専用端末を回収した。証跡は `.validation/local-control-data/macos-final.log` と `.validation/local-control-data/ios-final/`。次はAppの署名付き返信・受領確認と保存をこの経路につなぐ。端末ロック中の配送、実機同士の圏外受取、登録済み相手への暗号化したグループ招待は[近距離の配送仕様](../../spec/App/通信仕様.md#近距離配送の保存と確認)で追う。
 
 
 ## 一つの待ち受けで登録済みの端末へ宛先別に届ける
@@ -143,4 +143,4 @@ QUIC移行後に同じ招待テストは標準配置のMacとiOS Simulatorでそ
 
 広告の名前や証明書の指紋が差し替わると、同じTXT内の宛先情報が既知の鍵と一致しない。上限を超えた広告を退け、別の鍵で一致しないことも確認した。起動ごとに名前と証明書を変えて広告とTLSに結び付けるため、連絡先のリスナーを持ち続けず、同じ宛先への固定の識別子を公開せずに探索できる。既存の共有資格による招待通信と通話では従来の対称な認証を共用する。[RTCの宛先別探索仕様](../../spec/packages/RTC.md#登録済み端末を宛先にした探索)
 
-変更前の試験は宛先別通信のAPIがないためコンパイルに失敗した。macOSでは制御・通話の25件、iOS 27.2 Simulatorでは標準 `RTC-Package` スキームで制御・通話・媒体の47件が成功した。Simulatorの失敗・skip・Xcode実行時警告は0で、試験専用端末は回収済み。証跡は `.validation/nearby-addressed/` の `rtc-red.log`、`rtc-macos-final.log`、`ios-regression/`。保存・起動・復帰からの自動探索、招待の永続化との結合、操作直後にロックした実機での受領は[Appの残課題](../../backlog/未実装課題.md#通話を始めずに近距離で招待と返信を届ける)で追う。
+変更前の試験は宛先別通信のAPIがないためコンパイルに失敗した。macOSでは制御・通話の25件、iOS 27.2 Simulatorでは標準 `RTC-Package` スキームで制御・通話・媒体の47件が成功した。Simulatorの失敗・skip・Xcode実行時警告は0で、試験専用端末は回収済み。証跡は `.validation/nearby-addressed/` の `rtc-red.log`、`rtc-macos-final.log`、`ios-regression/`。保存・起動・復帰からの自動探索、招待の永続化との結合、操作直後にロックした実機での受領は[Appの残課題](../../spec/App/通信仕様.md#近距離配送の保存と確認)で追う。
