@@ -30,6 +30,18 @@ class DevelopmentSetupTests(unittest.TestCase):
         with patch.object(self.setup, 'load_project', return_value=project):
             self.assertIn('Duplicate Xcode navigator reference: docs.', self.setup.check(ROOT))
 
+    def test_root_navigator_references_must_resolve_to_existing_paths(self):
+        for kind, path in [('PBXFileReference', 'retired-notes.md'),
+                           ('PBXFileSystemSynchronizedRootGroup', 'retired-scripts')]:
+            with self.subTest(kind=kind):
+                project = copy.deepcopy(self.project)
+                objects = project['objects']
+                main = objects[objects[project['rootObject']]['mainGroup']]
+                objects['RETIRED_ENTRY'] = {'isa': kind, 'path': path, 'sourceTree': '<group>'}
+                main['children'].append('RETIRED_ENTRY')
+                with patch.object(self.setup, 'load_project', return_value=project):
+                    self.assertIn(f'Missing Xcode navigator reference: {path}.', self.setup.check(ROOT))
+
     def test_watch_ui_sources_must_be_visible(self):
         project = copy.deepcopy(self.project)
         objects = project['objects']

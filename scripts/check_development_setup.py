@@ -41,8 +41,11 @@ def check(root):
         path = reference.get('path')
         if not path or reference.get('sourceTree') not in ('<group>', 'SOURCE_ROOT', '<absolute>'):
             continue
-        directory = (repository / path).resolve()
-        name = directory.relative_to(repository).as_posix() if directory.is_relative_to(repository) else str(directory)
+        resolved_path = (repository / path).resolve()
+        in_repository = resolved_path.is_relative_to(repository)
+        name = resolved_path.relative_to(repository).as_posix() if in_repository else str(resolved_path)
+        if in_repository and not resolved_path.exists():
+            errors.append(f'Missing Xcode navigator reference: {name}.')
         if name in visible:
             errors.append(f'Duplicate Xcode navigator reference: {name}.')
         else:
