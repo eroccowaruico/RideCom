@@ -1,6 +1,7 @@
 import AuthenticationServices
 import AVFAudio
 import AudioCore
+import AudioMixer
 import Codec
 import CryptoKit
 import Foundation
@@ -18,27 +19,46 @@ import UIKit
 #endif
 @testable import RideIntercom
 
-private func packetTiming(_ packet: RTCAudioPacket) -> [String: Double] {
-    ["sequence": Double(packet.sequenceNumber), "capture": packet.capturedAt,
-     "host": ProcessInfo.processInfo.systemUptime,
-     "duration": Double(packet.sampleCount ?? 0) / Double(packet.format.channelCount) / packet.format.sampleRate]
+private struct PacketTiming: Encodable {
+    let sequence: UInt64
+    let capture: Double
+    let host = ProcessInfo.processInfo.systemUptime
+    let duration: Double
+    var handled: Double?
+    var buffered: Double?
+    var adjustments: Int?
+    var resets: Int?
+    var playoutAdjustment: MixerPlayoutAdjustment?
+
+    init(_ packet: RTCAudioPacket) {
+        sequence = packet.sequenceNumber
+        capture = packet.capturedAt
+        duration = Double(packet.sampleCount ?? 0) / Double(packet.format.channelCount) / packet.format.sampleRate
+    }
+}
+
+private struct PacketTimingTrace: Encodable {
+    var traceForScenario: String?
+    let transmitted: [PacketTiming]
+    let received: [PacketTiming]
+    var output: [[String: Double]]?
 }
 
 private func tracedAudioReception(
     pipeline: AppAudioPipeline,
-    observe: @escaping @Sendable (PCMFrame, [String: Double]) -> Void,
+    observe: @escaping @Sendable (PCMFrame, PacketTiming) -> Void,
     onFailure: @escaping @Sendable () -> Void = {}
 ) -> @Sendable (RTC.ReceivedAudioPacket) -> AudioPacketReception {
     { received in
-        var entry = packetTiming(received.packet)
+        var entry = PacketTiming(received.packet)
         do {
-            let frame = try pipeline.processReceivedAudioPacket(received)
-            entry["handled"] = ProcessInfo.processInfo.systemUptime
-            if let playout = pipeline.receivePlayoutDiagnostics(peerID: received.peerID.rawValue) {
-                entry["buffered"] = playout.bufferedDuration
-                entry["adjustments"] = Double(playout.adjustments)
-                entry["resets"] = Double(playout.resets)
+            let frame = try pipeline.processReceivedAudioPacket(received) { playout in
+                entry.buffered = playout.bufferedDuration
+                entry.adjustments = playout.adjustments
+                entry.resets = playout.resets
+                entry.playoutAdjustment = playout.adjustment
             }
+            entry.handled = ProcessInfo.processInfo.systemUptime
             observe(frame, entry)
             return .processed(level: (try? AudioSignalMeter.measure(frame).rms) ?? 0)
         } catch {
@@ -51,8 +71,8 @@ private func tracedAudioReception(
 
 private final class PairedAudioTrace: Sendable {
     let decoded = RenderedAudioProbe()
-    let transmitted = Mutex<[[String: Double]]>([])
-    let received = Mutex<[[String: Double]]>([])
+    let transmitted = Mutex<[PacketTiming]>([])
+    let received = Mutex<[PacketTiming]>([])
 
     func reset() {
         decoded.reset()
@@ -469,7 +489,7 @@ final class AudioE2ETests: XCTestCase {
             let originalTransmit = pipeline.onTransmitPacket
             let originalReceive = viewModel.callSession.processReceivedAudio
             pipeline.onTransmitPacket = { packet in
-                trace.transmitted.withLock { $0.append(packetTiming(packet)) }
+                trace.transmitted.withLock { $0.append(PacketTiming(packet)) }
                 originalTransmit?(packet)
             }
             // Install once. Assigning processReceivedAudio replaces the media
@@ -541,7 +561,7 @@ final class AudioE2ETests: XCTestCase {
             return
         }
         #endif
-        let receivedTiming = Mutex<[[String: Double]]>([])
+        let receivedTiming = Mutex<[PacketTiming]>([])
         let decodeFailures = Mutex(0)
         // Observe the PCM returned by the shipping receive path. Starting an
         // additional decoder in the middle of a stream has different priming
@@ -580,9 +600,9 @@ final class AudioE2ETests: XCTestCase {
                     "queued": output.bufferedOutputDuration ?? 0])
                 originalOutput?(frame)
             }
-            let transmittedTiming = Mutex<[[String: Double]]>([])
+            let transmittedTiming = Mutex<[PacketTiming]>([])
             viewModel.audioPipeline.onTransmitPacket = { packet in
-                transmittedTiming.withLock { $0.append(packetTiming(packet)) }; originalTransmit?(packet)
+                transmittedTiming.withLock { $0.append(PacketTiming(packet)) }; originalTransmit?(packet)
             }
             func dropCounts() -> [String: Int] {
                 ["capture": input.droppedCaptureFrameCount,
@@ -614,8 +634,8 @@ final class AudioE2ETests: XCTestCase {
             let dropped = Dictionary(uniqueKeysWithValues: drops)
             let scenarioID = scenario.id, sentTrace = transmittedTiming.withLock { $0 }, receivedTrace = receivedTiming.withLock { $0 }, renderedTrace = outputTiming
             let traceData = try await Task.detached {
-                try JSONSerialization.data(withJSONObject: ["traceForScenario": scenarioID,
-                    "transmitted": sentTrace, "received": receivedTrace, "output": renderedTrace])
+                try JSONEncoder().encode(PacketTimingTrace(traceForScenario: scenarioID,
+                    transmitted: sentTrace, received: receivedTrace, output: renderedTrace))
             }.value
             let trace = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
             trace.name = "endpoint-\(role)-\(scenario.id)-packet-timing"; trace.lifetime = .keepAlways; add(trace)
@@ -1007,7 +1027,9 @@ final class AudioE2ETests: XCTestCase {
         recording.name = "endpoint-\(role)-\(scenario)-speech"
         recording.lifetime = .keepAlways
         add(recording)
-        let traceData = try JSONSerialization.data(withJSONObject: ["transmitted": transmitted, "received": receivedTrace])
+        let traceData = try await Task.detached {
+            try JSONEncoder().encode(PacketTimingTrace(transmitted: transmitted, received: receivedTrace))
+        }.value
         let timing = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
         timing.name = "endpoint-\(role)-\(scenario)-packet-timing"
         timing.lifetime = .keepAlways

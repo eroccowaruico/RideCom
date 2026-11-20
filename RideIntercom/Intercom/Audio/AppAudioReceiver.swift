@@ -15,6 +15,24 @@ nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
     var lastFailureAt: TimeInterval?
 }
 
+nonisolated struct ReceivePlayoutDiagnostics: Sendable {
+    let bufferedDuration: Double
+    let adjustments: Int
+    let resets: Int
+    let adjustment: MixerPlayoutAdjustment?
+
+    init(source: MixerPCMSource, previousAdjustmentCount: Int? = nil) {
+        bufferedDuration = source.bufferedDuration
+        adjustments = source.playoutAdjustmentCount
+        resets = source.playbackResetCount
+        if let previousAdjustmentCount, previousAdjustmentCount != adjustments {
+            adjustment = source.lastPlayoutAdjustment
+        } else {
+            adjustment = nil
+        }
+    }
+}
+
 /// The receive graph has one serial owner independent of UI/control. The lock
 /// covers native graph changes as well as packet decoding/scheduling; no await,
 /// UI callback or network operation occurs while holding it.
@@ -101,10 +119,15 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         decodeCounts = .init()
     }
 
-    func receive(_ received: RTC.ReceivedAudioPacket) throws -> PCMFrame {
+    func receive(_ received: RTC.ReceivedAudioPacket, onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil) throws -> PCMFrame {
         let generation = graphGeneration.load(ordering: .acquiring)
         guard generation.isMultiple(of: 2) else { throw AppAudioPipelineError.notConfigured }
-        lock.lock(); defer { lock.unlock() }
+        var observation: ReceivePlayoutDiagnostics?
+        lock.lock()
+        defer {
+            lock.unlock()
+            if let observation { onPlayout?(observation) }
+        }
         // Cancellation is checked after acquiring the graph, so an old RTC
         // consumer waiting behind stop/rebuild cannot enter the new call.
         guard !Task.isCancelled, mixer != nil,
@@ -112,6 +135,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             throw AppAudioPipelineError.notConfigured
         }
         let id = received.peerID.rawValue
+        let previousAdjustmentCount = onPlayout == nil ? nil : (sources[id]?.playoutAdjustmentCount ?? 0)
         let decoder = decoders[id] ?? StreamingCodecDecoder()
         decoders[id] = decoder
         let frame: PCMFrame
@@ -126,6 +150,9 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCMAt = Date().timeIntervalSince1970
             try play(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
+        }
+        if let previousAdjustmentCount, let source = sources[id] {
+            observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount)
         }
         return frame
     }
@@ -145,10 +172,10 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         effects.removeValue(forKey: "rx-peer-\(peer)")
     }
 
-    func playoutDiagnostics(peer: String) -> (bufferedDuration: Double, adjustments: Int, resets: Int)? {
+    func playoutDiagnostics(peer: String) -> ReceivePlayoutDiagnostics? {
         lock.withLock {
             guard let source = sources[peer] else { return nil }
-            return (source.bufferedDuration, source.playoutAdjustmentCount, source.playbackResetCount)
+            return .init(source: source)
         }
     }
 

@@ -278,14 +278,15 @@ final class AppAudioPipeline {
     nonisolated func processCapturedFrame(_ frame: PCMFrame) throws { try transmitter.process(frame) }
 
     @discardableResult
-    nonisolated func processReceivedAudioPacket(_ received: RTC.ReceivedAudioPacket) throws -> PCMFrame {
-        try receiver.receive(received)
+    nonisolated func processReceivedAudioPacket(_ received: RTC.ReceivedAudioPacket,
+        onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil) throws -> PCMFrame {
+        try receiver.receive(received, onPlayout: onPlayout)
     }
 
     func processPlaybackFrame(_ frame: PCMFrame) throws { try receiver.play(frame) }
     func stopReceivePeer(_ peerID: String) throws { try receiver.removePeer(peerID) }
     nonisolated var receiveDecodeCounts: ReceiveDecodeCounts { receiver.decodeSnapshot }
-    nonisolated func receivePlayoutDiagnostics(peerID: String) -> (bufferedDuration: Double, adjustments: Int, resets: Int)? {
+    nonisolated func receivePlayoutDiagnostics(peerID: String) -> ReceivePlayoutDiagnostics? {
         receiver.playoutDiagnostics(peer: peerID)
     }
 

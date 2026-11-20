@@ -4,6 +4,7 @@ import AVFAudio
 import Codec
 import Foundation
 import RTC
+import SoundIsolation
 import Synchronization
 import Testing
 import VADGate
@@ -84,6 +85,33 @@ struct RealtimeConversationTests {
         #expect(completed.wait(timeout: .now() + 1) == .success)
         #expect(rejected.withLock { $0 })
         #expect(!receiver.snapshot.busIDs.contains("rx-peer-old-call"))
+    }
+
+    @Test func receiverReportsTheAdjustmentOnlyForThePacketThatMoved() throws {
+        let engine = AVAudioEngine()
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4800)
+        let receiver = AppAudioReceiver()
+        try receiver.rebuild(engine: engine, configuration: .init(transmitSoundIsolationEnabled: false,
+            receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.02), peers: ["peer"],
+            rendersToHardware: false, onOutput: { _ in })
+        defer { receiver.stop() }
+        let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800))
+        let start = ProcessInfo.processInfo.systemUptime
+        var observed: [ReceivePlayoutDiagnostics] = []
+        func receive(_ sequence: UInt64) throws {
+            let frame = PCMFrame(sequenceNumber: sequence, capturedAt: start + Double(sequence) * 0.02,
+                samples: Array(repeating: 0.2, count: 960))
+            let received = try AppTestSupport.receivedAudioPacket(peerID: "peer", frame: frame, codec: .pcm16)
+            _ = try receiver.receive(received, onPlayout: { observed.append($0) })
+        }
+        try receive(0)
+        #expect(try engine.renderOffline(2400, to: output) == .success)
+        try receive(1)
+        try receive(2)
+        #expect(observed.map(\.adjustments) == [0, 1, 1])
+        #expect(observed.map { $0.adjustment?.reason } == [nil, .pastRenderPosition, nil])
+        #expect(observed[1].adjustment?.capturedAt == start + 0.02)
     }
 
     @Test func codecChangesFinishTheOldFadeAndCoalesceOnlySettings() throws {
@@ -224,16 +252,20 @@ struct RealtimeConversationTests {
         let pipeline = AppAudioPipeline(makeEngine: { engine })
         try pipeline.rebuild(configuration: .init(transmitSoundIsolationEnabled: false), peerIDs: ["peer"])
         defer { pipeline.stop() }
+        let effects = engine.attachedNodes.compactMap { $0 as? AVAudioUnitEffect }.filter {
+            $0.audioComponentDescription.componentSubType == kAudioUnitSubType_AUSoundIsolation
+        }
+        try #require(effects.count == (VoiceIsolationSupport.isAvailable ? 2 : 0))
         for enabled in [true, false, true] {
             try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled, peers: ["peer": enabled])
-            for effect in engine.attachedNodes.compactMap({ $0 as? AVAudioUnitEffect })
-                where effect.audioComponentDescription.componentSubType == kAudioUnitSubType_AUSoundIsolation {
+            for effect in effects {
+                #expect(effect.bypass == !enabled)
                 try effect.withAUAudioUnit { unit in
                     let parameters = try #require(unit.parameterTree)
                     #expect(parameters.parameter(withAddress: AUParameterAddress(kAUSoundIsolationParam_SoundToIsolate))?.value
                         == AUValue(kAUSoundIsolationSoundType_Voice))
                     #expect(parameters.parameter(withAddress: AUParameterAddress(kAUSoundIsolationParam_WetDryMixPercent))?.value
-                        == (enabled ? 50 : 100))
+                        == 50)
                 }
             }
         }
