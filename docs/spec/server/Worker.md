@@ -263,6 +263,10 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 
 ### Macの端末鍵証明
 
+登録に使う確認要求は `POST /api/auth/device-attestation/challenge` で発行する。端末Bearerと空のJSONオブジェクトを受け、 `nonce`（乱数32バイトの小文字16進）と `expiresAt`（Unixミリ秒）を返す。アカウントと端末はBearerから決める。期限は発行から5分と端末資格の期限のうち早い方。期限内の並行・再試行では同じ値を返し、期限ちょうどから新しい値を発行する。確認要求は端末資格と同じSQLiteレコードに保存し、資格の更新・失効とアカウント削除で破棄する。期限切れは既存のalarmで回収する。
+
+`DEVICE_ATTESTATION_ENABLED=true` の環境でだけ発行する。無効時は503、未認証は401、POST以外は405、本文が空のJSONオブジェクト以外なら400。既存のApple登録と同じ送信元・全体の頻度制限を用い、上限超過は429を返す。
+
 公開鍵を登録する前に、Worker内部の検証でApp Attestの証明を照合する。入力は最大16 KiBのCBOR、32バイトの鍵IDを標準Base64にした文字列、その登録に発行した16進64桁の確認要求。App ID、App Attestの環境、起動検証カテゴリ、ビルド番号の期待値はサーバー側で指定する。
 
 | 照合対象 | 受理条件 |
@@ -272,7 +276,7 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 | 本人のAppと期待する配布条件 | RP IDが期待するApp IDのSHA-256に一致し、AAGUIDが期待する環境を示す。カウンタは0で、起動検証カテゴリとビルド番号が期待値に一致する。ビルド番号の省略条件は端末署名と同じ |
 | 鍵 | leafとCOSEの鍵が同じP-256公開鍵で、その非圧縮X9.62形式のSHA-256、資格ID、提示された鍵IDが一致する |
 
-すべて成立すれば、P-256公開鍵・App ID・起動検証カテゴリ・ビルド番号・カウンタ0を呼び出し元へ返す。不一致や形式不正では登録に渡す値を返さない。確認要求の発行・消費、アカウントと端末への保存・更新・失効、iPhoneの鍵証明の検証は残る。[Appleのルート証明書](https://www.apple.com/certificateauthority/private/)、[Appleの検証手順](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)、[ローカル検証](../../validation/history/通常グループの代表端末検証.md#macの鍵証明から除外署名までworkerで検証する)
+すべて成立すれば、P-256公開鍵・App ID・起動検証カテゴリ・ビルド番号・カウンタ0を呼び出し元へ返す。不一致や形式不正では登録に渡す値を返さない。確認要求の消費、アカウントと端末への保存・更新・失効、別アカウントへの同じ鍵の登録防止、iPhoneの鍵証明の検証は残る。[Appleのルート証明書](https://www.apple.com/certificateauthority/private/)、[Appleの検証手順](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)、[ローカル検証](../../validation/history/通常グループの代表端末検証.md#macの鍵証明から除外署名までworkerで検証する)
 
 ## 個人削除の暗号文中継
 

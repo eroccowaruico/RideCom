@@ -151,6 +151,70 @@ test('expired challenges and devices remain unusable after server restart', asyn
     } finally { await runtime.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
 });
 
+test('the device attestation challenge is opt-in and belongs to a live device credential', async () => {
+    const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
+    const enabled = await makeRuntime({ ...options, DEVICE_ATTESTATION_ENABLED: 'true' }, { appleKeys: [publicKey] });
+    const path = '/api/auth/device-attestation/challenge';
+    try {
+        const disabled = await (await signIn(runtime, await challenge(runtime))).json();
+        assert.equal((await call(runtime, path, undefined, disabled.accessToken)).status, 503);
+        assert.equal((await call(enabled, path)).status, 401);
+        const first = await (await signIn(enabled, await challenge(enabled))).json();
+        const second = await (await signIn(enabled, await challenge(enabled))).json();
+        assert.equal(first.userID, second.userID);
+        assert.equal((await call(enabled, path, undefined, first.accessToken, 'GET')).status, 405);
+        assert.equal((await call(enabled, path, { deviceID: second.deviceID }, first.accessToken)).status, 400);
+
+        const requestChallenge = async token => {
+            const response = await call(enabled, path, {}, token);
+            assert.equal(response.status, 200);
+            assert.equal(response.headers.get('Cache-Control'), 'no-store');
+            return response.json();
+        };
+        const [issued, repeated] = await Promise.all([requestChallenge(first.accessToken), requestChallenge(first.accessToken)]);
+        const independent = await requestChallenge(second.accessToken);
+        assert.deepEqual(repeated, issued);
+        assert.match(issued.nonce, /^[a-f0-9]{64}$/);
+        assert.notEqual(independent.nonce, issued.nonce);
+
+        const renewed = await (await signIn(enabled, await challenge(enabled, first.deviceID))).json();
+        assert.equal((await call(enabled, path, undefined, first.accessToken)).status, 401);
+        assert.notEqual((await requestChallenge(renewed.accessToken)).nonce, issued.nonce);
+        assert.deepEqual(await requestChallenge(second.accessToken), independent);
+        assert.equal((await call(enabled, '/api/auth/session', undefined, renewed.accessToken, 'DELETE')).status, 200);
+        assert.equal((await call(enabled, path, undefined, renewed.accessToken)).status, 401);
+        const signedInAgain = await (await signIn(enabled, await challenge(enabled, first.deviceID))).json();
+        assert.notEqual((await requestChallenge(signedInAgain.accessToken)).nonce, issued.nonce);
+    } finally { await runtime.dispose(); await enabled.dispose(); }
+});
+
+test('the device attestation challenge survives restart and rotates at its original deadline', async () => {
+    const start = Date.now();
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-attestation-challenge-'));
+    const config = { ...options, DEVICE_ATTESTATION_ENABLED: 'true' };
+    const newRuntime = fixedNowMs => makeRuntime(config, { storageDirectory, fixedNowMs, appleKeys: [publicKey] });
+    let runtime = await newRuntime(start);
+    const path = '/api/auth/device-attestation/challenge';
+    try {
+        const device = await (await signIn(runtime, await challenge(runtime))).json();
+        const requestChallenge = async () => {
+            const response = await call(runtime, path, {}, device.accessToken);
+            assert.equal(response.status, 200);
+            return response.json();
+        };
+        const issued = await requestChallenge();
+        assert.equal(issued.expiresAt, start + 300_000);
+        await runtime.dispose();
+        runtime = await newRuntime(issued.expiresAt - 1);
+        assert.deepEqual(await requestChallenge(), issued);
+        await runtime.dispose();
+        runtime = await newRuntime(issued.expiresAt);
+        const next = await requestChallenge();
+        assert.notEqual(next.nonce, issued.nonce);
+        assert.equal(next.expiresAt, issued.expiresAt + 300_000);
+    } finally { await runtime.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
 test('device registration is bounded and a full account can still rotate an existing device', async () => {
     const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
     try {

@@ -22,7 +22,8 @@ interface DeletionReceipt {
 interface DeletionPreparation { id: string; expiresAt: number }
 interface DeletionResult { deleted: true; appleAuthorizationRevoked: boolean; appleRevocationPending?: true; newerAccountPreserved?: true; mediaCleanupPending?: true }
 const retryDelays = [60000, 300000, 1800000, 7200000, 21600000]
-interface Device { tokenHash: string; expiresAt: number }
+interface DeviceAttestationChallenge { nonce: string; expiresAt: number }
+interface Device { tokenHash: string; expiresAt: number; attestationChallenge?: DeviceAttestationChallenge }
 export interface DeviceIdentity { userID: string; deviceID: string; expiresAt: number }
 
 export class AppleAuthAttempt extends DurableObject<Env> {
@@ -181,6 +182,19 @@ export class UserAccount extends DurableObject<Env> {
         return { userID, deviceID, expiresAt: device.expiresAt }
     }
 
+    async issueAttestationChallenge(deviceID: string, tokenHash: string): Promise<DeviceAttestationChallenge | null> {
+        if (!this.authenticate(deviceID, tokenHash)) return null
+        const key = `device:${deviceID}`
+        const device = this.ctx.storage.kv.get<Device>(key)
+        if (!device) return null
+        const now = Date.now()
+        if (device.attestationChallenge && device.attestationChallenge.expiresAt > now) return device.attestationChallenge
+        const challenge = { nonce: randomSecret(), expiresAt: Math.min(now + 300_000, device.expiresAt) }
+        this.ctx.storage.kv.put(key, { ...device, attestationChallenge: challenge })
+        await this.scheduleExpiry()
+        return challenge.expiresAt > Date.now() && this.authenticate(deviceID, tokenHash) ? challenge : null
+    }
+
     async revoke(deviceID: string, tokenHash: string): Promise<boolean> {
         const identity = this.authenticate(deviceID, tokenHash)
         if (!identity) return false
@@ -329,6 +343,10 @@ export class UserAccount extends DurableObject<Env> {
         if (receipt && !receipt.appleToken && !receipt.rooms?.length && receipt.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletion')
         for (const [key, device] of this.ctx.storage.kv.list<Device>({ prefix: 'device:' })) {
             if (device.expiresAt <= Date.now()) this.ctx.storage.kv.delete(key)
+            else if (device.attestationChallenge && device.attestationChallenge.expiresAt <= Date.now()) {
+                delete device.attestationChallenge
+                this.ctx.storage.kv.put(key, device)
+            }
         }
     }
     private async scheduleExpiry() {
@@ -337,7 +355,7 @@ export class UserAccount extends DurableObject<Env> {
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         const pending = !!receipt?.appleToken || !!receipt?.rooms?.length
         const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(),
-            ...devices.map(device => device.expiresAt), ...(preparation ? [preparation.expiresAt] : []),
+            ...devices.map(device => device.attestationChallenge?.expiresAt ?? device.expiresAt), ...(preparation ? [preparation.expiresAt] : []),
             ...(receipt?.appleToken && receipt.retryAt !== undefined && (receipt.attempts ?? 0) <= retryDelays.length ? [receipt.retryAt] : []),
             ...(receipt?.rooms?.length && receipt.mediaRetryAt !== undefined && (receipt.mediaAttempts ?? 0) <= retryDelays.length ? [receipt.mediaRetryAt] : []),
             ...(receipt && !pending ? [receipt.expiresAt] : [])]
@@ -375,6 +393,7 @@ export async function authenticateDevice(token: string, env: Env): Promise<(Devi
 export async function accountRequest(request: Request, env: Env): Promise<Response> {
     const path = new URL(request.url).pathname
     try {
+        if (path === '/api/auth/device-attestation/challenge') return await deviceAttestationChallenge(request, env)
         if (path === '/api/auth/identity') {
             if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
             const authorization = request.headers.get('Authorization') ?? ''
@@ -455,6 +474,22 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
         return error instanceof Error && error.message === 'body'
             ? json({ error: 'Invalid body' }, 400) : json({ error: 'Account service unavailable' }, 503)
     }
+}
+
+async function deviceAttestationChallenge(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+    if (env.DEVICE_ATTESTATION_ENABLED !== 'true') return json({ error: 'Device attestation is unavailable' }, 503)
+    const authorization = request.headers.get('Authorization') ?? ''
+    const credential = authorization.startsWith('Bearer ') && authorization.length <= 512
+        ? deviceCredential(authorization.slice(7), env) : null
+    if (!credential) return json({ error: 'Unauthorized' }, 401)
+    const tokenHash = await digest(credential.secret)
+    if (!await credential.account.authenticate(credential.deviceID, tokenHash)) return json({ error: 'Unauthorized' }, 401)
+    const limited = await limitEnrollment(request, env)
+    if (limited) return limited
+    if (Object.keys(await readJSON(request)).length !== 0) return json({ error: 'Invalid body' }, 400)
+    const issued = await credential.account.issueAttestationChallenge(credential.deviceID, tokenHash)
+    return issued ? json(issued) : json({ error: 'Unauthorized' }, 401)
 }
 
 async function limitEnrollment(request: Request, env: Env): Promise<Response | null> {
