@@ -110,7 +110,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 
 背景通話の後参加と受話再開では、各端末の `packet-timing` に符号化済みpacketの収録時刻、受信側で処理を始めた時刻と予約後の待ち量・調整回数を記録する。相手音声を受ける測定では復号直後のWAVとnative出力WAVを保存し、それぞれの固定時刻での連続性を測定する。両端のpacketは収録時刻を基準に照合し、記録区間の前後は重なる範囲を使う。音声は試験fixtureの内容を専用の検証成果物に保存する。
 
-再生位置を調整した受信packetの行には `playoutAdjustment` が付く。外側の `sequence` と `capture` で送信側のpacketと照合し、内側の `capturedAt` と三つのsample位置で復号後に予約した音声を照合する。sample位置の単位と `reason` の意味は[AudioMixerの現行仕様](../spec/packages/Audio/AudioMixer.md)に従う。次のpacketに同じ調整を繰り返し記録しない。通常の双方向試験でも同じ観測を使う。
+再生位置を調整した受信packetの行には `playoutAdjustment` が付く。送受信の境界で `sequence` が異なる場合があるため、送受信は外側の `capture` と `duration` で照合する。内側の `capturedAt` と三つのsample位置は、復号後に予約した音声との照合に使う。sample位置の単位と `reason` の意味は[AudioMixerの現行仕様](../spec/packages/Audio/AudioMixer.md)に従う。次のpacketに同じ調整を繰り返し記録しない。通常の双方向試験でも同じ観測を使う。
 
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。
 

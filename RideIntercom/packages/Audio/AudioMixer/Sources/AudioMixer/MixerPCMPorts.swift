@@ -36,7 +36,7 @@ public final class MixerPCMSource {
 	private var scheduledEndSample: AVAudioFramePosition = 0
 	public private(set) var playbackResetCount = 0
 
-	private typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
+	typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
 
 	private var playbackPosition: PlaybackPosition {
 		// playerTime also checks that the node is playing.
@@ -172,7 +172,7 @@ public final class MixerPCMSource {
 	}
 
     /// Update the capture-to-playout mapping using the position already observed for this packet.
-    private func captureTimeReservation(
+    func captureTimeReservation(
         capturedAt: TimeInterval, arrivedAt: TimeInterval, frameLength: AVAudioFrameCount, duration: TimeInterval,
         audible: Bool, position: PlaybackPosition, nativeLead: AVAudioFramePosition,
         delay: TimeInterval, limit: TimeInterval, packetizationJitter: TimeInterval
@@ -260,9 +260,11 @@ public final class MixerPCMSource {
                     let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
                     let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
                     jitterMargin = (learned, capturedAt)
-                    // This late packet has already waited through the excess transit.
-                    // Keep the full learned margin for future arrivals.
-                    let remainingWait = max(0, learned - AVAudioFramePosition(elapsedWait.rounded(.down)))
+                    // The writable frontier already covers the native block.
+                    // Subtract that part of the second packet's headroom from
+                    // this reservation only. Keep the learned link wait intact.
+                    let coveredQuantum = min(AVAudioFramePosition(frameLength), rendered - position.completed)
+                    let remainingWait = max(0, learned - AVAudioFramePosition(elapsedWait.rounded(.down)) - coveredQuantum)
                     start = rendered + min(requestedLead - margin + min(remainingWait, availableWait),
                         AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
                 }
