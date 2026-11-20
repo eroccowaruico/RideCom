@@ -1,6 +1,6 @@
 # 音声E2Eテスト
 
-MacとiPhone Simulatorで別々のアプリプロセスを動かし、音声ファイルの発話が通信先の実AVAudioEngineのrender tapまで到達したことを波形で判定する。実装は専用の`RideIntercomAudioE2ETests`ターゲットと`RideIntercomAudioE2E` schemeに置き、通常の単体・結合テストとは独立させる。テストの起動・判定・証跡保存・終了処理にAIや画面操作は必要ない。
+MacとiPhone Simulator、またはiPhone Simulator 2台で別々のアプリプロセスを動かし、音声ファイルの発話が通信先の実AVAudioEngineのrender tapまで到達したことを波形で判定する。実装は専用の`RideIntercomAudioE2ETests`ターゲットと`RideIntercomAudioE2E` schemeに置き、通常の単体・結合テストとは独立させる。テストの起動・判定・証跡保存・終了処理にAIや画面操作は必要ない。
 
 ## 実行
 
@@ -10,6 +10,8 @@ Xcode、iOS Simulator runtime、プロジェクトの署名環境を[開発環�
 python3 scripts/audio_e2e.py
 python3 scripts/audio_e2e.py --matrix full
 ```
+
+MacのBonjour探索が`NoAuth`になる環境では、ネットワーク音声試験に`--two-simulators`を指定できる。iOS用のビルドを1回行い、端末ごとに別の役割と実行結果を割り当てる。コマンドは試験専用の2台を起動し、終了時に追加した端末を削除する。実出力の波形、継続性、遅延の判定は通常と同じ。単一端末で行う音声処理の試験ではこの指定を使わない。
 
 生成されたxctestrunが参照するAppのInfo.plistを起動前に読み、保存先がXcodeの検証構成から取得した`RideIntercom.Validation.Xcode`と一致し、開発用接続資格を含まないことを確認する。build引数だけを証拠にせず、通常のApp／StoreKit検証と[同じhost検査](自動検証.md#xcodeテストの起動前検査)を使う。不一致の場合は音声hostを起動しない。
 
@@ -33,7 +35,7 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 
 近距離とInternetの両方を有効にし、通話用の接続資格にはローカルの試験用Workerを与える。Workerは端末を識別できる最初のICE設定要求を受け取るが、応答を返さない。測定の前後に両端の要求が待機中で、利用できる経路が近距離だけであることを確認する。各端末で相手の発話がQUIC認証済みのUDP経路から実出力に届くことを既存の波形判定にかける。`smoke`の単一条件、6〜10秒で実行し、Internet側の要求が時間切れになる前に測定する。
 
-2台のiOS Simulatorの場合は保存済みグループの設定に、両端で`AUDIO_E2E_UNANSWERED_INTERNET=1`と同じ`AUDIO_E2E_WORKER_URL`（例 `http://127.0.0.1:49152`、空きポートを選ぶ）を加える。役割`a`の試験がローカルWorkerを起動する。[測定結果](../validation/history/近距離オフライン通信.md#internetの応答がない間に保存済みグループの近距離音声を測る)
+端末2台を自動で用意するには、上のコマンドに`--two-simulators`を追加する。Xcodeから設定する場合は保存済みグループの設定に、両端で`AUDIO_E2E_UNANSWERED_INTERNET=1`と同じ`AUDIO_E2E_WORKER_URL`（例 `http://127.0.0.1:49152`、空きポートを選ぶ）を加える。役割`a`の試験がローカルWorkerを起動する。[測定結果](../validation/history/近距離オフライン通信.md#internetの応答がない間に保存済みグループの近距離音声を測る)
 
 ### 通話中に近距離音声を遮断する
 
@@ -100,7 +102,7 @@ python3 scripts/audio_e2e.py --pipeline-only
 
 ## 再利用と後片付け
 
-通常実行では通常検証（`validate.py`）と共通の専用Simulatorを1台だけ再利用する。終了時に停止し、毎回端末を増やさない。mainの通常作業フォルダのprojectを使い、build cacheはXcode既定のDerivedDataを再利用する。projectコピーや`/tmp`専用build、`--build-root`による別cacheは使用しない。生成先はXcodeの`-showBuildSettings -json`から必要なpathだけを取得する。MacとiOS Simulatorは同じBuild/Productsを使うため、生成xctestrun名にはplatformを含める。
+通常実行では通常検証（`validate.py`）と共通の専用Simulatorを1台だけ再利用し、終了時に停止する。`--two-simulators`の2台目は所有記録を残して作り、終了時に削除する。中断で残った場合も、次回の同じ実行ロックの下で所有する端末だけを回収する。mainの通常作業フォルダのprojectを使い、build cacheはXcode既定のDerivedDataを再利用する。projectコピーや`/tmp`専用build、`--build-root`による別cacheは使用しない。生成先はXcodeの`-showBuildSettings -json`から必要なpathだけを取得する。MacとiOS Simulatorは同じBuild/Productsを使うため、生成xctestrun名にはplatformを含める。2台構成では役割も含める。
 
 正常終了時のtest host終了はXcodeに任せる。timeout・SIGINT・SIGTERMでは、起動時に取得したprocess identityと所有子孫だけを回収し、専用Simulatorを停止する。同じ既定DerivedDataを使うGUI hostをpath一致で終了しない。旧journalに実行ファイルpathだけが残り、そのhostが動いている場合は所有を証明できないため失敗を記録し、signalを送らない。名前だけの`pkill`や`simctl shutdown all`は使用しない。二重実行はlockで拒否する。SIGKILLや電源断で終了処理自体が実行できなかった場合は、次回起動で全端末の一覧を証跡へ保存する。管理記録が失われても専用名から停止済み端末を再発見し、互換端末を再利用する。起動中の専用端末がある場合は作成・削除を行わず失敗するため、所有する作業を確認して終了してから再実行する。
 

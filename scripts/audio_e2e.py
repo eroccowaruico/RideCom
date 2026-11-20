@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Mac/iPhone Simulator speech test. Artifacts and test data are isolated."""
+"""Real speech test with Mac and/or iPhone Simulator. Artifacts and test data are isolated."""
 import argparse
 from datetime import datetime
 import json
@@ -137,16 +137,17 @@ def build_audio_host(runner, platform, destination, optimization):
 
 
 def build_audio_hosts(runner, endpoints, optimization, clean=False):
+    destinations = {platform: destination for _, platform, destination in endpoints}
     # Both SDKs share Xcode's product root. Finish every clean before building
     # either endpoint, so the second SDK cannot remove the first SDK's products.
     if clean:
-        for _, platform, destination in endpoints:
+        for platform, destination in destinations.items():
             command = ['xcodebuild', 'clean', '-project', 'RideIntercom.xcodeproj',
                 '-scheme', 'RideIntercomAudioE2E', '-configuration', optimization + '-Validation', '-destination', destination]
             if not runner.run('clean-' + platform, command):
                 raise RuntimeError('Audio E2E clean failed')
     products = {}
-    for _, platform, destination in endpoints:
+    for platform, destination in destinations.items():
         products[platform] = build_audio_host(runner, platform, destination, optimization)
     return products
 
@@ -204,7 +205,7 @@ def duplex_latencies(rows):
     return values
 
 
-def run_pair(runner, commands, timeout):
+def run_pair(runner, commands, timeout, *, wait_for_first_native_setup=True):
     processes = []
     started = time.monotonic()
     try:
@@ -217,7 +218,7 @@ def run_pair(runner, commands, timeout):
             processes.append((name, command, process, None))
             original = process_snapshot().get(process.pid)
             processes[-1] = (name, command, process, original)
-            if len(processes) == 1 and len(commands) > 1:
+            if wait_for_first_native_setup and len(processes) == 1 and len(commands) > 1:
                 # Both endpoints share the Mac's CoreAudio service. Initialize
                 # their native graphs in order, then measure simultaneous media.
                 # This is setup readiness, never an added audio-path delay.
@@ -243,6 +244,7 @@ def main():
     parser.add_argument('--configuration', choices=['Debug', 'Release'], default='Debug', help='Use Release for shipping-performance measurements; thresholds are identical')
     parser.add_argument('--clean-build', action='store_true', help='Clean test products before building, preserving bundle identifiers and signing')
     parser.add_argument('--ephemeral', action='store_true', help='Delete the owned simulator after this run (CI)')
+    parser.add_argument('--two-simulators', action='store_true', help='Run both network audio endpoints on iPhone Simulators')
     parser.add_argument('--cleanup-only', action='store_true', help='Recover managed devices and report old running hosts without stopping unknown owners')
     parser.add_argument('--transport', choices=['local', 'webrtc', 'mixed', 'all'], default='all')
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
@@ -260,15 +262,16 @@ def main():
     args = parser.parse_args()
     if not 6 <= args.seconds <= 600:
         parser.error('--seconds must be between 6 and 600')
-    if sum([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only]) > 1:
+    standalone_modes = sum([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])
+    if standalone_modes > 1:
         parser.error('Choose one standalone audio test mode')
-    if args.saved_group_start and (args.transport != 'local' or
-            any([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])):
+    if args.two_simulators and standalone_modes:
+        parser.error('--two-simulators requires a network audio test')
+    if args.saved_group_start and (args.transport != 'local' or standalone_modes):
         parser.error('--saved-group-start requires --transport local with the network audio test')
     if args.unanswered_internet and (not args.saved_group_start or args.matrix != 'smoke' or args.seconds > 10):
         parser.error('--unanswered-internet requires --saved-group-start --matrix smoke and 6–10 seconds')
-    if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or
-            any([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])):
+    if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or standalone_modes):
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
@@ -298,17 +301,20 @@ def execute(args, runner, resource_root):
     (out / 'configuration.json').write_text(json.dumps(dict(run=run_id, seconds=args.seconds, codec=args.codec,
         isolation=args.isolation, buildConfiguration=args.configuration, input='bundled synthetic speech WAV', transport=args.transport,
         speechPair=args.speech_pair, pipelineOnly=args.pipeline_only, realtimeOnly=args.realtime_only, groupOnly=args.group_only, codecOnly=args.codec_only, switchesOnly=args.switches_only,
-        output='system AVAudioEngine render tap'), indent=2) + '\n')
-    simulator = None
-    audio_pin = None
+        twoSimulators=args.two_simulators, output='system AVAudioEngine render tap'), indent=2) + '\n')
+    audio_pins = []
     leases = [SimulatorLease(runner, resource_root / name) for name in ['reusable.json', 'ephemeral.json']]
     lease = leases[int(args.ephemeral)]
+    peer_lease = SimulatorLease(runner, resource_root / 'audio-peer.json')
+    peer_reserved = False
     sources = source_manifest()
     (out / 'source-manifest.json').write_text(json.dumps(sources, indent=2) + '\n')
     try:
         def command(name, argv, timeout=1800):
             if not runner.run(name, argv, timeout=timeout):
                 raise RuntimeError(name + ' failed; see ' + str(out))
+        if peer_lease.state and not peer_lease.cleanup('peer-recovery'):
+            raise RuntimeError('Could not recover the owned peer simulator')
         if args.cleanup_only:
             lease.prepare(None, None, delete_all=True)
         else:
@@ -316,7 +322,8 @@ def execute(args, runner, resource_root):
             runtimes = json.loads((out / 'runtimes.log').read_text())['runtimes']
             available = [r for r in runtimes if r['isAvailable'] and r['name'].startswith('iOS')]
             runtime = max(available, key=lambda r: tuple(map(int, r['version'].split('.'))))['identifier']
-            simulator = lease.prepare(runtime, 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro', reusable=not args.ephemeral)
+            device_type = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
+            simulator = lease.prepare(runtime, device_type, reusable=not args.ephemeral)
         # Retain recovery of hosts recorded by the other (ephemeral/reusable)
         # mode without deleting the device that prepare just adopted.
         for index, old in enumerate(leases):
@@ -324,22 +331,36 @@ def execute(args, runner, resource_root):
                 raise RuntimeError('A previous host requires ownership review before retrying')
         if args.cleanup_only:
             return runner.exit_code
-        command('simulator-boot', ['xcrun', 'simctl', 'boot', simulator], 60)
-        (out / 'simulator-id.txt').write_text(simulator + '\n')
-        command('simulator-ready', ['xcrun', 'simctl', 'bootstatus', simulator, '-b'], 180)
-        audio_pin = SimulatorAudioPin(simulator, run_devicectl_json)
-        try:
-            device = audio_pin.pin()
-        except (ValueError, KeyError, subprocess.SubprocessError) as error:
-            runner.record('simulator-audio-device', [], 'failed', 1, time.monotonic(), str(error))
-            raise RuntimeError('simulator-audio-device failed; see ' + str(out))
-        runner.record('simulator-audio-device', [], 'passed', 0, time.monotonic(), 'Input and output pinned to ' + device)
-        endpoints = [('a', 'mac', 'platform=macOS,arch=arm64'),
-                     ('b', 'ios', 'platform=iOS Simulator,id=' + simulator)]
+        simulators = {'simulator': simulator}
+        if args.two_simulators:
+            peer_lease.reserve('RideIntercom Validation Audio Peer ' + uuid.uuid4().hex[:8])
+            peer_reserved = True
+            command('peer-create', ['xcrun', 'simctl', 'create', peer_lease.state['name'], device_type, runtime], 60)
+            peer = (out / 'peer-create.log').read_text().strip()
+            peer_lease.identify(peer)
+            simulators['peer-simulator'] = peer
+        for prefix, device_id in simulators.items():
+            command(prefix + '-boot', ['xcrun', 'simctl', 'boot', device_id], 60)
+            (out / (prefix + '-id.txt')).write_text(device_id + '\n')
+        for prefix, device_id in simulators.items():
+            command(prefix + '-ready', ['xcrun', 'simctl', 'bootstatus', device_id, '-b'], 180)
+            pin = SimulatorAudioPin(device_id, run_devicectl_json)
+            audio_pins.append((prefix, pin))
+            step = prefix + '-audio-device'
+            try:
+                device = pin.pin()
+            except (ValueError, KeyError, subprocess.SubprocessError) as error:
+                runner.record(step, [], 'failed', 1, time.monotonic(), str(error))
+                raise RuntimeError(step + ' failed; see ' + str(out))
+            runner.record(step, [], 'passed', 0, time.monotonic(), 'Input and output pinned to ' + device)
+        first = ('a', 'ios', 'platform=iOS Simulator,id=' + peer) if args.two_simulators else ('a', 'mac', 'platform=macOS,arch=arm64')
+        endpoints = [first, ('b', 'ios', 'platform=iOS Simulator,id=' + simulator)]
         products_by_platform = build_audio_hosts(runner, endpoints, args.configuration, args.clean_build)
         ios_settings, ios_run = products_by_platform['ios']
-        command('microphone-permission', ['xcrun', 'simctl', 'privacy', simulator, 'grant', 'microphone',
-                'com.yowamushi-inc.RideIntercom.RideIntercom'], 60)
+        for prefix, device_id in simulators.items():
+            step = 'microphone-permission' if prefix == 'simulator' else prefix + '-microphone-permission'
+            command(step, ['xcrun', 'simctl', 'privacy', device_id, 'grant', 'microphone',
+                           'com.yowamushi-inc.RideIntercom.RideIntercom'], 60)
         ios_preflight_tests = [
             'AudioE2ETests/testSpeechMatcherRejectsSilenceAndWrongSpeaker',
             'AudioE2ETests/testContinuityRejectsGapsRepeatsAndMissingSpeech',
@@ -358,18 +379,19 @@ def execute(args, runner, resource_root):
         preflight_summary = json.loads((out / 'preflight-summary.log').read_text())
         if not xcode_tests_passed(preflight_summary) or preflight_summary['totalTestCount'] != len(ios_preflight_tests):
             raise RuntimeError('Speech oracle and real iOS session preflight must both pass')
-        mac_settings, mac_run = products_by_platform['mac']
-        mac_preflight = configure_test_run(mac_run, 'preflight', 'mac', mac_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=[
-            'AudioE2ETests/testMacFixturePacesCompletedSamples',
-            'AudioE2ETests/testFixturePreservesClockGapsWithoutDelayingLaterSpeech'])
-        command('preflight-mac', ['xcodebuild', 'test-without-building', '-xctestrun', str(mac_preflight),
-            '-destination', 'platform=macOS,arch=arm64', '-parallel-testing-enabled', 'NO',
-            '-resultBundlePath', str(out / 'preflight-mac.xcresult')], 120)
-        command('preflight-mac-summary', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
-            '--path', str(out / 'preflight-mac.xcresult'), '--format', 'json'], 60)
-        mac_summary = json.loads((out / 'preflight-mac-summary.log').read_text())
-        if not xcode_tests_passed(mac_summary) or mac_summary['totalTestCount'] != 2:
-            raise RuntimeError('Mac fixture capture clock must pass before latency measurement')
+        if 'mac' in products_by_platform:
+            mac_settings, mac_run = products_by_platform['mac']
+            mac_preflight = configure_test_run(mac_run, 'preflight', 'mac', mac_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=[
+                'AudioE2ETests/testMacFixturePacesCompletedSamples',
+                'AudioE2ETests/testFixturePreservesClockGapsWithoutDelayingLaterSpeech'])
+            command('preflight-mac', ['xcodebuild', 'test-without-building', '-xctestrun', str(mac_preflight),
+                '-destination', 'platform=macOS,arch=arm64', '-parallel-testing-enabled', 'NO',
+                '-resultBundlePath', str(out / 'preflight-mac.xcresult')], 120)
+            command('preflight-mac-summary', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
+                '--path', str(out / 'preflight-mac.xcresult'), '--format', 'json'], 60)
+            mac_summary = json.loads((out / 'preflight-mac-summary.log').read_text())
+            if not xcode_tests_passed(mac_summary) or mac_summary['totalTestCount'] != 2:
+                raise RuntimeError('Mac fixture capture clock must pass before latency measurement')
         transports = ['local', 'webrtc'] if args.transport == 'all' else [args.transport]
         if args.pipeline_only or args.realtime_only or args.group_only or args.codec_only or args.switches_only:
             configured = configure_test_run(ios_run, 'pipeline', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=(['AudioE2ETests/testInputModeChangesRestoreTheSharedReceiveClock'] if args.switches_only else ['AudioE2ETests/testTransmitChainPreservesConversationAndAcknowledgements'] if args.codec_only else []) + ['AudioE2ETests/testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio' if args.switches_only else 'AudioE2ETests/testNativeCodecsPreserveWholeSpeech' if args.codec_only else 'AudioE2ETests/testEightPersonMixedRouteConversation' if args.group_only else 'AudioE2ETests/testRealtimeAudioLatencyAndIdentity' if args.realtime_only else 'AudioE2ETests/testSpeechContinuityWithoutNetwork'])
@@ -405,16 +427,19 @@ def execute(args, runner, resource_root):
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             (out / (transport + '-configuration.json')).write_text(json.dumps(environment, indent=2) + '\n')
             commands = []
+            result_names = {}
             for role, platform, destination in endpoints:
                 settings, source = products_by_platform[platform]
-                configured = configure_test_run(source, 'pair', platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment | dict(AUDIO_E2E_ROLE=role))
-                name = transport + '-' + platform
+                purpose = 'pair-' + role if args.two_simulators else 'pair'
+                configured = configure_test_run(source, purpose, platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment | dict(AUDIO_E2E_ROLE=role))
+                name = transport + '-' + (platform + '-' + role if args.two_simulators else platform)
+                result_names[role] = name
                 commands.append(('test-' + name, ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
                     '-destination', destination, '-parallel-testing-enabled', 'NO',
                     '-resultBundlePath', str(out / (name + '.xcresult'))]))
-            run_pair(runner, commands, 120 + sum(case['seconds'] + 20 for case in cases))
-            for role, platform, _ in endpoints:
-                name = transport + '-' + platform
+            run_pair(runner, commands, 120 + sum(case['seconds'] + 20 for case in cases),
+                     wait_for_first_native_setup=not args.two_simulators)
+            for role, name in result_names.items():
                 summary_ok = runner.run('summary-' + name, ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
                     '--path', str(out / (name + '.xcresult')), '--format', 'json'], timeout=60)
                 if summary_ok:
@@ -444,18 +469,20 @@ def execute(args, runner, resource_root):
         unchanged = sources['head'] == after_sources['head'] and fingerprints_match(sources['files'], after_sources['files'])
         runner.record('source-stability', [], 'passed' if unchanged else 'failed', 0 if unchanged else 1,
                       time.monotonic(), 'Sources/configuration unchanged; all raw input hashes must match exactly')
-    except (OSError, ValueError, RuntimeError, TimeoutError, KeyboardInterrupt, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, KeyError, RuntimeError, TimeoutError, KeyboardInterrupt, subprocess.SubprocessError) as error:
         runner.record('audio-e2e', [], 'failed', 1, time.monotonic(), str(error))
     finally:
         # A second Ctrl-C must not skip teardown. SIGKILL is recovered next run.
         previous = {sig: signal.signal(sig, signal.SIG_IGN) for sig in [signal.SIGINT, signal.SIGTERM]}
         try:
-            if audio_pin is not None:
+            for prefix, audio_pin in reversed(audio_pins):
                 try:
                     audio_pin.restore()
-                    runner.record('simulator-audio-restore', [], 'passed', 0, time.monotonic())
+                    runner.record(prefix + '-audio-restore', [], 'passed', 0, time.monotonic())
                 except (ValueError, KeyError, subprocess.SubprocessError) as error:
-                    runner.record('simulator-audio-restore', [], 'failed', 1, time.monotonic(), str(error))
+                    runner.record(prefix + '-audio-restore', [], 'failed', 1, time.monotonic(), str(error))
+            if peer_reserved:
+                peer_lease.cleanup('peer-cleanup')
             if lease.acquired:
                 lease.cleanup('cleanup')
         finally:

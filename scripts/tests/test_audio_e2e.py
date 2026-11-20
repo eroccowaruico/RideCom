@@ -218,6 +218,18 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             run_pair(runner, commands, timeout=3)
         self.assertFalse(started.exists())
 
+    def test_simulator_pair_starts_both_hosts_without_a_setup_marker(self):
+        joined = self.root / 'joined'
+        wait_for_peer = ('import sys, time\nfrom pathlib import Path\n'
+                         'marker = Path(sys.argv[1])\ndeadline = time.monotonic() + 2\n'
+                         'while not marker.exists() and time.monotonic() < deadline:\n'
+                         '    time.sleep(.02)\nassert marker.exists()\n')
+        commands = [('first', [sys.executable, '-c', wait_for_peer, str(joined)]),
+                    ('second', [sys.executable, '-c', 'import sys; from pathlib import Path; Path(sys.argv[1]).touch()', str(joined)])]
+        runner = Runner(self.root / 'run')
+        run_pair(runner, commands, timeout=3, wait_for_first_native_setup=False)
+        self.assertEqual(runner.exit_code, 0)
+
     def test_identity_matrix_preserves_full_utterance_and_codec_controls(self):
         cases = scenarios('identity', 8)
         self.assertEqual([case['codec'] for case in cases], ['mpeg4AACELD', 'pcm16', 'opus'])

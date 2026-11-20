@@ -530,11 +530,11 @@ final class AudioE2ETests: XCTestCase {
         try await waitUntil(seconds: 60, description: "Verified peer, RTC audio admission and active audio", status: status) {
             viewModel.authenticatedPeerIDs.count == 1 && viewModel.isAudioReady
                 && IntercomViewModel.admittedMemberships(in: viewModel.peerProfiles).count == 1
+                && (!startsFromSavedGroup || viewModel.callAccessState.isEstablished)
         }
         let peerID = try XCTUnwrap(viewModel.authenticatedPeerIDs.first)
         if startsFromSavedGroup {
             XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
-            XCTAssertTrue(viewModel.callAccessState.isEstablished)
             print("Audio E2E: Restored saved group and established Local call after \(joiningStarted.duration(to: .now))")
         }
         if waitsForLateParticipant {
