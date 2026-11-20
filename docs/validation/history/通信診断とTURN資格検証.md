@@ -102,3 +102,13 @@ Build 1469のiOS Simulatorで、同じ320ptの通常・最大文字を描画し�
 第二巡では、AppliedのCall・Inviteへ実際に渡る状態を再度追った。ViewModelで旧概要カードを4枚組み、画面で2枚を捨てていたため、表示する2枚だけを既存のViewModelから渡す形にした。Networkの経路値はRTCのレポート、Appliedの現在状態は通話と招待の状態を使う。現行の画面が使わない数値の整形・アイコン・severityを整理し、仕様の表示と識別子を実態に合わせた。既存App target内で経路を閉じ、招待キーの読込や生成を表示更新に持ち込まないことを回帰した。
 
 Build 1471のiOS Simulatorで、診断・設定・招待保存と、実画面でのAppliedのCall→Inviteを含む43テストが成功した。失敗・skip・実行時警告は0。証跡は `.validation/isolation-labels-1460/diagnostics-refactor-1470-second`。実機での診断確認は[実環境受入](../未確認事項.md#画面デザインの実環境受入)に残した。
+
+## TXとRXの構造と状態の描画
+
+| Build | 描画で確認した範囲 | 証跡 |
+|---|---|---|
+| 1401 | 相手ごとの枝はMix Downで合流し、RX MasterとMaster FXはその下に続く。通常・最大文字で構造と段の状態を読める。2入力の再生予約と経路削除は実ミキサーで確認 | `actualOutputLimiterProtectsCombinedPeersAfterMasterGain`、`rx-mix-standard.png`、`rx-mix-accessibility.png` |
+| 1407 | TXのLocal／Internet分岐で受付・不受付・未計測・古い観測、および通話先の違いを確認 | [自端末の音声を経路が受け付けた結果](#自端末の音声を経路が受け付けた結果)、`tx-dispatch-standard.png`、`tx-dispatch-accessibility.png` |
+| 1411 | 最終有声PCMと経過時刻、表示の失効と再開、別rendererの再生予約と実出力未計測の区別を確認 | iOS UIテスト、`rx-output-rendered.png` |
+
+無線での会話と画面表示の照合は[画面デザインの実環境受入](../未確認事項.md#画面デザインの実環境受入)で追う。

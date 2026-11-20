@@ -6,7 +6,7 @@ StandardとAdvancedの設定トップとその中の画面（通信、開発者�
 
 本書は Settings タブの UI 項目を定義する。
 
-Standardの設定トップは、同じ目的のSection（自分・接続・通信・音声・高度な設定・リセット）を並べ、Section間は`.listSectionSpacing(.compact)`にし、1つのSectionだけのグループ（通信、開発者向けの高度な設定、リセット）を36pt（`.custom(36)`）にして、その前後のグループの切れ目を一段広くする（iOS。macOSは標準のForm）。SwiftUIは隣り合う2つのSectionの大きい方の間隔を使うため、自分と接続の切れ目は広げていない（[バックログ](../../../backlog/画面実装とデザイン見本の差分.md#着手順)にデザインへの確認を記録）。Advancedの選択肢は、実装の既定値に「(Default)」を付ける（自動切断、Mode、Codec、Sample Rate、AAC-ELD Bitrate、VAD Sensitivity）。Standardの選択肢には付けない。Advancedのインターネット接続のWorker URLのプレースホルダーは`https://example.workers.dev`、Device access tokenは`Paste the token`。
+Standardの設定トップは、同じ目的のSection（自分・接続・通信・音声・高度な設定・リセット）を並べ、Section間は`.listSectionSpacing(.compact)`にし、1つのSectionだけのグループ（通信、開発者向けの高度な設定、リセット）を36pt（`.custom(36)`）にして、その前後のグループの切れ目を一段広くする（iOS。macOSは標準のForm）。SwiftUIは隣り合う2つのSectionの大きい方の間隔を使うため、自分と接続の切れ目は広げていない（[バックログ](../../../backlog/画面実装とデザイン見本の差分.md#主画面)にデザインへの確認を記録）。Advancedの選択肢は、実装の既定値に「(Default)」を付ける（自動切断、Mode、Codec、Sample Rate、AAC-ELD Bitrate、VAD Sensitivity）。Standardの選択肢には付けない。Advancedのインターネット接続のWorker URLのプレースホルダーは`https://example.workers.dev`、Device access tokenは`Paste the token`。
 
 ## 表示切替と共通設定
 
