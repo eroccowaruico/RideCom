@@ -90,7 +90,7 @@ extension IntercomViewModel {
     func prepareContactInvitationShare(_ id: UUID, expectedAccountAccessID: UUID) throws -> PreparedContactInvitationShare {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let record = pendingContactInvitations.first(where: { $0.id == id }),
-              record.direction == .outgoing, record.state == .pending,
+              record.isPendingOutgoing,
               !contactInvitationIsExpired(record) else { throw ContactInvitationError.unavailable }
         let payload = try groupRepository.contactInvitationPayload(id)
         // Validate a retained signing key without creating or replacing one.
@@ -184,15 +184,14 @@ extension IntercomViewModel {
         record.direction == .incoming || record.state == .confirmed
     }
 
-    /// A sent invitation nobody accepted in time (kept, or not yet tidied up).
+    /// An outgoing invitation nobody accepted in time (kept, or not yet tidied up).
     func contactInvitationIsExpired(_ record: ContactInvitationRecord) -> Bool {
-        record.isExpiredTombstone
-            || (record.direction == .outgoing && record.state == .pending && record.hasExpired(at: callAccessNow().timeIntervalSince1970))
+        record.isExpiredOutgoing(at: callAccessNow().timeIntervalSince1970)
     }
 
     /// Created, but no share destination took the link yet.
     func contactInvitationIsUnsent(_ record: ContactInvitationRecord) -> Bool {
-        record.direction == .outgoing && record.state == .pending && record.sent == false && !contactInvitationIsExpired(record)
+        record.isPendingOutgoing && record.sent == false && !contactInvitationIsExpired(record)
     }
 
     /// One state word for the list row; the detail explains it.

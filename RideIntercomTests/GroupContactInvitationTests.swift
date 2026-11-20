@@ -584,7 +584,8 @@ struct GroupContactInvitationTests {
         #expect(vm.groups.first(where: { $0.id == target.id })?.members.map(\.id) == (wholeGroup ? nil : ["group-author"]))
     }
 
-    @Test func sharingAnExpiredInvitationWithItsGroupSlotIntactRenewsTheSamePersonAndGroup() throws {
+    @Test(arguments: [false, true])
+    func sharingAnExpiredInvitationWithItsGroupSlotIntactRenewsTheSamePersonAndGroup(cleanedUp: Bool) throws {
         var now = Date()
         let (a, b, token, person) = try prepared(now: { now })
         let vm = a.viewModel
@@ -592,10 +593,16 @@ struct GroupContactInvitationTests {
         let target = try #require(token.invitedGroup)
         let id = try #require(token.directInvitation?.context.id)
         let initial = try #require(vm.contactInvitationRecord(id))
+        now = Date(timeIntervalSince1970: initial.expiresAt - 0.001)
+        let stillValid = try vm.prepareContactPersonShare(person, expectedAccountAccessID: vm.accountAccessID)
+        #expect(stillValid.id == id)
+
         now = Date(timeIntervalSince1970: initial.expiresAt)
-        try vm.groupRepository.removeExpiredContactInvitations(now: now.timeIntervalSince1970)
-        vm.reloadSavedGroups()
-        #expect(vm.contactPersonInvitationForSharing(person)?.state == .expired)
+        if cleanedUp {
+            try vm.groupRepository.removeExpiredContactInvitations(now: now.timeIntervalSince1970)
+            vm.reloadSavedGroups()
+        }
+        #expect(vm.contactPersonInvitationForSharing(person)?.state == (cleanedUp ? .expired : .pending))
 
         let renewed = try vm.prepareContactPersonShare(person, expectedAccountAccessID: vm.accountAccessID)
         let replacement = try GroupInviteTokenCodec.decodeJoinURL(renewed.url, contactBootstrap: true)

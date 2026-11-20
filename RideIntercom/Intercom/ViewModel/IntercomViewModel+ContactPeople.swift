@@ -73,7 +73,7 @@ extension IntercomViewModel {
 
     /// The outgoing record both the person's detail and the share action refer to.
     func contactPersonInvitationForSharing(_ id: UUID) -> ContactInvitationRecord? {
-        contactPersonInvitations(id).first { $0.direction == .outgoing && ($0.state == .pending || $0.state == .expired) }
+        contactPersonInvitations(id).first { $0.isPendingOutgoing || $0.isExpiredTombstone }
     }
 
     /// Kept only for old, unlinked exchanges. A person's delivery record never adds a second row.
@@ -91,7 +91,7 @@ extension IntercomViewModel {
         contactInvitationMessage = nil
         do {
             let record = contactPersonInvitationForSharing(id)
-            if let record, record.state == .pending, !contactInvitationIsExpired(record) {
+            if let record, record.isPendingOutgoing, !contactInvitationIsExpired(record) {
                 let share = try prepareContactInvitationShare(record.id, expectedAccountAccessID: expectedAccountAccessID)
                 _ = resumeContactInvitation(record.id)
                 return share

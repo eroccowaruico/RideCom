@@ -28,17 +28,22 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
 
     var invitedGroupID: UUID? = nil
     var pendingGroupMemberID: String { GroupMember.pendingInvitePrefix + "contact-" + id.uuidString.lowercased() }
+    var isPendingOutgoing: Bool { direction == .outgoing && state == .pending }
 
     /// The deadline is independent of the stored direction and delivery state.
     func hasExpired(at now: TimeInterval) -> Bool { isExpiredTombstone || !now.isFinite || now >= expiresAt }
 
     var canResume: Bool { (state == .pending || state == .confirmed) && credentialReference != nil }
     var isExpiredTombstone: Bool { state == .expired && direction == .outgoing }
+    func isExpiredOutgoing(at now: TimeInterval) -> Bool {
+        isExpiredTombstone || (isPendingOutgoing && hasExpired(at: now))
+    }
+
     /// Past its time: a sent invitation still waiting becomes an expired record; anything else goes.
     static func expire(_ records: inout [ContactInvitationRecord], now: TimeInterval) {
         records = records.compactMap { record in
             guard record.expiresAt <= now, record.state != .expired else { return record }
-            guard record.direction == .outgoing, record.state == .pending else { return nil }
+            guard record.isPendingOutgoing else { return nil }
             var expired = record
             expired.state = .expired; expired.credentialReference = nil
             return expired
@@ -48,7 +53,7 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
         guard expiresAt.isFinite, expiresAt >= 0 else { return false }
         guard state != .expired || direction == .outgoing, state != .confirmed || direction == .outgoing,
               state != .delivered || direction == .incoming else { return false }
-        if direction == .outgoing && state == .pending {
+        if isPendingOutgoing {
             guard receiptID == nil, peerMemberID == nil, peerDeviceKey == nil else { return false }
         }
         if state == .pending || state == .confirmed {

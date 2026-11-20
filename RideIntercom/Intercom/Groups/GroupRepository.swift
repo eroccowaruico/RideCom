@@ -538,15 +538,14 @@ final class GroupRepository {
 extension GroupRepository {
     func stageContactInvitation(_ token: GroupInviteToken, now: TimeInterval, replacingExpiredInvitation id: UUID? = nil, personID: UUID? = nil) throws {
         try token.validate(contactBootstrap: true)
-        guard let snapshot, let context = token.directInvitation?.context,
+        guard now.isFinite, let snapshot, let context = token.directInvitation?.context,
               token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
               !snapshot.contactInvitations.contains(where: { $0.id == context.id }) else { throw GroupStorageError.invalidUpdate }
         guard let proof = token.identityProof else { throw GroupStorageError.invalidUpdate }
         _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
         let previous = id.flatMap { id in snapshot.contactInvitations.first { $0.id == id } }
         if id != nil {
-            guard let previous, previous.isExpiredTombstone
-                    || (previous.direction == .outgoing && previous.state == .pending && previous.expiresAt <= now) else {
+            guard let previous, previous.isExpiredOutgoing(at: now) else {
                 throw GroupStorageError.invalidUpdate
             }
         }
@@ -1141,7 +1140,7 @@ extension GroupRepository {
             }
         }
         var pendingByGroup: [UUID: Set<UUID>] = [:]
-        for invitation in next.contactInvitations where invitation.direction == .outgoing && invitation.state == .pending {
+        for invitation in next.contactInvitations where invitation.isPendingOutgoing {
             if let group = invitation.invitedGroupID { pendingByGroup[group, default: []].insert(invitation.id) }
         }
         for index in next.groups.indices {
@@ -1199,7 +1198,7 @@ extension GroupRepository {
     /// A share destination took the link: the invitation now waits to be accepted.
     func markContactInvitationSent(_ id: UUID) throws {
         guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
-              record.direction == .outgoing, record.state == .pending else { throw GroupStorageError.invalidUpdate }
+              record.isPendingOutgoing else { throw GroupStorageError.invalidUpdate }
         guard record.sent == false else { return }
         try amendContactInvitation(id, in: snapshot) { record in record.sent = true }
     }
@@ -1207,7 +1206,7 @@ extension GroupRepository {
     /// Names an outgoing invitation before it completes; nil clears the name.
     func setContactInvitationNickname(_ id: UUID, nickname: String?) throws {
         guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
-              record.direction == .outgoing, record.state == .pending else { throw GroupStorageError.invalidUpdate }
+              record.isPendingOutgoing else { throw GroupStorageError.invalidUpdate }
         guard record.nickname != nickname else { return }
         try amendContactInvitation(id, in: snapshot) { record in record.nickname = nickname }
     }
