@@ -164,6 +164,8 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .frow:last-child { border-bottom: 0; }
 .frow .g { flex: 1; min-width: 0; font-size: 11.5px; }
 .frow .tail { color: var(--label2); }
+.watch-timer { display: grid; justify-items: start; gap: 3px; }
+.watch-timer button { border: 0; background: none; padding: 0 0 0 8px; font: inherit; color: var(--label3); }
 .foot { font-size: 9.5px; color: var(--label2); padding: 0 6px; }
 .toggle { width: 34px; height: 21px; border-radius: 11px; background: var(--ok); position: relative; flex: none; }
 .toggle::after { content: ""; position: absolute; right: 2px; top: 2px; width: 17px; height: 17px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
@@ -739,7 +741,14 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="frow"><span class="g">Nao</span></div><div class="frow"><span class="g linkt">Save Name</span></div></div>
           <div class="gsep"></div>
           <div class="fhd g2"><span class="gdot"></span>Automatic Disconnection</div>
-          <div class="card"><div class="frow"><span class="g">Regular Calls</span><span class="tail">3 hours <span class="chev">⌃</span></span></div><div class="frow"><span class="g">Calls Started from Watch</span><span class="tail">5 minutes <span class="chev">⌃</span></span></div></div>
+          <div class="card">
+            <div class="frow"><span class="g">Regular Calls</span><span class="tail">3 hours (Default) <span class="chev">⌃</span></span></div>
+            <div class="frow watch-timer">
+              <span class="g" id="watch-timer-label">Calls Started from Watch</span>
+              <button type="button" disabled aria-labelledby="watch-timer-label watch-timer-value"><span id="watch-timer-value">5 minutes (Default)</span> <span class="chev" aria-hidden="true">⌃</span></button>
+            </div>
+          </div>
+          <div class="foot">Applies when starting a new call. Waiting and reconnecting count toward this time. You can start another call after the timer ends it.</div>
           <div class="fhd g2"><span class="gdot"></span>Call Notifications</div>
           <div class="card"><div class="frow"><span class="g mono">receivesNotifications</span><span class="v">true</span></div><div class="frow"><span class="g mono">authorizationDenied</span><span class="v">false</span></div><div class="frow"><span class="g mono">isBusy</span><span class="v">false</span></div><div class="frow"><span class="g mono">message</span><span class="v">—</span></div></div>
           <div class="fhd g2"><span class="gdot"></span>Call status display</div>
@@ -777,7 +786,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <li>Access <span>Access Status · Restore Purchases · View Purchases</span></li>
         <li>Your Display Name <span>Your name · Save Name</span></li></ol></div>
       <div class="og g2"><b>通話</b><ol>
-        <li>Automatic Disconnection <span>Regular Calls · Calls Started from Watch</span></li>
+        <li>Automatic Disconnection <span>Regular Calls · Calls Started from Watch（Picker無効）</span></li>
         <li>Call Notifications <span>CallNotifications の値をそのまま（読むだけ。通知の設定はOSだけ）</span></li>
         <li>Call status display <span>Show call status outside the app（macOSはmenu bar）</span></li></ol></div>
       <div class="og g3"><b>接続</b><ol>

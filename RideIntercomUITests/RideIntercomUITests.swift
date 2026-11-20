@@ -573,10 +573,10 @@ final class RideIntercomUITests: XCTestCase {
     }
 
     @MainActor
-    func testCallDisconnectTimersPersistIndependently() {
+    func testRegularCallDisconnectTimerPersists() {
         openSettingsTab()
         let regular = app.buttons["callDisconnectIntervalPicker"].firstMatch
-        let watch = app.buttons["watchCallDisconnectIntervalPicker"].firstMatch
+        let watch = app.descendants(matching: .any)["watchCallDisconnectIntervalPicker"].firstMatch
         func expect(_ picker: XCUIElement, _ title: String) {
             revealSettingsControl(picker)
             XCTAssertTrue(picker.label.contains(title) || (picker.value as? String)?.contains(title) == true)
@@ -591,20 +591,19 @@ final class RideIntercomUITests: XCTestCase {
         }
         // Start from the marked defaults: a run that failed part-way leaves its choices saved.
         select(regular, "3 hours (Default)")
-        select(watch, "5 minutes (Default)")
+        XCTAssertTrue(watch.exists)
+        XCTAssertFalse(watch.isEnabled)
+        let watchValue = watch.value as? String
         select(regular, "15 minutes")
-        expect(watch, "5 minutes")
-        select(watch, "1 minute")
         openGroupsTab(); openSettingsTab()
         expect(regular, "15 minutes")
-        expect(watch, "1 minute")
         app.terminate(); app.launch(); app.activate()
         openSettingsTab()
         expect(regular, "15 minutes")
-        expect(watch, "1 minute")
-        attachScreen("Independent call disconnection timers")
+        XCTAssertFalse(watch.isEnabled)
+        XCTAssertEqual(watch.value as? String, watchValue)
+        attachScreen("Regular call disconnection timer")
         select(regular, "3 hours (Default)")
-        select(watch, "5 minutes (Default)")
     }
 
     @MainActor

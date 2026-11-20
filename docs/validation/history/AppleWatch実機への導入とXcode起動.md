@@ -34,3 +34,11 @@
 標準の`RideIntercom` schemeでiOS ReleaseをArchiveした。Build 1634のiPhone AppとWidgetの番号はともに1634で、Archiveの`Products`内にWatch Appがないことと、Appの署名のstrict検証を確認した。通常ReleaseはiPhone側でWatchのbridgeも起動しない。開発・検証構成の組み込みとWatchのRun・Testは維持する。証跡は`.validation/watch-release-hold/`の`archive.log`、`verification.txt`、`codesign.log`。配布用のexport・アップロード・実機への導入は今回行っていない。[配布構成](../../development/OS権限と配布設定.md#生成物での確認)
 
 20:06の最終build後、20:07に別作業の`RideIntercomWatchApp.swift`変更と`WatchRecordingCheck.swift`追加を観測した。これらは編集・再build・実機導入・コミットの対象へ含めない。本記録の起動結果は変更前の生成物に対応し、後から追加された録音確認画面や現在の全ソースの動作確認ではない。
+
+### 配布見送り中の設定表示
+
+2026-11-21。Standardの通常設定からWatchの設定を外した。Advancedは既存のWatch用の自動切断Pickerを残して無効化し、項目名と保存値を表示する。利用者の訂正に合わせ、「無効」の状態ラベルや配布見送りの文言は追加しない。Watchの時間を変更できるのは開発・検証用iOSビルドの開発者向け設定のみ。画面、MarkdownとHTMLの見本、設定仕様、利用者向けマニュアルを照合した。[設定仕様](../../spec/App/UI/Settings.md#自動切断)、[Advanced見本](../../design/詳細画面/詳細画面見本.html#settings)
+
+Build 1638のiPhone Simulatorで、Standardの通常設定の非表示と開発者向け設定での保存、AdvancedでWatchのPickerが見えて操作できないこと、通常の自動切断が再起動後も保存されることを3件の画面テストで確認した。Advancedに理由の文言が増えていないことを画面添付で照合した。Macにも同じコントロール無効化を適用し、Build 1640でMacビルドと自動切断のApp回帰15件を確認した。Macでの画面操作は未確認。Build 1641のiPhone Simulatorで最終構成の表示と操作可否を再確認し、画面テスト2件が通った。
+
+Build 1639のiOS Release Archiveでは、本体とWidgetがともに1639、Watch Appの非同梱と署名検証の成功を確認した。証跡は`.validation/watch-release-hold/`の`verification-final.txt`、`settings-verified/`、`settings-macos/`、`settings-cross-platform/`。ロック中に実Watchから操作できることの受入は引き続き[未確認](../未確認事項.md#iphone依存watchの実機操作と音声)。

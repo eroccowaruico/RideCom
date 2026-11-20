@@ -1345,6 +1345,57 @@ final class StandardInterfaceUITests: XCTestCase {
         #endif
     }
 
+    #if os(iOS)
+    @MainActor
+    func testStandardSettingsKeepsWatchControlsInDeveloperSettings() {
+        launch()
+        tab("Settings", id: "settingsTab")
+        let regular = app.buttons["callDisconnectIntervalPicker"].firstMatch
+        let watch = app.buttons["watchCallDisconnectIntervalPicker"].firstMatch
+        revealStandardSettingsControl(regular)
+        XCTAssertFalse(watch.exists, "The normal timer settings must not advertise Watch controls")
+
+        func openDeveloperSettings() {
+            let more = app.buttons["moreSettingsLink"].firstMatch
+            revealStandardSettingsControl(more)
+            more.tap()
+            XCTAssertTrue(app.navigationBars["Advanced Settings for Developers"].waitForExistence(timeout: 3))
+            revealStandardSettingsControl(watch)
+        }
+        func selectWatchInterval(_ title: String) {
+            watch.tap()
+            let option = app.buttons[title].firstMatch
+            XCTAssertTrue(option.waitForExistence(timeout: 3))
+            option.tap()
+        }
+
+        openDeveloperSettings()
+        XCTAssertTrue(watch.label.contains("Calls Started from Watch"))
+        XCTAssertTrue(watch.isEnabled)
+        XCTAssertFalse(regular.exists)
+        selectWatchInterval("1 minute")
+        app.terminate(); app.launch(); app.activate()
+        tab("Settings", id: "settingsTab")
+        openDeveloperSettings()
+        XCTAssertTrue(watch.label.contains("1 minute") || (watch.value as? String) == "1 minute")
+        screenshot("Watch timer separated into developer settings")
+        selectWatchInterval("5 minutes (Default)")
+    }
+
+    @MainActor
+    func testAdvancedSettingsDisablesWatchTimer() {
+        launch(interface: "advanced")
+        tab("Settings", id: "settingsTab")
+        let regular = app.buttons["callDisconnectIntervalPicker"].firstMatch
+        revealStandardSettingsControl(regular)
+        XCTAssertTrue(regular.isEnabled)
+        let watch = app.buttons["watchCallDisconnectIntervalPicker"].firstMatch
+        XCTAssertTrue(watch.exists)
+        XCTAssertFalse(watch.isEnabled)
+        screenshot("Disabled Watch timer in Advanced Settings")
+    }
+    #endif
+
     @MainActor
     func testStandardSettingsSeparatesRoutineControlsAndConfirmsReset() {
         launch()
@@ -1402,7 +1453,7 @@ final class StandardInterfaceUITests: XCTestCase {
             XCTAssertFalse(app.descendants(matching: .any)[identifier].firstMatch.exists,
                            "Routine control duplicated in More Settings: \(identifier)")
         }
-        screenshot("Standard More Settings has display and Internet only")
+        screenshot("Standard More Settings keeps experimental controls separate")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         let reset = app.buttons["resetAllSettingsButton"].firstMatch

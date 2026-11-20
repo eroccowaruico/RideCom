@@ -13,6 +13,7 @@ struct CallDisconnectTimerSection: View {
     let viewModel: IntercomViewModel
     /// Advanced marks the implementation's default; the mode's screen says which it is.
     var marksDefault = false
+    var disabledWatchInterval: CallDisconnectInterval? = nil
 
     var body: some View {
         Section {
@@ -24,14 +25,10 @@ struct CallDisconnectTimerSection: View {
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("callDisconnectIntervalPicker")
-            Picker("Calls Started from Watch", selection: Binding(get: { viewModel.watchCallDisconnectInterval },
-                                                                 set: { viewModel.setCallDisconnectInterval($0, usingWatch: true) })) {
-                ForEach(CallDisconnectInterval.allCases) { interval in
-                    settingsOption(interval.title, isDefault: interval == .watchDefault, marks: marksDefault).tag(interval)
-                }
+            if let disabledWatchInterval {
+                WatchDisconnectTimerPicker(selection: .constant(disabledWatchInterval))
+                    .disabled(true)
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("watchCallDisconnectIntervalPicker")
         } header: {
             Text("Automatic Disconnection")
         } footer: {
@@ -39,6 +36,20 @@ struct CallDisconnectTimerSection: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("callDisconnectTimerSection")
+    }
+}
+
+struct WatchDisconnectTimerPicker: View {
+    @Binding var selection: CallDisconnectInterval
+
+    var body: some View {
+        Picker("Calls Started from Watch", selection: $selection) {
+            ForEach(CallDisconnectInterval.allCases) { interval in
+                settingsOption(interval.title, isDefault: interval == .watchDefault).tag(interval)
+            }
+        }
+        .pickerStyle(.menu)
+        .accessibilityIdentifier("watchCallDisconnectIntervalPicker")
     }
 }
 

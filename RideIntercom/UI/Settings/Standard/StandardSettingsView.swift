@@ -53,7 +53,16 @@ struct StandardSettingsView: View {
                         }
                     }
                     StandardInterfaceModeSection(viewModel: viewModel)
-                    // Display and Internet only; audio session and codec stay in Advanced Settings.
+                    #if os(iOS) && (DEBUG || RIDEINTERCOM_VALIDATION)
+                    Section {
+                        WatchDisconnectTimerPicker(selection: Binding(
+                            get: { viewModel.watchCallDisconnectInterval },
+                            set: { viewModel.setCallDisconnectInterval($0, usingWatch: true) }
+                        ))
+                    } header: {
+                        Text(verbatim: "Apple Watch")
+                    }
+                    #endif
                     StandardInternetConnectionSection(viewModel: viewModel, isEditing: $isEditingInternet)
                 }
                 .formStyle(.grouped)
