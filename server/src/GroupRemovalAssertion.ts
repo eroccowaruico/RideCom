@@ -1,10 +1,9 @@
 import { importP256VerificationKey } from './DeviceIdentity'
+import { type AppAttestLaunch, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
 
-interface RegisteredDevice {
+interface RegisteredDevice extends AppAttestLaunch {
     publicKey: string
     appID: string
-    validationCategory: number
-    bundleVersion: string | null
     counter: number
     challenge?: { nonce: string; operationHash: string; expiresAt: number }
 }
@@ -47,22 +46,10 @@ async function verifiedCounter(assertion: Uint8Array, clientData: string, device
         const counter = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(33)
         if (!Number.isSafeInteger(device.counter) || device.counter < 0 || counter <= device.counter) return null
         // macOS sets the attested-credential flag even though an assertion carries only extensions after the header.
-        const extensions = decodeFields(data.subarray(37))
-        const category = extensions.get('apple_validation_category_01')
-        const version = extensions.get('apple_bundle_version_01')
-        if (!(category instanceof Uint8Array) || category.length !== 4
-            || new DataView(category.buffer, category.byteOffset, 4).getUint32(0, true) !== device.validationCategory) return null
-        const versionMatches = version === undefined
-            ? extensions.size === 1 && device.validationCategory === 3 && device.bundleVersion === null
-            : typeof version === 'string' && version.length > 0 && version === device.bundleVersion
-        if (!versionMatches) return null
-        const rpID = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(device.appID)))
+        if (!appAttestLaunchMatches(decodeFields(data.subarray(37)), device)) return null
+        const rpID = await sha256(encoder.encode(device.appID))
         if (!rpID.every((byte, index) => byte === data[index])) return null
-        const clientHash = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(clientData)))
-        const composite = new Uint8Array(data.length + clientHash.length)
-        composite.set(data)
-        composite.set(clientHash, data.length)
-        const nonce = await crypto.subtle.digest('SHA-256', composite)
+        const nonce = await appAttestNonce(data, clientData)
         // App Attest signs the nonce using ECDSA with SHA-256. Web Crypto hashes this input and expects raw P-256 scalars.
         const key = await importP256VerificationKey(device.publicKey)
         return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, rawSignature(signature), nonce) ? counter : null

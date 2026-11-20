@@ -2,6 +2,7 @@ import { fromDER } from 'asn1js'
 import { decode, decodeFirst } from 'cborg'
 import { base64url } from 'jose'
 import { BasicConstraints, Certificate, CertificateChainValidationEngine, CryptoEngine } from 'pkijs'
+import { type AppAttestLaunch, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
 
 // Apple App Attestation Root CA, https://www.apple.com/certificateauthority/private/
 const appleRoot = `
@@ -23,11 +24,9 @@ const cborOptions = { strict: true, useMaps: true, allowIndefinite: false, rejec
 const encoder = new TextEncoder()
 const decodeBase64 = (text: string) => Uint8Array.from(atob(text), char => char.charCodeAt(0))
 
-interface EnrollmentPolicy {
+interface EnrollmentPolicy extends AppAttestLaunch {
     appID: string
     environment: 'production' | 'development'
-    validationCategory: number
-    bundleVersion: string | null
 }
 
 function certificate(der: Uint8Array) {
@@ -46,10 +45,6 @@ function wrappedExtensionMatches(cert: Certificate, oid: string, tag: number, ex
 
 function equal(a: Uint8Array, b: Uint8Array) {
     return a.length === b.length && a.every((byte, index) => byte === b[index])
-}
-
-async function sha256(bytes: Uint8Array) {
-    return new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes)))
 }
 
 /** Internal verifier for the macOS evidence seen so far. The trust anchor and policy are supplied by server code. */
@@ -90,13 +85,8 @@ export function createAppAttestEnrollmentVerifier(trustedRoot = decodeBase64(app
             const [cose, extensionsBytes] = decodeFirst(data.subarray(87), cborOptions)
             const point = await credentialPublicKey(leaf, cose)
             if (!point || !equal(await sha256(point), credentialID)) return null
-            const fields: unknown = decode(extensionsBytes, cborOptions)
-            if (!launchMatches(fields, policy)) return null
-
-            const composite = new Uint8Array(data.length + 32)
-            composite.set(data)
-            composite.set(await sha256(encoder.encode(challenge)), data.length)
-            const nonce = await sha256(composite)
+            if (!appAttestLaunchMatches(decode(extensionsBytes, cborOptions), policy)) return null
+            const nonce = await appAttestNonce(data, challenge)
             if (!wrappedExtensionMatches(leaf, '1.2.840.113635.100.8.2', 0xa1, nonce)
                 || !wrappedExtensionMatches(leaf, '1.2.840.113635.100.8.6', 0xa3, decodeBase64(macAccessPolicy))) return null
             return { publicKey: base64url.encode(point), appID: policy.appID,
@@ -116,15 +106,4 @@ async function credentialPublicKey(leaf: Certificate, cose: unknown) {
     const y: unknown = cose.get(-3)
     return x instanceof Uint8Array && y instanceof Uint8Array
         && equal(point.subarray(1, 33), x) && equal(point.subarray(33), y) ? point : null
-}
-
-function launchMatches(fields: unknown, policy: EnrollmentPolicy) {
-    if (!(fields instanceof Map)) return false
-    const category: unknown = fields.get('apple_validation_category_01')
-    if (!(category instanceof Uint8Array) || category.length !== 4
-        || new DataView(category.buffer, category.byteOffset, 4).getUint32(0, true) !== policy.validationCategory) return false
-    const version: unknown = fields.get('apple_bundle_version_01')
-    return version === undefined
-        ? fields.size === 1 && policy.validationCategory === 3 && policy.bundleVersion === null
-        : fields.size === 2 && typeof version === 'string' && version.length > 0 && version === policy.bundleVersion
 }
