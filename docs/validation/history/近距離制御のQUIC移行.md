@@ -91,3 +91,41 @@ Release-Validationを既定のDerivedDataでビルドした。Mac側では署名
 送信時の収録時刻で両端の記録を照合した重複区間の全packetが到着し、送信callbackから相手の受信callbackまでの中央値は0.38〜0.49msだった。既定AACのMac→Simulatorでは発話波形と時刻の照合上、復号直後に約68ms、受信Mixerに約122msを観測した。復号後から描画までに残る待ちを対象に、再生予約と実際の出力位置を照合する。16kHzの以前の欠落は今回の条件・長さでは観測されなかった。
 
 事前試験7件・各端の実音声試験・素材とソースの照合・音声選択の復元・Simulator停止・一時Mac Appの回収は成功。125ms判定は3条件で未達のためrun全体は不合格。証跡は `.validation/local-aac-and-pcm16-current-20261119` の波形・`measurements.json`・両端のpacket時刻。近距離のローカル測定であり、物理iPhoneのマイク、ロック、Bluetooth、実無線移動の観測は残る。
+
+## 間欠的に失敗する実Multipeerの招待テスト
+
+2026-11-15〜16、iPhone 17 Pro Simulator（iOS 27.2）で`ContactInvitationPersistenceTests.nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload`が間欠的に60秒の制限時間を超えた。同一プロセス内の2つのViewModelを実Multipeer（Bonjour）でつなぐテストで、成功時は1.5〜2.5秒で終わる。
+
+| 条件 | 結果 |
+|---|---|
+| 音声開始・Audio Checkの制御側を整理する前のソース | 連続8回と連続24回、すべて成功。同日の`scripts/validate.sh ios`でも成功 |
+| 整理した後のソース、最初の時間帯 | `scripts/validate.sh ios`で1回、単独実行16回のうち2回が時間切れ |
+| 整理した後のソース、後の時間帯 | 連続24回、すべて成功 |
+
+2026-11-17には、macOSの`scripts/validate.sh macos`（653件）でも同じテストが1回失敗した。直前と直後の全体実行は成功している。
+
+| 項目 | macOSでの失敗（2026-11-17） |
+|---|---|
+| 失敗の形 | 時間制限には達せず、テスト内の10秒の待ちが切れて10.137秒で終了した。受け取った側の保存までは成功し、送った側への通知が届かなかった |
+| ログ | テストの実行中の約6秒間に`[GCKSession] Failed to send a DTLS packet … sendmsg error: No route to host (65)`が105行出た。成功した実行には1行もない |
+| 変更との関係 | 失敗時の作業差分は、通話の接続先を求める処理の共通化（直近の通話とWidget）だけで、招待・Multipeerの経路には差分がない |
+| 読み取れること | この失敗では、Multipeerの接続がホストのネットワークでパケットを送れていない。iOS Simulatorでの時間切れ（main actorが戻らない）と同じ原因かは分からない |
+
+| 項目 | 内容 |
+|---|---|
+| 変更との関係 | 失敗は整理後のソースでだけ出たが、同じソースが後の時間帯では24回連続で成功した。このテストは媒体を開始せず（`startMediaCallCount == 0`を検査する）、整理した音声開始・Audio Check・音声session失敗報告の処理を実行しない。変更が原因である証拠も、原因でないことの証明もない |
+| 観測 | 時間切れの実行では、テスト内の10秒の待ちを過ぎても終了せず、main actorが戻っていない。`[GCKSession] Something is terribly wrong; no clist for remoteID`は成功した実行にも出るため、失敗の目印にならない |
+| 当時の次の確認 | QUIC制御で同じ招待テストを繰り返す。再発時にテストhostの`sample`を取り、停止している呼び出しを特定する |
+
+### 繰り返し実行で分かったこと（2026-11-17、macOS）
+
+このテストだけを同じプロセスで繰り返し実行し（合計約420回）、失敗の内訳を調べた。失敗は2種類あり、原因が違う。
+
+| 種類 | 観測 | 対応 |
+|---|---|---|
+| 通知が届く前に待ちが切れる | Multipeerの最初の接続が`No route to host`で失敗する回がある（10秒待ちで80回中4回）。Multipeerは約10秒後に失敗を返し、RTCの経路の再試行（[RouteManager](../../spec/packages/RTC.md)）が自分でつなぎ直す。待ちを延ばした実行では、失敗した回が11.4秒または34.9秒で成功した | テストの待ちを10秒から45秒に延ばした（製品の1回の試行は60秒）。延ばした後も、再試行が2回続けて失敗して45秒に収まらない回が100回に1回程度残る |
+| テストのプロセスが落ちる | 約420回のうち3回、main threadの`CFNetwork _MonitorCancel` → `_netServiceMonitorCallBack` → `objc_loadWeak`で`EXC_BAD_ACCESS`。旧実装で資源の解放をMainActorへ揃えた後も起きる | 未解決。停止した探索・sessionのオブジェクトを2秒間保持してから解放する変更を試したが、約230回のうち2回同じ形で落ちたため採用していない。弱参照を持つ側のメモリが壊れており、Multipeerが内部で持つBonjourのオブジェクトの寿命の問題と読める。Appのコードから確実に避ける方法は見つかっていない |
+
+上記は旧版での記録で、発生条件は近距離接続を止めるとき（切断・招待の受け渡しの終了）だった。QUIC版での招待処理は同じAppテストの繰り返し結果で評価する。
+
+QUIC移行後に同じ招待テストは標準配置のMacとiOS Simulatorでそれぞれ24反復に成功した。DerivedData配置の探索拒否と実環境の受入は[Macの近距離QUIC探索とApp音声E2E](../未確認事項.md#macの近距離quic探索とapp音声e2e)で追う。
