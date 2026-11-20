@@ -70,6 +70,7 @@ flowchart LR
 | 中継envelope | `rtc.group-relay.v2`。session、origin、epoch、sequence、path、body、Internet ready状態。招待由来のgroup keyでAES-GCM暗号化。Foundation binary PropertyListのCodingKeysを短縮し、packetごとのmetadata量を減らす。独自parserや信頼ありの辞書同期は導入しない。v1参加者との混在は不可 |
 | 信頼境界 | 接続元hopが認証済みpeerで、path末尾と一致すること。group credentialを持つ参加者間の信頼モデル。個人署名による悪意あるグループ参加者のなりすまし防止ではない |
 | 自分へ戻った音声 | path内に自分が含まれるものを破棄 |
+| 近距離の音声中継 | 直接つながった相手が全員その音声のpathに含まれるとき、Localへ送り返さない。未経由の相手がいるLocalと、中継が必要なInternetへは既存の経路判定に従って送る |
 | duplicate / replay | originと接続epochごとの1024 sequence window。古いepochは直近8世代を拒否。音声はpresenceで参加済みかつ有効な話者だけ受理。認証済み音声も活動期限を更新し、制御streamの再接続を音声の停止条件にしない |
 | 再参加 | 新epochで当該peerの受信待ちを破棄し、memberの再認証をAppへ通知。他のpeerは維持 |
 | presence | 2秒周期のreliable制御。presenceも認証済み音声も8秒届かない場合に失効。leave以前の遅延presenceで離脱を取り消さない |

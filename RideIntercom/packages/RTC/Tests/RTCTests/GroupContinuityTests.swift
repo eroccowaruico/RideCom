@@ -44,6 +44,8 @@ extension RealtimeTransportTests {
 
         try await assertAllDirections(0)
         #expect(await managers[3].networkDiagnostics().peers.contains { $0.peerID == ids[0] && $0.path == ids })
+        #expect(await network.localAudioSendCount(for: ids[0]) == 1, "The first rider only sends their own audio")
+        #expect(await network.localAudioSendCount(for: ids[3]) == 1, "The last rider only sends their own audio")
         await network.fail(ids[1], kind: .multipeer)
         #expect(await network.reachablePeers(ids[0], kind: .multipeer).isEmpty)
         await send(0, 21)
@@ -396,6 +398,7 @@ private actor VirtualNetwork {
     let internetAvailable: Bool
     private var unavailable: [RouteKind: Set<PeerID>] = [:]
     private var attempts: [RouteKind: [PeerID: Int]] = [:]
+    private var localAudioSends: [PeerID: Int] = [:]
     private var localNetworks: [PeerID: String] = [:]
     private let localLine: [PeerID]
     init(internetAvailable: Bool = true, localLine: [PeerID] = []) {
@@ -422,6 +425,7 @@ private actor VirtualNetwork {
     func moveLocalPeer(_ peer: PeerID, to network: String) { localNetworks[peer] = network; publish(.multipeer) }
     func isJoined(_ peer: PeerID, kind: RouteKind) -> Bool { routes[kind]?[peer] != nil }
     func attemptCount(_ peer: PeerID, kind: RouteKind) -> Int { attempts[kind]?[peer] ?? 0 }
+    func localAudioSendCount(for peer: PeerID) -> Int { localAudioSends[peer, default: 0] }
     func reachablePeers(_ peer: PeerID, kind: RouteKind) -> Set<PeerID> {
         guard routes[kind]?[peer] != nil else { return [] }
         return Set(routes[kind, default: [:]].keys.filter { other in
@@ -433,6 +437,7 @@ private actor VirtualNetwork {
         })
     }
     func send(_ peer: PeerID, kind: RouteKind, message: ApplicationDataMessage) {
+        if kind == .multipeer && message.delivery == .unreliable { localAudioSends[peer, default: 0] += 1 }
         for other in reachablePeers(peer, kind: kind) {
             routes[kind]?[other]?.yield(.receivedApplicationData(kind, .init(peerID: peer, message: message)))
         }

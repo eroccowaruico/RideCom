@@ -6,7 +6,7 @@ extension RealtimeTransportTests {
 @Suite struct AudioAdmissionTests {
     @Test func unapprovedAudioIsDroppedWhileControlAndRelayContinue() async throws {
         let fixture = AdmissionFixture()
-        try await fixture.run { fixture in
+        try await fixture.run(additionalLocalPeers: [.init(rawValue: "downstream")]) { fixture in
             var remote = GroupRelay(request: fixture.request(peer: "remote"))
             try await fixture.receive(.presence, from: &remote)
             let membership = try #require(await fixture.record.members.first?.membershipID)
@@ -148,12 +148,14 @@ private struct AdmissionFixture: Sendable {
               audioPolicy: .init(peerPolicy: .admittedMemberships([:])))
     }
     func packet(_ value: UInt8) -> RTCAudioPacket { .init(sequenceNumber: 0, codec: .pcm16, payload: Data([value])) }
-    func run(_ body: (AdmissionFixture) async throws -> Void) async throws {
+    func run(additionalLocalPeers: [PeerID] = [], _ body: (AdmissionFixture) async throws -> Void) async throws {
         let events = manager.events
         let task = Task { for await event in events { await record.receive(event) } }
         await manager.prepare(request(peer: "local"))
         await manager.startConnection(); await manager.startMedia()
-        route.source.yield(.membersChanged(.multipeer, [.init(peer: .init(id: remoteID, displayName: "Remote"), route: .multipeer, isConnected: true)]))
+        route.source.yield(.membersChanged(.multipeer, ([remoteID] + additionalLocalPeers).map {
+            .init(peer: .init(id: $0, displayName: $0.rawValue), route: .multipeer, isConnected: true)
+        }))
         do { try await body(self) }
         catch { await manager.stopConnection(); task.cancel(); throw error }
         await manager.stopConnection(); task.cancel()

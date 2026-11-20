@@ -180,7 +180,7 @@ public actor RouteManager: CallSession {
         guard let data = try? relay?.make(body, now: ProcessInfo.processInfo.systemUptime), data.count <= 32768 else { return }
         await forward(data, body: body, recordsOutboundAudio: recordsOutboundAudio)
     }
-    private func forward(_ data: Data, body: RelayBody, excluding: RouteKind? = nil,
+    private func forward(_ data: Data, body: RelayBody, excluding: RouteKind? = nil, path: [PeerID] = [],
                          recordsOutboundAudio: Bool = false) async {
         let token = generation
         let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: data, delivery: body.delivery)
@@ -193,6 +193,9 @@ public actor RouteManager: CallSession {
         // as immediate acceptance on the flow that actually sends this frame.
         for kind in [RouteKind.multipeer, .webRTC] where started.contains(kind) && kind != excluding {
             guard let route = routes[kind] else { continue }
+            // Every direct peer on this path has already handled this audio.
+            if case .audio = body, kind == .multipeer, !path.isEmpty,
+               routeMembers[kind, default: []].isSubset(of: path) { continue }
             if case .audio = body, kind == .webRTC {
                 let internetPeers = routeMembers[.webRTC, default: []]
                 if !internetPeers.isEmpty, internetPeers.isSubset(of: localRecipients) {
@@ -273,7 +276,7 @@ public actor RouteManager: CallSession {
                     let originHasInternet = relay?.internetGateways(now: ProcessInfo.processInfo.systemUptime).contains(result.peer.id) == true
                     if originHasInternet || elected != request?.localPeer.id { excluded = .webRTC }
                 }
-                await forward(bytes, body: result.body, excluding: excluded)
+                await forward(bytes, body: result.body, excluding: excluded, path: result.path)
             }
         case .metricsChanged(let metrics): emit(.metricsChanged(metrics))
         case .connectionBlocked(let kind, let message):
