@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 struct GroupMigrationTests {
+    @Test func version17PreservesRemovalReceiptsWhenAddingNearbyCancellationRecords() throws {
+        let f = try GroupStorageFixture(); defer { f.remove() }
+        let group = try f.group()
+        try f.repository.save([group], credential: .init(groupID: group.id, secret: "group-key"))
+        var old = try #require(try f.file.read())
+        old.version = 17
+        let removal = GroupSnapshot.GroupRemovalReceipt(groupID: group.id, eventID: UUID(),
+            signedDigest: Data(repeating: 1, count: 32), expiresAt: Date().addingTimeInterval(3600).timeIntervalSince1970)
+        old.groupRemovalReceipts = [removal]
+        try f.file.commit(old)
+
+        let restarted = f.restart()
+        _ = try restarted.load(localMemberID: "local")
+        let migrated = try #require(try f.file.read())
+        #expect(migrated.version == GroupSnapshot.currentVersion)
+        #expect(migrated.groupRemovalReceipts == [removal] && migrated.nearbyGroupCancellations.isEmpty)
+        #expect(try restarted.credential(for: group.id)?.secret == "group-key")
+    }
+
     @Test func version16KeepsTheGroupKeyAndTakenInvitationWhenAddingRemovalReceipts() throws {
         let f = try GroupStorageFixture(); defer { f.remove() }
         let group = try f.group()

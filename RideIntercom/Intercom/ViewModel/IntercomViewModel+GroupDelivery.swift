@@ -183,6 +183,20 @@ extension IntercomViewModel {
         return try GroupInvitationReceipt(for: envelope, signer: signer)
     }
 
+    func receiveNearbyGroupInvitationCancellation(_ cancellation: GroupInvitationCancellation, from peerID: String)
+        throws -> GroupInvitationCancellationReceipt {
+        guard canEditSavedGroups, let localAccountPrincipal else { throw DeviceIdentityProof.Failure.invalid }
+        let target = cancellation.target
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
+                                                                 expectedPublicKey: target.recipientKey)
+        let sender = savedRemoteUsers.first { $0.principal == target.sender }
+        let now = callAccessNow()
+        try cancellation.verify(from: peerID, local: localAccountPrincipal, signer: signer, sender: sender, now: now)
+        let outcome = try groupRepository.rememberNearbyGroupCancellation(target, now: now.timeIntervalSince1970)
+        refreshGroupStorageStatus()
+        return try GroupInvitationCancellationReceipt(for: target, outcome: outcome, signer: signer)
+    }
+
     func acknowledgeNearbyGroupInvitation(_ receipt: GroupInvitationReceipt, from peerID: String) throws {
         guard canEditSavedGroups, let record = groupRepository.groupDeliveries.first(where: { $0.id == receipt.id }),
               record.direction == .outgoing, record.sourceRequestID == nil, record.recipientMemberID == peerID

@@ -251,6 +251,87 @@ import UserNotifications
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func receivedCancellationBlocksTheExactLateInvitationAndPreservesAnAlreadyReceivedGroup() async throws {
+        let a = GroupDeliveryTestIdentity("cancellation-wire-sender")
+        let b = GroupDeliveryTestIdentity("cancellation-wire-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try a.harness(knowing: [b], onDisk: true).viewModel
+        let receiver = try b.harness(knowing: [a], onDisk: true).viewModel
+        defer { sender.disconnect(); receiver.stopGroupDeliverySync() }
+        sender.groupDeliveryClient = nil
+        receiver.groupDeliveryClient = nil
+        receiver.allowsNearbyGroupDelivery = true
+
+        let lateGroup = UUID(), stagedGroup = UUID(), acceptedGroup = UUID()
+        try #require(sender.createTalkGroup(name: "Late group", userIDs: [b.personID], id: lateGroup))
+        try #require(sender.createTalkGroup(name: "Staged group", userIDs: [b.personID], id: stagedGroup))
+        try #require(sender.createTalkGroup(name: "Saved group", userIDs: [b.personID], id: acceptedGroup))
+        let lateRecord = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == lateGroup })
+        let stagedRecord = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == stagedGroup })
+        let acceptedRecord = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == acceptedGroup })
+        let late = try #require(try sender.prepareGroupDeliveryEnvelope(lateRecord, sender: a.principal))
+        let incoming = try #require(try sender.prepareGroupDeliveryEnvelope(stagedRecord, sender: a.principal))
+        let accepted = try #require(try sender.prepareGroupDeliveryEnvelope(acceptedRecord, sender: a.principal))
+        let incomingToken = try incoming.open(recipient: b.signer, local: b.principal, sender: a.savedUser())
+        let stagedState = try receiver.groupRepository.stageGroupDelivery(incoming, token: incomingToken,
+            now: Date().timeIntervalSince1970)
+        try #require(stagedState == .pending)
+        _ = try #require(try receiver.receiveNearbyGroupInvitation(accepted, from: a.memberID))
+
+        let receipts = Mutex<[GroupInvitationCancellationReceipt]>([])
+        let recipients = Mutex<Set<PeerID>>([])
+        let bID = PeerID(rawValue: b.memberID)
+        let channel = RTCLocalDataChannel(localID: .init(rawValue: a.memberID), knownPeers: sender.nearbyGroupDeliveryCredentials(),
+                                          offeredPeers: [bID]) { event in
+            switch event {
+            case .members(let peers): recipients.withLock { $0 = Set(peers) }
+            case .message(let bytes, let peer):
+                if peer == bID, case .cancellationReceipt(let receipt) = try? JSONDecoder().decode(NearbyGroupDeliveryFrame.self, from: bytes) {
+                    receipts.withLock { $0.append(receipt) }
+                }
+            case .failed: break
+            }
+        }
+        defer { channel.stop() }
+        receiver.setNearbyGroupDeliveryForeground(true)
+        channel.start()
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) { recipients.withLock { $0.contains(bID) } }
+        try #require(recipients.withLock { $0.contains(bID) })
+
+        let lateTarget = try GroupInvitationCancellation.Target(envelope: late, groupID: lateGroup)
+        let stagedTarget = try GroupInvitationCancellation.Target(envelope: incoming, groupID: stagedGroup)
+        let acceptedTarget = try GroupInvitationCancellation.Target(envelope: accepted, groupID: acceptedGroup)
+        let forged = try GroupInvitationCancellation(target: lateTarget, signer: testIdentitySigner(a.memberID))
+        let cancel = try GroupInvitationCancellation(target: lateTarget, signer: a.signer)
+        let alreadyReceived = try GroupInvitationCancellation(target: acceptedTarget, signer: a.signer)
+        let cancelStaged = try GroupInvitationCancellation(target: stagedTarget, signer: a.signer)
+        for request in [forged, cancel, alreadyReceived, cancelStaged, cancel] {
+            channel.send(try JSONEncoder().encode(NearbyGroupDeliveryFrame.cancellation(request)), to: bID)
+        }
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { receipts.withLock { $0.count >= 4 } }
+        let observed = receipts.withLock { $0 }
+        #expect(observed.map(\.outcome) == [.cancelled, .alreadyReceived, .cancelled, .cancelled])
+        for (receipt, target) in zip(observed, [lateTarget, acceptedTarget, stagedTarget, lateTarget]) {
+            try receipt.verify(for: target)
+        }
+        let discarded = try #require(receiver.groupRepository.groupDeliveries.first { $0.id == incoming.id })
+        #expect(discarded.state == .cancelled && discarded.credentialReference == nil)
+        #expect(try receiver.groupRepository.receiveGroupDelivery(incoming, token: incomingToken, localDisplayName: "You",
+            now: Date().timeIntervalSince1970) == nil)
+
+        receiver.stopGroupDeliverySync()
+        let reopened = try b.harness(knowing: [a], onDisk: true).viewModel
+        #expect(try reopened.receiveNearbyGroupInvitation(late, from: a.memberID) == nil)
+        #expect(reopened.groups.map(\.id) == [acceptedGroup])
+        let staged = try reopened.groupRepository.stageGroupDelivery(late,
+            token: late.open(recipient: b.signer, local: b.principal, sender: a.savedUser()),
+            now: Date().timeIntervalSince1970)
+        #expect(staged == .cancelled)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func nearbyReceiptRequiresTheSameEnvelopeAndSurvivesLostReply() async throws {
         let a = GroupDeliveryTestIdentity("nearby-group-author")
         let b = GroupDeliveryTestIdentity("nearby-group-recipient")

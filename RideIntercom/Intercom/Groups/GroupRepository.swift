@@ -472,7 +472,8 @@ final class GroupRepository {
             return record
         }, users: users ?? previous.users, contactInvitations: previous.contactInvitations,
            groupDeliveries: previous.groupDeliveries, groupLinkReceipts: previous.groupLinkReceipts,
-           groupRemovalReceipts: previous.groupRemovalReceipts.filter { $0.expiresAt > now })
+           groupRemovalReceipts: previous.groupRemovalReceipts.filter { $0.expiresAt > now },
+           nearbyGroupCancellations: previous.nearbyGroupCancellations.filter { $0.expiresAt > now })
         try modify(&next)
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
@@ -770,8 +771,9 @@ extension GroupRepository {
         let confirmed = snapshot.groupDeliveries.firstIndex {
             $0.id == internetCancelledID && $0.internetAction == .cancel
         }
-        guard confirmed != nil || snapshot.groupDeliveries.contains(where: { $0.expiresAt <= now }) else { return }
-        try amend(snapshot) { next in
+        guard confirmed != nil || snapshot.groupDeliveries.contains(where: { $0.expiresAt <= now })
+                || snapshot.nearbyGroupCancellations.contains(where: { $0.expiresAt <= now }) else { return }
+        try amend(snapshot, now: now) { next in
             if let confirmed {
                 if next.groupDeliveries[confirmed].nearbyHandoff != nil {
                     next.groupDeliveries[confirmed].nearbyHandoff?.internetCancellationConfirmed = true
@@ -799,9 +801,46 @@ extension GroupRepository {
         try amend(snapshot) { next in Self.cancelPendingGroupReceipts(in: &next) { $0.id == id } }
     }
 
+    func rememberNearbyGroupCancellation(_ target: GroupInvitationCancellation.Target, now: TimeInterval)
+        throws -> GroupInvitationCancellationReceipt.Outcome {
+        guard isWritable, let snapshot, target.isValid, target.expiresAt > now, target.recipientMemberID == localMemberID
+        else { throw GroupStorageError.invalidUpdate }
+        let existing = snapshot.groupDeliveries.first {
+            $0.id == target.id && $0.direction == .incoming && $0.sourceRequestID == nil && $0.groupID == target.groupID
+                && $0.recipient == target.recipient && $0.recipientMemberID == target.recipientMemberID
+                && $0.recipientKey == target.recipientKey && $0.expiresAt == target.expiresAt
+        }
+        let alreadyReceived = existing?.state == .received && existing?.acceptedEnvelopeDigest == target.envelopeDigest
+        if alreadyReceived || snapshot.nearbyGroupCancellations.contains(target) {
+            try store.lock()
+            defer { store.unlock() }
+            guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
+            return alreadyReceived ? .alreadyReceived : .cancelled
+        }
+
+        var cancelStaged = false
+        if existing?.state == .pending && existing?.senderMemberID == target.senderMemberID {
+            let envelope = try groupDeliveryEnvelope(target.id)
+            cancelStaged = try GroupInvitationCancellation.Target(envelope: envelope, groupID: target.groupID) == target
+        }
+        try amend(snapshot, now: now) { next in
+            next.nearbyGroupCancellations.append(target)
+            if cancelStaged { Self.cancelPendingGroupReceipts(in: &next) { $0.id == target.id } }
+        }
+        return .cancelled
+    }
+
+    private func isCancelledNearby(_ envelope: GroupInvitationEnvelope, groupID: UUID, now: TimeInterval,
+                                   in snapshot: GroupSnapshot) throws -> Bool {
+        guard envelope.sourceRequestID == nil, envelope.expiresAt > now,
+              snapshot.nearbyGroupCancellations.contains(where: { $0.id == envelope.id }) else { return false }
+        return snapshot.nearbyGroupCancellations.contains(try GroupInvitationCancellation.Target(envelope: envelope, groupID: groupID))
+    }
+
     func stageGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, now: TimeInterval,
                             redeliveryTrust: DeviceIdentityTrust? = nil) throws -> GroupDeliveryRecord.State {
         let (_, identity, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
+        if try isCancelledNearby(envelope, groupID: token.groupID, now: now, in: snapshot) { return .cancelled }
         let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id })
         if let old {
             guard old.direction == .incoming, old.groupID == token.groupID, old.recipient == envelope.recipient,
@@ -832,6 +871,7 @@ extension GroupRepository {
     func receiveGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, localDisplayName: String, now: TimeInterval,
                               redeliveryTrust: DeviceIdentityTrust? = nil, fromNearby: Bool = false) throws -> IntercomGroup? {
         guard let snapshot, !fromNearby || envelope.sourceRequestID == nil else { throw GroupStorageError.invalidUpdate }
+        if try isCancelledNearby(envelope, groupID: token.groupID, now: now, in: snapshot) { return nil }
         let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == envelope.id })
         if let index {
             let record = snapshot.groupDeliveries[index]

@@ -59,9 +59,11 @@ final class NearbyGroupDeliveryExchange {
     }
 }
 
-private enum NearbyGroupDeliveryFrame: Codable {
+nonisolated enum NearbyGroupDeliveryFrame: Codable {
     case invitation(GroupInvitationEnvelope)
     case receipt(GroupInvitationReceipt)
+    case cancellation(GroupInvitationCancellation)
+    case cancellationReceipt(GroupInvitationCancellationReceipt)
 }
 
 extension IntercomViewModel {
@@ -236,6 +238,12 @@ extension IntercomViewModel {
                 case .receipt(let receipt):
                     try acknowledgeNearbyGroupInvitation(receipt, from: peer.rawValue)
                     finishNearbyGroupDeliveryIfComplete()
+                case .cancellation(let cancellation):
+                    let receipt = try receiveNearbyGroupInvitationCancellation(cancellation, from: peer.rawValue)
+                    let response = try JSONEncoder().encode(NearbyGroupDeliveryFrame.cancellationReceipt(receipt))
+                    exchange.channel.send(response, to: peer)
+                case .cancellationReceipt:
+                    break
                 }
             } catch let error as GroupStorageError {
                 reportGroupStorageError(error)
