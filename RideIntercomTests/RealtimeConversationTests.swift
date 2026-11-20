@@ -125,6 +125,32 @@ struct RealtimeConversationTests {
         #expect(receiver.playoutDiagnostics(peer: "peer")?.processingTiming == nil)
     }
 
+    @Test func preparedReceiverQueuesSpeechUntilGraphStart() throws {
+        let engine = AVAudioEngine()
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 2400)
+        let receiver = AppAudioReceiver()
+        try receiver.rebuild(engine: engine, configuration: .init(transmitSoundIsolationEnabled: false,
+            receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002), peers: ["peer"],
+            rendersToHardware: true, startsClock: false, onOutput: { _ in })
+        defer { receiver.stop() }
+
+        let frame = PCMFrame(sequenceNumber: 0, capturedAt: 0, samples: Array(repeating: 0.2, count: 960))
+        let packet = try AppTestSupport.receivedAudioPacket(peerID: "peer", frame: frame, codec: .pcm16)
+        _ = try receiver.receive(packet)
+        let player = try #require(engine.attachedNodes.compactMap { $0 as? AVAudioPlayerNode }.first)
+        #expect(!player.isPlaying)
+        #expect(!engine.isRunning)
+        #expect(receiver.playoutDiagnostics(peer: "peer")?.bufferedDuration == 0.022)
+
+        try receiver.start()
+        #expect(player.isPlaying)
+        let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2400))
+        #expect(try engine.renderOffline(2400, to: output) == .success)
+        let samples = UnsafeBufferPointer(start: try #require(output.floatChannelData)[0], count: Int(output.frameLength))
+        #expect(samples.contains { abs($0) > 0.1 })
+    }
+
     @Test func codecChangesFinishTheOldFadeAndCoalesceOnlySettings() throws {
         let transmitter = AppAudioTransmitter()
         let configuration = AppAudioPipelineConfiguration(preferredCodec: .mpeg4AACELD, transmitSoundIsolationEnabled: false)

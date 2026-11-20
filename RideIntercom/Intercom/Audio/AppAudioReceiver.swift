@@ -183,7 +183,6 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval) throws {
         let source = try source(for: peer)
         _ = try source.schedule(frame, packetizationJitter: packetizationJitter)
-        if !source.playerNode.isPlaying { source.start() }
     }
 
     func removePeer(_ peer: String) throws {
