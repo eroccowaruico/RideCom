@@ -55,8 +55,9 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let bitRate: Int?
     }
 
-    private final class PeerDecoding {
-        let decoder = StreamingCodecDecoder()
+    private final class PeerPlayback {
+        lazy var decoder = StreamingCodecDecoder()
+        var source: MixerPCMSource?
         var scheduledEncoding: PacketEncoding?
     }
 
@@ -84,8 +85,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private var mixer: AudioMixer?
     private var configuration = AppAudioPipelineConfiguration()
     private var master: MixerBus?
-    private var sources: [String: MixerPCMSource] = [:]
-    private var decoders: [String: PeerDecoding] = [:]
+    private var peerPlayback: [String: PeerPlayback] = [:]
     private var effects: [IsolationTarget: VoiceIsolationEffect] = [:]
     private var limiter: PeakLimiterEffect?
     private var decodeCounts = ReceiveDecodeCounts()
@@ -144,7 +144,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private func startGraph() throws {
         guard let mixer else { throw AppAudioPipelineError.notConfigured }
         try mixer.start()
-        sources.values.forEach { $0.start() }
+        for playback in peerPlayback.values { playback.source?.start() }
     }
 
     func setHardwareOutputEnabled(_ enabled: Bool) {
@@ -162,7 +162,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         mixer?.stop()
         if let mixer { for id in mixer.busIDs { try? mixer.removeBus(id) } }
         mixer = nil; master = nil; limiter = nil
-        sources.removeAll(); decoders.removeAll(); effects.removeAll()
+        peerPlayback.removeAll(); effects.removeAll()
         decodeCounts = .init()
     }
 
@@ -186,12 +186,12 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             throw AppAudioPipelineError.notConfigured
         }
         let id = received.peerID.rawValue
-        let previousAdjustmentCount = onPlayout == nil ? nil : (sources[id]?.playoutAdjustmentCount ?? 0)
-        let decoding = decoders[id] ?? PeerDecoding()
-        decoders[id] = decoding
+        let playback = playback(for: id)
+        let previousAdjustmentCount = onPlayout == nil ? nil : (playback.source?.playoutAdjustmentCount ?? 0)
+        let decoder = playback.decoder
         let frame: PCMFrame
         do {
-            frame = try AppAudioCodecBridge.decode(received.packet, using: decoding.decoder)
+            frame = try AppAudioCodecBridge.decode(received.packet, using: decoder)
         } catch {
             decodeCounts.failures += 1
             decodeCounts.lastFailureAt = Date().timeIntervalSince1970
@@ -205,16 +205,16 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             let observeReservation: ((MixerPlayoutReservation) -> Void)? = onPlayout.map { _ in { reservation = $0 } }
             let packet = received.packet
             let encoding = PacketEncoding(codec: packet.codec, format: packet.format, bitRate: packet.bitRate)
-            let changedEncoding = decoding.scheduledEncoding.map { $0 != encoding } ?? false
-            if try scheduleInGraph(frame, peer: id, packetizationJitter: decoding.decoder.packetizationJitterDuration,
+            let changedEncoding = playback.scheduledEncoding.map { $0 != encoding } ?? false
+            if try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration,
                                    arrivedAt: arrivedAt, startsNewArrivalTiming: changedEncoding,
                                    onReservation: observeReservation) {
                 // Empty decoder priming and sub-sample conversion don't start a new timing baseline.
-                decoding.scheduledEncoding = encoding
+                playback.scheduledEncoding = encoding
             }
             timing?.reservedAt = ProcessInfo.processInfo.systemUptime
         }
-        if let previousAdjustmentCount, let source = sources[id] {
+        if let previousAdjustmentCount, let source = playback.source {
             observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount,
                                 processingTiming: timing, reservation: reservation)
         }
@@ -239,8 +239,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
 
     func removePeer(_ peer: String) throws {
         lock.lock(); defer { lock.unlock() }
-        decoders.removeValue(forKey: peer)
-        guard sources.removeValue(forKey: peer) != nil else { return }
+        guard peerPlayback.removeValue(forKey: peer)?.source != nil else { return }
         let target = IsolationTarget.peer(peer)
         try mixer?.removeBus(target.busID)
         effects.removeValue(forKey: target)
@@ -248,14 +247,14 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
 
     func playoutDiagnostics(peer: String) -> ReceivePlayoutDiagnostics? {
         lock.withLock {
-            guard let source = sources[peer] else { return nil }
+            guard let source = peerPlayback[peer]?.source else { return nil }
             return .init(source: source)
         }
     }
 
     func playbackDrainDuration(peer: String) -> TimeInterval {
         lock.withLock {
-            guard let source = sources[peer] else { return 0 }
+            guard let source = peerPlayback[peer]?.source else { return 0 }
             // Include downstream effects/device latency and two 20 ms meter
             // packets so stopping cannot discard the final rendered samples.
             return source.bufferedDuration + source.playerNode.outputPresentationLatency + 0.04
@@ -268,7 +267,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         configuration.isOutputMuted = isMuted
         configuration.peerOutputVolumes = peers.mapValues { min(1, max(0, $0)) }
         master?.volume = isMuted ? 0 : configuration.masterOutputVolume
-        for (id, source) in sources { source.volume = configuration.peerOutputVolumes[id] ?? 1 }
+        for (id, playback) in peerPlayback { playback.source?.volume = configuration.peerOutputVolumes[id] ?? 1 }
     }
 
     /// Input and output share an engine. Reopening native I/O invalidates the
@@ -280,7 +279,10 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let output = mixer?.bus("rx-output")
         return withOutputProtection(output, settlingDuration: { output?.processingLatency ?? 0 }) {
             let result = change()
-            for source in sources.values { source.stop(); source.start() }
+            for playback in peerPlayback.values {
+                guard let source = playback.source else { continue }
+                source.stop(); source.start()
+            }
             return result
         }
     }
@@ -345,8 +347,15 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         }
     }
 
+    private func playback(for peer: String) -> PeerPlayback {
+        if let playback = peerPlayback[peer] { return playback }
+        let playback = PeerPlayback()
+        peerPlayback[peer] = playback
+        return playback
+    }
+
     private func source(for peer: String) throws -> MixerPCMSource {
-        if let source = sources[peer] { return source }
+        if let source = peerPlayback[peer]?.source { return source }
         guard let mixer, let master else { throw AppAudioPipelineError.notConfigured }
         let target = IsolationTarget.peer(peer)
         let bus = try mixer.createBus(target.busID)
@@ -360,7 +369,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             adaptivePlayout: configuration.receivePlayoutDelay != nil)
         source.volume = configuration.peerOutputVolumes[peer] ?? 1
         try mixer.route(bus, to: master)
-        sources[peer] = source
+        playback(for: peer).source = source
         if mixer.engine.isRunning { source.start() }
         return source
     }
