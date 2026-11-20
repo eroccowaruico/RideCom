@@ -27,4 +27,10 @@
 
 今回アプリ・packageの音声実装は変更していない。iPhoneのロック解除・RideCom起動後、Watchで通話先を表示できること、Watchから開始し、Watchのマイク入力とスピーカー出力、押下解除による実送話停止、終了を確認する経路は未完。CallKitなしの実Watch媒体通信、背景・画面消灯・経路変更・電池・遅延も[未確認事項](../未確認事項.md#iphone依存watchの実機操作と音声)へ残す。実Cloudflare通話や他人への呼出し通知は実行していない。
 
+## Watchの配布を保留する
+
+2026-11-21。Appleは、実行中のWatch Appから到達可能なiOS Appをバックグラウンドで起こせると説明している。RideComの実機記録には、iPhoneをロックしたまま実Watchで通話先の取得・選択、開始、ミュート・解除、終了、結果の表示まで確認した結果が揃っていない。Appのリモコン試験は操作を受理した後の処理を確認した。公開対象の実機受入まではWatchの配布を保留する。[AppleのWatch Connectivityの例](https://developer.apple.com/documentation/watchconnectivity/transferring-data-with-watch-connectivity)
+
+標準の`RideIntercom` schemeでiOS ReleaseをArchiveした。Build 1634のiPhone AppとWidgetの番号はともに1634で、Archiveの`Products`内にWatch Appがないことと、Appの署名のstrict検証を確認した。通常ReleaseはiPhone側でWatchのbridgeも起動しない。開発・検証構成の組み込みとWatchのRun・Testは維持する。証跡は`.validation/watch-release-hold/`の`archive.log`、`verification.txt`、`codesign.log`。配布用のexport・アップロード・実機への導入は今回行っていない。[配布構成](../../development/OS権限と配布設定.md#生成物での確認)
+
 20:06の最終build後、20:07に別作業の`RideIntercomWatchApp.swift`変更と`WatchRecordingCheck.swift`追加を観測した。これらは編集・再build・実機導入・コミットの対象へ含めない。本記録の起動結果は変更前の生成物に対応し、後から追加された録音確認画面や現在の全ソースの動作確認ではない。

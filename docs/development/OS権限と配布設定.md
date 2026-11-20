@@ -68,7 +68,9 @@ codesign -d --entitlements :- /path/to/RideIntercom.app/PlugIns/RideIntercomWidg
 plutil -extract RideIntercomAPNsEnvironment raw /path/to/RideIntercom.app/Info.plist
 ```
 
-macOSではWidgetが`Contents/PlugIns`、Infoが`Contents/Info.plist`にある。AppとWidgetのentitlementに同じApp Groupがあり、AppだけにAppleログイン・APNs・音声権限があること、APNsのdevelopment/productionがApp Infoと対応することを確かめる。WatchはiOS Appの`Watch/RideIntercomWatch.app`に埋め込まれ、App・Widget・Watchの`CFBundleVersion`が一致し、Watchの`Assets.car`と`CFBundleIcons`にAppIconがあることを確認する。macOS AppにはWatchを埋め込まない。raw profile、証明書、device token、鍵を検証記録へ貼らない。
+macOSではWidgetが`Contents/PlugIns`、Infoが`Contents/Info.plist`にある。AppとWidgetのentitlementに同じApp Groupがあり、AppだけにAppleログイン・APNs・音声権限があること、APNsのdevelopment/productionがApp Infoと対応することを確かめる。raw profile、証明書、device token、鍵を検証記録へ貼らない。
+
+Watchの配布は保留中。通常のiOS ReleaseはWatchの依存と埋め込みを除外し、Watchの共有schemeはRun・Testを残す。iOS ReleaseのArchiveとexport後のPayloadで、App・Widgetの`CFBundleVersion`が一致し、`Watch/RideIntercomWatch.app`が含まれないことを確かめる。開発・検証構成のiOS Appでは引き続きWatchを組み込み、組み込んだ場合はその`CFBundleVersion`とAppIconを確認する。[Watchの公開条件](../requirements/製品要求.md#利用者に提供すること)
 
 profile更新後の端末受入は、Appleログイン、OSのマイク／ローカルネットワーク／通知許可、App Group候補表示、削除・サインアウト後の古いWidget操作拒否、実APNs受信と取消、Watch操作、ロック中継続の順で個別に記録する。Mac nativeの任意MenuBarExtraは後続のApp工程で[実装](../spec/App/システム表示と通話操作.md#macメニューバー)した。実メニュー・VoiceOverの受入は別に記録する。
 

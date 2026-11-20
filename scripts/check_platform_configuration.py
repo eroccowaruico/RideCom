@@ -6,6 +6,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 APP_GROUP = 'group.com.yowamushi-inc.RideIntercom.CallWidgets'
 APNS_SETTING = '$(RIDEINTERCOM_APNS_ENVIRONMENT)'
@@ -162,7 +163,18 @@ def check(root, project=None):
     objects = project['objects']
     embedded = {objects[objects[key]['fileRef']].get('path') for obj in objects.values() if obj.get('isa') == 'PBXCopyFilesBuildPhase' for key in obj.get('files', [])}
     require('RideIntercomWidgets.appex' in embedded, 'App must embed Widget extension.')
-    require('RideIntercomWatch.app' in embedded, 'iOS App must embed Watch companion.')
+    require('RideIntercomWatch.app' in embedded, 'Development builds must retain the Watch embed phase.')
+    for config in target_configurations(project, 'RideIntercom'):
+        settings = config['buildSettings']
+        excludes_watch = config['name'] == 'Release'
+        require(('RideIntercomWatch.app' in settings.get('EXCLUDED_SOURCE_FILE_NAMES', '').split()) == excludes_watch,
+                'Exclude the Watch product only from the distribution Release configuration.')
+        require(('RideIntercomWatch' in settings.get('EXCLUDED_EXPLICIT_TARGET_DEPENDENCIES', '').split()) == excludes_watch,
+                'Exclude the Watch target dependency only from the distribution Release configuration.')
+    watch_scheme = ET.parse(root / 'RideIntercom.xcodeproj/xcshareddata/xcschemes/RideIntercomWatch.xcscheme')
+    watch_entry = watch_scheme.find('./BuildAction/BuildActionEntries/BuildActionEntry')
+    require(watch_entry is not None and watch_entry.get('buildForArchiving') == 'NO',
+            'The development Watch scheme must not build an archive for distribution.')
     if inspect_repository_packages:
         errors.extend(check_package_platforms(root))
     return errors

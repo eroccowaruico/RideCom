@@ -32,7 +32,7 @@ struct RideIntercomApp: App {
         _callOwner = State(initialValue: owner)
         owner.notificationBridge.bind(to: owner)
         appDelegate.notificationBridge = owner.notificationBridge
-        #if os(iOS)
+        #if os(iOS) && (DEBUG || RIDEINTERCOM_VALIDATION)
         owner.watchBridge = WatchPhoneBridge(owner: owner)
         owner.watchBridge?.activate()
         #endif
