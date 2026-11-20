@@ -335,9 +335,11 @@ final class StandardInterfaceUITests: XCTestCase {
 
     @MainActor
     private func checkGroupRemovalSaveFailure(advanced: Bool) throws {
+        let personID = UUID()
         app = XCUIApplication()
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
-            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard", "RIDEINTERCOM_FAIL_GROUP_REMOVAL": "1"]
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard", "RIDEINTERCOM_FAIL_GROUP_REMOVAL": "1",
+            "RIDEINTERCOM_CONTACT_NAME_FIXTURE": personID.uuidString]
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
 
@@ -368,6 +370,21 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertEqual(app.textFields["groupSettingsNameField"].firstMatch.value as? String, groupName)
         app.buttons["closeGroupSettingsButton"].firstMatch.tap()
         XCTAssertTrue(end.waitForExistence(timeout: 5))
+        tab("Users", id: "usersTab")
+        XCTAssertTrue(app.descendants(matching: .any)["groupStorageStatus"].firstMatch.waitForExistence(timeout: 3))
+        let user = app.buttons["standardUser-" + personID.uuidString].firstMatch
+        let list = app.descendants(matching: .any)["standardUsersList"].firstMatch
+        for _ in 0..<8 where !user.isHittable { list.swipeUp() }
+        XCTAssertTrue(user.isHittable)
+        user.swipeLeft()
+        let userSettings = app.buttons["User Settings"].firstMatch
+        XCTAssertTrue(userSettings.waitForExistence(timeout: 3))
+        screenshot("Saved user actions while storage needs recovery")
+        XCTAssertFalse(app.buttons["Delete"].firstMatch.exists, "Read-only storage must not offer deletion")
+        userSettings.tap()
+        let deleteUser = app.buttons["deleteUserButton"].firstMatch
+        XCTAssertTrue(deleteUser.waitForExistence(timeout: 3))
+        XCTAssertFalse(deleteUser.isEnabled)
     }
 
     @MainActor

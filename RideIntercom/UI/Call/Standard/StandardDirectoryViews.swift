@@ -38,6 +38,7 @@ struct StandardUsersView: View {
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardUser-\(user.id)")
                     .destinationRowActions("User Settings", settings: { settings = .user(user.id) },
+                                           canDelete: viewModel.canEditSavedGroups,
                                            pending: $pendingDelete, name: user.resolvedDisplayName,
                                            endsCall: viewModel.isInCall(with: .user(user.id))) {
                         _ = viewModel.removeSavedUser(user.id)

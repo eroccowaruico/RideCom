@@ -6,7 +6,7 @@ extension View {
     /// The swipe offers the settings entry, then Delete when the row can be deleted. Delete always
     /// asks first: it only fills `pending`; the list shows the alert (`destinationDeleteConfirmation`).
     func destinationRowActions(_ settingsTitle: LocalizedStringKey, settings: @escaping () -> Void,
-                               canDelete: Bool = true, pending: Binding<PendingDestinationDelete?>,
+                               canDelete: Bool, pending: Binding<PendingDestinationDelete?>,
                                name: String, endsCall: Bool = false,
                                delete: @escaping () -> Void) -> some View {
         let ask = { pending.wrappedValue = PendingDestinationDelete(name: name, endsCall: endsCall, perform: delete) }
