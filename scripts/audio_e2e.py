@@ -250,6 +250,8 @@ def main():
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
     parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity'], default='quick')
+    parser.add_argument('--scenario', metavar='ID', action='append', default=[],
+                        help='Run only this scenario from the network audio matrix; repeat to select multiple cases')
     parser.add_argument('--speech-pair', choices=['english', 'japanese', 'conversation'], default='english')
     parser.add_argument('--switches-only', action='store_true', help='Live codec, format and effect changes with bounded silence and click checks')
     parser.add_argument('--codec-only', action='store_true', help='Native codec identity across four speech fixtures and all supported formats')
@@ -275,6 +277,17 @@ def main():
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
+    cases = scenarios(args.matrix, args.seconds)
+    if args.scenario:
+        if standalone_modes or args.cleanup_only or args.transport == 'mixed':
+            parser.error('--scenario requires a network audio matrix (local, webrtc, or all)')
+        selected = set(args.scenario)
+        if len(selected) != len(args.scenario):
+            parser.error('Specify each scenario ID only once')
+        unknown = selected.difference(case['id'] for case in cases)
+        if unknown:
+            parser.error(f'Scenario IDs not in the {args.matrix} matrix: {", ".join(sorted(unknown))}')
+        cases = [case for case in cases if case['id'] in selected]
     os.environ.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
     out = (args.output or ROOT / '.validation' / ('audio-e2e-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))).resolve()
     if out == ROOT:
@@ -283,16 +296,15 @@ def main():
     resource_root = simulator_resource_root()
     try:
         with exclusive_run(resource_root / 'run.lock'):
-            return execute(args, runner, resource_root)
+            return execute(args, runner, resource_root, cases)
     except BlockingIOError:
         runner.record('exclusive-run', [], 'failed', 1, time.monotonic(), 'Another audio E2E run is active')
         return 1
 
 
-def execute(args, runner, resource_root):
+def execute(args, runner, resource_root, cases):
     out = runner.out
     run_id = str(uuid.uuid4())
-    cases = scenarios(args.matrix, args.seconds)
     if args.codec != 'default':
         for case in cases: case['codec'] = args.codec
     if args.isolation == 'off':

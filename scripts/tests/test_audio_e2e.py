@@ -1,4 +1,6 @@
 """Failure and interruption coverage for the AI-independent audio E2E runner."""
+from contextlib import redirect_stderr
+import io
 import json
 import os
 from pathlib import Path
@@ -20,6 +22,44 @@ from scripts.audio_e2e import measurements, duplex_latencies, run_pair, configur
 
 
 class AudioE2ELifecycleTests(unittest.TestCase):
+    def test_network_audio_selects_requested_cases_in_matrix_order(self):
+        argv = ['audio_e2e.py', '--output', str(self.root / 'selection'), '--matrix', 'quick',
+                '--scenario', 'output-recovery', '--scenario', 'pcm16-16k-voicechat']
+        with patch.object(sys, 'argv', argv), patch.dict(os.environ), \
+                patch.object(audio, 'simulator_resource_root', return_value=self.root), \
+                patch.object(audio, 'execute', return_value=0) as execute:
+            self.assertEqual(audio.main(), 0)
+        execute.assert_called_once()
+        cases = execute.call_args.args[3]
+        self.assertEqual(cases, [case for case in scenarios('quick', 8)
+                                if case['id'] in {'pcm16-16k-voicechat', 'output-recovery'}])
+
+    def test_network_audio_keeps_the_whole_matrix_without_selection(self):
+        argv = ['audio_e2e.py', '--output', str(self.root / 'all-cases'), '--matrix', 'smoke']
+        with patch.object(sys, 'argv', argv), patch.dict(os.environ), \
+                patch.object(audio, 'simulator_resource_root', return_value=self.root), \
+                patch.object(audio, 'execute', return_value=0) as execute:
+            self.assertEqual(audio.main(), 0)
+        self.assertEqual(execute.call_args.args[3], scenarios('smoke', 8))
+
+    def test_audio_scenario_errors_stop_before_creating_run_artifacts(self):
+        examples = [
+            (['--matrix', 'smoke', '--scenario', 'output-mute'], 'not in the smoke matrix'),
+            (['--scenario', 'default', '--scenario', 'default'], 'each scenario ID only once'),
+            (['--switches-only', '--scenario', 'default'], 'requires a network audio matrix'),
+            (['--cleanup-only', '--scenario', 'default'], 'requires a network audio matrix'),
+            (['--transport', 'mixed', '--matrix', 'smoke', '--scenario', 'default'], 'requires a network audio matrix'),
+        ]
+        out = self.root / 'unstarted'
+        for arguments, message in examples:
+            with self.subTest(arguments=arguments), patch.object(sys, 'argv', ['audio_e2e.py', '--output', str(out), *arguments]):
+                stderr = io.StringIO()
+                with redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+                    audio.main()
+                self.assertEqual(error.exception.code, 2)
+                self.assertIn(message, stderr.getvalue())
+                self.assertFalse(out.exists())
+
     def test_configuring_audio_hosts_requires_isolated_real_products(self):
         for platform in ('mac', 'ios'):
             products = self.root / platform

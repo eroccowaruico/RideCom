@@ -141,6 +141,14 @@ Build 1704の実通話では、packet 590の送信記録から相手の受信ま
 
 Macの2試験とiOS Simulatorの1試験を実行し、iOSではソース照合、音声機器設定の復元、専用Simulatorの回収も確認した。証跡は `.validation/pcm16-expired-replay-1705/` の試作、`mac-summary.json`、`ios-summary.json`、`mac-expanded-summary.json` と各実行ログ。
 
+### 標準のケース選択でPCM16の実通話を測る
+
+2026-11-21。Build 1705のiPhone Simulator 2台で標準入口の `--matrix quick --scenario pcm16-16k-voicechat` を実行した。`scenarios.json`、両端に渡したケース、両端から回収した測定はいずれも選んだ1件だけ。PCM16 16kHzが適用され、両方向の復号の有声欠落と内部破棄は0。Aの実出力は0.56%の有声欠落で波形試験が失敗し、Bの遅延判定は計測余裕込み197.67msで125ms未達。選択したケースにも通常と同じ判定が適用された。[ケース選択の手順](../../development/音声E2Eテスト.md#通信音声のケースを選ぶ)
+
+Aで再予約を観測したpacket 488は、送信の記録から受信まで約3.07ms、直前の487は約0.35ms。受信から予約完了は0.03ms前後だった。今回も受信処理を始める前に増えた時間を、送信と受信に近い観測点で調べる。選択試験の証跡は `.validation/audio-scenario-selection-1705/pcm16/`、スクリプト回帰171件は `.validation/20261121-040817-876090/`。事前5件、ソース照合、入出力の復元と検証端末の回収を確認した。
+
+Build 1707で `--scenario output-mute` の1件を同じ近距離構成で選び、両端で音声packetを受信したまま、2秒間の実出力が無音（ピーク0、基準0.001未満）になることを確認した。両端のケース照合・波形判定、試験端末の回収まで成功した。証跡は `.validation/audio-scenario-selection-1705/mute-verified/`。手順から導いた選択順、指定省略時の全件実行、不正な指定時の準備前終了をスクリプト試験で、選択したケースだけの実行と既存判定の適用を2つの実通話試験で照合した。
+
 ## 間欠的に失敗する実Multipeerの招待テスト
 
 2026-11-15〜16、iPhone 17 Pro Simulator（iOS 27.2）で`ContactInvitationPersistenceTests.nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload`が間欠的に60秒の制限時間を超えた。同一プロセス内の2つのViewModelを実Multipeer（Bonjour）でつなぐテストで、成功時は1.5〜2.5秒で終わる。

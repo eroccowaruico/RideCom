@@ -55,9 +55,22 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 | full | quickに加え、3 codec指定×3 rate、AAC/Opusのbit rate下限・上限×3 rate、mode・speaker・明示echo cancellationの6通り、master/peer音量ゼロ、送信muteと復帰 |
 | identity | 20秒以上の全文照合。既定設定、PCM16で送信Isolation無効、Opusで送信Isolation無効を比較。英語・日本語・間と相槌を含む会話を別runで実行する |
 
-マトリクスの正本はリポジトリの`scripts/audio_e2e_matrix.py`にある。各runの`scenarios.json`へ全条件を保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
+マトリクスの正本はリポジトリの`scripts/audio_e2e_matrix.py`にある。各runの`scenarios.json`へ実行対象の条件を保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
 
 音声sessionはSettingsと同じMode・Use Speaker・Echo Cancellationの操作関数を使う。iOS側でBurst modeはspeakerと明示echo希望の4通り、Stream modeはspeaker ON/OFFの2通りを通す。MacはCoreAudio固有のデバイスIDを持ち、iOSのbuilt-in-speaker指定を持たないため、相手側として実system default出力を使う。表示用の値だけでなく、SessionManagerへ渡されたmode・speaker・echo希望と、OS操作が失敗していないことも検査する。物理機器が必要なBluetooth・有線デバイス選択はSimulatorの設定網羅に含めない。
+
+### 通信音声のケースを選ぶ
+
+設定や音声経路の変更に関係するケースを実行するときは、`--matrix`と`--scenario ID`を組み合わせる。例えば、PCM16の16kHz・Voice ChatだけをiPhone Simulator 2台で測る。
+
+```sh
+python3 scripts/audio_e2e.py --configuration Release --transport local --matrix quick \
+  --scenario pcm16-16k-voicechat --saved-group-start --two-simulators --ephemeral
+```
+
+複数のIDは`--scenario`を繰り返す。選んだケースはマトリクスの順に実行する。未知のIDや重複ID、専用mode・`--transport mixed`・`--cleanup-only`との組合せは、Simulatorの準備前にエラーになる。指定を省くと従来どおりマトリクス全体を実行する。例えば出力ミュートからの復帰を検証するときは`output-mute`と`output-recovery`を両方選ぶ。
+
+`scenarios.json`に実行対象の設定を保存し、両端の測定が選んだ全ケースのIDと一致することを照合する。波形、連続性、遅延の基準は共通。Xcodeから同じ組合せを実行する場合は、そのJSONを両端の`AUDIO_E2E_SCENARIOS`に設定する。結果の範囲は選択したケースと経路に限定する。
 
 ## 通る経路と判定
 
