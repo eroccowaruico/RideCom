@@ -1,9 +1,102 @@
 import Foundation
+import RTC
+import Synchronization
 import Testing
 import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
+    @Test(.timeLimit(.minutes(1)))
+    func nearbyReceiptRequiresTheSameEnvelopeAndSurvivesLostReply() async throws {
+        let a = GroupDeliveryTestIdentity("nearby-group-author")
+        let b = GroupDeliveryTestIdentity("nearby-group-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let left = try a.harness(knowing: [b], onDisk: true)
+        let right = try b.harness(knowing: [a], onDisk: true)
+        defer { left.viewModel.disconnect(); right.viewModel.disconnect() }
+        left.viewModel.groupDeliveryClient = nil
+        right.viewModel.groupDeliveryClient = nil
+        try #require(left.viewModel.createTalkGroup(name: "Offline riders", userIDs: [b.personID]))
+        left.viewModel.disconnect()
+        let delivery = try #require(left.viewModel.groupRepository.groupDeliveries.first)
+        let envelope = try #require(try left.viewModel.prepareGroupDeliveryEnvelope(delivery, sender: a.principal))
+
+        let credential = RTCCredential.derived(groupID: UUID().uuidString, secret: UUID().uuidString)
+        let fromLeft = Mutex<[RTCLocalDataChannel.Event]>([])
+        let fromRight = Mutex<[RTCLocalDataChannel.Event]>([])
+        let author = RTCLocalDataChannel(localID: .init(rawValue: a.memberID), credential: credential) { event in
+            fromLeft.withLock { $0.append(event) }
+        }
+        let recipient = RTCLocalDataChannel(localID: .init(rawValue: b.memberID), credential: credential) { event in
+            fromRight.withLock { $0.append(event) }
+        }
+        defer { author.stop(); recipient.stop() }
+        author.start()
+        recipient.start()
+        let recipientID = PeerID(rawValue: b.memberID)
+        let authorID = PeerID(rawValue: a.memberID)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            fromLeft.withLock { $0.contains(.members([recipientID])) }
+                && fromRight.withLock { $0.contains(.members([authorID])) }
+        }
+        try #require(fromLeft.withLock { $0.contains(.members([recipientID])) })
+        let packet = try JSONEncoder().encode(envelope)
+        author.send(packet)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { fromRight.withLock { $0.contains(.message(packet, from: authorID)) } }
+        try #require(fromRight.withLock { $0.contains(.message(packet, from: authorID)) })
+        let incoming = try JSONDecoder().decode(GroupInvitationEnvelope.self, from: packet)
+        let receipt = try #require(try right.viewModel.receiveNearbyGroupInvitation(incoming, from: a.memberID))
+        #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .pending, "Losing the receipt leaves the same outgoing request")
+        #expect(try right.viewModel.groupRepository.credential(for: delivery.groupID)
+            == left.viewModel.groupRepository.credential(for: delivery.groupID))
+
+        right.viewModel.deleteGroup(delivery.groupID)
+        let restarted = try b.harness(knowing: [a], onDisk: true)
+        restarted.viewModel.groupDeliveryClient = nil
+        let opened = try incoming.open(recipient: b.signer, local: b.principal, sender: a.savedUser())
+        let reencrypted = try GroupInvitationEnvelope.seal(opened, sender: a.principal, recipient: b.principal,
+            recipientMemberID: b.memberID, recipientKey: b.signer.publicKey, signer: a.signer, deliveryID: incoming.id)
+        #expect(try restarted.viewModel.receiveNearbyGroupInvitation(reencrypted, from: a.memberID) == nil)
+        let replacementReceipt = try GroupInvitationReceipt(for: reencrypted, signer: b.signer)
+        #expect(throws: (any Error).self) {
+            try left.viewModel.acknowledgeNearbyGroupInvitation(replacementReceipt, from: b.memberID)
+        }
+        let repeated = try #require(try restarted.viewModel.receiveNearbyGroupInvitation(incoming, from: a.memberID))
+        let reply = try JSONEncoder().encode(repeated)
+        recipient.send(reply)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { fromLeft.withLock { $0.contains(.message(reply, from: recipientID)) } }
+        try #require(fromLeft.withLock { $0.contains(.message(reply, from: recipientID)) })
+        let received = try JSONDecoder().decode(GroupInvitationReceipt.self, from: reply)
+        #expect(throws: (any Error).self) {
+            try left.viewModel.acknowledgeNearbyGroupInvitation(received, from: a.memberID)
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        GroupDeliveryHTTPStub.reset()
+        defer { left.viewModel.stopGroupDeliverySync(); GroupDeliveryHTTPStub.reset() }
+        let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        GroupDeliveryHTTPStub.users = [access.accessToken: try a.principal.userID]
+        let grant = try testCallNotificationGrant(owner: b.principal, allowedSender: a.principal, audience: "rideintercom-group-invitation")
+        let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal,
+            revision: 1, grant: nil, signer: b.signer, groupGrant: grant, groupInvitationsSupported: true)
+        try left.viewModel.notifications.receivePermission(permission, peerID: b.memberID)
+        GroupDeliveryHTTPStub.onQueued = {
+            do { try left.viewModel.acknowledgeNearbyGroupInvitation(received, from: b.memberID) }
+            catch { Issue.record("The near-range receipt must succeed while Internet delivery is in flight: \(error)") }
+        }
+        left.viewModel.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        await left.viewModel.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.submitted.count == 1)
+        #expect(left.viewModel.groupStorageIssue == nil)
+        try left.viewModel.acknowledgeNearbyGroupInvitation(receipt, from: b.memberID)
+        #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .received)
+        #expect(restarted.viewModel.groups.isEmpty, "A repeated envelope does not recreate the deleted group")
+        #expect(left.viewModel.activeGroupID == nil && right.viewModel.activeGroupID == nil)
+    }
+
     @Test func selectingAKnownAccountQueuesEveryKnownDeviceInTheSameSave() throws {
         let peer = AccountPrincipal(issuer: "https://delivery.test", userID: String(repeating: "b", count: 64))
         let user = SavedUser(displayName: "Registered friend", memberIDs: ["friend-one", "friend-two"],

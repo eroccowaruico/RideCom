@@ -21,6 +21,7 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     var credentialReference: UUID?
     var senderMemberID: String?
     var sourceRequestID: UUID?
+    var acceptedEnvelopeDigest: Data?
 
     var isValid: Bool {
         sourceRequestID != id && recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)
@@ -33,5 +34,6 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
                 : senderMemberID == nil)
             && (state != .queued || credentialReference != nil)
             && (state != .received && state != .cancelled || credentialReference == nil)
+            && (acceptedEnvelopeDigest == nil || (direction == .incoming && state == .received && acceptedEnvelopeDigest?.count == 32))
     }
 }

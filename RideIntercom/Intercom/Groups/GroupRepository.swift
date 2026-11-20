@@ -805,18 +805,27 @@ extension GroupRepository {
 
     @discardableResult
     func receiveGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, localDisplayName: String, now: TimeInterval,
-                              redeliveryTrust: DeviceIdentityTrust? = nil) throws -> IntercomGroup? {
-        guard let snapshot, let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == envelope.id }),
-              snapshot.groupDeliveries[index].direction == .incoming else { throw GroupStorageError.invalidUpdate }
-        let record = snapshot.groupDeliveries[index]
-        // A local deletion can cancel the staged record while the network request is in flight.
-        guard record.state == .pending else { return nil }
+                              redeliveryTrust: DeviceIdentityTrust? = nil, fromNearby: Bool = false) throws -> IntercomGroup? {
+        guard let snapshot, !fromNearby || envelope.sourceRequestID == nil else { throw GroupStorageError.invalidUpdate }
+        let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == envelope.id })
+        if let index {
+            let record = snapshot.groupDeliveries[index]
+            guard record.direction == .incoming else { throw GroupStorageError.invalidUpdate }
+            // A deletion can cancel a staged record before the Internet acknowledgement returns.
+            guard record.state == .pending else { return nil }
+            guard record.groupID == token.groupID, record.recipient == envelope.recipient,
+                  record.recipientMemberID == envelope.recipientMemberID, record.recipientKey == envelope.recipientKey,
+                  record.senderMemberID == envelope.senderMemberID, record.expiresAt == envelope.expiresAt,
+                  record.sourceRequestID == envelope.sourceRequestID
+            else { throw GroupStorageError.invalidUpdate }
+            if fromNearby, try groupDeliveryEnvelope(envelope.id).receiptDigest() != envelope.receiptDigest() {
+                throw GroupStorageError.invalidUpdate
+            }
+        } else if !fromNearby {
+            throw GroupStorageError.invalidUpdate
+        }
         let (inviterDisplayName, identity, _) = try validateIncomingGroupDelivery(envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
-        guard let localMemberID, record.groupID == token.groupID,
-              record.recipient == envelope.recipient, record.recipientKey == envelope.recipientKey,
-              record.senderMemberID == envelope.senderMemberID, record.expiresAt == envelope.expiresAt,
-              record.sourceRequestID == envelope.sourceRequestID
-        else { throw GroupStorageError.invalidUpdate }
+        guard let localMemberID else { throw GroupStorageError.invalidUpdate }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == target.id })
         if let existing, try !matchesGroupDelivery(target, sender: identity, principal: envelope.sender, existing: existing) {
@@ -828,6 +837,7 @@ extension GroupRepository {
         let newGroup = existing == nil
         let groups = newGroup ? try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: inviterDisplayName),
             identity: identity, localDisplayName: localDisplayName, groups: previous) : previous
+        let digest = try envelope.receiptDigest()
         try update(groups, credential: newGroup ? .init(groupID: token.groupID, secret: token.groupSecret) : nil) { next in
             if let groupIndex = next.groups.firstIndex(where: { $0.id == token.groupID }) {
                 if newGroup {
@@ -838,9 +848,16 @@ extension GroupRepository {
                 }
                 try next.groups[groupIndex].rememberInvitationDevice(identity)
             }
-            next.groupDeliveries[index].state = .received
-            next.groupDeliveries[index].credentialReference = nil
-            next.groupDeliveries[index].senderMemberID = nil
+            if let index {
+                next.groupDeliveries[index].state = .received
+                next.groupDeliveries[index].credentialReference = nil
+                next.groupDeliveries[index].senderMemberID = nil
+                next.groupDeliveries[index].acceptedEnvelopeDigest = digest
+            } else {
+                next.groupDeliveries.append(.init(id: envelope.id, noticeID: envelope.id, groupID: token.groupID,
+                    recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID, recipientKey: envelope.recipientKey,
+                    expiresAt: envelope.expiresAt, direction: .incoming, state: .received, acceptedEnvelopeDigest: digest))
+            }
         }
         return storedGroup(token.groupID)
     }

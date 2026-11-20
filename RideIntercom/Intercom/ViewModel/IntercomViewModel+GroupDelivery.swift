@@ -129,18 +129,8 @@ extension IntercomViewModel {
                   let grant = notifications.groupInvitationGrant(for: user.id) else { continue }
             let envelope: GroupInvitationEnvelope
             do {
-                if record.credentialReference != nil { envelope = try groupRepository.groupDeliveryEnvelope(record.id) }
-                else {
-                    guard let group = groups.first(where: { $0.id == record.groupID }), let key = try credential(for: group) else { continue }
-                    let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
-                    let token = try GroupInviteToken.make(authority: invitationAuthority, signer: signer, groupID: group.id, groupName: group.name,
-                        groupSecret: key.secret, inviterMemberID: localMemberIdentity.memberID, inviterDisplayName: localMemberIdentity.displayName,
-                        issuedAt: callAccessNow().timeIntervalSince1970, expiresAt: record.expiresAt)
-                    envelope = try .seal(token, sender: access.principal, recipient: record.recipient, recipientMemberID: record.recipientMemberID,
-                        recipientKey: record.recipientKey, signer: signer, now: callAccessNow(), deliveryID: record.id,
-                        sourceRequestID: record.sourceRequestID)
-                    try groupRepository.saveGroupDeliveryEnvelope(envelope)
-                }
+                guard let prepared = try prepareGroupDeliveryEnvelope(record, sender: access.principal) else { continue }
+                envelope = prepared
             } catch { reportGroupStorageError(error); return }
             let reply: GroupDeliveryReply
             do { reply = try await client.sendGroupInvitation(envelope, noticeID: record.noticeID, capability: grant.capability, access: access) }
@@ -149,11 +139,61 @@ extension IntercomViewModel {
             guard groupDeliveryIsCurrent(access, accountID: generation),
                   let current = groupRepository.groupDeliveries.first(where: { $0.id == record.id }) else { return }
             if current.state == .cancelled { groupDeliveryNeedsSync = true; continue }
+            if current.state == .received { continue }
             do { if current.state != reply.status { try groupRepository.setGroupDeliveryState(record.id, state: reply.status) } }
             catch { reportGroupStorageError(error); return }
         }
         await receiveGroupDeliveries(client: client, access: access, generation: generation)
         await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
+    }
+
+    func prepareGroupDeliveryEnvelope(_ record: GroupDeliveryRecord, sender: AccountPrincipal) throws -> GroupInvitationEnvelope? {
+        if record.credentialReference != nil { return try groupRepository.groupDeliveryEnvelope(record.id) }
+        guard let group = groups.first(where: { $0.id == record.groupID }), let key = try credential(for: group) else { return nil }
+        let now = callAccessNow()
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+        let token = try GroupInviteToken.make(authority: invitationAuthority, signer: signer, groupID: group.id, groupName: group.name,
+            groupSecret: key.secret, inviterMemberID: signer.memberID, inviterDisplayName: localMemberIdentity.displayName,
+            issuedAt: now.timeIntervalSince1970, expiresAt: record.expiresAt)
+        let envelope = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: record.recipient, recipientMemberID: record.recipientMemberID,
+            recipientKey: record.recipientKey, signer: signer, now: now, deliveryID: record.id, sourceRequestID: record.sourceRequestID)
+        try groupRepository.saveGroupDeliveryEnvelope(envelope)
+        return envelope
+    }
+
+    func receiveNearbyGroupInvitation(_ envelope: GroupInvitationEnvelope, from peerID: String) throws -> GroupInvitationReceipt? {
+        guard canEditSavedGroups, envelope.senderMemberID == peerID, envelope.sourceRequestID == nil,
+              let localAccountPrincipal else { throw DeviceIdentityProof.Failure.invalid }
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: envelope.recipientKey)
+        let user = savedRemoteUsers.first { $0.principal == envelope.sender }
+        let now = callAccessNow()
+        let token = try envelope.open(recipient: signer, local: localAccountPrincipal, sender: user, now: now)
+        let saved = try groupRepository.receiveGroupDelivery(envelope, token: token, localDisplayName: localMemberIdentity.displayName,
+            now: now.timeIntervalSince1970, fromNearby: true)
+        publishReceivedGroup(saved)
+        let digest = try envelope.receiptDigest()
+        guard groupRepository.groupDeliveries.contains(where: {
+            $0.id == envelope.id && $0.direction == .incoming && $0.state == .received && $0.acceptedEnvelopeDigest == digest
+        }) else { return nil }
+        return try GroupInvitationReceipt(for: envelope, signer: signer)
+    }
+
+    func acknowledgeNearbyGroupInvitation(_ receipt: GroupInvitationReceipt, from peerID: String) throws {
+        guard canEditSavedGroups, let record = groupRepository.groupDeliveries.first(where: { $0.id == receipt.id }),
+              record.direction == .outgoing, record.sourceRequestID == nil, record.recipientMemberID == peerID
+        else { throw DeviceIdentityProof.Failure.invalid }
+        guard record.state == .pending || record.state == .queued, record.expiresAt > callAccessNow().timeIntervalSince1970 else { return }
+        try receipt.verify(for: groupRepository.groupDeliveryEnvelope(record.id))
+        try groupRepository.setGroupDeliveryState(record.id, state: .received)
+        refreshGroupStorageStatus()
+    }
+
+    private func publishReceivedGroup(_ group: IntercomGroup?) {
+        if let group {
+            if groups.contains(where: { $0.id == group.id }) { refreshStoredAccountCall(group.id) }
+            else { groups.insert(group, at: 0) }
+        }
+        refreshGroupStorageStatus()
     }
 
     private func queueDeliveriesForAdditionalDevices(client: InternetAccountClient, access: CallNotificationServiceAccess,
@@ -248,12 +288,11 @@ extension IntercomViewModel {
                 let now = callAccessNow().timeIntervalSince1970
                 if outcome != .received || envelope.expiresAt <= now {
                     try groupRepository.cancelPendingGroupReceipt(id)
-                } else if let saved = try groupRepository.receiveGroupDelivery(envelope, token: token,
-                    localDisplayName: localMemberIdentity.displayName, now: now, redeliveryTrust: redeliveryTrust) {
-                    if groups.contains(where: { $0.id == saved.id }) { refreshStoredAccountCall(saved.id) }
-                    else { groups.insert(saved, at: 0) }
+                    refreshGroupStorageStatus()
+                } else {
+                    publishReceivedGroup(try groupRepository.receiveGroupDelivery(envelope, token: token,
+                        localDisplayName: localMemberIdentity.displayName, now: now, redeliveryTrust: redeliveryTrust))
                 }
-                refreshGroupStorageStatus()
             } catch { reportGroupStorageError(error); return }
         }
         refreshGroupStorageStatus()

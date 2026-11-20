@@ -90,7 +90,31 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(copy)
     }
+
+    func receiptDigest() throws -> Data { Data(SHA256.hash(data: try message())) }
     static func key(_ secret: SharedSecret, header: Data) -> SymmetricKey {
         secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data("rideintercom.group-delivery.ecdh.v1".utf8), sharedInfo: header, outputByteCount: 32)
+    }
+}
+
+/// The recipient's device attests that it saved this exact delivery.
+nonisolated struct GroupInvitationReceipt: Codable, Sendable {
+    let id: UUID
+    let envelopeDigest: Data
+    let proof: DeviceIdentityProof
+
+    init(for envelope: GroupInvitationEnvelope, signer: DeviceIdentitySigner) throws {
+        guard signer.memberID == envelope.recipientMemberID, signer.publicKey == envelope.recipientKey else {
+            throw DeviceIdentityProof.Failure.invalid
+        }
+        id = envelope.id
+        envelopeDigest = try envelope.receiptDigest()
+        proof = try signer.sign(envelopeDigest, purpose: .acknowledgeGroupInvitation)
+    }
+
+    func verify(for envelope: GroupInvitationEnvelope) throws {
+        guard id == envelope.id, proof.publicKey == envelope.recipientKey,
+              envelopeDigest == (try envelope.receiptDigest()) else { throw DeviceIdentityProof.Failure.invalid }
+        _ = try proof.verify(envelopeDigest, purpose: .acknowledgeGroupInvitation, memberID: envelope.recipientMemberID)
     }
 }
