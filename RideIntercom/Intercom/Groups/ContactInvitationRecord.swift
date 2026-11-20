@@ -34,6 +34,10 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     func hasExpired(at now: TimeInterval) -> Bool { isExpiredTombstone || !now.isFinite || now >= expiresAt }
 
     var canResume: Bool { (state == .pending || state == .confirmed) && credentialReference != nil }
+    func canResume(at now: TimeInterval) -> Bool { canResume && !hasExpired(at: now) }
+
+    func canShareOutgoing(at now: TimeInterval) -> Bool { isPendingOutgoing && !hasExpired(at: now) }
+
     var isExpiredTombstone: Bool { state == .expired && direction == .outgoing }
     func isExpiredOutgoing(at now: TimeInterval) -> Bool {
         isExpiredTombstone || (isPendingOutgoing && hasExpired(at: now))

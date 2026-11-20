@@ -90,8 +90,7 @@ extension IntercomViewModel {
     func prepareContactInvitationShare(_ id: UUID, expectedAccountAccessID: UUID) throws -> PreparedContactInvitationShare {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let record = pendingContactInvitations.first(where: { $0.id == id }),
-              record.isPendingOutgoing,
-              !contactInvitationIsExpired(record) else { throw ContactInvitationError.unavailable }
+              canShareOutgoingContactInvitation(record) else { throw ContactInvitationError.unavailable }
         let payload = try groupRepository.contactInvitationPayload(id)
         // Validate a retained signing key without creating or replacing one.
         _ = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
@@ -189,9 +188,13 @@ extension IntercomViewModel {
         record.isExpiredOutgoing(at: callAccessNow().timeIntervalSince1970)
     }
 
+    func canShareOutgoingContactInvitation(_ record: ContactInvitationRecord) -> Bool {
+        record.canShareOutgoing(at: callAccessNow().timeIntervalSince1970)
+    }
+
     /// Created, but no share destination took the link yet.
     func contactInvitationIsUnsent(_ record: ContactInvitationRecord) -> Bool {
-        record.isPendingOutgoing && record.sent == false && !contactInvitationIsExpired(record)
+        record.sent == false && canShareOutgoingContactInvitation(record)
     }
 
     /// One state word for the list row; the detail explains it.

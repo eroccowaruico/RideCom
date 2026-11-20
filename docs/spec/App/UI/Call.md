@@ -315,11 +315,11 @@ Standardの通話の`Invite Members`（`addSavedUsersButton`）、Advancedの通
 
 UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/招待と登録の設計.md#新しい相手のグループ招待の状態遷移)と[通信契約](../通信仕様.md#個人登録を兼ねるグループ招待)に従う。登録済みの選択相手への自動配送は、下記の状態を同じ保存後の段階に表示する。新しい人への宛先なしリンクで代用しない。
 
-Standardの保存済み人物詳細は、未登録 AND 共有対象の送信招待ありの場合に、登録状態の下へ一覧と同じ招待状態（`contactPersonOutgoingInvitationState`）を追加する。`contactPersonInvitationForSharing`は共有操作と表示に同じ送信記録（`state == pending OR state == expired`）を渡す。`contactInvitationStateWord`は下表に従う。期限と現在時刻はUnix秒で評価する。Advancedの人物詳細は同じ記録の保存値を表示する。
+Standardの保存済み人物詳細は、未登録 AND 共有対象の送信招待ありの場合に、登録状態の下へ一覧と同じ招待状態（`contactPersonOutgoingInvitationState`）を追加する。`contactPersonInvitationForSharing`は共有操作と表示に同じ送信記録（`state == pending OR state == expired`）を渡す。`contactInvitationStateWord`は下表に従う。既存リンクの共有可否は両モードと実際の共有時に `ContactInvitationRecord.canShareOutgoing(at:)` で判定する。期限と現在時刻はUnix秒で評価する。Advancedの人物詳細は同じ記録の保存値を表示する。
 
 | 項目名（日本語） | 表示時の条件 | 操作と結果 |
 |---|---|---|
-| 期限切れ | `state == expired OR expiresAt ≤ 現在時刻`。グループ招待は対応する予約枠がある場合 | 「招待を共有」は同じ人と参加先の新しい招待を保存してOS共有を開く。共有を取り消した場合も新しい招待と枠を保持し、「まだ送っていません」を表示する |
+| 期限切れ | 送信記録が `state == expired OR (state == pending AND now >= expiresAt)`。グループ招待は対応する予約枠がある場合 | 「招待を共有」は同じ人と参加先の新しい招待を保存してOS共有を開く。共有を取り消した場合も新しい招待と枠を保持し、「まだ送っていません」を表示する |
 | まだ送っていません | 有効 AND `sent == false` | OS共有を取り消すと同じ状態を保つ。共有操作またはコピーの完了を保存し、同じ詳細を「受け取り待ち」にする |
 | 受け取り待ち | 有効 AND (`sent == true OR sent == nil`)。`nil`は共有結果を持たない旧記録 | 「招待を共有」は同じ有効な招待を使う。登録状態は署名付き返信で更新する |
 

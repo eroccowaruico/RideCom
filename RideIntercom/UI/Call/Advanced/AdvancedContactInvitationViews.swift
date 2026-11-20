@@ -86,7 +86,7 @@ struct AdvancedContactInvitationContent: View {
                 if let message = viewModel.contactInvitationMessage { Text(LocalizedStringKey(message)) }
             }
             Section {
-                if record.personID == nil && record.direction == .outgoing && record.state == .pending && !viewModel.contactInvitationIsExpired(record) {
+                if record.personID == nil && viewModel.canShareOutgoingContactInvitation(record) {
                     ContactInvitationShareButton(viewModel: viewModel,
                         title: viewModel.contactInvitationIsUnsent(record) ? "Share Invitation" : "Share Again",
                         personName: viewModel.contactInvitationName(for: record)) {
@@ -99,7 +99,7 @@ struct AdvancedContactInvitationContent: View {
                         Label(record.direction == .incoming ? "Share Accepted Receipt" : "Share Acknowledgement", systemImage: "square.and.arrow.up")
                     }.accessibilityIdentifier(record.direction == .incoming ? "shareContactReplyButton" : "shareContactConfirmationButton")
                 }
-                if record.canResume && !record.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
+                if record.canResume(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Button("Retry Notification", systemImage: "arrow.clockwise") {
                         if let personID {
                             _ = viewModel.retryContactPersonInvitation(record.id, personID: personID)

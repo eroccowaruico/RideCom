@@ -74,7 +74,7 @@ struct StandardContactInvitationDetail: View {
     private var person: String { viewModel.contactInvitationName(for: record) }
     private var outgoing: Bool { record.direction == .outgoing }
     private var isExpired: Bool { viewModel.contactInvitationIsExpired(record) }
-    private var isAwaitingAcceptance: Bool { outgoing && record.state == .pending && !isExpired }
+    private var isAwaitingAcceptance: Bool { viewModel.canShareOutgoingContactInvitation(record) }
 
     var body: some View {
         Form {

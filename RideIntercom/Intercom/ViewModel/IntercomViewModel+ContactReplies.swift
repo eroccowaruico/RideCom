@@ -5,7 +5,7 @@ extension IntercomViewModel {
         guard canEditSavedGroups, contactInvitationRecord(record.id) == record,
               let peer = record.peerMemberID, let key = record.peerDeviceKey,
               savedRemoteUsers.contains(where: { $0.memberIDs.contains(peer) && $0.deviceKeys?[peer] == key }) else { return false }
-        return record.canResume && !record.hasExpired(at: callAccessNow().timeIntervalSince1970)
+        return record.canResume(at: callAccessNow().timeIntervalSince1970)
             && ((record.direction == .incoming && record.state == .pending)
                 || (record.direction == .outgoing && record.state == .confirmed))
     }

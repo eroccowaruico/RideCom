@@ -91,7 +91,7 @@ extension IntercomViewModel {
         contactInvitationMessage = nil
         do {
             let record = contactPersonInvitationForSharing(id)
-            if let record, record.isPendingOutgoing, !contactInvitationIsExpired(record) {
+            if let record, canShareOutgoingContactInvitation(record) {
                 let share = try prepareContactInvitationShare(record.id, expectedAccountAccessID: expectedAccountAccessID)
                 _ = resumeContactInvitation(record.id)
                 return share
