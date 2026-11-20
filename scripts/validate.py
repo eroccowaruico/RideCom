@@ -100,13 +100,19 @@ def test_selection_coverage(result, selectors):
                 yield from cases(node.get('children', []), target)
 
     executed = sorted(set(cases(result['testNodes'])))
+    matched_selectors = set()
+    unexpected = []
+    for test in executed:
+        matching = {selector for selector in selectors if includes_test(selector, test)}
+        if matching:
+            matched_selectors.update(matching)
+        else:
+            unexpected.append(test)
     return {
         'selected': selectors,
         'executed': executed,
-        'missing': [selector for selector in selectors
-                    if not any(includes_test(selector, test) for test in executed)],
-        'unexpected': [test for test in executed
-                       if not any(includes_test(selector, test) for selector in selectors)],
+        'missing': [selector for selector in selectors if selector not in matched_selectors],
+        'unexpected': unexpected,
     }
 
 

@@ -87,11 +87,12 @@ class ValidationTests(unittest.TestCase):
                 {'nodeType': 'Test Suite', 'children': cases}
             ]}
         ]}]}
-        selected = ['RideIntercomTests/ContactTests/reply', 'RideIntercomTests/ContactTests/accept()',
-                    'RideIntercomTests/ContactTests/missing']
+        missing = 'RideIntercomTests/ContactTests/missing'
+        selected = ['RideIntercomTests/ContactTests', 'RideIntercomTests/ContactTests/reply',
+                    'RideIntercomTests/ContactTests/accept()', missing]
         coverage = self.module.test_selection_coverage(result, selected)
         self.assertEqual(coverage['selected'], selected)
-        self.assertEqual(coverage['missing'], [selected[2]])
+        self.assertEqual(coverage['missing'], [missing])
         self.assertEqual(coverage['unexpected'], ['RideIntercomTests/OtherTests/unrelated()'])
         self.assertEqual(len(coverage['executed']), 3)
 
