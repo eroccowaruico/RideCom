@@ -91,16 +91,27 @@ nonisolated struct DeviceIdentitySigner: Sendable {
 
     /// Both ends derive this value from their own key and a previously verified peer key.
     func nearbyGroupDeliverySecret(peerMemberID: String, peerPublicKey: String) throws -> Data {
+        try devicePairKey(peerMemberID: peerMemberID, peerPublicKey: peerPublicKey,
+                          domain: Self.nearbyGroupDeliveryDomain).withUnsafeBytes { Data($0) }
+    }
+
+    func contactDeletionRelayKey(peerMemberID: String, peerPublicKey: String, slot: String) throws -> SymmetricKey {
+        try devicePairKey(peerMemberID: peerMemberID, peerPublicKey: peerPublicKey,
+                          domain: "rideintercom.contact-deletion.relay.v1", context: [slot])
+    }
+
+    private func devicePairKey(peerMemberID: String, peerPublicKey: String,
+                               domain: String, context: [String] = []) throws -> SymmetricKey {
         guard IntercomGroup.isValidMemberID(peerMemberID), !peerMemberID.hasPrefix("invite-pending-"),
               peerMemberID != memberID, peerPublicKey != publicKey,
               let peerKey = IdentityEncoding.decode(peerPublicKey), peerKey.count == 65
         else { throw DeviceIdentityProof.Failure.invalid }
         let devices = [(memberID, publicKey), (peerMemberID, peerPublicKey)].sorted { $0.0 < $1.0 }
         // IDs and encoded keys cannot contain NUL. Bind each key to its device ID in a canonical order.
-        let context = devices.flatMap { [$0.0, $0.1] }.joined(separator: "\0")
+        let info = (devices.flatMap { [$0.0, $0.1] } + context).joined(separator: "\0")
         let secret = try sharedSecret(with: peerKey)
-        return secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(Self.nearbyGroupDeliveryDomain.utf8),
-            sharedInfo: Data(context.utf8), outputByteCount: 32).withUnsafeBytes { Data($0) }
+        return secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(domain.utf8),
+            sharedInfo: Data(info.utf8), outputByteCount: 32)
     }
 
     private func sharedSecret(with publicKey: Data) throws -> SharedSecret {

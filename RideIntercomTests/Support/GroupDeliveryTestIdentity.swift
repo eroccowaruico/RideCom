@@ -15,10 +15,10 @@ import Foundation
         self.memberID = memberID
         store = InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
     }
-    func authorizeFixture(userID: String) throws {
+    func authorizeFixture(userID: String, issuer: P256.Signing.PrivateKey = P256.Signing.PrivateKey()) throws {
         let deviceID = try store.accountDeviceID()
         let key = try store.deviceSigningKey()
-        let certificate = try testIdentityCertificate(userID: userID, deviceID: deviceID, memberID: memberID,
+        let certificate = try testIdentityCertificate(signer: issuer, userID: userID, deviceID: deviceID, memberID: memberID,
             deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), origin: "https://delivery.test")
         let identity = try certificate.verify(origin: URL(string: "https://delivery.test")!, trustedIssuerKey: certificate.issuerKey)
         try store.save(url: "https://delivery.test", token: "ri1." + userID + "." + deviceID + "." + String(repeating: "f", count: 64), identity: identity)

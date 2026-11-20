@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import RTC
 import Synchronization
@@ -6,6 +7,74 @@ import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
+    @Test func contactDeletionSealsOneInternetPacketBeforeDiscardingThePairKey() throws {
+        let a = GroupDeliveryTestIdentity("relay-contact-author")
+        let b = GroupDeliveryTestIdentity("relay-contact-recipient")
+        defer { a.remove(); b.remove() }
+        let issuer = P256.Signing.PrivateKey()
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer)
+        let sender = try a.harness(knowing: [], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: []).viewModel
+        for model in [sender, recipient] {
+            model.groupDeliveryClient = nil
+            model.contactSessionFactory = { RecordingCallSession() }
+        }
+        defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync() }
+        try recipient.acceptContactInviteURL(try #require(sender.makeContactInviteURL()))
+        let invitationID = try #require(recipient.pendingContactInvitations.first?.id)
+        try sender.receiveContactReplyURL(recipient.contactReplyURLForSharing(invitationID,
+            expectedAccountAccessID: recipient.accountAccessID))
+        sender.stopContactInvitationSession()
+        recipient.stopContactInvitationSession()
+
+        let person = try #require(sender.savedRemoteUsers.first)
+        let senderPrincipal = try a.principal
+        let recipientPrincipal = try b.principal
+        #expect(person.principal == recipientPrincipal)
+        #expect(sender.localAccountPrincipal == senderPrincipal)
+        let pairID = IntercomGroup.directCallID(memberIDs: [a.memberID, b.memberID])
+        let oldSecret = try #require(try recipient.groupRepository.credential(for: pairID)).secret
+        try #require(sender.removeSavedUser(person.id))
+        #expect(try sender.groupRepository.credential(for: pairID) == nil)
+        let notice = try #require(sender.groupRepository.contactDeletions.first)
+        let publication = try #require(sender.groupRepository.contactDeletionPublications.first)
+        #expect(publication.id == notice.id)
+        #expect(publication.sender == senderPrincipal && publication.payload?.recipient == recipientPrincipal)
+        #expect(publication.slot == ContactDeletionPublication.slot(pairSecret: oldSecret, senderID: a.memberID, recipientID: b.memberID))
+        #expect(publication.slot != ContactDeletionPublication.slot(pairSecret: oldSecret, senderID: b.memberID, recipientID: a.memberID))
+        let packet = try #require(publication.payload?.packet)
+        let recipientSigner = try b.signer
+        let senderKey = try a.signer.publicKey
+        let reopened = try ContactDeletionPublication.openNotice(packet, slot: publication.slot, recipient: recipientSigner,
+                                                                senderID: a.memberID, senderKey: senderKey)
+        #expect(reopened == notice)
+        let otherSlot = ContactDeletionPublication.slot(pairSecret: "new-pair-key", senderID: a.memberID, recipientID: b.memberID)
+        #expect(throws: (any Error).self) {
+            try ContactDeletionPublication.openNotice(packet, slot: otherSlot, recipient: recipientSigner,
+                                                      senderID: a.memberID, senderKey: senderKey)
+        }
+        var altered = try #require(Data(base64Encoded: packet))
+        altered[altered.startIndex] ^= 1
+        #expect(throws: (any Error).self) {
+            try ContactDeletionPublication.openNotice(altered.base64EncodedString(), slot: publication.slot,
+                                                      recipient: recipientSigner, senderID: a.memberID, senderKey: senderKey)
+        }
+
+        let restarted = try a.harness(knowing: [], onDisk: true).viewModel
+        defer { restarted.stopGroupDeliverySync() }
+        restarted.groupDeliveryClient = nil
+        #expect(restarted.groupRepository.contactDeletionPublications == [publication])
+        let receipt = try recipient.receiveContactDeletion(reopened, from: a.memberID)
+        try restarted.acknowledgeContactDeletion(receipt, from: b.memberID)
+        #expect(restarted.groupRepository.contactDeletions.isEmpty)
+        let retirement = try #require(restarted.groupRepository.contactDeletionPublications.first)
+        #expect(retirement.id == publication.id && retirement.slot == publication.slot && retirement.payload == nil)
+        let afterReceipt = try a.harness(knowing: [], onDisk: true).viewModel
+        defer { afterReceipt.stopGroupDeliverySync() }
+        #expect(afterReceipt.groupRepository.contactDeletionPublications == [retirement])
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func nearbyContactDeletionResumesAfterRestartAndClearsTheSendQueue(dropsFirstReceipt: Bool) async throws {
         let a = GroupDeliveryTestIdentity("nearby-contact-removal-author")

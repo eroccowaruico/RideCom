@@ -41,9 +41,9 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
         let target = Target(id: UUID(), senderMemberID: signer.memberID, recipientMemberID: recipientMemberID,
                             recipientKey: recipientKey, expiresAt: now.timeIntervalSince1970 + Self.lifetime)
         guard target.isValid, recipientKey != signer.publicKey else { throw DeviceIdentityProof.Failure.invalid }
-        let authentication = try HMAC<SHA256>.authenticationCode(for: Self.encode(target), using: Self.pairKey(pairSecret))
+        let authentication = try HMAC<SHA256>.authenticationCode(for: Self.canonicalJSON(target), using: Self.pairKey(pairSecret))
         claim = Claim(target: target, pairAuthentication: Data(authentication))
-        proof = try signer.sign(Self.encode(claim), purpose: .deleteContact)
+        proof = try signer.sign(Self.canonicalJSON(claim), purpose: .deleteContact)
         guard isValid else { throw DeviceIdentityProof.Failure.invalid }
     }
 
@@ -58,17 +58,17 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
         guard isValid, peerID == target.senderMemberID, senderKey == proof.publicKey,
               target.recipientMemberID == recipient.memberID, target.recipientKey == recipient.publicKey,
               target.isCurrent(at: now),
-              try HMAC<SHA256>.isValidAuthenticationCode(claim.pairAuthentication, authenticating: Self.encode(target),
+              try HMAC<SHA256>.isValidAuthenticationCode(claim.pairAuthentication, authenticating: Self.canonicalJSON(target),
                                                          using: Self.pairKey(pairSecret))
         else { throw DeviceIdentityProof.Failure.invalid }
-        _ = try proof.verify(Self.encode(claim), purpose: .deleteContact, memberID: peerID)
+        _ = try proof.verify(Self.canonicalJSON(claim), purpose: .deleteContact, memberID: peerID)
     }
 
     fileprivate func digest() throws -> Data {
-        try Data(SHA256.hash(data: Self.encode(self)))
+        try Data(SHA256.hash(data: Self.canonicalJSON(self)))
     }
 
-    fileprivate static func encode(_ value: some Encodable) throws -> Data {
+    fileprivate static func canonicalJSON(_ value: some Encodable) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(value)
@@ -98,7 +98,7 @@ nonisolated struct ContactDeletionReceipt: Codable, Equatable, Identifiable, Sen
         guard notice.target.recipientMemberID == recipient.memberID, notice.target.recipientKey == recipient.publicKey
         else { throw DeviceIdentityProof.Failure.invalid }
         claim = try Claim(target: notice.target, senderKey: notice.proof.publicKey, noticeDigest: notice.digest())
-        proof = try recipient.sign(ContactDeletionNotice.encode(claim), purpose: .acknowledgeContactDeletion)
+        proof = try recipient.sign(ContactDeletionNotice.canonicalJSON(claim), purpose: .acknowledgeContactDeletion)
         guard isValid else { throw DeviceIdentityProof.Failure.invalid }
     }
 
@@ -112,7 +112,78 @@ nonisolated struct ContactDeletionReceipt: Codable, Equatable, Identifiable, Sen
         guard isValid, target == notice.target, target.isCurrent(at: now),
               senderKey == notice.proof.publicKey, try claim.noticeDigest == notice.digest()
         else { throw DeviceIdentityProof.Failure.invalid }
-        _ = try proof.verify(ContactDeletionNotice.encode(claim), purpose: .acknowledgeContactDeletion,
+        _ = try proof.verify(ContactDeletionNotice.canonicalJSON(claim), purpose: .acknowledgeContactDeletion,
                              memberID: target.recipientMemberID)
+    }
+}
+
+/// Keep the original packet across retries. After acknowledgement, the same slot can still be retired.
+nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable, Sendable {
+    struct Payload: Codable, Equatable, Sendable {
+        let recipient: AccountPrincipal
+        let recipientKey: String
+        let packet: String
+    }
+
+    let id: UUID
+    let expiresAt: Int64
+    let slot: String
+    let sender: AccountPrincipal
+    let senderKey: String
+    private(set) var payload: Payload?
+
+    private static let noticeHeader = Data("rideintercom.contact-deletion.notice.v1".utf8)
+
+    init(notice: ContactDeletionNotice, sender: AccountPrincipal, recipient: AccountPrincipal,
+         signer: DeviceIdentitySigner, pairSecret: String) throws {
+        let target = notice.target
+        guard target.senderMemberID == signer.memberID, notice.proof.publicKey == signer.publicKey,
+              let expiry = Int64(exactly: (target.expiresAt * 1_000).rounded(.down))
+        else { throw DeviceIdentityProof.Failure.invalid }
+        id = target.id
+        expiresAt = expiry
+        slot = Self.slot(pairSecret: pairSecret, senderID: signer.memberID, recipientID: target.recipientMemberID)
+        self.sender = sender
+        senderKey = signer.publicKey
+        let key = try signer.contactDeletionRelayKey(peerMemberID: target.recipientMemberID,
+                                                     peerPublicKey: target.recipientKey, slot: slot)
+        let plaintext = try ContactDeletionNotice.canonicalJSON(notice)
+        guard let bytes = try AES.GCM.seal(plaintext, using: key, authenticating: Self.noticeHeader).combined
+        else { throw DeviceIdentityProof.Failure.invalid }
+        payload = .init(recipient: recipient, recipientKey: target.recipientKey, packet: bytes.base64EncodedString())
+        guard isValid else { throw DeviceIdentityProof.Failure.invalid }
+    }
+
+    mutating func markForRetirement() { payload = nil }
+
+    var isValid: Bool {
+        guard (1...9_007_199_254_740_991).contains(expiresAt), slot.utf8.count == 64,
+              slot.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+              sender.isValid, DeviceIdentityProof.isValidPublicKey(senderKey)
+        else { return false }
+        guard let payload else { return true }
+        return payload.recipient.isValid && payload.recipient.issuer == sender.issuer && payload.recipient != sender
+            && payload.recipientKey != senderKey && DeviceIdentityProof.isValidPublicKey(payload.recipientKey)
+            && Self.packetBytes(payload.packet) != nil
+    }
+
+    static func slot(pairSecret: String, senderID: String, recipientID: String) -> String {
+        let info = Data([senderID, recipientID].joined(separator: "\0").utf8)
+        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(pairSecret.utf8)),
+            salt: Data("rideintercom.contact-deletion.slot.v1".utf8), info: info, outputByteCount: 32)
+        return key.withUnsafeBytes { $0.map { String(format: "%02x", $0) }.joined() }
+    }
+
+    static func openNotice(_ packet: String, slot: String, recipient: DeviceIdentitySigner,
+                           senderID: String, senderKey: String) throws -> ContactDeletionNotice {
+        guard let bytes = packetBytes(packet) else { throw DeviceIdentityProof.Failure.invalid }
+        let key = try recipient.contactDeletionRelayKey(peerMemberID: senderID, peerPublicKey: senderKey, slot: slot)
+        let plaintext = try AES.GCM.open(.init(combined: bytes), using: key, authenticating: noticeHeader)
+        return try JSONDecoder().decode(ContactDeletionNotice.self, from: plaintext)
+    }
+
+    private static func packetBytes(_ packet: String) -> Data? {
+        guard (40...4096).contains(packet.utf8.count) else { return nil }
+        return Data(base64Encoded: packet)
     }
 }

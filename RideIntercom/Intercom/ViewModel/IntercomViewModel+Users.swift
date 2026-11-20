@@ -84,7 +84,7 @@ extension IntercomViewModel {
         do {
             try notifications.suppressContact(id)
             let signer = try? internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
-            removedGroups = try groupRepository.removeUser(id, signer: signer, now: callAccessNow())
+            removedGroups = try groupRepository.removeUser(id, signer: signer, sender: localAccountPrincipal, now: callAccessNow())
         }
         catch { reportGroupStorageError(error); return false }
         finishSavedUserRemoval(removedGroups)

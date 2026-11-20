@@ -17,6 +17,7 @@ final class GroupRepository {
     var groupDeliveries: [GroupDeliveryRecord] { snapshot?.groupDeliveries ?? [] }
     var contactDeletions: [ContactDeletionNotice] { snapshot?.contactDeletions ?? [] }
     var contactDeletionReceipts: [ContactDeletionReceipt] { snapshot?.contactDeletionReceipts ?? [] }
+    var contactDeletionPublications: [ContactDeletionPublication] { snapshot?.contactDeletionPublications ?? [] }
 
     init(store: GroupStoring, credentials: GroupCredentialStoring, legacy: LegacyGroupReader? = nil) {
         self.store = store; self.credentials = credentials; self.legacy = legacy
@@ -331,11 +332,12 @@ final class GroupRepository {
     /// that group and its key in the same commit; regular groups keep the member.
     /// Returns the removed direct groups so a live call to one of them can end.
     @discardableResult
-    func removeUser(_ id: UUID, signer: DeviceIdentitySigner? = nil, now: Date = Date()) throws -> Set<UUID> {
+    func removeUser(_ id: UUID, signer: DeviceIdentitySigner? = nil, sender: AccountPrincipal? = nil,
+                    now: Date = Date()) throws -> Set<UUID> {
         guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
         return try removeUser(user, from: snapshot, now: now) { calls, next in
             if let signer, signer.memberID == self.localMemberID {
-                try self.stageContactDeletions(for: user, directCalls: calls, signer: signer, now: now, in: &next)
+                try self.stageContactDeletions(for: user, directCalls: calls, signer: signer, sender: sender, now: now, in: &next)
             }
         }
     }
@@ -391,11 +393,15 @@ final class GroupRepository {
         try receipt.verify(for: notice, now: now)
         try amend(snapshot, now: now.timeIntervalSince1970) { next in
             next.contactDeletions.removeAll { $0.id == receipt.id }
+            if let index = next.contactDeletionPublications.firstIndex(where: { $0.id == receipt.id }) {
+                next.contactDeletionPublications[index].markForRetirement()
+            }
         }
     }
 
     private func stageContactDeletions(for user: SavedUser, directCalls: [GroupSnapshot.Record],
-                                       signer: DeviceIdentitySigner, now: Date, in next: inout GroupSnapshot) throws {
+                                       signer: DeviceIdentitySigner, sender: AccountPrincipal?, now: Date,
+                                       in next: inout GroupSnapshot) throws {
         for call in directCalls where call.accountPair == nil {
             guard let peer = call.members.first(where: { $0.id != signer.memberID }),
                   let peerKey = user.deviceKeys?[peer.id],
@@ -405,6 +411,10 @@ final class GroupRepository {
             let notice = try ContactDeletionNotice(signer: signer, recipientMemberID: peer.id, recipientKey: peerKey,
                                                    pairSecret: secret, now: now)
             next.contactDeletions.append(notice)
+            if let sender, let recipient = user.principal, sender.issuer == recipient.issuer, sender != recipient {
+                next.contactDeletionPublications.append(try ContactDeletionPublication(
+                    notice: notice, sender: sender, recipient: recipient, signer: signer, pairSecret: secret))
+            }
         }
     }
 
@@ -546,7 +556,8 @@ final class GroupRepository {
            groupRemovalReceipts: previous.groupRemovalReceipts.filter { $0.expiresAt > now },
            nearbyGroupCancellations: previous.nearbyGroupCancellations.filter { $0.expiresAt > now },
            contactDeletions: previous.contactDeletions.filter { $0.target.expiresAt > now },
-           contactDeletionReceipts: previous.contactDeletionReceipts.filter { $0.target.expiresAt > now })
+           contactDeletionReceipts: previous.contactDeletionReceipts.filter { $0.target.expiresAt > now },
+           contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 })
         try modify(&next)
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {

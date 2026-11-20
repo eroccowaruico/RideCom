@@ -57,6 +57,7 @@ struct ContactReplyTests {
         let restarted = AppTestSupport.makeHarness(groups: [], groupStore: author.groupStore,
             credentialStore: keys, localMemberID: "reply-author", callAccessNow: { now })
         #expect(author.groupStore.snapshot.version == GroupSnapshot.currentVersion)
+        #expect(restarted.viewModel.groupRepository.contactDeletionPublications.isEmpty)
         let notice = try #require(restarted.viewModel.groupRepository.contactDeletions.first)
         #expect(notice.target.expiresAt == now.timeIntervalSince1970 + 28 * 86_400)
         try notice.verify(from: "reply-author", senderKey: senderKey, recipient: recipient, pairSecret: oldSecret, now: now)
@@ -115,8 +116,12 @@ struct ContactReplyTests {
         #expect(b.groupRepository.contactDeletions.isEmpty)
         #expect(b.contactInvitationRecord(id)?.state == .cancelled)
 
-        friend.groupStore.snapshot = try GroupSnapshot.decode(friend.groupStore.snapshot.encoded())
+        var old = friend.groupStore.snapshot
+        old.version = 20
+        friend.groupStore.snapshot = try GroupSnapshot.decode(old.encoded())
         let restarted = AppTestSupport.makeHarness(groups: [], groupStore: friend.groupStore, localMemberID: "reply-friend")
+        #expect(friend.groupStore.snapshot.version == GroupSnapshot.currentVersion)
+        #expect(restarted.viewModel.groupRepository.contactDeletionPublications.isEmpty)
         let saves = friend.groupStore.saveCount
         let repeated = try restarted.viewModel.receiveContactDeletion(notice, from: "reply-author")
         #expect(repeated == receipt)
