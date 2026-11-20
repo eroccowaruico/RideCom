@@ -40,7 +40,8 @@ struct DiagnosticsNetworkView: View {
         return GroupBox {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
                 DiagnosticsValueRow("RTT", value: route?.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured")
-                DiagnosticsValueRow("Loss", value: "\(loss) · Jitter \(jitter)")
+                DiagnosticsValueRow("Loss", value: loss)
+                DiagnosticsValueRow("Jitter", value: jitter)
                 DiagnosticsValueRow("Send queue", value: route?.statistics.bufferedBytes.map { "\($0) B" } ?? "Not measured")
                 if let route {
                     let names = route.eventDrops.keys.sorted()
@@ -109,10 +110,23 @@ struct DiagnosticsCardHeader: View {
     }
 
     var body: some View {
-        HStack {
+        if let trailing {
+            let note = Text(verbatim: trailing).font(.subheadline).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                    Text(verbatim: title).fixedSize()
+                    Spacer(minLength: 0)
+                    note.fixedSize()
+                }
+                VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                    Text(verbatim: title)
+                    note
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
             Text(verbatim: title)
-            Spacer()
-            if let trailing { Text(verbatim: trailing).font(.subheadline).foregroundStyle(.secondary) }
         }
     }
 }
@@ -132,22 +146,34 @@ struct DiagnosticsValueRow: View {
     }
 
     var body: some View {
-        // Label on the left, value on the right, as a two-column table (LabeledContent only does this in a Form).
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
-            Text(verbatim: title)
-            Spacer(minLength: AppSpacing.s)
-            VStack(alignment: .trailing, spacing: 2) {
-                HStack(spacing: AppSpacing.xs) {
-                    if warns { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(AppColorPalette.warning) }
-                    Text(verbatim: value).monospacedDigit()
-                }
-                if let detail {
-                    Text(verbatim: detail).font(.caption).foregroundStyle(.secondary)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                Text(verbatim: title).fixedSize()
+                Spacer(minLength: 0)
+                valueLabel(alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize()
             }
-            .multilineTextAlignment(.trailing)
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                Text(verbatim: title)
+                valueLabel(alignment: .leading)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.subheadline)
         .accessibilityElement(children: .combine)
+    }
+
+    private func valueLabel(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: AppSpacing.xxs) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs) {
+                if warns { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(AppColorPalette.warning) }
+                Text(verbatim: value).monospacedDigit()
+            }
+            if let detail {
+                Text(verbatim: detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }

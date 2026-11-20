@@ -217,9 +217,10 @@ Audio CheckはSettingsに置く。端末内の録音再生、サービス認証�
 | 表示 | identifier | 意味 |
 |---|---|---|
 | Network | `networkDiagnosticsSummary` | RTCNetworkDiagnosticsの表示。計測処理はRTC/native側が所有 |
-| RTT / send queue | 同上 | ICE transport RTTをms、DataChannel送信待ちをbyte表示。未取得をNot availableとする |
+| RTT / Send queue | 同上 | ICE transport RTTをms、DataChannel送信待ちをBで表示する。未取得は `Not measured` |
+| Loss / Jitter | 同上 | Lossを%・Jitterをmsで別々に表示する。未取得は各項目で `Not measured` |
 | Event drops | 同上 | session / route / engine / transportのoverflowとexpired。ネットワーク損失率ではない |
 | Direct group path / Relayed | `diagnosticsNetworkPaths` | 相手名、Local／Internetと経路種別、短縮peer IDの矢印、`Last received n s ago`を相手ごとに縦に表示する。矢印は最後の認証済み受信を送信元から自端末の順で示す。15秒を超えた観測は`Stale`。音声の受信・出力はRXで確認する |
 | Not measured / stale | 同上 | 未取得、または15秒を超えたreport。古い数値を正常値として表示しない |
 
-Pathsでは相手名と矢印にカードの横幅を使い、複数行で読めるようにする。アクセシビリティ文字サイズでは1行に1つのIDを置き、下向きの矢印でつなぐ。相手ごとの経路・観測値を1つの読み上げ単位にする。値は標準Textで折り返し・選択でき、色やアイコンだけに依存しない。切断・接続切替・世代変更時に旧reportを消去する。
+LocalとInternetの計測カードでは、項目名と値・経路名と更新時刻が横に収まらないときは縦に並べる。Pathsでは相手名と矢印にカードの横幅を使う。アクセシビリティ文字サイズでは1行に1つのIDを置き、下向きの矢印でつなぐ。相手ごとの経路・観測値を1つの読み上げ単位にする。値は標準Textで折り返し・選択でき、色やアイコンだけに依存しない。切断・接続切替・世代変更時に旧reportを消去する。

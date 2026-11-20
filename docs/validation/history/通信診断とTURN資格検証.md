@@ -86,3 +86,11 @@ Pathsでは、相手名、Local／Internetと経路種別、送信元から自�
 Build 1466のiOS 27.2 Simulatorでは診断のページ切替と回転、最大文字での操作を含む11テスト・15実行が成功した。続くBuild 1467では、最大文字の経路を1行1IDと下向きの矢印で描き、通常文字と最大文字の320pt幅で相手名、全ID、順序、`Stale`を確認した。7テストが成功し、両Buildとも失敗・skip・実行時警告は0。Chromeの390px幅でもHTML内の直接・中継・古い観測の3例を確認した。証跡は `.validation/isolation-labels-1460/network-final`。
 
 Appの描画には既存RTC契約と同じ観測値を入力した。RTC側では、近距離とInternetの混在で、中継を経て受信した相手の経路をreportに含めることを既存の `localOnlyMemberKeepsTalkingAcrossMixedRoutesAndGatewayDeparture` が検証している。実無線での照合は[画面デザインの実環境受入](../未確認事項.md#画面デザインの実環境受入)へ残し、計測カードの狭い幅での省略は[Networkの表示差](../../backlog/画面実装とデザイン見本の差分.md#network)へ記録した。
+
+## 狭い画面でNetworkの計測値を読む（2026-11-20）
+
+Build 1468のiOS 27.2 Simulatorで、320pt幅のNetworkに、Localの未計測、InternetのRTT 42ms、Loss 0.4%、Jitter 6ms、送信待ち12345 B、overflow 7・expired 12、20秒前のレポートを用意した。文字を最大にすると経路名、値、更新時刻が文字の途中で分かれた。260pt幅の「Send queue」行は高さ175ptになり、項目名の下に値を置いた場合の122ptを超えて変更前テストが失敗した。証跡は `.validation/isolation-labels-1460/metrics-before`。
+
+NetworkではLossとJitterを別の行にした。NetworkとAppliedが使う共通行では、横に収まるときは項目名と値を左右に置き、収まらないときは値を下へ移す。経路名と更新時刻も同じ幅の条件で並べる。計測のない値は `Not measured`、生成から15秒を超えたレポートは `Stale` と表示する。レポートの経過時間から個別の測定値の時刻は推定しない。[SwiftUIの幅に応じた表示](https://developer.apple.com/documentation/swiftui/viewthatfits)、[画面仕様](../../spec/App/UI/Diagnostics.md#network診断)、[デザイン見本](../../design/詳細画面/詳細画面見本.html)。
+
+Build 1469のiOS Simulatorで、同じ320ptの通常・最大文字を描画し、未計測・時刻・経路名・数値・警告記号が読み取れることを確認した。260ptの行の回帰も通り、実画面のNetwork／Applied・回転・診断の症状別導線を含めた8テストが成功した。失敗・skip・実行時警告は0。Chromeの390px幅で、通常と拡大文字のHTMLも確認した。証跡は `.validation/isolation-labels-1460/metrics-after`。[実機の計測と読み上げ](../未確認事項.md#画面デザインの実環境受入)は検証待ち。

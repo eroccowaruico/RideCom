@@ -11,7 +11,7 @@ extension AppTests {
 @MainActor
 struct DiagnosticsPresentationTests {
     #if os(iOS)
-    @Test func renderNetworkPathsAtStandardAndLargestTextSizes() throws {
+    @Test func renderNetworkAtStandardAndLargestTextSizes() throws {
         let model = AppTestSupport.makeHarness().viewModel
         let origin = PeerID(rawValue: "11111111-origin")
         let firstRelay = PeerID(rawValue: "22222222-relay")
@@ -26,7 +26,15 @@ struct DiagnosticsPresentationTests {
         model.selectedGroup = group
         model.activeGroupID = group.id
         let now = Date().timeIntervalSince1970
-        model.networkDiagnostics = .init(generatedAt: now, peers: [
+        var internet = RTCNetworkStatistics(roundTripTime: 0.042, bufferedBytes: 12_345)
+        internet.packetLoss = 0.004
+        var drops = RTCEventDropReport()
+        drops.overflow = 7
+        drops.expired = 12
+        model.lastRouteMetrics = .init(route: .webRTC, jitter: 0.006)
+        model.networkDiagnostics = .init(generatedAt: now - 20,
+                                        routes: [.init(route: .webRTC, statistics: internet, eventDrops: ["transport": drops])],
+                                        peers: [
             .init(peerID: origin, route: .multipeer, path: [origin, firstRelay, secondRelay, receiver], observedAt: now - 2),
             .init(peerID: direct, route: .webRTC, path: [direct, receiver], observedAt: now - 20),
         ])
@@ -39,6 +47,10 @@ struct DiagnosticsPresentationTests {
                 .environment(\.dynamicTypeSize, size)
             let renderer = ImageRenderer(content: view)
             let frame = try #require(renderer.uiImage?.cgImage)
+            let cards = try #require(frame.cropping(to: CGRect(
+                x: 0, y: 0, width: frame.width, height: min(frame.height, 2900)
+            )))
+            Attachment.record(try #require(UIImage(cgImage: cards).pngData()), named: "network-metrics-\(name).png")
             let height = min(frame.height, 2500)
             let focused = try #require(frame.cropping(to: CGRect(
                 x: 0, y: frame.height - height, width: frame.width, height: height
@@ -46,6 +58,25 @@ struct DiagnosticsPresentationTests {
             let data = try #require(UIImage(cgImage: focused).pngData())
             Attachment.record(data, named: "network-paths-\(name).png")
         }
+    }
+
+    @Test func networkQueueRowFitsAtTheLargestTextSize() throws {
+        let title = "Send queue"
+        let value = "12345 B"
+        let row = DiagnosticsValueRow(title, value: value)
+            .frame(width: 260)
+            .environment(\.dynamicTypeSize, .accessibility5)
+        let stacked = VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text(verbatim: title)
+            Text(verbatim: value).monospacedDigit()
+        }
+        .font(.subheadline)
+        .frame(width: 260)
+        .environment(\.dynamicTypeSize, .accessibility5)
+
+        let actualHeight = try #require(ImageRenderer(content: row).uiImage?.size.height)
+        let stackedHeight = try #require(ImageRenderer(content: stacked).uiImage?.size.height)
+        #expect(actualHeight <= stackedHeight + 1)
     }
     #endif
 
