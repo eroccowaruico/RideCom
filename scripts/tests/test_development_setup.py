@@ -20,6 +20,43 @@ class DevelopmentSetupTests(unittest.TestCase):
         self.assertEqual(self.setup.check(ROOT), [])
 
 
+    def test_duplicate_root_path_is_rejected_even_with_a_different_spelling(self):
+        project = copy.deepcopy(self.project)
+        objects = project['objects']
+        main = objects[objects[project['rootObject']]['mainGroup']]
+        docs = next(objects[key] for key in main['children'] if objects[key].get('path') == 'docs')
+        objects['DUPLICATE_DOCS'] = {**docs, 'path': './docs', 'sourceTree': 'SOURCE_ROOT'}
+        main['children'].append('DUPLICATE_DOCS')
+        with patch.object(self.setup, 'load_project', return_value=project):
+            self.assertIn('Duplicate Xcode navigator reference: docs.', self.setup.check(ROOT))
+
+    def test_watch_ui_sources_must_be_visible(self):
+        project = copy.deepcopy(self.project)
+        objects = project['objects']
+        main = objects[objects[project['rootObject']]['mainGroup']]
+        group_id = next(key for key in main['children'] if objects[key].get('path') == 'RideIntercomWatchUITests')
+        main['children'].remove(group_id)
+        with patch.object(self.setup, 'load_project', return_value=project):
+            self.assertTrue(any('RideIntercomWatchUITests must remain visible' in error for error in self.setup.check(ROOT)))
+
+    def test_source_folders_must_belong_only_to_their_target(self):
+        for folder in ('RideIntercom', 'RideIntercomWatchUITests'):
+            for failure in ('missing', 'additional-target'):
+                with self.subTest(folder=folder, failure=failure):
+                    project = copy.deepcopy(self.project)
+                    objects = project['objects']
+                    owner = next(obj for obj in objects.values()
+                                 if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == folder)
+                    group_id = owner['fileSystemSynchronizedGroups'][0]
+                    if failure == 'missing':
+                        owner['fileSystemSynchronizedGroups'].remove(group_id)
+                    else:
+                        other = next(obj for obj in objects.values()
+                                     if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercomTests')
+                        other['fileSystemSynchronizedGroups'].append(group_id)
+                    with patch.object(self.setup, 'load_project', return_value=project):
+                        self.assertIn(f'{folder} must be synchronized only by the {folder} target.', self.setup.check(ROOT))
+
     def test_package_folder_override_is_rejected(self):
         for scope, path in [('RideIntercom', 'packages')]:
             with self.subTest(scope=scope):

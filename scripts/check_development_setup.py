@@ -33,23 +33,43 @@ def check(root):
         obj = objects[reference['ProjectRef']]
         if obj.get('sourceTree') in ('<group>', 'SOURCE_ROOT', '<absolute>') and (root / obj.get('path', '')).resolve() == (root / 'RideIntercom.xcodeproj').resolve():
             errors.append('RideIntercom must not reference itself as a child project.')
-    main = objects[objects[project['rootObject']]['mainGroup']]
-    visible = {objects[key].get('path'): key for key in main['children']}
+    main = objects[project_object['mainGroup']]
+    repository = root.resolve()
+    visible = {}
+    for key in main['children']:
+        reference = objects[key]
+        path = reference.get('path')
+        if not path or reference.get('sourceTree') not in ('<group>', 'SOURCE_ROOT', '<absolute>'):
+            continue
+        directory = (repository / path).resolve()
+        name = directory.relative_to(repository).as_posix() if directory.is_relative_to(repository) else str(directory)
+        if name in visible:
+            errors.append(f'Duplicate Xcode navigator reference: {name}.')
+        else:
+            visible[name] = key
+
+    build_groups = {}
+    for target in objects.values():
+        if target.get('isa') == 'PBXNativeTarget':
+            for key in target.get('fileSystemSynchronizedGroups', []):
+                build_groups.setdefault(key, []).append(target['name'])
+
     editing_folders = ['docs', 'scripts', 'server', 'Configuration', '.vscode', '.codex', '.github', '.claude', '.agents']
-    source_folders = ['RideIntercom', 'RideIntercomTests', 'RideIntercomUITests',
-                      'RideIntercomAudioE2ETests', 'RideIntercomWidgets', 'RideIntercomWatch']
+    source_folders = ['RideIntercom', 'RideIntercomTests', 'RideIntercomUITests', 'RideIntercomAudioE2ETests',
+                      'RideIntercomWidgets', 'RideIntercomWatch', 'RideIntercomWatchUITests']
     for folder in source_folders + editing_folders:
-        group = objects.get(visible.get(folder), {})
+        key = visible.get(folder)
+        group = objects.get(key, {})
         if group.get('isa') != 'PBXFileSystemSynchronizedRootGroup':
             errors.append(f'{folder} must remain visible as a filesystem-synchronized folder.')
-    build_groups = {key for obj in objects.values() if obj.get('isa') == 'PBXNativeTarget'
-                    for key in obj.get('fileSystemSynchronizedGroups', [])}
+        elif folder in source_folders and build_groups.get(key) != [folder]:
+            errors.append(f'{folder} must be synchronized only by the {folder} target.')
     build_files = {obj.get('fileRef') for obj in objects.values() if obj.get('isa') == 'PBXBuildFile'}
     for folder in editing_folders + ['.gitignore', 'README.md', 'RideIntercom.code-workspace', 'AGENTS.md', 'CLAUDE.md']:
         key = visible.get(folder)
         if key is None:
             errors.append(f'Keep the explicit Xcode editing entry for {folder}.')
-        elif key in build_groups | build_files:
+        elif key in build_groups or key in build_files:
             errors.append(f'{folder} is editing-only and must not be a build input.')
     app_id = next(key for key,obj in objects.items() if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
     for group_id in objects[app_id].get('fileSystemSynchronizedGroups', []):
