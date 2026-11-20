@@ -28,12 +28,21 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
             "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        let suffix = UUID().uuidString.prefix(8)
-        let name = "Offline " + suffix
-        let invitation = try InvitationURLFixture.make(inviter: "offline-" + suffix, name: name)
-        let groupID = try XCTUnwrap(InvitationURLFixture.fields(from: invitation)["groupID"] as? String)
-
-        app.open(invitation)
+        let peerGroup = ProcessInfo.processInfo.environment["RIDEINTERCOM_COLD_START_PEER_GROUP"]
+        let name: String, groupID: String
+        if let peerGroup {
+            groupID = try XCTUnwrap(UUID(uuidString: peerGroup)).uuidString
+            name = "Audio E2E"
+            app.launch()
+            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE\n".utf8))
+            confirmExternalApplicationOpen(timeout: 15)
+        } else {
+            let suffix = UUID().uuidString.prefix(8)
+            name = "Offline " + suffix
+            let invitation = try InvitationURLFixture.make(inviter: "offline-" + suffix, name: name)
+            groupID = try XCTUnwrap(InvitationURLFixture.fields(from: invitation)["groupID"] as? String)
+            app.open(invitation)
+        }
         let end = app.buttons["standardEndCallButton"].firstMatch
         XCTAssertTrue(end.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
@@ -72,6 +81,13 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Waiting for others"].firstMatch.waitForExistence(timeout: 5))
         let image = XCTAttachment(screenshot: app.screenshot())
         image.name = "Saved group awaiting riders after offline relaunch"; image.lifetime = .keepAlways; add(image)
+        if peerGroup != nil {
+            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_AFTER_RESTART\n".utf8))
+            XCTAssertTrue(app.staticTexts["In a call"].firstMatch.waitForExistence(timeout: 45))
+            let joined = XCTAttachment(screenshot: app.screenshot())
+            joined.name = "Rider joined the saved group after offline relaunch"; joined.lifetime = .keepAlways; add(joined)
+            XCTAssertTrue(app.staticTexts["Waiting for others"].firstMatch.waitForExistence(timeout: 30))
+        }
         end.tap()
         app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
         XCTAssertTrue(end.waitForNonExistence(timeout: 5))

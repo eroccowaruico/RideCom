@@ -239,3 +239,5 @@ MacとSimulatorは同じMacのCoreAudio serviceを共有する。二つのhost�
 送話側のログで`AUDIO_E2E_STANDALONE_INVITE_READY`が出たら、送話側のAppのdata containerで`tmp/RideIntercom.AudioE2E.<実行ID>.b/receiver-invitation.url`を読み、受話側で通常の招待として開く。試験用の招待リンクは操作時だけ渡し、ログ・結果の添付・Gitに残さない。利用者は必要なOS許可とリンクを開く確認を済ませ、通話画面でマイクOFFにしてロックする。
 
 受話端末の背景・単独待機・マイクOFF・受信0の継続を確認してから、同じ送話側フォルダに空の`join`ファイルを作る。送話側は合図を最大10分待ち、近距離の認証とメディア開始後に試験音声を送る。送話側の結果には発話を確認した時刻と符号化packet数だけを残す。受話側の記録で、同じ通話の識別子・期限、認証、受信と発話区間の有声出力を照合する。実機はロック中の観測を確認する。Simulatorでの手順確認では、同じ通常画面を既存の`testStandardMutedWaitingKeepsAudioInBackground`で操作し、UIテスト側の`RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION=1`で外部の招待を待つ。
+
+再起動したAppで受話を確認する場合は、受話側の`testSavedGroupStartsLocalAfterColdOfflineLaunch`に`RIDEINTERCOM_COLD_START_PEER_GROUP`として送話側の実行UUIDを渡す。受話側の`AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE`を確認して招待を開く。受話側は保存・終了・再起動を経て一覧で選んだ後に`AUDIO_E2E_RECEIVER_WAITING_AFTER_RESTART`を出す。音声準備・受信0を確認してから送話側の`join`を作る。受話側は「会話中」を確認し、相手が離脱したら待機に戻る。音声の判定は受話側の`background-call-standard-open.json`を使い、待機時と同じプロセス・通話・自動切断期限で、近距離での認証、受信、復号、native出力の有声を照合する。[再起動後の受話結果](../validation/history/近距離オフライン通信.md#再起動後の待機から相手が参加して受話へ進む)
