@@ -163,6 +163,22 @@ struct SettingsTests {
         #expect(applied?.options.contains(.defaultToSpeaker) == true)
     }
 
+    @Test func audioDeviceDefaultsDoNotPinTheStartupRoute() {
+        let backend = FakeAudioSessionBackend()
+        backend.current.currentInput = backend.current.availableInputs[1]
+        backend.current.currentOutput = .builtInSpeaker
+        let model = AppTestSupport.makeHarness(audioSessionManager: AudioSessionManager(backend: backend)).viewModel
+
+        #expect(model.audioSessionSnapshot.currentInput == backend.current.currentInput)
+        #expect(model.audioSessionSnapshot.currentOutput == .builtInSpeaker)
+        #expect(model.selectedInputPort == .systemDefault)
+        #expect(model.selectedOutputPort == .systemDefault)
+        let requested = model.makeAudioSessionConfiguration()
+        #expect(requested.preferredInput == .systemDefault)
+        #expect(requested.preferredOutput == .systemDefault)
+        #expect(!requested.defaultToSpeaker)
+    }
+
     @Test func selectingAnAudioPortReconfiguresTheSessionAndRestartsActiveMedia() async {
         let harness = AppTestSupport.makeHarness()
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])

@@ -378,8 +378,6 @@ final class IntercomViewModel {
         self.aacELDv2BitRate = appSettings.aacELDv2BitRate
         self.opusBitRate = appSettings.opusBitRate
         self.enabledRTCTransportRoutes = Self.normalizedRTCTransportRoutes(appSettings.enabledRTCTransportRoutes)
-        self.selectedInputPort = AudioPortInfo(device: audioSessionSnapshot.currentInput)
-        self.selectedOutputPort = AudioPortInfo(device: audioSessionSnapshot.currentOutput)
         self.audioPipeline.applyVADSensitivity(vadSensitivity)
         self.refreshPackageRuntimeSnapshots()
         self.callSession.setEnabledRoutes(enabledRTCTransportRoutes)

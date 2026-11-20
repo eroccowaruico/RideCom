@@ -115,6 +115,8 @@ App は route 実体を直接構築しない。Settings の `enabledRTCTransport
 
 ## Audio I/O
 
+アプリ起動時の入出力デバイス選択は両モードとも「自動」（`Auto`）。端末がその時点で使っている機器は実状態として保持し、利用者の選択にはしない。音声開始時は、現在の選択をSessionManagerへ渡す。
+
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 発現条件 | 表示仕様 | 異常系の考え方 |
 |---|---|---|---|---|---|---|---|
 | 出力デバイス選択 | `audioIOPanel` | `audioCheckOutputPicker` | `Output` | `AudioPortInfo` | `availableOutputPorts.count > 1` | `Picker(.menu)` | 切替失敗は Call の音声エラーと Diagnostics に反映 |
