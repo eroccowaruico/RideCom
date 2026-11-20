@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.validate import ROOT, Runner, xcode_tests_passed, file_fingerprint, fingerprints_match, test_host_metadata
 from scripts.test_lifecycle import exclusive_run, SimulatorLease, simulator_resource_root, process_snapshot
 from scripts.xcode_paths import scheme_configuration, xcode_build_settings, select_test_run
-from scripts.audio_e2e_matrix import scenarios
+from scripts.audio_e2e_matrix import STANDALONE_AUDIO_PLANS, scenarios
 
 
 def source_manifest():
@@ -264,22 +264,23 @@ def main():
     args = parser.parse_args()
     if not 6 <= args.seconds <= 600:
         parser.error('--seconds must be between 6 and 600')
-    standalone_modes = sum([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])
-    if standalone_modes > 1:
+    standalone_plans = [plan for mode, plan in STANDALONE_AUDIO_PLANS.items() if getattr(args, mode)]
+    if len(standalone_plans) > 1:
         parser.error('Choose one standalone audio test mode')
-    if args.two_simulators and standalone_modes:
+    standalone = next(iter(standalone_plans), None)
+    if args.two_simulators and standalone:
         parser.error('--two-simulators requires a network audio test')
-    if args.saved_group_start and (args.transport != 'local' or standalone_modes):
+    if args.saved_group_start and (args.transport != 'local' or standalone):
         parser.error('--saved-group-start requires --transport local with the network audio test')
     if args.unanswered_internet and (not args.saved_group_start or args.matrix != 'smoke' or args.seconds > 10):
         parser.error('--unanswered-internet requires --saved-group-start --matrix smoke and 6–10 seconds')
-    if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or standalone_modes):
+    if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or standalone):
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
     cases = scenarios(args.matrix, args.seconds)
     if args.scenario:
-        if standalone_modes or args.cleanup_only or args.transport == 'mixed':
+        if standalone or args.cleanup_only or args.transport == 'mixed':
             parser.error('--scenario requires a network audio matrix (local, webrtc, or all)')
         selected = set(args.scenario)
         if len(selected) != len(args.scenario):
@@ -296,13 +297,13 @@ def main():
     resource_root = simulator_resource_root()
     try:
         with exclusive_run(resource_root / 'run.lock'):
-            return execute(args, runner, resource_root, cases)
+            return execute(args, runner, resource_root, cases, standalone)
     except BlockingIOError:
         runner.record('exclusive-run', [], 'failed', 1, time.monotonic(), 'Another audio E2E run is active')
         return 1
 
 
-def execute(args, runner, resource_root, cases):
+def execute(args, runner, resource_root, cases, standalone):
     out = runner.out
     run_id = str(uuid.uuid4())
     if args.codec != 'default':
@@ -379,10 +380,8 @@ def execute(args, runner, resource_root, cases):
             'AudioE2ETests/testMicroGapOverlapAndClickAreRejected',
             'AudioE2ETests/testConversationOracleRejectsMissingAcknowledgements',
             'AudioE2ETests/testSystemSessionAcceptsCallProfiles']
-        if args.switches_only:
-            ios_preflight_tests.extend([
-                'AudioE2ETests/testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass',
-                'AudioE2ETests/testReceiveIsolationKeepsItsEffectWhenEnabledAgain'])
+        if standalone:
+            ios_preflight_tests.extend(standalone.preflight)
         preflight = configure_test_run(ios_run, 'preflight', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
                                        {}, identifiers=ios_preflight_tests)
         command('preflight', ['xcodebuild', 'test-without-building', '-xctestrun', str(preflight),
@@ -407,21 +406,21 @@ def execute(args, runner, resource_root, cases):
             if not xcode_tests_passed(mac_summary) or mac_summary['totalTestCount'] != 2:
                 raise RuntimeError('Mac fixture capture clock must pass before latency measurement')
         transports = ['local', 'webrtc'] if args.transport == 'all' else [args.transport]
-        if args.pipeline_only or args.realtime_only or args.group_only or args.codec_only or args.switches_only:
-            configured = configure_test_run(ios_run, 'pipeline', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=(['AudioE2ETests/testInputModeChangesRestoreTheSharedReceiveClock'] if args.switches_only else ['AudioE2ETests/testTransmitChainPreservesConversationAndAcknowledgements'] if args.codec_only else []) + ['AudioE2ETests/testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio' if args.switches_only else 'AudioE2ETests/testNativeCodecsPreserveWholeSpeech' if args.codec_only else 'AudioE2ETests/testEightPersonMixedRouteConversation' if args.group_only else 'AudioE2ETests/testRealtimeAudioLatencyAndIdentity' if args.realtime_only else 'AudioE2ETests/testSpeechContinuityWithoutNetwork'])
+        if standalone:
+            configured = configure_test_run(ios_run, 'pipeline', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
+                                            {}, identifiers=standalone.tests)
             runner.run('test-pipeline', ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
                 '-destination', 'platform=iOS Simulator,id=' + simulator, '-parallel-testing-enabled', 'NO',
-                '-resultBundlePath', str(out / 'pipeline.xcresult')], timeout=600 if args.codec_only or args.realtime_only else 180)
+                '-resultBundlePath', str(out / 'pipeline.xcresult')], timeout=standalone.timeout)
             if runner.run('summary-pipeline', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
                 '--path', str(out / 'pipeline.xcresult'), '--format', 'json'], timeout=60):
                 summary = json.loads((out / 'summary-pipeline.log').read_text())
-                passed = xcode_tests_passed(summary) and summary['totalTestCount'] == (2 if args.codec_only or args.switches_only else 1)
+                passed = xcode_tests_passed(summary) and summary['totalTestCount'] == len(standalone.tests)
                 runner.record('accept-pipeline', [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
             folder = out / 'attachments-pipeline'
             if runner.run('attachments-pipeline', ['xcrun', 'xcresulttool', 'export', 'attachments',
                 '--path', str(out / 'pipeline.xcresult'), '--output-path', str(folder)], timeout=60):
-                expected = ['live-settings', 'input-mode-recovery'] if args.switches_only else ['native-codecs', 'transmit-conversations'] if args.codec_only else ['eight-person-mixed'] if args.group_only else [f'realtime-{fixture}-{codec}' for fixture in ['speech-ja', 'conversation-ja', 'conversation-reply-ja'] for codec in ['pcm16', 'opus', 'mpeg4AACELD']] if args.realtime_only else ['pipeline-20ms', 'pipeline-100ms']
-                rows = measurements(folder, expected, 'pipeline', 'none')
+                rows = measurements(folder, standalone.measurement_ids, 'pipeline', 'none')
                 (out / 'pipeline-measurements.json').write_text(json.dumps(rows, indent=2) + '\n')
             transports = []
         measured = []
@@ -458,7 +457,7 @@ def execute(args, runner, resource_root, cases):
                     '--path', str(out / (name + '.xcresult')), '--format', 'json'], timeout=60)
                 if summary_ok:
                     summary = json.loads((out / ('summary-' + name + '.log')).read_text())
-                    passed = xcode_tests_passed(summary) and summary['totalTestCount'] == (2 if args.codec_only or args.switches_only else 1)
+                    passed = xcode_tests_passed(summary) and summary['totalTestCount'] == 1
                     runner.record('accept-' + name, [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
                 folder = out / ('attachments-' + name)
                 exported = runner.run('attachments-' + name, ['xcrun', 'xcresulttool', 'export', 'attachments',

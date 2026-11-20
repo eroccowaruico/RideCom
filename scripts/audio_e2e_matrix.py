@@ -1,4 +1,46 @@
-"""Explicit release coverage; every case measures speech over a real connection."""
+"""Cases and coverage requirements for network and standalone audio E2E."""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class StandaloneAudioPlan:
+    tests: tuple[str, ...]
+    measurement_ids: tuple[str, ...]
+    timeout: int = 180
+    preflight: tuple[str, ...] = ()
+
+
+STANDALONE_AUDIO_PLANS = {
+    'pipeline_only': StandaloneAudioPlan(
+        tests=('AudioE2ETests/testSpeechContinuityWithoutNetwork',),
+        measurement_ids=('pipeline-20ms', 'pipeline-100ms'),
+    ),
+    'realtime_only': StandaloneAudioPlan(
+        tests=('AudioE2ETests/testRealtimeAudioLatencyAndIdentity',),
+        measurement_ids=tuple(f'realtime-{fixture}-{codec}'
+                              for fixture in ('speech-ja', 'conversation-ja', 'conversation-reply-ja')
+                              for codec in ('pcm16', 'opus', 'mpeg4AACELD')),
+        timeout=600,
+    ),
+    'group_only': StandaloneAudioPlan(
+        tests=('AudioE2ETests/testEightPersonMixedRouteConversation',),
+        measurement_ids=('eight-person-mixed',),
+    ),
+    'codec_only': StandaloneAudioPlan(
+        tests=('AudioE2ETests/testTransmitChainPreservesConversationAndAcknowledgements',
+               'AudioE2ETests/testNativeCodecsPreserveWholeSpeech'),
+        measurement_ids=('native-codecs', 'transmit-conversations'),
+        timeout=600,
+    ),
+    'switches_only': StandaloneAudioPlan(
+        tests=('AudioE2ETests/testInputModeChangesRestoreTheSharedReceiveClock',
+               'AudioE2ETests/testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio'),
+        measurement_ids=('live-settings', 'input-mode-recovery'),
+        preflight=('AudioE2ETests/testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass',
+                   'AudioE2ETests/testReceiveIsolationKeepsItsEffectWhenEnabledAgain'),
+    ),
+}
 
 
 def scenarios(mode, seconds):

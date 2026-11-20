@@ -42,6 +42,34 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertEqual(audio.main(), 0)
         self.assertEqual(execute.call_args.args[3], scenarios('smoke', 8))
 
+    def test_standalone_mode_carries_one_plan_for_selection_and_measurements(self):
+        examples = {
+            'pipeline': (('testSpeechContinuityWithoutNetwork',), ('pipeline-20ms', 'pipeline-100ms'), 180),
+            'realtime': (('testRealtimeAudioLatencyAndIdentity',),
+                         tuple(f'realtime-{fixture}-{codec}'
+                               for fixture in ('speech-ja', 'conversation-ja', 'conversation-reply-ja')
+                               for codec in ('pcm16', 'opus', 'mpeg4AACELD')), 600),
+            'group': (('testEightPersonMixedRouteConversation',), ('eight-person-mixed',), 180),
+            'codec': (('testTransmitChainPreservesConversationAndAcknowledgements', 'testNativeCodecsPreserveWholeSpeech'),
+                      ('native-codecs', 'transmit-conversations'), 600),
+            'switches': (('testInputModeChangesRestoreTheSharedReceiveClock', 'testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio'),
+                         ('live-settings', 'input-mode-recovery'), 180),
+        }
+        for mode, (methods, measurement_ids, timeout) in examples.items():
+            argv = ['audio_e2e.py', '--output', str(self.root / mode), '--' + mode + '-only']
+            with self.subTest(mode=mode), patch.object(sys, 'argv', argv), patch.dict(os.environ), \
+                    patch.object(audio, 'simulator_resource_root', return_value=self.root), \
+                    patch.object(audio, 'execute', return_value=0) as execute:
+                self.assertEqual(audio.main(), 0)
+                plan = execute.call_args.args[4]
+                self.assertEqual(plan.tests, tuple('AudioE2ETests/' + method for method in methods))
+                self.assertEqual(plan.measurement_ids, measurement_ids)
+                self.assertEqual(plan.timeout, timeout)
+                self.assertEqual(plan.preflight, (
+                    'AudioE2ETests/testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass',
+                    'AudioE2ETests/testReceiveIsolationKeepsItsEffectWhenEnabledAgain',
+                ) if mode == 'switches' else ())
+
     def test_audio_scenario_errors_stop_before_creating_run_artifacts(self):
         examples = [
             (['--matrix', 'smoke', '--scenario', 'output-mute'], 'not in the smoke matrix'),

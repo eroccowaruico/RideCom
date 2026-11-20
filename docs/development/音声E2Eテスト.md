@@ -237,7 +237,7 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair conversation --seco
 
 8人試験の配送は決定的な仮想経路であり、8台の物理無線機器・実Cloudflare SFUの測定ではない。ネットワーク2端末試験とは独立して必要とする。realtime-onlyも空気伝搬・Bluetooth・物理iPhoneの口から耳を測った結果ではない。native SoundIsolationのalgorithmic latencyは有効な段数に応じて加算されるため、任意に重ねた設定や全ネットワークで125msを保証するものではない。
 
-測定JSONは各専用modeでもpipeline-measurements.jsonに集約する。codec-onlyとswitches-onlyは2件、他の単独modeは1件の専用XCTest完了と全scenarioの測定存在を必須にする。preflightはiOSの負例・micro gap・相槌負例・native sessionの計5件と、Macのfixture時刻検査2件を必須にし、skipは認めない。switches-onlyのiOS事前試験は送信分離の再ONと二人の受信分離切替も実行する。packet到着・capture・OS制御の時刻traceはE2E専用attachmentへ保存し、本番のframeごとのログには追加しない。
+各専用modeで選ぶXCTest、必要な測定ID、追加の事前試験と実行時間の上限は `scripts/audio_e2e_matrix.py` の同じ定義を使う。選択したXCTest数と実行数が一致し、回収した測定IDが必要なIDと一致するときに受け入れる。測定JSONは `pipeline-measurements.json` に集約する。たとえば `--switches-only` は共有I/Oと連続切替のXCTest 2件を実行し、`input-mode-recovery` と `live-settings` の測定をそれぞれ1件要求する。preflightはiOSの負例・micro gap・相槌負例・native sessionの計5件と、Macのfixture時刻検査2件を必須にし、skipは認めない。switches-onlyのiOS事前試験は送信分離の再ONと二人の受信分離切替も実行する。packet到着・capture・OS制御の時刻traceはE2E専用attachmentへ保存し、本番のframeごとのログには追加しない。
 
 conversation-ja.wav（Kyoko、約16.38秒）とconversation-reply-ja.wav（Reed、約14.89秒）は1/2/3秒の休止と「うん」「ふん」を含む。原文・各発話の正確な開始終了はFixtures/conversation-manifest.json、再生成はscripts/build_conversation_fixtures.pyが正本。毎回のテストでは同梱WAVを使う。
 
