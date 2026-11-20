@@ -14,9 +14,13 @@ export const dedupeLifetime = 86_400_000
 export const groupInvitationLifetime = 7 * 86_400_000 + 300_000
 const devicePrefix = 'notify-device:'
 const grantPrefix = 'notify-grant:'
+export interface InvitationDeviceAddress { memberID: string; recipientKey: string; expiresAt: number }
+interface InvitationDeviceRequest extends InvitationDeviceAddress { auth: NotificationAuth }
 export interface NotificationGroupInvitation {
     requestID: string; sender: NotificationAuth; recipientID: string; grantHash: string
     recipientKey: string; noticeID: string; envelope: string | null; expiresAt: number; status: 'queued' | 'received' | 'cancelled'
+    additionalDevicesClosed?: boolean
+    additionalDevices?: InvitationDeviceRequest[]
 }
 const invitationPrefix = 'notify-group:'
 const groupCancellationPrefix = 'notify-group-cancel:'
@@ -167,6 +171,31 @@ export class AccountNotifications {
         const value = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + requestID)
         return value && value.expiresAt > Date.now() ? value : null
     }
+    private invitationAcceptingAdditionalDevices(recipient: string, requestID: string) {
+        const value = this.invitation(recipient, requestID)
+        return value && value.recipientID === recipient && value.status !== 'cancelled' && !value.additionalDevicesClosed
+            && this.grantActive(recipient, value.grantHash) ? value : null
+    }
+    private activeInvitationDevices(value: NotificationGroupInvitation) {
+        return (value.additionalDevices ?? []).filter(device => device.expiresAt > Date.now() && this.authorized(device.auth))
+    }
+    addInvitationDevice(auth: NotificationAuth, requestID: string, address: InvitationDeviceAddress) {
+        if (!this.authorized(auth)) return false
+        const value = this.invitationAcceptingAdditionalDevices(auth.userID, requestID)
+        if (!value || address.expiresAt <= Date.now()) return false
+        if (value.recipientKey === address.recipientKey) return true
+        // Keep one short-lived destination per authenticated device on this exact invitation.
+        const additionalDevices = this.activeInvitationDevices(value).filter(device => device.auth.deviceID !== auth.deviceID)
+        additionalDevices.push({ ...address, expiresAt: Math.min(address.expiresAt, value.expiresAt), auth })
+        this.storage.kv.put(invitationPrefix + requestID, { ...value, additionalDevices })
+        return true
+    }
+    invitationDevices(sender: NotificationAuth, recipient: string, requestID: string) {
+        const value = this.invitationAcceptingAdditionalDevices(recipient, requestID)
+        if (!value || value.sender.accountID !== sender.accountID || value.sender.userID !== sender.userID
+            || value.sender.deviceID !== sender.deviceID) return null
+        return this.activeInvitationDevices(value).map(({ memberID, recipientKey }) => ({ memberID, recipientKey }))
+    }
     pendingInvitations(userID: string, recipientKey: string): Pick<NotificationGroupInvitation, 'requestID' | 'sender'>[] {
         this.prune()
         return [...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].map(([, v]) => v)
@@ -187,9 +216,14 @@ export class AccountNotifications {
     finishInvitation(userID: string, requestID: string, actorID: string, discard = false): 'received' | 'cancelled' | null {
         const value = this.invitation(userID, requestID)
         if (!value || (actorID !== userID && actorID !== value.sender.userID)) return null
-        if (value.status !== 'queued') return value.status
-        const status = actorID === userID && !discard ? 'received' : 'cancelled'
-        this.storage.kv.put(invitationPrefix + requestID, { ...value, envelope: null, status })
+        const withdrawing = actorID === value.sender.userID
+        const status = value.status === 'queued' ? (actorID === userID && !discard ? 'received' : 'cancelled') : value.status
+        if (status === value.status && (!withdrawing || value.additionalDevicesClosed)) return status
+        const next = { ...value, envelope: null, status }
+        // An old receipt remains visible after the sender closes future deliveries.
+        if (withdrawing) next.additionalDevicesClosed = true
+        if (status === 'cancelled' || withdrawing) delete next.additionalDevices
+        this.storage.kv.put(invitationPrefix + requestID, next)
         return status
     }
     invitationCandidates(userID: string, requestID: string): NotificationDevice[] {

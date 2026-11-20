@@ -1,4 +1,4 @@
-import type { NotificationGroupInvitation } from './AccountNotifications'
+import type { InvitationDeviceAddress, NotificationGroupInvitation } from './AccountNotifications'
 import { DurableObject } from 'cloudflare:workers'
 import { errors, jwtVerify } from 'jose'
 import { Env, json, readJSON } from './types'
@@ -71,6 +71,12 @@ export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
     async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
+    groupInvitationAddDevice(auth: NotificationAuth, requestID: string, address: InvitationDeviceAddress) {
+        return this.notifications.addInvitationDevice(auth, requestID, address)
+    }
+    groupInvitationDevices(sender: NotificationAuth, recipient: string, requestID: string) {
+        return this.notifications.invitationDevices(sender, recipient, requestID)
+    }
     groupInvitationPending(userID: string, recipientKey: string) { return this.notifications.pendingInvitations(userID, recipientKey) }
     groupInvitationDelivery(auth: NotificationAuth, recipientKey: string, requestID: string, verifiedSender: NotificationAuth) {
         return this.notifications.invitationForDelivery(auth, recipientKey, requestID, verifiedSender)

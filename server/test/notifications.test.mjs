@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, sign } from 'node:crypto';
 import { generateKeyPair, exportJWK, exportPKCS8, SignJWT } from 'jose';
 import { makeRuntime } from './support/runtime.mjs';
 
@@ -591,5 +591,92 @@ test('group invitation lifetime tolerates a small device clock difference but st
             recipientKey: 's'.repeat(87), envelope: Buffer.from('opaque clock fixture').toString('base64') };
         assert.equal((await call(r, '/api/notifications/group-invitations', body, a.accessToken)).status, 200);
         assert.equal((await call(r, '/api/notifications/group-invitations', { ...body, requestID: randomUUID(), expiresAt: Date.now() + 7 * 86400000 + 600000 }, a.accessToken)).status, 400);
+    } finally { await r.dispose(); }
+});
+
+test('the original sender can read a certified additional device for a live group invitation', async () => {
+    const r = await setup();
+    try {
+        const sender = await login(r, 'additional-device-sender');
+        const otherSenderDevice = await login(r, 'additional-device-sender');
+        const recipient = await login(r, 'additional-device-recipient');
+        const additional = await login(r, 'additional-device-recipient');
+        const outsider = await login(r, 'additional-device-outsider');
+        const requestID = randomUUID(), expiresAt = Date.now() + 86_400_000;
+        const invite = '/api/notifications/group-invitations';
+        const groupGrant = await (await call(r, invite + '/grants', { senderUserID: sender.userID }, recipient.accessToken)).json();
+        const submission = { capability: groupGrant.capability, requestID, expiresAt, recipientKey: 'r'.repeat(87),
+            envelope: Buffer.from('opaque group packet').toString('base64') };
+        assert.equal((await call(r, invite, submission, sender.accessToken)).status, 200);
+        // An existing recipient's receipt leaves the invitation active for new devices until its original expiry.
+        const original = `${invite}/${recipient.userID}/${requestID}`;
+        assert.equal((await (await call(r, original, undefined, recipient.accessToken, 'DELETE')).json()).status, 'received');
+
+        const key = await generateKeyPair('ES256', { extractable: true });
+        const jwk = await exportJWK(key.publicKey);
+        const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+        const memberID = 'additional-member';
+        const identityResponse = await call(r, '/api/auth/identity', { memberID, deviceKey: publicKey }, additional.accessToken);
+        assert.equal(identityResponse.status, 200);
+        const certificate = await identityResponse.json();
+        function makeProof(id, purpose = 'requestGroupInvitationRedelivery', signingKey = key.privateKey, identity = certificate) {
+            const fields = [purpose, memberID, publicKey, identity.certificate, identity.issuerKey, id];
+            const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
+            for (const field of fields) {
+                const bytes = Buffer.from(field), length = Buffer.alloc(4);
+                length.writeUInt32BE(bytes.length);
+                parts.push(length, bytes);
+            }
+            const signature = sign('sha256', Buffer.concat(parts), { key: signingKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+            return { publicKey, certificate: identity, signature };
+        }
+        const path = original + '/additional-devices';
+        const read = (by = sender, at = path) => call(r, at, undefined, by.accessToken, 'GET');
+        const submit = (proof, by = additional, at = path) => call(r, at, proof, by.accessToken);
+        const proof = makeProof(requestID);
+        assert.deepEqual(await (await read()).json(), { devices: [] });
+        assert.equal((await submit(proof, outsider)).status, 404);
+        assert.equal((await submit(proof, recipient)).status, 403, 'The certificate must match the authenticated device');
+        const wrongKey = await generateKeyPair('ES256');
+        assert.equal((await submit(makeProof(requestID, undefined, wrongKey.privateKey))).status, 403);
+        assert.equal((await submit(makeProof(requestID, 'callNotificationPermission'))).status, 403);
+        const makeCertificate = (signingKey, expiresIn) => new SignJWT({ memberID, deviceKey: publicKey, deviceID: additional.deviceID })
+            .setIssuer('https://worker.test').setSubject(additional.userID).setAudience('rideintercom-peer')
+            .setIssuedAt(Math.floor(Date.now() / 1000) - 1800).setExpirationTime(expiresIn)
+            .setProtectedHeader({ alg: 'ES256', typ: 'rideintercom-device+jwt' }).sign(signingKey);
+        const expired = { ...certificate, certificate: await makeCertificate(signing.privateKey, '-1m') };
+        const forged = { ...certificate, certificate: await makeCertificate(wrongKey.privateKey, '5m') };
+        assert.equal((await submit(makeProof(requestID, undefined, undefined, expired))).status, 403);
+        assert.equal((await submit(makeProof(requestID, undefined, undefined, forged))).status, 403);
+        assert.equal((await submit(proof, additional, `${invite}/${recipient.userID}/${randomUUID()}/additional-devices`)).status, 404);
+        const secondID = randomUUID();
+        assert.equal((await call(r, invite, { ...submission, requestID: secondID }, sender.accessToken)).status, 200);
+        const otherPath = `${invite}/${recipient.userID}/${secondID}/additional-devices`;
+        assert.equal((await submit(proof, additional, otherPath)).status, 403, 'The signature cannot authorize another invitation');
+
+        assert.equal((await submit(proof)).status, 200);
+        assert.equal((await submit(proof)).status, 200, 'Retry stays idempotent');
+        const addresses = { devices: [{ memberID, recipientKey: publicKey }] };
+        assert.deepEqual(await (await read()).json(), addresses);
+        assert.equal((await read(otherSenderDevice)).status, 404);
+        assert.equal((await read(outsider)).status, 404);
+        assert.equal((await read(recipient)).status, 404);
+        assert.equal((await call(r, original, undefined, sender.accessToken, 'DELETE')).status, 200);
+        assert.equal((await read()).status, 404);
+        assert.equal((await submit(proof)).status, 404);
+        assert.equal((await (await call(r, original, undefined, recipient.accessToken, 'GET')).json()).status, 'received',
+            'The withdrawal closes additional devices without rewriting the old receipt');
+
+        const validOtherProof = makeProof(secondID);
+        assert.equal((await submit(validOtherProof, additional, otherPath)).status, 200);
+        assert.deepEqual(await (await read(sender, otherPath)).json(), addresses);
+        await call(r, '/api/auth/session', undefined, additional.accessToken, 'DELETE');
+        assert.deepEqual(await (await read(sender, otherPath)).json(), { devices: [] });
+        const renewed = await login(r, 'additional-device-recipient', additional.deviceID);
+        assert.equal((await submit(validOtherProof, renewed, otherPath)).status, 200);
+        assert.deepEqual(await (await read(sender, otherPath)).json(), addresses);
+        await call(r, '/api/notifications/grants/' + groupGrant.grantID, undefined, recipient.accessToken, 'DELETE');
+        assert.equal((await read(sender, otherPath)).status, 404);
+        assert.equal((await submit(validOtherProof, renewed, otherPath)).status, 404);
     } finally { await r.dispose(); }
 });

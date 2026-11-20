@@ -1,6 +1,7 @@
 import { importJWK, jwtVerify, SignJWT } from 'jose'
 import { notificationAuth } from './AppleAccount'
 import { callLifetime, dedupeLifetime, groupInvitationLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
+import { verifyDeviceProof } from './DeviceIdentity'
 import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
 import { json, readJSON, type Env } from './types'
 
@@ -74,6 +75,29 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 || !await account(env, call.sender.accountID).notificationAuthorized(call.sender)) return json({ error: 'Call request expired' }, 410)
             if (!await owner.notificationAuthorized(auth)) return json({ error: 'Not found' }, 404)
             return json({ ...callReply(call), senderUserID: call.sender.userID })
+        }
+        const devicesRoute = path.match(/^\/api\/notifications\/group-invitations\/([a-f0-9]{64})\/([a-f0-9-]{36})\/additional-devices$/i)
+        if (devicesRoute && uuidPattern.test(devicesRoute[2])) {
+            const recipient = devicesRoute[1].toLowerCase(), id = devicesRoute[2].toLowerCase()
+            const notFound = () => json({ error: 'Not found' }, 404)
+            if (method === 'POST') {
+                if (auth.userID !== recipient) return notFound()
+                if (!notificationsConfigured(env)) return json({ error: 'Notifications are unavailable' }, 503)
+                const invitation = await owner.groupInvitationGet(recipient, id)
+                if (!invitation || invitation.status === 'cancelled' || invitation.additionalDevicesClosed
+                    || !await owner.notificationGrantActive(recipient, invitation.grantHash)) return notFound()
+                if (!await owner.notificationMutationBudget(auth)) return json({ error: 'Too many notification changes' }, 429)
+                const address = await verifyDeviceProof(auth, url.origin, 'requestGroupInvitationRedelivery', id, await readJSON(request), env)
+                if (!address) return json({ error: 'Device proof required' }, 403)
+                return await owner.groupInvitationAddDevice(auth, id, address) ? json({}) : notFound()
+            }
+            if (method === 'GET') {
+                const receiver = await target(env, recipient)
+                const devices = await receiver?.groupInvitationDevices(auth, recipient, id)
+                if (!devices || await owner.groupInvitationSenderState(auth, recipient, id) !== 'active') return notFound()
+                return json({ devices })
+            }
+            return json({ error: 'Method not allowed' }, 405)
         }
         const groupRoute = path.match(/^\/api\/notifications\/group-invitations\/([a-f0-9]{64})\/([a-f0-9-]{36})$/i)
         if (groupRoute && uuidPattern.test(groupRoute[2]) && ['GET', 'DELETE'].includes(method)) {
