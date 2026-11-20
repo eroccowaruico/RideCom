@@ -76,6 +76,12 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!await owner.notificationAuthorized(auth)) return json({ error: 'Not found' }, 404)
             return json({ ...callReply(call), senderUserID: call.sender.userID })
         }
+        if (path === '/api/notifications/group-invitations/additional-devices' && method === 'GET') {
+            const key = url.searchParams.get('recipientKey') ?? ''
+            if (!/^[A-Za-z0-9_-]{87}$/.test(key)) throw new Error('body')
+            const requestIDs = await owner.groupInvitationIDsForAdditionalDevice(auth, key)
+            return requestIDs ? json({ requestIDs }) : json({ error: 'Unauthorized' }, 401)
+        }
         const devicesRoute = path.match(/^\/api\/notifications\/group-invitations\/([a-f0-9]{64})\/([a-f0-9-]{36})\/additional-devices$/i)
         if (devicesRoute && uuidPattern.test(devicesRoute[2])) {
             const recipient = devicesRoute[1].toLowerCase(), id = devicesRoute[2].toLowerCase()

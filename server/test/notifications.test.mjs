@@ -631,6 +631,8 @@ test('the original sender can read a certified additional device for a live grou
             return { publicKey, certificate: identity, signature };
         }
         const path = original + '/additional-devices';
+        const discover = (by = additional) => call(r, invite + '/additional-devices?recipientKey=' + publicKey,
+            undefined, by.accessToken, 'GET');
         const read = (by = sender, at = path) => call(r, at, undefined, by.accessToken, 'GET');
         const submit = (proof, by = additional, at = path) => call(r, at, proof, by.accessToken);
         const proof = makeProof(requestID);
@@ -656,6 +658,7 @@ test('the original sender can read a certified additional device for a live grou
 
         assert.equal((await submit(proof)).status, 200);
         assert.equal((await submit(proof)).status, 200, 'Retry stays idempotent');
+        assert.deepEqual(await (await discover()).json(), { requestIDs: [secondID] });
         const addresses = { devices: [{ memberID, recipientKey: publicKey }] };
         assert.deepEqual(await (await read()).json(), addresses);
         assert.equal((await read(otherSenderDevice)).status, 404);
@@ -673,10 +676,59 @@ test('the original sender can read a certified additional device for a live grou
         await call(r, '/api/auth/session', undefined, additional.accessToken, 'DELETE');
         assert.deepEqual(await (await read(sender, otherPath)).json(), { devices: [] });
         const renewed = await login(r, 'additional-device-recipient', additional.deviceID);
+        assert.deepEqual(await (await discover(renewed)).json(), { requestIDs: [secondID] });
         assert.equal((await submit(validOtherProof, renewed, otherPath)).status, 200);
         assert.deepEqual(await (await read(sender, otherPath)).json(), addresses);
         await call(r, '/api/notifications/grants/' + groupGrant.grantID, undefined, recipient.accessToken, 'DELETE');
         assert.equal((await read(sender, otherPath)).status, 404);
         assert.equal((await submit(validOtherProof, renewed, otherPath)).status, 404);
+        assert.deepEqual(await (await discover(renewed)).json(), { requestIDs: [] });
+    } finally { await r.dispose(); }
+});
+
+test('a new device finds its own live invitations without an earlier notification or contact list', async () => {
+    const r = await setup();
+    try {
+        const sender = await login(r, 'invitation-discovery-sender');
+        const secondSender = await login(r, 'invitation-discovery-other-sender');
+        const oldDevice = await login(r, 'invitation-discovery-recipient');
+        const newDevice = await login(r, 'invitation-discovery-recipient');
+        const stranger = await login(r, 'invitation-discovery-stranger');
+        const invite = '/api/notifications/group-invitations';
+        const grantFor = async author => {
+            const response = await call(r, invite + '/grants', { senderUserID: author.userID }, oldDevice.accessToken);
+            assert.equal(response.status, 200);
+            return (await response.json()).capability;
+        };
+        const firstGrant = await grantFor(sender), secondGrant = await grantFor(secondSender);
+        const sharedNotice = randomUUID(), oldKey = 'a'.repeat(87), anotherOldKey = 'b'.repeat(87), newKey = 'c'.repeat(87);
+        const put = async (author, capability, recipientKey, noticeID = randomUUID()) => {
+            const requestID = randomUUID();
+            const response = await call(r, invite, { capability, recipientKey, requestID, noticeID, expiresAt: Date.now() + 60_000,
+                envelope: Buffer.from('opaque invitation').toString('base64') }, author.accessToken);
+            assert.equal(response.status, 200);
+            return requestID;
+        };
+        const original = await put(sender, firstGrant, oldKey, sharedNotice);
+        const duplicate = await put(sender, firstGrant, anotherOldKey, sharedNotice);
+        const independent = await put(secondSender, secondGrant, oldKey, sharedNotice);
+        const alreadyAddressed = await put(sender, firstGrant, newKey);
+        const cancelled = await put(sender, firstGrant, oldKey);
+        const recordPath = id => `${invite}/${oldDevice.userID}/${id}`;
+        assert.equal((await call(r, recordPath(original), undefined, oldDevice.accessToken, 'DELETE')).status, 200);
+        assert.equal((await call(r, recordPath(cancelled), undefined, sender.accessToken, 'DELETE')).status, 200);
+        const discover = (user, key = newKey) => call(r, invite + '/additional-devices?recipientKey=' + key, undefined, user.accessToken, 'GET');
+        assert.equal((await discover(newDevice, 'invalid')).status, 400);
+        const found = await discover(newDevice);
+        assert.equal(found.status, 200);
+        const result = await found.json();
+        assert.deepEqual(Object.keys(result), ['requestIDs']);
+        assert.equal(result.requestIDs.length, 2, 'A notice is returned once per original sender');
+        assert.ok(result.requestIDs.includes(independent));
+        assert.ok(result.requestIDs.includes(original) || result.requestIDs.includes(duplicate));
+        assert.ok(!result.requestIDs.includes(cancelled));
+        assert.deepEqual(await (await discover(stranger)).json(), { requestIDs: [] });
+        assert.deepEqual(await (await discover(oldDevice, oldKey)).json(), { requestIDs: [alreadyAddressed] },
+            'Skip a notice if it already has a delivery to this key');
     } finally { await r.dispose(); }
 });

@@ -171,10 +171,40 @@ export class AccountNotifications {
         const value = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + requestID)
         return value && value.expiresAt > Date.now() ? value : null
     }
+    private acceptsAdditionalDevices(value: NotificationGroupInvitation) {
+        return value.status !== 'cancelled' && !value.additionalDevicesClosed
+            && this.grantActive(value.recipientID, value.grantHash)
+    }
     private invitationAcceptingAdditionalDevices(recipient: string, requestID: string) {
         const value = this.invitation(recipient, requestID)
-        return value && value.recipientID === recipient && value.status !== 'cancelled' && !value.additionalDevicesClosed
-            && this.grantActive(recipient, value.grantHash) ? value : null
+        return value && value.recipientID === recipient && this.acceptsAdditionalDevices(value) ? value : null
+    }
+    invitationIDsForAdditionalDevice(auth: NotificationAuth, recipientKey: string): string[] | null {
+        if (!this.authorized(auth)) return null
+        const now = Date.now()
+        const invitations = Array.from(this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix }), ([, value]) => value)
+            .filter(value => value.recipientID === auth.userID && value.expiresAt > now)
+        const noticeKey = (value: NotificationGroupInvitation) => value.sender.userID + ':' + value.noticeID
+        const addressed = new Set<string>()
+        const eligible: NotificationGroupInvitation[] = []
+        for (const value of invitations) {
+            // Even a cancelled copy already addressed to this key must not be offered again.
+            if (value.recipientKey === recipientKey) addressed.add(noticeKey(value))
+            if (!this.acceptsAdditionalDevices(value)) continue
+            if (value.additionalDevices?.some(device => device.recipientKey === recipientKey && device.expiresAt > now
+                && device.auth.deviceID === auth.deviceID && device.auth.tokenHash === auth.tokenHash)) {
+                addressed.add(noticeKey(value))
+            }
+            eligible.push(value)
+        }
+        const ids: string[] = []
+        for (const value of eligible) {
+            const notice = noticeKey(value)
+            if (addressed.has(notice)) continue
+            addressed.add(notice)
+            ids.push(value.requestID)
+        }
+        return ids
     }
     private activeInvitationDevices(value: NotificationGroupInvitation) {
         return (value.additionalDevices ?? []).filter(device => device.expiresAt > Date.now() && this.authorized(device.auth))

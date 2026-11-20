@@ -71,6 +71,9 @@ export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
     async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
+    groupInvitationIDsForAdditionalDevice(auth: NotificationAuth, recipientKey: string) {
+        return this.notifications.invitationIDsForAdditionalDevice(auth, recipientKey)
+    }
     groupInvitationAddDevice(auth: NotificationAuth, requestID: string, address: InvitationDeviceAddress) {
         return this.notifications.addInvitationDevice(auth, requestID, address)
     }
