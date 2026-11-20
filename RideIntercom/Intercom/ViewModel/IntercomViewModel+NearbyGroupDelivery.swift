@@ -4,9 +4,42 @@ import RTC
 @MainActor
 final class NearbyGroupDeliveryWindow {
     let id = UUID()
-    var eligibleDeliveryIDs: Set<UUID> = []
     var timeout: Task<Void, Never>?
+    var nextBatch: Task<Void, Never>?
     var endBackgroundTime: (() -> Void)?
+}
+
+/// The order of outstanding work stays with the account model, across finite attempts.
+struct NearbyGroupDeliverySchedule {
+    private var eligibleDeliveryIDs: Set<UUID> = []
+    private var offeredInSweep: Set<PeerID> = []
+
+    mutating func update(with pending: [GroupDeliveryRecord], afterSave: Bool) -> Set<PeerID> {
+        let newPeers = afterSave ? Set(pending.filter { !eligibleDeliveryIDs.contains($0.id) }
+            .map { PeerID(rawValue: $0.recipientMemberID) }) : []
+        eligibleDeliveryIDs = Set(pending.map(\.id))
+        offeredInSweep.formIntersection(pending.map { PeerID(rawValue: $0.recipientMemberID) })
+        return newPeers
+    }
+
+    mutating func select(from pending: [GroupDeliveryRecord], retaining current: Set<PeerID>, prioritize newPeers: Set<PeerID>,
+                         startsWindow: Bool) -> (offered: Set<PeerID>, hasMore: Bool) {
+        var seen: Set<PeerID> = []
+        let ranked = pending.sorted { $0.expiresAt > $1.expiresAt }.map { PeerID(rawValue: $0.recipientMemberID) }
+            .filter { seen.insert($0).inserted }
+        if startsWindow && seen.isSubset(of: offeredInSweep) {
+            offeredInSweep.removeAll()
+        }
+        let priority = ranked.filter { newPeers.contains($0) } + ranked.filter { current.contains($0) }
+        let untried = ranked.filter { !offeredInSweep.contains($0) }
+        var offered: Set<PeerID> = []
+        for peer in priority + untried {
+            offered.insert(peer)
+            if offered.count == RTCLocalDataChannel.maximumOfferedPeers { break }
+        }
+        offeredInSweep.formUnion(offered)
+        return (offered, !seen.isSubset(of: offeredInSweep))
+    }
 }
 
 @MainActor
@@ -64,24 +97,29 @@ extension IntercomViewModel {
         }
     }
 
-    func refreshNearbyGroupDelivery(startOffers: Bool = true, afterSave: Bool = false) {
+    func refreshNearbyGroupDelivery(startOffers: Bool = true, afterSave: Bool = false, advanceBatch: Bool = false) {
         guard canUseNearbyGroupDelivery,
               nearbyGroupDeliveryIsForeground || afterSave || nearbyGroupDeliveryWindow != nil
         else { stopNearbyGroupDelivery(); return }
         let credentials = nearbyGroupDeliveryCredentials()
         guard !credentials.isEmpty else { stopNearbyGroupDelivery(); return }
         let pending = pendingNearbyGroupDeliveries().filter { credentials[.init(rawValue: $0.recipientMemberID)] != nil }
-        if pending.isEmpty {
-            closeNearbyGroupDeliveryWindow()
-        } else if startOffers {
-            openNearbyGroupDeliveryWindow(for: Set(pending.map(\.id)), afterSave: afterSave)
+        let priorWindow = nearbyGroupDeliveryWindow
+        let newPeers = nearbyGroupDeliverySchedule.update(with: pending, afterSave: afterSave)
+        if !pending.isEmpty && startOffers {
+            openNearbyGroupDeliveryWindow(afterSave: afterSave, renew: !newPeers.isEmpty)
         }
 
         var offered: Set<PeerID> = []
-        if nearbyGroupDeliveryWindow != nil {
-            for record in pending.sorted(by: { $0.expiresAt > $1.expiresAt }) {
-                offered.insert(.init(rawValue: record.recipientMemberID))
-                if offered.count == RTCLocalDataChannel.maximumOfferedPeers { break }
+        if let window = nearbyGroupDeliveryWindow {
+            let previous = nearbyGroupDeliveryExchange?.offeredPeers ?? []
+            let batch = nearbyGroupDeliverySchedule.select(from: pending, retaining: advanceBatch ? [] : previous,
+                                                           prioritize: newPeers, startsWindow: priorWindow == nil)
+            offered = batch.offered
+            if offered.isEmpty {
+                closeNearbyGroupDeliveryWindow()
+            } else {
+                scheduleNearbyGroupDeliveryBatch(on: window, hasMore: batch.hasMore, changed: previous != offered)
             }
         }
         guard nearbyGroupDeliveryIsForeground || !offered.isEmpty else { stopNearbyGroupDelivery(); return }
@@ -112,12 +150,10 @@ extension IntercomViewModel {
         }
     }
 
-    private func openNearbyGroupDeliveryWindow(for deliveryIDs: Set<UUID>, afterSave: Bool) {
+    private func openNearbyGroupDeliveryWindow(afterSave: Bool, renew: Bool) {
         let window = nearbyGroupDeliveryWindow ?? NearbyGroupDeliveryWindow()
         nearbyGroupDeliveryWindow = window
-        let hasNewSave = afterSave && !deliveryIDs.isSubset(of: window.eligibleDeliveryIDs)
-        window.eligibleDeliveryIDs = deliveryIDs
-        if window.timeout == nil || hasNewSave {
+        if window.timeout == nil || renew {
             // Renew only the app deadline. Any system expiration still ends the entire window.
             window.timeout?.cancel()
             let id = window.id
@@ -136,6 +172,24 @@ extension IntercomViewModel {
         else { end?() }
     }
 
+    private func scheduleNearbyGroupDeliveryBatch(on window: NearbyGroupDeliveryWindow, hasMore: Bool, changed: Bool) {
+        if changed || !hasMore {
+            window.nextBatch?.cancel()
+            window.nextBatch = nil
+        }
+        guard hasMore, window.nextBatch == nil else { return }
+        let id = window.id
+        window.nextBatch = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(8))
+                try Task.checkCancellation()
+            } catch { return }
+            guard let self, let current = self.nearbyGroupDeliveryWindow, current.id == id else { return }
+            current.nextBatch = nil
+            self.refreshNearbyGroupDelivery(startOffers: false, advanceBatch: true)
+        }
+    }
+
     private func expireNearbyGroupDeliveryWindow(_ id: UUID) {
         guard nearbyGroupDeliveryWindow?.id == id else { return }
         closeNearbyGroupDeliveryWindow()
@@ -146,6 +200,7 @@ extension IntercomViewModel {
         let window = nearbyGroupDeliveryWindow
         nearbyGroupDeliveryWindow = nil
         window?.timeout?.cancel()
+        window?.nextBatch?.cancel()
         window?.endBackgroundTime?()
     }
 
@@ -153,8 +208,7 @@ extension IntercomViewModel {
         guard let exchange = nearbyGroupDeliveryExchange, !exchange.offeredPeers.isEmpty,
               !pendingNearbyGroupDeliveries().contains(where: { exchange.offeredPeers.contains(.init(rawValue: $0.recipientMemberID)) })
         else { return }
-        closeNearbyGroupDeliveryWindow()
-        refreshNearbyGroupDelivery(startOffers: false)
+        refreshNearbyGroupDelivery(startOffers: false, advanceBatch: true)
     }
 
     func stopNearbyGroupDelivery() {

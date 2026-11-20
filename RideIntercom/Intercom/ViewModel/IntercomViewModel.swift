@@ -43,6 +43,7 @@ final class IntercomViewModel {
     @ObservationIgnored var nearbyGroupDeliveryIsForeground = false
     @ObservationIgnored var nearbyGroupDeliveryExchange: NearbyGroupDeliveryExchange?
     @ObservationIgnored var nearbyGroupDeliveryWindow: NearbyGroupDeliveryWindow?
+    @ObservationIgnored var nearbyGroupDeliverySchedule = NearbyGroupDeliverySchedule()
     var contactInvitationRevision = UUID()
     var contactInvitationPresentation: ContactInvitationPresentation?
     var contactInvitationMessage: String?

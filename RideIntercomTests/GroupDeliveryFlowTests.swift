@@ -96,6 +96,49 @@ import UserNotifications
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func nearbyDeliveryReachesTheNextDeviceWhileTheFirstSevenAreAbsent() async throws {
+        let author = GroupDeliveryTestIdentity("batch-author")
+        let reachable = GroupDeliveryTestIdentity("batch-reachable")
+        let absent = "cdef123".map { GroupDeliveryTestIdentity("batch-absent-\($0)") }
+        defer { ([author, reachable] + absent).forEach { $0.remove() } }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try reachable.authorizeFixture(userID: String(repeating: "b", count: 64))
+        for (person, digit) in zip(absent, "cdef123") {
+            try person.authorizeFixture(userID: String(repeating: String(digit), count: 64))
+        }
+
+        let sender = try author.harness(knowing: [reachable] + absent, onDisk: true).viewModel
+        let receiver = try reachable.harness(knowing: [author], onDisk: true).viewModel
+        defer { sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync(); sender.disconnect() }
+        sender.groupDeliveryClient = nil
+        receiver.groupDeliveryClient = nil
+        receiver.allowsNearbyGroupDelivery = true
+        var requested = 0
+        sender.beginGroupDeliveryBackgroundTime = { _ in
+            requested += 1
+            return {}
+        }
+
+        sender.setNearbyGroupDeliveryForeground(true)
+        try #require(sender.createTalkGroup(name: "Older group", userIDs: [reachable.personID]))
+        let older = try #require(sender.groupRepository.groupDeliveries.first)
+        sender.allowsNearbyGroupDelivery = true
+        try #require(sender.createTalkGroup(name: "Recent group", userIDs: Set(absent.map(\.personID))))
+        #expect(sender.nearbyGroupDeliveryExchange?.offeredPeers == Set(absent.map { PeerID(rawValue: $0.memberID) }))
+        #expect(requested == 1)
+        sender.setNearbyGroupDeliveryForeground(false)
+        receiver.setNearbyGroupDeliveryForeground(true)
+
+        await AppTestSupport.waitUntil(timeout: .seconds(14)) {
+            sender.groupRepository.groupDeliveries.first(where: { $0.id == older.id })?.state == .received
+        }
+        #expect(sender.groupRepository.groupDeliveries.first(where: { $0.id == older.id })?.state == .received)
+        #expect(sender.groupRepository.groupDeliveries.filter { $0.state == .pending }.count == absent.count)
+        #expect(receiver.groups.map(\.id) == [older.groupID])
+        #expect(requested == 1, "Every batch belongs to the same background time request")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func backgroundTimeExpiryKeepsTheSameInviteForTheNextForegroundLaunch() async throws {
         let a = GroupDeliveryTestIdentity("expiry-nearby-sender")
         let b = GroupDeliveryTestIdentity("expiry-nearby-recipient")
