@@ -37,7 +37,6 @@ def without_fences(text):
 def check_backlog(backlog):
     issues = '未実装課題.md'
     design = '画面実装とデザイン見本の差分.md'
-    candidates = '改善候補.md'
     if not (backlog / issues).exists():
         return []
     index = backlog / 'README.md'
@@ -45,7 +44,7 @@ def check_backlog(backlog):
     if not index.exists():
         return [f'{prefix}: missing backlog index']
     anchors = Counter()
-    for name, level in ((issues, 2), (design, 3), (candidates, 2)):
+    for name, level in ((issues, 2), (design, 3)):
         document = backlog / name
         if document.exists():
             headings = re.findall(rf'^{level * "#"} (.+)$', without_fences(document.read_text()), re.M)
@@ -70,8 +69,7 @@ def check_backlog(backlog):
                 continue
             destination = urlsplit(link[1].strip('<>'))
             target = unquote(destination.path)
-            allowed = (issues, design) if section == '着手順' else (issues, design, candidates)
-            if destination.scheme or target not in allowed or not destination.fragment:
+            if destination.scheme or target not in (issues, design) or not destination.fragment:
                 errors.append(f'{prefix}: invalid backlog detail link: {link[1]}')
                 continue
             indexed[target, unquote(destination.fragment)] += 1
@@ -83,7 +81,7 @@ def check_backlog(backlog):
     for (name, anchor), count in sorted(anchors.items()):
         if count > 1:
             errors.append(f'docs/backlog/{name}: duplicate detail heading #{anchor}')
-        if name != candidates and (name, anchor) not in indexed:
+        if (name, anchor) not in indexed:
             errors.append(f'{prefix}: unindexed detail heading #{anchor} in {name}')
     for (name, anchor), count in sorted(indexed.items()):
         if (name, anchor) not in anchors:

@@ -108,6 +108,7 @@ class DocumentationTests(unittest.TestCase):
             (backlog / '未実装課題.md').write_text('# 未実装課題\n')
             (backlog / '画面実装とデザイン見本の差分.md').write_text(
                 '## 通話\n\n### 操作列\n\n### 接続の表示\n')
+            (backlog / '改善候補.md').write_text('## 長押しを検討する\n')
             index = backlog / 'README.md'
             active = '| [操作列](画面実装とデザイン見本の差分.md#操作列) | デザイン | 未着手 | 実画面で照合する |\n'
             paused = '| [接続の表示](画面実装とデザイン見本の差分.md#接続の表示) | デザイン | 機能待ち | 接続の実装と同時に直す |\n'
@@ -119,6 +120,8 @@ class DocumentationTests(unittest.TestCase):
                 (active, paused.replace(' | デザイン | ', ' | 改善 | '), 'invalid design classification 改善'),
                 (active, paused.replace('機能待ち', ''), 'incomplete backlog row'),
                 (active + '| 実機だけの確認 | 改善 | 実機待ち | 計測する |\n', paused, 'missing backlog detail link'),
+                (active, paused + '| [長押し](改善候補.md#長押しを検討する) | デザイン | 採用前 | 点検する |\n',
+                 'invalid backlog detail link'),
             ]:
                 with self.subTest(message=message):
                     index.write_text(f'## 着手順\n\n{current}\n## 判断や再開を待つもの\n\n{waiting}')
