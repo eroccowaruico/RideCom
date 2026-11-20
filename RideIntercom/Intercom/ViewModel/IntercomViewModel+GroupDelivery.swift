@@ -1,4 +1,5 @@
 import Foundation
+import RTC
 
 extension IntercomViewModel {
     enum GroupDeliveryTrigger {
@@ -159,6 +160,16 @@ extension IntercomViewModel {
             recipientKey: record.recipientKey, signer: signer, now: now, deliveryID: record.id, sourceRequestID: record.sourceRequestID)
         try groupRepository.saveGroupDeliveryEnvelope(envelope)
         return envelope
+    }
+
+    func nearbyGroupDeliveryCredential(for peerMemberID: String) throws -> RTCCredential {
+        guard canEditSavedGroups, let localAccountPrincipal,
+              let peer = savedRemoteUsers.first(where: { $0.memberIDs.contains(peerMemberID) }),
+              let account = peer.principal, account != localAccountPrincipal, account.issuer == localAccountPrincipal.issuer,
+              let publicKey = peer.deviceKeys?[peerMemberID] else { throw DeviceIdentityProof.Failure.invalid }
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+        let secret = try signer.nearbyGroupDeliverySecret(peerMemberID: peerMemberID, peerPublicKey: publicKey)
+        return RTCCredential.derived(groupID: DeviceIdentitySigner.nearbyGroupDeliveryDomain, secret: IdentityEncoding.encode(secret))
     }
 
     func receiveNearbyGroupInvitation(_ envelope: GroupInvitationEnvelope, from peerID: String) throws -> GroupInvitationReceipt? {

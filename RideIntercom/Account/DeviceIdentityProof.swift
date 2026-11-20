@@ -79,12 +79,32 @@ nonisolated struct DeviceIdentitySigner: Sendable {
         self.principal = identity.map { AccountPrincipal(issuer: $0.issuer, userID: $0.userID) }
         self.memberID = memberID; self.key = key; self.publicKey = publicKey; self.certificate = identity?.envelope
     }
+    static let nearbyGroupDeliveryDomain = "rideintercom.group-delivery.nearby.v1"
+
     /// The private scalar stays inside the signer; only authenticated plaintext is returned.
     func decryptGroupInvitation(_ ciphertext: Data, ephemeralKey: Data, header: Data) throws -> Data {
-        let agreement = try P256.KeyAgreement.PrivateKey(rawRepresentation: key.rawRepresentation)
-        let peer = try P256.KeyAgreement.PublicKey(x963Representation: ephemeralKey)
-        let secret = try agreement.sharedSecretFromKeyAgreement(with: peer)
+        let secret = try sharedSecret(with: ephemeralKey)
         return try AES.GCM.open(.init(combined: ciphertext), using: GroupInvitationEnvelope.key(secret, header: header), authenticating: header)
+    }
+
+    /// Both ends derive this value from their own key and a previously verified peer key.
+    func nearbyGroupDeliverySecret(peerMemberID: String, peerPublicKey: String) throws -> Data {
+        guard IntercomGroup.isValidMemberID(peerMemberID), !peerMemberID.hasPrefix("invite-pending-"),
+              peerMemberID != memberID, peerPublicKey != publicKey,
+              let peerKey = IdentityEncoding.decode(peerPublicKey), peerKey.count == 65
+        else { throw DeviceIdentityProof.Failure.invalid }
+        let devices = [(memberID, publicKey), (peerMemberID, peerPublicKey)].sorted { $0.0 < $1.0 }
+        // IDs and encoded keys cannot contain NUL. Bind each key to its device ID in a canonical order.
+        let context = devices.flatMap { [$0.0, $0.1] }.joined(separator: "\0")
+        let secret = try sharedSecret(with: peerKey)
+        return secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(Self.nearbyGroupDeliveryDomain.utf8),
+            sharedInfo: Data(context.utf8), outputByteCount: 32).withUnsafeBytes { Data($0) }
+    }
+
+    private func sharedSecret(with publicKey: Data) throws -> SharedSecret {
+        let agreement = try P256.KeyAgreement.PrivateKey(rawRepresentation: key.rawRepresentation)
+        let peer = try P256.KeyAgreement.PublicKey(x963Representation: publicKey)
+        return try agreement.sharedSecretFromKeyAgreement(with: peer)
     }
 
     func sign(_ payload: Data, purpose: DeviceIdentityProof.Purpose) throws -> DeviceIdentityProof {

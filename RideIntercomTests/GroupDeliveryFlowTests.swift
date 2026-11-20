@@ -23,13 +23,26 @@ import UserNotifications
         let delivery = try #require(left.viewModel.groupRepository.groupDeliveries.first)
         let envelope = try #require(try left.viewModel.prepareGroupDeliveryEnvelope(delivery, sender: a.principal))
 
-        let credential = RTCCredential.derived(groupID: UUID().uuidString, secret: UUID().uuidString)
+        let authorCredential = try left.viewModel.nearbyGroupDeliveryCredential(for: b.memberID)
+        let recipientCredential = try right.viewModel.nearbyGroupDeliveryCredential(for: a.memberID)
+        try #require(authorCredential == recipientCredential)
+        #expect(throws: DeviceIdentityProof.Failure.self) {
+            try left.viewModel.nearbyGroupDeliveryCredential(for: "unsaved-device")
+        }
+        let signer = try a.signer
+        let expected = try signer.nearbyGroupDeliverySecret(peerMemberID: b.memberID, peerPublicKey: b.signer.publicKey)
+        #expect(try signer.nearbyGroupDeliverySecret(peerMemberID: "other-device", peerPublicKey: b.signer.publicKey) != expected)
+        #expect(try signer.nearbyGroupDeliverySecret(peerMemberID: b.memberID,
+            peerPublicKey: testIdentitySigner("replacement-key").publicKey) != expected)
+        #expect(throws: DeviceIdentityProof.Failure.self) {
+            try signer.nearbyGroupDeliverySecret(peerMemberID: b.memberID, peerPublicKey: signer.publicKey)
+        }
         let fromLeft = Mutex<[RTCLocalDataChannel.Event]>([])
         let fromRight = Mutex<[RTCLocalDataChannel.Event]>([])
-        let author = RTCLocalDataChannel(localID: .init(rawValue: a.memberID), credential: credential) { event in
+        let author = RTCLocalDataChannel(localID: .init(rawValue: a.memberID), credential: authorCredential) { event in
             fromLeft.withLock { $0.append(event) }
         }
-        let recipient = RTCLocalDataChannel(localID: .init(rawValue: b.memberID), credential: credential) { event in
+        let recipient = RTCLocalDataChannel(localID: .init(rawValue: b.memberID), credential: recipientCredential) { event in
             fromRight.withLock { $0.append(event) }
         }
         defer { author.stop(); recipient.stop() }
@@ -55,6 +68,7 @@ import UserNotifications
         right.viewModel.deleteGroup(delivery.groupID)
         let restarted = try b.harness(knowing: [a], onDisk: true)
         restarted.viewModel.groupDeliveryClient = nil
+        #expect(try restarted.viewModel.nearbyGroupDeliveryCredential(for: a.memberID) == recipientCredential)
         let opened = try incoming.open(recipient: b.signer, local: b.principal, sender: a.savedUser())
         let reencrypted = try GroupInvitationEnvelope.seal(opened, sender: a.principal, recipient: b.principal,
             recipientMemberID: b.memberID, recipientKey: b.signer.publicKey, signer: a.signer, deliveryID: incoming.id)
