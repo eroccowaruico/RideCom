@@ -37,12 +37,8 @@ struct StandardUsersView: View {
                     }
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardUser-\(user.id)")
-                    .destinationRowActions("User Settings", settings: { settings = .user(user.id) },
-                                           canDelete: viewModel.canEditSavedGroups,
-                                           pending: $pendingDelete, name: user.resolvedDisplayName,
-                                           endsCall: viewModel.isInCall(with: .user(user.id))) {
-                        _ = viewModel.removeSavedUser(user.id)
-                    }
+                    .destinationRowActions(.user(user.id), name: user.resolvedDisplayName, viewModel: viewModel,
+                                           settings: $settings, pending: $pendingDelete)
                 }
             }
             CallErrorSection(viewModel: viewModel)
@@ -107,11 +103,8 @@ struct StandardGroupsView: View {
                     }
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardGroup-\(group.id)")
-                    .destinationRowActions("Group Settings", settings: { settings = .group(group.id) },
-                                           canDelete: viewModel.canEditSavedGroups && viewModel.groupRepository.ownsGroup(group.id),
-                                           pending: $pendingDelete, name: group.name, endsCall: viewModel.isInCall(with: .group(group.id))) {
-                        viewModel.deleteGroup(group.id)
-                    }
+                    .destinationRowActions(.group(group.id), name: group.name, viewModel: viewModel,
+                                           settings: $settings, pending: $pendingDelete)
                 }
             }
             CallErrorSection(viewModel: viewModel)
