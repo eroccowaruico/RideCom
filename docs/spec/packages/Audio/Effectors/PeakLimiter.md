@@ -57,7 +57,7 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 | `decayTime` | `Float` | `0.001...0.06` sec | `kLimiterParam_DecayTime` | `0.024` | 抑制後に戻る速さ |
 | `preGain` | `Float` | `-40...40` dB | `kLimiterParam_PreGain` | `0` | リミッター前の入力ゲイン。初期値では音量を持ち上げない |
 
-範囲外入力は `PeakLimiterConfiguration` の初期化時に上表の範囲へ丸める。
+各値は[設定入力の検証](#設定入力の検証)で正規化する。
 
 ## Runtime snapshot 仕様
 
@@ -76,10 +76,10 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 | 生成 | `PeakLimiterEffect.make(configuration:)` が `AUPeakLimiter` の存在確認後に `AVAudioUnitEffect(audioComponentDescription:)` で生成する |
 | ノード取得 | `PeakLimiterEffect.node` で `AVAudioNode` として取得する |
 | 詳細アクセス | `PeakLimiterEffect.avAudioUnitEffect` で `AVAudioUnitEffect` として取得する |
-| 設定適用 | `PeakLimiterEffect.apply(_:)` が `withAudioUnit` で Audio Unit を借り、固定の3パラメータを `AudioUnitSetParameter` で同じ単位・値のまま設定する |
+| 設定適用 | `PeakLimiterEffect.apply(_:)` が `withAudioUnit` で Audio Unit を借り、[設定仕様](#設定仕様)の3値を表の順に `AudioUnitSetParameter` で書く |
 | runtime snapshot | `PeakLimiterEffect.runtimeSnapshot` が設定、support、state を返す |
-| 設定保持 | 適用成功時のみ `configuration` を更新する。途中で失敗した場合は、書込み済みの値を従来設定へ戻す処理を行う |
-| 失敗時 | Audio Unit 不可、必要なパラメータの欠落、またはAudio Unitが値を拒否した場合にエラーを返す。値の拒否は該当パラメータと `OSStatus` を含む |
+| 設定保持 | 適用成功時のみ `configuration` を更新する。最初の書込み失敗で後続の書込みを止め、その前に成功した値だけ従来設定へ書き戻す。書き戻し自体の成功は保証しない |
+| 失敗時 | [エラー仕様](#エラー仕様)に従い、最初の失敗を呼出元に返す |
 
 固定パラメータの設定は、Appによるparameter treeの参照・監視登録を省く。graph開始の直後にエフェクトを解放しても、設定のために追加の監視を要求する経路を持たない。[AppleのAudio Unitへのアクセス](https://developer.apple.com/documentation/avfaudio/avaudiounit)、[パラメータ設定API](https://developer.apple.com/documentation/audiotoolbox/audiounitsetparameter(_:_:_:_:_:_:))。
 
@@ -113,7 +113,8 @@ engine.connect(limiter.node, to: engine.mainMixerNode, format: format)
 | Error | 発生条件 | 呼び出し側の扱い |
 |---|---|---|
 | `audioUnitUnavailable` | `AudioComponentFindNext` で `AUPeakLimiter` が見つからない | エフェクトなしの経路へフォールバックする |
-| `missingParameter` | Audio Unit parameter tree に必要な parameter が存在しない | Audio Unit の互換性問題として扱い、エフェクトなしの経路へフォールバックする |
+| `missingParameter(対象)` | 書込み結果 = `kAudioUnitErr_InvalidParameter` | 対象の設定が使えない互換性問題として扱い、エフェクトなしの経路へフォールバックする |
+| `parameterUpdateFailed(対象, status)` | 書込み結果 ≠ `noErr` AND 書込み結果 ≠ `kAudioUnitErr_InvalidParameter` | 拒否された設定と元の `OSStatus` を受け取る |
 
 ## 制約と注意点
 
@@ -138,4 +139,11 @@ engine.connect(limiter.node, to: engine.mainMixerNode, format: format)
 
 ## 設定入力の検証
 
-公開可変・Decodable経由の設定もapply時に再正規化する。非有限数値をAUへ渡さず、定義済み範囲の下限値へ戻す。
+初期化時と適用直前に各値を正規化する。公開プロパティの変更・デコードを経た入力にも同じ規則を使う。`L`・`U` は[設定仕様](#設定仕様)にある対象値の下限・上限。
+
+| 入力値 x | 正規化した値 |
+|---|---|
+| NOT finite(x) | L |
+| finite(x) AND x < L | L |
+| L ≤ x ≤ U | x |
+| finite(x) AND x > U | U |

@@ -10,22 +10,13 @@
 
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
-| `PeakLimiterConfiguration` | attack 0.001秒、decay / pre-gainはpackage default | 固定 |
+| `PeakLimiterConfiguration` | 送受信の先読み待ちを最小化するためattackを0.001秒に設定。decay / pre-gainは[packageの既定値](../../../../../packages/Audio/Effectors/PeakLimiter.md#設定仕様) | 固定 |
 | TX effect chain 挿入 | App adapter の固定構成で決める | adapter 導出 |
 | RX master effect chain 挿入 | RX masterのfader後にrouteするrx-output busへ必ず挿入する | adapter 固定 |
 | runtime snapshot | `PeakLimiterRuntimeSnapshot` を `RTCRuntimePackageReport(kind: transmitRuntimeSnapshot / receiveMasterRuntimeSnapshot)` に載せる | runtime report |
-
-PeakLimiter の attack、decay、pre-gain などは画面設定として提供しない。
 
 RX master 側の PeakLimiter はユーザー設定を持たない安全弁として扱う。peer bus、master volume、master effect chain の処理後、出力 stream へ渡す直前の最終段に置く。
 
 ## App 画面に出さない値
 
-| 値 | 扱い |
-|---|---|
-| attack time | 0.001秒。送受信の先読み待ちを最小化する |
-| decay time | package default |
-| pre-gain | package default |
-| Audio Unit parameter | package 仕様を正とする |
-
-詳細な PeakLimiter の仕様は `docs/spec/packages/Audio/Effectors/PeakLimiter.md` を正とする。
+上の固定設定を使い、attack・decay・pre-gainの画面操作は設けない。Audio Unitへの適用と失敗時の動作は[packageの生成と適用](../../../../../packages/Audio/Effectors/PeakLimiter.md#生成と適用)に従う。
