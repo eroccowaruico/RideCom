@@ -8,11 +8,24 @@ import SessionManager
 import XCTest
 @testable import RideIntercom
 
+private struct ReceiveSwitchTrace: Encodable {
+    struct Switch: Encodable {
+        let start: TimeInterval
+        let end: TimeInterval
+        let enabled: Bool
+    }
+
+    let switches: [Switch]
+    let renderClock: [RenderedAudioProbe.RenderClockBlock]
+    let rate: Double
+    let baseline: [Double]
+}
+
 extension AudioE2ETests {
     @MainActor
     func testReceiveIsolationKeepsItsEffectWhenEnabledAgain() async throws {
         try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
-        let engine = AVAudioEngine(), native = RenderedAudioProbe()
+        let engine = AVAudioEngine(), native = RenderedAudioProbe(recordsRenderClock: true)
         let output = SystemAudioOutputStreamBackend(engine: engine)
         try engine.mainMixerNode.installAudioTap(onBus: 0, bufferSize: 1024, format: nil) { native.append($0, time: $1) }
         let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
@@ -56,21 +69,25 @@ extension AudioE2ETests {
 
         func steadyTones() async throws -> [Double] {
             try await Task.sleep(for: .milliseconds(650))
-            native.reset()
+            let start = native.sampleCount
             try await Task.sleep(for: .milliseconds(400))
             let recording = native.snapshot()
             XCTAssertEqual(recording.invalid, 0)
-            let measured = ToneIntegrity.measure(samples: recording.samples, rate: recording.rate, frequencies: frequencies)
+            let measured = ToneIntegrity.measure(samples: Array(recording.samples.dropFirst(start)),
+                rate: recording.rate, frequencies: frequencies)
             XCTAssertTrue(measured.passed, "\(measured.dictionary)")
             return try XCTUnwrap(measured.amplitudes.count == frequencies.count ? measured.amplitudes : nil)
         }
         let baseline = try await steadyTones()
         var masterChanges: [ClosedRange<TimeInterval>] = []
+        var peerChanges: [ReceiveSwitchTrace.Switch] = []
         func updateIsolation(peerOnly: Bool, enabled: Bool) throws {
             let start = ProcessInfo.processInfo.systemUptime
             try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled && !peerOnly,
                 peers: enabled && peerOnly ? ["one": true] : [:])
-            if !peerOnly { masterChanges.append(start...ProcessInfo.processInfo.systemUptime) }
+            let end = ProcessInfo.processInfo.systemUptime
+            if peerOnly { peerChanges.append(.init(start: start, end: end, enabled: enabled)) }
+            else { masterChanges.append(start...end) }
         }
         for peerOnly in [false, true] {
             try updateIsolation(peerOnly: peerOnly, enabled: true)
@@ -88,6 +105,45 @@ extension AudioE2ETests {
             try updateIsolation(peerOnly: peerOnly, enabled: false)
             _ = try await steadyTones()
         }
+        for _ in 0..<8 {
+            for enabled in [true, false] {
+                try updateIsolation(peerOnly: true, enabled: enabled)
+                try await Task.sleep(for: .milliseconds(450))
+            }
+        }
+        let renderClock = try XCTUnwrap(native.stopRecordingRenderClock())
+        let rendered = native.snapshot()
+        XCTAssertEqual(rendered.invalid, 0)
+        let width = Int(rendered.rate * 0.01)
+        XCTAssertGreaterThan(width, 0)
+        func sampleIndex(at hostTime: Double) -> Int? {
+            guard let block = renderClock.last(where: { $0.hostTime <= hostTime }) else { return nil }
+            let offset = Int((hostTime - block.hostTime) * rendered.rate)
+            return offset <= block.frameCount ? block.startSample + offset : nil
+        }
+        for change in peerChanges {
+            let start = try XCTUnwrap(sampleIndex(at: change.start - 0.02))
+            let end = try XCTUnwrap(sampleIndex(at: change.start + 0.25))
+            let samples = rendered.samples[start..<end]
+            let step = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 1
+            XCTAssertLessThan(step, 0.04, "Peer isolation switch, enabled=\(change.enabled)")
+            // Both tones have whole cycles in 10 ms. Measure the unchanged
+            // peer independently of the switched voice in the same output.
+            let amplitudes = stride(from: start, through: end - width, by: max(1, width / 2)).map { offset in
+                ToneIntegrity.measure(samples: Array(rendered.samples[offset..<offset + width]),
+                    rate: rendered.rate, frequencies: [frequencies[1]]).amplitudes.first ?? 0
+            }
+            XCTAssertGreaterThan(try XCTUnwrap(amplitudes.min()), baseline[1] * 0.7,
+                "Other peer during isolation switch, enabled=\(change.enabled)")
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("receive-switches.wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try native.writeWAV(to: url, rendered: rendered)
+        let audio = XCTAttachment(contentsOfFile: url)
+        audio.name = "receive-switches"; audio.lifetime = .keepAlways; add(audio)
+        let trace = ReceiveSwitchTrace(switches: peerChanges, renderClock: renderClock, rate: rendered.rate, baseline: baseline)
+        let attachment = XCTAttachment(data: try JSONEncoder().encode(trace), uniformTypeIdentifier: "public.json")
+        attachment.name = "receive-switches-trace"; attachment.lifetime = .keepAlways; add(attachment)
         for attempt in rejected.withLock({ $0 }) {
             XCTAssertTrue(masterChanges.contains { $0.overlaps(attempt.start...attempt.end) },
                 "A peer effect change cannot reject received audio: \(attempt)")

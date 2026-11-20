@@ -216,7 +216,7 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair conversation --seco
 | codec-only / native | 4音声×22 codec/rate/bitrate条件。既存の全文判定に加えmissingActiveRatio=0、会話は各相槌も一致。fallbackを認めない |
 | codec-only / transmit | 2声×入力quantum 256/960sample×isolation ON/OFF×3codecの24条件。実App送信VAD/DSP/codecを通して2周再生し、欠落0と相槌を検査 |
 | group-only | 8人の独立時計、PCM/Opus/AACと異なるbitrate/rate、Localのみ・Internetのみ・両方の参加者。仮想経路の遅延・jitter・複製を実認証/暗号化/中継へ与え、全話者の順序・欠落・重複・codec境界と7話者同時mixを検査。1/2/3秒後の100ms相槌も残ること |
-| switches-only | 12区間で送受信isolationとPCM/Opus/AAC・16/24/48kHzを変更。通常区間は微小不連続oracle、切替区間はsample段差0.04未満・無音120ms以下、内部破棄0・エラー0。全体を実render WAVで保存。別テストで共有I/Oを4回切替し、各操作500ms未満・復帰後の定常toneを検証。二人のPCM16を同時に再生し、相手別の分離のON／OFF／再ONで受信を拒否しないこと、切替後に定常時の分離の効果と別の相手の振幅を保つことも検証 |
+| switches-only | 12区間で送受信isolationとPCM/Opus/AAC・16/24/48kHzを変更。通常区間は微小不連続oracle、切替区間はsample段差0.04未満・無音120ms以下、内部破棄0・エラー0。全体を実render WAVで保存。別テストで共有I/Oを4回切替し、各操作500ms未満・復帰後の定常toneを検証。600Hzと1,100HzのPCM16を同時に再生し、600Hzの相手だけを20回切り替える。受信を拒否せず、最終出力の段差が0.04未満、1,100Hz成分が切替前の振幅の70%を超えることを切替付近の10ms窓で確認する。定常時の分離効果と最終出力WAVも照合する |
 | 微小不連続の負例 | 全体の0.1%に当たる1ms欠落・1ms重複、単発clickを必ず拒否。単一正弦波fit後の最大2ms残差RMS≤0.006・sample段差≤0.10。平均誤差で薄めない |
 | 相槌の負例 | 「うん」「ふん」を個別に消した音声を拒否。whole recordingで決めた同じoffsetの位置で相関≥0.65を要求し、別の良い断片へ探し直さない |
 

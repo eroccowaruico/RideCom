@@ -246,8 +246,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         return change()
     }
 
-    /// A native graph mutation is the explicit bounded-silence exception.
-    /// Protect hardware output while its receive connections change.
+    /// Protect only the output whose native receive connections change.
     func updateIsolation(master enabled: Bool, peers: [String: Bool]) throws {
         // Allocate only effects requested ON, while the old graph still plays.
         // Capture/receive workers do not mutate topology; settings and lifecycle
@@ -266,10 +265,11 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             let value = id == "rx-master" ? enabled : peers[String(id.dropFirst("rx-peer-".count))] ?? false
             return effect.avAudioUnitEffect.bypass != !value ? (id, effect, value) : nil
         }
-        let output = changes.isEmpty ? nil : mixer?.bus("rx-output")
         // Only the master mutation invalidates all player reservations. The
         // lock already serializes a peer's reconnection with packet scheduling.
         let changesMaster = changes.contains { $0.0 == "rx-master" }
+        let output = changesMaster ? mixer?.bus("rx-output") : nil
+        let playoutDelay = configuration.receivePlayoutDelay ?? 0
         if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         var settling = changes.filter { !$0.2 }.map { $0.1.node.latency }.max() ?? 0
         output?.beginSinkTransition(settlingDuration: 0, holding: true)
@@ -277,12 +277,21 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             if let output {
                 settling = max(settling, changes.filter { $0.2 }.map { $0.1.node.latency }.max() ?? 0)
                 output.beginSinkTransition(settlingDuration: settling + output.processingLatency
-                    + (configuration.receivePlayoutDelay ?? 0))
+                    + playoutDelay)
             }
             if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         }
         for (id, effect, value) in changes {
             guard let bus = mixer?.bus(id) else { throw AppAudioPipelineError.notConfigured }
+            let transitionBus = changesMaster ? nil : bus
+            let previousLatency = value ? 0 : effect.node.latency
+            transitionBus?.beginSinkTransition(settlingDuration: 0, holding: true)
+            defer {
+                if let transitionBus {
+                    let nextLatency = value ? effect.node.latency : 0
+                    transitionBus.beginSinkTransition(settlingDuration: max(previousLatency, nextLatency) + playoutDelay)
+                }
+            }
             try AppAudioPipeline.setIsolationEnabled(effect, on: bus, enabled: value)
         }
     }
@@ -292,6 +301,9 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         guard let mixer, let master else { throw AppAudioPipelineError.notConfigured }
         let bus = try mixer.createBus("rx-peer-\(peer)")
         try installIsolation(on: bus, enabled: configuration.peerSoundIsolationEnabled[peer] ?? false)
+        if effects[bus.id] != nil {
+            try bus.prepareOutputTransition()
+        }
         let source = try bus.addPCMSource(id: "rtc-audio-\(peer)",
             maximumBufferedDuration: configuration.receiveMaximumBufferedDuration ?? configuration.maximumBufferedDuration,
             captureTimePlayoutDelay: configuration.receivePlayoutDelay,
