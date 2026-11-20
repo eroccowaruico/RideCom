@@ -15,6 +15,18 @@ python3 scripts/audio_e2e.py --matrix full
 
 通常は両通信経路の`quick`を実行する。`--transport local`はBonjourで探索しQUICで認証・制御する近距離経路と、その相手とのUDP音声、`--transport webrtc`はローカルのサーバーモックと実WebRTCに絞る。切り分け用の`--matrix smoke`は既定設定だけを測る。`--codec pcm16` / `--codec opus`と`--isolation off`は診断用の上書きであり、全設定を検証した実績にはしない。`--seconds`は各発話区間の秒数で、既定8秒。無音を測る区間は2秒。
 
+### 保存済みグループから近距離通話を始める
+
+```sh
+python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-start
+```
+
+両端でInternetを無効にし、検証用のログイン、グループと鍵を保存する。Appleの資格照会が圏外エラーを返す条件でログインとグループを新しいモデルへ読み直し、保存済みグループを一覧から選ぶ操作で接続を始める。StoreKitの利用権判定には有効な利用権を入力する。近距離経路だけで互いを認証し、Appの音声許可が成立し、各端末の実出力にもう一方の発話が届くことを波形で判定する。
+
+2台のiOS Simulatorでも`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を使う。両端で同じ`AUDIO_E2E_RUN`（グループのUUID）と`AUDIO_E2E_SCENARIOS`（`smoke`のJSON）を使い、`AUDIO_E2E_ROLE`には別々に`a`と`b`を指定する。両端で`AUDIO_E2E_TRANSPORT=local`と`AUDIO_E2E_SAVED_GROUP_START=1`を設定して一組で起動する。MacのBonjour探索が`NoAuth`になる環境は2台のSimulatorで確認できる。[検証環境と結果](../validation/history/近距離オフライン通信.md#保存したグループからinternetを無効にして近距離通話を始める)
+
+### 通話中に近距離音声を遮断する
+
 近距離の音声を遮断する試験は `python3 scripts/audio_e2e.py --transport mixed --matrix smoke` で実行する。Debug-Validationで両経路を有効にし、同じ通話で初回の片方向遮断、近距離の双方向受話、両方向遮断中のInternet受話、近距離復帰後の双方向受話を照合する。両方向遮断中は近距離の媒体受信が0で、QUIC制御とWebRTC経由の相手の発話が届くことを確認する。4区間の両端それぞれで、同じ測定区間のDiagnosticsの送信受付、受信・復号・出力の状態を含むJSONと、実出力のWAVを保存する。最後に全媒体を遮断し、送信受付とQUIC制御が続く間に両端の受信・復号・出力がWaitingとなり、実出力が無音になることを確認する。全媒体遮断のJSONは別の添付に保存する。経路が戻っても、明示終了した端末の通話と出力は復活しないことを確認する。連続性と125ms基準は通常の音声試験で判定する。Macでローカルネットワーク許可を読み取れない場合の標準配置の実績は[QUIC移行の検証記録](../validation/history/近距離制御のQUIC移行.md#標準配置のmacとiphone-simulatorの音声測定)を参照する。
 
 この開発機での両経路の実測は、build cache再利用時のquickが約3分54秒、fullが約17分30秒。初回buildやOS・機材の違いにより所要時間は変わる。測定結果は[検証記録](../validation/history/iOS音声E2Eと通話障害修復.md)を参照する。

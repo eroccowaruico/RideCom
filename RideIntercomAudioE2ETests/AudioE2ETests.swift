@@ -286,6 +286,7 @@ final class AudioE2ETests: XCTestCase {
         XCTAssertTrue(["a", "b"].contains(role))
         let groupID = try XCTUnwrap(UUID(uuidString: run))
         let transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
+        let startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
         let standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         let mixed = transport == "mixed"
         let usesInternet = transport == "webrtc" || mixed
@@ -305,6 +306,9 @@ final class AudioE2ETests: XCTestCase {
             XCTAssertEqual(scenarios.count, 1)
         }
         if mutedWait > 0 { XCTAssertTrue(checksBackgroundMute && recovery) }
+        if startsFromSavedGroup {
+            XCTAssertTrue(transport == "local" && !standaloneReceiver && !waitsForLateParticipant)
+        }
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
         if startsBeforeInternet { XCTAssertTrue(mixed) }
         if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
@@ -386,18 +390,45 @@ final class AudioE2ETests: XCTestCase {
                                       engineFactory: { makeAudioE2EWebRTCEngine() })))
                 })
         } else { callSession = nil }
-        let account = AppleAccountSession(keychain: FixtureKeychain(), defaults: defaults, namespace: namespace, credentialState: { _ in .authorized })
+        let accountKeychain = FixtureKeychain()
+        let account = AppleAccountSession(keychain: accountKeychain, defaults: defaults, namespace: namespace, credentialState: { _ in .authorized })
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
         XCTAssertTrue(account.completeSignIn(userID: "audio-e2e-" + role, state: request.state))
+        let memberID = "e2e-\(role)-\(run.prefix(8))"
+        let identity = UserDefaultsLocalMemberIdentityStore(defaults: defaults,
+            makeID: { memberID }, defaultDisplayName: { "Audio E2E \(role)" })
+        var startingAccount = account
+        if startsFromSavedGroup {
+            let otherRole = role == "a" ? "b" : "a"
+            let savedGroups = GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials)
+            _ = try savedGroups.load(localMemberID: identity.loadOrCreate().memberID)
+            let group = try IntercomGroup(id: groupID, name: "Audio E2E", members: [
+                GroupMember(id: memberID, displayName: "Audio E2E \(role)"),
+                GroupMember(id: "e2e-\(otherRole)-\(run.prefix(8))", displayName: "Audio E2E \(otherRole)")
+            ])
+            try savedGroups.save([group], credential: .init(groupID: groupID, secret: groupSecret))
+            startingAccount = AppleAccountSession(keychain: accountKeychain, defaults: defaults,
+                namespace: namespace, credentialState: { _ in throw URLError(.notConnectedToInternet) })
+            await startingAccount.refresh()
+            XCTAssertEqual(startingAccount.userID, "audio-e2e-" + role)
+            XCTAssertNotNil(startingAccount.message, "The saved sign-in must survive a failed Apple credential check")
+        }
+        let access: (@MainActor (Date) -> StoreAccessEvaluation)?
+        if startsFromSavedGroup {
+            access = { _ in StoreAccessEvaluation(status: .active) }
+        } else {
+            access = nil
+        }
         let viewModel = IntercomViewModel(
-            accountSession: account,
+            accountSession: startingAccount,
+            enforceCallAccess: startsFromSavedGroup ? true : nil,
+            callAccessEvaluation: access,
             callSession: callSession,
             groupRepository: GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials),
             appSettingsStore: settings,
             internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: namespace),
-            localMemberIdentityStore: UserDefaultsLocalMemberIdentityStore(defaults: defaults,
-                makeID: { "e2e-\(role)-\(run.prefix(8))" }, defaultDisplayName: { "Audio E2E \(role)" }),
+            localMemberIdentityStore: identity,
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: namespace),
             requestMicrophoneAccess: {
                 #if os(iOS)
@@ -429,7 +460,15 @@ final class AudioE2ETests: XCTestCase {
             try await waitForFirstParticipant(at: XCTUnwrap(workerURL), room: room, token: run, timeout: 45 + mutedWait)
         }
         let joiningStarted = ContinuousClock.now
-        try viewModel.acceptInviteURL(invitation)
+        if startsFromSavedGroup {
+            XCTAssertEqual(viewModel.enabledRTCTransportRoutes, [.multipeer])
+            XCTAssertTrue(viewModel.groups.contains { $0.id == groupID })
+            XCTAssertNil(viewModel.activeGroupID)
+            viewModel.openDestination(.group(groupID))
+            XCTAssertEqual(viewModel.activeGroupID, groupID)
+        } else {
+            try viewModel.acceptInviteURL(invitation)
+        }
         let waitingCall = viewModel.currentCallReference
         let waitingDeadline = viewModel.callDisconnectDeadline
         if mutedWait > 0, role == "a" { XCTAssertTrue(viewModel.setCallMuted(true, for: waitingCall)) }
@@ -485,6 +524,11 @@ final class AudioE2ETests: XCTestCase {
                 && IntercomViewModel.admittedMemberships(in: viewModel.peerProfiles).count == 1
         }
         let peerID = try XCTUnwrap(viewModel.authenticatedPeerIDs.first)
+        if startsFromSavedGroup {
+            XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
+            XCTAssertTrue(viewModel.callAccessState.isEstablished)
+            print("Audio E2E: Restored saved group and established Local call after \(joiningStarted.duration(to: .now))")
+        }
         if waitsForLateParticipant {
             let trace = PairedAudioTrace()
             let pipeline = viewModel.audioPipeline
