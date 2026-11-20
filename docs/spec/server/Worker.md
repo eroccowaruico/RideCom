@@ -261,6 +261,19 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 
 署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名が通る場合に受理する。この検証を呼ぶ公開APIや製品の鍵登録は未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
 
+### Macの端末鍵証明
+
+公開鍵を登録する前に、Worker内部の検証でApp Attestの証明を照合する。入力は最大16 KiBのCBOR、32バイトの鍵IDを標準Base64にした文字列、その登録に発行した16進64桁の確認要求。App ID、App Attestの環境、起動検証カテゴリ、ビルド番号の期待値はサーバー側で指定する。
+
+| 照合対象 | 受理条件 |
+|---|---|
+| 鍵証明の形式と有効性 | Apple形式のCBORからleaf・中間証明書と空でないreceiptを取得する。DER全体が読み取れ、証明書が有効期間内にあり、固定したApple App Attestation Root CAまでのチェーンが成立する |
+| 確認要求とMacのセキュリティ条件 | leafのnonce拡張が `SHA256(authData || SHA256(UTF8(確認要求)))` に一致し、ACL拡張がAppleの指定値と一致する |
+| 本人のAppと期待する配布条件 | RP IDが期待するApp IDのSHA-256に一致し、AAGUIDが期待する環境を示す。カウンタは0で、起動検証カテゴリとビルド番号が期待値に一致する。ビルド番号の省略条件は端末署名と同じ |
+| 鍵 | leafとCOSEの鍵が同じP-256公開鍵で、その非圧縮X9.62形式のSHA-256、資格ID、提示された鍵IDが一致する |
+
+すべて成立すれば、P-256公開鍵・App ID・起動検証カテゴリ・ビルド番号・カウンタ0を呼び出し元へ返す。不一致や形式不正では登録に渡す値を返さない。確認要求の発行・消費、アカウントと端末への保存・更新・失効、iPhoneの鍵証明の検証は残る。[Appleのルート証明書](https://www.apple.com/certificateauthority/private/)、[Appleの検証手順](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)、[ローカル検証](../../validation/history/通常グループの代表端末検証.md#macの鍵証明から除外署名までworkerで検証する)
+
 ## 個人削除の暗号文中継
 
 既存の端末Bearerで、署名済み削除と受取確認の暗号文を送信側の `UserAccount` に一時保存する。Workerが扱う `slot` は端末対が持つ推測困難な64桁小文字hexの値で、保存するキーにはそのSHA-256を使う。受取側は公開アカウントID・同じslot・受取端末の署名を提示する。第三者の公開IDだけを指定しても、その人の受信領域に情報を追加できない。暗号文の生成と[個人削除の署名・適用](../App/通信仕様.md#個人削除の送信待ち)はAppが所有する。
