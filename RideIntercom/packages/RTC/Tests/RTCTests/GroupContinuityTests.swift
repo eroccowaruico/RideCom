@@ -150,8 +150,9 @@ extension RealtimeTransportTests {
     @Test(.timeLimit(.minutes(1))) func eightLocalPeersTalkWhileInternetIsUnavailable() async throws {
         let network = VirtualNetwork(internetAvailable: false)
         var managers: [RouteManager] = [], records: [CallRecorder] = [], tasks: [Task<Void, Never>] = []
+        let ids = (0..<8).map { PeerID(rawValue: "offline-\($0)") }
         for i in 0..<8 {
-            let id = PeerID(rawValue: "offline-\(i)")
+            let id = ids[i]
             let config = CallRouteConfiguration(enabledRoutes: [.multipeer, .webRTC], preferredRoute: .multipeer, fallbackDelay: 0)
             let manager = RouteManager(routes: [RouteKind.multipeer, .webRTC].map { VirtualRoute(peer: id, kind: $0, network: network) },
                 runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
@@ -167,13 +168,19 @@ extension RealtimeTransportTests {
         for i in managers.indices {
             await managers[i].sendAudioPacket(.init(sequenceNumber: 0, codec: .pcm16, payload: Data(repeating: UInt8(i), count: 960)))
         }
+        try await eventually("All eight peers receive their first seven frames") {
+            for record in records where await record.audio.count != 7 { return false }
+            return true
+        }
         for i in records.indices {
-            try await eventually { await records[i].audio.count == 7 }
             let received = await records[i].audio
             let diagnostics = await managers[i].networkDiagnostics()
+            let local = await network.eventDrops(for: ids[i], kind: .multipeer)
+            #expect(local.expired == 0 && local.overflow == 0, "Receiver \(i): Local route mailbox \(local)")
             #expect(diagnostics.eventDrops.expired == 0, "Healthy local audio must not expire in the consumer mailbox")
             #expect(diagnostics.eventDrops.overflow == 0)
-            #expect(Set(received.compactMap { $0.packet.payload.first }) == Set((0..<8).filter { $0 != i }.map(UInt8.init)))
+            #expect(Set(received.compactMap { $0.packet.payload.first }) == Set((0..<8).filter { $0 != i }.map(UInt8.init)),
+                    "Receiver \(i) saw \(received.count) packets")
         }
         #expect(await network.routes[.webRTC] == nil)
         for manager in managers { await manager.stopConnection() }
@@ -425,6 +432,9 @@ private actor VirtualNetwork {
     func moveLocalPeer(_ peer: PeerID, to network: String) { localNetworks[peer] = network; publish(.multipeer) }
     func isJoined(_ peer: PeerID, kind: RouteKind) -> Bool { routes[kind]?[peer] != nil }
     func attemptCount(_ peer: PeerID, kind: RouteKind) -> Int { attempts[kind]?[peer] ?? 0 }
+    func eventDrops(for peer: PeerID, kind: RouteKind) -> RTCEventDropReport {
+        routes[kind]?[peer]?.report ?? .init()
+    }
     func localAudioSendCount(for peer: PeerID) -> Int { localAudioSends[peer, default: 0] }
     func reachablePeers(_ peer: PeerID, kind: RouteKind) -> Set<PeerID> {
         guard routes[kind]?[peer] != nil else { return [] }

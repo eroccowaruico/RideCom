@@ -222,11 +222,13 @@ public actor RouteManager: CallSession {
         defer { if generation == token { scheduleMaintenance() } }
         switch event {
         case .stateChanged(let kind, let state):
-            routeStates[kind] = state
+            let previous = routeStates.updateValue(state, forKey: kind)
             if kind == .webRTC { relay?.internetReady = state == .mediaReady }
             if [.connected, .authenticated, .mediaReady].contains(state) {
-                availableRoutes.insert(kind); retries[kind] = nil
-                await broadcast(.presence)
+                let becameAvailable = availableRoutes.insert(kind).inserted
+                retries[kind] = nil
+                // Member events already announce newly authenticated links, including same-ID replacements.
+                if becameAvailable || previous != state { await broadcast(.presence) }
             } else if state == .failed || state == .disconnected {
                 availableRoutes.remove(kind); routeMembers[kind] = []
                 // Several state events can report the same outage while a retry is already scheduled.
