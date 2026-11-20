@@ -137,7 +137,8 @@ extension IntercomViewModel {
                         groupSecret: key.secret, inviterMemberID: localMemberIdentity.memberID, inviterDisplayName: localMemberIdentity.displayName,
                         issuedAt: callAccessNow().timeIntervalSince1970, expiresAt: record.expiresAt)
                     envelope = try .seal(token, sender: access.principal, recipient: record.recipient, recipientMemberID: record.recipientMemberID,
-                        recipientKey: record.recipientKey, signer: signer, now: callAccessNow(), deliveryID: record.id)
+                        recipientKey: record.recipientKey, signer: signer, now: callAccessNow(), deliveryID: record.id,
+                        sourceRequestID: record.sourceRequestID)
                     try groupRepository.saveGroupDeliveryEnvelope(envelope)
                 }
             } catch { reportGroupStorageError(error); return }
@@ -152,6 +153,26 @@ extension IntercomViewModel {
             catch { reportGroupStorageError(error); return }
         }
         await receiveGroupDeliveries(client: client, access: access, generation: generation)
+        await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
+    }
+
+    private func queueDeliveriesForAdditionalDevices(client: InternetAccountClient, access: CallNotificationServiceAccess,
+                                                      generation: UUID) async {
+        let sources = groupRepository.additionalDeviceDeliverySources(now: callAccessNow().timeIntervalSince1970)
+        for source in sources {
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications else { return }
+            let devices: [GroupInvitationAddress]
+            do { devices = try await client.additionalDevices(for: source, access: access) }
+            catch InternetAccountClient.Failure.forbidden { continue }
+            catch { return }
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications else { return }
+            do {
+                if try groupRepository.queueAdditionalDeviceDeliveries(sourceID: source.id, devices: devices,
+                                                                        now: callAccessNow().timeIntervalSince1970) {
+                    groupDeliveryNeedsSync = true
+                }
+            } catch { reportGroupStorageError(error); return }
+        }
     }
 
     private func receiveGroupDeliveries(client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID) async {
@@ -182,7 +203,7 @@ extension IntercomViewModel {
             let restored: GroupInvitationEnvelope?
             do { restored = try pending.map { try groupRepository.groupDeliveryEnvelope($0.id) } }
             catch { reportGroupStorageError(error); return }
-            let envelope: GroupInvitationEnvelope, token: GroupInviteToken
+            let envelope: GroupInvitationEnvelope, token: GroupInviteToken, redeliveryTrust: DeviceIdentityTrust?
             do {
                 if let restored {
                     envelope = restored
@@ -191,11 +212,15 @@ extension IntercomViewModel {
                     else { throw InternetAccountClient.Failure.invalidResponse }
                     envelope = try JSONDecoder().decode(GroupInvitationEnvelope.self, from: bytes)
                 }
-                guard envelope.id == id, item.map({
+                let sourceRequestID = pending?.sourceRequestID ?? item?.sourceRequestID
+                guard envelope.id == id, envelope.sourceRequestID == sourceRequestID, item.map({
                     envelope.sender.userID == $0.senderUserID && abs(envelope.expiresAt * 1000 - $0.expiresAt) < 1
-                }) ?? true, let user = savedRemoteUsers.first(where: { $0.principal == envelope.sender })
+                }) ?? true
                 else { throw DeviceIdentityProof.Failure.invalid }
-                token = try envelope.open(recipient: signer, local: access.principal, sender: user, now: callAccessNow())
+                redeliveryTrust = try sourceRequestID.flatMap { _ in try internetSettingsStore.identityTrust() }
+                let user = savedRemoteUsers.first { $0.principal == envelope.sender }
+                token = try envelope.open(recipient: signer, local: access.principal, sender: user, now: callAccessNow(),
+                                          redeliveryTrust: redeliveryTrust)
             } catch {
                 do { try groupRepository.cancelPendingGroupReceipt(id) }
                 catch { reportGroupStorageError(error); return }
@@ -204,7 +229,10 @@ extension IntercomViewModel {
                 continue
             }
             let state: GroupDeliveryRecord.State
-            do { state = try groupRepository.stageGroupDelivery(envelope, token: token, now: callAccessNow().timeIntervalSince1970) }
+            do {
+                state = try groupRepository.stageGroupDelivery(envelope, token: token,
+                    now: callAccessNow().timeIntervalSince1970, redeliveryTrust: redeliveryTrust)
+            }
             catch { reportGroupStorageError(error); return }
             let outcome: GroupDeliveryRecord.State?
             do {
@@ -220,7 +248,8 @@ extension IntercomViewModel {
                 let now = callAccessNow().timeIntervalSince1970
                 if outcome != .received || envelope.expiresAt <= now {
                     try groupRepository.cancelPendingGroupReceipt(id)
-                } else if let saved = try groupRepository.receiveGroupDelivery(envelope, token: token, localDisplayName: localMemberIdentity.displayName, now: now) {
+                } else if let saved = try groupRepository.receiveGroupDelivery(envelope, token: token,
+                    localDisplayName: localMemberIdentity.displayName, now: now, redeliveryTrust: redeliveryTrust) {
                     if groups.contains(where: { $0.id == saved.id }) { refreshStoredAccountCall(saved.id) }
                     else { groups.insert(saved, at: 0) }
                 }

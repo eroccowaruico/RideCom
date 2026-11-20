@@ -17,14 +17,16 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
     var expiresAt: TimeInterval
     var ciphertext: Data
     var proof: DeviceIdentityProof?
+    var sourceRequestID: UUID?
 
     @MainActor
     static func seal(_ token: GroupInviteToken, sender: AccountPrincipal, recipient: AccountPrincipal,
                      recipientMemberID: String, recipientKey: String, signer: DeviceIdentitySigner,
-                     now: Date = Date(), deliveryID: UUID = UUID()) throws -> Self {
+                     now: Date = Date(), deliveryID: UUID = UUID(), sourceRequestID: UUID? = nil) throws -> Self {
         try token.validate()
-        guard sender.isValid, recipient.isValid, sender.issuer == recipient.issuer, sender != recipient,
+        guard sourceRequestID != deliveryID, sender.isValid, recipient.isValid, sender.issuer == recipient.issuer, sender != recipient,
               signer.principal == nil || signer.principal == sender,
+              sourceRequestID == nil || signer.principal == sender,
               token.inviterMemberID == signer.memberID, token.identityProof?.publicKey == signer.publicKey,
               token.verifySignature(), token.directInvitation?.context.contactBootstrap != true,
               let expiry = token.expiresAt, expiry > now.timeIntervalSince1970,
@@ -37,7 +39,8 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
         let ephemeral = P256.KeyAgreement.PrivateKey()
         var result = Self(id: deliveryID, sender: sender, recipient: recipient, senderMemberID: signer.memberID,
             recipientMemberID: recipientMemberID, recipientKey: recipientKey,
-            ephemeralKey: IdentityEncoding.encode(ephemeral.publicKey.x963Representation), expiresAt: expiry, ciphertext: Data())
+            ephemeralKey: IdentityEncoding.encode(ephemeral.publicKey.x963Representation), expiresAt: expiry, ciphertext: Data(),
+            sourceRequestID: sourceRequestID)
         let aad = try result.header()
         let secret = try ephemeral.sharedSecretFromKeyAgreement(with: target)
         let key = Self.key(secret, header: aad)
@@ -47,17 +50,26 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
         return result
     }
     @MainActor
-    func open(recipient signer: DeviceIdentitySigner, local: AccountPrincipal, sender user: SavedUser,
-              now: Date = Date()) throws -> GroupInviteToken {
+    func open(recipient signer: DeviceIdentitySigner, local: AccountPrincipal, sender user: SavedUser?,
+              now: Date = Date(), redeliveryTrust: DeviceIdentityTrust? = nil) throws -> GroupInviteToken {
         guard version == 1, sender.isValid, recipient == local, recipient.isValid, sender != recipient,
-              sender.issuer == recipient.issuer, user.principal == sender, user.isRegistered,
+              sender.issuer == recipient.issuer, sourceRequestID != id,
               signer.principal == nil || signer.principal == local,
               recipientMemberID == signer.memberID, recipientKey == signer.publicKey,
-              user.memberIDs.contains(senderMemberID), let proof, user.deviceKeys?[senderMemberID] == proof.publicKey,
+              let proof,
               expiresAt.isFinite, expiresAt > now.timeIntervalSince1970, expiresAt <= now.timeIntervalSince1970 + Self.lifetime + Self.clockSkew,
               (29...8192).contains(ciphertext.count), let ephemeral = IdentityEncoding.decode(ephemeralKey), ephemeral.count == 65
         else { throw DeviceIdentityProof.Failure.invalid }
-        _ = try proof.verify(message(), purpose: .deliverGroupInvitation, memberID: senderMemberID)
+        if sourceRequestID != nil {
+            guard let redeliveryTrust, signer.principal == local,
+                  try proof.verify(message(), purpose: .deliverGroupInvitation, memberID: senderMemberID,
+                                   trust: redeliveryTrust, now: now).principal == sender else { throw DeviceIdentityProof.Failure.invalid }
+        } else {
+            guard let user, user.principal == sender, user.isRegistered,
+                  user.memberIDs.contains(senderMemberID), user.deviceKeys?[senderMemberID] == proof.publicKey
+            else { throw DeviceIdentityProof.Failure.invalid }
+            _ = try proof.verify(message(), purpose: .deliverGroupInvitation, memberID: senderMemberID)
+        }
         let aad = try header()
         let data = try signer.decryptGroupInvitation(ciphertext, ephemeralKey: ephemeral, header: aad)
         let token = try JSONDecoder().decode(GroupInviteToken.self, from: data)

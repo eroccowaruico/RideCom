@@ -103,15 +103,18 @@ nonisolated struct GroupDeliveryItem: Decodable, Sendable {
     let recipientKey: String
     let expiresAt: Double
     let envelope: String
+    let sourceRequestID: UUID?
 }
 extension InternetAccountClient {
     nonisolated private struct GroupInbox: Decodable, Sendable { let delivery: GroupDeliveryItem? }
     nonisolated private struct AdditionalDeviceInvitations: Decodable, Sendable { let requestIDs: [UUID]? }
+    nonisolated private struct AdditionalDevices: Decodable, Sendable { let devices: [GroupInvitationAddress]? }
     nonisolated private struct GroupAcknowledgement: Decodable, Sendable {
         let status: GroupDeliveryRecord.State?
     }
     nonisolated private struct GroupSubmission: Encodable, Sendable {
         let capability: String; let requestID: String; let noticeID: String; let expiresAt: Double; let recipientKey: String; let envelope: String
+        let sourceRequestID: String?
     }
     func sendGroupInvitation(_ envelope: GroupInvitationEnvelope, noticeID: UUID, capability: String, access: CallNotificationServiceAccess) async throws -> GroupDeliveryReply {
         try validateNotificationAccess(access.origin, token: access.accessToken)
@@ -119,7 +122,8 @@ extension InternetAccountClient {
         let data = try encoder.encode(envelope)
         guard data.count <= 16384, !capability.isEmpty, capability.utf8.count <= 4096 else { throw Failure.invalidResponse }
         let body = GroupSubmission(capability: capability, requestID: envelope.id.uuidString.lowercased(), noticeID: noticeID.uuidString.lowercased(),
-            expiresAt: envelope.expiresAt * 1000, recipientKey: envelope.recipientKey, envelope: data.base64EncodedString())
+            expiresAt: envelope.expiresAt * 1000, recipientKey: envelope.recipientKey, envelope: data.base64EncodedString(),
+            sourceRequestID: envelope.sourceRequestID?.uuidString.lowercased())
         let reply: GroupDeliveryReply = try await sendJSON(origin: access.origin, path: "api/notifications/group-invitations", body: JSONEncoder().encode(body), token: access.accessToken)
         guard reply.requestID == envelope.id, reply.expiresAt.isFinite, abs(reply.expiresAt - envelope.expiresAt * 1000) < 1,
               [.queued, .received, .cancelled].contains(reply.status) else { throw Failure.invalidResponse }
@@ -145,6 +149,17 @@ extension InternetAccountClient {
         let ids = result.requestIDs ?? []
         guard ids.count <= 64, Set(ids).count == ids.count else { throw Failure.invalidResponse }
         return ids
+    }
+
+    func additionalDevices(for record: GroupDeliveryRecord, access: CallNotificationServiceAccess) async throws -> [GroupInvitationAddress] {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        guard record.recipient.isValid, record.recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
+        let result: AdditionalDevices = try await sendJSON(origin: access.origin,
+            path: "api/notifications/group-invitations/\(record.recipient.userID)/\(record.id.uuidString.lowercased())/additional-devices",
+            method: "GET", token: access.accessToken, acceptsMissing: true)
+        let devices = result.devices ?? []
+        guard devices.count <= 8 else { throw Failure.invalidResponse }
+        return devices
     }
 
     func requestGroupInvitationForAdditionalDevice(_ id: UUID, signer: DeviceIdentitySigner,

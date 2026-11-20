@@ -623,9 +623,20 @@ extension GroupRepository {
     }
 
     private func isSelectedGroupDelivery(_ record: GroupDeliveryRecord, in snapshot: GroupSnapshot) -> Bool {
-        guard let group = snapshot.groups.first(where: { $0.id == record.groupID && $0.kind == .group }),
-              let user = snapshot.users.first(where: { $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
-                  && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey })
+        guard let group = snapshot.groups.first(where: { $0.id == record.groupID && $0.kind == .group }) else { return false }
+        let selected: GroupDeliveryRecord
+        if let sourceID = record.sourceRequestID {
+            guard let source = snapshot.groupDeliveries.first(where: { $0.id == sourceID }),
+                  source.sourceRequestID == nil, source.direction == .outgoing, source.state != .cancelled,
+                  source.groupID == record.groupID, source.recipient == record.recipient, source.noticeID == record.noticeID,
+                  source.expiresAt == record.expiresAt, !group.excludesMember(record.recipientMemberID, principal: record.recipient)
+            else { return false }
+            selected = source
+        } else {
+            selected = record
+        }
+        guard let user = snapshot.users.first(where: { $0.principal == selected.recipient && $0.memberIDs.contains(selected.recipientMemberID)
+                  && $0.deviceKeys?[selected.recipientMemberID] == selected.recipientKey })
         else { return false }
         return isSelectedGroupDeliveryRecipient(user, in: group)
     }
@@ -633,6 +644,54 @@ extension GroupRepository {
     private func isSelectedGroupDeliveryRecipient(_ user: SavedUser, in group: GroupSnapshot.Record) -> Bool {
         group.members.contains { user.memberIDs.contains($0.id) }
             || group.accountDevices.values.contains { $0.principal == user.principal }
+    }
+
+    private func latestGroupDeliveryNotices(in snapshot: GroupSnapshot) -> [UUID: [AccountPrincipal: UUID]] {
+        var notices: [UUID: [AccountPrincipal: UUID]] = [:]
+        for record in snapshot.groupDeliveries where record.direction == .outgoing {
+            notices[record.groupID, default: [:]][record.recipient] = record.noticeID
+        }
+        return notices
+    }
+
+    func additionalDeviceDeliverySources(now: TimeInterval) -> [GroupDeliveryRecord] {
+        guard let snapshot else { return [] }
+        let notices = latestGroupDeliveryNotices(in: snapshot)
+        return snapshot.groupDeliveries.filter { record in
+            canRedeliver(record, latestNotice: notices[record.groupID]?[record.recipient], now: now, in: snapshot)
+        }
+    }
+
+    private func canRedeliver(_ record: GroupDeliveryRecord, latestNotice: UUID?, now: TimeInterval, in snapshot: GroupSnapshot) -> Bool {
+        record.direction == .outgoing && record.sourceRequestID == nil && record.expiresAt > now
+            && (record.state == .queued || record.state == .received) && latestNotice == record.noticeID
+            && isSelectedGroupDelivery(record, in: snapshot)
+    }
+
+    func queueAdditionalDeviceDeliveries(sourceID: UUID, devices: [GroupInvitationAddress], now: TimeInterval) throws -> Bool {
+        guard !devices.isEmpty, let snapshot,
+              let source = snapshot.groupDeliveries.first(where: { $0.id == sourceID }),
+              canRedeliver(source, latestNotice: latestGroupDeliveryNotices(in: snapshot)[source.groupID]?[source.recipient],
+                           now: now, in: snapshot) else { return false }
+        let sameInvitation = snapshot.groupDeliveries.filter {
+            $0.direction == .outgoing && $0.groupID == source.groupID && $0.recipient == source.recipient && $0.noticeID == source.noticeID
+        }
+        var memberIDs = Set(sameInvitation.map(\.recipientMemberID))
+        var keys = Set(sameInvitation.map(\.recipientKey))
+        let capacity = GroupSnapshot.maximumGroupDeliveries - snapshot.groupDeliveries.count
+        var additions: [GroupDeliveryRecord] = []
+        for device in devices where additions.count < capacity {
+            let record = GroupDeliveryRecord(noticeID: source.noticeID, groupID: source.groupID, recipient: source.recipient,
+                recipientMemberID: device.memberID, recipientKey: device.recipientKey, expiresAt: source.expiresAt, sourceRequestID: source.id)
+            guard !memberIDs.contains(device.memberID), !keys.contains(device.recipientKey), record.isValid,
+                  isSelectedGroupDelivery(record, in: snapshot) else { continue }
+            additions.append(record)
+            memberIDs.insert(device.memberID)
+            keys.insert(device.recipientKey)
+        }
+        guard !additions.isEmpty else { return false }
+        try amend(snapshot, now: now) { try self.appendGroupDeliveries(additions, to: &$0) }
+        return true
     }
 
     private func rememberContactDevice(_ member: GroupMember, identity: VerifiedDeviceProof,
@@ -663,7 +722,7 @@ extension GroupRepository {
         guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id }),
               old.direction == .outgoing, old.state == .pending, old.credentialReference == nil,
               old.recipient == envelope.recipient, old.recipientMemberID == envelope.recipientMemberID,
-              old.recipientKey == envelope.recipientKey, old.expiresAt == envelope.expiresAt,
+              old.recipientKey == envelope.recipientKey, old.expiresAt == envelope.expiresAt, old.sourceRequestID == envelope.sourceRequestID,
               envelope.senderMemberID == localMemberID else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
             guard let index = next.groupDeliveries.firstIndex(where: { $0.id == envelope.id }) else { throw GroupStorageError.invalidUpdate }
@@ -679,7 +738,8 @@ extension GroupRepository {
               let data = value.data(using: .utf8) else { throw GroupStorageError.invalidUpdate }
         let envelope = try JSONDecoder().decode(GroupInvitationEnvelope.self, from: data)
         guard envelope.id == id, envelope.recipient == record.recipient, envelope.recipientKey == record.recipientKey,
-              envelope.recipientMemberID == record.recipientMemberID, envelope.expiresAt == record.expiresAt else { throw GroupStorageError.identityConflict }
+              envelope.recipientMemberID == record.recipientMemberID, envelope.expiresAt == record.expiresAt,
+              envelope.sourceRequestID == record.sourceRequestID else { throw GroupStorageError.identityConflict }
         return envelope
     }
     func setGroupDeliveryState(_ id: UUID, state: GroupDeliveryRecord.State) throws {
@@ -714,13 +774,15 @@ extension GroupRepository {
         try amend(snapshot) { next in Self.cancelPendingGroupReceipts(in: &next) { $0.id == id } }
     }
 
-    func stageGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, now: TimeInterval) throws -> GroupDeliveryRecord.State {
-        let (_, identity, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now)
+    func stageGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, now: TimeInterval,
+                            redeliveryTrust: DeviceIdentityTrust? = nil) throws -> GroupDeliveryRecord.State {
+        let (_, identity, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
         let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id })
         if let old {
             guard old.direction == .incoming, old.groupID == token.groupID, old.recipient == envelope.recipient,
                   old.recipientMemberID == envelope.recipientMemberID, old.recipientKey == envelope.recipientKey,
-                  old.expiresAt == envelope.expiresAt else { throw GroupStorageError.identityConflict }
+                  old.expiresAt == envelope.expiresAt, old.sourceRequestID == envelope.sourceRequestID
+            else { throw GroupStorageError.identityConflict }
             if old.state != .pending { return old.state }
         }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
@@ -736,22 +798,24 @@ extension GroupRepository {
             next.groupDeliveries.append(.init(id: envelope.id, noticeID: envelope.id, groupID: token.groupID,
                 recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID, recipientKey: envelope.recipientKey,
                 expiresAt: envelope.expiresAt, direction: .incoming, state: .pending,
-                credentialReference: try self.prepareKey(packet), senderMemberID: envelope.senderMemberID))
+                credentialReference: try self.prepareKey(packet), senderMemberID: envelope.senderMemberID, sourceRequestID: envelope.sourceRequestID))
         }
         return .pending
     }
 
     @discardableResult
-    func receiveGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, localDisplayName: String, now: TimeInterval) throws -> IntercomGroup? {
+    func receiveGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, localDisplayName: String, now: TimeInterval,
+                              redeliveryTrust: DeviceIdentityTrust? = nil) throws -> IntercomGroup? {
         guard let snapshot, let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == envelope.id }),
               snapshot.groupDeliveries[index].direction == .incoming else { throw GroupStorageError.invalidUpdate }
         let record = snapshot.groupDeliveries[index]
         // A local deletion can cancel the staged record while the network request is in flight.
         guard record.state == .pending else { return nil }
-        let (user, identity, _) = try validateIncomingGroupDelivery(envelope, token: token, now: now)
+        let (inviterDisplayName, identity, _) = try validateIncomingGroupDelivery(envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
         guard let localMemberID, record.groupID == token.groupID,
               record.recipient == envelope.recipient, record.recipientKey == envelope.recipientKey,
-              record.senderMemberID == envelope.senderMemberID, record.expiresAt == envelope.expiresAt
+              record.senderMemberID == envelope.senderMemberID, record.expiresAt == envelope.expiresAt,
+              record.sourceRequestID == envelope.sourceRequestID
         else { throw GroupStorageError.invalidUpdate }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == target.id })
@@ -762,7 +826,7 @@ extension GroupRepository {
         }
         let previous = try snapshot.groups.map { try $0.group() }
         let newGroup = existing == nil
-        let groups = newGroup ? try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: user.displayName),
+        let groups = newGroup ? try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: inviterDisplayName),
             identity: identity, localDisplayName: localDisplayName, groups: previous) : previous
         try update(groups, credential: newGroup ? .init(groupID: token.groupID, secret: token.groupSecret) : nil) { next in
             if let groupIndex = next.groups.firstIndex(where: { $0.id == token.groupID }) {
@@ -782,18 +846,25 @@ extension GroupRepository {
     }
 
     private func validateIncomingGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken,
-                                               now: TimeInterval) throws -> (SavedUser, VerifiedDeviceProof, GroupSnapshot) {
+                                               now: TimeInterval, redeliveryTrust: DeviceIdentityTrust?) throws -> (String, VerifiedDeviceProof, GroupSnapshot) {
         try token.validate()
         guard let snapshot, envelope.expiresAt > now, token.expiresAt == envelope.expiresAt,
               token.verifySignature(), token.inviterMemberID == envelope.senderMemberID,
               token.recipientMemberID == nil, token.directInvitation?.context.contactBootstrap != true,
               let proof = token.identityProof, proof.publicKey == envelope.proof?.publicKey,
               token.groupID != IntercomGroup.directCallID(memberIDs: [envelope.senderMemberID, envelope.recipientMemberID]),
-              let localMemberID, localMemberID == envelope.recipientMemberID,
-              let user = snapshot.users.first(where: { $0.principal == envelope.sender && $0.memberIDs.contains(envelope.senderMemberID)
+              let localMemberID, localMemberID == envelope.recipientMemberID else { throw GroupStorageError.invalidUpdate }
+        if envelope.sourceRequestID != nil {
+            guard let redeliveryTrust else { throw GroupStorageError.invalidUpdate }
+            let identity = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID,
+                                            trust: redeliveryTrust, now: Date(timeIntervalSince1970: now))
+            guard identity.principal == envelope.sender else { throw GroupStorageError.invalidUpdate }
+            return (inviterName(for: token), identity, snapshot)
+        }
+        guard let user = snapshot.users.first(where: { $0.principal == envelope.sender && $0.memberIDs.contains(envelope.senderMemberID)
                   && $0.deviceKeys?[envelope.senderMemberID] == envelope.proof?.publicKey }) else { throw GroupStorageError.invalidUpdate }
         let identity = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID)
-        return (user, identity, snapshot)
+        return (user.displayName, identity, snapshot)
     }
 
     func acceptContactInvitation(_ token: GroupInviteToken, accepted: AcceptedDirectInvitation,
@@ -935,10 +1006,7 @@ extension GroupRepository {
 
     private func reconcileInvitations(in next: inout GroupSnapshot) {
         // Append order identifies the latest invitation even when the device clock changes.
-        var latestNotices: [UUID: [AccountPrincipal: UUID]] = [:]
-        for record in next.groupDeliveries where record.direction == .outgoing {
-            latestNotices[record.groupID, default: [:]][record.recipient] = record.noticeID
-        }
+        let latestNotices = latestGroupDeliveryNotices(in: next)
         next.groupDeliveries.removeAll { record in
             record.direction == .outgoing && record.state == .received
                 && latestNotices[record.groupID]?[record.recipient] != record.noticeID
@@ -946,7 +1014,8 @@ extension GroupRepository {
         for index in next.groupDeliveries.indices {
             let record = next.groupDeliveries[index]
             guard record.direction == .outgoing, record.state == .pending || record.state == .queued else { continue }
-            if !isSelectedGroupDelivery(record, in: next) {
+            let supersededRedelivery = record.sourceRequestID != nil && latestNotices[record.groupID]?[record.recipient] != record.noticeID
+            if supersededRedelivery || !isSelectedGroupDelivery(record, in: next) {
                 next.groupDeliveries[index].state = .cancelled
                 next.groupDeliveries[index].credentialReference = nil
             }

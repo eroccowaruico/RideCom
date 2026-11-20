@@ -1,5 +1,10 @@
 import Foundation
 
+nonisolated struct GroupInvitationAddress: Decodable, Sendable {
+    let memberID: String
+    let recipientKey: String
+}
+
 /// The manifest stores delivery state only. The encrypted packet, when prepared, has an immutable Keychain slot.
 nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendable {
     enum Direction: String, Codable, Sendable { case outgoing, incoming }
@@ -15,9 +20,10 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     var state: State = .pending
     var credentialReference: UUID?
     var senderMemberID: String?
+    var sourceRequestID: UUID?
 
     var isValid: Bool {
-        recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)
+        sourceRequestID != id && recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)
             && !recipientMemberID.hasPrefix(GroupMember.pendingInvitePrefix)
             && DeviceIdentityProof.isValidPublicKey(recipientKey) && expiresAt.isFinite && expiresAt > 0
             && (direction != .incoming || state != .queued)

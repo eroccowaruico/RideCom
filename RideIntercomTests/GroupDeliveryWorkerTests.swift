@@ -160,6 +160,53 @@ import Testing
         #expect(author.groupInvitationDeliveryState(for: person, in: followUp) == .received)
         #expect(receiver.groups.filter { $0.id == followUp }.count == 1)
         try #require(author.removeMember(b.memberID, from: revokedAfterDownload))
+        for id in invitedGroups {
+            // The first device received these groups. Removing it must also
+            // stop automatic delivery to a new device of the same account.
+            try #require(author.removeMember(b.memberID, from: id))
+        }
+
+        let automatic = GroupDeliveryTestIdentity("worker-recipient-automatic")
+        defer { automatic.remove() }
+        try await register(automatic, appleSubject: b.memberID)
+        let automaticReceiver = try automatic.harness(knowing: [], onDisk: true).viewModel
+        defer { automaticReceiver.stopGroupDeliverySync(); automaticReceiver.disconnect() }
+        automaticReceiver.groupDeliveryClient = client
+        let automaticCall = automaticReceiver.currentCallReference
+        await automaticReceiver.synchronizeGroupDeliveries()
+        await author.synchronizeGroupDeliveries()
+        let automaticPackets = author.groupInvitationDeliveries(in: followUp).filter { $0.recipientMemberID == automatic.memberID }
+        #expect(automaticPackets.count == 1)
+        let automaticPacket = try #require(automaticPackets.first)
+        #expect(automaticPacket.noticeID == newDelivery.noticeID && automaticPacket.expiresAt == newDelivery.expiresAt)
+        #expect(automaticPacket.sourceRequestID == newDelivery.id)
+        var changedSource = try author.groupRepository.groupDeliveryEnvelope(automaticPacket.id)
+        changedSource.sourceRequestID = UUID()
+        let trust = try #require(try automatic.store.identityTrust())
+        #expect(throws: (any Error).self) {
+            try changedSource.open(recipient: automatic.signer, local: automatic.principal, sender: nil, redeliveryTrust: trust)
+        }
+        #expect(author.savedRemoteUsers.first { $0.id == person.id }?.memberIDs.contains(automatic.memberID) == false)
+        GroupWorkerHTTPBridge.dropReceiptForID = automaticPacket.id
+        GroupWorkerHTTPBridge.didDropReceipt = false
+        await automaticReceiver.synchronizeGroupDeliveries()
+        #expect(GroupWorkerHTTPBridge.didDropReceipt)
+        #expect(!automaticReceiver.groups.contains { $0.id == followUp })
+        #expect(automaticReceiver.groupRepository.groupDeliveries.first { $0.id == automaticPacket.id }?.state == .pending)
+        #expect(automaticReceiver.currentCallReference == automaticCall)
+        automaticReceiver.stopGroupDeliverySync()
+        automaticReceiver.disconnect()
+        let reloadedAutomatic = try automatic.harness(knowing: [], onDisk: true).viewModel
+        defer { reloadedAutomatic.stopGroupDeliverySync(); reloadedAutomatic.disconnect() }
+        reloadedAutomatic.groupDeliveryClient = client
+        await reloadedAutomatic.synchronizeGroupDeliveries()
+        #expect(reloadedAutomatic.groups.filter { $0.id == followUp }.count == 1)
+        #expect(!reloadedAutomatic.groups.contains { $0.id == revokedAfterDownload })
+        #expect(Set(reloadedAutomatic.groups.map(\.id)).isDisjoint(with: invitedGroups))
+        #expect(reloadedAutomatic.savedRemoteUsers.isEmpty && reloadedAutomatic.activeGroupID == nil)
+        #expect(try reloadedAutomatic.groupRepository.credential(for: followUp) == author.groupRepository.credential(for: followUp))
+        await author.synchronizeGroupDeliveries()
+        #expect(author.groupInvitationDeliveries(in: followUp).filter { $0.recipientMemberID == automatic.memberID }.count == 1)
 
         // The same recipient signs into a second device with its own key and an empty directory.
         let second = GroupDeliveryTestIdentity("worker-recipient-second")
@@ -182,12 +229,14 @@ import Testing
                 method: "GET", token: sender.accessToken)
             return response.devices
         }
-        #expect(try await workerAddresses().isEmpty)
+        let earlierAddresses = try await workerAddresses()
+        #expect(earlierAddresses.count == 1 && earlierAddresses.first?.memberID == automatic.memberID)
         await author.synchronizeGroupDeliveries()
         await secondReceiver.synchronizeGroupDeliveries()
         await secondReceiver.synchronizeGroupDeliveries()
         let address = AdditionalAddress(memberID: second.memberID, recipientKey: try second.signer.publicKey)
-        #expect(try await workerAddresses() == [address])
+        let currentAddresses = try await workerAddresses()
+        #expect(currentAddresses.count == 2 && currentAddresses.contains(address))
         #expect(secondReceiver.savedRemoteUsers.isEmpty && secondReceiver.groups.isEmpty)
         #expect(!author.groupInvitationDeliveries(in: followUp).contains { $0.recipientMemberID == second.memberID })
 
