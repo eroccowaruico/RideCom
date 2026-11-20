@@ -71,8 +71,9 @@ caller input
 
 | 項目 | 仕様 |
 |---|---|
-| sample rate | `8_000...96_000` |
-| channel count | `1...2` |
+| sample rate | `isFinite(sampleRate) AND 8_000 Hz ≤ sampleRate ≤ 96_000 Hz` |
+| channel count | `1 ≤ channelCount ≤ 2`（整数） |
+| 形式の妥当性 | `AudioFormat.isValid = sample rate条件 AND channel count条件`。判定時の値を見る。公開initializerでは非有限の周波数を48_000 Hzに戻し、周波数とチャンネル数をそれぞれ範囲内に丸める |
 | samples | interleaved Float PCM |
 | frame count | `samples.count / channelCount` |
 | validation | `samples.count` が `channelCount` で割り切れない frame を拒否する |
