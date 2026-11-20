@@ -49,6 +49,7 @@ struct AppSettings: Equatable {
     var watchCallDisconnectInterval: CallDisconnectInterval
     var audioSessionProfile: AudioSessionProfile
     var vadSensitivity: VoiceActivitySensitivity
+    var transmitSoundIsolationEnabled: Bool
     var preferredTransmitCodec: AudioCodecIdentifier
     var rtcAudioFormatPreset: RTCAudioFormatPreset
     var aacELDv2BitRate: Int
@@ -61,6 +62,7 @@ struct AppSettings: Equatable {
         watchCallDisconnectInterval: CallDisconnectInterval = .watchDefault,
         audioSessionProfile: AudioSessionProfile = IntercomViewModel.defaultAudioSessionProfile,
         vadSensitivity: VoiceActivitySensitivity = IntercomViewModel.defaultVADSensitivity,
+        transmitSoundIsolationEnabled: Bool = IntercomViewModel.defaultSoundIsolationEnabled,
         preferredTransmitCodec: AudioCodecIdentifier = IntercomViewModel.defaultTransmitCodec,
         rtcAudioFormatPreset: RTCAudioFormatPreset = IntercomViewModel.defaultRTCAudioFormatPreset,
         aacELDv2BitRate: Int = IntercomViewModel.defaultAACELDv2BitRate,
@@ -72,6 +74,7 @@ struct AppSettings: Equatable {
         self.watchCallDisconnectInterval = watchCallDisconnectInterval
         self.audioSessionProfile = audioSessionProfile
         self.vadSensitivity = vadSensitivity
+        self.transmitSoundIsolationEnabled = transmitSoundIsolationEnabled
         self.preferredTransmitCodec = preferredTransmitCodec
         self.rtcAudioFormatPreset = rtcAudioFormatPreset
         self.aacELDv2BitRate = AppAudioCodecBridge.normalizedAACBitRate(aacELDv2BitRate, format: rtcAudioFormatPreset.audioFormat)
@@ -97,6 +100,7 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
     private let recentCallDestinationKey = "RideIntercom.history.recentCallDestination"
     private let audioSessionProfileKey = "RideIntercom.settings.audioSessionProfile"
     private let vadSensitivityKey = "RideIntercom.settings.vadSensitivity"
+    private let transmitSoundIsolationKey = "RideIntercom.settings.transmitSoundIsolationEnabled"
     private let preferredTransmitCodecKey = "RideIntercom.settings.preferredTransmitCodec"
     private let rtcAudioFormatPresetKey = "RideIntercom.settings.rtcAudioFormatPreset"
     private let aacELDv2BitRateKey = "RideIntercom.settings.aacELDv2BitRate"
@@ -116,6 +120,8 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
             watchCallDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: watchCallDisconnectIntervalKey)) ?? .watchDefault,
             audioSessionProfile: loadAudioSessionProfile(),
             vadSensitivity: loadVADSensitivity(),
+            transmitSoundIsolationEnabled: defaults.object(forKey: transmitSoundIsolationKey) as? Bool
+                ?? IntercomViewModel.defaultSoundIsolationEnabled,
             preferredTransmitCodec: loadPreferredTransmitCodec(),
             rtcAudioFormatPreset: loadRTCAudioFormatPreset(),
             aacELDv2BitRate: loadInt(
@@ -145,6 +151,7 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
         defaults.set(settings.watchCallDisconnectInterval.rawValue, forKey: watchCallDisconnectIntervalKey)
         defaults.set(settings.audioSessionProfile.rawValue, forKey: audioSessionProfileKey)
         defaults.set(settings.vadSensitivity.rawValue, forKey: vadSensitivityKey)
+        defaults.set(settings.transmitSoundIsolationEnabled, forKey: transmitSoundIsolationKey)
         defaults.set(settings.preferredTransmitCodec.rawValue, forKey: preferredTransmitCodecKey)
         defaults.set(settings.rtcAudioFormatPreset.rawValue, forKey: rtcAudioFormatPresetKey)
         defaults.set(settings.aacELDv2BitRate, forKey: aacELDv2BitRateKey)

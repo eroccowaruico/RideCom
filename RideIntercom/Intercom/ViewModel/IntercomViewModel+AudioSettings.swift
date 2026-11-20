@@ -261,6 +261,7 @@ extension IntercomViewModel {
 
     func setSoundIsolationEnabled(_ enabled: Bool) {
         isSoundIsolationEnabled = enabled
+        saveAppSettings()
         logSettingChange("settings.sound_isolation.changed", ["enabled": "\(enabled)"])
         updateAudioPipelineEffectSettings()
     }
@@ -344,6 +345,7 @@ extension IntercomViewModel {
             watchCallDisconnectInterval: watchCallDisconnectInterval,
             audioSessionProfile: audioSessionProfile,
             vadSensitivity: vadSensitivity,
+            transmitSoundIsolationEnabled: isSoundIsolationEnabled,
             preferredTransmitCodec: preferredTransmitCodec,
             rtcAudioFormatPreset: rtcAudioFormatPreset,
             aacELDv2BitRate: aacELDv2BitRate,

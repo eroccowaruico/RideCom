@@ -119,7 +119,7 @@ App は route 実体を直接構築しない。Settings の `enabledRTCTransport
 |---|---|---|---|---|---|---|---|
 | 出力デバイス選択 | `audioIOPanel` | `audioCheckOutputPicker` | `Output` | `AudioPortInfo` | `availableOutputPorts.count > 1` | `Picker(.menu)` | 切替失敗は Call の音声エラーと Diagnostics に反映 |
 | 入力デバイス選択 | `audioIOPanel` | `audioCheckInputPicker` | `Input` | `AudioPortInfo` | `availableInputPorts.count > 1` | `Picker(.menu)` | 切替失敗は音声デバイス問題として扱う |
-| 送信 Voice Isolation Effect設定 | `audioIOPanel` | `soundIsolationToggle` | `Transmit Voice Isolation Effect` | `Bool` | `supportsSoundIsolation == true` | Toggle | 非対応 platform では非表示。SessionManager の voice processing 設定ではなく送信用 SoundIsolation effect chain の有効/無効として扱う。受信 peer bus / master bus は Call 画面で設定する |
+| 送信 Voice Isolation Effect設定 | `audioIOPanel` | `soundIsolationToggle` | `Transmit Voice Isolation Effect` | `Bool` | `supportsSoundIsolation == true` | Toggle | 非対応環境では非表示。送信の有効／無効は通話とAudio Checkで共通に使う。アプリ再起動と表示切替をまたいで保持し、設定リセットでONへ戻る。送信用SoundIsolation effect chainへ適用し、SessionManagerのvoice processingには渡さない。受信 peer bus / master bus は Call 画面で設定する |
 
 ## Audio Check
 

@@ -367,6 +367,7 @@ final class IntercomViewModel {
         self.watchCallDisconnectInterval = appSettings.watchCallDisconnectInterval
         self.audioSessionProfile = appSettings.audioSessionProfile
         self.vadSensitivity = appSettings.vadSensitivity
+        self.isSoundIsolationEnabled = appSettings.transmitSoundIsolationEnabled
         self.preferredTransmitCodec = appSettings.preferredTransmitCodec
         self.rtcAudioFormatPreset = appSettings.rtcAudioFormatPreset
         self.aacELDv2BitRate = appSettings.aacELDv2BitRate

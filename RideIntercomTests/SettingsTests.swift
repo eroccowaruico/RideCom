@@ -14,6 +14,36 @@ import PeakLimiter
 extension AppTests {
 @MainActor
 struct SettingsTests {
+    @Test func transmitIsolationSurvivesRelaunchAndModeChangesUntilReset() throws {
+        let suite = "RideIntercomTests.transmit-isolation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UserDefaultsAppSettingsStore(defaults: defaults)
+        let initial = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+
+        #expect(initial.interfaceMode == .standard)
+        #expect(initial.isSoundIsolationEnabled)
+        initial.setSoundIsolationEnabled(false)
+
+        let relaunched = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+        #expect(!relaunched.isSoundIsolationEnabled)
+        #expect(!relaunched.currentAudioPipelineConfiguration().transmitSoundIsolationEnabled)
+        relaunched.setInterfaceMode(.advanced)
+        #expect(!relaunched.isSoundIsolationEnabled)
+
+        let advanced = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+        #expect(advanced.interfaceMode == .advanced)
+        #expect(!advanced.isSoundIsolationEnabled)
+        advanced.resetAllSettings()
+        #expect(advanced.isSoundIsolationEnabled)
+        #expect(advanced.interfaceMode == .advanced)
+
+        let afterReset = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+        #expect(afterReset.isSoundIsolationEnabled)
+        #expect(afterReset.currentAudioPipelineConfiguration().transmitSoundIsolationEnabled)
+        #expect(afterReset.interfaceMode == .advanced)
+    }
+
     @Test(arguments: [nil, "unrecognized-profile", AudioSessionProfile.voiceChat.rawValue] as [String?])
     func audioSessionUsesTheStoredModeAndResetsWithoutReapplyingStream(savedMode: String?) async throws {
         let suite = "RideIntercomTests.initial-audio-mode.\(UUID().uuidString)"

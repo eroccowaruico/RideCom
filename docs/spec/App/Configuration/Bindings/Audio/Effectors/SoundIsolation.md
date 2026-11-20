@@ -12,7 +12,7 @@
 |---|---|---|
 | TX `VoiceIsolationConfiguration` | 標準のvoice、mix 0.5 | 固定 |
 | RX `VoiceIsolationConfiguration` | 標準のvoice、mix 0.5。切替では信号経路とbypassを変更する | AppAudioPipelineの通話用固定値 |
-| TX effect chain 挿入 | 対応時はnodeを保持、`isSoundIsolationEnabled` でbypassを切替 | Settings の送信設定と runtime support から導出 |
+| TX effect chain 挿入 | 対応時はnodeを保持、`isSoundIsolationEnabled` でbypassを切替 | 端末に保存したSettingsの送信設定とruntime supportから導出。通話とAudio Checkで同じ設定を読む |
 | RX peer bus effect chain 挿入 | 対応時はnodeを保持、`remoteSoundIsolationEnabled[peerID, default: false]` でbypassを切替 | Call の参加者設定と runtime support から導出 |
 | RX master bus effect chain 挿入 | 対応時はnodeを保持、`receiveMasterSoundIsolationEnabled` でbypassを切替 | Call の master 出力設定と runtime support から導出 |
 | runtime snapshot | `VoiceIsolationRuntimeSnapshot` を chain ごとに `RTCRuntimePackageReport` と AudioMixer effect metadata に載せる | runtime report |
