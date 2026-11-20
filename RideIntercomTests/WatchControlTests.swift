@@ -63,10 +63,39 @@ struct WatchControlTests {
         #expect(owner.watchSnapshot().needsPublication(after: muted))
     }
 
+    @Test func watchRemoteStartsWithPhoneAudioAndKeepsTheWatchDeadline() async throws {
+        let now = Date()
+        let h = try AppTestSupport.makeHarnessWithSavedUser(callAccessNow: { now })
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        vm.setCallDisconnectInterval(.oneMinute, usingWatch: true)
+        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let initial = owner.watchSnapshot(now: now)
+        let target = try #require(initial.targets.first)
+
+        let start = await owner.handleWatchRequest(.init(.startRemote(target.id), snapshot: initial), now: now)
+        try #require(start.problem == nil)
+        #expect(start.snapshot.supportsRemoteStart == true)
+        #expect(start.snapshot.hasCall && start.audioEndpoint == nil)
+        #expect(!vm.isUsingWatchAudio && vm.watchAudioLink == nil)
+        await AppTestSupport.waitUntil { vm.isAudioReady }
+        #expect(h.inputBackend.startCount == 1)
+        let reference = vm.currentCallReference
+        #expect(vm.callDisconnectDeadline == now.addingTimeInterval(60))
+
+        let muted = await owner.handleWatchRequest(.init(.setMuted(true), snapshot: start.snapshot), now: now)
+        #expect(muted.problem == nil && muted.snapshot.isMuted)
+        #expect(vm.currentCallReference == reference && vm.callDisconnectDeadline == now.addingTimeInterval(60))
+
+        let end = await owner.handleWatchRequest(.init(.end, snapshot: muted.snapshot), now: now)
+        #expect(end.problem == nil && !end.snapshot.hasCall)
+        #expect(h.inputBackend.stopCount > 0)
+    }
+
     @Test func watchStartDoesNotOpenThePhoneMicrophoneBeforeItsAudioDeviceConnects() async throws {
         let h = AppTestSupport.makeHarness(); let vm = h.viewModel
         defer { vm.disconnect() }
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID, usingWatch: true))
+        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID, source: .watchAudio))
         let deadline = vm.callDisconnectDeadline
         h.callSession.authenticate(["member-108"])
         for _ in 0..<20 { await Task.yield() }

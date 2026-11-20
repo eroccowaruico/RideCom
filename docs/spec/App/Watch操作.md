@@ -72,6 +72,7 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 |---|---|
 | `WatchControlMessage.swift` | Codableの操作要求／応答／表示snapshot。表示snapshotには音声・秘密・本人の認証資格を含めない。明示開始のofferだけが一時pair資格を持つ |
 | `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、`startCall`・`endCall`・`setCallMuted`へ渡す。Watch音声選択中のphone mute要求は共通入口が拒否する。開始は別通話への切替を許可しない。開始資格・購入・24時間条件は既存処理の所有 |
+| リモコンの開始 | ログイン済みiPhoneはsnapshotの`supportsRemoteStart`をtrueにする。省略された旧snapshotも読める。対応端末への`startRemote`は保存済みの相手をiPhoneの音声入出力で開始し、Watch用の自動切断時間を使う。開始した通話のミュート・終了は既存の操作を使う。`start`・`startAudio`はWatch音声の操作として扱う。Watch画面からのリモコン既定化は[残作業](../../backlog/未実装課題.md#watchはリモコンを既定にし通話を開発者向けオプションにする)で追う |
 | 参照 | 既存のaccountAccessID・connectionGeneration・groupIDから不透明な参照を作る。要求の参照を現在値と比較してから実行。Watch専用epochを増やさない |
 | 期限 | iPhoneが発行したsnapshotを120秒有効とする。要求が遅延し期限切れなら実行しない。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
 | 重複 | 開始・終了は既存通話世代、ミュートはtoggleではなく指定したBoolで処理する。同じ指定値は既存処理で冪等。専用requestIDや永続重複台帳を追加しない |

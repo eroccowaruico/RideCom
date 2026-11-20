@@ -115,7 +115,7 @@ import Testing
     @Test func initialWatchStartRejectsStaleWidgetMuteWithoutOpeningPhoneInput() throws {
         let h = AppTestSupport.makeHarness(), vm = h.viewModel
         defer { vm.disconnect() }
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID, usingWatch: true))
+        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID, source: .watchAudio))
         #expect(!vm.setCallMuted(true, for: vm.currentCallReference))
         #expect(h.inputBackend.startCount == 0)
         #expect(!vm.isMuted)

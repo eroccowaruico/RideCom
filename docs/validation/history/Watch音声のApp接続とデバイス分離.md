@@ -288,3 +288,9 @@ Watch native入力は259,584 samples中256,964が非zeroだった一方、Phone�
 | `recordingCheckUsesTheActualTransmitCodecAndDynamicsForAllFiveSeconds` | 合成入力を実TXのAAC・Dynamics・VADへ通し、5秒全量、処理効果、無音区間、末尾markerを確認。実マイク波形の比較ではない |
 
 証跡は`.validation/ipad-audio-check-20261102/`のxcresult・選択filter・実行log・前後inputs。Build番号391→392を除く632入力の一致、host隔離、入出力設定・音量の完全復元、host既定機器不変、専用iPadの停止を確認した。build warning 5件（App Intents metadata省略3、Swift debug環境変数の未知警告2）は保持し、build警告なしとは扱わない。native試験は非zero信号の存在を合否条件にしていない。再生callbackの量と完了状態は、有音の全量再生、native出力tapの全量波形一致や実機の音響品質を証明しない。iPadの波形比較、Macの同等入口、Watchの媒体到達以降は引き続き別の確認範囲である。
+
+## Watchの開始操作からiPhoneの音声を使う
+
+2026-11-21。Watchから開始することと、Watchがマイク・出力を所有することを分けた。iPhoneがリモコン開始に対応すると明示した場合、`startRemote`で保存済みの相手への現在のiPhone音声を開始する。Watch用の自動切断時間と既存の操作参照・アカウント・宛先判定を使う。[操作仕様](../../spec/App/Watch操作.md#操作と状態の契約)
+
+macOSのApp試験では、未対応のBuild 1632で新規試験だけが開始拒否で失敗した。Build 1633でiPhone側の入力backendの開始、Watch用1分の期限、Watch経由のミュート、同じ通話の終了を確認した。Watch制御・自動切断・音声起動の対象57件で失敗・skip・実行時警告は0。xcresultの構成内の実行数は64件。証跡は `.validation/watch-remote-start/{red-suite,final}/`。Watch画面の既定化・設定移動・実機の到達性は[残作業](../../backlog/未実装課題.md#watchはリモコンを既定にし通話を開発者向けオプションにする)で追う。

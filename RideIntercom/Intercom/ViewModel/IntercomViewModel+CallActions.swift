@@ -9,6 +9,12 @@ nonisolated enum CallDestination: Codable, Equatable, Sendable {
     case user(UUID)
 }
 
+enum CallStartSource {
+    case thisDevice
+    case watchRemote
+    case watchAudio
+}
+
 /// A snapshot of the account and connection being controlled, including idle mute intent.
 nonisolated struct CallReference: Equatable, Sendable {
     let accountAccessID: UUID
@@ -81,7 +87,8 @@ extension IntercomViewModel {
     /// Resolve a durable destination again when the action runs, not when a screen
     /// or external control originally displayed it.
     @discardableResult
-    func startCall(to destination: CallDestination, accountAccessID requestedAccess: UUID, allowSwitchingCall: Bool = true, usingWatch: Bool = false) -> Bool {
+    func startCall(to destination: CallDestination, accountAccessID requestedAccess: UUID,
+                   allowSwitchingCall: Bool = true, source: CallStartSource = .thisDevice) -> Bool {
         guard !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970) else { return false }
         guard canStartCalls, requestedAccess == accountAccessID else {
             groupErrorMessage = groupStorageNotice ?? "This sign-in has ended. Open your current account to continue."
@@ -111,7 +118,7 @@ extension IntercomViewModel {
             return false
         }
         if activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection { return true }
-        connectSelectedGroup(usingWatch: usingWatch)
+        connectSelectedGroup(source: source)
         let started = activeGroupID == selectedGroup.id && hasAnyActiveGroupConnection
         // Every new one-to-one connection notifies the person once, from a list, Widget, Watch or Siri.
         if started, case .user(let id) = destination { noticeNewDirectCall(to: id) }

@@ -36,7 +36,7 @@ extension AppCallOwner {
                          }
                          return .init(sessionID: sessionID, phase: phase,
                              recordedFrames: vm.audioCheckRecordedFrameCount, nonzeroSamples: vm.audioCheckRecordedNonzeroSamples)
-                     })
+                     }, supportsRemoteStart: true)
     }
 
     func handleWatchRequest(_ request: WatchControlRequest, now: Date = Date()) async -> WatchControlReply {
@@ -52,15 +52,17 @@ extension AppCallOwner {
             guard offer.key.count == 32,
                   let target = watchCallTargets.first(where: { $0.entity.id == id }) else { return reply(.missingDestination) }
             guard vm.startCall(to: target.destination, accountAccessID: vm.accountAccessID,
-                               allowSwitchingCall: false, usingWatch: true) else { return reply(.denied) }
+                               allowSwitchingCall: false, source: .watchAudio) else { return reply(.denied) }
             do {
                 let endpoint = try await vm.attachWatchAudio(offer)
                 guard let current = try? callModel(), current === vm, vm.hasCurrentAccountAccess else { return reply(.noAccount) }
                 return .init(snapshot: watchSnapshot(), problem: nil, audioEndpoint: endpoint)
             } catch { return reply(.unavailable) }
-        case .start(let id):
+        case .start(let id), .startRemote(let id):
             guard let target = watchCallTargets.first(where: { $0.entity.id == id }) else { return reply(.missingDestination) }
-            succeeded = vm.startCall(to: target.destination, accountAccessID: vm.accountAccessID, allowSwitchingCall: false, usingWatch: true)
+            let source: CallStartSource = request.action == .startRemote(id) ? .watchRemote : .watchAudio
+            succeeded = vm.startCall(to: target.destination, accountAccessID: vm.accountAccessID,
+                                     allowSwitchingCall: false, source: source)
         #if DEBUG
         case .startAudioCheck(let offer):
             guard offer.key.count == 32, vm.canStartAudioCheck else { return reply(.denied) }

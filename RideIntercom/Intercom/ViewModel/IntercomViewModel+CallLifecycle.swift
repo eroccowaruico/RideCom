@@ -13,7 +13,7 @@ extension IntercomViewModel {
     }
 
     /// Internal lifecycle after the destination and account have been resolved.
-    func connectSelectedGroup(usingWatch: Bool = false) {
+    func connectSelectedGroup(source: CallStartSource = .thisDevice) {
         guard canStartCalls else {
             groupErrorMessage = groupStorageNotice ?? "Sign in with Apple to start a call."
             return
@@ -42,13 +42,14 @@ extension IntercomViewModel {
         }
 
         if activeGroupID != selectedGroup.id || !hasAnyActiveGroupConnection {
-            let changedInputRoute = isUsingWatchAudio != usingWatch
-            isUsingWatchAudio = usingWatch
+            let usesWatchAudio = source == .watchAudio
+            let changedInputRoute = isUsingWatchAudio != usesWatchAudio
+            isUsingWatchAudio = usesWatchAudio
             activeGroupID = selectedGroup.id
             resetConnectionRuntimeState()
             if changedInputRoute { applyEffectiveInputMute() }
             bindConnectionEvents()
-            let interval = usingWatch ? watchCallDisconnectInterval : callDisconnectInterval
+            let interval = source == .thisDevice ? callDisconnectInterval : watchCallDisconnectInterval
             callDisconnectDeadline = callAccessNow().addingTimeInterval(interval.seconds)
         }
 
