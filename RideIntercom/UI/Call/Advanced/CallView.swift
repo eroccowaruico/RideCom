@@ -209,8 +209,12 @@ struct CallView: View {
                             get: { viewModel.receiveMasterSoundIsolationEnabled },
                             set: { viewModel.setReceiveMasterSoundIsolationEnabled($0) }
                         )) {
-                            Label("Isolate All Received Voices", systemImage: "wand.and.sparkles")
-                                .font(AppTypography.captionStrong)
+                            Label {
+                                Text(verbatim: "Isolate All Received Voices")
+                            } icon: {
+                                Image(systemName: "wand.and.sparkles")
+                            }
+                            .font(AppTypography.captionStrong)
                         }
                         .accessibilityValue(viewModel.receiveMasterSoundIsolationEnabled ? "Enabled" : "Bypassed")
                         .accessibilityIdentifier("masterVoiceIsolationToggle")

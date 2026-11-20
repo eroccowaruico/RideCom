@@ -481,6 +481,39 @@ final class StandardInterfaceUITests: XCTestCase {
         screenshot("Two-person ordinary group retains members")
     }
 
+    @MainActor
+    func testJapaneseDirectCallKeepsAdvancedIsolationLabelsInEnglish() throws {
+        launch(japanese: true)
+        let suffix = String(UUID().uuidString.prefix(6))
+        let peerName = "Direct " + suffix
+        app.open(try InvitationURLFixture.make(inviter: "ui-direct-ja-" + suffix, sharedName: peerName, contact: true))
+        let accept = app.buttons["acceptContactInvitationButton"].firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 5))
+        accept.tap()
+        XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        let finish = app.buttons["closeContactInvitationButton"].firstMatch
+        XCTAssertTrue(finish.waitForExistence(timeout: 5))
+        finish.tap()
+        let person = inviterRows(peerName).firstMatch
+        XCTAssertTrue(person.waitForExistence(timeout: 5))
+        person.tap()
+        let receive = app.switches["standardReceiveVoiceIsolationToggle"].firstMatch
+        XCTAssertTrue(receive.waitForExistence(timeout: 5))
+        XCTAssertEqual(receive.label, "相手の声を分離")
+        tab("設定", id: "settingsTab")
+        selectLayout("詳細")
+        app.openCurrentCall()
+        let master = app.switches["masterVoiceIsolationToggle"].firstMatch
+        XCTAssertTrue(master.waitForExistence(timeout: 5))
+        XCTAssertEqual(master.label, "Isolate All Received Voices")
+        let peer = app.switches["participantVoiceIsolationToggle0"].firstMatch
+        for _ in 0..<4 where !peer.isHittable { app.swipeUp() }
+        XCTAssertTrue(peer.isHittable, app.debugDescription)
+        XCTAssertEqual(peer.label, "Isolate Voice From \(peerName)")
+        XCTAssertTrue(peer.staticTexts["Isolate This Voice"].exists)
+        screenshot("English Advanced receive controls in Japanese")
+    }
+
     @MainActor private func assertDirectCallHasNoMembers(_ name: String) {
         XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
         let hero = app.descendants(matching: .any)["standardCallHero"].firstMatch

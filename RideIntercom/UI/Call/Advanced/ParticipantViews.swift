@@ -151,10 +151,14 @@ struct RemoteParticipantRowView: View {
                     get: { viewModel.isRemoteSoundIsolationEnabled(peerID: member.id) },
                     set: { viewModel.setRemoteSoundIsolationEnabled(peerID: member.id, enabled: $0) }
                 )) {
-                    Label("Isolate This Voice", systemImage: "wand.and.sparkles")
-                        .font(AppTypography.captionStrong)
+                    Label {
+                        Text(verbatim: "Isolate This Voice")
+                    } icon: {
+                        Image(systemName: "wand.and.sparkles")
+                    }
+                    .font(AppTypography.captionStrong)
                 }
-                .accessibilityLabel("Isolate Voice From \(member.resolvedDisplayName)")
+                .accessibilityLabel(Text(verbatim: "Isolate Voice From \(member.resolvedDisplayName)"))
                 .accessibilityValue(viewModel.isRemoteSoundIsolationEnabled(peerID: member.id) ? "Enabled" : "Bypassed")
                 .accessibilityIdentifier("participantVoiceIsolationToggle\(index)")
             }

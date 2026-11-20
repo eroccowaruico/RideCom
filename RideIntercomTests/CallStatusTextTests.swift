@@ -22,9 +22,6 @@ struct CallStatusTextTests {
         // The glossary: say which voice isolation works on, invite (never add), and the words below.
         #expect(ja("Isolate the Other Person’s Voice") == "相手の声を分離")
         #expect(ja("Isolate Incoming Voices") == "受信する声を分離")
-        #expect(ja("Isolate All Received Voices") == "受信全体の声を分離")
-        #expect(ja("Isolate This Voice") == "この相手の声を分離")
-        #expect(ja("Isolate Voice From %@") == "%@の声を分離")
         #expect(ja("Transmit Voice Isolation Effect") == "送信する声を分離")
         #expect(ja("Unmuted") == "オフ")
         #expect(ja("Cancel Call Request") == "呼び出しを取り消す")

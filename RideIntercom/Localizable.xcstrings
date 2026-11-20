@@ -3240,7 +3240,7 @@
       }
     },
     "Isolate All Received Voices" : {
-      "extractionState" : "manual",
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -3273,7 +3273,7 @@
       }
     },
     "Isolate This Voice" : {
-      "extractionState" : "manual",
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -3284,7 +3284,7 @@
       }
     },
     "Isolate Voice From %@" : {
-      "extractionState" : "manual",
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
