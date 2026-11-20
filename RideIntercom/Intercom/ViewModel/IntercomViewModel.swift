@@ -39,6 +39,10 @@ final class IntercomViewModel {
     @ObservationIgnored var groupDeliveryTask: Task<Void, Never>?
     @ObservationIgnored var groupDeliveryNeedsSync = false
     @ObservationIgnored var groupDeliveryRunID = UUID()
+    @ObservationIgnored var allowsNearbyGroupDelivery = SystemSurfaceScope.permitsSystemAccess
+    @ObservationIgnored var nearbyGroupDeliveryIsForeground = false
+    @ObservationIgnored var nearbyGroupDeliveryExchange: NearbyGroupDeliveryExchange?
+    @ObservationIgnored var nearbyGroupDeliveryWindow: NearbyGroupDeliveryWindow?
     var contactInvitationRevision = UUID()
     var contactInvitationPresentation: ContactInvitationPresentation?
     var contactInvitationMessage: String?

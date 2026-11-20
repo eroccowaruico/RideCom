@@ -224,6 +224,7 @@ extension IntercomViewModel {
 
         enabledRTCTransportRoutes = normalizedRoutes
         callSession.setEnabledRoutes(normalizedRoutes)
+        refreshNearbyGroupDelivery()
         saveAppSettings()
         logSettingChange("settings.rtc_routes.changed", ["enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"])
         publishRuntimePackageReports(force: true)

@@ -7,6 +7,94 @@ import UserNotifications
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
     @Test(.timeLimit(.minutes(1)))
+    func savesAndDeliversToTheRegisteredPeerFromForegroundWithoutInternet() async throws {
+        let a = GroupDeliveryTestIdentity("automatic-nearby-sender")
+        let b = GroupDeliveryTestIdentity("automatic-nearby-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try a.harness(knowing: [b], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [a], onDisk: true).viewModel
+        defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync(); sender.disconnect() }
+        for model in [sender, recipient] {
+            model.groupDeliveryClient = nil
+            model.allowsNearbyGroupDelivery = true
+        }
+        var requested = 0
+        var ended = 0
+        sender.beginGroupDeliveryBackgroundTime = { _ in
+            requested += 1
+            return { ended += 1 }
+        }
+        recipient.setNearbyGroupDeliveryForeground(true)
+        sender.setNearbyGroupDeliveryForeground(true)
+        try #require(sender.createTalkGroup(name: "Trail riders", userIDs: [b.personID]))
+        let delivery = try #require(sender.groupRepository.groupDeliveries.first)
+        #expect(requested == 1, "Time is requested before returning from the save")
+        let callAfterSave = sender.activeGroupID
+        sender.setNearbyGroupDeliveryForeground(false)
+
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            sender.groupRepository.groupDeliveries.first?.state == .received
+        }
+        try #require(sender.groupRepository.groupDeliveries.first?.state == .received)
+        #expect(recipient.groups.map(\.id) == [delivery.groupID])
+        #expect(sender.activeGroupID == callAfterSave && recipient.activeGroupID == nil && recipient.selectedGroup == nil)
+        #expect(ended == 1, "Received delivery releases the save's additional execution time")
+
+        let reopened = try b.harness(knowing: [a], onDisk: true).viewModel
+        #expect(reopened.groups.map(\.id) == [delivery.groupID])
+        #expect(try reopened.groupRepository.credential(for: delivery.groupID)
+            == sender.groupRepository.credential(for: delivery.groupID))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func backgroundTimeExpiryKeepsTheSameInviteForTheNextForegroundLaunch() async throws {
+        let a = GroupDeliveryTestIdentity("expiry-nearby-sender")
+        let b = GroupDeliveryTestIdentity("expiry-nearby-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let first = try a.harness(knowing: [b], onDisk: true).viewModel
+        defer { first.stopGroupDeliverySync(); first.disconnect() }
+        first.groupDeliveryClient = nil
+        first.allowsNearbyGroupDelivery = true
+
+        var expire: (@MainActor () -> Void)?
+        var ended = 0
+        first.beginGroupDeliveryBackgroundTime = { expiration in
+            expire = expiration
+            return { ended += 1 }
+        }
+        first.setNearbyGroupDeliveryForeground(true)
+        try #require(first.createTalkGroup(name: "Delayed invitation", userIDs: [b.personID]))
+        let pending = try #require(first.groupRepository.groupDeliveries.first)
+        first.setNearbyGroupDeliveryForeground(false)
+        let expireFirstWindow = try #require(expire)
+        expireFirstWindow()
+        #expect(first.nearbyGroupDeliveryExchange == nil)
+        #expect(ended == 1)
+        #expect(first.groupRepository.groupDeliveries.first?.state == .pending)
+
+        let reopened = try a.harness(knowing: [b], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [a], onDisk: true).viewModel
+        defer { reopened.stopGroupDeliverySync(); recipient.stopGroupDeliverySync() }
+        for model in [reopened, recipient] {
+            model.groupDeliveryClient = nil
+            model.allowsNearbyGroupDelivery = true
+        }
+        recipient.setNearbyGroupDeliveryForeground(true)
+        reopened.setNearbyGroupDeliveryForeground(true)
+        expireFirstWindow()  // A retired system callback cannot stop the replacement's exchange.
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            reopened.groupRepository.groupDeliveries.first?.state == .received
+        }
+        try #require(reopened.groupRepository.groupDeliveries.first?.state == .received)
+        #expect(reopened.groupRepository.groupDeliveries.first?.id == pending.id)
+        #expect(recipient.groups.map(\.id) == [pending.groupID])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func nearbyReceiptRequiresTheSameEnvelopeAndSurvivesLostReply() async throws {
         let a = GroupDeliveryTestIdentity("nearby-group-author")
         let b = GroupDeliveryTestIdentity("nearby-group-recipient")
@@ -23,12 +111,10 @@ import UserNotifications
         let delivery = try #require(left.viewModel.groupRepository.groupDeliveries.first)
         let envelope = try #require(try left.viewModel.prepareGroupDeliveryEnvelope(delivery, sender: a.principal))
 
-        let authorCredential = try left.viewModel.nearbyGroupDeliveryCredential(for: b.memberID)
-        let recipientCredential = try right.viewModel.nearbyGroupDeliveryCredential(for: a.memberID)
+        let authorCredential = try #require(left.viewModel.nearbyGroupDeliveryCredentials()[.init(rawValue: b.memberID)])
+        let recipientCredential = try #require(right.viewModel.nearbyGroupDeliveryCredentials()[.init(rawValue: a.memberID)])
         try #require(authorCredential == recipientCredential)
-        #expect(throws: DeviceIdentityProof.Failure.self) {
-            try left.viewModel.nearbyGroupDeliveryCredential(for: "unsaved-device")
-        }
+        #expect(left.viewModel.nearbyGroupDeliveryCredentials()[.init(rawValue: "unsaved-device")] == nil)
         let signer = try a.signer
         let expected = try signer.nearbyGroupDeliverySecret(peerMemberID: b.memberID, peerPublicKey: b.signer.publicKey)
         #expect(try signer.nearbyGroupDeliverySecret(peerMemberID: "other-device", peerPublicKey: b.signer.publicKey) != expected)
@@ -68,7 +154,7 @@ import UserNotifications
         right.viewModel.deleteGroup(delivery.groupID)
         let restarted = try b.harness(knowing: [a], onDisk: true)
         restarted.viewModel.groupDeliveryClient = nil
-        #expect(try restarted.viewModel.nearbyGroupDeliveryCredential(for: a.memberID) == recipientCredential)
+        #expect(restarted.viewModel.nearbyGroupDeliveryCredentials()[.init(rawValue: a.memberID)] == recipientCredential)
         let opened = try incoming.open(recipient: b.signer, local: b.principal, sender: a.savedUser())
         let reencrypted = try GroupInvitationEnvelope.seal(opened, sender: a.principal, recipient: b.principal,
             recipientMemberID: b.memberID, recipientKey: b.signer.publicKey, signer: a.signer, deliveryID: incoming.id)

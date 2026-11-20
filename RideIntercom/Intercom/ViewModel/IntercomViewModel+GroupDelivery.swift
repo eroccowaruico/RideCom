@@ -1,5 +1,4 @@
 import Foundation
-import RTC
 
 extension IntercomViewModel {
     enum GroupDeliveryTrigger {
@@ -43,6 +42,7 @@ extension IntercomViewModel {
     }
 
     func requestGroupDeliverySync(_ trigger: GroupDeliveryTrigger = .refresh) {
+        if trigger == .localChange { refreshNearbyGroupDelivery(afterSave: true) }
         guard groupDeliveryClient != nil, hasCurrentAccountAccess else { return }
         if groupDeliveryTask == nil {
             groupDeliveryNeedsSync = true
@@ -75,7 +75,7 @@ extension IntercomViewModel {
         else { return }
         let end = beginGroupDeliveryBackgroundTime { [weak self] in
             guard let self, self.groupDeliveryRunID == run else { return }
-            self.stopGroupDeliverySync()
+            self.stopInternetGroupDeliverySync()
         }
         guard groupDeliveryRunID == run else {
             end?()
@@ -95,6 +95,10 @@ extension IntercomViewModel {
         await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {
+        stopNearbyGroupDelivery()
+        stopInternetGroupDeliverySync()
+    }
+    private func stopInternetGroupDeliverySync() {
         groupDeliveryRunID = UUID(); groupDeliveryTask?.cancel(); groupDeliveryTask = nil; groupDeliveryNeedsSync = false
         finishGroupDeliveryBackgroundTime()
     }
@@ -146,6 +150,7 @@ extension IntercomViewModel {
         }
         await receiveGroupDeliveries(client: client, access: access, generation: generation)
         await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
+        finishNearbyGroupDeliveryIfComplete()
     }
 
     func prepareGroupDeliveryEnvelope(_ record: GroupDeliveryRecord, sender: AccountPrincipal) throws -> GroupInvitationEnvelope? {
@@ -160,16 +165,6 @@ extension IntercomViewModel {
             recipientKey: record.recipientKey, signer: signer, now: now, deliveryID: record.id, sourceRequestID: record.sourceRequestID)
         try groupRepository.saveGroupDeliveryEnvelope(envelope)
         return envelope
-    }
-
-    func nearbyGroupDeliveryCredential(for peerMemberID: String) throws -> RTCCredential {
-        guard canEditSavedGroups, let localAccountPrincipal,
-              let peer = savedRemoteUsers.first(where: { $0.memberIDs.contains(peerMemberID) }),
-              let account = peer.principal, account != localAccountPrincipal, account.issuer == localAccountPrincipal.issuer,
-              let publicKey = peer.deviceKeys?[peerMemberID] else { throw DeviceIdentityProof.Failure.invalid }
-        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
-        let secret = try signer.nearbyGroupDeliverySecret(peerMemberID: peerMemberID, peerPublicKey: publicKey)
-        return RTCCredential.derived(groupID: DeviceIdentitySigner.nearbyGroupDeliveryDomain, secret: IdentityEncoding.encode(secret))
     }
 
     func receiveNearbyGroupInvitation(_ envelope: GroupInvitationEnvelope, from peerID: String) throws -> GroupInvitationReceipt? {
