@@ -20,6 +20,7 @@ final class GroupContactInvitationUITests: XCTestCase {
     @MainActor func testAdvancedPreparesANewPersonsGroupInvitation() throws { try prepare(advanced: true) }
     @MainActor func testStandardGroupSettingsPreparesANewPersonsInvitation() throws { try prepare(entry: "settings") }
     @MainActor func testStandardCallReopensASavedGroupInvitation() throws { try prepare(entry: "call") }
+    @MainActor func testStandardGroupSettingsReopensASavedGroupInvitation() throws { try prepare(reopenInSettings: true) }
     @MainActor func testAdvancedCallPreparesANewPersonsInvitation() throws { try prepare(advanced: true, entry: "call") }
     @MainActor func testAdvancedGroupSettingsShowsTheStoredInvitationState() throws {
         try prepare(advanced: true, reopenInSettings: true)
@@ -74,12 +75,15 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(person.waitForExistence(timeout: 3))
         let settingsInvitee = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
             "groupSettingsMember-invite-pending-contact-", nickname)).firstMatch
+        let personState = app.staticTexts["contactPersonOutgoingInvitationState"]
+        let unsent = advanced ? "outgoing · pending · sent false" : "Not sent yet"
+        let shared = advanced ? "outgoing · pending · sent true" : "Waiting to be accepted"
         if reopenInSettings {
             finish.tap()
             openSavedGroupSettings(groupName, advanced: advanced)
             XCTAssertTrue(settingsInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(settingsInvitee.label.contains("outgoing · pending · sent false"), settingsInvitee.label)
-            XCTAssertTrue(settingsInvitee.label.contains("expiresAt "), settingsInvitee.label)
+            XCTAssertTrue(settingsInvitee.label.contains(unsent), settingsInvitee.label)
+            if advanced { XCTAssertTrue(settingsInvitee.label.contains("expiresAt "), settingsInvitee.label) }
             settingsInvitee.tap()
         } else if fromStandardCall {
             finish.tap()
@@ -99,6 +103,10 @@ final class GroupContactInvitationUITests: XCTestCase {
         if reopenInSettings {
             XCTAssertTrue(app.staticTexts["contactPersonSavedName"].firstMatch.label.hasSuffix(nickname))
         }
+        if !advanced {
+            XCTAssertTrue(personState.waitForExistence(timeout: 3))
+            XCTAssertEqual(personState.label, unsent)
+        }
         share.tap()
         let copy = app.cells.matching(NSPredicate(format: "label IN %@", ["Copy", "Copy Link"])).firstMatch
         XCTAssertTrue(copy.waitForExistence(timeout: 5))
@@ -107,10 +115,11 @@ final class GroupContactInvitationUITests: XCTestCase {
         else { app.swipeDown() }
         XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
         XCTAssertTrue(share.waitForExistence(timeout: 5)); XCTAssertTrue(share.isHittable)
+        if !advanced { XCTAssertEqual(personState.label, unsent) }
         if reopenInSettings {
             app.buttons["closeContactInvitationButton"].tap()
             XCTAssertTrue(settingsInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(settingsInvitee.label.contains("outgoing · pending · sent false"), settingsInvitee.label)
+            XCTAssertTrue(settingsInvitee.label.contains(unsent), settingsInvitee.label)
             settingsInvitee.tap()
             XCTAssertTrue(share.waitForExistence(timeout: 3))
             XCTAssertTrue(app.staticTexts["contactPersonSavedName"].firstMatch.label.hasSuffix(nickname))
@@ -123,12 +132,16 @@ final class GroupContactInvitationUITests: XCTestCase {
         }
         share.tap(); XCTAssertTrue(copy.waitForExistence(timeout: 5)); copy.tap()
         XCTAssertTrue(app.buttons["shareContactInvitationButton"].waitForExistence(timeout: 5), "Sharing keeps the same saved detail")
+        if !advanced {
+            let updated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", shared), object: personState)
+            XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 5), .completed)
+        }
         let invitation = try copiedURL()
         // Finish explicitly before opening the reply: XCUIApplication.open relaunches this test app.
         if reopenInSettings {
             app.buttons["closeContactInvitationButton"].tap()
             XCTAssertTrue(settingsInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(settingsInvitee.label.contains("outgoing · pending · sent true"), settingsInvitee.label)
+            XCTAssertTrue(settingsInvitee.label.contains(shared), settingsInvitee.label)
             app.buttons["closeGroupSettingsButton"].tap()
         } else if fromStandardCall {
             let done = app.buttons["closeContactInvitationButton"]

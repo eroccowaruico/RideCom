@@ -807,17 +807,22 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     </figure>
 
     <!-- 保存済みの同じ相手：共有取消でもこの詳細へ戻る -->
-    <figure>
+    <figure id="saved-person-detail">
       <div class="phone"><div class="screen form">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
         <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
         <div class="body">
-          <div class="card"><span class="avatar pending"><svg class="i"><use href="#person"/></svg></span><div class="dest">マキ</div><div class="status">未登録</div><p>相手が登録すると通話できます。</p></div>
-          <div class="btn prom"><svg class="i"><use href="#share"/></svg>招待を共有</div>
-          <p class="note">共有画面を閉じても、この詳細へ戻ります。相手の登録を確認するまで「未登録」です。</p>
+          <div class="group card" style="text-align:center">
+            <span class="avatar pending" style="width:56px;height:56px;margin:0 auto 8px"><svg class="i"><use href="#person"/></svg></span>
+            <div class="dest">ソラ</div><div class="status" style="justify-content:center">未登録</div>
+            <div class="note">まだ送っていません</div><p>相手が登録すると通話できます。</p>
+          </div>
+          <div class="group"><div class="row">招待先のグループ：週末の仲間</div></div>
+          <div class="group"><div class="row link">名前を編集</div></div>
         </div>
+        <div style="position:absolute;bottom:14px;left:14px;right:14px"><div class="btn prom"><svg class="i"><use href="#share"/></svg>招待を共有</div></div>
       </div></div>
-      <figcaption><b>保存済みの相手の詳細</b>名前は保存で確定済み。共有を取り消しても、コピーしても、この同じ詳細と名前を保つ。「完了」で一覧へ戻り、後で同じ人を再び開ける。登録完了時も自動で閉じず、この詳細の状態だけを「登録済み」へ更新する。<a href="../招待と登録の設計.md#一連の操作の確認">一連の操作の確認</a>と対応する設計見本。</figcaption>
+      <figcaption><b>保存済みの相手の詳細</b>名前は保存で確定済み。例はグループ招待を保存して共有する前。OS共有を取り消すと同じ詳細で「まだ送っていません」、共有操作かコピーの完了で「受け取り待ち」に変わる。期限が過ぎると「期限切れ」。「完了」で元の画面に戻り、後で同じ人を再び開ける。登録完了時は「登録済み」に変わり、送信招待の状態は消える。<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">招待の状態遷移</a>と対応する設計見本。</figcaption>
     </figure>
 
     <figure id="legacy-contact-invitation">

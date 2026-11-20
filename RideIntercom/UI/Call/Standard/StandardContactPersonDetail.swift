@@ -18,7 +18,14 @@ struct StandardContactPersonDetail: View {
                         .accessibilityIdentifier("contactPersonSavedName")
                     Text(currentPerson.isRegistered ? "Registered" : "Not registered").font(.headline)
                         .accessibilityIdentifier("contactPersonRegistrationState")
-                    if !currentPerson.isRegistered { Text("You can call each other after they register.") }
+                    if !currentPerson.isRegistered {
+                        if let invitation = viewModel.contactPersonInvitationForSharing(presentationPersonID) {
+                            Text(LocalizedStringKey(viewModel.contactInvitationStateWord(for: invitation)))
+                                .font(.subheadline).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("contactPersonOutgoingInvitationState")
+                        }
+                        Text("You can call each other after they register.")
+                    }
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
