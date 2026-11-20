@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check local links, discoverability, and Settings UI coverage; no network calls."""
+"""Check local links, discoverability, backlog coverage, and Settings UI coverage."""
 from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
@@ -34,13 +34,53 @@ def without_fences(text):
     return ''.join(visible)
 
 
+def check_backlog(backlog):
+    details = backlog / '未実装課題.md'
+    if not details.exists():
+        return []
+    index = backlog / 'README.md'
+    prefix = 'docs/backlog/README.md'
+    if not index.exists():
+        return [f'{prefix}: missing backlog index']
+    headings = re.findall(r'^## (.+)$', without_fences(details.read_text()), re.M)
+    anchors = Counter(re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-') for title in headings)
+    parts = re.split(r'^## (.+)\n', without_fences(index.read_text()), flags=re.M)
+    sections = dict(zip(parts[1::2], parts[2::2]))
+    errors, indexed = [], Counter()
+    for section in ('着手順', '判断や再開を待つもの'):
+        for row in sections.get(section, '').splitlines():
+            if not row.startswith('|'):
+                continue
+            cells = [cell.strip() for cell in row.strip('|').split('|')]
+            links = list(LINK.finditer(row))
+            for link in links:
+                destination = urlsplit(link[1].strip('<>'))
+                if not destination.scheme and unquote(destination.path) == details.name:
+                    indexed[unquote(destination.fragment)] += 1
+            if section == '着手順' and links:
+                classification = cells[1] if len(cells) > 1 else ''
+                if classification not in ('改善', 'デザイン', '機能'):
+                    errors.append(f'{prefix}: invalid backlog classification {classification or "(missing)"}')
+    for anchor, count in sorted(anchors.items()):
+        if count > 1:
+            errors.append(f'docs/backlog/{details.name}: duplicate detail heading #{anchor}')
+        if anchor not in indexed:
+            errors.append(f'{prefix}: unindexed detail heading #{anchor}')
+    for anchor, count in sorted(indexed.items()):
+        if anchor not in anchors:
+            errors.append(f'{prefix}: unknown detail heading #{anchor}')
+        if count > 1:
+            errors.append(f'{prefix}: duplicate index link #{anchor}')
+    return errors
+
+
 def check(root):
     root = root.resolve()
     documents = set((root / 'docs').rglob('*.md'))
     documents.add(root / 'README.md')
     for entry in ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']:
         if (root / entry).exists(): documents.add(root / entry)
-    errors, edges = [], {}
+    errors, edges = check_backlog(root / 'docs/backlog'), {}
     for sample in sorted((root / 'docs/design').rglob('*.html')):
         parser = DesignHTMLIDs()
         parser.feed(sample.read_text())
@@ -98,4 +138,4 @@ if __name__ == '__main__':
     errors = check(root)
     for error in errors: print(error, file=sys.stderr)
     if errors: sys.exit(1)
-    print('Documentation links, navigation, design HTML IDs, empty directories, and Settings coverage: OK')
+    print('Documentation links, navigation, backlog coverage, design HTML IDs, empty directories, and Settings coverage: OK')

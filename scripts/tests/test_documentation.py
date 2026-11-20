@@ -73,6 +73,35 @@ class DocumentationTests(unittest.TestCase):
             (root / 'docs/obsolete/nested').mkdir(parents=True)
             self.assertTrue(any('empty directory' in error for error in DOCS.check(root)))
 
+    def test_backlog_requires_one_index_link_per_issue_heading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            backlog = root / 'docs/backlog'
+            backlog.mkdir()
+            with (root / 'README.md').open('a') as entry:
+                entry.write('[backlog](docs/backlog/README.md)\n')
+            (backlog / '未実装課題.md').write_text(
+                '## 通話（Wi-Fi）\n\n### 再接続\n\n## 再開待ち\n')
+            index = backlog / 'README.md'
+            active = '| [通話](未実装課題.md#通話wi-fi) | 改善 | 調査中 | 発話を測る |\n'
+            paused = '| [再開待ち](未実装課題.md#再開待ち) | 機能 | 中断 | 指示待ち |\n'
+            index.write_text(f'## 着手順\n\n{active}\n## 判断や再開を待つもの\n\n{paused}')
+            self.assertEqual(DOCS.check(root), [])
+
+            for broken, message in [
+                (active + active, 'duplicate index link #通話wi-fi'),
+                (active.replace('通話wi-fi', '通話'), 'unknown detail heading #通話'),
+                (active.replace('通話wi-fi', '再接続'), 'unknown detail heading #再接続'),
+                (active.replace('改善', '運用'), 'invalid backlog classification 運用'),
+            ]:
+                with self.subTest(message=message):
+                    index.write_text(f'## 着手順\n\n{broken}\n## 判断や再開を待つもの\n\n{paused}')
+                    self.assertTrue(any(message in error for error in DOCS.check(root)))
+
+            index.write_text(f'## 着手順\n\n{active}\n')
+            self.assertTrue(any('unindexed detail heading #再開待ち' in error for error in DOCS.check(root)))
+
     def test_agent_entrypoint_links_are_checked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); self.fixture(root)
