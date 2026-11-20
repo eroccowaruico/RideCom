@@ -77,7 +77,9 @@ struct StandardContactReplyStatus: View {
                         .accessibilityIdentifier("contactInvitationState")
                 } else {
                     Text("Reply not delivered").accessibilityIdentifier("contactInvitationState")
-                    Button("Send Again", systemImage: "arrow.clockwise") { _ = viewModel.resumeContactInvitation(reply.id) }
+                    Button("Send Again", systemImage: "arrow.clockwise") {
+                        _ = viewModel.retryContactPersonInvitation(reply.id, personID: personID)
+                    }
                         .disabled(!viewModel.canEditSavedGroups)
                         .accessibilityIdentifier("retryContactInvitationButton")
                 }

@@ -121,8 +121,7 @@ extension IntercomViewModel {
 
     func retryPresentedContactInvitation(_ id: UUID) {
         guard presentsContactInvitation(id) else { return }
-        contactInvitationMessage = nil
-        _ = resumeContactInvitation(id)
+        _ = retryContactInvitation(id)
     }
 
     @discardableResult
@@ -134,8 +133,12 @@ extension IntercomViewModel {
     @discardableResult
     func retryContactPersonInvitation(_ invitationID: UUID, personID: UUID) -> Bool {
         guard ownsResumableContactInvitation(invitationID, personID: personID) else { return false }
+        return retryContactInvitation(invitationID)
+    }
+
+    private func retryContactInvitation(_ id: UUID) -> Bool {
         contactInvitationMessage = nil
-        return resumeContactInvitation(invitationID)
+        return resumeContactInvitation(id, continuingInBackground: true)
     }
 
     @discardableResult

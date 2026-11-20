@@ -67,8 +67,8 @@ struct ContactBootstrapTests {
         #expect(ProvisionalName.candidate(japanese: false, avoiding: everything, using: &generator) == "Blue Fox 2")
     }
 
-    @Test(arguments: [false, true])
-    func explicitRegistrationContinuesTheSameSignedReplyAfterLeavingTheApp(expires: Bool) throws {
+    @Test(arguments: [false, true], [false, true])
+    func anExplicitReplyAttemptContinuesAfterLeavingTheApp(retrying: Bool, expires: Bool) throws {
         let author = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-author")
         let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-friend")
         let a = author.viewModel, b = friend.viewModel
@@ -95,17 +95,26 @@ struct ContactBootstrapTests {
         #expect(starts == 1, "Register requests time before the user can leave")
         let id = try #require(b.contactInvitationID)
         let saved = try #require(b.contactInvitationRecord(id))
+        if retrying {
+            b.stopContactInvitationSession()
+            let person = try #require(b.savedRemoteUsers.first).id
+            try #require(b.retryContactPersonInvitation(id, personID: person))
+            #expect(starts == 2, "Send Again also requests time before the user can leave")
+            try #require(b.retryContactPersonInvitation(id, personID: person))
+            #expect(starts == 2 && friendTransports.count == 2, "The same running attempt keeps its existing time allowance")
+        }
+        let activeAttempt = retrying ? 2 : 1
         b.dismissContactInvitationPresentation()
         b.suspendContactInvitationForBackground()
-        #expect(b.contactInvitationID == id && friendTransports.count == 1)
-        #expect(finishes == 0)
+        #expect(b.contactInvitationID == id && friendTransports.count == activeAttempt)
+        #expect(finishes == activeAttempt - 1)
         if expires {
             expire?()
-            #expect(b.contactInvitationID == nil && finishes == 1)
+            #expect(b.contactInvitationID == nil && finishes == activeAttempt)
             #expect(b.contactInvitationRecord(id) == saved)
             #expect(b.savedRemoteUsers.count == 1)
             b.resumeSuspendedContactInvitation()
-            #expect(b.contactInvitationID == id && friendTransports.count == 2 && starts == 1)
+            #expect(b.contactInvitationID == id && friendTransports.count == activeAttempt + 1 && starts == activeAttempt)
         }
         let friendTransport = try #require(friendTransports.last)
         friendTransport.authenticate(["background-reply-author"])
@@ -120,7 +129,7 @@ struct ContactBootstrapTests {
         friendTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-author", message: acknowledgement))
         #expect(a.savedRemoteUsers.map(\.memberIDs) == [["background-reply-friend"]])
         #expect(b.savedRemoteUsers.map(\.memberIDs) == [["background-reply-author"]])
-        #expect(b.contactInvitationRecord(id)?.state == .delivered && finishes == 1)
+        #expect(b.contactInvitationRecord(id)?.state == .delivered && finishes == activeAttempt)
         #expect(author.callSession.startMediaCallCount == 0 && friend.callSession.startMediaCallCount == 0)
     }
 
