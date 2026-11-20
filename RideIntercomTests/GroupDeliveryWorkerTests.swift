@@ -6,6 +6,64 @@ import Testing
 
 @MainActor @Suite(.serialized) struct GroupDeliveryWorkerTests {
     @Test(.timeLimit(.minutes(1)), arguments: [1, 9]) func theActualWorkerDeliversAndAcknowledgesAGroupWithoutStartingTheRecipientsCall(count: Int) async throws {
+        try await withWorker { try await exerciseGroupDelivery(count: count) }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func theActualWorkerCompletesContactDeletionAfterRevokingTheNotificationGrant(bothRemoved: Bool) async throws {
+        try await withWorker {
+            let a = GroupDeliveryTestIdentity("worker-contact-delete-author")
+            let b = GroupDeliveryTestIdentity("worker-contact-delete-recipient")
+            defer { a.remove(); b.remove() }
+            try await register(a); try await register(b)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let ownerAccess = try #require(try a.store.notificationAccess(memberID: a.memberID))
+            let recipientAccess = try #require(try b.store.notificationAccess(memberID: b.memberID))
+            let grant = try await client.issueNotificationGrant(origin: recipientAccess.origin, token: recipientAccess.accessToken,
+                                                                 senderUserID: ownerAccess.principal.userID)
+            try await client.revokeNotificationGrant(origin: recipientAccess.origin, token: recipientAccess.accessToken, grantID: grant.grantID)
+            let sender = try a.harness(knowing: [], onDisk: true).viewModel
+            let recipient = try b.harness(knowing: [], onDisk: true).viewModel
+            defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync() }
+            for model in [sender, recipient] {
+                model.groupDeliveryClient = nil
+                model.contactSessionFactory = { RecordingCallSession() }
+                #expect(!model.notifications.isEnabled)
+            }
+            try recipient.acceptContactInviteURL(try #require(sender.makeContactInviteURL()))
+            let invitation = try #require(recipient.pendingContactInvitations.first?.id)
+            try sender.receiveContactReplyURL(recipient.contactReplyURLForSharing(invitation, expectedAccountAccessID: recipient.accountAccessID))
+            sender.stopContactInvitationSession(); recipient.stopContactInvitationSession()
+            try #require(sender.removeSavedUser(try #require(sender.savedRemoteUsers.first).id))
+            if bothRemoved { try #require(recipient.removeSavedUser(try #require(recipient.savedRemoteUsers.first).id)) }
+            let first = try #require(sender.groupRepository.contactDeletionPublications.first)
+            let reverse = recipient.groupRepository.contactDeletionPublications.first
+
+            let left = try a.harness(knowing: [], onDisk: true).viewModel
+            let right = try b.harness(knowing: [], onDisk: true).viewModel
+            defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync() }
+            left.groupDeliveryClient = client; right.groupDeliveryClient = client
+            await left.synchronizeGroupDeliveries()
+            await right.synchronizeGroupDeliveries()
+            await left.synchronizeGroupDeliveries()
+            await right.synchronizeGroupDeliveries()
+            #expect(left.savedRemoteUsers.isEmpty && right.savedRemoteUsers.isEmpty)
+            #expect(left.groupRepository.contactDeletions.isEmpty && right.groupRepository.contactDeletions.isEmpty)
+            #expect(left.groupRepository.contactDeletionPublications.isEmpty && right.groupRepository.contactDeletionPublications.isEmpty)
+            #expect(left.groupRepository.contactDeletionRelayReceipts.isEmpty && right.groupRepository.contactDeletionRelayReceipts.isEmpty)
+            #expect(right.groupRepository.contactDeletionReceipts.map(\.id) == [first.id])
+            #expect(try await client.writeContactDeletion(first, access: ownerAccess) == .retired)
+            if bothRemoved {
+                let reverse = try #require(reverse)
+                #expect(left.groupRepository.contactDeletionReceipts.map(\.id) == [reverse.id])
+                #expect(try await client.writeContactDeletion(reverse, access: recipientAccess) == .retired)
+            }
+        }
+    }
+
+    private func withWorker(_ exercise: () async throws -> Void) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RideIntercom-GroupWorker-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let portFile = directory.appendingPathComponent("port.json"), logFile = directory.appendingPathComponent("fixture.log")
@@ -29,6 +87,10 @@ import Testing
         let port = try #require(fields["port"])
         GroupWorkerHTTPBridge.origin = URL(string: "http://127.0.0.1:\(port)")!
         defer { GroupWorkerHTTPBridge.origin = nil }
+        try await exercise()
+    }
+
+    private func exerciseGroupDelivery(count: Int) async throws {
         let a = GroupDeliveryTestIdentity("worker-author"), b = GroupDeliveryTestIdentity("worker-recipient")
         defer { a.remove(); b.remove() }
         try await register(a); try await register(b)
