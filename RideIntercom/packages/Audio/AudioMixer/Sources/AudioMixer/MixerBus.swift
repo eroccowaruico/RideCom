@@ -199,7 +199,11 @@ public final class MixerBus {
 			mixerFormat: audioFormat,
 			targetFormat: targetFormat
 		)
-		if captureRenderedAudio { try installRenderCaptureIfNeeded() }
+		if captureRenderedAudio {
+			try installRenderCaptureIfNeeded().captureAudio { [weak self] frame in
+				try? self?.deliverToSinks(frame)
+			}
+		}
 		return sink
 	}
 
@@ -233,6 +237,12 @@ public final class MixerBus {
                 sinksByID.values.forEach { $0.beginTransition(settlingDuration: settlingDuration, holding: holding) }
             }
         }
+    }
+
+    /// Install the output fade while assembling the bus. A bus without a PCM
+    /// sink applies the fade inline without capturing or delivering audio.
+    public func prepareOutputTransition() throws {
+        _ = try metadataLock.withLock { try installRenderCaptureIfNeeded() }
     }
 
     public func updatePCMSinkFormat(id: String, targetFormat: AudioFormat) throws {
@@ -455,11 +465,9 @@ public final class MixerBus {
 		}
 	}
 
-	private func installRenderCaptureIfNeeded() throws {
-        guard renderCapture == nil else { return }
-        let capture = try RenderCaptureNode(format: audioFormat, renderClock: renderClock) { [weak self] frame in
-            try? self?.deliverToSinks(frame)
-        }
+	private func installRenderCaptureIfNeeded() throws -> RenderCaptureNode {
+        if let renderCapture { return renderCapture }
+        let capture = try RenderCaptureNode(format: audioFormat, renderClock: renderClock)
         let connections = engine.outputConnectionPoints(for: faderMixer, outputBus: 0)
         engine.attach(capture.node)
         do {
@@ -474,6 +482,7 @@ public final class MixerBus {
             throw error
         }
         renderCapture = capture
+        return capture
     }
 
 	private func isEngineInternalNode(_ node: AVAudioNode) -> Bool {

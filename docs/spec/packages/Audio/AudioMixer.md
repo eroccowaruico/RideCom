@@ -471,7 +471,9 @@ adaptivePlayoutは、無線が同じ相手のpacketを数十ms保持してまと
 
 ## 設定切替の実出力
 
-render captureを持つbusの`beginSinkTransition`は、post-renderの実PCMに2msのfade-out、指定した整定時間、2msのfade-inを適用する。hardware outputと全sinkは同じ変更後のPCMを観測し、計測用コピーだけを加工しない。render threadは事前確保したchannel別状態とatomicな切替要求だけを使う。同期processorのbusは従来どおりsinkで同じ境界処理を行う。定常時のPCM・frame数・時刻は変更しない。
+個別のbus出力を保護するときは、busを組み立てる際に`prepareOutputTransition()`を呼ぶ。同じbusへの再呼び出しでnodeは増えない。PCM sinkを後から有効にすると同じ出力nodeに計測を追加する。sinkがない間は、音声のコピー・配送用メモリ確保・配送キューの起動を行わない。
+
+出力保護を用意したbusとrender captureを持つbusの`beginSinkTransition`は、そのbusのpost-renderの実PCMに2msのfade-out、指定した整定時間、2msのfade-inを適用する。別のbusはそのまま合流し、hardware outputと全sinkが同じ変更後のPCMを観測する。render threadは事前確保したchannel別状態とatomicな切替要求を使う。同期processorのbusはsinkで同じ境界処理を行う。定常時のPCM・frame数・時刻は変更しない。
 
 整定時間後もnative処理が無音を返している場合、fade-inを使い切らず、実際に戻った最初のsampleから適用する。sampleを保持・再送・後方移動せず、停止時間の長さを増やさない。
 

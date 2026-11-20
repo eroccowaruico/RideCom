@@ -13,10 +13,10 @@ final class MixerRenderClock: Sendable {
 final class RenderCaptureNode {
     let node = AVAudioUnitEQ(numberOfBands: 0)
     private let state: RenderState
-    var droppedFrameCount: Int { state.capture.droppedFrameCount }
+    var droppedFrameCount: Int { state.capture.load()?.droppedFrameCount ?? 0 }
 
-    init(format: AudioFormat, renderClock: MixerRenderClock, onFrame: @escaping (PCMFrame) -> Void) throws {
-        state = RenderState(format: format, renderClock: renderClock, onFrame: onFrame)
+    init(format: AudioFormat, renderClock: MixerRenderClock) throws {
+        state = RenderState(format: format, renderClock: renderClock)
         let context = Unmanaged.passUnretained(state).toOpaque()
         let status = node.withAudioUnit { AudioUnitAddRenderNotify($0, Self.receive, context) }
         guard status == noErr else { throw AudioMixerError.pcmSinkInstallFailed("Render notification failed: \(status)") }
@@ -26,8 +26,12 @@ final class RenderCaptureNode {
         state.begin(settlingDuration: settlingDuration, holding: holding)
     }
 
+    func captureAudio(onFrame: @escaping (PCMFrame) -> Void) {
+        state.captureAudio(onFrame: onFrame)
+    }
+
     deinit {
-        state.capture.finish()
+        state.capture.load()?.finish()
         let context = Unmanaged.passUnretained(state).toOpaque()
         _ = node.withAudioUnit { AudioUnitRemoveRenderNotify($0, Self.receive, context) }
     }
@@ -37,7 +41,7 @@ final class RenderCaptureNode {
            !flags.pointee.contains(.unitRenderAction_PostRenderError), let data {
             let state = Unmanaged<RenderState>.fromOpaque(context).takeUnretainedValue()
             state.process(count: Int(count), data: data, flags: flags)
-            state.capture.receive(timestamp: time.pointee, frameCount: count, data: UnsafePointer(data))
+            state.publish(timestamp: time.pointee, frameCount: count, data: UnsafePointer(data))
         }
         return noErr
     }
@@ -46,8 +50,9 @@ final class RenderCaptureNode {
 /// All sample state belongs to the render thread. The serial graph owner only
 /// posts an atomic request. Memory is allocated once, never in the callback.
 private final class RenderState {
-    let capture: AudioRenderCapture
+    let capture = AtomicLazyReference<AudioRenderCapture>()
     private let renderClock: MixerRenderClock
+    private let format: AudioFormat
     private let rate: Double
     private let fadeFrames: Int
     private let channels: Int
@@ -60,9 +65,9 @@ private final class RenderState {
     private var hasResumed = false
     private var holding = false
 
-    init(format: AudioFormat, renderClock: MixerRenderClock, onFrame: @escaping (PCMFrame) -> Void) {
+    init(format: AudioFormat, renderClock: MixerRenderClock) {
         self.renderClock = renderClock
-        capture = AudioRenderCapture(format: format, onFrame: onFrame)
+        self.format = format
         rate = format.sampleRate
         channels = format.channelCount
         fadeFrames = max(1, Int((rate * 0.002).rounded()))
@@ -71,13 +76,23 @@ private final class RenderState {
     }
     deinit { last.deallocate(); beginning.deallocate() }
 
+    func captureAudio(onFrame: @escaping (PCMFrame) -> Void) {
+        guard capture.load() == nil else { return }
+        _ = capture.storeIfNil(AudioRenderCapture(format: format, onFrame: onFrame))
+    }
+
+    func publish(timestamp: AudioTimeStamp, frameCount: UInt32, data: UnsafePointer<AudioBufferList>) {
+        guard let capture = capture.load() else { return }
+        renderClock.frameCount.store(Int(frameCount), ordering: .relaxed)
+        capture.receive(timestamp: timestamp, frameCount: frameCount, data: data)
+    }
+
     func begin(settlingDuration: TimeInterval, holding: Bool = false) {
         let duration = settlingDuration.isFinite ? min(1, max(0.002, settlingDuration)) : 0.002
         requestedFrames.store(holding ? -2 : max(fadeFrames, Int((rate * duration).rounded())), ordering: .releasing)
     }
 
     func process(count: Int, data: UnsafeMutablePointer<AudioBufferList>, flags: UnsafeMutablePointer<AudioUnitRenderActionFlags>) {
-        renderClock.frameCount.store(count, ordering: .relaxed)
         let buffers = UnsafeMutableAudioBufferListPointer(data)
         guard count > 0, buffers.count == channels,
               buffers.allSatisfy({ $0.mData != nil && $0.mDataByteSize >= count * MemoryLayout<Float>.size }) else { return }

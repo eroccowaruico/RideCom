@@ -325,6 +325,55 @@ func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovem
     #expect((0..<480).allSatisfy { output.floatChannelData![0][$0] == 0.25 })
 }
 
+@Test func busTransitionProtectsOnlyItsAudioWithoutARecordingSink() throws {
+    let engine = AVAudioEngine()
+    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+    try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 480)
+    let mixer = try AudioMixer(engine: engine, audioFormat: .init())
+    let selected = try mixer.createBus("selected")
+    let other = try mixer.createBus("other")
+    let mix = try mixer.createBus("mix")
+    try selected.prepareOutputTransition()
+    let preparedOutput = selected.outputNode
+    try selected.prepareOutputTransition()
+    #expect(selected.outputNode === preparedOutput)
+    for bus in [selected, other] {
+        let source = AVAudioSourceNode(format: format) { _, _, count, buffers in
+            for buffer in UnsafeMutableAudioBufferListPointer(buffers) {
+                buffer.mData!.assumingMemoryBound(to: Float.self).update(repeating: 0.25, count: Int(count))
+            }
+            return noErr
+        }
+        try bus.addSource(source, id: "continuous")
+        try mixer.route(bus, to: mix)
+    }
+    try mixer.routeToOutput(mix)
+    try mixer.start()
+    defer { mixer.stop() }
+    let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
+    func render() throws -> [Float] {
+        #expect(try engine.renderOffline(480, to: output) == .success)
+        return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
+    }
+    #expect(try render().allSatisfy { $0 == 0.5 })
+
+    selected.beginSinkTransition(settlingDuration: 0, holding: true)
+    let down = try render()
+    #expect(down.first == 0.5)
+    #expect(down.dropFirst(96).allSatisfy { $0 == 0.25 })
+    #expect(zip(down, down.dropFirst()).allSatisfy { abs($1 - $0) < 0.003 })
+
+    _ = try selected.installPCMSink(id: "meter", targetFormat: .init()) { _, _ in }
+    #expect(selected.outputNode === preparedOutput)
+    #expect(try render().allSatisfy { $0 == 0.25 })
+
+    selected.beginSinkTransition(settlingDuration: 0)
+    let up = try render()
+    #expect(up.first == 0.25)
+    #expect(up.dropFirst(192).allSatisfy { $0 == 0.5 })
+    #expect(zip(up, up.dropFirst()).allSatisfy { abs($1 - $0) < 0.003 })
+}
+
 @Test func twoPacketCaptureBatchesDoNotShortenNormalConversationPauses() throws {
     let engine = AVAudioEngine()
     let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
