@@ -46,6 +46,11 @@ def target_settings(project, name):
     return [config['buildSettings'] for config in target_configurations(project, name)]
 
 
+def build_setting_items(settings, name):
+    value = settings.get(name, '')
+    return value if isinstance(value, list) else value.split()
+
+
 def target_resource_paths(project, name):
     objects = project['objects']
     target = next(obj for obj in objects.values() if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == name)
@@ -167,9 +172,9 @@ def check(root, project=None):
     for config in target_configurations(project, 'RideIntercom'):
         settings = config['buildSettings']
         excludes_watch = config['name'] == 'Release'
-        require(('RideIntercomWatch.app' in settings.get('EXCLUDED_SOURCE_FILE_NAMES', '').split()) == excludes_watch,
+        require(('RideIntercomWatch.app' in build_setting_items(settings, 'EXCLUDED_SOURCE_FILE_NAMES')) == excludes_watch,
                 'Exclude the Watch product only from the distribution Release configuration.')
-        require(('RideIntercomWatch' in settings.get('EXCLUDED_EXPLICIT_TARGET_DEPENDENCIES', '').split()) == excludes_watch,
+        require(('RideIntercomWatch' in build_setting_items(settings, 'EXCLUDED_EXPLICIT_TARGET_DEPENDENCIES')) == excludes_watch,
                 'Exclude the Watch target dependency only from the distribution Release configuration.')
     watch_scheme = ET.parse(root / 'RideIntercom.xcodeproj/xcshareddata/xcschemes/RideIntercomWatch.xcscheme')
     watch_entry = watch_scheme.find('./BuildAction/BuildActionEntries/BuildActionEntry')

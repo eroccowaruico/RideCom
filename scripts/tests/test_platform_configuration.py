@@ -65,6 +65,24 @@ class PlatformConfigurationTests(unittest.TestCase):
     def test_repository_has_complete_minimum_platform_inputs(self):
         self.assertEqual(self.checker.check(ROOT), [])
 
+    def test_watch_distribution_exclusions_accept_xcode_list_and_string_settings(self):
+        settings = {
+            'EXCLUDED_SOURCE_FILE_NAMES': 'RideIntercomWatch.app',
+            'EXCLUDED_EXPLICIT_TARGET_DEPENDENCIES': 'RideIntercomWatch',
+        }
+        for uses_list in (False, True):
+            with self.subTest(uses_list=uses_list):
+                project = copy.deepcopy(self.project)
+                config = next(cfg['buildSettings'] for cfg in self.checker.target_configurations(project, 'RideIntercom')
+                              if cfg['name'] == 'Release')
+                for name, product in settings.items():
+                    inputs = ['$(inherited)', product]
+                    config[name] = inputs if uses_list else ' '.join(inputs)
+                self.assertEqual(self.checker.check(ROOT, project), [])
+                config['EXCLUDED_SOURCE_FILE_NAMES'] = ['$(inherited)'] if uses_list else '$(inherited)'
+                self.assertIn('Exclude the Watch product only from the distribution Release configuration.',
+                              self.checker.check(ROOT, project))
+
     def test_icon_composer_resource_is_registered_for_app_and_watch(self):
         app_icon = ROOT / 'RideIntercom/RideComAppIcon.icon'
         self.assertTrue((app_icon / 'icon.json').is_file())

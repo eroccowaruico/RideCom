@@ -59,6 +59,8 @@ App Privacy、プライバシーポリシーURL、年齢区分、審査連絡先
 
 `python3 scripts/check_platform_configuration.py`は、OS別entitlement、App Group、APNs環境の接続、日英権限説明、Watchアイコン、埋込product、近距離設定を読み取り検査する。CLIの開発設定検査（`scripts/check_development_setup.py`）からも実行する。Xcodeの通常build phaseには組み込まない。portalやOS許可は変更しない。
 
+Watchの埋込製品と依存ターゲットの除外は、Xcodeプロジェクト内で空白区切りの文字列または配列として保存される。構造検査は両形式から値を読み取り、通常配布用の `Release` だけで除外する条件を確認する。
+
 Xcodeで通常のRelease Archiveを生成し、Organizerから実際の配布先へexportした**最終artifact**を確認する。iOSは展開したPayload内、macOSは.app内のInfo.plistを使用する。
 
 ```sh
