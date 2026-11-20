@@ -85,7 +85,7 @@ Pathsでは、相手名、Local／Internetと経路種別、送信元から自�
 
 Build 1466のiOS 27.2 Simulatorでは診断のページ切替と回転、最大文字での操作を含む11テスト・15実行が成功した。続くBuild 1467では、最大文字の経路を1行1IDと下向きの矢印で描き、通常文字と最大文字の320pt幅で相手名、全ID、順序、`Stale`を確認した。7テストが成功し、両Buildとも失敗・skip・実行時警告は0。Chromeの390px幅でもHTML内の直接・中継・古い観測の3例を確認した。証跡は `.validation/isolation-labels-1460/network-final`。
 
-Appの描画には既存RTC契約と同じ観測値を入力した。RTC側では、近距離とInternetの混在で、中継を経て受信した相手の経路をreportに含めることを既存の `localOnlyMemberKeepsTalkingAcrossMixedRoutesAndGatewayDeparture` が検証している。実無線での照合は[画面デザインの実環境受入](../未確認事項.md#画面デザインの実環境受入)へ残し、計測カードの狭い幅での省略は[Networkの表示差](../../backlog/画面実装とデザイン見本の差分.md#network)へ記録した。
+Appの描画には既存RTC契約と同じ観測値を入力した。RTC側では、近距離とInternetの混在で、中継を経て受信した相手の経路をreportに含めることを既存の `localOnlyMemberKeepsTalkingAcrossMixedRoutesAndGatewayDeparture` が検証している。実無線での照合は[画面デザインの実環境受入](../未確認事項.md#画面デザインの実環境受入)へ残し、計測カードの狭い幅での省略は[Networkの表示差](../../development/history/バックログの優先順位と進捗の記録.md#画面差分の整理前の記録)へ記録した。
 
 ## 狭い画面でNetworkの計測値を読む（2026-11-20）
 
