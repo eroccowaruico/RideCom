@@ -4,6 +4,7 @@ import RTC
 @MainActor
 final class NearbyGroupDeliveryWindow {
     let id = UUID()
+    var eligibleDeliveryIDs: Set<UUID> = []
     var timeout: Task<Void, Never>?
     var endBackgroundTime: (() -> Void)?
 }
@@ -73,7 +74,7 @@ extension IntercomViewModel {
         if pending.isEmpty {
             closeNearbyGroupDeliveryWindow()
         } else if startOffers {
-            openNearbyGroupDeliveryWindow(afterSave: afterSave)
+            openNearbyGroupDeliveryWindow(for: Set(pending.map(\.id)), afterSave: afterSave)
         }
 
         var offered: Set<PeerID> = []
@@ -111,16 +112,20 @@ extension IntercomViewModel {
         }
     }
 
-    private func openNearbyGroupDeliveryWindow(afterSave: Bool) {
-        let window: NearbyGroupDeliveryWindow
-        if let active = nearbyGroupDeliveryWindow {
-            window = active
-        } else {
-            window = NearbyGroupDeliveryWindow()
-            nearbyGroupDeliveryWindow = window
+    private func openNearbyGroupDeliveryWindow(for deliveryIDs: Set<UUID>, afterSave: Bool) {
+        let window = nearbyGroupDeliveryWindow ?? NearbyGroupDeliveryWindow()
+        nearbyGroupDeliveryWindow = window
+        let hasNewSave = afterSave && !deliveryIDs.isSubset(of: window.eligibleDeliveryIDs)
+        window.eligibleDeliveryIDs = deliveryIDs
+        if window.timeout == nil || hasNewSave {
+            // Renew only the app deadline. Any system expiration still ends the entire window.
+            window.timeout?.cancel()
             let id = window.id
             window.timeout = Task { [weak self] in
-                do { try await Task.sleep(for: .seconds(20)) } catch { return }
+                do {
+                    try await Task.sleep(for: .seconds(20))
+                    try Task.checkCancellation()
+                } catch { return }
                 self?.expireNearbyGroupDeliveryWindow(id)
             }
         }

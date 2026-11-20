@@ -49,6 +49,53 @@ import UserNotifications
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func anotherSaveRenewsTheNearbyDeadlineWithoutReopeningTheExchange() async throws {
+        let a = GroupDeliveryTestIdentity("renew-nearby-sender")
+        let b = GroupDeliveryTestIdentity("renew-nearby-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try a.harness(knowing: [b], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [a], onDisk: true).viewModel
+        defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync(); sender.disconnect() }
+        for model in [sender, recipient] {
+            model.groupDeliveryClient = nil
+            model.allowsNearbyGroupDelivery = true
+        }
+
+        var requested = 0
+        var ended = 0
+        sender.beginGroupDeliveryBackgroundTime = { _ in
+            requested += 1
+            return { ended += 1 }
+        }
+        sender.setNearbyGroupDeliveryForeground(true)
+        try #require(sender.createTalkGroup(name: "First group", userIDs: [b.personID]))
+        let earlierTimer = try #require(sender.nearbyGroupDeliveryWindow?.timeout)
+        let earlierExchange = try #require(sender.nearbyGroupDeliveryExchange?.id)
+
+        try #require(sender.createTalkGroup(name: "Second group", userIDs: [b.personID]))
+        try #require(earlierTimer.isCancelled, "The first deadline must stop owning the newer save")
+        await earlierTimer.value
+        let renewedTimer = try #require(sender.nearbyGroupDeliveryWindow?.timeout)
+        sender.requestGroupDeliverySync(.localChange)
+        #expect(!renewedTimer.isCancelled, "Refreshing the same saved records must leave the finite deadline in place")
+        #expect(sender.nearbyGroupDeliveryExchange?.id == earlierExchange)
+        #expect(requested == 1)
+
+        let deliveries = sender.groupRepository.groupDeliveries
+        try #require(deliveries.count == 2)
+        sender.setNearbyGroupDeliveryForeground(false)
+        recipient.setNearbyGroupDeliveryForeground(true)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            sender.groupRepository.groupDeliveries.filter { $0.state == .received }.count == deliveries.count
+        }
+        #expect(sender.groupRepository.groupDeliveries.filter { $0.state == .received }.count == deliveries.count)
+        #expect(Set(recipient.groups.map(\.id)) == Set(deliveries.map(\.groupID)))
+        #expect(ended == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func backgroundTimeExpiryKeepsTheSameInviteForTheNextForegroundLaunch() async throws {
         let a = GroupDeliveryTestIdentity("expiry-nearby-sender")
         let b = GroupDeliveryTestIdentity("expiry-nearby-recipient")
