@@ -70,6 +70,32 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                     'AudioE2ETests/testReceiveIsolationKeepsItsEffectWhenEnabledAgain',
                 ) if mode == 'switches' else ())
 
+    def test_evidence_names_the_measurements_required_for_each_run(self):
+        examples = [
+            ('standalone', ['--switches-only'], ['live-settings', 'input-mode-recovery'], None),
+            ('selected', ['--scenario', 'output-mute'], ['output-mute'], ['output-mute']),
+            ('mixed', ['--transport', 'mixed', '--matrix', 'smoke'],
+             ['one-way-initial', 'local-before', 'internet-during', 'local-after'], ['default']),
+            ('cleanup', ['--cleanup-only'], [], None),
+        ]
+        for name, arguments, measurements, scenario_ids in examples:
+            out = self.root / name
+            argv = ['audio_e2e.py', '--output', str(out), *arguments]
+            with self.subTest(mode=name), patch.object(sys, 'argv', argv), patch.dict(os.environ), \
+                    patch.object(audio, 'simulator_resource_root', return_value=self.root), \
+                    patch.object(audio, 'source_manifest', return_value={'head': 'fixture', 'files': {}}), \
+                    patch.object(audio.Runner, 'run', return_value=False), \
+                    patch.object(audio.SimulatorLease, 'prepare', return_value=None), \
+                    patch.object(audio.SimulatorLease, 'cleanup_host', return_value=True):
+                self.assertEqual(audio.main(), 0 if name == 'cleanup' else 1)
+                configuration = json.loads((out / 'configuration.json').read_text())
+                self.assertEqual(configuration['expectedMeasurementIDs'], measurements)
+                scenarios_file = out / 'scenarios.json'
+                if scenario_ids is None:
+                    self.assertFalse(scenarios_file.exists())
+                else:
+                    self.assertEqual([case['id'] for case in json.loads(scenarios_file.read_text())], scenario_ids)
+
     def test_audio_scenario_errors_stop_before_creating_run_artifacts(self):
         examples = [
             (['--matrix', 'smoke', '--scenario', 'output-mute'], 'not in the smoke matrix'),

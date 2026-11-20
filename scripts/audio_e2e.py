@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.validate import ROOT, Runner, xcode_tests_passed, file_fingerprint, fingerprints_match, test_host_metadata
 from scripts.test_lifecycle import exclusive_run, SimulatorLease, simulator_resource_root, process_snapshot
 from scripts.xcode_paths import scheme_configuration, xcode_build_settings, select_test_run
-from scripts.audio_e2e_matrix import STANDALONE_AUDIO_PLANS, scenarios
+from scripts.audio_e2e_matrix import MIXED_AUDIO_MEASUREMENT_IDS, STANDALONE_AUDIO_PLANS, scenarios
 
 
 def source_manifest():
@@ -278,7 +278,7 @@ def main():
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
-    cases = scenarios(args.matrix, args.seconds)
+    cases = [] if standalone or args.cleanup_only else scenarios(args.matrix, args.seconds)
     if args.scenario:
         if standalone or args.cleanup_only or args.transport == 'mixed':
             parser.error('--scenario requires a network audio matrix (local, webrtc, or all)')
@@ -306,15 +306,25 @@ def main():
 def execute(args, runner, resource_root, cases, standalone):
     out = runner.out
     run_id = str(uuid.uuid4())
-    if args.codec != 'default':
-        for case in cases: case['codec'] = args.codec
-    if args.isolation == 'off':
-        for case in cases: case['transmitIsolation'] = False
-    (out / 'scenarios.json').write_text(json.dumps(cases, indent=2) + '\n')
+    for case in cases:
+        if args.codec != 'default':
+            case['codec'] = args.codec
+        if args.isolation == 'off':
+            case['transmitIsolation'] = False
+    if cases:
+        (out / 'scenarios.json').write_text(json.dumps(cases, indent=2) + '\n')
+    if args.cleanup_only:
+        measurement_ids = ()
+    elif standalone:
+        measurement_ids = standalone.measurement_ids
+    elif args.transport == 'mixed':
+        measurement_ids = MIXED_AUDIO_MEASUREMENT_IDS
+    else:
+        measurement_ids = tuple(case['id'] for case in cases)
     (out / 'configuration.json').write_text(json.dumps(dict(run=run_id, seconds=args.seconds, codec=args.codec,
         isolation=args.isolation, buildConfiguration=args.configuration, input='bundled synthetic speech WAV', transport=args.transport,
         speechPair=args.speech_pair, pipelineOnly=args.pipeline_only, realtimeOnly=args.realtime_only, groupOnly=args.group_only, codecOnly=args.codec_only, switchesOnly=args.switches_only,
-        twoSimulators=args.two_simulators, output='system AVAudioEngine render tap'), indent=2) + '\n')
+        twoSimulators=args.two_simulators, expectedMeasurementIDs=measurement_ids, output='system AVAudioEngine render tap'), indent=2) + '\n')
     audio_pins = []
     leases = [SimulatorLease(runner, resource_root / name) for name in ['reusable.json', 'ephemeral.json']]
     lease = leases[int(args.ephemeral)]
@@ -420,7 +430,7 @@ def execute(args, runner, resource_root, cases, standalone):
             folder = out / 'attachments-pipeline'
             if runner.run('attachments-pipeline', ['xcrun', 'xcresulttool', 'export', 'attachments',
                 '--path', str(out / 'pipeline.xcresult'), '--output-path', str(folder)], timeout=60):
-                rows = measurements(folder, standalone.measurement_ids, 'pipeline', 'none')
+                rows = measurements(folder, measurement_ids, 'pipeline', 'none')
                 (out / 'pipeline-measurements.json').write_text(json.dumps(rows, indent=2) + '\n')
             transports = []
         measured = []
@@ -464,8 +474,7 @@ def execute(args, runner, resource_root, cases, standalone):
                     '--path', str(out / (name + '.xcresult')), '--output-path', str(folder)], timeout=60)
                 if exported:
                     try:
-                        expected_ids = ['one-way-initial', 'local-before', 'internet-during', 'local-after'] if transport == 'mixed' else [case['id'] for case in cases]
-                        measured += measurements(folder, expected_ids, role, transport)
+                        measured += measurements(folder, measurement_ids, role, transport)
                         runner.record('coverage-' + name, [], 'passed', 0, time.monotonic())
                     except (OSError, ValueError) as error:
                         runner.record('coverage-' + name, [], 'failed', 1, time.monotonic(), str(error))

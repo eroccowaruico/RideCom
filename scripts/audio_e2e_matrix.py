@@ -42,6 +42,8 @@ STANDALONE_AUDIO_PLANS = {
     ),
 }
 
+MIXED_AUDIO_MEASUREMENT_IDS = ('one-way-initial', 'local-before', 'internet-during', 'local-after')
+
 
 def scenarios(mode, seconds):
     def case(name, **changes):

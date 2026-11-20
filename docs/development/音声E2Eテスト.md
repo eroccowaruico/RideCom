@@ -55,7 +55,7 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 | full | quickに加え、3 codec指定×3 rate、AAC/Opusのbit rate下限・上限×3 rate、mode・speaker・明示echo cancellationの6通り、master/peer音量ゼロ、送信muteと復帰 |
 | identity | 20秒以上の全文照合。既定設定、PCM16で送信Isolation無効、Opusで送信Isolation無効を比較。英語・日本語・間と相槌を含む会話を別runで実行する |
 
-マトリクスの正本はリポジトリの`scripts/audio_e2e_matrix.py`にある。各runの`scenarios.json`へ実行対象の条件を保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
+マトリクスの正本はリポジトリの`scripts/audio_e2e_matrix.py`にある。通信試験の両端に渡す設定を`scenarios.json`へ保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
 
 音声sessionはSettingsと同じMode・Use Speaker・Echo Cancellationの操作関数を使う。iOS側でBurst modeはspeakerと明示echo希望の4通り、Stream modeはspeaker ON/OFFの2通りを通す。MacはCoreAudio固有のデバイスIDを持ち、iOSのbuilt-in-speaker指定を持たないため、相手側として実system default出力を使う。表示用の値だけでなく、SessionManagerへ渡されたmode・speaker・echo希望と、OS操作が失敗していないことも検査する。物理機器が必要なBluetooth・有線デバイス選択はSimulatorの設定網羅に含めない。
 
@@ -146,8 +146,9 @@ python3 scripts/audio_e2e.py --cleanup-only
 |---|---|
 | results.json / results.tsv | build、実行、受入判定、後片付けの成否と秒数 |
 | measurements.json | 全通信経路・全端末・全設定の発話照合、packet数、render数、peak、要求／実選択codec。各設定の実測が揃わない場合も失敗扱い |
-| pipeline-measurements.json | `--pipeline-only`の20ms／100ms入力周期別の連続性、相手別の再生予約調整・リセット、最終出力側のリセット、処理失敗 |
-| configuration.json / scenarios.json | run識別子、入力境界、通信経路、設定区間 |
+| pipeline-measurements.json | 各専用modeで回収した測定。`--pipeline-only`では20ms／100ms入力周期別の連続性、相手別の再生予約調整・リセット、最終出力側のリセット、処理失敗 |
+| configuration.json | run識別子、入力境界、通信経路、実行するmodeと`expectedMeasurementIDs`。同じIDを、通信試験の経路と両端ごと、または専用modeの測定結果の照合に使う。`--cleanup-only`の期待IDは空配列 |
+| scenarios.json | 通信試験の両端に渡す設定。通常の通信試験では選択したマトリクス、`--transport mixed`では通話を始めるための初期設定。専用modeと`--cleanup-only`では作成しない |
 | source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含め、buildから受入までにsourceが変わると失敗扱い |
 | local-mac.xcresult / local-ios.xcresult / webrtc-mac.xcresult / webrtc-ios.xcresult | 通信経路・端末別の独立したXCTest結果 |
 | attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性不合格時の復号・ミキサーWAV、終了時の状態 |
