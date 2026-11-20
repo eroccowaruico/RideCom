@@ -69,6 +69,75 @@ class ValidationTests(unittest.TestCase):
         self.assertGreater(self.module.IOS_TESTS_SECONDS, 4307)
         self.assertIsNone(self.module.ios_tests_timeout({'VALIDATION_TIMEOUT_SECONDS': '600'}))
 
+    def test_selected_ios_suites_keep_recovery_and_regular_width_on_their_own_stages(self):
+        contact = 'RideIntercomTests/ContactReplyTests'
+        design = 'RideIntercomUITests/DesignSystemCallUITests'
+        recovery = 'RideIntercomUITests/RideIntercomUITests/testCorruptGroupStoreRecovery'
+        ipad = self.module.IPAD_ONLY_TESTS[0]
+        partition = self.module.ios_test_selection
+        self.assertEqual(partition([contact, design, recovery]), ([contact, design], [recovery], [ipad]))
+        self.assertEqual(partition([ipad + '()']), ([], [], [ipad]))
+        self.assertEqual(partition([contact]), ([contact], [], []))
+
+    def test_selected_results_identify_missing_selectors_and_unexpected_tests(self):
+        cases = [{'nodeType': 'Test Case', 'nodeIdentifier': identifier, 'result': 'Passed'}
+                 for identifier in ['ContactTests/reply(retrying:)', 'ContactTests/accept()', 'OtherTests/unrelated()']]
+        result = {'testNodes': [{'nodeType': 'Test Plan', 'children': [
+            {'nodeType': 'Unit test bundle', 'name': 'RideIntercomTests', 'children': [
+                {'nodeType': 'Test Suite', 'children': cases}
+            ]}
+        ]}]}
+        selected = ['RideIntercomTests/ContactTests/reply', 'RideIntercomTests/ContactTests/accept()',
+                    'RideIntercomTests/ContactTests/missing']
+        coverage = self.module.test_selection_coverage(result, selected)
+        self.assertEqual(coverage['selected'], selected)
+        self.assertEqual(coverage['missing'], [selected[2]])
+        self.assertEqual(coverage['unexpected'], ['RideIntercomTests/OtherTests/unrelated()'])
+        self.assertEqual(len(coverage['executed']), 3)
+
+    def test_selection_is_a_separate_gate_even_when_xcode_succeeds(self):
+        present = 'RideIntercomTests/ContactTests/accept'
+        missing = 'RideIntercomTests/ContactTests/missing'
+        case = {'nodeType': 'Test Case', 'nodeIdentifier': 'ContactTests/accept()', 'result': 'Passed'}
+        result = {'testNodes': [{'nodeType': 'Unit test bundle', 'name': 'RideIntercomTests', 'children': [case]}]}
+        def list_tests(stage, command, **kwargs):
+            self.assertEqual(kwargs['needs'], ['macos-tests'])
+            (self.runner.out / f'{stage}.log').write_text(json.dumps(result))
+            return self.runner.record(stage, command, 'passed', 0, time.monotonic())
+        with patch.object(self.runner, 'run', side_effect=list_tests):
+            self.runner.check_test_selection('macos-tests', self.runner.out / 'macos.xcresult', [present, missing])
+        evidence = json.loads((self.runner.out / 'macos-tests-selection.json').read_text())
+        self.assertEqual(evidence['missing'], [missing])
+        self.assertEqual(self.runner.results['macos-tests-selection']['status'], 'failed')
+        self.assertEqual(self.runner.exit_code, 1)
+
+    def test_focused_ios_routing_uses_only_requested_simulators(self):
+        from contextlib import nullcontext
+        contact = 'RideIntercomTests/ContactReplyTests'
+        ipad = self.module.IPAD_ONLY_TESTS[0]
+        runtime = {'isAvailable': True, 'name': 'iOS 27.2', 'version': '27.2', 'identifier': 'iOS-27-2'}
+        (self.runner.out / 'simulator-runtimes.log').write_text(json.dumps({'runtimes': [runtime]}))
+        with patch.object(self.module, 'simulator_resource_root', return_value=self.runner.out), \
+             patch.object(self.module, 'exclusive_run', return_value=nullcontext()), \
+             patch.object(self.module, 'run_iphone_tests') as iphone, \
+             patch.object(self.module, 'SimulatorLease') as lease, \
+             patch.object(self.module, 'boot_simulator') as boot, \
+             patch.object(self.runner, 'run', return_value=True), \
+             patch.object(self.runner, 'xcode') as xcode:
+            self.module.run_ios_tests(self.runner, 'ios', [contact])
+            iphone.assert_called_once_with(self.runner, 'iOS-27-2', [contact], [], True)
+            lease.assert_not_called()
+            iphone.reset_mock()
+            self.runner.results['webrtc-artifact'] = {'status': 'passed'}
+            lease.return_value.prepare.return_value = 'test-ipad'
+            self.module.run_ios_tests(self.runner, 'ios-ui', [ipad])
+            iphone.assert_not_called()
+            lease.assert_called_once_with(self.runner, self.runner.out / 'reusable-ipad.json')
+            boot.assert_called_once_with(self.runner, 'test-ipad', 'ipad')
+            xcode.assert_called_once_with('ipad-tests', 'platform=iOS Simulator,id=test-ipad', only=[ipad],
+                                         needs=['webrtc-artifact', 'ipad-ready'], reuse_build=None,
+                                         verify_selection=True)
+
     def test_timeout_kills_owned_child_process_group(self):
         child = Path(self.temporary.name) / 'child.pid'
         code = ('import subprocess,time; p=subprocess.Popen(["sleep","60"]); '
