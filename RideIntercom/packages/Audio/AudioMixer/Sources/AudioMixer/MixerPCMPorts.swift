@@ -38,7 +38,9 @@ public final class MixerPCMSource {
 
 	typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
 
-	private var playbackPosition: PlaybackPosition {
+	private var playbackPosition: (
+		position: PlaybackPosition, anchorSample: AVAudioFramePosition?, anchorHostTime: TimeInterval?
+	) {
 		// playerTime also checks that the node is playing.
 		return playerNode.lastRenderTime.flatMap { time in
 			guard time.isSampleTimeValid || time.isHostTimeValid,
@@ -47,16 +49,18 @@ public final class MixerPCMSource {
 			// device position. Use its host clock so a healthy boundary does not
 			// spuriously cross the bounded capture-time playout window.
 			let engine = playerNode.engine
-			let elapsed = engine?.isInManualRenderingMode == false && engine?.isRunning == true
+			let usesRealtimeClock = engine?.isInManualRenderingMode == false && engine?.isRunning == true
 				&& playerNode.isPlaying && time.isHostTimeValid
-				? max(0, ProcessInfo.processInfo.systemUptime - AVAudioTime.seconds(forHostTime: time.hostTime)) : 0
+			let hostTime = usesRealtimeClock ? AVAudioTime.seconds(forHostTime: time.hostTime) : nil
+			let elapsed = hostTime.map { max(0, ProcessInfo.processInfo.systemUptime - $0) } ?? 0
             let quantum = engine?.isInManualRenderingMode == false ? renderClock.frameCount.load(ordering: .relaxed) : 0
-            return (max(0, played.sampleTime),
-                max(0, played.sampleTime + max(AVAudioFramePosition(quantum), AVAudioFramePosition(elapsed * played.sampleRate))))
-		} ?? (0, 0)
+			let position = (max(0, played.sampleTime),
+				max(0, played.sampleTime + max(AVAudioFramePosition(quantum), AVAudioFramePosition(elapsed * played.sampleRate))))
+			return (position, hostTime == nil ? nil : played.sampleTime, hostTime)
+		} ?? ((0, 0), nil, nil)
 	}
 	public var bufferedDuration: TimeInterval {
-		Double(max(0, scheduledEndSample - playbackPosition.writable)) / mixerFormat.sampleRate
+		Double(max(0, scheduledEndSample - playbackPosition.position.writable)) / mixerFormat.sampleRate
 	}
 
 	public var volume: Float {
@@ -90,8 +94,10 @@ public final class MixerPCMSource {
     /// `arrivedAt` is the local monotonic time the packet arrived (uptime
     /// seconds by default). Link jitter is learned from it, never from the
     /// render clock, which also moves for local output events.
+	/// `onReservation` observes successful timestamped scheduling on the caller's thread.
 	public func schedule(_ frame: PCMFrame, packetizationJitter: TimeInterval = 0,
-                         arrivedAt: TimeInterval = ProcessInfo.processInfo.systemUptime) throws -> AudioProcessingReport {
+                         arrivedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+                         onReservation: ((MixerPlayoutReservation) -> Void)? = nil) throws -> AudioProcessingReport {
 		do {
             guard packetizationJitter.isFinite, (0...0.06).contains(packetizationJitter) else {
                 throw AudioMixerError.pcmSourceScheduleFailed("Invalid packetization timing")
@@ -103,7 +109,8 @@ public final class MixerPCMSource {
             }
 			let capturedAt = normalized.frame.capturedAt
 			let buffer = try normalized.frame.makePCMBuffer()
-			let position = playbackPosition
+			let playback = playbackPosition
+			let position = playback.position
             let rendered = position.writable
 			var options: AVAudioPlayerNodeBufferOptions = []
 			let duration = Double(buffer.frameLength) / mixerFormat.sampleRate
@@ -161,6 +168,12 @@ public final class MixerPCMSource {
 			playerNode.scheduleBuffer(buffer, at: time, options: options)
             if startRequested && !playerNode.isPlaying { try playerNode.playAudio() }
 			recordSchedule(frame, normalized.report, nil, true)
+			if let onReservation, time != nil {
+				onReservation(.init(capturedAt: capturedAt, sampleRate: mixerFormat.sampleRate,
+					startSample: startSample, frameCount: Int(buffer.frameLength), completedSample: position.completed,
+					writableSample: position.writable, renderAnchorSample: playback.anchorSample,
+					renderAnchorHostTime: playback.anchorHostTime))
+			}
 			return normalized.report
 		} catch let failure as AudioProcessingFailure {
 			recordSchedule(frame, nil, failure.reason, false)

@@ -389,6 +389,7 @@ snapshot は Codable とし、RTC runtime package report へ載せられる。
 | 超過 | 新frameを加える前の予約量が上限以上なら、`.interrupts`で古い予約を最新bufferへ置換する。player時計、他peerのsource、effect instanceは維持する |
 | 単一frameが上限超過 | schedule失敗として報告。長いframeを遅延再生したり、formatを偽装して短く扱わない |
 | snapshot | `bufferedDuration`、`playbackResetCount`、`playoutAdjustmentCount`をsourceごとに報告。調整回数はadaptive playoutによる予約位置の調整の累計で、PCM sourceの生成時に0から始まる。PCM playerのないsourceや旧形式のsnapshotの調整回数はnil |
+| `schedule`の`onReservation` | 指定時は、成功した時刻付きPCM予約の収録時刻、予約開始sample、sample数、sample rate、完了位置と書込み可能位置を一度同期通知する。各位置は同じsourceのplayer時計を使う。有効なnative描画時計があれば、時間換算用にその時点のplayer sample位置とhost時刻を対で返す。オフライン描画と未取得時は両方nil。予約時点の情報であり、実際に出力された波形は出力側で照合する |
 | `lastPlayoutAdjustment` | 各sourceで直近のadaptive調整1件。対象frameの `capturedAt` に加え、調整前の `previousSample`、描画済みの `completedSample`、新たに予約する `scheduledSample` を同じplayerのサンプル時計で報告する。調整前時刻を整数サンプル位置で表せない場合は `previousSample` がnil。調整が起きていないsource・PCM playerのないsource・旧形式のsnapshotは `lastPlayoutAdjustment` がnil |
 | Mixer停止 | 全PCM sourceを停止して予約も解放する。再開後に旧音声を出さない |
 

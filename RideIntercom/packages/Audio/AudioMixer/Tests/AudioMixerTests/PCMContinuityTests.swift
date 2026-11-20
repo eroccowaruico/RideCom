@@ -450,10 +450,11 @@ func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovem
     defer { mixer.stop() }
     // Both packets arrive together. Their capture clock has an arbitrary epoch
     // and an 80 ms pause between them; arrival order alone cannot preserve it.
+    var reservations: [MixerPlayoutReservation] = []
     try source.schedule(.init(sequenceNumber: 0, format: .init(), capturedAt: 9000,
-                              samples: Array(repeating: 0.2, count: 960)))
+                              samples: Array(repeating: 0.2, count: 960)), onReservation: { reservations.append($0) })
     try source.schedule(.init(sequenceNumber: 1, format: .init(), capturedAt: 9000.1,
-                              samples: Array(repeating: 0.4, count: 960)))
+                              samples: Array(repeating: 0.4, count: 960)), onReservation: { reservations.append($0) })
     Thread.sleep(forTimeInterval: 0.01)
     let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 7680)!
     #expect(try engine.renderOffline(7680, to: output) == .success)
@@ -462,6 +463,10 @@ func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovem
     #expect((1920..<2880).allSatisfy { abs(samples[$0] - 0.2) < 0.001 })
     #expect((2880..<6720).allSatisfy { abs(samples[$0]) < 0.001 })
     #expect((6720..<7680).allSatisfy { abs(samples[$0] - 0.4) < 0.001 })
+    #expect(reservations.map(\.capturedAt) == [9000, 9000.1])
+    #expect(reservations.map(\.startSample) == [1920, 6720])
+    #expect(reservations.allSatisfy { $0.frameCount == 960 && $0.sampleRate == 48_000 })
+    #expect(reservations.allSatisfy { $0.renderAnchorHostTime == nil && $0.renderAnchorSample == nil })
     #expect(source.playbackResetCount == 0)
 }
 

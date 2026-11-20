@@ -89,6 +89,18 @@ public struct MixerPlayoutAdjustment: Codable, Equatable, Sendable {
 	public let scheduledSample: Int64
 }
 
+/// Successful timestamped scheduling, in samples on the source player's clock.
+public struct MixerPlayoutReservation: Encodable, Sendable {
+	public let capturedAt: TimeInterval
+	public let sampleRate: Double
+	public let startSample: Int64
+	public let frameCount: Int
+	public let completedSample: Int64
+	public let writableSample: Int64
+	public let renderAnchorSample: Int64?
+	public let renderAnchorHostTime: TimeInterval?
+}
+
 public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 	public var id: String
 	public var typeName: String
