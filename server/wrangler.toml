@@ -6,6 +6,7 @@ compatibility_date = "2024-11-01"
 APPLE_AUTH_ENABLED = "false"
 APPLE_CLIENT_ID = "com.yowamushi-inc.RideIntercom.RideIntercom"
 DEVICE_ATTESTATION_ENABLED = "false"
+DEVICE_ATTESTATION_MAC_POLICY = ""
 SERVICE_ENABLED = "false"
 TURN_ENABLED = "false"
 NOTIFICATIONS_ENABLED = "false"
@@ -49,6 +50,10 @@ class_name = "UserAccount"
 name = "NOTIFICATION_INDEX"
 class_name = "NotificationIndex"
 
+[[durable_objects.bindings]]
+name = "APP_ATTEST_KEY_INDEX"
+class_name = "AppAttestKeyIndex"
+
 # Fresh, never-deployed development namespace: SQLite is available on Workers Free.
 [[migrations]]
 tag = "v1"
@@ -62,6 +67,10 @@ new_sqlite_classes = ["AppleAuthAttempt", "UserAccount"]
 tag = "v3"
 new_sqlite_classes = ["NotificationIndex"]
 
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["AppAttestKeyIndex"]
+
 
 # Previews inherit the SFU values and device registry from Previews Base.
 # Ordinary variables and env bindings must be declared separately from production.
@@ -69,6 +78,7 @@ new_sqlite_classes = ["NotificationIndex"]
 APPLE_AUTH_ENABLED = "false"
 APPLE_CLIENT_ID = "com.yowamushi-inc.RideIntercom.RideIntercom"
 DEVICE_ATTESTATION_ENABLED = "false"
+DEVICE_ATTESTATION_MAC_POLICY = ""
 SERVICE_ENABLED = "true"
 TURN_ENABLED = "false"
 NOTIFICATIONS_ENABLED = "false"
@@ -108,3 +118,7 @@ class_name = "UserAccount"
 [[previews.durable_objects.bindings]]
 name = "NOTIFICATION_INDEX"
 class_name = "NotificationIndex"
+
+[[previews.durable_objects.bindings]]
+name = "APP_ATTEST_KEY_INDEX"
+class_name = "AppAttestKeyIndex"

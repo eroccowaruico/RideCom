@@ -8,6 +8,7 @@
 |---|---|
 | Worker入口 | Apple確認済みユーザーの端末Bearer、または試用registryの資格を検証。秘密の部屋capabilityでルーティング |
 | AppleAuthAttempt / UserAccount (SQLite DO) | 使い捨てnonceとApple署名の検証、ユーザーと端末の区別、端末資格の発行・照合・失効 |
+| AppAttestKeyIndex (SQLite DO) | 検証済みApp Attest公開鍵について、有効な登録先を端末1台に限定 |
 | SignalingRoom (SQLite DO) | 部屋最大8人。SFU establish / publish / subscribe / closeを所有者だけに許可。WSは参加者一覧・App dataに限定 |
 | UsageGuard (SQLite DO) | 全部屋共通の同時数、月の参加者秒、端末ごとの開始回数、認証ユーザーごとの1接続枠を同じ同期KV更新で予約 |
 | Realtime SFU | 音声媒体。端末ごとに1つのPeerConnection。Cloudflareが他の参加者の音声を配信 |
@@ -259,7 +260,7 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 | ビルド番号が省略された開発署名版 | Appleの起動検証カテゴリが3で、登録値が明示的に `null` の場合に限り、他の照合条件を満たせば受理する |
 | 不一致、形式不正、期限切れ、確認要求が既に消費済み | 確認要求とカウンタを変更しない |
 
-署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名が通る場合に受理する。この検証を呼ぶ公開APIや製品の鍵登録は未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
+署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名が通る場合に受理する。登録済み端末から除外署名を受け付ける公開APIは未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
 
 ### 端末鍵登録の確認要求
 
@@ -278,7 +279,15 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 | 本人のAppと期待する配布条件 | RP IDが期待するApp IDのSHA-256に一致し、AAGUIDが期待する環境を示す。カウンタは0で、起動検証カテゴリとビルド番号が期待値に一致する。ビルド番号の省略条件は端末署名と同じ |
 | 鍵 | leafとCOSEの鍵が同じP-256公開鍵で、その非圧縮X9.62形式のSHA-256、資格ID、提示された鍵IDが一致する |
 
-すべて成立すれば、P-256公開鍵・App ID・起動検証カテゴリ・ビルド番号・カウンタ0を呼び出し元へ返す。不一致や形式不正では登録に渡す値を返さない。確認要求の消費、アカウントと端末への保存・更新・失効、別アカウントへの同じ鍵の登録防止、iPhoneの鍵証明の検証は残る。[Appleのルート証明書](https://www.apple.com/certificateauthority/private/)、[Appleの検証手順](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)、[ローカル検証](../../validation/history/通常グループの代表端末検証.md#macの鍵証明から除外署名までworkerで検証する)
+すべて成立すれば、P-256公開鍵・App ID・起動検証カテゴリ・ビルド番号・カウンタ0を呼び出し元へ返す。不一致や形式不正では登録に渡す値を返さない。iPhoneの鍵証明は検証対象外。Appleのfraud metric用receiptの別途検証・保存は未接続。[Appleのルート証明書](https://www.apple.com/certificateauthority/private/)、[Appleの検証手順](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)、[ローカル検証](../../validation/history/通常グループの代表端末検証.md#macの鍵証明から除外署名までworkerで検証する)
+
+### Macの端末鍵登録
+
+`POST /api/auth/device-attestation` は、有効な端末Bearerと `nonce`・`keyID`・標準Base64の `attestation` だけを受ける。発行済み確認要求と同じ端末で照合し、証明と鍵が有効な場合に、確認要求の消費と鍵・カウンタ0の保存を同じ端末レコードの置換で確定する。成功応答は `{ "registered": true, "expiresAt": <Unixミリ秒> }`。同じ本文の再送は元の結果を返し、カウンタを初期化しない。証明の検証は確認要求ごとに最大5回で、上限は429。異なる端末・期限切れ・無効な証明は401。不正な本文は400。
+
+鍵索引はApp Attest環境・App ID・公開鍵のハッシュごとのSQLite DO。証明を検証した後に予約し、別端末で予約済みなら409。索引にはアカウントと端末の組のハッシュ、予約ID、期限だけを保持する。予約後も資格と確認要求を再照合し、途中で失効した場合は登録せず予約を解放する。端末レコードに証明の原本を保持せず、再送の照合には本文のハッシュを使う。
+
+鍵と予約の期限は登録に使ったBearerの期限。Bearerの再発行は登録済みの鍵・カウンタ・元の期限を引き継ぎ、未使用の確認要求を破棄する。別の鍵への更新、端末失効、アカウント削除では旧鍵を外して索引を解放する。通信などで索引の解放に失敗した場合も、旧端末には登録を戻さず、索引は元の期限で回収する。[登録と失効のローカル検証](../../validation/history/通常グループの代表端末検証.md#端末鍵の登録を確認要求とアカウントに結び付ける)
 
 ## 個人削除の暗号文中継
 

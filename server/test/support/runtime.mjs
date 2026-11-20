@@ -8,16 +8,24 @@ export const hash = createHash('sha256').update(token).digest('hex');
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
+    const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
     const clock = clockOffsetMs || fixedNowMs !== undefined
         ? `const systemNow = Date.now; Date.now = () => ${fixedNowMs === undefined ? `systemNow() + ${Number(clockOffsetMs)}` : Number(fixedNowMs)};\n`
         : '';
-    const source = afterInboxSnapshot || onInvitationStore ? { modules: [
+    const attestationVerifier = attestationRoot ? `
+        async verifyMacAttestation(attestation, keyID, nonce, policy) {
+            const root = Uint8Array.from(atob(${JSON.stringify(attestationRoot)}), c => c.charCodeAt(0));
+            const verified = await createAppAttestEnrollmentVerifier(root)(attestation, keyID, nonce, policy, new Date(Date.now()));
+            if (verified && ${Boolean(onAttestationVerified)}) await fetch('${attestationVerifiedURL}');
+            return verified;
+        }` : '';
+    const source = afterInboxSnapshot || onInvitationStore || attestationRoot ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
-            export { default, AppleAuthAttempt, NotificationIndex, SignalingRoom, UsageGuard } from './index.js';
-            import { UserAccount as ProductionAccount } from './index.js';
+            export { default, AppleAuthAttempt, AppAttestKeyIndex, NotificationIndex, SignalingRoom, UsageGuard } from './index.js';
+            import { UserAccount as ProductionAccount, createAppAttestEnrollmentVerifier } from './index.js';
             export class UserAccount extends ProductionAccount {
                 async groupInvitationPending(...args) {
                     const candidates = super.groupInvitationPending(...args);
@@ -31,6 +39,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
                     await fetch('${invitationStoreURL}/after');
                     return result;
                 }
+                ${attestationVerifier}
             }` },
         { type: 'ESModule', path: 'index.js', contents: clock + await readFile('dist/index.js', 'utf8') }
     ] } : clock ? { script: clock + await readFile('dist/index.js', 'utf8') } : { scriptPath: 'dist/index.js' };
@@ -42,11 +51,16 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         modules: true, ...source, compatibilityDate: '2024-11-01',
         durableObjects: { SIGNALING_ROOM: { className: 'SignalingRoom', useSQLite: true }, USAGE_GUARD: { className: 'UsageGuard', useSQLite: true },
             NOTIFICATION_INDEX: { className: 'NotificationIndex', useSQLite: true },
-            APPLE_AUTH_ATTEMPT: { className: 'AppleAuthAttempt', useSQLite: true }, USER_ACCOUNT: { className: 'UserAccount', useSQLite: true } },
+            APPLE_AUTH_ATTEMPT: { className: 'AppleAuthAttempt', useSQLite: true }, USER_ACCOUNT: { className: 'UserAccount', useSQLite: true },
+            APP_ATTEST_KEY_INDEX: { className: 'AppAttestKeyIndex', useSQLite: true } },
         bindings: { SERVICE_ENABLED: 'true', CLIENT_TOKENS_JSON: JSON.stringify({ [hash]: 'tester' }),
             CLOUDFLARE_SFU_APP_ID: 'test-app', CLOUDFLARE_SFU_APP_SECRET: 'test-secret',
             MAX_ROOM_PARTICIPANTS: '4', MAX_ACTIVE_SESSIONS: '16', MONTHLY_PARTICIPANT_SECONDS: '36000', LEASE_SECONDS: '600', ...overrides },
         outboundService: async request => {
+            if (request.url === attestationVerifiedURL && onAttestationVerified) {
+                await onAttestationVerified();
+                return new Response(null, { status: 204 });
+            }
             if (request.url === inboxSnapshotURL && afterInboxSnapshot) {
                 await afterInboxSnapshot();
                 return new Response(null, { status: 204 });

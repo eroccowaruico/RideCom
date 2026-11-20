@@ -5,6 +5,7 @@ import { Env, json, readJSON } from './types'
 import { certifyDevice } from './DeviceIdentity'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
 import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
+import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type EnrollmentPolicy, type VerifiedAppAttestKey } from './AppAttestEnrollment'
 
 import { appleKeys, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
 const devicePattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -12,6 +13,7 @@ const objectPattern = /^[a-f0-9]{64}$/
 const randomSecret = () => hex(crypto.getRandomValues(new Uint8Array(32)))
 const hex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 const digest = async (secret: string) => hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))))
+const verifyMacEnrollment = createAppAttestEnrollmentVerifier()
 interface Challenge { deviceID: string; nonce: string; issuedAt: number; expiresAt: number }
 interface DeletionReceipt {
     userID?: string; observers?: { deviceID: string; tokenHash: string }[]
@@ -22,8 +24,16 @@ interface DeletionReceipt {
 interface DeletionPreparation { id: string; expiresAt: number }
 interface DeletionResult { deleted: true; appleAuthorizationRevoked: boolean; appleRevocationPending?: true; newerAccountPreserved?: true; mediaCleanupPending?: true }
 const retryDelays = [60000, 300000, 1800000, 7200000, 21600000]
-interface DeviceAttestationChallenge { nonce: string; expiresAt: number }
-interface Device { tokenHash: string; expiresAt: number; attestationChallenge?: DeviceAttestationChallenge }
+interface DeviceAttestationChallenge { nonce: string; expiresAt: number; attempts?: number }
+interface DeviceAttestation extends VerifiedAppAttestKey {
+    index: string; owner: string; claimID: string; submissionHash: string; expiresAt: number
+}
+interface Device {
+    tokenHash: string; expiresAt: number
+    attestationChallenge?: DeviceAttestationChallenge
+    attestation?: DeviceAttestation
+}
+interface AttestationSubmission { nonce: string; keyID: string; attestation: string }
 export interface DeviceIdentity { userID: string; deviceID: string; expiresAt: number }
 
 export class AppleAuthAttempt extends DurableObject<Env> {
@@ -144,7 +154,8 @@ export class UserAccount extends DurableObject<Env> {
         const deletion = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         if (deletion?.appleToken || deletion?.rooms?.length || this.ctx.storage.kv.get('deletionPreparation')) return 'deletion-pending'
         if (deletion && (!Number.isFinite(issuedAt) || issuedAt <= deletion.deletedAt)) return 'stale-proof'
-        if (!this.ctx.storage.kv.get(`device:${deviceID}`) && [...this.ctx.storage.kv.list({ prefix: 'device:' })].length >= 8) return null
+        const previousDevice = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)
+        if (!previousDevice && [...this.ctx.storage.kv.list({ prefix: 'device:' })].length >= 8) return null
         const previousNotification = this.notifications.device(deviceID)
         const expiresAt = Date.now() + 30 * 86400000
         // Public identity is stable across device expiry/sign-out, and retired only
@@ -153,7 +164,8 @@ export class UserAccount extends DurableObject<Env> {
         if (!objectPattern.test(userID)) throw new Error('Invalid account identity')
         this.ctx.storage.transactionSync(() => {
             this.ctx.storage.kv.put('userID', userID)
-            this.ctx.storage.kv.put(`device:${deviceID}`, { tokenHash, expiresAt })
+            this.ctx.storage.kv.put<Device>(`device:${deviceID}`, { tokenHash, expiresAt,
+                attestation: previousDevice?.attestation })
             this.notifications.invalidateDevice(deviceID)
         })
         if (previousNotification) await this.removeNotificationIndex(previousNotification, userID)
@@ -188,19 +200,81 @@ export class UserAccount extends DurableObject<Env> {
         const device = this.ctx.storage.kv.get<Device>(key)
         if (!device) return null
         const now = Date.now()
-        if (device.attestationChallenge && device.attestationChallenge.expiresAt > now) return device.attestationChallenge
+        if (device.attestationChallenge && device.attestationChallenge.expiresAt > now) {
+            const { nonce, expiresAt } = device.attestationChallenge
+            return { nonce, expiresAt }
+        }
         const challenge = { nonce: randomSecret(), expiresAt: Math.min(now + 300_000, device.expiresAt) }
         this.ctx.storage.kv.put(key, { ...device, attestationChallenge: challenge })
         await this.scheduleExpiry()
         return challenge.expiresAt > Date.now() && this.authenticate(deviceID, tokenHash) ? challenge : null
     }
 
+    protected verifyMacAttestation(bytes: Uint8Array, keyID: string, nonce: string, policy: EnrollmentPolicy) {
+        return verifyMacEnrollment(bytes, keyID, nonce, policy)
+    }
+
+    async enrollAttestation(deviceID: string, tokenHash: string, input: AttestationSubmission, policy: EnrollmentPolicy) {
+        const { nonce, keyID, attestation } = input
+        const submissionHash = await digest(JSON.stringify([nonce, keyID, attestation]))
+        const identity = this.authenticate(deviceID, tokenHash)
+        if (!identity) return 'unauthorized'
+        const key = `device:${deviceID}`
+        const device = this.ctx.storage.kv.get<Device>(key)
+        if (!device) return 'unauthorized'
+        const saved = device.attestation
+        if (saved?.submissionHash === submissionHash && saved.expiresAt > Date.now()) return { registered: true, expiresAt: saved.expiresAt }
+        const pending = device.attestationChallenge
+        if (pending?.nonce !== nonce || pending.expiresAt <= Date.now()) return 'unauthorized'
+        const attempts = pending.attempts ?? 0
+        if (attempts >= 5) return 'limited'
+        pending.attempts = attempts + 1
+        this.ctx.storage.kv.put(key, device)
+
+        const bytes = Uint8Array.from(atob(attestation), char => char.charCodeAt(0))
+        if (bytes.length > 16_384 || btoa(String.fromCharCode(...bytes)) !== attestation) return 'unauthorized'
+        const verified = await this.verifyMacAttestation(bytes, keyID, nonce, policy)
+        if (!verified) return 'unauthorized'
+        const index = await digest(JSON.stringify([policy.environment, verified.appID, verified.publicKey]))
+        const owner = await digest(JSON.stringify([identity.userID, deviceID]))
+        const record: DeviceAttestation = { ...verified, index, owner, claimID: nonce, submissionHash, expiresAt: identity.expiresAt }
+        if (!await this.env.APP_ATTEST_KEY_INDEX.getByName(index).claim(owner, nonce, record.expiresAt)) return 'conflict'
+
+        const current = this.ctx.storage.kv.get<Device>(key)
+        if (this.authenticate(deviceID, tokenHash)?.userID === identity.userID && current) {
+            if (current.attestation?.submissionHash === submissionHash && current.attestation.expiresAt > Date.now()) {
+                return { registered: true, expiresAt: current.attestation.expiresAt }
+            }
+            if (current.attestationChallenge?.nonce === nonce && current.attestationChallenge.expiresAt > Date.now()) {
+                delete current.attestationChallenge
+                const previous = current.attestation
+                current.attestation = record
+                this.ctx.storage.kv.put(key, current)
+                // Revoke the previous binding only after the new one is durable.
+                await this.releaseAttestation(previous)
+                await this.scheduleExpiry()
+                return this.authenticate(deviceID, tokenHash)?.userID === identity.userID
+                    ? { registered: true, expiresAt: record.expiresAt } : 'unauthorized'
+            }
+        }
+        if (current?.attestation?.claimID !== nonce || current.attestation.index !== index) await this.releaseAttestation(record)
+        return 'unauthorized'
+    }
+
+    private async releaseAttestation(record: DeviceAttestation | undefined) {
+        if (!record) return
+        try { await this.env.APP_ATTEST_KEY_INDEX.getByName(record.index).release(record.owner, record.claimID) }
+        catch { /* The owner is already inactive here. The index's alarm bounds retention. */ }
+    }
+
     async revoke(deviceID: string, tokenHash: string): Promise<boolean> {
         const identity = this.authenticate(deviceID, tokenHash)
         if (!identity) return false
         const previousNotification = this.notifications.device(deviceID)
+        const attestation = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)?.attestation
         this.ctx.storage.kv.delete(`device:${deviceID}`)
         this.notifications.invalidateDevice(deviceID)
+        await this.releaseAttestation(attestation)
         if (previousNotification) await this.removeNotificationIndex(previousNotification, identity.userID)
         await this.scheduleExpiry()
         return true
@@ -259,6 +333,7 @@ export class UserAccount extends DurableObject<Env> {
             if (expectedUserID === undefined ? !this.authenticate(deviceID, tokenHash) : userID && userID !== expectedUserID) return null
             const now = Date.now()
             const notificationDevices = this.notifications.devices()
+            const attestations = Array.from(this.ctx.storage.kv.list<Device>({ prefix: 'device:' }), ([, device]) => device.attestation)
             const rooms = [...this.ctx.storage.kv.list<string>({ prefix: 'room:' })].filter(([, owner]) => owner === userID).map(([key]) => key.slice('room:'.length))
             this.ctx.storage.transactionSync(() => {
                 this.ctx.storage.kv.delete('userID')
@@ -271,6 +346,7 @@ export class UserAccount extends DurableObject<Env> {
                     ...(rooms.length ? { rooms, mediaAttempts: 0, mediaRetryAt: now } : {}) })
             })
             // Authority was removed synchronously above. Index cleanup cannot restore it.
+            await Promise.all(attestations.map(value => this.releaseAttestation(value)))
             if (userID) {
                 await Promise.all(notificationDevices.map(value => this.removeNotificationIndex(value, userID)))
                 try { await this.env.NOTIFICATION_INDEX.get(this.env.NOTIFICATION_INDEX.idFromName('user:' + userID)).remove(this.ctx.id.toString(), userID) }
@@ -342,9 +418,15 @@ export class UserAccount extends DurableObject<Env> {
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         if (receipt && !receipt.appleToken && !receipt.rooms?.length && receipt.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletion')
         for (const [key, device] of this.ctx.storage.kv.list<Device>({ prefix: 'device:' })) {
-            if (device.expiresAt <= Date.now()) this.ctx.storage.kv.delete(key)
-            else if (device.attestationChallenge && device.attestationChallenge.expiresAt <= Date.now()) {
-                delete device.attestationChallenge
+            if (device.expiresAt <= Date.now()) {
+                this.ctx.storage.kv.delete(key)
+                continue
+            }
+            const expiredChallenge = device.attestationChallenge && device.attestationChallenge.expiresAt <= Date.now()
+            const expiredAttestation = device.attestation && device.attestation.expiresAt <= Date.now()
+            if (expiredChallenge || expiredAttestation) {
+                if (expiredChallenge) delete device.attestationChallenge
+                if (expiredAttestation) delete device.attestation
                 this.ctx.storage.kv.put(key, device)
             }
         }
@@ -355,7 +437,8 @@ export class UserAccount extends DurableObject<Env> {
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         const pending = !!receipt?.appleToken || !!receipt?.rooms?.length
         const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(),
-            ...devices.map(device => device.attestationChallenge?.expiresAt ?? device.expiresAt), ...(preparation ? [preparation.expiresAt] : []),
+            ...devices.map(device => Math.min(device.expiresAt, device.attestationChallenge?.expiresAt ?? Infinity,
+                device.attestation?.expiresAt ?? Infinity)), ...(preparation ? [preparation.expiresAt] : []),
             ...(receipt?.appleToken && receipt.retryAt !== undefined && (receipt.attempts ?? 0) <= retryDelays.length ? [receipt.retryAt] : []),
             ...(receipt?.rooms?.length && receipt.mediaRetryAt !== undefined && (receipt.mediaAttempts ?? 0) <= retryDelays.length ? [receipt.mediaRetryAt] : []),
             ...(receipt && !pending ? [receipt.expiresAt] : [])]
@@ -393,7 +476,9 @@ export async function authenticateDevice(token: string, env: Env): Promise<(Devi
 export async function accountRequest(request: Request, env: Env): Promise<Response> {
     const path = new URL(request.url).pathname
     try {
-        if (path === '/api/auth/device-attestation/challenge') return await deviceAttestationChallenge(request, env)
+        if (path === '/api/auth/device-attestation/challenge' || path === '/api/auth/device-attestation') {
+            return await deviceAttestationRequest(request, env, path.endsWith('/challenge'))
+        }
         if (path === '/api/auth/identity') {
             if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
             const authorization = request.headers.get('Authorization') ?? ''
@@ -476,7 +561,7 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
     }
 }
 
-async function deviceAttestationChallenge(request: Request, env: Env): Promise<Response> {
+async function deviceAttestationRequest(request: Request, env: Env, issuing: boolean): Promise<Response> {
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
     if (env.DEVICE_ATTESTATION_ENABLED !== 'true') return json({ error: 'Device attestation is unavailable' }, 503)
     const authorization = request.headers.get('Authorization') ?? ''
@@ -487,9 +572,23 @@ async function deviceAttestationChallenge(request: Request, env: Env): Promise<R
     if (!await credential.account.authenticate(credential.deviceID, tokenHash)) return json({ error: 'Unauthorized' }, 401)
     const limited = await limitEnrollment(request, env)
     if (limited) return limited
-    if (Object.keys(await readJSON(request)).length !== 0) return json({ error: 'Invalid body' }, 400)
-    const issued = await credential.account.issueAttestationChallenge(credential.deviceID, tokenHash)
-    return issued ? json(issued) : json({ error: 'Unauthorized' }, 401)
+    const body: Record<string, unknown> = await readJSON(request)
+    if (issuing) {
+        if (Object.keys(body).length !== 0) return json({ error: 'Invalid body' }, 400)
+        const issued = await credential.account.issueAttestationChallenge(credential.deviceID, tokenHash)
+        return issued ? json(issued) : json({ error: 'Unauthorized' }, 401)
+    }
+    const policy = macAttestationPolicy(env.DEVICE_ATTESTATION_MAC_POLICY, env.APPLE_CLIENT_ID)
+    if (!policy || !env.APP_ATTEST_KEY_INDEX) return json({ error: 'Device attestation is unavailable' }, 503)
+    const { nonce, keyID, attestation } = body
+    if (Object.keys(body).length !== 3 || typeof nonce !== 'string' || !objectPattern.test(nonce)
+        || typeof keyID !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(keyID)
+        || typeof attestation !== 'string' || attestation.length === 0 || attestation.length > 21_848
+        || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(attestation)) return json({ error: 'Invalid body' }, 400)
+    const result = await credential.account.enrollAttestation(credential.deviceID, tokenHash, { nonce, keyID, attestation }, policy)
+    if (result === 'limited') return json({ error: 'Attestation challenge attempt limit reached' }, 429)
+    if (result === 'conflict') return json({ error: 'Attestation key already registered' }, 409)
+    return result === 'unauthorized' ? json({ error: 'Unauthorized' }, 401) : json(result)
 }
 
 async function limitEnrollment(request: Request, env: Env): Promise<Response | null> {

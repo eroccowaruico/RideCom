@@ -9,6 +9,7 @@ export { SignalingRoom, UsageGuard }
 export { AppleAuthAttempt, UserAccount } from './AppleAccount'
 export { consumeGroupRemovalAssertion } from './GroupRemovalAssertion'
 export { createAppAttestEnrollmentVerifier } from './AppAttestEnrollment'
+export { AppAttestKeyIndex } from './AppAttestKeyIndex'
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {

@@ -23,9 +23,28 @@ const macAccessPolicy = 'MEAMAjExMDowCQwCb2uhAwEB/zAJDAJvYaEDAQH/MAsMBG9kZWyhAwE
 const encoder = new TextEncoder()
 const decodeBase64 = (text: string) => Uint8Array.from(atob(text), char => char.charCodeAt(0))
 
-interface EnrollmentPolicy extends AppAttestLaunch {
+export interface EnrollmentPolicy extends AppAttestLaunch {
     appID: string
     environment: 'production' | 'development'
+}
+
+export interface VerifiedAppAttestKey extends AppAttestLaunch {
+    publicKey: string
+    appID: string
+    counter: number
+}
+
+export function macAttestationPolicy(value: string | undefined, bundleID: string | undefined): EnrollmentPolicy | null {
+    try {
+        const policy = JSON.parse(value ?? '')
+        if (!bundleID || typeof policy?.appID !== 'string' || !/^[A-Z0-9]{10}\./.test(policy.appID)
+            || policy.appID.slice(11) !== bundleID || !['production', 'development'].includes(policy.environment)
+            || ![2, 3, 4, 5, 6].includes(policy.validationCategory)) return null
+        const version = policy.bundleVersion
+        if (!(typeof version === 'string' && /^\d+(\.\d+){0,2}$/.test(version) && version.length <= 32)
+            && !(version === null && policy.validationCategory === 3)) return null
+        return { appID: policy.appID, environment: policy.environment, validationCategory: policy.validationCategory, bundleVersion: version }
+    } catch { return null }
 }
 
 function certificate(der: Uint8Array) {
@@ -50,7 +69,7 @@ function equal(a: Uint8Array, b: Uint8Array) {
 export function createAppAttestEnrollmentVerifier(trustedRoot = decodeBase64(appleRoot)) {
     return async function verifyMacEnrollment(
         attestation: Uint8Array, keyID: string, challenge: string, policy: EnrollmentPolicy, checkDate = new Date(),
-    ) {
+    ): Promise<VerifiedAppAttestKey | null> {
         try {
             if (attestation.length > 16_384 || !/^[A-Za-z0-9+/]{43}=$/.test(keyID)
                 || !/^[a-f0-9]{64}$/.test(challenge) || !Number.isFinite(checkDate.getTime())) return null

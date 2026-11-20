@@ -26,13 +26,14 @@ WorkerのSettings → Runtime variables and secretsで **Previews Base** を選�
 | APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
 | APNS_ENVIRONMENT | Variable | Productionは`production`、PreviewはDebug向けの`sandbox`。TestFlightからPreviewを使うときはそのPreviewも`production`へ合わせる |
 | APPLE_AUTH_ENABLED | Variable | 両環境の既定false。Apple App ID・profile・証明署名鍵が揃った環境だけtrueにする |
-| DEVICE_ATTESTATION_ENABLED | Variable | 両環境の既定false。端末鍵の登録処理が揃うまではfalseのままにする。[端末鍵登録の確認要求](../spec/server/Worker.md#端末鍵登録の確認要求) |
+| DEVICE_ATTESTATION_ENABLED | Variable | 両環境の既定false。App連携と対象の署名・配布環境の受入が揃った環境で有効化する |
+| DEVICE_ATTESTATION_MAC_POLICY | Variable | 既定は空。有効化する環境でApp ID（App ID Prefixと `APPLE_CLIENT_ID`）、App Attestの `environment`、Appleの `validationCategory`、 `bundleVersion` をJSONで指定する。キー名は `appID`、 `environment`、 `validationCategory`、 `bundleVersion`。開発署名カテゴリ3でビルド番号なしを照合する場合は `bundleVersion: null`。[Macの端末鍵登録](../spec/server/Worker.md#macの端末鍵登録) |
 | NOTIFICATIONS_ENABLED | Variable | 両環境の既定false。APNs鍵・profile・topic・環境が揃った環境だけtrueにする |
 | SERVICE_ENABLED | Variable | 音声SFUの入口。Productionの既定false、Previewはtrue。通知の有効化とは別にSFU資格と費用上限を確認する |
 
 `CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
 
-Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。`SERVICE_ENABLED = "true"`などの通常変数と5つのDO bindingは`wrangler.toml`の`previews`へ定義済み。SFUの値・資格はファイルやGitへ埋め込まず、Baseから継承する。
+Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。`SERVICE_ENABLED = "true"`などの通常変数と6つのDO bindingは`wrangler.toml`の`previews`へ定義済み。SFUの値・資格はファイルやGitへ埋め込まず、Baseから継承する。
 
 Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。CLIでプレビューを配置する場合は下記の依存導入と`wrangler login`の後、`npm --prefix server run preview`をリポジトリrootで実行する。固定名で手動試用する場合は`npm --prefix server run preview -- --name trial`と指定できる。
 
@@ -147,7 +148,7 @@ App・serverのコードと公開値はrepoへ置き、アカウント固有の�
 |---|---|---|
 | 1 | Apple Developer | App IDへSign in with Apple・Push Notifications・App Groupsを設定し、App／Widget／Watchのprofileを揃える。APNs鍵を取得し、Apple認可取消用client-secretも用意する。詳細はApple側正本を参照 |
 | 2 | Cloudflareの対象WorkerのProduction／Previews Base | 上表の環境別secretを登録し、公開値をwrangler.tomlへ合わせる。Baseの変更は既存Previewへ遡及しないので、既存Previewにも必要なsecretを設定する |
-| 3 | Worker配置 | repoの5 bindingを配置する。SIGNALING_ROOM・USAGE_GUARDはv1、APPLE_AUTH_ATTEMPT・USER_ACCOUNTはv2、NOTIFICATION_INDEXはv3のSQLite migration。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
+| 3 | Worker配置 | repoの6 bindingを配置する。SIGNALING_ROOM・USAGE_GUARDはv1、APPLE_AUTH_ATTEMPT・USER_ACCOUNTはv2、NOTIFICATION_INDEXはv3、APP_ATTEST_KEY_INDEXはv4のSQLite migration。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
 | 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
 | 6 | 新しい相手へのグループ招待 | 未登録の相手への招待を名前付きで保存し、OS共有で相手に渡す。相手の登録とグループ保存、署名付き返信と、送り手の返信待ちが消えるところまで確認する。[実環境受入](../validation/未確認事項.md#新規相手招待の実環境受入) |
@@ -163,7 +164,7 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 
 ## 外部設定の確認状況
 
-2026-11-19、Cloudflareの読取APIで、Productionの`rideintercom`と固定`preview`の配置番号382を確認した。許可された公開値、bindingとsecretの名前を照合した。Previews Baseの現在値、配置ソースとGitの一致、Appleの実署名・端末許可、実APNsと実SFUは引き続き受入対象。
+2026-11-19、Cloudflareの読取APIで、Productionの`rideintercom`と固定`preview`の配置番号382を確認した。表はその時点の公開値・binding・secret名を示す。端末鍵索引のv4以降の実配置、Previews Baseの現在値、配置ソースとGitの一致、Appleの実署名・端末許可、実APNsと実SFUは引き続き受入対象。
 
 | 項目 | Production | 固定Preview |
 |---|---|---|
