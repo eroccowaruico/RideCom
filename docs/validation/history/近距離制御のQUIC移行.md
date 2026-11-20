@@ -124,6 +124,23 @@ BのON 1回目では、packet 590が直前の受信から15.54ms後に届き、�
 
 事前5件とAの試験が成功。Bの試験は有声欠落の2検査で失敗し、125msの汎用判定も未達だった。ソース照合、入出力設定復元と専用Simulator回収を確認した。証跡は `.validation/pcm16-peer-isolation-1704/paired/` と、同じ親フォルダの `comparison.json`、`summarize.py`、`run_comparison.py`。物理端末やほかの経路での再現は別に確認する。
 
+### PCM16の遅着後の予約を早めると次の空白が増える条件を確認する
+
+2026-11-21。`2ae0b787` のAudioMixerを隔離したRelease試験で使った。Build 1704の受信B・相手別分離ONからpacket 578〜612の収録・到着時刻と描画位置を採取した。受信フォーマットへ変換した後に相当する48kHz・各480 sampleの識別可能なPCMを使い、最初に当時の収録と再生位置の対応を与えた。以降は保存済みの描画済み位置までAVAudioEngineで実際に描画してから、当時と同じ到着時刻を渡した。書込み可能位置は記録どおり描画済み位置の512 sample先、nativeへの引渡し余裕と基本待ちは各96 sample。試作は遅着を回復する予約で学習値を保ち、今回の追加待ちを最大240または480 sampleだけ減らす。
+
+遅着の追加なしでは、対照でpacket 590の予定が描画済み位置から96 sample手前になり、再予約後に実出力へ1,281 sample（26.69ms）の無音が入ることを再現した。MacとiOS 27.2 Simulatorで結果はサンプル単位で一致した。発話の16,800 sampleは、追加遅着を含む全条件で一度ずつ順に出た。
+
+| 後続のpacket 600に加えた遅れ | 現行の空白 | 5ms短縮案の空白 | 10ms短縮案の空白 |
+|---|---:|---:|---:|
+| なし、10.67ms、21.33ms | 26.69ms | 21.69ms | 16.69ms |
+| 32ms | 26.69ms | 21.69ms | 16.69msと17.33ms |
+
+Macでは保存時の残り余裕が小さかったpacket 687を含む699まで範囲を延ばした。そのpacketに21.33msの到着遅れを加えると、現行はpacket 590の26.69msのみで、5msと10msの両短縮案には22msの空白が追加された。すべての試験入力は順に一度ずつ描画した。固定で待ちを減らす案では、短い空白を一つ減らす効果と後続の空白を増やす条件が同時にあったため、製品の再予約の待ちを維持する。
+
+Build 1704の実通話では、packet 590の送信記録から相手の受信まで約5.53ms、直前のpacketでは約0.42msかかった。同じ送信と受信の時刻を局所のUDP処理に照合し、再予約が必要になる前の遅れを特定する。今回の描画比較は履歴の再生位置と遅着を注入したAudioMixerの試験で、無線、受信分離の信号処理、物理iPhoneの動作は別に検証する。
+
+Macの2試験とiOS Simulatorの1試験を実行し、iOSではソース照合、音声機器設定の復元、専用Simulatorの回収も確認した。証跡は `.validation/pcm16-expired-replay-1705/` の試作、`mac-summary.json`、`ios-summary.json`、`mac-expanded-summary.json` と各実行ログ。
+
 ## 間欠的に失敗する実Multipeerの招待テスト
 
 2026-11-15〜16、iPhone 17 Pro Simulator（iOS 27.2）で`ContactInvitationPersistenceTests.nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload`が間欠的に60秒の制限時間を超えた。同一プロセス内の2つのViewModelを実Multipeer（Bonjour）でつなぐテストで、成功時は1.5〜2.5秒で終わる。
