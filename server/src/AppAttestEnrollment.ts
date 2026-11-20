@@ -2,7 +2,7 @@ import { fromDER } from 'asn1js'
 import { decode, decodeFirst } from 'cborg'
 import { base64url } from 'jose'
 import { BasicConstraints, Certificate, CertificateChainValidationEngine, CryptoEngine } from 'pkijs'
-import { type AppAttestLaunch, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
+import { type AppAttestLaunch, appAttestCBOR, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
 
 // Apple App Attestation Root CA, https://www.apple.com/certificateauthority/private/
 const appleRoot = `
@@ -20,7 +20,6 @@ CgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn
 oyFraWVIyd/dganmrduC1bmTBGwD
 `.replace(/\s/g, '')
 const macAccessPolicy = 'MEAMAjExMDowCQwCb2uhAwEB/zAJDAJvYaEDAQH/MAsMBG9kZWyhAwEB/zAVDARvc2duoAYMBHJzZWMwBaYDAgEB'
-const cborOptions = { strict: true, useMaps: true, allowIndefinite: false, rejectDuplicateMapKeys: true, rejectInvalidUtf8: true }
 const encoder = new TextEncoder()
 const decodeBase64 = (text: string) => Uint8Array.from(atob(text), char => char.charCodeAt(0))
 
@@ -55,7 +54,7 @@ export function createAppAttestEnrollmentVerifier(trustedRoot = decodeBase64(app
         try {
             if (attestation.length > 16_384 || !/^[A-Za-z0-9+/]{43}=$/.test(keyID)
                 || !/^[a-f0-9]{64}$/.test(challenge) || !Number.isFinite(checkDate.getTime())) return null
-            const object: unknown = decode(attestation, cborOptions)
+            const object: unknown = decode(attestation, appAttestCBOR)
             if (!(object instanceof Map) || object.size !== 3 || object.get('fmt') !== 'apple-appattest') return null
             const statement: unknown = object.get('attStmt')
             const data: unknown = object.get('authData')
@@ -82,10 +81,10 @@ export function createAppAttestEnrollmentVerifier(trustedRoot = decodeBase64(app
             const credentialID = decodeBase64(keyID)
             if (!equal(data.subarray(55, 87), credentialID)) return null
 
-            const [cose, extensionsBytes] = decodeFirst(data.subarray(87), cborOptions)
+            const [cose, extensionsBytes] = decodeFirst(data.subarray(87), appAttestCBOR)
             const point = await credentialPublicKey(leaf, cose)
             if (!point || !equal(await sha256(point), credentialID)) return null
-            if (!appAttestLaunchMatches(decode(extensionsBytes, cborOptions), policy)) return null
+            if (!appAttestLaunchMatches(decode(extensionsBytes, appAttestCBOR), policy)) return null
             const nonce = await appAttestNonce(data, challenge)
             if (!wrappedExtensionMatches(leaf, '1.2.840.113635.100.8.2', 0xa1, nonce)
                 || !wrappedExtensionMatches(leaf, '1.2.840.113635.100.8.6', 0xa3, decodeBase64(macAccessPolicy))) return null

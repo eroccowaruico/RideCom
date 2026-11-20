@@ -151,7 +151,8 @@ test('a development-signed Mac proof can omit the bundle version only when enrol
         assert.equal(await runtime.consume(assertion(key.privateKey, { ...mac, category: 2 })), null);
         assert.equal(await runtime.consume(assertion(key.privateKey, { ...mac, version: bundleVersion })), null);
         assert.deepEqual(await runtime.state(), record);
-        assert.equal(await runtime.consume(assertion(key.privateKey, mac)), 1);
+        const proof = assertion(key.privateKey, mac);
+        assert.equal(await runtime.consume(Buffer.concat([Buffer.from([0xb8, 2]), proof.subarray(1)])), 1);
 
         await runtime.set({ ...record, validationCategory: 2 });
         assert.equal(await runtime.consume(assertion(key.privateKey, { ...mac, category: 2 })), null);

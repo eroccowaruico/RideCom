@@ -26,7 +26,7 @@ WorkerのSettings → Runtime variables and secretsで **Previews Base** を選�
 | APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
 | APNS_ENVIRONMENT | Variable | Productionは`production`、PreviewはDebug向けの`sandbox`。TestFlightからPreviewを使うときはそのPreviewも`production`へ合わせる |
 | APPLE_AUTH_ENABLED | Variable | 両環境の既定false。Apple App ID・profile・証明署名鍵が揃った環境だけtrueにする |
-| DEVICE_ATTESTATION_ENABLED | Variable | 両環境の既定false。端末鍵の登録処理が揃うまではfalseのままにする。[端末鍵の確認要求](../spec/server/Worker.md#macの端末鍵証明) |
+| DEVICE_ATTESTATION_ENABLED | Variable | 両環境の既定false。端末鍵の登録処理が揃うまではfalseのままにする。[端末鍵登録の確認要求](../spec/server/Worker.md#端末鍵登録の確認要求) |
 | NOTIFICATIONS_ENABLED | Variable | 両環境の既定false。APNs鍵・profile・topic・環境が揃った環境だけtrueにする |
 | SERVICE_ENABLED | Variable | 音声SFUの入口。Productionの既定false、Previewはtrue。通知の有効化とは別にSFU資格と費用上限を確認する |
 

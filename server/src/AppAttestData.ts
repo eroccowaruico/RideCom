@@ -1,3 +1,5 @@
+export const appAttestCBOR = { strict: true, useMaps: true, allowIndefinite: false, rejectDuplicateMapKeys: true, rejectInvalidUtf8: true }
+
 export interface AppAttestLaunch {
     validationCategory: number
     bundleVersion: string | null

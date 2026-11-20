@@ -1,5 +1,6 @@
+import { decode } from 'cborg'
 import { importP256VerificationKey } from './DeviceIdentity'
-import { type AppAttestLaunch, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
+import { type AppAttestLaunch, appAttestCBOR, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
 
 interface RegisteredDevice extends AppAttestLaunch {
     publicKey: string
@@ -10,6 +11,8 @@ interface RegisteredDevice extends AppAttestLaunch {
 
 const hexDigest = /^[a-f0-9]{64}$/
 const encoder = new TextEncoder()
+// Preserve the accepted definite-length assertion encodings, including nonminimal lengths.
+const assertionCBOR = { ...appAttestCBOR, strict: false }
 
 /** The caller selects this device record from its authenticated account.
  * The stored public key and app identity must come from verified enrollment. */
@@ -39,14 +42,16 @@ export async function consumeGroupRemovalAssertion(
 
 async function verifiedCounter(assertion: Uint8Array, clientData: string, device: RegisteredDevice): Promise<number | null> {
     try {
-        const record = decodeFields(assertion)
-        const signature = record.get('signature'), data = record.get('authenticatorData')
+        const record: unknown = decode(assertion, assertionCBOR)
+        if (!(record instanceof Map) || record.size !== 2) return null
+        const signature: unknown = record.get('signature')
+        const data: unknown = record.get('authenticatorData')
         if (!(signature instanceof Uint8Array) || !(data instanceof Uint8Array) || data.length <= 37
             || (data[32] & 0x80) === 0) return null
         const counter = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(33)
         if (!Number.isSafeInteger(device.counter) || device.counter < 0 || counter <= device.counter) return null
         // macOS sets the attested-credential flag even though an assertion carries only extensions after the header.
-        if (!appAttestLaunchMatches(decodeFields(data.subarray(37)), device)) return null
+        if (!appAttestLaunchMatches(decode(data.subarray(37), assertionCBOR), device)) return null
         const rpID = await sha256(encoder.encode(device.appID))
         if (!rpID.every((byte, index) => byte === data[index])) return null
         const nonce = await appAttestNonce(data, clientData)
@@ -54,40 +59,6 @@ async function verifiedCounter(assertion: Uint8Array, clientData: string, device
         const key = await importP256VerificationKey(device.publicKey)
         return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, rawSignature(signature), nonce) ? counter : null
     } catch { return null }
-}
-
-/** These App Attest records are maps of up to two text keys with byte-string or text values. */
-function decodeFields(bytes: Uint8Array) {
-    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-    let offset = 0
-    function take(count: number) {
-        if (offset + count > bytes.length) throw new Error('Truncated assertion')
-        const value = bytes.slice(offset, offset + count)
-        offset += count
-        return value
-    }
-    function length(type: number) {
-        const head = take(1)[0]
-        if (head >> 5 !== type) throw new Error('Unexpected assertion field')
-        const code = head & 31
-        if (code < 24) return code
-        if (code === 24) return take(1)[0]
-        if (code === 25) return new DataView(take(2).buffer).getUint16(0)
-        throw new Error('Unexpected assertion field length')
-    }
-    const count = length(5)
-    if (count < 1 || count > 2) throw new Error('Unexpected assertion record')
-    const fields = new Map<string, string | Uint8Array<ArrayBuffer>>()
-    for (let i = 0; i < count; i++) {
-        const key = decoder.decode(take(length(3)))
-        if (fields.has(key)) throw new Error('Duplicate assertion field')
-        const type = bytes[offset] >> 5
-        if (type !== 2 && type !== 3) throw new Error('Unexpected assertion value')
-        const value = take(length(type))
-        fields.set(key, type === 3 ? decoder.decode(value) : value)
-    }
-    if (bytes.length !== offset) throw new Error('Trailing assertion data')
-    return fields
 }
 
 function rawSignature(der: Uint8Array) {

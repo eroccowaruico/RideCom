@@ -261,11 +261,13 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 
 署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名が通る場合に受理する。この検証を呼ぶ公開APIや製品の鍵登録は未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
 
-### Macの端末鍵証明
+### 端末鍵登録の確認要求
 
 登録に使う確認要求は `POST /api/auth/device-attestation/challenge` で発行する。端末Bearerと空のJSONオブジェクトを受け、 `nonce`（乱数32バイトの小文字16進）と `expiresAt`（Unixミリ秒）を返す。アカウントと端末はBearerから決める。期限は発行から5分と端末資格の期限のうち早い方。期限内の並行・再試行では同じ値を返し、期限ちょうどから新しい値を発行する。確認要求は端末資格と同じSQLiteレコードに保存し、資格の更新・失効とアカウント削除で破棄する。期限切れは既存のalarmで回収する。
 
 `DEVICE_ATTESTATION_ENABLED=true` の環境でだけ発行する。無効時は503、未認証は401、POST以外は405、本文が空のJSONオブジェクト以外なら400。既存のApple登録と同じ送信元・全体の頻度制限を用い、上限超過は429を返す。
+
+### Macの端末鍵証明
 
 公開鍵を登録する前に、Worker内部の検証でApp Attestの証明を照合する。入力は最大16 KiBのCBOR、32バイトの鍵IDを標準Base64にした文字列、その登録に発行した16進64桁の確認要求。App ID、App Attestの環境、起動検証カテゴリ、ビルド番号の期待値はサーバー側で指定する。
 
