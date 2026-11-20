@@ -86,6 +86,9 @@ import UIKit
             || ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"].contains { environment[$0] != nil }
         let usesNativeOutput = model.audioPipeline.rendersToHardware
         let lastAudibleOutputAt = usesNativeOutput ? model.lastAudibleReceivedAudioAt : nil
+        let network = model.networkDiagnostics
+        let localRoute = network?.routes.first { $0.route == .multipeer }
+        let decode = model.audioPipeline.receiveDecodeCounts
         records.append(["uptime": now, "background": UIApplication.shared.applicationState == .background,
             "recordedAt": Date().timeIntervalSince1970, "processInstance": processInstance,
             "processID": ProcessInfo.processInfo.processIdentifier, "platform": platform,
@@ -102,6 +105,11 @@ import UIKit
             "connectionInstance": model.connectionGeneration.uuidString,
             "availableRoutes": model.availableCallRoutes.map(\.rawValue).sorted(),
             "receivedVoicePackets": model.receivedVoicePacketCount,
+            "localMediaObservationAt": (localRoute == nil ? nil : network?.generatedAt) as Any? ?? NSNull(),
+            "localReceivedDatagrams": localRoute?.statistics.receivedMediaDatagrams as Any? ?? NSNull(),
+            "localRouteEventDrops": localRoute?.eventDrops["route"].map { $0.overflow + $0.expired } as Any? ?? NSNull(),
+            "sessionEventDrops": network.map { $0.eventDrops.overflow + $0.eventDrops.expired } as Any? ?? NSNull(),
+            "decodedPCMPackets": decode.pcmPackets, "decodeFailures": decode.failures,
             "usesNativeOutput": usesNativeOutput,
             "nativeOutput": (usesNativeOutput ? model.audioPipeline.backgroundOutputProbe?.fields : nil) as Any? ?? NSNull(),
             "lastAudibleOutputAt": lastAudibleOutputAt as Any? ?? NSNull(),
