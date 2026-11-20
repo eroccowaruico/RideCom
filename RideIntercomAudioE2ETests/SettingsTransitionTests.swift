@@ -31,6 +31,7 @@ extension AudioE2ETests {
         let queue = DispatchQueue(label: "receive-isolation-fixture", qos: .userInitiated)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         let sequence = Mutex<UInt64>(0), failures = Mutex<[String]>([])
+        let rejected = Mutex<[(start: TimeInterval, end: TimeInterval)]>([])
         let start = DispatchTime.now() + .milliseconds(30)
         let captureOrigin = Double(start.uptimeNanoseconds) / 1e9
         timer.setEventHandler {
@@ -41,8 +42,11 @@ extension AudioE2ETests {
             for (peer, payload) in fixtures {
                 let packet = RTCAudioPacket(sequenceNumber: index, codec: .pcm16, format: format,
                     capturedAt: captureOrigin + Double(index) / 100, sampleCount: 480, payload: payload)
+                let arrival = ProcessInfo.processInfo.systemUptime
                 do { _ = try pipeline.processReceivedAudioPacket(.init(peerID: peer, packet: packet)) }
-                catch AppAudioPipelineError.notConfigured { /* The receive graph can reject packets during a topology change. */ }
+                catch AppAudioPipelineError.notConfigured {
+                    rejected.withLock { $0.append((arrival, ProcessInfo.processInfo.systemUptime)) }
+                }
                 catch { failures.withLock { $0.append(String(describing: error)) } }
             }
         }
@@ -61,13 +65,19 @@ extension AudioE2ETests {
             return try XCTUnwrap(measured.amplitudes.count == frequencies.count ? measured.amplitudes : nil)
         }
         let baseline = try await steadyTones()
+        var masterChanges: [ClosedRange<TimeInterval>] = []
+        func updateIsolation(peerOnly: Bool, enabled: Bool) throws {
+            let start = ProcessInfo.processInfo.systemUptime
+            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled && !peerOnly,
+                peers: enabled && peerOnly ? ["one": true] : [:])
+            if !peerOnly { masterChanges.append(start...ProcessInfo.processInfo.systemUptime) }
+        }
         for peerOnly in [false, true] {
-            let peers = peerOnly ? ["one": true] : [:]
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: !peerOnly, peers: peers)
+            try updateIsolation(peerOnly: peerOnly, enabled: true)
             let first = try await steadyTones()
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
+            try updateIsolation(peerOnly: peerOnly, enabled: false)
             let bypassed = try await steadyTones()
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: !peerOnly, peers: peers)
+            try updateIsolation(peerOnly: peerOnly, enabled: true)
             let enabledAgain = try await steadyTones()
             for index in frequencies.indices {
                 let expected = baseline[index] * (peerOnly && index == 1 ? 1 : 0.5)
@@ -75,8 +85,12 @@ extension AudioE2ETests {
                 XCTAssertEqual(bypassed[index], baseline[index], accuracy: 0.002, "Bypass, peerOnly=\(peerOnly)")
                 XCTAssertEqual(enabledAgain[index], first[index], accuracy: 0.002, "Enable again, peerOnly=\(peerOnly)")
             }
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
+            try updateIsolation(peerOnly: peerOnly, enabled: false)
             _ = try await steadyTones()
+        }
+        for attempt in rejected.withLock({ $0 }) {
+            XCTAssertTrue(masterChanges.contains { $0.overlaps(attempt.start...attempt.end) },
+                "A peer effect change cannot reject received audio: \(attempt)")
         }
         XCTAssertTrue(failures.withLock { $0.isEmpty })
         XCTAssertEqual(pipeline.droppedRenderFrameCount, 0)
@@ -239,14 +253,14 @@ extension AudioE2ETests {
             XCTAssertLessThanOrEqual(maximumSilence, 120, "Only a bounded native reconfiguration interval may be silent")
         }
         XCTAssertTrue(failures.isEmpty, failures.joined(separator: "; "))
-        // Production deliberately rejects packets during RX graph mutations.
-        // Only an attempt overlapping the actual mutation may be discarded;
-        // no settling allowance or steady-state exception is added here.
+        // A master effect change invalidates all receive reservations. No
+        // packet can be rejected during a peer effect change or while settling.
         for attempt in rejected {
-            XCTAssertTrue((8..<stages.count).contains { index in
-                attempt.start <= changeHostTimes[index] + changeDurations[index]
+            XCTAssertTrue(stages.indices.contains { index in
+                stages[index].hasPrefix("receive-master-")
+                    && attempt.start <= changeHostTimes[index] + changeDurations[index]
                     && attempt.end >= changeHostTimes[index]
-            }, "Unexpected receive rejection outside an RX graph change: \(attempt)")
+            }, "Unexpected receive rejection outside a master effect change: \(attempt)")
         }
         XCTAssertEqual(drops, 0); XCTAssertEqual(resets, 0); XCTAssertEqual(encodingFailures, 0)
         let measurement: [String: Any] = ["scenario": "live-settings", "role": "pipeline", "transport": "none",

@@ -216,13 +216,13 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair conversation --seco
 | codec-only / native | 4音声×22 codec/rate/bitrate条件。既存の全文判定に加えmissingActiveRatio=0、会話は各相槌も一致。fallbackを認めない |
 | codec-only / transmit | 2声×入力quantum 256/960sample×isolation ON/OFF×3codecの24条件。実App送信VAD/DSP/codecを通して2周再生し、欠落0と相槌を検査 |
 | group-only | 8人の独立時計、PCM/Opus/AACと異なるbitrate/rate、Localのみ・Internetのみ・両方の参加者。仮想経路の遅延・jitter・複製を実認証/暗号化/中継へ与え、全話者の順序・欠落・重複・codec境界と7話者同時mixを検査。1/2/3秒後の100ms相槌も残ること |
-| switches-only | 12区間で送受信isolationとPCM/Opus/AAC・16/24/48kHzを変更。通常区間は微小不連続oracle、切替区間はsample段差0.04未満・無音120ms以下、内部破棄0・エラー0。全体を実render WAVで保存。別テストで共有I/Oを4回切替し、各操作500ms未満・復帰後の定常toneを検証 |
+| switches-only | 12区間で送受信isolationとPCM/Opus/AAC・16/24/48kHzを変更。通常区間は微小不連続oracle、切替区間はsample段差0.04未満・無音120ms以下、内部破棄0・エラー0。全体を実render WAVで保存。別テストで共有I/Oを4回切替し、各操作500ms未満・復帰後の定常toneを検証。二人のPCM16を同時に再生し、相手別の分離のON／OFF／再ONで受信を拒否しないこと、切替後に定常時の分離の効果と別の相手の振幅を保つことも検証 |
 | 微小不連続の負例 | 全体の0.1%に当たる1ms欠落・1ms重複、単発clickを必ず拒否。単一正弦波fit後の最大2ms残差RMS≤0.006・sample段差≤0.10。平均誤差で薄めない |
 | 相槌の負例 | 「うん」「ふん」を個別に消した音声を拒否。whole recordingで決めた同じoffsetの位置で相関≥0.65を要求し、別の良い断片へ探し直さない |
 
 8人試験の配送は決定的な仮想経路であり、8台の物理無線機器・実Cloudflare SFUの測定ではない。ネットワーク2端末試験とは独立して必要とする。realtime-onlyも空気伝搬・Bluetooth・物理iPhoneの口から耳を測った結果ではない。native SoundIsolationのalgorithmic latencyは有効な段数に応じて加算されるため、任意に重ねた設定や全ネットワークで125msを保証するものではない。
 
-測定JSONは各専用modeでもpipeline-measurements.jsonに集約する。codec-onlyは2件、他の単独modeは1件の専用XCTest完了と全scenarioの測定存在を必須にする。preflightはiOSの従来の負例・micro gap・相槌負例・native sessionの計5件と、Macのfixture時刻検査2件を必須にし、skipは認めない。packet到着・capture・OS制御の時刻traceはE2E専用attachmentへ保存し、本番のframeごとのログには追加しない。
+測定JSONは各専用modeでもpipeline-measurements.jsonに集約する。codec-onlyとswitches-onlyは2件、他の単独modeは1件の専用XCTest完了と全scenarioの測定存在を必須にする。preflightはiOSの負例・micro gap・相槌負例・native sessionの計5件と、Macのfixture時刻検査2件を必須にし、skipは認めない。switches-onlyのiOS事前試験は送信分離の再ONと二人の受信分離切替も実行する。packet到着・capture・OS制御の時刻traceはE2E専用attachmentへ保存し、本番のframeごとのログには追加しない。
 
 conversation-ja.wav（Kyoko、約16.38秒）とconversation-reply-ja.wav（Reed、約14.89秒）は1/2/3秒の休止と「うん」「ふん」を含む。原文・各発話の正確な開始終了はFixtures/conversation-manifest.json、再生成はscripts/build_conversation_fixtures.pyが正本。毎回のテストでは同梱WAVを使う。
 

@@ -368,7 +368,9 @@ def execute(args, runner, resource_root):
             'AudioE2ETests/testConversationOracleRejectsMissingAcknowledgements',
             'AudioE2ETests/testSystemSessionAcceptsCallProfiles']
         if args.switches_only:
-            ios_preflight_tests.append('AudioE2ETests/testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass')
+            ios_preflight_tests.extend([
+                'AudioE2ETests/testTransmitIsolationRestoresTheSameNoiseReductionAfterBypass',
+                'AudioE2ETests/testReceiveIsolationKeepsItsEffectWhenEnabledAgain'])
         preflight = configure_test_run(ios_run, 'preflight', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
                                        {}, identifiers=ios_preflight_tests)
         command('preflight', ['xcodebuild', 'test-without-building', '-xctestrun', str(preflight),

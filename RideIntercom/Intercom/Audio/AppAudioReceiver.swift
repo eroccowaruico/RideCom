@@ -267,7 +267,10 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             return effect.avAudioUnitEffect.bypass != !value ? (id, effect, value) : nil
         }
         let output = changes.isEmpty ? nil : mixer?.bus("rx-output")
-        if output != nil { graphGeneration.wrappingAdd(1, ordering: .releasing) }
+        // Only the master mutation invalidates all player reservations. The
+        // lock already serializes a peer's reconnection with packet scheduling.
+        let changesMaster = changes.contains { $0.0 == "rx-master" }
+        if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         var settling = changes.filter { !$0.2 }.map { $0.1.node.latency }.max() ?? 0
         output?.beginSinkTransition(settlingDuration: 0, holding: true)
         defer {
@@ -275,8 +278,8 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
                 settling = max(settling, changes.filter { $0.2 }.map { $0.1.node.latency }.max() ?? 0)
                 output.beginSinkTransition(settlingDuration: settling + output.processingLatency
                     + (configuration.receivePlayoutDelay ?? 0))
-                graphGeneration.wrappingAdd(1, ordering: .releasing)
             }
+            if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         }
         for (id, effect, value) in changes {
             guard let bus = mixer?.bus(id) else { throw AppAudioPipelineError.notConfigured }
