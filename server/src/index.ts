@@ -7,6 +7,7 @@ import { contactDeletionRequest } from './ContactDeletions'
 export { NotificationIndex } from './NotificationIndex'
 export { SignalingRoom, UsageGuard }
 export { AppleAuthAttempt, UserAccount } from './AppleAccount'
+export { consumeGroupRemovalAssertion } from './GroupRemovalAssertion'
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {

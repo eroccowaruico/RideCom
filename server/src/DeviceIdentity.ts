@@ -6,7 +6,7 @@ function memberIDIsValid(value: unknown): value is string {
     return typeof value === 'string' && /^[A-Za-z0-9_-]{1,63}$/.test(value) && !value.startsWith('invite-pending-')
 }
 
-async function verificationKey(value: unknown) {
+export async function importP256VerificationKey(value: unknown) {
     if (typeof value !== 'string' || value.length !== 87) throw new Error('body')
     const bytes = base64url.decode(value)
     if (bytes.length !== 65 || bytes[0] !== 4 || base64url.encode(bytes) !== value) throw new Error('body')
@@ -28,7 +28,7 @@ function issuerKeys(env: Env) {
 export async function certifyDevice(identity: DeviceIdentity, issuer: string, body: Record<string, unknown>, env: Env) {
     const memberID = body.memberID, deviceKey = body.deviceKey
     if (!memberIDIsValid(memberID)) throw new Error('body')
-    try { await verificationKey(deviceKey) } catch { throw new Error('body') }
+    try { await importP256VerificationKey(deviceKey) } catch { throw new Error('body') }
     const { key, privateScalar, issuerKey } = issuerKeys(env)
     const signingKey = await importJWK({ ...key, d: privateScalar }, 'ES256')
     const issuedAt = Math.floor(Date.now() / 1000)
@@ -81,7 +81,7 @@ export async function verifyDeviceProof(
             || claims.exp <= claims.iat || claims.exp - claims.iat > 30 * 86400) return null
         const bytes = base64url.decode(signature)
         if (bytes.length !== 64 || base64url.encode(bytes) !== signature) return null
-        const verified = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, await verificationKey(publicKey), bytes,
+        const verified = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, await importP256VerificationKey(publicKey), bytes,
             proofMessage([purpose, claims.memberID, publicKey, compact, issuerKey, payload]))
         return verified ? { memberID: claims.memberID, recipientKey: publicKey, expiresAt: claims.exp * 1000 } : null
     } catch { return null }
