@@ -5,10 +5,10 @@ struct AdvancedRegisteredGroupInvitations: View {
     let group: IntercomGroup
     let selectedUsers: Set<UUID>
     var body: some View {
-        AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(for: selectedUsers, in: group.id))
         Section {
             CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "addedUsersInviteButton")
         }
+        AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(for: selectedUsers, in: group.id))
     }
 }
 

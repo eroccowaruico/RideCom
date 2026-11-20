@@ -59,12 +59,12 @@ struct AdvancedGroupSettingsView: View {
                         Text("Control-click a member for available actions.")
                         #endif
                     }
-                    AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(in: groupID))
                     if viewModel.canShareGroup(groupID) {
                         Section {
                             CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "groupSettingsInviteButton")
                         }
                     }
+                    AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(in: groupID))
                     GroupRemovalSection(viewModel: viewModel, group: group, onRemoved: { dismiss() })
                     if let message = viewModel.groupErrorMessage {
                         Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)

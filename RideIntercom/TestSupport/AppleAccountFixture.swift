@@ -2,6 +2,9 @@
 import AuthenticationServices
 import Foundation
 import CryptoKit
+#if os(iOS)
+import UIKit
+#endif
 
 /// Compiled only into explicitly isolated local validation builds. Ordinary
 /// Debug, Release and Archive builds cannot select this provider with an env var.
@@ -80,6 +83,32 @@ enum AppleAccountFixture {
         // Save through the real UI, then relaunch with the normal clock to see the expired invitation.
         return { Date().addingTimeInterval(-8 * 86_400) }
     }
+
+    #if os(iOS)
+    /// Emulates the saved result of one receiver confirming delivery while the invitation sheet is open.
+    static func observeGroupDeliveryReceiptIfRequested(_ viewModel: IntercomViewModel?) {
+        let environment = ProcessInfo.processInfo.environment
+        guard let viewModel, viewModel.accountUserID == userID,
+              let namespace = Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String,
+              namespace.hasPrefix("RideIntercom.Validation."), environment["RIDEINTERCOM_LOCAL_TESTING"] == "1",
+              environment["RIDEINTERCOM_GROUP_DELIVERY_RECEIPT_FIXTURE"] == "1",
+              let personID = environment["RIDEINTERCOM_MEMBER_SELECTION_FIXTURE"].flatMap(UUID.init(uuidString:)) else { return }
+        Task { @MainActor [weak viewModel] in
+            let foreground = NotificationCenter.default.notifications(named: UIApplication.willEnterForegroundNotification).map { _ in () }
+            for await _ in foreground {
+                guard let viewModel else { return }
+                guard let groupID = viewModel.selectedGroup?.id,
+                      let record = viewModel.groupInvitationDeliveries(for: [personID], in: groupID).first,
+                      record.state == .pending else { continue }
+                do {
+                    try viewModel.groupRepository.setGroupDeliveryState(record.id, state: .received)
+                    viewModel.refreshGroupStorageStatus()
+                } catch { preconditionFailure("Local group delivery receipt fixture failed: \(error)") }
+                return
+            }
+        }
+    }
+    #endif
 
     static func groupStore(directory: URL, namespace: String) -> any GroupStoring {
         let store = FileGroupStore(directory: directory)

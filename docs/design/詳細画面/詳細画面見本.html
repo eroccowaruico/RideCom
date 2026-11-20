@@ -629,6 +629,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div><b>Maki</b><div>isRegistered true</div><span class="sub mono">id 12ab34cd-0000-4000-8000-000000000002</span></div>
             <span aria-hidden="true">›</span>
           </div>
+          <div class="card"><div class="linkt">Invite</div></div>
           <div class="hd"><span>GroupDeliveryRecord</span></div>
           <div class="card form-fields">
             <div class="row"><span>id</span><span class="v mono">7a6d2140-8336-4afb-9146-e55f92b86029</span></div>
@@ -637,10 +638,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span>expiresAt</span><span class="v mono">1795564800.0</span></div>
             <div class="row"><span>credentialReference</span><span class="v mono">nil</span></div>
           </div>
-          <div class="card"><div class="linkt">Invite</div></div>
         </div>
       </div></div>
-      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued。近距離の署名付き受領または受信箱の受領が確定するとreceived。受取側の一覧は確定後に更新する。鍵が食い違う招待や、そのグループで外した相手から届いた招待は破棄し、次の受信箱の項目へ進む。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。近距離に送出した招待を取り消すと暗号文参照を外し、照合に必要な記録を保持する。保存済みの取消を相手が受け取れるときに自動で届ける。受け手は先に取消を確認した招待を一覧に追加しない。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。Internetの受信箱は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
+      <figcaption><b>登録済みの相手への自動配送</b>配送記録の前にInviteを置く。AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued。近距離の署名付き受領または受信箱の受領が確定するとreceived。受取側の一覧は確定後に更新する。鍵が食い違う招待や、そのグループで外した相手から届いた招待は破棄し、次の受信箱の項目へ進む。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。近距離に送出した招待を取り消すと暗号文参照を外し、照合に必要な記録を保持する。保存済みの取消を相手が受け取れるときに自動で届ける。受け手は先に取消を確認した招待を一覧に追加しない。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。Internetの受信箱は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
     </figure>
 
     <figure id="group-settings">
@@ -653,13 +653,14 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span><b>Sora</b><div class="sub mono">outgoing · pending · sent false</div><div class="sub mono">expiresAt 2026-11-26T00:00:00Z</div></span></div>
             <div class="row linkt">Add Members</div>
           </div>
+          <div class="card"><div class="row linkt">Invite</div></div>
           <div class="sect">GroupDeliveryRecord</div><div class="card">
             <div class="row"><b>id</b><span class="v mono">7a6d2140-8336-4afb-9146-e55f92b86029</span></div>
             <div class="row"><b>recipientMemberID</b><span class="v mono">maki-phone</span></div>
             <div class="row"><b>state</b><span class="v mono">pending</span></div>
             <div class="row"><b>expiresAt</b><span class="v mono">1795564800.0</span></div>
             <div class="row"><b>credentialReference</b><span class="v mono">nil</span></div>
-          </div><div class="card"><div class="row linkt">Invite</div></div>
+          </div>
           <div class="card"><div class="row" style="color:var(--err)">Delete Group</div></div>
         </div>
       </div></div>
