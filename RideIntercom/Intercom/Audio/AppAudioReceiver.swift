@@ -149,7 +149,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         if !frame.samples.isEmpty {
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCMAt = Date().timeIntervalSince1970
-            try play(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
+            try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration)
         }
         if let previousAdjustmentCount, let source = sources[id] {
             observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount)
@@ -158,7 +158,11 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     }
 
     func play(_ frame: PCMFrame, peer: String = "audio-check", packetizationJitter: TimeInterval = 0) throws {
-        lock.lock(); defer { lock.unlock() }
+        try lock.withLock { try scheduleInGraph(frame, peer: peer, packetizationJitter: packetizationJitter) }
+    }
+
+    // Both receive and Audio Check hold the graph lock before scheduling.
+    private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval) throws {
         let source = try source(for: peer)
         _ = try source.schedule(frame, packetizationJitter: packetizationJitter)
         if !source.playerNode.isPlaying { source.start() }
