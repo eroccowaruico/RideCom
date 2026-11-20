@@ -82,6 +82,12 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
         self.dynamics = dynamics
         limiter = try AppAudioPipeline.installLimiter(on: processor.bus)
         try processor.start()
+        if isolation != nil, !configuration.transmitSoundIsolationEnabled {
+            // Native allocation can delay the first live render even without
+            // the capture lock. Warm the disconnected effect before capture.
+            // A failed warm-up leaves bypass usable and enable retries it.
+            try? processor.bus.prepareEffect(id: "sound-isolation")
+        }
     }
 
     func stop() {

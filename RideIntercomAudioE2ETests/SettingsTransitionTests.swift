@@ -251,7 +251,8 @@ extension AudioE2ETests {
         try await Task.sleep(for: .seconds(1))
         probe.reset(); decodedProbe.reset(); mixedProbe.reset()
         let stages = ["PCM", "isolation-on", "Opus", "AAC-48k", "AAC-16k", "AAC-24k", "AAC-48k-high", "isolation-off",
-                      "receive-master-on", "receive-master-off", "receive-peer-on", "receive-peer-off"]
+                      "receive-master-on", "receive-master-off", "receive-peer-on", "receive-peer-off",
+                      "isolation-on-again", "isolation-off-again"]
         var boundaries: [Int] = []
         var changeHostTimes: [Double] = [], changeDurations: [Double] = []
         for (index, _) in stages.enumerated() {
@@ -273,6 +274,8 @@ extension AudioE2ETests {
             case 9: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
             case 10: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: ["peer": true])
             case 11: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
+            case 12: try pipeline.updateSoundIsolation(transmit: true, receiveMaster: false, peers: [:])
+            case 13: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
             default: break
             }
             changeDurations.append(ProcessInfo.processInfo.systemUptime - changeStart)
