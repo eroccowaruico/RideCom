@@ -9,6 +9,12 @@ nonisolated struct GroupInvitationAddress: Decodable, Sendable {
 nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendable {
     enum Direction: String, Codable, Sendable { case outgoing, incoming }
     enum State: String, Codable, Sendable { case pending, queued, received, cancelled }
+
+    struct NearbyHandoff: Codable, Equatable, Sendable {
+        let envelopeDigest: Data
+        var internetCancellationConfirmed = false
+    }
+
     var id: UUID = UUID()
     var noticeID: UUID = UUID()
     var groupID: UUID
@@ -22,6 +28,7 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     var senderMemberID: String?
     var sourceRequestID: UUID?
     var acceptedEnvelopeDigest: Data?
+    var nearbyHandoff: NearbyHandoff?
 
     var isValid: Bool {
         sourceRequestID != id && recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)
@@ -35,5 +42,13 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
             && (state != .queued || credentialReference != nil)
             && (state != .received && state != .cancelled || credentialReference == nil)
             && (acceptedEnvelopeDigest == nil || (direction == .incoming && state == .received && acceptedEnvelopeDigest?.count == 32))
+            && hasValidNearbyHandoff
+    }
+
+    private var hasValidNearbyHandoff: Bool {
+        guard let nearbyHandoff else { return true }
+        return direction == .outgoing && sourceRequestID == nil && nearbyHandoff.envelopeDigest.count == 32
+            && state != .received && (state == .cancelled || credentialReference != nil)
+            && (!nearbyHandoff.internetCancellationConfirmed || state == .cancelled)
     }
 }

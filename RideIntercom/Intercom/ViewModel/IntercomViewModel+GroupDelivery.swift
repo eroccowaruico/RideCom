@@ -123,10 +123,11 @@ extension IntercomViewModel {
                   record.state != .received else { continue }
             if record.recipient.issuer != access.principal.issuer { continue }
             if record.state == .cancelled {
+                guard record.nearbyHandoff?.internetCancellationConfirmed != true else { continue }
                 do { try await client.finishGroupInvitation(recipient: record.recipient, id: record.id, access: access) }
                 catch { continue }
                 guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
-                do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970, cancelledID: record.id) }
+                do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970, internetCancelledID: record.id) }
                 catch { reportGroupStorageError(error); return }
                 continue
             }

@@ -100,7 +100,7 @@ import Testing
         #expect(restarted.groupDeliveries.first?.state == .cancelled && restarted.groupDeliveries.first?.credentialReference == nil)
         #expect(f.keys.values[key] == nil && restarted.users == [user])
         #expect(throws: (any Error).self) { try restarted.groupDeliveryEnvelope(record.id) }
-        try restarted.removeFinishedGroupDeliveries(now: Date().timeIntervalSince1970, cancelledID: record.id)
+        try restarted.removeFinishedGroupDeliveries(now: Date().timeIntervalSince1970, internetCancelledID: record.id)
         #expect(restarted.groupDeliveries.isEmpty)
     }
 

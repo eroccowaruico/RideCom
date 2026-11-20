@@ -185,6 +185,65 @@ import UserNotifications
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func internetCancellationKeepsTheUnacknowledgedNearbyHandoffAfterRestart() async throws {
+        let a = GroupDeliveryTestIdentity("cancel-nearby-sender")
+        let b = GroupDeliveryTestIdentity("cancel-nearby-recipient")
+        defer { a.remove(); b.remove() }
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try a.harness(knowing: [b], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [a], onDisk: true).viewModel
+        sender.groupDeliveryClient = nil
+        sender.allowsNearbyGroupDelivery = true
+        GroupDeliveryHTTPStub.reset()
+        defer { sender.stopGroupDeliverySync(); sender.disconnect(); GroupDeliveryHTTPStub.reset() }
+
+        let receivedFrame = Mutex<Data?>(nil)
+        let channel = RTCLocalDataChannel(localID: .init(rawValue: b.memberID),
+                                          knownPeers: recipient.nearbyGroupDeliveryCredentials()) { event in
+            if case .message(let data, _) = event {
+                receivedFrame.withLock { $0 = data }
+            }
+        }
+        defer { channel.stop() }
+        channel.start()
+        sender.setNearbyGroupDeliveryForeground(true)
+        try #require(sender.createTalkGroup(name: "Invite to cancel", userIDs: [b.personID]))
+        let delivery = try #require(sender.groupRepository.groupDeliveries.first)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) { receivedFrame.withLock { $0 != nil } }
+        struct CapturedInvitation: Decodable {
+            struct Payload: Decodable { let _0: GroupInvitationEnvelope }
+            let invitation: Payload
+        }
+        let bytes = try #require(receivedFrame.withLock { $0 })
+        let frame = try JSONDecoder().decode(CapturedInvitation.self, from: bytes)
+        let digest = try frame.invitation._0.receiptDigest()
+        #expect(sender.groupRepository.groupDeliveries.first?.state == .pending)
+        #expect(sender.groupRepository.groupDeliveries.first?.nearbyHandoff?.envelopeDigest == digest)
+
+        try #require(sender.removeMember(b.memberID, from: delivery.groupID))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        GroupDeliveryHTTPStub.users = [access.accessToken: try a.principal.userID]
+        sender.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        await sender.synchronizeGroupDeliveries()
+        try #require(sender.groupRepository.groupDeliveries.first?.state == .cancelled,
+                     "HTTP cancellation must leave the independently dispatched near-range cancellation pending")
+        #expect(GroupDeliveryHTTPStub.deletions == [delivery.id.uuidString.lowercased()])
+
+        let reopened = try a.harness(knowing: [b], onDisk: true).viewModel
+        defer { reopened.stopGroupDeliverySync() }
+        let saved = try #require(reopened.groupRepository.groupDeliveries.first)
+        #expect(saved.id == delivery.id && saved.state == .cancelled && saved.credentialReference == nil)
+        #expect(saved.nearbyHandoff?.envelopeDigest == digest && saved.nearbyHandoff?.internetCancellationConfirmed == true)
+        reopened.groupDeliveryClient = sender.groupDeliveryClient
+        await reopened.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.deletions == [delivery.id.uuidString.lowercased()],
+                "The Internet acknowledgement remains known after reopening the manifest")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func nearbyReceiptRequiresTheSameEnvelopeAndSurvivesLostReply() async throws {
         let a = GroupDeliveryTestIdentity("nearby-group-author")
         let b = GroupDeliveryTestIdentity("nearby-group-recipient")
@@ -945,6 +1004,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var users: [String: String] = [:]
     nonisolated(unsafe) static var items: [String: [String: Any]] = [:]
     nonisolated(unsafe) static var submitted: [String] = []
+    @MainActor static var deletions: [String] = []
     nonisolated(unsafe) static var onQueued: (@MainActor () -> Void)?
     nonisolated(unsafe) static var onAcknowledged: (@MainActor () -> Void)?
     @MainActor static var beforeReturningInbox: (@MainActor () async -> Void)?
@@ -953,7 +1013,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
     nonisolated(unsafe) static var legacyAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -1007,6 +1067,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
             return (200, ["delivery": item.map { $0 as Any } ?? NSNull()])
         }
         if request.httpMethod == "DELETE" {
+            deletions.append(url.lastPathComponent)
             if failNextAcknowledgement { failNextAcknowledgement = false; return (503, [:]) }
             let id = url.lastPathComponent
             guard var item = items[id] else { return (404, [:]) }

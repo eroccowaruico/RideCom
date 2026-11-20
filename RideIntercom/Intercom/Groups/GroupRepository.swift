@@ -742,6 +742,20 @@ extension GroupRepository {
               envelope.sourceRequestID == record.sourceRequestID else { throw GroupStorageError.identityConflict }
         return envelope
     }
+    /// Record the exact ciphertext digest before offering it to the local transport.
+    func recordNearbyGroupHandoff(_ id: UUID) throws {
+        guard let snapshot, let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == id })
+        else { throw GroupStorageError.invalidUpdate }
+        let record = snapshot.groupDeliveries[index]
+        guard record.direction == .outgoing, record.sourceRequestID == nil,
+              record.state == .pending || record.state == .queued else { throw GroupStorageError.invalidUpdate }
+        guard record.nearbyHandoff == nil else { return }
+        let digest = try groupDeliveryEnvelope(id).receiptDigest()
+        try amend(snapshot) { next in
+            next.groupDeliveries[index].nearbyHandoff = .init(envelopeDigest: digest)
+        }
+    }
+
     func setGroupDeliveryState(_ id: UUID, state: GroupDeliveryRecord.State) throws {
         guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == id }), old.direction == .outgoing,
               (old.state == .pending || old.state == .queued), state != .pending,
@@ -750,12 +764,26 @@ extension GroupRepository {
             guard let index = next.groupDeliveries.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
             next.groupDeliveries[index].state = state
             if state == .received || state == .cancelled { next.groupDeliveries[index].credentialReference = nil }
+            if state == .received { next.groupDeliveries[index].nearbyHandoff = nil }
         }
     }
-    func removeFinishedGroupDeliveries(now: TimeInterval, cancelledID: UUID? = nil) throws {
+    func removeFinishedGroupDeliveries(now: TimeInterval, internetCancelledID: UUID? = nil) throws {
         guard let snapshot else { throw IntercomGroupError.storageUnavailable }
-        guard snapshot.groupDeliveries.contains(where: { $0.expiresAt <= now || ($0.id == cancelledID && $0.state == .cancelled) }) else { return }
-        try amend(snapshot) { next in next.groupDeliveries.removeAll { $0.expiresAt <= now || ($0.id == cancelledID && $0.state == .cancelled) } }
+        let confirmed = snapshot.groupDeliveries.firstIndex {
+            $0.id == internetCancelledID && $0.direction == .outgoing && $0.state == .cancelled
+                && $0.nearbyHandoff?.internetCancellationConfirmed != true
+        }
+        guard confirmed != nil || snapshot.groupDeliveries.contains(where: { $0.expiresAt <= now }) else { return }
+        try amend(snapshot) { next in
+            if let confirmed {
+                if next.groupDeliveries[confirmed].nearbyHandoff != nil {
+                    next.groupDeliveries[confirmed].nearbyHandoff?.internetCancellationConfirmed = true
+                } else {
+                    next.groupDeliveries.remove(at: confirmed)
+                }
+            }
+            next.groupDeliveries.removeAll { $0.expiresAt <= now }
+        }
     }
 
     private static func cancelPendingGroupReceipts(in next: inout GroupSnapshot, matching: (GroupDeliveryRecord) -> Bool) {

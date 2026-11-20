@@ -257,6 +257,7 @@ extension IntercomViewModel {
                 if let envelope = try prepareGroupDeliveryEnvelope(record, sender: localAccountPrincipal) {
                     let data = try JSONEncoder().encode(NearbyGroupDeliveryFrame.invitation(envelope))
                     guard data.count <= 65_536 else { continue }
+                    try groupRepository.recordNearbyGroupHandoff(record.id)
                     exchange.channel.send(data, to: peer)
                     exchange.sent[peer, default: []].insert(record.id)
                 }

@@ -640,7 +640,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="linkt">Invite</div></div>
         </div>
       </div></div>
-      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued。近距離の署名付き受領または受信箱の受領が確定するとreceived。受取側の一覧は確定後に更新する。鍵が食い違う招待や、そのグループで外した相手から届いた招待は破棄し、次の受信箱の項目へ進む。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。Internetの受信箱は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
+      <figcaption><b>登録済みの相手への自動配送</b>AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued。近距離の署名付き受領または受信箱の受領が確定するとreceived。受取側の一覧は確定後に更新する。鍵が食い違う招待や、そのグループで外した相手から届いた招待は破棄し、次の受信箱の項目へ進む。iOSでは保存直後に背景へ移っても有限の実行時間で送信を続け、時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。近距離に送出した招待を取り消すと暗号文参照を外し、照合に必要な記録を保持する。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。Internetの受信箱は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
     </figure>
 
     <figure id="group-settings">
