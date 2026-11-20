@@ -30,16 +30,19 @@ function cborMap(entries) {
 
 function assertion(privateKey, { app = appID, counter = 1, challenge = nonce, operation = operationHash,
         category = 2, version = bundleVersion, includeExtensions = true, duplicateExtension = false,
-        trailingSignatureByte = false } = {}) {
+        trailingSignatureByte = false, flags = 0x80, hashNonce = true } = {}) {
     const header = Buffer.alloc(37);
     header.set(createHash('sha256').update(app).digest());
-    header[32] = includeExtensions ? 0x80 : 0;
+    header[32] = includeExtensions ? flags : 0;
     header.writeUInt32BE(counter, 33);
-    const extensions = [['apple_validation_category_01', 2, [category, 0, 0, 0]], ['apple_bundle_version_01', 3, version]];
+    const extensions = [['apple_validation_category_01', 2, [category, 0, 0, 0]]];
+    if (version !== null) extensions.push(['apple_bundle_version_01', 3, version]);
     if (duplicateExtension) extensions[1] = extensions[0];
     const authenticatorData = includeExtensions ? Buffer.concat([header, cborMap(extensions)]) : header;
     const clientData = JSON.stringify(['rideintercom.group-removal.v1', challenge, operation]);
-    const signature = sign('sha256', Buffer.concat([authenticatorData, createHash('sha256').update(clientData).digest()]), privateKey);
+    const message = Buffer.concat([authenticatorData, createHash('sha256').update(clientData).digest()]);
+    const signed = hashNonce ? createHash('sha256').update(message).digest() : message;
+    const signature = sign('sha256', signed, privateKey);
     return cborMap([['signature', 2, trailingSignatureByte ? Buffer.concat([signature, Buffer.from([0])]) : signature],
         ['authenticatorData', 2, authenticatorData]]);
 }
@@ -122,6 +125,8 @@ test('wrong operation, device or app identity and invalid envelopes preserve the
             assertion(key.privateKey, { app: 'RIDECOM123.com.example.other' }),
             assertion(key.privateKey, { category: 3 }),
             assertion(key.privateKey, { version: '9999' }),
+            assertion(key.privateKey, { version: null }),
+            assertion(key.privateKey, { hashNonce: false }),
             assertion(key.privateKey, { includeExtensions: false }),
             assertion(key.privateKey, { duplicateExtension: true }),
             assertion(key.privateKey, { trailingSignatureByte: true }),
@@ -134,5 +139,21 @@ test('wrong operation, device or app identity and invalid envelopes preserve the
         await runtime.set(record);
         assert.equal(await runtime.consume(assertion(key.privateKey)), null);
         assert.deepEqual(await runtime.state(), record);
+    } finally { await runtime.close(); }
+});
+
+test('a development-signed Mac proof can omit the bundle version only when enrollment expects it', async () => {
+    const runtime = await fixture(), key = device();
+    try {
+        const record = { ...registration(key), validationCategory: 3, bundleVersion: null };
+        await runtime.set(record);
+        const mac = { category: 3, version: null, flags: 0xc0 };
+        assert.equal(await runtime.consume(assertion(key.privateKey, { ...mac, category: 2 })), null);
+        assert.equal(await runtime.consume(assertion(key.privateKey, { ...mac, version: bundleVersion })), null);
+        assert.deepEqual(await runtime.state(), record);
+        assert.equal(await runtime.consume(assertion(key.privateKey, mac)), 1);
+
+        await runtime.set({ ...record, validationCategory: 2 });
+        assert.equal(await runtime.consume(assertion(key.privateKey, { ...mac, category: 2 })), null);
     } finally { await runtime.close(); }
 });

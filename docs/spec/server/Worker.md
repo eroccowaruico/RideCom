@@ -249,6 +249,18 @@ HTTP JSONはobjectだけを受け入れ、最大64 KiB・読取完了まで3秒�
 
 alarmは開始時点のmemberとTURN leaseを取得し、member cleanup（status取得・channel close・TURN revoke）と、memberを所有者に持たないorphan資格の失効を同時に始める。同じ資格を二重失効しない。独立batchを順番に待って8秒の上限を余分に足さない。各provider操作の上限は8秒、失敗記録は保持して再試行する。
 
+## グループ除外の端末署名検証
+
+Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Appleの起動検証カテゴリ、ビルド番号、前回の署名カウンタを使う。署名対象の `clientData` は `["rideintercom.group-removal.v1", nonce, operationHash]` を空白なしのJSONでUTF-8にしたバイト列。 `nonce` と `operationHash` は小文字の16進64桁。 `SHA256(authenticatorData || SHA256(clientData))` をAppleが署名するnonceとし、ECDSA P-256とSHA-256でDER署名を検証する。[Appleの検証手順](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)
+
+| 検証条件 | 結果 |
+|---|---|
+| RP ID、起動検証カテゴリ、ビルド番号が登録値と一致し、署名が正しく、確認要求の期限内かつ `counter > 前回値` | 確認要求の消費とカウンタの更新を同じSQLiteトランザクションで確定する |
+| ビルド番号が省略された開発署名版 | Appleの起動検証カテゴリが3で、登録値が明示的に `null` の場合に限り、他の照合条件を満たせば受理する |
+| 不一致、形式不正、期限切れ、確認要求が既に消費済み | 確認要求とカウンタを変更しない |
+
+署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名が通る場合に受理する。この検証を呼ぶ公開APIや製品の鍵登録は未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
+
 ## 個人削除の暗号文中継
 
 既存の端末Bearerで、署名済み削除と受取確認の暗号文を送信側の `UserAccount` に一時保存する。Workerが扱う `slot` は端末対が持つ推測困難な64桁小文字hexの値で、保存するキーにはそのSHA-256を使う。受取側は公開アカウントID・同じslot・受取端末の署名を提示する。第三者の公開IDだけを指定しても、その人の受信領域に情報を追加できない。暗号文の生成と[個人削除の署名・適用](../App/通信仕様.md#個人削除の送信待ち)はAppが所有する。

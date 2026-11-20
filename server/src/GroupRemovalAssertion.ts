@@ -4,7 +4,7 @@ interface RegisteredDevice {
     publicKey: string
     appID: string
     validationCategory: number
-    bundleVersion: string
+    bundleVersion: string | null
     counter: number
     challenge?: { nonce: string; operationHash: string; expiresAt: number }
 }
@@ -43,28 +43,33 @@ async function verifiedCounter(assertion: Uint8Array, clientData: string, device
         const record = decodeFields(assertion)
         const signature = record.get('signature'), data = record.get('authenticatorData')
         if (!(signature instanceof Uint8Array) || !(data instanceof Uint8Array) || data.length <= 37
-            || (data[32] & 0xc0) !== 0x80) return null // Extensions present, no attestation credential data.
+            || (data[32] & 0x80) === 0) return null
         const counter = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(33)
         if (!Number.isSafeInteger(device.counter) || device.counter < 0 || counter <= device.counter) return null
+        // macOS sets the attested-credential flag even though an assertion carries only extensions after the header.
         const extensions = decodeFields(data.subarray(37))
         const category = extensions.get('apple_validation_category_01')
         const version = extensions.get('apple_bundle_version_01')
-        if (!(category instanceof Uint8Array) || category.length !== 4 || typeof version !== 'string' || !version.length
-            || new DataView(category.buffer, category.byteOffset, 4).getUint32(0, true) !== device.validationCategory
-            || version !== device.bundleVersion) return null
+        if (!(category instanceof Uint8Array) || category.length !== 4
+            || new DataView(category.buffer, category.byteOffset, 4).getUint32(0, true) !== device.validationCategory) return null
+        const versionMatches = version === undefined
+            ? extensions.size === 1 && device.validationCategory === 3 && device.bundleVersion === null
+            : typeof version === 'string' && version.length > 0 && version === device.bundleVersion
+        if (!versionMatches) return null
         const rpID = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(device.appID)))
         if (!rpID.every((byte, index) => byte === data[index])) return null
         const clientHash = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(clientData)))
-        const signed = new Uint8Array(data.length + clientHash.length)
-        signed.set(data)
-        signed.set(clientHash, data.length)
-        // Web Crypto hashes signed once to obtain Apple's nonce and expects raw P-256 scalars.
+        const composite = new Uint8Array(data.length + clientHash.length)
+        composite.set(data)
+        composite.set(clientHash, data.length)
+        const nonce = await crypto.subtle.digest('SHA-256', composite)
+        // App Attest signs the nonce using ECDSA with SHA-256. Web Crypto hashes this input and expects raw P-256 scalars.
         const key = await importP256VerificationKey(device.publicKey)
-        return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, rawSignature(signature), signed) ? counter : null
+        return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, rawSignature(signature), nonce) ? counter : null
     } catch { return null }
 }
 
-/** Both App Attest records used here are maps of two text keys with byte-string or text values. */
+/** These App Attest records are maps of up to two text keys with byte-string or text values. */
 function decodeFields(bytes: Uint8Array) {
     const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
     let offset = 0
@@ -83,9 +88,10 @@ function decodeFields(bytes: Uint8Array) {
         if (code === 25) return new DataView(take(2).buffer).getUint16(0)
         throw new Error('Unexpected assertion field length')
     }
-    if (length(5) !== 2) throw new Error('Unexpected assertion record')
+    const count = length(5)
+    if (count < 1 || count > 2) throw new Error('Unexpected assertion record')
     const fields = new Map<string, string | Uint8Array<ArrayBuffer>>()
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < count; i++) {
         const key = decoder.decode(take(length(3)))
         if (fields.has(key)) throw new Error('Duplicate assertion field')
         const type = bytes[offset] >> 5
