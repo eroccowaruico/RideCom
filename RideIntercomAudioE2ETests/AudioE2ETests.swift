@@ -954,13 +954,27 @@ final class AudioE2ETests: XCTestCase {
         }
         let call = viewModel.currentCallReference
         let packets = viewModel.sentVoicePacketCount
+        let adapter = try XCTUnwrap(viewModel.callSession as? RideIntercomCallSessionAdapter)
+        let queuedDropsBeforeSpeech = adapter.droppedAudioPacketCount
+        func localDatagramsSent(_ diagnostics: RTCNetworkDiagnostics?) -> UInt64? {
+            diagnostics?.routes.first { $0.route == .multipeer }?.statistics.sentMediaDatagrams
+        }
+        let diagnosticsBeforeSpeech = viewModel.networkDiagnostics
         let startedAt = Date().timeIntervalSince1970
         try await Task.sleep(for: .seconds(seconds))
         XCTAssertEqual(viewModel.currentCallReference, call)
         XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1)
         XCTAssertGreaterThan(viewModel.sentVoicePacketCount, packets)
+        let diagnosticsAfterSpeech = try XCTUnwrap(viewModel.networkDiagnostics)
+        let datagramsAfterSpeech = try XCTUnwrap(localDatagramsSent(diagnosticsAfterSpeech))
+        XCTAssertGreaterThan(datagramsAfterSpeech, localDatagramsSent(diagnosticsBeforeSpeech) ?? 0)
         let evidence: [String: Any] = ["startedAt": startedAt, "endedAt": Date().timeIntervalSince1970,
-            "sentVoicePackets": viewModel.sentVoicePacketCount - packets]
+            "sentVoicePackets": viewModel.sentVoicePacketCount - packets,
+            "senderQueueDropsDuringSpeech": adapter.droppedAudioPacketCount - queuedDropsBeforeSpeech,
+            "localDatagramsBeforeSpeech": localDatagramsSent(diagnosticsBeforeSpeech) as Any? ?? NSNull(),
+            "localDatagramsAfterSpeech": datagramsAfterSpeech,
+            "localSampleBeforeSpeechAt": diagnosticsBeforeSpeech?.generatedAt as Any? ?? NSNull(),
+            "localSampleAfterSpeechAt": diagnosticsAfterSpeech.generatedAt]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence), uniformTypeIdentifier: "public.json")
         attachment.name = "standalone-sender-observation"
         attachment.lifetime = .keepAlways
