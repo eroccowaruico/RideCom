@@ -28,12 +28,15 @@ nonisolated struct ReceivePlayoutDiagnostics: Sendable {
     let resets: Int
     let adjustment: MixerPlayoutAdjustment?
     let processingTiming: ReceiveProcessingTiming?
+    let reservation: MixerPlayoutReservation?
 
-    init(source: MixerPCMSource, previousAdjustmentCount: Int? = nil, processingTiming: ReceiveProcessingTiming? = nil) {
+    init(source: MixerPCMSource, previousAdjustmentCount: Int? = nil, processingTiming: ReceiveProcessingTiming? = nil,
+         reservation: MixerPlayoutReservation? = nil) {
         bufferedDuration = source.bufferedDuration
         adjustments = source.playoutAdjustmentCount
         resets = source.playbackResetCount
         self.processingTiming = processingTiming
+        self.reservation = reservation
         if let previousAdjustmentCount, previousAdjustmentCount != adjustments {
             adjustment = source.lastPlayoutAdjustment
         } else {
@@ -165,15 +168,18 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             throw error
         }
         timing?.decodedAt = ProcessInfo.processInfo.systemUptime
+        var reservation: MixerPlayoutReservation?
         if !frame.samples.isEmpty {
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCMAt = Date().timeIntervalSince1970
+            let observeReservation: ((MixerPlayoutReservation) -> Void)? = onPlayout.map { _ in { reservation = $0 } }
             try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration,
-                                arrivedAt: arrivedAt)
+                                arrivedAt: arrivedAt, onReservation: observeReservation)
             timing?.reservedAt = ProcessInfo.processInfo.systemUptime
         }
         if let previousAdjustmentCount, let source = sources[id] {
-            observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount, processingTiming: timing)
+            observation = .init(source: source, previousAdjustmentCount: previousAdjustmentCount,
+                                processingTiming: timing, reservation: reservation)
         }
         return frame
     }
@@ -184,10 +190,12 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
 
     // Both receive and Audio Check hold the graph lock before scheduling.
     private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval,
-                                 arrivedAt: TimeInterval? = nil) throws {
+                                 arrivedAt: TimeInterval? = nil,
+                                 onReservation: ((MixerPlayoutReservation) -> Void)? = nil) throws {
         let source = try source(for: peer)
         _ = try source.schedule(frame, packetizationJitter: packetizationJitter,
-                                arrivedAt: arrivedAt ?? ProcessInfo.processInfo.systemUptime)
+                                arrivedAt: arrivedAt ?? ProcessInfo.processInfo.systemUptime,
+                                onReservation: onReservation)
     }
 
     func removePeer(_ peer: String) throws {

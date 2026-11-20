@@ -35,6 +35,8 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 
 近距離とInternetの両方を有効にし、通話用の接続資格にはローカルの試験用Workerを与える。Workerは端末を識別できる最初のICE設定要求を受け取るが、応答を返さない。測定の前後に両端の要求が待機中で、利用できる経路が近距離だけであることを確認する。各端末で相手の発話がQUIC認証済みのUDP経路から実出力に届くことを既存の波形判定にかける。`smoke`の単一条件、6〜10秒で実行し、Internet側の要求が時間切れになる前に測定する。
 
+各端末で、復号・Mixer出力・native出力のWAVと`packet-timing`を成功時にも保存する。`received`の各`playoutReservation`が描画時計を取得した行では、`renderAnchorHostTime + (startSample - renderAnchorSample) / sampleRate`が予約した先頭の予測描画時刻になる。復号WAVの対応位置をその前後のMixer・native出力の波形と照合する。録音は試験用発話を使い、判定値は従来どおり最終出力で求める。
+
 端末2台を自動で用意するには、上のコマンドに`--two-simulators`を追加する。Xcodeから設定する場合は保存済みグループの設定に、両端で`AUDIO_E2E_UNANSWERED_INTERNET=1`と同じ`AUDIO_E2E_WORKER_URL`（例 `http://127.0.0.1:49152`、空きポートを選ぶ）を加える。役割`a`の試験がローカルWorkerを起動する。[測定結果](../validation/history/近距離オフライン通信.md#internetの応答がない間に保存済みグループの近距離音声を測る)
 
 ### 通話中に近距離音声を遮断する

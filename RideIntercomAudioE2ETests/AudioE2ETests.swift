@@ -30,6 +30,7 @@ private struct PacketTiming: Encodable {
     var resets: Int?
     var playoutAdjustment: MixerPlayoutAdjustment?
     var receiveProcessing: ReceiveProcessingTiming?
+    var playoutReservation: MixerPlayoutReservation?
 
     init(_ packet: RTCAudioPacket) {
         sequence = packet.sequenceNumber
@@ -59,6 +60,7 @@ private func tracedAudioReception(
                 entry.resets = playout.resets
                 entry.playoutAdjustment = playout.adjustment
                 entry.receiveProcessing = playout.processingTiming
+                entry.playoutReservation = playout.reservation
             }
             entry.handled = ProcessInfo.processInfo.systemUptime
             observe(frame, entry)
@@ -700,6 +702,10 @@ final class AudioE2ETests: XCTestCase {
             let drops = dropCounts().map { ($0.key, $0.value - (dropsBefore[$0.key] ?? 0)) }
             let dropped = Dictionary(uniqueKeysWithValues: drops)
             let scenarioID = scenario.id, sentTrace = transmittedTiming.withLock { $0 }, receivedTrace = receivedTiming.withLock { $0 }, renderedTrace = outputTiming
+            if waitsForInternet {
+                let nativeClockObservations = receivedTrace.filter { $0.playoutReservation?.renderAnchorHostTime != nil }
+                XCTAssertGreaterThan(nativeClockObservations.count, 20, "Collect native render clock positions for the Local packets")
+            }
             let traceData = try await Task.detached {
                 try JSONEncoder().encode(PacketTimingTrace(traceForScenario: scenarioID,
                     transmitted: sentTrace, received: receivedTrace, output: renderedTrace))
@@ -777,7 +783,7 @@ final class AudioE2ETests: XCTestCase {
             attachment.name = "endpoint-\(role)-\(scenario.id)-measurement"; attachment.lifetime = .keepAlways; add(attachment)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             var recordings = [("speech", rendered)]
-            if !scenario.expectsSilence && !continuityPassed {
+            if !scenario.expectsSilence && (!continuityPassed || waitsForInternet) {
                 recordings.append(("decoded", decodedRecording))
                 recordings.append(("mixed", mixedRecording))
             }
