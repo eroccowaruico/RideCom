@@ -362,6 +362,35 @@ struct RealtimeConversationTests {
         }
     }
 
+    @Test func receiveIsolationKeepsPeerIdentityAcrossRemovalAndRejoin() throws {
+        try #require(VoiceIsolationSupport.isAvailable)
+        let driver = OfflineAudioDriver()
+        let pipeline = AppAudioPipeline(makeEngine: driver.makeEngine)
+        try pipeline.rebuild(configuration: .init(transmitSoundIsolationEnabled: false), peerIDs: ["one", "rx-master"])
+        defer { pipeline.stop() }
+
+        try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: ["one": true, "late": true])
+        #expect(pipeline.isolationRuntimeSnapshots["rx-master"]?.state == .bypassed)
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-rx-master"]?.state == .bypassed)
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-one"]?.state == .active)
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-late"] == nil)
+
+        try pipeline.stopReceivePeer("one")
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-one"] == nil)
+        for peer in ["one", "late"] {
+            let packet = try AppTestSupport.receivedAudioPacket(peerID: peer,
+                frame: .init(sequenceNumber: 0, samples: Array(repeating: 0.1, count: 480)), codec: .pcm16)
+            _ = try pipeline.processReceivedAudioPacket(packet)
+            #expect(pipeline.isolationRuntimeSnapshots["rx-peer-\(peer)"]?.state == .active)
+        }
+
+        try pipeline.updateSoundIsolation(transmit: false, receiveMaster: true, peers: ["rx-master": true])
+        #expect(pipeline.isolationRuntimeSnapshots["rx-master"]?.state == .active)
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-rx-master"]?.state == .active)
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-one"]?.state == .bypassed)
+        #expect(pipeline.isolationRuntimeSnapshots["rx-peer-late"]?.state == .bypassed)
+    }
+
     @Test(arguments: [false, true])
     func stoppingOrMutingDiscardsPendingSpeech(mute: Bool) throws {
         let driver = OfflineAudioDriver()
