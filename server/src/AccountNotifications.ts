@@ -19,6 +19,8 @@ interface InvitationDeviceRequest extends InvitationDeviceAddress { auth: Notifi
 export interface NotificationGroupInvitation {
     requestID: string; sender: NotificationAuth; recipientID: string; grantHash: string
     recipientKey: string; noticeID: string; envelope: string | null; expiresAt: number; status: 'queued' | 'received' | 'cancelled'
+    sourceRequestID?: string
+    recipientDeviceID?: string
     additionalDevicesClosed?: boolean
     additionalDevices?: InvitationDeviceRequest[]
 }
@@ -146,9 +148,12 @@ export class AccountNotifications {
         this.prune()
         if (value.expiresAt <= Date.now()) return 'expired'
         if (!this.grantActive(value.recipientID, value.grantHash)) return 'forbidden'
+        const address = value.sourceRequestID ? this.addressForRedelivery(value) : null
+        if (value.sourceRequestID && !address) return 'forbidden'
         const old = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + value.requestID)
         if (old) {
             if (old.sender.userID !== value.sender.userID || old.grantHash !== value.grantHash || old.recipientKey !== value.recipientKey || old.noticeID !== value.noticeID
+                || old.sourceRequestID !== value.sourceRequestID || old.recipientDeviceID !== address?.auth.deviceID
                 || old.expiresAt !== value.expiresAt || (old.envelope !== null && old.envelope !== value.envelope)) return 'conflict'
             // A current authenticated sender may resume its exact persisted packet after sign-in.
             // Merely retaining a packet from a signed-out credential cannot make it receivable.
@@ -163,7 +168,7 @@ export class AccountNotifications {
         // Decide before inserting, in the same synchronous storage operation.
         // Parallel submissions must not each suppress the alert because the other one exists.
         const shouldNotify = !inbox.some(([, other]) => other.sender.userID === value.sender.userID && other.noticeID === value.noticeID)
-        this.storage.kv.put(invitationPrefix + value.requestID, value)
+        this.storage.kv.put(invitationPrefix + value.requestID, address ? { ...value, recipientDeviceID: address.auth.deviceID } : value)
         return shouldNotify ? 'notify' : 'stored'
     }
     invitation(userID: string, requestID: string): NotificationGroupInvitation | null {
@@ -172,7 +177,7 @@ export class AccountNotifications {
         return value && value.expiresAt > Date.now() ? value : null
     }
     private acceptsAdditionalDevices(value: NotificationGroupInvitation) {
-        return value.status !== 'cancelled' && !value.additionalDevicesClosed
+        return !value.sourceRequestID && value.status !== 'cancelled' && !value.additionalDevicesClosed
             && this.grantActive(value.recipientID, value.grantHash)
     }
     private invitationAcceptingAdditionalDevices(recipient: string, requestID: string) {
@@ -189,7 +194,12 @@ export class AccountNotifications {
         const eligible: NotificationGroupInvitation[] = []
         for (const value of invitations) {
             // Even a cancelled copy already addressed to this key must not be offered again.
-            if (value.recipientKey === recipientKey) addressed.add(noticeKey(value))
+            if (value.recipientKey === recipientKey) {
+                const queuedRedelivery = value.status === 'queued' && value.sourceRequestID !== undefined
+                if (!queuedRedelivery || this.addressForRedelivery(value)?.auth.deviceID === auth.deviceID) {
+                    addressed.add(noticeKey(value))
+                }
+            }
             if (!this.acceptsAdditionalDevices(value)) continue
             if (value.additionalDevices?.some(device => device.recipientKey === recipientKey && device.expiresAt > now
                 && device.auth.deviceID === auth.deviceID && device.auth.tokenHash === auth.tokenHash)) {
@@ -208,6 +218,15 @@ export class AccountNotifications {
     }
     private activeInvitationDevices(value: NotificationGroupInvitation) {
         return (value.additionalDevices ?? []).filter(device => device.expiresAt > Date.now() && this.authorized(device.auth))
+    }
+    private addressForRedelivery(value: NotificationGroupInvitation) {
+        if (!value.sourceRequestID || value.sourceRequestID === value.requestID) return null
+        const source = this.invitationAcceptingAdditionalDevices(value.recipientID, value.sourceRequestID)
+        if (!source || source.sender.accountID !== value.sender.accountID || source.sender.userID !== value.sender.userID
+            || source.sender.deviceID !== value.sender.deviceID || source.noticeID !== value.noticeID
+            || source.expiresAt !== value.expiresAt || source.grantHash !== value.grantHash) return null
+        const devices = this.activeInvitationDevices(source).filter(device => device.recipientKey === value.recipientKey)
+        return devices.length === 1 ? devices[0] : null
     }
     addInvitationDevice(auth: NotificationAuth, requestID: string, address: InvitationDeviceAddress) {
         if (!this.authorized(auth)) return false
@@ -238,23 +257,42 @@ export class AccountNotifications {
         const value = this.invitation(auth.userID, requestID)
         if (!value?.envelope || value.status !== 'queued' || value.recipientID !== auth.userID
             || value.recipientKey !== recipientKey || !this.grantActive(auth.userID, value.grantHash)) return null
+        if (value.sourceRequestID && (auth.deviceID !== value.recipientDeviceID
+            || this.addressForRedelivery(value)?.auth.deviceID !== auth.deviceID)) return null
         const sender = value.sender
         if (sender.accountID !== verifiedSender.accountID || sender.userID !== verifiedSender.userID
             || sender.deviceID !== verifiedSender.deviceID || sender.tokenHash !== verifiedSender.tokenHash) return null
-        return { requestID, senderUserID: sender.userID, recipientKey, expiresAt: value.expiresAt, envelope: value.envelope }
+        return { requestID, senderUserID: sender.userID, recipientKey, expiresAt: value.expiresAt, envelope: value.envelope,
+            sourceRequestID: value.sourceRequestID }
     }
-    finishInvitation(userID: string, requestID: string, actorID: string, discard = false): 'received' | 'cancelled' | null {
+    finishInvitation(userID: string, requestID: string, actorID: string, discard = false,
+                     recipientAuth?: NotificationAuth): 'received' | 'cancelled' | null {
         const value = this.invitation(userID, requestID)
         if (!value || (actorID !== userID && actorID !== value.sender.userID)) return null
         const withdrawing = actorID === value.sender.userID
-        const status = value.status === 'queued' ? (actorID === userID && !discard ? 'received' : 'cancelled') : value.status
-        if (status === value.status && (!withdrawing || value.additionalDevicesClosed)) return status
-        const next = { ...value, envelope: null, status }
+        if (!withdrawing && value.sourceRequestID && (!recipientAuth || !this.authorized(recipientAuth)
+            || recipientAuth.userID !== userID || recipientAuth.deviceID !== value.recipientDeviceID)) return null
+        const next = { ...value, envelope: null }
+        if (next.status === 'queued') {
+            const address = value.sourceRequestID ? this.addressForRedelivery(value) : null
+            const canReceive = !value.sourceRequestID || (address !== null && address.auth.deviceID === next.recipientDeviceID)
+            next.status = !withdrawing && !discard && canReceive ? 'received' : 'cancelled'
+        }
+        if (next.status === value.status && (!withdrawing || value.additionalDevicesClosed)) return next.status
         // An old receipt remains visible after the sender closes future deliveries.
         if (withdrawing) next.additionalDevicesClosed = true
-        if (status === 'cancelled' || withdrawing) delete next.additionalDevices
-        this.storage.kv.put(invitationPrefix + requestID, next)
-        return status
+        this.storage.transactionSync(() => {
+            if (next.status === 'cancelled' || withdrawing) {
+                delete next.additionalDevices
+                for (const [key, child] of this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })) {
+                    if (child.sourceRequestID === requestID && child.status === 'queued') {
+                        this.storage.kv.put(key, { ...child, envelope: null, status: 'cancelled' })
+                    }
+                }
+            }
+            this.storage.kv.put(invitationPrefix + requestID, next)
+        })
+        return next.status
     }
     invitationCandidates(userID: string, requestID: string): NotificationDevice[] {
         const value = this.invitation(userID, requestID)
