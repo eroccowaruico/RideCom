@@ -51,7 +51,7 @@ extension IntercomViewModel {
             }
             let snapshot = change.snapshot
             if audioCheckPhase.isInProgress, let actual = try? audioSessionManager.snapshot(),
-               actual.currentInput.id != snapshot.currentInput.id || actual.currentOutput.id != snapshot.currentOutput.id {
+               !actual.hasSameActiveDevices(as: snapshot) {
                 // Delivery may be delayed past stop and the next check. Do not
                 // apply an old route or advance the current check's baseline.
                 return
@@ -67,7 +67,7 @@ extension IntercomViewModel {
                 pauseAudioForSessionChange(
                     callNotice: "Audio device disconnected. Your microphone and playback are paused; the group connection and relay continue. Check your audio device, then resume.",
                     checkNotice: "Audio device disconnected. Choose a device and run Audio Check again.")
-            } else if previous.currentInput.id != snapshot.currentInput.id || previous.currentOutput.id != snapshot.currentOutput.id {
+            } else if !previous.hasSameActiveDevices(as: snapshot) {
                 let preparingOwnRoute = audioCheckPhase == .preparing
                     && (change.reason == .routeChanged(.categoryChanged) || change.reason == .routeChanged(.routeConfigurationChanged))
                 // Configuration/activation resolves Auto into actual ports.
@@ -111,8 +111,7 @@ extension IntercomViewModel {
               audioOutputRenderer === nativeAudioOutputRenderer,
               nativeAudioOutputRenderer.renderingEngine?.isRunning == false,
               let current = try? audioSessionManager.snapshot(), current.isActive,
-              current.currentInput.id == audioSessionSnapshot.currentInput.id,
-              current.currentOutput.id == audioSessionSnapshot.currentOutput.id else { return }
+              current.hasSameActiveDevices(as: audioSessionSnapshot) else { return }
         refreshAudioDevicesIfNeeded()
     }
     #endif
@@ -157,5 +156,11 @@ extension IntercomViewModel {
 
     private func availableSelection(for port: AudioPortInfo, in ports: [AudioPortInfo]) -> AudioPortInfo {
         return ports.first { $0.id == port.id } ?? .systemDefault
+    }
+}
+
+private extension AudioSessionSnapshot {
+    func hasSameActiveDevices(as other: Self) -> Bool {
+        currentInput.id == other.currentInput.id && currentOutput.id == other.currentOutput.id
     }
 }
