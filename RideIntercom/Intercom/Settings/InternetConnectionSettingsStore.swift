@@ -138,6 +138,13 @@ final class InternetConnectionSettingsStore {
         } else { key = try deviceSigningKey() }
         return try DeviceIdentitySigner(memberID: memberID, key: key, identity: try? loadIdentity(memberID: memberID))
     }
+
+    /// A mutual contact already knows this key. Do not create a key or include a service certificate.
+    func contactDeletionSigner(memberID: String) throws -> DeviceIdentitySigner? {
+        guard let key = try storedDeviceSigningKey() else { return nil }
+        return try DeviceIdentitySigner(memberID: memberID, key: key)
+    }
+
     func identityTrust() throws -> DeviceIdentityTrust? {
         guard let saved = try retainedRegistration(), let certificate = saved.identity else { return nil }
         return DeviceIdentityTrust(origin: saved.workerURL, issuerKey: certificate.issuerKey)

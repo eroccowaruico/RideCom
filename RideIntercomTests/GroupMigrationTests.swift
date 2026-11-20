@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 struct GroupMigrationTests {
+    @Test func version18PreservesNearbyCancellationWhenAddingContactDeletions() throws {
+        let f = try GroupStorageFixture(); defer { f.remove() }
+        var old = try #require(try f.file.read())
+        old.version = 18
+        let sender = AccountPrincipal(issuer: "https://ride.example", userID: String(repeating: "a", count: 64))
+        let recipient = AccountPrincipal(issuer: sender.issuer, userID: String(repeating: "b", count: 64))
+        let cancellation = GroupInvitationCancellation.Target(id: UUID(), groupID: UUID(), sender: sender,
+            senderMemberID: "sender", recipient: recipient, recipientMemberID: "local", recipientKey: testIdentitySigner("local").publicKey,
+            expiresAt: Date().addingTimeInterval(3600).timeIntervalSince1970, envelopeDigest: Data(repeating: 1, count: 32))
+        old.nearbyGroupCancellations = [cancellation]
+        try f.file.commit(old)
+
+        _ = try f.restart().load(localMemberID: "local")
+        let migrated = try #require(try f.file.read())
+        #expect(migrated.version == GroupSnapshot.currentVersion)
+        #expect(migrated.nearbyGroupCancellations == [cancellation])
+        #expect(migrated.contactDeletions.isEmpty)
+    }
+
     @Test func version17PreservesRemovalReceiptsWhenAddingNearbyCancellationRecords() throws {
         let f = try GroupStorageFixture(); defer { f.remove() }
         let group = try f.group()

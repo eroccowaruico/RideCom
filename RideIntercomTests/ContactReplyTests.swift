@@ -6,8 +6,10 @@ import Testing
 
 @MainActor
 struct ContactReplyTests {
-    private func pair(now: @escaping @MainActor () -> Date = Date.init) throws -> (AppTestSupport.Harness, AppTestSupport.Harness, UUID) {
-        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "reply-author", callAccessNow: now)
+    private func pair(now: @escaping @MainActor () -> Date = Date.init, authorCredentials: GroupCredentialStoring? = nil)
+        throws -> (AppTestSupport.Harness, AppTestSupport.Harness, UUID) {
+        let author = AppTestSupport.makeHarness(groups: [], credentialStore: authorCredentials,
+                                               localMemberID: "reply-author", callAccessNow: now)
         let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "reply-friend", callAccessNow: now)
         author.viewModel.contactSessionFactory = { RecordingCallSession() }
         friend.viewModel.contactSessionFactory = { RecordingCallSession() }
@@ -20,6 +22,49 @@ struct ContactReplyTests {
         author.viewModel.stopContactInvitationSession(); friend.viewModel.stopContactInvitationSession()
         let id = try #require(friend.viewModel.pendingContactInvitations.first).id
         return (author, friend, id)
+    }
+
+    @Test func offlineContactRemovalKeepsOnlyADeliverableDeletionAfterRestart() throws {
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        let keys = InMemoryGroupCredentialStore()
+        let (author, friend, id) = try pair(now: { now }, authorCredentials: keys)
+        let a = author.viewModel, b = friend.viewModel
+        defer { a.disconnect(); b.disconnect() }
+        let reply = try b.contactReplyURLForSharing(id, expectedAccountAccessID: b.accountAccessID)
+        try a.receiveContactReplyURL(reply)
+        let person = try #require(a.savedRemoteUsers.first)
+        let friendRecord = try #require(b.savedRemoteUsers.first)
+        let senderKey = try #require(friendRecord.deviceKeys?["reply-author"])
+        let pairID = IntercomGroup.directCallID(memberIDs: ["reply-author", "reply-friend"])
+        let oldSecret = try #require(try b.groupRepository.credential(for: pairID)).secret
+        let recipient = try b.internetSettingsStore.invitationSigner(memberID: "reply-friend")
+
+        author.groupStore.failSaving = true
+        #expect(!a.removeSavedUser(person.id))
+        #expect(author.groupStore.snapshot.contactDeletions.isEmpty)
+        #expect(author.groupStore.snapshot.users.contains { $0.id == person.id })
+        author.groupStore.failSaving = false
+        a.reloadSavedGroups()
+
+        #expect(a.removeSavedUser(person.id))
+        #expect(a.savedRemoteUsers.isEmpty)
+        #expect(try a.groupRepository.credential(for: pairID) == nil)
+        #expect(keys.values.isEmpty)
+        #expect(!a.handleContactReplyURL(reply))
+        author.groupStore.snapshot = try GroupSnapshot.decode(author.groupStore.snapshot.encoded())
+        let restarted = AppTestSupport.makeHarness(groups: [], groupStore: author.groupStore,
+            credentialStore: keys, localMemberID: "reply-author", callAccessNow: { now })
+        let notice = try #require(restarted.viewModel.groupRepository.contactDeletions.first)
+        #expect(notice.target.expiresAt == now.timeIntervalSince1970 + 28 * 86_400)
+        try notice.verify(from: "reply-author", senderKey: senderKey, recipient: recipient, pairSecret: oldSecret, now: now)
+        #expect(throws: (any Error).self) {
+            try notice.verify(from: "reply-author", senderKey: senderKey, recipient: recipient,
+                              pairSecret: "replacement-key", now: now)
+        }
+        #expect(throws: (any Error).self) {
+            try notice.verify(from: "reply-author", senderKey: senderKey, recipient: recipient,
+                              pairSecret: oldSecret, now: now.addingTimeInterval(28 * 86_400))
+        }
     }
 
     @Test func storedReplyAndConfirmationCompleteWithoutAnyTransport() throws {
