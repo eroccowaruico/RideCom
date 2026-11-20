@@ -11,6 +11,8 @@
 
 すべての作業で[責務分離スキル](.agents/skills/architecture-refinement/SKILL.md#常時適用)の入口を適用し、変更に関係する節だけを読む。
 
+すべての作業で[再実装のためのスキル](.agents/skills/rebuild-from-spec/SKILL.md)を適用し、用途・要求・仕様と検証結果を区切りごとに照合する。
+
 **作業の着手前と区切りには、[小さく動く単位での検証・コミットと未コミットの滞留管理](docs/policies/開発方針.md#小さく動く単位で検証・コミットする)を必ず適用する。**
 
 GUIの実装・変更・点検では、[UI Stackを含むUI・UX方針](docs/policies/開発方針.md#uiux方針)を必ず適用する。Standard（一般向け）とAdvanced（詳細表示）の画面は、[StandardとAdvancedの設計の絶対ルール](docs/policies/開発方針.md#standardとadvancedの設計の絶対ルール)に例外なく従う。

@@ -18,7 +18,7 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 
 | 項目 | 内容 |
 |---|---|
-| パス | `RideIntercom/Effectors/PeakLimiter` |
+| パス | [PeakLimiter パッケージ](../../../../../RideIntercom/packages/Audio/Effectors/PeakLimiter/) |
 | Package 名 | `PeakLimiter` |
 | Product | `PeakLimiter` library |
 | 対応プラットフォーム | iOS/iPadOS/macOS 27.0 以降 |
