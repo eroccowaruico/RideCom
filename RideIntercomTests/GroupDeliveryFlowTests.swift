@@ -6,6 +6,88 @@ import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func nearbyContactDeletionResumesAfterRestartAndClearsTheSendQueue(dropsFirstReceipt: Bool) async throws {
+        let a = GroupDeliveryTestIdentity("nearby-contact-removal-author")
+        let b = GroupDeliveryTestIdentity("nearby-contact-removal-recipient")
+        defer { a.remove(); b.remove() }
+        let sender = try a.harness(knowing: [], onDisk: true).viewModel
+        let recipient = try b.harness(knowing: [], onDisk: true).viewModel
+        defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync() }
+        for model in [sender, recipient] {
+            model.groupDeliveryClient = nil
+            model.contactSessionFactory = { RecordingCallSession() }
+        }
+        let invitation = try #require(sender.makeContactInviteURL())
+        try recipient.acceptContactInviteURL(invitation)
+        let id = try #require(recipient.pendingContactInvitations.first?.id)
+        try sender.receiveContactReplyURL(recipient.contactReplyURLForSharing(id, expectedAccountAccessID: recipient.accountAccessID))
+        sender.stopContactInvitationSession()
+        recipient.stopContactInvitationSession()
+        #expect(sender.localAccountPrincipal == nil && recipient.localAccountPrincipal == nil)
+
+        var expiration: (() -> Void)?
+        var released = 0
+        sender.beginGroupDeliveryBackgroundTime = {
+            expiration = $0
+            return { released += 1 }
+        }
+        sender.allowsNearbyGroupDelivery = true
+        let person = try #require(sender.savedRemoteUsers.first)
+        try #require(sender.removeSavedUser(person.id))
+        try #require(sender.groupRepository.contactDeletions.count == 1)
+        // No recipient is browsing yet. The window may close while the send remains durable.
+        let expire = try #require(expiration)
+        expire()
+        #expect(released == 1)
+        #expect(sender.nearbyGroupDeliveryExchange == nil)
+        #expect(recipient.savedRemoteUsers.count == 1)
+
+        let restarted = try a.harness(knowing: [], onDisk: true).viewModel
+        defer { restarted.stopGroupDeliverySync() }
+        restarted.groupDeliveryClient = nil
+        restarted.allowsNearbyGroupDelivery = true
+        recipient.allowsNearbyGroupDelivery = true
+        try #require(restarted.groupRepository.contactDeletions.count == 1)
+
+        var receivingModel = recipient
+        defer { receivingModel.stopGroupDeliverySync() }
+        if dropsFirstReceipt {
+            let captured = Mutex<ContactDeletionNotice?>(nil)
+            let interceptor = RTCLocalDataChannel(localID: .init(rawValue: b.memberID),
+                                                   knownPeers: recipient.nearbyGroupDeliveryCredentials()) { event in
+                if case .message(let data, _) = event,
+                   case .contactDeletion(let notice) = try? JSONDecoder().decode(NearbyGroupDeliveryFrame.self, from: data) {
+                    captured.withLock { $0 = notice }
+                }
+            }
+            defer { interceptor.stop() }
+            interceptor.start()
+            restarted.setNearbyGroupDeliveryForeground(true)
+            await AppTestSupport.waitUntil(timeout: .seconds(12)) { captured.withLock { $0 != nil } }
+            let delivered = try #require(captured.withLock { $0 })
+            _ = try recipient.receiveContactDeletion(delivered, from: a.memberID)
+            #expect(recipient.savedRemoteUsers.isEmpty)
+            #expect(restarted.groupRepository.contactDeletions.count == 1, "The saved receipt was not sent back")
+            restarted.setNearbyGroupDeliveryForeground(false)
+            restarted.stopGroupDeliverySync()
+
+            receivingModel = try b.harness(knowing: [], onDisk: true).viewModel
+            receivingModel.groupDeliveryClient = nil
+            receivingModel.allowsNearbyGroupDelivery = true
+            #expect(receivingModel.savedRemoteUsers.isEmpty)
+            #expect(receivingModel.groupRepository.contactDeletionReceipts.count == 1)
+        }
+
+        receivingModel.setNearbyGroupDeliveryForeground(true)
+        restarted.setNearbyGroupDeliveryForeground(true)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) { restarted.groupRepository.contactDeletions.isEmpty }
+        #expect(restarted.groupRepository.contactDeletions.isEmpty)
+        #expect(receivingModel.savedRemoteUsers.isEmpty)
+        #expect(receivingModel.groups.isEmpty)
+        #expect(restarted.nearbyGroupDeliveryWindow == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func savesAndDeliversToTheRegisteredPeerFromForegroundWithoutInternet() async throws {
         let a = GroupDeliveryTestIdentity("automatic-nearby-sender")

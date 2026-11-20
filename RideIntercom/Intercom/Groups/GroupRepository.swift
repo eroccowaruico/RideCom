@@ -16,6 +16,7 @@ final class GroupRepository {
     var contactInvitations: [ContactInvitationRecord] { snapshot?.contactInvitations ?? [] }
     var groupDeliveries: [GroupDeliveryRecord] { snapshot?.groupDeliveries ?? [] }
     var contactDeletions: [ContactDeletionNotice] { snapshot?.contactDeletions ?? [] }
+    var contactDeletionReceipts: [ContactDeletionReceipt] { snapshot?.contactDeletionReceipts ?? [] }
 
     init(store: GroupStoring, credentials: GroupCredentialStoring, legacy: LegacyGroupReader? = nil) {
         self.store = store; self.credentials = credentials; self.legacy = legacy

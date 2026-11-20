@@ -88,6 +88,7 @@ extension IntercomViewModel {
         }
         catch { reportGroupStorageError(error); return false }
         finishSavedUserRemoval(removedGroups)
+        requestGroupDeliverySync(.localChange)
         return true
     }
 
@@ -97,7 +98,11 @@ extension IntercomViewModel {
         else { throw DeviceIdentityProof.Failure.invalid }
         let result = try groupRepository.receiveContactDeletion(notice, from: peerID, recipient: recipient, now: callAccessNow(),
                                                                 beforeRemoving: notifications.suppressContact)
-        if let removed = result.removedGroups { finishSavedUserRemoval(removed) }
+        if let removed = result.removedGroups {
+            finishSavedUserRemoval(removed)
+            // Let the caller return the receipt on the current connection before recomputing offers.
+            Task { [weak self] in self?.requestGroupDeliverySync(.localChange) }
+        }
         return result.receipt
     }
 
@@ -112,7 +117,6 @@ extension IntercomViewModel {
         groups.removeAll { removedGroups.contains($0.id) }
         refreshGroupStorageStatus()
         Task { await notifications.retryRevocations() }
-        requestGroupDeliverySync(.localChange)
         groupErrorMessage = nil
     }
 
