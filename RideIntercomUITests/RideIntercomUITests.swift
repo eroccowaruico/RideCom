@@ -659,7 +659,7 @@ final class RideIntercomUITests: XCTestCase {
         try checkParticipantDeletionIsNotShownForLocalMemberOnly()
         try checkCallKeepsDiagnosticsOutOfPrimaryExperience()
         try checkMuteControlLivesWithHeaderMicrophoneMeter()
-        let isolation = app.switches["Master Output Voice Isolation Effect"].firstMatch
+        let isolation = app.switches["masterVoiceIsolationToggle"].firstMatch
         XCTAssertTrue(isolation.waitForExistence(timeout: 3))
         let originalIsolation = isolation.value as? String
         isolation.switches.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()

@@ -522,18 +522,17 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div style="display:flex;align-items:center;gap:8px"><div style="flex:1"><b>Unmuted</b> <span style="color:var(--label2)">VAD · Speech · Standard</span>
               <div class="bigmeter"><i style="width:68%"></i><span class="mk" style="left:26%;background:var(--label3)"><span>Noise floor</span></span><span class="mk" style="left:62%;background:var(--warn)"><span>Threshold</span></span></div></div>
               <span class="circle" aria-label="Mute"><svg class="i"><use href="#mic-slash"/></svg></span></div>
-            <div class="frow"><span class="g">Transmit Voice Isolation Effect</span><span class="toggle"></span></div>
           </div>
           <div class="hd">Output</div>
           <div class="card">
             <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:60%"></i><u style="left:50%"></u><b style="left:60%"></b></span><span class="num">Output 120%</span></div>
-            <div class="frow"><span class="g">Voice Isolation</span><span class="toggle off"></span></div>
+            <div class="frow"><span class="g">Isolate All Received Voices</span><span class="toggle off"></span></div>
             <div class="frow"><span class="g">Duck Other Audio</span><span class="tail">active</span></div>
           </div>
           <div class="hd">Participants <span>You + 3</span></div>
           <div class="card">
             <div class="row"><b>You</b><span class="v">Naohito · local member</span><span class="x"></span></div>
-            <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div></span><span class="x num">100%</span></div>
+            <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div><div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div></span><span class="x num">100%</span></div>
             <div class="row"><b>Kenta</b><span class="v">Connected · AUTH OK · Opus<div class="pmeter"><span class="bar"><i style="width:0%"></i><b style="left:12%"></b></span><span class="val">LEVEL 0  PEAK 12</span></div></span><span class="x num">80%</span></div>
             <div class="row"><b>Mika</b><span class="v">Connected · AUTH OK · PCM 16-bit<div class="pmeter"><span class="bar"><i style="width:45%"></i><b style="left:58%"></b></span><span class="val">LEVEL 45  PEAK 58</span></div></span><span class="x num">60%</span></div>
             <div class="row dim"><b>Yu</b><span class="v">Offline</span><span class="x"></span></div>
@@ -566,15 +565,20 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
               <div class="bigmeter"><i style="width:0"></i><span class="mk" style="left:26%;background:var(--label3)"><span>Noise floor</span></span><span class="mk" style="left:62%;background:var(--warn)"><span>Threshold</span></span></div></div>
               <span class="circle" style="background:var(--err);color:#fff;border-color:var(--err)" aria-label="Mute"><svg class="i"><use href="#mic-slash"/></svg></span></div>
           </div>
+          <div class="hd">Output</div>
+          <div class="card">
+            <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:50%"></i><u style="left:50%"></u><b style="left:50%"></b></span><span class="num">Output 100%</span></div>
+            <div class="frow"><span class="g">Isolate All Received Voices</span><span class="toggle off"></span></div>
+          </div>
           <div class="hd">Participants <span>You + 1</span></div>
           <div class="card">
             <div class="row"><b>You</b><span class="v">Naohito · local member</span><span class="x"></span></div>
-            <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div></span><span class="x num">100%</span></div>
+            <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div><div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div></span><span class="x num">100%</span></div>
           </div>
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>Call（シート）：1対1</b>Group に「Direct · 2 members」と内部グループのIDを出す。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。共有の項目は共有可能な場合に表示する。</figcaption>
+      <figcaption><b>Call（シート）：1対1</b>Group に「Direct · 2 members」と内部グループのIDを出す。Outputの Isolate All Received Voices は受信全体、参加者行の Isolate This Voice はその相手に適用する。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。共有の項目は共有可能な場合に表示する。</figcaption>
     </figure>
 
     <figure id="advanced-users">

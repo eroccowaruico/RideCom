@@ -658,6 +658,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="ctrl"><span class="cbtn end"><svg class="i"><use href="#phone-down"/></svg></span>切断</div>
           </div>
           <div class="slider call-volume"><svg class="i"><use href="#speaker-low"/></svg><span class="track"><i style="width:50%"></i><b style="left:50%"></b></span><span class="vi l3" role="img" aria-label="出力"><svg class="i"><use href="#speaker"/></svg><i></i><i></i><i></i><i></i><i></i></span><span class="val" aria-hidden="true">大きめ</span></div>
+          <div class="group">
+            <div class="row"><span class="grow">受信する声を分離</span><span class="toggle offt"></span></div>
+          </div>
           <div class="group-h" style="margin-top:8px">メンバー</div>
           <div class="group">
             <div class="row link"><svg class="i"><use href="#person-add"/></svg>メンバーを招待</div>
@@ -690,13 +693,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="slider call-volume"><svg class="i"><use href="#speaker-low"/></svg><span class="track"><i style="width:62%"></i><b style="left:62%"></b></span><span class="vi l3" role="img" aria-label="出力"><svg class="i"><use href="#speaker"/></svg><i></i><i></i><i></i><i></i><i></i></span><span class="val">大きめ</span></div>
           <div class="group" style="margin-top:10px">
-            <div class="row"><span class="grow">受信する声を分離</span><span class="toggle offt"></span></div>
+            <div class="row"><span class="grow">相手の声を分離</span><span class="toggle offt"></span></div>
           </div>
         </div>
         <div class="accessory glass" style="display:none"></div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>通話のシート：ミュート中（1対1）</b>ミュートボタンが red の選択状態になり、文言が「ミュート中」に。音量は0〜200%の範囲で調整できる。数値は出さず、100%の位置だけに目盛。100%を超えると「大きめ」を表示し、Sliderの幅は一定。個人通話にはメンバーの見出し・自分と相手の行を置かず、相手名・通話操作・音量で構成する。接続待ちや再表示でも同じ。通常グループは2人でもメンバー一覧を表示する。</figcaption>
+      <figcaption><b>通話のシート：ミュート中（1対1）</b>ミュートボタンが red の選択状態になり、文言が「ミュート中」に。音量は0〜200%の範囲で調整できる。数値は出さず、100%の位置だけに目盛。100%を超えると「大きめ」を表示し、Sliderの幅は一定。個人通話は相手名・通話操作・音量と「相手の声を分離」で構成する。分離は自分が聞く相手の音に適用する。接続待ちや再表示でも同じ。通常グループは2人でもメンバー一覧を表示する。</figcaption>
     </figure>
 
     <figure id="crossed-direct-invitation">
@@ -720,7 +723,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="group">
             <div class="slider call-volume"><svg class="i"><use href="#speaker-low"/></svg><span class="track"><i style="width:50%"></i><b style="left:50%"></b></span><span class="vi" role="img" aria-label="出力"><svg class="i"><use href="#speaker"/></svg><i></i><i></i><i></i><i></i><i></i></span><span class="val" aria-hidden="true">大きめ</span></div>
-            <div class="row"><span class="grow">受信する声を分離</span><span class="toggle offt"></span></div>
+            <div class="row"><span class="grow">相手の声を分離</span><span class="toggle offt"></span></div>
           </div>
           <div class="group" style="margin-top:10px">
             <div class="row"><svg class="i" style="color:var(--accent)"><use href="#notice"/></svg><span class="grow">お互いに招待を作りました。同じ接続先につながるように、この招待を共有してください。</span></div>

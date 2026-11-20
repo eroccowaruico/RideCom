@@ -3239,6 +3239,61 @@
         }
       }
     },
+    "Isolate All Received Voices" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受信全体の声を分離"
+          }
+        }
+      }
+    },
+    "Isolate Incoming Voices" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受信する声を分離"
+          }
+        }
+      }
+    },
+    "Isolate the Other Person’s Voice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相手の声を分離"
+          }
+        }
+      }
+    },
+    "Isolate This Voice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この相手の声を分離"
+          }
+        }
+      }
+    },
+    "Isolate Voice From %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@の声を分離"
+          }
+        }
+      }
+    },
     "Join me for a call on RideCom." : {
       "extractionState" : "manual",
       "localizations" : {

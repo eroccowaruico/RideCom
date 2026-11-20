@@ -164,7 +164,7 @@ struct StandardCallView: View {
 
     @ViewBuilder private func detailSections(_ group: IntercomGroup) -> some View {
         if group.id == viewModel.activeGroupID {
-            audioDetails
+            audioDetails(for: group.kind)
             if viewModel.isAudioPausedForDeviceChange, viewModel.canResumeAudioOnThisDevice {
                 Section {
                     if viewModel.audioPauseError == nil { Text("Check your headphones or speaker, then resume audio.") }
@@ -419,7 +419,7 @@ struct StandardCallView: View {
 
     /// The volume of where the sound goes now: the slider alone, no number. A tick marks 100%;
     /// above it, "Louder" says it is raised.
-    private var audioDetails: some View {
+    private func audioDetails(for kind: IntercomGroup.Kind) -> some View {
         let louder = Text("Louder").font(.footnote).foregroundStyle(.secondary)
         return Section {
             HStack(spacing: AppSpacing.s) {
@@ -449,8 +449,13 @@ struct StandardCallView: View {
             }
             .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
             if viewModel.supportsSoundIsolation {
-                Toggle("Voice Isolation", isOn: Binding(get: { viewModel.receiveMasterSoundIsolationEnabled },
-                                                        set: viewModel.setReceiveMasterSoundIsolationEnabled))
+                Toggle(isOn: Binding(get: { viewModel.receiveMasterSoundIsolationEnabled },
+                                     set: viewModel.setReceiveMasterSoundIsolationEnabled)) {
+                    let label: LocalizedStringKey = kind == .direct ? "Isolate the Other Person’s Voice" : "Isolate Incoming Voices"
+                    Text(label)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityIdentifier("standardReceiveVoiceIsolationToggle")
             }
         }
     }

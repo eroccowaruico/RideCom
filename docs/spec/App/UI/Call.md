@@ -22,6 +22,7 @@ Watch音声のpairが失われ、Watchでの再準備が必要な場合は、こ
 | 声のインジケーター | このグループの通話中だけ、声の大小を`StandardVoiceIndicator`（SF Symbolsの可変値、`.symbolVariableValueMode(.draw)`）で示す。数値は出さない。通常グループだけメンバーの先頭に自分の行（「自分」、ミュート中は「ミュート中」）を置き、行末にマイクの入力（`microphone.and.signal.meter`、`diagnosticsInputLevel`、`standardVoiceIndicatorSelf`）。本人確認済みの相手の行末に届いている声（`waveform`、`GroupMember.voiceLevel`、`standardVoiceIndicator-{id}`）。音量のSliderの右端に実際の出力（`speaker.wave.3`、`diagnosticsOutputLevel`、`standardVoiceIndicatorOutput`）。値はdBFSの表示値を4段に丸め、最も小さな声より下は無音として灰色（textSecondary）、声があればvoice色。ミュート中・消音中・相手のミュート中は段の代わりにdangerの`mic.slash`／`speaker.slash`。読み上げはlabel「自分の声」「{名前}の声」「出力」、value「話しています」「無音」「ミュート中」 |
 | メンバーの状態 | 通常グループの通話中だけ、各メンバーの名前の下に状態の語を1つ出す。話している人は「話しています」（`standardMemberSpeaking-{id}`。語は標準の副次色で、声の大小は行末の声のインジケーターが示す）、本人確認済みでミュート中の人は「ミュート中」、届いているが本人確認前は「接続中」（`standardMemberConnecting-{id}`）、届いていない人は「接続していません」（`standardMemberNotConnected-{id}`）。本人確認済みで黙っている人は語を出さない。判定は保存したメンバーの状態ではなく、今の`authenticatedPeerIDs`・`connectedPeerIDs`を使う。行は名前と状態を1つの読み上げにまとめる。未接続の人の「呼び出す」は未実装 |
 | `standardSpeakerButton` / 入出力 | 相手の声を消す切替は「Silence」（消音。消音中は「Silenced」（消音中）、`standardSpeakerControlLabel`）。電話アプリの「スピーカー」（出力先の切替）と紛れないよう「Speaker」の語を使わない。VoiceOverはlabel「Silence」、value「On／Off」（オン／オフ）とisSelectedで読み、既存toggleOutputMuteへ渡す。選択状態の塗りはアクセント色とし、隣の切断（danger）と同じ塗りを並べない。音量は見出しのないSectionのSliderだけ（`standardVolumeSlider`、label「Volume」（音量）。今の出力先の音量）で、数値を出さない。0〜200%の範囲で調整でき、100%の位置だけに基準の目盛を置き、100%を超えた位置では右に補足「Louder」（大きめ、`standardVolumeLouder`）を出す。表示の切替でSliderの位置と幅を動かさない。左に`speaker`、右に出力の声のインジケーター。1対1の通話に説明の文は置かない。マイク／出力ミュート、出力・参加者音量、対応機器の音声分離、機器切断後の再開。経路やcodecの診断値は出さない |
+| `standardReceiveVoiceIsolationToggle` | 対応環境の接続中に音量の下へ表示する。個人通話は `Isolate the Other Person’s Voice`（相手の声を分離）、グループは `Isolate Incoming Voices`（受信する声を分離）。両方とも自分が聞く混合後の受信へ適用する。 |
 | 復旧 | 保存読込失敗・破損の既存reload/reset操作、通話・音声のエラーと再試行案内を同じ状態から表示する |
 
 英語を原文としてString Catalogに一般画面と共通の操作・設定・アカウント案内の日本語を保持する。本人名・別名・グループ名は翻訳しない。App生成の再試行秒数、名前・人数の補間、招待・音声復旧の定型案内も翻訳対象とし、英語の単複を扱う。OSやサービスから来る任意の自由文は独自翻訳しない。Advancedの診断項目の全訳は対象外。購入商品未設定は利用不可と表示し、通知の送信・24時間利用権の完成を装わない。通話権利条件は画面側に追加しない。[共通利用権判定](../通話利用権仕様.md)が媒体準備と成立を区別し、作成不可・権利を持つ参加者待ちにはSettingsのAccessを案内する。
@@ -202,9 +203,9 @@ Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）は `ou
 | ローカル入力状態ラベル | `localMicrophoneHeaderControl` | `localMicrophoneStateLabel` | `Unmuted` / `Muted` | `isMuted` | 状態テキスト | 入力状態 |
 | ローカル入力メーター | `localMicrophoneHeaderControl` | `localMicrophoneMeter` | なし | `voiceLevel`, `voicePeakLevel`, `isMuted` | 値文字列なしのメーター | 入力レベルとピーク |
 | ローカルミュートボタン | `localMicrophoneHeaderControl` | `localMicrophoneMuteButton` | `Mute` | `Bool` | `mic.slash`固定のglassボタン。ミュート中だけdangerのglassProminentとisSelected | 押下でマイクミュート反転。Watch音声選択中は操作を外し、Watchでの操作案内を表示 |
-| マスター出力グループ | `callStatusHeader` | `outputStateLabel` | `Output` | `masterOutputVolume`, `isOutputMuted`, `receiveMasterSoundIsolationEnabled` | 出力ラベル + スライダー + Voice Isolation + ミュート | OS 音量ではなく App 最終出力 |
+| マスター出力グループ | `callStatusHeader` | `outputStateLabel` | `Output` | `masterOutputVolume`, `isOutputMuted`, `receiveMasterSoundIsolationEnabled` | 出力ラベル + スライダー + Isolate All Received Voices + ミュート | OS 音量ではなく App 最終出力 |
 | マスター出力スライダー | `callStatusHeader` | `masterOutputSlider` | `Output Volume` | `Float`, `0...2` | `1.0` が通常、`1.0` 超過は boost | マスターgain後のrx-output PeakLimiterで最終ピークを抑制 |
-| マスター出力 Voice Isolation Effect | `callStatusHeader` | `masterVoiceIsolationToggle` | `Voice Isolation` | `receiveMasterSoundIsolationEnabled`。既定 `false` | `supportsSoundIsolation == true` のとき Toggle | RX master bus の SoundIsolation effect 有効/無効 |
+| マスター出力 Voice Isolation Effect | `callStatusHeader` | `masterVoiceIsolationToggle` | `Isolate All Received Voices` | `receiveMasterSoundIsolationEnabled`。既定 `false` | `supportsSoundIsolation == true` のとき Toggle | RX master bus の SoundIsolation effect 有効/無効 |
 | マスター出力ミュートボタン | `callStatusHeader` | `masterOutputMuteButton` | `Mute Output` / `Unmute Output` | `Bool` | ミュート時はアクセント色のglassProminentとisSelected | 入力や接続は止めない |
 | ダッキング状態アイコン | `callStatusHeader` | `duckingStatusIcon` | なし | `isDuckOthersEnabled`, `isOtherAudioDuckingActive` | 設定 ON 時のみ `waveform` | 設定 ON と実効 ON を分ける |
 
@@ -228,7 +229,7 @@ Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）は `ou
 | 参加者入力メーター | `remoteParticipantRow{index}` | `participantVoiceLevel{index}` | なし | `voiceLevel`, `voicePeakLevel`, `isMuted` | 値文字列`LEVEL n  PEAK n`（ミュート中は`MUTED`、`voiceMeterValueLabel`） | 受信後デコード済みレベル |
 | 参加者出力値 | `remoteParticipantRow{index}` | `participantOutputValue{index}` | `{n}%` | `remoteOutputVolumes[member.id]` | 補助テキスト | peer source fader |
 | 参加者出力スライダー | `remoteParticipantRow{index}` | `participantOutputSlider{index}` | `{name} Output` | `Double`, `0...1`。未設定時 `1.0` | 個別出力スライダー | マスター出力とは別。peer source faderへ即時反映 |
-| 参加者 Voice Isolation Effect | `remoteParticipantRow{index}` | `participantVoiceIsolationToggle{index}` | `Voice Isolation` | `remoteSoundIsolationEnabled[member.id]`。未設定時 `false` | `supportsSoundIsolation == true` のとき Toggle | 該当 peer bus の SoundIsolation effect 有効/無効 |
+| 参加者 Voice Isolation Effect | `remoteParticipantRow{index}` | `participantVoiceIsolationToggle{index}` | `Isolate This Voice`（読み上げは相手名を含む） | `remoteSoundIsolationEnabled[member.id]`。未設定時 `false` | `supportsSoundIsolation == true` のとき Toggle | 該当 peer bus の SoundIsolation effect 有効/無効 |
 
 ## エラー表示
 
@@ -238,7 +239,7 @@ Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）は `ou
 
 ## Voice Isolationの現在の提供状態
 
-SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操作を表示する。通話開始時に実Mixerへノードを接続し、設定変更は実Audio Unitのbypassへ反映する。停止中は要求設定だけ保持し、稼働中とは表示しない。非対応環境では操作を表示せずsupport reportで区別する。
+SoundIsolation対応環境では、Settingsに自分の送信側、Callに受信側の操作を表示する。AdvancedのOutputは受信全体、参加者行はその相手の受信へ適用する。通話開始時に実Mixerへノードを接続し、設定変更は実Audio Unitのbypassへ反映する。停止中は要求設定だけ保持し、稼働中とは表示しない。非対応環境では操作を表示せずsupport reportで区別する。
 
 ## 混在通話・機器切断の表示
 

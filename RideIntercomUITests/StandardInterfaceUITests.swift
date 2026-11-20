@@ -415,6 +415,15 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(row.exists)
         row.tap()
         assertDirectCallHasNoMembers(peerName)
+        let receiveIsolation = app.switches.matching(NSPredicate(format: "identifier == %@ OR label == %@",
+            "standardReceiveVoiceIsolationToggle", "Voice Isolation")).firstMatch
+        for _ in 0..<4 where !receiveIsolation.isHittable { app.swipeUp() }
+        XCTAssertTrue(receiveIsolation.isHittable, app.debugDescription)
+        XCTAssertEqual(receiveIsolation.label, "Isolate the Other Person’s Voice")
+        let initialIsolation = receiveIsolation.value as? String
+        receiveIsolation.switches.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertNotEqual(receiveIsolation.value as? String, initialIsolation)
+        screenshot("Standard direct call names the received voice")
         app.closeCallIfOpen()
         app.openCurrentCall()
         assertDirectCallHasNoMembers(peerName)
@@ -423,6 +432,20 @@ final class StandardInterfaceUITests: XCTestCase {
         app.openCurrentCall()
         XCTAssertTrue(app.buttons["disconnectButton"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["directCallHelpLabel"].exists)
+        let masterIsolation = app.switches["masterVoiceIsolationToggle"].firstMatch
+        for _ in 0..<4 where !masterIsolation.isHittable { app.swipeUp() }
+        XCTAssertTrue(masterIsolation.isHittable, app.debugDescription)
+        XCTAssertEqual(masterIsolation.label, "Isolate All Received Voices")
+        screenshot("Advanced names all received voices")
+        let peerIsolation = app.switches["participantVoiceIsolationToggle0"].firstMatch
+        for _ in 0..<5 where !peerIsolation.isHittable { app.swipeUp() }
+        XCTAssertTrue(peerIsolation.isHittable, app.debugDescription)
+        XCTAssertEqual(peerIsolation.label, "Isolate Voice From \(peerName)")
+        XCTAssertTrue(peerIsolation.staticTexts["Isolate This Voice"].exists)
+        XCTAssertEqual(peerIsolation.value as? String, "Bypassed")
+        peerIsolation.switches.firstMatch.tap()
+        XCTAssertEqual(peerIsolation.value as? String, "Enabled")
+        screenshot("Advanced names the selected received voice")
         screenshot("Advanced retains direct call details")
         let userSettings = app.openCallMoreMenuItem("callUserSettingsButton")
         XCTAssertFalse(app.buttons["callAddMembersButton"].exists)
@@ -448,6 +471,10 @@ final class StandardInterfaceUITests: XCTestCase {
         XCTAssertTrue(finish.waitForExistence(timeout: 5))
         finish.tap()
         XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        let groupIsolation = app.switches["standardReceiveVoiceIsolationToggle"].firstMatch
+        for _ in 0..<4 where !groupIsolation.isHittable { app.swipeUp() }
+        XCTAssertTrue(groupIsolation.isHittable, app.debugDescription)
+        XCTAssertEqual(groupIsolation.label, "Isolate Incoming Voices")
         let heading = app.staticTexts["standardCallParticipantsHeading"].firstMatch
         for _ in 0..<3 where !heading.exists { app.swipeUp() }
         XCTAssertTrue(heading.exists, "An ordinary two-person group keeps its members")
