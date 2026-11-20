@@ -179,6 +179,32 @@ struct SettingsTests {
         #expect(!requested.defaultToSpeaker)
     }
 
+    @Test func audioChoicesKeepAnAvailableDeviceAndFallBackWhenTheOtherIsGone() {
+        let h = AppTestSupport.makeHarness()
+        let input = AudioPortInfo(id: "input-1", name: "Input 1")
+        h.viewModel.setInputPort(input)
+        h.viewModel.setOutputPort(.speaker)
+
+        let renamedInput = AudioSessionDevice(id: .init(rawValue: input.id), name: "Helmet Mic", direction: .input)
+        var snapshot = h.audioSessionBackend.current
+        snapshot.availableInputs = [.systemDefaultInput, renamedInput, renamedInput]
+        snapshot.availableOutputs = []
+        snapshot.currentInput = renamedInput
+        snapshot.currentOutput = .systemDefaultOutput
+        h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+            reason: .routeChanged(.oldDeviceUnavailable), snapshot: snapshot)))
+
+        let renamedPort = AudioPortInfo(device: renamedInput)
+        #expect(h.viewModel.availableInputPorts == [.systemDefault, renamedPort])
+        #expect(h.viewModel.selectedInputPort == renamedPort)
+        #expect(h.viewModel.availableOutputPorts == [.systemDefault])
+        #expect(h.viewModel.selectedOutputPort == .systemDefault)
+        #expect(h.viewModel.audioSessionSnapshot.currentInput == renamedInput)
+        let requested = h.viewModel.makeAudioSessionConfiguration()
+        #expect(requested.preferredInput == .device(renamedInput.id))
+        #expect(requested.preferredOutput == .systemDefault)
+    }
+
     @Test func selectingAnAudioPortReconfiguresTheSessionAndRestartsActiveMedia() async {
         let harness = AppTestSupport.makeHarness()
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])

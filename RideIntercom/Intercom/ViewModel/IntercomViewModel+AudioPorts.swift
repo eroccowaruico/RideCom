@@ -17,6 +17,14 @@ extension IntercomViewModel {
             ? audioSessionSnapshot.currentOutput.name : selectedOutputPort.name
     }
 
+    var availableInputPorts: [AudioPortInfo] {
+        availablePorts(from: audioSessionSnapshot.availableInputs)
+    }
+
+    var availableOutputPorts: [AudioPortInfo] {
+        availablePorts(from: audioSessionSnapshot.availableOutputs)
+    }
+
     func handleAudioSessionRuntimeEvent(_ event: SessionManager.AudioSessionRuntimeEvent) {
         switch event {
         case .configuration(let report):
@@ -92,8 +100,8 @@ extension IntercomViewModel {
 
     func applyAudioSessionSnapshot(_ snapshot: SessionManager.AudioSessionSnapshot) {
         audioSessionSnapshot = snapshot
-        selectedInputPort = normalizedInputPort(selectedInputPort, snapshot: snapshot)
-        selectedOutputPort = normalizedOutputPort(selectedOutputPort, snapshot: snapshot)
+        selectedInputPort = availableSelection(for: selectedInputPort, in: availableInputPorts)
+        selectedOutputPort = availableSelection(for: selectedOutputPort, in: availableOutputPorts)
     }
 
     #if os(iOS)
@@ -141,28 +149,13 @@ extension IntercomViewModel {
         }
     }
 
-    func deduplicatedPorts(_ ports: [AudioPortInfo]) -> [AudioPortInfo] {
+    private func availablePorts(from devices: [AudioSessionDevice]) -> [AudioPortInfo] {
         var seen: Set<AudioPortInfo> = []
-        var result: [AudioPortInfo] = []
-        for port in ports where seen.insert(port).inserted {
-            result.append(port)
-        }
-        return result.isEmpty ? [.systemDefault] : result
+        let ports = devices.map(AudioPortInfo.init(device:)).filter { seen.insert($0).inserted }
+        return ports.isEmpty ? [.systemDefault] : ports
     }
 
-    private func normalizedInputPort(
-        _ port: AudioPortInfo,
-        snapshot: SessionManager.AudioSessionSnapshot
-    ) -> AudioPortInfo {
-        let ports = deduplicatedPorts(snapshot.availableInputs.map(AudioPortInfo.init(device:)))
-        return ports.first { $0.id == port.id } ?? .systemDefault
-    }
-
-    private func normalizedOutputPort(
-        _ port: AudioPortInfo,
-        snapshot: SessionManager.AudioSessionSnapshot
-    ) -> AudioPortInfo {
-        let ports = deduplicatedPorts(snapshot.availableOutputs.map(AudioPortInfo.init(device:)))
+    private func availableSelection(for port: AudioPortInfo, in ports: [AudioPortInfo]) -> AudioPortInfo {
         return ports.first { $0.id == port.id } ?? .systemDefault
     }
 }

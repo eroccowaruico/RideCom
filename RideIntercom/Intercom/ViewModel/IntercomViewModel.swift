@@ -133,12 +133,6 @@ final class IntercomViewModel {
         isAudioReady
     }
 
-    var availableInputPorts: [AudioPortInfo] {
-        deduplicatedPorts(audioSessionSnapshot.availableInputs.map(AudioPortInfo.init(device:)))
-    }
-    var availableOutputPorts: [AudioPortInfo] {
-        deduplicatedPorts(audioSessionSnapshot.availableOutputs.map(AudioPortInfo.init(device:)))
-    }
     var supportsAdvancedMixingOptions: Bool { true }
     var isOtherAudioDuckingActive: Bool { isOtherAudioDuckingActiveInternal }
     var diagnosticsInputLevel: Float {
