@@ -287,6 +287,8 @@ class ValidationTests(unittest.TestCase):
                            {'TestHostPath': '__TESTROOT__/UI-Runner.app', 'UITargetAppPath': host}]
                 if fault == 'outside-host':
                     targets[0]['TestHostPath'] = str(self.runner.out / 'RideIntercom.app')
+                if fault == 'unknown-host-root':
+                    targets[0]['TestHostPath'] = '__UNRESOLVED__/RideIntercom.app'
                 if fault != 'missing-run':
                     (products / (scheme + '_' + platform + '_fixture.xctestrun')).write_bytes(
                         plistlib.dumps({'TestPlan': {'Name': 'StoreKit' if scheme == 'RideIntercom-StoreKitTests' else scheme},
@@ -348,7 +350,8 @@ class ValidationTests(unittest.TestCase):
 
     def test_invalid_generated_hosts_never_launch(self):
         faults = ['RideIntercom', 'RideIntercom.Validation.other.run', '$(RIDEINTERCOM_STORAGE_NAMESPACE)', '',
-                  'missing-namespace', 'missing-info', 'broken', 'credential', 'outside-host', 'missing-run', 'build-failure']
+                  'missing-namespace', 'missing-info', 'broken', 'credential', 'outside-host', 'unknown-host-root',
+                  'missing-run', 'build-failure']
         for index, fault in enumerate(faults):
             with self.subTest(fault=fault):
                 name = 'invalid-' + str(index)
@@ -391,6 +394,22 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(marker.exists())
         command = commands['ios-tests']
         self.assertIn('_iphonesimulator_fixture.xctestrun', command[command.index('-xctestrun') + 1])
+
+    def test_test_host_paths_allow_double_underscores_in_build_products(self):
+        products = Path(self.temporary.name) / 'Build__Products'
+        app = products / 'Debug-Validation-iphonesimulator/RideIntercom.app'
+        app.mkdir(parents=True)
+        namespace = 'RideIntercom.Validation.Xcode'
+        info = app / 'Info.plist'
+        info.write_bytes(plistlib.dumps({'StorageNamespace': namespace}))
+        test_run = products / 'RideIntercom_iphonesimulator.xctestrun'
+        for host in [str(app), '__TESTROOT__/' + app.relative_to(products).as_posix()]:
+            with self.subTest(host=host):
+                test_run.write_bytes(plistlib.dumps({'TestConfigurations': [
+                    {'TestTargets': [{'TestHostPath': host}]},
+                ]}))
+                metadata = self.module.test_host_metadata(test_run, namespace)
+                self.assertEqual(metadata['hostInfoPaths'], [str(info.resolve())])
 
     def test_explicit_plan_cannot_fall_back_to_an_old_scheme_run(self):
         products = Path(self.temporary.name) / 'Products'

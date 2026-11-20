@@ -133,9 +133,13 @@ def test_host_metadata(test_run, expected_namespace, expected_product='RideInter
         for key in ('TestHostPath', 'UITargetAppPath'):
             if key not in target:
                 continue
-            value = target[key].replace('__TESTROOT__', str(products))
-            path = Path(value).resolve()
-            if '__' in value or not path.is_relative_to(products) or path.suffix != '.app':
+            host = Path(target[key])
+            if host.parts[:1] == ('__TESTROOT__',):
+                host = products.joinpath(*host.parts[1:])
+            elif not host.is_absolute():
+                raise ValueError('Test host must use __TESTROOT__ or an absolute path')
+            path = host.resolve()
+            if not path.is_relative_to(products) or path.suffix != '.app':
                 raise ValueError('Test host must be an app inside its build products')
             resolved[key] = path
         app = resolved.get('UITargetAppPath', resolved.get('TestHostPath'))
