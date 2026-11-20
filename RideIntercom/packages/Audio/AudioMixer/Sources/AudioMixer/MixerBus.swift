@@ -263,7 +263,8 @@ public final class MixerBus {
 					bufferedDuration: pcmSource?.bufferedDuration,
 					playbackResetCount: pcmSource?.playbackResetCount ?? 0,
 					lastScheduledAt: $0.lastScheduledAt,
-					playoutAdjustmentCount: pcmSource?.playoutAdjustmentCount
+					playoutAdjustmentCount: pcmSource?.playoutAdjustmentCount,
+					lastPlayoutAdjustment: pcmSource?.lastPlayoutAdjustment
 				)
 			}
 		}

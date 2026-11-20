@@ -72,6 +72,23 @@ public struct MixerBusSnapshot: Codable, Equatable, Sendable {
 	}
 }
 
+/// The latest adaptive change, in samples on the same player clock.
+public struct MixerPlayoutAdjustment: Codable, Equatable, Sendable {
+	public enum Reason: String, Codable, Sendable {
+		case pastRenderPosition
+		case excessDelayAfterPause
+		case excessQueuedSilence
+	}
+
+	public let reason: Reason
+	/// The incoming frame's capture timestamp, for matching packet diagnostics.
+	public let capturedAt: TimeInterval
+	public let completedSample: Int64
+	/// Absent if the original planned position cannot be represented as a sample index.
+	public let previousSample: Int64?
+	public let scheduledSample: Int64
+}
+
 public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 	public var id: String
 	public var typeName: String
@@ -88,6 +105,7 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 	/// Number of adaptive playout position changes over this PCM source's lifetime.
 	/// Absent for sources without a PCM player and snapshots from older versions.
 	public var playoutAdjustmentCount: Int?
+	public var lastPlayoutAdjustment: MixerPlayoutAdjustment?
 	public var lastFailure: String?
 
 	public init(
@@ -103,7 +121,8 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 		bufferedDuration: TimeInterval? = nil,
 		playbackResetCount: Int = 0,
 		lastScheduledAt: TimeInterval? = nil,
-		playoutAdjustmentCount: Int? = nil
+		playoutAdjustmentCount: Int? = nil,
+		lastPlayoutAdjustment: MixerPlayoutAdjustment? = nil
 	) {
 		self.id = id
 		self.typeName = typeName
@@ -118,6 +137,7 @@ public struct MixerSourceSnapshot: Codable, Equatable, Sendable {
 		self.bufferedDuration = bufferedDuration
 		self.playbackResetCount = playbackResetCount
 		self.playoutAdjustmentCount = playoutAdjustmentCount
+		self.lastPlayoutAdjustment = lastPlayoutAdjustment
 	}
 }
 

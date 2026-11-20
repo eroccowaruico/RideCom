@@ -90,6 +90,12 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
     }
     #expect(late.filter { abs($0 - 0.4) < 0.001 }.count == 960)
     #expect(source.playoutAdjustmentCount == 1)
+    let adjustment = try #require(bus.snapshot().sources.first?.lastPlayoutAdjustment)
+    #expect(adjustment.reason == .pastRenderPosition)
+    #expect(adjustment.capturedAt == 1000.02)
+    let previousSample = try #require(adjustment.previousSample)
+    #expect(previousSample < adjustment.completedSample)
+    #expect(adjustment.scheduledSample >= adjustment.completedSample)
     // The link has proven it can hold a packet: a reply after a short pause
     // keeps that wait instead of losing its first syllables again.
     for index in 0..<30 { #expect(try engine.renderOffline(4800, to: output) == .success, "silence \(index)") }
@@ -121,10 +127,15 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
     for _ in 0..<3 { #expect(try engine.renderOffline(4800, to: output) == .success) }
     try source.schedule(.init(sequenceNumber: 1, capturedAt: 1000.305, samples: Array(repeating: 0.3, count: 480)))
     #expect(source.playoutAdjustmentCount == 0, "A healthy pause must not move the following syllable")
+    #expect(bus.snapshot().sources.first?.lastPlayoutAdjustment == nil)
     #expect(abs(source.bufferedDuration - 0.035) < 1 / 48000.0)
     for _ in 0..<30 { #expect(try engine.renderOffline(4800, to: output) == .success) }
     try source.schedule(.init(sequenceNumber: 2, capturedAt: 1003.38, samples: Array(repeating: 0.4, count: 480)))
     #expect(source.playoutAdjustmentCount == 1, "Excess wait must still be removed after a pause")
+    let adjustment = try #require(bus.snapshot().sources.first?.lastPlayoutAdjustment)
+    #expect(adjustment.reason == .excessDelayAfterPause)
+    let previousSample = try #require(adjustment.previousSample)
+    #expect(adjustment.scheduledSample < previousSample)
     #expect(source.bufferedDuration <= 0.031)
     #expect(source.playbackResetCount == 0)
 }
@@ -177,9 +188,11 @@ func omittedSilenceComparesExcessWaitInWholeSamples(extraSamples: Int) throws {
     let data = try JSONEncoder().encode(snapshot)
     var fields = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(fields.removeValue(forKey: "playoutAdjustmentCount") as? Int == extraSamples)
+    #expect((fields.removeValue(forKey: "lastPlayoutAdjustment") != nil) == (extraSamples > 0))
     let legacy = try JSONSerialization.data(withJSONObject: fields)
     let decoded = try JSONDecoder().decode(MixerSourceSnapshot.self, from: legacy)
     #expect(decoded.playoutAdjustmentCount == nil)
+    #expect(decoded.lastPlayoutAdjustment == nil)
     #expect(decoded.id == snapshot.id)
     if extraSamples == 0 {
         #expect(source.playoutAdjustmentCount == 0)
@@ -571,6 +584,10 @@ func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovem
     #expect(try engine.renderOffline(480, to: output) == .success)
     try source.schedule(.init(sequenceNumber: 8, capturedAt: 0.08, samples: quiet))
     #expect(source.bufferedDuration <= 0.021, "Only inaudible queued tails may be replaced to recover low latency")
+    let latest = try #require(source.lastPlayoutAdjustment)
+    #expect(latest.reason == .excessQueuedSilence)
+    let previousSample = try #require(latest.previousSample)
+    #expect(latest.scheduledSample < previousSample)
     // Real quiet speech must still follow the queued voice, never interrupt it.
     let before = source.playoutAdjustmentCount
     for index in 9..<13 {
@@ -578,6 +595,7 @@ func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovem
             samples: Array(repeating: 0.002, count: 480)))
     }
     #expect(source.playoutAdjustmentCount == before)
+    #expect(bus.snapshot().sources.first?.lastPlayoutAdjustment == latest)
     #expect(source.bufferedDuration >= 0.04)
     #expect(source.playbackResetCount == 0)
 }

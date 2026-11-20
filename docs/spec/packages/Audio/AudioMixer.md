@@ -389,7 +389,10 @@ snapshot は Codable とし、RTC runtime package report へ載せられる。
 | 超過 | 新frameを加える前の予約量が上限以上なら、`.interrupts`で古い予約を最新bufferへ置換する。player時計、他peerのsource、effect instanceは維持する |
 | 単一frameが上限超過 | schedule失敗として報告。長いframeを遅延再生したり、formatを偽装して短く扱わない |
 | snapshot | `bufferedDuration`、`playbackResetCount`、`playoutAdjustmentCount`をsourceごとに報告。調整回数はadaptive playoutによる予約位置の調整の累計で、PCM sourceの生成時に0から始まる。PCM playerのないsourceや旧形式のsnapshotの調整回数はnil |
+| `lastPlayoutAdjustment` | 各sourceで直近のadaptive調整1件。対象frameの `capturedAt` に加え、調整前の `previousSample`、描画済みの `completedSample`、新たに予約する `scheduledSample` を同じplayerのサンプル時計で報告する。調整前時刻を整数サンプル位置で表せない場合は `previousSample` がnil。調整が起きていないsource・PCM playerのないsource・旧形式のsnapshotは `lastPlayoutAdjustment` がnil |
 | Mixer停止 | 全PCM sourceを停止して予約も解放する。再開後に旧音声を出さない |
+
+調整理由は、予定位置をすでに描画し終えていた `pastRenderPosition`、収録の間を経た後に余分な待ちを縮めた `excessDelayAfterPause`、無音予約を詰めた `excessQueuedSilence`。複数の条件に合う場合はこの順で最初の理由を記録する。単位と理由はsourceが決め、利用側で時刻や回数から推定しない。記録は調整回数と同じ寿命で、sourceを作り直すまで直近の情報を保持する。
 
 これは新frameが再生開始を待つ時間の上限であり、OS・実機の出力遅延保証ではない。瞬間的な欠落よりも過去の会話が遅れて続くことを避けるlive用途と、録音再生用途を明示的に分ける。
 

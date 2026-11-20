@@ -31,6 +31,7 @@ public final class MixerPCMSource {
     private let renderClock: MixerRenderClock
     private var normalizer = MixerPCMStreamNormalizer()
     public private(set) var playoutAdjustmentCount = 0
+    public private(set) var lastPlayoutAdjustment: MixerPlayoutAdjustment?
 	private var startRequested = false
 	private var scheduledEndSample: AVAudioFramePosition = 0
 	public private(set) var playbackResetCount = 0
@@ -196,6 +197,7 @@ public final class MixerPCMSource {
         if playoutAnchor == nil { playoutAnchor = (capturedAt, delayedStart) }
         let anchor = playoutAnchor!
         var target = Double(anchor.sample) + (capturedAt - anchor.capturedAt) * mixerFormat.sampleRate
+        var adjustment: (reason: MixerPlayoutAdjustment.Reason, previousSample: AVAudioFramePosition?)?
         if adaptivePlayout {
             let contiguous = lastCapturedEnd.map { abs(capturedAt - $0) <= 2 / mixerFormat.sampleRate } ?? false
             // Exact sample adjacency wins over host-time rounding. Each
@@ -229,6 +231,11 @@ public final class MixerPCMSource {
             // shifts every following syllable despite timely arrival.
             let expired = target.rounded() < Double(position.completed)
             if expired || resumedWithExcessWait || canReduceDelay {
+                let reason: MixerPlayoutAdjustment.Reason
+                if expired { reason = .pastRenderPosition }
+                else if resumedWithExcessWait { reason = .excessDelayAfterPause }
+                else { reason = .excessQueuedSilence }
+                adjustment = (reason, AVAudioFramePosition(exactly: target.rounded()))
                 var start = delayedStart
                 if expired, let fastest = fastestTransit,
                    // A start-up backlog or local outage longer than the
@@ -265,7 +272,6 @@ public final class MixerPCMSource {
                     options = .interrupts // only queued silence is replaced
                     recoveringQuietBurst = true
                 }
-                playoutAdjustmentCount += 1
             }
         }
         let startSample: AVAudioFramePosition
@@ -281,6 +287,11 @@ public final class MixerPCMSource {
             playbackResetCount += 1
         } else {
             startSample = AVAudioFramePosition(target.rounded())
+        }
+        if let adjustment {
+            playoutAdjustmentCount += 1
+            lastPlayoutAdjustment = MixerPlayoutAdjustment(reason: adjustment.reason, capturedAt: capturedAt,
+                completedSample: position.completed, previousSample: adjustment.previousSample, scheduledSample: startSample)
         }
         lastCapturedAt = capturedAt
         lastCapturedEnd = capturedAt + duration
