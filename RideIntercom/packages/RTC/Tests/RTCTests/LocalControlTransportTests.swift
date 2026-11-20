@@ -34,6 +34,51 @@ struct LocalControlTransportTests {
     }
 
     @Test(.timeLimit(.minutes(2)))
+    func standaloneDataExchangesRepliesAndDoesNotJoinCallControl() async throws {
+        let credential = RTCCredential.derived(groupID: UUID().uuidString, secret: "standalone")
+        let left = PeerID(rawValue: "sender"), right = PeerID(rawValue: "recipient")
+        let receivedByLeft = Mutex<[RTCLocalDataChannel.Event]>([])
+        let receivedByRight = Mutex<[RTCLocalDataChannel.Event]>([])
+        let a = RTCLocalDataChannel(localID: left, credential: credential) { event in
+            receivedByLeft.withLock { $0.append(event) }
+        }
+        let b = RTCLocalDataChannel(localID: right, credential: credential) { event in
+            receivedByRight.withLock { $0.append(event) }
+        }
+        let call = End("active-call", credential: credential)
+        defer { a.stop(); b.stop(); call.transport.stop() }
+        call.transport.start()
+        a.start()
+        b.start()
+
+        await eventually {
+            receivedByLeft.withLock { $0.contains(.members([right])) }
+                && receivedByRight.withLock { $0.contains(.members([left])) }
+        }
+        try #require(receivedByLeft.withLock { $0.contains(.members([right])) })
+        try #require(receivedByRight.withLock { $0.contains(.members([left])) })
+        let invitation = Data("invitation".utf8), reply = Data("reply".utf8)
+        a.send(invitation)
+        await eventually { receivedByRight.withLock { $0.contains(.message(invitation, from: left)) } }
+        try #require(receivedByRight.withLock { $0.contains(.message(invitation, from: left)) })
+        b.send(reply)
+        await eventually { receivedByLeft.withLock { $0.contains(.message(reply, from: right)) } }
+        try #require(receivedByLeft.withLock { $0.contains(.message(reply, from: right)) })
+
+        b.stop()
+        await eventually { receivedByLeft.withLock { $0.last == .members([]) } }
+        try #require(receivedByLeft.withLock { $0.last == .members([]) })
+        b.start()
+        await eventually { receivedByLeft.withLock { $0.last == .members([right]) } }
+        #expect(receivedByLeft.withLock { $0.last == .members([right]) })
+        #expect(call.events.allSatisfy { event in
+            if case .authenticated = event { return false }
+            if case .message = event { return false }
+            return true
+        })
+    }
+
+    @Test(.timeLimit(.minutes(2)))
     func membersOfOneGroupFindEachOtherAndNobodyElse() async throws {
         let group = RTCCredential.derived(groupID: "control-" + UUID().uuidString, secret: "test-only")
         let other = RTCCredential.derived(groupID: "control-" + UUID().uuidString, secret: "test-only")

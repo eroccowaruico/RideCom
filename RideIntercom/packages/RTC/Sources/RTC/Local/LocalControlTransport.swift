@@ -194,6 +194,6 @@ final class LocalControlTransport: @unchecked Sendable {
         }
     }
 
-    private final class LinkBox: @unchecked Sendable { var link: LocalControlLink? }
+    private final class LinkBox: @unchecked Sendable { weak var link: LocalControlLink? }
 }
 #endif

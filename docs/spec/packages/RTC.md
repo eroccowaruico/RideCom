@@ -229,6 +229,19 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 | 他経路 | 利用できるLocal経路は維持する。全有効routeが手動復帰待ちなら全体をfailedとし、reconnectingを繰り返さない。presence・診断・受信整理の定期タイマーも停止し、次の明示prepare/startで再開する |
 | 明示的な再操作 | 新しいprepareで抑止を解除する。既存通話の強制切断・他端末の追い出しは行わない。通信断した端末の予約回収はWorkerのleaseに従う |
 
+## 通話を開始しない近距離データ交換
+
+`RTCLocalDataChannel`はiOS・iPadOS・macOSで、同じ個別の共有資格を持つ近距離の端末へ、認証済みQUICで順序付きのデータを送る。既存の`LocalControlTransport`と証明書に束縛した共有鍵のhandshakeを使う。探索と認証に使う資格は`ride-local-data-v1`で分離して導出するため、同じ元の資格を使う通話の制御peerとは接続しない。`CallSession`、GroupRelay、UDP音声listener、Internet登録は起動しない。
+
+| 操作 | 契約 |
+|---|---|
+| `start`／`stop` | 開始で広告と探索を始める。停止で広告・探索・接続を閉じる。再開時は新しい広告と認証になる |
+| `members`／`message` | 認証済みの相手集合と、送信元のpeerを伴うpayloadを同じ直列queueで通知する。handshakeで確かめるのは共有資格の所持。署名・本人・宛先・利用権の照合は利用側が担う |
+| `send` | 現在接続中の認証済みの相手へ送る。1件65,536 byteまで。不在の相手への保管、着信確認、受取後の保存、再試行は利用側のプロトコルで扱う |
+| `failed` | listener、探索、または起動の失敗を通知する。利用側は試行を終了するか再開するかを決める |
+
+製品Appが持つ招待の保存・受取・確認とiOSの背景実行時間は[招待の残課題](../../backlog/未実装課題.md#通話を始めずに近距離で招待と返信を届ける)で扱う。
+
 ## 音声の連続性とLocal配送
 
 GroupRelayの認証・replay protection用sequenceと音声専用sequenceを分ける。presenceや制御を挟んでも音声に偽の欠番を作らない。受信bufferは相手別に並べ替え、同じsequenceの複数経路コピーを再生しない。
