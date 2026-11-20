@@ -39,6 +39,25 @@ class DocumentationTests(unittest.TestCase):
             (root / 'docs/guide.md').write_text('[lost](lost.md)')
             self.assertTrue(any('missing link' in error for error in DOCS.check(root)))
 
+    def test_current_links_must_reach_a_backlog_heading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            backlog = root / 'docs/backlog'
+            backlog.mkdir()
+            (backlog / '改善候補.md').write_text('# 候補\n\n## 通話（Wi-Fi）\n')
+            history = root / 'docs/history'
+            history.mkdir()
+            (history / 'old.md').write_text('[当時の候補](../backlog/改善候補.md#旧見出し)')
+            guide = root / 'docs/guide.md'
+            guide.write_text('[今の候補](backlog/改善候補.md#通話wi-fi)\n[履歴](history/old.md)\n')
+            self.assertEqual(DOCS.check(root), [])
+
+            guide.write_text(guide.read_text().replace('#通話wi-fi', '#旧見出し'))
+            self.assertEqual(DOCS.check(root), [
+                'docs/guide.md: missing backlog heading backlog/改善候補.md#旧見出し',
+            ])
+
     def test_unindexed_document_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); self.fixture(root)

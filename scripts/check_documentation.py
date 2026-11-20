@@ -34,6 +34,10 @@ def without_fences(text):
     return ''.join(visible)
 
 
+def heading_anchor(title):
+    return re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-')
+
+
 def check_backlog(backlog):
     issues = '未実装課題.md'
     design = '画面実装とデザイン見本の差分.md'
@@ -48,8 +52,7 @@ def check_backlog(backlog):
         document = backlog / name
         if document.exists():
             headings = re.findall(rf'^{level * "#"} (.+)$', without_fences(document.read_text()), re.M)
-            anchors.update((name, re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-'))
-                           for title in headings)
+            anchors.update((name, heading_anchor(title)) for title in headings)
     parts = re.split(r'^## (.+)\n', without_fences(index.read_text()), flags=re.M)
     sections = dict(zip(parts[1::2], parts[2::2]))
     errors, indexed = [], Counter()
@@ -93,11 +96,19 @@ def check_backlog(backlog):
 
 def check(root):
     root = root.resolve()
+    backlog = root / 'docs/backlog'
     documents = set((root / 'docs').rglob('*.md'))
     documents.add(root / 'README.md')
     for entry in ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']:
         if (root / entry).exists(): documents.add(root / entry)
-    errors, edges = check_backlog(root / 'docs/backlog'), {}
+    errors, edges = check_backlog(backlog), {}
+    backlog_anchors = {
+        document: {
+            heading_anchor(title)
+            for title in re.findall(r'^#{1,6} (.+)$', without_fences(document.read_text()), re.M)
+        }
+        for document in documents if document.parent == backlog
+    }
     for sample in sorted((root / 'docs/design').rglob('*.html')):
         parser = DesignHTMLIDs()
         parser.feed(sample.read_text())
@@ -110,12 +121,18 @@ def check(root):
     for document in sorted(documents):
         text = without_fences(document.read_text())
         targets = set()
+        historical = 'history' in document.relative_to(root).parts
         for match in LINK.finditer(text):
             destination = match.group(1).strip('<>')
-            if urlsplit(destination).scheme or destination.startswith(('#', '/')):
+            link = urlsplit(destination)
+            if link.scheme or destination.startswith('/'):
                 continue
-            path = unquote(destination.split('#')[0])
-            target = (document.parent / path).resolve()
+            target = (document.parent / unquote(link.path)).resolve() if link.path else document
+            if (not historical and target in backlog_anchors and link.fragment
+                    and unquote(link.fragment) not in backlog_anchors[target]):
+                errors.append(f'{document.relative_to(root)}: missing backlog heading {destination}')
+            if not link.path:
+                continue
             if not target.exists():
                 errors.append(f'{document.relative_to(root)}: missing link {destination}')
             elif target in documents:
