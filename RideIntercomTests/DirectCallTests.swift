@@ -1,4 +1,5 @@
 import Foundation
+import RTC
 import Testing
 @testable import RideIntercom
 
@@ -15,6 +16,102 @@ struct DirectCallTests {
         #expect(h.viewModel.regularGroups.map(\.id) == [group.id])
         #expect(h.viewModel.activeDirectCall == nil)
     }
+
+    @Test func signedGroupInvitationAndReplyPrepareSameSeparateDeviceCall() async throws {
+        let group = try IntercomGroup(name: "Riders", members: [.init(id: "alice", displayName: "Alice")],
+                                      accessSecret: "ordinary-group-key")
+        let a = AppTestSupport.makeHarness(groups: [group], localMemberID: "alice")
+        let b = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
+        a.viewModel.selectGroup(group)
+        let url = try #require(a.viewModel.makeSelectedGroupInviteURL())
+        try b.viewModel.acceptInviteURL(url)
+        a.callSession.authenticate(["bob"])
+        b.callSession.authenticate(["alice"])
+        b.viewModel.sendPendingInvitationReceipt()
+        let message = try #require(b.callSession.sentApplicationDataMessages.last {
+            $0.namespace == DirectInvitationReceipt.namespace
+        })
+        a.viewModel.receiveInvitationReceipt(peerID: "bob", message: message)
+        let acknowledgement = try #require(a.callSession.sentApplicationDataMessages.last {
+            $0.namespace == DirectInvitationReceipt.namespace
+        })
+        let bob = try #require(a.viewModel.savedRemoteUsers.first)
+        let alice = try #require(b.viewModel.savedRemoteUsers.first)
+        #expect(b.viewModel.existingDirectCall(for: alice.id) == nil)
+        b.viewModel.receiveInvitationReceipt(peerID: "alice", message: acknowledgement)
+        #expect(b.viewModel.groupRepository.pendingInvitation(for: group.id) == nil)
+        #expect(a.viewModel.activeGroupID == group.id)
+        #expect(b.viewModel.activeGroupID == group.id)
+        let directID = try #require(a.viewModel.existingDirectCall(for: bob.id)?.id)
+        #expect(b.viewModel.existingDirectCall(for: alice.id)?.id == directID)
+        #expect(directID != group.id)
+        let aliceKey = try #require(a.viewModel.groupRepository.credential(for: directID)?.secret)
+        a.viewModel.receiveInvitationReceipt(peerID: "bob", message: message)
+        b.viewModel.receiveInvitationReceipt(peerID: "alice", message: acknowledgement)
+
+        a.viewModel.disconnect()
+        b.viewModel.disconnect()
+        a.viewModel.reloadSavedGroups()
+        b.viewModel.reloadSavedGroups()
+        #expect(a.viewModel.selectUser(bob.id))
+        #expect(b.viewModel.selectUser(alice.id))
+        #expect(a.viewModel.selectedGroup?.id == directID)
+        #expect(b.viewModel.selectedGroup?.id == directID)
+        let matchingCredential = try b.viewModel.groupRepository.credential(for: directID)?.secret == aliceKey
+        try #require(matchingCredential)
+        let matchedAtCallStart = a.callSession.connectedGroup?.accessSecret == aliceKey
+            && b.callSession.connectedGroup?.accessSecret == aliceKey
+        #expect(matchedAtCallStart)
+        let separateCredential = aliceKey != group.accessSecret
+        #expect(separateCredential)
+        #expect(a.viewModel.regularGroups.map(\.id) == [group.id])
+        #expect(b.viewModel.regularGroups.map(\.id) == [group.id])
+
+        #if os(iOS)
+        try await assertLocalCall(
+            aliceGroup: try #require(a.callSession.connectedGroup),
+            bobGroup: try #require(b.callSession.connectedGroup)
+        )
+        #endif
+    }
+
+    #if os(iOS)
+    private func assertLocalCall(aliceGroup: IntercomGroup, bobGroup: IntercomGroup) async throws {
+        let aliceRTC = RouteManager(routes: [LocalCallRoute()])
+        let bobRTC = RouteManager(routes: [LocalCallRoute()])
+        let alice = RideIntercomCallSessionAdapter(memberID: "alice", rtcSession: aliceRTC)
+        let bob = RideIntercomCallSessionAdapter(memberID: "bob", rtcSession: bobRTC)
+        let payload = Data(repeating: 42, count: 160)
+        var alicePeers: [String] = [], bobPeers: [String] = []
+        var receivedAudio = false
+        alice.onEvent = { event in
+            if case .authenticated(let members) = event { alicePeers = members.map(\.peer.id.rawValue) }
+        }
+        bob.processReceivedAudio = { _ in .processed(level: 0.1) }
+        bob.onEvent = { event in
+            if case .authenticated(let members) = event { bobPeers = members.map(\.peer.id.rawValue) }
+            if case .receivedAudioPacket(let received, _) = event, received.packet.payload == payload {
+                receivedAudio = true
+            }
+        }
+        alice.setAudioPolicy(.init()); bob.setAudioPolicy(.init())
+        alice.connect(group: aliceGroup); bob.connect(group: bobGroup)
+        alice.startMedia(); bob.startMedia()
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) { alicePeers == ["bob"] && bobPeers == ["alice"] }
+        let authenticated = alicePeers == ["bob"] && bobPeers == ["alice"]
+        if authenticated {
+            for sequence: UInt64 in 0..<40 {
+                alice.sendAudioPacket(.init(sequenceNumber: sequence, codec: .pcm16, payload: payload))
+                try? await Task.sleep(for: .milliseconds(50))
+                if receivedAudio { break }
+            }
+        }
+        await aliceRTC.stopConnection(); await bobRTC.stopConnection()
+        #expect(authenticated)
+        #expect(receivedAudio)
+    }
+    #endif
 
     @Test func selectingSavedUserCreatesAndReusesSeparateCallWithoutSwitchingActiveGroup() throws {
         let h = try harness(local: "alice", remote: "bob")

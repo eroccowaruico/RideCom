@@ -101,6 +101,11 @@ nonisolated struct DeviceIdentitySigner: Sendable {
                           domain: "rideintercom.contact-deletion.relay.v1", context: [slot])
     }
 
+    func ordinaryGroupDirectCallKey(peerMemberID: String, peerPublicKey: String, receiptID: UUID) throws -> SymmetricKey {
+        try devicePairKey(peerMemberID: peerMemberID, peerPublicKey: peerPublicKey,
+                          domain: "rideintercom.ordinary-group-direct-call.v1", context: [receiptID.uuidString])
+    }
+
     private func devicePairKey(peerMemberID: String, peerPublicKey: String,
                                domain: String, context: [String] = []) throws -> SymmetricKey {
         guard IntercomGroup.isValidMemberID(peerMemberID), !peerMemberID.hasPrefix("invite-pending-"),

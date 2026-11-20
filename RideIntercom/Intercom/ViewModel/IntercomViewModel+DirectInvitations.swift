@@ -85,15 +85,21 @@ extension IntercomViewModel {
             switch receipt.kind {
             case .accepted:
                 guard receipt.inviterMemberID == localMemberIdentity.memberID, receipt.inviteeMemberID == peerID else { return }
-                guard let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust()) else { return }
-                try groupRepository.receiveInvitation(verified)
+                guard let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust()),
+                      let expectedKey = receipt.invitation?.inviterDeviceKey else { return }
+                let signer = Result { try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
+                                                                                  expectedPublicKey: expectedKey) }
+                try groupRepository.receiveInvitation(verified, signer: try? signer.get())
+                adoptStoredDeviceCall(with: peerID)
                 refreshGroupStorageStatus()
-                guard let expectedKey = receipt.invitation?.inviterDeviceKey else { return }
-                let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)
-                sendInvitationReceipt(try receipt.acknowledged(by: signer))
+                sendInvitationReceipt(try receipt.acknowledged(by: signer.get()))
             case .acknowledged:
                 guard receipt.inviterMemberID == peerID, receipt.inviteeMemberID == localMemberIdentity.memberID else { return }
-                try groupRepository.acknowledgeInvitation(receipt)
+                let signer = receipt.inviteeDeviceKey.flatMap {
+                    try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: $0)
+                }
+                try groupRepository.acknowledgeInvitation(receipt, signer: signer)
+                adoptStoredDeviceCall(with: peerID)
             }
         } catch { reportGroupStorageError(error) }
     }

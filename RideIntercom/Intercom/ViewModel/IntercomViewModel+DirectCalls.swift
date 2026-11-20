@@ -97,13 +97,19 @@ extension IntercomViewModel {
     /// Contact registration commits the pair call. Keep it in the in-memory list so
     /// a later save of that list cannot drop it; a live call keeps its runtime state.
     func adoptStoredContactRegistration(with memberID: String, invitationID: UUID) {
-        let id = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, memberID])
-        if !groups.contains(where: { $0.id == id }), let stored = groupRepository.storedGroup(id) { groups.insert(stored, at: 0) }
+        adoptStoredDeviceCall(with: memberID)
         refreshContactInvitationGroup(invitationID)
         if groupRepository.groupDeliveries.contains(where: {
             $0.direction == .outgoing && $0.state == .pending && $0.recipientMemberID == memberID
         }) {
             requestGroupDeliverySync(.localChange)
+        }
+    }
+
+    func adoptStoredDeviceCall(with memberID: String) {
+        let id = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, memberID])
+        if !groups.contains(where: { $0.id == id }), let stored = groupRepository.storedGroup(id), stored.kind == .direct {
+            groups.insert(stored, at: 0)
         }
     }
 
