@@ -3,6 +3,7 @@ import Foundation
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
     static let currentVersion = 17
+    static let maximumGroupDeliveries = 512
     struct GroupRemovalReceipt: Codable, Equatable {
         let groupID: UUID
         let eventID: UUID
@@ -276,7 +277,7 @@ struct GroupSnapshot: Codable, Equatable {
         guard version >= 9 || contactInvitations.isEmpty else { throw IntercomGroupError.invalidStoredGroups }
         guard contactInvitations.count <= 1024, contactInvitations.allSatisfy(\.isValid),
               Set(contactInvitations.map(\.id)).count == contactInvitations.count else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 11 || groupDeliveries.isEmpty, groupDeliveries.count <= 512,
+        guard version >= 11 || groupDeliveries.isEmpty, groupDeliveries.count <= Self.maximumGroupDeliveries,
               groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 12 || groupDeliveries.allSatisfy({ $0.direction == .outgoing || $0.state == .received })
         else { throw IntercomGroupError.invalidStoredGroups }

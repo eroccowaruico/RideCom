@@ -100,6 +100,11 @@ extension IntercomViewModel {
         let id = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, memberID])
         if !groups.contains(where: { $0.id == id }), let stored = groupRepository.storedGroup(id) { groups.insert(stored, at: 0) }
         refreshContactInvitationGroup(invitationID)
+        if groupRepository.groupDeliveries.contains(where: {
+            $0.direction == .outgoing && $0.state == .pending && $0.recipientMemberID == memberID
+        }) {
+            requestGroupDeliverySync(forNewWork: true)
+        }
     }
 
     func refreshContactInvitationGroup(_ invitationID: UUID) {

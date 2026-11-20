@@ -159,12 +159,52 @@ import Testing
         #expect(author.groupInvitationDeliveries(in: followUp).map(\.id) == [newDelivery.id])
         #expect(author.groupInvitationDeliveryState(for: person, in: followUp) == .received)
         #expect(receiver.groups.filter { $0.id == followUp }.count == 1)
+        try #require(author.removeMember(b.memberID, from: revokedAfterDownload))
+
+        // The same recipient signs into a second device with its own key and an empty directory.
+        let second = GroupDeliveryTestIdentity("worker-recipient-second")
+        defer { second.remove() }
+        try await register(second, appleSubject: b.memberID)
+        #expect(try second.principal == b.principal)
+        let secondReceiver = try second.harness(knowing: [], onDisk: true).viewModel
+        defer { secondReceiver.stopGroupDeliverySync(); secondReceiver.stopContactInvitationSession(); secondReceiver.disconnect() }
+        secondReceiver.groupDeliveryClient = client
+        let contact = try #require(author.makeContactInviteURL())
+        author.stopContactInvitationSession()
+        try secondReceiver.acceptContactInviteURL(contact)
+        secondReceiver.stopContactInvitationSession()
+        let contactID = try #require(secondReceiver.groupRepository.contactInvitations.first?.id)
+        let reply = try secondReceiver.contactReplyURLForSharing(contactID, expectedAccountAccessID: secondReceiver.accountAccessID)
+        let secondCall = secondReceiver.currentCallReference
+        let backgroundRequestsBeforeReply = requested
+        try author.receiveContactReplyURL(reply)
+        try author.receiveContactReplyURL(reply)
+        #expect(requested == backgroundRequestsBeforeReply + 1)
+        #expect(author.savedRemoteUsers.first { $0.id == person.id }?.memberIDs.contains(second.memberID) == true)
+        let relayed = author.groupInvitationDeliveries(in: followUp).filter { $0.recipientMemberID == second.memberID }
+        #expect(relayed.count == 1)
+        if let packet = relayed.first {
+            #expect(packet.noticeID == newDelivery.noticeID && packet.expiresAt == newDelivery.expiresAt)
+        }
+        #expect(!author.groupInvitationDeliveries(in: revokedAfterDownload).contains { $0.recipientMemberID == second.memberID })
+        await author.groupDeliveryTask?.value
+        await secondReceiver.synchronizeGroupDeliveries()
+        #expect(secondReceiver.groups.filter { $0.id == followUp }.count == 1)
+        #expect(!secondReceiver.groups.contains { $0.id == revokedAfterDownload })
+        #expect(secondReceiver.currentCallReference == secondCall && secondReceiver.activeGroupID == nil)
+        let onSecondDevice = try second.harness(knowing: [], onDisk: true).viewModel
+        defer { onSecondDevice.stopGroupDeliverySync(); onSecondDevice.disconnect() }
+        let secondKey = try onSecondDevice.groupRepository.credential(for: followUp)?.secret
+        let sourceKey = try #require(try author.groupRepository.credential(for: followUp)).secret
+        let keyMatches = secondKey == sourceKey
+        #expect(keyMatches)
     }
-    private func register(_ peer: GroupDeliveryTestIdentity) async throws {
+    private func register(_ peer: GroupDeliveryTestIdentity, appleSubject: String? = nil) async throws {
         struct Registration: Decodable { let credential: InternetAccountCredential; let identity: DeviceIdentityCertificate }
         var request = URLRequest(url: try #require(GroupWorkerHTTPBridge.origin).appendingPathComponent("fixture/register"))
         request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["memberID": peer.memberID, "deviceID": peer.store.accountDeviceID(),
+            "appleSubject": appleSubject ?? peer.memberID,
             "deviceKey": IdentityEncoding.encode(peer.store.deviceSigningKey().publicKey.x963Representation)])
         let (data, response) = try await URLSession.shared.data(for: request)
         #expect((response as? HTTPURLResponse)?.statusCode == 200)

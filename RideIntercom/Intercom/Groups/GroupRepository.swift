@@ -620,9 +620,38 @@ extension GroupRepository {
                   let group = next.groups.first(where: { $0.id == record.groupID && $0.kind == .group }),
                   let user = next.users.first(where: { $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
                       && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey }),
-                  (group.members.contains(where: { user.memberIDs.contains($0.id) }) || group.accountDevices.values.contains(where: { $0.principal == record.recipient })) else { throw GroupStorageError.invalidUpdate }
+                  isSelectedGroupDeliveryRecipient(user, in: group) else { throw GroupStorageError.invalidUpdate }
             next.groupDeliveries.append(record)
         }
+    }
+
+    private func isSelectedGroupDeliveryRecipient(_ user: SavedUser, in group: GroupSnapshot.Record) -> Bool {
+        group.members.contains { user.memberIDs.contains($0.id) }
+            || group.accountDevices.values.contains { $0.principal == user.principal }
+    }
+
+    private func rememberContactDevice(_ member: GroupMember, identity: VerifiedDeviceProof,
+                                       now: TimeInterval, in next: inout GroupSnapshot) throws {
+        let existing = identity.principal.flatMap { principal in next.users.first { $0.principal == principal } }
+        try next.remember(member, identity: identity)
+        guard let existing, let recipient = identity.principal, !existing.memberIDs.contains(member.id) else { return }
+        let available = GroupSnapshot.maximumGroupDeliveries - next.groupDeliveries.count
+        guard available > 0 else { return }
+        let invitations = Dictionary(grouping: next.groupDeliveries.filter {
+            $0.direction == .outgoing && $0.recipient == recipient
+        }, by: \.groupID)
+        let deliveries = next.groups.compactMap { group -> GroupDeliveryRecord? in
+            guard group.kind == .group, isSelectedGroupDeliveryRecipient(existing, in: group),
+                  !group.excludesMember(member.id, principal: recipient),
+                  let records = invitations[group.id], let latest = records.last, latest.expiresAt > now,
+                  records.contains(where: { $0.noticeID == latest.noticeID && $0.state != .cancelled }),
+                  !records.contains(where: { $0.noticeID == latest.noticeID && $0.recipientMemberID == member.id })
+            else { return nil }
+            // This is another delivery of the same invitation, with its original expiry and notification.
+            return .init(noticeID: latest.noticeID, groupID: group.id, recipient: recipient,
+                recipientMemberID: member.id, recipientKey: identity.publicKey, expiresAt: latest.expiresAt)
+        }
+        try appendGroupDeliveries(Array(deliveries.prefix(available)), to: &next)
     }
 
     func saveGroupDeliveryEnvelope(_ envelope: GroupInvitationEnvelope) throws {
@@ -791,7 +820,7 @@ extension GroupRepository {
                 try next.groups[index].rememberInvitationDevice(accepted.inviter)
             }
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
-            try next.remember(inviter, identity: accepted.inviter)
+            try self.rememberContactDevice(inviter, identity: accepted.inviter, now: now, in: &next)
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .incoming, expiresAt: context.expiresAt,
                 credentialReference: reference, receiptID: accepted.receipt.id,
@@ -829,7 +858,7 @@ extension GroupRepository {
             guard let index = next.contactInvitations.firstIndex(where: { $0.id == context.id }) else { throw GroupStorageError.invalidUpdate }
             let alreadyKnown = next.users.contains { $0.memberIDs.contains(recipient.id)
                 || (verified.identity.principal != nil && $0.principal == verified.identity.principal) }
-            try next.remember(recipient, identity: verified.identity)
+            try self.rememberContactDevice(recipient, identity: verified.identity, now: now, in: &next)
             if let personID = old.personID, let placeholder = next.users.first(where: { $0.id == personID && !$0.isRegistered }),
                let registered = next.users.firstIndex(where: { $0.memberIDs.contains(recipient.id) }) {
                 // A newly verified person inherits the original local ID and name. An already known
@@ -915,7 +944,7 @@ extension GroupRepository {
             let group = next.groups.first(where: { $0.id == record.groupID && $0.kind == .group })
             let user = next.users.first { $0.principal == record.recipient && $0.memberIDs.contains(record.recipientMemberID)
                 && $0.deviceKeys?[record.recipientMemberID] == record.recipientKey }
-            let remainsSelected = group.map { group in user.map { user in group.members.contains { user.memberIDs.contains($0.id) } || group.accountDevices.values.contains { $0.principal == record.recipient } } ?? false } ?? false
+            let remainsSelected = group.flatMap { group in user.map { isSelectedGroupDeliveryRecipient($0, in: group) } } ?? false
             if !remainsSelected {
                 next.groupDeliveries[index].state = .cancelled
                 next.groupDeliveries[index].credentialReference = nil

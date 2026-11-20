@@ -42,7 +42,7 @@ const server = createServer(async (request, response) => {
         if (request.url === '/fixture/register') {
             const input = JSON.parse(data.toString());
             const challenge = await (await dispatch('/api/auth/apple/challenge', 'POST', { deviceID: input.deviceID })).json();
-            const identityToken = await new SignJWT({ sub: input.memberID, nonce: challenge.nonce }).setIssuer('https://appleid.apple.com')
+            const identityToken = await new SignJWT({ sub: input.appleSubject ?? input.memberID, nonce: challenge.nonce }).setIssuer('https://appleid.apple.com')
                 .setAudience('fixture-app').setIssuedAt().setExpirationTime('5m').setProtectedHeader({ alg: 'RS256', kid: applePublic.kid }).sign(apple.privateKey);
             const session = await dispatch('/api/auth/apple/session', 'POST', { challengeID: challenge.challengeID, identityToken });
             if (session.status !== 200) throw new Error('Fixture enrollment failed');
