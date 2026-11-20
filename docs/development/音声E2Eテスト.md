@@ -79,6 +79,8 @@ VoiceProcessingIOについて、このE2Eが保証するのは有効化・無効
 
 双方向試験は最終出力に加え、復号直後と受信Mixer直後の同一性、送受信時刻、出力予約量を記録する。MacとそのSimulatorの共通host clockで相手のcaptureから最終renderまでの遅延を求め、一方が失敗しても他方の測定値を保存する。JSON traceの直列化・相槌解析・WAV保存は通話actor外で行い、証跡保存による音声待ちを作らない。
 
+1台のMac上で動く2端末間の`packet-timing`では、RTCが音声連番を振り直すため、送信の`transmitted`と相手の`received`は`capture`で照合する。方向とシナリオごとに`capture`をマイクロ秒単位に丸め、各端のキーが一意であることを確認し、双方に記録のあるパケットだけを集計する。符号化済みパケットからApp受信までの時間は受信の`host`から送信の`host`を引く。物理端末同士でこの差を求めるには、共通の時間基準を別途確立する。
+
 受信観測は`processReceivedAudio`境界で本番の`AppAudioPipeline.processReceivedAudioPacket`を一度だけ呼び、その戻りPCMを保存する。途中から別decoderを起動して復号を重複実行しない。UIの受信通知・音量表示は通常どおり流し、観測のために音声をMainActorへ戻さない。
 
 連続性不合格でも残りの設定区間を測定してWAVとJSONを保存し、最後にテストを失敗させる。受話を期待する区間で連続性が不合格の場合は、最終出力の `speech` に加え、実際に取得できた復号直後の `decoded` と受信ミキサー直後の `mixed` のWAVを保存する。それぞれJSONの時計と照合できる。接続喪失や処理不能はその時点で失敗する。保存WAVは判定に使った同じsnapshotから書き出す。
