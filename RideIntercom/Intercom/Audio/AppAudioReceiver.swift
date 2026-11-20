@@ -49,6 +49,17 @@ nonisolated struct ReceivePlayoutDiagnostics: Sendable {
 /// covers native graph changes as well as packet decoding/scheduling; no await,
 /// UI callback or network operation occurs while holding it.
 nonisolated final class AppAudioReceiver: @unchecked Sendable {
+    private struct PacketEncoding: Equatable {
+        let codec: RTCAudioCodecIdentifier
+        let format: RTCAudioFormat
+        let bitRate: Int?
+    }
+
+    private final class PeerDecoding {
+        let decoder = StreamingCodecDecoder()
+        var scheduledEncoding: PacketEncoding?
+    }
+
     private enum IsolationTarget: Hashable {
         case master
         case peer(String)
@@ -74,7 +85,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private var configuration = AppAudioPipelineConfiguration()
     private var master: MixerBus?
     private var sources: [String: MixerPCMSource] = [:]
-    private var decoders: [String: StreamingCodecDecoder] = [:]
+    private var decoders: [String: PeerDecoding] = [:]
     private var effects: [IsolationTarget: VoiceIsolationEffect] = [:]
     private var limiter: PeakLimiterEffect?
     private var decodeCounts = ReceiveDecodeCounts()
@@ -176,11 +187,11 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         }
         let id = received.peerID.rawValue
         let previousAdjustmentCount = onPlayout == nil ? nil : (sources[id]?.playoutAdjustmentCount ?? 0)
-        let decoder = decoders[id] ?? StreamingCodecDecoder()
-        decoders[id] = decoder
+        let decoding = decoders[id] ?? PeerDecoding()
+        decoders[id] = decoding
         let frame: PCMFrame
         do {
-            frame = try AppAudioCodecBridge.decode(received.packet, using: decoder)
+            frame = try AppAudioCodecBridge.decode(received.packet, using: decoding.decoder)
         } catch {
             decodeCounts.failures += 1
             decodeCounts.lastFailureAt = Date().timeIntervalSince1970
@@ -192,8 +203,15 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             decodeCounts.pcmPackets += 1
             decodeCounts.lastPCMAt = Date().timeIntervalSince1970
             let observeReservation: ((MixerPlayoutReservation) -> Void)? = onPlayout.map { _ in { reservation = $0 } }
-            try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration,
-                                arrivedAt: arrivedAt, onReservation: observeReservation)
+            let packet = received.packet
+            let encoding = PacketEncoding(codec: packet.codec, format: packet.format, bitRate: packet.bitRate)
+            let changedEncoding = decoding.scheduledEncoding.map { $0 != encoding } ?? false
+            if try scheduleInGraph(frame, peer: id, packetizationJitter: decoding.decoder.packetizationJitterDuration,
+                                   arrivedAt: arrivedAt, startsNewArrivalTiming: changedEncoding,
+                                   onReservation: observeReservation) {
+                // Empty decoder priming and sub-sample conversion don't start a new timing baseline.
+                decoding.scheduledEncoding = encoding
+            }
             timing?.reservedAt = ProcessInfo.processInfo.systemUptime
         }
         if let previousAdjustmentCount, let source = sources[id] {
@@ -204,23 +222,25 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     }
 
     func play(_ frame: PCMFrame, peer: String = "audio-check", packetizationJitter: TimeInterval = 0) throws {
-        try lock.withLock { try scheduleInGraph(frame, peer: peer, packetizationJitter: packetizationJitter) }
+        _ = try lock.withLock { try scheduleInGraph(frame, peer: peer, packetizationJitter: packetizationJitter) }
     }
 
     // Both receive and Audio Check hold the graph lock before scheduling.
     private func scheduleInGraph(_ frame: PCMFrame, peer: String, packetizationJitter: TimeInterval,
                                  arrivedAt: TimeInterval? = nil,
-                                 onReservation: ((MixerPlayoutReservation) -> Void)? = nil) throws {
+                                 startsNewArrivalTiming: Bool = false,
+                                 onReservation: ((MixerPlayoutReservation) -> Void)? = nil) throws -> Bool {
         let source = try source(for: peer)
-        _ = try source.schedule(frame, packetizationJitter: packetizationJitter,
-                                arrivedAt: arrivedAt ?? ProcessInfo.processInfo.systemUptime,
-                                onReservation: onReservation)
+        let report = try source.schedule(frame, packetizationJitter: packetizationJitter,
+                                         arrivedAt: arrivedAt ?? ProcessInfo.processInfo.systemUptime,
+                                         startsNewArrivalTiming: startsNewArrivalTiming, onReservation: onReservation)
+        return report.outputSampleCount > 0
     }
 
     func removePeer(_ peer: String) throws {
         lock.lock(); defer { lock.unlock() }
-        guard sources.removeValue(forKey: peer) != nil else { return }
         decoders.removeValue(forKey: peer)
+        guard sources.removeValue(forKey: peer) != nil else { return }
         let target = IsolationTarget.peer(peer)
         try mixer?.removeBus(target.busID)
         effects.removeValue(forKey: target)
