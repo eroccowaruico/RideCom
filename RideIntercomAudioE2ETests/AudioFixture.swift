@@ -235,6 +235,8 @@ final class SpeechFileInput: AudioInputStreamBackend {
 /// Reads the actual output engine's render tap, after scheduleBuffer and mixing.
 /// Retains only the known fixture output, never microphone audio.
 final class RenderedAudioProbe: @unchecked Sendable {
+    typealias Recording = (samples: [Float], rate: Double, invalid: Int)
+
     struct RenderClockBlock: Encodable, Sendable {
         let startSample: Int
         let frameCount: Int
@@ -317,13 +319,32 @@ final class RenderedAudioProbe: @unchecked Sendable {
     // One test owner serializes snapshots and resets. The writer only appends
     // after the captured prefix, so copying a snapshot needs no render lock or
     // copy-on-write allocation in the next audio callback.
-    func reset() { lock.withLock { count = 0; invalidSampleCount = 0; firstRenderTime = nil } }
-    func snapshot() -> (samples: [Float], rate: Double, invalid: Int) {
+    func reset(recordsRenderClock: Bool = false) {
+        lock.withLock {
+            count = 0
+            invalidSampleCount = 0
+            firstRenderTime = nil
+            renderClockBlocks = recordsRenderClock ? [] : nil
+        }
+    }
+
+    func snapshot() -> Recording {
         let state = lock.withLock { (count, rate, invalidSampleCount) }
         return (Array(UnsafeBufferPointer(start: storage, count: state.0)), state.1, state.2)
     }
 
-    func writeWAV(to url: URL, rendered: (samples: [Float], rate: Double, invalid: Int)) throws {
+    func finishTimedRecording() -> (audio: Recording, blocks: [RenderClockBlock]?, firstHostTime: Double?) {
+        let state = lock.withLock {
+            defer { renderClockBlocks = nil }
+            return (count, rate, invalidSampleCount, renderClockBlocks, firstRenderTime)
+        }
+        // Capture the sample prefix and its block index under the same lock.
+        // Later callbacks append past that prefix while the test copies it.
+        let audio = (Array(UnsafeBufferPointer(start: storage, count: state.0)), state.1, state.2)
+        return (audio, state.3, state.4)
+    }
+
+    func writeWAV(to url: URL, rendered: Recording) throws {
         guard rendered.rate > 0, !rendered.samples.isEmpty else { return }
         let format = AVAudioFormat(standardFormatWithSampleRate: rendered.rate, channels: 1)!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(rendered.samples.count))!

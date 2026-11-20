@@ -46,6 +46,8 @@ private struct PacketTimingTrace: Encodable {
     var startupReceived: [PacketTiming]?
     var startupFirstDecodedCaptureTime: Double?
     var startupRenderClock: [RenderedAudioProbe.RenderClockBlock]?
+    var steadyFirstDecodedCaptureTime: Double?
+    var steadyRenderClock: [RenderedAudioProbe.RenderClockBlock]?
     var output: [[String: Double]]?
 }
 
@@ -657,10 +659,9 @@ final class AudioE2ETests: XCTestCase {
             try await Task.sleep(for: .seconds(2))
             scenario.verifyApplied(to: viewModel, peerID: peerID)
             let startupDecoded = waitsForInternet ? decodedProbe.snapshot() : nil
-            let startupRenderClock = waitsForInternet ? probe.stopRecordingRenderClock() : nil
-            let startupOutput = waitsForInternet ? probe.snapshot() : nil
+            let startupOutput = waitsForInternet ? probe.finishTimedRecording() : nil
             let startupFirstDecoded = waitsForInternet ? decodedProbe.firstOutputTime : nil
-            probe.reset()
+            probe.reset(recordsRenderClock: waitsForInternet)
             let originalTransmit = viewModel.audioPipeline.onTransmitPacket
             let originalOutput = viewModel.audioPipeline.onOutputFrame
             mixedProbe.reset(); decodedProbe.reset()
@@ -714,9 +715,11 @@ final class AudioE2ETests: XCTestCase {
                 XCTAssertGreaterThan(statistics?.sentMediaDatagrams ?? 0, 0, "Local audio must use the UDP media path")
                 XCTAssertGreaterThan(statistics?.receivedMediaDatagrams ?? 0, 0, "Local audio must arrive over UDP")
             }
-            let rendered = probe.snapshot()
+            let steadyOutput = waitsForInternet ? probe.finishTimedRecording() : nil
+            let rendered = steadyOutput?.audio ?? probe.snapshot()
             let firstCapture = input.firstCaptureTime
-            let firstOutput = probe.firstOutputTime
+            let firstOutput = steadyOutput?.firstHostTime ?? probe.firstOutputTime
+            let steadyFirstDecoded = decodedProbe.firstOutputTime
             viewModel.audioPipeline.onTransmitPacket = originalTransmit
             viewModel.audioPipeline.onOutputFrame = originalOutput
             let drops = dropCounts().map { ($0.key, $0.value - (dropsBefore[$0.key] ?? 0)) }
@@ -728,13 +731,22 @@ final class AudioE2ETests: XCTestCase {
                 XCTAssertTrue(startupTrace?.contains { $0.playoutReservation != nil } == true,
                               "Collect Local reservations before the steady-state sample")
                 XCTAssertNotNil(startupFirstDecoded)
-                XCTAssertFalse(startupRenderClock?.isEmpty ?? true, "Record the native render clock before the steady-state sample")
+                XCTAssertFalse(startupOutput?.blocks?.isEmpty ?? true, "Record the native render clock before the steady-state sample")
+                let blocks = try XCTUnwrap(steadyOutput?.blocks)
+                XCTAssertGreaterThan(blocks.count, 20, "Record the native render clock during steady-state speech")
+                XCTAssertEqual(blocks.first?.startSample, 0)
+                XCTAssertTrue(zip(blocks, blocks.dropFirst()).allSatisfy { previous, next in
+                    previous.startSample + previous.frameCount == next.startSample
+                }, "Give every sample in the steady-state WAV a render block")
+                XCTAssertEqual(blocks.last.map { $0.startSample + $0.frameCount }, rendered.samples.count)
+                XCTAssertNotNil(steadyFirstDecoded)
             }
             let traceData = try await Task.detached {
                 try JSONEncoder().encode(PacketTimingTrace(traceForScenario: scenarioID,
                     transmitted: sentTrace, received: receivedTrace, startupReceived: startupTrace,
-                    startupFirstDecodedCaptureTime: startupFirstDecoded,
-                    startupRenderClock: startupRenderClock, output: renderedTrace))
+                    startupFirstDecodedCaptureTime: startupFirstDecoded, startupRenderClock: startupOutput?.blocks,
+                    steadyFirstDecodedCaptureTime: waitsForInternet ? steadyFirstDecoded : nil,
+                    steadyRenderClock: steadyOutput?.blocks, output: renderedTrace))
             }.value
             let trace = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
             trace.name = "endpoint-\(role)-\(scenario.id)-packet-timing"; trace.lifetime = .keepAlways; add(trace)
@@ -787,7 +799,7 @@ final class AudioE2ETests: XCTestCase {
                 "firstOutputHostTime": firstOutput as Any? ?? NSNull(),
                 "firstMixedHostTime": mixedProbe.firstOutputTime as Any? ?? NSNull(),
                 "mixedContinuity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(mixedContinuity)),
-                "firstDecodedCaptureTime": decodedProbe.firstOutputTime as Any? ?? NSNull(),
+                "firstDecodedCaptureTime": steadyFirstDecoded as Any? ?? NSNull(),
                 "decodedContinuity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(decodedContinuity)),
                 "outputPresentationLatencySeconds": outputEngine.outputNode.outputPresentationLatency,
                 "captureTiming": input.captureTiming, "captureDiscontinuities": input.captureDiscontinuities,
@@ -815,7 +827,7 @@ final class AudioE2ETests: XCTestCase {
             }
             if let startupDecoded, let startupOutput {
                 recordings.append(("startup-decoded", startupDecoded))
-                recordings.append(("startup-speech", startupOutput))
+                recordings.append(("startup-speech", startupOutput.audio))
             }
             for (stage, snapshot) in recordings where !snapshot.samples.isEmpty {
                 let name = "endpoint-\(role)-\(scenario.id)-\(stage)"
