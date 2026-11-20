@@ -94,9 +94,12 @@ public final class MixerPCMSource {
     /// `arrivedAt` is the local monotonic time the packet arrived (uptime
     /// seconds by default). Link jitter is learned from it, never from the
     /// render clock, which also moves for local output events.
+	/// `startsNewArrivalTiming` marks the first playable frame after a known
+	/// change in sender timing. A frame that produces no PCM does not mark it.
 	/// `onReservation` observes successful timestamped scheduling on the caller's thread.
 	public func schedule(_ frame: PCMFrame, packetizationJitter: TimeInterval = 0,
                          arrivedAt: TimeInterval = ProcessInfo.processInfo.systemUptime,
+                         startsNewArrivalTiming: Bool = false,
                          onReservation: ((MixerPlayoutReservation) -> Void)? = nil) throws -> AudioProcessingReport {
 		do {
             guard packetizationJitter.isFinite, (0...0.06).contains(packetizationJitter) else {
@@ -143,7 +146,8 @@ public final class MixerPCMSource {
                 let reservation = captureTimeReservation(
                     capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength, duration: duration,
                     audible: audible, position: position, nativeLead: nativeLead,
-                    delay: delay, limit: limit, packetizationJitter: packetizationJitter)
+                    delay: delay, limit: limit, packetizationJitter: packetizationJitter,
+                    startsNewArrivalTiming: startsNewArrivalTiming)
                 startSample = reservation.startSample
                 options = reservation.options
 			} else {
@@ -188,7 +192,8 @@ public final class MixerPCMSource {
     func captureTimeReservation(
         capturedAt: TimeInterval, arrivedAt: TimeInterval, frameLength: AVAudioFrameCount, duration: TimeInterval,
         audible: Bool, position: PlaybackPosition, nativeLead: AVAudioFramePosition,
-        delay: TimeInterval, limit: TimeInterval, packetizationJitter: TimeInterval
+        delay: TimeInterval, limit: TimeInterval, packetizationJitter: TimeInterval,
+        startsNewArrivalTiming: Bool = false
     ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
         let rendered = position.writable
         var options: AVAudioPlayerNodeBufferOptions = []
@@ -197,6 +202,12 @@ public final class MixerPCMSource {
         // Reserve only the sender's measured capture/codec remainder.
         // This is independent of network jitter; aligned codecs add zero.
         let margin = adaptivePlayout ? retainedJitterMargin(at: capturedAt) : 0
+        if startsNewArrivalTiming {
+            // A codec/capture change can shift the minimum transit even on a
+            // calm link. Keep the wait previously earned by real arrivals.
+            fastestTransit = nil
+            arrivalBatch = nil
+        }
         let transit = arrivedAt - capturedAt
         let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
             arrivedAt: arrivedAt, packetDuration: duration) : (previousDuration: 0, offset: 0)
@@ -250,7 +261,7 @@ public final class MixerPCMSource {
                 else { reason = .excessQueuedSilence }
                 adjustment = (reason, AVAudioFramePosition(exactly: target.rounded()))
                 var start = delayedStart
-                if expired, let fastest = fastestTransit,
+                if expired, !startsNewArrivalTiming, let fastest = fastestTransit,
                    // A start-up backlog or local outage longer than the
                    // window cannot be absorbed and is not link jitter.
                    transit - fastest.seconds < limit {

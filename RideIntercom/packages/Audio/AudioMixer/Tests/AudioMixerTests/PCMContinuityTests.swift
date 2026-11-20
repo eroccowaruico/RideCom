@@ -111,6 +111,40 @@ func receiveResamplingDoesNotRepeatTheLastSampleOfEveryPacket(rate: Double) thro
 }
 @testable import AudioMixer
 
+@Test(arguments: [false, true])
+func newSenderTimingPreservesOnlyPreviouslyLearnedLinkJitter(priorJitter: Bool) throws {
+    let mixer = try AudioMixer(audioFormat: .init())
+    let bus = try mixer.createBus("sender-timing")
+    let source = try bus.addPCMSource(id: "voice", maximumBufferedDuration: 0.12,
+        captureTimePlayoutDelay: 0.002, adaptivePlayout: true)
+    _ = source.captureTimeReservation(capturedAt: 0, arrivedAt: 0.015625, frameLength: 480,
+        duration: 0.01, audible: true, position: (0, 0), nativeLead: 0,
+        delay: 0.002, limit: 0.12, packetizationJitter: 0)
+    if priorJitter {
+        _ = source.captureTimeReservation(capturedAt: 0.03125, arrivedAt: 0.0625, frameLength: 480,
+            duration: 0.01, audible: true, position: (1800, 1800), nativeLead: 0,
+            delay: 0.002, limit: 0.12, packetizationJitter: 0)
+    }
+
+    // A new 30 ms packet cadence can put the first packet past its old target.
+    let first = source.captureTimeReservation(capturedAt: 0.1, arrivedAt: 0.14, frameLength: 1440,
+        duration: 0.03, audible: true, position: (7200, 7200), nativeLead: 0,
+        delay: 0.002, limit: 0.12, packetizationJitter: 0, startsNewArrivalTiming: true)
+    #expect(first.startSample == 7200 + 96 + (priorJitter ? 1710 : 0))
+    #expect(source.lastPlayoutAdjustment?.reason == .pastRenderPosition)
+    #expect(source.playbackResetCount == 0)
+
+    // A later packet 25 ms behind the new baseline still trains the link wait.
+    _ = source.captureTimeReservation(capturedAt: 0.14, arrivedAt: 0.205, frameLength: 1440,
+        duration: 0.03, audible: true, position: (12000, 12000), nativeLead: 0,
+        delay: 0.002, limit: 0.12, packetizationJitter: 0)
+    source.stop()
+    let afterOutputRestart = source.captureTimeReservation(capturedAt: 0.18, arrivedAt: 0.22, frameLength: 1440,
+        duration: 0.03, audible: true, position: (0, 0), nativeLead: 0,
+        delay: 0.002, limit: 0.12, packetizationJitter: 0)
+    #expect(afterOutputRestart.startSample == 96 + 2832)
+}
+
 @Test(arguments: [0, 256, 512])
 func lateReservationCountsTheRenderBlockOnce(writableLead: Int) throws {
     let mixer = try AudioMixer(audioFormat: .init())
