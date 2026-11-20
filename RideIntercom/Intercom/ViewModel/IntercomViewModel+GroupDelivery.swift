@@ -63,7 +63,7 @@ extension IntercomViewModel {
             groupDeliveryNeedsSync = true
         }
         if trigger == .notification || (trigger == .localChange && groupRepository.groupDeliveries.contains {
-            $0.direction == .outgoing && $0.state != .received
+            $0.internetAction != nil
         }) {
             requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
         }
@@ -113,17 +113,15 @@ extension IntercomViewModel {
         do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return }
         // One finite pass. Offline work remains in the manifest until the next explicit lifecycle event.
-        let outgoing = groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.state != .received }
+        let outgoing = groupRepository.groupDeliveries
         // The inbox accepts cancellations even when the Worker rejects new submissions.
-        let outgoingIDs = (outgoing.filter { $0.state == .cancelled } + outgoing.filter { $0.state != .cancelled }).map(\.id)
+        let outgoingIDs = (outgoing.filter { $0.internetAction == .cancel } + outgoing.filter { $0.internetAction == .send }).map(\.id)
         for id in outgoingIDs {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
             // A member may have been removed while awaiting another delivery.
             guard let record = groupRepository.groupDeliveries.first(where: { $0.id == id }),
-                  record.state != .received else { continue }
-            if record.recipient.issuer != access.principal.issuer { continue }
-            if record.state == .cancelled {
-                guard record.nearbyHandoff?.internetCancellationConfirmed != true else { continue }
+                  let action = record.internetAction, record.recipient.issuer == access.principal.issuer else { continue }
+            if action == .cancel {
                 do { try await client.finishGroupInvitation(recipient: record.recipient, id: record.id, access: access) }
                 catch { continue }
                 guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
@@ -144,8 +142,8 @@ extension IntercomViewModel {
             catch { break } // Shared auth, rate limit or network failure waits for the next lifecycle event.
             guard groupDeliveryIsCurrent(access, accountID: generation),
                   let current = groupRepository.groupDeliveries.first(where: { $0.id == record.id }) else { return }
-            if current.state == .cancelled { groupDeliveryNeedsSync = true; continue }
-            if current.state == .received { continue }
+            if current.internetAction == .cancel { groupDeliveryNeedsSync = true }
+            guard current.internetAction == .send else { continue }
             do { if current.state != reply.status { try groupRepository.setGroupDeliveryState(record.id, state: reply.status) } }
             catch { reportGroupStorageError(error); return }
         }

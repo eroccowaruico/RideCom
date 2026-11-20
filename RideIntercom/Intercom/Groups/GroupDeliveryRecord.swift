@@ -9,6 +9,7 @@ nonisolated struct GroupInvitationAddress: Decodable, Sendable {
 nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendable {
     enum Direction: String, Codable, Sendable { case outgoing, incoming }
     enum State: String, Codable, Sendable { case pending, queued, received, cancelled }
+    enum InternetAction: Equatable { case send, cancel }
 
     struct NearbyHandoff: Codable, Equatable, Sendable {
         let envelopeDigest: Data
@@ -29,6 +30,21 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     var sourceRequestID: UUID?
     var acceptedEnvelopeDigest: Data?
     var nearbyHandoff: NearbyHandoff?
+
+    var internetAction: InternetAction? {
+        guard direction == .outgoing else { return nil }
+        switch state {
+        case .pending, .queued: return .send
+        case .cancelled: return nearbyHandoff?.internetCancellationConfirmed == true ? nil : .cancel
+        case .received: return nil
+        }
+    }
+
+    mutating func moveOutgoing(to state: State) {
+        self.state = state
+        if state == .received || state == .cancelled { credentialReference = nil }
+        if state == .received { nearbyHandoff = nil }
+    }
 
     var isValid: Bool {
         sourceRequestID != id && recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)

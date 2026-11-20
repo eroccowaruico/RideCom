@@ -762,16 +762,13 @@ extension GroupRepository {
               state != .queued || old.credentialReference != nil else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
             guard let index = next.groupDeliveries.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
-            next.groupDeliveries[index].state = state
-            if state == .received || state == .cancelled { next.groupDeliveries[index].credentialReference = nil }
-            if state == .received { next.groupDeliveries[index].nearbyHandoff = nil }
+            next.groupDeliveries[index].moveOutgoing(to: state)
         }
     }
     func removeFinishedGroupDeliveries(now: TimeInterval, internetCancelledID: UUID? = nil) throws {
         guard let snapshot else { throw IntercomGroupError.storageUnavailable }
         let confirmed = snapshot.groupDeliveries.firstIndex {
-            $0.id == internetCancelledID && $0.direction == .outgoing && $0.state == .cancelled
-                && $0.nearbyHandoff?.internetCancellationConfirmed != true
+            $0.id == internetCancelledID && $0.internetAction == .cancel
         }
         guard confirmed != nil || snapshot.groupDeliveries.contains(where: { $0.expiresAt <= now }) else { return }
         try amend(snapshot) { next in
@@ -1061,8 +1058,7 @@ extension GroupRepository {
             guard record.direction == .outgoing, record.state == .pending || record.state == .queued else { continue }
             let supersededRedelivery = record.sourceRequestID != nil && latestNotices[record.groupID]?[record.recipient] != record.noticeID
             if supersededRedelivery || !isSelectedGroupDelivery(record, in: next) {
-                next.groupDeliveries[index].state = .cancelled
-                next.groupDeliveries[index].credentialReference = nil
+                next.groupDeliveries[index].moveOutgoing(to: .cancelled)
             }
         }
         let people = Set(next.users.map(\.id))

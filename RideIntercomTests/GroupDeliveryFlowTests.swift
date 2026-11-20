@@ -238,9 +238,16 @@ import UserNotifications
         #expect(saved.id == delivery.id && saved.state == .cancelled && saved.credentialReference == nil)
         #expect(saved.nearbyHandoff?.envelopeDigest == digest && saved.nearbyHandoff?.internetCancellationConfirmed == true)
         reopened.groupDeliveryClient = sender.groupDeliveryClient
-        await reopened.synchronizeGroupDeliveries()
+        var internetBackgroundRequests = 0
+        reopened.beginGroupDeliveryBackgroundTime = { _ in
+            internetBackgroundRequests += 1
+            return {}
+        }
+        await reopened.synchronizeGroupDeliveries(.localChange)
         #expect(GroupDeliveryHTTPStub.deletions == [delivery.id.uuidString.lowercased()],
                 "The Internet acknowledgement remains known after reopening the manifest")
+        #expect(internetBackgroundRequests == 0,
+                "A locally retained cancellation with no Internet work must not ask for Internet background time")
     }
 
     @Test(.timeLimit(.minutes(1)))
