@@ -42,11 +42,13 @@ actor AudioE2EWorker {
     private var readyForInternetOutage: Set<String> = []
     private var stillObservingInternetOutage: Set<String> = []
     private var holdsInternetSignaling: Bool
+    private let leavesICEUnanswered: Bool
+    private(set) var pendingICEPeers: Set<String> = []
     private var stopped = false
     private enum Failure: Error { case invalidRequest, disconnected }
 
     init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false,
-         holdsInternetSignaling: Bool = false) throws {
+         holdsInternetSignaling: Bool = false, leavesICEUnanswered: Bool = false) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .init(rawValue: port)!)
         listener = try NWListener(using: parameters)
@@ -54,6 +56,7 @@ actor AudioE2EWorker {
         allowedPeers = Set(["a", "b"].map { "e2e-\($0)-\(run.prefix(8))" })
         self.checksInternetRecovery = checksInternetRecovery
         self.holdsInternetSignaling = holdsInternetSignaling
+        self.leavesICEUnanswered = leavesICEUnanswered
     }
 
     func start() async throws {
@@ -225,6 +228,12 @@ actor AudioE2EWorker {
                 stillObservingInternetOutage.remove(id)
             }
             try await Self.respond(connection, body: [:])
+        } else if leavesICEUnanswered, operation == "ice", request.method == "POST" {
+            guard let peer = parts.dropFirst().first, allowedPeers.contains(peer),
+                  pendingICEPeers.insert(peer).inserted else { throw Failure.invalidRequest }
+            defer { pendingICEPeers.remove(peer) }
+            // Read until the client closes or the fixture stops, without writing an HTTP response.
+            while let data = try? await Self.receive(connection), !data.isEmpty {}
         } else if holdsInternetSignaling || !stillObservingInternetOutage.isEmpty, operation == "ice" || operation == "join" {
             try await Self.respond(connection, status: 503, body: ["error": "fixture unavailable"])
         } else if operation == "ice" {

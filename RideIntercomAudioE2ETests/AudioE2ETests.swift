@@ -287,9 +287,10 @@ final class AudioE2ETests: XCTestCase {
         let groupID = try XCTUnwrap(UUID(uuidString: run))
         let transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
         let startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
+        let waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
         let standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         let mixed = transport == "mixed"
-        let usesInternet = transport == "webrtc" || mixed
+        let usesInternet = transport == "webrtc" || mixed || waitsForInternet
         let startsBeforeInternet = env["AUDIO_E2E_DELAY_INTERNET"] == "1"
         let waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
         let movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
@@ -308,6 +309,9 @@ final class AudioE2ETests: XCTestCase {
         if mutedWait > 0 { XCTAssertTrue(checksBackgroundMute && recovery) }
         if startsFromSavedGroup {
             XCTAssertTrue(transport == "local" && !standaloneReceiver && !waitsForLateParticipant)
+        }
+        if waitsForInternet {
+            XCTAssertTrue(startsFromSavedGroup && scenarios.count == 1 && initial.seconds <= 10)
         }
         if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
         if startsBeforeInternet { XCTAssertTrue(mixed) }
@@ -335,7 +339,8 @@ final class AudioE2ETests: XCTestCase {
             if role == "a" {
                 let fixture = try AudioE2EWorker(port: UInt16(try XCTUnwrap(url.port)), run: run, room: room,
                                                  checksInternetRecovery: checksInternetRecovery,
-                                                 holdsInternetSignaling: startsBeforeInternet)
+                                                 holdsInternetSignaling: startsBeforeInternet,
+                                                 leavesICEUnanswered: waitsForInternet)
                 worker = fixture
                 try await fixture.start()
                 addTeardownBlock { await fixture.stop() }
@@ -369,15 +374,19 @@ final class AudioE2ETests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
         }
         let settings = UserDefaultsAppSettingsStore(defaults: defaults)
-        let enabledRoutes: Set<RouteKind> = mixed ? [.multipeer, .webRTC] : transport == "webrtc" ? [.webRTC] : [.multipeer]
+        let enabledRoutes: Set<RouteKind> = mixed || waitsForInternet ? [.multipeer, .webRTC]
+            : transport == "webrtc" ? [.webRTC] : [.multipeer]
         var configuration = AppSettings(enabledRTCTransportRoutes: enabledRoutes)
         configuration.preferredTransmitCodec = AudioCodecIdentifier(rawValue: initial.codec)
         configuration.rtcAudioFormatPreset = try XCTUnwrap(RTCAudioFormatPreset(rawValue: initial.format))
         configuration.audioSessionProfile = try XCTUnwrap(AudioSessionProfile(rawValue: initial.profile))
         settings.save(configuration)
+        let memberID = "e2e-\(role)-\(run.prefix(8))"
         let callSession: RideIntercomCallSessionAdapter?
-        if usesInternet || checksLocalRecovery {
-            callSession = RideIntercomCallSessionAdapter(memberID: "e2e-\(role)-\(run.prefix(8))", internetConfiguration: internet,
+        if waitsForInternet {
+            callSession = RideIntercomCallSessionAdapter(memberID: memberID, internetConfiguration: internet)
+        } else if usesInternet || checksLocalRecovery {
+            callSession = RideIntercomCallSessionAdapter(memberID: memberID, internetConfiguration: internet,
                 sessionFactory: { policy, routes, configuration in
                     #if DEBUG
                     if let instrumentedRoutes {
@@ -395,7 +404,6 @@ final class AudioE2ETests: XCTestCase {
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
         XCTAssertTrue(account.completeSignIn(userID: "audio-e2e-" + role, state: request.state))
-        let memberID = "e2e-\(role)-\(run.prefix(8))"
         let identity = UserDefaultsLocalMemberIdentityStore(defaults: defaults,
             makeID: { memberID }, defaultDisplayName: { "Audio E2E \(role)" })
         var startingAccount = account
@@ -461,7 +469,7 @@ final class AudioE2ETests: XCTestCase {
         }
         let joiningStarted = ContinuousClock.now
         if startsFromSavedGroup {
-            XCTAssertEqual(viewModel.enabledRTCTransportRoutes, [.multipeer])
+            XCTAssertEqual(viewModel.enabledRTCTransportRoutes, enabledRoutes)
             XCTAssertTrue(viewModel.groups.contains { $0.id == groupID })
             XCTAssertNil(viewModel.activeGroupID)
             viewModel.openDestination(.group(groupID))
@@ -660,11 +668,24 @@ final class AudioE2ETests: XCTestCase {
             let before = (viewModel.sentVoicePacketCount, viewModel.receivedVoicePacketCount,
                           observedOutputBatches(viewModel), output.playbackResetCount ?? 0)
             let start = ContinuousClock.now
+            let waitingWorker = waitsForInternet ? worker : nil
+            if let waitingWorker {
+                let peers = await waitingWorker.pendingICEPeers.count
+                XCTAssertEqual(peers, 2, "Both Internet connection requests must be unanswered when measuring Local audio")
+            }
             while start.duration(to: .now) < .seconds(scenario.seconds) {
                 XCTAssertTrue(viewModel.isAudioReady, "\(scenario.id): \(status())")
                 XCTAssertEqual(viewModel.authenticatedPeerIDs.count, 1, status())
                 XCTAssertNil(viewModel.audioErrorMessage, status())
                 try await Task.sleep(for: .milliseconds(100))
+            }
+            if waitsForInternet {
+                XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
+                if let waitingWorker {
+                    let peers = await waitingWorker.pendingICEPeers.count
+                    XCTAssertEqual(peers, 2, "Both Internet requests must still be pending after Local playback")
+                    print("Audio E2E: Measured Local output while \(peers) Internet requests were unanswered")
+                }
             }
             if transport == "local", !scenario.expectsSilence {
                 let statistics = viewModel.networkDiagnostics?.routes.first { $0.route == .multipeer }?.statistics

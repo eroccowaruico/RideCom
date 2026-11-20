@@ -246,6 +246,7 @@ def main():
     parser.add_argument('--cleanup-only', action='store_true', help='Recover managed devices and report old running hosts without stopping unknown owners')
     parser.add_argument('--transport', choices=['local', 'webrtc', 'mixed', 'all'], default='all')
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
+    parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity'], default='quick')
     parser.add_argument('--speech-pair', choices=['english', 'japanese', 'conversation'], default='english')
     parser.add_argument('--switches-only', action='store_true', help='Live codec, format and effect changes with bounded silence and click checks')
@@ -264,6 +265,8 @@ def main():
     if args.saved_group_start and (args.transport != 'local' or
             any([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])):
         parser.error('--saved-group-start requires --transport local with the network audio test')
+    if args.unanswered_internet and (not args.saved_group_start or args.matrix != 'smoke' or args.seconds > 10):
+        parser.error('--unanswered-internet requires --saved-group-start --matrix smoke and 6–10 seconds')
     if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or
             any([args.pipeline_only, args.realtime_only, args.group_only, args.codec_only, args.switches_only])):
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
@@ -398,6 +401,8 @@ def execute(args, runner, resource_root):
                 AUDIO_E2E_WORKER_URL=f'http://127.0.0.1:{port}', AUDIO_E2E_SCENARIOS=json.dumps(cases))
             if args.saved_group_start:
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
+            if args.unanswered_internet:
+                environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             (out / (transport + '-configuration.json')).write_text(json.dumps(environment, indent=2) + '\n')
             commands = []
             for role, platform, destination in endpoints:
