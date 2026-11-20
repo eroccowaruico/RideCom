@@ -423,20 +423,21 @@ struct DiagnosticsTests {
         harness.viewModel.disconnect()
     }
 
-    @Test func networkDiagnosticsDistinguishUnknownValuesAndClearOnDisconnect() {
+    @Test func networkDiagnosticsKeepObservationsAndClearOnDisconnect() {
         let h = AppTestSupport.makeHarness()
         let model = h.viewModel
-        #expect(model.networkDiagnosticsSummary.contains("Not measured"))
+        #expect(model.networkDiagnostics == nil)
         let route = RTCRouteNetworkDiagnostics(route: .webRTC,
             statistics: .init(roundTripTime: 0.025, bufferedBytes: 128, unavailableReason: "Loss unavailable"))
-        model.handleTransportEvent(.networkDiagnostics(.init(routes: [route])))
-        #expect(model.networkDiagnosticsSummary.contains("25 ms"))
-        #expect(model.networkDiagnosticsSummary.contains("128 B"))
-        #expect(model.networkDiagnosticsSummary.contains("Loss unavailable"))
-        model.handleTransportEvent(.networkDiagnostics(.init(generatedAt: 0, routes: [route])))
-        #expect(model.networkDiagnosticsSummary.contains("stale"))
+        let latest = RTCNetworkDiagnostics(routes: [route])
+        model.handleTransportEvent(.networkDiagnostics(latest))
+        #expect(model.networkDiagnostics == latest)
+        #expect(model.networkDiagnostics?.routes.first?.statistics.packetLoss == nil)
+        let older = RTCNetworkDiagnostics(generatedAt: 0, routes: [route])
+        model.handleTransportEvent(.networkDiagnostics(older))
+        #expect(model.networkDiagnostics == older)
         model.disconnect()
-        #expect(model.networkDiagnosticsSummary.contains("Not measured"))
+        #expect(model.networkDiagnostics == nil)
     }
 
 

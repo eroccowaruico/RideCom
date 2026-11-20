@@ -94,3 +94,7 @@ Build 1468のiOS 27.2 Simulatorで、320pt幅のNetworkに、Localの未計測�
 NetworkではLossとJitterを別の行にした。NetworkとAppliedが使う共通行では、横に収まるときは項目名と値を左右に置き、収まらないときは値を下へ移す。経路名と更新時刻も同じ幅の条件で並べる。計測のない値は `Not measured`、生成から15秒を超えたレポートは `Stale` と表示する。レポートの経過時間から個別の測定値の時刻は推定しない。[SwiftUIの幅に応じた表示](https://developer.apple.com/documentation/swiftui/viewthatfits)、[画面仕様](../../spec/App/UI/Diagnostics.md#network診断)、[デザイン見本](../../design/詳細画面/詳細画面見本.html)。
 
 Build 1469のiOS Simulatorで、同じ320ptの通常・最大文字を描画し、未計測・時刻・経路名・数値・警告記号が読み取れることを確認した。260ptの行の回帰も通り、実画面のNetwork／Applied・回転・診断の症状別導線を含めた8テストが成功した。失敗・skip・実行時警告は0。Chromeの390px幅で、通常と拡大文字のHTMLも確認した。証跡は `.validation/isolation-labels-1460/metrics-after`。[実機の計測と読み上げ](../未確認事項.md#画面デザインの実環境受入)は検証待ち。
+
+## Build 1470の定期整理で診断の表示を現行の画面に揃える（2026-11-20）
+
+第一巡では、RTCから届く `networkDiagnostics` がViewModelに入り、Networkと送受信の診断がそれぞれ必要な値を読む経路をたどった。旧Networkの長文を作る `networkDiagnosticsSummary` はAppの画面から参照されず、古い単体試験だけが使っていた。長文の処理を外し、観測時刻・未取得の損失率を保持し、通話終了時に破棄する契約を、現在の観測値で検査する形へ変更した。画面側は320ptの実描画で既定・最大文字の計測値と `Stale` を引き続き照合した。新しいファイルや中継処理は増やさず既存の所有元を使った。Build 1470のiOS Simulatorで診断24テストが成功した。証跡は `.validation/isolation-labels-1460/diagnostics-refactor-1470-first`。
