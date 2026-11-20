@@ -201,12 +201,14 @@ struct GroupContactInvitationTests {
             self.proof = try signer.sign(statement.signingData(), purpose: .acknowledgeInvitation)
         }
 
+        @MainActor
         func verifies(in group: GroupSnapshot.Record, peer: VerifiedDeviceProof, activeIntroductions: Set<UUID>) -> Bool {
             guard statement.kind == .admission, activeIntroductions.contains(statement.introductionID),
                   statement.memberID == peer.memberID, statement.memberKey == peer.publicKey else { return false }
             return hasKnownSignature(in: group)
         }
 
+        @MainActor
         func hasKnownSignature(in group: GroupSnapshot.Record) -> Bool {
             guard statement.groupID == group.id,
                   group.invitationDeviceKeys?[statement.introducerID] == proof.publicKey else { return false }
@@ -347,6 +349,7 @@ struct GroupContactInvitationTests {
     private struct MembershipJournal: Codable {
         private(set) var events: [UUID: MembershipEndorsement] = [:]
 
+        @MainActor
         mutating func receive(_ event: MembershipEndorsement, in group: GroupSnapshot.Record) -> Bool {
             let id = event.statement.introductionID
             guard events[id] == nil, event.hasKnownSignature(in: group) else { return false }
