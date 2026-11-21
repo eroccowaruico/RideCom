@@ -17,23 +17,14 @@ public final class MixerBus {
 	private var sourceMetadataByNodeID: [ObjectIdentifier: MixerSourceMetadata] = [:]
 	private var pcmSourceByNodeID: [ObjectIdentifier: MixerPCMSource] = [:]
 	private let metadataLock = NSRecursiveLock()
-	private var sinkOrder: [String] = []
-	private var sinksByID: [String: MixerPCMSink] = [:]
-	private var sinkMetadataByID: [String: MixerSinkMetadata] = [:]
 	private var nextSourceSequence = 0
-	private var nextSinkSequence = 0
-	private var renderCapture: RenderCaptureNode?
+    private let sinkManager: MixerSinkManager
 
 	public var effects: [AVAudioNode] { effectChain.effects }
 
 	internal func detach() {
 		stopPCMSources()
-		if let capture = renderCapture {
-			engine.disconnectNodeInput(capture.node)
-			engine.disconnectNodeOutput(capture.node)
-			engine.detach(capture.node)
-		}
-		renderCapture = nil
+        sinkManager.detach()
 		let sourceFaders = Set(pcmSourceByNodeID.values.map { ObjectIdentifier($0.faderNode) })
 		let owned = engine.attachedNodes.filter { node in
 			let nodeID = ObjectIdentifier(node)
@@ -48,9 +39,7 @@ public final class MixerBus {
 		set { faderMixer.outputVolume = newValue }
 	}
 
-	public var outputNode: AVAudioNode {
-		renderCapture?.node ?? faderMixer
-	}
+	public var outputNode: AVAudioNode { sinkManager.outputNode }
 
 	init(
 		id: String,
@@ -69,6 +58,8 @@ public final class MixerBus {
 		self.faderMixer = AVAudioMixerNode()
         self.effectChain = MixerEffectChain(id: id, engine: engine, format: format, inputMixer: inputMixer,
             faderMixer: faderMixer, prepareForGraphChange: prepareForGraphChange)
+        self.sinkManager = MixerSinkManager(engine: engine, format: format, audioFormat: audioFormat,
+            faderMixer: faderMixer, renderClock: renderClock, metadataLock: metadataLock)
 	}
 
 	public func addSource(_ node: AVAudioNode, id sourceID: String? = nil) throws {
@@ -174,62 +165,34 @@ public final class MixerBus {
 		return inputBus
 	}
 
-	@discardableResult
-	public func installPCMSink(
-		id sinkID: String,
-		targetFormat: AudioFormat,
-		bufferFrameCount: UInt32 = 128,
-		packetDuration: TimeInterval? = nil,
-		maximumFrameDuration: TimeInterval? = nil,
-		captureRenderedAudio: Bool = true,
-		onFrame: @escaping (PCMFrame, AudioProcessingReport) -> Void
-	) throws -> MixerPCMSink {
-		guard targetFormat.isValid, bufferFrameCount > 0 else {
-			throw AudioMixerError.pcmSinkInstallFailed("Invalid sink format or buffer size")
-		}
-        if [packetDuration, maximumFrameDuration].compactMap({ $0 }).contains(where: {
-            !$0.isFinite || $0 <= 0 || $0 > 1
-        }) {
-			throw AudioMixerError.pcmSinkInstallFailed("Invalid maximum frame duration")
-		}
-		metadataLock.lock()
-		defer { metadataLock.unlock() }
-		let resolvedID = try resolveMixerNodeID(
-			sinkID,
-			generatedPrefix: "pcm-sink",
-			existingIDs: Set(sinkMetadataByID.keys),
-			nextSequence: &nextSinkSequence
-		)
-		let sink = MixerPCMSink(
-			id: resolvedID,
-			mixerFormat: audioFormat,
-			targetFormat: targetFormat,
-			packetDuration: packetDuration,
-            maximumFrameDuration: maximumFrameDuration,
-			onFrame: onFrame,
-			recordEmit: { [weak self] report, failure in
-				self?.recordPCMSinkEmit(id: resolvedID, report: report, failure: failure)
-			}
-		)
-		sinksByID[resolvedID] = sink
-		sinkOrder.append(resolvedID)
-		sinkMetadataByID[resolvedID] = MixerSinkMetadata(
-			id: resolvedID,
-			mixerFormat: audioFormat,
-			targetFormat: targetFormat
-		)
-		if captureRenderedAudio {
-			try installRenderCaptureIfNeeded().captureAudio { [weak self] frame in
-				try? self?.deliverToSinks(frame)
-			}
-		}
-		return sink
-	}
+    @discardableResult
+    public func installPCMSink(
+        id sinkID: String, targetFormat: AudioFormat, bufferFrameCount: UInt32 = 128,
+        packetDuration: TimeInterval? = nil, maximumFrameDuration: TimeInterval? = nil,
+        captureRenderedAudio: Bool = true, onFrame: @escaping (PCMFrame, AudioProcessingReport) -> Void
+    ) throws -> MixerPCMSink {
+        try sinkManager.installPCMSink(id: sinkID, targetFormat: targetFormat, bufferFrameCount: bufferFrameCount,
+            packetDuration: packetDuration, maximumFrameDuration: maximumFrameDuration,
+            captureRenderedAudio: captureRenderedAudio, onFrame: onFrame)
+    }
+
+    /// A graph change discards the settling interval instead of playing it late.
+    public func beginSinkTransition(settlingDuration: TimeInterval, holding: Bool = false) {
+        sinkManager.beginSinkTransition(settlingDuration: settlingDuration, holding: holding)
+    }
+
+    /// Install the output fade while assembling the bus, even without a recording sink.
+    public func prepareOutputTransition() throws { try sinkManager.prepareOutputTransition() }
+
+    public func updatePCMSinkFormat(id: String, targetFormat: AudioFormat) throws {
+        try sinkManager.updatePCMSinkFormat(id: id, targetFormat: targetFormat)
+    }
+
+    func deliverToSinks(_ frame: PCMFrame) throws { try sinkManager.deliverToSinks(frame) }
 
 	func stopPCMSources() { pcmSourceByNodeID.values.forEach { $0.stop() } }
 
-    public var droppedCaptureFrameCount: Int { renderCapture?.droppedFrameCount ?? 0 }
-
+    public var droppedCaptureFrameCount: Int { sinkManager.droppedCaptureFrameCount }
     public var processingLatency: TimeInterval {
         metadataLock.withLock {
             effectChain.activeEffects.reduce(0) { $0 + $1.latency }
@@ -245,39 +208,12 @@ public final class MixerBus {
         }
     }
 
-    /// A graph change discards the settling interval instead of playing it late.
-    /// Only explicitly requested transitions modify samples; normal sinks do not.
-    public func beginSinkTransition(settlingDuration: TimeInterval, holding: Bool = false) {
-        metadataLock.withLock {
-            if let renderCapture {
-                // Hardware output and every observer must see the same fade.
-                renderCapture.beginTransition(settlingDuration: settlingDuration, holding: holding)
-            } else {
-                sinksByID.values.forEach { $0.beginTransition(settlingDuration: settlingDuration, holding: holding) }
-            }
-        }
-    }
-
-    /// Install the output fade while assembling the bus. A bus without a PCM
-    /// sink applies the fade inline without capturing or delivering audio.
-    public func prepareOutputTransition() throws {
-        _ = try metadataLock.withLock { try installRenderCaptureIfNeeded() }
-    }
-
-    public func updatePCMSinkFormat(id: String, targetFormat: AudioFormat) throws {
-        guard targetFormat.isValid else { throw AudioMixerError.formatCreationFailed(targetFormat) }
-        metadataLock.lock()
-        defer { metadataLock.unlock() }
-        guard let sink = sinksByID[id] else { throw AudioMixerError.pcmSinkInstallFailed("Unknown sink") }
-        sink.targetFormat = targetFormat
-        sinkMetadataByID[id]?.targetFormat = targetFormat
-    }
-
 	public func snapshot() -> MixerBusSnapshot {
 		metadataLock.lock()
 		defer { metadataLock.unlock() }
-		let sourceSnapshots = makeSourceSnapshots()
-		let sinkSnapshots = makeSinkSnapshots()
+		let sourceSnapshots = makeSourceSnapshots(sourceNodeOrder: sourceNodeOrder,
+            sourceMetadataByNodeID: sourceMetadataByNodeID, pcmSourceByNodeID: pcmSourceByNodeID)
+		let sinkSnapshots = sinkManager.snapshots()
 		return MixerBusSnapshot(
 			id: id,
 			volume: volume,
@@ -288,46 +224,6 @@ public final class MixerBus {
 			sinks: sinkSnapshots,
 			effectChain: effectChain.snapshots()
 		)
-	}
-
-	private func makeSourceSnapshots() -> [MixerSourceSnapshot] {
-		return sourceNodeOrder.enumerated().compactMap { index, nodeID in
-			sourceMetadataByNodeID[nodeID].map {
-				let pcmSource = pcmSourceByNodeID[nodeID]
-				return MixerSourceSnapshot(
-					id: $0.id,
-					typeName: $0.typeName,
-					index: index,
-					inputBusIndex: $0.inputBusIndex,
-					originalFormat: $0.originalFormat,
-					mixerFormat: $0.mixerFormat,
-					scheduledFrameCount: $0.scheduledFrameCount,
-					normalizationReport: $0.normalizationReport,
-					lastFailure: $0.lastFailure,
-					bufferedDuration: pcmSource?.bufferedDuration,
-					playbackResetCount: pcmSource?.playbackResetCount ?? 0,
-					lastScheduledAt: $0.lastScheduledAt,
-					playoutAdjustmentCount: pcmSource?.playoutAdjustmentCount,
-					lastPlayoutAdjustment: pcmSource?.lastPlayoutAdjustment
-				)
-			}
-		}
-	}
-
-	private func makeSinkSnapshots() -> [MixerSinkSnapshot] {
-		return sinkOrder.enumerated().compactMap { index, id in
-			sinkMetadataByID[id].map {
-				MixerSinkSnapshot(
-					id: $0.id,
-					index: index,
-					mixerFormat: $0.mixerFormat,
-					targetFormat: $0.targetFormat,
-					emittedFrameCount: $0.emittedFrameCount,
-					normalizationReport: $0.normalizationReport,
-					lastFailure: $0.lastFailure
-				)
-			}
-		}
 	}
 
     public func addEffect(
@@ -359,7 +255,7 @@ public final class MixerBus {
             inputMixer.reset()
             for effect in effects { effect.reset() }
             faderMixer.reset()
-            sinksByID.values.forEach { $0.resetStream() }
+            sinkManager.resetStreams()
         }
     }
 
@@ -368,35 +264,6 @@ public final class MixerBus {
     }
 
 	func rebuildChain() throws { try effectChain.rebuildChain() }
-
-	func deliverToSinks(_ frame: PCMFrame) throws {
-		metadataLock.lock()
-        defer { metadataLock.unlock() }
-        let sinks = sinkOrder.compactMap { sinksByID[$0] }
-		for sink in sinks {
-			_ = try sink.receive(frame)
-		}
-	}
-
-	private func installRenderCaptureIfNeeded() throws -> RenderCaptureNode {
-        if let renderCapture { return renderCapture }
-        let capture = try RenderCaptureNode(format: audioFormat, renderClock: renderClock)
-        let connections = engine.outputConnectionPoints(for: faderMixer, outputBus: 0)
-        engine.attach(capture.node)
-        do {
-            try engine.connectNode(faderMixer, to: capture.node, format: format)
-            if !connections.isEmpty {
-                try engine.connectNode(capture.node, to: connections, fromBus: 0, format: format)
-            }
-        } catch {
-            engine.disconnectNodeInput(capture.node)
-            engine.detach(capture.node)
-            if !connections.isEmpty { try? engine.connectNode(faderMixer, to: connections, fromBus: 0, format: format) }
-            throw error
-        }
-        renderCapture = capture
-        return capture
-    }
 
 	private func isEngineInternalNode(_ node: AVAudioNode) -> Bool {
         // Fetching inputNode/outputNode initializes device I/O, even when the
@@ -426,37 +293,4 @@ public final class MixerBus {
 		sourceMetadataByNodeID[nodeID] = metadata
 	}
 
-	private func recordPCMSinkEmit(id: String, report: AudioProcessingReport?, failure: String?) {
-		metadataLock.lock()
-		defer { metadataLock.unlock() }
-		guard var metadata = sinkMetadataByID[id] else { return }
-		metadata.normalizationReport = report
-		metadata.lastFailure = failure
-		if failure == nil {
-			metadata.emittedFrameCount += 1
-		}
-		sinkMetadataByID[id] = metadata
-	}
-
-}
-
-private struct MixerSourceMetadata {
-	var id: String
-	var typeName: String
-	var inputBusIndex: Int
-	var originalFormat: AudioFormat?
-	var mixerFormat: AudioFormat?
-	var scheduledFrameCount = 0
-	var lastScheduledAt: TimeInterval?
-	var normalizationReport: AudioProcessingReport?
-	var lastFailure: String?
-}
-
-private struct MixerSinkMetadata {
-	var id: String
-	var mixerFormat: AudioFormat
-	var targetFormat: AudioFormat
-	var emittedFrameCount = 0
-	var normalizationReport: AudioProcessingReport?
-	var lastFailure: String?
 }
