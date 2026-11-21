@@ -14,8 +14,19 @@ struct AccountDeletionView: View {
         Form {
             Section {
                 Text("Delete your account?").font(.title2).accessibilityAddTraits(.isHeader)
-                Text("This ends your call and permanently removes your saved users, groups, settings and keys from this device. This cannot be undone.")
-                Text("If a saved Internet account is found, all device registrations at that service are deleted. Copies on other devices and information shared with friends remain. Deletion does not cancel purchases or subscriptions.")
+                Text(
+                    """
+                    This ends your call and permanently removes your saved users, groups, settings \
+                    and keys from this device. This cannot be undone.
+                    """
+                )
+                Text(
+                    """
+                    If a saved Internet account is found, all device registrations at that service \
+                    are deleted. Copies on other devices and information shared with friends \
+                    remain. Deletion does not cancel purchases or subscriptions.
+                    """
+                )
             }
             if loaded {
                 if access != nil {
@@ -25,19 +36,39 @@ struct AccountDeletionView: View {
                     }
                 } else {
                     Section {
-                        Text("Internet calling is not connected on this device. Only this device's data will be deleted. Any Internet registration on another device is unaffected.")
+                        Text(
+                            """
+                            Internet calling is not connected on this device. Only this device's \
+                            data will be deleted. Any Internet registration on another device is \
+                            unaffected.
+                            """
+                        )
                     }
                 }
                 if access?.requiresAppleVerification == true {
-                    Text("Internet access has been signed out. Verify with Apple to delete the saved account; signing out did not delete it.")
+                    Text(
+                        """
+                        Internet access has been signed out. Verify with Apple to delete the saved \
+                        account; signing out did not delete it.
+                        """
+                    )
                 } else {
                     Section {
-                        Button(LocalizedStringKey(access == nil ? "Delete Data on This Device" : "Delete Without Apple Verification"), role: .destructive) {
+                        Button(
+                            LocalizedStringKey(
+                                access == nil ? "Delete Data on This Device" : "Delete Without Apple Verification"),
+                            role: .destructive
+                        ) {
                             confirmsManualDeletion = true
                         }
                         .disabled(authorization?.isBusy == true)
                         .accessibilityIdentifier("deleteWithoutAppleButton")
-                        Text("Without verification, remove RideCom from Sign in with Apple in your Apple Account settings yourself.").font(.footnote)
+                        Text(
+                            """
+                            Without verification, remove RideCom from Sign in with Apple in your \
+                            Apple Account settings yourself.
+                            """
+                        ).font(.footnote)
                     }
                 }
             }
@@ -45,11 +76,27 @@ struct AccountDeletionView: View {
         }
         .screenBackground(AppColorPalette.listScreenBackground)
         .navigationTitle("Delete Account")
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { authorization?.cancel(); dismiss() } } }
-        .confirmationDialog("Permanently delete this account's data?", isPresented: $confirmsManualDeletion, titleVisibility: .visible) {
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    authorization?.cancel(); dismiss()
+                }
+            }
+        }
+        .confirmationDialog(
+            "Permanently delete this account's data?", isPresented: $confirmsManualDeletion,
+            titleVisibility: .visible
+        ) {
             Button("Delete", role: .destructive) { begin(proof: nil) }
             Button("Cancel", role: .cancel) { }
-        } message: { Text("You will need to remove the Apple authorization yourself. Your data cannot be restored by signing in again.") }
+        } message: {
+            Text(
+                """
+                You will need to remove the Apple authorization yourself. Your data cannot be \
+                restored by signing in again.
+                """
+            )
+        }
         .task { load() }
         .onDisappear { authorization?.cancel() }
         .accessibilityIdentifier("accountDeletionConfirmation")
@@ -63,11 +110,18 @@ struct AccountDeletionView: View {
                     isCurrent: { viewModel.canStartCalls }, accept: { proof in try start(proof: proof) })
             }
             loaded = true; message = nil
-        } catch { message = "Could not verify your saved Internet account. Your data has been preserved. Reconnect Internet calling with Apple in Settings, then try again." }
+        } catch {
+            message =
+                """
+                Could not verify your saved Internet account. Your data has been preserved. \
+                Reconnect Internet calling with Apple in Settings, then try again.
+                """
+        }
     }
     private func start(proof: InternetAccountDeletionProof?) throws {
         guard viewModel.canStartCalls, let user = viewModel.accountUserID,
-              try viewModel.internetSettingsStore.deletionAccess() == access else { throw InternetAccountClient.Failure.rejected }
+            try viewModel.internetSettingsStore.deletionAccess() == access
+        else { throw InternetAccountClient.Failure.rejected }
         let account = viewModel.accountSession
         try account.deletion.begin(userID: user, access: access, proof: proof)
         account.signOut()
@@ -108,19 +162,39 @@ struct AccountDeletionProgressView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Text(LocalizedStringKey(deletion.isLocalReset ? "Remove Previous Account Data" : (deletion.canFinish ? "Account Data Deleted" : "Account Deletion"))).font(.largeTitle).accessibilityAddTraits(.isHeader)
+                Text(
+                    LocalizedStringKey(
+                        deletion.isLocalReset
+                            ? "Remove Previous Account Data"
+                            : (deletion.canFinish ? "Account Data Deleted" : "Account Deletion"))
+                ).font(.largeTitle).accessibilityAddTraits(.isHeader)
                 if deletion.isBusy { ProgressView("Deleting…") }
                 if let text = deletion.message { Text(LocalizedStringKey(text)) }
                 if let text = account.message { Text(LocalizedStringKey(text)) }
                 if let message { Text(LocalizedStringKey(message)) }
                 if deletion.canFinish {
                     if deletion.record?.serverResult?.newerAccountPreserved == true {
-                        Text("Your previous account is deleted. A newer account is registered with Apple; its registration and Apple authorization have been kept.")
+                        Text(
+                            """
+                            Your previous account is deleted. A newer account is registered with \
+                            Apple; its registration and Apple authorization have been kept.
+                            """
+                        )
                     } else if deletion.requiresManualAppleRemoval {
-                        Text("Apple authorization has not been removed. Open your Apple Account settings, choose Sign in with Apple, and remove RideCom.")
+                        Text(
+                            """
+                            Apple authorization has not been removed. Open your Apple Account \
+                            settings, choose Sign in with Apple, and remove RideCom.
+                            """
+                        )
                         Link("Open Apple Account", destination: URL(string: "https://account.apple.com/")!)
                     }
-                    Text("Copies on other devices and information already shared with friends remain. Purchases and subscriptions are not cancelled.")
+                    Text(
+                        """
+                        Copies on other devices and information already shared with friends remain. \
+                        Purchases and subscriptions are not cancelled.
+                        """
+                    )
                     Button("Return to Sign In") {
                         do { try deletion.finish() } catch {
                             message = "Could not finish the deletion record. Try again."
@@ -131,7 +205,9 @@ struct AccountDeletionProgressView: View {
                     if let record = deletion.record, record.access != nil, record.serverResult == nil {
                         if let authorization { DeletionAppleVerification(authorization: authorization) }
                         if record.access?.requiresAppleVerification != true {
-                            Button("Continue Without Apple Verification", role: .destructive) { confirmsManualDeletion = true }
+                            Button("Continue Without Apple Verification", role: .destructive) {
+                                confirmsManualDeletion = true
+                            }
                                 .disabled(authorization?.isBusy == true)
                         }
                     }
@@ -145,7 +221,10 @@ struct AccountDeletionProgressView: View {
         }
         .onChange(of: deletion.record?.serverResult?.deleted) { _, _ in prepareAuthorization() }
         .onDisappear { authorization?.cancel() }
-        .confirmationDialog("Continue without removing Apple authorization?", isPresented: $confirmsManualDeletion, titleVisibility: .visible) {
+        .confirmationDialog(
+            "Continue without removing Apple authorization?", isPresented: $confirmsManualDeletion,
+            titleVisibility: .visible
+        ) {
             Button("Continue Deletion", role: .destructive) {
                 do { try deletion.replaceProof(nil); Task { await account.resumeDeletion() } } catch {
                     message = "Could not update the deletion request. Try again."
@@ -155,9 +234,14 @@ struct AccountDeletionProgressView: View {
         .accessibilityIdentifier("accountDeletionProgress")
     }
     private func prepareAuthorization() {
-        guard let record = deletion.record, record.serverResult == nil, let access = record.access else { authorization = nil; return }
+        guard let record = deletion.record, record.serverResult == nil, let access = record.access else {
+            authorization = nil; return
+        }
         authorization = AccountDeletionAuthorization(userID: record.userID, access: access,
-            isCurrent: { deletion.record?.userID == record.userID && deletion.record?.serverResult == nil && !deletion.isBusy },
+            isCurrent: {
+                deletion.record?.userID == record.userID && deletion.record?.serverResult == nil
+                    && !deletion.isBusy
+            },
             accept: { proof in try deletion.replaceProof(proof); Task { await account.resumeDeletion() } })
     }
 }

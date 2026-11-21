@@ -59,7 +59,12 @@ struct AppleSignInView: View {
 
     private var signInContent: some View {
         VStack(spacing: AppSpacing.l) {
-            Text("Sign in to verify you so only invited people can join your calls. We do not use your email address or real name.")
+            Text(
+                """
+                Sign in to verify you so only invited people can join your calls. We do not use \
+                your email address or real name.
+                """
+            )
                 .font(.footnote).foregroundStyle(.secondary)
                 .accessibilityIdentifier("signInReason")
             if hasPendingInvite {
@@ -95,12 +100,19 @@ struct AccountSettingsPanel: View {
             if let message = account.message { Text(LocalizedStringKey(message)).font(.footnote) }
             Button("Sign Out", role: .destructive) { confirmsSignOut = true }
                 .accessibilityIdentifier("signOutButton")
-                .confirmationDialog("Sign out and end the current call?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+                .confirmationDialog(
+                    "Sign out and end the current call?", isPresented: $confirmsSignOut, titleVisibility: .visible
+                ) {
                     Button("Sign Out", role: .destructive) { account.signOut() }
                         .accessibilityIdentifier("confirmSignOutButton")
                     Button("Cancel", role: .cancel) { }
                 } message: {
-                    Text("Your groups and saved users stay on this device. Sign in with the same Apple Account to use them again.")
+                    Text(
+                        """
+                        Your groups and saved users stay on this device. Sign in with the same \
+                        Apple Account to use them again.
+                        """
+                    )
                 }
             Button("Delete Account", role: .destructive) { showsDeletion = true }
                 .accessibilityIdentifier("deleteAccountButton")
