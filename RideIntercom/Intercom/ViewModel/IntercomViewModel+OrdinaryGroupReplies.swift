@@ -72,10 +72,13 @@ extension IntercomViewModel {
         let id = UUID()
         let access = RTCCredential.derived(groupID: "rideintercom.ordinary-group-reply.v1:" + invitation.id.uuidString,
                                            secret: saved.credential.secret)
-        let channel = RTCLocalDataChannel(localID: .init(rawValue: localMemberIdentity.memberID), credential: access) { [weak self] event in
+        let channel = RTCLocalDataChannel(
+            localID: .init(rawValue: localMemberIdentity.memberID), credential: access
+        ) { [weak self] event in
             DispatchQueue.main.async { self?.receiveOrdinaryGroupReplyEvent(event, role: role, id: id) }
         }
-        let exchange = OrdinaryGroupReplyExchange(id: id, invitation: invitation, savedCredential: saved, channel: channel)
+        let exchange = OrdinaryGroupReplyExchange(
+            id: id, invitation: invitation, savedCredential: saved, channel: channel)
         ordinaryGroupReplyExchanges[role] = exchange
         exchange.timeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(min(60, invitation.expiresAt - now)))
@@ -113,7 +116,8 @@ extension IntercomViewModel {
 
     private func isCurrentOrdinaryGroupReply(_ exchange: OrdinaryGroupReplyExchange, now: TimeInterval) -> Bool {
         canExchangeOrdinaryGroupReplies
-            && groupRepository.ordinaryGroupReplyCredentialReference(for: exchange.invitation, now: now) == exchange.savedCredential.reference
+            && groupRepository.ordinaryGroupReplyCredentialReference(for: exchange.invitation, now: now)
+                == exchange.savedCredential.reference
     }
 
     private func stopOrdinaryGroupReplyExchange(_ role: OrdinaryGroupReplyExchange.Role, id: UUID? = nil) {
@@ -128,12 +132,15 @@ extension IntercomViewModel {
         }
     }
 
-    private func receiveOrdinaryGroupReplyEvent(_ event: RTCLocalDataChannel.Event, role: OrdinaryGroupReplyExchange.Role, id: UUID) {
+    private func receiveOrdinaryGroupReplyEvent(
+        _ event: RTCLocalDataChannel.Event, role: OrdinaryGroupReplyExchange.Role, id: UUID
+    ) {
         guard let exchange = ordinaryGroupReplyExchanges[role], exchange.id == id else { return }
         let invitation = exchange.invitation
         let isInvitee = role == .invitee(invitation.groupID)
         guard canExchangeOrdinaryGroupReplies,
-              groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970) == exchange.savedCredential
+            groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970)
+                == exchange.savedCredential
         else {
             stopOrdinaryGroupReplyExchange(role, id: id)
             return
@@ -142,7 +149,8 @@ extension IntercomViewModel {
         case .members(let members):
             let author = PeerID(rawValue: invitation.inviterMemberID)
             guard isInvitee, members.contains(author),
-                  let receipt = signedPendingInvitationReceipt(for: invitation.groupID), receipt.invitation == invitation,
+                let receipt = signedPendingInvitationReceipt(for: invitation.groupID),
+                receipt.invitation == invitation,
                   let data = try? JSONEncoder().encode(receipt) else { return }
             exchange.channel.send(data, to: author)
         case .message(let data, let peer):

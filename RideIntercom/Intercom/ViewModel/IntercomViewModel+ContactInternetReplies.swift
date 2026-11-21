@@ -9,7 +9,8 @@ extension IntercomViewModel {
     func backgroundInvitationUploadIDs() -> Set<InvitationBackgroundUploadID> {
         let groups = backgroundGroupInvitationUploadIDs()
         guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,
-              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return groups }
+            let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
+        else { return groups }
         return groups.union(backgroundContactAcceptanceUploadIDs(access: access))
     }
 
@@ -26,7 +27,8 @@ extension IntercomViewModel {
                   let record = contactInvitationRecord(key.deliveryID),
                   contactAcceptanceUploadID(record, access: access) == key,
                   contactInternetReplyIsEligible(record, access: access, now: callAccessNow().timeIntervalSince1970),
-                  let reply = try? decoder.decode(ContactAcceptanceUploadReply.self, from: data), record.receiptID == reply.id,
+                let reply = try? decoder.decode(ContactAcceptanceUploadReply.self, from: data),
+                record.receiptID == reply.id,
                   Int64(exactly: (record.expiresAt * 1000).rounded(.down)) == reply.expiresAt else { return }
             do {
                 try groupRepository.markContactInternetAcceptanceSubmitted(record.id, receiptID: reply.id)
@@ -35,13 +37,18 @@ extension IntercomViewModel {
         }
     }
 
-    private func contactAcceptanceUploadID(_ record: ContactInvitationRecord, access: CallNotificationServiceAccess) -> InvitationBackgroundUploadID? {
+    private func contactAcceptanceUploadID(
+        _ record: ContactInvitationRecord, access: CallNotificationServiceAccess
+    ) -> InvitationBackgroundUploadID? {
         guard record.direction == .incoming, record.state == .pending, record.internetAcceptanceSubmitted != true,
-              let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken) else { return nil }
+            let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
+        else { return nil }
         return .init(deliveryID: record.id, sessionBinding: binding, operation: .contactAcceptance)
     }
 
-    private func backgroundContactAcceptanceUploadIDs(access: CallNotificationServiceAccess) -> Set<InvitationBackgroundUploadID> {
+    private func backgroundContactAcceptanceUploadIDs(access: CallNotificationServiceAccess) -> Set<
+        InvitationBackgroundUploadID
+    > {
         Set(internetContactReplyRecords(access: access).compactMap { contactAcceptanceUploadID($0, access: access) })
     }
 
@@ -58,21 +65,26 @@ extension IntercomViewModel {
         }
     }
 
-    private func backgroundContactAcceptanceRequest(_ record: ContactInvitationRecord, access: CallNotificationServiceAccess) throws -> URLRequest? {
+    private func backgroundContactAcceptanceRequest(
+        _ record: ContactInvitationRecord, access: CallNotificationServiceAccess
+    ) throws -> URLRequest? {
         let payload = try groupRepository.contactInvitationPayload(record.id)
         guard let owner = contactInternetReplyOwner(record, access: access),
               let pending = payload.receipt, let key = pending.inviteeDeviceKey,
               let invitation = payload.token.directInvitation?.context else { return nil }
-        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: key)
+        let signer = try internetSettingsStore.invitationSigner(
+            memberID: localMemberIdentity.memberID, expectedPublicKey: key)
         let address = try InvitationReplyAddress(contactToken: payload.token)
-        let (packet, admission) = try prepareContactInternetAcceptance(pending, payload: payload, invitation: invitation, address: address)
+        let (packet, admission) = try prepareContactInternetAcceptance(
+            pending, payload: payload, invitation: invitation, address: address)
         return try InternetAccountClient.backgroundContactAcceptanceRequest(packet, address: address, owner: owner,
-                                                                            access: access, signer: signer, admission: admission, now: callAccessNow())
+            access: access, signer: signer, admission: admission, now: callAccessNow())
     }
 
     func canTryContactInternetReply(_ record: ContactInvitationRecord) -> Bool {
         guard groupDeliveryClient != nil, hasCurrentAccountAccess, allowsInternetInvitationReplies,
-              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return false }
+            let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
+        else { return false }
         return contactInternetReplyIsEligible(record, access: access, now: callAccessNow().timeIntervalSince1970)
     }
 
@@ -86,16 +98,22 @@ extension IntercomViewModel {
 
     func internetContactReplyRecords(access: CallNotificationServiceAccess) -> [ContactInvitationRecord] {
         let now = callAccessNow().timeIntervalSince1970
-        return groupRepository.contactInvitations.filter { contactInternetReplyIsEligible($0, access: access, now: now) }
+        return groupRepository.contactInvitations.filter {
+            contactInternetReplyIsEligible($0, access: access, now: now)
+        }
     }
 
-    private func contactInternetReplyIsEligible(_ record: ContactInvitationRecord, access: CallNotificationServiceAccess, now: TimeInterval) -> Bool {
+    private func contactInternetReplyIsEligible(
+        _ record: ContactInvitationRecord, access: CallNotificationServiceAccess, now: TimeInterval
+    ) -> Bool {
         guard record.canResume(at: now) else { return false }
         if record.direction == .outgoing { return record.internetAcknowledged != true }
         return contactInternetReplyOwner(record, access: access) != nil
     }
 
-    private func contactInternetReplyOwner(_ record: ContactInvitationRecord, access: CallNotificationServiceAccess) -> AccountPrincipal? {
+    private func contactInternetReplyOwner(
+        _ record: ContactInvitationRecord, access: CallNotificationServiceAccess
+    ) -> AccountPrincipal? {
         guard let member = record.peerMemberID, let key = record.peerDeviceKey,
               let owner = groupRepository.users.first(where: { $0.deviceKeys?[member] == key })?.principal,
               owner.issuer == access.principal.issuer, owner != access.principal else { return nil }
@@ -110,9 +128,11 @@ extension IntercomViewModel {
                 guard let invitation = payload.token.directInvitation?.context else { continue }
                 let address = try InvitationReplyAddress(contactToken: payload.token)
                 if record.direction == .outgoing {
-                    try await receiveContactInternetAcceptance(record, payload: payload, invitation: invitation, address: address, window: window)
+                    try await receiveContactInternetAcceptance(
+                        record, payload: payload, invitation: invitation, address: address, window: window)
                 } else {
-                    try await submitContactInternetAcceptance(record, payload: payload, invitation: invitation, address: address, window: window)
+                    try await submitContactInternetAcceptance(
+                        record, payload: payload, invitation: invitation, address: address, window: window)
                 }
             } catch InternetAccountClient.Failure.rateLimited {
                 return false
@@ -123,14 +143,20 @@ extension IntercomViewModel {
         return internetReplyWindowIsCurrent(window)
     }
 
-    private func receiveContactInternetAcceptance(_ record: ContactInvitationRecord, payload: ContactInvitationPayload,
-                                                 invitation: DirectInvitationContext, address: InvitationReplyAddress,
-                                                 window: InvitationInternetReplyWindow) async throws {
+    private func receiveContactInternetAcceptance(
+        _ record: ContactInvitationRecord,
+        payload: ContactInvitationPayload,
+        invitation: DirectInvitationContext,
+        address: InvitationReplyAddress,
+        window: InvitationInternetReplyWindow
+    ) async throws {
         guard let key = payload.token.identityProof?.publicKey else { return }
-        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: key)
+        let signer = try internetSettingsStore.invitationSigner(
+            memberID: localMemberIdentity.memberID, expectedPublicKey: key)
         guard signer.principal == window.access.principal, invitation.inviterMemberID == signer.memberID else { return }
         if let bound = payload.receipt {
-            try await acknowledgeContactInternetAcceptance(bound, invitation: invitation, address: address, signer: signer, window: window)
+            try await acknowledgeContactInternetAcceptance(
+                bound, invitation: invitation, address: address, signer: signer, window: window)
             return
         }
         if record.isPendingOutgoing, record.sent != false, !window.openedInvitationIDs.contains(record.id) {
@@ -142,50 +168,67 @@ extension IntercomViewModel {
         for packet in inbox {
             guard contactInternetReplyIsCurrent(record, window: window) else { return }
             let now = callAccessNow().timeIntervalSince1970
-            guard let receipt = try? packet.open(address: address, invitation: invitation, kind: .accepted, signer: signer, now: now),
+            guard
+                let receipt = try? packet.open(
+                    address: address, invitation: invitation, kind: .accepted, signer: signer, now: now),
                   (try? applyContactReply(receipt, receivedBySharing: false)) != nil else { continue }
-            try await acknowledgeContactInternetAcceptance(receipt, invitation: invitation, address: address, signer: signer, window: window)
+            try await acknowledgeContactInternetAcceptance(
+                receipt, invitation: invitation, address: address, signer: signer, window: window)
             return
         }
     }
 
-    private func acknowledgeContactInternetAcceptance(_ receipt: DirectInvitationReceipt, invitation: DirectInvitationContext,
-                                                     address: InvitationReplyAddress, signer: DeviceIdentitySigner,
-                                                     window: InvitationInternetReplyWindow) async throws {
+    private func acknowledgeContactInternetAcceptance(
+        _ receipt: DirectInvitationReceipt,
+        invitation: DirectInvitationContext,
+        address: InvitationReplyAddress,
+        signer: DeviceIdentitySigner,
+        window: InvitationInternetReplyWindow
+    ) async throws {
         guard internetReplyWindowIsCurrent(window),
               contactInvitationRecord(invitation.id)?.state == .confirmed else { return }
         let confirmation = try receipt.acknowledged(by: signer)
-        let sealed = try InvitationReplyPacket.seal(confirmation, address: address, invitation: invitation, now: callAccessNow().timeIntervalSince1970)
+        let sealed = try InvitationReplyPacket.seal(
+            confirmation, address: address, invitation: invitation, now: callAccessNow().timeIntervalSince1970)
         try await window.client.acknowledgeInvitationReply(sealed, address: address, access: window.access)
         guard internetReplyWindowIsCurrent(window) else { return }
         try groupRepository.markContactInternetAcknowledged(invitation.id, receiptID: receipt.id)
         refreshGroupStorageStatus()
     }
 
-    private func submitContactInternetAcceptance(_ record: ContactInvitationRecord, payload: ContactInvitationPayload,
-                                                invitation: DirectInvitationContext, address: InvitationReplyAddress,
-                                                window: InvitationInternetReplyWindow) async throws {
+    private func submitContactInternetAcceptance(
+        _ record: ContactInvitationRecord,
+        payload: ContactInvitationPayload,
+        invitation: DirectInvitationContext,
+        address: InvitationReplyAddress,
+        window: InvitationInternetReplyWindow
+    ) async throws {
         guard let owner = contactInternetReplyOwner(record, access: window.access), let pending = payload.receipt,
               let key = pending.inviteeDeviceKey else { return }
-        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: key)
+        let signer = try internetSettingsStore.invitationSigner(
+            memberID: localMemberIdentity.memberID, expectedPublicKey: key)
         guard signer.principal == window.access.principal else { return }
         let uploadInProgress = contactAcceptanceUploadID(record, access: window.access)
             .map { invitationBackgroundTransfer?.contains($0) == true } ?? false
         if record.internetAcceptanceSubmitted != true, !uploadInProgress {
-            let (packet, admission) = try prepareContactInternetAcceptance(pending, payload: payload, invitation: invitation, address: address)
+            let (packet, admission) = try prepareContactInternetAcceptance(
+                pending, payload: payload, invitation: invitation, address: address)
             do {
-                try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access, admission: admission)
+                try await window.client.submitInvitationAcceptance(
+                    packet, address: address, owner: owner, access: window.access, admission: admission)
             } catch InternetAccountClient.Failure.rejected where admission != nil {
                 // An existing mailbox can still accept replies after the author's session changes.
                 guard contactInternetReplyIsCurrent(record, window: window) else { return }
-                try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access)
+                try await window.client.submitInvitationAcceptance(
+                    packet, address: address, owner: owner, access: window.access)
             }
             guard contactInternetReplyIsCurrent(record, window: window) else { return }
             try groupRepository.markContactInternetAcceptanceSubmitted(record.id, receiptID: pending.id)
             refreshGroupStorageStatus()
         }
         guard contactInternetReplyIsCurrent(record, window: window),
-              let reply = try await window.client.invitationReplyReceipt(id: pending.id, address: address, owner: owner, access: window.access),
+            let reply = try await window.client.invitationReplyReceipt(
+                id: pending.id, address: address, owner: owner, access: window.access),
               contactInternetReplyIsCurrent(record, window: window) else { return }
         let confirmation = try reply.open(address: address, invitation: invitation, kind: .acknowledged, signer: signer,
                                           now: callAccessNow().timeIntervalSince1970)
@@ -196,16 +239,20 @@ extension IntercomViewModel {
                                                   invitation: DirectInvitationContext, address: InvitationReplyAddress)
         throws -> (InvitationReplyPacket, ContactInvitationReplyAdmission?) {
         let now = callAccessNow()
-        let packet = try InvitationReplyPacket.seal(receipt, address: address, invitation: invitation, now: now.timeIntervalSince1970)
+        let packet = try InvitationReplyPacket.seal(
+            receipt, address: address, invitation: invitation, now: now.timeIntervalSince1970)
         let admission = ContactInvitationReplyAdmission(token: payload.token, address: address,
                                                         trust: try internetSettingsStore.identityTrust(), now: now)
         return (packet, admission)
     }
 
-    private func contactInternetReplyIsCurrent(_ record: ContactInvitationRecord, window: InvitationInternetReplyWindow) -> Bool {
+    private func contactInternetReplyIsCurrent(
+        _ record: ContactInvitationRecord, window: InvitationInternetReplyWindow
+    ) -> Bool {
         guard internetReplyWindowIsCurrent(window), let current = contactInvitationRecord(record.id),
               current.state == record.state, current.receiptID == record.receiptID,
               current.credentialReference == record.credentialReference else { return false }
-        return contactInternetReplyIsEligible(current, access: window.access, now: callAccessNow().timeIntervalSince1970)
+        return contactInternetReplyIsEligible(
+            current, access: window.access, now: callAccessNow().timeIntervalSince1970)
     }
 }

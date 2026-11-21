@@ -36,7 +36,8 @@ extension IntercomViewModel {
               hasInternetInvitationReplies(access: access) else { return }
         scheduleBackgroundContactAcceptances(access: access)
         let contactIDs = Set(internetContactReplyRecords(access: access).map(\.id))
-        if let window = invitationInternetReplyWindow, !restart, window.access == access, window.generation == accountAccessID {
+        if let window = invitationInternetReplyWindow, !restart, window.access == access,
+            window.generation == accountAccessID {
             activeInternetContactReplyIDs = contactIDs
             return
         }
@@ -53,6 +54,11 @@ extension IntercomViewModel {
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             self?.stopInvitationInternetReply(id: id)
         }
+        scheduleInternetReplyAttempts(for: window)
+    }
+
+    private func scheduleInternetReplyAttempts(for window: InvitationInternetReplyWindow) {
+        let id = window.id
         let delays = [Duration.zero] + invitationInternetReplyRetryDelays
         window.task = Task { [weak self] in
             defer { self?.stopInvitationInternetReply(id: id) }
@@ -64,7 +70,8 @@ extension IntercomViewModel {
             for delay in delays {
                 do { if delay > .zero { try await Task.sleep(for: delay) } } catch { return }
                 guard let self, let window = self.invitationInternetReplyWindow, window.id == id,
-                      self.internetReplyWindowIsCurrent(window), self.hasInternetInvitationReplies(access: window.access)
+                    self.internetReplyWindowIsCurrent(window),
+                    self.hasInternetInvitationReplies(access: window.access)
                 else { return }
                 if !(await self.synchronizeInternetContactReplies(window)) { return }
                 if !(await self.synchronizeOrdinaryGroupInternetReplies(window)) { return }
@@ -99,9 +106,12 @@ extension IntercomViewModel {
         }
     }
 
-    private func internetOrdinaryReplyOwner(for invitation: DirectInvitationContext, access: CallNotificationServiceAccess) -> AccountPrincipal? {
+    private func internetOrdinaryReplyOwner(
+        for invitation: DirectInvitationContext, access: CallNotificationServiceAccess
+    ) -> AccountPrincipal? {
         guard let key = invitation.inviterDeviceKey,
-              let owner = savedRemoteUsers.first(where: { $0.deviceKeys?[invitation.inviterMemberID] == key })?.principal,
+            let owner = savedRemoteUsers.first(where: { $0.deviceKeys?[invitation.inviterMemberID] == key })?
+                .principal,
               owner.issuer == access.principal.issuer else { return nil }
         return owner
     }
@@ -113,22 +123,33 @@ extension IntercomViewModel {
             guard let target = internetReplyTarget(invitation) else { continue }
             do {
                 try await receiveOrdinaryGroupInternetAcceptances(target, window: window)
-            } catch InternetAccountClient.Failure.rateLimited { return false } catch { /* A later pass can try the invitation again. */  }
+            } catch InternetAccountClient.Failure.rateLimited {
+                return false
+            } catch {
+                // A later pass can try the invitation again.
+            }
         }
         for invitation in groupRepository.pendingOrdinaryGroupReplies(now: Date().timeIntervalSince1970) {
             guard internetReplyWindowIsCurrent(window) else { return false }
             if let target = internetReplyTarget(invitation) {
                 do {
                     try await submitOrdinaryGroupInternetAcceptance(target, window: window)
-                } catch InternetAccountClient.Failure.rateLimited { return false } catch { /* The pending receipt stays saved. */  }
+                } catch InternetAccountClient.Failure.rateLimited {
+                    return false
+                } catch {
+                    // The pending receipt stays saved.
+                }
             }
         }
         return internetReplyWindowIsCurrent(window) && hasInternetInvitationReplies(access: window.access)
     }
 
     private func internetReplyTarget(_ invitation: DirectInvitationContext) -> InternetReplyTarget? {
-        guard let saved = groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970),
-              let address = try? InvitationReplyAddress(invitation: invitation, credential: saved.credential) else { return nil }
+        guard
+            let saved = groupRepository.ordinaryGroupReplyCredential(
+                for: invitation, now: Date().timeIntervalSince1970),
+            let address = try? InvitationReplyAddress(invitation: invitation, credential: saved.credential)
+        else { return nil }
         return .init(invitation: invitation, savedCredential: saved, address: address)
     }
 
@@ -139,10 +160,13 @@ extension IntercomViewModel {
 
     private func internetReplyIsCurrent(_ target: InternetReplyTarget, window: InvitationInternetReplyWindow) -> Bool {
         internetReplyWindowIsCurrent(window)
-            && groupRepository.ordinaryGroupReplyCredential(for: target.invitation, now: Date().timeIntervalSince1970) == target.savedCredential
+            && groupRepository.ordinaryGroupReplyCredential(
+                for: target.invitation, now: Date().timeIntervalSince1970) == target.savedCredential
     }
 
-    private func receiveOrdinaryGroupInternetAcceptances(_ target: InternetReplyTarget, window: InvitationInternetReplyWindow) async throws {
+    private func receiveOrdinaryGroupInternetAcceptances(
+        _ target: InternetReplyTarget, window: InvitationInternetReplyWindow
+    ) async throws {
         let invitation = target.invitation, address = target.address
         guard let signer = ordinaryGroupInviterSigner(for: invitation) else { return }
         if !window.openedInvitationIDs.contains(invitation.id) {
@@ -153,29 +177,43 @@ extension IntercomViewModel {
         let inbox = try await window.client.invitationReplyInbox(address, access: window.access)
         for packet in inbox {
             guard internetReplyIsCurrent(target, window: window) else { return }
-            guard let receipt = try? packet.open(address: address, invitation: invitation, kind: .accepted, signer: signer),
+            guard
+                let receipt = try? packet.open(
+                    address: address, invitation: invitation, kind: .accepted, signer: signer),
                   let confirmation = applyInvitationReceipt(receipt, from: receipt.inviteeMemberID, standalone: true),
-                  let response = try? InvitationReplyPacket.seal(confirmation, address: address, invitation: invitation) else { continue }
+                let response = try? InvitationReplyPacket.seal(
+                    confirmation, address: address, invitation: invitation)
+            else { continue }
             try await window.client.acknowledgeInvitationReply(response, address: address, access: window.access)
         }
     }
 
-    private func submitOrdinaryGroupInternetAcceptance(_ target: InternetReplyTarget, window: InvitationInternetReplyWindow) async throws {
+    private func submitOrdinaryGroupInternetAcceptance(
+        _ target: InternetReplyTarget, window: InvitationInternetReplyWindow
+    ) async throws {
         let invitation = target.invitation, address = target.address
         guard let owner = internetOrdinaryReplyOwner(for: invitation, access: window.access),
-              let pending = groupRepository.pendingInvitation(for: invitation.groupID), pending.invitation == invitation,
+            let pending = groupRepository.pendingInvitation(for: invitation.groupID),
+            pending.invitation == invitation,
               let expectedKey = pending.inviteeDeviceKey,
-              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey) else { return }
+            let signer = try? internetSettingsStore.invitationSigner(
+                memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)
+        else { return }
         if !window.submittedReceiptIDs.contains(pending.id) {
             let packet = try InvitationReplyPacket.seal(pending, address: address, invitation: invitation)
-            try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access)
+            try await window.client.submitInvitationAcceptance(
+                packet, address: address, owner: owner, access: window.access)
             window.submittedReceiptIDs.insert(pending.id)
         }
         guard internetReplyIsCurrent(target, window: window),
-              let reply = try await window.client.invitationReplyReceipt(id: pending.id, address: address, owner: owner, access: window.access),
+            let reply = try await window.client.invitationReplyReceipt(
+                id: pending.id, address: address, owner: owner, access: window.access),
               internetReplyIsCurrent(target, window: window),
-              let confirmation = try? reply.open(address: address, invitation: invitation, kind: .acknowledged, signer: signer),
-              (try? confirmation.verifyAcknowledgement(of: pending, trust: internetSettingsStore.identityTrust(), now: Date().timeIntervalSince1970)) != nil
+            let confirmation = try? reply.open(
+                address: address, invitation: invitation, kind: .acknowledged, signer: signer),
+            (try? confirmation.verifyAcknowledgement(
+                of: pending, trust: internetSettingsStore.identityTrust(), now: Date().timeIntervalSince1970))
+                != nil
         else { return }
         _ = applyInvitationReceipt(confirmation, from: confirmation.inviterMemberID, standalone: true)
     }

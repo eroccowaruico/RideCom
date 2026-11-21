@@ -26,7 +26,8 @@ extension IntercomViewModel {
               group.members.contains(where: { $0.id == localMemberIdentity.memberID }),
               !groupsMissingKeys.contains(group.id) || group.accessSecret != nil else { return false }
         guard group.kind == .direct || canManageRegularGroups else { return false }
-        return group.kind != .direct || directCallRecipient(for: group) != nil || directCallAccountRecipient(for: group) != nil
+        return group.kind != .direct || directCallRecipient(for: group) != nil
+            || directCallAccountRecipient(for: group) != nil
     }
 
     func makeGroupInviteURL(for groupID: UUID) -> URL? {
@@ -50,7 +51,8 @@ extension IntercomViewModel {
             let token = try GroupInviteToken.make(authority: invitationAuthority, signer: signer,
                 groupID: group.id, groupName: group.name, groupSecret: credential.secret,
                 inviterMemberID: localMemberIdentity.memberID, inviterDisplayName: localMemberIdentity.displayName,
-                recipientMemberID: directCallRecipient(for: group), recipientAccount: directCallAccountRecipient(for: group))
+                recipientMemberID: directCallRecipient(for: group),
+                recipientAccount: directCallAccountRecipient(for: group))
             let url = try GroupInviteTokenCodec.joinURL(for: token)
             if group.kind == .group, let invitation = token.directInvitation?.context {
                 try groupRepository.rememberIssuedOrdinaryGroupInvitation(invitation, now: Date().timeIntervalSince1970)
@@ -59,7 +61,8 @@ extension IntercomViewModel {
             }
             return url
         } catch GroupInviteTokenError.accountVerificationRequired {
-            groupErrorMessage = "Verify your account in Internet Connection before sharing a new individual call invitation."
+            groupErrorMessage =
+                "Verify your account in Internet Connection before sharing a new individual call invitation."
             return nil
         } catch GroupInviteTokenError.activeOrdinaryGroupInvitationLimit {
             groupErrorMessage = "Too many active group invitation links. Try again after an earlier link expires."
@@ -82,10 +85,14 @@ extension IntercomViewModel {
 
     func signedPendingInvitationReceipt(for groupID: UUID) -> DirectInvitationReceipt? {
         guard canEditSavedGroups, var receipt = groupRepository.pendingInvitation(for: groupID),
-              let invitation = receipt.invitation, invitation.expiresAt > Date().timeIntervalSince1970, receipt.proof != nil, receipt.acceptanceProof != nil,
-              receipt.inviteeMemberID == localMemberIdentity.memberID, let expectedKey = receipt.inviteeDeviceKey else { return nil }
+            let invitation = receipt.invitation, invitation.expiresAt > Date().timeIntervalSince1970,
+            receipt.proof != nil, receipt.acceptanceProof != nil,
+            receipt.inviteeMemberID == localMemberIdentity.memberID, let expectedKey = receipt.inviteeDeviceKey
+        else { return nil }
         receipt.displayName = localMemberIdentity.displayName
-        guard let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey),
+        guard
+            let signer = try? internetSettingsStore.invitationSigner(
+                memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey),
               let proof = try? signer.sign(receipt.identityMessage(), purpose: .acceptInvitation) else { return nil }
         receipt.acceptanceProof = proof
         return receipt
@@ -106,14 +113,21 @@ extension IntercomViewModel {
         }
     }
 
-    func applyInvitationReceipt(_ receipt: DirectInvitationReceipt, from peerID: String, standalone: Bool) -> DirectInvitationReceipt? {
+    func applyInvitationReceipt(_ receipt: DirectInvitationReceipt, from peerID: String, standalone: Bool)
+        -> DirectInvitationReceipt? {
         do {
             switch receipt.kind {
             case .accepted:
-                guard receipt.inviterMemberID == localMemberIdentity.memberID, receipt.inviteeMemberID == peerID else { return nil }
-                guard let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust()),
+                guard receipt.inviterMemberID == localMemberIdentity.memberID, receipt.inviteeMemberID == peerID
+                else { return nil }
+                guard
+                    let verified = try invitationAuthority.verify(
+                        receipt, trust: internetSettingsStore.identityTrust()),
                       let expectedKey = receipt.invitation?.inviterDeviceKey,
-                      !standalone || groupRepository.allowsStandaloneOrdinaryReply(for: receipt.groupID, from: verified.identity) else { return nil }
+                    !standalone
+                        || groupRepository.allowsStandaloneOrdinaryReply(
+                            for: receipt.groupID, from: verified.identity)
+                else { return nil }
                 let signer = Result { try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
                                                                                   expectedPublicKey: expectedKey) }
                 try groupRepository.receiveInvitation(verified, signer: try? signer.get())
@@ -121,12 +135,16 @@ extension IntercomViewModel {
                 refreshGroupStorageStatus()
                 return try receipt.acknowledged(by: signer.get())
             case .acknowledged:
-                guard receipt.inviterMemberID == peerID, receipt.inviteeMemberID == localMemberIdentity.memberID else { return nil }
+                guard receipt.inviterMemberID == peerID, receipt.inviteeMemberID == localMemberIdentity.memberID
+                else { return nil }
                 let signer = receipt.inviteeDeviceKey.flatMap {
-                    try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: $0)
+                    try? internetSettingsStore.invitationSigner(
+                        memberID: localMemberIdentity.memberID, expectedPublicKey: $0)
                 }
                 let trust = try? internetSettingsStore.identityTrust()
-                guard try groupRepository.acknowledgeInvitation(receipt, signer: signer, trust: trust) else { return nil }
+                guard try groupRepository.acknowledgeInvitation(receipt, signer: signer, trust: trust) else {
+                    return nil
+                }
                 adoptStoredDeviceCall(with: peerID)
                 refreshGroupStorageStatus()
             }
