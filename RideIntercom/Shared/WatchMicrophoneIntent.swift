@@ -11,8 +11,8 @@ struct WatchMicrophoneIntent {
         if scene != .active { close() }
     }
 
-    mutating func request(_ on: Bool) {
-        if !on { close() } else if scene == .active { isOn = true }
+    mutating func request(_ shouldOpen: Bool) {
+        if !shouldOpen { close() } else if scene == .active { isOn = true }
     }
 
     mutating func close() { isOn = false }

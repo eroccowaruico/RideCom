@@ -42,7 +42,7 @@ final class WatchControlClient {
         do {
             // A long-running call may outlive its displayed snapshot. Refresh once on
             // interaction, never poll or enqueue a delayed microphone/start command.
-            if action != .refresh, snapshot == nil || snapshot!.validUntil <= now() {
+            if action != .refresh, snapshot.map({ $0.validUntil <= now() }) ?? true {
                 let updated = try await send(.init(.refresh))
                 guard generation == connectionGeneration else { return nil }
                 receive(updated.snapshot)

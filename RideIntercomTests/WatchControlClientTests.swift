@@ -46,16 +46,21 @@ struct WatchControlClientTests {
         #expect(client.snapshot == nil && !client.isWaiting && client.problem == .unavailable)
     }
     @Test func expiredDisplayRefreshesOnceAndDoesNotControlAChangedCall() async {
-        let now = Date(); let old = snapshot(at: now.addingTimeInterval(-121)); let current = snapshot("new call", at: now)
+        let now = Date(); let old = snapshot(at: now.addingTimeInterval(-121))
+        let current = snapshot("new call", at: now)
         var actions: [WatchCallAction] = []
-        let client = WatchControlClient(now: { now }) { request in actions.append(request.action); return .init(snapshot: current, problem: nil) }
+        let client = WatchControlClient(now: { now }, send: { request in
+            actions.append(request.action)
+            return .init(snapshot: current, problem: nil)
+        })
         client.setReachable(true); client.receive(old)
         await client.perform(.end)
         #expect(actions == [.refresh] && client.problem == .stale)
         #expect(client.snapshot?.reference == "new call")
     }
     @Test func newerContextWinsOverAnOlderReply() async {
-        let now = Date(); let older = snapshot(at: now); let newer = snapshot("new login", at: now.addingTimeInterval(1))
+        let now = Date(); let older = snapshot(at: now)
+        let newer = snapshot("new login", at: now.addingTimeInterval(1))
         let client = WatchControlClient { _ in .init(snapshot: older, problem: nil) }
         client.setReachable(true); client.receive(newer)
         await client.perform(.refresh)
@@ -64,7 +69,10 @@ struct WatchControlClientTests {
     @Test func longCallRefreshesExpiredStateThenAppliesOnlyTheExplicitMuteValue() async {
         let now = Date(); let old = snapshot(at: now.addingTimeInterval(-121)); let current = snapshot(at: now)
         var actions: [WatchCallAction] = []
-        let client = WatchControlClient(now: { now }) { request in actions.append(request.action); return .init(snapshot: current, problem: nil) }
+        let client = WatchControlClient(now: { now }, send: { request in
+            actions.append(request.action)
+            return .init(snapshot: current, problem: nil)
+        })
         client.setReachable(true); client.receive(old)
         await client.perform(.setMuted(false))
         #expect(actions == [.refresh, .setMuted(false)] && client.problem == nil)
