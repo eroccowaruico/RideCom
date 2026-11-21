@@ -28,8 +28,8 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 | Identifiers → App IDs | `com.yowamushi-inc.RideIntercom.RideIntercom.watchkitapp` | Watch App用の明示ID。親Appのbundle IDを`WKCompanionAppBundleIdentifier`へ指定済み |
 | Identifiers → App Groups | `group.com.yowamushi-inc.RideIntercom.CallWidgets` | AppとWidgetの両IDへ割り当てる。macOSでも`group.`形式は使用できるが、そのgroupを含むprofileが必要 |
 | Profiles | 上記のApp/Widget/Watch IDと実際の配布先 | capability変更後に再生成／ダウンロードし、XcodeのSigning & Capabilitiesで正しいteamとprofileを選択。自動管理の場合も取得結果を検証 |
-| Keys → Apple Push Notifications service | 通知provider用のkey | 対象topicと環境への送信権限を確認する。p8・Key ID・Team IDを対応するWorker secretへ設定。App・Git・ログへ置かない |
-| Keys → Sign in with Apple | AppのApple認可取消用のkey | 対象App IDに対応する`.p8`をWorker secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key ID・Team IDを通常Variable `APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerが短期client-secret JWTを生成・更新する。APNs鍵と取り違えない |
+| Keys → Apple Push Notifications service | 通知provider用のkey | 対象topicと環境への送信権限を確認する。p8はWorker secret `APNS_PRIVATE_KEY`へ、Key IDは通常Variable `APNS_KEY_ID`へ設定する。Team IDは共通の`APPLE_TEAM_ID`を使い、p8をApp・Git・ログへ置かない |
+| Keys → Sign in with Apple | AppのApple認可取消用のkey | 対象App IDに対応する`.p8`をWorker secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key IDを通常Variable `APPLE_SIGN_IN_KEY_ID`へ一度登録する。Team IDは共通の`APPLE_TEAM_ID`を使う。Workerが短期client-secret JWTを生成・更新し、APNs鍵と取り違えない |
 
 2026-10-31の読取監査では、既存profileファイル6件のうち現App IDに一致する4件（iOS用3、macOS用1）は期限内だったが、いずれもSign in with Appleと今回のApp Groupを含まなかった。Widget/Watchの上記IDに一致するprofileはローカル一覧に見つからなかった。これは**インストール済みprofileの不足**であり、Developer portalに登録がないと断定しない。portalは未照会である。Apple Development／Apple Distribution／Developer ID Applicationのidentityは読取で確認できたが、鍵のunlock、Apple ID再認証、profile取得・署名は実行していない。
 
@@ -47,7 +47,7 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 | 通常Archive | schemeのRelease／productionを使用。Export後の実entitlementも確認する。profileやexportによる再署名がInfoと違う環境に変わったartifactは配布しない |
 | Releaseの開発署名試用 | development profileで試用する場合は、単一Build Settingを`development`へ明示上書きし、App Infoと署名を一緒に合わせる。公開Archiveと混同しない |
 
-APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`、`APNS_ENVIRONMENT`。secretは`APNS_PRIVATE_KEY`、`APNS_KEY_ID`、`APNS_TEAM_ID`、既存の`DEVICE_IDENTITY_SIGNING_KEY`である。topicはWidget/WatchではなくAppの`com.yowamushi-inc.RideIntercom.RideIntercom`とする。[通知server仕様](../spec/server/通知.md)に従い、main/previewの既定`NOTIFICATIONS_ENABLED=false`を保ち、topicは両環境へ上記の確定値を設定した。ProductionはRelease／TestFlightに合わせproduction、PreviewはDebug向けsandbox。TestFlight Internal Onlyもproductionであり、Previewへ接続する場合はそのPreviewの環境と鍵を合わせる。環境別のWorker設定、通知用binding/migration、App側登録・取消が揃った後、明示された実サービス受入で確認する。通知の有効化で音声サービス・購入商品を同時に有効化しない。
+APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`、`APNS_ENVIRONMENT`、`APNS_KEY_ID`、共通の`APPLE_TEAM_ID`。secretは`APNS_PRIVATE_KEY`と既存の`DEVICE_IDENTITY_SIGNING_KEY`である。topicはWidget/WatchではなくAppの`com.yowamushi-inc.RideIntercom.RideIntercom`とする。[通知server仕様](../spec/server/通知.md)に従い、topicは両環境へ上記の確定値を設定した。ProductionはRelease／TestFlightに合わせproduction、PreviewはDebug向けsandbox。TestFlight Internal Onlyもproductionであり、Previewへ接続する場合はそのPreviewの環境と鍵を合わせる。環境別のWorker設定、通知用binding/migration、App側登録・取消が揃った後、明示された実サービス受入で確認する。通知の有効化で音声サービス・購入商品を同時に有効化しない。
 
 ## 商品と配布の残設定
 

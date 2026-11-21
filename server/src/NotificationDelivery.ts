@@ -4,7 +4,7 @@ import type { NotificationDevice } from './AccountNotifications'
 
 export function notificationsConfigured(env: Env): boolean {
     return env.NOTIFICATIONS_ENABLED === 'true' && !!env.DEVICE_IDENTITY_SIGNING_KEY && !!env.APNS_PRIVATE_KEY
-        && !!env.APNS_KEY_ID && !!env.APNS_TEAM_ID && !!env.APNS_TOPIC
+        && !!env.APNS_KEY_ID && !!env.APPLE_TEAM_ID && !!env.APNS_TOPIC
         && ['sandbox', 'production'].includes(env.APNS_ENVIRONMENT ?? '')
 }
 
@@ -12,14 +12,14 @@ export function notificationsConfigured(env: Env): boolean {
 // avoids per-push signing; production connection reuse remains an APNs acceptance check.
 let providerCredential: { configuration: string; issuedAt: number; token: Promise<string> } | undefined
 export async function notificationProviderToken(env: Env): Promise<string> {
-    const configuration = JSON.stringify([env.APNS_PRIVATE_KEY, env.APNS_KEY_ID, env.APNS_TEAM_ID])
+    const configuration = JSON.stringify([env.APNS_PRIVATE_KEY, env.APNS_KEY_ID, env.APPLE_TEAM_ID])
     const issuedAt = Math.floor(Date.now() / 1000)
     if (providerCredential?.configuration === configuration && issuedAt >= providerCredential.issuedAt
         && issuedAt - providerCredential.issuedAt < 50 * 60) return providerCredential.token
     const entry = { configuration, issuedAt, token: (async () => {
         const key = await importPKCS8(env.APNS_PRIVATE_KEY!, 'ES256')
         return new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: env.APNS_KEY_ID! })
-            .setIssuer(env.APNS_TEAM_ID!).setIssuedAt(issuedAt).sign(key)
+            .setIssuer(env.APPLE_TEAM_ID!).setIssuedAt(issuedAt).sign(key)
     })() }
     providerCredential = entry
     try { return await entry.token }

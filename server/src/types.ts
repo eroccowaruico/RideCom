@@ -9,10 +9,9 @@ export interface Env extends Omit<WorkerBindings, 'SIGNALING_ROOM' | 'USAGE_GUAR
     CLOUDFLARE_TURN_API_TOKEN?: string
     APPLE_SIGN_IN_PRIVATE_KEY?: string
     APPLE_SIGN_IN_KEY_ID?: string
-    APPLE_SIGN_IN_TEAM_ID?: string
+    APPLE_TEAM_ID?: string
     APNS_PRIVATE_KEY?: string
     APNS_KEY_ID?: string
-    APNS_TEAM_ID?: string
     DEVICE_IDENTITY_SIGNING_KEY?: string
     INVITATION_RELAY_KEY_SEED?: string
     CLIENT_TOKENS_JSON: string

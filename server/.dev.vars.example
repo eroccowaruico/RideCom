@@ -8,12 +8,12 @@ CLIENT_TOKENS_JSON="{}"
 # The Worker derives short-lived client-secret JWTs; do not store a generated JWT here.
 APPLE_SIGN_IN_PRIVATE_KEY=""
 APPLE_SIGN_IN_KEY_ID=""
-APPLE_SIGN_IN_TEAM_ID=""
+APPLE_TEAM_ID=""
 
-# Optional notification delivery secrets. Leave empty for local/default-disabled use.
+# Optional notification delivery settings. Leave empty for local/default-disabled use.
 # Never use operational APNs keys in automated tests; the tests create ephemeral fixtures.
 APNS_PRIVATE_KEY=""
+# Non-secret Key ID; production and preview values live in wrangler.toml.
 APNS_KEY_ID=""
-APNS_TEAM_ID=""
 # NOTIFICATIONS_ENABLED, APNS_TOPIC and APNS_ENVIRONMENT are non-secret wrangler vars.
 # DEVICE_IDENTITY_SIGNING_KEY is the existing native identity signing secret.

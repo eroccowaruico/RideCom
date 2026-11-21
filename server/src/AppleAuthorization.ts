@@ -17,7 +17,7 @@ let cachedClientSecret: {
 
 export function appleAuthorizationConfigured(env: Env): boolean {
     return Boolean(env.APPLE_CLIENT_ID && env.APPLE_SIGN_IN_PRIVATE_KEY
-        && env.APPLE_SIGN_IN_KEY_ID && env.APPLE_SIGN_IN_TEAM_ID)
+        && env.APPLE_SIGN_IN_KEY_ID && env.APPLE_TEAM_ID)
 }
 
 async function appleClientSecret(env: Env): Promise<string> {
@@ -25,7 +25,7 @@ async function appleClientSecret(env: Env): Promise<string> {
     const clientID = env.APPLE_CLIENT_ID!
     const privateKey = env.APPLE_SIGN_IN_PRIVATE_KEY!
     const keyID = env.APPLE_SIGN_IN_KEY_ID!
-    const teamID = env.APPLE_SIGN_IN_TEAM_ID!
+    const teamID = env.APPLE_TEAM_ID!
     const issuedAt = Math.floor(Date.now() / 1000)
     if (cachedClientSecret && cachedClientSecret.clientID === clientID
         && cachedClientSecret.privateKey === privateKey && cachedClientSecret.keyID === keyID

@@ -23,9 +23,10 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
 | DEVICE_IDENTITY_SIGNING_KEY | Secret | 環境ごとに生成し安全に保管したEC P-256秘密鍵のJWK JSON（kty・crv・x・y・dを含む）。端末証明と用途別通知許可の署名に使用し、継続して保持する |
 | APPLE_SIGN_IN_PRIVATE_KEY | Secret | AppleのSign in with Apple用`.p8`全文。Workerが削除時のApple認可取消に必要な短期client-secret JWTを自動生成する。APNsのp8とは別 |
-| APPLE_SIGN_IN_KEY_ID / APPLE_SIGN_IN_TEAM_ID | Variable | 上記Sign in with Apple鍵のKey IDとTeam ID。Productionは`vars`、PreviewはPreviews BaseのVariableへ設定し、画面で対応を再確認できるようにする |
+| APPLE_SIGN_IN_KEY_ID | Variable | 上記Sign in with Apple鍵のKey ID。Productionは`vars`、Previewは`previews.vars`へ設定する |
+| APPLE_TEAM_ID | Variable | Sign in with AppleとAPNsで共通のApple Developer Team ID。Productionは`vars`、Previewは`previews.vars`へ設定し、環境内で一つに集約する |
 | APNS_PRIVATE_KEY | Secret | Appleで作成するAPNs用p8（PKCS8 P-256）。対象環境・topicへの送信権限がある鍵 |
-| APNS_KEY_ID / APNS_TEAM_ID | Secret | 上記APNs鍵のKey IDとTeam ID |
+| APNS_KEY_ID | Variable | 上記APNs鍵のKey ID。Productionは`vars`、Previewは`previews.vars`へ設定する |
 | APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
 | APNS_ENVIRONMENT | Variable | Productionは`production`、PreviewはDebug向けの`sandbox`。TestFlightからPreviewを使うときはそのPreviewも`production`へ合わせる |
 | APPLE_AUTH_ENABLED | Variable | 両環境の既定false。Apple App ID・profile・証明署名鍵が揃った環境だけtrueにする |
@@ -60,7 +61,7 @@ Cloudflare設定チャットから引き継いだ残件は、実SFU/TURNを通�
 
 ## Apple登録入口の保護
 
-削除時のApple認可取消には、AppleのSign in with Apple用`.p8`全文を環境別secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key IDとTeam IDを通常Variable `APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerは`APPLE_CLIENT_ID`と組み合わせ、有効期間5分のclient-secret JWTを必要時に生成し、残り1分で自動更新する。期限付きJWTの手動作成・登録・更新は行わない。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens) `.p8`を通常変数・Git・ログへ入れず、APNs用の鍵と取り違えない。3項目のどれかが未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
+削除時のApple認可取消には、AppleのSign in with Apple用`.p8`全文を環境別secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key IDを通常Variable `APPLE_SIGN_IN_KEY_ID`へ登録する。Team IDはAPNsと共通の通常Variable `APPLE_TEAM_ID`を使う。Workerは`APPLE_CLIENT_ID`と組み合わせ、有効期間5分のclient-secret JWTを必要時に生成し、残り1分で自動更新する。期限付きJWTの手動作成・登録・更新は行わない。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens) `.p8`を通常変数・Git・ログへ入れず、APNs用の鍵と取り違えない。3項目のどれかが未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
 
 旧`APPLE_CLIENT_SECRET`から本番を止めずに移行する順序は、(1) 新しい`.p8` secretとKey ID／Team ID Variableを登録、(2) この実装のWorkerを配置、(3) 実Appleコード交換と取消を確認、(4) 旧secretを削除、の順とする。旧Workerは新しい3項目を参照しないため先行登録できる。新Workerは旧secretへフォールバックしないため、配置前に3項目を揃える。
 
@@ -206,10 +207,10 @@ Debug端末で届きTestFlightで届かない場合は、署名済みAppのentit
 |---|---|---|
 | APNsとAppleの公開値 | APNS_ENVIRONMENTはproduction。APNS_TOPICとAPPLE_CLIENT_IDはApp IDと一致 | APNS_ENVIRONMENTはsandbox。APNS_TOPICとAPPLE_CLIENT_IDは同じApp ID |
 | Durable Objects | 5 binding、migration v3 | 5 binding、migration v3 |
-| 現在の設定 | Apple登録、SFU、TURNのProduction用ID Variableと認証Secretを登録済み。APNsは未設定 | SFU App IDと`CLOUDFLARE_SFU_APP_SECRET`、旧手動試用の`CLIENT_TOKENS_JSON`を確認 |
-| Apple・通知で残る設定 | Apple登録は設定済み。APNsの3項目を登録し、通知を受け入れる。期限付きclient-secret JWTは登録しない | 同じ項目を対象Preview用に登録。既存の固定Previewを対象にする |
+| 現在の設定 | Apple登録、SFU、TURN、APNsのProduction用ID Variableと認証Secretを登録済み | APNsのKey ID・共通Team IDを`previews.vars`、`APNS_PRIVATE_KEY`を固定PreviewのSecretへ登録済み。環境はsandbox |
+| Apple・通知で残る設定 | Apple登録と通知は有効。実Apple登録と実APNs配送を受け入れる。期限付きclient-secret JWTは登録しない | 再配置後のSecret bindingと実APNs配送を受け入れる |
 | SFUで残る設定 | SERVICE_ENABLEDとTURN_ENABLEDはtrue。実SFUとrelay経路の双方向音声を受け入れる | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
-| 現在の有効化フラグ | APPLE_AUTH_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはtrue。NOTIFICATIONS_ENABLED・DEVICE_ATTESTATION_ENABLEDはfalse | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。SERVICE_ENABLEDはtrue |
+| 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはtrue。DEVICE_ATTESTATION_ENABLEDはfalse | NOTIFICATIONS_ENABLED・SERVICE_ENABLEDはtrue。APPLE_AUTH_ENABLED・TURN_ENABLED・DEVICE_ATTESTATION_ENABLEDはfalse |
 
 Apple登録と通知は鍵・プロフィール・APNsの環境を揃えてから、対象環境でAPPLE_AUTH_ENABLEDとNOTIFICATIONS_ENABLEDを有効にする。TestFlightで固定Previewを使う場合は、production APNsに対応する設定と署名を同じPreviewへ揃える。
 

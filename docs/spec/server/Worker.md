@@ -239,7 +239,7 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 | APPLE_CLIENT_ID | com.yowamushi-inc.RideIntercom.RideIntercom | Apple identity tokenのaudience。iOS/macOS AppのBundle IDと一致させる |
 | APPLE_SIGN_IN_PRIVATE_KEY | secret未設定 | Appleコード交換と認可取消用のSign in with Apple `.p8`。Workerが短期client-secret JWTを生成する。APNs鍵と共用せず、端末へ渡さない |
 | APPLE_SIGN_IN_KEY_ID | Variable未設定 | 上記Sign in with Apple鍵のKey ID。画面で対応を確認できる通常Variable |
-| APPLE_SIGN_IN_TEAM_ID | Variable未設定 | 上記Sign in with Apple鍵を所有するTeam ID。画面で対応を確認できる通常Variable |
+| APPLE_TEAM_ID | Variable未設定 | Sign in with Apple鍵とAPNs鍵を所有する共通のApple Developer Team ID |
 | MAX_ROOM_PARTICIPANTS | 8 | hard maximumも8 |
 | MAX_ACTIVE_SESSIONS | 32 | 全部屋共通、maximum512 |
 | MONTHLY_PARTICIPANT_SECONDS | 1,000,000 | UTC月でリセット。失敗/早期切断の予約も返金しない |

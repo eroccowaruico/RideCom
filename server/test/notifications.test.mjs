@@ -9,7 +9,7 @@ const applePublic = { ...await exportJWK(apple.publicKey), kid: 'notification-ap
 const signing = await generateKeyPair('ES256', { extractable: true });
 const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CLIENT_TOKENS_JSON: '{}',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
-    APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APNS_TEAM_ID: 'fixtureteam',
+    APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
     APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' };
 const call = (r, path, body, token, method = 'POST') => r.dispatchFetch('https://worker.test' + path, {
     method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77', ...(token ? { Authorization: `Bearer ${token}` } : {}) },

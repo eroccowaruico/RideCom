@@ -16,7 +16,7 @@ const appleClientKeys = await generateKeyPair('ES256', { extractable: true });
 const appleClientConfiguration = {
     APPLE_SIGN_IN_PRIVATE_KEY: await exportPKCS8(appleClientKeys.privateKey),
     APPLE_SIGN_IN_KEY_ID: 'SIGNINKEY1',
-    APPLE_SIGN_IN_TEAM_ID: 'TEAMID1234'
+    APPLE_TEAM_ID: 'TEAMID1234'
 };
 const call = (runtime, path, body, token, method = 'POST') => runtime.dispatchFetch(`https://worker.test${path}`, {
     method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -1014,7 +1014,7 @@ test('deletion verifies Apple code ownership and revokes before reporting comple
         const clientSecret = form.get('client_secret');
         assert.ok(clientSecret);
         const { payload, protectedHeader } = await jwtVerify(clientSecret, appleClientKeys.publicKey, {
-            algorithms: ['ES256'], issuer: appleClientConfiguration.APPLE_SIGN_IN_TEAM_ID,
+            algorithms: ['ES256'], issuer: appleClientConfiguration.APPLE_TEAM_ID,
             audience: 'https://appleid.apple.com', subject: audience
         });
         assert.equal(protectedHeader.kid, appleClientConfiguration.APPLE_SIGN_IN_KEY_ID);

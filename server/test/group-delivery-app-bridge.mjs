@@ -31,7 +31,7 @@ const applePublic = { ...await exportJWK(apple.publicKey), kid: 'group-app-fixtu
 const runtime = await makeRuntime({ APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CLIENT_TOKENS_JSON: '{}',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
-    APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APNS_TEAM_ID: 'fixtureteam',
+    APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
     APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' }, { appleKeys: [applePublic], apns: async () => Response.json({}) });
 const origin = 'https://delivery.test';
 const dispatch = (path, method, body, token) => runtime.dispatchFetch(origin + path, { method,
