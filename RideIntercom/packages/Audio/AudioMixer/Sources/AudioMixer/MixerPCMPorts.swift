@@ -23,7 +23,7 @@ public final class MixerPCMSource {
     // Fastest observed transit: local arrival time minus remote capture time.
     // It may rise only as fast as independent device clocks can drift.
     private var fastestTransit: (seconds: Double, observedAt: TimeInterval)?
-    private var arrivalBatch: (firstCapture: TimeInterval, lastArrival: TimeInterval, previousDuration: TimeInterval)?
+    private var arrivalBatch: ArrivalBatch?
     static let clockDriftAllowance = 0.0002
     static let jitterMarginHold: TimeInterval = 10
     static let jitterMarginReleasePerSecond: TimeInterval = 0.01
@@ -38,9 +38,7 @@ public final class MixerPCMSource {
 
 	typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
 
-	private var playbackPosition: (
-		position: PlaybackPosition, anchorSample: AVAudioFramePosition?, anchorHostTime: TimeInterval?
-	) {
+	private var playbackPosition: PlaybackClockReading {
 		// playerTime also checks that the node is playing.
 		return playerNode.lastRenderTime.flatMap { time in
 			guard time.isSampleTimeValid || time.isHostTimeValid,
@@ -54,10 +52,14 @@ public final class MixerPCMSource {
 			let hostTime = usesRealtimeClock ? AVAudioTime.seconds(forHostTime: time.hostTime) : nil
 			let elapsed = hostTime.map { max(0, ProcessInfo.processInfo.systemUptime - $0) } ?? 0
             let quantum = engine?.isInManualRenderingMode == false ? renderClock.frameCount.load(ordering: .relaxed) : 0
-			let position = (max(0, played.sampleTime),
-				max(0, played.sampleTime + max(AVAudioFramePosition(quantum), AVAudioFramePosition(elapsed * played.sampleRate))))
-			return (position, hostTime == nil ? nil : played.sampleTime, hostTime)
-		} ?? ((0, 0), nil, nil)
+			let advance = max(AVAudioFramePosition(quantum), AVAudioFramePosition(elapsed * played.sampleRate))
+			let position = (completed: max(0, played.sampleTime), writable: max(0, played.sampleTime + advance))
+			return PlaybackClockReading(
+				position: position,
+				anchorSample: hostTime == nil ? nil : played.sampleTime,
+				anchorHostTime: hostTime
+			)
+		} ?? PlaybackClockReading(position: (0, 0), anchorSample: nil, anchorHostTime: nil)
 	}
 	public var bufferedDuration: TimeInterval {
 		Double(max(0, scheduledEndSample - playbackPosition.position.writable)) / mixerFormat.sampleRate
@@ -126,12 +128,7 @@ public final class MixerPCMSource {
             let energy = normalized.frame.samples.reduce(Float(0)) { $0 + $1 * $1 }
             let audible = energy >= Float(max(1, normalized.frame.samples.count)) * 0.0001 * 0.0001
                 || normalized.frame.samples.contains { abs($0) >= 0.001 }
-			if let limit = maximumBufferedDuration {
-				guard limit.isFinite, limit > 0, duration <= limit,
-					  limit * mixerFormat.sampleRate < Double(Int64.max) / 4 else {
-					throw AudioMixerError.pcmSourceScheduleFailed("Frame exceeds live playback budget")
-				}
-			}
+			try validatePlaybackBudget(for: duration)
 			let startSample: AVAudioFramePosition
 			if let delay = captureTimePlayoutDelay, let limit = maximumBufferedDuration {
 				guard capturedAt.isFinite else {
@@ -188,6 +185,14 @@ public final class MixerPCMSource {
 		} catch {
 			recordSchedule(frame, nil, String(describing: error), false)
 			throw AudioMixerError.pcmSourceScheduleFailed(String(describing: error))
+		}
+	}
+
+	private func validatePlaybackBudget(for duration: TimeInterval) throws {
+		guard let limit = maximumBufferedDuration else { return }
+		guard limit.isFinite, limit > 0, duration <= limit,
+			  limit * mixerFormat.sampleRate < Double(Int64.max) / 4 else {
+			throw AudioMixerError.pcmSourceScheduleFailed("Frame exceeds live playback budget")
 		}
 	}
 
@@ -406,11 +411,25 @@ public final class MixerPCMSource {
                 return (batch.previousDuration, capturedAt - batch.firstCapture)
             }
             let previousDuration = max(0, end - batch.firstCapture)
-            arrivalBatch = (capturedAt, arrivedAt, previousDuration)
+            arrivalBatch = ArrivalBatch(
+                firstCapture: capturedAt, lastArrival: arrivedAt, previousDuration: previousDuration
+            )
             return (previousDuration, 0)
         }
-        arrivalBatch = (capturedAt, arrivedAt, 0)
+        arrivalBatch = ArrivalBatch(firstCapture: capturedAt, lastArrival: arrivedAt, previousDuration: 0)
         return (0, 0)
+    }
+
+    private struct ArrivalBatch {
+        let firstCapture: TimeInterval
+        var lastArrival: TimeInterval
+        let previousDuration: TimeInterval
+    }
+
+    private struct PlaybackClockReading {
+        let position: PlaybackPosition
+        let anchorSample: AVAudioFramePosition?
+        let anchorHostTime: TimeInterval?
     }
 }
 
