@@ -78,37 +78,39 @@ struct BackgroundWidgetTests {
     }
 
     @Test func ownerRejectsStaleMuteAndEndWithoutSwitchingTheCurrentCall() async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         let start = BackgroundCallControlIntent(destinationID: owner.callTargets[0].entity.id); start.actions = owner
         _ = try await start.perform()
         let stale = try #require(owner.currentLivePresentation?.reference)
         let other = BackgroundCallControlIntent(destinationID: owner.callTargets[1].entity.id); other.actions = owner
         await #expect(throws: CallIntentError.self) { _ = try await other.perform() }
         #expect(owner.currentLivePresentation?.reference == stale)
-        #expect(vm.startCall(to: .group(vm.groups[1].id), accountAccessID: vm.accountAccessID))
-        let current = vm.currentCallReference
+        #expect(viewModel.startCall(to: .group(viewModel.groups[1].id), accountAccessID: viewModel.accountAccessID))
+        let current = viewModel.currentCallReference
         let mute = BackgroundCallControlIntent(action: .mute, reference: stale); mute.actions = owner
         await #expect(throws: BackgroundCallSurfaceError.self) { _ = try await mute.perform() }
         let end = BackgroundCallControlIntent(action: .end, reference: stale); end.actions = owner
         await #expect(throws: CallIntentError.self) { _ = try await end.perform() }
-        #expect(vm.currentCallReference == current)
+        #expect(viewModel.currentCallReference == current)
         let fresh = try #require(owner.currentLivePresentation?.reference)
         let currentMute = BackgroundCallControlIntent(action: .mute, reference: fresh); currentMute.actions = owner
         _ = try await currentMute.perform()
-        #expect(vm.isMuted)
+        #expect(viewModel.isMuted)
         _ = try await currentMute.perform()
-        #expect(vm.isMuted)
+        #expect(viewModel.isMuted)
         let freshEnd = BackgroundCallControlIntent(action: .end, reference: fresh); freshEnd.actions = owner
         _ = try await freshEnd.perform()
-        #expect(vm.activeGroupID == nil)
-        vm.accountSession.signOut()
+        #expect(viewModel.activeGroupID == nil)
+        viewModel.accountSession.signOut()
         await #expect(throws: CallIntentError.self) { _ = try await start.perform() }
     }
     private func localized(_ resource: LocalizedStringResource, language: String) throws -> String {
         let path = try #require(Bundle.main.path(forResource: language, ofType: "lproj"))
         let bundle = try #require(Bundle(path: path))
-        return String(localized: resource.defaultValue, table: resource.table, bundle: bundle, locale: Locale(identifier: language))
+        return String(
+            localized: resource.defaultValue, table: resource.table, bundle: bundle,
+            locale: Locale(identifier: language))
     }
 
 }

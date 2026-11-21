@@ -6,58 +6,59 @@ import Testing
 @MainActor @Suite(.serialized)
 struct SiriMuteIntentTests {
     @Test func explicitValuesAreIdempotentAndKeepTheCurrentConnection() async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        vm.selectGroup(vm.groups[0])
-        let reference = vm.currentCallReference, starts = h.inputBackend.startCount
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
+        viewModel.selectGroup(viewModel.groups[0])
+        let reference = viewModel.currentCallReference, starts = harness.inputBackend.startCount
         let mute = SetCallMutedIntent(muted: true); mute.owner = owner
         _ = try await mute.perform(); _ = try await mute.perform()
-        #expect(vm.isMuted)
+        #expect(viewModel.isMuted)
         let unmute = SetCallMutedIntent(muted: false); unmute.owner = owner
         _ = try await unmute.perform(); _ = try await unmute.perform()
-        #expect(!vm.isMuted)
-        #expect(vm.currentCallReference == reference)
-        #expect(h.inputBackend.startCount == starts)
+        #expect(!viewModel.isMuted)
+        #expect(viewModel.currentCallReference == reference)
+        #expect(harness.inputBackend.startCount == starts)
     }
 
     @Test(arguments: [true, false])
     func idleMuteUsesTheCommonContractWithoutStartingAudio(muted: Bool) async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         let intent = SetCallMutedIntent(muted: muted); intent.owner = owner
         _ = try await intent.perform()
-        #expect(vm.isMuted == muted)
-        #expect(vm.activeGroupID == nil)
-        #expect(h.inputBackend.startCount == 0 && h.outputBackend.startCount == 0)
+        #expect(viewModel.isMuted == muted)
+        #expect(viewModel.activeGroupID == nil)
+        #expect(harness.inputBackend.startCount == 0 && harness.outputBackend.startCount == 0)
     }
 
     @Test func resolvesTheCurrentReferenceAtExecutionAndOldReferenceCannotControlIt() async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        vm.selectGroup(vm.groups[0]); let stale = vm.currentCallReference
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
+        viewModel.selectGroup(viewModel.groups[0]); let stale = viewModel.currentCallReference
         let intent = SetCallMutedIntent(muted: true); intent.owner = owner
-        #expect(vm.startCall(to: .group(vm.groups[1].id), accountAccessID: vm.accountAccessID))
-        let current = vm.currentCallReference
-        #expect(!vm.setCallMuted(true, for: stale))
+        #expect(viewModel.startCall(to: .group(viewModel.groups[1].id), accountAccessID: viewModel.accountAccessID))
+        let current = viewModel.currentCallReference
+        #expect(!viewModel.setCallMuted(true, for: stale))
         _ = try await intent.perform()
-        #expect(vm.isMuted && vm.currentCallReference == current)
+        #expect(viewModel.isMuted && viewModel.currentCallReference == current)
     }
 
     @Test func oldLoginAndDeniedCommonOperationCannotChangeMute() async throws {
         let account = AccountFixture(); defer { account.remove() }; account.signIn()
-        let h = AppTestSupport.makeHarness(accountSession: account.session), vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: account.session, viewModel: vm)
-        let before = vm.isMuted
+        let harness = AppTestSupport.makeHarness(accountSession: account.session)
+        let viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: account.session, viewModel: viewModel)
+        let before = viewModel.isMuted
         let intent = SetCallMutedIntent(muted: !before); intent.owner = owner
-        vm.requiresAccountDataReset = true
+        viewModel.requiresAccountDataReset = true
         await #expect(throws: CallIntentError.self) { _ = try await intent.perform() }
-        #expect(vm.isMuted == before)
-        vm.requiresAccountDataReset = false
+        #expect(viewModel.isMuted == before)
+        viewModel.requiresAccountDataReset = false
         account.session.signOut()
         await #expect(throws: CallIntentError.self) { _ = try await intent.perform() }
         account.signIn()
         await #expect(throws: CallIntentError.self) { _ = try await intent.perform() }
-        #expect(vm.isMuted == before)
+        #expect(viewModel.isMuted == before)
     }
 
     @Test func usesExistingForegroundAndAuthenticationPolicy() {
@@ -72,14 +73,16 @@ struct SiriMuteIntentTests {
             "Should the microphone be muted?": "マイクをミュートしますか？",
             "Microphone muted.": "マイクをミュートしました。",
             "Microphone unmuted.": "マイクのミュートを解除しました。",
-            "The microphone could not be changed. Open RideCom and try again.": "マイクの状態を変更できませんでした。RideComを開いて、もう一度お試しください。"
+            "The microphone could not be changed. Open RideCom and try again.":
+                "マイクの状態を変更できませんでした。RideComを開いて、もう一度お試しください。"
         ]
         for (key, value) in expected {
             #expect(try localized(.init(stringLiteral: key), language: "ja") == value)
             #expect(try localized(.init(stringLiteral: key), language: "en") == key)
         }
         let japanese = try bundle("ja")
-        #expect(japanese.localizedString(forKey: "Set microphone mute in ${applicationName}", value: nil, table: "AppShortcuts")
+        #expect(japanese.localizedString(
+            forKey: "Set microphone mute in ${applicationName}", value: nil, table: "AppShortcuts")
             == "${applicationName}でマイクのミュートを設定")
     }
 

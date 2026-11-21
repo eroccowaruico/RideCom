@@ -7,53 +7,55 @@ import Testing
 @MainActor
 struct DestinationOpeningTests {
     @Test func choosingWhileIdleConnectsImmediately() throws {
-        let h = try harness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let first = vm.groups[0]
-        #expect(vm.openDestination(.group(first.id)) == .opened)
-        #expect(vm.activeGroupID == first.id && vm.selectedGroup?.id == first.id)
-        #expect(vm.hasAnyActiveGroupConnection)
+        let harness = try harness(); let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let first = viewModel.groups[0]
+        #expect(viewModel.openDestination(.group(first.id)) == .opened)
+        #expect(viewModel.activeGroupID == first.id && viewModel.selectedGroup?.id == first.id)
+        #expect(viewModel.hasAnyActiveGroupConnection)
     }
 
     @Test func choosingTheCurrentCallReopensItWithoutReconnecting() throws {
-        let h = try harness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let first = vm.groups[0], second = vm.groups[1]
-        #expect(vm.openDestination(.group(first.id)) == .opened)
-        let reference = vm.currentCallReference
-        vm.selectGroup(second, connectIfIdle: false)
-        #expect(vm.openDestination(.group(first.id)) == .opened)
-        #expect(vm.currentCallReference == reference)
-        #expect(vm.selectedGroup?.id == first.id)
+        let harness = try harness(); let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let first = viewModel.groups[0], second = viewModel.groups[1]
+        #expect(viewModel.openDestination(.group(first.id)) == .opened)
+        let reference = viewModel.currentCallReference
+        viewModel.selectGroup(second, connectIfIdle: false)
+        #expect(viewModel.openDestination(.group(first.id)) == .opened)
+        #expect(viewModel.currentCallReference == reference)
+        #expect(viewModel.selectedGroup?.id == first.id)
     }
 
     /// A connection is one place at a time: another choice shows the live call and never switches or asks.
     @Test func choosingAnotherDestinationDuringACallShowsTheLiveCall() throws {
-        let h = try harness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let first = vm.groups[0], second = vm.groups[1]
-        #expect(vm.openDestination(.group(first.id)) == .opened)
-        let reference = vm.currentCallReference
-        #expect(vm.openDestination(.group(second.id)) == .showsLiveCall)
-        #expect(vm.activeGroupID == first.id && vm.currentCallReference == reference)
-        #expect(vm.selectedGroup?.id == first.id)
-        #expect(vm.groupErrorMessage == nil)
+        let harness = try harness(); let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let first = viewModel.groups[0], second = viewModel.groups[1]
+        #expect(viewModel.openDestination(.group(first.id)) == .opened)
+        let reference = viewModel.currentCallReference
+        #expect(viewModel.openDestination(.group(second.id)) == .showsLiveCall)
+        #expect(viewModel.activeGroupID == first.id && viewModel.currentCallReference == reference)
+        #expect(viewModel.selectedGroup?.id == first.id)
+        #expect(viewModel.groupErrorMessage == nil)
     }
 
     /// Leaving takes ending the call; then the next choice connects there.
     @Test func afterEndingTheCallTheNextChoiceConnects() throws {
-        let h = try harness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let first = vm.groups[0], second = vm.groups[1]
-        #expect(vm.openDestination(.group(first.id)) == .opened)
-        #expect(vm.endCall(vm.currentCallReference))
-        #expect(vm.openDestination(.group(second.id)) == .opened)
-        #expect(vm.activeGroupID == second.id && vm.hasAnyActiveGroupConnection)
+        let harness = try harness(); let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let first = viewModel.groups[0], second = viewModel.groups[1]
+        #expect(viewModel.openDestination(.group(first.id)) == .opened)
+        #expect(viewModel.endCall(viewModel.currentCallReference))
+        #expect(viewModel.openDestination(.group(second.id)) == .opened)
+        #expect(viewModel.activeGroupID == second.id && viewModel.hasAnyActiveGroupConnection)
     }
 
     private func harness() throws -> AppTestSupport.Harness {
-        let first = try IntercomGroup(name: "First", members: [.init(id: "local", displayName: "You")], accessSecret: "group-key")
-        let second = try IntercomGroup(name: "Second", members: [.init(id: "local", displayName: "You")], accessSecret: "second-key")
+        let first = try IntercomGroup(
+            name: "First", members: [.init(id: "local", displayName: "You")], accessSecret: "group-key")
+        let second = try IntercomGroup(
+            name: "Second", members: [.init(id: "local", displayName: "You")], accessSecret: "second-key")
         return AppTestSupport.makeHarness(groups: [first, second])
     }
 }

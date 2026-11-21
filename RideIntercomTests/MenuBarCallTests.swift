@@ -9,7 +9,8 @@ struct MenuBarCallTests {
     @Test func compiledMenuCopyIncludesJapaneseControls() throws {
         let path = try #require(Bundle.main.path(forResource: "ja", ofType: "lproj"))
         let japanese = try #require(Bundle(path: path))
-        #expect(japanese.localizedString(forKey: "Show call status in the menu bar", value: nil, table: nil) == "メニューバーに通話状態を表示")
+        #expect(japanese.localizedString(
+            forKey: "Show call status in the menu bar", value: nil, table: nil) == "メニューバーに通話状態を表示")
         #expect(japanese.localizedString(forKey: "Mute", value: nil, table: nil) == "ミュート")
         #expect(japanese.localizedString(forKey: "Unmute", value: nil, table: nil) == "ミュートを解除")
         #expect(japanese.localizedString(forKey: "No active call", value: nil, table: nil) == "通話していません")
@@ -34,51 +35,51 @@ struct MenuBarCallTests {
 
     @Test func disablingMenuOrResettingAudioDoesNotEndCallOrErasePreference() throws {
         let store = InMemoryAppSettingsStore()
-        let h = AppTestSupport.makeHarness(appSettingsStore: store), vm = h.viewModel
-        defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness(appSettingsStore: store), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         #expect(!owner.isMenuBarInserted)
-        vm.setMenuBarEnabled(true)
+        viewModel.setMenuBarEnabled(true)
         #expect(owner.isMenuBarInserted)
-        vm.selectGroup(vm.groups[0])
-        let reference = vm.currentCallReference
-        vm.resetAllSettings()
+        viewModel.selectGroup(viewModel.groups[0])
+        let reference = viewModel.currentCallReference
+        viewModel.resetAllSettings()
         #expect(store.load().menuBarEnabled)
         #expect(AppTestSupport.makeHarness(appSettingsStore: store).viewModel.menuBarEnabled)
-        #expect(vm.currentCallReference == reference)
-        vm.setMenuBarEnabled(false)
+        #expect(viewModel.currentCallReference == reference)
+        viewModel.setMenuBarEnabled(false)
         #expect(!owner.isMenuBarInserted)
-        #expect(vm.currentCallReference == reference)
-        #expect(vm.hasAnyActiveGroupConnection)
+        #expect(viewModel.currentCallReference == reference)
+        #expect(viewModel.hasAnyActiveGroupConnection)
     }
 
     @Test func capturedMenuActionsUseExplicitMuteAndCannotChangeAnotherCall() throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        vm.setMenuBarEnabled(true); vm.selectGroup(vm.groups[0])
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
+        viewModel.setMenuBarEnabled(true); viewModel.selectGroup(viewModel.groups[0])
         let first = try #require(owner.currentLivePresentation)
         #expect(owner.setCallSurfaceMuted(true, reference: first.reference))
         #expect(owner.setCallSurfaceMuted(true, reference: first.reference))
-        #expect(vm.isMuted)
-        vm.selectGroup(vm.groups[1]); vm.connectLocal()
+        #expect(viewModel.isMuted)
+        viewModel.selectGroup(viewModel.groups[1]); viewModel.connectLocal()
         let second = try #require(owner.currentLivePresentation)
         #expect(first.reference != second.reference)
         #expect(!owner.setCallSurfaceMuted(false, reference: first.reference))
-        #expect(vm.isMuted)
+        #expect(viewModel.isMuted)
         #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.end, reference: first.reference) }
         #expect(owner.currentLivePresentation?.reference == second.reference)
         try owner.performCallSurfaceAction(.end, reference: second.reference)
-        #expect(vm.activeGroupID == nil)
+        #expect(viewModel.activeGroupID == nil)
         #expect(owner.isMenuBarInserted)
     }
 
     @Test func signOutRemovesMenuAndOldActionsCannotControlReplacementModel() throws {
         let account = AccountFixture(); defer { account.remove() }; account.signIn()
-        let h = AppTestSupport.makeHarness(accountSession: account.session), vm = h.viewModel
-        defer { vm.disconnect() }
-        let owner = AppCallOwner(account: account.session, viewModel: vm)
-        vm.setMenuBarEnabled(true); vm.selectGroup(vm.groups[0])
+        let harness = AppTestSupport.makeHarness(accountSession: account.session), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: account.session, viewModel: viewModel)
+        viewModel.setMenuBarEnabled(true); viewModel.selectGroup(viewModel.groups[0])
         let old = try #require(owner.currentLivePresentation)
         account.session.signOut()
         #expect(!owner.isMenuBarInserted)
@@ -96,17 +97,18 @@ struct MenuBarCallTests {
     }
 
     @Test func menuUsesCurrentActiveCallStatusAndDoesNotClaimMediaPreparationIsEstablished() throws {
-        let h = AppTestSupport.makeHarness(enforceCallAccess: true, callAccessEvaluation: { _ in .init(status: .active) })
-        let vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        vm.setMenuBarEnabled(true); vm.selectGroup(vm.groups[0])
-        h.callSession.authenticate(["member-108"])
-        vm.isAudioReady = true
-        #expect(!vm.callAccessState.isEstablished)
+        let harness = AppTestSupport.makeHarness(
+            enforceCallAccess: true, callAccessEvaluation: { _ in .init(status: .active) })
+        let viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
+        viewModel.setMenuBarEnabled(true); viewModel.selectGroup(viewModel.groups[0])
+        harness.callSession.authenticate(["member-108"])
+        viewModel.isAudioReady = true
+        #expect(!viewModel.callAccessState.isEstablished)
         #expect(owner.currentLivePresentation?.status == .connecting)
-        vm.selectGroup(vm.groups[1], connectIfIdle: false)
-        #expect(owner.currentLivePresentation?.status == vm.callStatus(for: vm.activeGroupID))
-        #expect(owner.currentLivePresentation?.reference.groupID == vm.activeGroupID)
+        viewModel.selectGroup(viewModel.groups[1], connectIfIdle: false)
+        #expect(owner.currentLivePresentation?.status == viewModel.callStatus(for: viewModel.activeGroupID))
+        #expect(owner.currentLivePresentation?.reference.groupID == viewModel.activeGroupID)
     }
 }
 #endif

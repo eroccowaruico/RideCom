@@ -7,7 +7,9 @@ import Testing
 @MainActor @Suite(.serialized)
 struct SystemSurfaceTests {
     private func presentation(status: StandardCallStatus = .inCall, muted: Bool = false) -> CallLivePresentation {
-        .init(reference: .init(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()), status: status, isMuted: muted)
+        .init(
+            reference: .init(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()),
+            status: status, isMuted: muted)
     }
 
     @Test func optionalDisplayWaitsForForegroundAndUpdatesOnlyWhenContentChanges() async {
@@ -69,21 +71,23 @@ struct SystemSurfaceTests {
 
     @Test func widgetActionsUseSameOwnerAndOldEndCannotStopNewCall() async throws {
         let group = IntercomSeedData.recentGroups[0]
-        let h = AppTestSupport.makeHarness(appSettingsStore: InMemoryAppSettingsStore(settings: .init(recentCallDestination: .group(group.id))))
-        let vm = h.viewModel; defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness(
+            appSettingsStore: InMemoryAppSettingsStore(settings: .init(recentCallDestination: .group(group.id))))
+        let viewModel = harness.viewModel; defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         let start = OpenCallControlIntent(action: .recent); start.actions = owner
         _ = try await start.perform()
-        #expect(vm.activeGroupID == group.id)
+        #expect(viewModel.activeGroupID == group.id)
         let stale = try #require(owner.currentLivePresentation?.reference)
-        #expect(vm.startCall(to: .group(vm.groups[1].id), accountAccessID: vm.accountAccessID))
-        let current = vm.currentCallReference
+        #expect(viewModel.startCall(to: .group(viewModel.groups[1].id), accountAccessID: viewModel.accountAccessID))
+        let current = viewModel.currentCallReference
         let end = OpenCallControlIntent(action: .end, reference: stale); end.actions = owner
         await #expect(throws: CallIntentError.self) { _ = try await end.perform() }
-        #expect(vm.currentCallReference == current)
-        let currentEnd = OpenCallControlIntent(action: .end, reference: try #require(owner.currentLivePresentation?.reference)); currentEnd.actions = owner
+        #expect(viewModel.currentCallReference == current)
+        let currentEnd = OpenCallControlIntent(
+            action: .end, reference: try #require(owner.currentLivePresentation?.reference)); currentEnd.actions = owner
         _ = try await currentEnd.perform()
-        #expect(vm.activeGroupID == nil)
+        #expect(viewModel.activeGroupID == nil)
     }
 
     @Test func displayPreferenceRoundTripsWithoutChangingRecentDestination() throws {
@@ -104,13 +108,13 @@ struct SystemSurfaceTests {
 
     @Test func signingOutEndsProjectionAndRejectsOldSurfaceOperations() async throws {
         let account = AccountFixture(); defer { account.remove() }; account.signIn()
-        let h = AppTestSupport.makeHarness(accountSession: account.session), vm = h.viewModel
-        defer { vm.disconnect() }
+        let harness = AppTestSupport.makeHarness(accountSession: account.session), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
         let driver = RecordingLiveActivityDriver()
-        let owner = AppCallOwner(account: account.session, viewModel: vm, liveActivityDriver: driver)
+        let owner = AppCallOwner(account: account.session, viewModel: viewModel, liveActivityDriver: driver)
         owner.systemSurfaceIsForeground = true
-        vm.setLiveActivityEnabled(true)
-        vm.selectGroup(vm.groups[0])
+        viewModel.setLiveActivityEnabled(true)
+        viewModel.selectGroup(viewModel.groups[0])
         await AppTestSupport.waitUntil { driver.started.count == 1 }
         let reference = try #require(owner.currentLivePresentation?.reference)
         account.session.signOut()
@@ -124,22 +128,22 @@ struct SystemSurfaceTests {
 
     @Test func callDisplayUsesActiveGroupAndSettingSurvivesOtherSettings() throws {
         let store = InMemoryAppSettingsStore()
-        let h = AppTestSupport.makeHarness(appSettingsStore: store), vm = h.viewModel
-        defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness(appSettingsStore: store), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         #expect(owner.currentLivePresentation == nil)
         #expect(owner.watchSnapshot().reference?.hasSuffix("|idle") == true)
-        vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-        vm.selectGroup(vm.groups[1], connectIfIdle: false)
-        #expect(vm.standardCallStatus == .ready)
-        #expect(owner.currentLivePresentation?.status == vm.callStatus(for: vm.activeGroupID))
+        viewModel.selectGroup(viewModel.groups[0]); harness.callSession.authenticate(["member-108"])
+        viewModel.selectGroup(viewModel.groups[1], connectIfIdle: false)
+        #expect(viewModel.standardCallStatus == .ready)
+        #expect(owner.currentLivePresentation?.status == viewModel.callStatus(for: viewModel.activeGroupID))
         let displayed = try #require(owner.currentLivePresentation?.reference)
-        #expect(displayed.groupID == vm.activeGroupID)
+        #expect(displayed.groupID == viewModel.activeGroupID)
         #expect(displayed.encoded == owner.watchSnapshot().reference)
-        vm.setLiveActivityEnabled(true)
-        vm.saveAppSettings(); vm.resetAllSettings()
+        viewModel.setLiveActivityEnabled(true)
+        viewModel.saveAppSettings(); viewModel.resetAllSettings()
         #expect(store.load().liveActivityEnabled)
-        #expect(vm.activeGroupID != nil)
+        #expect(viewModel.activeGroupID != nil)
     }
 }
 

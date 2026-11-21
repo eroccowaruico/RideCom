@@ -6,6 +6,12 @@ import Testing
 import UniformTypeIdentifiers
 @testable import RideIntercom
 
+private struct WidgetState {
+    let name: String
+    let destination: WidgetCallDestination?
+    let current: CallLivePresentation?
+}
+
 /// Renders the shared Widget and Live Activity views for every call state.
 /// The PNG attachments are the visual evidence; the expectations guard that each state draws.
 extension AppTests {
@@ -19,15 +25,15 @@ struct SystemSurfaceRenderingTests {
         CallLivePresentation(reference: reference, status: status, isMuted: muted, canControlMicrophone: !watch)
     }
 
-    private var widgetStates: [(String, WidgetCallDestination?, CallLivePresentation?)] {
-        [("unconfigured", nil, nil),
-         ("ready", user, nil),
-         ("connecting", group, call(.connecting)),
-         ("in-call", user, call(.inCall)),
-         ("muted", user, call(.inCall, muted: true)),
-         ("watch", user, call(.inCall, watch: true)),
-         ("audio-paused", group, call(.audioPaused)),
-         ("audio-unavailable", group, call(.audioUnavailable))]
+    private var widgetStates: [WidgetState] {
+        [WidgetState(name: "unconfigured", destination: nil, current: nil),
+         WidgetState(name: "ready", destination: user, current: nil),
+         WidgetState(name: "connecting", destination: group, current: call(.connecting)),
+         WidgetState(name: "in-call", destination: user, current: call(.inCall)),
+         WidgetState(name: "muted", destination: user, current: call(.inCall, muted: true)),
+         WidgetState(name: "watch", destination: user, current: call(.inCall, watch: true)),
+         WidgetState(name: "audio-paused", destination: group, current: call(.audioPaused)),
+         WidgetState(name: "audio-unavailable", destination: group, current: call(.audioUnavailable))]
     }
 
     private var activityStates: [(String, CallLivePresentation)] {
@@ -38,13 +44,13 @@ struct SystemSurfaceRenderingTests {
 
     @Test(arguments: [ColorScheme.light, .dark], ["en", "ja"])
     func selectedCallWidgetDrawsEveryState(scheme: ColorScheme, language: String) throws {
-        for (name, destination, current) in widgetStates {
-            let view = SelectedCallContent(destination: destination, currentCall: current)
+        for state in widgetStates {
+            let view = SelectedCallContent(destination: state.destination, currentCall: state.current)
                 .padding(16)
                 .frame(width: 170, height: 170)
                 .background(WidgetSurfaceBackground())
                 .clipShape(.rect(cornerRadius: 22))
-            try record(view, scheme: scheme, language: language, named: "widget-\(name)")
+            try record(view, scheme: scheme, language: language, named: "widget-\(state.name)")
         }
     }
 
@@ -88,7 +94,8 @@ struct SystemSurfaceRenderingTests {
         let image = try #require(renderer.cgImage, "\(name) did not render")
         #expect(image.width > 0 && image.height > 0)
         let data = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+        let destination = try #require(
+            CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
         CGImageDestinationAddImage(destination, image, nil)
         #expect(CGImageDestinationFinalize(destination))
         Attachment.record(data as Data, named: "\(name)-\(scheme == .dark ? "dark" : "light")-\(language).png")
