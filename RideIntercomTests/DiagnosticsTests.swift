@@ -133,7 +133,7 @@ struct DiagnosticsTests {
         func presentation() -> ReceivePipelinePresentation { .init(input: input) }
 
         #expect(presentation().receiveMixStep.detail == "2 routes → rx-master")
-        #expect(presentation().receiveMasterMix.sourceBusCount == 2)
+        #expect(presentation().receiveOutputMix.sourceBusCount == 2)
         #expect(presentation().receiveMixStep.state == .waiting)
         #expect(presentation().receivePeerStates["first"] == .waiting)
         #expect(presentation().receivePeerStates["third"] == nil)
@@ -237,13 +237,13 @@ struct DiagnosticsTests {
             let graphState = try #require(model.audioPipeline.isolationRuntimeSnapshots["tx-bus"])
             let expectedState = enabled ? "active" : "bypassed"
             #expect(graphState.state.rawValue == expectedState)
-            let tx = presentation()
-            let effect = try #require(tx.transmitEffectStages.first { $0.id == "sound-isolation" })
+            let transmit = presentation()
+            let effect = try #require(transmit.transmitEffectStages.first { $0.id == "sound-isolation" })
             #expect(effect.runtimeState == expectedState)
-            #expect(tx.mixerBusStep.state == .passing)
-            #expect(tx.mixerBusStep.detail.contains("Isolation \(expectedState)"))
+            #expect(transmit.mixerBusStep.state == .passing)
+            #expect(transmit.mixerBusStep.detail.contains("Isolation \(expectedState)"))
 
-            let before = try #require(tx.encodedAudioPacketCount)
+            let before = try #require(transmit.encodedAudioPacketCount)
             feed(speech, frames: 60)
             let speaking = presentation()
             let analysis = try #require(speaking.voiceActivityAnalysis)
@@ -442,8 +442,8 @@ struct DiagnosticsTests {
     }
 
     @Test func networkDiagnosticsKeepObservationsAndClearOnDisconnect() {
-        let h = AppTestSupport.makeHarness()
-        let model = h.viewModel
+        let harness = AppTestSupport.makeHarness()
+        let model = harness.viewModel
         #expect(model.networkDiagnostics == nil)
         let route = RTCRouteNetworkDiagnostics(route: .webRTC,
             statistics: .init(roundTripTime: 0.025, bufferedBytes: 128, unavailableReason: "Loss unavailable"))

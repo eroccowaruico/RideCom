@@ -91,7 +91,7 @@ extension AppTests.AudioPipelineTests {
 
         #expect(presentation().receivePeerStates == ["a": .waiting, "b": .waiting])
         #expect(presentation().receiveMixStep.detail == "2 routes → rx-master")
-        #expect(presentation().masterBusStep.detail.hasPrefix("2 in /"))
+        #expect(presentation().outputBusStep.detail.hasPrefix("2 in /"))
         let wave = (0..<48_000).map { Float(sin(Double($0) * 2 * .pi * 440 / 48_000)) * 0.9 }
         let packet = RTCAudioPacket(
             sequenceNumber: 0, codec: .pcm16, format: RTCAudioFormat(sampleRate: 48_000, channelCount: 1),

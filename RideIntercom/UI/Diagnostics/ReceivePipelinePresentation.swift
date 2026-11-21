@@ -40,10 +40,10 @@ struct ReceivePipelinePresentation {
     private var receivePeerBusCount: Int { receivePeerStates.count }
     private var mixState: PipelineStepState { receivePeerStates.values.contains(.passing) ? .passing : .waiting }
 
-    private var masterBusDetail: String {
+    private var outputBusDetail: String {
         let bus = input.mixerBusSnapshot(id: "rx-master")
         return bus.map { "\(receivePeerBusCount) in / \($0.effectCount) FX / OUT \(Int($0.volume * 100))%" }
-            ?? "\(receivePeerBusCount) in / OUT \(Int(input.masterOutputVolume * 100))%"
+            ?? "\(receivePeerBusCount) in / OUT \(Int(input.outputVolume * 100))%"
     }
 
     private func receiveMixerStep(id: String, title: String, icon: String,
@@ -159,14 +159,14 @@ struct ReceivePipelinePresentation {
             accessibilityIdentifier: "receive-pipeline-mix-step")
     }
 
-    var masterBusStep: PipelineStep {
+    var outputBusStep: PipelineStep {
         receiveMixerStep(id: "master-bus", title: "RX Master", icon: "waveform.path.ecg",
-            detail: masterBusDetail, state: mixState, accessibilityIdentifier: "receive-pipeline-master-bus-step")
+            detail: outputBusDetail, state: mixState, accessibilityIdentifier: "receive-pipeline-master-bus-step")
     }
 
-    var masterEffectChainStep: PipelineStep {
+    var outputEffectChainStep: PipelineStep {
         receiveMixerStep(id: "master-effects", title: "Master FX", icon: "wand.and.sparkles",
-            detail: input.receiveMasterEffectChainSnapshot.summary, state: aggregateState(masterEffectStages.map(\.state)),
+            detail: input.receiveOutputEffectChainSnapshot.summary, state: aggregateState(outputEffectStages.map(\.state)),
             accessibilityIdentifier: "receive-pipeline-master-effects-step")
     }
 
@@ -174,7 +174,7 @@ struct ReceivePipelinePresentation {
         let value: (detail: String, icon: String, state: PipelineStepState)
         if input.isOutputMuted {
             value = ("Muted", "speaker.slash.fill", .muted)
-        } else if input.masterOutputVolume == 0 {
+        } else if input.outputVolume == 0 {
             value = ("Volume 0%", "speaker.slash.fill", .waiting)
         } else if !input.isAudioReady {
             value = ("Not available", "speaker", .idle)
@@ -196,20 +196,20 @@ struct ReceivePipelinePresentation {
         )
     }
 
-    var masterEffectStages: [EffectChainStage] {
-        input.receiveMasterEffectChainSnapshot.stages.map(EffectChainStage.init(snapshot:))
+    var outputEffectStages: [EffectChainStage] {
+        input.receiveOutputEffectChainSnapshot.stages.map(EffectChainStage.init(snapshot:))
     }
 
-    var receiveMasterMix: ReceiveMasterMixSnapshot {
-        ReceiveMasterMixSnapshot(
+    var receiveOutputMix: ReceiveOutputMixSnapshot {
+        ReceiveOutputMixSnapshot(
             sourceBusCount: receivePeerBusCount,
             receivedFrameCount: input.receivedVoicePacketCount,
             outputLevel: input.diagnosticsOutputLevel,
             outputPeakLevel: input.diagnosticsOutputPeakLevel,
-            masterVolume: input.masterOutputVolume,
-            effectSummary: input.receiveMasterEffectChainSnapshot.compactSummary,
+            outputVolume: input.outputVolume,
+            effectSummary: input.receiveOutputEffectChainSnapshot.compactSummary,
             isMuted: input.isOutputMuted,
-            state: masterBusStep.state
+            state: outputBusStep.state
         )
     }
 

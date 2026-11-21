@@ -117,7 +117,7 @@ extension DiagnosticsView {
         return (transmit.flowSteps,
             [
                 receive.rtcReceiveStep, receive.codecDecodeStep, receive.peerBusStep, receive.receiveMixStep,
-                receive.masterBusStep, receive.masterEffectChainStep, receive.outputStep
+                receive.outputBusStep, receive.outputEffectChainStep, receive.outputStep
             ]
         )
     }

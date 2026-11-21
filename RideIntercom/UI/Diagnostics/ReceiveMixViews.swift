@@ -4,12 +4,12 @@ import AudioMixer
 import RTC
 import SessionManager
 
-struct ReceiveMasterMixGroup: View {
+struct ReceiveOutputMixGroup: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let step: PipelineStep
     let effectStep: PipelineStep
     let effectStages: [EffectChainStage]
-    let master: ReceiveMasterMixSnapshot
+    let outputMix: ReceiveOutputMixSnapshot
 
     private var summaryLayout: AnyLayout {
         if dynamicTypeSize.isAccessibilitySize {
@@ -26,21 +26,21 @@ struct ReceiveMasterMixGroup: View {
             summaryLayout {
                 HStack(alignment: .top, spacing: AppSpacing.s) {
                     Circle()
-                        .fill(master.state.color)
+                        .fill(outputMix.state.color)
                         .frame(width: 6, height: 6)
                         .padding(.top, 5)
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                        Text("\(master.sourceBusCount) buses / RX \(master.receivedFrameCount)")
+                        Text("\(outputMix.sourceBusCount) buses / RX \(outputMix.receivedFrameCount)")
                             .font(AppTypography.caption2Mono)
                             .foregroundStyle(AppColorPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Text(
-                            master.isMuted
+                            outputMix.isMuted
                                 ? "OUT muted"
-                                : "VOL \(Int(master.masterVolume * 100))% / FX \(master.effectSummary)"
+                                : "VOL \(Int(outputMix.outputVolume * 100))% / FX \(outputMix.effectSummary)"
                         )
                             .font(AppTypography.caption2Mono)
                             .foregroundStyle(AppColorPalette.textPrimary)
@@ -50,9 +50,9 @@ struct ReceiveMasterMixGroup: View {
                 }
 
                 VoiceMeterView(
-                    level: master.isMuted ? 0 : master.outputLevel,
-                    peakLevel: master.isMuted ? 0 : master.outputPeakLevel,
-                    isMuted: master.isMuted,
+                    level: outputMix.isMuted ? 0 : outputMix.outputLevel,
+                    peakLevel: outputMix.isMuted ? 0 : outputMix.outputPeakLevel,
+                    isMuted: outputMix.isMuted,
                     showsValueText: false
                 )
                 .frame(width: 72)
@@ -64,7 +64,7 @@ struct ReceiveMasterMixGroup: View {
             .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : CompactPipelineLayout.childIndent)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Receive mix down to master")
-            .accessibilityValue("\(master.sourceBusCount) peer buses, received \(master.receivedFrameCount)")
+            .accessibilityValue("\(outputMix.sourceBusCount) peer buses, received \(outputMix.receivedFrameCount)")
             .accessibilityIdentifier("receive-master-mix-card")
 
             CompactEffectChainGroup(

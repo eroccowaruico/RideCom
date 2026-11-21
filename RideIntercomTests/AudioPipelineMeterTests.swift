@@ -305,8 +305,8 @@ extension AppTests.AudioPipelineTests {
         #expect(stalled.codecDecodeStep.state == .passing)
         #expect(stalled.outputStep.state == .waiting)
         #expect(stalled.outputStep.detail.contains("Last render"))
-        #expect(stalled.receiveMasterMix.outputLevel == 0)
-        #expect(stalled.receiveMasterMix.outputPeakLevel == 0)
+        #expect(stalled.receiveOutputMix.outputLevel == 0)
+        #expect(stalled.receiveOutputMix.outputPeakLevel == 0)
     }
 
     private func diagnostics(_ model: IntercomViewModel) -> ReceivePipelinePresentation {

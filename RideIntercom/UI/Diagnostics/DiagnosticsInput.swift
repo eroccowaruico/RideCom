@@ -33,13 +33,13 @@ struct DiagnosticsInput {
     var droppedAudioPacketCount: Int
     var isOutputMuted: Bool
     var lastOutputStreamOperationReport: SessionManager.AudioStreamOperationReport?
-    var masterOutputVolume: Float
+    var outputVolume: Float
     var usesNativeOutput: Bool
     var lastNativeRenderAt: TimeInterval?
     var lastNativeAudibleOutputAt: TimeInterval?
     var lastPlaybackScheduledAt: TimeInterval?
     let capturedAt: TimeInterval
-    var receiveMasterEffectChainSnapshot: AudioEffectChainSnapshot
+    var receiveOutputEffectChainSnapshot: AudioEffectChainSnapshot
     var receiveDecodeCounts: ReceiveDecodeCounts
     var lastReceivedAudioAt: TimeInterval?
     var receivedVoicePacketCount: Int
@@ -83,12 +83,12 @@ struct DiagnosticsInput {
         droppedAudioPacketCount = viewModel.droppedAudioPacketCount
         isOutputMuted = viewModel.isOutputMuted
         lastOutputStreamOperationReport = viewModel.lastOutputStreamOperationReport
-        masterOutputVolume = viewModel.masterOutputVolume
+        outputVolume = viewModel.masterOutputVolume
         usesNativeOutput = viewModel.audioPipeline.rendersToHardware
         lastNativeAudibleOutputAt = viewModel.audioPipeline.lastNativeAudibleOutputAt
         lastNativeRenderAt = viewModel.audioPipeline.lastNativeRenderAt
         lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
-        receiveMasterEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
+        receiveOutputEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
         lastReceivedAudioAt = viewModel.lastReceivedAudioAt
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount

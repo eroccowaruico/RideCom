@@ -24,9 +24,9 @@ struct LiveReceivePipelineView: View {
             CompactPipelineStepRow(step: presentation.peerBusStep)
             DiagnosticsReceiveDetails(presentation: presentation, expandedStage: $expandedStage)
                 .id("receive-peers")
-            ReceiveMasterMixGroup(
-                step: presentation.masterBusStep, effectStep: presentation.masterEffectChainStep,
-                effectStages: presentation.masterEffectStages, master: presentation.receiveMasterMix)
+            ReceiveOutputMixGroup(
+                step: presentation.outputBusStep, effectStep: presentation.outputEffectChainStep,
+                effectStages: presentation.outputEffectStages, outputMix: presentation.receiveOutputMix)
             DisclosureGroup(
                 isExpanded: Binding(
                     get: { expandedStage == "receive-output" },

@@ -84,16 +84,16 @@ struct DiagnosticsPresentationTests {
     #endif
 
     @Test func transmitProjectionPreservesFailureMuteAndFallbackWithoutReadingLiveState() {
-        let h = AppTestSupport.makeHarness()
-        var input = DiagnosticsInput(h.viewModel)
+        let harness = AppTestSupport.makeHarness()
+        var input = DiagnosticsInput(harness.viewModel)
         input.audioErrorMessage = "failed"
         input.isMuted = true
         input.isAudioReady = true
         input.preferredTransmitCodec = .opus
         input.selectedTransmitCodec = .pcm16
         let presentation = TransmitPipelinePresentation(input: input)
-        h.viewModel.audioErrorMessage = nil
-        h.viewModel.isMuted = false
+        harness.viewModel.audioErrorMessage = nil
+        harness.viewModel.isMuted = false
         #expect(presentation.sessionStep.state == .blocked)
         #expect(presentation.inputStreamStep.state == .muted)
         #expect(presentation.codecStep.state == .waiting)
@@ -102,10 +102,10 @@ struct DiagnosticsPresentationTests {
     }
 
     @Test func transmitProjectionDoesNotReportEncodedAudioAsNetworkDelivery() {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.isAudioReady = true
-        h.viewModel.sentVoicePacketCount = 10
-        var input = DiagnosticsInput(h.viewModel)
+        let harness = AppTestSupport.makeHarness()
+        harness.viewModel.isAudioReady = true
+        harness.viewModel.sentVoicePacketCount = 10
+        var input = DiagnosticsInput(harness.viewModel)
         input.isVoiceActive = true
         input.selectedGroupConnectionState = .localConnected
         let presentation = TransmitPipelinePresentation(input: input)
@@ -176,11 +176,11 @@ struct DiagnosticsPresentationTests {
     }
 
     @Test func transmitProjectionDisplaysAnalyzerInputOnlyWhenActive() throws {
-        let h = AppTestSupport.makeHarness()
+        let harness = AppTestSupport.makeHarness()
         let gate = VADGate(configuration: .init())
         let analysis = gate.process(samples: Array(repeating: 0.001, count: 480), duration: 0.010)
-        h.viewModel.vadGateRuntimeSnapshot = gate.runtimeSnapshot
-        var input = DiagnosticsInput(h.viewModel)
+        harness.viewModel.vadGateRuntimeSnapshot = gate.runtimeSnapshot
+        var input = DiagnosticsInput(harness.viewModel)
         #expect(TransmitPipelinePresentation(input: input).voiceActivityAnalysis == nil)
 
         input.isAudioReady = true
@@ -217,19 +217,19 @@ struct DiagnosticsPresentationTests {
     }
 
     @Test func receiveProjectionPreservesUnknownCodecAndFallbackPeerDetails() {
-        let h = AppTestSupport.makeHarness(groups: [])
-        var input = DiagnosticsInput(h.viewModel)
+        let harness = AppTestSupport.makeHarness(groups: [])
+        var input = DiagnosticsInput(harness.viewModel)
         input.authenticatedPeerIDs = ["new-peer"]
         let presentation = ReceivePipelinePresentation(input: input)
         #expect(presentation.receiveParticipants.map(\.id) == ["new-peer"])
         #expect(presentation.receiveParticipants.first?.activeCodec == nil)
         #expect(presentation.receivePeerStates.isEmpty)
         #expect(presentation.outputStep.accessibilityIdentifier == "receive-pipeline-output-step")
-        #expect(presentation.masterEffectStages.isEmpty)
+        #expect(presentation.outputEffectStages.isEmpty)
         input.isOutputMuted = true
         #expect(ReceivePipelinePresentation(input: input).outputStep.state == .muted)
         input.isOutputMuted = false
-        input.masterOutputVolume = 0
+        input.outputVolume = 0
         #expect(ReceivePipelinePresentation(input: input).outputStep.state == .waiting)
     }
 }
