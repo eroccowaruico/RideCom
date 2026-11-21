@@ -69,7 +69,7 @@ export class AccountOrdinaryGroupReplies {
         return mailbox && mailbox.expiresAt > Date.now() ? mailbox : null
     }
     private mailboxes() { return [...this.storage.kv.list<Mailbox>({ prefix: mailboxPrefix })] }
-    private prefix(slot: string) { return replyPrefix + slot + ':' }
+    private prefix(slot: string) { return `${replyPrefix + slot}:` }
     private replies(slot: string) { return [...this.storage.kv.list<Reply>({ prefix: this.prefix(slot) })] }
     private remove(key: string) {
         for (const [replyKey] of this.replies(key.slice(mailboxPrefix.length))) this.storage.kv.delete(replyKey)

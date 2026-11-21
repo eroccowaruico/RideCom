@@ -21,9 +21,9 @@ test('API budget covers rooms and status together, separates owners, and keeps a
         for (const [path, body, method] of [
             ['/api/status', undefined, 'GET'], [`/api/rooms/${'b'.repeat(64)}/join`, { participantId: 'new', offer }, 'POST'],
             [`/api/rooms/${room}/ice/new`, { leaseID: 'attempt' }, 'POST'],
-            [base + '/publish', {}, 'POST'], [base + '/pull', { peerIds: [] }, 'POST'],
-            [base + '/renew', {}, 'POST'], [base + '/signal', undefined, 'GET'],
-            [base + '/signal', undefined, 'DELETE']
+            [`${base}/publish`, {}, 'POST'], [`${base}/pull`, { peerIds: [] }, 'POST'],
+            [`${base}/renew`, {}, 'POST'], [`${base}/signal`, undefined, 'GET'],
+            [`${base}/signal`, undefined, 'DELETE']
         ]) {
             const response = await request(runtime, path, body, method, same);
             assert.equal(response.status, 429, path);
@@ -72,8 +72,8 @@ test('default budget has headroom for eight participants, full subscriptions, re
         }
         for (let i = 0; i < 8; i++) {
             const base = `/api/rooms/${room}/sessions/${sessions[i]}`;
-            assert.equal((await request(runtime, base + '/pull', { peerIds: sessions.flatMap((_, j) => i === j ? [] : [`rider-${j}`]) })).status, 200);
-            assert.equal((await request(runtime, base + '/renew', {})).status, 200);
+            assert.equal((await request(runtime, `${base}/pull`, { peerIds: sessions.flatMap((_, j) => i === j ? [] : [`rider-${j}`]) })).status, 200);
+            assert.equal((await request(runtime, `${base}/renew`, {})).status, 200);
         }
         for (let i = 0; i < 120; i++) assert.equal((await request(runtime, '/api/status', undefined, 'GET')).status, 200);
         for (const id of sessions) assert.equal((await request(runtime, `/api/rooms/${room}/sessions/${id}`, undefined, 'DELETE')).status, 200);

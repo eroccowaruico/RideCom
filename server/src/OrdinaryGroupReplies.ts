@@ -116,7 +116,7 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
         if (admission && expectedExpiry !== undefined && admission.expiresAt !== expectedExpiry) return badBody()
         const route = await publicAccountIndex(env, owner).current()
         if (route?.userID !== owner) return notFound()
-        const recipient = await sha256Hex(auth.userID + ':' + auth.deviceID)
+        const recipient = await sha256Hex(`${auth.userID}:${auth.deviceID}`)
         if (!await own.notificationAuthorized(auth)) return unauthorized()
         const destination = account(route.accountID)
         if (value) {

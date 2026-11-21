@@ -22,7 +22,7 @@ test('extra display name is neither persisted nor broadcast to room peers', asyn
     try {
         const base = `https://worker.test/api/rooms/${room}`;
         const headers = { Authorization: `Bearer ${token}` };
-        const response = await runtime.dispatchFetch(base + '/join', {
+        const response = await runtime.dispatchFetch(`${base}/join`, {
             method: 'POST', headers,
             body: JSON.stringify({ participantId: 'opaque-peer', displayName: 'PrivateHumanName', offer })
         });

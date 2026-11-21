@@ -24,7 +24,7 @@ export async function allowSealedInvitationSource(request: Request, env: Env): P
     const source = request.headers.get('CF-Connecting-IP')
     if (!source || source.length > 64) throw new Error('configuration')
     const sourceKey = await sha256Hex(`${Math.floor(Date.now() / 86400000)}:${source}`)
-    return (await env.CALL_API_LIMIT.limit({ key: 'sealed-invitation-source:' + sourceKey })).success
+    return (await env.CALL_API_LIMIT.limit({ key: `sealed-invitation-source:${sourceKey}` })).success
 }
 
 export async function openSealedInvitationSubmission(request: Request, origin: string, env: Env) {

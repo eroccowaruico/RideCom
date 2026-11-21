@@ -90,7 +90,7 @@ export class AccountNotifications {
     }
     groupInvitationSenderState(auth: NotificationAuth, recipient: string, requestID: string): 'active' | 'inactive' | 'cancelled' {
         if (!this.authorized(auth)) return 'inactive'
-        const expiresAt = this.storage.kv.get<number>(groupCancellationPrefix + recipient + ':' + requestID)
+        const expiresAt = this.storage.kv.get<number>(`${groupCancellationPrefix + recipient}:${requestID}`)
         return expiresAt !== undefined && expiresAt > Date.now() ? 'cancelled' : 'active'
     }
     takeGroupInvitationSendBudget(auth: NotificationAuth, recipient: string, requestID: string, background: boolean) {
@@ -106,11 +106,11 @@ export class AccountNotifications {
         this.pruneUnstoredGroupCancellations()
         // Reserve only the authenticated sender's own storage, independent of the recipient inbox.
         if ([...this.storage.kv.list({ prefix: groupCancellationPrefix, limit: 512 })].length >= 512) return 'limited'
-        this.storage.kv.put(groupCancellationPrefix + recipient + ':' + requestID, Date.now() + groupInvitationSyncLifetime)
+        this.storage.kv.put(`${groupCancellationPrefix + recipient}:${requestID}`, Date.now() + groupInvitationSyncLifetime)
         return 'cancelled'
     }
     private takeBudget(kind: string, maximum: number, groupDeliveryKey?: string): boolean {
-        const key = 'notify-rate:' + kind, minute = Math.floor(Date.now() / 60_000)
+        const key = `notify-rate:${kind}`, minute = Math.floor(Date.now() / 60_000)
         const stored = this.storage.kv.get<{ minute: number; count: number; groupDeliveryKeys?: string[] }>(key)
         const previous = stored?.minute === minute ? stored : undefined
         const count = previous?.count ?? 0
@@ -232,7 +232,7 @@ export class AccountNotifications {
         const now = Date.now()
         const invitations = Array.from(this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix }), ([, value]) => value)
             .filter(value => value.recipientID === auth.userID && value.expiresAt > now)
-        const noticeKey = (value: NotificationGroupInvitation) => value.sender.userID + ':' + value.noticeID
+        const noticeKey = (value: NotificationGroupInvitation) => `${value.sender.userID}:${value.noticeID}`
         const addressed = new Set<string>()
         const eligible: NotificationGroupInvitation[] = []
         for (const value of invitations) {

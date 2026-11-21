@@ -39,8 +39,8 @@ function stateResponse(state: string): Response {
 export async function contactDeletionRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url), method = request.method
     const ownerWrite = url.pathname === path && (method === 'PUT' || method === 'DELETE')
-    const read = url.pathname === path + '/read' && method === 'POST'
-    const receipt = url.pathname === path + '/receipt' && method === 'PUT'
+    const read = url.pathname === `${path}/read` && method === 'POST'
+    const receipt = url.pathname === `${path}/receipt` && method === 'PUT'
     if (!ownerWrite && !read && !receipt) return missing()
 
     const bearer = request.headers.get('Authorization') ?? ''
@@ -48,11 +48,11 @@ export async function contactDeletionRequest(request: Request, env: Env): Promis
     try {
         const auth = await notificationAuth(token, env)
         if (!auth) return unauthorized()
-        if (!(await env.CALL_API_LIMIT.limit({ key: 'contact-deletion:' + auth.accountID })).success) {
+        if (!(await env.CALL_API_LIMIT.limit({ key: `contact-deletion:${auth.accountID}` })).success) {
             return json({ error: 'Too many deletion requests' }, 429)
         }
         const own = env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(auth.accountID))
-        const index = (owner: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName('user:' + owner))
+        const index = (owner: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName(`user:${owner}`))
         const body = await readJSON(request) as Record<string, unknown>
         const slot = field(body.slot, hex)
         const slotHash = await sha256Hex(slot)

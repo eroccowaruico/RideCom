@@ -145,9 +145,9 @@ test('authenticated enrollment consumes only the owning device challenge and ser
         attestationRoot: Buffer.from(ca.der).toString('base64'), onAttestationVerified: () => afterVerification?.() });
     let runtime = await open();
     function request(path, body, token, method = 'POST') {
-        return runtime.dispatchFetch('https://worker.test' + path, {
+        return runtime.dispatchFetch(`https://worker.test${path}`, {
             method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.1',
-                ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+                ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             ...(body === undefined ? {} : { body: JSON.stringify(body) })
         });
     }

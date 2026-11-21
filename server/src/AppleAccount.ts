@@ -1,7 +1,7 @@
 import type { InvitationDeviceAddress, NotificationGroupInvitation } from './AccountNotifications'
 import { DurableObject } from 'cloudflare:workers'
 import { errors, jwtVerify } from 'jose'
-import { Env, json, readJSON } from './types'
+import { type Env, json, readJSON } from './types'
 import { certifyDevice } from './DeviceIdentity'
 import { publicAccountIndex } from './NotificationIndex'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
@@ -585,7 +585,7 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
                     const attempt = env.APPLE_AUTH_ATTEMPT.get(env.APPLE_AUTH_ATTEMPT.idFromString(body.challengeID))
                     const proof = await attempt.exchange(body.identityToken)
                     if (!proof || proof.deviceID !== credential.deviceID
-                        || env.USER_ACCOUNT.idFromName(await digest('apple:' + proof.subject)).toString() !== credential.accountID) return json({ error: 'Unauthorized' }, 401)
+                        || env.USER_ACCOUNT.idFromName(await digest(`apple:${proof.subject}`)).toString() !== credential.accountID) return json({ error: 'Unauthorized' }, 401)
                     const result = await credential.account.eraseWithAppleProof(credential.deviceID, tokenHash, body.authorizationCode, proof.subject, proof.nonce, body.expectedUserID as string | undefined)
                     return result ? json(result) : json({ error: 'Unauthorized' }, 401)
                 }
@@ -619,7 +619,7 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
         if (!verified) return json({ error: 'Unauthorized' }, 401)
         // Object names can also appear in provider metadata. Do not use Apple's
         // raw subject as either a stored field or the Durable Object's name.
-        const account = env.USER_ACCOUNT.getByName(await digest('apple:' + verified.subject))
+        const account = env.USER_ACCOUNT.getByName(await digest(`apple:${verified.subject}`))
         const secret = randomSecret()
         const identity = await account.register(verified.deviceID, await digest(secret), verified.issuedAt)
         if (identity === 'deletion-pending') return json({ error: 'Account deletion is still pending', code: 'deletion_pending' }, 409)

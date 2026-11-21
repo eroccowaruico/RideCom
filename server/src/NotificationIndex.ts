@@ -7,7 +7,7 @@ export interface NotificationBinding {
 }
 
 export function publicAccountIndex(env: Env, userID: string) {
-    return env.NOTIFICATION_INDEX.getByName('user:' + userID)
+    return env.NOTIFICATION_INDEX.getByName(`user:${userID}`)
 }
 
 /** One opaque public-ID or token-hash index per object, never an address book. */
