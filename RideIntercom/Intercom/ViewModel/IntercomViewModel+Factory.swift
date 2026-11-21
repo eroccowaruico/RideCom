@@ -53,6 +53,9 @@ extension IntercomViewModel {
             audioSessionManager: processAudioSessionManager
         )
         if model.groupDeliveryClient != nil {
+            #if os(iOS)
+            model.groupInvitationBackgroundTransfer = GroupInvitationBackgroundTransfer.shared
+            #endif
             let monitor = NWPathMonitor()
             monitor.pathUpdateHandler = { [weak model] path in
                 MainActor.assumeIsolated { model?.groupDeliveryNetworkPathChanged(isAvailable: path.status == .satisfied) }

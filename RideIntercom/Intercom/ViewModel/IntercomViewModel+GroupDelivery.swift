@@ -86,6 +86,7 @@ extension IntercomViewModel {
         if outgoingDeletion || ((trigger == .notification || outgoingInvitation) && notifications.canUseNotifications) {
             requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
         }
+        if trigger == .localChange { scheduleBackgroundGroupInvitations() }
     }
 
     /// Request time before the save or notification callback yields, even if a pass is already running.
@@ -114,6 +115,7 @@ extension IntercomViewModel {
         await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {
+        groupInvitationBackgroundTransfer?.reconcile(keeping: [])
         stopOrdinaryGroupReplyExchanges()
         stopOrdinaryGroupInternetReply()
         stopNearbyGroupDelivery()
@@ -131,6 +133,12 @@ extension IntercomViewModel {
         guard canEditSavedGroups, let client = groupDeliveryClient,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return }
         let generation = accountAccessID
+        if let transfer = groupInvitationBackgroundTransfer {
+            await transfer.restore()
+            guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
+            scheduleBackgroundGroupInvitations()
+        }
+        let uploadBinding = groupInvitationBackgroundTransfer == nil ? nil : InternetAccountClient.groupInvitationSessionBinding(for: access.accessToken)
         await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
         guard canEditSavedGroups, notifications.canUseNotifications, groupDeliveryIsCurrent(access, accountID: generation) else { return }
         do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }
@@ -170,6 +178,7 @@ extension IntercomViewModel {
                 catch { reportGroupStorageError(error); return }
                 continue
             }
+            if let uploadBinding, groupInvitationBackgroundTransfer?.contains(.init(deliveryID: id, sessionBinding: uploadBinding)) == true { continue }
             guard let grant = groupDeliveryGrant(for: record) else { continue }
             let envelope: GroupInvitationEnvelope
             do {
@@ -197,13 +206,56 @@ extension IntercomViewModel {
         return notifications.groupInvitationGrant(for: user.id)
     }
 
+    private func backgroundGroupInvitationGrant(for record: GroupDeliveryRecord, access: CallNotificationServiceAccess) -> CallNotificationGrant? {
+        guard record.state == .pending, record.internetAction == .send, record.recipient.issuer == access.principal.issuer,
+              record.expiresAt > callAccessNow().timeIntervalSince1970 else { return nil }
+        return groupDeliveryGrant(for: record)
+    }
+
+    func backgroundGroupInvitationUploadIDs() -> Set<GroupInvitationUploadID> {
+        guard canEditSavedGroups, notifications.canUseNotifications,
+              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+              let binding = InternetAccountClient.groupInvitationSessionBinding(for: access.accessToken) else { return [] }
+        return Set(groupRepository.groupDeliveries.compactMap { record in
+            guard backgroundGroupInvitationGrant(for: record, access: access) != nil else { return nil }
+            return .init(deliveryID: record.id, sessionBinding: binding)
+        })
+    }
+
+    private func scheduleBackgroundGroupInvitations() {
+        guard let transfer = groupInvitationBackgroundTransfer, transfer.hasRestored else { return }
+        let keys = backgroundGroupInvitationUploadIDs()
+        transfer.reconcile(keeping: keys)
+        // Match the Worker's per-account send budget instead of waking it with the entire manifest at once.
+        var capacity = 60 - keys.count(where: { transfer.contains($0) })
+        for key in keys where !transfer.contains(key) {
+            guard capacity > 0 else { break }
+            if let request = try? backgroundGroupInvitationRequest(for: key.deliveryID) {
+                // The usual HTTP pass still runs if the system cannot take this upload.
+                try? transfer.enqueue(request, for: key)
+                if transfer.contains(key) { capacity -= 1 }
+            }
+        }
+    }
+
+    func applyBackgroundGroupInvitationReply(_ reply: GroupDeliveryReply, for key: GroupInvitationUploadID) {
+        guard canEditSavedGroups, notifications.canUseNotifications,
+              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+              InternetAccountClient.groupInvitationSessionBinding(for: access.accessToken) == key.sessionBinding,
+              let record = groupRepository.groupDeliveries.first(where: { $0.id == key.deliveryID }),
+              backgroundGroupInvitationGrant(for: record, access: access) != nil,
+              reply.matches(id: record.id, expiresAt: record.expiresAt), [.queued, .received, .cancelled].contains(reply.status) else { return }
+        do {
+            try groupRepository.setGroupDeliveryState(record.id, state: reply.status)
+            refreshGroupStorageStatus()
+        } catch { reportGroupStorageError(error) }
+    }
+
     func backgroundGroupInvitationRequest(for id: UUID) throws -> URLRequest? {
         guard canEditSavedGroups, notifications.canUseNotifications,
               let access = try internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
               let record = groupRepository.groupDeliveries.first(where: { $0.id == id }),
-              record.state == .pending, record.internetAction == .send, record.recipient.issuer == access.principal.issuer,
-              record.expiresAt > callAccessNow().timeIntervalSince1970,
-              let grant = groupDeliveryGrant(for: record) else { return nil }
+              let grant = backgroundGroupInvitationGrant(for: record, access: access) else { return nil }
         let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
         guard signer.identity?.sessionBinding != nil,
               let envelope = try prepareGroupDeliveryEnvelope(record, sender: access.principal) else { return nil }
@@ -264,6 +316,7 @@ extension IntercomViewModel {
         try receipt.verify(for: groupRepository.groupDeliveryEnvelope(record.id))
         try groupRepository.setGroupDeliveryState(record.id, state: .received)
         refreshGroupStorageStatus()
+        if let transfer = groupInvitationBackgroundTransfer { transfer.reconcile(keeping: backgroundGroupInvitationUploadIDs()) }
     }
 
     private func nearbyCancellationTarget(for record: GroupDeliveryRecord, sender: AccountPrincipal) throws

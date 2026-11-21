@@ -18,10 +18,13 @@ import Foundation
     func authorizeFixture(userID: String, issuer: P256.Signing.PrivateKey = P256.Signing.PrivateKey()) throws {
         let deviceID = try store.accountDeviceID()
         let key = try store.deviceSigningKey()
+        let hash = { (text: String) in SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
+        let secret = hash(deviceID)
         let certificate = try testIdentityCertificate(signer: issuer, userID: userID, deviceID: deviceID, memberID: memberID,
-            deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), origin: "https://delivery.test")
+            deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), origin: "https://delivery.test",
+            changes: ["sessionBinding": hash(hash(secret))])
         let identity = try certificate.verify(origin: URL(string: "https://delivery.test")!, trustedIssuerKey: certificate.issuerKey)
-        try store.save(url: "https://delivery.test", token: "ri1." + userID + "." + deviceID + "." + String(repeating: "f", count: 64), identity: identity)
+        try store.save(url: "https://delivery.test", token: "ri1." + userID + "." + deviceID + "." + secret, identity: identity)
     }
     var signer: DeviceIdentitySigner { get throws { try store.invitationSigner(memberID: memberID) } }
     var principal: AccountPrincipal { get throws {

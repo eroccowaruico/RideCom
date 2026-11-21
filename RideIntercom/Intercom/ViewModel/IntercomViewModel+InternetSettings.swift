@@ -56,6 +56,7 @@ extension IntercomViewModel {
         catch {
             if internetSettingsStore.requiresAccountDataReset {
                 requiresAccountDataReset = true
+                groupInvitationBackgroundTransfer?.reconcile(keeping: [])
                 internetCheckGeneration = UUID()
                 isCheckingInternet = false
                 stopContactInvitationSession()
@@ -65,6 +66,7 @@ extension IntercomViewModel {
             }
             throw error
         }
+        if let transfer = groupInvitationBackgroundTransfer { transfer.reconcile(keeping: backgroundGroupInvitationUploadIDs()) }
         localAccountPrincipal = try internetSettingsStore.loadPrincipal(memberID: localMemberIdentity.memberID)
         guard let configuration = try internetSettingsStore.load() else { throw InternetConnectionSettingsStore.ValidationError.missingToken }
         internetCheckGeneration = UUID()

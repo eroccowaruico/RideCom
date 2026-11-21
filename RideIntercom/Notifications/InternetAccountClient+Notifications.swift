@@ -171,7 +171,7 @@ extension InternetAccountClient {
               identity.issuer == origin, identity.deviceID == parts[2],
               envelope.sender == access.principal, envelope.senderMemberID == signer.memberID,
               let binding = identity.sessionBinding,
-              binding == sha256Hex(sha256Hex(String(parts[3]))) else { return nil }
+              binding == groupInvitationSessionBinding(for: access.accessToken) else { return nil }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -189,8 +189,13 @@ extension InternetAccountClient {
         return request
     }
 
-    private static func sha256Hex(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    static func groupInvitationSessionBinding(for token: String) -> String? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[0] == "ri1", notificationUserID(String(parts[3])) else { return nil }
+        func hexDigest(_ value: String) -> String {
+            SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
+        return hexDigest(hexDigest(String(parts[3])))
     }
 
     func expiredGroupInvitationOutcome(for record: GroupDeliveryRecord,
