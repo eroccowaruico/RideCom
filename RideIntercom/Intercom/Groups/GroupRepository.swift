@@ -618,20 +618,32 @@ final class GroupRepository {
     }
 
     func pendingOrdinaryGroupReceipt(for user: SavedUser, now: TimeInterval) -> DirectInvitationReceipt? {
+        let candidates = pendingOrdinaryGroupReceipts(for: user, now: now)
+        return candidates.count == 1 ? candidates.first : nil
+    }
+
+    func pendingOrdinaryGroupDeviceCallKeys(for user: SavedUser, now: TimeInterval)
+        -> (peerMemberID: String, peerPublicKey: String, localPublicKey: String)? {
+        let candidates = pendingOrdinaryGroupReceipts(for: user, now: now)
+        guard let first = candidates.first, let localKey = first.inviteeDeviceKey,
+              let peerKey = first.invitation?.inviterDeviceKey,
+              candidates.allSatisfy({ $0.inviteeDeviceKey == localKey }) else { return nil }
+        return (first.inviterMemberID, peerKey, localKey)
+    }
+
+    private func pendingOrdinaryGroupReceipts(for user: SavedUser, now: TimeInterval) -> [DirectInvitationReceipt] {
         guard let snapshot, let localMemberID, user.principal == nil, user.memberIDs.count == 1,
-              let inviter = user.memberIDs.first, let key = user.deviceKeys?[inviter] else { return nil }
-        let candidates = snapshot.groups.compactMap { group -> DirectInvitationReceipt? in
+              let inviter = user.memberIDs.first, let key = user.deviceKeys?[inviter] else { return [] }
+        return snapshot.groups.compactMap { group -> DirectInvitationReceipt? in
             guard group.kind == .group, group.accountDevices[inviter] == nil,
                   group.invitationDeviceKeys?[inviter] == key, !group.excludesMember(inviter, principal: nil),
                   let pending = group.pendingInvitation, pending.inviteeMemberID == localMemberID,
                   pending.inviterMemberID == inviter, let acceptance = pending.acceptanceProof,
                   acceptance.certificate == nil, acceptance.publicKey == pending.inviteeDeviceKey,
-                  let invitation = pending.invitation, invitation.recipientAccount == nil,
+                  let invitation = pending.invitation, invitation.isOrdinaryGroupInvitation,
                   invitation.inviterDeviceKey == key, invitation.expiresAt > now else { return nil }
             return pending
         }
-        // Either invitation could be the first one the other device accepted.
-        return candidates.count == 1 ? candidates.first : nil
     }
 
     func receiveInvitation(_ verified: VerifiedDirectInvitation, signer: DeviceIdentitySigner? = nil) throws {
@@ -687,14 +699,13 @@ final class GroupRepository {
         if let signer, let name, signer.memberID == localMemberID, signer.principal == nil, peer.principal == nil,
            peer.memberID != signer.memberID, peer.publicKey != signer.publicKey,
            let invitation = receipt.invitation, invitation.expiresAt > Date().timeIntervalSince1970,
-           invitation.recipientAccount == nil, receipt.acceptanceProof?.certificate == nil,
+           invitation.isOrdinaryGroupInvitation, receipt.acceptanceProof?.certificate == nil,
            signer.publicKey == (receipt.kind == .accepted ? invitation.inviterDeviceKey : receipt.inviteeDeviceKey),
            let source = groups.first(where: { $0.id == receipt.groupID && $0.kind == .group }),
            let local = source.members.first(where: { $0.id == signer.memberID }) {
             let id = IntercomGroup.directCallID(memberIDs: [signer.memberID, peer.memberID])
             if !groups.contains(where: { $0.id == id }) {
-                let secret = try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey,
-                                                                     receiptID: receipt.deviceCallKeyReceiptID)
+                let secret = try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey)
                 let direct = try IntercomGroup(id: id, name: "Direct Call",
                                                members: [local, .init(id: peer.memberID, displayName: name)], kind: .direct)
                 groups.append(direct)

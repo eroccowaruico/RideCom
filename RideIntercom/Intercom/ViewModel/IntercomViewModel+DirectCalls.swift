@@ -86,12 +86,10 @@ extension IntercomViewModel {
 
     private func pendingOrdinaryGroupDirectCallSecret(for user: SavedUser) throws -> String? {
         guard localAccountPrincipal == nil,
-              let receipt = groupRepository.pendingOrdinaryGroupReceipt(for: user, now: Date().timeIntervalSince1970),
-              let localKey = receipt.inviteeDeviceKey, let peerKey = receipt.invitation?.inviterDeviceKey,
-              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: localKey),
+              let keys = groupRepository.pendingOrdinaryGroupDeviceCallKeys(for: user, now: Date().timeIntervalSince1970),
+              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: keys.localPublicKey),
               signer.principal == nil else { return nil }
-        return try signer.ordinaryGroupDirectCallSecret(peerMemberID: receipt.inviterMemberID, peerPublicKey: peerKey,
-                                                        receiptID: receipt.deviceCallKeyReceiptID)
+        return try signer.ordinaryGroupDirectCallSecret(peerMemberID: keys.peerMemberID, peerPublicKey: keys.peerPublicKey)
     }
 
     private func directCallTarget(for user: SavedUser) -> (id: UUID, pair: AccountCallPair?)? {

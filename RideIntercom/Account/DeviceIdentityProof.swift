@@ -106,10 +106,9 @@ nonisolated struct DeviceIdentitySigner: Sendable {
                           domain: "rideintercom.contact-deletion.relay.v1", context: [slot])
     }
 
-    func ordinaryGroupDirectCallSecret(peerMemberID: String, peerPublicKey: String, receiptID: UUID?) throws -> String {
-        let domain = receiptID == nil ? "rideintercom.ordinary-group-direct-call.v2" : "rideintercom.ordinary-group-direct-call.v1"
-        return try devicePairKey(peerMemberID: peerMemberID, peerPublicKey: peerPublicKey,
-                                 domain: domain, context: receiptID.map { [$0.uuidString] } ?? [])
+    func ordinaryGroupDirectCallSecret(peerMemberID: String, peerPublicKey: String) throws -> String {
+        try devicePairKey(peerMemberID: peerMemberID, peerPublicKey: peerPublicKey,
+                          domain: "rideintercom.ordinary-group-direct-call.v2")
             .withUnsafeBytes { Data($0).base64EncodedString() }
     }
 

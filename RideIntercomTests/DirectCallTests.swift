@@ -168,7 +168,7 @@ struct DirectCallTests {
     }
 
     enum GroupInviteOrder: CaseIterable {
-        case afterAcknowledgement, beforeAcknowledgement, beforeAcknowledgementWithSavedGroup, legacyBeforeAcknowledgement
+        case afterAcknowledgement, beforeAcknowledgement, beforeAcknowledgementWithSavedGroup
     }
 
     @Test(arguments: GroupInviteOrder.allCases)
@@ -181,17 +181,7 @@ struct DirectCallTests {
         let b = AppTestSupport.makeHarness(groups: order == .beforeAcknowledgementWithSavedGroup ? [savedGroup] : [], localMemberID: "bob")
         defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
         a.viewModel.selectGroup(group)
-        let url: URL
-        if order == .legacyBeforeAcknowledgement {
-            let token = try GroupInviteToken.make(authority: a.viewModel.invitationAuthority, signer: testIdentitySigner("alice"),
-                groupID: group.id, groupName: group.name, groupSecret: "ordinary-group-key", inviterMemberID: "alice")
-            #expect(token.directInvitation?.context.deviceCallKeyVersion == nil)
-            url = try GroupInviteTokenCodec.joinURL(for: token)
-        } else {
-            url = try #require(a.viewModel.makeSelectedGroupInviteURL())
-            let token = try GroupInviteTokenCodec.decodeJoinURL(url)
-            #expect(token.directInvitation?.context.deviceCallKeyVersion == .devicePair)
-        }
+        let url = try #require(a.viewModel.makeSelectedGroupInviteURL())
         try b.viewModel.acceptInviteURL(url)
         let alice = try #require(b.viewModel.savedRemoteUsers.first)
         #expect(b.viewModel.existingDirectCall(for: alice.id) == nil)
@@ -313,13 +303,15 @@ struct DirectCallTests {
         #endif
     }
 
-    @Test func multiplePendingOrdinaryInvitationsDoNotChooseAReceiptForAnIndividualCall() throws {
+    @Test func multiplePendingOrdinaryInvitationsPrepareTheSameCallWithoutChoosingAReply() async throws {
         let member = GroupMember(id: "alice", displayName: "Alice")
         let first = try IntercomGroup(name: "First", members: [member], accessSecret: "first-fixture")
         let second = try IntercomGroup(name: "Second", members: [member], accessSecret: "second-fixture")
         let a = AppTestSupport.makeHarness(groups: [first, second], localMemberID: "alice")
         let b = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
         defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
+        a.viewModel.allowsNearbyGroupDelivery = false
+        b.viewModel.allowsNearbyGroupDelivery = false
         a.viewModel.selectGroup(first)
         try b.viewModel.acceptInviteURL(try #require(a.viewModel.makeSelectedGroupInviteURL()))
         let alice = try #require(b.viewModel.savedRemoteUsers.first)
@@ -331,6 +323,31 @@ struct DirectCallTests {
         #expect(b.viewModel.groupRepository.pendingInvitation(for: second.id) != nil)
         #expect(b.viewModel.groupRepository.pendingOrdinaryGroupReceipt(for: alice, now: now) == nil)
         #expect(b.viewModel.existingDirectCall(for: alice.id) == nil)
+        let activeGroupID = b.viewModel.activeGroupID
+        try #require(b.viewModel.selectUser(alice.id, connectIfIdle: false))
+        #expect(b.viewModel.activeGroupID == activeGroupID)
+        let directID = try #require(b.viewModel.existingDirectCall(for: alice.id)?.id)
+        let earlySecret = try b.viewModel.groupRepository.credential(for: directID)?.secret
+
+        let reply = try #require(b.viewModel.signedPendingInvitationReceipt(for: second.id))
+        let acknowledgement = try #require(a.viewModel.applyInvitationReceipt(reply, from: "bob", standalone: true))
+        let matchingCredential = try earlySecret != nil && a.viewModel.groupRepository.credential(for: directID)?.secret == earlySecret
+        try #require(matchingCredential)
+        #expect(b.viewModel.groupRepository.pendingInvitation(for: first.id) != nil)
+        #expect(b.viewModel.groupRepository.pendingInvitation(for: second.id) != nil)
+
+        let bob = try #require(a.viewModel.savedRemoteUsers.first)
+        try #require(a.viewModel.startCall(to: .user(bob.id), accountAccessID: a.viewModel.accountAccessID))
+        try #require(b.viewModel.startCall(to: .user(alice.id), accountAccessID: b.viewModel.accountAccessID))
+        #if os(iOS)
+        try await Self.assertLocalCall(aliceGroup: try #require(a.callSession.connectedGroup),
+                                      bobGroup: try #require(b.callSession.connectedGroup))
+        #endif
+
+        _ = b.viewModel.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
+        #expect(b.viewModel.groupRepository.pendingInvitation(for: first.id) != nil)
+        #expect(b.viewModel.groupRepository.pendingInvitation(for: second.id) == nil)
+        #expect(b.viewModel.activeGroupID == directID)
     }
 
     #if os(iOS)
@@ -479,6 +496,10 @@ struct DirectCallTests {
         defer { a.viewModel.disconnect(); b.viewModel.disconnect() }
         #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
         #expect(b.viewModel.selectUser(try #require(b.viewModel.savedRemoteUsers.first).id))
+        let conflictingCallID = try #require(b.viewModel.selectedGroup?.id)
+        try b.viewModel.groupRepository.save(b.viewModel.groups, credential: .init(
+            groupID: conflictingCallID, secret: "bob-conflicting-direct-call-fixture"
+        ))
         let left = try #require(a.viewModel.makeSelectedGroupInviteURL())
         let right = try #require(b.viewModel.makeSelectedGroupInviteURL())
         try a.viewModel.acceptInviteURL(right)

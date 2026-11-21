@@ -4,8 +4,6 @@ import Foundation
 /// The invitation carries a derived capability, never the author's private key.
 /// The context binds it to one group, author, recipient (if specified), and expiry.
 struct DirectInvitationContext: Codable, Equatable {
-    enum DeviceCallKeyVersion: Int, Codable { case devicePair = 2 }
-
     var id = UUID()
     var groupID: UUID
     var inviterMemberID: String
@@ -17,7 +15,6 @@ struct DirectInvitationContext: Codable, Equatable {
     var contactBootstrap: Bool? = nil
     var invitedGroupID: UUID? = nil
     var invitedGroupDigest: String? = nil
-    var deviceCallKeyVersion: DeviceCallKeyVersion? = nil
 
     var isOrdinaryGroupInvitation: Bool {
         contactBootstrap != true && recipientAccount == nil && recipientMemberID == nil
@@ -40,7 +37,6 @@ struct DirectInvitationContext: Codable, Equatable {
 
     var isValid: Bool {
         validAccountAddress && validInvitedGroup && inviterDeviceKey.map(DeviceIdentityProof.isValidPublicKey) == true
-        && (deviceCallKeyVersion == nil || isOrdinaryGroupInvitation)
         && IntercomGroup.isValidMemberID(inviterMemberID)
         && !inviterMemberID.hasPrefix(GroupMember.pendingInvitePrefix)
         && (recipientMemberID.map { IntercomGroup.isValidMemberID($0)

@@ -17,11 +17,6 @@ struct DirectInvitationReceipt: Codable, Equatable {
     var acceptanceProof: DeviceIdentityProof?
     var acknowledgementProof: DeviceIdentityProof?
 
-    // Older invitations keep their receipt-bound key, including acknowledgements after an update.
-    var deviceCallKeyReceiptID: UUID? {
-        invitation?.deviceCallKeyVersion == .devicePair ? nil : id
-    }
-
     static func make(grant: DirectInvitationGrant, signer: DeviceIdentitySigner, inviteeMemberID: String, displayName: String) throws -> Self {
         guard signer.memberID == inviteeMemberID, grant.isValid, let bytes = Data(base64Encoded: grant.secret) else { throw GroupInviteTokenError.invalidTokenEncoding }
         guard grant.context.recipientAccount == nil || grant.context.recipientAccount == signer.principal else { throw GroupInviteTokenError.wrongRecipient }

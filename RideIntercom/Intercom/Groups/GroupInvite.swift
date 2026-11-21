@@ -81,7 +81,6 @@ struct GroupInviteToken: Codable, Equatable {
         recipientAccount: AccountPrincipal? = nil,
         contactBootstrap: Bool? = nil,
         invitedGroup: ContactGroupInvitation? = nil,
-        deviceCallKeyVersion: DirectInvitationContext.DeviceCallKeyVersion? = nil,
         issuedAt: TimeInterval = Date().timeIntervalSince1970,
         expiresAt: TimeInterval? = nil
     ) throws -> GroupInviteToken {
@@ -91,8 +90,7 @@ struct GroupInviteToken: Codable, Equatable {
         let grant = try authority.issue(.init(groupID: groupID, inviterMemberID: inviterMemberID, inviterDeviceKey: signer.publicKey,
                                              recipientMemberID: recipientMemberID, expiresAt: expiresAt,
                                              inviterAccount: recipientAccount == nil ? nil : signer.principal, recipientAccount: recipientAccount, contactBootstrap: contactBootstrap,
-                                             invitedGroupID: invitedGroup?.id, invitedGroupDigest: try invitedGroup?.digest(),
-                                             deviceCallKeyVersion: deviceCallKeyVersion))
+                                             invitedGroupID: invitedGroup?.id, invitedGroupDigest: try invitedGroup?.digest()))
         let signature = makeSignature(version: currentVersion, groupID: groupID, groupName: groupName, groupSecret: groupSecret,
             inviterMemberID: inviterMemberID, inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID,
             issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant, invitedGroup: invitedGroup)
