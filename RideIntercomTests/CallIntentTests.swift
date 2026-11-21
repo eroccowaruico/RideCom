@@ -18,7 +18,8 @@ struct CallIntentTests {
         let otherQuery = CallTargetQuery(); otherQuery.owner = otherOwner
         #expect(try await otherQuery.entities(for: targets.map(\.id)).isEmpty)
         let group = vm.groups[0]
-        let invite = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+        let invite = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
             groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
         try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: invite))
         let user = try #require(vm.savedRemoteUsers.first)
@@ -65,9 +66,12 @@ struct CallIntentTests {
         #expect(vm.activeGroupID == nil)
     }
 
-    @Test(arguments: [false, true]) func recentIntentUsesStoredDestinationAndLeavesOtherActiveCallAlone(fromControl: Bool) async throws {
+    @Test(arguments: [false, true]) func recentIntentUsesStoredDestinationAndLeavesOtherActiveCallAlone(
+        fromControl: Bool
+    ) async throws {
         let group = IntercomSeedData.recentGroups[0]
-        let h = AppTestSupport.makeHarness(appSettingsStore: InMemoryAppSettingsStore(settings: .init(recentCallDestination: .group(group.id))))
+        let h = AppTestSupport.makeHarness(
+            appSettingsStore: InMemoryAppSettingsStore(settings: .init(recentCallDestination: .group(group.id))))
         let vm = h.viewModel; defer { vm.disconnect() }
         let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
         func resumeRecent() async throws {
@@ -94,7 +98,8 @@ struct CallIntentTests {
         let h = AppTestSupport.makeHarness(); let vm = h.viewModel
         defer { vm.disconnect() }
         let group = vm.groups[0]
-        let invite = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+        let invite = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
             groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
         try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: invite))
         let user = try #require(vm.savedRemoteUsers.first)

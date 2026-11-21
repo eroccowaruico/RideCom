@@ -95,7 +95,8 @@ extension IntercomViewModel {
                     group.members[index].authenticationState = .open
                 } else if connectedPeerIDSet.contains(id) {
                     group.members[index].connectionState = .connected
-                    group.members[index].authenticationState = authenticatedPeerIDSet.contains(id) ? .authenticated : .pending
+                    group.members[index].authenticationState =
+                        authenticatedPeerIDSet.contains(id) ? .authenticated : .pending
                 } else {
                     group.members[index].leaveCall()
                 }
@@ -112,7 +113,8 @@ extension IntercomViewModel {
                 if id == localMemberIdentity.memberID {
                     group.members[index].authenticationState = .open
                 } else if state == .connected {
-                    group.members[index].authenticationState = authenticatedPeerIDs.contains(id) ? .authenticated : .pending
+                    group.members[index].authenticationState =
+                        authenticatedPeerIDs.contains(id) ? .authenticated : .pending
                 } else if state == .connecting {
                     group.members[index].authenticationState = .pending
                 }

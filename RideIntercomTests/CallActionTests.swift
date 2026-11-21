@@ -104,7 +104,8 @@ struct CallActionTests {
         let h = try harness(); let vm = h.viewModel
         defer { vm.disconnect() }
         let group = vm.groups[0]
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+        let token = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
             groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
         try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         let user = try #require(vm.savedRemoteUsers.first)
@@ -139,8 +140,10 @@ struct CallActionTests {
     }
 
     private func harness(account: AppleAccountSession? = nil) throws -> AppTestSupport.Harness {
-        let first = try IntercomGroup(name: "First", members: [.init(id: "local", displayName: "You")], accessSecret: "group-key")
-        let second = try IntercomGroup(name: "Second", members: [.init(id: "local", displayName: "You")], accessSecret: "second-key")
+        let first = try IntercomGroup(
+            name: "First", members: [.init(id: "local", displayName: "You")], accessSecret: "group-key")
+        let second = try IntercomGroup(
+            name: "Second", members: [.init(id: "local", displayName: "You")], accessSecret: "second-key")
         return AppTestSupport.makeHarness(accountSession: account, groups: [first, second])
     }
 }

@@ -87,7 +87,10 @@ extension IntercomViewModel {
             }
             // A retained individual call is not a way around removing its contact.
             // Keep its existing ID and key when reconnecting a still-saved contact.
-            guard group.kind != .direct || directCallAccountRecipient(for: group) != nil || directCallRecipient(for: group) != nil else {
+            guard
+                group.kind != .direct || directCallAccountRecipient(for: group) != nil
+                    || directCallRecipient(for: group) != nil
+            else {
                 groupErrorMessage = "This saved user is no longer available for an individual call."
                 return false
             }
@@ -136,7 +139,8 @@ extension IntercomViewModel {
         guard !startCall(to: destination, accountAccessID: accountAccessID) else { return }
         let message = groupErrorMessage
         switch destination {
-        case .group(let id): if let group = groups.first(where: { $0.id == id }) { selectGroup(group, connectIfIdle: false) }
+        case .group(let id):
+            if let group = groups.first(where: { $0.id == id }) { selectGroup(group, connectIfIdle: false) }
         case .user(let id): selectUser(id, connectIfIdle: false)
         }
         if groupErrorMessage == nil { groupErrorMessage = message }
@@ -147,7 +151,9 @@ extension IntercomViewModel {
         switch destination {
         case .group(let id): return id == active.id
         case .user(let id):
-            guard active.kind == .direct, let user = savedRemoteUsers.first(where: { $0.id == id }) else { return false }
+            guard active.kind == .direct, let user = savedRemoteUsers.first(where: { $0.id == id }) else {
+                return false
+            }
             if let principal = user.principal, let local = localAccountPrincipal {
                 return active.accountPair?.other(than: local) == principal
             }

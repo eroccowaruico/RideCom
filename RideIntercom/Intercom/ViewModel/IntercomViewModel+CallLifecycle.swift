@@ -423,7 +423,8 @@ extension IntercomViewModel {
         if isUsingWatchAudio { return true }
         let requested = currentVoiceProcessingConfiguration()
         let changesClock = isAudioReady
-            && audioInputCapture.configuration.voiceProcessing.voiceProcessingEnabled != requested.voiceProcessingEnabled
+            && audioInputCapture.configuration.voiceProcessing.voiceProcessingEnabled
+                != requested.voiceProcessingEnabled
         let update = { self.audioInputCapture.updateVoiceProcessing(requested) }
         let report = changesClock ? audioPipeline.reconfigureInput(update) : update()
         lastVoiceProcessingOperationReport = report
@@ -453,7 +454,8 @@ extension IntercomViewModel {
 private extension SessionManager.AudioSessionOperationResult {
     var isContinuable: Bool {
         switch self {
-        case .applied, .ignored(.unsupportedOnCurrentPlatform), .ignored(.unsupportedSelection), .ignored(.unavailableDevice):
+        case .applied, .ignored(.unsupportedOnCurrentPlatform), .ignored(.unsupportedSelection),
+            .ignored(.unavailableDevice):
             true
         case .ignored(.superseded), .failed:
             false
