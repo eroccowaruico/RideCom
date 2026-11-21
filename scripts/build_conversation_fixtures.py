@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate deterministic-layout conversation fixtures with installed macOS voices.
 
 Generation is optional: automated tests use the checked-in WAVs and manifest.
@@ -13,7 +12,7 @@ import wave
 from pathlib import Path
 
 
-def generate(destination):
+def generate(destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     pairs = [
         ('conversation-ja', 'Kyoko', [
@@ -23,7 +22,7 @@ def generate(destination):
             'こちらは聞こえています。後ろからも合図を送ります。', 'うん', 'ふん',
             '大丈夫です。このままゆっくり進みましょう。']),
     ]
-    manifest = dict(sampleRate=48000, channels=1, pausesSeconds=[1, 2, 3], fixtures=[])
+    fixtures = []
     with tempfile.TemporaryDirectory(prefix='ride-conversation-') as folder:
         temporary = Path(folder)
         for name, voice, phrases in pairs:
@@ -41,14 +40,21 @@ def generate(destination):
                 pcm = pcm[max(0, audible[0] - 240):min(len(pcm), audible[-1] + 241)]
                 start = len(audio) / 48000
                 audio.extend(pcm)
-                utterances.append(dict(text=phrase, startSeconds=start, endSeconds=len(audio) / 48000))
+                utterances.append({'text': phrase, 'startSeconds': start, 'endSeconds': len(audio) / 48000})
                 if index < 3:
                     audio.extend([0] * (48000 * (index + 1)))
             audio.extend([0] * 24000)
             with wave.open(str(destination / (name + '.wav')), 'wb') as target:
                 target.setparams((1, 2, 48000, len(audio), 'NONE', 'not compressed'))
                 target.writeframes(struct.pack('<' + 'h' * len(audio), *audio))
-            manifest['fixtures'].append(dict(name=name, voice=voice, rate=190, durationSeconds=len(audio)/48000, utterances=utterances))
+            fixtures.append({
+                'name': name,
+                'voice': voice,
+                'rate': 190,
+                'durationSeconds': len(audio) / 48000,
+                'utterances': utterances,
+            })
+    manifest = {'sampleRate': 48000, 'channels': 1, 'pausesSeconds': [1, 2, 3], 'fixtures': fixtures}
     (destination / 'conversation-manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
 
 
