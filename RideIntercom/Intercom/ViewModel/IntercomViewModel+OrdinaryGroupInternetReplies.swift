@@ -130,8 +130,7 @@ extension IntercomViewModel {
 
     private func receiveOrdinaryGroupInternetAcceptances(_ target: InternetReplyTarget, window: OrdinaryGroupInternetReplyWindow) async throws {
         let invitation = target.invitation, address = target.address
-        guard let expectedKey = invitation.inviterDeviceKey,
-              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey) else { return }
+        guard let signer = ordinaryGroupInviterSigner(for: invitation) else { return }
         if !window.openedInvitationIDs.contains(invitation.id) {
             try await window.client.openOrdinaryGroupReply(address, access: window.access)
             window.openedInvitationIDs.insert(invitation.id)

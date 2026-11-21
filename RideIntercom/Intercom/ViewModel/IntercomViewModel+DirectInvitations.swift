@@ -67,6 +67,12 @@ extension IntercomViewModel {
         } catch { reportGroupStorageError(error); return nil }
     }
 
+    func ordinaryGroupInviterSigner(for invitation: DirectInvitationContext) -> DeviceIdentitySigner? {
+        let memberID = localMemberIdentity.memberID
+        guard invitation.inviterMemberID == memberID, let expectedKey = invitation.inviterDeviceKey else { return nil }
+        return try? internetSettingsStore.invitationSigner(memberID: memberID, expectedPublicKey: expectedKey)
+    }
+
     func sendPendingInvitationReceipt() {
         guard let groupID = activeGroupID, let pending = groupRepository.pendingInvitation(for: groupID),
               authenticatedPeerIDs.contains(pending.inviterMemberID),
