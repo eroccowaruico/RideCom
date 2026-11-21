@@ -17,9 +17,10 @@ struct GroupLifecycleTests {
     @Test(arguments: [false, true])
     func leavingAGroupDoesNotAllowPreviouslyAcceptedLinksToRestoreIt(legacySnapshot: Bool) throws {
         var now = Date().timeIntervalSince1970
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "local", callAccessNow: { Date(timeIntervalSince1970: now) })
-        let vm = h.viewModel
-        defer { vm.disconnect() }
+            let harness = AppTestSupport.makeHarness(
+                groups: [], localMemberID: "local", callAccessNow: { Date(timeIntervalSince1970: now) })
+        let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
         let signer = testIdentitySigner("remote"), authority = testInvitationAuthority(), groupID = UUID()
         func link(secret: String) throws -> URL {
             try GroupInviteTokenCodec.joinURL(for: GroupInviteToken.make(authority: authority, signer: signer,
@@ -28,100 +29,108 @@ struct GroupLifecycleTests {
         }
 
         let oldLinks = try [link(secret: "first-key"), link(secret: "first-key")]
-        for url in oldLinks { try vm.acceptInviteURL(url, now: now) }
-        let receipt = try #require(vm.groupRepository.pendingInvitation(for: groupID))
+        for url in oldLinks { try viewModel.acceptInviteURL(url, now: now) }
+        let receipt = try #require(viewModel.groupRepository.pendingInvitation(for: groupID))
         let acknowledgement = try receipt.acknowledged(by: signer)
-        #expect(try vm.groupRepository.acknowledgeInvitation(acknowledgement))
-        #expect(try !vm.groupRepository.acknowledgeInvitation(acknowledgement))
-        #expect(vm.groupRepository.pendingInvitation(for: groupID) == nil)
-        let contact = try #require(vm.savedRemoteUsers.first)
+        #expect(try viewModel.groupRepository.acknowledgeInvitation(acknowledgement))
+        #expect(try !viewModel.groupRepository.acknowledgeInvitation(acknowledgement))
+        #expect(viewModel.groupRepository.pendingInvitation(for: groupID) == nil)
+        let contact = try #require(viewModel.savedRemoteUsers.first)
         if legacySnapshot {
-            vm.disconnect()
-            var json = try #require(JSONSerialization.jsonObject(with: h.groupStore.snapshot.encoded()) as? [String: Any])
+            viewModel.disconnect()
+                var json = try #require(
+                    JSONSerialization.jsonObject(with: harness.groupStore.snapshot.encoded()) as? [String: Any])
             json["version"] = 15
             json.removeValue(forKey: "groupLinkReceipts")
-            h.groupStore.snapshot = try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json))
-            vm.reloadSavedGroups()
+            harness.groupStore.snapshot = try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json))
+            viewModel.reloadSavedGroups()
         }
-        let beforeFailedLeave = h.groupStore.snapshot, callBeforeFailedLeave = vm.currentCallReference
-        h.groupStore.failSaving = true
-        vm.deleteGroup(groupID)
-        #expect(h.groupStore.snapshot == beforeFailedLeave)
-        #expect(vm.currentCallReference == callBeforeFailedLeave)
-        h.groupStore.failSaving = false
-        vm.disconnect()
-        vm.reloadSavedGroups()
-        vm.selectGroup(try #require(vm.groups.first { $0.id == groupID }))
-        #expect(vm.activeGroupID == groupID)
-        vm.deleteGroup(groupID)
-        #expect(vm.activeGroupID == nil && h.callSession.connectedGroup == nil)
-        h.groupStore.snapshot = try GroupSnapshot.decode(h.groupStore.snapshot.encoded())
-        vm.reloadSavedGroups()
-        #expect(vm.groups.allSatisfy { $0.id != groupID })
-        #expect(try vm.groupRepository.credential(for: groupID) == nil)
-        #expect(vm.savedRemoteUsers.map(\.id) == [contact.id])
+        let beforeFailedLeave = harness.groupStore.snapshot, callBeforeFailedLeave = viewModel.currentCallReference
+        harness.groupStore.failSaving = true
+        viewModel.deleteGroup(groupID)
+        #expect(harness.groupStore.snapshot == beforeFailedLeave)
+        #expect(viewModel.currentCallReference == callBeforeFailedLeave)
+        harness.groupStore.failSaving = false
+        viewModel.disconnect()
+        viewModel.reloadSavedGroups()
+        viewModel.selectGroup(try #require(viewModel.groups.first { $0.id == groupID }))
+        #expect(viewModel.activeGroupID == groupID)
+        viewModel.deleteGroup(groupID)
+        #expect(viewModel.activeGroupID == nil && harness.callSession.connectedGroup == nil)
+        harness.groupStore.snapshot = try GroupSnapshot.decode(harness.groupStore.snapshot.encoded())
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.groups.allSatisfy { $0.id != groupID })
+        #expect(try viewModel.groupRepository.credential(for: groupID) == nil)
+        #expect(viewModel.savedRemoteUsers.map(\.id) == [contact.id])
 
-        #expect(vm.createTalkGroup(name: "Keep this call"))
-        let currentCall = vm.currentCallReference, beforeReplay = h.groupStore.snapshot
+        #expect(viewModel.createTalkGroup(name: "Keep this call"))
+        let currentCall = viewModel.currentCallReference, beforeReplay = harness.groupStore.snapshot
         for url in oldLinks {
-            #expect(throws: GroupInviteTokenError.retiredGroupLink) { try vm.acceptInviteURL(url, now: now) }
-            #expect(vm.currentCallReference == currentCall)
+            #expect(throws: GroupInviteTokenError.retiredGroupLink) { try viewModel.acceptInviteURL(url, now: now) }
+            #expect(viewModel.currentCallReference == currentCall)
         }
-        #expect(h.groupStore.snapshot == beforeReplay)
-        #expect(vm.groupStorageIssue == nil)
-        #expect(vm.inviteStatusMessage == nil)
-        #expect(vm.groupErrorMessage == "This link was already used to join this group. Ask the sender for a new invitation.")
+        #expect(harness.groupStore.snapshot == beforeReplay)
+        #expect(viewModel.groupStorageIssue == nil)
+        #expect(viewModel.inviteStatusMessage == nil)
+            #expect(
+                viewModel.groupErrorMessage
+                    == "This link was already used to join this group. Ask the sender for a new invitation.")
 
-        vm.disconnect()
-        try vm.acceptInviteURL(link(secret: "fresh-key"), now: now)
-        #expect(try vm.groupRepository.credential(for: groupID)?.secret == "fresh-key")
-        let rejoined = vm.currentCallReference
-        #expect(throws: GroupInviteTokenError.retiredGroupLink) { try vm.acceptInviteURL(oldLinks[0], now: now) }
-        #expect(vm.currentCallReference == rejoined)
-        vm.disconnect()
-        for url in oldLinks { #expect(throws: GroupInviteTokenError.retiredGroupLink) { try vm.acceptInviteURL(url, now: now) } }
-        #expect(try vm.groupRepository.credential(for: groupID)?.secret == "fresh-key")
+        viewModel.disconnect()
+        try viewModel.acceptInviteURL(link(secret: "fresh-key"), now: now)
+        #expect(try viewModel.groupRepository.credential(for: groupID)?.secret == "fresh-key")
+        let rejoined = viewModel.currentCallReference
+        #expect(throws: GroupInviteTokenError.retiredGroupLink) { try viewModel.acceptInviteURL(oldLinks[0], now: now) }
+        #expect(viewModel.currentCallReference == rejoined)
+        viewModel.disconnect()
+            for url in oldLinks {
+                #expect(throws: GroupInviteTokenError.retiredGroupLink) { try viewModel.acceptInviteURL(url, now: now) }
+            }
+        #expect(try viewModel.groupRepository.credential(for: groupID)?.secret == "fresh-key")
         now += 61
-        vm.deleteGroup(groupID)
-        #expect(h.groupStore.snapshot.groupLinkReceipts.count == (legacySnapshot ? 2 : 0))
+        viewModel.deleteGroup(groupID)
+        #expect(harness.groupStore.snapshot.groupLinkReceipts.count == (legacySnapshot ? 2 : 0))
     }
 
     @Test func invitationStorageFailureKeepsStorageRecoveryInsteadOfRequestingAnotherInvite() throws {
-        let h = AppTestSupport.makeHarness(groups: [])
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
+        let harness = AppTestSupport.makeHarness(groups: [])
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
             groupID: UUID(), groupName: "Ride", groupSecret: "shared", inviterMemberID: "remote")
         let url = try GroupInviteTokenCodec.joinURL(for: token)
-        try h.viewModel.acceptInviteURL(url)
-        let activeID = h.viewModel.activeGroupID
-        let saves = h.groupStore.saveCount
-        h.groupStore.readError = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "broken stored snapshot"))
-        #expect(throws: (any Error).self) { try h.viewModel.acceptInviteURL(url) }
-        #expect(h.viewModel.groupStorageIssue == .corrupted)
-        #expect(h.viewModel.groupErrorMessage == GroupStorageIssue.corrupted.message)
-        #expect(h.viewModel.inviteStatusMessage == nil)
-        #expect(h.viewModel.activeGroupID == activeID)
-        #expect(h.groupStore.saveCount == saves)
-        #expect(h.callSession.disconnectCallCount == 0)
-        h.groupStore.readError = nil
-        h.viewModel.disconnect()
-        h.viewModel.reloadSavedGroups()
-        try h.viewModel.acceptInviteURL(url)
-        #expect(h.viewModel.groupStorageIssue == nil)
-        #expect(h.viewModel.groupErrorMessage == nil)
-        #expect(h.viewModel.inviteStatusMessage == "JOINED Ride")
+        try harness.viewModel.acceptInviteURL(url)
+        let activeID = harness.viewModel.activeGroupID
+        let saves = harness.groupStore.saveCount
+            harness.groupStore.readError = DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "broken stored snapshot"))
+        #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(url) }
+        #expect(harness.viewModel.groupStorageIssue == .corrupted)
+        #expect(harness.viewModel.groupErrorMessage == GroupStorageIssue.corrupted.message)
+        #expect(harness.viewModel.inviteStatusMessage == nil)
+        #expect(harness.viewModel.activeGroupID == activeID)
+        #expect(harness.groupStore.saveCount == saves)
+        #expect(harness.callSession.disconnectCallCount == 0)
+        harness.groupStore.readError = nil
+        harness.viewModel.disconnect()
+        harness.viewModel.reloadSavedGroups()
+        try harness.viewModel.acceptInviteURL(url)
+        #expect(harness.viewModel.groupStorageIssue == nil)
+        #expect(harness.viewModel.groupErrorMessage == nil)
+        #expect(harness.viewModel.inviteStatusMessage == "JOINED Ride")
     }
 
     @Test(arguments: ["expired", "version", "signature", "malformed"])
     func failedInvitationClearsSuccessExplainsRecoveryAndAcceptsReplacement(_ failure: String) throws {
-        let h = AppTestSupport.makeHarness(groups: [])
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
+        let harness = AppTestSupport.makeHarness(groups: [])
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
             groupID: UUID(), groupName: "Ride", groupSecret: "shared", inviterMemberID: "remote",
             issuedAt: 100, expiresAt: 200)
         let validURL = try GroupInviteTokenCodec.joinURL(for: token)
-        try h.viewModel.acceptInviteURL(validURL, now: 150)
-        let groupIDs = h.viewModel.groups.map(\.id)
-        let activeID = h.viewModel.activeGroupID
-        let saves = h.groupStore.saveCount
+        try harness.viewModel.acceptInviteURL(validURL, now: 150)
+        let groupIDs = harness.viewModel.groups.map(\.id)
+        let activeID = harness.viewModel.activeGroupID
+        let saves = harness.groupStore.saveCount
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(token)) as? [String: Any])
         let expected: String
         switch failure {
@@ -137,22 +146,24 @@ struct GroupLifecycleTests {
         let encoded = try JSONSerialization.data(withJSONObject: object).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        let badURL = try #require(URL(string: "rideintercom://join?token=\(failure == "malformed" ? "broken" : encoded)"))
-        #expect(throws: (any Error).self) { try h.viewModel.acceptInviteURL(badURL, now: 200) }
-        #expect(h.viewModel.groupErrorMessage == expected)
-        #expect(h.viewModel.inviteStatusMessage == nil)
-        #expect(h.viewModel.groups.map(\.id) == groupIDs)
-        #expect(h.viewModel.activeGroupID == activeID)
-        #expect(h.groupStore.saveCount == saves)
-        #expect(h.callSession.disconnectCallCount == 0)
+            let badURL = try #require(
+                URL(string: "rideintercom://join?token=\(failure == "malformed" ? "broken" : encoded)"))
+        #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(badURL, now: 200) }
+        #expect(harness.viewModel.groupErrorMessage == expected)
+        #expect(harness.viewModel.inviteStatusMessage == nil)
+        #expect(harness.viewModel.groups.map(\.id) == groupIDs)
+        #expect(harness.viewModel.activeGroupID == activeID)
+        #expect(harness.groupStore.saveCount == saves)
+        #expect(harness.callSession.disconnectCallCount == 0)
 
-        let replacement = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
+            let replacement = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
             groupID: token.groupID, groupName: "Ride", groupSecret: "shared", inviterMemberID: "remote",
             issuedAt: 200, expiresAt: 300)
-        try h.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: replacement), now: 250)
-        #expect(h.viewModel.groupErrorMessage == nil)
-        #expect(h.viewModel.inviteStatusMessage == "JOINED Ride")
-        #expect(h.viewModel.activeGroupID == activeID)
+        try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: replacement), now: 250)
+        #expect(harness.viewModel.groupErrorMessage == nil)
+        #expect(harness.viewModel.inviteStatusMessage == "JOINED Ride")
+        #expect(harness.viewModel.activeGroupID == activeID)
     }
 
     @Test func corruptLocalIdentityReportsCreationFailureWithoutWritingGroups() {
@@ -167,8 +178,9 @@ struct GroupLifecycleTests {
     }
 
     @Test func groupInviteTokenRoundTripsAndRejectsTampering() throws {
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("member-001"),
+        let groupID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("member-001"),
             groupID: groupID,
             groupName: "Talk Group",
             groupSecret: "talk-secret",
@@ -213,8 +225,9 @@ struct GroupLifecycleTests {
 
     @Test func viewModelAcceptsInviteURLAndStoresCredential() throws {
         let credentialStore = InMemoryGroupCredentialStore()
-        let groupID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("member-remote"),
+        let groupID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("member-remote"),
             groupID: groupID,
             groupName: "Invited Group",
             groupSecret: "shared-secret",
@@ -258,7 +271,9 @@ struct GroupLifecycleTests {
         #expect(harness.viewModel.masterOutputVolume == IntercomViewModel.defaultMasterOutputVolume)
         #expect(harness.viewModel.remoteOutputVolumes.isEmpty)
         #expect(harness.viewModel.remoteSoundIsolationEnabled.isEmpty)
-        #expect(harness.viewModel.receiveMasterSoundIsolationEnabled == IntercomViewModel.defaultReceiveSoundIsolationEnabled)
+            #expect(
+                harness.viewModel.receiveMasterSoundIsolationEnabled
+                    == IntercomViewModel.defaultReceiveSoundIsolationEnabled)
         #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
         #expect(!harness.viewModel.isOutputMuted)
         #expect(harness.viewModel.groups.count == IntercomSeedData.recentGroups.count)
@@ -268,54 +283,62 @@ struct GroupLifecycleTests {
 
     @Test func deletingBrowsedGroupPreservesActiveCallAndRejectsUntrustedMute() async {
         let harness = AppTestSupport.makeHarness()
-        let a = IntercomSeedData.recentGroups[0]
-        let b = IntercomSeedData.recentGroups[1]
-        harness.viewModel.selectGroup(a)
+        let firstGroup = IntercomSeedData.recentGroups[0]
+        let secondGroup = IntercomSeedData.recentGroups[1]
+        harness.viewModel.selectGroup(firstGroup)
         harness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
-        harness.viewModel.selectGroup(b)
-        harness.viewModel.deleteGroup(b.id)
-        #expect(harness.viewModel.activeGroupID == a.id)
+        harness.viewModel.selectGroup(secondGroup)
+        harness.viewModel.deleteGroup(secondGroup.id)
+        #expect(harness.viewModel.activeGroupID == firstGroup.id)
         #expect(harness.viewModel.isAudioReady)
         harness.viewModel.handleTransportEvent(.remotePeerMuteState(peerID: "member-215", isMuted: true))
-        #expect(harness.viewModel.groups.first { $0.id == a.id }?.members.first { $0.id == "member-215" }?.isMuted == false)
-        harness.viewModel.deleteGroup(a.id)
+            #expect(
+                harness.viewModel.groups.first { $0.id == firstGroup.id }?.members.first { $0.id == "member-215" }?
+                    .isMuted
+                    == false)
+        harness.viewModel.deleteGroup(firstGroup.id)
         #expect(harness.viewModel.activeGroupID == nil)
         #expect(!harness.viewModel.isAudioReady)
     }
 
     @Test func deviceLossPausesOwnAudioButPreservesGroupAndDoesNotAutoResume() async {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        let disconnects = h.callSession.disconnectCallCount
-        h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
-            reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
-        #expect(!h.viewModel.isAudioReady)
-        #expect(h.viewModel.audioPipeline.snapshot.busIDs.isEmpty)
-        #expect(h.callSession.disconnectCallCount == disconnects)
-        #expect(h.viewModel.authenticatedPeerIDs == ["member-108"])
-        h.viewModel.handleTransportEvent(.authenticated(members: [.init(peer: .init(id: .init(rawValue: "member-108"), displayName: "Rider"), route: .multipeer, isConnected: true, membershipID: UUID())]))
-        #expect(!h.viewModel.isAudioReady)
-        h.viewModel.disconnect()
+        let harness = AppTestSupport.makeHarness()
+        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+        let disconnects = harness.callSession.disconnectCallCount
+        harness.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+            reason: .routeChanged(.oldDeviceUnavailable), snapshot: harness.audioSessionBackend.current)))
+        #expect(!harness.viewModel.isAudioReady)
+        #expect(harness.viewModel.audioPipeline.snapshot.busIDs.isEmpty)
+        #expect(harness.callSession.disconnectCallCount == disconnects)
+        #expect(harness.viewModel.authenticatedPeerIDs == ["member-108"])
+            harness.viewModel.handleTransportEvent(
+                .authenticated(members: [
+                    .init(
+                        peer: .init(id: .init(rawValue: "member-108"), displayName: "Rider"), route: .multipeer,
+                        isConnected: true, membershipID: UUID())
+                ]))
+        #expect(!harness.viewModel.isAudioReady)
+        harness.viewModel.disconnect()
     }
 
     @Test func createdGroupUsesSamePersistedRandomKeyForInviteAndConnection() throws {
         let credentials = InMemoryGroupCredentialStore()
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: credentials)
-        h.viewModel.createTalkGroup()
-        let group = try #require(h.viewModel.selectedGroup)
-        let saved = try #require(try h.viewModel.groupRepository.credential(for: group.id))
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: credentials)
+        harness.viewModel.createTalkGroup()
+        let group = try #require(harness.viewModel.selectedGroup)
+        let saved = try #require(try harness.viewModel.groupRepository.credential(for: group.id))
         #expect(Data(base64Encoded: saved.secret)?.count == 32)
         #expect(!saved.secret.contains(group.id.uuidString))
-        #expect(h.callSession.connectedGroup?.accessSecret == saved.secret)
-        let url = try #require(h.viewModel.makeSelectedGroupInviteURL())
+        #expect(harness.callSession.connectedGroup?.accessSecret == saved.secret)
+        let url = try #require(harness.viewModel.makeSelectedGroupInviteURL())
         let token = try GroupInviteTokenCodec.decodeJoinURL(url)
         #expect(token.groupSecret == saved.secret)
-        h.viewModel.disconnect()
-        h.viewModel.connectLocal()
-        #expect(h.callSession.connectedGroup?.accessSecret == token.groupSecret)
+        harness.viewModel.disconnect()
+        harness.viewModel.connectLocal()
+        #expect(harness.callSession.connectedGroup?.accessSecret == token.groupSecret)
         let other = AppTestSupport.makeHarness(groups: [], localMemberID: "other-device")
         try other.viewModel.acceptInviteURL(url)
         #expect(other.callSession.connectedGroup?.accessSecret == saved.secret)
@@ -324,112 +347,123 @@ struct GroupLifecycleTests {
     @Test func missingGroupKeyCannotStartPlaintextCallOrInventInvite() throws {
         let credentials = InMemoryGroupCredentialStore()
         let group = try IntercomGroup(name: "Missing key", members: [.init(id: "local", displayName: "You")])
-        let h = AppTestSupport.makeHarness(groups: [group], credentialStore: credentials)
-        h.viewModel.selectGroup(group)
-        #expect(h.callSession.connectedGroup == nil)
-        #expect(h.viewModel.makeSelectedGroupInviteURL() == nil)
-        #expect(h.viewModel.activeGroupID == nil)
-        #expect(h.viewModel.groupErrorMessage?.contains("key") == true)
+        let harness = AppTestSupport.makeHarness(groups: [group], credentialStore: credentials)
+        harness.viewModel.selectGroup(group)
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(harness.viewModel.makeSelectedGroupInviteURL() == nil)
+        #expect(harness.viewModel.activeGroupID == nil)
+        #expect(harness.viewModel.groupErrorMessage?.contains("key") == true)
     }
 
     @Test func credentialPersistenceFailureDoesNotCreateOrJoinGroup() throws {
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: RejectingGroupCredentialStore())
-        h.viewModel.createTalkGroup()
-        #expect(h.viewModel.groups.isEmpty)
-        #expect(h.callSession.connectedGroup == nil)
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: UUID(), groupName: "Invite", groupSecret: "shared", inviterMemberID: "remote")
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: RejectingGroupCredentialStore())
+        harness.viewModel.createTalkGroup()
+        #expect(harness.viewModel.groups.isEmpty)
+        #expect(harness.callSession.connectedGroup == nil)
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: UUID(),
+                groupName: "Invite", groupSecret: "shared", inviterMemberID: "remote")
         let url = try GroupInviteTokenCodec.joinURL(for: token)
-        #expect(throws: (any Error).self) { try h.viewModel.acceptInviteURL(url) }
-        #expect(h.viewModel.groups.isEmpty)
-        #expect(h.callSession.connectedGroup == nil)
+        #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(url) }
+        #expect(harness.viewModel.groups.isEmpty)
+        #expect(harness.callSession.connectedGroup == nil)
     }
 
     @Test func emptyInviteCannotReplaceAnExistingGroupKey() throws {
         let credentials = InMemoryGroupCredentialStore()
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: credentials)
-        h.viewModel.createTalkGroup()
-        let group = try #require(h.viewModel.selectedGroup)
-        let saved = try #require(try h.viewModel.groupRepository.credential(for: group.id))
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: group.id, groupName: group.name, groupSecret: "", inviterMemberID: "remote")
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: credentials)
+        harness.viewModel.createTalkGroup()
+        let group = try #require(harness.viewModel.selectedGroup)
+        let saved = try #require(try harness.viewModel.groupRepository.credential(for: group.id))
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: group.id,
+                groupName: group.name, groupSecret: "", inviterMemberID: "remote")
         let url = try GroupInviteTokenCodec.joinURL(for: token)
-        #expect(throws: (any Error).self) { try h.viewModel.acceptInviteURL(url) }
-        #expect(try h.viewModel.groupRepository.credential(for: group.id) == saved)
-        #expect(h.callSession.disconnectCallCount == 0)
+        #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(url) }
+        #expect(try harness.viewModel.groupRepository.credential(for: group.id) == saved)
+        #expect(harness.callSession.disconnectCallCount == 0)
     }
 
     @Test func runtimeUpdatesDoNotWriteGroupStorage() throws {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(h.viewModel.groups[0])
-        let count = h.groupStore.saveCount
+        let harness = AppTestSupport.makeHarness()
+        harness.viewModel.selectGroup(harness.viewModel.groups[0])
+        let count = harness.groupStore.saveCount
         for _ in 0..<200 {
-            h.viewModel.setLocalVoiceLevel(0.2)
-            h.viewModel.setVoiceActive(true)
-            h.viewModel.setRemotePeer("member-108", isTalking: true, voiceLevel: 0.3)
-            h.viewModel.markPlayedAudioFrame(peerID: "member-108")
+            harness.viewModel.setLocalVoiceLevel(0.2)
+            harness.viewModel.setVoiceActive(true)
+            harness.viewModel.setRemotePeer("member-108", isTalking: true, voiceLevel: 0.3)
+            harness.viewModel.markPlayedAudioFrame(peerID: "member-108")
         }
-        #expect(h.groupStore.saveCount == count)
-        h.callSession.authenticate(["new-rider"])
-        #expect(h.groupStore.saveCount == count)
-        let profile = try testPeerProfile(h.viewModel, peerID: "new-rider", displayName: "New rider")
-        let message = ApplicationDataMessage(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))
-        h.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "new-rider", message: message))
-        #expect(h.groupStore.saveCount == count + 1)
-        h.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "new-rider", message: message))
-        #expect(h.groupStore.saveCount == count + 1)
+        #expect(harness.groupStore.saveCount == count)
+        harness.callSession.authenticate(["new-rider"])
+        #expect(harness.groupStore.saveCount == count)
+        let profile = try testPeerProfile(harness.viewModel, peerID: "new-rider", displayName: "New rider")
+            let message = ApplicationDataMessage(
+                namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))
+        harness.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "new-rider", message: message))
+        #expect(harness.groupStore.saveCount == count + 1)
+        harness.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "new-rider", message: message))
+        #expect(harness.groupStore.saveCount == count + 1)
     }
 
     @Test func removingMemberFromInactiveGroupPreservesActiveCall() {
-        let h = AppTestSupport.makeHarness()
-        let first = h.viewModel.groups[0]
-        h.viewModel.selectGroup(first)
-        h.viewModel.connectedPeerIDs = ["member-400"]
-        h.viewModel.authenticatedPeerIDs = ["member-400"]
-        h.viewModel.removeMember("member-400", from: h.viewModel.groups[1].id)
-        #expect(h.viewModel.activeGroupID == first.id)
-        #expect(h.viewModel.connectedPeerIDs == ["member-400"])
-        #expect(h.viewModel.authenticatedPeerIDs == ["member-400"])
+        let harness = AppTestSupport.makeHarness()
+        let first = harness.viewModel.groups[0]
+        harness.viewModel.selectGroup(first)
+        harness.viewModel.connectedPeerIDs = ["member-400"]
+        harness.viewModel.authenticatedPeerIDs = ["member-400"]
+        harness.viewModel.removeMember("member-400", from: harness.viewModel.groups[1].id)
+        #expect(harness.viewModel.activeGroupID == first.id)
+        #expect(harness.viewModel.connectedPeerIDs == ["member-400"])
+        #expect(harness.viewModel.authenticatedPeerIDs == ["member-400"])
     }
 
     @Test func failedMetadataSaveDoesNotPublishGroupOrLosePreviousKey() throws {
         let keys = InMemoryGroupCredentialStore()
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys)
-        h.groupStore.failSaving = true
-        h.viewModel.createTalkGroup()
-        #expect(h.viewModel.groups.isEmpty)
-        #expect(h.callSession.connectedGroup == nil)
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: keys)
+        harness.groupStore.failSaving = true
+        harness.viewModel.createTalkGroup()
+        #expect(harness.viewModel.groups.isEmpty)
+        #expect(harness.callSession.connectedGroup == nil)
         #expect(!keys.values.isEmpty) // An uncommitted key is safe to sweep on reload.
-        h.groupStore.failSaving = false
-        _ = try h.viewModel.groupRepository.load(localMemberID: "member-local")
+        harness.groupStore.failSaving = false
+        _ = try harness.viewModel.groupRepository.load(localMemberID: "member-local")
         #expect(keys.values.isEmpty)
-        #expect(h.viewModel.groups.isEmpty)
+        #expect(harness.viewModel.groups.isEmpty)
     }
 
     @Test func deletionRemovesKeyAndActiveInviteCannotReplaceKey() throws {
         let keys = InMemoryGroupCredentialStore()
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys)
-        h.viewModel.createTalkGroup()
-        let group = try #require(h.viewModel.selectedGroup)
-        let saved = try h.viewModel.groupRepository.credential(for: group.id)
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: group.id, groupName: "Changed", groupSecret: "other", inviterMemberID: "remote")
-        #expect(throws: GroupInviteTokenError.activeGroupKeyChanged) { try h.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token)) }
-        #expect(try h.viewModel.groupRepository.credential(for: group.id) == saved)
-        h.viewModel.deleteGroup(group.id)
-        #expect(try h.viewModel.groupRepository.credential(for: group.id) == nil)
-        #expect(h.viewModel.groups.isEmpty)
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: keys)
+        harness.viewModel.createTalkGroup()
+        let group = try #require(harness.viewModel.selectedGroup)
+        let saved = try harness.viewModel.groupRepository.credential(for: group.id)
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: group.id,
+                groupName: "Changed", groupSecret: "other", inviterMemberID: "remote")
+            #expect(throws: GroupInviteTokenError.activeGroupKeyChanged) {
+                try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+            }
+        #expect(try harness.viewModel.groupRepository.credential(for: group.id) == saved)
+        harness.viewModel.deleteGroup(group.id)
+        #expect(try harness.viewModel.groupRepository.credential(for: group.id) == nil)
+        #expect(harness.viewModel.groups.isEmpty)
     }
 
     @Test func fullGroupDoesNotEvictUnrelatedRiderForNewAuthenticatedMember() throws {
-        let group = try IntercomGroup(name: "Eight", members: (0..<8).map { .init(id: "rider-\($0)", displayName: "Rider") }, accessSecret: "fixture")
-        let h = AppTestSupport.makeHarness(groups: [group])
-        h.viewModel.selectGroup(group)
-        h.viewModel.connectedPeerIDs = (2..<8).map { "rider-\($0)" } + ["replacement"]
-        h.callSession.authenticate(["replacement"])
-        let profile = try testPeerProfile(h.viewModel, peerID: "replacement", displayName: "Replacement")
-        h.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "replacement", message:
+            let group = try IntercomGroup(
+                name: "Eight", members: (0..<8).map { .init(id: "rider-\($0)", displayName: "Rider") },
+                accessSecret: "fixture")
+        let harness = AppTestSupport.makeHarness(groups: [group])
+        harness.viewModel.selectGroup(group)
+        harness.viewModel.connectedPeerIDs = (2..<8).map { "rider-\($0)" } + ["replacement"]
+        harness.callSession.authenticate(["replacement"])
+        let profile = try testPeerProfile(harness.viewModel, peerID: "replacement", displayName: "Replacement")
+        harness.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "replacement", message:
             .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))))
-        #expect(h.viewModel.groups[0].members.count == 8)
-        #expect(!h.viewModel.groups[0].members.contains { $0.id == "replacement" })
-        #expect(h.viewModel.groups[0].members.contains { $0.id == "rider-1" })
+        #expect(harness.viewModel.groups[0].members.count == 8)
+        #expect(!harness.viewModel.groups[0].members.contains { $0.id == "replacement" })
+        #expect(harness.viewModel.groups[0].members.contains { $0.id == "rider-1" })
     }
 
 }
