@@ -84,7 +84,11 @@ extension IntercomViewModel {
     var callAccessAdmittedMemberships: [RTC.PeerID: UUID] { admittedCallAccessMemberships(in: peerProfiles) }
 
     func admittedCallAccessMemberships(in profiles: [String: PeerProfileState]) -> [RTC.PeerID: UUID] {
-        let admitted = representativeProfiles(in: profiles).filter { !enforceCallAccess || (callAccessState.isEstablished && ($0.value.callAccess?.mediaReady == true || $0.value.callAccess?.isEstablished == true)) }
+        let admitted = representativeProfiles(in: profiles).filter {
+            !enforceCallAccess
+                || (callAccessState.isEstablished
+                    && ($0.value.callAccess?.mediaReady == true || $0.value.callAccess?.isEstablished == true))
+        }
         return canStartCalls ? Self.admittedMemberships(in: admitted) : [:]
     }
 
@@ -107,7 +111,9 @@ extension IntercomViewModel {
         }
     }
 
-    func receivePeerProfileChallenge(peerID: String, message: ApplicationDataMessage, now: TimeInterval = Date().timeIntervalSince1970) {
+    func receivePeerProfileChallenge(
+        peerID: String, message: ApplicationDataMessage, now: TimeInterval = Date().timeIntervalSince1970
+    ) {
         guard canStartCalls, message.namespace == PeerProfileChallenge.namespace, message.payload.count <= 1024,
               authenticatedPeerIDs.contains(peerID), var state = peerProfiles[peerID],
               let challenge = message.decodedPayload(PeerProfileChallenge.self, from: peerID),
@@ -130,13 +136,16 @@ extension IntercomViewModel {
         // repeated Keychain reads, signatures or a reply loop.
         let cached = state.response.flatMap { try? JSONDecoder().decode(SharedDisplayName.self, from: $0) }
         let payload: Data
-        if let response = state.response, cached?.challenge == challenge, state.responseName == localMemberIdentity.displayName {
+        if let response = state.response, cached?.challenge == challenge,
+            state.responseName == localMemberIdentity.displayName {
             payload = response
         } else {
             guard state.responseRevision < UInt64.max,
                   let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
-                  let value = try? SharedDisplayName.make(groupID: groupID, recipientMemberID: peerID, challenge: challenge,
-                      revision: state.responseRevision + 1, displayName: localMemberIdentity.displayName, signer: signer),
+                let value = try? SharedDisplayName.make(
+                    groupID: groupID, recipientMemberID: peerID, challenge: challenge,
+                    revision: state.responseRevision + 1, displayName: localMemberIdentity.displayName,
+                    signer: signer),
                   let data = try? JSONEncoder().encode(value) else { return }
             payload = data
             state.response = data; state.responseName = localMemberIdentity.displayName; state.responseRevision += 1
@@ -153,14 +162,17 @@ extension IntercomViewModel {
               let value = message.decodedPayload(SharedDisplayName.self, from: peerID),
               value.revision > (state.verified?.revision ?? 0),
               let verified = try? value.verified(peerID: peerID, recipient: localMemberIdentity.memberID,
-                  groupID: groupID, challenge: state.challenge, trust: try? internetSettingsStore.identityTrust()) else { return }
+                groupID: groupID, challenge: state.challenge, trust: try? internetSettingsStore.identityTrust())
+        else { return }
         if let previous = state.verified {
             guard previous.identity.publicKey == verified.identity.publicKey,
                   previous.identity.principal == nil || verified.identity.principal == nil
                     || previous.identity.principal == verified.identity.principal else { return }
         }
         do {
-            guard verified.identity.principal == nil || verified.identity.principal != localAccountPrincipal else { return }
+            guard verified.identity.principal == nil || verified.identity.principal != localAccountPrincipal else {
+                return
+            }
             let retaining = groups.first(where: { $0.id == groupID })?.kind == .group
                 ? Set(currentRepresentativeProfiles.keys).union([peerID]) : Set(authenticatedPeerIDs)
             guard try groupRepository.receiveProfile(verified, connectedMemberIDs: retaining) else { return }

@@ -12,7 +12,11 @@ extension IntercomViewModel {
     func contactPerson(_ id: UUID) -> SavedUser? {
         _ = contactInvitationRevision
         if let user = directoryUsers.first(where: { $0.id == id }) { return user }
-        guard let peer = groupRepository.contactInvitations.first(where: { $0.personID == id && $0.state == .confirmed })?.peerMemberID else { return nil }
+        guard
+            let peer = groupRepository.contactInvitations.first(where: {
+                $0.personID == id && $0.state == .confirmed
+            })?.peerMemberID
+        else { return nil }
         return savedRemoteUsers.first { $0.memberIDs.contains(peer) }
     }
 
@@ -44,14 +48,17 @@ extension IntercomViewModel {
 
     @discardableResult
     func resolveContactPersonName(_ person: SavedUser, useSharedName: Bool) -> Bool {
-        guard canEditSavedGroups, let current = contactPerson(person.id), current.needsNameConfirmation else { return false }
+        guard canEditSavedGroups, let current = contactPerson(person.id), current.needsNameConfirmation else {
+            return false
+        }
         guard let local = person.localName, current.localName == local, current.displayName == person.displayName else {
             contactInvitationMessage = "This name changed. Review it again."
             groupErrorMessage = contactInvitationMessage
             return false
         }
         do {
-            try groupRepository.resolveProvisionalName(person.id, localName: local, sharedName: person.displayName, useSharedName: useSharedName)
+            try groupRepository.resolveProvisionalName(
+                person.id, localName: local, sharedName: person.displayName, useSharedName: useSharedName)
             refreshGroupStorageStatus()
             contactInvitationMessage = nil
             groupErrorMessage = nil
@@ -79,7 +86,9 @@ extension IntercomViewModel {
     /// Kept only for old, unlinked exchanges. A person's delivery record never adds a second row.
     var unlinkedContactInvitations: [ContactInvitationRecord] {
         pendingContactInvitations.filter { record in
-            record.personID == nil && !(record.peerMemberID.map { peer in savedRemoteUsers.contains { $0.memberIDs.contains(peer) } } ?? false)
+            record.personID == nil
+                && !(record.peerMemberID.map { peer in savedRemoteUsers.contains { $0.memberIDs.contains(peer) } }
+                    ?? false)
         }
     }
 
@@ -92,18 +101,23 @@ extension IntercomViewModel {
         do {
             let record = contactPersonInvitationForSharing(id)
             if let record, canShareOutgoingContactInvitation(record) {
-                let share = try prepareContactInvitationShare(record.id, expectedAccountAccessID: expectedAccountAccessID)
+                let share = try prepareContactInvitationShare(
+                    record.id, expectedAccountAccessID: expectedAccountAccessID)
                 _ = resumeContactInvitation(record.id)
                 return share
             }
             let target = try record?.invitedGroupID.map { try contactGroupAttachment(for: $0) }
             let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
             let token = try ContactInvitationSession.makeToken(authority: invitationAuthority, signer: signer,
-                displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970, invitedGroup: target)
+                displayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970,
+                invitedGroup: target)
             try groupRepository.stageContactInvitation(token, now: callAccessNow().timeIntervalSince1970,
                 replacingExpiredInvitation: record?.id, personID: id)
-            guard let invitationID = token.directInvitation?.context.id else { throw ContactInvitationError.unavailable }
-            let share = try prepareContactInvitationShare(invitationID, expectedAccountAccessID: expectedAccountAccessID)
+            guard let invitationID = token.directInvitation?.context.id else {
+                throw ContactInvitationError.unavailable
+            }
+            let share = try prepareContactInvitationShare(
+                invitationID, expectedAccountAccessID: expectedAccountAccessID)
             refreshContactInvitationGroup(invitationID)
             refreshGroupStorageStatus()
             _ = resumeContactInvitation(invitationID)
@@ -115,7 +129,11 @@ extension IntercomViewModel {
     }
 
     func resumeContactPersonInvitation(_ id: UUID) {
-        guard let record = contactPersonInvitations(id).first(where: { $0.canResume && !contactInvitationIsComplete($0) }) else { return }
+        guard
+            let record = contactPersonInvitations(id).first(where: {
+                $0.canResume && !contactInvitationIsComplete($0)
+            })
+        else { return }
         _ = resumeContactInvitation(record.id)
     }
 

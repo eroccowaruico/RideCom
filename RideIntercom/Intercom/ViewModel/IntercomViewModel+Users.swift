@@ -5,7 +5,10 @@ extension IntercomViewModel {
 
     /// Includes names explicitly saved before the person has registered.
     var directoryUsers: [SavedUser] {
-        savedUsers.filter { !$0.memberIDs.contains(localMemberIdentity.memberID) && ($0.principal == nil || $0.principal != localAccountPrincipal) }
+        savedUsers.filter {
+            !$0.memberIDs.contains(localMemberIdentity.memberID)
+                && ($0.principal == nil || $0.principal != localAccountPrincipal)
+        }
             .sorted {
                 let order = $0.resolvedDisplayName.localizedStandardCompare($1.resolvedDisplayName)
                 return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
@@ -16,7 +19,9 @@ extension IntercomViewModel {
         let group = groups.first { $0.id == groupID }
         let members = Set(group?.members.map(\.id) ?? [])
         let principals = Set(group?.accountDevices.values.map(\.principal) ?? [])
-        return savedRemoteUsers.filter { members.isDisjoint(with: $0.memberIDs) && ($0.principal.map { !principals.contains($0) } ?? true) }
+        return savedRemoteUsers.filter {
+            members.isDisjoint(with: $0.memberIDs) && ($0.principal.map { !principals.contains($0) } ?? true)
+        }
     }
 
     func membersForSavedUsers(_ ids: Set<UUID>) -> [GroupMember]? {
@@ -26,7 +31,9 @@ extension IntercomViewModel {
             return nil
         }
         return users.flatMap { user in
-            return user.groupMemberIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
+            return user.groupMemberIDs.map {
+                GroupMember(id: $0, displayName: user.displayName, localName: user.localName)
+            }
         }
     }
 
@@ -86,7 +93,8 @@ extension IntercomViewModel {
         do {
             try notifications.suppressContact(id)
             let signer = try? internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
-            removedGroups = try groupRepository.removeUser(id, signer: signer, sender: localAccountPrincipal, now: callAccessNow())
+            removedGroups = try groupRepository.removeUser(
+                id, signer: signer, sender: localAccountPrincipal, now: callAccessNow())
         } catch { reportGroupStorageError(error); return false }
         finishSavedUserRemoval(removedGroups)
         requestGroupDeliverySync(.localChange)

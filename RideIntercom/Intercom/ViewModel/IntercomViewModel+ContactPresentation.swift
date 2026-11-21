@@ -27,7 +27,8 @@ extension IntercomViewModel {
                   token.inviterMemberID != localMemberIdentity.memberID,
                   token.recipientMemberID == nil || token.recipientMemberID == localMemberIdentity.memberID,
                   token.recipientAccount == nil || token.recipientAccount == localAccountPrincipal,
-                  let context = token.directInvitation?.context, let proof = token.identityProof else { throw GroupInviteTokenError.wrongRecipient }
+                let context = token.directInvitation?.context, let proof = token.identityProof
+            else { throw GroupInviteTokenError.wrongRecipient }
             _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID,
                                  trust: internetSettingsStore.identityTrust(), now: now)
             stopContactInvitationSession()
@@ -44,7 +45,8 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func acceptPresentedContactInvitation(expectedInvitationID: UUID? = nil, keepingPresentation: Bool = false) -> Bool {
+    func acceptPresentedContactInvitation(expectedInvitationID: UUID? = nil, keepingPresentation: Bool = false)
+        -> Bool {
         guard case .some(.accepting(let preview)) = contactInvitationPresentation,
               expectedInvitationID == nil || preview.id == expectedInvitationID,
               preview.accountAccessID == accountAccessID, canEditSavedGroups else { return false }
@@ -60,7 +62,9 @@ extension IntercomViewModel {
     }
 
     func dismissContactInvitationPresentation(expectedPresentationID: String? = nil) {
-        guard expectedPresentationID == nil || contactInvitationPresentation?.id == expectedPresentationID else { return }
+        guard expectedPresentationID == nil || contactInvitationPresentation?.id == expectedPresentationID else {
+            return
+        }
         if case .some(.sharing(let id)) = contactInvitationPresentation { contactInvitationSheetDidDisappear(id) }
         contactInvitationPresentation = nil
         contactInvitationMessage = nil
@@ -70,7 +74,10 @@ extension IntercomViewModel {
     /// remainder of the existing bounded exchange (or finishes the notification-permission exchange).
     func contactInvitationSheetDidDisappear(_ id: UUID) {
         guard contactInvitationID == id else { return }
-        if let record = groupRepository.contactInvitations.first(where: { $0.id == id }), contactInvitationIsComplete(record) { return }
+        if let record = groupRepository.contactInvitations.first(where: { $0.id == id }),
+            contactInvitationIsComplete(record) {
+            return
+        }
         stopContactInvitationSession()
     }
 
@@ -87,7 +94,8 @@ extension IntercomViewModel {
         contactInvitationMessage = nil
     }
 
-    func prepareContactInvitationShare(_ id: UUID, expectedAccountAccessID: UUID) throws -> PreparedContactInvitationShare {
+    func prepareContactInvitationShare(_ id: UUID, expectedAccountAccessID: UUID) throws
+        -> PreparedContactInvitationShare {
         guard canEditSavedGroups, expectedAccountAccessID == accountAccessID,
               let record = pendingContactInvitations.first(where: { $0.id == id }),
               canShareOutgoingContactInvitation(record) else { throw ContactInvitationError.unavailable }
@@ -155,7 +163,9 @@ extension IntercomViewModel {
     private func stopContactInvitationRetries(_ id: UUID) -> Bool {
         do {
             try cancelContactInvitation(id)
-            if case .sharing(let shown) = contactInvitationPresentation, shown == id { contactInvitationPresentation = nil }
+            if case .sharing(let shown) = contactInvitationPresentation, shown == id {
+                contactInvitationPresentation = nil
+            }
             contactInvitationMessage = nil
             return true
         } catch {
@@ -229,11 +239,13 @@ extension IntercomViewModel {
         if record.direction == .incoming && record.state == .delivered {
             return "Contact saved. The acceptance notification was delivered."
         }
-        if record.isExpiredTombstone || (record.canResume && record.hasExpired(at: callAccessNow().timeIntervalSince1970)) {
+        if record.isExpiredTombstone
+            || (record.canResume && record.hasExpired(at: callAccessNow().timeIntervalSince1970)) {
             if record.direction == .incoming {
                 return "Contact saved. The reply has expired. Ask the sender for a new invitation."
             }
-            return record.state == .confirmed ? "Contact saved. This confirmation has expired." : "This invitation can no longer be used."
+            return record.state == .confirmed
+                ? "Contact saved. This confirmation has expired." : "This invitation can no longer be used."
         }
         if record.direction == .outgoing && record.state == .confirmed {
             return savedRemoteUsers.contains(where: { $0.memberIDs.contains(record.peerMemberID ?? "") })
