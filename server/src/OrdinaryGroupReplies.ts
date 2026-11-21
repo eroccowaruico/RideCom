@@ -2,7 +2,7 @@ import { notificationAuth } from './AppleAccount'
 import { groupInvitationLifetime } from './AccountNotifications'
 import type { OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { verifyDeviceProof } from './DeviceIdentity'
-import { authenticateBackgroundSubmission } from './BackgroundSubmission'
+import { authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { json, readJSON, sha256Hex, type Env } from './types'
 
@@ -13,6 +13,7 @@ const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
 const notFound = () => json({ error: 'Not found' }, 404)
 const unauthorized = () => json({ error: 'Unauthorized' }, 401)
 const badBody = () => json({ error: 'Invalid group reply request' }, 400)
+const limited = () => json({ error: 'Too many group reply requests' }, 429)
 
 function field(value: unknown, format: RegExp, length: number): string {
     if (typeof value !== 'string' || value.length > length || !format.test(value)) throw new Error('body')
@@ -70,14 +71,22 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
     const bearer = request.headers.get('Authorization') ?? ''
     const token = bearer.startsWith('Bearer ') && bearer.length <= 512 ? bearer.slice(7) : ''
     try {
-        const submission = background
-            ? await authenticateBackgroundSubmission(request, url.origin, 'submitBackgroundContactInvitationAcceptance', env)
-            : null
+        let submission: Awaited<ReturnType<typeof authenticateBackgroundSubmission>> = null
+        if (background) {
+            // Bound unauthenticated decryption work with a short-lived edge rate-limit bucket.
+            const source = request.headers.get('CF-Connecting-IP')
+            if (!source || source.length > 64) return json({ error: 'Group reply service unavailable' }, 503)
+            const sourceKey = await sha256Hex(`${Math.floor(Date.now() / 86400000)}:${source}`)
+            if (!(await env.CALL_API_LIMIT.limit({ key: 'sealed-contact-reply:' + sourceKey })).success) return limited()
+            const signed = await openSealedInvitationSubmission(request, url.origin, env)
+            if (!signed) return unauthorized()
+            submission = await authenticateBackgroundSubmission(signed, url.origin, 'submitBackgroundContactInvitationAcceptance', env)
+        }
         const auth = background ? submission?.auth : await notificationAuth(token, env)
         if (!auth) return unauthorized()
         const budget = background ? 'background-contact-reply:' : 'ordinary-group-reply:'
         if (!(await env.CALL_API_LIMIT.limit({ key: budget + auth.accountID })).success) {
-            return json({ error: 'Too many group reply requests' }, 429)
+            return limited()
         }
         const body: Record<string, unknown> = submission?.body ?? await readJSON(request)
         const expectedExpiry = background ? replyExpiry(body.expiresAt) : undefined

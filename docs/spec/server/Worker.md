@@ -100,7 +100,7 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 
 公開鍵はRFC 7748のX25519の32byte公開座標をpaddingなしbase64urlとした `x`。発行時刻をUnix秒として30日ごとの区間番号 `period = floor(iat / 2592000)` を求める。元の32byteをHKDF-SHA-256の入力、UTF-8の `rideintercom.invitation-relay-key.v1` をsalt、空白を加えない `JSON.stringify([iss,period])` のUTF-8をinfoとし、32byteのX25519秘密鍵を導出する。鍵識別子は `v1-{period}`、公開鍵の期限はUnix秒の `(period + 2) * 2592000`。新しい証明は次の区間で別の公開鍵を受け取る。旧区間の公開鍵にも次の区間の末まで期限があるので、発行済み証明の有効期間を覆う。
 
-本番とPreviewには別々のsecretを使い、同じsecretであってもoriginが異なれば鍵が異なる。区間ごとの鍵の生成や交換に定期の手作業は発生しない。Workerは元のsecret・導出した秘密鍵・証明のコピーを返さず、公開鍵の追加DB、回収処理やアラームも作らない。ここで扱うのは鍵の配布まで。OSへ渡す要求の外側の暗号化と、Workerが期限内の対象鍵で暗号文を開く処理は、個人招待の背景転送を接続するときに検証する。[X25519の定義](https://www.rfc-editor.org/rfc/rfc7748.html)、[CloudflareのWeb Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
+本番とPreviewには別々のsecretを使い、同じsecretであってもoriginが異なれば鍵が異なる。区間ごとの鍵の生成や交換に定期の手作業は発生しない。Workerは元のsecret・導出した秘密鍵・証明のコピーを返さず、公開鍵の追加DB、回収処理やアラームも作らない。Workerが前の期間の鍵で開ける範囲は[背景転送から個人招待の受諾を預かる](#背景転送から個人招待の受諾を預かる)に従う。[X25519の定義](https://www.rfc-editor.org/rfc/rfc7748.html)、[CloudflareのWeb Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
 
 ### アカウントの端末登録削除
 
@@ -352,8 +352,10 @@ Workerは受け手の認証・頻度制限に続き、署名と発行者の公�
 
 ### 背景転送から個人招待の受諾を預かる
 
-`POST /api/ordinary-group-replies/background-acceptance` は[グループ招待の背景送信](通知.md#背景用の一件分のグループ招待を受け付ける)と同じ端末証明付きの形式 `{senderUserID,deviceID,sessionBinding,submission,proof}` を使う。外側のsenderは受諾側の端末で、authorの公開IDは内側の `owner` に置く。署名用途は `submitBackgroundContactInvitationAcceptance`。署名する内容は空白やスラッシュのエスケープを加えない `JSON.stringify([origin,sessionBinding,submission])` のUTF-8。submissionは内側のJSONのUTF-8を標準Base64にした最大36864文字で、フィールドは `{owner,slot,id,packet,expiresAt,admission?}`。expiresAtは元の招待のUnix msで、現在より後かつ7日5分以内の安全な整数。端末Bearerと内部アカウント識別子をファイルまたは要求に含めない。
+`POST /api/ordinary-group-replies/background-acceptance` の本文はJSONの `{sealed}` 一項目、全体で64 KiB以下。sealedは[サービスの暗号化公開鍵](#招待を預けるサービスの暗号化公開鍵)宛てのcompact JWE。保護ヘッダーは `{alg:"ECDH-ES",enc:"A256GCM",kid,epk}`。一件ごとに新しく作る `epk` は `{kty:"OKP",crv:"X25519",x}` とし、`x` は32byteの公開座標をpaddingなしbase64urlとしたもの。保護ヘッダーの文字列は512文字以下。Workerが使う鍵は要求先originの現区間または直前の区間の鍵に限る。元の区間の次の区間が終わると、その鍵を使った要求を拒否する。復号前はCloudflareの接続元を日単位でハッシュ化した一時的な頻度枠を使い、復号後は既存のアカウント別の背景受諾の枠を使う。[compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)、[JOSEでのX25519](https://www.rfc-editor.org/rfc/rfc8037.html)
+
+復号したUTF-8 JSONは `{senderUserID,deviceID,sessionBinding,submission,proof}`。senderは受諾側の端末で、authorの公開IDはsubmission内の `owner` に置く。署名用途は `submitBackgroundContactInvitationAcceptance`。署名する内容は空白やスラッシュのエスケープを加えない `JSON.stringify([origin,sessionBinding,submission])` のUTF-8。submissionは内側のJSONのUTF-8を標準Base64にした最大36864文字で、フィールドは `{owner,slot,id,packet,expiresAt,admission?}`。expiresAtは元の招待のUnix msで、現在より後かつ7日5分以内の安全な整数。端末Bearerと内部アカウント識別子をファイルまたは要求に含めない。外側のJWEと復号した署名付き要求はメモリ内だけで扱う。保存するのは既存の返信箱が扱う受諾の暗号文。
 
 受諾側の現在の端末資格を再確認し、発行側の既存の返信箱・暗号文・受諾端末の条件を使う。返信箱が未作成なら、同じslot・期限に対する発行者の有効なadmissionを使って作る。返信箱を開けるか、既存の返信箱だけに預けられるかは、受取先アカウントの同じ処理で判定する。admissionの端末資格が置換された場合、背景転送は同じslot・期限の既存の返信箱に限り預かる。通常のPUTで渡したadmissionの資格が置換済みなら401を返す。異なる返信先へ同じ署名を使ったり、到着確認の保存・照会や受信箱の読取りへ使ったりできない。同じ受諾ID・受諾端末の再送で暗号文や保持期限を延ばさず、発行端末が先に保存した到着確認を保つ。
 
-成功はHTTP 200と `{id,expiresAt}` を返す。形式・期限の不正は400、署名・端末資格の不一致は401、返信箱が見つからなければ404、既存の期限や受諾との衝突は409、既存の保存上限と背景受諾専用のアカウント単位の頻度上限は429。200は受諾の一時保管を表し、到着確認を受け手が検証したことは表さない。
+成功はHTTP 200と `{id,expiresAt}` を返す。暗号化されていない要求や形式・招待期限の不正は400。要求先と異なる鍵、期限を過ぎた鍵、復号に失敗した内容、署名や端末資格の不一致は401。返信箱が見つからなければ404、既存の期限や受諾との衝突は409、既存の保存上限や頻度枠は429。鍵の設定不備で復号できない場合は503。200は受諾の一時保管を表し、到着確認の検証は受取側が別に行う。

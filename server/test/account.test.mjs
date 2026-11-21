@@ -5,7 +5,7 @@ import { createHash, createPrivateKey, createPublicKey, hkdfSync, randomBytes, r
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPair, exportJWK, exportPKCS8, SignJWT, jwtVerify } from 'jose';
+import { CompactEncrypt, decodeJwt, generateKeyPair, exportJWK, exportPKCS8, importJWK, SignJWT, jwtVerify } from 'jose';
 import { makeRuntime, offer, room, provider } from './support/runtime.mjs';
 
 const keys = await generateKeyPair('RS256');
@@ -351,13 +351,27 @@ async function signReplyDevice(runtime, user, memberID) {
         const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, Buffer.concat(parts));
         return { publicKey, certificate, signature: Buffer.from(signature).toString('base64url') };
     };
-    return { sessionBinding, proof };
+    return { sessionBinding, proof, relayKey: decodeJwt(certificate.certificate).invitationRelayKey };
+}
+
+async function sealBackgroundContactAcceptance(body, relayKey) {
+    const key = await importJWK({ kty: 'OKP', crv: 'X25519', x: relayKey.x }, 'ECDH-ES');
+    return new CompactEncrypt(Buffer.from(JSON.stringify(body)))
+        .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM', kid: relayKey.kid })
+        .encrypt(key);
+}
+
+async function signBackgroundContactAcceptance(body, sender, identity, origin, purpose = 'submitBackgroundContactInvitationAcceptance') {
+    const submission = Buffer.from(JSON.stringify(body)).toString('base64');
+    const { sessionBinding } = identity;
+    return { senderUserID: sender.userID, deviceID: sender.deviceID, sessionBinding, submission,
+        proof: await identity.proof(purpose, JSON.stringify([origin, sessionBinding, submission])) };
 }
 
 test('a background contact acceptance is limited to the originally signed reply and current device', async () => {
     const issuer = await generateKeyPair('ES256', { extractable: true });
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-background-reply-'));
-    const r = await makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false',
+    const r = await makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false', INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
         DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) },
         { appleKeys: [publicKey], trackReplyStorage: true, storageDirectory });
     try {
@@ -371,15 +385,26 @@ test('a background contact acceptance is limited to the originally signed reply 
             proof: await author.proof('openContactInvitationReply', JSON.stringify([origin, author.sessionBinding, mailbox, expiry]))
         });
         const value = { owner: a.userID, slot, expiresAt, id: randomUUID(), packet: replyPacket(), admission: await signedAdmission(slot, expiresAt) };
-        const signed = async (body = value, target = origin, purpose = 'submitBackgroundContactInvitationAcceptance') => {
-            const submission = Buffer.from(JSON.stringify(body)).toString('base64');
-            return { senderUserID: b.userID, deviceID: b.deviceID, sessionBinding: receiver.sessionBinding, submission,
-                proof: await receiver.proof(purpose, JSON.stringify([target, receiver.sessionBinding, submission])) };
-        };
+        const signed = (body = value, target = origin, purpose) => signBackgroundContactAcceptance(body, b, receiver, target, purpose);
         const endpoint = replyPath + '/background-acceptance';
-        const submit = body => call(r, endpoint, body);
+        const submit = async body => call(r, endpoint, { sealed: await sealBackgroundContactAcceptance(body, receiver.relayKey) });
         const inbox = () => call(r, replyPath + '/inbox', { slot }, a.accessToken);
         const exact = await signed();
+        assert.equal((await inbox()).status, 404);
+        assert.equal((await call(r, endpoint, exact)).status, 400, 'the background contact route has no unsealed submission');
+        const sealed = await sealBackgroundContactAcceptance(exact, receiver.relayKey);
+        const transferred = Buffer.concat(sealed.split('.').map(part => Buffer.from(part, 'base64url')));
+        for (const marker of [slot, value.id, a.userID, b.userID, b.deviceID, exact.proof.signature]) {
+            assert.equal(transferred.includes(Buffer.from(marker)), false, 'the OS transfer excludes readable invitation metadata');
+        }
+        const segments = sealed.split('.');
+        const ciphertext = Buffer.from(segments[3], 'base64url');
+        ciphertext[0] ^= 1;
+        segments[3] = ciphertext.toString('base64url');
+        assert.equal((await call(r, endpoint, { sealed: segments.join('.') })).status, 401);
+        assert.equal((await r.dispatchFetch('https://preview.worker.test' + endpoint, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10' }, body: JSON.stringify({ sealed })
+        })).status, 401);
         assert.equal((await inbox()).status, 404);
         const first = await submit(exact);
         assert.equal(first.status, 200);
@@ -408,7 +433,7 @@ test('a background contact acceptance is limited to the originally signed reply 
         assert.ok(files.length > 0, 'Account relay storage must be observed');
         const persisted = Buffer.concat(await Promise.all(files.map(path => readFile(join(storageDirectory, path)))));
         assert.ok(persisted.includes(Buffer.from(value.packet)), 'Inspect storage that actually contains the ciphertext');
-        for (const nonStored of [extraName, slot, exact.submission, exact.proof.signature, a.accessToken, b.accessToken]) {
+        for (const nonStored of [extraName, slot, sealed, exact.submission, exact.proof.signature, a.accessToken, b.accessToken]) {
             assert.ok(!persisted.includes(Buffer.from(nonStored)), 'An unneeded input must not be persisted');
         }
         const receipt = { id: value.id, packet: replyPacket() };
@@ -441,6 +466,47 @@ test('a background contact acceptance is limited to the originally signed reply 
         assert.equal(accepted.status, 200);
         assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, current.accessToken)).json(), { receipt });
     } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
+test('background contact acceptance can use the previous relay key until the next period ends', async () => {
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const r = await makeRuntime({ ...options, INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
+        DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) }, { appleKeys: [publicKey], adjustableClock: true });
+    try {
+        const origin = 'https://worker.test', endpoint = replyPath + '/background-acceptance';
+        const period = 30 * 86400_000, boundary = (Math.floor(Date.now() / period) + 1) * period;
+        await r.advanceClock(boundary - Date.now() - 20_000);
+        const prepare = async (expiresAt) => {
+            const owner = await enrolled(r, 'rollover-author'), receiver = await enrolled(r, 'rollover-receiver');
+            const identity = await signReplyDevice(r, receiver, 'rollover-receiver');
+            const slot = replySlot(), id = randomUUID();
+            assert.equal((await call(r, replyPath + '/open', { slot, expiresAt }, owner.accessToken, 'PUT')).status, 200);
+            const body = { owner: owner.userID, slot, id, packet: replyPacket(), expiresAt };
+            return { signed: await signBackgroundContactAcceptance(body, receiver, identity, origin), key: identity.relayKey, id };
+        };
+        const original = await prepare(boundary + 60_000);
+        const queued = await sealBackgroundContactAcceptance(original.signed, original.key);
+        await r.advanceClock(40_000);
+        const received = await call(r, endpoint, { sealed: queued });
+        assert.equal(received.status, 200);
+        assert.equal((await received.json()).id, original.id);
+
+        await r.advanceClock(period);
+        const ready = await prepare(boundary + period + 60_000);
+        const encryptedForExpiredKey = await sealBackgroundContactAcceptance(ready.signed, original.key);
+        assert.equal((await call(r, endpoint, { sealed: encryptedForExpiredKey })).status, 401);
+        const encryptedForCurrentKey = await sealBackgroundContactAcceptance(ready.signed, ready.key);
+        assert.equal((await call(r, endpoint, { sealed: encryptedForCurrentKey })).status, 200);
+    } finally { await r.dispose(); }
+});
+
+test('the encrypted contact acceptance limits work before reading caller identity', async () => {
+    const r = await makeRuntime(options, { apiLimit: 1 });
+    try {
+        const endpoint = replyPath + '/background-acceptance';
+        assert.equal((await call(r, endpoint, {})).status, 400);
+        assert.equal((await call(r, endpoint, {})).status, 429);
+    } finally { await r.dispose(); }
 });
 
 test('a signed contact invitation admits an offline reply before its author opens a mailbox', async () => {

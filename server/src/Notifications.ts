@@ -49,7 +49,7 @@ async function handleBackgroundGroupInvitation(request: Request, origin: string,
         return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
     }
     const purpose = cancelling ? 'cancelBackgroundGroupInvitation' : 'submitBackgroundGroupInvitation'
-    const submission = await authenticateBackgroundSubmission(request, origin, purpose, env)
+    const submission = await authenticateBackgroundSubmission(await readJSON(request), origin, purpose, env)
     if (!submission) return json({ error: 'Unauthorized' }, 401)
     const { auth, body: invitation } = submission
     const owner = account(env, auth.accountID)
