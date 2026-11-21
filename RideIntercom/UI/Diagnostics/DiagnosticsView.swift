@@ -2,7 +2,7 @@ import SwiftUI
 import RTC
 
 private enum DiagnosticsPage: String, CaseIterable, Identifiable {
-    case overview = "Overview", tx = "TX", rx = "RX", network = "Network", applied = "Applied"
+    case overview = "Overview", transmit = "TX", receive = "RX", network = "Network", applied = "Applied"
     var id: String { rawValue }
 }
 
@@ -23,7 +23,8 @@ struct DiagnosticsView: View {
                         ScrollView {
                             GlassEffectContainer(spacing: AppSpacing.l) {
                                 Group {
-                                    if geometry.size.width >= AppSize.diagnosticsTwoColumnMinimumWidth && !dynamicTypeSize.isAccessibilitySize && page != .overview {
+                                    if geometry.size.width >= AppSize.diagnosticsTwoColumnMinimumWidth
+                                        && !dynamicTypeSize.isAccessibilitySize && page != .overview {
                                         HStack(alignment: .top, spacing: AppSpacing.l) {
                                             overviewContent
                                                 .frame(maxWidth: AppSize.callColumnMaxWidth, alignment: .leading)
@@ -81,9 +82,9 @@ struct DiagnosticsView: View {
         switch page {
         case .overview:
             overviewContent
-        case .tx:
+        case .transmit:
             LiveTransmitPipelineView(viewModel: viewModel, expandedStage: $expandedStage)
-        case .rx:
+        case .receive:
             LiveReceivePipelineView(viewModel: viewModel, expandedStage: $expandedStage)
         case .network:
             DiagnosticsNetworkView(viewModel: viewModel)
@@ -97,8 +98,8 @@ struct DiagnosticsView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let steps = pipelineSteps(now: context.date.timeIntervalSince1970)
             VStack(alignment: .leading, spacing: AppSpacing.l) {
-                verdicts(tx: steps.tx, rx: steps.rx)
-                pipelineOverview(tx: steps.tx, rx: steps.rx)
+                verdicts(transmit: steps.transmit, receive: steps.receive)
+                pipelineOverview(transmit: steps.transmit, receive: steps.receive)
                 participantsOverview
                 networkOverview
                 symptomButtons
@@ -106,20 +107,27 @@ struct DiagnosticsView: View {
         }
     }
 
-    private func pipelineSteps(now: TimeInterval) -> (tx: [PipelineStep], rx: [PipelineStep]) {
+}
+
+extension DiagnosticsView {
+    private func pipelineSteps(now: TimeInterval) -> (transmit: [PipelineStep], receive: [PipelineStep]) {
         let input = DiagnosticsInput(viewModel, now: now)
-        let tx = TransmitPipelinePresentation(input: input)
-        let rx = ReceivePipelinePresentation(input: input)
-        return (tx.flowSteps,
-                [rx.rtcReceiveStep, rx.codecDecodeStep, rx.peerBusStep, rx.receiveMixStep, rx.masterBusStep, rx.masterEffectChainStep, rx.outputStep])
+        let transmit = TransmitPipelinePresentation(input: input)
+        let receive = ReceivePipelinePresentation(input: input)
+        return (transmit.flowSteps,
+            [
+                receive.rtcReceiveStep, receive.codecDecodeStep, receive.peerBusStep, receive.receiveMixStep,
+                receive.masterBusStep, receive.masterEffectChainStep, receive.outputStep
+            ]
+        )
     }
 
     /// The conclusion first: one verdict per direction with the reason the stages report.
-    private func verdicts(tx: [PipelineStep], rx: [PipelineStep]) -> some View {
+    private func verdicts(transmit: [PipelineStep], receive: [PipelineStep]) -> some View {
         GroupBox {
             VStack(alignment: .leading, spacing: AppSpacing.m) {
-                verdictRow("TX", verdict: PipelineVerdict(steps: tx))
-                verdictRow("RX", verdict: PipelineVerdict(steps: rx))
+                verdictRow("TX", verdict: PipelineVerdict(steps: transmit))
+                verdictRow("RX", verdict: PipelineVerdict(steps: receive))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -169,19 +177,22 @@ struct DiagnosticsView: View {
         }
         .font(.subheadline)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "\(name): " + steps.map { "\($0.title) \($0.state.statusText)" }.joined(separator: ", ")))
+        .accessibilityLabel(
+            Text(
+                verbatim: "\(name): " + steps.map { "\($0.title) \($0.state.statusText)" }.joined(separator: ", "))
+        )
         .accessibilityIdentifier("diagnosticsStageDots-\(name)")
     }
 
     private var symptomButtons: some View {
         WrappingRow(spacing: AppSpacing.s, lineSpacing: AppSpacing.s) {
-            Button("Others can't hear me") { navigate(.tx, target: firstTransmitIssue) }
+            Button("Others can't hear me") { navigate(.transmit, target: firstTransmitIssue) }
                 .accessibilityIdentifier("diagnosticsOthersCannotHearButton")
-            Button("I can't hear someone") { navigate(.rx, target: "receive-peers") }
+            Button("I can't hear someone") { navigate(.receive, target: "receive-peers") }
                 .accessibilityIdentifier("diagnosticsCannotHearButton")
-            Button("Audio drops out") { navigate(.rx, target: "receive-input", expanding: "receive-peers") }
+            Button("Audio drops out") { navigate(.receive, target: "receive-input", expanding: "receive-peers") }
                 .accessibilityIdentifier("diagnosticsAudioDropsButton")
-            Button("Audio is delayed") { navigate(.rx, target: "receive-output") }
+            Button("Audio is delayed") { navigate(.receive, target: "receive-output") }
                 .accessibilityIdentifier("diagnosticsAudioDelayedButton")
         }
         .buttonStyle(.glass)
@@ -196,16 +207,16 @@ struct DiagnosticsView: View {
     }
 
     private var firstTransmitIssue: String {
-        let tx = TransmitPipelinePresentation(input: DiagnosticsInput(viewModel))
-        return tx.flowSteps.first { $0.state != .passing }?.id ?? "session"
+        let transmit = TransmitPipelinePresentation(input: DiagnosticsInput(viewModel))
+        return transmit.flowSteps.first { $0.state != .passing }?.id ?? "session"
     }
 
-    private func pipelineOverview(tx: [PipelineStep], rx: [PipelineStep]) -> some View {
+    private func pipelineOverview(transmit: [PipelineStep], receive: [PipelineStep]) -> some View {
         GroupBox("Pipeline") {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
-                stageFlow("TX", steps: tx)
+                stageFlow("TX", steps: transmit)
                 Divider()
-                stageFlow("RX", steps: rx)
+                stageFlow("RX", steps: receive)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -219,9 +230,13 @@ struct DiagnosticsView: View {
                 if members.isEmpty { Text("No participants").foregroundStyle(.secondary) }
                 ForEach(members) { member in
                     let paths = peers.filter { $0.peerID.rawValue == member.id }
-                        .map { $0.route == .webRTC ? "Internet" : ($0.path.count > 2 ? "Local · relayed" : "Local · direct") }
+                        .map {
+                            $0.route == .webRTC
+                                ? "Internet" : ($0.path.count > 2 ? "Local · relayed" : "Local · direct")
+                        }
                     overviewRow(member.resolvedDisplayName, value: paths.isEmpty ? "—" : paths.joined(separator: ", "),
-                                state: PipelineStepState(member.connectionState), status: member.connectionState.rawValue)
+                        state: PipelineStepState(member.connectionState), status: member.connectionState.rawValue
+                    )
                         .opacity(member.connectionState == .offline ? 0.5 : 1)
                 }
             }
@@ -246,7 +261,9 @@ struct DiagnosticsView: View {
                         overviewRow(route.route == .webRTC ? "Internet" : "Local",
                                     value: "\(count) \(count == 1 ? "participant" : "participants")",
                                     state: count > 0 ? .passing : .idle,
-                                    status: "RTT " + (route.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured"))
+                            status: "RTT "
+                                + (route.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) }
+                                    ?? "Not measured"))
                     }
                 }
             }
@@ -298,19 +315,19 @@ private struct WrappingRow: Layout {
 
     private func arrange(width: CGFloat, subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
         var origins: [CGPoint] = []
-        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
+        var columnOffset: CGFloat = 0, rowOffset: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
         for subview in subviews {
             // Never wider than the line, so a long item wraps its own text instead of overflowing.
             let size = subview.sizeThatFits(ProposedViewSize(width: width.isFinite ? width : nil, height: nil))
-            if x > 0 && x + size.width > width {
-                x = 0; y += lineHeight + lineSpacing; lineHeight = 0
+            if columnOffset > 0 && columnOffset + size.width > width {
+                columnOffset = 0; rowOffset += lineHeight + lineSpacing; lineHeight = 0
             }
-            origins.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
+            origins.append(CGPoint(x: columnOffset, y: rowOffset))
+            columnOffset += size.width + spacing
             lineHeight = max(lineHeight, size.height)
-            widest = max(widest, x - spacing)
+            widest = max(widest, columnOffset - spacing)
         }
-        return (origins, CGSize(width: min(widest, width), height: y + lineHeight))
+        return (origins, CGSize(width: min(widest, width), height: rowOffset + lineHeight))
     }
 }
 
