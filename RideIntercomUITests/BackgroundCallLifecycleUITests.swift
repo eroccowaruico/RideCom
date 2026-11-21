@@ -6,10 +6,14 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
 
     override func setUpWithError() throws { continueAfterFailure = false }
     @MainActor func testStandardWaitingReturnsFromBackgroundWithoutLosingItsCall() throws { try waitingRoundTrip() }
-    @MainActor func testAdvancedWaitingReturnsFromBackgroundWithoutLosingItsCall() throws { try waitingRoundTrip(advanced: true) }
+    @MainActor func testAdvancedWaitingReturnsFromBackgroundWithoutLosingItsCall() throws {
+        try waitingRoundTrip(advanced: true)
+    }
 
     @MainActor func testStandardMutedWaitingKeepsAudioInBackground() throws { try waitingRoundTrip(muted: true) }
-    @MainActor func testAdvancedMutedWaitingKeepsAudioInBackground() throws { try waitingRoundTrip(advanced: true, muted: true) }
+    @MainActor func testAdvancedMutedWaitingKeepsAudioInBackground() throws {
+        try waitingRoundTrip(advanced: true, muted: true)
+    }
 
     @MainActor func testExternalGroupInvitationOpensColdAndPersists() throws {
         try verifyExternalGroupInvitation(from: .cold)
@@ -50,24 +54,31 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
         XCTAssertTrue(end.waitForNonExistence(timeout: 5))
 
-        openCommunication(in: app)
-        let local = app.switches["localNetworkRouteToggle"].firstMatch
-        let internet = app.switches["internetRouteToggle"].firstMatch
-        XCTAssertTrue(local.waitForExistence(timeout: 5))
-        if local.value as? String == "0" { local.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
-        if internet.value as? String == "1" { internet.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
-        XCTAssertEqual(local.value as? String, "1")
-        XCTAssertEqual(internet.value as? String, "0")
+        relaunchWithSavedLocalOnlySettings(app)
 
-        app.terminate()
-        XCTAssertEqual(app.state, .notRunning)
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "restored-offline",
-            "RIDEINTERCOM_BACKGROUND_OBSERVATION": "1"]
-        app.launch()
-        openCommunication(in: app)
-        XCTAssertEqual(local.value as? String, "1")
-        XCTAssertEqual(internet.value as? String, "0")
+        startSavedLocalGroup(in: app, groupID: groupID, name: name, end: end)
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = "Saved group awaiting riders after offline relaunch"; image.lifetime = .keepAlways; add(image)
+        if peerGroup != nil {
+            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_AFTER_RESTART\n".utf8))
+            XCTAssertTrue(app.staticTexts["In a call"].firstMatch.waitForExistence(timeout: 45))
+            let joined = XCTAttachment(screenshot: app.screenshot())
+            joined.name = "Rider joined the saved group after offline relaunch"
+            joined.lifetime = .keepAlways
+            add(joined)
+            XCTAssertTrue(app.staticTexts["Waiting for others"].firstMatch.waitForExistence(timeout: 30))
+        }
+        end.tap()
+        app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
+        XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+    }
 
+    @MainActor private func startSavedLocalGroup(
+        in app: XCUIApplication,
+        groupID: String,
+        name: String,
+        end: XCUIElement
+    ) {
         let groups = app.tabBars.buttons["Groups"]
         XCTAssertTrue(groups.waitForExistence(timeout: 5))
         groups.tap()
@@ -79,18 +90,30 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(end.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["Waiting for others"].firstMatch.waitForExistence(timeout: 5))
-        let image = XCTAttachment(screenshot: app.screenshot())
-        image.name = "Saved group awaiting riders after offline relaunch"; image.lifetime = .keepAlways; add(image)
-        if peerGroup != nil {
-            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_AFTER_RESTART\n".utf8))
-            XCTAssertTrue(app.staticTexts["In a call"].firstMatch.waitForExistence(timeout: 45))
-            let joined = XCTAttachment(screenshot: app.screenshot())
-            joined.name = "Rider joined the saved group after offline relaunch"; joined.lifetime = .keepAlways; add(joined)
-            XCTAssertTrue(app.staticTexts["Waiting for others"].firstMatch.waitForExistence(timeout: 30))
+    }
+
+    @MainActor private func relaunchWithSavedLocalOnlySettings(_ app: XCUIApplication) {
+        openCommunication(in: app)
+        let local = app.switches["localNetworkRouteToggle"].firstMatch
+        let internet = app.switches["internetRouteToggle"].firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 5))
+        if local.value as? String == "0" {
+            local.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         }
-        end.tap()
-        app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap()
-        XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+        if internet.value as? String == "1" {
+            internet.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(local.value as? String, "1")
+        XCTAssertEqual(internet.value as? String, "0")
+
+        app.terminate()
+        XCTAssertEqual(app.state, .notRunning)
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "restored-offline",
+            "RIDEINTERCOM_BACKGROUND_OBSERVATION": "1"]
+        app.launch()
+        openCommunication(in: app)
+        XCTAssertEqual(local.value as? String, "1")
+        XCTAssertEqual(internet.value as? String, "0")
     }
 
     @MainActor private func openCommunication(in app: XCUIApplication) {
@@ -103,11 +126,19 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         link.tap()
     }
 
-    @MainActor func testStandardResumeWhileWaitingContinuesInBackground() throws { try waitingRoundTrip(resuming: true) }
-    @MainActor func testAdvancedResumeWhileWaitingContinuesInBackground() throws { try waitingRoundTrip(advanced: true, resuming: true) }
+    @MainActor func testStandardResumeWhileWaitingContinuesInBackground() throws {
+        try waitingRoundTrip(resuming: true)
+    }
+    @MainActor func testAdvancedResumeWhileWaitingContinuesInBackground() throws {
+        try waitingRoundTrip(advanced: true, resuming: true)
+    }
 
-    @MainActor func testStandardFirstMicrophonePermissionContinuesInBackground() throws { try waitingRoundTrip(firstPermission: true) }
-    @MainActor func testAdvancedFirstMicrophonePermissionContinuesInBackground() throws { try waitingRoundTrip(advanced: true, firstPermission: true) }
+    @MainActor func testStandardFirstMicrophonePermissionContinuesInBackground() throws {
+        try waitingRoundTrip(firstPermission: true)
+    }
+    @MainActor func testAdvancedFirstMicrophonePermissionContinuesInBackground() throws {
+        try waitingRoundTrip(advanced: true, firstPermission: true)
+    }
 
     @MainActor private func verifyExternalGroupInvitation(from opening: InvitationOpening) throws {
         let app = XCUIApplication(); defer { app.terminate() }
@@ -147,7 +178,12 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5))
     }
 
-    @MainActor private func waitingRoundTrip(advanced: Bool = false, muted: Bool = false, resuming: Bool = false, firstPermission: Bool = false) throws {
+    @MainActor private func waitingRoundTrip(
+        advanced: Bool = false,
+        muted: Bool = false,
+        resuming: Bool = false,
+        firstPermission: Bool = false
+    ) throws {
         let app = XCUIApplication(); defer { app.terminate() }
         if firstPermission { app.resetAuthorizationStatus(for: .microphone) }
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
@@ -157,31 +193,8 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
             "RIDEINTERCOM_BACKGROUND_FIRST_PERMISSION": firstPermission ? "1" : "0"]
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch(); app.activate()
-        let waitsForInvitation = muted && !advanced
-            && ProcessInfo.processInfo.environment["RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION"] == "1"
-        let name: String
-        if waitsForInvitation {
-            name = "Audio E2E"
-            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE\n".utf8))
-            confirmExternalApplicationOpen(timeout: 10)
-            XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 45))
-        } else {
-            let groups = app.tabBars.buttons["Groups"]; XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
-            app.buttons["standardCreateGroupButton"].tap()
-            let field = app.textFields["savedUsersGroupNameField"]
-            let original = try XCTUnwrap(field.value as? String)
-            name = "Background " + UUID().uuidString.prefix(6)
-            field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: original.count) + name + "\n")
-            app.buttons["saveUserSelectionButton"].tap()
-        }
-        if firstPermission {
-            let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts["kTCCServiceMicrophone-alert"].firstMatch
-            XCTAssertTrue(alert.waitForExistence(timeout: 8), "A fresh microphone permission must present the OS prompt")
-            let permission = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-            permission.name = "First microphone permission"; permission.lifetime = .keepAlways; add(permission)
-            let allow = alert.buttons["kTCCServiceMicrophone-allow-button"].firstMatch
-            XCTAssertTrue(allow.exists); allow.tap()
-        }
+        let name = try prepareWaitingCall(in: app, advanced: advanced, muted: muted)
+        if firstPermission { allowFirstMicrophonePermission() }
         if muted {
             let mute = app.buttons[advanced ? "localMicrophoneMuteButton" : "standardMuteButton"].firstMatch
             XCTAssertTrue(mute.waitForExistence(timeout: 5)); mute.tap()
@@ -196,7 +209,8 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         // No foreground wait for audio readiness or peer arrival after the operation.
         XCUIDevice.shared.press(.home)
         let end = app.buttons[advanced ? "disconnectButton" : "standardEndCallButton"].firstMatch
-        let backgrounded = app.wait(for: .runningBackground, timeout: 5) || app.wait(for: .runningBackgroundSuspended, timeout: 5)
+        let backgrounded = app.wait(for: .runningBackground, timeout: 5)
+            || app.wait(for: .runningBackgroundSuspended, timeout: 5)
         XCTAssertTrue(backgrounded, "State after Home: \(app.state.rawValue)")
         // This exercises a real app transition; Simulator does not prove physical iOS suspension.
         Thread.sleep(forTimeInterval: 35)
@@ -204,10 +218,47 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(end.waitForExistence(timeout: 5))
         if resuming { XCTAssertFalse(app.buttons["resumeAudioButton"].firstMatch.exists) }
         XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
-        let image = XCTAttachment(screenshot: app.screenshot()); image.name = "Waiting after background return"; image.lifetime = .keepAlways; add(image)
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = "Waiting after background return"
+        image.lifetime = .keepAlways
+        add(image)
         end.tap()
         if !advanced { app.alerts.buttons["standardConfirmEndCallButton"].firstMatch.tap() }
         XCTAssertTrue(end.waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor private func prepareWaitingCall(in app: XCUIApplication, advanced: Bool, muted: Bool) throws -> String {
+        let waitsForInvitation = muted && !advanced
+            && ProcessInfo.processInfo.environment["RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION"] == "1"
+        let name: String
+        if waitsForInvitation {
+            name = "Audio E2E"
+            FileHandle.standardOutput.write(Data("AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE\n".utf8))
+            confirmExternalApplicationOpen(timeout: 10)
+            XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 45))
+        } else {
+            let groups = app.tabBars.buttons["Groups"]
+            XCTAssertTrue(groups.waitForExistence(timeout: 5))
+            groups.tap()
+            app.buttons["standardCreateGroupButton"].tap()
+            let field = app.textFields["savedUsersGroupNameField"]
+            let original = try XCTUnwrap(field.value as? String)
+            name = "Background " + UUID().uuidString.prefix(6)
+            field.tap()
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: original.count) + name + "\n")
+            app.buttons["saveUserSelectionButton"].tap()
+        }
+        return name
+    }
+
+    @MainActor private func allowFirstMicrophonePermission() {
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .alerts["kTCCServiceMicrophone-alert"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 8), "A fresh microphone permission must present the OS prompt")
+        let permission = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        permission.name = "First microphone permission"; permission.lifetime = .keepAlways; add(permission)
+        let allow = alert.buttons["kTCCServiceMicrophone-allow-button"].firstMatch
+        XCTAssertTrue(allow.exists); allow.tap()
     }
 
     @MainActor private func confirmExternalApplicationOpen(timeout: TimeInterval) {
