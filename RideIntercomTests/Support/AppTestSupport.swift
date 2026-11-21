@@ -117,7 +117,8 @@ enum AppTestSupport {
     private static func seedGroupCredentials(
         for groups: [IntercomGroup],
         in groupStore: InMemoryGroupStore,
-        using credentialStore: GroupCredentialStoring
+        using credentialStore: GroupCredentialStoring,
+        recordFailure: () -> Void = { Issue.record("Could not seed the test group credential store.") }
     ) {
         for (index, group) in groups.enumerated() {
             guard let secret = group.accessSecret else { continue }
@@ -125,7 +126,7 @@ enum AppTestSupport {
             do {
                 try credentialStore.saveSecret(secret, reference: reference)
             } catch {
-                Issue.record("Could not seed the test group credential store.")
+                recordFailure()
                 continue
             }
             groupStore.snapshot.groups[index].credentialReference = reference
@@ -214,12 +215,12 @@ extension AppTestSupport {
         let groups = [IntercomSeedData.recentGroups[0]]
         let store = InMemoryGroupStore(groups: groups)
 
-        withKnownIssue("The injected credential store rejects the fixture write.") {
-            seedGroupCredentials(for: groups, in: store, using: RejectingGroupCredentialStore())
-        } matching: { issue in
-            issue.comments.contains { $0.rawValue == "Could not seed the test group credential store." }
+        var failedWrites = 0
+        seedGroupCredentials(for: groups, in: store, using: RejectingGroupCredentialStore()) {
+            failedWrites += 1
         }
 
+        #expect(failedWrites == 1)
         #expect(store.snapshot.groups.count == groups.count)
         #expect(store.snapshot.credentialReferences.isEmpty)
     }
