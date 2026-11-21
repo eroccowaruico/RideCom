@@ -1,4 +1,4 @@
-"""Inspect new Git index blobs locally. Emit only a closed vocabulary."""
+"""Inspect staged changes or the committed project locally. Emit only a closed vocabulary."""
 import json
 import os
 import re
@@ -48,23 +48,49 @@ def sensitive_path(path):
             any(part in (b'.ssh', b'.aws', b'.gnupg') for part in components))
 
 
-def inspect_index():
-    # The evidence must describe the same index that will be committed.
+def snapshot_entries(project):
+    if project:
+        tree = git('ls-tree', '--full-tree', '-r', '-l', '-z', 'HEAD')
+        for record in tree.split(b'\0')[:-1]:
+            header, path = record.split(b'\t', 1)
+            mode, _, oid, size = header.split()
+            yield path, mode, oid, b'M', int(size) if size.isdigit() else None
+        return
+    entries = git('diff', '--cached', '--raw', '-z', '--abbrev=64', '--no-renames',
+                  '--no-relative', '--no-ext-diff', '--no-textconv', '--ignore-submodules=none', '--')
+    fields = entries.split(b'\0')
+    if fields.pop() or len(fields) % 2:
+        raise ValueError
+    for header, path in zip(fields[::2], fields[1::2]):
+        _, mode, _, oid, status = header.split()
+        yield path, mode, oid, status, None
+
+
+def area(path):
+    if path.startswith(b'RideIntercom/packages/'):
+        return 'packages'
+    top = path.split(b'/')[0]
+    return {b'RideIntercom': 'app', b'RideIntercomWidgets': 'extensions',
+            b'RideIntercomWatch': 'extensions', b'Configuration': 'build', b'server': 'server',
+            b'.github': 'ci', b'.agents': 'audit', b'scripts': 'tooling', b'docs': 'docs',
+            b'RideIntercom.xcodeproj': 'build', b'RideIntercomTests': 'tests',
+            b'RideIntercomUITests': 'tests', b'RideIntercomAudioE2ETests': 'tests',
+            b'RideIntercomWatchUITests': 'tests'}.get(top, 'other')
+
+
+def inspect_snapshot(option):
     if any(key in os.environ for key in (
         'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
         'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE',
     )):
         raise ValueError
-    entries = git('diff', '--cached', '--raw', '-z', '--abbrev=64', '--no-renames',
-                  '--no-relative', '--no-ext-diff', '--no-textconv', '--ignore-submodules=none', '--')
-    if not entries:
-        return 'empty', set()
-    fields = entries.split(b'\0')
-    if fields.pop() or len(fields) % 2:
-        raise ValueError
-    signals = set()
-    for header, path in zip(fields[::2], fields[1::2]):
-        _, mode, _, oid, status = header.split()
+    signals, changes = set(), {}
+    seen = False
+    for path, mode, oid, status, size in snapshot_entries(option == '--project'):
+        seen = True
+        if option == '--changes':
+            action = {b'A': 'add', b'M': 'modify', b'T': 'replace', b'D': 'remove'}.get(status, 'unknown')
+            changes.setdefault(area(path), set()).add(action)
         detect(path, signals)
         if status == b'D':
             continue
@@ -76,7 +102,9 @@ def inspect_index():
             continue
         if not re.fullmatch(rb'[a-f0-9]{40}|[a-f0-9]{64}', oid):
             raise ValueError
-        if int(git('cat-file', '-s', oid)) > MAX_BYTES:
+        if size is None:
+            size = int(git('cat-file', '-s', oid))
+        if size > MAX_BYTES:
             signals.add('opaque')
             continue
         blob = git('cat-file', 'blob', oid)
@@ -89,15 +117,23 @@ def inspect_index():
             signals.add('opaque')
             continue
         detect(blob, signals)
-    return ('review' if signals else 'checked'), signals
+    state = 'empty' if not seen else 'review' if signals else 'checked'
+    report = {'state': state, 'signals': sorted(signals)}
+    if option == '--changes':
+        report['changes'] = {key: sorted(actions) for key, actions in changes.items()}
+    return report
 
 
 def main():
     try:
-        state, signals = inspect_index()
+        args = sys.argv[1:]
+        if args not in ([], ['--project'], ['--changes']):
+            raise ValueError
+        report = inspect_snapshot(args[0] if args else None)
     except (OSError, ValueError, subprocess.SubprocessError):
-        state, signals = 'unavailable', set()
-    print(json.dumps({'state': state, 'signals': sorted(signals)}))
+        report = {'state': 'unavailable', 'signals': []}
+    print(json.dumps(report, sort_keys=True))
+    state = report['state']
     return {'empty': 0, 'checked': 0, 'review': 1, 'unavailable': 2}[state]
 
 

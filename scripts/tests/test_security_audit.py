@@ -29,8 +29,8 @@ class StagedAuditTests(unittest.TestCase):
         (self.root / name).write_bytes(data)
         self.git('add', '--', name)
 
-    def check(self, code, **options):
-        result = subprocess.run([sys.executable, '-I', '-S', str(CHECK)],
+    def check(self, code, *args, **options):
+        result = subprocess.run([sys.executable, '-I', '-S', str(CHECK), *args],
                                 cwd=options.pop('cwd', self.root), capture_output=True,
                                 env=options.pop('env', TEST_ENV), **options)
         self.assertEqual(result.returncode, code)
@@ -59,6 +59,26 @@ class StagedAuditTests(unittest.TestCase):
         self.git('add', '--', 'pointer')
         self.assertEqual(self.check(1), {'state': 'review', 'signals': [
             'opaque', 'sensitive-file']})
+
+    def test_project_covers_unchanged_files_and_keeps_worktree_out_of_release(self):
+        self.stage('unchanged.md', b'contact: ' + EMAIL.encode())
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid',
+                 'commit', '-qm', 'fixture')
+        self.stage('unchanged.md', b'safe replacement')
+        self.assertEqual(self.check(0)['state'], 'checked')
+        self.assertEqual(self.check(1, '--project'), {'state': 'review', 'signals': ['personal-data']})
+        self.assertEqual(self.check(2, '--unexpected')['state'], 'unavailable')
+
+    def test_change_brief_distinguishes_removed_and_added_components(self):
+        self.stage('notes.md', b'fixture')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid',
+                 'commit', '-qm', 'fixture')
+        self.git('rm', '-q', 'notes.md')
+        (self.root / 'server').mkdir()
+        self.stage('server/' + EMAIL, b'fixture')
+        result = self.check(1, '--changes')
+        self.assertEqual(result, {'state': 'review', 'signals': ['personal-data'],
+                                 'changes': {'other': ['remove'], 'server': ['add']}})
 
     def test_failure_does_not_emit_path_or_git_diagnostics(self):
         with tempfile.TemporaryDirectory() as outside:
