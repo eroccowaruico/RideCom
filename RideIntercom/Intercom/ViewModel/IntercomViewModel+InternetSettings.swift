@@ -8,14 +8,18 @@ extension IntercomViewModel {
         #if DEBUG && RIDEINTERCOM_VALIDATION
         if let fixture = AppleAccountFixture.makeInternetAuthorization(viewModel: self) { return fixture }
         #endif
-        return InternetAccountAuthorization(expectedUserID: accountUserID, deviceID: try internetSettingsStore.accountDeviceID(),
-            memberID: localMemberIdentity.memberID, deviceKey: IdentityEncoding.encode(try internetSettingsStore.deviceSigningKey().publicKey.x963Representation),
+        return InternetAccountAuthorization(
+            expectedUserID: accountUserID, deviceID: try internetSettingsStore.accountDeviceID(),
+            memberID: localMemberIdentity.memberID,
+            deviceKey: IdentityEncoding.encode(
+                try internetSettingsStore.deviceSigningKey().publicKey.x963Representation),
             currentUser: { [weak self] in
                 guard let self, self.canStartCalls else { return nil }
                 return self.accountUserID
             }, save: { [weak self] origin, credential, identity in
                 guard let self, self.canStartCalls else { throw InternetAccountClient.Failure.rejected }
-                try self.saveInternetConnection(url: origin.absoluteString, token: credential.accessToken, identity: identity)
+                try self.saveInternetConnection(
+                    url: origin.absoluteString, token: credential.accessToken, identity: identity)
             })
     }
     func endAccountAccess() {
@@ -48,7 +52,8 @@ extension IntercomViewModel {
             try internetSettingsStore.finishRevocation(pending)
         } catch {
             guard generation == internetCheckGeneration else { return }
-            internetCheckMessage = "Internet access is disabled on this device. Server sign-out is pending; retry when online."
+            internetCheckMessage =
+                "Internet access is disabled on this device. Server sign-out is pending; retry when online."
         }
     }
     func saveInternetConnection(url: String, token: String, identity: VerifiedDeviceIdentity? = nil) throws {
@@ -68,7 +73,9 @@ extension IntercomViewModel {
         }
         if let transfer = invitationBackgroundTransfer { transfer.reconcile(keeping: backgroundInvitationUploadIDs()) }
         localAccountPrincipal = try internetSettingsStore.loadPrincipal(memberID: localMemberIdentity.memberID)
-        guard let configuration = try internetSettingsStore.load() else { throw InternetConnectionSettingsStore.ValidationError.missingToken }
+        guard let configuration = try internetSettingsStore.load() else {
+            throw InternetConnectionSettingsStore.ValidationError.missingToken
+        }
         internetCheckGeneration = UUID()
         isCheckingInternet = false
         stopContactInvitationSession()
@@ -85,7 +92,8 @@ extension IntercomViewModel {
               internetSettingsStore.requiresAccountDataReset, let accountUserID else {
             throw InternetAccountClient.Failure.rejected
         }
-        try accountSession.deletion.beginLocalReset(userID: accountUserID, deviceID: internetSettingsStore.existingAccountDeviceID())
+        try accountSession.deletion.beginLocalReset(
+            userID: accountUserID, deviceID: internetSettingsStore.existingAccountDeviceID())
         accountSession.signOut()
     }
 
@@ -105,7 +113,13 @@ extension IntercomViewModel {
         do {
             let status = try await CloudflareRealtimeSignalingClient.checkService(configuration, session: session)
             guard generation == internetCheckGeneration else { return }
-            internetCheckMessage = "Authorized. \(status.activeSessions) active sessions. Reserved \(status.reservedParticipantSeconds) / \(status.monthlyParticipantSeconds) participant-seconds (\(status.month)). Media and audio have not been tested."
+            internetCheckMessage =
+                """
+                Authorized. \(status.activeSessions) active sessions. \
+                Reserved \(status.reservedParticipantSeconds) / \(status.monthlyParticipantSeconds) \
+                participant-seconds (\(status.month)). \
+                Media and audio have not been tested.
+                """
         } catch {
             guard generation == internetCheckGeneration else { return }
             internetCheckMessage = "Service check failed: \(error.localizedDescription)"

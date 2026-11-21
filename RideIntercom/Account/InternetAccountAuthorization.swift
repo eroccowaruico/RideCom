@@ -34,12 +34,14 @@ nonisolated struct InternetAccountDeletionResult: Codable, Sendable {
 
 nonisolated struct InternetAccountClient: Sendable {
     let session: URLSession
-    private static let sharedSession = URLSession(configuration: .ephemeral, delegate: AccountRedirectPolicy(), delegateQueue: nil)
+    private static let sharedSession = URLSession(
+        configuration: .ephemeral, delegate: AccountRedirectPolicy(), delegateQueue: nil)
     init(session: URLSession = sharedSession) {
         self.session = session
     }
     enum Failure: Error {
-        case invalidAddress, rejected, forbidden, notFound, invalidResponse, deviceLimitReached, deletionPending, deletionReauthenticationRequired
+        case invalidAddress, rejected, forbidden, notFound, invalidResponse, deviceLimitReached, deletionPending,
+            deletionReauthenticationRequired
         case rateLimited(retryAfter: Int)
     }
     static func origin(_ text: String) throws -> URL {
@@ -49,23 +51,30 @@ nonisolated struct InternetAccountClient: Sendable {
         return url
     }
     func challenge(origin: URL, deviceID: String) async throws -> InternetAccountChallenge {
-        let value: InternetAccountChallenge = try await send(origin: origin, path: "api/auth/apple/challenge", body: ["deviceID": deviceID])
+        let value: InternetAccountChallenge = try await send(
+            origin: origin, path: "api/auth/apple/challenge", body: ["deviceID": deviceID])
         guard value.deviceID == deviceID, Self.hex(value.challengeID), Self.hex(value.nonce),
-              value.expiresAt.isFinite, value.expiresAt > Date().timeIntervalSince1970 * 1000 else { throw Failure.invalidResponse }
+            value.expiresAt.isFinite, value.expiresAt > Date().timeIntervalSince1970 * 1000
+        else { throw Failure.invalidResponse }
         return value
     }
-    func exchange(origin: URL, challenge: InternetAccountChallenge, token: Data) async throws -> InternetAccountCredential {
-        guard let token = String(data: token, encoding: .utf8), !token.isEmpty, token.utf8.count <= 16384 else { throw Failure.invalidResponse }
+    func exchange(origin: URL, challenge: InternetAccountChallenge, token: Data) async throws
+        -> InternetAccountCredential {
+        guard let token = String(data: token, encoding: .utf8), !token.isEmpty, token.utf8.count <= 16384 else {
+            throw Failure.invalidResponse
+        }
         let value: InternetAccountCredential = try await send(origin: origin, path: "api/auth/apple/session",
             body: ["challengeID": challenge.challengeID, "identityToken": token])
         // The bearer locator routes private server state; it is not the public user ID.
         let parts = value.accessToken.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard Self.hex(value.userID), value.deviceID == challenge.deviceID, value.expiresAt.isFinite,
               value.expiresAt > Date().timeIntervalSince1970 * 1000,
-              parts.count == 4, parts[0] == "ri1", Self.hex(parts[1]), parts[2] == value.deviceID, Self.hex(parts[3]) else { throw Failure.invalidResponse }
+            parts.count == 4, parts[0] == "ri1", Self.hex(parts[1]), parts[2] == value.deviceID, Self.hex(parts[3])
+        else { throw Failure.invalidResponse }
         return value
     }
-    func certify(origin: URL, credential: InternetAccountCredential, memberID: String, deviceKey: String) async throws -> VerifiedDeviceIdentity {
+    func certify(origin: URL, credential: InternetAccountCredential, memberID: String, deviceKey: String)
+        async throws -> VerifiedDeviceIdentity {
         let envelope: DeviceIdentityCertificate = try await send(origin: origin, path: "api/auth/identity",
             body: ["memberID": memberID, "deviceKey": deviceKey], token: credential.accessToken)
         // Only this authenticated HTTPS response bootstraps issuer trust. Never
@@ -77,70 +86,107 @@ nonisolated struct InternetAccountClient: Sendable {
         return identity
     }
     func revoke(_ configuration: CloudflareRealtimeConfiguration) async throws {
-        let _: Empty = try await send(origin: configuration.workerURL, path: "api/auth/session", method: "DELETE", token: configuration.accessToken)
+        let _: Empty = try await send(
+            origin: configuration.workerURL, path: "api/auth/session", method: "DELETE",
+            token: configuration.accessToken)
     }
-    func deleteAccount(origin: URL, accessToken: String, proof: InternetAccountDeletionProof?, expectedUserID: String? = nil) async throws -> InternetAccountDeletionResult {
+    func deleteAccount(
+        origin: URL, accessToken: String, proof: InternetAccountDeletionProof?, expectedUserID: String? = nil
+    ) async throws -> InternetAccountDeletionResult {
         let body = proof.map {
-            var fields = ["challengeID": $0.challengeID, "identityToken": $0.identityToken, "authorizationCode": $0.authorizationCode]
+            var fields = [
+                "challengeID": $0.challengeID, "identityToken": $0.identityToken,
+                "authorizationCode": $0.authorizationCode
+            ]
             if let expectedUserID { fields["expectedUserID"] = expectedUserID }
             return fields
         }
-        let result: InternetAccountDeletionResult = try await send(origin: origin, path: "api/auth/account", method: "DELETE", body: body, token: accessToken)
+        let result: InternetAccountDeletionResult = try await send(
+            origin: origin, path: "api/auth/account", method: "DELETE", body: body, token: accessToken)
         guard result.deleted, !(result.appleAuthorizationRevoked && result.appleRevocationPending == true),
-              result.newerAccountPreserved != true || (expectedUserID != nil && !result.appleAuthorizationRevoked && !result.cleanupPending) else { throw Failure.invalidResponse }
+            result.newerAccountPreserved != true
+                || (expectedUserID != nil && !result.appleAuthorizationRevoked && !result.cleanupPending)
+        else { throw Failure.invalidResponse }
         return result
     }
     private struct Empty: Decodable, Sendable {}
-    private struct Rejection: Decodable { let code: String? }
-    func send<T: Decodable & Sendable>(origin: URL, path: String, method: String = "POST", body: [String: String]? = nil, token: String? = nil) async throws -> T {
-        try await sendJSON(origin: origin, path: path, method: method, body: try body.map { try JSONEncoder().encode($0) }, token: token)
+    private struct Rejection: Decodable {
+        let code: String?
+
+        var failure: Failure {
+            switch code {
+            case "device_limit_reached": .deviceLimitReached
+            case "deletion_pending": .deletionPending
+            default: .rejected
+            }
+        }
     }
-    func sendJSON<T: Decodable & Sendable>(origin: URL, path: String, method: String = "POST", body: Data? = nil,
-                                         token: String? = nil, query: [URLQueryItem] = [], acceptsMissing: Bool = false,
-                                         maximumResponseBytes: Int = 32 * 1024) async throws -> T {
-        var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+    func send<T: Decodable & Sendable>(
+        origin: URL, path: String, method: String = "POST", body: [String: String]? = nil, token: String? = nil
+    ) async throws -> T {
+        try await sendJSON(
+            origin: origin, path: path, method: method, body: try body.map { try JSONEncoder().encode($0) },
+            token: token)
+    }
+    func sendJSON<T: Decodable & Sendable>(
+        origin: URL, path: String, method: String = "POST", body: Data? = nil,
+        token: String? = nil, query: [URLQueryItem] = [], acceptsMissing: Bool = false,
+        maximumResponseBytes: Int = 32 * 1024
+    ) async throws -> T {
+        guard var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)
+        else { throw Failure.invalidAddress }
         if !query.isEmpty { components.queryItems = query }
-        var request = URLRequest(url: components.url!, timeoutInterval: 10)
+        guard let url = components.url else { throw Failure.invalidAddress }
+        var request = URLRequest(url: url, timeoutInterval: 10)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.url == request.url else { throw Failure.rejected }
-        if response.statusCode == 404 {
-            guard acceptsMissing else { throw Failure.notFound }
-            return try JSONDecoder().decode(T.self, from: Data("{}".utf8))
-        }
-        // An already revoked credential needs no further server cleanup.
-        if method == "DELETE", path == "api/auth/session", response.statusCode == 401 { return try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
-        if method == "DELETE", path == "api/auth/account", response.statusCode == 401 { throw Failure.deletionReauthenticationRequired }
-        if response.statusCode == 403 { throw Failure.forbidden }
-        if response.statusCode == 429 {
-            let proposed = Int(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 60
-            throw Failure.rateLimited(retryAfter: proposed > 0 ? min(proposed, 3600) : 60)
-        }
-        let enrollmentConflict = method == "POST" && path == "api/auth/apple/session" && response.statusCode == 409
-        guard response.statusCode == 200 || enrollmentConflict else { throw Failure.rejected }
+        let bodyKind = try responseBody(for: response, method: method, path: path, acceptsMissing: acceptsMissing)
+        if bodyKind == .empty { return try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
         var data = Data()
         for try await byte in bytes {
             guard data.count < maximumResponseBytes else { throw Failure.invalidResponse }
             data.append(byte)
         }
-        if enrollmentConflict {
-            switch (try? JSONDecoder().decode(Rejection.self, from: data))?.code {
-            case "device_limit_reached": throw Failure.deviceLimitReached
-            case "deletion_pending": throw Failure.deletionPending
-            default: throw Failure.rejected
-            }
+        if bodyKind == .enrollmentConflict {
+            throw (try? JSONDecoder().decode(Rejection.self, from: data))?.failure ?? Failure.rejected
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
-    private static func hex(_ value: String) -> Bool { value.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } }
+    private enum ResponseBody { case json, empty, enrollmentConflict }
+
+    private func responseBody(
+        for response: HTTPURLResponse, method: String, path: String, acceptsMissing: Bool
+    ) throws -> ResponseBody {
+        switch (response.statusCode, method, path) {
+        case (200, _, _): return .json
+        case (404, _, _) where acceptsMissing: return .empty
+        case (404, _, _): throw Failure.notFound
+        // An already revoked credential needs no further server cleanup.
+        case (401, "DELETE", "api/auth/session"): return .empty
+        case (401, "DELETE", "api/auth/account"): throw Failure.deletionReauthenticationRequired
+        case (403, _, _): throw Failure.forbidden
+        case (429, _, _):
+            let proposed = Int(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 60
+            throw Failure.rateLimited(retryAfter: proposed > 0 ? min(proposed, 3600) : 60)
+        case (409, "POST", "api/auth/apple/session"): return .enrollmentConflict
+        default: throw Failure.rejected
+        }
+    }
+
+    private static func hex(_ value: String) -> Bool {
+        value.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
 }
 
 nonisolated private final class AccountRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) { completionHandler(nil) }
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) { completionHandler(nil) }
 }
 
 @MainActor @Observable
@@ -162,9 +208,12 @@ final class InternetAccountAuthorization {
     private var retryNotBefore: Date?
     private var retryOrigin: URL?
 
-    init(expectedUserID: String, deviceID: String, memberID: String, deviceKey: String, client: InternetAccountClient = .init(), currentUser: @escaping () -> String?,
-         save: @escaping (URL, InternetAccountCredential, VerifiedDeviceIdentity) throws -> Void) {
-        self.expectedUserID = expectedUserID; self.deviceID = deviceID; self.memberID = memberID; self.deviceKey = deviceKey; self.client = client; self.currentUser = currentUser; self.save = save
+    init(
+        expectedUserID: String, deviceID: String, memberID: String, deviceKey: String,
+        client: InternetAccountClient = .init(), currentUser: @escaping () -> String?,
+        save: @escaping (URL, InternetAccountCredential, VerifiedDeviceIdentity) throws -> Void) {
+        self.expectedUserID = expectedUserID; self.deviceID = deviceID; self.memberID = memberID
+        self.deviceKey = deviceKey; self.client = client; self.currentUser = currentUser; self.save = save
     }
     func cancel() { generation = UUID(); challenge = nil; origin = nil; state = nil; isBusy = false }
     func prepare(url: String) async {
@@ -186,13 +235,17 @@ final class InternetAccountAuthorization {
             retryNotBefore = nil; retryOrigin = nil
         } catch {
             guard generation == operation else { return }
-            message = failureMessage(error, origin: address, fallback: "Internet sign-in could not be prepared. Check the service address and try again.")
+            message = failureMessage(
+                error, origin: address,
+                fallback: "Internet sign-in could not be prepared. Check the service address and try again.")
         }
         if generation == operation { isBusy = false }
     }
     func configure(_ request: ASAuthorizationAppleIDRequest) {
         request.requestedScopes = []
-        guard currentUser() == expectedUserID, let challenge, challenge.expiresAt > Date().timeIntervalSince1970 * 1000 else {
+        guard currentUser() == expectedUserID, let challenge,
+            challenge.expiresAt > Date().timeIntervalSince1970 * 1000
+        else {
             cancel(); message = "Prepare Internet sign-in again."; return
         }
         state = UUID().uuidString
@@ -202,13 +255,16 @@ final class InternetAccountAuthorization {
     func complete(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential, let token = credential.identityToken else {
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                let token = credential.identityToken
+            else {
                 cancel(); message = "Apple sign-in could not be completed."; return
             }
             Task { await exchange(userID: credential.user, state: credential.state, identityToken: token) }
         case .failure(let error):
             cancel()
-            message = (error as? ASAuthorizationError)?.code == .canceled ? nil : "Apple sign-in could not be completed."
+            message =
+                (error as? ASAuthorizationError)?.code == .canceled ? nil : "Apple sign-in could not be completed."
         }
     }
     func exchange(userID: String, state: String?, identityToken: Data) async {
@@ -221,9 +277,14 @@ final class InternetAccountAuthorization {
         do {
             let credential = try await client.exchange(origin: origin, challenge: challenge, token: identityToken)
             do {
-                guard generation == operation, currentUser() == expectedUserID else { throw InternetAccountClient.Failure.rejected }
-                let identity = try await client.certify(origin: origin, credential: credential, memberID: memberID, deviceKey: deviceKey)
-                guard generation == operation, currentUser() == expectedUserID else { throw InternetAccountClient.Failure.rejected }
+                guard generation == operation, currentUser() == expectedUserID else {
+                    throw InternetAccountClient.Failure.rejected
+                }
+                let identity = try await client.certify(
+                    origin: origin, credential: credential, memberID: memberID, deviceKey: deviceKey)
+                guard generation == operation, currentUser() == expectedUserID else {
+                    throw InternetAccountClient.Failure.rejected
+                }
                 try save(origin, credential, identity)
             } catch {
                 try? await client.revoke(.init(workerURL: origin, accessToken: credential.accessToken))
@@ -232,7 +293,9 @@ final class InternetAccountAuthorization {
             if generation == operation { message = "Internet calling is connected to your Apple Account." }
         } catch {
             if generation == operation {
-                message = failureMessage(error, origin: origin, fallback: "Internet sign-in could not be saved. Prepare sign-in and try again.")
+                message = failureMessage(
+                    error, origin: origin,
+                    fallback: "Internet sign-in could not be saved. Prepare sign-in and try again.")
             }
         }
         if generation == operation { isBusy = false }
@@ -244,15 +307,26 @@ final class InternetAccountAuthorization {
             retryNotBefore = Date().addingTimeInterval(TimeInterval(seconds)); retryOrigin = origin
             return retryMessage(seconds: seconds)
         case InternetAccountClient.Failure.deletionPending:
-            return "Account deletion is still pending. Finish deletion on the device where you started it, then set up Internet calling again."
+            return
+                """
+                Account deletion is still pending. \
+                Finish deletion on the device where you started it, \
+                then set up Internet calling again.
+                """
         case InternetAccountClient.Failure.deviceLimitReached:
-            return "This account has 8 registered devices. Sign out of RideCom on another device, then set up Internet calling again."
+            return
+                """
+                This account has 8 registered devices. \
+                Sign out of RideCom on another device, then set up Internet calling again.
+                """
         default: return fallback
         }
     }
 
     func retryMessage(seconds: Int, bundle: Bundle = .main, locale: Locale = .current) -> String {
-        String(localized: "Too many sign-in attempts. Wait \(seconds) seconds, then choose Set Up Internet Calling again.",
+        String(
+            localized:
+                "Too many sign-in attempts. Wait \(seconds) seconds, then choose Set Up Internet Calling again.",
                bundle: bundle, locale: locale,
                comment: "Internet setup retry delay in seconds; the named action starts setup again.")
     }

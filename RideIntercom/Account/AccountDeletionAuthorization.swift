@@ -35,7 +35,9 @@ final class AccountDeletionAuthorization {
             challenge = value
         } catch {
             guard operation == generation else { return }
-            if case InternetAccountClient.Failure.rateLimited(let seconds) = error { retryAfter = Date().addingTimeInterval(Double(seconds)) }
+            if case InternetAccountClient.Failure.rateLimited(let seconds) = error {
+                retryAfter = Date().addingTimeInterval(Double(seconds))
+            }
             message = "Apple verification could not be prepared. Check your connection and try again."
         }
         if operation == generation { isBusy = false }
@@ -50,11 +52,16 @@ final class AccountDeletionAuthorization {
     func complete(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else { cancel(); return }
-            submit(userID: credential.user, state: credential.state, token: credential.identityToken, code: credential.authorizationCode)
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                cancel(); return
+            }
+            submit(
+                userID: credential.user, state: credential.state, token: credential.identityToken,
+                code: credential.authorizationCode)
         case .failure(let error):
             cancel()
-            message = (error as? ASAuthorizationError)?.code == .canceled ? nil : "Apple verification failed. Try again."
+            message =
+                (error as? ASAuthorizationError)?.code == .canceled ? nil : "Apple verification failed. Try again."
         }
     }
     func submit(userID: String, state: String?, token: Data?, code: Data?) {
@@ -67,7 +74,10 @@ final class AccountDeletionAuthorization {
             message = "Use the Apple Account currently being deleted and verify again."; return
         }
         do {
-            try accept(.init(challengeID: challenge.challengeID, identityToken: identityToken, authorizationCode: authorizationCode))
+            try accept(
+                .init(
+                    challengeID: challenge.challengeID, identityToken: identityToken,
+                    authorizationCode: authorizationCode))
         } catch { message = "Could not save the deletion request. Your data has been preserved. Try again." }
     }
 }
