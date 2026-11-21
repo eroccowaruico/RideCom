@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Local validation orchestration. No deployment or access to user test data."""
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -11,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -33,19 +36,19 @@ from scripts.xcode_paths import (
 )
 
 
-def swift_supported(output):
+def swift_supported(output: str) -> bool:
     version = re.search(r'Swift version (\d+)\.(\d+)', output)
     return bool(version and tuple(map(int, version.groups())) >= (6, 3))
 
 
-def verify_swift():
+def verify_swift() -> None:
     output = subprocess.check_output(['xcrun', 'swift', '--version'], text=True, timeout=60)
     print(output)
     if not swift_supported(output):
         raise ValueError('Swift 6.3 or newer is required')
 
 
-def verify_artifact():
+def verify_artifact() -> None:
     artifact = ROOT / 'RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcframework.zip'
     metadata = dict(line.split('=', 1) for line in artifact.with_suffix('.metadata').read_text().splitlines() if '=' in line)
     if hashlib.sha256(artifact.read_bytes()).hexdigest() != metadata.get('checksum'):
@@ -56,7 +59,7 @@ def verify_artifact():
                         str(Path(folder) / 'WebRTC.xcframework')], check=True, timeout=60)
 
 
-def tests_passed(text):
+def tests_passed(text: str) -> bool:
     """Require an actual nonempty test run; compilation alone is not success."""
     if re.search(r'\bskipped[=: ]+[1-9]|\b[1-9]\d* tests? skipped|Test .* skipped', text, re.IGNORECASE):
         return False
@@ -76,7 +79,7 @@ def tests_passed(text):
 IOS_TESTS_SECONDS = 7200
 
 
-def ios_tests_timeout(environment):
+def ios_tests_timeout(environment: Mapping[str, str]) -> int | None:
     """An explicit VALIDATION_TIMEOUT_SECONDS still limits every stage, this one included."""
     return None if environment.get('VALIDATION_TIMEOUT_SECONDS') else IOS_TESTS_SECONDS
 
@@ -88,7 +91,7 @@ def xcode_tests_passed(summary):
             and not summary.get('runtimeWarnings') and not summary.get('testFailures'))
 
 
-def includes_test(selector, identifier):
+def includes_test(selector: str, identifier: str) -> bool:
     requested = selector.split('/')
     actual = identifier.split('/')
     if len(requested) == len(actual) and len(requested) >= 3:
@@ -128,7 +131,8 @@ def test_selection_coverage(result, selectors):
     }
 
 
-def test_host_metadata(test_run, expected_namespace, expected_product='RideIntercom.app'):
+def test_host_metadata(test_run: str | os.PathLike[str] | None, expected_namespace: str,
+                       expected_product: str = 'RideIntercom.app') -> dict[str, str | list[str]]:
     """Validate the product actually referenced by Xcode, before it can start."""
     if not (expected_namespace.startswith('RideIntercom.Validation.')
             and len(expected_namespace) > len('RideIntercom.Validation.')):
@@ -426,7 +430,7 @@ SIMULATOR_AUDIO_TESTS = [
 ]
 
 
-def ios_test_selection(selectors):
+def ios_test_selection(selectors: Sequence[str]) -> tuple[list[str], list[str], list[str]]:
     device_specific = [RECOVERY_TEST, *IPAD_ONLY_TESTS]
     iphone = [selector for selector in selectors
               if not any(includes_test(test, selector) for test in device_specific)]
@@ -436,7 +440,7 @@ def ios_test_selection(selectors):
             [test for test in selected_special if test in IPAD_ONLY_TESTS])
 
 
-def xctestrun_skips(path):
+def xctestrun_skips(path: str | os.PathLike[str]) -> list[str]:
     """Scheme-skipped tests recorded in a generated xctestrun, as -skip-testing identifiers."""
     try:
         data = plistlib.loads(Path(path).read_bytes())
