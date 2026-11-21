@@ -112,7 +112,7 @@ struct PeerProfileTests {
         let viewModel = harness.viewModel; defer { viewModel.disconnect() }
         let token = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-            groupID: UUID(), groupName: "Friends", groupSecret: "group-key", inviterMemberID: "friend",
+            credential: .init(groupID: UUID(), secret: "group-key"), groupName: "Friends", inviterMemberID: "friend",
             inviterDisplayName: "Friend")
         try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         harness.callSession.authenticate(["friend"])
@@ -211,8 +211,9 @@ struct PeerProfileTests {
         let group = try IntercomGroup(
             name: "Friends",
             members: [.init(id: "local", displayName: "You"), .init(id: "friend", displayName: "Friend")])
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: original, groupID: group.id,
-            groupName: group.name, groupSecret: "key", inviterMemberID: "friend", inviterDisplayName: "Friend")
+        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: original,
+            credential: .init(groupID: group.id, secret: "key"), groupName: group.name,
+            inviterMemberID: "friend", inviterDisplayName: "Friend")
         try fixture.repository.save([group], credential: .init(groupID: group.id, secret: "key"),
             acceptedInvitation: token.accept(signer: testIdentitySigner("local"), displayName: "You", trust: trust))
         let nonce = UUID()

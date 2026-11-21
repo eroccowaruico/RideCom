@@ -31,7 +31,8 @@ enum AppTestSupport {
         let group = try IntercomGroup(name: "Riders", members: [.init(id: "member-local", displayName: "You")], accessSecret: "original-key")
         let h = makeHarness(groups: [group], callAccessNow: callAccessNow)
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner(remote),
-            groupID: group.id, groupName: group.name, groupSecret: "original-key", inviterMemberID: remote)
+            credential: .init(groupID: group.id, secret: "original-key"), groupName: group.name,
+            inviterMemberID: remote)
         try h.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         h.viewModel.disconnect()
         return h

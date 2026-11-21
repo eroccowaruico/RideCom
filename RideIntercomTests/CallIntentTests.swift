@@ -20,7 +20,7 @@ struct CallIntentTests {
         let group = viewModel.groups[0]
         let invite = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-            groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
+            credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name, inviterMemberID: "friend")
         try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: invite))
         let user = try #require(viewModel.savedRemoteUsers.first)
         #expect(viewModel.selectUser(user.id))
@@ -101,7 +101,7 @@ struct CallIntentTests {
         let group = viewModel.groups[0]
         let invite = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-            groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
+            credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name, inviterMemberID: "friend")
         try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: invite))
         let user = try #require(viewModel.savedRemoteUsers.first)
         let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)

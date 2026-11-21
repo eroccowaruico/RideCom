@@ -171,7 +171,7 @@ struct RegularGroupRepresentativeTests {
         let credential = try #require(try viewModel.groupRepository.credential(for: fixture.groupID))
         let reference = viewModel.currentCallReference
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: second,
-            groupID: fixture.groupID, groupName: "Friends", groupSecret: credential.secret,
+            credential: credential, groupName: "Friends",
             inviterMemberID: "tablet", inviterDisplayName: "Person")
         try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         #expect(viewModel.groups[0].members.map(\.id) == ["local", "phone"])

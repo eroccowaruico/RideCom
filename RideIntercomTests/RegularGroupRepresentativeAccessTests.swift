@@ -36,7 +36,7 @@ extension RegularGroupRepresentativeTests {
         let viewModel = fixture.harness.viewModel, signer = try fixture.signer("phone")
         let secret = try #require(viewModel.groupRepository.credential(for: fixture.groupID)?.secret)
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: signer,
-            groupID: fixture.groupID, groupName: "Friends", groupSecret: secret, inviterMemberID: "phone")
+            credential: .init(groupID: fixture.groupID, secret: secret), groupName: "Friends", inviterMemberID: "phone")
         let link = try GroupInviteTokenCodec.joinURL(for: token)
         try viewModel.acceptInviteURL(link)
         let person = try #require(viewModel.savedRemoteUsers.first)
@@ -92,8 +92,9 @@ extension RegularGroupRepresentativeTests {
         let viewModel = fixture.harness.viewModel, first = try fixture.signer("phone"),
             second = try fixture.signer("tablet")
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: first, groupID: fixture.groupID,
-            groupName: "Friends", groupSecret: "replacement-key", inviterMemberID: "phone",
+            authority: testInvitationAuthority(), signer: first,
+            credential: .init(groupID: fixture.groupID, secret: "replacement-key"), groupName: "Friends",
+            inviterMemberID: "phone",
             inviterDisplayName: "Person")
         viewModel.disconnect(); try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         let user = try #require(viewModel.savedRemoteUsers.first)

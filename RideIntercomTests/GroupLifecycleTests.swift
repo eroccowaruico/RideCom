@@ -24,7 +24,8 @@ struct GroupLifecycleTests {
         let signer = testIdentitySigner("remote"), authority = testInvitationAuthority(), groupID = UUID()
         func link(secret: String) throws -> URL {
             try GroupInviteTokenCodec.joinURL(for: GroupInviteToken.make(authority: authority, signer: signer,
-                groupID: groupID, groupName: "Ride", groupSecret: secret, inviterMemberID: signer.memberID,
+                credential: .init(groupID: groupID, secret: secret),
+                groupName: "Ride", inviterMemberID: signer.memberID,
                 issuedAt: now, expiresAt: now + 60))
         }
 
@@ -104,7 +105,8 @@ struct GroupLifecycleTests {
         let harness = AppTestSupport.makeHarness(groups: [])
             let token = try GroupInviteToken.make(
                 authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
-            groupID: UUID(), groupName: "Ride", groupSecret: "shared", inviterMemberID: "remote")
+            credential: .init(groupID: UUID(), secret: "shared"),
+                groupName: "Ride", inviterMemberID: "remote")
         let url = try GroupInviteTokenCodec.joinURL(for: token)
         try harness.viewModel.acceptInviteURL(url)
         let activeID = harness.viewModel.activeGroupID
@@ -132,7 +134,8 @@ struct GroupLifecycleTests {
         let harness = AppTestSupport.makeHarness(groups: [])
             let token = try GroupInviteToken.make(
                 authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
-            groupID: UUID(), groupName: "Ride", groupSecret: "shared", inviterMemberID: "remote",
+            credential: .init(groupID: UUID(), secret: "shared"),
+                groupName: "Ride", inviterMemberID: "remote",
             issuedAt: 100, expiresAt: 200)
         let validURL = try GroupInviteTokenCodec.joinURL(for: token)
         try harness.viewModel.acceptInviteURL(validURL, now: 150)
@@ -166,7 +169,8 @@ struct GroupLifecycleTests {
 
             let replacement = try GroupInviteToken.make(
                 authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
-            groupID: token.groupID, groupName: "Ride", groupSecret: "shared", inviterMemberID: "remote",
+            credential: .init(groupID: token.groupID, secret: "shared"),
+                groupName: "Ride", inviterMemberID: "remote",
             issuedAt: 200, expiresAt: 300)
         try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: replacement), now: 250)
         #expect(harness.viewModel.groupErrorMessage == nil)
@@ -189,9 +193,8 @@ struct GroupLifecycleTests {
         let groupID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
             let token = try GroupInviteToken.make(
                 authority: testInvitationAuthority(), signer: testIdentitySigner("member-001"),
-            groupID: groupID,
-            groupName: "Talk Group",
-            groupSecret: "talk-secret",
+            credential: .init(groupID: groupID, secret: "talk-secret"),
+                groupName: "Talk Group",
             inviterMemberID: "member-001",
             issuedAt: 100,
             expiresAt: 200
@@ -236,9 +239,8 @@ struct GroupLifecycleTests {
         let groupID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
             let token = try GroupInviteToken.make(
                 authority: testInvitationAuthority(), signer: testIdentitySigner("member-remote"),
-            groupID: groupID,
-            groupName: "Invited Group",
-            groupSecret: "shared-secret",
+            credential: .init(groupID: groupID, secret: "shared-secret"),
+                groupName: "Invited Group",
             inviterMemberID: "member-remote",
             issuedAt: 100,
             expiresAt: 200

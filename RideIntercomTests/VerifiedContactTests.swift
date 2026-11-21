@@ -110,8 +110,9 @@ struct VerifiedContactTests {
     let identity = try envelope.verify(origin: trust.origin, trustedIssuerKey: trust.issuerKey)
     let signer = try DeviceIdentitySigner(memberID: member, key: key, identity: identity)
     let token = try GroupInviteToken.make(
-      authority: testInvitationAuthority(), signer: signer, groupID: group.id,
-      groupName: group.name, groupSecret: "group-key", inviterMemberID: member, inviterDisplayName: "Shared Name")
+      authority: testInvitationAuthority(), signer: signer,
+      credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name,
+      inviterMemberID: member, inviterDisplayName: "Shared Name")
     return try token.accept(signer: testIdentitySigner("local"), displayName: "You", trust: trust)
   }
 }

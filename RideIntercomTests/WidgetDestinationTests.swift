@@ -121,7 +121,7 @@ struct WidgetDestinationTests {
     let group = viewModel.groups[0]
     let token = try GroupInviteToken.make(
       authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-      groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
+      credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name, inviterMemberID: "friend")
     try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
     let user = try #require(viewModel.savedRemoteUsers.first)
     await AppTestSupport.waitUntil { store.read().contains(where: { $0.kind == .user }) }

@@ -9,7 +9,7 @@ struct WatchControlTests {
         let group = model.groups[0]
         let token = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-            groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
+            credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name, inviterMemberID: "friend")
         try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
     }
 
@@ -186,7 +186,7 @@ struct WatchControlTests {
         let group = model.groups[0]
         let token = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-            groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
+            credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name, inviterMemberID: "friend")
         try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         let user = try #require(model.savedRemoteUsers.first)
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
@@ -233,7 +233,7 @@ struct WatchControlTests {
         let group = model.groups[0]
         let token = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-            groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
+            credential: .init(groupID: group.id, secret: "group-key"), groupName: group.name, inviterMemberID: "friend")
         try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         let user = try #require(model.savedRemoteUsers.first)
         #expect(model.startCall(to: .user(user.id), accountAccessID: model.accountAccessID))

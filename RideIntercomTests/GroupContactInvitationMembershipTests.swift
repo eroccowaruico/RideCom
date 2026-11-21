@@ -70,7 +70,8 @@ extension GroupContactInvitationTests {
         let observerModel = observerHarness.viewModel
         let linkForObserver = try GroupInviteToken.make(
             authority: authorModel.invitationAuthority, signer: authorSigner,
-            groupID: group.id, groupName: group.name, groupSecret: group.secret, inviterMemberID: authorSigner.memberID)
+            credential: .init(groupID: group.id, secret: group.secret), groupName: group.name,
+            inviterMemberID: authorSigner.memberID)
         try observerModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: linkForObserver))
         let savedAuthor = try #require(observerModel.savedRemoteUsers.first)
         #expect(observerModel.removeSavedUser(savedAuthor.id))
@@ -192,7 +193,8 @@ extension GroupContactInvitationTests {
         signer: DeviceIdentitySigner, group: ContactGroupInvitation
     ) throws -> GroupSnapshot.Record {
         let observerInvite = try GroupInviteToken.make(authority: authorModel.invitationAuthority, signer: signer,
-            groupID: group.id, groupName: group.name, groupSecret: group.secret, inviterMemberID: signer.memberID)
+            credential: .init(groupID: group.id, secret: group.secret), groupName: group.name,
+            inviterMemberID: signer.memberID)
         try observer.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: observerInvite))
         observer.viewModel.disconnect()
         observer.viewModel.reloadSavedGroups()

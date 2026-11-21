@@ -108,8 +108,9 @@ import Testing
         try repository.save(
             [group], credential: .init(groupID: group.id, secret: "independent-group-key"), deliveries: [record])
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: senderSigner, groupID: group.id, groupName: group.name,
-            groupSecret: "independent-group-key", inviterMemberID: "local", expiresAt: expiry)
+            authority: testInvitationAuthority(), signer: senderSigner,
+            credential: .init(groupID: group.id, secret: "independent-group-key"), groupName: group.name,
+            inviterMemberID: "local", expiresAt: expiry)
         let envelope = try GroupInvitationEnvelope.seal(
             token, sender: author,
             recipient: .init(principal: recipient, memberID: "friend", encryptionKey: recipientSigner.publicKey),
@@ -160,9 +161,9 @@ import Testing
         try fixture.file.commit(GroupSnapshot(users: [user]))
         let repository = fixture.restart(); _ = try repository.load(localMemberID: "local")
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: senderSigner, groupID: UUID(),
-            groupName: "Automatically delivered",
-            groupSecret: "received-key", inviterMemberID: "sender")
+            authority: testInvitationAuthority(), signer: senderSigner,
+            credential: .init(groupID: UUID(), secret: "received-key"), groupName: "Automatically delivered",
+            inviterMemberID: "sender")
         let envelope = try GroupInvitationEnvelope.seal(
             token, sender: author,
             recipient: .init(principal: recipient, memberID: "local", encryptionKey: recipientSigner.publicKey),
@@ -219,9 +220,9 @@ extension GroupDeliveryPersistenceTests {
         let senderSigner = context.senderSigner, recipientSigner = context.recipientSigner
         let user = context.user, now = context.now
         let conflict = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: senderSigner, groupID: token.groupID,
-            groupName: token.groupName,
-            groupSecret: "conflicting-key", inviterMemberID: "sender")
+            authority: testInvitationAuthority(), signer: senderSigner,
+            credential: .init(groupID: token.groupID, secret: "conflicting-key"), groupName: token.groupName,
+            inviterMemberID: "sender")
         let packet = try GroupInvitationEnvelope.seal(
             conflict, sender: author,
             recipient: .init(principal: recipient, memberID: "local", encryptionKey: recipientSigner.publicKey),

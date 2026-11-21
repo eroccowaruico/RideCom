@@ -36,7 +36,8 @@ func testInvitationReceipt(groupID: UUID, inviter: GroupMember, invitee: String 
     groupID: UUID, inviter: GroupMember, invitee: String = "local"
 ) throws -> AcceptedDirectInvitation {
     let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner(inviter.id),
-        groupID: groupID, groupName: "Friends", groupSecret: "test-key", inviterMemberID: inviter.id,
+        credential: .init(groupID: groupID, secret: "test-key"),
+        groupName: "Friends", inviterMemberID: inviter.id,
         inviterDisplayName: inviter.displayName)
     return try token.accept(signer: testIdentitySigner(invitee), displayName: "Rider")
 }

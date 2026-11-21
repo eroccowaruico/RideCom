@@ -225,8 +225,8 @@ struct AudioE2ECallStorage {
         let token = try GroupInviteToken.make(
             authority: DirectInvitationAuthority(keychain: keychain, namespace: namespace + ".Inviter"),
             signer: DeviceIdentitySigner(memberID: "fixture-owner", key: P256.Signing.PrivateKey()),
-            groupID: run.groupID, groupName: "Audio E2E",
-            groupSecret: run.groupSecret, inviterMemberID: "fixture-owner")
+            credential: .init(groupID: run.groupID, secret: run.groupSecret), groupName: "Audio E2E",
+            inviterMemberID: "fixture-owner")
         return try GroupInviteTokenCodec.joinURL(for: token)
     }
 }

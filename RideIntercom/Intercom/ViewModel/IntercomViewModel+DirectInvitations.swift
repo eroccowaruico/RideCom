@@ -49,7 +49,7 @@ extension IntercomViewModel {
             }
             let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
             let token = try GroupInviteToken.make(authority: invitationAuthority, signer: signer,
-                groupID: group.id, groupName: group.name, groupSecret: credential.secret,
+                credential: credential, groupName: group.name,
                 inviterMemberID: localMemberIdentity.memberID, inviterDisplayName: localMemberIdentity.displayName,
                 recipientMemberID: directCallRecipient(for: group),
                 recipientAccount: directCallAccountRecipient(for: group))

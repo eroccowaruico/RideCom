@@ -128,8 +128,8 @@ extension AppTests.GroupLifecycleTests {
         #expect(harness.viewModel.groups.isEmpty)
         #expect(harness.callSession.connectedGroup == nil)
             let token = try GroupInviteToken.make(
-                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: UUID(),
-                groupName: "Invite", groupSecret: "shared", inviterMemberID: "remote")
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), credential: .init(groupID: UUID(), secret: "shared"),
+                groupName: "Invite", inviterMemberID: "remote")
         let url = try GroupInviteTokenCodec.joinURL(for: token)
         #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(url) }
         #expect(harness.viewModel.groups.isEmpty)
@@ -143,8 +143,8 @@ extension AppTests.GroupLifecycleTests {
         let group = try #require(harness.viewModel.selectedGroup)
         let saved = try #require(try harness.viewModel.groupRepository.credential(for: group.id))
             let token = try GroupInviteToken.make(
-                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: group.id,
-                groupName: group.name, groupSecret: "", inviterMemberID: "remote")
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), credential: .init(groupID: group.id, secret: ""),
+                groupName: group.name, inviterMemberID: "remote")
         let url = try GroupInviteTokenCodec.joinURL(for: token)
         #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(url) }
         #expect(try harness.viewModel.groupRepository.credential(for: group.id) == saved)
@@ -206,8 +206,8 @@ extension AppTests.GroupLifecycleTests {
         let group = try #require(harness.viewModel.selectedGroup)
         let saved = try harness.viewModel.groupRepository.credential(for: group.id)
             let token = try GroupInviteToken.make(
-                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: group.id,
-                groupName: "Changed", groupSecret: "other", inviterMemberID: "remote")
+                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), credential: .init(groupID: group.id, secret: "other"),
+                groupName: "Changed", inviterMemberID: "remote")
             #expect(throws: GroupInviteTokenError.activeGroupKeyChanged) {
                 try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
             }

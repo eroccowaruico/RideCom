@@ -46,8 +46,8 @@ struct GroupPersistenceTests {
 
     @Test func decodedInviteRejectsUnsupportedVersionAndOversizedURL() throws {
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: testIdentitySigner("remote"), groupID: UUID(),
-            groupName: "Group", groupSecret: "shared", inviterMemberID: "remote")
+            authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
+            credential: .init(groupID: UUID(), secret: "shared"), groupName: "Group", inviterMemberID: "remote")
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(token)) as? [String: Any])
         json["version"] = 99
         let data = try JSONSerialization.data(withJSONObject: json)

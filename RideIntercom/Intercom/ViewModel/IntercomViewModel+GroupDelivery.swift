@@ -150,8 +150,8 @@ extension IntercomViewModel {
         let now = callAccessNow()
         let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
         let token = try GroupInviteToken.make(
-            authority: invitationAuthority, signer: signer, groupID: group.id, groupName: group.name,
-            groupSecret: key.secret, inviterMemberID: signer.memberID,
+            authority: invitationAuthority, signer: signer,
+            credential: key, groupName: group.name, inviterMemberID: signer.memberID,
             inviterDisplayName: localMemberIdentity.displayName,
             issuedAt: now.timeIntervalSince1970, expiresAt: record.expiresAt
         )

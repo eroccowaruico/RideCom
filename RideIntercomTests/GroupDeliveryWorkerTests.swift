@@ -574,8 +574,8 @@ import Testing
             let key = GroupAccessCredential(groupID: UUID(), secret: "worker-ordinary-reply-fixture")
             let token: GroupInviteToken
             if invitation == .group {
-                token = try GroupInviteToken.make(authority: authority, signer: author.signer, groupID: key.groupID,
-                    groupName: "Test group", groupSecret: key.secret, inviterMemberID: author.memberID)
+                token = try GroupInviteToken.make(authority: authority, signer: author.signer,
+                    credential: key, groupName: "Test group", inviterMemberID: author.memberID)
             } else {
                 let group =
                     invitation == .contactWithGroup

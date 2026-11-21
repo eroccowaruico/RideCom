@@ -7,7 +7,7 @@ struct ContactInvitationPurposeTests {
     private func token(contact: Bool? = nil, issuedAt: TimeInterval = Date().timeIntervalSince1970,
                        expiresAt: TimeInterval? = nil) throws -> GroupInviteToken {
         try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("purpose-author"),
-            groupID: UUID(), groupName: "Invitation", groupSecret: "purpose-test-key",
+            credential: .init(groupID: UUID(), secret: "purpose-test-key"), groupName: "Invitation",
             inviterMemberID: "purpose-author", inviterDisplayName: "Author", contactBootstrap: contact,
             issuedAt: issuedAt, expiresAt: expiresAt)
     }

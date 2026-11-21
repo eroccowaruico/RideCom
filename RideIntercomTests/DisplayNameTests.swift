@@ -12,7 +12,7 @@ struct DisplayNameTests {
     defer { viewModel.disconnect() }
     let token = try GroupInviteToken.make(
       authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-      groupID: UUID(), groupName: "Friends", groupSecret: "shared-group-key",
+      credential: .init(groupID: UUID(), secret: "shared-group-key"), groupName: "Friends",
       inviterMemberID: "friend", inviterDisplayName: "Friend")
     try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
     harness.callSession.authenticate(["friend"])
@@ -38,7 +38,7 @@ struct DisplayNameTests {
       let secret = Data(repeating: UInt8(group.count), count: 32).base64EncodedString()
       let token = try GroupInviteToken.make(
         authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-        groupID: UUID(), groupName: group, groupSecret: secret, inviterMemberID: "friend",
+        credential: .init(groupID: UUID(), secret: secret), groupName: group, inviterMemberID: "friend",
         inviterDisplayName: name,
         contactBootstrap: contact ? true : nil)
       return try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: contact ? true : nil)
@@ -69,7 +69,7 @@ struct DisplayNameTests {
     defer { viewModel.disconnect() }
     let token = try GroupInviteToken.make(
       authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
-      groupID: UUID(), groupName: "Friends", groupSecret: "shared-group-key",
+      credential: .init(groupID: UUID(), secret: "shared-group-key"), groupName: "Friends",
       inviterMemberID: "friend", inviterDisplayName: "Friend")
     try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
     let user = try #require(viewModel.savedUsers.first)

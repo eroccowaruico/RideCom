@@ -183,8 +183,8 @@ extension DirectCallTests {
         let id = try #require(viewModel.selectedGroup?.id)
         let key = try #require(try viewModel.groupRepository.credential(for: id)).secret
         let groupInvite = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: testIdentitySigner("bob"), groupID: id,
-            groupName: "Direct Call", groupSecret: key, inviterMemberID: "bob")
+            authority: testInvitationAuthority(), signer: testIdentitySigner("bob"),
+            credential: .init(groupID: id, secret: key), groupName: "Direct Call", inviterMemberID: "bob")
         #expect(throws: GroupInviteTokenError.incompatibleCall) {
             try viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: groupInvite))
         }
@@ -210,8 +210,9 @@ extension DirectCallTests {
             name: "Riders", members: [.init(id: local, displayName: "You")], accessSecret: "original-key")
         let testHarness = AppTestSupport.makeHarness(groups: [group])
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: testIdentitySigner(remote), groupID: group.id,
-            groupName: group.name, groupSecret: "original-key", inviterMemberID: remote)
+            authority: testInvitationAuthority(), signer: testIdentitySigner(remote),
+            credential: .init(groupID: group.id, secret: "original-key"), groupName: group.name,
+            inviterMemberID: remote)
         try testHarness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
         return testHarness
     }

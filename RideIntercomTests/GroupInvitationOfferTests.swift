@@ -12,8 +12,9 @@ import Testing
         let harness = try recipientDevice.harness(knowing: [authorDevice]); defer { harness.viewModel.disconnect() }
         let now = Date(), id = UUID()
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: authorDevice.signer, groupID: id,
-            groupName: "Delivered group", groupSecret: "shared-key", inviterMemberID: authorDevice.memberID,
+            authority: testInvitationAuthority(), signer: authorDevice.signer,
+            credential: .init(groupID: id, secret: "shared-key"), groupName: "Delivered group",
+            inviterMemberID: authorDevice.memberID,
             issuedAt: now.timeIntervalSince1970,
             expiresAt: now.addingTimeInterval(3600).timeIntervalSince1970)
         let envelope = try GroupInvitationEnvelope.seal(

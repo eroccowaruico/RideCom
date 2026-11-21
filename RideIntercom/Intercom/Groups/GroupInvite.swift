@@ -75,9 +75,8 @@ struct GroupInviteToken: Codable, Equatable {
     static func make(
         authority: DirectInvitationAuthority,
         signer: DeviceIdentitySigner,
-        groupID: UUID,
+        credential: GroupAccessCredential,
         groupName: String,
-        groupSecret: String,
         inviterMemberID: String,
         inviterDisplayName: String? = nil,
         recipientMemberID: String? = nil,
@@ -94,21 +93,22 @@ struct GroupInviteToken: Codable, Equatable {
         let expiresAt = expiresAt ?? issuedAt + 7 * 24 * 60 * 60
         let grant = try authority.issue(
             .init(
-                groupID: groupID, inviterMemberID: inviterMemberID, inviterDeviceKey: signer.publicKey,
-                                             recipientMemberID: recipientMemberID, expiresAt: expiresAt,
+                groupID: credential.groupID, inviterMemberID: inviterMemberID, inviterDeviceKey: signer.publicKey,
+                recipientMemberID: recipientMemberID, expiresAt: expiresAt,
                 inviterAccount: recipientAccount == nil ? nil : signer.principal,
                 recipientAccount: recipientAccount, contactBootstrap: contactBootstrap,
                 invitedGroupID: invitedGroup?.id, invitedGroupDigest: try invitedGroup?.digest()))
-        let signature = makeSignature(
-            version: currentVersion, groupID: groupID, groupName: groupName, groupSecret: groupSecret,
+        let signature = SignatureContents(
+            version: currentVersion, credential: credential, groupName: groupName,
             inviterMemberID: inviterMemberID, inviterDisplayName: inviterDisplayName,
             recipientMemberID: recipientMemberID,
-            issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant, invitedGroup: invitedGroup)
+            issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant, invitedGroup: invitedGroup).signature
         let replyAdmissionSignature = contactBootstrap == true
             ? try ContactInvitationReplyAdmission.makeSignature(
-                for: grant.context, secret: groupSecret, signer: signer) : nil
+                for: grant.context, secret: credential.secret, signer: signer) : nil
         return try GroupInviteToken(
-            groupID: groupID, groupName: groupName, groupSecret: groupSecret, inviterMemberID: inviterMemberID,
+            groupID: credential.groupID, groupName: groupName, groupSecret: credential.secret,
+            inviterMemberID: inviterMemberID,
             inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID, issuedAt: issuedAt,
             expiresAt: expiresAt,
             directInvitation: grant, signature: signature,
@@ -116,7 +116,8 @@ struct GroupInviteToken: Codable, Equatable {
             replyAdmissionSignature: replyAdmissionSignature)
     }
 
-    func accept(signer: DeviceIdentitySigner, displayName: String, trust: DeviceIdentityTrust? = nil,
+    func accept(
+        signer: DeviceIdentitySigner, displayName: String, trust: DeviceIdentityTrust? = nil,
         now: TimeInterval = Date().timeIntervalSince1970, contactBootstrap: Bool? = nil
     ) throws -> AcceptedDirectInvitation {
         try validate(contactBootstrap: contactBootstrap)
@@ -126,7 +127,7 @@ struct GroupInviteToken: Codable, Equatable {
         guard !isExpired(now: now) else { throw GroupInviteTokenError.expired }
         let inviter = try identityProof.verify(
             Data(signature.utf8), purpose: .issueInvitation, memberID: inviterMemberID,
-                                              trust: trust, now: Date(timeIntervalSince1970: now))
+            trust: trust, now: Date(timeIntervalSince1970: now))
         if let recipientAccount {
             guard signer.principal == recipientAccount else { throw GroupInviteTokenError.wrongRecipient }
             guard inviter.principal == grant.context.inviterAccount else {
@@ -139,18 +140,17 @@ struct GroupInviteToken: Codable, Equatable {
     }
 
     func verifySignature() -> Bool {
-        signature == Self.makeSignature(
+        signature == SignatureContents(
             version: version,
-            groupID: groupID,
+            credential: .init(groupID: groupID, secret: groupSecret),
             groupName: groupName,
-            groupSecret: groupSecret,
             inviterMemberID: inviterMemberID,
             inviterDisplayName: inviterDisplayName,
             recipientMemberID: recipientMemberID,
             issuedAt: issuedAt,
             expiresAt: expiresAt,
             directInvitation: directInvitation, invitedGroup: invitedGroup
-        )
+        ).signature
     }
 
     func validate(contactBootstrap: Bool? = nil) throws {
@@ -190,40 +190,41 @@ struct GroupInviteToken: Codable, Equatable {
         return now >= expiresAt
     }
 
-    private static func makeSignature(
-        version: Int,
-        groupID: UUID,
-        groupName: String,
-        groupSecret: String,
-        inviterMemberID: String,
-        inviterDisplayName: String?,
-        recipientMemberID: String?,
-        issuedAt: TimeInterval,
-        expiresAt: TimeInterval?,
-        directInvitation: DirectInvitationGrant?,
-        invitedGroup: ContactGroupInvitation?
-    ) -> String {
-        var fields = [
-            "\(version)",
-            groupID.uuidString,
-            groupName,
-            groupSecret,
-            inviterMemberID,
-            String(format: "%.3f", issuedAt),
-            expiresAt.map { String(format: "%.3f", $0) } ?? ""
-        ]
-        fields.append(recipientMemberID ?? "")
-        // Base64 keeps arbitrary user-chosen separators out of the signed field framing.
-        fields.append(Data((inviterDisplayName ?? "").utf8).base64EncodedString())
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        fields.append((try? encoder.encode(directInvitation))?.base64EncodedString() ?? "")
-        // Keep ordinary v6 invitations byte-compatible; only combined invitations add a field.
-        if let invitedGroup { fields.append((try? encoder.encode(invitedGroup))?.base64EncodedString() ?? "") }
-        let message = fields.joined(separator: "|")
-        let key = SymmetricKey(data: Data(groupSecret.utf8))
-        return HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: key)
-            .map { String(format: "%02x", $0) }
-            .joined()
+    private struct SignatureContents {
+        let version: Int
+        let credential: GroupAccessCredential
+        let groupName: String
+        let inviterMemberID: String
+        let inviterDisplayName: String?
+        let recipientMemberID: String?
+        let issuedAt: TimeInterval
+        let expiresAt: TimeInterval?
+        let directInvitation: DirectInvitationGrant?
+        let invitedGroup: ContactGroupInvitation?
+
+        var signature: String {
+            var fields = [
+                "\(version)",
+                credential.groupID.uuidString,
+                groupName,
+                credential.secret,
+                inviterMemberID,
+                String(format: "%.3f", issuedAt),
+                expiresAt.map { String(format: "%.3f", $0) } ?? ""
+            ]
+            fields.append(recipientMemberID ?? "")
+            // Base64 keeps arbitrary user-chosen separators out of the signed field framing.
+            fields.append(Data((inviterDisplayName ?? "").utf8).base64EncodedString())
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+            fields.append((try? encoder.encode(directInvitation))?.base64EncodedString() ?? "")
+            // Keep ordinary v6 invitations byte-compatible; only combined invitations add a field.
+            if let invitedGroup { fields.append((try? encoder.encode(invitedGroup))?.base64EncodedString() ?? "") }
+            let message = fields.joined(separator: "|")
+            let key = SymmetricKey(data: Data(credential.secret.utf8))
+            return HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: key)
+                .map { String(format: "%02x", $0) }
+                .joined()
+        }
     }
 }
 

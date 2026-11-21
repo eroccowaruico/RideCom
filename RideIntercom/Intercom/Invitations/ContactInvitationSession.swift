@@ -62,7 +62,7 @@ final class ContactInvitationSession {
     ) throws -> GroupInviteToken {
         let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
         return try GroupInviteToken.make(authority: authority, signer: signer,
-            groupID: UUID(), groupName: "Contact Invitation", groupSecret: secret,
+            credential: .init(groupID: UUID(), secret: secret), groupName: "Contact Invitation",
             inviterMemberID: signer.memberID, inviterDisplayName: displayName, contactBootstrap: true,
             invitedGroup: invitedGroup, issuedAt: now)
     }
