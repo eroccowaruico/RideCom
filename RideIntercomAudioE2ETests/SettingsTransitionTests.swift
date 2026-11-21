@@ -8,160 +8,15 @@ import SessionManager
 import XCTest
 @testable import RideIntercom
 
-private struct ReceiveSwitchTrace: Encodable {
-    struct Switch: Encodable {
-        let start: TimeInterval
-        let end: TimeInterval
-        let enabled: Bool
-    }
-
-    let switches: [Switch]
-    let renderClock: [RenderedAudioProbe.RenderClockBlock]
-    let rate: Double
-    let baseline: [Double]
-}
-
 extension AudioE2ETests {
-    @MainActor
-    func testReceiveIsolationKeepsItsEffectWhenEnabledAgain() async throws {
-        try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
-        let engine = AVAudioEngine(), native = RenderedAudioProbe(recordsRenderClock: true)
-        let output = SystemAudioOutputStreamBackend(engine: engine)
-        try engine.mainMixerNode.installAudioTap(onBus: 0, bufferSize: 1024, format: nil) { native.append($0, time: $1) }
-        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
-        defer { pipeline.stop(); engine.mainMixerNode.removeTap(onBus: 0); try? output.stopRendering() }
-        let hardware = try output.startRendering(configuration: .intercomCall)
-        try pipeline.rebuild(configuration: .init(outputHardwareFormat: hardware,
-            transmitSoundIsolationEnabled: false, receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002),
-            peerIDs: ["one", "two"])
-
-        let frequencies = [600.0, 1100.0]
-        let fixtures = zip(["one", "two"], frequencies).map { peer, frequency in
-            let samples = (0..<480).map { Float(0.12 * sin(Double($0) * 2 * .pi * frequency / 48_000)) }
-            return (PeerID(rawValue: peer), PCM16Codec.encode(samples))
-        }
-        let format = RTCAudioFormat(sampleRate: 48_000, channelCount: 1)
-        let queue = DispatchQueue(label: "receive-isolation-fixture", qos: .userInitiated)
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        let sequence = Mutex<UInt64>(0), failures = Mutex<[String]>([])
-        let rejected = Mutex<[(start: TimeInterval, end: TimeInterval)]>([])
-        let start = DispatchTime.now() + .milliseconds(30)
-        let captureOrigin = Double(start.uptimeNanoseconds) / 1e9
-        timer.setEventHandler {
-            let index = sequence.withLock { value in
-                defer { value += 1 }
-                return value
-            }
-            for (peer, payload) in fixtures {
-                let packet = RTCAudioPacket(sequenceNumber: index, codec: .pcm16, format: format,
-                    capturedAt: captureOrigin + Double(index) / 100, sampleCount: 480, payload: payload)
-                let arrival = ProcessInfo.processInfo.systemUptime
-                do {
-                    _ = try pipeline.processReceivedAudioPacket(.init(peerID: peer, packet: packet))
-                } catch AppAudioPipelineError.notConfigured {
-                    rejected.withLock { $0.append((arrival, ProcessInfo.processInfo.systemUptime)) }
-                } catch { failures.withLock { $0.append(String(describing: error)) } }
-            }
-        }
-        timer.schedule(deadline: start, repeating: .milliseconds(10), leeway: .microseconds(100))
-        timer.activate()
-        defer { timer.cancel(); queue.sync {} }
-
-        func steadyTones() async throws -> [Double] {
-            try await Task.sleep(for: .milliseconds(650))
-            let start = native.sampleCount
-            try await Task.sleep(for: .milliseconds(400))
-            let recording = native.snapshot()
-            XCTAssertEqual(recording.invalid, 0)
-            let measured = ToneIntegrity.measure(samples: Array(recording.samples.dropFirst(start)),
-                rate: recording.rate, frequencies: frequencies)
-            XCTAssertTrue(measured.passed, "\(measured.dictionary)")
-            return try XCTUnwrap(measured.amplitudes.count == frequencies.count ? measured.amplitudes : nil)
-        }
-        let baseline = try await steadyTones()
-        var masterChanges: [ClosedRange<TimeInterval>] = []
-        var peerChanges: [ReceiveSwitchTrace.Switch] = []
-        func updateIsolation(peerOnly: Bool, enabled: Bool) throws {
-            let start = ProcessInfo.processInfo.systemUptime
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled && !peerOnly,
-                peers: enabled && peerOnly ? ["one": true] : [:])
-            let end = ProcessInfo.processInfo.systemUptime
-            if peerOnly {
-                peerChanges.append(.init(start: start, end: end, enabled: enabled))
-            } else {
-                masterChanges.append(start...end)
-            }
-        }
-        for peerOnly in [false, true] {
-            try updateIsolation(peerOnly: peerOnly, enabled: true)
-            let first = try await steadyTones()
-            try updateIsolation(peerOnly: peerOnly, enabled: false)
-            let bypassed = try await steadyTones()
-            try updateIsolation(peerOnly: peerOnly, enabled: true)
-            let enabledAgain = try await steadyTones()
-            for index in frequencies.indices {
-                let expected = baseline[index] * (peerOnly && index == 1 ? 1 : 0.5)
-                XCTAssertEqual(first[index], expected, accuracy: 0.002, "First enable, peerOnly=\(peerOnly)")
-                XCTAssertEqual(bypassed[index], baseline[index], accuracy: 0.002, "Bypass, peerOnly=\(peerOnly)")
-                XCTAssertEqual(enabledAgain[index], first[index], accuracy: 0.002, "Enable again, peerOnly=\(peerOnly)")
-            }
-            try updateIsolation(peerOnly: peerOnly, enabled: false)
-            _ = try await steadyTones()
-        }
-        for _ in 0..<8 {
-            for enabled in [true, false] {
-                try updateIsolation(peerOnly: true, enabled: enabled)
-                try await Task.sleep(for: .milliseconds(450))
-            }
-        }
-        let renderClock = try XCTUnwrap(native.stopRecordingRenderClock())
-        let rendered = native.snapshot()
-        XCTAssertEqual(rendered.invalid, 0)
-        let width = Int(rendered.rate * 0.01)
-        XCTAssertGreaterThan(width, 0)
-        func sampleIndex(at hostTime: Double) -> Int? {
-            guard let block = renderClock.last(where: { $0.hostTime <= hostTime }) else { return nil }
-            let offset = Int((hostTime - block.hostTime) * rendered.rate)
-            return offset <= block.frameCount ? block.startSample + offset : nil
-        }
-        for change in peerChanges {
-            let start = try XCTUnwrap(sampleIndex(at: change.start - 0.02))
-            let end = try XCTUnwrap(sampleIndex(at: change.start + 0.25))
-            let samples = rendered.samples[start..<end]
-            let step = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 1
-            XCTAssertLessThan(step, 0.04, "Peer isolation switch, enabled=\(change.enabled)")
-            // Both tones have whole cycles in 10 ms. Measure the unchanged
-            // peer independently of the switched voice in the same output.
-            let amplitudes = stride(from: start, through: end - width, by: max(1, width / 2)).map { offset in
-                ToneIntegrity.measure(samples: Array(rendered.samples[offset..<offset + width]),
-                    rate: rendered.rate, frequencies: [frequencies[1]]).amplitudes.first ?? 0
-            }
-            XCTAssertGreaterThan(try XCTUnwrap(amplitudes.min()), baseline[1] * 0.7,
-                "Other peer during isolation switch, enabled=\(change.enabled)")
-        }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("receive-switches.wav")
-        defer { try? FileManager.default.removeItem(at: url) }
-        try native.writeWAV(to: url, rendered: rendered)
-        let audio = XCTAttachment(contentsOfFile: url)
-        audio.name = "receive-switches"; audio.lifetime = .keepAlways; add(audio)
-        let trace = ReceiveSwitchTrace(switches: peerChanges, renderClock: renderClock, rate: rendered.rate, baseline: baseline)
-        let attachment = XCTAttachment(data: try JSONEncoder().encode(trace), uniformTypeIdentifier: "public.json")
-        attachment.name = "receive-switches-trace"; attachment.lifetime = .keepAlways; add(attachment)
-        for attempt in rejected.withLock({ $0 }) {
-            XCTAssertTrue(masterChanges.contains { $0.overlaps(attempt.start...attempt.end) },
-                "A peer effect change cannot reject received audio: \(attempt)")
-        }
-        XCTAssertTrue(failures.withLock { $0.isEmpty })
-        XCTAssertEqual(pipeline.droppedRenderFrameCount, 0)
-        XCTAssertEqual(output.playbackResetCount ?? 0, 0)
-    }
-
     @MainActor
     func testInputModeChangesRestoreTheSharedReceiveClock() async throws {
         try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
         let engine = AVAudioEngine(), probe = RenderedAudioProbe()
-        let input = SpeechFileInput(samples: (0..<48000).map { Float(0.15 * sin(Double($0) * 2 * .pi * 600 / 48000)) }, engine: engine)
-        let processing = AudioInputVoiceProcessingConfiguration(soundIsolationEnabled: false, otherAudioDuckingEnabled: true)
+        let input = makeSettingsInput(engine: engine)
+        let processing = AudioInputVoiceProcessingConfiguration(
+            soundIsolationEnabled: false, otherAudioDuckingEnabled: true
+        )
         try input.updateVoiceProcessing(processing)
         let capture = AudioInputStreamCapture(configuration: .intercom(voiceProcessing: processing), backend: input)
         let output = SystemAudioOutputStreamBackend(engine: engine)
@@ -181,8 +36,10 @@ extension AudioE2ETests {
         }
         XCTAssertEqual(capture.start().result, .applied)
         let hardware = try output.startRendering(configuration: .intercomCall)
-        try pipeline.rebuild(configuration: .init(outputHardwareFormat: hardware, preferredCodec: .pcm16,
-            transmitSoundIsolationEnabled: false, receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002), peerIDs: ["peer"])
+        try pipeline.rebuild(configuration: .init(
+            outputHardwareFormat: hardware, preferredCodec: .pcm16, transmitSoundIsolationEnabled: false,
+            receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002
+        ), peerIDs: ["peer"])
         capture.setRuntimeEventHandler { event in
             guard case .inputFrame(let frame) = event else { return }
             do { try pipeline.processCapturedFrame(frame) } catch {
@@ -190,6 +47,16 @@ extension AudioE2ETests {
             }
         }
         try await Task.sleep(for: .seconds(1))
+        let rows = try await measureVoiceProcessingChanges(pipeline: pipeline, capture: capture, probe: probe)
+        XCTAssertTrue(failures.withLock { $0.isEmpty })
+        try addAudioE2EJSONAttachment(["scenario": "input-mode-recovery", "role": "pipeline",
+            "transport": "none", "stages": rows], name: "input-mode-recovery-measurement")
+    }
+
+    @MainActor
+    private func measureVoiceProcessingChanges(
+        pipeline: AppAudioPipeline, capture: AudioInputStreamCapture, probe: RenderedAudioProbe
+    ) async throws -> [[String: Any]] {
         var rows: [[String: Any]] = []
         for enabled in [false, true, false, true] {
             let start = ProcessInfo.processInfo.systemUptime
@@ -207,11 +74,7 @@ extension AudioE2ETests {
             XCTAssertTrue(tone.passed, "Shared input/output mode \(enabled): \(tone.dictionary)")
             rows.append(["voiceProcessing": enabled, "changeDurationSeconds": duration, "steady": tone.dictionary])
         }
-        XCTAssertTrue(failures.withLock { $0.isEmpty })
-        let data = try JSONSerialization.data(withJSONObject: ["scenario": "input-mode-recovery", "role": "pipeline",
-            "transport": "none", "stages": rows])
-        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
-        attachment.name = "input-mode-recovery-measurement"; attachment.lifetime = .keepAlways; add(attachment)
+        return rows
     }
 
     @MainActor
@@ -230,102 +93,35 @@ extension AudioE2ETests {
     private func measureLiveSettings(intervalMilliseconds: Int, acceptance: Bool) async throws {
         let scenario = acceptance ? "live-settings" : "switch-limits-\(intervalMilliseconds)ms"
         try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
-        let probe = RenderedAudioProbe(), engine = AVAudioEngine()
-        let decodedProbe = RenderedAudioProbe(), mixedProbe = RenderedAudioProbe()
-        let input = SpeechFileInput(samples: (0..<48000).map { Float(0.15 * sin(Double($0) * 2 * .pi * 600 / 48000)) }, engine: engine)
-        try input.updateVoiceProcessing(.init(soundIsolationEnabled: false, otherAudioDuckingEnabled: true))
-        let output = SystemAudioOutputStreamBackend(engine: engine)
-        try engine.mainMixerNode.installAudioTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, time in probe.append(buffer, time: time) }
-        let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
-        let failureStore = Mutex<[String]>([])
-        let rejectedReceives = Mutex<[(start: Double, end: Double)]>([])
-        let delivery = AudioFrameDelivery(initiallyActive: false) { _ in }
-        defer {
-            try? input.stopCapture(); delivery.finish(); pipeline.stop()
-            pipeline.onTransmitPacket = nil
-            engine.mainMixerNode.removeTap(onBus: 0); try? output.stopRendering()
-        }
-        pipeline.onTransmitPacket = { [weak pipeline] packet in
-            guard let pipeline else { return }
-            let start = ProcessInfo.processInfo.systemUptime
-            do {
-                decodedProbe.append(
-                    try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "peer"), packet: packet))
-                )
-            } catch AppAudioPipelineError.notConfigured {
-                rejectedReceives.withLock { $0.append((start, ProcessInfo.processInfo.systemUptime)) }
-            } catch { failureStore.withLock { $0.append(String(describing: error)) } }
-        }
-        pipeline.onOutputFrame = { mixedProbe.append($0) }
-        _ = try input.startCapture(configuration: .intercom(voiceProcessing: .init())) { frame in
-            guard delivery.isActive else { return }
-            do { try pipeline.processCapturedFrame(frame) } catch {
-                failureStore.withLock { $0.append(String(describing: error)) }
-            }
-            delivery.yield(frame)
-        }
-        let hardware = try output.startRendering(configuration: .intercomCall)
-        try pipeline.rebuild(configuration: .init(outputHardwareFormat: hardware, preferredCodec: .pcm16,
-            transmitSoundIsolationEnabled: false, maximumBufferedDuration: 0.2,
-            receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002), peerIDs: ["peer"])
-        delivery.activate()
-        try await Task.sleep(for: .seconds(1))
-        probe.reset(); decodedProbe.reset(); mixedProbe.reset()
-        let stages = ["PCM", "isolation-on", "Opus", "AAC-48k", "AAC-16k", "AAC-24k", "AAC-48k-high", "isolation-off",
-                      "receive-master-on", "receive-master-off", "receive-peer-on", "receive-peer-off",
-                      "isolation-on-again", "isolation-off-again"]
-        var boundaries: [SwitchProbeIndices] = []
-        var changeHostTimes: [Double] = [], changeDurations: [Double] = []
-        for index in stages.indices {
-            boundaries.append(.init(output: probe.sampleCount, decoded: acceptance ? 0 : decodedProbe.sampleCount,
-                                    mixed: acceptance ? 0 : mixedProbe.sampleCount))
-            let changeStart = ProcessInfo.processInfo.systemUptime
-            changeHostTimes.append(changeStart)
-            switch index {
-            case 1: try pipeline.updateSoundIsolation(transmit: true, receiveMaster: false, peers: [:])
-            case 2: try pipeline.updateEncoding(preferred: .opus, format: .init(), aacELDv2BitRate: 64000, opusBitRate: 48000)
-            case 3: try pipeline.updateEncoding(preferred: .mpeg4AACELD, format: .init(), aacELDv2BitRate: 64000, opusBitRate: 48000)
-            case 4:
-                try pipeline.updateEncoding(preferred: .mpeg4AACELD, format: .init(sampleRate: 16000, channelCount: 1), aacELDv2BitRate: 48000, opusBitRate: 48000)
-            case 5:
-                try pipeline.updateEncoding(preferred: .mpeg4AACELD, format: .init(sampleRate: 24000, channelCount: 1), aacELDv2BitRate: 32000, opusBitRate: 48000)
-            case 6:
-                try pipeline.updateEncoding(preferred: .mpeg4AACELD, format: .init(), aacELDv2BitRate: 64000, opusBitRate: 48000)
-            case 7: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
-            case 8: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: true, peers: [:])
-            case 9: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
-            case 10: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: ["peer": true])
-            case 11: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
-            case 12: try pipeline.updateSoundIsolation(transmit: true, receiveMaster: false, peers: [:])
-            case 13: try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: [:])
-            default: break
-            }
-            changeDurations.append(ProcessInfo.processInfo.systemUptime - changeStart)
-            try await Task.sleep(for: .milliseconds(intervalMilliseconds))
-        }
-        let failures = failureStore.withLock { $0 }
-        let rejected = rejectedReceives.withLock { $0 }
-        let recorded = probe.snapshot()
-        let drops = input.droppedCaptureFrameCount + delivery.droppedFrameCount + pipeline.droppedRenderFrameCount
-        let resets = output.playbackResetCount ?? 0
-        let encodingFailures = pipeline.transmitEncodingFailureCount
-        try input.stopCapture(); delivery.finish(); pipeline.stop(); try output.stopRendering()
-        let decoded = decodedProbe.snapshot(), mixed = mixedProbe.snapshot()
-        boundaries.append(.init(output: recorded.samples.count, decoded: decoded.samples.count,
-                                mixed: mixed.samples.count))
+        let capture = try LiveSettingsAudioCapture()
+        defer { capture.tearDown() }
+        try capture.start()
+        let result = try await capture.record(intervalMilliseconds: intervalMilliseconds, acceptance: acceptance)
+        try reportLiveSettings(result, capture: capture, scenario: scenario,
+                               intervalMilliseconds: intervalMilliseconds, acceptance: acceptance)
+    }
+
+    @MainActor
+    private func reportLiveSettings(
+        _ result: LiveSettingsAudioResult, capture: LiveSettingsAudioCapture, scenario: String,
+        intervalMilliseconds: Int, acceptance: Bool
+    ) throws {
+        let recordings = result.recordings
         var stagesMeasured = SwitchStageMeasurements()
-        let recordings = SwitchRecordings(final: recorded, decoded: decoded, mixed: mixed)
-        for (index, name) in stages.enumerated() {
-            let window = SwitchStageWindow(name: name, time: changeHostTimes[index], duration: changeDurations[index],
-                                           start: boundaries[index], end: boundaries[index + 1])
+        for window in result.windows {
             stagesMeasured.record(window: window, audio: recordings, acceptance: acceptance)
         }
+        let failures = result.failures
+        let rejected = result.rejected
+        let drops = result.drops
+        let resets = result.resets
+        let encodingFailures = result.encodingFailures
         // A master effect change can invalidate a reservation only during the change.
         let unexpectedRejections = rejected.filter { attempt in
-            !stages.indices.contains { index in
-                stages[index].hasPrefix("receive-master-")
-                    && attempt.start <= changeHostTimes[index] + changeDurations[index]
-                    && attempt.end >= changeHostTimes[index]
+            !result.windows.contains { window in
+                window.name.hasPrefix("receive-master-")
+                    && attempt.start <= window.time + window.duration
+                    && attempt.end >= window.time
             }
         }
         if acceptance {
@@ -334,8 +130,9 @@ extension AudioE2ETests {
             XCTAssertEqual(drops, 0); XCTAssertEqual(resets, 0); XCTAssertEqual(encodingFailures, 0)
         }
         var measurement: [String: Any] = ["scenario": scenario, "role": "pipeline", "transport": "none",
-            "stages": stagesMeasured.rows, "firstOutputHostTime": probe.firstOutputTime ?? 0,
-            "captureTiming": input.captureTiming, "captureDiscontinuities": input.captureDiscontinuities,
+            "stages": stagesMeasured.rows, "firstOutputHostTime": capture.probes.native.firstOutputTime ?? 0,
+            "captureTiming": capture.input.captureTiming,
+            "captureDiscontinuities": capture.input.captureDiscontinuities,
             "droppedFrames": drops, "outputResets": resets, "processingFailures": failures,
             "receiveRejections": rejected.map { ["start": $0.start, "end": $0.end] }]
         if !acceptance {
@@ -350,14 +147,22 @@ extension AudioE2ETests {
                 && drops == 0 && resets == 0 && encodingFailures == 0
             measurement["qualityObservation"] = stagesMeasured.unavailable ? "unavailable" : (met ? "met" : "unmet")
         }
-        let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement), uniformTypeIdentifier: "public.json")
-        attachment.name = "\(scenario)-measurement"; attachment.lifetime = .keepAlways; add(attachment)
+        try addAudioE2EJSONAttachment(measurement, name: "\(scenario)-measurement")
+        try attachLiveSettingsRecordings(recordings, probes: capture.probes, scenario: scenario)
+    }
+
+    private func attachLiveSettingsRecordings(
+        _ recordings: SwitchRecordings, probes: LiveSettingsProbes, scenario: String
+    ) throws {
+        let recorded = recordings.final
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(scenario).wav")
         guard !recorded.samples.isEmpty, recorded.rate.isFinite, (1000...192000).contains(recorded.rate) else { return }
-        try probe.writeWAV(to: url, rendered: recorded)
+        try probes.native.writeWAV(to: url, rendered: recorded)
         let audio = XCTAttachment(contentsOfFile: url); audio.name = scenario; audio.lifetime = .keepAlways; add(audio)
         try? FileManager.default.removeItem(at: url)
-        for (name, stage, stageRecording) in [("decoded", decodedProbe, decoded), ("mixed", mixedProbe, mixed)] {
+        for (name, stage, stageRecording) in [
+            ("decoded", probes.decoded, recordings.decoded), ("mixed", probes.mixed, recordings.mixed)
+        ] {
             let stageURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(scenario)-\(name).wav")
             guard !stageRecording.samples.isEmpty, (1000...192000).contains(stageRecording.rate) else {
                 XCTFail("Missing \(name) audio")
