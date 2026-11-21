@@ -79,3 +79,13 @@ E2Eはjournalで所有する1台を再利用する。成功・失敗・timeout�
 最終quick後も同じUUIDの専用Simulatorが1台だけ存在してShutdownとなり、E2EとApp単体テストのMac hostが残っていないことを確認した。証跡は`quick-final/final-resources.json`。最新full終了後も同じ1台がShutdownでMac host不在であることを再確認し、`full-ios-settings-final/final-resources.json`に保存した。同時点のdevicectl列挙でも物理iPhoneは0台だった。
 
 証跡は`/tmp`上のローカル保存であり、永続保管やCIへのアップロードはしていない。build cacheは短い反復のため保持する。
+
+## 48 kHzの音声機器を指定して近距離通話を測る
+
+2026-11-21。48 kHzで入出力できる機器が2つあり、Macの既定の入出力から対象が決まらず、Simulatorの音声設定で試験が止まった。機器の名前を指定して試験用Simulator 2台の入力と出力を設定した。各Simulatorの元の選択を復元し、試験で追加した2台を削除した。[音声機器の指定方法](../../development/音声E2Eテスト.md#実行)
+
+`a3f39a91` のソースで、保存済みグループを開き、両端のInternet接続の応答を待ったまま近距離通信を始めた。Release-Validationで既定のAAC設定を使い、6秒間の相手の発話を両端が連続して出力した。収録から出力までの判定値は123.04 msと125.46 msで、片方向が上限の125 msを超えた。証跡は `.validation/security-audit-1900/current-clearance/named-audio-local/`。
+
+WebRTCの1回目はSimulatorの起動完了を待つ段階で止まった。再実行では同じソースと音声設定で、ローカルの試験用サーバーを介して接続した。両端が相手の発話を連続して出力し、収録から出力までの判定値は114.79 msと126.71 msだった。片方向が上限を超えた。証跡は `.validation/security-audit-1900/current-clearance/named-webrtc-retry/`。
+
+実機2台を使う試験、設備のない場所の無線、固定Previewでの音声と画面ロック中の復旧は引き続き確認する。[試用の条件](../../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)

@@ -65,7 +65,8 @@ def source_manifest() -> SourceManifest:
     return {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'files': files}
 
 
-def shared_host_audio_device(devices: Mapping[str, object], host_items: Sequence[Mapping[str, object]]) -> str:
+def shared_host_audio_device(devices: Mapping[str, object], host_items: Sequence[Mapping[str, object]],
+                             preferred_name: str | None = None) -> str:
     """Return the one 48 kHz host device that both captures and renders.
 
     The iOS Simulator opens one duplex I/O. Following separate host defaults
@@ -93,13 +94,18 @@ def shared_host_audio_device(devices: Mapping[str, object], host_items: Sequence
             raise TypeError('Invalid host audio channel count')
         if device_input >= 1 and device_output >= 1 and item.get('coreaudio_device_srate') == 48000:
             eligible.append(uid)
+    if preferred_name is not None:
+        named = [uid for uid in eligible if inputs[uid] == preferred_name]
+        if len(named) != 1:
+            raise ValueError('RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE must name one 48 kHz audio device with input and output')
+        return named[0]
     for default in ('coreaudio_default_audio_input_device', 'coreaudio_default_audio_output_device'):
         preferred = [uid for uid in eligible if default in by_name[inputs[uid]]]
         if len(preferred) == 1:
             return preferred[0]
     if len(eligible) != 1:
-        raise ValueError('Connect exactly one 48 kHz host audio device with both input and output, '
-                         f'or make it the default input; found {len(eligible)}')
+        raise ValueError('Connect exactly one 48 kHz host audio device with input and output, '
+                         f'or choose one with RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE. Found {len(eligible)} devices.')
     return eligible[0]
 
 
@@ -142,7 +148,7 @@ class SimulatorAudioPin:
                 if not isinstance(item, dict):
                     raise TypeError('Invalid host audio item')
                 host.append(item)
-        uid = shared_host_audio_device(devices, host)
+        uid = shared_host_audio_device(devices, host, os.environ.get('RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE'))
         self.original = original
         self._select(uid, uid)
         after = self._info()

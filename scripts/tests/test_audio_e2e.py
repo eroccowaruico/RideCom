@@ -662,15 +662,19 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
     def test_pins_both_directions_and_restores_the_original_selection(self) -> None:
         calls = []
         state = {'audioInputDevice': {'systemDefault': {}}, 'audioOutputDevice': {'systemDefault': {}}, 'volume': 60}
+        devices = {key: value + [{'uid': 'other', 'name': 'Other'}] for key, value in self.DEVICES.items()}
+        host = [dict(item) for item in self.HOST]
+        host[0].pop('coreaudio_default_audio_input_device')
+        host.append(dict(host[0], _name='Other'))
 
         def run(args: list[str]) -> Mapping[str, object]:
             calls.append(args)
             if args[:4] == ['xcrun', 'devicectl', 'device', 'info']:
                 return dict(state)
             if args[:4] == ['xcrun', 'devicectl', 'list', 'audioDevices']:
-                return self.DEVICES
+                return devices
             if args[0] == 'system_profiler':
-                return {'SPAudioDataType': [{'_items': self.HOST}]}
+                return {'SPAudioDataType': [{'_items': host}]}
             selected = {'audioInputDevice': args[args.index('--input-device') + 1],
                         'audioOutputDevice': args[args.index('--output-device') + 1]}
             for key, value in selected.items():
@@ -678,9 +682,16 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
             return {}
 
         pin = audio.SimulatorAudioPin('sim', run)
-        self.assertEqual(pin.pin(), 'wave')
-        self.assertEqual(state['audioInputDevice'], {'device': {'_0': 'wave'}})
-        self.assertEqual(state['audioOutputDevice'], {'device': {'_0': 'wave'}})
+        with (
+            patch.dict(os.environ, RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE='Display Mic'),
+            self.assertRaisesRegex(ValueError, 'RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE'),
+        ):
+            pin.pin()
+        self.assertFalse(any('--input-device' in args for args in calls))
+        with patch.dict(os.environ, RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE='Other'):
+            self.assertEqual(pin.pin(), 'other')
+        self.assertEqual(state['audioInputDevice'], {'device': {'_0': 'other'}})
+        self.assertEqual(state['audioOutputDevice'], {'device': {'_0': 'other'}})
         pin.restore()
         self.assertEqual(state['audioInputDevice'], {'systemDefault': {}})
         self.assertEqual(state['audioOutputDevice'], {'systemDefault': {}})
