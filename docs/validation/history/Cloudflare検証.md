@@ -198,6 +198,6 @@ Accountingアカウントに存在したTURN key `lively-bar-4bf6`（ID `17dfb79
 
 Apple認可取消用の署名済み`APPLE_CLIENT_SECRET`を手動登録・更新する構成を廃止した。WorkerはSign in with Apple専用の`.p8`・Key ID・Team IDと既存のClient IDから、有効期間5分のclient-secret JWTを必要時に生成する。有効中は同じisolate内で再利用し、残り1分から自動生成し直す。コード交換と取消の両方が同じ生成責務を通り、3つの長期secretのどれかが欠ける場合はAppleへ要求せず503にする。
 
-Appleコード交換・取消の署名、issuer・subject・audience・Key ID・5分期限、isolate内再利用、設定不足のfail-closedを含むWorker全105件が成功した。TypeScript型検査、Wrangler dry-run、文書検査とその単体12件、diff checkも成功した。APNsのprovider JWTは既存実装が`.p8`から50分未満で自動更新し、TURN短期資格は既存実装が通話leaseに合わせてAPI発行・更新・失効することをコードと既存テストで再確認した。製品の安全性に必要な端末資格・招待・通話leaseの期限は変更していない。
+Appleコード交換・取消の署名、issuer・subject・audience・Key ID・5分期限、isolate内再利用、設定不足のfail-closedに加え、テスト時計を301秒進め、期限切れのJWTを再利用せず新しいJWTでコード交換と取消を継続することを確認した。Worker全106件、TypeScript型検査、Wrangler dry-run、文書検査とその単体12件、diff checkが成功した。APNsのprovider JWTは既存実装が`.p8`から50分未満で自動更新し、TURN短期資格は既存実装が通話leaseに合わせてAPI発行・更新・失効することをコードと既存テストで再確認した。製品の安全性に必要な端末資格・招待・通話leaseの期限は変更していない。
 
 実Appleのコード交換・取消、Cloudflare secret登録、Production／Preview配置はこの検証では行っていない。本番を止めない移行順は、新しい3 secretの先行登録、Worker配置、実Apple受入、旧secret削除とし、[Cloudflare試用手順](../../development/Cloudflare試用手順.md#apple登録入口の保護)へ記録した。

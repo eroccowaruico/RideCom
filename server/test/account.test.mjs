@@ -878,7 +878,8 @@ test('device identity issuance rejects invalid keys, identifiers and unconfigure
 });
 
 test('deletion verifies Apple code ownership and revokes before reporting completion', async () => {
-    const clientSecrets = [];
+    const clientSecrets = [], clientSecretPayloads = [];
+    let appleIdentityToken;
     const runtime = await makeRuntime({ ...options, ...appleClientConfiguration }, { appleKeys: [publicKey], appleAuthorization: async (path, form) => {
         assert.equal(form.get('client_id'), audience);
         const clientSecret = form.get('client_secret');
@@ -890,20 +891,22 @@ test('deletion verifies Apple code ownership and revokes before reporting comple
         assert.equal(protectedHeader.kid, appleClientConfiguration.APPLE_SIGN_IN_KEY_ID);
         assert.equal(payload.exp - payload.iat, 300);
         clientSecrets.push(clientSecret);
+        clientSecretPayloads.push(payload);
         if (path.endsWith('/token')) {
             assert.equal(form.get('grant_type'), 'authorization_code');
-            assert.equal(form.get('code'), 'delete-code');
-            return Response.json({ refresh_token: 'delete-refresh', id_token: await proof(deletionProof) });
+            assert.ok(['delete-code', 'later-delete-code'].includes(form.get('code')));
+            return Response.json({ refresh_token: 'delete-refresh', id_token: appleIdentityToken });
         }
         assert.equal(path, '/auth/revoke'); assert.equal(form.get('token'), 'delete-refresh');
         assert.equal(form.get('token_type_hint'), 'refresh_token'); revoked++;
         return new Response(null, { status: 200 });
-    } });
+    }, adjustableClock: true });
     let deletionProof, revoked = 0;
     try {
         const user = await enrolled(runtime);
         deletionProof = await challenge(runtime, user.deviceID);
-        const body = { challengeID: deletionProof.challengeID, identityToken: await proof(deletionProof), authorizationCode: 'delete-code' };
+        appleIdentityToken = await proof(deletionProof);
+        const body = { challengeID: deletionProof.challengeID, identityToken: appleIdentityToken, authorizationCode: 'delete-code' };
         const response = await call(runtime, '/api/auth/account', body, user.accessToken, 'DELETE');
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { deleted: true, appleAuthorizationRevoked: true });
@@ -915,6 +918,19 @@ test('deletion verifies Apple code ownership and revokes before reporting comple
         assert.equal((await call(runtime, '/api/auth/account', body, user.accessToken, 'DELETE')).status, 200);
         assert.equal(revoked, 1, 'Old deletion must not revoke a newly registered Apple authorization');
         assert.equal((await call(runtime, '/api/auth/session', undefined, replacement.accessToken, 'GET')).status, 200);
+        await runtime.advanceClock(301000);
+        deletionProof = await challenge(runtime, replacement.deviceID);
+        const shiftedNow = Math.floor(Date.now() / 1000) + 301;
+        appleIdentityToken = await proof(deletionProof, { iat: shiftedNow, exp: shiftedNow + 300 });
+        const second = await call(runtime, '/api/auth/account', {
+            challengeID: deletionProof.challengeID, identityToken: appleIdentityToken, authorizationCode: 'later-delete-code'
+        }, replacement.accessToken, 'DELETE');
+        assert.equal(second.status, 200);
+        assert.equal(revoked, 2);
+        assert.equal(clientSecrets.length, 4);
+        assert.equal(clientSecrets[2], clientSecrets[3], 'The replacement client secret should cover exchange and revocation');
+        assert.notEqual(clientSecrets[0], clientSecrets[2]);
+        assert.ok(clientSecretPayloads[0].exp < clientSecretPayloads[2].iat, 'A new client secret must be generated after expiry');
     } finally { await runtime.dispose(); }
 });
 
