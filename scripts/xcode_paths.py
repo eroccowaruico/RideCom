@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 """Read scheme configuration and product paths from Xcode without overriding them."""
+from __future__ import annotations
+
 import argparse
 import json
-from pathlib import Path
 import plistlib
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
-def scheme_configuration(root, scheme, action='TestAction'):
+def scheme_configuration(root: Path | str, scheme: str, action: str = 'TestAction') -> str:
     path = Path(root) / 'RideIntercom.xcodeproj/xcshareddata/xcschemes' / (scheme + '.xcscheme')
     try:
         node = ET.parse(path).getroot().find(action)
     except (OSError, ET.ParseError):
         raise ValueError('The shared Xcode scheme is missing or unreadable') from None
-    if node is None or not node.get('buildConfiguration'):
+    configuration = node.get('buildConfiguration') if node is not None else None
+    if not configuration:
         raise ValueError('The shared scheme must specify its action configuration')
-    return node.get('buildConfiguration')
+    return configuration
 
 
-def scheme_primary_app(root, scheme):
+def scheme_primary_app(root: Path | str, scheme: str) -> tuple[str | None, str]:
     """Resolve the scheme's runnable App, rather than assuming a platform target."""
     path = Path(root) / 'RideIntercom.xcodeproj/xcshareddata/xcschemes' / (scheme + '.xcscheme')
     try:
@@ -38,13 +41,13 @@ def scheme_primary_app(root, scheme):
         raise ValueError('The shared Xcode scheme is missing or unreadable') from None
 
 
-def xcode_build_settings(root, scheme, destination, configuration):
+def xcode_build_settings(root: Path | str, scheme: str, destination: str, configuration: str) -> dict[str, str]:
     app_target, app_product = scheme_primary_app(root, scheme)
     command = ['xcodebuild', '-project', 'RideIntercom.xcodeproj', '-scheme', scheme,
                '-destination', destination, '-configuration', configuration, '-showBuildSettings', '-json']
     # Build settings can contain development credentials. Never print or persist
     # the complete response, including Xcode's stderr on a failed query.
-    result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=120, check=False)
     if result.returncode:
         raise ValueError('Xcode could not resolve the scheme build settings')
     try:
@@ -56,11 +59,13 @@ def xcode_build_settings(root, scheme, destination, configuration):
         values = targets[0]
         settings = {key: values[key] for key in ('BUILD_DIR', 'TARGET_BUILD_DIR', 'FULL_PRODUCT_NAME',
                     'CONFIGURATION', 'PLATFORM_NAME', 'RIDEINTERCOM_STORAGE_NAMESPACE')}
+        if not all(isinstance(value, str) for value in settings.values()):
+            raise ValueError('Expected string build settings')
         if settings['CONFIGURATION'] != configuration:
             raise ValueError('Unexpected configuration')
         destination_platform = dict(part.split('=', 1) for part in destination.split(',') if '=' in part).get('platform')
         platform = {'iOS Simulator': 'iphonesimulator', 'iOS': 'iphoneos', 'macOS': 'macosx',
-                    'watchOS Simulator': 'watchsimulator'}.get(destination_platform)
+                    'watchOS Simulator': 'watchsimulator'}.get(destination_platform or '')
         if settings['PLATFORM_NAME'] != platform:
             raise ValueError('Unexpected platform')
         for key in ('BUILD_DIR', 'TARGET_BUILD_DIR'):
@@ -77,7 +82,7 @@ def xcode_build_settings(root, scheme, destination, configuration):
     return settings
 
 
-def scheme_test_plan(root, scheme):
+def scheme_test_plan(root: Path | str, scheme: str) -> str | None:
     scheme_path = Path(root) / 'RideIntercom.xcodeproj/xcshareddata/xcschemes' / (scheme + '.xcscheme')
     action = ET.parse(scheme_path).getroot().find('TestAction')
     plans = action.findall('TestPlans/TestPlanReference') if action is not None else []
@@ -85,7 +90,7 @@ def scheme_test_plan(root, scheme):
     return Path(selected_plan.get('reference', '')).stem if selected_plan is not None else None
 
 
-def select_test_run(settings, scheme):
+def select_test_run(settings: dict[str, str], scheme: str) -> Path | None:
     plan_name = scheme_test_plan(Path(__file__).resolve().parents[1], scheme)
     products = Path(settings['BUILD_DIR'])
     expected_app = (Path(settings['TARGET_BUILD_DIR']) / settings['FULL_PRODUCT_NAME']).resolve()
@@ -105,7 +110,7 @@ def select_test_run(settings, scheme):
     return None
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scheme', default='RideIntercom')
     parser.add_argument('--destination', required=True)
