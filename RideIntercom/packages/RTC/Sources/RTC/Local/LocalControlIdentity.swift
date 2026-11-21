@@ -23,7 +23,8 @@ struct LocalControlIdentity: @unchecked Sendable {
         let certificateDER = try SelfSignedCertificate.make(key: key, now: now)
         // The container never leaves this function; its password protects nothing and only satisfies the format.
         let password = UUID().uuidString
-        let container = PKCS12Container.make(privateKeyInfo: key.derRepresentation, certificate: certificateDER, password: password)
+            let container = PKCS12Container.make(
+                privateKeyInfo: key.derRepresentation, certificate: certificateDER, password: password)
         var options: [CFString: Any] = [kSecImportExportPassphrase: password]
         #if os(macOS)
         options[kSecImportToMemoryOnly] = true
@@ -42,8 +43,9 @@ struct LocalControlIdentity: @unchecked Sendable {
 enum PKCS12Container {
     static func make(privateKeyInfo: Data, certificate: Data, password: String) -> Data {
         let keyID = DER.set(DER.octetString(Data(SHA256.hash(data: certificate).prefix(20))))
-        let attributes = DER.set(DER.sequence(DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x15]) + keyID)) // localKeyId
-        // The import pairs a certificate only with an encrypted (shrouded) key; a plain key bag is ignored.
+            let attributes = DER.set(
+                DER.sequence(DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x15]) + keyID))  // localKeyId
+            // The import pairs a certificate only with an encrypted (shrouded) key; a plain key bag is ignored.
         let keyBag = DER.sequence(
             DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x0C, 0x0A, 0x01, 0x02]) // pkcs8ShroudedKeyBag
             + DER.tagged(0xA0, encrypted(privateKeyInfo, password: password)) + attributes)
@@ -60,8 +62,10 @@ enum PKCS12Container {
         let macKey = SymmetricKey(data: derivedMACKey(password: password, salt: salt, iterations: iterations))
         let mac = Data(HMAC<Insecure.SHA1>.authenticationCode(for: safe, using: macKey))
         let macData = DER.sequence(
-            DER.sequence(DER.sequence(DER.oid([0x2B, 0x0E, 0x03, 0x02, 0x1A]) + Data([0x05, 0x00])) + DER.octetString(mac)) // SHA-1
-            + DER.octetString(salt)
+                DER.sequence(
+                    DER.sequence(DER.oid([0x2B, 0x0E, 0x03, 0x02, 0x1A]) + Data([0x05, 0x00]))
+                        + DER.octetString(mac))  // SHA-1
+                    + DER.octetString(salt)
             + DER.integer([UInt8(iterations >> 8), UInt8(iterations & 0xFF)]))
         return DER.sequence(DER.integer([3]) + data(safe) + macData)
     }
@@ -102,11 +106,15 @@ enum PKCS12Container {
         let derivation = DER.sequence(
             DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x05, 0x0C]) // PBKDF2
             + DER.sequence(DER.octetString(salt) + DER.integer([UInt8(iterations >> 8), UInt8(iterations & 0xFF)])
-                           + DER.sequence(DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x09]) + Data([0x05, 0x00])))) // hmacWithSHA256
-        let scheme = DER.sequence(DER.oid([0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2A]) + DER.octetString(iv)) // aes256-CBC
-        return DER.sequence(
-            DER.sequence(DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x05, 0x0D]) + DER.sequence(derivation + scheme)) // PBES2
-            + DER.octetString(cipher))
+                            + DER.sequence(
+                                DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x09]) + Data([0x05, 0x00]))))  // hmacWithSHA256
+            let scheme = DER.sequence(
+                DER.oid([0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2A]) + DER.octetString(iv))  // aes256-CBC
+            return DER.sequence(
+                DER.sequence(
+                    DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x05, 0x0D])
+                        + DER.sequence(derivation + scheme))  // PBES2
+                    + DER.octetString(cipher))
     }
 
     private static func data(_ content: Data) -> Data {
@@ -162,8 +170,9 @@ enum SelfSignedCertificate {
 enum DER {
     static func tagged(_ tag: UInt8, _ content: Data) -> Data {
         var result = Data([tag])
-        if content.count < 0x80 { result.append(UInt8(content.count)) }
-        else {
+            if content.count < 0x80 {
+                result.append(UInt8(content.count))
+            } else {
             let bytes = withUnsafeBytes(of: UInt32(content.count).bigEndian) { Array($0).drop { $0 == 0 } }
             result.append(0x80 | UInt8(bytes.count)); result.append(contentsOf: bytes)
         }

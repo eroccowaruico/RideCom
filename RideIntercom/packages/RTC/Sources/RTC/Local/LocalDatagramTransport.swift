@@ -40,7 +40,8 @@ final class LocalDatagramTransport: @unchecked Sendable {
     private var replacements: [String: NWConnection] = [:]
     private var retryAfter: [String: ConnectionRetry] = [:]
     private var ready: Set<String> = []
-    private var incoming: [UUID: (connection: NWConnection, lastActivity: TimeInterval, lastReceiptAt: TimeInterval)] = [:]
+    private var incoming:
+        [UUID: (connection: NWConnection, lastActivity: TimeInterval, lastReceiptAt: TimeInterval)] = [:]
     private var endpoints: [String: NWEndpoint] = [:]
     private var sent: UInt64 = 0
     private var received: UInt64 = 0
@@ -78,14 +79,18 @@ final class LocalDatagramTransport: @unchecked Sendable {
         synchronized { hasRecentReceipt(serviceName(for: peer)) }
     }
     private func hasRecentReceipt(_ name: String) -> Bool {
-        guard ready.contains(name), let connection = outgoing[name], case .ready = connection.state else { return false }
+        guard ready.contains(name), let connection = outgoing[name], case .ready = connection.state else {
+            return false
+        }
         return paths[ObjectIdentifier(connection)]?.window.isRecent(at: ProcessInfo.processInfo.systemUptime) == true
     }
 
     var statistics: RTCNetworkStatistics {
         synchronized {
             var result = RTCNetworkStatistics(bufferedBytes: UInt64(inFlight.values.reduce(0, +)),
-                unavailableReason: "Sampled media receipts do not provide per-packet RTT or network loss estimates; registered endpoints: \(endpoints.count), recent media receipts: \(outgoing.keys.filter { hasRecentReceipt($0) }.count)")
+                unavailableReason:
+                    "Sampled media receipts do not provide per-packet RTT or network loss estimates; registered endpoints: \(endpoints.count), recent media receipts: \(outgoing.keys.filter { hasRecentReceipt($0) }.count)"
+            )
             result.sentMediaDatagrams = sent; result.receivedMediaDatagrams = received
             return result
         }
@@ -159,7 +164,9 @@ final class LocalDatagramTransport: @unchecked Sendable {
             // OS ready can persist without delivery. Resolve afresh; retain a
             // proven flow until its replacement receives new live media.
             connectOnQueue(peer: peer, nonce: nonce,
-                endpoint: .service(name: advertisedName(for: peer, nonce: nonce), type: Self.serviceType, domain: "local.", interface: nil),
+                endpoint: .service(
+                    name: advertisedName(for: peer, nonce: nonce), type: Self.serviceType, domain: "local.",
+                    interface: nil),
                 replacing: outgoing[name] != nil)
         }
     }
@@ -185,7 +192,8 @@ final class LocalDatagramTransport: @unchecked Sendable {
     }
     private func connectOnQueue(peer: PeerID, nonce: String, endpoint: NWEndpoint, replacing: Bool = false) {
         let serviceName = serviceName(for: peer)
-        guard peerNonces[peer] == nonce, listener != nil, endpoints[serviceName] != nil || endpoints.count < 7 else { return }
+        guard peerNonces[peer] == nonce, listener != nil, endpoints[serviceName] != nil || endpoints.count < 7
+        else { return }
         if let current = endpoints[serviceName], current != endpoint { removeOutgoing(serviceName) }
         endpoints[serviceName] = endpoint
         guard replacements[serviceName] == nil,
@@ -193,14 +201,14 @@ final class LocalDatagramTransport: @unchecked Sendable {
               outgoing[serviceName] != nil || outgoing.count < 7,
               ProcessInfo.processInfo.systemUptime >= (retryAfter[serviceName]?.deadline ?? 0) else { return }
         let connection = NWConnection(to: endpoint, using: Self.parameters())
-        if replacing { replacements[serviceName] = connection }
-        else { outgoing[serviceName] = connection }
+        if replacing { replacements[serviceName] = connection } else { outgoing[serviceName] = connection }
         paths[ObjectIdentifier(connection)] = .init(authenticator: .init(credential: credential,
             sender: peerID, receiver: peer, senderNonce: generation.uuidString, receiverNonce: nonce))
         let token = generation
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             guard let self, let connection, self.generation == token,
-                  self.outgoing[serviceName] === connection || self.replacements[serviceName] === connection else { return }
+                self.outgoing[serviceName] === connection || self.replacements[serviceName] === connection
+            else { return }
             defer { self.onAvailabilityChange?() }
             switch state {
             case .ready:
@@ -211,8 +219,9 @@ final class LocalDatagramTransport: @unchecked Sendable {
                 if self.outgoing[serviceName] === connection { self.ready.insert(serviceName) }
             case .failed, .cancelled:
                 self.paths[ObjectIdentifier(connection)] = nil
-                if self.replacements[serviceName] === connection { self.replacements[serviceName] = nil }
-                else {
+                if self.replacements[serviceName] === connection {
+                    self.replacements[serviceName] = nil
+                } else {
                     self.ready.remove(serviceName); self.inFlight[serviceName] = nil
                     self.outgoing[serviceName] = nil
                 }
@@ -266,8 +275,9 @@ final class LocalDatagramTransport: @unchecked Sendable {
                     peerServiceNames[peer] = name
                 }
                 if let endpoint = endpoints[name], let nonce = peerNonces[peer] {
-                    if outgoing[name] == nil { connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint) }
-                    else if !ready.contains(name), case .ready = outgoing[name]?.state {
+                    if outgoing[name] == nil {
+                        connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint)
+                    } else if !ready.contains(name), case .ready = outgoing[name]?.state {
                         connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint, replacing: true)
                     }
                 }
@@ -275,16 +285,22 @@ final class LocalDatagramTransport: @unchecked Sendable {
                     if digest == nil { digest = Data(SHA256.hash(data: bytes)) }
                     if send(bytes, digest: digest!, connection: connection, name: name, at: now) {
                         result.accepted.insert(peer)
-                        if paths[ObjectIdentifier(connection)]?.window.isRecent(at: now) == true { result.verified.insert(peer) }
+                        if paths[ObjectIdentifier(connection)]?.window.isRecent(at: now) == true {
+                            result.verified.insert(peer)
+                        }
                     }
                 }
                 if let replacement = replacements[name], case .ready = replacement.state,
-                   now - (paths[ObjectIdentifier(replacement)]?.window.lastSentAt ?? now) >= LocalMediaReceiptWindow.interval {
+                    now - (paths[ObjectIdentifier(replacement)]?.window.lastSentAt ?? now)
+                        >= LocalMediaReceiptWindow.interval {
                     if candidate == nil {
                         let warmup = LocalMediaFraming.candidate(bytes)
                         candidate = (warmup, Data(SHA256.hash(data: warmup)))
                     }
-                    if let candidate, send(candidate.bytes, digest: candidate.digest, connection: replacement, name: name, at: now) {
+                    if let candidate,
+                        send(
+                            candidate.bytes, digest: candidate.digest, connection: replacement, name: name, at: now
+                        ) {
                         result.accepted.insert(peer)
                     }
                 }
@@ -293,11 +309,13 @@ final class LocalDatagramTransport: @unchecked Sendable {
         }
     }
 
-    private func send(_ bytes: Data, digest: Data, connection: NWConnection, name: String, at now: TimeInterval) -> Bool {
+    private func send(_ bytes: Data, digest: Data, connection: NWConnection, name: String, at now: TimeInterval)
+        -> Bool {
         // The native state may change before its queued callback updates ready.
         // Sending while waiting would let Network.framework retain old speech.
         guard case .ready = connection.state,
-              inFlight[name, default: 0] + bytes.count <= 65_536, paths[ObjectIdentifier(connection)] != nil else { return false }
+            inFlight[name, default: 0] + bytes.count <= 65_536, paths[ObjectIdentifier(connection)] != nil
+        else { return false }
         paths[ObjectIdentifier(connection)]?.window.record(digest: digest, at: now)
         inFlight[name, default: 0] += bytes.count
         let token = generation
@@ -306,7 +324,9 @@ final class LocalDatagramTransport: @unchecked Sendable {
                   self.outgoing[name] === connection || self.replacements[name] === connection else { return }
             self.inFlight[name] = max(0, self.inFlight[name, default: 0] - bytes.count)
             if error != nil {
-                let retry = ConnectionRetry(after: self.retryAfter[name], at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
+                    let retry = ConnectionRetry(
+                        after: self.retryAfter[name], at: ProcessInfo.processInfo.systemUptime,
+                        policy: .connectionRecovery)
                 if self.replacements[name] === connection {
                     self.replacements[name] = nil; self.paths[ObjectIdentifier(connection)] = nil; connection.cancel()
                 } else { self.removeOutgoing(name) }
@@ -364,15 +384,22 @@ final class LocalDatagramTransport: @unchecked Sendable {
                 self.received += 1
                 self.onReceive(packet.sender, packet.payload)
             }
-            if error == nil { self.receive(connection, id: id, generation: token) }
-            else { connection.cancel(); self.incoming[id] = nil }
+            if error == nil {
+                self.receive(connection, id: id, generation: token)
+            } else {
+                connection.cancel(); self.incoming[id] = nil
+            }
         }
     }
 
     private func removeOutgoing(_ name: String) {
         ready.remove(name); inFlight[name] = nil
-        if let connection = outgoing.removeValue(forKey: name) { paths[ObjectIdentifier(connection)] = nil; connection.cancel() }
-        if let connection = replacements.removeValue(forKey: name) { paths[ObjectIdentifier(connection)] = nil; connection.cancel() }
+        if let connection = outgoing.removeValue(forKey: name) {
+            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
+        }
+        if let connection = replacements.removeValue(forKey: name) {
+            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
+        }
         retryAfter[name] = nil
     }
 
@@ -384,7 +411,8 @@ final class LocalDatagramTransport: @unchecked Sendable {
         for connection in replacements.values { connection.cancel() }
         for value in incoming.values { value.connection.cancel() }
         outgoing.removeAll(); incoming.removeAll(); ready.removeAll(); inFlight.removeAll(); endpoints.removeAll()
-        replacements.removeAll(); retryAfter.removeAll(); peerServiceNames.removeAll(); peerNonces.removeAll(); paths.removeAll()
+        replacements.removeAll(); retryAfter.removeAll(); peerServiceNames.removeAll(); peerNonces.removeAll()
+        paths.removeAll()
         sent = 0; received = 0
         onAvailabilityChange?()
     }

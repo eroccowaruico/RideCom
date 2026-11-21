@@ -9,7 +9,8 @@ public actor LocalCallRoute: RTCCallRoute {
         requiresSignaling: false, supportedAudioCodecs: [.pcm16, .opus, .mpeg4AACELD, .mpeg4AACELDv2],
         backendName: "Local UDP / QUIC control")
     public nonisolated var events: AsyncStream<RouteEvent> { source.stream }
-    private let source = EventSource<RouteEvent>(isTransient: { $0.isTransient }, overflowEvent: .stateChanged(.multipeer, .failed))
+        private let source = EventSource<RouteEvent>(
+            isTransient: { $0.isTransient }, overflowEvent: .stateChanged(.multipeer, .failed))
     private var request: CallStartRequest?
     private var session: Session?
 
@@ -66,7 +67,8 @@ private final class Session: @unchecked Sendable {
     private var controlPeers: Set<PeerID> = []
     private var mediaPeers: Set<PeerID> = []
     private var control: LocalControlTransport?
-    private(set) lazy var datagrams = LocalDatagramTransport(peerID: peer, credential: credential) { [weak self] peer, bytes in
+        private(set) lazy var datagrams = LocalDatagramTransport(peerID: peer, credential: credential) {
+            [weak self] peer, bytes in
         guard let self, self.active, self.mediaPeers.contains(peer) else { return }
         self.deliver(.init(namespace: GroupRelay.namespace, payload: bytes, delivery: .unreliable), from: peer)
     }
@@ -83,9 +85,10 @@ private final class Session: @unchecked Sendable {
                 guard let self, self.active else { return }
                 self.fail("Local UDP listener unavailable")
             }
-            do { try datagrams.start() }
-            catch { fail("Local UDP listener could not start"); return }
-            let control = LocalControlTransport(localID: peer, credential: credential, nonce: datagrams.serviceNonce) { [weak self] event in
+                do { try datagrams.start() } catch { fail("Local UDP listener could not start"); return }
+                let control = LocalControlTransport(
+                    localID: peer, credential: credential, nonce: datagrams.serviceNonce
+                ) { [weak self] event in
                 guard let self else { return }
                 self.datagrams.synchronized { if self.active { self.handle(event) } }
             }
@@ -110,7 +113,9 @@ private final class Session: @unchecked Sendable {
                 return .init(transportAccepted: !send.accepted.isEmpty, verifiedLocalRecipients: send.verified)
             }
         }
-        guard let bytes = try? JSONEncoder().encode(message), bytes.count <= LocalControlFraming.maximumMessageBytes else {
+            guard let bytes = try? JSONEncoder().encode(message),
+                bytes.count <= LocalControlFraming.maximumMessageBytes
+            else {
             source.yield(.error(kind, .connectionFailed(kind, "Local control message exceeds frame limit")))
             return .init(transportAccepted: false)
         }
@@ -132,7 +137,9 @@ private final class Session: @unchecked Sendable {
         case .lost(let peer):
             controlPeers.remove(peer)
         case .members:
-            let members = mediaPeers.map { CallMemberState(peer: .init(id: $0, displayName: $0.rawValue), route: kind, isConnected: true) }
+                let members = mediaPeers.map {
+                    CallMemberState(peer: .init(id: $0, displayName: $0.rawValue), route: kind, isConnected: true)
+                }
             source.yield(.membersChanged(kind, members))
             source.yield(.metricsChanged(.init(route: kind, activePeerCount: members.count)))
         case .state(let state):

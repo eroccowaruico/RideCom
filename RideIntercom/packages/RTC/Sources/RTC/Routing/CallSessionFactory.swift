@@ -6,8 +6,11 @@ public struct WebRTCRouteFactoryConfiguration {
     public var engineFactory: @Sendable () -> NativeWebRTCEngine
 
     public init(
-        cloudflareConfigurationProvider: @escaping @Sendable (CallStartRequest) -> CloudflareRealtimeConfiguration? = { _ in nil },
-        signalingClientFactory: @escaping @Sendable () -> WebRTCSignalingClient = { CloudflareRealtimeSignalingClient() },
+        cloudflareConfigurationProvider:
+            @escaping @Sendable (CallStartRequest) -> CloudflareRealtimeConfiguration? = { _ in nil },
+        signalingClientFactory: @escaping @Sendable () -> WebRTCSignalingClient = {
+            CloudflareRealtimeSignalingClient()
+        },
         engineFactory: @escaping @Sendable () -> NativeWebRTCEngine = { NativeWebRTCEngine() }
     ) {
         self.cloudflareConfigurationProvider = cloudflareConfigurationProvider
@@ -15,7 +18,6 @@ public struct WebRTCRouteFactoryConfiguration {
         self.engineFactory = engineFactory
     }
 }
-
 
 public struct CallSessionFactoryConfiguration {
     public var routeConfiguration: CallRouteConfiguration

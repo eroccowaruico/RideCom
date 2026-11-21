@@ -45,7 +45,9 @@ public final class RTCAudioDeviceLink: @unchecked Sendable {
     public var lastReceivedAt: TimeInterval? { transport.synchronized { transport.lastReceivedAt } }
     public var statistics: RTCNetworkStatistics { transport.statistics }
     public func start() throws { try transport.start() }
-    @discardableResult public func connect(to endpoint: RTCAudioDeviceEndpoint) -> Bool { transport.connect(to: endpoint) }
+    @discardableResult public func connect(to endpoint: RTCAudioDeviceEndpoint) -> Bool {
+        transport.connect(to: endpoint)
+    }
     @discardableResult public func send(_ packet: RTCAudioPacket) -> Bool { transport.send(packet) }
     public func stop() { transport.stop() }
 }
@@ -157,7 +159,8 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
     func connect(to endpoint: RTCAudioDeviceEndpoint) -> Bool {
         synchronized {
             guard !stopped, valid(endpoint) else { return false }
-            let target: NWEndpoint = .service(name: endpoint.name, type: endpoint.type, domain: endpoint.domain, interface: nil)
+            let target: NWEndpoint = .service(
+                name: endpoint.name, type: endpoint.type, domain: endpoint.domain, interface: nil)
             if role == .controller, active != nil, active !== outgoing { return true }
             dialEndpoint = target
             if outgoing == nil { dial(target) }
@@ -186,11 +189,15 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
             }
         }
         connection.betterPathUpdateHandler = { [weak self, weak connection] better in
-            guard better, let self, let connection, self.generation == token, self.outgoing === connection else { return }
+            guard better, let self, let connection, self.generation == token, self.outgoing === connection else {
+                return
+            }
             self.replaceOutgoing(connection, token: token)
         }
         connection.viabilityUpdateHandler = { [weak self, weak connection] viable in
-            guard !viable, let self, let connection, self.generation == token, self.outgoing === connection else { return }
+            guard !viable, let self, let connection, self.generation == token, self.outgoing === connection else {
+                return
+            }
             if self.active === connection { self.setReady(false) }
             self.replaceOutgoing(connection, token: token)
         }
@@ -199,8 +206,11 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
             guard let self, let connection, self.generation == token, !self.stopped,
                   self.outgoing === connection, self.active !== connection else { return }
             self.remove(connection, id: nil)
-            if self.active == nil { self.onFailure("Audio device connection timed out") }
-            else { self.dialEndpoint = nil }
+            if self.active == nil {
+                self.onFailure("Audio device connection timed out")
+            } else {
+                self.dialEndpoint = nil
+            }
         }
     }
     private func replaceOutgoing(_ connection: NWConnection, token: UUID) {
@@ -215,26 +225,27 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
     private func recover(token: UUID) {
         guard generation == token, !stopped, !recoveryScheduled, let endpoint = dialEndpoint else { return }
         guard recoveryAttempts < 5 else {
-            if active == nil { onFailure("Audio device recovery exhausted") }
-            else { dialEndpoint = nil }
+            if active == nil { onFailure("Audio device recovery exhausted") } else { dialEndpoint = nil }
             return
         }
         recoveryAttempts += 1
         recoveryScheduled = true
         let recoveryToken = retryGeneration
         queue.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self, self.generation == token, self.retryGeneration == recoveryToken, !self.stopped else { return }
+            guard let self, self.generation == token, self.retryGeneration == recoveryToken, !self.stopped else {
+                return
+            }
             self.recoveryScheduled = false
             guard self.outgoing == nil else { return }
             self.dial(endpoint)
         }
     }
     private func sendHello(_ connection: NWConnection, token: UUID, retryToken: UUID) {
-        guard generation == token, retryGeneration == retryToken, outgoing === connection, active !== connection else { return }
+        guard generation == token, retryGeneration == retryToken, outgoing === connection, active !== connection
+        else { return }
         guard retryCount < 10 else {
             remove(connection, id: nil)
-            if active == nil { onFailure("Audio device handshake timed out") }
-            else { dialEndpoint = nil }
+            if active == nil { onFailure("Audio device handshake timed out") } else { dialEndpoint = nil }
             return
         }
         guard let bytes = try? cipher?.sealControl(.hello) else { return }
@@ -252,7 +263,10 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
                     || (id.flatMap { self.candidates[$0] } === connection) else { return }
             if let bytes, let message = self.cipher?.openMessage(bytes, accepting: { message in
                 switch message {
-                case .hello: return id != nil && !(self.role == .device && self.dialEndpoint != nil && self.active !== connection)
+                        case .hello:
+                            return id != nil
+                                && !(self.role == .device && self.dialEndpoint != nil
+                                    && self.active !== connection)
                 case .ack: return self.outgoing === connection
                     && !(self.role == .controller && self.active != nil && self.active !== connection)
                 case .audio: return self.active === connection && self.ready
@@ -286,8 +300,11 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
                 }
             }
             guard !self.stopped, self.generation == token else { return }
-            if error == nil { self.receive(connection, id: id, token: token) }
-            else { self.remove(connection, id: id); if id == nil { self.recover(token: token) } }
+            if error == nil {
+                self.receive(connection, id: id, token: token)
+            } else {
+                self.remove(connection, id: id); if id == nil { self.recover(token: token) }
+            }
         }
     }
     private func setReady(_ value: Bool) {
@@ -311,7 +328,10 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
             connection.send(content: bytes, completion: .contentProcessed { [weak self, weak connection] error in
                 guard let self, let connection, self.generation == token, self.active === connection else { return }
                 self.inFlight = max(0, self.inFlight - bytes.count)
-                if error != nil { self.remove(connection, id: self.candidates.first { $0.value === connection }?.key); self.recover(token: token) }
+                    if error != nil {
+                        self.remove(connection, id: self.candidates.first { $0.value === connection }?.key)
+                        self.recover(token: token)
+                    }
             })
             sent += 1
             return true
@@ -319,7 +339,9 @@ final class AudioDeviceDuplexFlow: @unchecked Sendable {
     }
     var statistics: RTCNetworkStatistics {
         synchronized {
-            var result = RTCNetworkStatistics(bufferedBytes: UInt64(inFlight), unavailableReason: "UDP media has no acknowledgement-based RTT or loss estimate")
+            var result = RTCNetworkStatistics(
+                bufferedBytes: UInt64(inFlight),
+                unavailableReason: "UDP media has no acknowledgement-based RTT or loss estimate")
             result.sentMediaDatagrams = sent; result.receivedMediaDatagrams = received
             return result
         }
@@ -368,7 +390,8 @@ struct AudioDeviceCipher {
     mutating func seal(_ packet: RTCAudioPacket) throws -> Data {
         guard Self.valid(packet), sequence < UInt64.max else { throw RTCAudioDeviceLinkError.invalidPacket }
         let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
-        let plain = try encoder.encode(Envelope(session: session, role: role, sequence: sequence, packet: packet, kind: nil))
+        let plain = try encoder.encode(
+            Envelope(session: session, role: role, sequence: sequence, packet: packet, kind: nil))
         sequence += 1
         return try AES.GCM.seal(plain, using: sendKey, authenticating: Self.namespace).combined!
     }

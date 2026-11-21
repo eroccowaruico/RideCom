@@ -23,7 +23,9 @@ public final class MediaBlackhole: @unchecked Sendable {
         }
         var address = Self.address(port: 0)
         let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(front, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(front, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
         }
         guard result == 0 else { Darwin.close(front); Darwin.close(back); throw POSIXError(.EADDRINUSE) }
         var size = socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -46,14 +48,19 @@ public final class MediaBlackhole: @unchecked Sendable {
                 while true {
                     var sender = Self.address(port: 0), size = socklen_t(MemoryLayout<sockaddr_in>.size)
                     let count = withUnsafeMutablePointer(to: &sender) { pointer in
-                        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { recvfrom(fd, &buffer, buffer.count, 0, $0, &size) }
+                        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                            recvfrom(fd, &buffer, buffer.count, 0, $0, &size)
+                        }
                     }
                     guard count > 0 else { break }
                     let bytes = Data(buffer.prefix(count))
                     if fd == self.front {
                         self.client = sender
-                        if !self.blocked { Self.send(bytes, fd: self.back, to: destination) }
-                        else { self.dropped += 1 }
+                        if !self.blocked {
+                            Self.send(bytes, fd: self.back, to: destination)
+                        } else {
+                            self.dropped += 1
+                        }
                     } else if let client = self.client { Self.send(bytes, fd: self.front, to: client) }
                 }
             }

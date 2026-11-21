@@ -22,8 +22,7 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
         let id = UUID()
         let subscription = Subscription(isTransient: isTransient, counters: counters, overflowEvent: overflowEvent)
         lock.withLock {
-            if isFinished { subscription.finish() }
-            else { subscriptions[id] = subscription }
+            if isFinished { subscription.finish() } else { subscriptions[id] = subscription }
         }
         return AsyncStream(unfolding: { await subscription.next() }, onCancel: { [weak self] in
             subscription.finish()

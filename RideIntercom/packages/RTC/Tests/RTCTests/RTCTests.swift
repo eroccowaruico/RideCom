@@ -8,7 +8,6 @@ import Testing
     #expect(RTCAudioCodecIdentifier.opus.rawValue == "opus")
 }
 
-
 @Test func runtimeStatusApplicationDataRoundTripsThroughPackageNamespace() throws {
     let audioPolicy = RTCAudioPolicy(
         preferredSendFormat: RTCAudioFormat(sampleRate: 16_000, channelCount: 1),
@@ -49,7 +48,7 @@ import Testing
                 isActiveRoute: true,
                 isMediaRoute: true,
                 selectedAudioCodec: .opus
-            ),
+            )
         ],
         packageReports: [
             RTCRuntimePackageReport(
@@ -57,7 +56,7 @@ import Testing
                 kind: "runtime",
                 generatedAt: 122,
                 payload: Data([1, 2, 3])
-            ),
+            )
         ],
         configuration: CallRouteConfiguration(),
         audioPolicy: audioPolicy
@@ -70,10 +69,6 @@ import Testing
     #expect(message.delivery == .reliable)
     #expect(decoded == status)
 }
-
-
-
-
 
 @Test func packetAudioReceiveBufferDrainsPacketsAfterDelayInStableOrder() {
     var buffer = PacketAudioReceiveBuffer(configuration: PacketAudioReceiveConfiguration(
@@ -197,7 +192,9 @@ import Testing
     await manager.prepare(request)
     await manager.startConnection()
 
-    let messages = relayMessages(multipeer.sentApplicationData).filter { $0.namespace == RTCRuntimeStatusTransport.namespace }
+    let messages = relayMessages(multipeer.sentApplicationData).filter {
+        $0.namespace == RTCRuntimeStatusTransport.namespace
+    }
     let firstMessage = try #require(messages.first)
     let status = try #require(try RTCRuntimeStatusTransport.decode(firstMessage))
     #expect(status.reason == .connectionStarted)
@@ -274,10 +271,15 @@ import Testing
 
 @Test func webRTCRouteUsesOneSFUConnectionForAllMembers() async {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
-    let route = WebRTCInternetRoute(cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
+    let route = WebRTCInternetRoute(
+        cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
     await route.prepare(makeRequest()); await route.startConnection()
     try? await Task.sleep(for: .milliseconds(30))
-    signaling.yield(.members([PeerDescriptor(id: PeerID(rawValue: "a"), displayName: "A"), PeerDescriptor(id: PeerID(rawValue: "b"), displayName: "B")]))
+    signaling.yield(
+        .members([
+            PeerDescriptor(id: PeerID(rawValue: "a"), displayName: "A"),
+            PeerDescriptor(id: PeerID(rawValue: "b"), displayName: "B")
+        ]))
     try? await Task.sleep(for: .milliseconds(30))
     #expect(engine.createdPeerIDs == [PeerID(rawValue: "cloudflare-sfu")])
     #expect(signaling.sentOffers.count == 1)
@@ -286,7 +288,8 @@ import Testing
 
 @Test func webRTCAccountConflictStopsMediaAndRequestsManualRecovery() async throws {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
-    let route = WebRTCInternetRoute(cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
+    let route = WebRTCInternetRoute(
+        cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
     let recorder = RouteEventRecorder(), events = route.events
     let listener = Task { for await event in events { recorder.append(event) } }
     defer { listener.cancel() }
@@ -305,7 +308,8 @@ import Testing
 
 @Test func rejectedHandshakeIsForwardedAsItsOwnError() async throws {
     let local = FakeRoute(kind: .multipeer)
-    let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute, fallbackDelay: 0)
+    let configuration = CallRouteConfiguration(
+        enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute, fallbackDelay: 0)
     let manager = RouteManager(routes: [local], configuration: configuration)
     let recorded = CallEventRecorder(), events = manager.events
     let listener = Task { for await event in events { await recorded.append(event) } }
@@ -346,7 +350,8 @@ import Testing
 func blockedRouteWaitsForExplicitRestartAndPreservesOtherRoutes(localAvailable: Bool) async throws {
     let internet = FakeRoute(kind: .webRTC), local = FakeRoute(kind: .multipeer)
     let configuration = CallRouteConfiguration(enabledRoutes: localAvailable ? [.multipeer, .webRTC] : [.webRTC],
-        preferredRoute: .webRTC, selectionMode: localAvailable ? .automaticFallbackAndRestore : .singleRoute, fallbackDelay: 0)
+        preferredRoute: .webRTC, selectionMode: localAvailable ? .automaticFallbackAndRestore : .singleRoute,
+        fallbackDelay: 0)
     let manager = RouteManager(routes: localAvailable ? [internet, local] : [internet], configuration: configuration)
     let recorded = CallEventRecorder(), events = manager.events
     let listener = Task { for await event in events { await recorded.append(event) } }
@@ -363,7 +368,14 @@ func blockedRouteWaitsForExplicitRestartAndPreservesOtherRoutes(localAvailable: 
     if localAvailable {
         #expect(local.startConnectionCount == 1)
         #expect(await manager.maintenanceDeadline != nil)
-        #expect(values.contains { if case .routeChanged(let snapshot) = $0 { snapshot.availableRoutes.contains(.multipeer) } else { false } })
+        #expect(
+            values.contains {
+                if case .routeChanged(let snapshot) = $0 {
+                    snapshot.availableRoutes.contains(.multipeer)
+                } else {
+                    false
+                }
+            })
     } else {
         #expect(values.contains(.stateChanged(.failed)))
         #expect(!values.contains(.stateChanged(.reconnecting)))
@@ -382,7 +394,8 @@ private actor CallEventRecorder {
 
 @Test func webRTCRouteStopsAfterFailureAndRejectsLateSignaling() async {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
-    let route = WebRTCInternetRoute(cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
+    let route = WebRTCInternetRoute(
+        cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
     await route.prepare(makeRequest()); await route.startConnection()
     try? await Task.sleep(for: .milliseconds(30))
     signaling.yield(.failed("Monthly budget reached"))
@@ -396,7 +409,8 @@ private actor CallEventRecorder {
 
 @Test func webRTCConnectionReadinessRequiresICEAndRejectsEventsAfterStop() async {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
-    let route = WebRTCInternetRoute(cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
+    let route = WebRTCInternetRoute(
+        cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
     let recorder = RouteEventRecorder()
     let events = route.events
     let task = Task { for await event in events { recorder.append(event) } }
@@ -408,16 +422,22 @@ private actor CallEventRecorder {
     #expect(recorder.values.contains(.stateChanged(.webRTC, .connected)))
     await route.stopConnection()
     let count = recorder.values.count
-    signaling.yield(.receivedApplicationData(.init(peerID: .init(rawValue: "outsider"), message: .init(namespace: "test", payload: Data()))))
+    signaling.yield(
+        .receivedApplicationData(
+            .init(peerID: .init(rawValue: "outsider"), message: .init(namespace: "test", payload: Data()))))
     try? await Task.sleep(for: .milliseconds(50))
-    #expect(!recorder.values.dropFirst(count).contains { if case .receivedApplicationData = $0 { return true }; return false })
+    #expect(
+        !recorder.values.dropFirst(count).contains {
+            if case .receivedApplicationData = $0 { return true }; return false
+        })
     task.cancel()
 }
 
 @Test func webRTCNegotiationFailureClosesSignalingAndAllowsRetry() async {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
     engine.rejectAnswer = true
-    let route = WebRTCInternetRoute(cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
+    let route = WebRTCInternetRoute(
+        cloudflareConfiguration: makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
     await route.prepare(makeRequest()); await route.startConnection()
     signaling.yield(.answer(.init(kind: .answer, sdp: "invalid"), from: .init(rawValue: "cloudflare-sfu")))
     try? await Task.sleep(for: .milliseconds(80))
@@ -456,11 +476,6 @@ private func makePacket(
     )
 }
 
-
-
-
-
-
 private actor ReceivedPackets {
     var sequences: [UInt64] = []
     func record(_ event: CallSessionEvent) {
@@ -470,7 +485,8 @@ private actor ReceivedPackets {
 
 @Test func liveAudioPolicyUpdatePreservesTransportAndAcceptsNewCodec() async throws {
     let route = FakeRoute(kind: .multipeer)
-    let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute)
+    let configuration = CallRouteConfiguration(
+        enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute)
     let manager = RouteManager(routes: [route], configuration: configuration)
     let request = makeRequest(configuration: configuration)
     await manager.prepare(request); await manager.startConnection(); await manager.startMedia()
@@ -489,7 +505,9 @@ private actor ReceivedPackets {
             message: .init(namespace: GroupRelay.namespace, payload: try relay.make(body, now: 0)))))
     }
     let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-    while await recorded.sequences.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    while await recorded.sequences.isEmpty, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
     // The relay owns sequence ordering independently of the encoder counter.
     #expect(await recorded.sequences == [0])
     #expect(route.prepareCount == 1)
@@ -522,7 +540,8 @@ func routeRetryWaitsOnceAndLetsTheNextAttemptFinish(kind: RouteKind) async throw
 
 @Test func routeManagerReceivesAfterReconnectAndRejectsStoppedEvents() async throws {
     let route = FakeRoute(kind: .multipeer)
-    let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute)
+    let configuration = CallRouteConfiguration(
+        enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute)
     let manager = RouteManager(routes: [route], configuration: configuration)
     let recorded = ReceivedPackets()
     let events = manager.events
@@ -537,10 +556,17 @@ func routeRetryWaitsOnceAndLetsTheNextAttemptFinish(kind: RouteKind) async throw
         var remoteRequest = request
         remoteRequest.localPeer = .init(id: .init(rawValue: "remote"), displayName: "Remote")
         var relay = GroupRelay(request: remoteRequest)
-        route.yield(.membersChanged(.multipeer, [.init(peer: remoteRequest.localPeer, route: .multipeer, isConnected: true)]))
+        route.yield(
+            .membersChanged(
+                .multipeer, [.init(peer: remoteRequest.localPeer, route: .multipeer, isConnected: true)]))
         for body in [RelayBody.presence, .audio(makePacket(sequenceNumber: UInt64(sequence)))] {
             let payload = try relay.make(body, now: 0)
-            route.yield(.receivedApplicationData(.multipeer, .init(peerID: remoteRequest.localPeer.id, message: .init(namespace: GroupRelay.namespace, payload: payload))))
+            route.yield(
+                .receivedApplicationData(
+                    .multipeer,
+                    .init(
+                        peerID: remoteRequest.localPeer.id,
+                        message: .init(namespace: GroupRelay.namespace, payload: payload))))
         }
         for _ in 0..<100 {
             if await recorded.sequences.count == sequence { break }
@@ -548,7 +574,12 @@ func routeRetryWaitsOnceAndLetsTheNextAttemptFinish(kind: RouteKind) async throw
         }
         #expect(await recorded.sequences.count == sequence)
         await manager.stopConnection()
-        route.yield(.receivedApplicationData(.multipeer, ReceivedApplicationData(peerID: PeerID(rawValue: "remote"), message: ApplicationDataMessage(namespace: "late", payload: Data([1])))))
+        route.yield(
+            .receivedApplicationData(
+                .multipeer,
+                ReceivedApplicationData(
+                    peerID: PeerID(rawValue: "remote"),
+                    message: ApplicationDataMessage(namespace: "late", payload: Data([1])))))
         try await Task.sleep(for: .milliseconds(20))
         #expect(await recorded.sequences.count == sequence)
     }
@@ -593,10 +624,15 @@ private func makeFilteredPacketAudioPacket(
     let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer)
     let manager = RouteManager(routes: [route], configuration: configuration,
         runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
-    await manager.prepare(.init(sessionID: "idle", localPeer: .init(id: .init(rawValue: "me"), displayName: "me"), configuration: configuration))
+    await manager.prepare(
+        .init(
+            sessionID: "idle", localPeer: .init(id: .init(rawValue: "me"), displayName: "me"),
+            configuration: configuration))
     await manager.startConnection()
     let deadline = try #require(await manager.maintenanceDeadline)
-    #expect(deadline - ProcessInfo.processInfo.systemUptime > 1.8, "Idle maintenance must sleep for presence, not poll at 50 Hz")
+    #expect(
+        deadline - ProcessInfo.processInfo.systemUptime > 1.8,
+        "Idle maintenance must sleep for presence, not poll at 50 Hz")
     try await Task.sleep(for: .milliseconds(100))
     #expect(await manager.maintenanceDeadline == deadline)
     await manager.stopConnection()
@@ -611,9 +647,13 @@ private func makeFilteredPacketAudioPacket(
     await manager.prepare(makeRequest(configuration: config)); await manager.startConnection()
     let before = route.sentApplicationData.count
     for i in 0..<100 {
-        await manager.updateRuntimePackageReports([.init(package: "AudioMixer", kind: "snapshot", generatedAt: Double(i), payload: Data([UInt8(i)]))])
+        await manager.updateRuntimePackageReports([
+            .init(package: "AudioMixer", kind: "snapshot", generatedAt: Double(i), payload: Data([UInt8(i)]))
+        ])
     }
-    #expect(route.sentApplicationData.count == before, "Repeated diagnostic snapshots must not serialize/send or query native stats immediately")
+    #expect(
+        route.sentApplicationData.count == before,
+        "Repeated diagnostic snapshots must not serialize/send or query native stats immediately")
     await manager.setLocalMute(true)
     let statuses = relayMessages(route.sentApplicationData).compactMap { try? RTCRuntimeStatusTransport.decode($0) }
     #expect(statuses.last?.localMute == true, "User controls remain immediate")
@@ -778,7 +818,8 @@ private func relayMessages(_ messages: [ApplicationDataMessage]) -> [Application
     let local = FakeRoute(kind: .multipeer), internet = FakeRoute(kind: .webRTC)
     let config = CallRouteConfiguration(enabledRoutes: [.multipeer, .webRTC],
         preferredRoute: .multipeer, fallbackDelay: 0)
-    let manager = RouteManager(routes: [local, internet], runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
+    let manager = RouteManager(
+        routes: [local, internet], runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false))
     await manager.prepare(makeRequest(configuration: config))
     await manager.startConnection()
     try await Task.sleep(for: .milliseconds(20))
@@ -805,7 +846,8 @@ private func relayMessages(_ messages: [ApplicationDataMessage]) -> [Application
     await manager.sendAudioPacket(makePacket(sequenceNumber: 2))
     #expect(audioCount(internet) == 1, "Resume Local preference on the very next packet")
     // A distant participant still needs the SFU; never disconnect them for a nearby peer.
-    let distant = CallMemberState(peer: .init(id: .init(rawValue: "far"), displayName: "Distant"), route: .webRTC, isConnected: true)
+    let distant = CallMemberState(
+        peer: .init(id: .init(rawValue: "far"), displayName: "Distant"), route: .webRTC, isConnected: true)
     internet.yield(.membersChanged(.webRTC, Array(members.dropLast()) + [distant]))
     try await Task.sleep(for: .milliseconds(20))
     await manager.sendAudioPacket(makePacket(sequenceNumber: 3))
