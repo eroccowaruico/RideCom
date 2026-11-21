@@ -15,6 +15,10 @@ struct DirectInvitationContext: Codable, Equatable {
     var contactBootstrap: Bool? = nil
     var invitedGroupID: UUID? = nil
     var invitedGroupDigest: String? = nil
+
+    var isOrdinaryGroupInvitation: Bool {
+        contactBootstrap != true && recipientAccount == nil && recipientMemberID == nil
+    }
     private var validInvitedGroup: Bool {
         if invitedGroupID == nil && invitedGroupDigest == nil { return true }
         guard contactBootstrap == true, let invitedGroupID, invitedGroupID != groupID,

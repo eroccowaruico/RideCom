@@ -40,6 +40,7 @@ final class GroupRepository {
             // in the same commit as orphan cleanup, before reclaiming their keys.
             let beforeMaintenance = current
             current.groups.removeAll { isOrphanedDirectGroup($0, users: current.users) }
+            current.discardIssuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970)
             reconcileInvitations(in: &current)
             if current != beforeMaintenance {
                 current.generation = UUID()
@@ -565,6 +566,22 @@ final class GroupRepository {
         snapshot?.groups.first { $0.id == groupID }?.pendingInvitation
     }
 
+    func rememberIssuedOrdinaryGroupInvitation(_ invitation: DirectInvitationContext, now: TimeInterval) throws {
+        guard invitation.isValid, invitation.isOrdinaryGroupInvitation, invitation.inviterMemberID == localMemberID,
+              invitation.expiresAt > now, let snapshot,
+              let group = snapshot.groups.first(where: { $0.id == invitation.groupID && $0.kind == .group }),
+              let reference = group.credentialReference else { throw GroupStorageError.invalidUpdate }
+        try amend(snapshot, now: now) { next in
+            next.lastIssuedOrdinaryGroupInvitation = .init(invitation: invitation, credentialReference: reference)
+        }
+    }
+
+    func issuedOrdinaryGroupInvitation(now: TimeInterval) -> DirectInvitationContext? {
+        guard isWritable, let invitation = snapshot?.lastIssuedOrdinaryGroupInvitation?.invitation,
+              invitation.inviterMemberID == localMemberID, invitation.expiresAt > now else { return nil }
+        return invitation
+    }
+
     func allowsNearbyOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
         guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else { return false }
         return record.members.contains { $0.id == localMemberID }
@@ -695,7 +712,10 @@ final class GroupRepository {
            contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 },
            contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter { Double($0.expiresAt) > now * 1_000 },
            contactDeletionFormerPairs: previous.contactDeletionFormerPairs.filter { $0.expiresAt > now })
+        next.lastIssuedOrdinaryGroupInvitation = previous.lastIssuedOrdinaryGroupInvitation
         try modify(&next)
+        let allCredentials = (credential.map { [$0] } ?? []) + additionalCredentials
+        next.discardIssuedOrdinaryGroupInvitation(now: now, replacingKeys: Set(allCredentials.map(\.groupID)))
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
             next.retireGroupLinks(from: removed)
@@ -706,7 +726,6 @@ final class GroupRepository {
         next.synchronizeUserReferences()
         do { _ = try next.encoded() }
         catch { throw GroupStorageError.invalidUpdate }
-        let allCredentials = (credential.map { [$0] } ?? []) + additionalCredentials
         for credential in allCredentials {
             guard let index = next.groups.firstIndex(where: { $0.id == credential.groupID }) else { throw GroupStorageError.invalidUpdate }
             next.groups[index].credentialReference = try prepareKey(credential.secret)

@@ -8,7 +8,7 @@ final class AppCallOwner: CallSurfaceActions {
     let widgetDestinations: WidgetDestinationPublisher
     let liveActivities: CallLiveActivityPresenter
     var systemSurfaceIsForeground = false {
-        didSet { viewModel?.setNearbyGroupDeliveryForeground(systemSurfaceIsForeground) }
+        didSet { refreshNearbyDeliveryForegroundState() }
     }
     let account: AppleAccountSession
     let notificationBridge = AppNotificationBridge()
@@ -68,7 +68,12 @@ final class AppCallOwner: CallSurfaceActions {
         viewModel = nil
         guard !account.storageUnavailable, !account.deletion.blocksSignIn, account.userID != nil else { return }
         viewModel = makeViewModel(account)
+        refreshNearbyDeliveryForegroundState()
+    }
+
+    private func refreshNearbyDeliveryForegroundState() {
         viewModel?.setNearbyGroupDeliveryForeground(systemSurfaceIsForeground)
+        if systemSurfaceIsForeground { viewModel?.resumeIssuedOrdinaryGroupReply() }
     }
 
     func refreshAccountForForeground() async {

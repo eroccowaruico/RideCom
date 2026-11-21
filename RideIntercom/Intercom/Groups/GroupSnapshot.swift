@@ -19,6 +19,10 @@ struct GroupSnapshot: Codable, Equatable {
         let expiresAt: TimeInterval?
         var retired: Bool
     }
+    struct IssuedOrdinaryGroupInvitation: Codable, Equatable {
+        let invitation: DirectInvitationContext
+        let credentialReference: UUID
+    }
     struct RemovedMember: Codable, Equatable {
         var memberIDs: Set<String>
         let principal: AccountPrincipal?
@@ -161,6 +165,7 @@ struct GroupSnapshot: Codable, Equatable {
     var contactDeletionPublications: [ContactDeletionPublication] = []
     var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []
     var contactDeletionFormerPairs: [ContactDeletionFormerPair] = []
+    var lastIssuedOrdinaryGroupInvitation: IssuedOrdinaryGroupInvitation?
 
     var credentialReferences: [UUID] {
         groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
@@ -193,6 +198,7 @@ struct GroupSnapshot: Codable, Equatable {
         case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts, groupRemovalReceipts
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
         case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
+        case lastIssuedOrdinaryGroupInvitation
     }
 
     init(from decoder: Decoder) throws {
@@ -218,6 +224,17 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactDeletionRelayReceipt].self, forKey: .contactDeletionRelayReceipts)
         contactDeletionFormerPairs = version < 23 ? []
             : try values.decode([ContactDeletionFormerPair].self, forKey: .contactDeletionFormerPairs)
+        lastIssuedOrdinaryGroupInvitation = version < 23 ? nil
+            : try values.decodeIfPresent(IssuedOrdinaryGroupInvitation.self, forKey: .lastIssuedOrdinaryGroupInvitation)
+    }
+
+    mutating func discardIssuedOrdinaryGroupInvitation(now: TimeInterval, replacingKeys: Set<UUID> = []) {
+        guard let issued = lastIssuedOrdinaryGroupInvitation else { return }
+        let groupID = issued.invitation.groupID
+        if issued.invitation.expiresAt <= now || replacingKeys.contains(groupID)
+            || !groups.contains(where: { $0.id == groupID && $0.kind == .group && $0.credentialReference == issued.credentialReference }) {
+            lastIssuedOrdinaryGroupInvitation = nil
+        }
     }
 
     func upgraded() -> GroupSnapshot {
@@ -306,6 +323,13 @@ struct GroupSnapshot: Codable, Equatable {
         guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else { throw IntercomGroupError.invalidStoredGroups }
         guard groups.count <= 256, Set(groups.map(\.id)).count == groups.count else { throw IntercomGroupError.invalidStoredGroups }
+        if let issued = lastIssuedOrdinaryGroupInvitation {
+            guard version >= 23, issued.invitation.isValid, issued.invitation.isOrdinaryGroupInvitation,
+                  groups.contains(where: { $0.id == issued.invitation.groupID && $0.kind == .group
+                      && $0.credentialReference == issued.credentialReference
+                      && $0.members.contains(where: { $0.id == issued.invitation.inviterMemberID }) })
+            else { throw IntercomGroupError.invalidStoredGroups }
+        }
         guard version >= 9 || contactInvitations.isEmpty else { throw IntercomGroupError.invalidStoredGroups }
         guard contactInvitations.count <= 1024, contactInvitations.allSatisfy(\.isValid),
               Set(contactInvitations.map(\.id)).count == contactInvitations.count else { throw IntercomGroupError.invalidStoredGroups }

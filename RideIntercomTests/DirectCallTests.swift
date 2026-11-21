@@ -5,6 +5,38 @@ import Testing
 
 @MainActor
 struct DirectCallTests {
+    @Test func issuedOrdinaryGroupInvitationSurvivesReloadOnlyWithItsOriginalGroupKey() throws {
+        let storage = try GroupStorageFixture()
+        defer { storage.remove() }
+        let group = try storage.group()
+        try storage.repository.save([group], credential: .init(groupID: group.id, secret: "original-fixture"))
+        let app = AppTestSupport.makeHarness(groups: [], groupRepository: storage.repository, localMemberID: "local")
+        defer { app.viewModel.disconnect() }
+        let firstURL = try #require(app.viewModel.makeGroupInviteURL(for: group.id))
+        let firstToken = try GroupInviteTokenCodec.decodeJoinURL(firstURL)
+        let first = try #require(firstToken.directInvitation).context
+        let secondURL = try #require(app.viewModel.makeGroupInviteURL(for: group.id))
+        let secondToken = try GroupInviteTokenCodec.decodeJoinURL(secondURL)
+        let second = try #require(secondToken.directInvitation).context
+        #expect(first.id != second.id)
+        let reopened = storage.restart()
+        _ = try reopened.load(localMemberID: "local")
+        let now = Date().timeIntervalSince1970
+        #expect(reopened.issuedOrdinaryGroupInvitation(now: now)?.id == second.id)
+        #expect(reopened.issuedOrdinaryGroupInvitation(now: second.expiresAt)?.id == nil)
+        let retained = try storage.file.read()
+        let saved = try #require(retained)
+        #expect(saved.lastIssuedOrdinaryGroupInvitation?.credentialReference == saved.groups.first?.credentialReference)
+
+        try reopened.save([group], credential: .init(groupID: group.id, secret: "replacement-fixture"))
+        #expect(try storage.file.read()?.lastIssuedOrdinaryGroupInvitation == nil)
+        let updated = AppTestSupport.makeHarness(groups: [], groupRepository: reopened, localMemberID: "local")
+        defer { updated.viewModel.disconnect() }
+        _ = try #require(updated.viewModel.makeGroupInviteURL(for: group.id))
+        try reopened.delete(group.id, remaining: [])
+        #expect(try storage.file.read()?.lastIssuedOrdinaryGroupInvitation == nil)
+    }
+
     @Test func ordinaryTwoMemberGroupRemainsAGroup() throws {
         let group = try IntercomGroup(name: "Two Riders", members: [
             .init(id: "alice", displayName: "Alice"),
@@ -386,6 +418,39 @@ struct DirectCallTests {
 
 @MainActor
 struct OrdinaryGroupReplyTransportTests {
+    @Test func reopenedInviterReceivesAnAcceptanceForTheOriginalLink() async throws {
+        let storage = try GroupStorageFixture()
+        defer { storage.remove() }
+        let group = try storage.group()
+        try storage.repository.save([group], credential: .init(groupID: group.id, secret: "original-link-fixture"))
+        let issuer = AppTestSupport.makeHarness(groups: [], groupRepository: storage.repository, localMemberID: "local")
+        let url = try #require(issuer.viewModel.makeGroupInviteURL(for: group.id))
+        issuer.viewModel.stopOrdinaryGroupReplyExchanges()
+
+        let author = AppTestSupport.makeHarness(accountSession: issuer.viewModel.accountSession, groups: [],
+            groupRepository: storage.restart(), internetSettingsStore: issuer.viewModel.internetSettingsStore,
+            invitationAuthority: issuer.viewModel.invitationAuthority, localMemberID: "local")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        defer {
+            author.viewModel.stopOrdinaryGroupReplyExchanges(); recipient.viewModel.stopOrdinaryGroupReplyExchanges()
+            author.viewModel.disconnect(); recipient.viewModel.disconnect()
+        }
+        author.viewModel.allowsNearbyGroupDelivery = true
+        recipient.viewModel.allowsNearbyGroupDelivery = true
+        let owner = AppCallOwner(account: author.viewModel.accountSession, viewModel: author.viewModel)
+        owner.systemSurfaceIsForeground = true
+        try recipient.viewModel.acceptInviteURL(url)
+        #expect(author.viewModel.savedRemoteUsers.isEmpty)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil
+        }
+        let acknowledged = recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil
+        #expect(acknowledged)
+        #expect(author.viewModel.savedRemoteUsers.first?.memberIDs == ["bob"])
+        #expect(author.viewModel.activeGroupID == nil)
+        #expect(owner.viewModel === author.viewModel)
+    }
+
     @Test func ordinaryInvitationReplyReachesTheInviterAfterSwitchingToAnIndividualCall() async throws {
         let group = try IntercomGroup(name: "Riders", members: [.init(id: "alice", displayName: "Alice")],
                                       accessSecret: "ordinary-group-reply-fixture")

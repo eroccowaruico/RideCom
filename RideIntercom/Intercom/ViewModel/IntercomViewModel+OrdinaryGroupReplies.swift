@@ -25,6 +25,15 @@ extension IntercomViewModel {
         allowsNearbyGroupDelivery && canEditSavedGroups && enabledRTCTransportRoutes.contains(.multipeer)
     }
 
+    func resumeIssuedOrdinaryGroupReply() {
+        guard canExchangeOrdinaryGroupReplies,
+              let invitation = groupRepository.issuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970),
+              let expectedKey = invitation.inviterDeviceKey,
+              (try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)) != nil,
+              let credential = try? groupRepository.credential(for: invitation.groupID) else { return }
+        startOrdinaryGroupReplyExchange(invitation, credential: credential, role: .inviter)
+    }
+
     func resumeOrdinaryGroupReply(for group: IntercomGroup) {
         guard canExchangeOrdinaryGroupReplies else { return }
         let pending: DirectInvitationReceipt?
@@ -44,7 +53,7 @@ extension IntercomViewModel {
     func startOrdinaryGroupReplyExchange(_ invitation: DirectInvitationContext, credential: GroupAccessCredential,
                                          role: OrdinaryGroupReplyExchange.Role) {
         guard canExchangeOrdinaryGroupReplies, invitation.groupID == credential.groupID,
-              invitation.contactBootstrap != true, invitation.recipientAccount == nil, invitation.recipientMemberID == nil,
+              invitation.isOrdinaryGroupInvitation,
               (role == .inviter) == (invitation.inviterMemberID == localMemberIdentity.memberID) else { return }
         let remaining = invitation.expiresAt - Date().timeIntervalSince1970
         guard remaining > 0 else { return }
@@ -91,7 +100,9 @@ extension IntercomViewModel {
     private func receiveOrdinaryGroupReplyEvent(_ event: RTCLocalDataChannel.Event, role: OrdinaryGroupReplyExchange.Role, id: UUID) {
         guard let exchange = ordinaryGroupReplyExchanges[role], exchange.id == id else { return }
         let invitation = exchange.invitation
-        guard canExchangeOrdinaryGroupReplies, invitation.expiresAt > Date().timeIntervalSince1970,
+        let now = Date().timeIntervalSince1970
+        guard canExchangeOrdinaryGroupReplies, invitation.expiresAt > now,
+              role != .inviter || groupRepository.issuedOrdinaryGroupInvitation(now: now) == invitation,
               (try? groupRepository.credential(for: invitation.groupID)) == exchange.credential else {
             stopOrdinaryGroupReplyExchange(role, id: id)
             return
