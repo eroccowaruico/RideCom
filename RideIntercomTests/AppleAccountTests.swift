@@ -5,6 +5,22 @@ import Testing
 
 @MainActor
 struct AppleAccountTests {
+    @Test func unavailableDefaultsKeepTheSavedAccountInaccessible() async {
+        let keychain = AccountTestKeychain()
+        keychain.value = "saved-user"
+        let session = AppleAccountSession(keychain: keychain, defaults: nil, namespace: "missing-defaults") { _ in
+            .authorized
+        }
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        session.prepare(request)
+        #expect(!session.completeSignIn(userID: "new-user", state: request.state))
+        session.signOut()
+        await session.reload()
+        #expect(session.userID == nil)
+        #expect(session.storageUnavailable)
+        #expect(keychain.value == "saved-user")
+    }
+
     #if DEBUG && RIDEINTERCOM_VALIDATION
     @Test func unconfiguredValidationLaunchStaysBlockedAfterRefreshAndRevocation() async {
         let session = AppleAccountFixture.unavailableLaunchSession()

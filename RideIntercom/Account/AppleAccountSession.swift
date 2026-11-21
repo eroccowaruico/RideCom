@@ -23,7 +23,7 @@ final class AppleAccountSession {
     var onAccessRevoked: (() -> Void)?
 
     private let keychain: KeychainSecretStoring
-    private let defaults: UserDefaults
+    private let defaults: UserDefaults?
     private let service: String
     private let credentialState: @MainActor (String) async throws -> AppleCredentialState
     private var cachedUserID: String?
@@ -33,7 +33,7 @@ final class AppleAccountSession {
     private var needsCredentialRemoval = false
     private static let requiresSignInKey = "AppleAccount.requiresSignIn"
 
-    init(keychain: KeychainSecretStoring, defaults: UserDefaults, namespace: String,
+    init(keychain: KeychainSecretStoring, defaults: UserDefaults?, namespace: String,
          applicationSupport: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
          launchInstructions: String? = nil,
          credentialState: @escaping @MainActor (String) async throws -> AppleCredentialState) {
@@ -61,7 +61,7 @@ final class AppleAccountSession {
         #else
         let namespace = configuredNamespace ?? "RideIntercom"
         return AppleAccountSession(keychain: SystemKeychainSecretStore(),
-            defaults: UserDefaults(suiteName: namespace)!, namespace: namespace) { userID in
+            defaults: UserDefaults(suiteName: namespace), namespace: namespace) { userID in
                 switch try await ASAuthorizationAppleIDProvider().credentialState(forUserID: userID) {
                 case .authorized: return .authorized
                 case .revoked: return .revoked
@@ -82,6 +82,12 @@ final class AppleAccountSession {
             invalidateCachedAccess()
             storageUnavailable = true
             message = deletion.message
+            return
+        }
+        guard let defaults else {
+            invalidateCachedAccess()
+            storageUnavailable = true
+            message = "Could not read your saved sign-in. Your data has been preserved. Try again."
             return
         }
         guard !deletion.blocksSignIn, !defaults.bool(forKey: Self.requiresSignInKey) else {
@@ -193,7 +199,9 @@ final class AppleAccountSession {
 
     @discardableResult
     func completeSignIn(userID: String, state: String?) -> Bool {
-        guard !deletion.blocksSignIn, !storageUnavailable, let requestState, state == requestState, Self.validIdentifier(userID) else {
+        guard let defaults, !deletion.blocksSignIn, !storageUnavailable, let requestState, state == requestState,
+            Self.validIdentifier(userID)
+        else {
             failSignIn(); return false
         }
         self.requestState = nil
@@ -223,7 +231,7 @@ final class AppleAccountSession {
     }
 
     func signOut() {
-        guard launchInstructions == nil else { return }
+        guard launchInstructions == nil, let defaults else { return }
         // Persist the denial before touching Keychain: a failed delete must not
         // resurrect the session on the next offline launch.
         defaults.set(true, forKey: Self.requiresSignInKey)
