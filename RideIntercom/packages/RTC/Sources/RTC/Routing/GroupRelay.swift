@@ -15,25 +15,26 @@ enum RelayBody: Codable, Equatable, Sendable {
     }
 }
 
+private struct GroupRelayEnvelope: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case session = "s", origin = "o", epoch = "e", sequence = "q"
+        case path = "p", body = "b", internetReady = "i"
+    }
+    var session: String
+    var origin: PeerDescriptor
+    var epoch: UUID
+    var sequence: UInt64
+    var path: [PeerID]
+    var body: RelayBody
+    var internetReady: Bool
+}
+
 /// Group-key authenticated, bounded flooding. A gateway is any member with links
 /// on both networks. No leader lease can strand members behind a failed gateway.
 /// Every origin/epoch/sequence is forwarded at most once per device, with <= 8 hops.
 struct GroupRelay: Sendable {
     static let namespace = "rtc.group-relay.v2"
     static let presenceLifetime: TimeInterval = 8
-    private struct Envelope: Codable {
-        private enum CodingKeys: String, CodingKey {
-            case session = "s", origin = "o", epoch = "e", sequence = "q"
-            case path = "p", body = "b", internetReady = "i"
-        }
-        var session: String
-        var origin: PeerDescriptor
-        var epoch: UUID
-        var sequence: UInt64
-        var path: [PeerID]
-        var body: RelayBody
-        var internetReady: Bool
-    }
     struct Reception: Equatable {
         var peer: PeerDescriptor
         var body: RelayBody
@@ -82,8 +83,8 @@ struct GroupRelay: Sendable {
             body = .audio(packet)
         }
         sequence &+= 1
-        return try encode(Envelope(session: request.sessionID, origin: request.localPeer, epoch: epoch,
-                                   sequence: sequence, path: [request.localPeer.id], body: body, internetReady: internetReady))
+        return try encode(GroupRelayEnvelope(session: request.sessionID, origin: request.localPeer, epoch: epoch,
+                sequence: sequence, path: [request.localPeer.id], body: body, internetReady: internetReady))
     }
 
     mutating func receive(_ bytes: Data, from hop: PeerID, now: TimeInterval) -> Reception? {
@@ -96,29 +97,25 @@ struct GroupRelay: Sendable {
         let id = envelope.origin.id
         let isPresence = envelope.body == .presence
         var didRestart = false
-        if peers[id] == nil {
-            guard isPresence else { return nil }
-            if peers.count >= 7, let expired = peers.filter({ $0.value.left || now - $0.value.lastActivity >= Self.presenceLifetime })
-                .min(by: { $0.value.lastActivity < $1.value.lastActivity })?.key { peers[expired] = nil }
-            guard peers.count < 7 else { return nil }
-            peers[id] = Member(peer: envelope.origin, epoch: envelope.epoch, lastActivity: now)
-        }
-        guard var member = peers[id] else { return nil }
+        guard var member = member(for: envelope, now: now) else { return nil }
         if member.epoch != envelope.epoch {
             guard isPresence, !member.retired.contains(envelope.epoch) else { return nil }
             didRestart = true
             let retired = Array((member.retired + [member.epoch]).suffix(8))
             member = Member(peer: envelope.origin, epoch: envelope.epoch, retired: retired, lastActivity: now)
         }
-        if isPresence, envelope.sequence <= member.presenceSequence { return nil }
-        guard member.accept(envelope.sequence) else { return nil }
+        guard !isPresence || envelope.sequence > member.presenceSequence,
+              member.accept(envelope.sequence) else { return nil }
         if isPresence, member.left || now - member.lastActivity >= Self.presenceLifetime {
             // A fresh presence after absence is a new admission boundary even
             // when the sender kept its transport epoch during the outage.
             member.membershipID = UUID()
             didRestart = true
         }
-        if isPresence { member.lastActivity = now; member.presenceSequence = envelope.sequence; member.left = false; member.peer = envelope.origin; member.internetReady = envelope.internetReady }
+        if isPresence {
+            member.lastActivity = now; member.presenceSequence = envelope.sequence; member.left = false
+            member.peer = envelope.origin; member.internetReady = envelope.internetReady
+        }
         if envelope.body == .leave { member.left = true; member.presenceSequence = envelope.sequence }
         if case .audio(let packet) = envelope.body {
             guard !member.left, now - member.lastActivity < Self.presenceLifetime,
@@ -132,7 +129,23 @@ struct GroupRelay: Sendable {
         peers[id] = member
         envelope.path.append(request.localPeer.id)
         let forwarded = envelope.path.count < 8 ? try? encode(envelope) : nil
-        return Reception(peer: envelope.origin, body: envelope.body, forward: forwarded, didRestart: didRestart, path: envelope.path)
+        return Reception(
+            peer: envelope.origin, body: envelope.body, forward: forwarded, didRestart: didRestart,
+            path: envelope.path)
+    }
+
+    private mutating func member(for envelope: GroupRelayEnvelope, now: TimeInterval) -> Member? {
+        let peerID = envelope.origin.id
+        if let member = peers[peerID] { return member }
+        guard envelope.body == .presence else { return nil }
+        if peers.count >= 7 {
+            let expired = peers.filter { $0.value.left || now - $0.value.lastActivity >= Self.presenceLifetime }
+            guard let oldest = expired.min(by: { $0.value.lastActivity < $1.value.lastActivity }) else { return nil }
+            peers[oldest.key] = nil
+        }
+        let member = Member(peer: envelope.origin, epoch: envelope.epoch, lastActivity: now)
+        peers[peerID] = member
+        return member
     }
 
     func membershipID(for peerID: PeerID, now: TimeInterval) -> UUID? {
@@ -146,19 +159,24 @@ struct GroupRelay: Sendable {
             .map(\.peer).sorted { $0.id.rawValue < $1.id.rawValue }
     }
     func internetGateways(now: TimeInterval) -> Set<PeerID> {
-        Set(peers.values.filter { !$0.left && $0.internetReady && now - $0.lastActivity < Self.presenceLifetime }.map { $0.peer.id })
+        Set(
+            peers.values.filter { !$0.left && $0.internetReady && now - $0.lastActivity < Self.presenceLifetime }
+                .map { $0.peer.id })
     }
-    private func encode(_ envelope: Envelope) throws -> Data {
+    private func encode(_ envelope: GroupRelayEnvelope) throws -> Data {
         let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
         let data = try encoder.encode(envelope)
         guard let credential = request.credential else { return data }
-        return try AES.GCM.seal(data, using: SymmetricKey(data: credential.sharedSecret)).combined!
+        let sealed = try AES.GCM.seal(data, using: SymmetricKey(data: credential.sharedSecret))
+        guard let combined = sealed.combined else { throw CryptoKitError.incorrectParameterSize }
+        return combined
     }
-    private func decode(_ data: Data) throws -> Envelope {
+    private func decode(_ data: Data) throws -> GroupRelayEnvelope {
         let plain: Data
         if let credential = request.credential {
-            plain = try AES.GCM.open(AES.GCM.SealedBox(combined: data), using: SymmetricKey(data: credential.sharedSecret))
+            plain = try AES.GCM.open(
+                AES.GCM.SealedBox(combined: data), using: SymmetricKey(data: credential.sharedSecret))
         } else { plain = data }
-        return try PropertyListDecoder().decode(Envelope.self, from: plain)
+        return try PropertyListDecoder().decode(GroupRelayEnvelope.self, from: plain)
     }
 }
