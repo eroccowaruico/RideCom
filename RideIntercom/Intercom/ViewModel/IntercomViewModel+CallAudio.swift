@@ -43,7 +43,7 @@ extension IntercomViewModel {
 
     private func bindCallAudioOutput(generation: UUID, finiteRecordingDuration: TimeInterval?) {
         if finiteRecordingDuration == nil, audioPipeline.usesHardwareClock, audioOutputRenderer.rendersToHardware {
-            pipeline.onOutputFrame = nil
+            audioPipeline.onOutputFrame = nil
             return
         }
         audioPipeline.onOutputFrame = { [weak self] frame in
