@@ -1,202 +1,212 @@
 import Foundation
 import RTC
 import Testing
+
 @testable import RideIntercom
 
 @MainActor
 struct ContactBootstrapTests {
-    // Ordinary group invitation acceptance remains a separate contract.
-    @Test func unknownContactAcceptanceRegistersAuthorAndAuthenticatedDeliveryRegistersRecipient() throws {
-        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
-        let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
-        let a = author.viewModel
-        let b = friend.viewModel
-        let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
-        a.contactSessionFactory = { authorNotification }
-        b.contactSessionFactory = { friendNotification }
-        defer { a.disconnect(); b.disconnect() }
-        let url = try #require(a.makeContactInviteURL())
-        #expect(a.savedRemoteUsers.isEmpty)
-        #expect(a.groups.isEmpty)
-        try b.acceptContactInviteURL(url)
-        #expect(a.savedRemoteUsers.isEmpty)
-        #expect(b.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
-        #expect(a.groups.isEmpty)
-        #expect(b.regularGroups.isEmpty)
-        #expect(friendNotification.sentApplicationDataMessages.isEmpty)
+  // Ordinary group invitation acceptance remains a separate contract.
+  @Test func unknownContactAcceptanceRegistersAuthorAndAuthenticatedDeliveryRegistersRecipient() throws {
+    let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
+    let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
+    let authorViewModel = author.viewModel, friendViewModel = friend.viewModel
+    let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
+    authorViewModel.contactSessionFactory = { authorNotification }
+    friendViewModel.contactSessionFactory = { friendNotification }
+    defer { authorViewModel.disconnect(); friendViewModel.disconnect() }
+    let url = try #require(authorViewModel.makeContactInviteURL())
+    #expect(authorViewModel.savedRemoteUsers.isEmpty)
+    #expect(authorViewModel.groups.isEmpty)
+    try friendViewModel.acceptContactInviteURL(url)
+    #expect(authorViewModel.savedRemoteUsers.isEmpty)
+    #expect(friendViewModel.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
+    #expect(authorViewModel.groups.isEmpty)
+    #expect(friendViewModel.regularGroups.isEmpty)
+    #expect(friendNotification.sentApplicationDataMessages.isEmpty)
 
-        friendNotification.authenticate(["contact-author"])
-        let receipt = try #require(friendNotification.sentApplicationDataMessages.last {
-            $0.namespace == DirectInvitationReceipt.namespace
-        })
-        #expect(b.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]], "Explicit acceptance already saved the signed author")
-        // A receipt from an unbound / unauthenticated sender cannot save anyone.
-        authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: receipt))
-        #expect(a.savedRemoteUsers.isEmpty)
-        authorNotification.authenticate(["contact-friend"])
-        authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: receipt))
-        #expect(a.savedRemoteUsers.map(\.memberIDs) == [["contact-friend"]])
-        let spentID = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        #expect(throws: (any Error).self) {
-            _ = try a.prepareContactInvitationShare(spentID, expectedAccountAccessID: a.accountAccessID)
-        }
-        #expect(b.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
-        let acknowledgement = try #require(authorNotification.sentApplicationDataMessages.last {
-            $0.namespace == DirectInvitationReceipt.namespace
-        })
-        friendNotification.onEvent?(.receivedApplicationData(peerID: "contact-author", message: acknowledgement))
-        #expect(b.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
-        #expect(a.regularGroups.isEmpty, "Contact bootstrap is never an ordinary group")
-        #expect(b.regularGroups.isEmpty)
-        let call = IntercomGroup.directCallID(memberIDs: ["contact-author", "contact-friend"])
-        #expect(a.groups.map(\.id) == [call] && b.groups.map(\.id) == [call])
-        let key = try #require(try a.groupRepository.credential(for: call))
-        #expect(try b.groupRepository.credential(for: call) == key, "Both sides finish the invitation with one pair call key")
-        #expect(author.callSession.startMediaCallCount == 0)
-        #expect(friend.callSession.startMediaCallCount == 0)
+    friendNotification.authenticate(["contact-author"])
+    let receipt = try #require(friendNotification.sentApplicationDataMessages.last {
+      $0.namespace == DirectInvitationReceipt.namespace
+    })
+    #expect(friendViewModel.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]],
+            "Explicit acceptance already saved the signed author")
+    // A receipt from an unbound / unauthenticated sender cannot save anyone.
+    authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: receipt))
+    #expect(authorViewModel.savedRemoteUsers.isEmpty)
+    authorNotification.authenticate(["contact-friend"])
+    authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: receipt))
+    #expect(authorViewModel.savedRemoteUsers.map(\.memberIDs) == [["contact-friend"]])
+    let spentID = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation)
+      .context.id
+    #expect(throws: (any Error).self) {
+      _ = try authorViewModel.prepareContactInvitationShare(
+        spentID, expectedAccountAccessID: authorViewModel.accountAccessID)
     }
+    #expect(friendViewModel.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
+    let acknowledgement = try #require(authorNotification.sentApplicationDataMessages.last {
+      $0.namespace == DirectInvitationReceipt.namespace
+    })
+    friendNotification.onEvent?(.receivedApplicationData(peerID: "contact-author", message: acknowledgement))
+    #expect(friendViewModel.savedRemoteUsers.map(\.memberIDs) == [["contact-author"]])
+    #expect(authorViewModel.regularGroups.isEmpty, "Contact bootstrap is never an ordinary group")
+    #expect(friendViewModel.regularGroups.isEmpty)
+    let call = IntercomGroup.directCallID(memberIDs: ["contact-author", "contact-friend"])
+    #expect(authorViewModel.groups.map(\.id) == [call] && friendViewModel.groups.map(\.id) == [call])
+    let key = try #require(try authorViewModel.groupRepository.credential(for: call))
+    #expect(try friendViewModel.groupRepository.credential(for: call) == key,
+            "Both sides finish the invitation with one pair call key")
+    #expect(author.callSession.startMediaCallCount == 0)
+    #expect(friend.callSession.startMediaCallCount == 0)
+  }
 
-    @Test func provisionalNamesPairAColorWithACreatureAndAvoidNamesInUse() {
-        var generator = SystemRandomNumberGenerator()
-        #expect(ProvisionalName.all(japanese: true).count == 112)
-        #expect(ProvisionalName.all(japanese: true).contains("青いキツネ"))
-        #expect(ProvisionalName.all(japanese: false).contains("Blue Fox"))
-        let used = Set(ProvisionalName.all(japanese: false).filter { $0 != "White Gull" })
-        #expect(ProvisionalName.candidate(japanese: false, avoiding: used, using: &generator) == "White Gull")
-        let everything = Set(ProvisionalName.all(japanese: false))
-        #expect(ProvisionalName.candidate(japanese: false, avoiding: everything, using: &generator) == "Blue Fox 2")
+  @Test func provisionalNamesPairAColorWithACreatureAndAvoidNamesInUse() {
+    var generator = SystemRandomNumberGenerator()
+    #expect(ProvisionalName.all(japanese: true).count == 112)
+    #expect(ProvisionalName.all(japanese: true).contains("青いキツネ"))
+    #expect(ProvisionalName.all(japanese: false).contains("Blue Fox"))
+    let used = Set(ProvisionalName.all(japanese: false).filter { $0 != "White Gull" })
+    #expect(ProvisionalName.candidate(japanese: false, avoiding: used, using: &generator) == "White Gull")
+    let everything = Set(ProvisionalName.all(japanese: false))
+    #expect(ProvisionalName.candidate(japanese: false, avoiding: everything, using: &generator) == "Blue Fox 2")
+  }
+
+  @Test(arguments: [false, true], [false, true])
+  func anExplicitReplyAttemptContinuesAfterLeavingTheApp(retrying: Bool, expires: Bool) throws {
+    let author = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-author")
+    let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-friend")
+    let authorViewModel = author.viewModel, friendViewModel = friend.viewModel
+    let authorTransport = RecordingCallSession()
+    var friendTransports: [RecordingCallSession] = []
+    authorViewModel.contactSessionFactory = { authorTransport }
+    friendViewModel.contactSessionFactory = {
+      let transport = RecordingCallSession()
+      friendTransports.append(transport)
+      return transport
     }
-
-    @Test(arguments: [false, true], [false, true])
-    func anExplicitReplyAttemptContinuesAfterLeavingTheApp(retrying: Bool, expires: Bool) throws {
-        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-author")
-        let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "background-reply-friend")
-        let a = author.viewModel, b = friend.viewModel
-        let authorTransport = RecordingCallSession()
-        var friendTransports: [RecordingCallSession] = []
-        a.contactSessionFactory = { authorTransport }
-        b.contactSessionFactory = {
-            let transport = RecordingCallSession()
-            friendTransports.append(transport)
-            return transport
-        }
-        defer { a.disconnect(); b.disconnect() }
-        var starts = 0, finishes = 0
-        var expire: (@MainActor () -> Void)?
-        b.beginContactInvitationBackgroundTime = { onExpiration in
-            starts += 1
-            expire = onExpiration
-            return { finishes += 1 }
-        }
-        let url = try #require(a.makeContactInviteURL())
-        #expect(b.previewContactInvitation(url))
-        #expect(starts == 0)
-        #expect(b.acceptPresentedContactInvitation(keepingPresentation: true))
-        #expect(starts == 1, "Register requests time before the user can leave")
-        let id = try #require(b.contactInvitationID)
-        let saved = try #require(b.contactInvitationRecord(id))
-        if retrying {
-            b.stopContactInvitationSession()
-            let person = try #require(b.savedRemoteUsers.first).id
-            try #require(b.retryContactPersonInvitation(id, personID: person))
-            #expect(starts == 2, "Send Again also requests time before the user can leave")
-            try #require(b.retryContactPersonInvitation(id, personID: person))
-            #expect(starts == 2 && friendTransports.count == 2, "The same running attempt keeps its existing time allowance")
-        }
-        let activeAttempt = retrying ? 2 : 1
-        b.dismissContactInvitationPresentation()
-        b.suspendContactInvitationForBackground()
-        #expect(b.contactInvitationID == id && friendTransports.count == activeAttempt)
-        #expect(finishes == activeAttempt - 1)
-        if expires {
-            expire?()
-            #expect(b.contactInvitationID == nil && finishes == activeAttempt)
-            #expect(b.contactInvitationRecord(id) == saved)
-            #expect(b.savedRemoteUsers.count == 1)
-            b.resumeSuspendedContactInvitation()
-            #expect(b.contactInvitationID == id && friendTransports.count == activeAttempt + 1 && starts == activeAttempt)
-        }
-        let friendTransport = try #require(friendTransports.last)
-        friendTransport.authenticate(["background-reply-author"])
-        let receipt = try #require(friendTransport.sentApplicationDataMessages.last {
-            $0.namespace == DirectInvitationReceipt.namespace
-        })
-        authorTransport.authenticate(["background-reply-friend"])
-        authorTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-friend", message: receipt))
-        let acknowledgement = try #require(authorTransport.sentApplicationDataMessages.last {
-            $0.namespace == DirectInvitationReceipt.namespace
-        })
-        friendTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-author", message: acknowledgement))
-        #expect(a.savedRemoteUsers.map(\.memberIDs) == [["background-reply-friend"]])
-        #expect(b.savedRemoteUsers.map(\.memberIDs) == [["background-reply-author"]])
-        #expect(b.contactInvitationRecord(id)?.state == .delivered && finishes == activeAttempt)
-        #expect(author.callSession.startMediaCallCount == 0 && friend.callSession.startMediaCallCount == 0)
+    defer { authorViewModel.disconnect(); friendViewModel.disconnect() }
+    var starts = 0, finishes = 0
+    var expire: (@MainActor () -> Void)?
+    friendViewModel.beginContactInvitationBackgroundTime = { onExpiration in
+      starts += 1; expire = onExpiration
+      return { finishes += 1 }
     }
-
-    @Test func theNameGivenBeforeSendingBecomesTheSavedUsersLocalName() throws {
-        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
-        let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
-        let a = author.viewModel, b = friend.viewModel
-        let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
-        a.contactSessionFactory = { authorNotification }
-        b.contactSessionFactory = { friendNotification }
-        defer { a.disconnect(); b.disconnect() }
-        let url = try #require(a.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        #expect(a.setContactInvitationNickname(id, "  Riding Buddy  "))
-        #expect(a.contactInvitationRecord(id)?.nickname == "Riding Buddy")
-
-        try b.acceptContactInviteURL(url)
-        friendNotification.authenticate(["contact-author"])
-        let receipt = try #require(friendNotification.sentApplicationDataMessages.last {
-            $0.namespace == DirectInvitationReceipt.namespace
-        })
-        authorNotification.authenticate(["contact-friend"])
-        authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: receipt))
-        let user = try #require(a.savedRemoteUsers.first)
-        #expect(user.localName == "Riding Buddy", "The inviter's own word for the person names them on this device")
-        #expect(user.displayName != "Riding Buddy", "The person's shared name is kept separately")
+    let url = try #require(authorViewModel.makeContactInviteURL())
+    #expect(friendViewModel.previewContactInvitation(url)); #expect(starts == 0)
+    #expect(friendViewModel.acceptPresentedContactInvitation(keepingPresentation: true))
+    #expect(starts == 1, "Register requests time before the user can leave")
+    let id = try #require(friendViewModel.contactInvitationID)
+    let saved = try #require(friendViewModel.contactInvitationRecord(id))
+    if retrying {
+      friendViewModel.stopContactInvitationSession()
+      let person = try #require(friendViewModel.savedRemoteUsers.first).id
+      try #require(friendViewModel.retryContactPersonInvitation(id, personID: person))
+      #expect(starts == 2, "Send Again also requests time before the user can leave")
+      try #require(friendViewModel.retryContactPersonInvitation(id, personID: person))
+      #expect(starts == 2 && friendTransports.count == 2, "The same running attempt keeps its existing time allowance")
     }
-
-    @Test func reInvitingAnExistingContactReplacesThePairCallKeyOnBothDevices() throws {
-        let callID = IntercomGroup.directCallID(memberIDs: ["contact-author", "contact-friend"])
-        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
-        let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
-        let a = author.viewModel
-        let b = friend.viewModel
-        let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
-        a.contactSessionFactory = { authorNotification }
-        b.contactSessionFactory = { friendNotification }
-        defer { a.disconnect(); b.disconnect() }
-        let firstURL = try #require(a.makeContactInviteURL())
-        try b.acceptContactInviteURL(firstURL)
-        friendNotification.authenticate(["contact-author"])
-        let firstReceipt = try #require(friendNotification.sentApplicationDataMessages.last)
-        authorNotification.authenticate(["contact-friend"])
-        authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: firstReceipt))
-        let firstAcknowledgement = try #require(authorNotification.sentApplicationDataMessages.last)
-        friendNotification.onEvent?(.receivedApplicationData(peerID: "contact-author", message: firstAcknowledgement))
-
-        let oldKey = try #require(try a.groupRepository.credential(for: callID))
-        #expect(try b.groupRepository.credential(for: callID) == oldKey)
-
-        #expect(a.setLocalDisplayName("Updated Author"))
-        let secondURL = try #require(a.makeContactInviteURL())
-        #expect(secondURL != firstURL)
-        #expect(try GroupInviteTokenCodec.decodeJoinURL(secondURL, contactBootstrap: true).inviterDisplayName == "Updated Author")
-        try b.acceptContactInviteURL(secondURL)
-        friendNotification.authenticate(["contact-author"])
-        let secondReceipt = try #require(friendNotification.sentApplicationDataMessages.last)
-        authorNotification.authenticate(["contact-friend"])
-        authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: secondReceipt))
-        let secondAcknowledgement = try #require(authorNotification.sentApplicationDataMessages.last)
-        friendNotification.onEvent?(.receivedApplicationData(peerID: "contact-author", message: secondAcknowledgement))
-
-        #expect(b.savedRemoteUsers.first?.displayName == "Updated Author")
-        let newKey = try #require(try a.groupRepository.credential(for: callID))
-        #expect(newKey != oldKey)
-        #expect(try b.groupRepository.credential(for: callID) == newKey)
-        #expect(a.groups.map(\.id) == [callID] && b.groups.map(\.id) == [callID])
-        #expect(a.groups.first?.kind == .direct && b.groups.first?.kind == .direct)
+    let activeAttempt = retrying ? 2 : 1
+    friendViewModel.dismissContactInvitationPresentation(); friendViewModel.suspendContactInvitationForBackground()
+    #expect(friendViewModel.contactInvitationID == id && friendTransports.count == activeAttempt)
+    #expect(finishes == activeAttempt - 1)
+    if expires {
+      expire?()
+      #expect(friendViewModel.contactInvitationID == nil && finishes == activeAttempt)
+      #expect(friendViewModel.contactInvitationRecord(id) == saved)
+      #expect(friendViewModel.savedRemoteUsers.count == 1)
+      friendViewModel.resumeSuspendedContactInvitation()
+      #expect(friendViewModel.contactInvitationID == id && friendTransports.count == activeAttempt + 1
+        && starts == activeAttempt)
     }
+    try deliverBackgroundReply(friendTransport: friendTransports.last, authorTransport: authorTransport)
+    #expect(authorViewModel.savedRemoteUsers.map(\.memberIDs) == [["background-reply-friend"]])
+    #expect(friendViewModel.savedRemoteUsers.map(\.memberIDs) == [["background-reply-author"]])
+    #expect(friendViewModel.contactInvitationRecord(id)?.state == .delivered && finishes == activeAttempt)
+    #expect(author.callSession.startMediaCallCount == 0 && friend.callSession.startMediaCallCount == 0)
+  }
+
+  @Test func theNameGivenBeforeSendingBecomesTheSavedUsersLocalName() throws {
+    let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
+    let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
+    let authorViewModel = author.viewModel, friendViewModel = friend.viewModel
+    let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
+    authorViewModel.contactSessionFactory = { authorNotification }
+    friendViewModel.contactSessionFactory = { friendNotification }
+    defer { authorViewModel.disconnect(); friendViewModel.disconnect() }
+    let url = try #require(authorViewModel.makeContactInviteURL())
+    let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
+    #expect(authorViewModel.setContactInvitationNickname(id, "  Riding Buddy  "))
+    #expect(authorViewModel.contactInvitationRecord(id)?.nickname == "Riding Buddy")
+
+    try friendViewModel.acceptContactInviteURL(url)
+    friendNotification.authenticate(["contact-author"])
+    let receipt = try #require(friendNotification.sentApplicationDataMessages.last {
+      $0.namespace == DirectInvitationReceipt.namespace
+    })
+    authorNotification.authenticate(["contact-friend"])
+    authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: receipt))
+    let user = try #require(authorViewModel.savedRemoteUsers.first)
+    #expect(user.localName == "Riding Buddy", "The inviter's own word for the person names them on this device")
+    #expect(user.displayName != "Riding Buddy", "The person's shared name is kept separately")
+  }
+
+  @Test func reInvitingAnExistingContactReplacesThePairCallKeyOnBothDevices() throws {
+    let callID = IntercomGroup.directCallID(memberIDs: ["contact-author", "contact-friend"])
+    let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
+    let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
+    let authorViewModel = author.viewModel, friendViewModel = friend.viewModel
+    let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
+    authorViewModel.contactSessionFactory = { authorNotification }
+    friendViewModel.contactSessionFactory = { friendNotification }
+    defer { authorViewModel.disconnect(); friendViewModel.disconnect() }
+    let firstURL = try #require(authorViewModel.makeContactInviteURL())
+    try friendViewModel.acceptContactInviteURL(firstURL)
+    friendNotification.authenticate(["contact-author"])
+    let firstReceipt = try #require(friendNotification.sentApplicationDataMessages.last)
+    authorNotification.authenticate(["contact-friend"])
+    authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: firstReceipt))
+    let firstAcknowledgement = try #require(authorNotification.sentApplicationDataMessages.last)
+    friendNotification.onEvent?(.receivedApplicationData(peerID: "contact-author", message: firstAcknowledgement))
+
+    let oldKey = try #require(try authorViewModel.groupRepository.credential(for: callID))
+    #expect(try friendViewModel.groupRepository.credential(for: callID) == oldKey)
+
+    #expect(authorViewModel.setLocalDisplayName("Updated Author"))
+    let secondURL = try #require(authorViewModel.makeContactInviteURL())
+    #expect(secondURL != firstURL)
+    #expect(
+      try GroupInviteTokenCodec.decodeJoinURL(secondURL, contactBootstrap: true).inviterDisplayName == "Updated Author")
+    try friendViewModel.acceptContactInviteURL(secondURL)
+    friendNotification.authenticate(["contact-author"])
+    let secondReceipt = try #require(friendNotification.sentApplicationDataMessages.last)
+    authorNotification.authenticate(["contact-friend"])
+    authorNotification.onEvent?(.receivedApplicationData(peerID: "contact-friend", message: secondReceipt))
+    let secondAcknowledgement = try #require(authorNotification.sentApplicationDataMessages.last)
+    friendNotification.onEvent?(.receivedApplicationData(peerID: "contact-author", message: secondAcknowledgement))
+
+    #expect(friendViewModel.savedRemoteUsers.first?.displayName == "Updated Author")
+    let newKey = try #require(try authorViewModel.groupRepository.credential(for: callID))
+    #expect(newKey != oldKey)
+    #expect(try friendViewModel.groupRepository.credential(for: callID) == newKey)
+    #expect(authorViewModel.groups.map(\.id) == [callID] && friendViewModel.groups.map(\.id) == [callID])
+    #expect(authorViewModel.groups.first?.kind == .direct && friendViewModel.groups.first?.kind == .direct)
+  }
+  private func deliverBackgroundReply(
+    friendTransport: RecordingCallSession?, authorTransport: RecordingCallSession
+  ) throws {
+    let friendTransport = try #require(friendTransport)
+    friendTransport.authenticate(["background-reply-author"])
+    let receipt = try #require(
+      friendTransport.sentApplicationDataMessages.last {
+        $0.namespace == DirectInvitationReceipt.namespace
+      })
+    authorTransport.authenticate(["background-reply-friend"])
+    authorTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-friend", message: receipt))
+    let acknowledgement = try #require(
+      authorTransport.sentApplicationDataMessages.last {
+        $0.namespace == DirectInvitationReceipt.namespace
+      })
+    friendTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-author", message: acknowledgement))
+  }
+
 }
