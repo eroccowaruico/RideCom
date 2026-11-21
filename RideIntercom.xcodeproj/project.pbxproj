@@ -140,6 +140,11 @@
 		D35100000000000000000001 /* RideIntercom/Shared/Appearance.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = RideIntercom/Shared/Appearance.xcassets; sourceTree = SOURCE_ROOT; };
 		D35100000000000000000002 /* RideIntercom/Shared/RideComColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideIntercom/Shared/RideComColors.swift; sourceTree = SOURCE_ROOT; };
 		D70000000000000000000004 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		D76000000000000000000001 /* .dev.vars.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = .dev.vars.example; sourceTree = "<group>"; };
+		D76000000000000000000002 /* package-lock.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "package-lock.json"; sourceTree = "<group>"; };
+		D76000000000000000000003 /* package.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = package.json; sourceTree = "<group>"; };
+		D76000000000000000000004 /* tsconfig.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tsconfig.json; sourceTree = "<group>"; };
+		D76000000000000000000005 /* wrangler.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = wrangler.toml; sourceTree = "<group>"; };
 		E2E000000000000000000002 /* RideIntercomAudioE2ETests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomAudioE2ETests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2E00000000000000000000D /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -210,11 +215,6 @@
 			path = docs;
 			sourceTree = "<group>";
 		};
-		93BD7A642FACCD5600CBA553 /* server */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = server;
-			sourceTree = "<group>";
-		};
 		93BD7A6E2FACCD5C00CBA553 /* scripts */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = scripts;
@@ -261,6 +261,16 @@
 		D70000000000000000000005 /* .agents */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = .agents;
+			sourceTree = "<group>";
+		};
+		D76000000000000000000006 /* src */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = src;
+			sourceTree = "<group>";
+		};
+		D76000000000000000000007 /* test */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = test;
 			sourceTree = "<group>";
 		};
 		E2E000000000000000000003 /* RideIntercomAudioE2ETests */ = {
@@ -412,6 +422,20 @@
 				93F300E32F93829D0046716D /* RideIntercomUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		93BD7A642FACCD5600CBA553 /* server */ = {
+			isa = PBXGroup;
+			children = (
+				D76000000000000000000006 /* src */,
+				D76000000000000000000007 /* test */,
+				D76000000000000000000001 /* .dev.vars.example */,
+				D76000000000000000000002 /* package-lock.json */,
+				D76000000000000000000003 /* package.json */,
+				D76000000000000000000004 /* tsconfig.json */,
+				D76000000000000000000005 /* wrangler.toml */,
+			);
+			path = server;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1025,7 +1049,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1762;
+				CURRENT_PROJECT_VERSION = 1763;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1192,7 +1216,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1762;
+				CURRENT_PROJECT_VERSION = 1763;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1478,7 +1502,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1762;
+				CURRENT_PROJECT_VERSION = 1763;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1548,7 +1572,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1762;
+				CURRENT_PROJECT_VERSION = 1763;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;

@@ -19,6 +19,34 @@ class DevelopmentSetupTests(unittest.TestCase):
     def test_repository_and_editor_configuration(self):
         self.assertEqual(self.setup.check(ROOT), [])
 
+    def test_worker_root_does_not_synchronize_generated_directories(self):
+        objects = self.project['objects']
+        main = objects[objects[self.project['rootObject']]['mainGroup']]
+        worker = next(objects[key] for key in main['children'] if objects[key].get('path') == 'server')
+        self.assertEqual(worker['isa'], 'PBXGroup')
+        self.assertEqual({objects[key]['path'] for key in worker['children']
+                          if objects[key]['isa'] == 'PBXFileSystemSynchronizedRootGroup'}, {'src', 'test'})
+
+    def test_generated_worker_and_build_membership_refs_are_rejected(self):
+        for unwanted in ('node_modules', 'dist', '.wrangler', 'src'):
+            with self.subTest(path=unwanted):
+                project = copy.deepcopy(self.project)
+                objects = project['objects']
+                main = objects[objects[project['rootObject']]['mainGroup']]
+                worker = next(objects[key] for key in main['children'] if objects[key].get('path') == 'server')
+                if unwanted == 'src':
+                    child = next(key for key in worker.get('children', []) if objects[key].get('path') == 'src')
+                    target = next(obj for obj in objects.values() if obj.get('isa') == 'PBXNativeTarget')
+                    target.setdefault('fileSystemSynchronizedGroups', []).append(child)
+                    expected = 'server/src is editing-only and must not be a build input.'
+                else:
+                    objects['GENERATED_WORKER'] = {'isa': 'PBXFileSystemSynchronizedRootGroup',
+                                                  'path': unwanted, 'sourceTree': '<group>'}
+                    worker.setdefault('children', []).append('GENERATED_WORKER')
+                    expected = f'Do not add generated Worker paths to Xcode: server/{unwanted}.'
+                with patch.object(self.setup, 'load_project', return_value=project):
+                    self.assertIn(expected, self.setup.check(ROOT))
+
 
     def test_duplicate_root_path_is_rejected_even_with_a_different_spelling(self):
         project = copy.deepcopy(self.project)

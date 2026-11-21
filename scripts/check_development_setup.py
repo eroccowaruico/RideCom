@@ -13,6 +13,46 @@ def load_project(root):
     ]))
 
 
+def check_worker_editing_references(root, objects, worker_key, build_inputs):
+    worker = objects.get(worker_key, {})
+    if worker.get('isa') != 'PBXGroup':
+        return ['Keep server as an Xcode group so its dependency and build directories are not synchronized.']
+
+    errors = []
+    required = {
+        'src': 'PBXFileSystemSynchronizedRootGroup',
+        'test': 'PBXFileSystemSynchronizedRootGroup',
+        '.dev.vars.example': 'PBXFileReference',
+        'package-lock.json': 'PBXFileReference',
+        'package.json': 'PBXFileReference',
+        'tsconfig.json': 'PBXFileReference',
+        'wrangler.toml': 'PBXFileReference',
+    }
+    generated = {'.wrangler', 'node_modules', 'dist'}
+    children = {}
+    for key in worker.get('children', []):
+        reference = objects[key]
+        path = Path(reference.get('path', ''))
+        if reference.get('sourceTree') != '<group>' or path.is_absolute() or not path.parts or '..' in path.parts:
+            errors.append('Worker editing references must point to paths inside server.')
+            continue
+        name = path.as_posix()
+        if path.parts[0] in generated:
+            errors.append(f'Do not add generated Worker paths to Xcode: server/{name}.')
+            continue
+        if name in children:
+            errors.append(f'Duplicate Xcode navigator reference: server/{name}.')
+        children[name] = reference.get('isa')
+        if not (root / 'server' / path).exists():
+            errors.append(f'Missing Xcode navigator reference: server/{name}.')
+        if key in build_inputs:
+            errors.append(f'server/{name} is editing-only and must not be a build input.')
+    for name, reference_type in required.items():
+        if children.get(name) != reference_type:
+            errors.append(f'Keep the Xcode editing reference for server/{name} as {reference_type}.')
+    return errors
+
+
 def check(root):
     errors = []
     project = load_project(root)
@@ -57,7 +97,7 @@ def check(root):
             for key in target.get('fileSystemSynchronizedGroups', []):
                 build_groups.setdefault(key, []).append(target['name'])
 
-    editing_folders = ['docs', 'scripts', 'server', 'Configuration', '.vscode', '.codex', '.github', '.claude', '.agents']
+    editing_folders = ['docs', 'scripts', 'Configuration', '.vscode', '.codex', '.github', '.claude', '.agents']
     source_folders = ['RideIntercom', 'RideIntercomTests', 'RideIntercomUITests', 'RideIntercomAudioE2ETests',
                       'RideIntercomWidgets', 'RideIntercomWatch', 'RideIntercomWatchUITests']
     for folder in source_folders + editing_folders:
@@ -68,12 +108,13 @@ def check(root):
         elif folder in source_folders and build_groups.get(key) != [folder]:
             errors.append(f'{folder} must be synchronized only by the {folder} target.')
     build_files = {obj.get('fileRef') for obj in objects.values() if obj.get('isa') == 'PBXBuildFile'}
-    for folder in editing_folders + ['.gitignore', 'README.md', 'RideIntercom.code-workspace', 'AGENTS.md', 'CLAUDE.md']:
+    for folder in editing_folders + ['server', '.gitignore', 'README.md', 'RideIntercom.code-workspace', 'AGENTS.md', 'CLAUDE.md']:
         key = visible.get(folder)
         if key is None:
             errors.append(f'Keep the explicit Xcode editing entry for {folder}.')
         elif key in build_groups or key in build_files:
             errors.append(f'{folder} is editing-only and must not be a build input.')
+    errors.extend(check_worker_editing_references(root, objects, visible.get('server'), build_files | set(build_groups)))
     app_id = next(key for key,obj in objects.items() if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
     for group_id in objects[app_id].get('fileSystemSynchronizedGroups', []):
         group = objects[group_id]
