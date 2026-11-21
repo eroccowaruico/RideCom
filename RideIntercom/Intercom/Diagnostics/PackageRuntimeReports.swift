@@ -47,9 +47,10 @@ extension IntercomViewModel {
         force: Bool = false,
         now: TimeInterval = Date().timeIntervalSince1970
     ) {
+        let interval = isDiagnosticsVisible ? Self.runtimePackageReportPublishInterval : 5
         if !force,
            let lastRuntimePackageReportPublishedAt,
-           now - lastRuntimePackageReportPublishedAt < (isDiagnosticsVisible ? Self.runtimePackageReportPublishInterval : 5) {
+           now - lastRuntimePackageReportPublishedAt < interval {
             return
         }
         refreshPackageRuntimeSnapshots(now: now)
@@ -63,61 +64,56 @@ extension IntercomViewModel {
 
     func makeRuntimePackageReports(generatedAt: TimeInterval) -> [RTCRuntimePackageReport] {
         var reports: [RTCRuntimePackageReport] = []
-        appendReport(&reports, package: "AudioMixer", kind: "snapshot", generatedAt: generatedAt, payload: audioMixerSnapshot)
-        appendReport(&reports, package: "Codec", kind: "runtimeReport", generatedAt: generatedAt, payload: codecRuntimeReport)
-        appendReport(&reports, package: "VADGate", kind: "runtimeSnapshot", generatedAt: generatedAt, payload: vadGateRuntimeSnapshot)
-        appendReport(&reports, package: "SoundIsolation", kind: "transmitConfiguration", generatedAt: generatedAt, payload: AppAudioPipeline.transmitIsolationConfiguration)
-        appendReport(&reports, package: "SoundIsolation", kind: "receiveMasterConfiguration", generatedAt: generatedAt, payload: AppAudioPipeline.receiveIsolationConfiguration)
-        appendReport(&reports, package: "DynamicsProcessor", kind: "transmitConfiguration", generatedAt: generatedAt, payload: DynamicsProcessorConfiguration())
-        appendReport(&reports, package: "PeakLimiter", kind: "transmitConfiguration", generatedAt: generatedAt, payload: PeakLimiterConfiguration())
-        appendReport(&reports, package: "PeakLimiter", kind: "receiveMasterConfiguration", generatedAt: generatedAt, payload: PeakLimiterConfiguration())
-        appendReport(&reports, package: "SoundIsolation", kind: "support", generatedAt: generatedAt, payload: VoiceIsolationSupport.snapshot)
+        func append<Payload: Encodable>(_ package: String, _ kind: String, _ payload: Payload) {
+            if let report = try? RTCRuntimePackageReport.json(
+                package: package, kind: kind, generatedAt: generatedAt, payload: payload
+            ) {
+                reports.append(report)
+            }
+        }
+
+        append("AudioMixer", "snapshot", audioMixerSnapshot)
+        append("Codec", "runtimeReport", codecRuntimeReport)
+        append("VADGate", "runtimeSnapshot", vadGateRuntimeSnapshot)
+        append("SoundIsolation", "transmitConfiguration", AppAudioPipeline.transmitIsolationConfiguration)
+        append("SoundIsolation", "receiveMasterConfiguration", AppAudioPipeline.receiveIsolationConfiguration)
+        append("DynamicsProcessor", "transmitConfiguration", DynamicsProcessorConfiguration())
+        append("PeakLimiter", "transmitConfiguration", PeakLimiterConfiguration())
+        append("PeakLimiter", "receiveMasterConfiguration", PeakLimiterConfiguration())
+        append("SoundIsolation", "support", VoiceIsolationSupport.snapshot)
         for (busID, snapshot) in audioPipeline.isolationRuntimeSnapshots.sorted(by: { $0.key < $1.key }) {
-            let kind = busID == "tx-bus" ? "transmitRuntimeSnapshot"
-                : busID == "rx-master" ? "receiveMasterRuntimeSnapshot" : "receivePeerRuntimeSnapshot:\(busID.dropFirst("rx-peer-".count))"
-            appendReport(&reports, package: "SoundIsolation", kind: kind, generatedAt: generatedAt, payload: snapshot)
+            append("SoundIsolation", Self.isolationReportKind(for: busID), snapshot)
         }
         if let snapshot = audioPipeline.dynamicsRuntimeSnapshot {
-            appendReport(&reports, package: "DynamicsProcessor", kind: "transmitRuntimeSnapshot", generatedAt: generatedAt, payload: snapshot)
+            append("DynamicsProcessor", "transmitRuntimeSnapshot", snapshot)
         }
         if let snapshot = audioPipeline.transmitLimiterRuntimeSnapshot {
-            appendReport(&reports, package: "PeakLimiter", kind: "transmitRuntimeSnapshot", generatedAt: generatedAt, payload: snapshot)
+            append("PeakLimiter", "transmitRuntimeSnapshot", snapshot)
         }
         if let snapshot = audioPipeline.outputLimiterRuntimeSnapshot {
-            appendReport(&reports, package: "PeakLimiter", kind: "receiveMasterRuntimeSnapshot", generatedAt: generatedAt, payload: snapshot)
+            append("PeakLimiter", "receiveMasterRuntimeSnapshot", snapshot)
         }
-        appendReport(&reports, package: "SessionManager", kind: "audioSessionConfigurationRequest", generatedAt: generatedAt, payload: makeAudioSessionConfiguration())
+        append("SessionManager", "audioSessionConfigurationRequest", makeAudioSessionConfiguration())
         if let lastAudioSessionConfigurationReport {
-            appendReport(&reports, package: "SessionManager", kind: "audioSessionConfigurationReport", generatedAt: generatedAt, payload: lastAudioSessionConfigurationReport)
+            append("SessionManager", "audioSessionConfigurationReport", lastAudioSessionConfigurationReport)
         }
         if let lastInputStreamOperationReport {
-            appendReport(&reports, package: "SessionManager", kind: "inputStreamOperationReport", generatedAt: generatedAt, payload: lastInputStreamOperationReport)
+            append("SessionManager", "inputStreamOperationReport", lastInputStreamOperationReport)
         }
         if let lastOutputStreamOperationReport {
-            appendReport(&reports, package: "SessionManager", kind: "outputStreamOperationReport", generatedAt: generatedAt, payload: lastOutputStreamOperationReport)
+            append("SessionManager", "outputStreamOperationReport", lastOutputStreamOperationReport)
         }
         if let lastVoiceProcessingOperationReport {
-            appendReport(&reports, package: "SessionManager", kind: "voiceProcessingOperationReport", generatedAt: generatedAt, payload: lastVoiceProcessingOperationReport)
+            append("SessionManager", "voiceProcessingOperationReport", lastVoiceProcessingOperationReport)
         }
         return reports
     }
 
-    private func appendReport<Payload: Encodable>(
-        _ reports: inout [RTCRuntimePackageReport],
-        package: String,
-        kind: String,
-        generatedAt: TimeInterval,
-        payload: Payload
-    ) {
-        guard let report = try? RTCRuntimePackageReport.json(
-            package: package,
-            kind: kind,
-            generatedAt: generatedAt,
-            payload: payload
-        ) else {
-            return
+    private static func isolationReportKind(for busID: String) -> String {
+        switch busID {
+        case "tx-bus": "transmitRuntimeSnapshot"
+        case "rx-master": "receiveMasterRuntimeSnapshot"
+        default: "receivePeerRuntimeSnapshot:\(busID.dropFirst("rx-peer-".count))"
         }
-        reports.append(report)
     }
-
 }
