@@ -21,7 +21,10 @@ final class DesignSystemNotificationUITests: XCTestCase {
                 failureScreen.lifetime = .keepAlways
                 add(failureScreen)
                 let hierarchy = XCTAttachment(string: app.debugDescription)
-                hierarchy.name = japanese ? "Japanese notification accessibility hierarchy" : "English notification accessibility hierarchy"
+                hierarchy.name =
+                    japanese
+                    ? "Japanese notification accessibility hierarchy"
+                    : "English notification accessibility hierarchy"
                 hierarchy.lifetime = .keepAlways
                 add(hierarchy)
                 app.terminate()
@@ -35,7 +38,10 @@ final class DesignSystemNotificationUITests: XCTestCase {
             let upper = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
             let reset = app.buttons["moreSettingsLink"].firstMatch
             for _ in 0..<15 {
-                for id in ["receiveCallNotificationsToggle", "callNotificationsStatus", "openNotificationSettings", "retryCallNotifications"] {
+                for id in [
+                    "receiveCallNotificationsToggle", "callNotificationsStatus", "openNotificationSettings",
+                    "retryCallNotifications"
+                ] {
                     XCTAssertFalse(app.descendants(matching: .any)[id].exists, id)
                 }
                 XCTAssertFalse(app.staticTexts[japanese ? "呼び出しの通知" : "Call Notifications"].exists)

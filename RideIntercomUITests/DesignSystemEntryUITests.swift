@@ -21,12 +21,18 @@ final class DesignSystemEntryUITests: XCTestCase {
             XCTAssertTrue(button.exists)
             let expectedReason = japanese
                 ? "招待した仲間だけが通話に入れるよう、あなたを確かめるためにサインインします。メールアドレスと本名は使いません。"
-                : "Sign in to verify you so only invited people can join your calls. We do not use your email address or real name."
+                : """
+                  Sign in to verify you so only invited people can join your calls. \
+                  We do not use your email address or real name.
+                  """
             XCTAssertEqual(reason.label, expectedReason)
             revealSignInButton(button, in: app)
             attach(app, japanese ? "Japanese sign-in portrait" : "English sign-in portrait")
             XCUIDevice.shared.orientation = .landscapeLeft
-            let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+            let rotated = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in app.frame.width > app.frame.height },
+                object: nil
+            )
             XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 5), .completed)
             XCTAssertTrue(glyph.exists && reason.exists && button.exists)
             XCTAssertEqual(reason.label, expectedReason)
@@ -105,7 +111,10 @@ final class DesignSystemEntryUITests: XCTestCase {
         continueAfterFailure = false
         for japanese in [false, true] {
             let app = launch(japanese: japanese, signedIn: true)
-            defer { attach(app, japanese ? "Japanese developer settings" : "English developer settings"); app.terminate() }
+            defer {
+                attach(app, japanese ? "Japanese developer settings" : "English developer settings")
+                app.terminate()
+            }
             let tab = app.tabBars.buttons[japanese ? "設定" : "Settings"].firstMatch
             XCTAssertTrue(tab.waitForExistence(timeout: 8)); tab.tap()
             let form = app.collectionViews.firstMatch
@@ -134,7 +143,11 @@ final class DesignSystemEntryUITests: XCTestCase {
 
     private func launch(japanese: Bool, signedIn: Bool) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchArguments = [
+            "-AppleLanguages", japanese ? "(ja)" : "(en)",
+            "-AppleLocale", japanese ? "ja_JP" : "en_US",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
+        ]
         app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
         app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = signedIn ? "signed-in" : "signed-out"
         app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
