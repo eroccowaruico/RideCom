@@ -77,8 +77,10 @@ struct AppSettings: Equatable {
         self.transmitSoundIsolationEnabled = transmitSoundIsolationEnabled
         self.preferredTransmitCodec = preferredTransmitCodec
         self.rtcAudioFormatPreset = rtcAudioFormatPreset
-        self.aacELDv2BitRate = AppAudioCodecBridge.normalizedAACBitRate(aacELDv2BitRate, format: rtcAudioFormatPreset.audioFormat)
-        self.opusBitRate = AppAudioCodecBridge.normalizedOpusBitRate(opusBitRate, format: rtcAudioFormatPreset.audioFormat)
+        self.aacELDv2BitRate = AppAudioCodecBridge.normalizedAACBitRate(
+            aacELDv2BitRate, format: rtcAudioFormatPreset.audioFormat)
+        self.opusBitRate = AppAudioCodecBridge.normalizedOpusBitRate(
+            opusBitRate, format: rtcAudioFormatPreset.audioFormat)
         self.enabledRTCTransportRoutes = IntercomViewModel.normalizedRTCTransportRoutes(enabledRTCTransportRoutes)
     }
 }
@@ -114,9 +116,13 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
 
     func load() -> AppSettings {
         var settings = AppSettings(
-            recentCallDestination: defaults.data(forKey: recentCallDestinationKey).flatMap { try? JSONDecoder().decode(CallDestination.self, from: $0) },
-            callDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: callDisconnectIntervalKey)) ?? .regularDefault,
-            watchCallDisconnectInterval: CallDisconnectInterval(rawValue: defaults.integer(forKey: watchCallDisconnectIntervalKey)) ?? .watchDefault,
+            recentCallDestination: defaults.data(forKey: recentCallDestinationKey).flatMap {
+                try? JSONDecoder().decode(CallDestination.self, from: $0)
+            },
+            callDisconnectInterval: CallDisconnectInterval(
+                rawValue: defaults.integer(forKey: callDisconnectIntervalKey)) ?? .regularDefault,
+            watchCallDisconnectInterval: CallDisconnectInterval(
+                rawValue: defaults.integer(forKey: watchCallDisconnectIntervalKey)) ?? .watchDefault,
             audioSessionProfile: loadAudioSessionProfile(),
             vadSensitivity: loadVADSensitivity(),
             transmitSoundIsolationEnabled: defaults.object(forKey: transmitSoundIsolationKey) as? Bool
@@ -135,7 +141,8 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
         )
         settings.menuBarEnabled = defaults.bool(forKey: menuBarKey)
         settings.liveActivityEnabled = defaults.bool(forKey: liveActivityKey)
-        settings.interfaceMode = defaults.string(forKey: interfaceModeKey).flatMap(InterfaceMode.init(rawValue:)) ?? .standard
+        settings.interfaceMode =
+            defaults.string(forKey: interfaceModeKey).flatMap(InterfaceMode.init(rawValue:)) ?? .standard
         settings.showsGroupsTab = defaults.bool(forKey: showsGroupsTabKey)
         return settings
     }
@@ -145,7 +152,9 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
         defaults.set(settings.liveActivityEnabled, forKey: liveActivityKey)
         defaults.set(settings.interfaceMode.rawValue, forKey: interfaceModeKey)
         defaults.set(settings.showsGroupsTab, forKey: showsGroupsTabKey)
-        defaults.set(settings.recentCallDestination.flatMap { try? JSONEncoder().encode($0) }, forKey: recentCallDestinationKey)
+        defaults.set(
+            settings.recentCallDestination.flatMap { try? JSONEncoder().encode($0) },
+            forKey: recentCallDestinationKey)
         defaults.set(settings.callDisconnectInterval.rawValue, forKey: callDisconnectIntervalKey)
         defaults.set(settings.watchCallDisconnectInterval.rawValue, forKey: watchCallDisconnectIntervalKey)
         defaults.set(settings.audioSessionProfile.rawValue, forKey: audioSessionProfileKey)
@@ -209,7 +218,9 @@ final class UserDefaultsAppSettingsStore: AppSettingsStoring {
         guard let rawValues = defaults.object(forKey: enabledRTCTransportRoutesKey) as? [String] else {
             return IntercomViewModel.defaultEnabledRTCTransportRoutes
         }
-        guard defaults.integer(forKey: rtcTransportRoutesSchemaVersionKey) >= currentRTCTransportRoutesSchemaVersion else {
+        guard
+            defaults.integer(forKey: rtcTransportRoutesSchemaVersionKey) >= currentRTCTransportRoutesSchemaVersion
+        else {
             return IntercomViewModel.defaultEnabledRTCTransportRoutes
         }
         let routes = Set(rawValues.compactMap(RTC.RouteKind.init(rawValue:)))

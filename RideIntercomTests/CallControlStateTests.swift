@@ -16,12 +16,14 @@ struct CallControlStateTests {
     }
 
     @Test func readyWhenTheDestinationIsSavedAndNotInACall() {
-        let snapshot = WidgetDestinationSnapshot(destinations: [user, group], currentDestinationID: group.id, currentCall: call)
+        let snapshot = WidgetDestinationSnapshot(
+            destinations: [user, group], currentDestinationID: group.id, currentCall: call)
         #expect(CallControlState(configured: user, snapshot: snapshot) == .ready(user))
     }
 
     @Test func inCallOnlyForTheDestinationOfTheLiveCall() {
-        let snapshot = WidgetDestinationSnapshot(destinations: [user, group], currentDestinationID: user.id, currentCall: call)
+        let snapshot = WidgetDestinationSnapshot(
+            destinations: [user, group], currentDestinationID: user.id, currentCall: call)
         #expect(CallControlState(configured: user, snapshot: snapshot) == .inCall(user))
         #expect(CallControlState(configured: group, snapshot: snapshot) == .ready(group))
     }

@@ -3,17 +3,27 @@ import Observation
 import RTC
 
 extension IntercomViewModel {
-    static var groupAccessRequiredMessage: String { "An active pass is required to create a group or invite riders. Check Access in Settings." }
-    static var callAccessRequiredMessage: String { "Waiting for a rider with an active pass. You can also check Access in Settings." }
+    static var groupAccessRequiredMessage: String {
+        "An active pass is required to create a group or invite riders. Check Access in Settings."
+    }
+    static var callAccessRequiredMessage: String {
+        "Waiting for a rider with an active pass. You can also check Access in Settings."
+    }
 
     var commercialAccess: StoreAccessEvaluation {
         callAccessEvaluation?(callAccessNow()) ?? storeAccess.evaluation(at: callAccessNow())
     }
     func hasLocalCallRight(at now: TimeInterval) -> Bool {
-        let value = callAccessEvaluation?(Date(timeIntervalSince1970: now)) ?? storeAccess.evaluation(at: Date(timeIntervalSince1970: now))
-        return value.status == .active && (value.activeUntil.map { $0.timeIntervalSince1970.isFinite && now < $0.timeIntervalSince1970 } ?? true)
+        let value =
+            callAccessEvaluation?(Date(timeIntervalSince1970: now))
+            ?? storeAccess.evaluation(at: Date(timeIntervalSince1970: now))
+        return value.status == .active
+            && (value.activeUntil.map { $0.timeIntervalSince1970.isFinite && now < $0.timeIntervalSince1970 }
+                ?? true)
     }
-    var canManageRegularGroups: Bool { canEditSavedGroups && (!enforceCallAccess || hasLocalCallRight(at: callAccessNow().timeIntervalSince1970)) }
+    var canManageRegularGroups: Bool {
+        canEditSavedGroups && (!enforceCallAccess || hasLocalCallRight(at: callAccessNow().timeIntervalSince1970))
+    }
     func requireGroupAccess() -> Bool {
         guard canManageRegularGroups else {
             groupErrorMessage = groupStorageNotice ?? Self.groupAccessRequiredMessage
@@ -68,7 +78,8 @@ extension IntercomViewModel {
             if !isAudioPausedForDeviceChange, audioErrorMessage == nil || retryMedia { startAudioPipelineIfNeeded() }
             let readyPeers = peers.compactMap(\.callAccess).filter { $0.mediaReady || $0.isEstablished }
             let sponsored = hasLocalCallRight(at: now) || readyPeers.contains { $0.hasRight(at: now) }
-            let canEstablish = sponsored || CallAccessState.permitsResume(since: callAccessState.lastSponsoredStart, now: now)
+            let canEstablish =
+                sponsored || CallAccessState.permitsResume(since: callAccessState.lastSponsoredStart, now: now)
             _ = callAccessState.establish(now: now, sponsored: sponsored,
                 remoteEstablished: readyPeers.contains { $0.isEstablished },
                 mediaReady: isAudioReady && !readyPeers.isEmpty && canEstablish)
@@ -94,20 +105,25 @@ extension IntercomViewModel {
     func sendCallAccess(to recipient: String? = nil, force: Bool = false, now suppliedNow: TimeInterval? = nil) {
         let now = suppliedNow ?? callAccessNow().timeIntervalSince1970
         guard enforceCallAccess, canStartCalls, let groupID = activeGroupID else { return }
-        let evaluation = callAccessEvaluation?(Date(timeIntervalSince1970: now)) ?? storeAccess.evaluation(at: Date(timeIntervalSince1970: now))
+        let evaluation =
+            callAccessEvaluation?(Date(timeIntervalSince1970: now))
+            ?? storeAccess.evaluation(at: Date(timeIntervalSince1970: now))
         let until = hasLocalCallRight(at: now) ? evaluation.activeUntil?.timeIntervalSince1970 : nil
         for peerID in peerProfiles.keys.sorted() where recipient == nil || recipient == peerID {
             guard var state = peerProfiles[peerID], let challenge = state.remoteChallenge, state.verified != nil,
                   state.callAccessRevision < UInt64.max else { continue }
             var value = SharedCallAccess(groupID: groupID, recipientMemberID: peerID, challenge: challenge,
-                revision: state.callAccessRevision, hasActiveRight: hasLocalCallRight(at: now), activeUntil: until, mediaReady: isAudioReady,
+                revision: state.callAccessRevision, hasActiveRight: hasLocalCallRight(at: now), activeUntil: until,
+                mediaReady: isAudioReady,
                 isEstablished: callAccessState.isEstablished, lastSponsoredStart: callAccessState.lastSponsoredStart)
             guard force || value != state.sentCallAccess else { continue }
             value = SharedCallAccess(groupID: groupID, recipientMemberID: peerID, challenge: challenge,
-                revision: state.callAccessRevision + 1, hasActiveRight: hasLocalCallRight(at: now), activeUntil: until, mediaReady: isAudioReady,
+                revision: state.callAccessRevision + 1, hasActiveRight: hasLocalCallRight(at: now),
+                activeUntil: until, mediaReady: isAudioReady,
                 isEstablished: callAccessState.isEstablished, lastSponsoredStart: callAccessState.lastSponsoredStart)
             guard let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
-                  let signed = try? value.signed(by: signer), let payload = try? JSONEncoder().encode(signed) else { continue }
+                let signed = try? value.signed(by: signer), let payload = try? JSONEncoder().encode(signed)
+            else { continue }
             state.callAccessRevision = value.revision
             state.sentCallAccess = value
             peerProfiles[peerID] = state
@@ -117,8 +133,10 @@ extension IntercomViewModel {
 
     func receiveCallAccess(peerID: String, message: ApplicationDataMessage, now suppliedNow: TimeInterval? = nil) {
         let now = suppliedNow ?? callAccessNow().timeIntervalSince1970
-        guard enforceCallAccess, canStartCalls, message.namespace == SharedCallAccess.namespace, message.payload.count <= 8192,
-              authenticatedPeerIDs.contains(peerID), var state = peerProfiles[peerID], state.membershipID != nil, let verified = currentRepresentativeProfiles[peerID]?.verified,
+        guard enforceCallAccess, canStartCalls, message.namespace == SharedCallAccess.namespace,
+            message.payload.count <= 8192,
+            authenticatedPeerIDs.contains(peerID), var state = peerProfiles[peerID], state.membershipID != nil,
+            let verified = currentRepresentativeProfiles[peerID]?.verified,
               let value = message.decodedPayload(SharedCallAccess.self, from: peerID),
               value.groupID == activeGroupID, value.recipientMemberID == localMemberIdentity.memberID,
               value.challenge == state.challenge, value.revision > (state.callAccess?.revision ?? 0),

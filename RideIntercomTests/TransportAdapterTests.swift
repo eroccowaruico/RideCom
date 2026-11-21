@@ -23,7 +23,8 @@ struct TransportAdapterTests {
         await AppTestSupport.waitUntil { rtc.sentAudioSequences == [999] }
         let driver = OfflineAudioDriver()
         let pipeline = AppAudioPipeline(makeEngine: driver.makeEngine)
-        try pipeline.rebuild(configuration: .init(preferredCodec: codec, transmitSoundIsolationEnabled: false), peerIDs: [])
+            try pipeline.rebuild(
+                configuration: .init(preferredCodec: codec, transmitSoundIsolationEnabled: false), peerIDs: [])
         pipeline.onTransmitPacket = adapter.audioPacketSink
         let delivery = AudioFrameDelivery { _ in }
         defer { delivery.finish(); adapter.disconnect(); pipeline.stop() }
@@ -154,7 +155,9 @@ struct TransportAdapterTests {
             rtc.emit(.membersChanged([.init(peer: peer, route: route, isConnected: true, membershipID: membership)]))
         }
         func marker() {
-            rtc.emit(.receivedApplicationData(.init(peerID: peer.id, message: .init(namespace: "test.marker", payload: Data()))))
+                rtc.emit(
+                    .receivedApplicationData(
+                        .init(peerID: peer.id, message: .init(namespace: "test.marker", payload: Data()))))
         }
         emitMember(.multipeer, first)
         for route in [RouteKind.webRTC, .multipeer, .webRTC] { emitMember(route, first) }

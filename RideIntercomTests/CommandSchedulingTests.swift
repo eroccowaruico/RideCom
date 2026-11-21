@@ -29,7 +29,8 @@ struct CommandSchedulingTests {
         adapter.connect(group: IntercomSeedData.recentGroups[0])
         await gate.waitForEntry()
         for rate in [16_000.0, 48_000, 24_000] {
-            adapter.setAudioPolicy(.init(preferredSendFormat: .init(sampleRate: rate), preferredCodecs: [.opus, .pcm16]))
+            adapter.setAudioPolicy(
+                .init(preferredSendFormat: .init(sampleRate: rate), preferredCodecs: [.opus, .pcm16]))
         }
         #expect(adapter.pendingCommandCount == 1)
         adapter.startMedia()
@@ -123,7 +124,8 @@ struct CommandSchedulingTests {
         })
         adapter.connect(group: IntercomSeedData.recentGroups[0])
         await gate.waitForEntry()
-        let configuration = RTC.CloudflareRealtimeConfiguration(workerURL: URL(string: "https://fixture.invalid")!, accessToken: "fixture")
+        let configuration = RTC.CloudflareRealtimeConfiguration(
+            workerURL: URL(string: "https://fixture.invalid")!, accessToken: "fixture")
         for _ in 0..<10_000 { adapter.updateInternetConfiguration(configuration) }
         #expect(creations == 1)
         #expect(adapter.pendingCommandCount == 1)

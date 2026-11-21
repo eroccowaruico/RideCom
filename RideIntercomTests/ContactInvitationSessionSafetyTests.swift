@@ -67,7 +67,8 @@ struct ContactInvitationSessionSafetyTests {
         pair.authorTransport.authenticate(["safety-friend", "safety-stranger"])
         pair.deliver(receipt)
         let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
-        let second = try token.accept(signer: testIdentitySigner("safety-stranger"), displayName: "Stranger", contactBootstrap: true)
+        let second = try token.accept(
+            signer: testIdentitySigner("safety-stranger"), displayName: "Stranger", contactBootstrap: true)
         let other = ApplicationDataMessage(namespace: DirectInvitationReceipt.namespace,
             payload: try JSONEncoder().encode(second.receipt))
         let sentCount = pair.authorTransport.sentApplicationDataMessages.count
@@ -115,7 +116,8 @@ struct ContactInvitationSessionSafetyTests {
         pair.author.onRegisteredPeerAlone = { authorAlone.append($0) }
         pair.friend.onRegisteredPeerAlone = { friendAlone.append($0) }
         pair.friend.onNotificationPermission = { peer, _ in received.append(peer) }
-        let permission = ApplicationDataMessage(namespace: CallNotificationPermissionMessage.namespace, payload: Data([1]))
+        let permission = ApplicationDataMessage(
+            namespace: CallNotificationPermissionMessage.namespace, payload: Data([1]))
         let (_, receipt) = try pair.prepare()
         #expect(!pair.friend.sendNotificationPermission(Data([1])), "Not before the inviter has saved this person")
         pair.friendTransport.onEvent?(.receivedApplicationData(peerID: "safety-author", message: permission))

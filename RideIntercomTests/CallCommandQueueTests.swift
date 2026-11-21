@@ -17,9 +17,13 @@ struct CallCommandQueueTests {
         let mute = queue.append(.localMute(true), generation: generation)
         #expect(start && mute)
         #expect(queue.count == 3)
-        guard case .localMute(false)? = queue.popFirst()?.command else { Issue.record("Final mute before boundary was not retained"); return }
+        guard case .localMute(false)? = queue.popFirst()?.command else {
+            Issue.record("Final mute before boundary was not retained"); return
+        }
         guard case .startMedia? = queue.popFirst()?.command else { Issue.record("Media boundary moved"); return }
-        guard case .localMute(true)? = queue.popFirst()?.command else { Issue.record("Setting crossed the boundary"); return }
+        guard case .localMute(true)? = queue.popFirst()?.command else {
+            Issue.record("Setting crossed the boundary"); return
+        }
     }
     @Test func orderedCommandsAndBytesHaveIndependentBounds() {
         var queue = CallCommandQueue(); let generation = UUID()
@@ -34,7 +38,8 @@ struct CallCommandQueueTests {
         #expect(!oversizedQueue)
         #expect(queue.pendingPayloadBytes == 262_144)
         queue.removeAll()
-        let oversizedPacket = queue.append(.application(.init(namespace: "payload", payload: Data(count: 65_537))), generation: generation)
+        let oversizedPacket = queue.append(
+            .application(.init(namespace: "payload", payload: Data(count: 65_537))), generation: generation)
         #expect(!oversizedPacket)
     }
     @Test func differentConnectionGenerationsDoNotCoalesce() {

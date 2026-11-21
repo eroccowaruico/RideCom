@@ -54,7 +54,9 @@ struct CallCommandQueue {
                 if key == previousKey { replacement = index; break }
             }
         }
-        let bytes = pendingPayloadBytes - (replacement.map { entries[$0].command.payloadBytes } ?? 0) + command.payloadBytes
+        let bytes =
+            pendingPayloadBytes - (replacement.map { entries[$0].command.payloadBytes } ?? 0)
+            + command.payloadBytes
         guard bytes <= 262_144, replacement != nil || count < 64 else { return false }
         if let replacement { entries.remove(at: replacement) }
         entries.append(.init(command: command, generation: generation))

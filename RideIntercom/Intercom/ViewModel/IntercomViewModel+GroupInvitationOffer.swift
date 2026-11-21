@@ -3,7 +3,9 @@ import Foundation
 extension IntercomViewModel {
     var groupTabInvitationOffer: IntercomGroup? {
         _ = contactInvitationRevision
-        guard interfaceMode == .standard, !showsGroupsTab, canEditSavedGroups, !hasAnyActiveGroupConnection else { return nil }
+        guard interfaceMode == .standard, !showsGroupsTab, canEditSavedGroups, !hasAnyActiveGroupConnection else {
+            return nil
+        }
         return groupRepository.unacknowledgedGroupTabOffers.first.flatMap { groupRepository.storedGroup($0) }
     }
 
