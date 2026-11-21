@@ -12,7 +12,7 @@ const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CL
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
     APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' };
-const call = (r, path, body, token, method = 'POST') => r.dispatchFetch('https://worker.test' + path, {
+const call = (r, path, body, token, method = 'POST') => r.dispatchFetch(`https://worker.test${path}`, {
     method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 async function login(r, subject, deviceID = randomUUID()) {
@@ -39,7 +39,7 @@ test('contact deletion relay requires the pair slot and recipient device even af
         const a = await login(r, 'delete-author'), a2 = await login(r, 'delete-author');
         const b = await login(r, 'delete-recipient'), b2 = await login(r, 'delete-recipient'), c = await login(r, 'delete-outsider');
         const permit = await grant(r, b, a);
-        assert.equal((await call(r, '/api/notifications/grants/' + permit.grantID, undefined, b.accessToken, 'DELETE')).status, 200);
+        assert.equal((await call(r, `/api/notifications/grants/${permit.grantID}`, undefined, b.accessToken, 'DELETE')).status, 200);
         const key = await generateKeyPair('ES256', { extractable: true });
         const jwk = await exportJWK(key.publicKey);
         const recipientKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
@@ -71,19 +71,19 @@ test('contact deletion relay requires the pair slot and recipient device even af
         await state(await call(r, path, message, a.accessToken, 'PUT'), 'pending');
         assert.equal((await call(r, path, { ...message, packet: receipt }, a.accessToken, 'PUT')).status, 409);
         assert.equal((await call(r, path, message, a2.accessToken, 'PUT')).status, 409);
-        assert.equal((await call(r, path + '/read', read, b2.accessToken)).status, 404);
-        assert.equal((await call(r, path + '/read', read, c.accessToken)).status, 404);
-        assert.equal((await call(r, path + '/read', { ...read, slot: '34'.repeat(32) }, b.accessToken)).status, 404);
-        assert.deepEqual(await (await call(r, path + '/read', read, b.accessToken)).json(), { deletion: { id, expiresAt, packet } });
-        assert.equal((await call(r, path + '/receipt', { ...ack, packet }, b.accessToken, 'PUT')).status, 404);
-        await state(await call(r, path + '/receipt', ack, b.accessToken, 'PUT'), 'received');
-        await state(await call(r, path + '/receipt', ack, b.accessToken, 'PUT'), 'received');
+        assert.equal((await call(r, `${path}/read`, read, b2.accessToken)).status, 404);
+        assert.equal((await call(r, `${path}/read`, read, c.accessToken)).status, 404);
+        assert.equal((await call(r, `${path}/read`, { ...read, slot: '34'.repeat(32) }, b.accessToken)).status, 404);
+        assert.deepEqual(await (await call(r, `${path}/read`, read, b.accessToken)).json(), { deletion: { id, expiresAt, packet } });
+        assert.equal((await call(r, `${path}/receipt`, { ...ack, packet }, b.accessToken, 'PUT')).status, 404);
+        await state(await call(r, `${path}/receipt`, ack, b.accessToken, 'PUT'), 'received');
+        await state(await call(r, `${path}/receipt`, ack, b.accessToken, 'PUT'), 'received');
         const authorRead = { owner: a.userID, slot };
-        assert.equal((await call(r, path + '/read', authorRead, a2.accessToken)).status, 404);
-        assert.deepEqual(await (await call(r, path + '/read', authorRead, a.accessToken)).json(), { receipt: { id, expiresAt, packet: receipt } });
+        assert.equal((await call(r, `${path}/read`, authorRead, a2.accessToken)).status, 404);
+        assert.deepEqual(await (await call(r, `${path}/read`, authorRead, a.accessToken)).json(), { receipt: { id, expiresAt, packet: receipt } });
         await state(await call(r, path, { slot, id, expiresAt }, a.accessToken, 'DELETE'), 'retired');
         await state(await call(r, path, message, a.accessToken, 'PUT'), 'retired');
-        assert.equal((await call(r, path + '/read', read, b.accessToken)).status, 404);
+        assert.equal((await call(r, `${path}/read`, read, b.accessToken)).status, 404);
         const late = { ...message, slot: 'ab'.repeat(32), id: randomUUID() };
         await state(await call(r, path, { slot: late.slot, id: late.id, expiresAt }, a.accessToken, 'DELETE'), 'retired');
         await state(await call(r, path, late, a.accessToken, 'PUT'), 'retired');
@@ -238,7 +238,7 @@ test('old routing and token indexes are removed on replacement, sign-out and del
         const a = await login(r, 'a'), b = await login(r, 'b');
         const { createHash } = await import('node:crypto');
         const indexes = await r.getDurableObjectNamespace('NOTIFICATION_INDEX');
-        const tokenKey = value => 'token:' + createHash('sha256').update('sandbox|fixture-app|' + value).digest('hex');
+        const tokenKey = value => `token:${createHash('sha256').update(`sandbox|fixture-app|${value}`).digest('hex')}`;
         const readIndex = async key => {
             return indexes.get(indexes.idFromName(key)).current();
         };
@@ -249,7 +249,7 @@ test('old routing and token indexes are removed on replacement, sign-out and del
         const b2 = await login(r, 'b', b.deviceID); await register(r, b2);
         const g = await grant(r, b2, a); assert.ok(g.capability);
         await call(r, '/api/auth/account', undefined, b2.accessToken, 'DELETE');
-        assert.equal(await readIndex('user:' + b.userID), null);
+        assert.equal(await readIndex(`user:${b.userID}`), null);
         assert.equal(await readIndex(tokenKey('ab'.repeat(48))), null);
     } finally { await r.dispose(); }
 });
@@ -363,14 +363,14 @@ test('an older device cannot shorten the current public route, while token owner
     const r = await setup();
     try {
         const indexes = await r.getDurableObjectNamespace('NOTIFICATION_INDEX');
-        const route = indexes.get(indexes.idFromName('user:' + 'a'.repeat(64)));
+        const route = indexes.get(indexes.idFromName(`user:${'a'.repeat(64)}`));
         const newerExpiry = Date.now() + 120_000, olderExpiry = Date.now() + 60_000;
         const owner = { accountID: 'account-a', userID: 'a'.repeat(64) };
         await route.bind({ ...owner, expiresAt: newerExpiry });
         await route.bind({ ...owner, expiresAt: olderExpiry });
         assert.equal(await (await route.current()).expiresAt, newerExpiry);
         // The same optimization must never preserve a previous APNs-token owner.
-        const token = indexes.get(indexes.idFromName('token:' + 'b'.repeat(64)));
+        const token = indexes.get(indexes.idFromName(`token:${'b'.repeat(64)}`));
         await token.bind({ ...owner, deviceID: 'device-a', registrationID: 'first', expiresAt: newerExpiry });
         await token.bind({ accountID: 'account-b', userID: 'b'.repeat(64), deviceID: 'device-b', registrationID: 'second', expiresAt: olderExpiry });
         const current = await token.current();
@@ -385,8 +385,8 @@ test('an older device cannot shorten the current public route, while token owner
 test('background invitation deliveries share a source limit before reading the request body', async () => {
     const r = await setup({}, undefined, { apiLimit: 1 });
     try {
-        assert.equal((await call(r, groupPath + '/background', {})).status, 400);
-        assert.equal((await call(r, groupPath + '/background-cancellation', {})).status, 429);
+        assert.equal((await call(r, `${groupPath}/background`, {})).status, 400);
+        assert.equal((await call(r, `${groupPath}/background-cancellation`, {})).status, 429);
         assert.equal((await call(r, '/api/ordinary-group-replies/background-acceptance', {})).status, 429);
     } finally { await r.dispose(); }
 });
@@ -409,7 +409,7 @@ test('a background submission authorizes exactly the signed group invitation wit
             return response.json();
         };
         const certificate = await issueIdentity(a);
-        const grantResult = await call(r, groupPath + '/grants', { senderUserID: a.userID }, b.accessToken);
+        const grantResult = await call(r, `${groupPath}/grants`, { senderUserID: a.userID }, b.accessToken);
         assert.equal(grantResult.status, 200);
         const permission = await grantResult.json();
         const body = { capability: permission.capability, requestID: randomUUID(), expiresAt: Date.now() + 60_000,
@@ -431,17 +431,17 @@ test('a background submission authorizes exactly the signed group invitation wit
                 proof: { publicKey, certificate: identity, signature: Buffer.from(signature).toString('base64url') } };
         };
         const relay = decodeJwt(certificate.certificate).invitationRelayKey;
-        const submit = async value => call(r, groupPath + '/background', { sealed: await sealInvitationSubmission(value, relay) });
-        const cancel = async value => call(r, groupPath + '/background-cancellation', { sealed: await sealInvitationSubmission(value, relay) });
+        const submit = async value => call(r, `${groupPath}/background`, { sealed: await sealInvitationSubmission(value, relay) });
+        const cancel = async value => call(r, `${groupPath}/background-cancellation`, { sealed: await sealInvitationSubmission(value, relay) });
         const cancellation = (invitation, user = a, identity = certificate) => packet(
             { recipientUserID: b.userID, requestID: invitation.requestID, expiresAt: invitation.expiresAt },
             user, identity, 'https://worker.test', 'cancelBackgroundGroupInvitation'
         );
         const original = await packet(body);
-        assert.equal((await call(r, groupPath + '/background', original)).status, 400,
+        assert.equal((await call(r, `${groupPath}/background`, original)).status, 400,
             'background group delivery requires a sealed body');
         const sealed = await sealInvitationSubmission(original, relay);
-        const redirected = await r.dispatchFetch('https://other.worker.test' + groupPath + '/background', {
+        const redirected = await r.dispatchFetch(`https://other.worker.test${groupPath}/background`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77' }, body: JSON.stringify({ sealed })
         });
         assert.equal(redirected.status, 401);
@@ -460,13 +460,13 @@ test('a background submission authorizes exactly the signed group invitation wit
         for (let repeat = 0; repeat < 60; repeat++) assert.equal((await submit(original)).status, 200);
         assert.equal((await call(r, groupPath, body, a.accessToken)).status, 200);
         assert.equal(deliveries, 1);
-        const inbox = await call(r, groupPath + '?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const inbox = await call(r, `${groupPath}?recipientKey=${body.recipientKey}`, undefined, b.accessToken, 'GET');
         assert.equal((await inbox.json()).delivery.requestID, body.requestID);
-        const receivedPath = groupPath + '/' + b.userID + '/' + body.requestID;
+        const receivedPath = `${groupPath}/${b.userID}/${body.requestID}`;
         const receipt = await call(r, receivedPath, undefined, b.accessToken, 'DELETE');
         assert.deepEqual(await receipt.json(), { status: 'received' });
         const exactCancellation = await cancellation(body);
-        assert.equal((await call(r, groupPath + '/background-cancellation', exactCancellation)).status, 400);
+        assert.equal((await call(r, `${groupPath}/background-cancellation`, exactCancellation)).status, 400);
         assert.equal((await submit(exactCancellation)).status, 401);
         assert.equal((await cancel(original)).status, 401);
         const tampered = { ...exactCancellation, submission: Buffer.from(JSON.stringify({
@@ -491,7 +491,7 @@ test('a background submission authorizes exactly the signed group invitation wit
         assert.equal(racingSend.status, 200);
         assert.deepEqual(await racingCancel.json(), { requestID: racing.requestID, expiresAt: racing.expiresAt, status: 'cancelled' });
         assert.equal((await (await submit(racingSubmission)).json()).status, 'cancelled');
-        const empty = await call(r, groupPath + '?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const empty = await call(r, `${groupPath}?recipientKey=${body.recipientKey}`, undefined, b.accessToken, 'GET');
         assert.deepEqual(await empty.json(), { delivery: null });
         const pending = { ...body, requestID: randomUUID() };
         const stale = await packet(pending);
@@ -509,7 +509,7 @@ test('a background submission authorizes exactly the signed group invitation wit
         assert.equal((await cancelled.json()).status, 'cancelled');
         const expired = await packet({ ...pending, expiresAt: now - 1 }, renewed, renewedCertificate);
         assert.equal((await submit(expired)).status, 400);
-        await call(r, '/api/notifications/grants/' + permission.grantID, undefined, b.accessToken, 'DELETE');
+        await call(r, `/api/notifications/grants/${permission.grantID}`, undefined, b.accessToken, 'DELETE');
         assert.equal((await submit(cancellable)).status, 403);
         assert.equal((await call(r, '/api/auth/session', undefined, renewed.accessToken, 'DELETE')).status, 200);
         assert.equal((await submit(cancellable)).status, 401);
@@ -531,7 +531,7 @@ test('group invitation delivery requires its own permission and keeps opaque off
         assert.equal((await submit(body, c)).status, 403);
         const first = await submit(); assert.equal(first.status, 200); assert.equal((await first.json()).status, 'queued');
         assert.equal(requests.length, 0);
-        const read = user => call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, user.accessToken, 'GET');
+        const read = user => call(r, `/api/notifications/group-invitations?recipientKey=${body.recipientKey}`, undefined, user.accessToken, 'GET');
         assert.equal((await (await read(c)).json()).delivery, null);
         const delivered = (await (await read(b)).json()).delivery;
         assert.equal(delivered.envelope, body.envelope); assert.equal(delivered.senderUserID, a.userID); assert.equal(delivered.requestID, body.requestID);
@@ -606,7 +606,7 @@ test('group invitation alerts hide ciphertext and cancellation and grant revocat
         assert.equal((await submit({ ...body, requestID: randomUUID(), recipientKey: 'q'.repeat(87) })).status, 200);
         assert.equal(requests.length, 1, 'Known recipient devices share one notification batch');
         await call(r, `/api/notifications/grants/${g.grantID}`, undefined, b.accessToken, 'DELETE');
-        const read = await call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const read = await call(r, `/api/notifications/group-invitations?recipientKey=${body.recipientKey}`, undefined, b.accessToken, 'GET');
         assert.equal((await read.json()).delivery, null);
         assert.equal((await submit({ ...body, expiresAt: Date.now() + 8 * 86400000 })).status, 400);
     } finally { await r.dispose(); }
@@ -639,7 +639,7 @@ test('concurrent device deliveries for one invitation send one alert to each reg
         const noticeID = randomUUID(), expiresAt = Date.now() + 86400000;
         const invitations = ['p', 'q'].map(key => ({
             capability, noticeID, expiresAt, requestID: randomUUID(), recipientKey: key.repeat(87),
-            envelope: Buffer.from('opaque packet ' + key).toString('base64'),
+            envelope: Buffer.from(`opaque packet ${key}`).toString('base64'),
         }));
         const submit = payload => call(r, '/api/notifications/group-invitations', payload, sender.accessToken);
         const responses = await Promise.all(invitations.map(submit));
@@ -649,7 +649,7 @@ test('concurrent device deliveries for one invitation send one alert to each reg
         }
         for (const [index, device] of [recipient, secondDevice].entries()) {
             const invitation = invitations[index];
-            const inbox = await call(r, '/api/notifications/group-invitations?recipientKey=' + invitation.recipientKey,
+            const inbox = await call(r, `/api/notifications/group-invitations?recipientKey=${invitation.recipientKey}`,
                 undefined, device.accessToken, 'GET');
             assert.equal((await inbox.json()).delivery.requestID, invitation.requestID);
         }
@@ -679,7 +679,7 @@ test('an inbox read in flight skips a cancelled candidate and delivers the next 
             const submit = await call(r, '/api/notifications/group-invitations', { capability, recipientKey, expiresAt, ...invitation }, a.accessToken);
             assert.equal((await submit.json()).status, 'queued');
         }
-        const inbox = '/api/notifications/group-invitations?recipientKey=' + recipientKey;
+        const inbox = `/api/notifications/group-invitations?recipientKey=${recipientKey}`;
         const read = () => call(r, inbox, undefined, b.accessToken, 'GET');
         const inFlight = read();
         await Promise.race([snapshot.promise, inFlight.then(() => assert.fail('The inbox read finished before the candidate snapshot'))]);
@@ -715,7 +715,7 @@ test('cancellation before the first mailbox write prevents delayed delivery', { 
             recipientKey: 'p'.repeat(87), envelope: Buffer.from('delayed').toString('base64') };
         const submit = (invitation = body) => call(r, '/api/notifications/group-invitations', invitation, a.accessToken);
         const cancel = (user, id) => call(r, `/api/notifications/group-invitations/${b.userID}/${id}`, undefined, user.accessToken, 'DELETE');
-        const read = () => call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const read = () => call(r, `/api/notifications/group-invitations?recipientKey=${body.recipientKey}`, undefined, b.accessToken, 'GET');
         const pending = submit();
         await Promise.race([store.promise, pending.then(() => assert.fail('The invitation was not held before storage'))]);
         const cancelled = await cancel(a, body.requestID);
@@ -762,7 +762,7 @@ test('an early group cancellation survives restart and credential rotation', asy
         const delayed = await call(r, '/api/notifications/group-invitations', body, current.accessToken);
         assert.equal(delayed.status, 200);
         assert.equal((await delayed.json()).status, 'cancelled');
-        const inbox = await call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const inbox = await call(r, `/api/notifications/group-invitations?recipientKey=${body.recipientKey}`, undefined, b.accessToken, 'GET');
         assert.deepEqual(await inbox.json(), { delivery: null });
     } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
 });
@@ -803,7 +803,7 @@ test('group invitation receipt requires a current resubmission after sender sign
         const body = { capability: g.capability, requestID: randomUUID(), expiresAt: Date.now() + 86400000,
             recipientKey: 'r'.repeat(87), envelope: Buffer.from('opaque pending packet').toString('base64') };
         const submit = (user, value = body) => call(r, '/api/notifications/group-invitations', value, user.accessToken);
-        const read = () => call(r, '/api/notifications/group-invitations?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        const read = () => call(r, `/api/notifications/group-invitations?recipientKey=${body.recipientKey}`, undefined, b.accessToken, 'GET');
         assert.equal((await submit(a)).status, 200);
         await call(r, '/api/auth/session', undefined, a.accessToken, 'DELETE');
         assert.equal((await (await read()).json()).delivery, null);
@@ -814,7 +814,7 @@ test('group invitation receipt requires a current resubmission after sender sign
         assert.equal((await submit(current, { ...body, envelope: 'a'.repeat(22000) })).status, 400);
         assert.equal((await submit(current, { ...body, recipientKey: '../other' })).status, 400);
         const path = `/api/notifications/group-invitations/${b.userID}/${body.requestID}`;
-        assert.equal((await call(r, path + '?discard=1', undefined, b.accessToken, 'DELETE')).status, 200);
+        assert.equal((await call(r, `${path}?discard=1`, undefined, b.accessToken, 'DELETE')).status, 200);
         assert.equal((await (await call(r, path, undefined, current.accessToken, 'GET')).json()).status, 'cancelled');
     } finally { await r.dispose(); }
 });
@@ -844,7 +844,7 @@ test('group invitation outcomes survive the invite deadline for up to 28 days fr
         const receiver = await login(r, 'retained-outcome-receiver');
         const other = await login(r, 'retained-outcome-unrelated');
         const path = '/api/notifications/group-invitations';
-        const grant = await call(r, path + '/grants', { senderUserID: sender.userID }, receiver.accessToken);
+        const grant = await call(r, `${path}/grants`, { senderUserID: sender.userID }, receiver.accessToken);
         assert.equal(grant.status, 200);
         const { capability } = await grant.json();
         const expiresAt = now + 7 * day;
@@ -870,9 +870,9 @@ test('group invitation outcomes survive the invite deadline for up to 28 days fr
         }
         assert.equal((await lookup(pending)).status, 404);
         assert.equal((await finish(pending, receiver)).status, 404);
-        const inbox = await call(r, path + '?recipientKey=' + pending.recipientKey, undefined, receiver.accessToken, 'GET');
+        const inbox = await call(r, `${path}?recipientKey=${pending.recipientKey}`, undefined, receiver.accessToken, 'GET');
         assert.deepEqual(await inbox.json(), { delivery: null });
-        const additional = await call(r, item(received.requestID) + '/additional-devices', undefined, sender.accessToken, 'GET');
+        const additional = await call(r, `${item(received.requestID)}/additional-devices`, undefined, sender.accessToken, 'GET');
         assert.equal(additional.status, 404);
         assert.equal((await call(r, path, received, sender.accessToken)).status, 400);
         const fresh = { ...received, expiresAt: now + 9 * day };
@@ -898,7 +898,7 @@ test('the original sender can read a certified additional device for a live grou
         const outsider = await login(r, 'additional-device-outsider');
         const requestID = randomUUID(), expiresAt = Date.now() + 86_400_000;
         const invite = '/api/notifications/group-invitations';
-        const groupGrant = await (await call(r, invite + '/grants', { senderUserID: sender.userID }, recipient.accessToken)).json();
+        const groupGrant = await (await call(r, `${invite}/grants`, { senderUserID: sender.userID }, recipient.accessToken)).json();
         const submission = { capability: groupGrant.capability, requestID, expiresAt, recipientKey: 'r'.repeat(87),
             envelope: Buffer.from('opaque group packet').toString('base64') };
         assert.equal((await call(r, invite, submission, sender.accessToken)).status, 200);
@@ -924,8 +924,8 @@ test('the original sender can read a certified additional device for a live grou
             const signature = sign('sha256', Buffer.concat(parts), { key: signingKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
             return { publicKey, certificate: identity, signature };
         }
-        const path = original + '/additional-devices';
-        const discover = (by = additional) => call(r, invite + '/additional-devices?recipientKey=' + publicKey,
+        const path = `${original}/additional-devices`;
+        const discover = (by = additional) => call(r, `${invite}/additional-devices?recipientKey=${publicKey}`,
             undefined, by.accessToken, 'GET');
         const read = (by = sender, at = path) => call(r, at, undefined, by.accessToken, 'GET');
         const submit = (proof, by = additional, at = path) => call(r, at, proof, by.accessToken);
@@ -967,7 +967,7 @@ test('the original sender can read a certified additional device for a live grou
         assert.equal((await sendAgain({ ...redelivery, sourceRequestID: secondID })).status, 403);
         assert.equal((await sendAgain(redelivery, otherSenderDevice)).status, 403);
         assert.equal((await sendAgain()).status, 200);
-        const addressedInbox = user => call(r, invite + '?recipientKey=' + publicKey, undefined, user.accessToken, 'GET');
+        const addressedInbox = user => call(r, `${invite}?recipientKey=${publicKey}`, undefined, user.accessToken, 'GET');
         assert.equal((await (await addressedInbox(recipient)).json()).delivery, null);
         const delivered = (await (await addressedInbox(additional)).json()).delivery;
         assert.equal(delivered.requestID, redelivery.requestID);
@@ -1003,7 +1003,7 @@ test('the original sender can read a certified additional device for a live grou
         assert.equal((await sendAgain({ ...redelivery, requestID: lastDeliveryID, sourceRequestID: secondID, noticeID: secondID })).status, 200);
         const lastPath = `${invite}/${recipient.userID}/${lastDeliveryID}`;
         assert.deepEqual(await (await call(r, lastPath, undefined, renewed.accessToken, 'DELETE')).json(), { status: 'received' });
-        await call(r, '/api/notifications/grants/' + groupGrant.grantID, undefined, recipient.accessToken, 'DELETE');
+        await call(r, `/api/notifications/grants/${groupGrant.grantID}`, undefined, recipient.accessToken, 'DELETE');
         assert.equal((await read(sender, otherPath)).status, 404);
         assert.equal((await submit(validOtherProof, renewed, otherPath)).status, 404);
         assert.deepEqual(await (await discover(renewed)).json(), { requestIDs: [] });
@@ -1020,7 +1020,7 @@ test('a new device finds its own live invitations without an earlier notificatio
         const stranger = await login(r, 'invitation-discovery-stranger');
         const invite = '/api/notifications/group-invitations';
         const grantFor = async author => {
-            const response = await call(r, invite + '/grants', { senderUserID: author.userID }, oldDevice.accessToken);
+            const response = await call(r, `${invite}/grants`, { senderUserID: author.userID }, oldDevice.accessToken);
             assert.equal(response.status, 200);
             return (await response.json()).capability;
         };
@@ -1041,7 +1041,7 @@ test('a new device finds its own live invitations without an earlier notificatio
         const recordPath = id => `${invite}/${oldDevice.userID}/${id}`;
         assert.equal((await call(r, recordPath(original), undefined, oldDevice.accessToken, 'DELETE')).status, 200);
         assert.equal((await call(r, recordPath(cancelled), undefined, sender.accessToken, 'DELETE')).status, 200);
-        const discover = (user, key = newKey) => call(r, invite + '/additional-devices?recipientKey=' + key, undefined, user.accessToken, 'GET');
+        const discover = (user, key = newKey) => call(r, `${invite}/additional-devices?recipientKey=${key}`, undefined, user.accessToken, 'GET');
         assert.equal((await discover(newDevice, 'invalid')).status, 400);
         const found = await discover(newDevice);
         assert.equal(found.status, 200);

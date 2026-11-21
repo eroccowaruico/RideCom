@@ -379,9 +379,9 @@ test('a background contact acceptance is limited to the originally signed reply 
         });
         const value = { owner: a.userID, slot, expiresAt, id: randomUUID(), packet: replyPacket(), admission: await signedAdmission(slot, expiresAt) };
         const signed = (body = value, target = origin, purpose) => signBackgroundContactAcceptance(body, b, receiver, target, purpose);
-        const endpoint = replyPath + '/background-acceptance';
+        const endpoint = `${replyPath}/background-acceptance`;
         const submit = async body => call(r, endpoint, { sealed: await sealInvitationSubmission(body, receiver.relayKey) });
-        const inbox = () => call(r, replyPath + '/inbox', { slot }, a.accessToken);
+        const inbox = () => call(r, `${replyPath}/inbox`, { slot }, a.accessToken);
         const exact = await signed();
         assert.equal((await inbox()).status, 404);
         assert.equal((await call(r, endpoint, exact)).status, 400, 'the background contact route has no unsealed submission');
@@ -395,7 +395,7 @@ test('a background contact acceptance is limited to the originally signed reply 
         ciphertext[0] ^= 1;
         segments[3] = ciphertext.toString('base64url');
         assert.equal((await call(r, endpoint, { sealed: segments.join('.') })).status, 401);
-        assert.equal((await r.dispatchFetch('https://preview.worker.test' + endpoint, {
+        assert.equal((await r.dispatchFetch(`https://preview.worker.test${endpoint}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10' }, body: JSON.stringify({ sealed })
         })).status, 401);
         assert.equal((await inbox()).status, 404);
@@ -430,10 +430,10 @@ test('a background contact acceptance is limited to the originally signed reply 
             assert.ok(!persisted.includes(Buffer.from(nonStored)), 'An unneeded input must not be persisted');
         }
         const receipt = { id: value.id, packet: replyPacket() };
-        assert.equal((await call(r, replyPath + '/acknowledgement', { slot, ...receipt }, a.accessToken, 'PUT')).status, 200);
+        assert.equal((await call(r, `${replyPath}/acknowledgement`, { slot, ...receipt }, a.accessToken, 'PUT')).status, 200);
         assert.equal((await submit(exact)).status, 200);
         const lookup = { owner: a.userID, slot, id: value.id };
-        assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, b.accessToken)).json(), { receipt });
+        assert.deepEqual(await (await call(r, `${replyPath}/receipt`, lookup, b.accessToken)).json(), { receipt });
         assert.equal((await submit(await signed({ ...value, admission: undefined }))).status, 200);
         assert.equal((await submit(await signed({ ...value, expiresAt: expiresAt + 1 }))).status, 400);
 
@@ -445,7 +445,7 @@ test('a background contact acceptance is limited to the originally signed reply 
         const otherExpiry = expiresAt + 1;
         const mismatched = { ...value, expiresAt: otherExpiry, admission: await signedAdmission(slot, otherExpiry) };
         assert.equal((await submit(await signed(mismatched))).status, 409, 'old admission cannot alter the saved mailbox expiry');
-        assert.equal((await call(r, replyPath + '/acceptance', value, b.accessToken, 'PUT')).status, 401,
+        assert.equal((await call(r, `${replyPath}/acceptance`, value, b.accessToken, 'PUT')).status, 401,
             'ordinary submission still requires a current opening permission');
         assert.equal((await submit(await signed({ ...value, slot: unopenedSlot, admission: oldAdmission }))).status, 401);
 
@@ -457,7 +457,7 @@ test('a background contact acceptance is limited to the originally signed reply 
         const proof = await next.proof('submitBackgroundContactInvitationAcceptance', JSON.stringify([origin, next.sessionBinding, exact.submission]));
         const accepted = await submit({ ...exact, sessionBinding: next.sessionBinding, proof });
         assert.equal(accepted.status, 200);
-        assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, current.accessToken)).json(), { receipt });
+        assert.deepEqual(await (await call(r, `${replyPath}/receipt`, lookup, current.accessToken)).json(), { receipt });
     } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
 });
 
@@ -466,14 +466,14 @@ test('background contact acceptance can use the previous relay key until the nex
     const r = await makeRuntime({ ...options, INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
         DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) }, { appleKeys: [publicKey], adjustableClock: true });
     try {
-        const origin = 'https://worker.test', endpoint = replyPath + '/background-acceptance';
+        const origin = 'https://worker.test', endpoint = `${replyPath}/background-acceptance`;
         const period = 30 * 86400_000, boundary = (Math.floor(Date.now() / period) + 1) * period;
         await r.advanceClock(boundary - Date.now() - 20_000);
         const prepare = async (expiresAt) => {
             const owner = await enrolled(r, 'rollover-author'), receiver = await enrolled(r, 'rollover-receiver');
             const identity = await signReplyDevice(r, receiver, 'rollover-receiver');
             const slot = replySlot(), id = randomUUID();
-            assert.equal((await call(r, replyPath + '/open', { slot, expiresAt }, owner.accessToken, 'PUT')).status, 200);
+            assert.equal((await call(r, `${replyPath}/open`, { slot, expiresAt }, owner.accessToken, 'PUT')).status, 200);
             const body = { owner: owner.userID, slot, id, packet: replyPacket(), expiresAt };
             return { signed: await signBackgroundContactAcceptance(body, receiver, identity, origin), key: identity.relayKey, id };
         };
@@ -496,7 +496,7 @@ test('background contact acceptance can use the previous relay key until the nex
 test('the encrypted contact acceptance limits work before reading caller identity', async () => {
     const r = await makeRuntime(options, { apiLimit: 1 });
     try {
-        const endpoint = replyPath + '/background-acceptance';
+        const endpoint = `${replyPath}/background-acceptance`;
         assert.equal((await call(r, endpoint, {})).status, 400);
         assert.equal((await call(r, endpoint, {})).status, 429);
     } finally { await r.dispose(); }
@@ -518,7 +518,7 @@ test('a signed contact invitation admits an offline reply before its author open
         });
         const first = { id: randomUUID(), packet: replyPacket() };
         const write = (action, body, user) => call(r, replyPath + action, body, user?.accessToken, 'PUT');
-        const inbox = (user, mailbox = slot) => call(r, replyPath + '/inbox', { slot: mailbox }, user.accessToken);
+        const inbox = (user, mailbox = slot) => call(r, `${replyPath}/inbox`, { slot: mailbox }, user.accessToken);
         const accept = (changes = {}, user = b) => write('/acceptance', { owner: a.userID, slot, ...first, ...changes }, user);
         const admission = await permit(slot);
         assert.equal((await inbox(a)).status, 404);
@@ -545,8 +545,8 @@ test('a signed contact invitation admits an offline reply before its author open
         const confirmation = { id: first.id, packet: replyPacket() };
         assert.equal((await write('/acknowledgement', { slot, ...confirmation }, a)).status, 200);
         const lookup = { owner: a.userID, slot, id: first.id };
-        assert.equal((await call(r, replyPath + '/receipt', lookup, otherB.accessToken)).status, 404);
-        assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, b.accessToken)).json(), { receipt: confirmation });
+        assert.equal((await call(r, `${replyPath}/receipt`, lookup, otherB.accessToken)).status, 404);
+        assert.deepEqual(await (await call(r, `${replyPath}/receipt`, lookup, b.accessToken)).json(), { receipt: confirmation });
 
         const unopenedSlot = replySlot(), stale = await permit(unopenedSlot);
         const renewed = await signIn(r, await challenge(r, a.deviceID), { sub: memberID });
@@ -564,10 +564,10 @@ test('opening the same ordinary reply mailbox avoids writes and repairs missing 
         const accounts = await r.getDurableObjectNamespace('USER_ACCOUNT');
         const account = accounts.get(accounts.idFromString(accountID));
         const indexes = await r.getDurableObjectNamespace('NOTIFICATION_INDEX');
-        const route = indexes.get(indexes.idFromName('user:' + a.userID));
+        const route = indexes.get(indexes.idFromName(`user:${a.userID}`));
         const first = { slot: replySlot(), expiresAt: Date.now() + 60_000 };
         const later = { slot: replySlot(), expiresAt: first.expiresAt + 30_000 };
-        const open = async item => assert.equal((await call(r, replyPath + '/open', item, a.accessToken, 'PUT')).status, 200);
+        const open = async item => assert.equal((await call(r, `${replyPath}/open`, item, a.accessToken, 'PUT')).status, 200);
         const state = async stub => JSON.parse(await stub.replyStorageState());
         await open(first);
         const accountFirst = await state(account);
@@ -613,7 +613,7 @@ test('ordinary group replies persist while peers take turns online and leave the
         const status = async (response, code) => assert.equal((await response).status, code);
 
         provider.requests = [];
-        const started = await call(r, '/api/rooms/' + room + '/join', { participantId: a.deviceID, offer }, a.accessToken);
+        const started = await call(r, `/api/rooms/${room}/join`, { participantId: a.deviceID, offer }, a.accessToken);
         assert.equal(started.status, 200);
         const active = (await started.json()).sessionId;
         await status(write('/acceptance', { ...destination, ...first }, b), 404);
@@ -659,9 +659,9 @@ test('ordinary group reply mailboxes bound storage, reject expired credentials a
     try {
         const a = await enrolled(r, 'limited-author'), b = await enrolled(r, 'limited-recipient');
         const items = Array.from({ length: 33 }, () => ({ slot: replySlot(), expiresAt: Date.now() + 60_000 }));
-        const open = (item, user = a) => call(r, replyPath + '/open', item, user.accessToken, 'PUT');
-        const inbox = (item, user = a) => call(r, replyPath + '/inbox', { slot: item.slot }, user.accessToken);
-        const accept = (packet, slot = items[0].slot, user = b) => call(r, replyPath + '/acceptance',
+        const open = (item, user = a) => call(r, `${replyPath}/open`, item, user.accessToken, 'PUT');
+        const inbox = (item, user = a) => call(r, `${replyPath}/inbox`, { slot: item.slot }, user.accessToken);
+        const accept = (packet, slot = items[0].slot, user = b) => call(r, `${replyPath}/acceptance`,
             { owner: a.userID, slot, id: randomUUID(), packet }, user.accessToken, 'PUT');
         assert.equal((await open(items[0], {})).status, 401);
         assert.equal((await open({ ...items[0], expiresAt: Date.now() + 8 * 86_400_000 })).status, 400);
@@ -671,11 +671,11 @@ test('ordinary group reply mailboxes bound storage, reject expired credentials a
         assert.equal((await open(items[32])).status, 429);
         assert.equal((await open(items[0])).status, 200);
         assert.equal((await accept('A'.repeat(12 * 1024 + 4))).status, 400);
-        assert.equal((await accept(replyPacket() + '\n')).status, 400);
+        assert.equal((await accept(`${replyPacket()}\n`)).status, 400);
         assert.equal((await accept(replyPacket())).status, 200);
         assert.equal((await accept(replyPacket())).status, 409);
         const recipients = [];
-        for (let i = 0; i < 8; i++) recipients.push(await enrolled(r, 'bounded-reply-' + i));
+        for (let i = 0; i < 8; i++) recipients.push(await enrolled(r, `bounded-reply-${i}`));
         const simultaneous = await Promise.all(recipients.map(user => accept(replyPacket(), items[0].slot, user)));
         assert.deepEqual(simultaneous.map(response => response.status).sort(), [200, 200, 200, 200, 200, 200, 200, 429]);
 
@@ -719,7 +719,7 @@ test('one public account reserves one connection across rooms, devices and forge
         assert.equal(forged.status, 409);
         assert.equal((await forged.json()).code, 'account_in_use');
         const path = `/api/rooms/${rooms[winner]}/sessions/${media.sessionId}`;
-        assert.equal((await call(runtime, path + '/renew', {}, accounts[winner].accessToken)).status, 200);
+        assert.equal((await call(runtime, `${path}/renew`, {}, accounts[winner].accessToken)).status, 200);
         const independent = await enrolled(runtime, 'other-person');
         assert.equal((await call(runtime, `/api/rooms/${rooms[winner]}/join`, { participantId: independent.deviceID, offer }, independent.accessToken)).status, 200);
         assert.equal((await call(runtime, path, undefined, accounts[winner].accessToken, 'DELETE')).status, 200);
@@ -937,9 +937,9 @@ test('device certificates publish only the current origin-bound invitation relay
         await runtime.advanceClock(nextPeriodAt * 1000 - Date.now() - 20_000);
         const user = await enrolled(runtime);
         const read = async (origin = 'https://worker.test') => {
-            const response = await runtime.dispatchFetch(origin + '/api/auth/identity', {
+            const response = await runtime.dispatchFetch(`${origin}/api/auth/identity`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10', Authorization: 'Bearer ' + user.accessToken },
+                headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10', Authorization: `Bearer ${user.accessToken}` },
                 body: JSON.stringify({ memberID: 'key-fixture', deviceKey })
             });
             assert.equal(response.status, 200);
@@ -956,7 +956,7 @@ test('device certificates publish only the current origin-bound invitation relay
             return key;
         };
         const first = await read();
-        assert.equal(first.kid, 'v1-' + (nextPeriodAt / period - 1));
+        assert.equal(first.kid, `v1-${nextPeriodAt / period - 1}`);
         assert.equal(first.expiresAt, nextPeriodAt + period);
         const material = hkdfSync('sha256', Buffer.from(seed, 'base64url'), 'rideintercom.invitation-relay-key.v1',
             JSON.stringify(['https://worker.test', nextPeriodAt / period - 1]), 32);
@@ -970,7 +970,7 @@ test('device certificates publish only the current origin-bound invitation relay
 
         await runtime.advanceClock(40_000);
         const next = await read();
-        assert.equal(next.kid, 'v1-' + nextPeriodAt / period);
+        assert.equal(next.kid, `v1-${nextPeriodAt / period}`);
         assert.equal(next.expiresAt, first.expiresAt + period);
         assert.equal(next.x === first.x, false);
     } finally { await runtime.dispose(); }
