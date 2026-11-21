@@ -95,8 +95,6 @@ enum VoiceLevelIntensity: Equatable {
     case high
 }
 
-
-
 struct VoiceLevelIndicatorState: Equatable {
     let level: Float
     let peakLevel: Float
@@ -142,9 +140,9 @@ struct VoiceLevelIndicatorState: Equatable {
     }
 
     private func dBFSDisplayLevel(for rms: Float) -> Float {
-        let c = clamped(rms)
-        guard c > 0 else { return 0 }
-        let dBFS = 20 * log10(c)
+        let level = clamped(rms)
+        guard level > 0 else { return 0 }
+        let dBFS = 20 * log10(level)
         return min(1, max(0, (dBFS + 60) / 60))
     }
 }
@@ -166,9 +164,8 @@ enum PeerConnectionState: String, Equatable, Codable {
 struct AccountCallPair: Codable, Equatable {
     let first: AccountPrincipal
     let second: AccountPrincipal
-    init(_ a: AccountPrincipal, _ b: AccountPrincipal) {
-        if a.orderingKey < b.orderingKey { first = a; second = b }
-        else { first = b; second = a }
+    init(_ lhs: AccountPrincipal, _ rhs: AccountPrincipal) {
+        (first, second) = lhs.orderingKey < rhs.orderingKey ? (lhs, rhs) : (rhs, lhs)
     }
     var isValid: Bool { first.isValid && second.isValid && first.orderingKey < second.orderingKey }
     var id: UUID { IntercomGroup.directCallID(memberIDs: ["account-v1", first.orderingKey, second.orderingKey]) }
@@ -198,12 +195,19 @@ struct IntercomGroup: Identifiable, Equatable {
     let accountPair: AccountCallPair?
     var accountDevices: [String: AccountDeviceBinding]
 
-    init(id: UUID = UUID(), name: String, members: [GroupMember], accessSecret: String? = nil, kind: Kind = .group, accountPair: AccountCallPair? = nil, accountDevices: [String: AccountDeviceBinding] = [:]) throws {
+    init(
+        id: UUID = UUID(), name: String, members: [GroupMember], accessSecret: String? = nil, kind: Kind = .group,
+        accountPair: AccountCallPair? = nil, accountDevices: [String: AccountDeviceBinding] = [:]
+    ) throws {
         guard (1...Self.maximumMemberCount).contains(members.count) else {
             throw IntercomGroupError.invalidMemberCount
         }
         guard Self.isValidName(name), Set(members.map(\.id)).count == members.count,
-              members.allSatisfy({ Self.isValidMemberID($0.id) && Self.isValidName($0.displayName) && ($0.localName.map(Self.isValidName) ?? true) }) else {
+            members.allSatisfy({
+                Self.isValidMemberID($0.id) && Self.isValidName($0.displayName)
+                    && ($0.localName.map(Self.isValidName) ?? true)
+            })
+        else {
             throw IntercomGroupError.invalidIdentity
         }
         if let pair = accountPair {
@@ -223,8 +227,10 @@ struct IntercomGroup: Identifiable, Equatable {
                   }) else { throw IntercomGroupError.invalidIdentity }
             if kind == .direct {
                 guard accountDevices.isEmpty else { throw IntercomGroupError.invalidIdentity }
-                guard members.count == 2, !members.contains(where: { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) }),
-                      id == Self.directCallID(memberIDs: members.map(\.id)) else { throw IntercomGroupError.invalidIdentity }
+                guard members.count == 2,
+                    !members.contains(where: { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) }),
+                    id == Self.directCallID(memberIDs: members.map(\.id))
+                else { throw IntercomGroupError.invalidIdentity }
             }
         }
 
@@ -272,6 +278,5 @@ enum IntercomGroupError: Error, Equatable {
 struct GroupAccessCredential: Equatable {
     let groupID: UUID
     let secret: String
-
 
 }

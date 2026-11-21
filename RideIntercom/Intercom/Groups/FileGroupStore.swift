@@ -7,8 +7,11 @@ final class FileGroupStore: GroupStoring {
     private var lockDescriptor: Int32 = -1
     private let prepareProtection: (URL) throws -> Void
 
-    init(directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RideIntercom/Groups", isDirectory: true),
-         prepareProtection: @escaping (URL) throws -> Void = CallStorageProtection.prepare) {
+    init(
+        directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("RideIntercom/Groups", isDirectory: true),
+        prepareProtection: @escaping (URL) throws -> Void = CallStorageProtection.prepare
+    ) {
         url = directory.appendingPathComponent("groups.json")
         self.prepareProtection = prepareProtection
     }
@@ -20,12 +23,17 @@ final class FileGroupStore: GroupStoring {
                                                attributes: [.posixPermissions: 0o700])
         try prepareProtection(url.deletingLastPathComponent())
         let lockURL = url.deletingPathExtension().appendingPathExtension("lock")
-        let fd = Darwin.open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        do { try prepareProtection(lockURL); try prepareProtection(url) }
-        catch { Darwin.close(fd); throw error }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { Darwin.close(fd); throw GroupStorageError.busy }
-        lockDescriptor = fd
+        let descriptor = Darwin.open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        do {
+            try prepareProtection(lockURL)
+            try prepareProtection(url)
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { Darwin.close(descriptor); throw GroupStorageError.busy }
+        lockDescriptor = descriptor
     }
     func unlock() {
         guard lockDescriptor >= 0 else { return }
@@ -37,8 +45,7 @@ final class FileGroupStore: GroupStoring {
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size <= 1_048_576 else { throw IntercomGroupError.invalidStoredGroups }
             bytes = try Data(contentsOf: url)
-        }
-        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
         return try GroupSnapshot.decode(bytes)
     }
     func commit(_ snapshot: GroupSnapshot) throws {

@@ -12,9 +12,9 @@ struct DirectInvitationContext: Codable, Equatable {
     var expiresAt: TimeInterval
     var inviterAccount: AccountPrincipal?
     var recipientAccount: AccountPrincipal?
-    var contactBootstrap: Bool? = nil
-    var invitedGroupID: UUID? = nil
-    var invitedGroupDigest: String? = nil
+    var contactBootstrap: Bool?
+    var invitedGroupID: UUID?
+    var invitedGroupDigest: String?
 
     var isOrdinaryGroupInvitation: Bool {
         contactBootstrap != true && recipientAccount == nil && recipientMemberID == nil
@@ -54,7 +54,9 @@ struct DirectInvitationGrant: Codable, Equatable {
 struct VerifiedDirectInvitation {
     let receipt: DirectInvitationReceipt
     let identity: VerifiedDeviceProof
-    fileprivate init(_ receipt: DirectInvitationReceipt, identity: VerifiedDeviceProof) { self.receipt = receipt; self.identity = identity }
+    fileprivate init(_ receipt: DirectInvitationReceipt, identity: VerifiedDeviceProof) {
+        self.receipt = receipt; self.identity = identity
+    }
 }
 
 final class DirectInvitationAuthority {
@@ -67,33 +69,42 @@ final class DirectInvitationAuthority {
 
     func issue(_ context: DirectInvitationContext) throws -> DirectInvitationGrant {
         guard context.isValid else { throw GroupInviteTokenError.invalidTokenEncoding }
-        let master: SymmetricKey
+        let authorityKey: SymmetricKey
         if let stored = try keychain.secret(service: service, account: "author") {
             guard let key = Self.key(stored) else { throw KeychainSecretStoreError.invalidData }
-            master = key
+            authorityKey = key
         } else {
             let proposed = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
             // Another process may have installed its key since the first read.
             // Adopt that key rather than invalidating its outstanding invitations.
             let retained = try keychain.createSecretIfAbsent(proposed, service: service, account: "author")
             guard let key = Self.key(retained) else { throw KeychainSecretStoreError.invalidData }
-            master = key
+            authorityKey = key
         }
-        return DirectInvitationGrant(context: context, secret: try Self.derive(context, using: master).base64EncodedString())
+        return DirectInvitationGrant(
+            context: context, secret: try Self.derive(context, using: authorityKey).base64EncodedString())
     }
 
-    func verify(_ receipt: DirectInvitationReceipt, trust: DeviceIdentityTrust? = nil, now: TimeInterval = Date().timeIntervalSince1970) throws -> VerifiedDirectInvitation? {
+    func verify(
+        _ receipt: DirectInvitationReceipt, trust: DeviceIdentityTrust? = nil,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) throws -> VerifiedDirectInvitation? {
         guard receipt.isValid, receipt.kind == .accepted, let context = receipt.invitation,
-              receipt.id == DirectInvitationReceipt.receiptID(invitationID: context.id, inviteeMemberID: receipt.inviteeMemberID),
+            receipt.id
+                == DirectInvitationReceipt.receiptID(
+                    invitationID: context.id, inviteeMemberID: receipt.inviteeMemberID),
               now.isFinite, now < context.expiresAt,
               let code = Data(base64Encoded: receipt.proof ?? ""), code.count == 32,
               let stored = try keychain.secret(service: service, account: "author"),
-              let master = Self.key(stored) else { return nil }
-        let secret = SymmetricKey(data: try Self.derive(context, using: master))
-        guard HMAC<SHA256>.isValidAuthenticationCode(code, authenticating: try receipt.proofMessage(), using: secret) else { return nil }
+              let authorityKey = Self.key(stored) else { return nil }
+        let secret = SymmetricKey(data: try Self.derive(context, using: authorityKey))
+        guard
+            HMAC<SHA256>.isValidAuthenticationCode(code, authenticating: try receipt.proofMessage(), using: secret)
+        else { return nil }
         guard let proof = receipt.acceptanceProof else { return nil }
         guard let identity = try? proof.verify(receipt.identityMessage(), purpose: .acceptInvitation,
-                                               memberID: receipt.inviteeMemberID, trust: trust, now: Date(timeIntervalSince1970: now)) else { return nil }
+                memberID: receipt.inviteeMemberID, trust: trust, now: Date(timeIntervalSince1970: now))
+        else { return nil }
         guard context.recipientAccount == nil || context.recipientAccount == identity.principal else { return nil }
         return VerifiedDirectInvitation(receipt, identity: identity)
     }

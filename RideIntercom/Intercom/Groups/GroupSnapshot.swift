@@ -82,7 +82,9 @@ struct GroupSnapshot: Codable, Equatable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs, accountPair, accountDevices, invitationDeviceKeys, lastSponsoredStart, joinedByInvitation, groupTabOfferAcknowledged, removedMembers
+            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs,
+                accountPair, accountDevices, invitationDeviceKeys, lastSponsoredStart, joinedByInvitation,
+                groupTabOfferAcknowledged, removedMembers
         }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -92,7 +94,8 @@ struct GroupSnapshot: Codable, Equatable {
             credentialReference = try values.decodeIfPresent(UUID.self, forKey: .credentialReference)
             kind = try values.decodeIfPresent(IntercomGroup.Kind.self, forKey: .kind)
             accountPair = try values.decodeIfPresent(AccountCallPair.self, forKey: .accountPair)
-            accountDevices = try values.decodeIfPresent([String: AccountDeviceBinding].self, forKey: .accountDevices) ?? [:]
+            accountDevices =
+                try values.decodeIfPresent([String: AccountDeviceBinding].self, forKey: .accountDevices) ?? [:]
             invitationDeviceKeys = try values.decodeIfPresent([String: String].self, forKey: .invitationDeviceKeys)
             pendingInvitation = try values.decodeIfPresent(DirectInvitationReceipt.self, forKey: .pendingInvitation)
             receivedInvitationIDs = try values.decodeIfPresent([UUID].self, forKey: .receivedInvitationIDs) ?? []
@@ -102,7 +105,11 @@ struct GroupSnapshot: Codable, Equatable {
             removedMembers = try values.decodeIfPresent([RemovedMember].self, forKey: .removedMembers)
         }
         func group() throws -> IntercomGroup {
-            try IntercomGroup(id: id, name: name, members: members.map { GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName) }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
+            try IntercomGroup(
+                id: id, name: name,
+                members: members.map {
+                    GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName)
+                }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
         }
 
         func matchesInvitationDeviceKey(_ key: String, for memberID: String) -> Bool {
@@ -175,7 +182,8 @@ struct GroupSnapshot: Codable, Equatable {
 
     init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [],
          groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = [],
-         groupRemovalReceipts: [GroupRemovalReceipt] = [], nearbyGroupCancellations: [GroupInvitationCancellation.Target] = [],
+        groupRemovalReceipts: [GroupRemovalReceipt] = [],
+        nearbyGroupCancellations: [GroupInvitationCancellation.Target] = [],
          contactDeletions: [ContactDeletionNotice] = [], contactDeletionReceipts: [ContactDeletionReceipt] = [],
          contactDeletionPublications: [ContactDeletionPublication] = [],
          contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = [],
@@ -196,7 +204,8 @@ struct GroupSnapshot: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts, groupRemovalReceipts
+        case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts,
+            groupRemovalReceipts
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
         case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
         case issuedOrdinaryGroupInvitations
@@ -215,10 +224,15 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactInvitationRecord].self, forKey: .contactInvitations)
         groupDeliveries = version < 11 ? [] : try values.decode([GroupDeliveryRecord].self, forKey: .groupDeliveries)
         groupLinkReceipts = version < 16 ? [] : try values.decode([GroupLinkReceipt].self, forKey: .groupLinkReceipts)
-        groupRemovalReceipts = version < 17 ? [] : try values.decode([GroupRemovalReceipt].self, forKey: .groupRemovalReceipts)
-        nearbyGroupCancellations = version < 18 ? [] : try values.decode([GroupInvitationCancellation.Target].self, forKey: .nearbyGroupCancellations)
-        contactDeletions = version < 19 ? [] : try values.decode([ContactDeletionNotice].self, forKey: .contactDeletions)
-        contactDeletionReceipts = version < 20 ? [] : try values.decode([ContactDeletionReceipt].self, forKey: .contactDeletionReceipts)
+        groupRemovalReceipts =
+            version < 17 ? [] : try values.decode([GroupRemovalReceipt].self, forKey: .groupRemovalReceipts)
+        nearbyGroupCancellations =
+            version < 18
+            ? [] : try values.decode([GroupInvitationCancellation.Target].self, forKey: .nearbyGroupCancellations)
+        contactDeletions =
+            version < 19 ? [] : try values.decode([ContactDeletionNotice].self, forKey: .contactDeletions)
+        contactDeletionReceipts =
+            version < 20 ? [] : try values.decode([ContactDeletionReceipt].self, forKey: .contactDeletionReceipts)
         contactDeletionPublications = version < 21 ? []
             : try values.decode([ContactDeletionPublication].self, forKey: .contactDeletionPublications)
         contactDeletionRelayReceipts = version < 22 ? []
@@ -257,7 +271,8 @@ struct GroupSnapshot: Codable, Equatable {
                 if let peer = record.peerMemberID, let user = next.users.first(where: { $0.memberIDs.contains(peer) }) {
                     next.contactInvitations[index].personID = user.id
                 } else if record.direction == .outgoing && (record.state == .pending || record.state == .expired) {
-                    let user = SavedUser(displayName: record.nickname ?? "Invitation", memberIDs: [], localName: record.nickname)
+                    let user = SavedUser(
+                        displayName: record.nickname ?? "Invitation", memberIDs: [], localName: record.nickname)
                     next.users.append(user)
                     next.contactInvitations[index].personID = user.id
                 } else if record.direction == .incoming && record.state == .pending {
@@ -327,9 +342,15 @@ struct GroupSnapshot: Codable, Equatable {
     func validated() throws -> GroupSnapshot {
         guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
         guard version < 3 || groups.allSatisfy({ $0.kind != nil }) else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else { throw IntercomGroupError.invalidStoredGroups }
-        guard groups.count <= 256, Set(groups.map(\.id)).count == groups.count else { throw IntercomGroupError.invalidStoredGroups }
+        guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else {
+            throw IntercomGroupError.invalidStoredGroups
+        }
+        guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else {
+            throw IntercomGroupError.invalidStoredGroups
+        }
+        guard groups.count <= 256, Set(groups.map(\.id)).count == groups.count else {
+            throw IntercomGroupError.invalidStoredGroups
+        }
         guard version >= 24 || issuedOrdinaryGroupInvitations.isEmpty,
               issuedOrdinaryGroupInvitations.count <= Self.maximumIssuedOrdinaryGroupInvitations,
               Set(issuedOrdinaryGroupInvitations.map(\.invitation.id)).count == issuedOrdinaryGroupInvitations.count,
@@ -338,9 +359,11 @@ struct GroupSnapshot: Codable, Equatable {
               }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 9 || contactInvitations.isEmpty else { throw IntercomGroupError.invalidStoredGroups }
         guard contactInvitations.count <= 1024, contactInvitations.allSatisfy(\.isValid),
-              Set(contactInvitations.map(\.id)).count == contactInvitations.count else { throw IntercomGroupError.invalidStoredGroups }
+            Set(contactInvitations.map(\.id)).count == contactInvitations.count
+        else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 11 || groupDeliveries.isEmpty, groupDeliveries.count <= Self.maximumGroupDeliveries,
-              groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count else { throw IntercomGroupError.invalidStoredGroups }
+            groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count
+        else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 12 || groupDeliveries.allSatisfy({ $0.direction == .outgoing || $0.state == .received })
         else { throw IntercomGroupError.invalidStoredGroups }
         let regularGroupIDs = Set(groups.filter { $0.kind == .group }.map(\.id))
@@ -349,7 +372,8 @@ struct GroupSnapshot: Codable, Equatable {
               Set(groupRemovalReceipts.map { [$0.groupID, $0.eventID] }).count == groupRemovalReceipts.count
         else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 18 || nearbyGroupCancellations.isEmpty,
-              nearbyGroupCancellations.count <= Self.maximumGroupDeliveries, nearbyGroupCancellations.allSatisfy(\.isValid),
+            nearbyGroupCancellations.count <= Self.maximumGroupDeliveries,
+            nearbyGroupCancellations.allSatisfy(\.isValid),
               Set(nearbyGroupCancellations).count == nearbyGroupCancellations.count
         else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 19 || contactDeletions.isEmpty, contactDeletions.allSatisfy(\.isValid),
@@ -406,11 +430,15 @@ struct GroupSnapshot: Codable, Equatable {
             guard Set(record.receivedInvitationIDs).count == record.receivedInvitationIDs.count,
                   record.receivedInvitationIDs.count <= 1024 else { throw IntercomGroupError.invalidStoredGroups }
             if let receipt = record.pendingInvitation {
-                guard (version < 5 || receipt.isValid), receipt.kind == .accepted, receipt.groupID == record.id else { throw IntercomGroupError.invalidStoredGroups }
+                guard version < 5 || receipt.isValid, receipt.kind == .accepted, receipt.groupID == record.id
+                else { throw IntercomGroupError.invalidStoredGroups }
                 if version >= 5 {
                     guard receipt.invitation != nil, receipt.proof != nil, let acceptance = receipt.acceptanceProof,
                           receipt.acknowledgementProof == nil,
-                          (try? acceptance.verify(receipt.identityMessage(), purpose: .acceptInvitation, memberID: receipt.inviteeMemberID)) != nil else {
+                        (try? acceptance.verify(
+                            receipt.identityMessage(), purpose: .acceptInvitation,
+                            memberID: receipt.inviteeMemberID)) != nil
+                    else {
                         throw IntercomGroupError.invalidStoredGroups
                     }
                 }
@@ -418,9 +446,11 @@ struct GroupSnapshot: Codable, Equatable {
         }
         if version >= 2 {
             let principals = users.compactMap(\.principal)
-            guard Set(principals).count == principals.count, principals.allSatisfy(\.isValid), users.allSatisfy({ user in
+            guard Set(principals).count == principals.count, principals.allSatisfy(\.isValid),
+                users.allSatisfy({ user in
                 guard let keys = user.deviceKeys else { return user.principal == nil }
-                return Set(keys.keys) == Set(user.memberIDs) && keys.values.allSatisfy(DeviceIdentityProof.isValidPublicKey)
+                    return Set(keys.keys) == Set(user.memberIDs)
+                        && keys.values.allSatisfy(DeviceIdentityProof.isValidPublicKey)
             }) else { throw IntercomGroupError.invalidStoredGroups }
             guard users.filter({ !$0.isRegistered }).allSatisfy({ $0.principal == nil && $0.deviceKeys == nil }) else {
                 throw IntercomGroupError.invalidStoredGroups
@@ -431,17 +461,25 @@ struct GroupSnapshot: Codable, Equatable {
             let memberIDs = users.flatMap(\.memberIDs)
             guard Set(users.map(\.id)).count == users.count,
                   Set(memberIDs).count == memberIDs.count,
-                  users.allSatisfy({ IntercomGroup.isValidName($0.displayName) && ($0.localName.map(IntercomGroup.isValidName) ?? true) && (version >= 10 || !$0.memberIDs.isEmpty) }),
-                  memberIDs.allSatisfy({ IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix) })
+                users.allSatisfy({
+                    IntercomGroup.isValidName($0.displayName)
+                        && ($0.localName.map(IntercomGroup.isValidName) ?? true)
+                        && (version >= 10 || !$0.memberIDs.isEmpty)
+                }),
+                memberIDs.allSatisfy({
+                    IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix)
+                })
             else { throw IntercomGroupError.invalidStoredGroups }
-            let directory = Dictionary(uniqueKeysWithValues: users.flatMap { user in user.memberIDs.map { ($0, user) } })
+            let directory = Dictionary(
+                uniqueKeysWithValues: users.flatMap { user in user.memberIDs.map { ($0, user) } })
             guard groups.allSatisfy({ group in group.members.allSatisfy { member in
                 if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { return member.userID == nil }
                 let user = directory[member.id] ?? group.accountDevices[member.id].flatMap { binding in
                     users.first { $0.principal == binding.principal }
                 }
                 if member.userID == nil { return user == nil }
-                return user?.displayName == member.displayName && user?.id == member.userID && user?.localName == member.localName
+                        return user?.displayName == member.displayName && user?.id == member.userID
+                            && user?.localName == member.localName
             } }) else { throw IntercomGroupError.invalidStoredGroups }
         }
         return self

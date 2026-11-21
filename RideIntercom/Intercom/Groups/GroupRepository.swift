@@ -70,7 +70,9 @@ final class GroupRepository {
         }
         return try current.groups.map { record in
             var group = try record.group()
-            guard let index = group.members.firstIndex(where: { $0.id == localMemberID }) else { throw IntercomGroupError.invalidStoredGroups }
+            guard let index = group.members.firstIndex(where: { $0.id == localMemberID }) else {
+                throw IntercomGroupError.invalidStoredGroups
+            }
             group.members.insert(group.members.remove(at: index), at: 0)
             return group
         }
@@ -87,21 +89,27 @@ final class GroupRepository {
 
     /// The inviter's own name wins; the name already saved for them fills in for an invitation that carries none.
     func inviterName(for token: GroupInviteToken) -> String {
-        token.inviterDisplayName ?? users.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName ?? "Inviter"
+        token.inviterDisplayName ?? users.first { $0.memberIDs.contains(token.inviterMemberID) }?.displayName
+            ?? "Inviter"
     }
 
     func save(_ groups: [IntercomGroup], deliveries: [GroupDeliveryRecord] = []) throws {
         try update(groups, credential: nil) { try self.appendGroupDeliveries(deliveries, to: &$0) }
     }
-    func save(_ groups: [IntercomGroup], credential: GroupAccessCredential, acceptedInvitation: AcceptedDirectInvitation? = nil,
-              inviterName: String? = nil, deliveries: [GroupDeliveryRecord] = [], now: TimeInterval = Date().timeIntervalSince1970) throws {
+    func save(
+        _ groups: [IntercomGroup], credential: GroupAccessCredential,
+        acceptedInvitation: AcceptedDirectInvitation? = nil,
+        inviterName: String? = nil, deliveries: [GroupDeliveryRecord] = [],
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) throws {
         let previousGroupIDs = Set(snapshot?.groups.map(\.id) ?? [])
         try update(groups, credential: credential, now: now) { next in
             try self.appendGroupDeliveries(deliveries, to: &next)
             if let receipt = acceptedInvitation {
                 try self.storeAcceptedInvitation(receipt, inviterName: inviterName, in: &next)
                 // Joined through someone's invitation: they own a regular group, and you can only leave it.
-                if let index = next.groups.firstIndex(where: { $0.id == receipt.receipt.groupID }), next.groups[index].kind != .direct,
+                if let index = next.groups.firstIndex(where: { $0.id == receipt.receipt.groupID }),
+                    next.groups[index].kind != .direct,
                    previousGroupIDs.contains(receipt.receipt.groupID) == false {
                     next.groups[index].joinedByInvitation = true
                     next.groups[index].groupTabOfferAcknowledged = false
@@ -148,11 +156,15 @@ final class GroupRepository {
               let index = snapshot.groups.firstIndex(where: { $0.id == groupID && $0.kind == .group })
         else { throw GroupStorageError.invalidUpdate }
         let isPendingSlot = memberID.hasPrefix(GroupMember.pendingInvitePrefix)
-        guard !isPendingSlot || (receipt == nil && snapshot.groups[index].members.contains(where: { $0.id == memberID }))
+        guard
+            !isPendingSlot
+                || (receipt == nil && snapshot.groups[index].members.contains(where: { $0.id == memberID }))
         else { throw GroupStorageError.invalidUpdate }
         var groups = try snapshot.groups.map { try $0.group() }
         let binding = groups[index].accountDevices[memberID]
-        let user = snapshot.users.first { $0.memberIDs.contains(memberID) || (binding != nil && $0.principal == binding?.principal) }
+        let user = snapshot.users.first {
+            $0.memberIDs.contains(memberID) || (binding != nil && $0.principal == binding?.principal)
+        }
         let ids = Set(user?.memberIDs ?? []).union([memberID]).subtracting([localMemberID])
         groups[index].members.removeAll { ids.contains($0.id) }
         groups[index].accountDevices = groups[index].accountDevices.filter { !ids.contains($0.key) }
@@ -160,7 +172,9 @@ final class GroupRepository {
             try Self.rememberGroupRemoval(receipt, for: groupID, in: &next, now: now)
             // A verified removal can arrive before this device ever sees the member.
             guard !isPendingSlot else { return }
-            let pending = next.contactInvitations.filter { $0.direction == .outgoing && $0.state == .pending && $0.invitedGroupID == groupID }
+            let pending = next.contactInvitations.filter {
+                $0.direction == .outgoing && $0.state == .pending && $0.invitedGroupID == groupID
+            }
             let principal = binding?.principal ?? user?.principal
             let removed = GroupSnapshot.RemovedMember(memberIDs: ids, principal: principal, removedAt: now,
                 priorInvitationIDs: Set(pending.map(\.id)))
@@ -184,7 +198,9 @@ final class GroupRepository {
         }
     }
 
-    private static func restoreExplicitlySelectedMembers(_ ids: Set<UUID>, in groupID: UUID, snapshot: inout GroupSnapshot) {
+    private static func restoreExplicitlySelectedMembers(
+        _ ids: Set<UUID>, in groupID: UUID, snapshot: inout GroupSnapshot
+    ) {
         guard !ids.isEmpty, let index = snapshot.groups.firstIndex(where: { $0.id == groupID }) else { return }
         let users = snapshot.users.filter { ids.contains($0.id) }
         snapshot.groups[index].reinstateMembers { removal in
@@ -198,7 +214,8 @@ final class GroupRepository {
 
     func recordSponsoredStart(_ start: TimeInterval, for groupID: UUID, now: TimeInterval) throws {
         guard CallAccessState.validStart(start, now: now), let snapshot,
-              let index = snapshot.groups.firstIndex(where: { $0.id == groupID }) else { throw GroupStorageError.invalidUpdate }
+            let index = snapshot.groups.firstIndex(where: { $0.id == groupID })
+        else { throw GroupStorageError.invalidUpdate }
         if let previous = snapshot.groups[index].lastSponsoredStart,
            CallAccessState.validStart(previous, now: now), previous >= start { return }
         try amend(snapshot) { next in
@@ -211,7 +228,10 @@ final class GroupRepository {
             throw GroupStorageError.invalidUpdate
         }
         try amend(snapshot) { next in
-            next.users.append(SavedUser(id: id, displayName: name, memberIDs: [], localName: name, usesProvisionalName: usesProvisionalName))
+            next.users.append(
+                SavedUser(
+                    id: id, displayName: name, memberIDs: [], localName: name,
+                    usesProvisionalName: usesProvisionalName))
         }
     }
 
@@ -236,7 +256,9 @@ final class GroupRepository {
     func resetUserName(_ id: UUID) throws { try setUserLocalName(id, nil) }
 
     private func setUserLocalName(_ id: UUID, _ localName: String?) throws {
-        guard let snapshot, let index = snapshot.users.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+        guard let snapshot, let index = snapshot.users.firstIndex(where: { $0.id == id }) else {
+            throw GroupStorageError.invalidUpdate
+        }
         try amend(snapshot) { next in
             next.users[index].localName = localName
             next.users[index].usesProvisionalName = false
@@ -268,7 +290,8 @@ final class GroupRepository {
         guard let snapshot else { throw IntercomGroupError.storageUnavailable }
         guard memberID != localMemberID, IntercomGroup.isValidName(name),
               let index = snapshot.groups.firstIndex(where: { $0.id == groupID }),
-              snapshot.groups[index].matchesInvitationDeviceKey(profile.identity.publicKey, for: memberID) else { return false }
+            snapshot.groups[index].matchesInvitationDeviceKey(profile.identity.publicKey, for: memberID)
+        else { return false }
         var groups = try snapshot.groups.map { try $0.group() }
         var users = snapshot.users
         var principal = profile.identity.principal
@@ -281,10 +304,17 @@ final class GroupRepository {
         }
         if snapshot.groups[index].excludesMember(memberID, principal: principal) { return false }
         if groups[index].accountPair != nil {
-            guard groups[index].bindAccountDevice(profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs) else { return false }
+            guard
+                groups[index].bindAccountDevice(
+                    profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs)
+            else { return false }
         } else if groups[index].kind == .group {
-            guard groups[index].bindGroupRepresentative(profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs) else { return false }
-            if let principal = profile.identity.principal, let user = users.firstIndex(where: { $0.principal == principal }) {
+            guard
+                groups[index].bindGroupRepresentative(
+                    profile.identity, name: name, localMemberID: localMemberID, retaining: connectedMemberIDs)
+            else { return false }
+            if let principal = profile.identity.principal,
+                let user = users.firstIndex(where: { $0.principal == principal }) {
                 users[user].displayName = name
             }
         } else {
@@ -303,7 +333,9 @@ final class GroupRepository {
     }
 
     var unacknowledgedGroupTabOffers: [UUID] {
-        snapshot?.groups.filter { $0.kind == .group && $0.joinedByInvitation == true && $0.groupTabOfferAcknowledged == false }.map(\.id) ?? []
+        snapshot?.groups.filter {
+            $0.kind == .group && $0.joinedByInvitation == true && $0.groupTabOfferAcknowledged == false
+        }.map(\.id) ?? []
     }
 
     /// One response covers all invitations already received, so a batch never produces repeated alerts.
@@ -326,7 +358,9 @@ final class GroupRepository {
         let peers = Set(user.memberIDs)
         var match: (peerID: String, groupID: UUID)?
         for group in snapshot.groups where group.kind == .direct && group.accountPair == nil {
-            guard let peer = group.members.first(where: { $0.id != localMemberID && peers.contains($0.id) }) else { continue }
+            guard let peer = group.members.first(where: { $0.id != localMemberID && peers.contains($0.id) }) else {
+                continue
+            }
             guard match == nil else { return nil }
             match = (peer.id, group.id)
         }
@@ -340,10 +374,13 @@ final class GroupRepository {
     @discardableResult
     func removeUser(_ id: UUID, signer: DeviceIdentitySigner? = nil, sender: AccountPrincipal? = nil,
                     now: Date = Date()) throws -> Set<UUID> {
-        guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+        guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else {
+            throw GroupStorageError.invalidUpdate
+        }
         return try removeUser(user, from: snapshot, now: now) { calls, next in
             if let signer, signer.memberID == self.localMemberID {
-                try self.stageContactDeletions(for: user, directCalls: calls, signer: signer, sender: sender, now: now, in: &next)
+                try self.stageContactDeletions(
+                    for: user, directCalls: calls, signer: signer, sender: sender, now: now, in: &next)
             }
         }
     }
@@ -353,7 +390,8 @@ final class GroupRepository {
         let directCalls = snapshot.groups.filter { belongs($0, to: user) }
         let removed = Set(directCalls.map(\.id))
         try update(snapshot.groups.filter { !removed.contains($0.id) }.map { try $0.group() },
-                   credential: nil, users: snapshot.users.filter { $0.id != user.id }, now: now.timeIntervalSince1970) { next in
+            credential: nil, users: snapshot.users.filter { $0.id != user.id }, now: now.timeIntervalSince1970
+        ) { next in
             Self.cancelPendingGroupReceipts(in: &next) { record in
                 record.senderMemberID.map(user.memberIDs.contains) == true
             }
@@ -362,10 +400,16 @@ final class GroupRepository {
         return removed
     }
 
+    struct ContactDeletionResult {
+        let receipt: ContactDeletionReceipt
+        let removedGroups: Set<UUID>?
+        let saved: Bool
+    }
+
     func receiveContactDeletion(_ notice: ContactDeletionNotice, from peerID: String,
                                 recipient: DeviceIdentitySigner, localAccount: AccountPrincipal?, now: Date,
                                 beforeRemoving: (UUID) throws -> Void)
-        throws -> (receipt: ContactDeletionReceipt, removedGroups: Set<UUID>?, saved: Bool) {
+        throws -> ContactDeletionResult {
         guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
         let target = notice.target
         guard peerID == target.senderMemberID, localMemberID == recipient.memberID,
@@ -375,13 +419,15 @@ final class GroupRepository {
             try receipt.verify(for: notice, now: now)
             try store.lock()
             defer { store.unlock() }
-            guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
-            return (receipt, nil, false)
+            guard try store.read() == snapshot else {
+                isWritable = false; throw GroupStorageError.changedByAnotherProcess
+            }
+            return .init(receipt: receipt, removedGroups: nil, saved: false)
         }
         if !snapshot.users.contains(where: { $0.memberIDs.contains(peerID) }) {
             let receipt = try receiveDeletionOfFormerContact(notice, snapshot: snapshot, recipient: recipient,
                                                               localAccount: localAccount, now: now)
-            return (receipt, nil, true)
+            return .init(receipt: receipt, removedGroups: nil, saved: true)
         }
         // A single device's pair credential cannot authorize removal of a multi-device entry.
         guard let user = snapshot.users.first(where: { $0.memberIDs == [peerID] }),
@@ -391,16 +437,19 @@ final class GroupRepository {
               let pair = try credential(for: pairID) else { throw DeviceIdentityProof.Failure.invalid }
         try notice.verify(from: peerID, senderKey: senderKey, recipient: recipient, pairSecret: pair.secret, now: now)
         let receipt = try ContactDeletionReceipt(for: notice, recipient: recipient)
-        let address = ContactDeletionRelayAddress(owner: user.principal, recipient: localAccount, pairSecret: pair.secret,
+        let address = ContactDeletionRelayAddress(
+            owner: user.principal, recipient: localAccount, pairSecret: pair.secret,
                                                    senderID: peerID, recipientID: recipient.memberID)
         let removed = try removeUser(user, from: snapshot, now: now) { _, next in
             try Self.stageContactDeletionReceipt(receipt, address: address, signer: recipient, in: &next)
             try beforeRemoving(user.id)
         }
-        return (receipt, removed, true)
+        return .init(receipt: receipt, removedGroups: removed, saved: true)
     }
 
-    func canUseFormerContactDeletionPair(_ former: ContactDeletionFormerPair, signer: DeviceIdentitySigner, now: Date) -> Bool {
+    func canUseFormerContactDeletionPair(
+        _ former: ContactDeletionFormerPair, signer: DeviceIdentitySigner, now: Date
+    ) -> Bool {
         guard former.canVerify(for: signer, now: now), let snapshot else { return false }
         return !snapshot.users.contains {
             $0.memberIDs.contains(former.peerID) || (former.relay != nil && $0.principal == former.relay?.owner)
@@ -430,10 +479,12 @@ final class GroupRepository {
         throw DeviceIdentityProof.Failure.invalid
     }
 
-    private static func stageContactDeletionReceipt(_ receipt: ContactDeletionReceipt, address: ContactDeletionRelayAddress?,
+    private static func stageContactDeletionReceipt(
+        _ receipt: ContactDeletionReceipt, address: ContactDeletionRelayAddress?,
                                                     signer: DeviceIdentitySigner, in next: inout GroupSnapshot) throws {
         if let address {
-            next.contactDeletionRelayReceipts.append(try ContactDeletionRelayReceipt(receipt: receipt, address: address, signer: signer))
+            next.contactDeletionRelayReceipts.append(
+                try ContactDeletionRelayReceipt(receipt: receipt, address: address, signer: signer))
         }
         next.contactDeletionReceipts.append(receipt)
     }
@@ -452,7 +503,8 @@ final class GroupRepository {
     }
 
     func finishContactDeletionRelay(_ publication: ContactDeletionPublication, now: Date) throws {
-        guard publication.payload == nil, let snapshot, snapshot.contactDeletionPublications.contains(publication) else { return }
+        guard publication.payload == nil, let snapshot, snapshot.contactDeletionPublications.contains(publication)
+        else { return }
         try amend(snapshot, now: now.timeIntervalSince1970) { next in
             next.contactDeletionPublications.removeAll { $0 == publication }
         }
@@ -476,7 +528,9 @@ final class GroupRepository {
             else { continue }
             let notice = try ContactDeletionNotice(signer: signer, recipientMemberID: peer.id, recipientKey: peerKey,
                                                    pairSecret: secret, now: now)
-            let verificationKey = ContactDeletionNotice.pairKey(secret).withUnsafeBytes { IdentityEncoding.encode(Data($0)) }
+            let verificationKey = ContactDeletionNotice.pairKey(secret).withUnsafeBytes {
+                IdentityEncoding.encode(Data($0))
+            }
             let address = ContactDeletionRelayAddress(owner: user.principal, recipient: sender, pairSecret: secret,
                                                        senderID: peer.id, recipientID: signer.memberID)
             next.contactDeletionFormerPairs.append(.init(localMemberID: signer.memberID, localKey: signer.publicKey,
@@ -508,22 +562,27 @@ final class GroupRepository {
         snapshot?.hasRetiredGroupLink(accepted.receipt) == true
     }
 
-    func acceptInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String, retainingMemberIDs: Set<String> = [],
+    func acceptInvitation(
+        _ accepted: AcceptedDirectInvitation, inviterName: String, retainingMemberIDs: Set<String> = [],
                           replacementAccountCallKey: String? = nil,
                           now: TimeInterval = Date().timeIntervalSince1970) throws {
         guard let snapshot else { throw GroupStorageError.invalidUpdate }
-        let credential = replacementAccountCallKey.map { GroupAccessCredential(groupID: accepted.receipt.groupID, secret: $0) }
+        let credential = replacementAccountCallKey.map {
+            GroupAccessCredential(groupID: accepted.receipt.groupID, secret: $0)
+        }
         if credential != nil {
             guard snapshot.groups.contains(where: { $0.id == accepted.receipt.groupID && $0.accountPair != nil }) else {
                 throw GroupStorageError.invalidUpdate
             }
         }
         try amend(snapshot, credential: credential, now: now) { next in
-            try self.storeAcceptedInvitation(accepted, inviterName: inviterName, retainingMemberIDs: retainingMemberIDs, in: &next)
+            try self.storeAcceptedInvitation(
+                accepted, inviterName: inviterName, retainingMemberIDs: retainingMemberIDs, in: &next)
         }
     }
 
-    private func storeAcceptedInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String? = nil, retainingMemberIDs: Set<String> = [],
+    private func storeAcceptedInvitation(
+        _ accepted: AcceptedDirectInvitation, inviterName: String? = nil, retainingMemberIDs: Set<String> = [],
                                          in next: inout GroupSnapshot) throws {
         let receipt = accepted.receipt
         guard receipt.isValid, receipt.kind == .accepted, receipt.invitation != nil, receipt.proof != nil,
@@ -532,15 +591,20 @@ final class GroupRepository {
               next.groups[index].members.contains(where: { $0.id == receipt.inviteeMemberID }) else {
             throw GroupStorageError.invalidUpdate
         }
-        let name = inviterName ?? next.groups[index].members.first(where: { $0.id == receipt.inviterMemberID })?.displayName
+        let name =
+            inviterName
+            ?? next.groups[index].members.first(where: { $0.id == receipt.inviterMemberID })?.displayName
         guard let name, IntercomGroup.isValidName(name) else { throw GroupStorageError.invalidUpdate }
         if next.groups[index].excludesMember(accepted.inviter.memberID, principal: accepted.inviter.principal) {
             throw GroupStorageError.identityConflict
         }
         if next.groups[index].kind == .group, let expiry = receipt.invitation?.expiresAt {
             guard !next.hasRetiredGroupLink(receipt) else { throw GroupInviteTokenError.retiredGroupLink }
-            if !next.groupLinkReceipts.contains(where: { $0.groupID == receipt.groupID && $0.receiptID == receipt.id }) {
-                next.groupLinkReceipts.append(.init(groupID: receipt.groupID, receiptID: receipt.id, expiresAt: expiry, retired: false))
+            if !next.groupLinkReceipts.contains(where: {
+                $0.groupID == receipt.groupID && $0.receiptID == receipt.id
+            }) {
+                next.groupLinkReceipts.append(
+                    .init(groupID: receipt.groupID, receiptID: receipt.id, expiresAt: expiry, retired: false))
             }
         }
         if !next.groups[index].receivedInvitationIDs.contains(receipt.id) {
@@ -558,11 +622,18 @@ final class GroupRepository {
                     }
                     if !retainsActiveRepresentative {
                         let retained = retainingMemberIDs.union([accepted.inviter.memberID])
-                        guard group.bindGroupRepresentative(accepted.inviter, name: name, localMemberID: localMemberID, retaining: retained) else { throw GroupStorageError.identityConflict }
+                        guard
+                            group.bindGroupRepresentative(
+                                accepted.inviter, name: name, localMemberID: localMemberID, retaining: retained)
+                        else { throw GroupStorageError.identityConflict }
                     }
                 }
             } else {
-                guard group.bindAccountDevice(accepted.inviter, name: name, localMemberID: localMemberID, retaining: Set(group.members.map(\.id))) else { throw GroupStorageError.identityConflict }
+                guard
+                    group.bindAccountDevice(
+                        accepted.inviter, name: name, localMemberID: localMemberID,
+                        retaining: Set(group.members.map(\.id)))
+                else { throw GroupStorageError.identityConflict }
             }
             next.groups[index].members = GroupSnapshot.Record(group).members
             next.groups[index].accountDevices = group.accountDevices
@@ -609,9 +680,11 @@ final class GroupRepository {
     }
 
     func ordinaryGroupReplyCredentialReference(for invitation: DirectInvitationContext, now: TimeInterval) -> UUID? {
-        guard isWritable, let localMemberID, let snapshot, invitation.isOrdinaryGroupInvitation, invitation.expiresAt > now,
+        guard isWritable, let localMemberID, let snapshot, invitation.isOrdinaryGroupInvitation,
+            invitation.expiresAt > now,
               !missingCredentialGroupIDs.contains(invitation.groupID),
-              let group = snapshot.groups.first(where: { $0.id == invitation.groupID && $0.kind == .group }) else { return nil }
+            let group = snapshot.groups.first(where: { $0.id == invitation.groupID && $0.kind == .group })
+        else { return nil }
         if invitation.inviterMemberID == localMemberID {
             guard snapshot.issuedOrdinaryGroupInvitations.contains(where: {
                 $0.invitation == invitation && $0.credentialReference == group.credentialReference
@@ -628,14 +701,17 @@ final class GroupRepository {
         let credential: GroupAccessCredential
     }
 
-    func ordinaryGroupReplyCredential(for invitation: DirectInvitationContext, now: TimeInterval) -> OrdinaryGroupReplyCredential? {
+    func ordinaryGroupReplyCredential(for invitation: DirectInvitationContext, now: TimeInterval)
+        -> OrdinaryGroupReplyCredential? {
         guard let reference = ordinaryGroupReplyCredentialReference(for: invitation, now: now),
               let credential = try? credential(for: invitation.groupID) else { return nil }
         return .init(reference: reference, credential: credential)
     }
 
     func allowsStandaloneOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
-        guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else { return false }
+        guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else {
+            return false
+        }
         return record.members.contains { $0.id == localMemberID }
             && !record.excludesMember(peer.memberID, principal: peer.principal)
             && record.matchesInvitationDeviceKey(peer.publicKey, for: peer.memberID)
@@ -681,7 +757,8 @@ final class GroupRepository {
             if let localPrincipal, let remote = user.principal {
                 guard localPrincipal != remote, localPrincipal.issuer == remote.issuer,
                       group.accountDevices[inviter] == .init(principal: remote, publicKey: key),
-                      group.accountDevices[localMemberID] == .init(principal: localPrincipal, publicKey: acceptance.publicKey),
+                    group.accountDevices[localMemberID]
+                        == .init(principal: localPrincipal, publicKey: acceptance.publicKey),
                       acceptance.certificate != nil else { return nil }
             } else {
                 guard localPrincipal == nil, user.principal == nil, user.memberIDs.count == 1,
@@ -694,7 +771,8 @@ final class GroupRepository {
     func receiveInvitation(_ verified: VerifiedDirectInvitation, signer: DeviceIdentitySigner? = nil) throws {
         let receipt = verified.receipt
         guard receipt.isValid, receipt.kind == .accepted, receipt.inviterMemberID == localMemberID,
-              let snapshot, let record = snapshot.groups.first(where: { $0.id == receipt.groupID }) else { throw GroupStorageError.invalidUpdate }
+            let snapshot, let record = snapshot.groups.first(where: { $0.id == receipt.groupID })
+        else { throw GroupStorageError.invalidUpdate }
         // Persist receipt IDs even if the contact is later deleted. Retrying an
         // already accepted invitation must not silently recreate that contact.
         guard !record.receivedInvitationIDs.contains(receipt.id) else { return }
@@ -705,8 +783,11 @@ final class GroupRepository {
         } ?? true
         try updateAfterInvitationReply(snapshot, receipt: receipt, peer: peer,
                                        name: canPrepareDeviceCall ? receipt.displayName : nil, signer: signer) { next in
-            guard let index = next.groups.firstIndex(where: { $0.id == receipt.groupID }) else { throw GroupStorageError.invalidUpdate }
-            try next.remember(.init(id: receipt.inviteeMemberID, displayName: receipt.displayName), identity: verified.identity)
+            guard let index = next.groups.firstIndex(where: { $0.id == receipt.groupID }) else {
+                throw GroupStorageError.invalidUpdate
+            }
+            try next.remember(
+                .init(id: receipt.inviteeMemberID, displayName: receipt.displayName), identity: verified.identity)
             try next.groups[index].rememberInvitationDevice(verified.identity)
             next.groups[index].receivedInvitationIDs.append(receipt.id)
         }
@@ -756,9 +837,10 @@ final class GroupRepository {
            let local = source.members.first(where: { $0.id == signer.memberID }) {
             let id = IntercomGroup.directCallID(memberIDs: [signer.memberID, peer.memberID])
             if !groups.contains(where: { $0.id == id }),
-               let secret = try ordinaryReplyDirectCallSecret(signer: signer, peer: peer, acceptance: receipt.acceptanceProof) {
+                let secret = try ordinaryReplyDirectCallSecret(
+                    signer: signer, peer: peer, acceptance: receipt.acceptanceProof) {
                 let direct = try IntercomGroup(id: id, name: "Direct Call",
-                                               members: [local, .init(id: peer.memberID, displayName: name)], kind: .direct)
+                    members: [local, .init(id: peer.memberID, displayName: name)], kind: .direct)
                 groups.append(direct)
                 credential = .init(groupID: id, secret: secret)
             }
@@ -777,22 +859,31 @@ final class GroupRepository {
         return try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey)
     }
 
+    private func storeEnvelope(_ envelope: GroupInvitationEnvelope) throws -> UUID {
+        let data = try JSONEncoder().encode(envelope)
+        guard let text = String(data: data, encoding: .utf8) else { throw GroupStorageError.invalidUpdate }
+        return try prepareKey(text)
+    }
+
     private func prepareKey(_ secret: String) throws -> UUID {
         let reference = UUID()
         try credentials.saveSecret(secret, reference: reference)
-        guard try credentials.secret(reference: reference) == secret else { throw IntercomGroupError.credentialVerificationFailed }
+        guard try credentials.secret(reference: reference) == secret else {
+            throw IntercomGroupError.credentialVerificationFailed
+        }
         return reference
     }
 
-    private func update(_ groups: [IntercomGroup], credential: GroupAccessCredential?, additionalCredentials: [GroupAccessCredential] = [], users: [SavedUser]? = nil,
+    private func update(
+        _ groups: [IntercomGroup], credential: GroupAccessCredential?,
+        additionalCredentials: [GroupAccessCredential] = [], users: [SavedUser]? = nil,
                         now: TimeInterval = Date().timeIntervalSince1970,
                         modify: (inout GroupSnapshot) throws -> Void = { _ in }) throws {
         guard isWritable, let previous = snapshot else { throw IntercomGroupError.storageUnavailable }
         try store.lock(); defer { store.unlock() }
         guard try store.read() == previous else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
         // Validate the requested edit before directory names are reapplied.
-        do { for group in groups { _ = try GroupSnapshot.Record(group).group() } }
-        catch { throw GroupStorageError.invalidUpdate }
+        do { for group in groups { _ = try GroupSnapshot.Record(group).group() } } catch { throw GroupStorageError.invalidUpdate }
         var next = GroupSnapshot(groups: groups.map { group in
             let old = previous.groups.first(where: { $0.id == group.id })
             var record = GroupSnapshot.Record(group, credentialReference: old?.credentialReference)
@@ -810,8 +901,12 @@ final class GroupRepository {
            nearbyGroupCancellations: previous.nearbyGroupCancellations.filter { $0.expiresAt > now },
            contactDeletions: previous.contactDeletions.filter { $0.target.expiresAt > now },
            contactDeletionReceipts: previous.contactDeletionReceipts.filter { $0.target.expiresAt > now },
-           contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 },
-           contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter { Double($0.expiresAt) > now * 1_000 },
+            contactDeletionPublications: previous.contactDeletionPublications.filter {
+                Double($0.expiresAt) > now * 1_000
+            },
+            contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter {
+                Double($0.expiresAt) > now * 1_000
+            },
            contactDeletionFormerPairs: previous.contactDeletionFormerPairs.filter { $0.expiresAt > now })
         next.issuedOrdinaryGroupInvitations = previous.issuedOrdinaryGroupInvitations
         try modify(&next)
@@ -825,10 +920,11 @@ final class GroupRepository {
         reconcileInvitations(in: &next)
         for index in next.groups.indices { next.groups[index].discardInvitationKeysForDepartedMembers() }
         next.synchronizeUserReferences()
-        do { _ = try next.encoded() }
-        catch { throw GroupStorageError.invalidUpdate }
+        do { _ = try next.encoded() } catch { throw GroupStorageError.invalidUpdate }
         for credential in allCredentials {
-            guard let index = next.groups.firstIndex(where: { $0.id == credential.groupID }) else { throw GroupStorageError.invalidUpdate }
+            guard let index = next.groups.firstIndex(where: { $0.id == credential.groupID }) else {
+                throw GroupStorageError.invalidUpdate
+            }
             next.groups[index].credentialReference = try prepareKey(credential.secret)
         }
         do {
@@ -847,7 +943,9 @@ final class GroupRepository {
     }
 
     /// An edit that leaves the groups themselves as they are stored.
-    private func amend(_ snapshot: GroupSnapshot, credential: GroupAccessCredential? = nil, now: TimeInterval = Date().timeIntervalSince1970,
+    private func amend(
+        _ snapshot: GroupSnapshot, credential: GroupAccessCredential? = nil,
+        now: TimeInterval = Date().timeIntervalSince1970,
                        _ modify: (inout GroupSnapshot) throws -> Void) throws {
         try update(snapshot.groups.map { try $0.group() }, credential: credential, now: now, modify: modify)
     }
@@ -855,7 +953,9 @@ final class GroupRepository {
     private func cleanup(_ current: GroupSnapshot) {
         do {
             let live = Set(current.credentialReferences)
-            for reference in try credentials.references().subtracting(live) { try credentials.delete(reference: reference) }
+            for reference in try credentials.references().subtracting(live) {
+                try credentials.delete(reference: reference)
+            }
             needsCleanup = false
         } catch { needsCleanup = true }
     }
@@ -863,9 +963,7 @@ final class GroupRepository {
     func reset() throws {
         try store.lock(); defer { store.unlock() }
         // A newer schema must be opened by the matching app, not reset by this one.
-        do { _ = try store.read() }
-        catch GroupStorageError.unsupportedVersion { throw GroupStorageError.unsupportedVersion }
-        catch { /* Preserve malformed bytes before replacing them. */ }
+        do { _ = try store.read() } catch GroupStorageError.unsupportedVersion { throw GroupStorageError.unsupportedVersion } catch { /* Preserve malformed bytes before replacing them. */ }
         try store.archive()
         let empty = GroupSnapshot()
         try store.commit(empty)
@@ -876,11 +974,15 @@ final class GroupRepository {
 }
 
 extension GroupRepository {
-    func stageContactInvitation(_ token: GroupInviteToken, now: TimeInterval, replacingExpiredInvitation id: UUID? = nil, personID: UUID? = nil) throws {
+    func stageContactInvitation(
+        _ token: GroupInviteToken, now: TimeInterval, replacingExpiredInvitation id: UUID? = nil,
+        personID: UUID? = nil
+    ) throws {
         try token.validate(contactBootstrap: true)
         guard now.isFinite, let snapshot, let context = token.directInvitation?.context,
               token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
-              !snapshot.contactInvitations.contains(where: { $0.id == context.id }) else { throw GroupStorageError.invalidUpdate }
+            !snapshot.contactInvitations.contains(where: { $0.id == context.id })
+        else { throw GroupStorageError.invalidUpdate }
         guard let proof = token.identityProof else { throw GroupStorageError.invalidUpdate }
         _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
         let previous = id.flatMap { id in snapshot.contactInvitations.first { $0.id == id } }
@@ -891,13 +993,20 @@ extension GroupRepository {
         }
         let personID = personID ?? previous?.personID
         if let personID {
-            guard snapshot.users.contains(where: { $0.id == personID && !$0.isRegistered }) else { throw GroupStorageError.invalidUpdate }
-            guard !snapshot.contactInvitations.contains(where: { $0.personID == personID && $0.id != id && $0.state == .pending && $0.expiresAt > now }) else {
+            guard snapshot.users.contains(where: { $0.id == personID && !$0.isRegistered }) else {
+                throw GroupStorageError.invalidUpdate
+            }
+            guard
+                !snapshot.contactInvitations.contains(where: {
+                    $0.personID == personID && $0.id != id && $0.state == .pending && $0.expiresAt > now
+                })
+            else {
                 throw GroupStorageError.invalidUpdate
             }
         }
         if let target = token.invitedGroup {
-            guard personID != nil, let group = snapshot.groups.first(where: { $0.id == target.id }), group.kind == .group,
+            guard personID != nil, let group = snapshot.groups.first(where: { $0.id == target.id }),
+                group.kind == .group,
                   group.members.contains(where: { $0.id == localMemberID }),
                   try credential(for: target.id)?.secret == target.secret else { throw GroupStorageError.invalidUpdate }
         }
@@ -908,12 +1017,18 @@ extension GroupRepository {
             if let id { next.contactInvitations.removeAll { $0.id == id } }
             let reference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations.append(.init(id: context.id, direction: .outgoing,
-                expiresAt: context.expiresAt, credentialReference: reference, nickname: previous?.nickname ?? snapshot.users.first(where: { $0.id == personID })?.resolvedDisplayName, sent: false, personID: personID, invitedGroupID: token.invitedGroup?.id))
+                    expiresAt: context.expiresAt, credentialReference: reference,
+                    nickname: previous?.nickname
+                        ?? snapshot.users.first(where: { $0.id == personID })?.resolvedDisplayName, sent: false,
+                    personID: personID, invitedGroupID: token.invitedGroup?.id))
             if let target = token.invitedGroup, let index = next.groups.firstIndex(where: { $0.id == target.id }) {
                 if let previous { next.groups[index].members.removeAll { $0.id == previous.pendingGroupMemberID } }
-                guard next.groups[index].members.count < IntercomGroup.maximumMemberCount else { throw GroupStorageError.invalidUpdate }
+                guard next.groups[index].members.count < IntercomGroup.maximumMemberCount else {
+                    throw GroupStorageError.invalidUpdate
+                }
                 let record = next.contactInvitations[next.contactInvitations.count - 1]
-                next.groups[index].members.append(.init(id: record.pendingGroupMemberID, displayName: record.nickname ?? "Invitation"))
+                next.groups[index].members.append(
+                    .init(id: record.pendingGroupMemberID, displayName: record.nickname ?? "Invitation"))
             }
         }
     }
@@ -926,7 +1041,9 @@ extension GroupRepository {
               group.members.count + invitees.count <= IntercomGroup.maximumMemberCount,
               Set(invitees.map { $0.person.id }).count == invitees.count else { throw GroupStorageError.invalidUpdate }
         if snapshot.groups.contains(where: { $0.id == group.id }) {
-            guard try self.credential(for: group.id)?.secret == credential.secret else { throw GroupStorageError.identityConflict }
+            guard try self.credential(for: group.id)?.secret == credential.secret else {
+                throw GroupStorageError.identityConflict
+            }
         }
         var reserved = group
         for (person, token) in invitees {
@@ -936,11 +1053,19 @@ extension GroupRepository {
                   token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
                   !person.isRegistered, IntercomGroup.isValidName(person.resolvedDisplayName),
                   !snapshot.users.contains(where: { $0.id == person.id }),
-                  !snapshot.contactInvitations.contains(where: { $0.id == context.id }), let proof = token.identityProof else { throw GroupStorageError.invalidUpdate }
+                !snapshot.contactInvitations.contains(where: { $0.id == context.id }),
+                let proof = token.identityProof
+            else { throw GroupStorageError.invalidUpdate }
             _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
-            reserved.members.append(.init(id: GroupMember.pendingInvitePrefix + "contact-" + context.id.uuidString.lowercased(), displayName: person.resolvedDisplayName))
+            reserved.members.append(
+                .init(
+                    id: GroupMember.pendingInvitePrefix + "contact-" + context.id.uuidString.lowercased(),
+                    displayName: person.resolvedDisplayName))
         }
-        try update([reserved] + snapshot.groups.filter { $0.id != group.id }.map { try $0.group() }, credential: credential) { next in
+        try update(
+            [reserved] + snapshot.groups.filter { $0.id != group.id }.map { try $0.group() },
+            credential: credential
+        ) { next in
             Self.restoreExplicitlySelectedMembers(selectedUsers, in: group.id, snapshot: &next)
             try self.appendGroupDeliveries(deliveries, to: &next)
             for (person, token) in invitees {
@@ -955,7 +1080,8 @@ extension GroupRepository {
 
     private func appendGroupDeliveries(_ records: [GroupDeliveryRecord], to next: inout GroupSnapshot) throws {
         for record in records {
-            guard record.isValid, record.direction == .outgoing, record.state == .pending, record.credentialReference == nil,
+            guard record.isValid, record.direction == .outgoing, record.state == .pending,
+                record.credentialReference == nil,
                   !next.groupDeliveries.contains(where: { $0.id == record.id }),
                   isSelectedGroupDelivery(record, in: next) else { throw GroupStorageError.invalidUpdate }
             next.groupDeliveries.append(record)
@@ -963,19 +1089,25 @@ extension GroupRepository {
     }
 
     private func isSelectedGroupDelivery(_ record: GroupDeliveryRecord, in snapshot: GroupSnapshot) -> Bool {
-        guard let group = snapshot.groups.first(where: { $0.id == record.groupID && $0.kind == .group }) else { return false }
+        guard let group = snapshot.groups.first(where: { $0.id == record.groupID && $0.kind == .group }) else {
+            return false
+        }
         let selected: GroupDeliveryRecord
         if let sourceID = record.sourceRequestID {
             guard let source = snapshot.groupDeliveries.first(where: { $0.id == sourceID }),
                   source.sourceRequestID == nil, source.direction == .outgoing, source.state != .cancelled,
-                  source.groupID == record.groupID, source.recipient == record.recipient, source.noticeID == record.noticeID,
-                  source.expiresAt == record.expiresAt, !group.excludesMember(record.recipientMemberID, principal: record.recipient)
+                source.groupID == record.groupID, source.recipient == record.recipient,
+                source.noticeID == record.noticeID,
+                source.expiresAt == record.expiresAt,
+                !group.excludesMember(record.recipientMemberID, principal: record.recipient)
             else { return false }
             selected = source
         } else {
             selected = record
         }
-        guard let user = snapshot.users.first(where: { $0.principal == selected.recipient && $0.memberIDs.contains(selected.recipientMemberID)
+        guard
+            let user = snapshot.users.first(where: {
+                $0.principal == selected.recipient && $0.memberIDs.contains(selected.recipientMemberID)
                   && $0.deviceKeys?[selected.recipientMemberID] == selected.recipientKey })
         else { return false }
         return isSelectedGroupDeliveryRecipient(user, in: group)
@@ -1002,27 +1134,35 @@ extension GroupRepository {
         }
     }
 
-    private func canRedeliver(_ record: GroupDeliveryRecord, latestNotice: UUID?, now: TimeInterval, in snapshot: GroupSnapshot) -> Bool {
-        record.direction == .outgoing && record.sourceRequestID == nil && record.expiredOutcome == nil && record.expiresAt > now
+    private func canRedeliver(
+        _ record: GroupDeliveryRecord, latestNotice: UUID?, now: TimeInterval, in snapshot: GroupSnapshot
+    ) -> Bool {
+        record.direction == .outgoing && record.sourceRequestID == nil && record.expiredOutcome == nil
+            && record.expiresAt > now
             && (record.state == .queued || record.state == .received) && latestNotice == record.noticeID
             && isSelectedGroupDelivery(record, in: snapshot)
     }
 
-    func queueAdditionalDeviceDeliveries(sourceID: UUID, devices: [GroupInvitationAddress], now: TimeInterval) throws -> Bool {
+    func queueAdditionalDeviceDeliveries(sourceID: UUID, devices: [GroupInvitationAddress], now: TimeInterval)
+        throws -> Bool {
         guard !devices.isEmpty, let snapshot,
               let source = snapshot.groupDeliveries.first(where: { $0.id == sourceID }),
-              canRedeliver(source, latestNotice: latestGroupDeliveryNotices(in: snapshot)[source.groupID]?[source.recipient],
+            canRedeliver(
+                source, latestNotice: latestGroupDeliveryNotices(in: snapshot)[source.groupID]?[source.recipient],
                            now: now, in: snapshot) else { return false }
         let sameInvitation = snapshot.groupDeliveries.filter {
-            $0.direction == .outgoing && $0.groupID == source.groupID && $0.recipient == source.recipient && $0.noticeID == source.noticeID
+            $0.direction == .outgoing && $0.groupID == source.groupID && $0.recipient == source.recipient
+                && $0.noticeID == source.noticeID
         }
         var memberIDs = Set(sameInvitation.map(\.recipientMemberID))
         var keys = Set(sameInvitation.map(\.recipientKey))
         let capacity = GroupSnapshot.maximumGroupDeliveries - snapshot.groupDeliveries.count
         var additions: [GroupDeliveryRecord] = []
         for device in devices where additions.count < capacity {
-            let record = GroupDeliveryRecord(noticeID: source.noticeID, groupID: source.groupID, recipient: source.recipient,
-                recipientMemberID: device.memberID, recipientKey: device.recipientKey, expiresAt: source.expiresAt, sourceRequestID: source.id)
+            let record = GroupDeliveryRecord(
+                noticeID: source.noticeID, groupID: source.groupID, recipient: source.recipient,
+                recipientMemberID: device.memberID, recipientKey: device.recipientKey, expiresAt: source.expiresAt,
+                sourceRequestID: source.id)
             guard !memberIDs.contains(device.memberID), !keys.contains(device.recipientKey), record.isValid,
                   isSelectedGroupDelivery(record, in: snapshot) else { continue }
             additions.append(record)
@@ -1060,20 +1200,25 @@ extension GroupRepository {
 
     func saveGroupDeliveryEnvelope(_ envelope: GroupInvitationEnvelope) throws {
         guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id }),
-              old.direction == .outgoing, old.expiredOutcome == nil, old.state == .pending, old.credentialReference == nil,
+            old.direction == .outgoing, old.expiredOutcome == nil, old.state == .pending,
+            old.credentialReference == nil,
               old.recipient == envelope.recipient, old.recipientMemberID == envelope.recipientMemberID,
-              old.recipientKey == envelope.recipientKey, old.expiresAt == envelope.expiresAt, old.sourceRequestID == envelope.sourceRequestID,
+            old.recipientKey == envelope.recipientKey, old.expiresAt == envelope.expiresAt,
+            old.sourceRequestID == envelope.sourceRequestID,
               envelope.senderMemberID == localMemberID else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
-            guard let index = next.groupDeliveries.firstIndex(where: { $0.id == envelope.id }) else { throw GroupStorageError.invalidUpdate }
-            next.groupDeliveries[index].credentialReference = try self.prepareKey(String(decoding: JSONEncoder().encode(envelope), as: UTF8.self))
+            guard let index = next.groupDeliveries.firstIndex(where: { $0.id == envelope.id }) else {
+                throw GroupStorageError.invalidUpdate
+            }
+            next.groupDeliveries[index].credentialReference = try self.storeEnvelope(envelope)
         }
     }
     func groupDeliveryEnvelope(_ id: UUID) throws -> GroupInvitationEnvelope {
         guard isWritable, let snapshot else { throw IntercomGroupError.storageUnavailable }
         try store.lock(); defer { store.unlock() }
         guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
-        guard let record = snapshot.groupDeliveries.first(where: { $0.id == id }), record.state == .pending || record.state == .queued,
+        guard let record = snapshot.groupDeliveries.first(where: { $0.id == id }),
+            record.state == .pending || record.state == .queued,
               let reference = record.credentialReference, let value = try credentials.secret(reference: reference),
               let data = value.data(using: .utf8) else { throw GroupStorageError.invalidUpdate }
         let envelope = try JSONDecoder().decode(GroupInvitationEnvelope.self, from: data)
@@ -1097,15 +1242,20 @@ extension GroupRepository {
     }
 
     func setGroupDeliveryState(_ id: UUID, state: GroupDeliveryRecord.State) throws {
-        guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == id }), old.direction == .outgoing,
-              old.expiredOutcome == nil, (old.state == .pending || old.state == .queued), state != .pending,
+        guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == id }),
+            old.direction == .outgoing,
+              old.expiredOutcome == nil, old.state == .pending || old.state == .queued, state != .pending,
               state != .queued || old.credentialReference != nil else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
-            guard let index = next.groupDeliveries.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+            guard let index = next.groupDeliveries.firstIndex(where: { $0.id == id }) else {
+                throw GroupStorageError.invalidUpdate
+            }
             next.groupDeliveries[index].moveOutgoing(to: state)
         }
     }
-    func confirmNearbyGroupCancellation(_ id: UUID, outcome: GroupInvitationCancellationReceipt.Outcome, now: TimeInterval) throws {
+    func confirmNearbyGroupCancellation(
+        _ id: UUID, outcome: GroupInvitationCancellationReceipt.Outcome, now: TimeInterval
+    ) throws {
         guard let snapshot, let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == id }),
               snapshot.groupDeliveries[index].nearbyWork == .cancellation(id),
               snapshot.groupDeliveries[index].expiresAt > now else { throw GroupStorageError.invalidUpdate }
@@ -1154,7 +1304,9 @@ extension GroupRepository {
         }
     }
 
-    private static func cancelPendingGroupReceipts(in next: inout GroupSnapshot, matching: (GroupDeliveryRecord) -> Bool) {
+    private static func cancelPendingGroupReceipts(
+        in next: inout GroupSnapshot, matching: (GroupDeliveryRecord) -> Bool
+    ) {
         for index in next.groupDeliveries.indices {
             let record = next.groupDeliveries[index]
             guard record.direction == .incoming, record.state == .pending, matching(record) else { continue }
@@ -1165,14 +1317,18 @@ extension GroupRepository {
     }
 
     func cancelPendingGroupReceipt(_ id: UUID) throws {
-        guard let snapshot, snapshot.groupDeliveries.contains(where: { $0.id == id && $0.direction == .incoming && $0.state == .pending })
+        guard let snapshot,
+            snapshot.groupDeliveries.contains(where: {
+                $0.id == id && $0.direction == .incoming && $0.state == .pending
+            })
         else { return }
         try amend(snapshot) { next in Self.cancelPendingGroupReceipts(in: &next) { $0.id == id } }
     }
 
     func rememberNearbyGroupCancellation(_ target: GroupInvitationCancellation.Target, now: TimeInterval)
         throws -> GroupInvitationCancellationReceipt.Outcome {
-        guard isWritable, let snapshot, target.isValid, target.expiresAt > now, target.recipientMemberID == localMemberID
+        guard isWritable, let snapshot, target.isValid, target.expiresAt > now,
+            target.recipientMemberID == localMemberID
         else { throw GroupStorageError.invalidUpdate }
         let existing = snapshot.groupDeliveries.first {
             $0.id == target.id && $0.direction == .incoming && $0.sourceRequestID == nil && $0.groupID == target.groupID
@@ -1183,7 +1339,9 @@ extension GroupRepository {
         if alreadyReceived || snapshot.nearbyGroupCancellations.contains(target) {
             try store.lock()
             defer { store.unlock() }
-            guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
+            guard try store.read() == snapshot else {
+                isWritable = false; throw GroupStorageError.changedByAnotherProcess
+            }
             return alreadyReceived ? .alreadyReceived : .cancelled
         }
 
@@ -1203,12 +1361,15 @@ extension GroupRepository {
                                    in snapshot: GroupSnapshot) throws -> Bool {
         guard envelope.sourceRequestID == nil, envelope.expiresAt > now,
               snapshot.nearbyGroupCancellations.contains(where: { $0.id == envelope.id }) else { return false }
-        return snapshot.nearbyGroupCancellations.contains(try GroupInvitationCancellation.Target(envelope: envelope, groupID: groupID))
+        return snapshot.nearbyGroupCancellations.contains(
+            try GroupInvitationCancellation.Target(envelope: envelope, groupID: groupID))
     }
 
     func stageGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, now: TimeInterval,
                             redeliveryTrust: DeviceIdentityTrust? = nil) throws -> GroupDeliveryRecord.State {
-        let (_, identity, snapshot) = try validateIncomingGroupDelivery(envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
+        let verified = try validateIncomingGroupDelivery(
+            envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
+        let snapshot = verified.snapshot
         if try isCancelledNearby(envelope, groupID: token.groupID, now: now, in: snapshot) { return .cancelled }
         let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id })
         if let old {
@@ -1220,26 +1381,32 @@ extension GroupRepository {
         }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == token.groupID })
-        if let existing, try !matchesGroupDelivery(target, sender: identity, principal: envelope.sender, existing: existing) {
+        if let existing,
+            try !matchesGroupDelivery(target, sender: verified.identity, principal: envelope.sender, existing: existing) {
             if old != nil { try cancelPendingGroupReceipt(envelope.id) }
             return .cancelled
         }
         if old != nil { return .pending }
         guard existing != nil || snapshot.groups.count < 256 else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
-            let packet = String(decoding: try JSONEncoder().encode(envelope), as: UTF8.self)
             next.groupDeliveries.append(.init(id: envelope.id, noticeID: envelope.id, groupID: token.groupID,
-                recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID, recipientKey: envelope.recipientKey,
+                    recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID,
+                    recipientKey: envelope.recipientKey,
                 expiresAt: envelope.expiresAt, direction: .incoming, state: .pending,
-                credentialReference: try self.prepareKey(packet), senderMemberID: envelope.senderMemberID, sourceRequestID: envelope.sourceRequestID))
+                    credentialReference: try self.storeEnvelope(envelope), senderMemberID: envelope.senderMemberID,
+                    sourceRequestID: envelope.sourceRequestID))
         }
         return .pending
     }
 
     @discardableResult
-    func receiveGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken, localDisplayName: String, now: TimeInterval,
-                              redeliveryTrust: DeviceIdentityTrust? = nil, fromNearby: Bool = false) throws -> IntercomGroup? {
-        guard let snapshot, !fromNearby || envelope.sourceRequestID == nil else { throw GroupStorageError.invalidUpdate }
+    func receiveGroupDelivery(
+        _ envelope: GroupInvitationEnvelope, token: GroupInviteToken, localDisplayName: String, now: TimeInterval,
+        redeliveryTrust: DeviceIdentityTrust? = nil, fromNearby: Bool = false
+    ) throws -> IntercomGroup? {
+        guard let snapshot, !fromNearby || envelope.sourceRequestID == nil else {
+            throw GroupStorageError.invalidUpdate
+        }
         if try isCancelledNearby(envelope, groupID: token.groupID, now: now, in: snapshot) { return nil }
         let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == envelope.id })
         if let index {
@@ -1258,29 +1425,37 @@ extension GroupRepository {
         } else if !fromNearby {
             throw GroupStorageError.invalidUpdate
         }
-        let (inviterDisplayName, identity, _) = try validateIncomingGroupDelivery(envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
+        let verified = try validateIncomingGroupDelivery(
+            envelope, token: token, now: now, redeliveryTrust: redeliveryTrust)
         guard let localMemberID else { throw GroupStorageError.invalidUpdate }
         let target = ContactGroupInvitation(id: token.groupID, name: token.groupName, secret: token.groupSecret)
         let existing = snapshot.groups.first(where: { $0.id == target.id })
-        if let existing, try !matchesGroupDelivery(target, sender: identity, principal: envelope.sender, existing: existing) {
+        if let existing,
+            try !matchesGroupDelivery(target, sender: verified.identity, principal: envelope.sender, existing: existing) {
             // A manual join, local save or removal can race with the Worker receipt.
             try cancelPendingGroupReceipt(envelope.id)
             return nil
         }
         let previous = try snapshot.groups.map { try $0.group() }
         let newGroup = existing == nil
-        let groups = newGroup ? try groupsByJoining(target, inviter: .init(id: envelope.senderMemberID, displayName: inviterDisplayName),
-            identity: identity, localDisplayName: localDisplayName, groups: previous) : previous
+        let groups =
+            newGroup
+            ? try groupsByJoining(
+                target, inviter: .init(id: envelope.senderMemberID, displayName: verified.inviterName),
+            identity: verified.identity, localDisplayName: localDisplayName, groups: previous) : previous
         let digest = try envelope.receiptDigest()
-        try update(groups, credential: newGroup ? .init(groupID: token.groupID, secret: token.groupSecret) : nil) { next in
+        try update(groups, credential: newGroup ? .init(groupID: token.groupID, secret: token.groupSecret) : nil) {
+            next in
             if let groupIndex = next.groups.firstIndex(where: { $0.id == token.groupID }) {
                 if newGroup {
                     next.groups[groupIndex].joinedByInvitation = true
                     next.groups[groupIndex].groupTabOfferAcknowledged = false
-                    next.groups[groupIndex].accountDevices[localMemberID] = .init(principal: envelope.recipient, publicKey: envelope.recipientKey)
-                    next.groups[groupIndex].accountDevices[envelope.senderMemberID] = .init(principal: envelope.sender, publicKey: identity.publicKey)
+                    next.groups[groupIndex].accountDevices[localMemberID] = .init(
+                        principal: envelope.recipient, publicKey: envelope.recipientKey)
+                    next.groups[groupIndex].accountDevices[envelope.senderMemberID] = .init(
+                        principal: envelope.sender, publicKey: verified.identity.publicKey)
                 }
-                try next.groups[groupIndex].rememberInvitationDevice(identity)
+                try next.groups[groupIndex].rememberInvitationDevice(verified.identity)
             }
             if let index {
                 next.groupDeliveries[index].state = .received
@@ -1289,33 +1464,50 @@ extension GroupRepository {
                 next.groupDeliveries[index].acceptedEnvelopeDigest = digest
             } else {
                 next.groupDeliveries.append(.init(id: envelope.id, noticeID: envelope.id, groupID: token.groupID,
-                    recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID, recipientKey: envelope.recipientKey,
-                    expiresAt: envelope.expiresAt, direction: .incoming, state: .received, acceptedEnvelopeDigest: digest))
+                        recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID,
+                        recipientKey: envelope.recipientKey,
+                        expiresAt: envelope.expiresAt, direction: .incoming, state: .received,
+                        acceptedEnvelopeDigest: digest))
             }
         }
         return storedGroup(token.groupID)
     }
 
+    private struct VerifiedGroupDelivery {
+        let inviterName: String
+        let identity: VerifiedDeviceProof
+        let snapshot: GroupSnapshot
+    }
+
     private func validateIncomingGroupDelivery(_ envelope: GroupInvitationEnvelope, token: GroupInviteToken,
-                                               now: TimeInterval, redeliveryTrust: DeviceIdentityTrust?) throws -> (String, VerifiedDeviceProof, GroupSnapshot) {
+        now: TimeInterval, redeliveryTrust: DeviceIdentityTrust?
+    ) throws -> VerifiedGroupDelivery {
         try token.validate()
         guard let snapshot, envelope.expiresAt > now, token.expiresAt == envelope.expiresAt,
               token.verifySignature(), token.inviterMemberID == envelope.senderMemberID,
               token.recipientMemberID == nil, token.directInvitation?.context.contactBootstrap != true,
               let proof = token.identityProof, proof.publicKey == envelope.proof?.publicKey,
-              token.groupID != IntercomGroup.directCallID(memberIDs: [envelope.senderMemberID, envelope.recipientMemberID]),
-              let localMemberID, localMemberID == envelope.recipientMemberID else { throw GroupStorageError.invalidUpdate }
+            token.groupID
+                != IntercomGroup.directCallID(memberIDs: [envelope.senderMemberID, envelope.recipientMemberID]),
+            let localMemberID, localMemberID == envelope.recipientMemberID
+        else { throw GroupStorageError.invalidUpdate }
         if envelope.sourceRequestID != nil {
             guard let redeliveryTrust else { throw GroupStorageError.invalidUpdate }
-            let identity = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID,
+            let identity = try proof.verify(
+                Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID,
                                             trust: redeliveryTrust, now: Date(timeIntervalSince1970: now))
             guard identity.principal == envelope.sender else { throw GroupStorageError.invalidUpdate }
-            return (inviterName(for: token), identity, snapshot)
+            return .init(inviterName: inviterName(for: token), identity: identity, snapshot: snapshot)
         }
-        guard let user = snapshot.users.first(where: { $0.principal == envelope.sender && $0.memberIDs.contains(envelope.senderMemberID)
-                  && $0.deviceKeys?[envelope.senderMemberID] == envelope.proof?.publicKey }) else { throw GroupStorageError.invalidUpdate }
-        let identity = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID)
-        return (user.displayName, identity, snapshot)
+        guard
+            let user = snapshot.users.first(where: {
+                $0.principal == envelope.sender && $0.memberIDs.contains(envelope.senderMemberID)
+                    && $0.deviceKeys?[envelope.senderMemberID] == envelope.proof?.publicKey
+            })
+        else { throw GroupStorageError.invalidUpdate }
+        let identity = try proof.verify(
+            Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID)
+        return .init(inviterName: user.displayName, identity: identity, snapshot: snapshot)
     }
 
     func acceptContactInvitation(_ token: GroupInviteToken, accepted: AcceptedDirectInvitation,
@@ -1323,7 +1515,8 @@ extension GroupRepository {
         try token.validate(contactBootstrap: true)
         guard let snapshot, let context = token.directInvitation?.context,
               accepted.receipt.invitation == context, accepted.receipt.inviteeMemberID == localMemberID,
-              accepted.inviter.memberID == token.inviterMemberID, !token.isExpired(now: now) else { throw GroupStorageError.invalidUpdate }
+            accepted.inviter.memberID == token.inviterMemberID, !token.isExpired(now: now)
+        else { throw GroupStorageError.invalidUpdate }
         if let existing = snapshot.contactInvitations.first(where: { $0.id == context.id }) {
             guard existing.direction == .incoming, existing.state == .pending,
                   existing.receiptID == accepted.receipt.id,
@@ -1336,7 +1529,9 @@ extension GroupRepository {
         let inviter = GroupMember(id: accepted.inviter.memberID, displayName: inviterName(for: token))
         let call = try contactDirectCall(with: inviter, localDisplayName: localDisplayName, token: token,
                                          groups: try snapshot.groups.map { try $0.group() })
-        let joiningGroups = try groupsByJoining(token.invitedGroup, inviter: inviter, identity: accepted.inviter, localDisplayName: localDisplayName, groups: call.groups)
+        let joiningGroups = try groupsByJoining(
+            token.invitedGroup, inviter: inviter, identity: accepted.inviter, localDisplayName: localDisplayName,
+            groups: call.groups)
         let keys = token.invitedGroup.map { [GroupAccessCredential(groupID: $0.id, secret: $0.secret)] } ?? []
         try update(joiningGroups, credential: call.credential, additionalCredentials: keys) { next in
             if let target = token.invitedGroup, let index = next.groups.firstIndex(where: { $0.id == target.id }) {
@@ -1352,11 +1547,15 @@ extension GroupRepository {
             next.contactInvitations.append(.init(id: context.id, direction: .incoming, expiresAt: context.expiresAt,
                 credentialReference: reference, receiptID: accepted.receipt.id,
                 peerMemberID: accepted.inviter.memberID, peerDeviceKey: accepted.inviter.publicKey,
-                personID: next.users.first(where: { $0.memberIDs.contains(accepted.inviter.memberID) })?.id, invitedGroupID: token.invitedGroup?.id))
+                    personID: next.users.first(where: { $0.memberIDs.contains(accepted.inviter.memberID) })?.id,
+                    invitedGroupID: token.invitedGroup?.id))
         }
     }
 
-    func confirmContactInvitation(_ verified: VerifiedDirectInvitation, localDisplayName: String, now: TimeInterval, receivedBySharing: Bool = false) throws {
+    func confirmContactInvitation(
+        _ verified: VerifiedDirectInvitation, localDisplayName: String, now: TimeInterval,
+        receivedBySharing: Bool = false
+    ) throws {
         let receipt = verified.receipt
         guard let snapshot, let context = receipt.invitation, context.contactBootstrap == true,
               receipt.inviterMemberID == localMemberID, now < context.expiresAt,
@@ -1382,11 +1581,14 @@ extension GroupRepository {
         let call = try contactDirectCall(with: recipient, localDisplayName: localDisplayName, token: payload.token,
                                          groups: try snapshot.groups.map { try $0.group() })
         try update(call.groups, credential: call.credential) { next in
-            guard let index = next.contactInvitations.firstIndex(where: { $0.id == context.id }) else { throw GroupStorageError.invalidUpdate }
+            guard let index = next.contactInvitations.firstIndex(where: { $0.id == context.id }) else {
+                throw GroupStorageError.invalidUpdate
+            }
             let alreadyKnown = next.users.contains { $0.memberIDs.contains(recipient.id)
                 || (verified.identity.principal != nil && $0.principal == verified.identity.principal) }
             try self.rememberContactDevice(recipient, identity: verified.identity, now: now, in: &next)
-            if let personID = old.personID, let placeholder = next.users.first(where: { $0.id == personID && !$0.isRegistered }),
+            if let personID = old.personID,
+                let placeholder = next.users.first(where: { $0.id == personID && !$0.isRegistered }),
                let registered = next.users.firstIndex(where: { $0.memberIDs.contains(recipient.id) }) {
                 // A newly verified person inherits the original local ID and name. An already known
                 // identity keeps its ID; the completed exchange resolves an open draft to that person.
@@ -1404,16 +1606,23 @@ extension GroupRepository {
             }
             if let targetID = old.invitedGroupID {
                 guard let groupIndex = next.groups.firstIndex(where: { $0.id == targetID && $0.kind == .group }),
-                      let slot = next.groups[groupIndex].members.firstIndex(where: { $0.id == old.pendingGroupMemberID }) else { throw GroupStorageError.invalidUpdate }
+                    let slot = next.groups[groupIndex].members.firstIndex(where: {
+                        $0.id == old.pendingGroupMemberID
+                    })
+                else { throw GroupStorageError.invalidUpdate }
                 next.groups[groupIndex].reinstateMembers {
                     $0.matches(recipient.id, principal: verified.identity.principal)
                 }
                 let alreadyMember = next.groups[groupIndex].members.contains { $0.id == recipient.id }
-                    || (verified.identity.principal.map { principal in next.groups[groupIndex].accountDevices.values.contains { $0.principal == principal } } ?? false)
-                if alreadyMember { next.groups[groupIndex].members.remove(at: slot) }
-                else {
+                    || (verified.identity.principal.map { principal in
+                        next.groups[groupIndex].accountDevices.values.contains { $0.principal == principal }
+                    } ?? false)
+                if alreadyMember { next.groups[groupIndex].members.remove(at: slot) } else {
                     next.groups[groupIndex].members[slot] = .init(id: recipient.id, displayName: recipient.displayName)
-                    if let principal = verified.identity.principal { next.groups[groupIndex].accountDevices[recipient.id] = .init(principal: principal, publicKey: verified.identity.publicKey) }
+                    if let principal = verified.identity.principal {
+                        next.groups[groupIndex].accountDevices[recipient.id] = .init(
+                            principal: principal, publicKey: verified.identity.publicKey)
+                    }
                 }
                 try next.groups[groupIndex].rememberInvitationDevice(verified.identity)
             }
@@ -1434,7 +1643,8 @@ extension GroupRepository {
             return groups
         }
         guard let localMemberID else { throw GroupStorageError.invalidUpdate }
-        let devices: [String: AccountDeviceBinding] = identity.principal.map { [inviter.id: .init(principal: $0, publicKey: identity.publicKey)] } ?? [:]
+        let devices: [String: AccountDeviceBinding] =
+            identity.principal.map { [inviter.id: .init(principal: $0, publicKey: identity.publicKey)] } ?? [:]
         let group = try IntercomGroup(id: target.id, name: target.name,
             members: [.init(id: localMemberID, displayName: localDisplayName), inviter], accountDevices: devices)
         return [group] + groups
@@ -1451,7 +1661,8 @@ extension GroupRepository {
                                       principal: AccountPrincipal, existing: GroupSnapshot.Record) throws -> Bool {
         guard !existing.excludesMember(sender.memberID, principal: principal),
               existing.matchesInvitationDeviceKey(sender.publicKey, for: sender.memberID),
-              existing.accountDevices[sender.memberID].map({ $0.publicKey == sender.publicKey }) ?? true else { return false }
+            existing.accountDevices[sender.memberID].map({ $0.publicKey == sender.publicKey }) ?? true
+        else { return false }
         return try matchesSavedGroup(target, kind: existing.kind ?? .group)
     }
 
@@ -1466,7 +1677,9 @@ extension GroupRepository {
             let record = next.groupDeliveries[index]
             guard record.direction == .outgoing, record.expiredOutcome == nil,
                   record.state == .pending || record.state == .queued else { continue }
-            let supersededRedelivery = record.sourceRequestID != nil && latestNotices[record.groupID]?[record.recipient] != record.noticeID
+            let supersededRedelivery =
+                record.sourceRequestID != nil
+                && latestNotices[record.groupID]?[record.recipient] != record.noticeID
             if supersededRedelivery || !isSelectedGroupDelivery(record, in: next) {
                 next.groupDeliveries[index].moveOutgoing(to: .cancelled)
             }
@@ -1481,7 +1694,8 @@ extension GroupRepository {
                 next.groups.firstIndex { $0.id == groupID && $0.kind == .group }
             }
             let targetExists = record.invitedGroupID == nil || group.map { index in
-                record.direction == .incoming || next.groups[index].members.contains { $0.id == record.pendingGroupMemberID }
+                    record.direction == .incoming
+                        || next.groups[index].members.contains { $0.id == record.pendingGroupMemberID }
             } == true
             // An expired outgoing record can still renew its group invitation while its slot exists.
             if !hasPerson || ((record.state == .pending || record.isExpiredTombstone) && !targetExists) {
@@ -1510,11 +1724,14 @@ extension GroupRepository {
     /// so a nearby call needs no later key exchange or Internet service. A
     /// re-invitation replaces an earlier key on both sides.
     private func contactDirectCall(with remote: GroupMember, localDisplayName: String, token: GroupInviteToken,
-                                   groups: [IntercomGroup]) throws -> (groups: [IntercomGroup], credential: GroupAccessCredential) {
+        groups: [IntercomGroup]
+    ) throws -> (groups: [IntercomGroup], credential: GroupAccessCredential) {
         guard let localMemberID else { throw GroupStorageError.invalidUpdate }
         let members = [GroupMember(id: localMemberID, displayName: localDisplayName), remote]
         let id = IntercomGroup.directCallID(memberIDs: members.map(\.id))
-        let call = try groups.first { $0.id == id } ?? IntercomGroup(id: id, name: "Direct Call", members: members, kind: .direct)
+        let call =
+            try groups.first { $0.id == id }
+            ?? IntercomGroup(id: id, name: "Direct Call", members: members, kind: .direct)
         guard call.kind == .direct else { throw GroupStorageError.identityConflict }
         let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(token.groupSecret.utf8)),
             salt: Data("rideintercom.contact-direct-call.v1".utf8), info: Data(id.uuidString.utf8), outputByteCount: 32)
@@ -1527,15 +1744,20 @@ extension GroupRepository {
         try store.lock(); defer { store.unlock() }
         guard try store.read() == snapshot else { isWritable = false; throw GroupStorageError.changedByAnotherProcess }
         guard let record = snapshot.contactInvitations.first(where: { $0.id == id }), record.canResume,
-              let reference = record.credentialReference, let secret = try credentials.secret(reference: reference) else { throw GroupStorageError.invalidUpdate }
+            let reference = record.credentialReference, let secret = try credentials.secret(reference: reference)
+        else { throw GroupStorageError.invalidUpdate }
         let payload = try ContactInvitationPayload.decodeSecret(secret, record: record)
-        guard (record.direction == .outgoing) == (payload.token.inviterMemberID == localMemberID) else { throw GroupStorageError.identityConflict }
+        guard (record.direction == .outgoing) == (payload.token.inviterMemberID == localMemberID) else {
+            throw GroupStorageError.identityConflict
+        }
         return payload
     }
 
     func removeExpiredContactInvitations(now: TimeInterval) throws {
         guard now.isFinite, let snapshot else { throw GroupStorageError.invalidUpdate }
-        guard snapshot.contactInvitations.contains(where: { $0.expiresAt <= now && $0.state != .expired }) else { return }
+        guard snapshot.contactInvitations.contains(where: { $0.expiresAt <= now && $0.state != .expired }) else {
+            return
+        }
         try amend(snapshot) { next in
             ContactInvitationRecord.expire(&next.contactInvitations, now: now)
         }
@@ -1584,13 +1806,17 @@ extension GroupRepository {
     private func amendContactInvitation(_ id: UUID, in snapshot: GroupSnapshot,
                                         _ change: (inout ContactInvitationRecord) -> Void) throws {
         try amend(snapshot) { next in
-            guard let index = next.contactInvitations.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+            guard let index = next.contactInvitations.firstIndex(where: { $0.id == id }) else {
+                throw GroupStorageError.invalidUpdate
+            }
             change(&next.contactInvitations[index])
         }
     }
 
     private func setContactInvitationState(_ id: UUID, state: ContactInvitationRecord.State) throws {
-        guard let snapshot, snapshot.contactInvitations.contains(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
+        guard let snapshot, snapshot.contactInvitations.contains(where: { $0.id == id }) else {
+            throw GroupStorageError.invalidUpdate
+        }
         try amendContactInvitation(id, in: snapshot) { record in
             record.state = state
             record.credentialReference = nil

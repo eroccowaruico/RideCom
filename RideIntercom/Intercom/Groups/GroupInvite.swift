@@ -88,36 +88,53 @@ struct GroupInviteToken: Codable, Equatable {
         expiresAt: TimeInterval? = nil
     ) throws -> GroupInviteToken {
         guard signer.memberID == inviterMemberID else { throw GroupInviteTokenError.invalidTokenEncoding }
-        guard recipientAccount == nil || signer.principal != nil else { throw GroupInviteTokenError.accountVerificationRequired }
+        guard recipientAccount == nil || signer.principal != nil else {
+            throw GroupInviteTokenError.accountVerificationRequired
+        }
         let expiresAt = expiresAt ?? issuedAt + 7 * 24 * 60 * 60
-        let grant = try authority.issue(.init(groupID: groupID, inviterMemberID: inviterMemberID, inviterDeviceKey: signer.publicKey,
+        let grant = try authority.issue(
+            .init(
+                groupID: groupID, inviterMemberID: inviterMemberID, inviterDeviceKey: signer.publicKey,
                                              recipientMemberID: recipientMemberID, expiresAt: expiresAt,
-                                             inviterAccount: recipientAccount == nil ? nil : signer.principal, recipientAccount: recipientAccount, contactBootstrap: contactBootstrap,
-                                             invitedGroupID: invitedGroup?.id, invitedGroupDigest: try invitedGroup?.digest()))
-        let signature = makeSignature(version: currentVersion, groupID: groupID, groupName: groupName, groupSecret: groupSecret,
-            inviterMemberID: inviterMemberID, inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID,
+                inviterAccount: recipientAccount == nil ? nil : signer.principal,
+                recipientAccount: recipientAccount, contactBootstrap: contactBootstrap,
+                invitedGroupID: invitedGroup?.id, invitedGroupDigest: try invitedGroup?.digest()))
+        let signature = makeSignature(
+            version: currentVersion, groupID: groupID, groupName: groupName, groupSecret: groupSecret,
+            inviterMemberID: inviterMemberID, inviterDisplayName: inviterDisplayName,
+            recipientMemberID: recipientMemberID,
             issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant, invitedGroup: invitedGroup)
         let replyAdmissionSignature = contactBootstrap == true
-            ? try ContactInvitationReplyAdmission.makeSignature(for: grant.context, secret: groupSecret, signer: signer) : nil
-        return try GroupInviteToken(groupID: groupID, groupName: groupName, groupSecret: groupSecret, inviterMemberID: inviterMemberID,
-            inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID, issuedAt: issuedAt, expiresAt: expiresAt,
+            ? try ContactInvitationReplyAdmission.makeSignature(
+                for: grant.context, secret: groupSecret, signer: signer) : nil
+        return try GroupInviteToken(
+            groupID: groupID, groupName: groupName, groupSecret: groupSecret, inviterMemberID: inviterMemberID,
+            inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID, issuedAt: issuedAt,
+            expiresAt: expiresAt,
             directInvitation: grant, signature: signature,
             identityProof: signer.sign(Data(signature.utf8), purpose: .issueInvitation), invitedGroup: invitedGroup,
             replyAdmissionSignature: replyAdmissionSignature)
     }
 
     func accept(signer: DeviceIdentitySigner, displayName: String, trust: DeviceIdentityTrust? = nil,
-                now: TimeInterval = Date().timeIntervalSince1970, contactBootstrap: Bool? = nil) throws -> AcceptedDirectInvitation {
+        now: TimeInterval = Date().timeIntervalSince1970, contactBootstrap: Bool? = nil
+    ) throws -> AcceptedDirectInvitation {
         try validate(contactBootstrap: contactBootstrap)
-        guard verifySignature(), let identityProof, let grant = directInvitation else { throw GroupInviteTokenError.invalidSignature }
+        guard verifySignature(), let identityProof, let grant = directInvitation else {
+            throw GroupInviteTokenError.invalidSignature
+        }
         guard !isExpired(now: now) else { throw GroupInviteTokenError.expired }
-        let inviter = try identityProof.verify(Data(signature.utf8), purpose: .issueInvitation, memberID: inviterMemberID,
+        let inviter = try identityProof.verify(
+            Data(signature.utf8), purpose: .issueInvitation, memberID: inviterMemberID,
                                               trust: trust, now: Date(timeIntervalSince1970: now))
         if let recipientAccount {
             guard signer.principal == recipientAccount else { throw GroupInviteTokenError.wrongRecipient }
-            guard inviter.principal == grant.context.inviterAccount else { throw GroupInviteTokenError.invalidSignature }
+            guard inviter.principal == grant.context.inviterAccount else {
+                throw GroupInviteTokenError.invalidSignature
+            }
         }
-        let receipt = try DirectInvitationReceipt.make(grant: grant, signer: signer, inviteeMemberID: signer.memberID, displayName: displayName)
+        let receipt = try DirectInvitationReceipt.make(
+            grant: grant, signer: signer, inviteeMemberID: signer.memberID, displayName: displayName)
         return AcceptedDirectInvitation(receipt: receipt, inviter: inviter)
     }
 
@@ -138,17 +155,20 @@ struct GroupInviteToken: Codable, Equatable {
 
     func validate(contactBootstrap: Bool? = nil) throws {
         guard version == Self.currentVersion else { throw GroupInviteTokenError.unsupportedVersion }
-        guard let directInvitation, directInvitation.context.contactBootstrap == contactBootstrap, directInvitation.isValid,
+        guard let directInvitation, directInvitation.context.contactBootstrap == contactBootstrap,
+            directInvitation.isValid,
               let identityProof, identityProof.publicKey == directInvitation.context.inviterDeviceKey,
               directInvitation.context.groupID == groupID,
               directInvitation.context.inviterMemberID == inviterMemberID,
               directInvitation.context.recipientMemberID == recipientMemberID,
               directInvitation.context.expiresAt == expiresAt,
-              inviterDisplayName.map(IntercomGroup.isValidName) ?? true else { throw GroupInviteTokenError.invalidTokenEncoding }
+            inviterDisplayName.map(IntercomGroup.isValidName) ?? true
+        else { throw GroupInviteTokenError.invalidTokenEncoding }
         if let invitedGroup {
             guard contactBootstrap == true, invitedGroup.isValid,
                   directInvitation.context.invitedGroupID == invitedGroup.id,
-                  directInvitation.context.invitedGroupDigest == (try invitedGroup.digest()) else { throw GroupInviteTokenError.invalidTokenEncoding }
+                directInvitation.context.invitedGroupDigest == (try invitedGroup.digest())
+            else { throw GroupInviteTokenError.invalidTokenEncoding }
         } else if directInvitation.context.invitedGroupID != nil || directInvitation.context.invitedGroupDigest != nil {
             throw GroupInviteTokenError.invalidTokenEncoding
         }
@@ -210,7 +230,9 @@ struct GroupInviteToken: Codable, Equatable {
 struct AcceptedDirectInvitation {
     let receipt: DirectInvitationReceipt
     let inviter: VerifiedDeviceProof
-    fileprivate init(receipt: DirectInvitationReceipt, inviter: VerifiedDeviceProof) { self.receipt = receipt; self.inviter = inviter }
+    fileprivate init(receipt: DirectInvitationReceipt, inviter: VerifiedDeviceProof) {
+        self.receipt = receipt; self.inviter = inviter
+    }
 }
 
 enum GroupInviteTokenError: Error, Equatable {
@@ -234,7 +256,10 @@ enum GroupInviteTokenCodec {
         if contactBootstrap == true { encoder.outputFormatting = [.sortedKeys] }
         let data = try encoder.encode(token)
         let encodedToken = data.base64URLEncodedString()
-        guard let url = URL(string: "rideintercom://\(contactBootstrap == true ? "contact" : "join")?token=\(encodedToken)") else {
+        guard
+            let url = URL(
+                string: "rideintercom://\(contactBootstrap == true ? "contact" : "join")?token=\(encodedToken)")
+        else {
             throw GroupInviteTokenError.invalidURL
         }
         return url
@@ -258,7 +283,8 @@ enum GroupInviteTokenCodec {
         guard token.verifySignature() else {
             throw GroupInviteTokenError.invalidSignature
         }
-        _ = try token.identityProof?.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
+        _ = try token.identityProof?.verify(
+            Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
         return token
     }
 }

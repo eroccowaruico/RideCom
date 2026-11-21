@@ -12,7 +12,6 @@ protocol LocalMemberIdentityStoring: AnyObject {
     func saveDisplayName(_ displayName: String)
 }
 
-
 final class UserDefaultsLocalMemberIdentityStore: LocalMemberIdentityStoring {
     private let defaults: UserDefaults
     private let makeID: () -> String

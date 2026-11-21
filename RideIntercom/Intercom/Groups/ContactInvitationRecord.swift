@@ -30,7 +30,7 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     /// The background upload reached the inbox. Delivery still requires the peer's signed acknowledgement.
     var internetAcceptanceSubmitted: Bool?
 
-    var invitedGroupID: UUID? = nil
+    var invitedGroupID: UUID?
     var pendingGroupMemberID: String { GroupMember.pendingInvitePrefix + "contact-" + id.uuidString.lowercased() }
     var isPendingOutgoing: Bool { direction == .outgoing && state == .pending }
 
@@ -91,14 +91,16 @@ struct ContactInvitationPayload: Codable {
 
     static func decodeSecret(_ secret: String, record: ContactInvitationRecord) throws -> Self {
         guard secret.hasPrefix(prefix), secret.utf8.count <= 65_536,
-              let bytes = Data(base64Encoded: String(secret.dropFirst(prefix.count))) else { throw GroupStorageError.invalidUpdate }
+            let bytes = Data(base64Encoded: String(secret.dropFirst(prefix.count)))
+        else { throw GroupStorageError.invalidUpdate }
         let payload = try JSONDecoder().decode(Self.self, from: bytes)
         try payload.token.validate(contactBootstrap: true)
         guard payload.token.verifySignature(), let proof = payload.token.identityProof,
               payload.token.directInvitation?.context.id == record.id,
               payload.token.expiresAt == record.expiresAt,
               payload.token.invitedGroup?.id == record.invitedGroupID else { throw GroupStorageError.invalidUpdate }
-        _ = try proof.verify(Data(payload.token.signature.utf8), purpose: .issueInvitation, memberID: payload.token.inviterMemberID)
+        _ = try proof.verify(
+            Data(payload.token.signature.utf8), purpose: .issueInvitation, memberID: payload.token.inviterMemberID)
         if let receipt = payload.receipt {
             guard receipt.isValid, receipt.kind == .accepted,
                   receipt.invitation == payload.token.directInvitation?.context,
@@ -108,7 +110,8 @@ struct ContactInvitationPayload: Codable {
                       receipt.inviteeDeviceKey == record.peerDeviceKey else { throw GroupStorageError.identityConflict }
             } else {
                 guard payload.token.inviterMemberID == record.peerMemberID,
-                      payload.token.identityProof?.publicKey == record.peerDeviceKey else { throw GroupStorageError.identityConflict }
+                    payload.token.identityProof?.publicKey == record.peerDeviceKey
+                else { throw GroupStorageError.identityConflict }
             }
         } else if record.direction == .incoming || record.state == .confirmed { throw GroupStorageError.invalidUpdate }
         return payload

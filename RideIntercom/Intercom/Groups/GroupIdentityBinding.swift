@@ -20,7 +20,9 @@ extension IntercomGroup {
             members[index].displayName = name
         } else {
             if members.count == IntercomGroup.maximumMemberCount {
-                guard let index = members.firstIndex(where: { $0.id != localMemberID && !connected.contains($0.id) }) else { return false }
+                guard
+                    let index = members.firstIndex(where: { $0.id != localMemberID && !connected.contains($0.id) })
+                else { return false }
                 accountDevices.removeValue(forKey: members.remove(at: index).id)
             }
             members.append(.init(id: memberID, displayName: name))
@@ -55,7 +57,10 @@ extension IntercomGroup {
         } else {
             // Group authentication alone cannot evict an unrelated saved rider.
             guard connected.contains(memberID) else { return false }
-            if let slot = members.firstIndex(where: { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) && !$0.id.hasPrefix(GroupMember.pendingInvitePrefix + "contact-") }) {
+            if let slot = members.firstIndex(where: {
+                $0.id.hasPrefix(GroupMember.pendingInvitePrefix)
+                    && !$0.id.hasPrefix(GroupMember.pendingInvitePrefix + "contact-")
+            }) {
                 let localName = members[slot].localName
                 members[slot] = .init(id: memberID, displayName: name, localName: localName)
             } else {
@@ -77,7 +82,8 @@ extension GroupSnapshot {
         if let memberIndex {
             let existing = users[memberIndex]
             guard existing.deviceKeys?[member.id] == identity.publicKey,
-                  existing.principal == nil || identity.principal == nil || existing.principal == identity.principal else {
+                existing.principal == nil || identity.principal == nil || existing.principal == identity.principal
+            else {
                 throw GroupStorageError.identityConflict
             }
         }
@@ -95,7 +101,9 @@ extension GroupSnapshot {
             }
             users[first].localName = users[first].localName ?? other.localName
             users[first].memberIDs.append(contentsOf: other.memberIDs)
-            users[first].deviceKeys = (users[first].deviceKeys ?? [:]).merging(other.deviceKeys ?? [:]) { old, _ in old }
+            users[first].deviceKeys = (users[first].deviceKeys ?? [:]).merging(other.deviceKeys ?? [:]) { old, _ in
+                old
+            }
             users[first].principal = identity.principal
             users[first].displayName = member.displayName
             users.remove(at: second)

@@ -21,8 +21,8 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
         var recipientAlreadyReceived: Bool?
     }
 
-    var id: UUID = UUID()
-    var noticeID: UUID = UUID()
+    var id = UUID()
+    var noticeID = UUID()
     var groupID: UUID
     var recipient: AccountPrincipal
     var recipientMemberID: String
@@ -76,7 +76,8 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
         guard direction == .outgoing, now < outcomeDeadline,
               state == .received || state == .cancelled || credentialReference != nil else { return nil }
         var record = self
-        record.expiredOutcome = state == .received || nearbyHandoff?.internetCancellationConfirmed == true ? .confirmed : .awaiting
+        record.expiredOutcome =
+            state == .received || nearbyHandoff?.internetCancellationConfirmed == true ? .confirmed : .awaiting
         record.credentialReference = nil
         record.nearbyHandoff = nil
         return record
@@ -93,7 +94,8 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
                 : senderMemberID == nil)
             && (state != .queued || credentialReference != nil || expiredOutcome == .awaiting)
             && (state != .received && state != .cancelled || credentialReference == nil)
-            && (acceptedEnvelopeDigest == nil || (direction == .incoming && state == .received && acceptedEnvelopeDigest?.count == 32))
+            && (acceptedEnvelopeDigest == nil
+                || (direction == .incoming && state == .received && acceptedEnvelopeDigest?.count == 32))
             && (expiredOutcome == nil || (direction == .outgoing && credentialReference == nil && nearbyHandoff == nil))
             && (expiredOutcome != .confirmed || state == .received || state == .cancelled)
             && hasValidNearbyHandoff
@@ -104,6 +106,7 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
         return direction == .outgoing && sourceRequestID == nil && nearbyHandoff.envelopeDigest.count == 32
             && state != .received && (state == .cancelled || credentialReference != nil)
             && (!nearbyHandoff.internetCancellationConfirmed || state == .cancelled)
-            && (nearbyHandoff.recipientAlreadyReceived == nil || (nearbyHandoff.recipientAlreadyReceived == true && state == .cancelled))
+            && (nearbyHandoff.recipientAlreadyReceived == nil
+                || (nearbyHandoff.recipientAlreadyReceived == true && state == .cancelled))
     }
 }
