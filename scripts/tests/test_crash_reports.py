@@ -1,17 +1,19 @@
-from datetime import datetime, timedelta, timezone
+from __future__ import annotations
+
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import patch
 
-from scripts.crash_reports import CrashReports
+from scripts.crash_reports import CrashReports, CrashSummary
 from scripts.validate import Runner
 
 
 class CrashReportTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -21,7 +23,8 @@ class CrashReportTests(unittest.TestCase):
         self.now = datetime.now(timezone.utc)
         self.monitor = CrashReports(self.output, locations={'macos-user': self.report_dir}, clock=lambda: self.now)
 
-    def write_report(self, process, when, *, name=None, parent='launchd_sim'):
+    def write_report(self, process: str, when: datetime, *, name: str | None = None,
+                     parent: str = 'launchd_sim') -> Path:
         path = self.report_dir / (name or f'{process}-2026-11-21-130000.ips')
         header = {'app_name': process, 'timestamp': when.isoformat(), 'app_version': '651.32', 'bug_type': '309'}
         body = {'parentProc': parent, 'exception': {'type': 'EXC_CRASH', 'signal': 'SIGABRT'},
@@ -29,10 +32,10 @@ class CrashReportTests(unittest.TestCase):
         path.write_text(json.dumps(header) + '\n' + json.dumps(body))
         return path
 
-    def read_summary(self):
+    def read_summary(self) -> CrashSummary:
         return json.loads(self.output.read_text())
 
-    def test_delayed_report_uses_event_time_to_find_stage_and_excludes_old_and_unrelated_reports(self):
+    def test_delayed_report_uses_event_time_to_find_stage_and_excludes_old_and_unrelated_reports(self) -> None:
         self.write_report('PosterBoard', self.now - timedelta(minutes=1))
         with self.monitor.stage('simulator-boot'):
             self.now += timedelta(seconds=2)
@@ -52,7 +55,7 @@ class CrashReportTests(unittest.TestCase):
         self.assertEqual((event['signal'], event['termination_namespace'], event['termination_code']), ('SIGABRT', 'SIGNAL', 6))
         self.assertNotIn('fixture-secret', self.output.read_text())
 
-    def test_unavailable_location_and_unreadable_report_are_exposed(self):
+    def test_unavailable_location_and_unreadable_report_are_exposed(self) -> None:
         self.monitor.locations['macos-system'] = self.root / 'absent'
         path = self.report_dir / 'RideIntercom-2026-11-21-130000.ips'
         path.write_text('partial')
@@ -66,7 +69,7 @@ class CrashReportTests(unittest.TestCase):
         self.assertEqual(summary['unreadable_reports'], 0)
         self.assertEqual(summary['events'][0]['runtime'], 'macos')
 
-    def test_runner_samples_inside_a_long_stage_and_keeps_the_result(self):
+    def test_runner_samples_inside_a_long_stage_and_keeps_the_result(self) -> None:
         runner = Runner(self.root / 'run', timeout=2, crash_reports=self.monitor)
         with patch('scripts.validate.process_snapshot', return_value={}), \
              patch.object(self.monitor, 'interval_seconds', 0.1), \
