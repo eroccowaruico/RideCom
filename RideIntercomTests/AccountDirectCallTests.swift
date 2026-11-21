@@ -181,6 +181,47 @@ struct AccountDirectCallTests {
         #endif
     }
 
+    @Test(arguments: [false, true])
+    func accountCallSurvivesRegistrationThroughAnotherInvitation(creatorIsAuthor: Bool) async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("alice", account: "a")
+        let recipient = try fixture.peer("bob", account: "b")
+        let a = author.viewModel, b = recipient.viewModel
+        a.allowsNearbyGroupDelivery = false
+        b.allowsNearbyGroupDelivery = false
+        try fixture.introduce(author, to: recipient)
+        let ordinaryGroupID = try #require(a.selectedGroup?.id)
+        let acceptance = try #require(b.signedPendingInvitationReceipt(for: ordinaryGroupID))
+        let acknowledgement = try #require(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true))
+        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
+        try #require(b.groupRepository.pendingInvitation(for: ordinaryGroupID) == nil)
+        a.disconnect(); b.disconnect()
+
+        let creator = creatorIsAuthor ? a : b
+        let other = creatorIsAuthor ? b : a
+        let creatorContact = try #require(creator.savedRemoteUsers.first)
+        try #require(creator.selectUser(creatorContact.id, connectIfIdle: false))
+        let id = try #require(creator.selectedGroup?.id)
+        let initialKey = try #require(try creator.groupRepository.credential(for: id)).secret
+
+        let newGroupID = try fixture.completeGroupContactRegistration(from: author, to: recipient)
+        #expect(other.groups.contains { $0.id == newGroupID })
+        for vm in [a, b] {
+            vm.setRTCTransportRoutes([.multipeer])
+            let person = try #require(vm.savedRemoteUsers.first)
+            try #require(vm.startCall(to: .user(person.id), accountAccessID: vm.accountAccessID))
+            try #require(vm.activeGroupID == id)
+        }
+        let creatorKeepsKey = try creator.groupRepository.credential(for: id)?.secret == initialKey
+        let otherUsesSameKey = try other.groupRepository.credential(for: id)?.secret == initialKey
+        #expect(creatorKeepsKey)
+        try #require(otherUsesSameKey)
+        #if os(iOS)
+        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(author.callSession.connectedGroup),
+                                                   bobGroup: try #require(recipient.callSession.connectedGroup))
+        #endif
+    }
+
     @Test(arguments: [1, 7]) func groupContactRegistrationKeepsItsCallKeyWhenOnlyOneSideKnowsMoreDevices(otherDevices: Int) async throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
         let author = try fixture.peer("alice", account: "a")
@@ -209,9 +250,11 @@ struct AccountDirectCallTests {
         #expect(accountCall.accountDevices["bob"] != nil)
         #expect(accountCall.members.count == min(otherDevices + 2, IntercomGroup.maximumMemberCount))
         #expect(b.viewModel.activeGroupID == callID)
-        let matchesDeviceKey = try a.viewModel.groupRepository.credential(for: callID)?.secret == deviceKey
-            && b.viewModel.groupRepository.credential(for: callID)?.secret == deviceKey
-        try #require(matchesDeviceKey)
+        let accountKey = try #require(try a.viewModel.groupRepository.credential(for: callID)).secret
+        let usesMatchingAccountKey = try b.viewModel.groupRepository.credential(for: callID)?.secret == accountKey
+        try #require(usesMatchingAccountKey)
+        let keepsContactDeviceKeySeparate = accountKey != deviceKey
+        #expect(keepsContactDeviceKeySeparate)
         let matchesGroupKey = try a.viewModel.groupRepository.credential(for: groupID)?.secret == deviceKey
         #expect(!matchesGroupKey)
         #if os(iOS)
@@ -330,8 +373,13 @@ struct AccountDirectCallTests {
         try #require(vm.selectUser(contact.id, connectIfIdle: false))
         let callID = try #require(vm.selectedGroup?.id)
         let accountKey = try #require(try vm.groupRepository.credential(for: callID)).secret
-        let copiedADeviceKey = deviceKeys.contains(accountKey)
-        #expect(!copiedADeviceKey)
+        let signer = try vm.internetSettingsStore.invitationSigner(memberID: "alice")
+        let possibleAccountKeys = try contact.memberIDs.map { peerID in
+            let publicKey = try #require(contact.deviceKeys?[peerID])
+            return try signer.accountDirectCallSecret(peerMemberID: peerID, peerPublicKey: publicKey, callID: callID)
+        }
+        let selectedAnAmbiguousDevice = possibleAccountKeys.contains(accountKey) || deviceKeys.contains(accountKey)
+        #expect(!selectedAnAmbiguousDevice)
     }
 
     @Test(arguments: [false, true]) func groupContactRegistrationUsesTheAccountCallForStartingAndResharing(existingCalls: Bool) throws {

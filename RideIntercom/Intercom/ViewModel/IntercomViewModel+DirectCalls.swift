@@ -79,7 +79,9 @@ extension IntercomViewModel {
             }
             let group = try IntercomGroup(id: id, name: "Direct Call", members: members, kind: .direct,
                                          accountPair: pair, accountDevices: devices)
-            let secret = try deviceCall?.secret ?? initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner, pending: pending)
+            let savedDeviceSecret = pair == nil ? deviceCall?.secret : nil
+            let secret = try savedDeviceSecret ?? initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner,
+                savedDevicePeer: deviceCall?.peerID, pending: pending)
             try groupRepository.save([group] + groups, credential: .init(groupID: id, secret: secret))
             refreshGroupStorageStatus()
             groups.insert(group, at: 0)
@@ -89,7 +91,7 @@ extension IntercomViewModel {
     }
 
     private func initialDirectCallSecret(for group: IntercomGroup, user: SavedUser,
-                                         accountSigner: DeviceIdentitySigner?,
+                                         accountSigner: DeviceIdentitySigner?, savedDevicePeer: String?,
                                          pending: GroupRepository.OrdinaryGroupDeviceCallKeys?) throws -> String {
         if let accountSigner {
             let pendingPeer = pending.flatMap { keys in
@@ -97,7 +99,7 @@ extension IntercomViewModel {
                     ? keys.peerMemberID : nil
             }
             let onlyKnownPeer = user.memberIDs.count == 1 ? user.memberIDs.first : nil
-            if let peer = pendingPeer ?? onlyKnownPeer, let binding = group.accountDevices[peer] {
+            if let peer = savedDevicePeer ?? pendingPeer ?? onlyKnownPeer, let binding = group.accountDevices[peer] {
                 return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
             }
         } else if let pending, localAccountPrincipal == nil,
