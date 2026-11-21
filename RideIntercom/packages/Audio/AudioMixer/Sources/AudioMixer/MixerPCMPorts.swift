@@ -119,8 +119,6 @@ public final class MixerPCMSource {
 			let buffer = try normalized.frame.makePCMBuffer()
 			let playback = playbackPosition
 			let position = playback.position
-            let rendered = position.writable
-			var options: AVAudioPlayerNodeBufferOptions = []
 			let duration = Double(buffer.frameLength) / mixerFormat.sampleRate
             // Native lossy codecs can leave isolated sub-milliscale samples
             // after a pause. A peak-only -80 dB test mistakes this inaudible
@@ -129,38 +127,13 @@ public final class MixerPCMSource {
             let audible = energy >= Float(max(1, normalized.frame.samples.count)) * 0.0001 * 0.0001
                 || normalized.frame.samples.contains { abs($0) >= 0.001 }
 			try validatePlaybackBudget(for: duration)
-			let startSample: AVAudioFramePosition
-			if let delay = captureTimePlayoutDelay, let limit = maximumBufferedDuration {
-				guard capturedAt.isFinite else {
-					throw AudioMixerError.pcmSourceScheduleFailed("Invalid capture timestamp")
-				}
-                // playbackPosition already advances past the current native
-                // block. Bound the additional command handoff to 2 ms rather
-                // than waiting another whole device quantum.
-                // A stopped player starts with its prepared first buffer and
-                // needs no handoff allowance. Offline rendering needs none.
-                let nativeLead = adaptivePlayout && playerNode.isPlaying
-                    && playerNode.engine?.isInManualRenderingMode == false
-                    ? min(AVAudioFramePosition(renderClock.frameCount.load(ordering: .relaxed)),
-                        AVAudioFramePosition((0.002 * mixerFormat.sampleRate).rounded(.up))) : 0
-                let reservation = captureTimeReservation(.init(
-                    capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength, duration: duration,
-                    audible: audible, position: position, nativeLead: nativeLead,
-                    delay: delay, limit: limit, packetizationJitter: packetizationJitter,
-                    startsNewArrivalTiming: startsNewArrivalTiming))
-                startSample = reservation.startSample
-                options = reservation.options
-			} else {
-				// Bound the wait before this frame starts, not its completion.
-				// A full capture batch may overlap the previous batch's healthy tail.
-				if let limit = maximumBufferedDuration,
-				   scheduledEndSample - rendered >= AVAudioFramePosition(limit * mixerFormat.sampleRate) {
-					options = .interrupts
-					scheduledEndSample = rendered
-					playbackResetCount += 1
-				}
-				startSample = max(scheduledEndSample, rendered)
-			}
+            let reservation = try reservePlayback(.init(
+                capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength,
+                duration: duration, audible: audible, position: position, packetizationJitter: packetizationJitter,
+                startsNewArrivalTiming: startsNewArrivalTiming
+            ))
+            let startSample = reservation.startSample
+            let options = reservation.options
 			scheduledEndSample = startSample + AVAudioFramePosition(buffer.frameLength)
             if audible { lastAudibleEnd = scheduledEndSample }
 			// Timestamped sources preserve omitted silence and absorb arrival jitter.
@@ -187,6 +160,64 @@ public final class MixerPCMSource {
 			throw AudioMixerError.pcmSourceScheduleFailed(String(describing: error))
 		}
 	}
+
+    private struct PlaybackPacket {
+        let capturedAt: TimeInterval
+        let arrivedAt: TimeInterval
+        let frameLength: AVAudioFrameCount
+        let duration: TimeInterval
+        let audible: Bool
+        let position: PlaybackPosition
+        let packetizationJitter: TimeInterval
+        let startsNewArrivalTiming: Bool
+    }
+
+    private func reservePlayback(
+        _ packet: PlaybackPacket
+    ) throws -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
+        let capturedAt = packet.capturedAt
+        let arrivedAt = packet.arrivedAt
+        let duration = packet.duration
+        let audible = packet.audible
+        let position = packet.position
+        let packetizationJitter = packet.packetizationJitter
+        let startsNewArrivalTiming = packet.startsNewArrivalTiming
+        let rendered = position.writable
+        var options: AVAudioPlayerNodeBufferOptions = []
+        let startSample: AVAudioFramePosition
+        if let delay = captureTimePlayoutDelay, let limit = maximumBufferedDuration {
+            guard capturedAt.isFinite else {
+                throw AudioMixerError.pcmSourceScheduleFailed("Invalid capture timestamp")
+            }
+            // playbackPosition already advances past the current native
+            // block. Bound the additional command handoff to 2 ms rather
+            // than waiting another whole device quantum.
+            // A stopped player starts with its prepared first buffer and
+            // needs no handoff allowance. Offline rendering needs none.
+            let nativeLead = adaptivePlayout && playerNode.isPlaying
+                && playerNode.engine?.isInManualRenderingMode == false
+                ? min(AVAudioFramePosition(renderClock.frameCount.load(ordering: .relaxed)),
+                    AVAudioFramePosition((0.002 * mixerFormat.sampleRate).rounded(.up))) : 0
+            let reservation = captureTimeReservation(.init(
+                capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: packet.frameLength, duration: duration,
+                audible: audible, position: position, nativeLead: nativeLead,
+                delay: delay, limit: limit, packetizationJitter: packetizationJitter,
+                startsNewArrivalTiming: startsNewArrivalTiming))
+            startSample = reservation.startSample
+            options = reservation.options
+        } else {
+            // Bound the wait before this frame starts, not its completion.
+            // A full capture batch may overlap the previous batch's healthy tail.
+            if let limit = maximumBufferedDuration,
+               scheduledEndSample - rendered >= AVAudioFramePosition(limit * mixerFormat.sampleRate) {
+                options = .interrupts
+                scheduledEndSample = rendered
+                playbackResetCount += 1
+            }
+            startSample = max(scheduledEndSample, rendered)
+        }
+        return (startSample, options)
+    }
 
 	private func validatePlaybackBudget(for duration: TimeInterval) throws {
 		guard let limit = maximumBufferedDuration else { return }

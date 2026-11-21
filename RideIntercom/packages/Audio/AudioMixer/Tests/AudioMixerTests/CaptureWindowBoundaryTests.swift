@@ -20,3 +20,16 @@ func captureWindowAcceptsItsExactUpperBoundaryAndRebasesBeyondIt(outside: Bool) 
     #expect(source.playbackResetCount == (outside ? 1 : 0))
     #expect(next.options.isEmpty)
 }
+
+@Test func sourceAcceptsExactFrameBudgetAndRecoversAfterAnOversizedFrame() throws {
+    let format = AudioFormat(sampleRate: 48000, channelCount: 1)
+    let mixer = try AudioMixer(audioFormat: format)
+    let bus = try mixer.createBus("frame-budget")
+    let source = try bus.addPCMSource(id: "voice", maximumBufferedDuration: 0.1)
+    _ = try source.schedule(.init(sequenceNumber: 0, format: format, samples: Array(repeating: 0.2, count: 4800)))
+    #expect(throws: (any Error).self) {
+        try source.schedule(.init(sequenceNumber: 1, format: format, samples: Array(repeating: 0.2, count: 4801)))
+    }
+    _ = try source.schedule(.init(sequenceNumber: 2, format: format, samples: Array(repeating: 0.3, count: 480)))
+    #expect(bus.snapshot().sources.first?.lastFailure == nil)
+}
