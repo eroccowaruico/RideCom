@@ -237,26 +237,6 @@ extension IntercomViewModel {
         return true
     }
 
-    func reserveInviteMemberSlot(displayName: String? = nil) {
-        guard requireGroupAccess() else { return }
-        guard var group = selectedGroup,
-              group.kind == .group,
-              group.members.count < IntercomGroup.maximumMemberCount else { return }
-
-        let nextNumber = group.members.count
-        let memberID = "\(GroupMember.pendingInvitePrefix)\(group.id.uuidString.prefix(8).lowercased())-\(nextNumber)-\(UUID().uuidString.prefix(8).lowercased())"
-        let name = displayName ?? "Invited Rider \(nextNumber)"
-        group.members.append(
-            GroupMember(
-                id: memberID,
-                displayName: name,
-                authenticationState: .pending,
-                connectionState: .connecting
-            )
-        )
-        replaceSelectedGroup(group)
-    }
-
     func acceptInviteURL(_ url: URL, now: TimeInterval = Date().timeIntervalSince1970) throws {
         groupErrorMessage = nil
         inviteStatusMessage = nil

@@ -510,7 +510,11 @@ struct DirectCallTests {
         let user = try #require(vm.savedRemoteUsers.first)
         #expect(vm.selectUser(user.id))
         let group = try #require(vm.selectedGroup)
-        vm.reserveInviteMemberSlot()
+        let snapshot = h.groupStore.snapshot
+        let draft = GroupInvitationDraft(name: "Other rider", suggestedName: "New person")
+        #expect(vm.saveGroupInvitations(groupID: group.id, creating: false, name: group.name,
+                                        selected: [], newPeople: [draft]) == nil)
+        #expect(h.groupStore.snapshot == snapshot)
         vm.removeMember("bob", from: group.id)
         #expect(!vm.addSavedUsers([user.id], to: group.id))
         #expect(vm.selectedGroup?.members.map(\.id) == ["alice", "bob"])

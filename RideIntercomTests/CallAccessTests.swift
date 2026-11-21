@@ -208,9 +208,12 @@ extension CallAccessTests {
         #expect(!f.a.viewModel.createTalkGroup(name: "Blocked"))
         #expect(!f.a.viewModel.canShareSelectedGroup)
         #expect(f.a.viewModel.makeSelectedGroupInviteURL() == nil)
-        let count = f.a.viewModel.selectedGroup?.members.count
-        f.a.viewModel.reserveInviteMemberSlot()
-        #expect(f.a.viewModel.selectedGroup?.members.count == count)
+        let group = try #require(f.a.viewModel.selectedGroup)
+        let snapshot = f.a.groupStore.snapshot
+        let draft = GroupInvitationDraft(name: "Rider", suggestedName: "New person")
+        #expect(f.a.viewModel.saveGroupInvitations(groupID: group.id, creating: false, name: group.name,
+                                                  selected: [], newPeople: [draft]) == nil)
+        #expect(f.a.groupStore.snapshot == snapshot)
         await f.connect()
         f.a.viewModel.disconnect()
         #expect(f.a.viewModel.activeGroupID == nil)
