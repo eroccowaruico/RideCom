@@ -64,8 +64,11 @@ struct StandardGroupSettingsView: View {
                                     }
                                     VStack(alignment: .leading, spacing: AppSpacing.xs) {
                                         Text(verbatim: member.resolvedDisplayName).lineLimit(2)
-                                        if let invitation = StandardGroupInvitationStatus(viewModel: viewModel,
-                                                                                          memberID: member.id, groupID: groupID) {
+                                        if let invitation = StandardGroupInvitationStatus(
+                                            viewModel: viewModel,
+                                            memberID: member.id,
+                                            groupID: groupID
+                                        ) {
                                             invitation
                                                 .font(.subheadline).foregroundStyle(.secondary)
                                                 .accessibilityIdentifier("groupSettingsInvitationState-\(member.id)")
@@ -80,8 +83,11 @@ struct StandardGroupSettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("groupSettingsMember-\(member.id)")
-                            .standardMemberRowActions(canRemove: viewModel.canManageRegularGroups, pending: $pendingRemoval,
-                                                      name: member.resolvedDisplayName) {
+                            .standardMemberRowActions(
+                                canRemove: viewModel.canManageRegularGroups,
+                                pending: $pendingRemoval,
+                                name: member.resolvedDisplayName
+                            ) {
                                 viewModel.removeMember(member.id, from: groupID)
                             }
                         }
@@ -115,7 +121,9 @@ struct StandardGroupSettingsView: View {
                         if let saved, saved != group?.name, !viewModel.renameGroup(groupID, to: saved) { return }
                         dismiss()
                     }
-                    .disabled(group == nil || name?.contains("|") == true || (name?.isEmpty == true && membersName.isEmpty))
+                    .disabled(
+                        group == nil || name?.contains("|") == true || (name?.isEmpty == true && membersName.isEmpty)
+                    )
                     .accessibilityIdentifier("saveGroupSettingsButton")
                 }
             }

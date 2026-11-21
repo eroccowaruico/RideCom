@@ -9,7 +9,12 @@ struct StandardRegisteredGroupInvitations: View {
             Text("Invitations saved. You can check each person's status and share an invitation if needed.")
                 .accessibilityIdentifier("groupDeliverySelectionMessage")
             ForEach(viewModel.savedRemoteUsers.filter { selectedUsers.contains($0.id) }) { person in
-                LabeledContent { StandardGroupInvitationStatus(state: viewModel.groupInvitationDeliveryState(for: person, in: group.id)) } label: { Text(verbatim: person.resolvedDisplayName) }
+                LabeledContent {
+                    StandardGroupInvitationStatus(
+                        state: viewModel.groupInvitationDeliveryState(for: person, in: group.id))
+                } label: {
+                    Text(verbatim: person.resolvedDisplayName)
+                }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("groupDeliveryPerson-\(person.id)")
             }

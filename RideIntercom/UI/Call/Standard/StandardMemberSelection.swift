@@ -26,7 +26,10 @@ struct StandardMemberSelection: View {
         Form {
             if groupID == nil {
                 Section("Group name") {
-                    TextField("Group name", text: $selection.typedName, prompt: selection.suggestedName.map { Text(verbatim: $0) })
+                    TextField(
+                        "Group name", text: $selection.typedName,
+                        prompt: selection.suggestedName.map { Text(verbatim: $0) }
+                    )
                         .accessibilityIdentifier("savedUsersGroupNameField")
                 }
             }

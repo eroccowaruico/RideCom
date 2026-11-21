@@ -14,7 +14,11 @@ struct StandardGroupInvitationOffer: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Show the Groups tab?", isPresented: Binding(get: { offered != nil }, set: { if !$0 { offered = nil } }), presenting: offered) { group in
+            .alert(
+                "Show the Groups tab?",
+                isPresented: Binding(get: { offered != nil }, set: { if !$0 { offered = nil } }),
+                presenting: offered
+            ) { group in
                 Button("Show") {
                     if viewModel.acknowledgeGroupTabInvitationOffer(group.id) {
                         viewModel.setShowsGroupsTab(true)

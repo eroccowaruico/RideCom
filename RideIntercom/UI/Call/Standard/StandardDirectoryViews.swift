@@ -32,10 +32,13 @@ struct StandardUsersView: View {
                     } label: {
                         if user.isRegistered {
                             DirectoryRowLabel(title: user.resolvedDisplayName, isGroup: false,
-                                              detail: user.needsNameConfirmation ? String(localized: "Their name: \(user.displayName)") : nil,
-                                              status: viewModel.isInCall(with: .user(user.id)) ? viewModel.callStatus(for: viewModel.activeGroupID) : nil)
+                                detail: user.needsNameConfirmation
+                                    ? String(localized: "Their name: \(user.displayName)") : nil,
+                                status: viewModel.isInCall(with: .user(user.id))
+                                    ? viewModel.callStatus(for: viewModel.activeGroupID) : nil)
                         } else {
-                            StandardInvitationRow(name: user.resolvedDisplayName, state: "Not registered", isSending: false)
+                            StandardInvitationRow(
+                                name: user.resolvedDisplayName, state: "Not registered", isSending: false)
                         }
                     }
                     .directoryRowButtonStyle()
@@ -75,7 +78,9 @@ struct StandardUsersView: View {
         }
         .destinationSettingsSheet($settings, viewModel: viewModel)
         .destinationDeleteConfirmation($pendingDelete)
-        .modifier(StandardGroupInvitationOffer(viewModel: viewModel, selectedTab: $selectedTab, blocked: settings != nil || pendingDelete != nil))
+        .modifier(
+            StandardGroupInvitationOffer(
+                viewModel: viewModel, selectedTab: $selectedTab, blocked: settings != nil || pendingDelete != nil))
     }
 }
 
@@ -122,14 +127,20 @@ struct StandardGroupsView: View {
                     .disabled(!viewModel.canManageRegularGroups).accessibilityIdentifier("standardCreateGroupButton")
             }
         }
-        .sheet(isPresented: $createsGroup, onDismiss: {
-            if viewModel.selectedGroup?.id != previousSelection { selectedTab = .call }
-        }) { SavedUsersView(viewModel: viewModel) }
+        .sheet(
+            isPresented: $createsGroup,
+            onDismiss: {
+                if viewModel.selectedGroup?.id != previousSelection { selectedTab = .call }
+            },
+            content: { SavedUsersView(viewModel: viewModel) }
+        )
         .destinationSettingsSheet($settings, viewModel: viewModel)
         .destinationDeleteConfirmation($pendingDelete)
         .onAppear { if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .onChange(of: selectedTab) { _, tab in if tab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
-        .onChange(of: viewModel.contactInvitationRevision) { _, _ in if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
+        .onChange(of: viewModel.contactInvitationRevision) { _, _ in
+            if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() }
+        }
         .accessibilityIdentifier("standardGroupsList")
         .overlay {
             if viewModel.regularGroups.isEmpty {
@@ -228,7 +239,8 @@ struct RecentCallSection: View {
            let destination = viewModel.recentCallDestination, let title = viewModel.recentCallTitle {
             Section("Recent Call") {
                 Button { viewModel.open(destination, onOpen: onOpen) } label: {
-                    DirectoryRowLabel(title: title, isGroup: isGroup(destination), detail: detail(destination), status: nil)
+                    DirectoryRowLabel(
+                        title: title, isGroup: isGroup(destination), detail: detail(destination), status: nil)
                 }
                 .directoryRowButtonStyle()
                 .accessibilityIdentifier("recentCallButton")
