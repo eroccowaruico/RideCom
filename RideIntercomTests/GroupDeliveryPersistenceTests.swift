@@ -82,8 +82,10 @@ import Testing
         try repository.save([group], credential: .init(groupID: group.id, secret: "independent-group-key"), deliveries: [record])
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a, groupID: group.id, groupName: group.name,
             groupSecret: "independent-group-key", inviterMemberID: "local", expiresAt: expiry)
-        let envelope = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
-            recipientMemberID: "friend", recipientKey: b.publicKey, signer: a, deliveryID: record.id)
+        let envelope = try GroupInvitationEnvelope.seal(
+            token, sender: author,
+            recipient: .init(principal: recipient, memberID: "friend", encryptionKey: b.publicKey), signer: a,
+            deliveryID: record.id)
         try repository.saveGroupDeliveryEnvelope(envelope)
         let key = try #require(repository.groupDeliveries.first?.credentialReference)
         #expect(try repository.groupDeliveryEnvelope(record.id).ciphertext == envelope.ciphertext)
@@ -112,8 +114,9 @@ import Testing
         let repository = f.restart(); _ = try repository.load(localMemberID: "local")
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a, groupID: UUID(), groupName: "Automatically delivered",
             groupSecret: "received-key", inviterMemberID: "sender")
-        let envelope = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
-            recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
+        let envelope = try GroupInvitationEnvelope.seal(
+            token, sender: author,
+            recipient: .init(principal: recipient, memberID: "local", encryptionKey: b.publicKey), signer: a)
         let opened = try envelope.open(recipient: b, local: recipient, sender: user)
         let now = Date().timeIntervalSince1970
         let before = try f.file.read(); f.store.failCommit = true
@@ -138,13 +141,15 @@ import Testing
         #expect(try f.file.read()?.groups.first?.invitationDeviceKeys == ["sender": a.publicKey])
         let conflict = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a, groupID: token.groupID, groupName: token.groupName,
             groupSecret: "conflicting-key", inviterMemberID: "sender")
-        let packet = try GroupInvitationEnvelope.seal(conflict, sender: author, recipient: recipient,
-            recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
+        let packet = try GroupInvitationEnvelope.seal(
+            conflict, sender: author,
+            recipient: .init(principal: recipient, memberID: "local", encryptionKey: b.publicKey), signer: a)
         let saved = try f.file.read()
         #expect(try repository.stageGroupDelivery(packet, token: conflict, now: now) == .cancelled)
         #expect(try f.file.read() == saved)
-        let duplicateGroup = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
-            recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
+        let duplicateGroup = try GroupInvitationEnvelope.seal(
+            token, sender: author,
+            recipient: .init(principal: recipient, memberID: "local", encryptionKey: b.publicKey), signer: a)
         #expect(try repository.stageGroupDelivery(duplicateGroup, token: opened, now: now) == .pending)
         try repository.delete(token.groupID, remaining: [])
         #expect(repository.groupDeliveries.last?.state == .cancelled)
@@ -155,8 +160,9 @@ import Testing
         #expect(try f.file.read() == after)
         #expect(repository.storedGroup(token.groupID) == nil)
 
-        let pending = try GroupInvitationEnvelope.seal(token, sender: author, recipient: recipient,
-            recipientMemberID: "local", recipientKey: b.publicKey, signer: a)
+        let pending = try GroupInvitationEnvelope.seal(
+            token, sender: author,
+            recipient: .init(principal: recipient, memberID: "local", encryptionKey: b.publicKey), signer: a)
         #expect(try repository.stageGroupDelivery(pending, token: opened, now: now) == .pending)
         let pendingReference = try #require(repository.groupDeliveries.last?.credentialReference)
         _ = try repository.removeUser(user.id)

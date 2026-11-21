@@ -41,7 +41,8 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
         let target = Target(id: UUID(), senderMemberID: signer.memberID, recipientMemberID: recipientMemberID,
                             recipientKey: recipientKey, expiresAt: now.timeIntervalSince1970 + Self.lifetime)
         guard target.isValid, recipientKey != signer.publicKey else { throw DeviceIdentityProof.Failure.invalid }
-        let authentication = try HMAC<SHA256>.authenticationCode(for: Self.canonicalJSON(target), using: Self.pairKey(pairSecret))
+        let authentication = try HMAC<SHA256>.authenticationCode(
+            for: Self.canonicalJSON(target), using: Self.pairKey(pairSecret))
         claim = Claim(target: target, pairAuthentication: Data(authentication))
         proof = try signer.sign(Self.canonicalJSON(claim), purpose: .deleteContact)
         guard isValid else { throw DeviceIdentityProof.Failure.invalid }
@@ -55,7 +56,9 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
 
     func verify(from peerID: String, senderKey: String, recipient: DeviceIdentitySigner,
                 pairSecret: String, now: Date) throws {
-        try verify(from: peerID, senderKey: senderKey, recipient: recipient, pairKey: Self.pairKey(pairSecret), now: now)
+        try verify(
+            from: peerID, senderKey: senderKey, recipient: recipient, pairKey: Self.pairKey(pairSecret),
+            now: now)
     }
 
     func verify(from peerID: String, senderKey: String, recipient: DeviceIdentitySigner,
@@ -63,7 +66,8 @@ nonisolated struct ContactDeletionNotice: Codable, Equatable, Identifiable, Send
         guard isValid, peerID == target.senderMemberID, senderKey == proof.publicKey,
               target.recipientMemberID == recipient.memberID, target.recipientKey == recipient.publicKey,
               target.isCurrent(at: now),
-              try HMAC<SHA256>.isValidAuthenticationCode(claim.pairAuthentication, authenticating: Self.canonicalJSON(target),
+            try HMAC<SHA256>.isValidAuthenticationCode(
+                claim.pairAuthentication, authenticating: Self.canonicalJSON(target),
                                                          using: pairKey)
         else { throw DeviceIdentityProof.Failure.invalid }
         _ = try proof.verify(Self.canonicalJSON(claim), purpose: .deleteContact, memberID: peerID)
@@ -114,7 +118,10 @@ nonisolated struct ContactDeletionRelayAddress: Codable, Equatable, Sendable {
     let recipient: AccountPrincipal
     let slot: String
 
-    init?(owner: AccountPrincipal?, recipient: AccountPrincipal?, pairSecret: String, senderID: String, recipientID: String) {
+    init?(
+        owner: AccountPrincipal?, recipient: AccountPrincipal?, pairSecret: String, senderID: String,
+        recipientID: String
+    ) {
         guard let owner, let recipient, owner.issuer == recipient.issuer, owner != recipient else { return nil }
         self.owner = owner
         self.recipient = recipient
@@ -186,11 +193,12 @@ nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable,
         else { throw DeviceIdentityProof.Failure.invalid }
         id = target.id
         expiresAt = try ContactDeletionRelayPacket.expiry(target)
-        slot = ContactDeletionRelayPacket.slot(pairSecret: pairSecret, senderID: signer.memberID, recipientID: target.recipientMemberID)
+        slot = ContactDeletionRelayPacket.slot(
+            pairSecret: pairSecret, senderID: signer.memberID, recipientID: target.recipientMemberID)
         self.sender = sender
         senderKey = signer.publicKey
         let packet = try ContactDeletionRelayPacket.notice.seal(notice, slot: slot, signer: signer,
-                                                               peerID: target.recipientMemberID, peerKey: target.recipientKey)
+            peerID: target.recipientMemberID, peerKey: target.recipientKey)
         payload = .init(recipient: recipient, recipientKey: target.recipientKey, packet: packet)
         guard isValid else { throw DeviceIdentityProof.Failure.invalid }
     }
@@ -209,7 +217,8 @@ nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable,
 
     static func openNotice(_ packet: String, slot: String, recipient: DeviceIdentitySigner,
                            senderID: String, senderKey: String) throws -> ContactDeletionNotice {
-        try ContactDeletionRelayPacket.notice.open(packet, slot: slot, signer: recipient, peerID: senderID, peerKey: senderKey)
+        try ContactDeletionRelayPacket.notice.open(
+            packet, slot: slot, signer: recipient, peerID: senderID, peerKey: senderKey)
     }
 }
 
@@ -244,7 +253,8 @@ nonisolated struct ContactDeletionRelayReceipt: Codable, Equatable, Identifiable
 
     static func open(_ packet: String, slot: String, sender: DeviceIdentitySigner,
                      recipientID: String, recipientKey: String) throws -> ContactDeletionReceipt {
-        try ContactDeletionRelayPacket.receipt.open(packet, slot: slot, signer: sender, peerID: recipientID, peerKey: recipientKey)
+        try ContactDeletionRelayPacket.receipt.open(
+            packet, slot: slot, signer: sender, peerID: recipientID, peerKey: recipientKey)
     }
 }
 

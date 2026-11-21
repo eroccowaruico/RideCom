@@ -1043,8 +1043,9 @@ import UserNotifications
         restarted.viewModel.groupDeliveryClient = nil
         #expect(restarted.viewModel.nearbyGroupDeliveryCredentials()[.init(rawValue: a.memberID)] == recipientCredential)
         let opened = try incoming.open(recipient: b.signer, local: b.principal, sender: a.savedUser())
-        let reencrypted = try GroupInvitationEnvelope.seal(opened, sender: a.principal, recipient: b.principal,
-            recipientMemberID: b.memberID, recipientKey: b.signer.publicKey, signer: a.signer, deliveryID: incoming.id)
+        let reencrypted = try GroupInvitationEnvelope.seal(opened, sender: a.principal,
+            recipient: .init(principal: b.principal, memberID: b.memberID, encryptionKey: b.signer.publicKey),
+            signer: a.signer, deliveryID: incoming.id)
         #expect(try restarted.viewModel.receiveNearbyGroupInvitation(reencrypted, from: a.memberID) == nil)
         let replacementReceipt = try GroupInvitationReceipt(for: reencrypted, signer: b.signer)
         #expect(throws: (any Error).self) {

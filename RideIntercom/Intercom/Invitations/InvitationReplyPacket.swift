@@ -8,7 +8,9 @@ nonisolated struct InvitationReplyAddress: Sendable {
     @MainActor init(invitation: DirectInvitationContext, credential: GroupAccessCredential) throws {
         guard invitation.isOrdinaryGroupInvitation, invitation.isValid, invitation.groupID == credential.groupID
         else { throw DeviceIdentityProof.Failure.invalid }
-        try self.init(invitation: invitation, secret: credential.secret, salt: "rideintercom.ordinary-group-reply.slot.v1")
+        try self.init(
+            invitation: invitation, secret: credential.secret,
+            salt: "rideintercom.ordinary-group-reply.slot.v1")
     }
 
     @MainActor init(contactToken: GroupInviteToken) throws {
@@ -20,8 +22,12 @@ nonisolated struct InvitationReplyAddress: Sendable {
     }
 
     @MainActor fileprivate init(contactInvitation: DirectInvitationContext, secret: String) throws {
-        guard contactInvitation.contactBootstrap == true, contactInvitation.isValid else { throw DeviceIdentityProof.Failure.invalid }
-        try self.init(invitation: contactInvitation, secret: secret, salt: "rideintercom.contact-invitation-reply.slot.v1")
+        guard contactInvitation.contactBootstrap == true, contactInvitation.isValid else {
+            throw DeviceIdentityProof.Failure.invalid
+        }
+        try self.init(
+            invitation: contactInvitation, secret: secret,
+            salt: "rideintercom.contact-invitation-reply.slot.v1")
     }
 
     @MainActor private init(invitation: DirectInvitationContext, secret: String, salt: String) throws {
@@ -53,16 +59,23 @@ nonisolated struct ContactInvitationReplyAdmission: Encodable, Sendable {
                                purpose: .openContactInvitationReply).signature
     }
 
-    @MainActor init?(token: GroupInviteToken, address: InvitationReplyAddress, trust: DeviceIdentityTrust?, now: Date = Date()) {
+    @MainActor init?(
+        token: GroupInviteToken, address: InvitationReplyAddress, trust: DeviceIdentityTrust?,
+        now: Date = Date()
+    ) {
         guard token.directInvitation?.context.contactBootstrap == true, let signature = token.replyAdmissionSignature,
               let issueProof = token.identityProof, let certificate = issueProof.certificate, let trust,
               let identity = try? certificate.verify(origin: trust.origin, trustedIssuerKey: trust.issuerKey, now: now),
               identity.memberID == token.inviterMemberID, identity.deviceKey == issueProof.publicKey,
               let binding = identity.sessionBinding, InternetAccountClient.notificationUserID(binding),
               Double(address.expiresAt) > now.timeIntervalSince1970 * 1000,
-              let message = try? Self.message(origin: identity.issuer, binding: binding, address: address) else { return nil }
+            let message = try? Self.message(origin: identity.issuer, binding: binding, address: address)
+        else { return nil }
         let proof = DeviceIdentityProof(publicKey: issueProof.publicKey, certificate: certificate, signature: signature)
-        guard (try? proof.verify(message, purpose: .openContactInvitationReply, memberID: identity.memberID)) != nil else { return nil }
+        guard
+            (try? proof.verify(message, purpose: .openContactInvitationReply, memberID: identity.memberID))
+                != nil
+        else { return nil }
         self.owner = .init(issuer: identity.issuer, userID: identity.userID)
         self.deviceID = identity.deviceID
         self.sessionBinding = binding
@@ -71,7 +84,9 @@ nonisolated struct ContactInvitationReplyAdmission: Encodable, Sendable {
     }
 
     private static func message(origin: String, binding: String, address: InvitationReplyAddress) throws -> Data {
-        try JSONSerialization.data(withJSONObject: [origin, binding, address.slot, address.expiresAt], options: [.withoutEscapingSlashes])
+        try JSONSerialization.data(
+            withJSONObject: [origin, binding, address.slot, address.expiresAt],
+            options: [.withoutEscapingSlashes])
     }
 }
 
@@ -87,8 +102,10 @@ nonisolated struct InvitationReplyPacket: Decodable, Sendable {
     private static let maximumPacketCharacters = 12 * 1024
     private static let gcmOverheadBytes = 28
 
-    @MainActor static func seal(_ receipt: DirectInvitationReceipt, address: InvitationReplyAddress,
-                                invitation: DirectInvitationContext, now: TimeInterval = Date().timeIntervalSince1970) throws -> Self {
+    @MainActor static func seal(
+        _ receipt: DirectInvitationReceipt, address: InvitationReplyAddress,
+        invitation: DirectInvitationContext, now: TimeInterval = Date().timeIntervalSince1970
+    ) throws -> Self {
         guard matches(receipt, invitation: invitation, id: receipt.id, kind: receipt.kind, now: now),
               let target = receipt.kind == .accepted ? invitation.inviterDeviceKey : receipt.inviteeDeviceKey,
               let keyBytes = IdentityEncoding.decode(target) else { throw DeviceIdentityProof.Failure.invalid }
@@ -105,33 +122,46 @@ nonisolated struct InvitationReplyPacket: Decodable, Sendable {
         return .init(id: receipt.id, packet: (ephemeral.publicKey.x963Representation + sealed).base64EncodedString())
     }
 
-    @MainActor func open(address: InvitationReplyAddress, invitation: DirectInvitationContext, kind: DirectInvitationReceipt.Kind,
-                         signer: DeviceIdentitySigner, now: TimeInterval = Date().timeIntervalSince1970) throws -> DirectInvitationReceipt {
+    @MainActor func open(
+        address: InvitationReplyAddress, invitation: DirectInvitationContext,
+        kind: DirectInvitationReceipt.Kind,
+        signer: DeviceIdentitySigner, now: TimeInterval = Date().timeIntervalSince1970
+    ) throws -> DirectInvitationReceipt {
         let overhead = Self.publicKeyBytes + Self.gcmOverheadBytes
         guard now.isFinite, now < invitation.expiresAt, packet.utf8.count <= Self.maximumPacketCharacters,
-              let bytes = Data(base64Encoded: packet), bytes.count > overhead, bytes.count <= overhead + Self.maximumPlaintextBytes
+            let bytes = Data(base64Encoded: packet), bytes.count > overhead,
+            bytes.count <= overhead + Self.maximumPlaintextBytes
         else { throw DeviceIdentityProof.Failure.invalid }
         let header = Self.header(address, id: id, kind: kind)
-        let plaintext = try signer.openSealedPayload(bytes.dropFirst(Self.publicKeyBytes), ephemeralKey: bytes.prefix(Self.publicKeyBytes),
+        let plaintext = try signer.openSealedPayload(
+            bytes.dropFirst(Self.publicKeyBytes), ephemeralKey: bytes.prefix(Self.publicKeyBytes),
                                                      domain: Self.domain, header: header)
         let receipt = try JSONDecoder().decode(DirectInvitationReceipt.self, from: plaintext)
         let target = kind == .accepted ? receipt.inviterMemberID : receipt.inviteeMemberID
         let key = kind == .accepted ? invitation.inviterDeviceKey : receipt.inviteeDeviceKey
-        guard Self.matches(receipt, invitation: invitation, id: id, kind: kind, now: now), target == signer.memberID, key == signer.publicKey
+        guard Self.matches(receipt, invitation: invitation, id: id, kind: kind, now: now),
+            target == signer.memberID, key == signer.publicKey
         else { throw DeviceIdentityProof.Failure.invalid }
         return receipt
     }
 
-    @MainActor private static func matches(_ receipt: DirectInvitationReceipt, invitation: DirectInvitationContext, id: UUID,
-                                          kind: DirectInvitationReceipt.Kind, now: TimeInterval) -> Bool {
+    @MainActor private static func matches(
+        _ receipt: DirectInvitationReceipt, invitation: DirectInvitationContext, id: UUID,
+        kind: DirectInvitationReceipt.Kind, now: TimeInterval
+    ) -> Bool {
         (invitation.isOrdinaryGroupInvitation || invitation.contactBootstrap == true)
             && now.isFinite && now < invitation.expiresAt && receipt.isValid
             && receipt.invitation == invitation && receipt.id == id && receipt.kind == kind
-            && receipt.id == DirectInvitationReceipt.receiptID(invitationID: invitation.id, inviteeMemberID: receipt.inviteeMemberID)
-            && receipt.proof != nil && receipt.acceptanceProof != nil && (receipt.acknowledgementProof != nil) == (kind == .acknowledged)
+            && receipt.id
+                == DirectInvitationReceipt.receiptID(
+                    invitationID: invitation.id, inviteeMemberID: receipt.inviteeMemberID)
+            && receipt.proof != nil && receipt.acceptanceProof != nil
+            && (receipt.acknowledgementProof != nil) == (kind == .acknowledged)
     }
 
-    @MainActor private static func header(_ address: InvitationReplyAddress, id: UUID, kind: DirectInvitationReceipt.Kind) -> Data {
+    @MainActor private static func header(
+        _ address: InvitationReplyAddress, id: UUID, kind: DirectInvitationReceipt.Kind
+    ) -> Data {
         Data([domain, address.slot, id.uuidString.lowercased(), kind.rawValue].joined(separator: "\0").utf8)
     }
 }

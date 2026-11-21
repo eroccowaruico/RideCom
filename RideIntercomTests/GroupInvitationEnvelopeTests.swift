@@ -14,7 +14,10 @@ import Testing
     }
     @Test func onlyTheAddressedDeviceCanReadTheSignedGroupWithoutExposingItsKeyToTheRouter() throws {
         let (token, a, b, user) = try fixture()
-        let value = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: receiver, recipientMemberID: b.memberID, recipientKey: b.publicKey, signer: a)
+        let value = try GroupInvitationEnvelope.seal(
+            token, sender: sender,
+            recipient: .init(principal: receiver, memberID: b.memberID, encryptionKey: b.publicKey), signer: a
+        )
         let encoded = try JSONEncoder().encode(value)
         #expect(!String(decoding: encoded, as: UTF8.self).contains(token.groupSecret))
         #expect(!String(decoding: encoded, as: UTF8.self).contains(token.groupName))
@@ -27,7 +30,10 @@ import Testing
         let now = Date(), a = testIdentitySigner("clock-author"), b = testIdentitySigner("clock-recipient")
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a, groupID: UUID(), groupName: "Clock group",
             groupSecret: "synthetic-clock-key", inviterMemberID: a.memberID, issuedAt: now.timeIntervalSince1970, expiresAt: now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
-        let envelope = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: receiver, recipientMemberID: b.memberID, recipientKey: b.publicKey, signer: a, now: now)
+        let envelope = try GroupInvitationEnvelope.seal(
+            token, sender: sender,
+            recipient: .init(principal: receiver, memberID: b.memberID, encryptionKey: b.publicKey),
+            signer: a, now: now)
         let user = SavedUser(displayName: "Author", memberIDs: [a.memberID], deviceKeys: [a.memberID: a.publicKey], principal: sender)
         let opened = try envelope.open(recipient: b, local: receiver, sender: user, now: now.addingTimeInterval(-60))
         #expect(opened.groupID == token.groupID)
@@ -36,7 +42,10 @@ import Testing
 
     @Test func changedRoutingOrCiphertextAndUnknownSendersAreRejected() throws {
         let (token, a, b, user) = try fixture()
-        let value = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: receiver, recipientMemberID: b.memberID, recipientKey: b.publicKey, signer: a)
+        let value = try GroupInvitationEnvelope.seal(
+            token, sender: sender,
+            recipient: .init(principal: receiver, memberID: b.memberID, encryptionKey: b.publicKey), signer: a
+        )
         var changed = value; changed.id = UUID()
         #expect(throws: (any Error).self) { try changed.open(recipient: b, local: receiver, sender: user) }
         changed = value; changed.ciphertext[0] ^= 1

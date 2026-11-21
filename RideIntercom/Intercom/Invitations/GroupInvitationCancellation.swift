@@ -25,12 +25,16 @@ nonisolated struct GroupInvitationCancellation: Codable, Sendable {
 
     init(target: Target, signer: DeviceIdentitySigner) throws {
         guard target.isValid, signer.memberID == target.senderMemberID,
-              signer.principal == nil || signer.principal == target.sender else { throw DeviceIdentityProof.Failure.invalid }
+            signer.principal == nil || signer.principal == target.sender
+        else { throw DeviceIdentityProof.Failure.invalid }
         self.target = target
         proof = try signer.sign(Self.message(target), purpose: .cancelGroupInvitation)
     }
 
-    func verify(from peerID: String, local: AccountPrincipal, signer: DeviceIdentitySigner, sender: SavedUser?, now: Date) throws {
+    func verify(
+        from peerID: String, local: AccountPrincipal, signer: DeviceIdentitySigner, sender: SavedUser?,
+        now: Date
+    ) throws {
         let time = now.timeIntervalSince1970
         guard target.isValid, target.senderMemberID == peerID, target.recipient == local,
               target.recipientMemberID == signer.memberID, target.recipientKey == signer.publicKey,
@@ -50,7 +54,8 @@ nonisolated struct GroupInvitationCancellation: Codable, Sendable {
 extension GroupInvitationCancellation.Target {
     init(envelope: GroupInvitationEnvelope, groupID: UUID) throws {
         self.init(id: envelope.id, groupID: groupID, sender: envelope.sender, senderMemberID: envelope.senderMemberID,
-                  recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID, recipientKey: envelope.recipientKey,
+            recipient: envelope.recipient, recipientMemberID: envelope.recipientMemberID,
+            recipientKey: envelope.recipientKey,
                   expiresAt: envelope.expiresAt, envelopeDigest: try envelope.receiptDigest())
     }
 }
@@ -73,12 +78,16 @@ nonisolated struct GroupInvitationCancellationReceipt: Codable, Sendable {
         guard signer.memberID == target.recipientMemberID, signer.publicKey == target.recipientKey
         else { throw DeviceIdentityProof.Failure.invalid }
         decision = Decision(target: target, outcome: outcome)
-        proof = try signer.sign(GroupInvitationCancellation.message(decision), purpose: .acknowledgeGroupInvitationCancellation)
+        proof = try signer.sign(
+            GroupInvitationCancellation.message(decision), purpose: .acknowledgeGroupInvitationCancellation)
     }
 
     func verify(for target: GroupInvitationCancellation.Target) throws {
-        guard self.target == target, proof.publicKey == target.recipientKey else { throw DeviceIdentityProof.Failure.invalid }
-        _ = try proof.verify(GroupInvitationCancellation.message(decision), purpose: .acknowledgeGroupInvitationCancellation,
+        guard self.target == target, proof.publicKey == target.recipientKey else {
+            throw DeviceIdentityProof.Failure.invalid
+        }
+        _ = try proof.verify(
+            GroupInvitationCancellation.message(decision), purpose: .acknowledgeGroupInvitationCancellation,
                              memberID: target.recipientMemberID)
     }
 }

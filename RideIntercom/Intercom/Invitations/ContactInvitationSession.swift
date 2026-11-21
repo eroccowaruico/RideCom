@@ -56,12 +56,15 @@ final class ContactInvitationSession {
         return try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
     }
 
-    static func makeToken(authority: DirectInvitationAuthority, signer: DeviceIdentitySigner,
-                          displayName: String, now: TimeInterval, invitedGroup: ContactGroupInvitation? = nil) throws -> GroupInviteToken {
+    static func makeToken(
+        authority: DirectInvitationAuthority, signer: DeviceIdentitySigner,
+        displayName: String, now: TimeInterval, invitedGroup: ContactGroupInvitation? = nil
+    ) throws -> GroupInviteToken {
         let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
         return try GroupInviteToken.make(authority: authority, signer: signer,
             groupID: UUID(), groupName: "Contact Invitation", groupSecret: secret,
-            inviterMemberID: signer.memberID, inviterDisplayName: displayName, contactBootstrap: true, invitedGroup: invitedGroup, issuedAt: now)
+            inviterMemberID: signer.memberID, inviterDisplayName: displayName, contactBootstrap: true,
+            invitedGroup: invitedGroup, issuedAt: now)
     }
 
     /// Restores an account-owned checkpoint after its registration was committed.
@@ -75,7 +78,8 @@ final class ContactInvitationSession {
             guard token.identityProof?.publicKey == signer.publicKey else { throw GroupStorageError.identityConflict }
             if let receipt = payload.receipt {
                 guard receipt.invitation == token.directInvitation?.context,
-                      try authority.verify(receipt, trust: trust, now: now()) != nil else { throw GroupStorageError.identityConflict }
+                    try authority.verify(receipt, trust: trust, now: now()) != nil
+                else { throw GroupStorageError.identityConflict }
                 boundReceipt = receipt
                 isConfirmed = true
                 registeredPeerID = receipt.inviteeMemberID
@@ -96,7 +100,8 @@ final class ContactInvitationSession {
     func accept(_ url: URL) throws {
         guard !isStopped, issued == nil, received == nil else { throw GroupInviteTokenError.incompatibleCall }
         let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
-        let acceptance = try token.accept(signer: signer, displayName: name, trust: trust, now: now(), contactBootstrap: true)
+        let acceptance = try token.accept(
+            signer: signer, displayName: name, trust: trust, now: now(), contactBootstrap: true)
         try confirm(acceptance.inviter, token.inviterDisplayName ?? "Inviter")
         received = (token, acceptance)
         isConfirmed = true
@@ -120,9 +125,13 @@ final class ContactInvitationSession {
     /// Application data reaches everyone in the rendezvous, and an invitation link may have been passed
     /// on. A personal permission is sent only while the registered person is the only one connected.
     @discardableResult
-    func sendNotificationPermission(_ payload: Data, namespace: String = CallNotificationPermissionMessage.namespace) -> Bool {
+    func sendNotificationPermission(
+        _ payload: Data, namespace: String = CallNotificationPermissionMessage.namespace
+    ) -> Bool {
         guard !isStopped, registeredPeerIsAlone, payload.count <= 8192,
-              [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(namespace) else { return false }
+            [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace]
+                .contains(namespace)
+        else { return false }
         transport.send(.init(namespace: namespace, payload: payload))
         return true
     }
@@ -148,45 +157,58 @@ final class ContactInvitationSession {
                 retry()
                 announceRegisteredPeer()
             case .message(let peer, let message):
-                if [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(message.namespace) {
-                    if registeredPeerIsAlone, peer == registeredPeerID, message.payload.count <= 8192 {
-                        onNotificationPermission?(peer, message)
-                    }
-                    return
-                }
-                guard message.namespace == DirectInvitationReceipt.namespace, message.payload.count <= 8192,
-                      peers.contains(peer), let receipt = message.decodedPayload(DirectInvitationReceipt.self, from: peer),
-                      receipt.invitation?.contactBootstrap == true else { return }
-                if let issued {
-                    guard !issued.isExpired(now: now()), receipt.kind == .accepted,
-                          receipt.invitation == issued.directInvitation?.context,
-                          receipt.inviterMemberID == signer.memberID, receipt.inviteeMemberID == peer,
-                          let verified = try authority.verify(receipt, trust: trust, now: now()) else { return }
-                    if let boundReceipt {
-                        guard boundReceipt.id == receipt.id, boundReceipt.inviteeDeviceKey == receipt.inviteeDeviceKey else { return }
-                    } else {
-                        if let confirmReceipt { try confirmReceipt(verified) }
-                        else { try confirm(verified.identity, receipt.displayName) }
-                        boundReceipt = receipt
-                        isConfirmed = true
-                        registeredPeerID = peer
-                    }
-                    send(try receipt.acknowledged(by: signer))
-                    failure = nil
-                    announceRegisteredPeer()
-                } else if let pending = received {
-                    guard !pending.token.isExpired(now: now()), receipt.kind == .acknowledged,
-                          peer == pending.token.inviterMemberID, !isAcknowledged,
-                          let proof = receipt.acknowledgementProof,
-                          proof.publicKey == pending.accepted.inviter.publicKey else { return }
-                    try receipt.verifyAcknowledgement(of: pending.accepted.receipt, trust: trust, now: now())
-                    try acknowledged?()
-                    isAcknowledged = true
-                    registeredPeerID = peer
-                    failure = nil
-                    announceRegisteredPeer()
-                }
+                try receiveMessage(from: peer, message: message)
             }
         } catch { failure = error }
+    }
+
+    private func receiveMessage(from peer: String, message: ApplicationDataMessage) throws {
+        if [
+            CallNotificationPermissionMessage.namespace,
+            CallNotificationPermissionMessage.groupNamespace
+        ].contains(message.namespace) {
+            if registeredPeerIsAlone, peer == registeredPeerID, message.payload.count <= 8192 {
+                onNotificationPermission?(peer, message)
+            }
+            return
+        }
+        guard message.namespace == DirectInvitationReceipt.namespace, message.payload.count <= 8192,
+            peers.contains(peer),
+            let receipt = message.decodedPayload(DirectInvitationReceipt.self, from: peer),
+              receipt.invitation?.contactBootstrap == true else { return }
+        if let issued {
+            guard !issued.isExpired(now: now()), receipt.kind == .accepted,
+                  receipt.invitation == issued.directInvitation?.context,
+                  receipt.inviterMemberID == signer.memberID, receipt.inviteeMemberID == peer,
+                  let verified = try authority.verify(receipt, trust: trust, now: now()) else { return }
+            if let boundReceipt {
+                guard boundReceipt.id == receipt.id,
+                    boundReceipt.inviteeDeviceKey == receipt.inviteeDeviceKey
+                else { return }
+            } else {
+                if let confirmReceipt {
+                    try confirmReceipt(verified)
+                } else {
+                    try confirm(verified.identity, receipt.displayName)
+                }
+                boundReceipt = receipt
+                isConfirmed = true
+                registeredPeerID = peer
+            }
+            send(try receipt.acknowledged(by: signer))
+            failure = nil
+            announceRegisteredPeer()
+        } else if let pending = received {
+            guard !pending.token.isExpired(now: now()), receipt.kind == .acknowledged,
+                  peer == pending.token.inviterMemberID, !isAcknowledged,
+                  let proof = receipt.acknowledgementProof,
+                  proof.publicKey == pending.accepted.inviter.publicKey else { return }
+            try receipt.verifyAcknowledgement(of: pending.accepted.receipt, trust: trust, now: now())
+            try acknowledged?()
+            isAcknowledged = true
+            registeredPeerID = peer
+            failure = nil
+            announceRegisteredPeer()
+        }
     }
 }

@@ -50,7 +50,9 @@ final class ContactInvitationTransport {
         }
         if localEnabled {
             let credential = RTCCredential.derived(groupID: token.groupID.uuidString, secret: token.groupSecret)
-            let channel = RTCLocalDataChannel(localID: .init(rawValue: memberID), credential: credential) { [weak self] event in
+            let channel = RTCLocalDataChannel(
+                localID: .init(rawValue: memberID), credential: credential
+            ) { [weak self] event in
                 // The transport calls back on one queue. Preserve the order of
                 // membership snapshots and messages when entering MainActor.
                 DispatchQueue.main.async { self?.receiveLocal(event) }

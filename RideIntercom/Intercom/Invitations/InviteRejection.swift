@@ -36,9 +36,12 @@ enum InviteRejection: String {
         switch self {
         case .expired: "This invitation has expired. Ask the sender for a new invitation."
         case .retiredGroupLink: "This link was already used to join this group. Ask the sender for a new invitation."
-        case .unsupportedVersion: "This invitation uses a different app version. Update RideCom and ask for a new invitation."
+        case .unsupportedVersion:
+            "This invitation uses a different app version. Update RideCom and ask for a new invitation."
         case .unverified: "This invitation could not be verified. Ask the sender for a new invitation."
-        default: "This invitation could not be opened or saved. Check your account and saved groups, then open the link again."
+        default:
+            "This invitation could not be opened or saved. Check your account and saved groups, "
+                + "then open the link again."
         }
     }
 }

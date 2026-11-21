@@ -302,8 +302,12 @@ extension IntercomViewModel {
         let token = try GroupInviteToken.make(authority: invitationAuthority, signer: signer, groupID: group.id, groupName: group.name,
             groupSecret: key.secret, inviterMemberID: signer.memberID, inviterDisplayName: localMemberIdentity.displayName,
             issuedAt: now.timeIntervalSince1970, expiresAt: record.expiresAt)
-        let envelope = try GroupInvitationEnvelope.seal(token, sender: sender, recipient: record.recipient, recipientMemberID: record.recipientMemberID,
-            recipientKey: record.recipientKey, signer: signer, now: now, deliveryID: record.id, sourceRequestID: record.sourceRequestID)
+        let envelope = try GroupInvitationEnvelope.seal(
+            token, sender: sender,
+            recipient: .init(
+                principal: record.recipient, memberID: record.recipientMemberID,
+                encryptionKey: record.recipientKey), signer: signer, now: now, deliveryID: record.id,
+            sourceRequestID: record.sourceRequestID)
         try groupRepository.saveGroupDeliveryEnvelope(envelope)
         return envelope
     }

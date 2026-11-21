@@ -12,8 +12,10 @@ import Testing
         let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: a.signer, groupID: id,
             groupName: "Delivered group", groupSecret: "shared-key", inviterMemberID: a.memberID, issuedAt: now.timeIntervalSince1970,
             expiresAt: now.addingTimeInterval(3600).timeIntervalSince1970)
-        let envelope = try GroupInvitationEnvelope.seal(token, sender: a.principal, recipient: b.principal,
-            recipientMemberID: b.memberID, recipientKey: b.signer.publicKey, signer: a.signer, now: now)
+        let envelope = try GroupInvitationEnvelope.seal(
+            token, sender: a.principal,
+            recipient: .init(principal: b.principal, memberID: b.memberID, encryptionKey: b.signer.publicKey),
+            signer: a.signer, now: now)
         #expect(try h.viewModel.groupRepository.stageGroupDelivery(envelope, token: token, now: now.timeIntervalSince1970) == .pending)
         #expect(h.viewModel.groupTabInvitationOffer == nil)
         try h.viewModel.groupRepository.receiveGroupDelivery(envelope, token: token, localDisplayName: "Me", now: now.timeIntervalSince1970)
