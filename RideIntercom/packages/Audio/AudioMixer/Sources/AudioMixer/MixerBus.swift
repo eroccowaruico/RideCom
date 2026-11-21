@@ -32,11 +32,17 @@ public final class MixerBus {
 
 	internal func detach() {
 		stopPCMSources()
-		if let capture = renderCapture { engine.disconnectNodeInput(capture.node); engine.disconnectNodeOutput(capture.node); engine.detach(capture.node) }
+		if let capture = renderCapture {
+			engine.disconnectNodeInput(capture.node)
+			engine.disconnectNodeOutput(capture.node)
+			engine.detach(capture.node)
+		}
 		renderCapture = nil
 		let sourceFaders = Set(pcmSourceByNodeID.values.map { ObjectIdentifier($0.faderNode) })
-		let owned = engine.attachedNodes.filter {
-			sourceNodeIDs.contains(ObjectIdentifier($0)) || sourceFaders.contains(ObjectIdentifier($0)) || effectNodeIDs.contains(ObjectIdentifier($0)) || $0 === inputMixer || $0 === faderMixer
+		let owned = engine.attachedNodes.filter { node in
+			let nodeID = ObjectIdentifier(node)
+			return sourceNodeIDs.contains(nodeID) || sourceFaders.contains(nodeID) || effectNodeIDs.contains(nodeID)
+				|| node === inputMixer || node === faderMixer
 		}
 		for node in owned { engine.disconnectNodeInput(node); engine.disconnectNodeOutput(node); engine.detach(node) }
 	}
@@ -50,9 +56,14 @@ public final class MixerBus {
 		renderCapture?.node ?? faderMixer
 	}
 
-	init(id: String, engine: AVAudioEngine, format: AVAudioFormat, audioFormat: AudioFormat,
-         renderClock: MixerRenderClock,
-         prepareForGraphChange: @escaping () -> Void) {
+	init(
+		id: String,
+		engine: AVAudioEngine,
+		format: AVAudioFormat,
+		audioFormat: AudioFormat,
+		renderClock: MixerRenderClock,
+		prepareForGraphChange: @escaping () -> Void
+	) {
 		self.id = id
 		self.engine = engine
 		self.format = format
@@ -80,8 +91,12 @@ public final class MixerBus {
 
 		engine.attach(node)
 		let inputBus = inputMixer.nextAvailableInputBus
-		do { try engine.connectNode(node, to: inputMixer, fromBus: 0, toBus: inputBus, format: format) }
-		catch { engine.detach(node); throw error }
+		do {
+			try engine.connectNode(node, to: inputMixer, fromBus: 0, toBus: inputBus, format: format)
+		} catch {
+			engine.detach(node)
+			throw error
+		}
 		sourceNodeIDs.insert(nodeID)
 		sourceNodeOrder.append(nodeID)
 		sourceMetadataByNodeID[nodeID] = MixerSourceMetadata(
@@ -99,7 +114,9 @@ public final class MixerBus {
 		if let delay = captureTimePlayoutDelay {
 			guard delay.isFinite, delay >= 0, let limit = maximumBufferedDuration,
 				  limit.isFinite, limit > delay, limit * audioFormat.sampleRate < Double(Int64.max) / 4 else {
-				throw AudioMixerError.pcmSourceScheduleFailed("Capture-time playout requires a finite delay below the playback budget")
+				throw AudioMixerError.pcmSourceScheduleFailed(
+					"Capture-time playout requires a finite delay below the playback budget"
+				)
 			}
 		}
 		let player = AVAudioPlayerNode()
@@ -161,7 +178,7 @@ public final class MixerBus {
 		targetFormat: AudioFormat,
 		bufferFrameCount: UInt32 = 128,
 		packetDuration: TimeInterval? = nil,
-        maximumFrameDuration: TimeInterval? = nil,
+		maximumFrameDuration: TimeInterval? = nil,
 		captureRenderedAudio: Bool = true,
 		onFrame: @escaping (PCMFrame, AudioProcessingReport) -> Void
 	) throws -> MixerPCMSink {
@@ -365,8 +382,7 @@ public final class MixerBus {
 			throw AudioMixerError.unknownEffect(effectID)
 		}
 		guard bypassedEffectNodeIDs.contains(nodeID) != bypassed else { return }
-		if bypassed { bypassedEffectNodeIDs.insert(nodeID) }
-		else { bypassedEffectNodeIDs.remove(nodeID) }
+		if bypassed { bypassedEffectNodeIDs.insert(nodeID) } else { bypassedEffectNodeIDs.remove(nodeID) }
 		try rebuildChain()
 	}
 
@@ -395,18 +411,18 @@ public final class MixerBus {
 		guard !effectID.isEmpty else {
 			throw AudioMixerError.invalidNodeID(effectID)
 		}
-		guard let nodeID = effectMetadataByNodeID.first(where: { $0.value.id == effectID })?.key else {
+		guard let entry = effectMetadataByNodeID.first(where: { $0.value.id == effectID }) else {
 			throw AudioMixerError.unknownEffect(effectID)
 		}
 
-		var metadata = effectMetadataByNodeID[nodeID]!
+		var metadata = entry.value
 		if let state {
 			metadata.state = state
 		}
 		if let parameters {
 			metadata.parameters = parameters
 		}
-		effectMetadataByNodeID[nodeID] = metadata
+		effectMetadataByNodeID[entry.key] = metadata
 	}
 
 	public func removeEffect(at index: Int) throws {
