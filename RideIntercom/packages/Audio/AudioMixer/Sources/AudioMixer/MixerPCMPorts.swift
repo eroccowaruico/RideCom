@@ -143,11 +143,11 @@ public final class MixerPCMSource {
                     && playerNode.engine?.isInManualRenderingMode == false
                     ? min(AVAudioFramePosition(renderClock.frameCount.load(ordering: .relaxed)),
                         AVAudioFramePosition((0.002 * mixerFormat.sampleRate).rounded(.up))) : 0
-                let reservation = captureTimeReservation(
+                let reservation = captureTimeReservation(.init(
                     capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength, duration: duration,
                     audible: audible, position: position, nativeLead: nativeLead,
                     delay: delay, limit: limit, packetizationJitter: packetizationJitter,
-                    startsNewArrivalTiming: startsNewArrivalTiming)
+                    startsNewArrivalTiming: startsNewArrivalTiming))
                 startSample = reservation.startSample
                 options = reservation.options
 			} else {
@@ -196,13 +196,35 @@ public final class MixerPCMSource {
 		}
 	}
 
+    struct ReservationInput {
+        let capturedAt: TimeInterval
+        let arrivedAt: TimeInterval
+        let frameLength: AVAudioFrameCount
+        let duration: TimeInterval
+        let audible: Bool
+        let position: PlaybackPosition
+        let nativeLead: AVAudioFramePosition
+        let delay: TimeInterval
+        let limit: TimeInterval
+        let packetizationJitter: TimeInterval
+        var startsNewArrivalTiming = false
+    }
+
     /// Update the capture-to-playout mapping using the position already observed for this packet.
     func captureTimeReservation(
-        capturedAt: TimeInterval, arrivedAt: TimeInterval, frameLength: AVAudioFrameCount, duration: TimeInterval,
-        audible: Bool, position: PlaybackPosition, nativeLead: AVAudioFramePosition,
-        delay: TimeInterval, limit: TimeInterval, packetizationJitter: TimeInterval,
-        startsNewArrivalTiming: Bool = false
+        _ input: ReservationInput
     ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
+        let capturedAt = input.capturedAt
+        let arrivedAt = input.arrivedAt
+        let frameLength = input.frameLength
+        let duration = input.duration
+        let audible = input.audible
+        let position = input.position
+        let nativeLead = input.nativeLead
+        let delay = input.delay
+        let limit = input.limit
+        let packetizationJitter = input.packetizationJitter
+        let startsNewArrivalTiming = input.startsNewArrivalTiming
         let rendered = position.writable
         var options: AVAudioPlayerNodeBufferOptions = []
         // Device handoff and arrival jitter are independent. Taking
