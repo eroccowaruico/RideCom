@@ -174,7 +174,8 @@ struct PeerProfileTests {
 
     @Test func changedPayloadAndWrongRecipientCannotPassVerification() throws {
         let nonce = UUID(), group = UUID()
-        let original = try SharedDisplayName.make(groupID: group, recipientMemberID: "local", challenge: nonce,
+        let original = try SharedDisplayName.make(
+            challenge: .init(groupID: group, recipientMemberID: "local", nonce: nonce),
             revision: 1, displayName: "Friend", signer: testIdentitySigner("friend"))
         let encoded = try JSONEncoder().encode(original)
         let values: [(String, Any)] = [("displayName", "Spoofed"), ("revision", 2), ("memberID", "other"),
@@ -216,7 +217,8 @@ struct PeerProfileTests {
             acceptedInvitation: token.accept(signer: testIdentitySigner("local"), displayName: "You", trust: trust))
         let nonce = UUID()
         for user in ["a", "b"] {
-            let value = try SharedDisplayName.make(groupID: group.id, recipientMemberID: "local", challenge: nonce,
+            let value = try SharedDisplayName.make(
+                challenge: .init(groupID: group.id, recipientMemberID: "local", nonce: nonce),
                 revision: 1, displayName: user, signer: signer(user))
             let verified = try value.verified(
                 peerID: "friend", recipient: "local", groupID: group.id, challenge: nonce, trust: trust)

@@ -42,15 +42,20 @@ func receiveTestProfileChallenge(_ vm: IntercomViewModel, peerID: String, nonce:
 @MainActor
 func testPeerProfile(_ vm: IntercomViewModel, peerID: String, displayName: String, revision: UInt64 = 1,
                      signer: DeviceIdentitySigner? = nil) throws -> SharedDisplayName {
-    try SharedDisplayName.make(groupID: #require(vm.activeGroupID), recipientMemberID: vm.localMemberIdentity.memberID,
-        challenge: #require(vm.peerProfiles[peerID]).challenge, revision: revision, displayName: displayName,
+    try SharedDisplayName.make(
+        challenge: .init(
+            groupID: #require(vm.activeGroupID),
+            recipientMemberID: vm.localMemberIdentity.memberID,
+            nonce: #require(vm.peerProfiles[peerID]).challenge),
+        revision: revision, displayName: displayName,
         signer: signer ?? testIdentitySigner(peerID))
 }
 
 @MainActor
 func testVerifiedPeerProfile(groupID: UUID, memberID: String, displayName: String) throws -> VerifiedPeerProfile {
     let nonce = UUID()
-    return try SharedDisplayName.make(groupID: groupID, recipientMemberID: "local", challenge: nonce,
+    return try SharedDisplayName.make(
+        challenge: .init(groupID: groupID, recipientMemberID: "local", nonce: nonce),
         revision: 1, displayName: displayName, signer: testIdentitySigner(memberID))
         .verified(peerID: memberID, recipient: "local", groupID: groupID, challenge: nonce)
 }

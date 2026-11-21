@@ -17,10 +17,11 @@ nonisolated struct SharedDisplayName: Codable, Sendable {
     let displayName: String
     var proof: DeviceIdentityProof?
 
-    static func make(groupID: UUID, recipientMemberID: String, challenge: UUID, revision: UInt64,
+    static func make(challenge: PeerProfileChallenge, revision: UInt64,
                      displayName: String, signer: DeviceIdentitySigner) throws -> Self {
-        var value = Self(groupID: groupID, memberID: signer.memberID, recipientMemberID: recipientMemberID,
-                         challenge: challenge, revision: revision, displayName: displayName)
+        var value = Self(
+            groupID: challenge.groupID, memberID: signer.memberID, recipientMemberID: challenge.recipientMemberID,
+            challenge: challenge.nonce, revision: revision, displayName: displayName)
         value.proof = try signer.sign(value.message(), purpose: .shareDisplayName)
         return value
     }
@@ -28,7 +29,8 @@ nonisolated struct SharedDisplayName: Codable, Sendable {
                   trust: DeviceIdentityTrust? = nil) throws -> VerifiedPeerProfile {
         guard memberID == peerID, recipientMemberID == recipient, self.groupID == groupID,
               self.challenge == challenge, revision > 0, IntercomGroup.isValidName(displayName),
-              IntercomGroup.isValidMemberID(recipient), memberID != recipient, let proof else { throw DeviceIdentityProof.Failure.invalid }
+            IntercomGroup.isValidMemberID(recipient), memberID != recipient, let proof
+        else { throw DeviceIdentityProof.Failure.invalid }
         let identity = try proof.verify(message(), purpose: .shareDisplayName, memberID: memberID, trust: trust)
         return VerifiedPeerProfile(groupID: groupID, displayName: displayName, revision: revision, identity: identity)
     }

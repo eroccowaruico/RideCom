@@ -202,8 +202,11 @@ struct DisplayNameTests {
     viewModel.selectGroup(group)
     func deliver(groupID: UUID, name: String) throws {
       let profile = try SharedDisplayName.make(
-        groupID: groupID, recipientMemberID: viewModel.localMemberIdentity.memberID,
-        challenge: viewModel.peerProfiles["member-108"]?.challenge ?? UUID(), revision: 1,
+          challenge: .init(
+              groupID: groupID,
+              recipientMemberID: viewModel.localMemberIdentity.memberID,
+              nonce: viewModel.peerProfiles["member-108"]?.challenge ?? UUID()),
+          revision: 1,
         displayName: name, signer: testIdentitySigner("member-108"))
       viewModel.receiveSharedDisplayName(
         peerID: "member-108",

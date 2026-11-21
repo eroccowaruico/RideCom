@@ -143,7 +143,7 @@ extension IntercomViewModel {
             guard state.responseRevision < UInt64.max,
                   let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
                 let value = try? SharedDisplayName.make(
-                    groupID: groupID, recipientMemberID: peerID, challenge: challenge,
+                    challenge: .init(groupID: groupID, recipientMemberID: peerID, nonce: challenge),
                     revision: state.responseRevision + 1, displayName: localMemberIdentity.displayName,
                     signer: signer),
                   let data = try? JSONEncoder().encode(value) else { return }
