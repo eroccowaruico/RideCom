@@ -11,12 +11,12 @@ nonisolated struct StoreEntitlement: Equatable, Sendable {
     var isUpgraded: Bool
     let isFreeTrial: Bool
     var graceExpirationDate: Date?
-    var originalTransactionID: UInt64? = nil
-    var ownershipType: String? = nil
-    var environment: String? = nil
-    var appAccountToken: UUID? = nil
-    var appTransactionID: String? = nil
-    var subscriptionStatus: String? = nil
+    var originalTransactionID: UInt64?
+    var ownershipType: String?
+    var environment: String?
+    var appAccountToken: UUID?
+    var appTransactionID: String?
+    var subscriptionStatus: String?
 
     private nonisolated struct SubscriptionSeries: Hashable {
         let originalID: UInt64
@@ -52,8 +52,8 @@ nonisolated struct StoreAccessEvaluation: Equatable, Sendable {
     nonisolated enum Status: Sendable { case unconfigured, unknown, notPurchased, active, expired, revoked }
     nonisolated enum Origin: Sendable { case purchase, testDistribution }
     let status: Status
-    var activeUntil: Date? = nil
-    var origin: Origin? = nil
+    var activeUntil: Date?
+    var origin: Origin?
 }
 
 nonisolated struct StoreEntitlementSnapshot: Equatable, Sendable {

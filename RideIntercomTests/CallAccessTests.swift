@@ -485,7 +485,6 @@ extension CallAccessTests {
     }
 }
 
-
 extension CallAccessTests {
     @Test func rightExpiringDuringActivationCannotOpenMedia() async throws {
         let f = try CallAccessPair(), gate = ManualAsyncGate()

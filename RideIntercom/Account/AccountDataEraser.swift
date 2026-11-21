@@ -44,7 +44,8 @@ struct AccountDataEraser {
 
 private extension URL {
     func resourceValuesIfPresent() throws -> URLResourceValues? {
-        do { return try resourceValues(forKeys: [.isSymbolicLinkKey]) }
-        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
+        do { return try resourceValues(forKeys: [.isSymbolicLinkKey]) } catch let error as CocoaError
+            where error.code == .fileReadNoSuchFile
+        { return nil }
     }
 }

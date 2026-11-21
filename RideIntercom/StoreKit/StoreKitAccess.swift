@@ -38,8 +38,9 @@ final class StoreKitAccess {
         self.source = source ?? SystemStoreKitAccessSource()
         self.isCurrentUser = isCurrentUser ?? { true }
         self.readTimeout = readTimeout
-        if let distributionReader { self.distributionReader = distributionReader }
-        else if StoreDistributionAccess.automaticCheckEnabled {
+        if let distributionReader {
+            self.distributionReader = distributionReader
+        } else if StoreDistributionAccess.automaticCheckEnabled {
             self.distributionReader = { try await StoreDistributionAccess.readForCurrentProcess() }
         } else { self.distributionReader = nil }
         self.distributionAccess = self.distributionReader == nil ? .disabled : .unknown
@@ -201,13 +202,12 @@ private final class StoreKitReadAttempt<Value: Sendable> {
                 guard !isCompleted else { continuation.resume(returning: .failure(CancellationError())); return }
                 self.continuation = continuation
                 operation = Task {
-                    do { complete(.success(try await body())) }
-                    catch { complete(.failure(error)) }
+                    do { complete(.success(try await body())) } catch { complete(.failure(error)) }
                 }
                 if let timeout {
                     deadline = Task {
-                        do { try await Task.sleep(for: timeout); complete(.failure(Failure.timedOut)) }
-                        catch { /* Completion cancelled the deadline. */ }
+                        do { try await Task.sleep(for: timeout); complete(.failure(Failure.timedOut)) } catch
+                        { /* Completion cancelled the deadline. */  }
                     }
                 }
             }

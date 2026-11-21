@@ -36,8 +36,11 @@ final class SystemStoreKitAccessSource: StoreKitAccessSource {
                     guard transaction.productID == id, transaction.productType == .autoRenewable else { unverified = true; continue }
                     verifiedIDs.insert(transaction.id)
                     let value = Self.entitlement(transaction, kind: .monthly)
-                    if let group = transaction.subscriptionGroupID { monthlyGroups[group, default: []].append(value) }
-                    else { entitlements.append(value); unverified = true }
+                    if let group = transaction.subscriptionGroupID {
+                        monthlyGroups[group, default: []].append(value)
+                    } else {
+                        entitlements.append(value); unverified = true
+                    }
                 case .unverified: unverified = true
                 }
             }
@@ -63,8 +66,11 @@ final class SystemStoreKitAccessSource: StoreKitAccessSource {
                         verifiedIDs.insert(transaction.id)
                         var grace: Date?
                         if status.state == .inGracePeriod {
-                            if case .verified(let renewal) = status.renewalInfo { grace = renewal.gracePeriodExpirationDate }
-                            else { incomplete = true }
+                            if case .verified(let renewal) = status.renewalInfo {
+                                grace = renewal.gracePeriodExpirationDate
+                            } else {
+                                incomplete = true
+                            }
                         }
                         var value = Self.entitlement(transaction, kind: .monthly, grace: grace)
                         switch status.state {

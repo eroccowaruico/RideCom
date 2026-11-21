@@ -158,8 +158,11 @@ struct AccountDeletionTests {
             if condition == "retired" { current = false }
             auth.submit(userID: condition == "wrongUser" ? "other" : "owner",
                         state: condition == "wrongState" ? "wrong" : request.state, token: Data("identity".utf8), code: Data("code".utf8))
-            if condition == "valid" { #expect(accepted?.authorizationCode == "code"); accepted = nil }
-            else { #expect(accepted == nil) }
+            if condition == "valid" {
+                #expect(accepted?.authorizationCode == "code"); accepted = nil
+            } else {
+                #expect(accepted == nil)
+            }
             current = true
         }
     }

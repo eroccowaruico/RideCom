@@ -75,8 +75,9 @@ struct AccountDeletionView: View {
         Task { await account.resumeDeletion() }
     }
     private func begin(proof: InternetAccountDeletionProof?) {
-        do { try start(proof: proof) }
-        catch { message = "Could not save the deletion request. Your data has been preserved. Try again." }
+        do { try start(proof: proof) } catch {
+            message = "Could not save the deletion request. Your data has been preserved. Try again."
+        }
     }
 }
 
@@ -121,8 +122,9 @@ struct AccountDeletionProgressView: View {
                     }
                     Text("Copies on other devices and information already shared with friends remain. Purchases and subscriptions are not cancelled.")
                     Button("Return to Sign In") {
-                        do { try deletion.finish() }
-                        catch { message = "Could not finish the deletion record. Try again." }
+                        do { try deletion.finish() } catch {
+                            message = "Could not finish the deletion record. Try again."
+                        }
                     }.accessibilityIdentifier("finishAccountDeletionButton")
                 } else if !deletion.isBusy {
                     Button("Retry Deletion") { Task { await account.resumeDeletion(); prepareAuthorization() } }
@@ -145,8 +147,9 @@ struct AccountDeletionProgressView: View {
         .onDisappear { authorization?.cancel() }
         .confirmationDialog("Continue without removing Apple authorization?", isPresented: $confirmsManualDeletion, titleVisibility: .visible) {
             Button("Continue Deletion", role: .destructive) {
-                do { try deletion.replaceProof(nil); Task { await account.resumeDeletion() } }
-                catch { message = "Could not update the deletion request. Try again." }
+                do { try deletion.replaceProof(nil); Task { await account.resumeDeletion() } } catch {
+                    message = "Could not update the deletion request. Try again."
+                }
             }
         } message: { Text("You must remove RideCom from Sign in with Apple in your Apple Account settings yourself.") }
         .accessibilityIdentifier("accountDeletionProgress")

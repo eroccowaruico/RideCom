@@ -9,8 +9,8 @@ final class AccountDeletion {
         let workerURL: URL
         let accessToken: String
         let deviceID: String
-        var userID: String? = nil
-        var requiresAppleVerification: Bool? = nil
+        var userID: String?
+        var requiresAppleVerification: Bool?
     }
     struct Record: Codable {
         let userID: String
@@ -18,8 +18,8 @@ final class AccountDeletion {
         var proof: InternetAccountDeletionProof?
         var serverResult: InternetAccountDeletionResult?
         var localErased = false
-        var localReset: Bool? = nil
-        var retainedDeviceID: String? = nil
+        var localReset: Bool?
+        var retainedDeviceID: String?
     }
     private(set) var record: Record?
     private(set) var storageUnavailable = false

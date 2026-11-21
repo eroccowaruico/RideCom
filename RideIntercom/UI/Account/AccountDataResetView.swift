@@ -24,8 +24,9 @@ struct AccountDataResetView: View {
         }
         .alert("Remove the previous account data from this device?", isPresented: $confirmsRemoval) {
             Button("Remove Data", role: .destructive) {
-                do { try viewModel.beginAccountDataReset() }
-                catch { message = "Could not start removing the data. Your saved data has been preserved. Try again." }
+                do { try viewModel.beginAccountDataReset() } catch {
+                    message = "Could not start removing the data. Your saved data has been preserved. Try again."
+                }
             }.accessibilityIdentifier("confirmAccountDataResetButton")
             Button("Cancel", role: .cancel) { }
         } message: {

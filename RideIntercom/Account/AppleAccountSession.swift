@@ -143,8 +143,7 @@ final class AppleAccountSession {
         let task = Task { [weak self] in
             guard let self else { return }
             let result: Result<AppleCredentialState, Error>
-            do { result = .success(try await self.credentialState(cachedUserID)) }
-            catch { result = .failure(error) }
+            do { result = .success(try await self.credentialState(cachedUserID)) } catch { result = .failure(error) }
             guard expectedGeneration == self.generation else { return }
             // Another process/session may have persisted sign-out or deletion
             // while the native check was suspended. Re-read before granting access.

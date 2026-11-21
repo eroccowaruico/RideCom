@@ -501,8 +501,12 @@ private final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             let proof = try! testIdentityCertificate(deviceID: device, memberID: input["memberID"] as? String ?? "missing",
                 deviceKey: input["deviceKey"] as? String ?? "missing", origin: IdentityEncoding.origin(request.url!), changes: changes)
             body = ["certificate": proof.certificate, "issuerKey": proof.issuerKey]
-        } else if request.httpMethod == "DELETE" { body = [:] }
-        else { body = ["userID": account, "deviceID": device, "expiresAt": Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000,
+        } else if request.httpMethod == "DELETE" {
+            body = [:]
+        } else {
+            body = [
+                "userID": account, "deviceID": device,
+                "expiresAt": Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000,
                        "accessToken": "ri1.\(Self.lock.withLock { Self.locator }).\(device).\(String(repeating: "c", count: 64))"] }
         if let code = Self.lock.withLock({ Self.responseCode }), Self.lock.withLock({ Self.responsePath }) == request.url?.path { body = ["code": code] }
         let data = try! JSONSerialization.data(withJSONObject: body)
