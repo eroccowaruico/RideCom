@@ -6,6 +6,7 @@ import AudioCore
 import AudioMixer
 import Codec
 import Foundation
+import Network
 import Observation
 import OSLog
 import RTC
@@ -32,6 +33,8 @@ final class IntercomViewModel {
     @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
     @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
     @ObservationIgnored var groupDeliveryClient: InternetAccountClient? = SystemSurfaceScope.permitsSystemAccess ? .init() : nil
+    @ObservationIgnored var groupDeliveryPathMonitor: NWPathMonitor?
+    @ObservationIgnored var groupDeliveryNetworkWasAvailable: Bool?
     @ObservationIgnored var beginGroupDeliveryBackgroundTime: AppBackgroundTime.Request = {
         AppBackgroundTime.begin(name: "Finish Group Invitation Delivery", expiration: $0)
     }
@@ -407,6 +410,7 @@ final class IntercomViewModel {
     }
 
     deinit {
+        groupDeliveryPathMonitor?.cancel()
         #if os(iOS)
         if let audioEngineConfigurationObserver { NotificationCenter.default.removeObserver(audioEngineConfigurationObserver) }
         #endif

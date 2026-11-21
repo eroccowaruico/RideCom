@@ -8,7 +8,7 @@ import UserNotifications
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
-    enum ContactDeletionOrder: CaseIterable { case internet, nearbyFirst, bothRemoved }
+    enum ContactDeletionOrder: CaseIterable { case internet, internetOnPathRecovery, nearbyFirst, bothRemoved }
 
     @Test(arguments: ContactDeletionOrder.allCases)
     func internetContactDeletionCompletesWithoutNotificationPermissions(order: ContactDeletionOrder) async throws {
@@ -61,12 +61,22 @@ import UserNotifications
             backgroundStarts += 1
             return {}
         }
+        if order == .internetOnPathRecovery { sender.groupDeliveryNetworkPathChanged(isAvailable: false) }
         try #require(sender.removeSavedUser(try #require(sender.savedRemoteUsers.first).id))
         #expect(backgroundStarts == 1)
         await sender.synchronizeGroupDeliveries()
         let pending = try #require(sender.groupRepository.contactDeletionPublications.first)
         let packet = try #require(pending.payload?.packet)
         #expect(relay.entry == nil && relay.submitted == [packet])
+        if order == .internetOnPathRecovery {
+            sender.groupDeliveryNetworkPathChanged(isAvailable: true)
+            sender.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await sender.groupDeliveryTask?.value
+            try #require(relay.entry?.state == "pending")
+            let reusedPacket = relay.submitted == [packet, packet]
+            #expect(reusedPacket)
+            #expect(backgroundStarts == 1)
+        }
         sender.stopGroupDeliverySync()
 
         if order == .nearbyFirst {
@@ -80,7 +90,7 @@ import UserNotifications
         defer { reopenedSender.stopGroupDeliverySync(); reopenedRecipient.stopGroupDeliverySync() }
         reopenedSender.groupDeliveryClient = client
         reopenedRecipient.groupDeliveryClient = client
-        await reopenedSender.synchronizeGroupDeliveries()
+        if order != .internetOnPathRecovery { await reopenedSender.synchronizeGroupDeliveries() }
         #expect(relay.entry?.state == "pending")
         #expect(relay.submitted == [packet, packet])
         await reopenedRecipient.synchronizeGroupDeliveries()
@@ -787,7 +797,9 @@ import UserNotifications
         let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal,
             revision: 1, grant: nil, signer: b.signer, groupGrant: grant, groupInvitationsSupported: true)
         try left.viewModel.notifications.receivePermission(permission, peerID: b.memberID)
+        left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: false)
         GroupDeliveryHTTPStub.onQueued = {
+            left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
             do { try left.viewModel.acknowledgeNearbyGroupInvitation(received, from: b.memberID) }
             catch { Issue.record("The near-range receipt must succeed while Internet delivery is in flight: \(error)") }
         }
@@ -841,7 +853,8 @@ import UserNotifications
         await h.viewModel.synchronizeGroupDeliveries()
         #expect(GroupDeliveryHTTPStub.requestCount == 0)
     }
-    @Test func automaticDeliveryRetriesTheSamePacketAndARepeatedReceiptDoesNotRecreateADeletedGroup() async throws {
+    @Test(arguments: [false, true])
+    func automaticDeliveryRetriesTheSamePacketAndARepeatedReceiptDoesNotRecreateADeletedGroup(recoversDuringPass: Bool) async throws {
         let a = GroupDeliveryTestIdentity("delivery-author"), b = GroupDeliveryTestIdentity("delivery-recipient")
         defer { a.remove(); b.remove() }
         try a.authorizeFixture(userID: String(repeating: "a", count: 64)); try b.authorizeFixture(userID: String(repeating: "b", count: 64))
@@ -861,13 +874,30 @@ import UserNotifications
         #expect(right.viewModel.createTalkGroup(name: "Keep this conversation"))
         await right.viewModel.synchronizeGroupDeliveries()
         let rightCall = right.viewModel.currentCallReference
+        let beforeRecovery = GroupDeliveryHTTPStub.requestCount
+        left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
+        left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: false)
+        left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
+        await left.viewModel.groupDeliveryTask?.value
+        #expect(GroupDeliveryHTTPStub.requestCount == beforeRecovery)
+        left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: false)
+        if recoversDuringPass {
+            GroupDeliveryHTTPStub.beforeReturningInbox = {
+                left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
+                left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
+            }
+        }
         GroupDeliveryHTTPStub.failNextSubmit = true
         #expect(left.viewModel.createTalkGroup(name: "Automatically delivered", userIDs: [b.personID]))
         let group = try #require(left.viewModel.groups.first), leftCall = left.viewModel.currentCallReference
-        await left.viewModel.synchronizeGroupDeliveries()
-        #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .pending)
-        await left.viewModel.synchronizeGroupDeliveries()
-        #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .queued)
+        await left.viewModel.groupDeliveryTask?.value
+        if !recoversDuringPass {
+            #expect(left.viewModel.groupRepository.groupDeliveries.first?.state == .pending)
+            left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
+            left.viewModel.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await left.viewModel.groupDeliveryTask?.value
+        }
+        try #require(left.viewModel.groupRepository.groupDeliveries.first?.state == .queued)
         #expect(GroupDeliveryHTTPStub.submitted.count == 2 && Set(GroupDeliveryHTTPStub.submitted).count == 1, "Retries use the exact same encrypted envelope")
         GroupDeliveryHTTPStub.failNextAcknowledgement = true
         await right.viewModel.synchronizeGroupDeliveries()

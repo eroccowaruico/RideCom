@@ -4,6 +4,7 @@ import Codec
 import CryptoKit
 import Foundation
 import Logging
+import Network
 import OSLog
 import RTC
 import SessionManager
@@ -34,7 +35,7 @@ extension IntercomViewModel {
         let groupStore = FileGroupStore(directory: directory)
         let callAccessNow: @MainActor () -> Date = Date.init
         #endif
-        return IntercomViewModel(
+        let model = IntercomViewModel(
             accountSession: accountSession,
             callAccessNow: callAccessNow,
             groupRepository: GroupRepository(store: groupStore, credentials: KeychainGroupCredentialStore(namespace: namespace)),
@@ -51,6 +52,15 @@ extension IntercomViewModel {
             },
             audioSessionManager: processAudioSessionManager
         )
+        if model.groupDeliveryClient != nil {
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { [weak model] path in
+                MainActor.assumeIsolated { model?.groupDeliveryNetworkPathChanged(isAvailable: path.status == .satisfied) }
+            }
+            model.groupDeliveryPathMonitor = monitor
+            monitor.start(queue: .main)
+        }
+        return model
     }
 
     static func makeDefaultAudioInputCapture(engine: AVAudioEngine) -> SessionManager.AudioInputStreamCapture {

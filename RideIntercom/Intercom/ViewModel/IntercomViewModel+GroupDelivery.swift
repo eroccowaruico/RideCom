@@ -5,6 +5,25 @@ extension IntercomViewModel {
         case refresh
         case localChange
         case notification
+        case networkRecovered
+    }
+
+    func groupDeliveryNetworkPathChanged(isAvailable: Bool) {
+        let wasAvailable = groupDeliveryNetworkWasAvailable
+        groupDeliveryNetworkWasAvailable = isAvailable
+        guard wasAvailable == false, isAvailable, groupDeliveryClient != nil, canEditSavedGroups else { return }
+        if hasPendingContactDeletionRelay {
+            requestGroupDeliverySync(.networkRecovered)
+            return
+        }
+        guard notifications.canUseNotifications else { return }
+        let now = callAccessNow().timeIntervalSince1970
+        if groupRepository.groupDeliveries.contains(where: { record in
+            guard let current = record.retainingOutcome(at: now) else { return false }
+            return current.internetAction != nil || (current.direction == .incoming && current.state == .pending)
+        }) {
+            requestGroupDeliverySync(.networkRecovered)
+        }
     }
 
     func groupDeliveryRecords(for selected: Set<UUID>, groupID: UUID) -> [GroupDeliveryRecord] {
@@ -116,7 +135,7 @@ extension IntercomViewModel {
         guard canEditSavedGroups, notifications.canUseNotifications, groupDeliveryIsCurrent(access, accountID: generation) else { return }
         do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }
         catch { reportGroupStorageError(error); return }
-        // One finite pass. Offline work remains in the manifest until the next explicit lifecycle event.
+        // One finite pass. Offline work stays in the manifest for the next sync trigger.
         let outgoing = groupRepository.groupDeliveries
         // The inbox accepts cancellations even when the Worker rejects new submissions.
         let outgoingIDs = (outgoing.filter { $0.internetAction == .cancel }
@@ -161,7 +180,7 @@ extension IntercomViewModel {
             let reply: GroupDeliveryReply
             do { reply = try await client.sendGroupInvitation(envelope, noticeID: record.noticeID, capability: grant.capability, access: access) }
             catch InternetAccountClient.Failure.forbidden { continue } // This recipient's grant cannot block unrelated people.
-            catch { break } // Shared auth, rate limit or network failure waits for the next lifecycle event.
+            catch { break } // Shared auth, rate limit or network failure waits for the next sync trigger.
             guard groupDeliveryIsCurrent(access, accountID: generation),
                   let current = groupRepository.groupDeliveries.first(where: { $0.id == record.id }) else { return }
             if current.internetAction == .cancel { groupDeliveryNeedsSync = true }
