@@ -13,55 +13,61 @@ struct ContactPersonTests {
     }
     @Test func explicitSaveIsAtomicAndDoesNotMakeThePersonCallable() throws {
         let keys = InMemoryGroupCredentialStore()
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys)
-        let id = UUID(), before = h.groupStore.snapshot
-        h.groupStore.failSaving = true
-        #expect(throws: (any Error).self) { try h.viewModel.groupRepository.saveContactPerson(id, name: "Maki") }
-        #expect(h.groupStore.snapshot == before)
-        h.groupStore.failSaving = false
-        h.viewModel.reloadSavedGroups()
-        try h.viewModel.groupRepository.saveContactPerson(id, name: "Maki")
-        h.viewModel.reloadSavedGroups()
-        #expect(h.viewModel.savedRemoteUsers.isEmpty, "A name is not a verified call destination")
-        #expect(h.viewModel.directoryUsers.map(\.id) == [id])
-        #expect(h.viewModel.groupRepository.contactInvitations.isEmpty && keys.values.isEmpty)
-        #expect(h.callSession.connectedGroup == nil)
-        #expect(throws: (any Error).self) { try h.viewModel.groupRepository.saveContactPerson(id, name: "Duplicate") }
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: keys)
+        let id = UUID(), before = harness.groupStore.snapshot
+        harness.groupStore.failSaving = true
+        #expect(throws: (any Error).self) { try harness.viewModel.groupRepository.saveContactPerson(id, name: "Maki") }
+        #expect(harness.groupStore.snapshot == before)
+        harness.groupStore.failSaving = false
+        harness.viewModel.reloadSavedGroups()
+        try harness.viewModel.groupRepository.saveContactPerson(id, name: "Maki")
+        harness.viewModel.reloadSavedGroups()
+        #expect(harness.viewModel.savedRemoteUsers.isEmpty, "A name is not a verified call destination")
+        #expect(harness.viewModel.directoryUsers.map(\.id) == [id])
+        #expect(harness.viewModel.groupRepository.contactInvitations.isEmpty && keys.values.isEmpty)
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(throws: (any Error).self) {
+            try harness.viewModel.groupRepository.saveContactPerson(id, name: "Duplicate")
+        }
     }
 
     @Test func confirmationUpgradesTheSamePersonAndCancellationDoesNotResurrectThem() throws {
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "person-author")
-        let id = UUID(), vm = h.viewModel
-        try vm.groupRepository.saveContactPerson(id, name: "My Maki")
-        let token = try ContactInvitationSession.makeToken(authority: vm.invitationAuthority,
+        let harness = AppTestSupport.makeHarness(groups: [], localMemberID: "person-author")
+        let id = UUID(), viewModel = harness.viewModel
+        try viewModel.groupRepository.saveContactPerson(id, name: "My Maki")
+        let token = try ContactInvitationSession.makeToken(authority: viewModel.invitationAuthority,
             signer: testIdentitySigner("person-author"), displayName: "Author", now: Date().timeIntervalSince1970)
-        try vm.groupRepository.stageContactInvitation(token, now: Date().timeIntervalSince1970, personID: id)
+        try viewModel.groupRepository.stageContactInvitation(token, now: Date().timeIntervalSince1970, personID: id)
         let acceptance = try token.accept(signer: testIdentitySigner("person-peer"), displayName: "Peer Name",
             trust: nil, now: Date().timeIntervalSince1970, contactBootstrap: true)
-        let verified = try #require(try vm.invitationAuthority.verify(acceptance.receipt, trust: nil, now: Date().timeIntervalSince1970))
-        try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
-        vm.reloadSavedGroups()
-        let person = try #require(vm.directoryUsers.first)
+        let verified = try #require(
+            try viewModel.invitationAuthority.verify(
+                acceptance.receipt, trust: nil, now: Date().timeIntervalSince1970))
+        try viewModel.groupRepository.confirmContactInvitation(
+            verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
+        viewModel.reloadSavedGroups()
+        let person = try #require(viewModel.directoryUsers.first)
         #expect(person.id == id && person.displayName == "Peer Name" && person.localName == "My Maki")
-        #expect(person.memberIDs == ["person-peer"] && vm.directoryUsers.count == 1)
-        #expect(vm.savedRemoteUsers.map(\.id) == [id])
-        _ = try vm.groupRepository.removeUser(id)
+        #expect(person.memberIDs == ["person-peer"] && viewModel.directoryUsers.count == 1)
+        #expect(viewModel.savedRemoteUsers.map(\.id) == [id])
+        _ = try viewModel.groupRepository.removeUser(id)
         #expect(throws: GroupStorageError.invalidUpdate) {
-            try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
+            try viewModel.groupRepository.confirmContactInvitation(
+                verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
         }
-        #expect(vm.groupRepository.users.isEmpty)
+        #expect(viewModel.groupRepository.users.isEmpty)
     }
 
     @Test func versionNineMigrationRetainsInvitationsAndAssignsSeparatePeopleEvenWithTheSameName() throws {
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "migration-author")
-        h.viewModel.contactSessionFactory = { RecordingCallSession() }
-        defer { h.viewModel.disconnect() }
-        _ = try #require(h.viewModel.makeContactInviteURL())
-        _ = try #require(h.viewModel.makeContactInviteURL())
-        for record in h.viewModel.groupRepository.contactInvitations {
-            try h.viewModel.groupRepository.setContactInvitationNickname(record.id, nickname: "Maki")
+        let harness = AppTestSupport.makeHarness(groups: [], localMemberID: "migration-author")
+        harness.viewModel.contactSessionFactory = { RecordingCallSession() }
+        defer { harness.viewModel.disconnect() }
+        _ = try #require(harness.viewModel.makeContactInviteURL())
+        _ = try #require(harness.viewModel.makeContactInviteURL())
+        for record in harness.viewModel.groupRepository.contactInvitations {
+            try harness.viewModel.groupRepository.setContactInvitationNickname(record.id, nickname: "Maki")
         }
-        var old = h.groupStore.snapshot
+        var old = harness.groupStore.snapshot
         old.version = 9
         let upgraded = try GroupSnapshot.decode(old.encoded()).upgraded()
         #expect(upgraded.version == GroupSnapshot.currentVersion && upgraded.contactInvitations.count == 2)
@@ -72,19 +78,19 @@ struct ContactPersonTests {
 
     @Test func expiredLinkReplacementKeepsThePersonAndDeletingThemCancelsTheExchange() throws {
         let keys = InMemoryGroupCredentialStore()
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: keys, localMemberID: "link-author")
-        let repo = h.viewModel.groupRepository, id = UUID(), now = Date().timeIntervalSince1970
+        let harness = AppTestSupport.makeHarness(groups: [], credentialStore: keys, localMemberID: "link-author")
+        let repo = harness.viewModel.groupRepository, id = UUID(), now = Date().timeIntervalSince1970
         try repo.saveContactPerson(id, name: "Maki")
         func token(at time: TimeInterval) throws -> GroupInviteToken {
-            try ContactInvitationSession.makeToken(authority: h.viewModel.invitationAuthority,
+            try ContactInvitationSession.makeToken(authority: harness.viewModel.invitationAuthority,
                 signer: testIdentitySigner("link-author"), displayName: "Author", now: time)
         }
         let first = try token(at: now), second = try token(at: now + 8 * 86400)
         try repo.stageContactInvitation(first, now: now, personID: id)
         let oldID = try #require(first.directInvitation?.context.id)
-        let before = h.groupStore.snapshot
+        let before = harness.groupStore.snapshot
         #expect(throws: (any Error).self) { try repo.stageContactInvitation(first, now: now, personID: UUID()) }
-        #expect(h.groupStore.snapshot == before)
+        #expect(harness.groupStore.snapshot == before)
         try repo.stageContactInvitation(second, now: now + 8 * 86400, replacingExpiredInvitation: oldID, personID: id)
         #expect(repo.users.map(\.id) == [id] && repo.users.first?.localName == "Maki")
         #expect(repo.contactInvitations.count == 1 && repo.contactInvitations.first?.personID == id)
@@ -94,21 +100,21 @@ struct ContactPersonTests {
     }
 
     @Test func alreadyKnownIdentityKeepsItsIDWithoutDuplicatingThePersonOrOverwritingTheirName() throws {
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "known-author")
-        let repo = h.viewModel.groupRepository, now = Date().timeIntervalSince1970
+        let harness = AppTestSupport.makeHarness(groups: [], localMemberID: "known-author")
+        let repo = harness.viewModel.groupRepository, now = Date().timeIntervalSince1970
         var retainedID: UUID?
         for name in ["First name", "Second name"] {
             let id = UUID()
             try repo.saveContactPerson(id, name: name)
-            let token = try ContactInvitationSession.makeToken(authority: h.viewModel.invitationAuthority,
+            let token = try ContactInvitationSession.makeToken(authority: harness.viewModel.invitationAuthority,
                 signer: testIdentitySigner("known-author"), displayName: "Author", now: now)
             try repo.stageContactInvitation(token, now: now, personID: id)
             let acceptance = try token.accept(signer: testIdentitySigner("known-peer"), displayName: "Peer",
                 now: now, contactBootstrap: true)
-            let verified = try #require(try h.viewModel.invitationAuthority.verify(acceptance.receipt, now: now))
+            let verified = try #require(try harness.viewModel.invitationAuthority.verify(acceptance.receipt, now: now))
             try repo.confirmContactInvitation(verified, localDisplayName: "Author", now: now)
             retainedID = retainedID ?? id
-            #expect(repo.users.map(\.id) == [retainedID!])
+            #expect(repo.users.map(\.id) == [try #require(retainedID)])
             #expect(repo.users.first?.localName == "First name")
         }
     }
@@ -123,103 +129,119 @@ struct ContactPersonTests {
     }
 
     @Test func saveAndShareKeepOnePresentationAndCompletionDoesNotCloseIt() throws {
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "presentation-person")
-        let vm = h.viewModel
-        vm.contactSessionFactory = { RecordingCallSession() }
-        defer { vm.disconnect() }
-        let before = h.groupStore.snapshot
-        vm.beginContactInvitationPresentation()
-        guard case .person = vm.contactInvitationPresentation else { Issue.record("Expected an unsaved person"); return }
-        #expect(h.groupStore.snapshot == before && vm.contactInvitationID == nil)
-        vm.dismissContactInvitationPresentation()
-        #expect(h.groupStore.snapshot == before)
-        vm.beginContactInvitationPresentation()
-        guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected the reopened draft"); return }
-        #expect(vm.saveContactPerson(id, name: "My Partner"))
-        #expect(vm.contactInvitationPresentation == .person(id) && vm.pendingContactInvitations.isEmpty)
-        let access = vm.accountAccessID
-        vm.contactInvitationMessage = "Could not prepare this invitation. Try again."
-        let first = try vm.prepareContactPersonShare(id, expectedAccountAccessID: access)
-        let second = try vm.prepareContactPersonShare(id, expectedAccountAccessID: access)
-        #expect(first.id == second.id && first.url == second.url && vm.directoryUsers.map(\.id) == [id])
-        vm.completeContactInvitationSharing(.init(id: first.id, accountAccessID: UUID(), url: first.url))
-        #expect(vm.contactInvitationRecord(first.id)?.sent == false)
-        vm.completeContactInvitationSharing(first)
-        #expect(vm.contactInvitationRecord(first.id)?.sent == true)
-        #expect(vm.contactInvitationMessage == nil, "A successful retry clears the earlier preparation failure")
-        #expect(vm.unlinkedContactInvitations.isEmpty && vm.contactInvitationPresentation == .person(id))
+        let harness = AppTestSupport.makeHarness(groups: [], localMemberID: "presentation-person")
+        let viewModel = harness.viewModel
+        viewModel.contactSessionFactory = { RecordingCallSession() }
+        defer { viewModel.disconnect() }
+        let before = harness.groupStore.snapshot
+        viewModel.beginContactInvitationPresentation()
+        guard case .person = viewModel.contactInvitationPresentation else {
+            Issue.record("Expected an unsaved person"); return
+        }
+        #expect(harness.groupStore.snapshot == before && viewModel.contactInvitationID == nil)
+        viewModel.dismissContactInvitationPresentation()
+        #expect(harness.groupStore.snapshot == before)
+        viewModel.beginContactInvitationPresentation()
+        guard case .person(let id) = viewModel.contactInvitationPresentation else {
+            Issue.record("Expected the reopened draft"); return
+        }
+        #expect(viewModel.saveContactPerson(id, name: "My Partner"))
+        #expect(viewModel.contactInvitationPresentation == .person(id) && viewModel.pendingContactInvitations.isEmpty)
+        let access = viewModel.accountAccessID
+        viewModel.contactInvitationMessage = "Could not prepare this invitation. Try again."
+        let first = try viewModel.prepareContactPersonShare(id, expectedAccountAccessID: access)
+        let second = try viewModel.prepareContactPersonShare(id, expectedAccountAccessID: access)
+        #expect(first.id == second.id && first.url == second.url && viewModel.directoryUsers.map(\.id) == [id])
+        viewModel.completeContactInvitationSharing(.init(id: first.id, accountAccessID: UUID(), url: first.url))
+        #expect(viewModel.contactInvitationRecord(first.id)?.sent == false)
+        viewModel.completeContactInvitationSharing(first)
+        #expect(viewModel.contactInvitationRecord(first.id)?.sent == true)
+        #expect(viewModel.contactInvitationMessage == nil, "A successful retry clears the earlier preparation failure")
+        #expect(viewModel.unlinkedContactInvitations.isEmpty && viewModel.contactInvitationPresentation == .person(id))
         let token = try GroupInviteTokenCodec.decodeJoinURL(first.url, contactBootstrap: true)
-        let acceptance = try token.accept(signer: testIdentitySigner("person-response"), displayName: "Peer Name", contactBootstrap: true)
-        let verified = try #require(try vm.invitationAuthority.verify(acceptance.receipt))
-        try vm.groupRepository.confirmContactInvitation(verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
-        vm.refreshGroupStorageStatus()
-        #expect(vm.contactInvitationPresentation == .person(id), "Registration updates the same detail instead of closing it")
-        #expect(vm.contactPerson(id)?.isRegistered == true && vm.directoryUsers.count == 1)
-        #expect(vm.unlinkedContactInvitations.isEmpty)
-        #expect(throws: (any Error).self) { _ = try vm.prepareContactPersonShare(id, expectedAccountAccessID: access) }
+        let acceptance = try token.accept(
+            signer: testIdentitySigner("person-response"), displayName: "Peer Name", contactBootstrap: true)
+        let verified = try #require(try viewModel.invitationAuthority.verify(acceptance.receipt))
+        try viewModel.groupRepository.confirmContactInvitation(
+            verified, localDisplayName: "Author", now: Date().timeIntervalSince1970)
+        viewModel.refreshGroupStorageStatus()
+        #expect(
+            viewModel.contactInvitationPresentation == .person(id),
+            "Registration updates the same detail instead of closing it")
+        #expect(viewModel.contactPerson(id)?.isRegistered == true && viewModel.directoryUsers.count == 1)
+        #expect(viewModel.unlinkedContactInvitations.isEmpty)
+        #expect(throws: (any Error).self) {
+            _ = try viewModel.prepareContactPersonShare(id, expectedAccountAccessID: access)
+        }
     }
 
     @Test func foregroundResumesOnlyTheSuspendedExchangeInTheSameAccount() throws {
         var now = Date()
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "foreground-person", callAccessNow: { now })
-        let vm = h.viewModel
+        let harness = AppTestSupport.makeHarness(groups: [], localMemberID: "foreground-person", callAccessNow: { now })
+        let viewModel = harness.viewModel
         var transports: [RecordingCallSession] = []
-        vm.contactSessionFactory = { let transport = RecordingCallSession(); transports.append(transport); return transport }
-        defer { vm.disconnect() }
-        vm.beginContactInvitationPresentation()
-        guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected person"); return }
-        #expect(vm.saveContactPerson(id, name: "Partner"))
-        let share = try vm.prepareContactPersonShare(id, expectedAccountAccessID: vm.accountAccessID)
-        vm.completeContactInvitationSharing(share)
-        let invitation = try #require(vm.contactInvitationID)
-        vm.suspendContactInvitationForBackground()
-        #expect(vm.contactInvitationID == nil)
-        vm.resumeSuspendedContactInvitation()
-        #expect(vm.contactInvitationID == invitation && transports.count == 2)
-        #expect(vm.contactInvitationPresentation == .person(id))
-        vm.resumeSuspendedContactInvitation()
+        viewModel.contactSessionFactory = {
+            let transport = RecordingCallSession(); transports.append(transport); return transport
+        }
+        defer { viewModel.disconnect() }
+        viewModel.beginContactInvitationPresentation()
+        guard case .person(let id) = viewModel.contactInvitationPresentation else {
+            Issue.record("Expected person"); return
+        }
+        #expect(viewModel.saveContactPerson(id, name: "Partner"))
+        let share = try viewModel.prepareContactPersonShare(id, expectedAccountAccessID: viewModel.accountAccessID)
+        viewModel.completeContactInvitationSharing(share)
+        let invitation = try #require(viewModel.contactInvitationID)
+        viewModel.suspendContactInvitationForBackground()
+        #expect(viewModel.contactInvitationID == nil)
+        viewModel.resumeSuspendedContactInvitation()
+        #expect(viewModel.contactInvitationID == invitation && transports.count == 2)
+        #expect(viewModel.contactInvitationPresentation == .person(id))
+        viewModel.resumeSuspendedContactInvitation()
         #expect(transports.count == 2, "Foreground consumes the suspension once")
-        vm.suspendContactInvitationForBackground()
+        viewModel.suspendContactInvitationForBackground()
         now = now.addingTimeInterval(8 * 86400)
-        vm.resumeSuspendedContactInvitation()
-        #expect(vm.contactInvitationID == nil && transports.count == 2)
-        vm.suspendedContactInvitation = (invitation, UUID())
+        viewModel.resumeSuspendedContactInvitation()
+        #expect(viewModel.contactInvitationID == nil && transports.count == 2)
+        viewModel.suspendedContactInvitation = (invitation, UUID())
         now = Date()
-        vm.resumeSuspendedContactInvitation()
-        #expect(vm.contactInvitationID == nil && transports.count == 2)
-        #expect(h.callSession.connectedGroup == nil)
+        viewModel.resumeSuspendedContactInvitation()
+        #expect(viewModel.contactInvitationID == nil && transports.count == 2)
+        #expect(harness.callSession.connectedGroup == nil)
     }
 
     @Test func failedExplicitSaveKeepsTheDraftPresentationForReloadAndRetry() throws {
-        let h = AppTestSupport.makeHarness(groups: [])
-        let vm = h.viewModel
-        vm.beginContactInvitationPresentation()
-        guard case .person(let id) = vm.contactInvitationPresentation else { Issue.record("Expected person"); return }
-        h.groupStore.failSaving = true
-        #expect(!vm.saveContactPerson(id, name: "Retained Input"))
-        #expect(vm.contactInvitationPresentation == .person(id) && vm.directoryUsers.isEmpty)
-        #expect(vm.contactInvitationMessage != nil && !vm.canEditSavedGroups)
-        h.groupStore.failSaving = false
-        vm.reloadSavedGroups()
-        #expect(vm.saveContactPerson(id, name: "Retained Input"))
-        #expect(vm.contactInvitationPresentation == .person(id))
-        #expect(vm.contactPerson(id)?.resolvedDisplayName == "Retained Input")
-        #expect(vm.pendingContactInvitations.isEmpty && vm.contactInvitationID == nil)
+        let harness = AppTestSupport.makeHarness(groups: [])
+        let viewModel = harness.viewModel
+        viewModel.beginContactInvitationPresentation()
+        guard case .person(let id) = viewModel.contactInvitationPresentation else {
+            Issue.record("Expected person"); return
+        }
+        harness.groupStore.failSaving = true
+        #expect(!viewModel.saveContactPerson(id, name: "Retained Input"))
+        #expect(viewModel.contactInvitationPresentation == .person(id) && viewModel.directoryUsers.isEmpty)
+        #expect(viewModel.contactInvitationMessage != nil && !viewModel.canEditSavedGroups)
+        harness.groupStore.failSaving = false
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.saveContactPerson(id, name: "Retained Input"))
+        #expect(viewModel.contactInvitationPresentation == .person(id))
+        #expect(viewModel.contactPerson(id)?.resolvedDisplayName == "Retained Input")
+        #expect(viewModel.pendingContactInvitations.isEmpty && viewModel.contactInvitationID == nil)
     }
 
     @Test(arguments: [false, true])
     func reInvitationPreservesAnExistingNameChoice(followSharedName: Bool) throws {
-        let h = AppTestSupport.makeHarness(groups: [], localMemberID: "name-choice-author")
-        let repo = h.viewModel.groupRepository, now = Date().timeIntervalSince1970
+        let harness = AppTestSupport.makeHarness(groups: [], localMemberID: "name-choice-author")
+        let repo = harness.viewModel.groupRepository, now = Date().timeIntervalSince1970
         let firstID = UUID()
         for (index, id) in [firstID, UUID()].enumerated() {
             try repo.saveContactPerson(id, name: index == 0 ? "Original alias" : "New invitation alias")
-            let token = try ContactInvitationSession.makeToken(authority: h.viewModel.invitationAuthority,
+            let token = try ContactInvitationSession.makeToken(authority: harness.viewModel.invitationAuthority,
                 signer: testIdentitySigner("name-choice-author"), displayName: "Author", now: now)
             try repo.stageContactInvitation(token, now: now, personID: id)
             let acceptance = try token.accept(signer: testIdentitySigner("name-choice-peer"), displayName: "Their Name",
                 now: now, contactBootstrap: true)
-            let verified = try #require(try h.viewModel.invitationAuthority.verify(acceptance.receipt, now: now))
+            let verified = try #require(try harness.viewModel.invitationAuthority.verify(acceptance.receipt, now: now))
             try repo.confirmContactInvitation(verified, localDisplayName: "Author", now: now)
             if index == 0 {
                 if followSharedName {
@@ -232,7 +254,7 @@ struct ContactPersonTests {
         #expect(repo.users.map(\.id) == [firstID])
         #expect(repo.users.first?.localName == (followSharedName ? nil : "My chosen name"))
         #expect(repo.users.first?.resolvedDisplayName == (followSharedName ? "Their Name" : "My chosen name"))
-        #expect(h.groupStore.snapshot.contactInvitations.count == 2)
+        #expect(harness.groupStore.snapshot.contactInvitations.count == 2)
     }
 
 }
