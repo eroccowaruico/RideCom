@@ -77,8 +77,10 @@ extension IntercomViewModel {
         let address = try InvitationReplyAddress(contactToken: payload.token)
         let (packet, admission) = try prepareContactInternetAcceptance(
             pending, payload: payload, invitation: invitation, address: address)
-        return try InternetAccountClient.backgroundContactAcceptanceRequest(packet, address: address, owner: owner,
-            access: access, signer: signer, admission: admission, now: callAccessNow())
+        let acceptance = InternetAccountClient.ContactAcceptance(
+            packet: packet, address: address, owner: owner, admission: admission)
+        return try InternetAccountClient.backgroundContactAcceptanceRequest(
+            acceptance, access: access, signer: signer, now: callAccessNow())
     }
 
     func canTryContactInternetReply(_ record: ContactInvitationRecord) -> Bool {
