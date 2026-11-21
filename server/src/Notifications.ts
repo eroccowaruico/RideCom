@@ -96,12 +96,18 @@ async function cancelBackgroundGroupInvitation(body: Record<string, unknown>, au
         return status ? json({ requestID: id, expiresAt, status }) : notFound()
     }
     if (expiresAt <= Date.now()) return notFound()
+    const status = await cancelUnstoredGroupInvitation(owner, receiver, auth, recipient, id, expiresAt)
+    if (status === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
+    if (status === 'unauthorized') return json({ error: 'Unauthorized' }, 401)
+    return json({ requestID: id, expiresAt, status: status === 'unstored' ? 'cancelled' : status })
+}
+
+async function cancelUnstoredGroupInvitation(owner: ReturnType<typeof account>, receiver: Awaited<ReturnType<typeof target>>,
+                                             auth: NotificationAuth, recipient: string, id: string, expectedExpiry?: number) {
     const result = await owner.groupInvitationCancelUnstored(auth, recipient, id)
-    if (result === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
-    if (result !== 'cancelled') return json({ error: 'Unauthorized' }, 401)
+    if (result !== 'cancelled') return result
     // A submission may have entered the inbox while the sender's tombstone was recorded.
-    const status = await receiver?.groupInvitationFinish(recipient, id, auth.userID, false, undefined, expiresAt)
-    return json({ requestID: id, expiresAt, status: status ?? 'cancelled' })
+    return await receiver?.groupInvitationFinish(recipient, id, auth.userID, false, undefined, expectedExpiry) ?? 'unstored'
 }
 
 async function submitGroupInvitation(body: Record<string, unknown>, origin: string, auth: NotificationAuth,
@@ -226,13 +232,9 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const value = await receiver?.groupInvitationStatus(recipient, id)
             if (!value) {
                 if (method !== 'DELETE' || auth.userID === recipient) return json({ error: 'Not found' }, 404)
-                const result = await owner.groupInvitationCancelUnstored(auth, recipient, id)
-                if (result === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
-                // Also finish a packet inserted between the first lookup and the sender's cancellation.
-                if (result === 'cancelled') {
-                    const status = await receiver?.groupInvitationFinish(recipient, id, auth.userID)
-                    if (status) return json({ status })
-                }
+                const status = await cancelUnstoredGroupInvitation(owner, receiver, auth, recipient, id)
+                if (status === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
+                if (status === 'received' || status === 'cancelled') return json({ status })
                 return json({ error: 'Not found' }, 404)
             }
             if (!await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.senderUserID)
