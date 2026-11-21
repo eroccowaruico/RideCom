@@ -207,6 +207,9 @@ struct DirectInvitationAuthorityTests {
         }
     }
 
+}
+
+extension DirectInvitationAuthorityTests {
     @Test func invitationURLReceiptsSaveOnlyTheDirectPairAndNeverPublishTheCapability() throws {
         let group = try IntercomGroup(
             name: "Friends", members: [.init(id: "author", displayName: "Author")], accessSecret: "group-secret")
@@ -256,6 +259,13 @@ struct DirectInvitationAuthorityTests {
         #expect(recipientModel.groupRepository.pendingInvitation(for: group.id) == nil)
         #expect(!authorModel.savedUsers.flatMap(\.memberIDs).contains("stranger"))
         #expect(!recipientModel.savedUsers.flatMap(\.memberIDs).contains("stranger"))
+        try verifyDeletedPairStaysDeleted(author: author, friend: friend, url: url, sent: sent)
+    }
+
+    private func verifyDeletedPairStaysDeleted(
+        author: AppTestSupport.Harness, friend: AppTestSupport.Harness, url: URL, sent: ApplicationDataMessage
+    ) throws {
+        let authorModel = author.viewModel, recipientModel = friend.viewModel
         #expect(recipientModel.removeSavedUser(try #require(recipientModel.savedUsers.first).id))
         #expect(authorModel.removeSavedUser(try #require(authorModel.savedUsers.first).id))
         authorModel.handleTransportEvent(
