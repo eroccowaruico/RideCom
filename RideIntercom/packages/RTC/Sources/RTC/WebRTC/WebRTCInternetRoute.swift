@@ -13,7 +13,8 @@ public actor WebRTCInternetRoute: RTCCallRoute {
     )
     public nonisolated var events: AsyncStream<RouteEvent> { eventSource.stream }
 
-    private nonisolated let eventSource = EventSource<RouteEvent>(isTransient: { $0.isTransient }, overflowEvent: .stateChanged(.webRTC, .failed))
+    private nonisolated let eventSource = EventSource<RouteEvent>(
+        isTransient: { $0.isTransient }, overflowEvent: .stateChanged(.webRTC, .failed))
     private let cloudflareConfigurationProvider: @Sendable (CallStartRequest) -> CloudflareRealtimeConfiguration?
     private let signalingClient: WebRTCSignalingClient
     private let engine: NativeWebRTCEngine
@@ -70,7 +71,10 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         eventSource.resetDiagnostics()
         self.request = request
         guard engine.isAvailable else {
-            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "Native WebRTC SDK is unavailable")))
+            eventSource.yield(
+                .availabilityChanged(
+                    RouteAvailability(route: kind, isAvailable: false, reason: "Native WebRTC SDK is unavailable"))
+            )
             eventSource.yield(.stateChanged(kind, .failed))
             return
         }
@@ -85,11 +89,17 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         }
         guard engine.isAvailable else {
             eventSource.yield(.stateChanged(kind, .failed))
-            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "Native WebRTC SDK is unavailable")))
+            eventSource.yield(
+                .availabilityChanged(
+                    RouteAvailability(route: kind, isAvailable: false, reason: "Native WebRTC SDK is unavailable"))
+            )
             return
         }
         guard let cloudflareConfiguration = cloudflareConfigurationProvider(request) else {
-            eventSource.yield(.availabilityChanged(RouteAvailability(route: kind, isAvailable: false, reason: "WebRTC route configuration is unavailable")))
+            eventSource.yield(
+                .availabilityChanged(
+                    RouteAvailability(
+                        route: kind, isAvailable: false, reason: "WebRTC route configuration is unavailable")))
             eventSource.yield(.stateChanged(kind, .failed))
             return
         }
@@ -208,8 +218,11 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         case .connectionStateChanged(let state):
             iceConnected = state == .connected || state == .mediaReady
             if iceConnected { await signalingClient.startPublishing() }
-            if state == .failed { await fail("WebRTC media connection failed", generation: generation) }
-            else { eventSource.yield(.stateChanged(kind, state)) }
+            if state == .failed {
+                await fail("WebRTC media connection failed", generation: generation)
+            } else {
+                eventSource.yield(.stateChanged(kind, state))
+            }
         }
     }
 
@@ -233,7 +246,8 @@ public enum WebRTCEngineEvent: Equatable, Sendable {
 }
 
 open class NativeWebRTCEngine: NSObject, @unchecked Sendable {
-    private let eventSource = EventSource<WebRTCEngineEvent>(isTransient: { $0.isTransient }, overflowEvent: .connectionStateChanged(.failed))
+    private let eventSource = EventSource<WebRTCEngineEvent>(
+        isTransient: { $0.isTransient }, overflowEvent: .connectionStateChanged(.failed))
     public var eventDropReport: RTCEventDropReport { eventSource.report }
     public func emit(_ event: WebRTCEngineEvent) { eventSource.yield(event) }
     open var isAvailable: Bool { false }

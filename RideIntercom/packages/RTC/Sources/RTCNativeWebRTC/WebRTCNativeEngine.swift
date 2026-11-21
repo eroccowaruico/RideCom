@@ -43,7 +43,9 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
                 let parts = value.split(separator: "?", maxSplits: 1)
                 return parts.count == 1 || parts[1] == "transport=udp"
             }
-            return urls.isEmpty ? nil : RTCIceServer(urlStrings: urls, username: server.username, credential: server.credential)
+                return urls.isEmpty
+                    ? nil
+                    : RTCIceServer(urlStrings: urls, username: server.username, credential: server.credential)
         }
         return configuration
     }
@@ -86,7 +88,9 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         guard let connection = lock.withLock({ peerConnections[peerID] }) else { return .init() }
         let result: RTCNetworkStatistics = await withCheckedContinuation { continuation in
             connection.statistics { report in
-                let selected = report.statistics.values.first { $0.type == "transport" }?.values["selectedCandidatePairId"] as? String
+                    let selected =
+                        report.statistics.values.first { $0.type == "transport" }?.values[
+                            "selectedCandidatePairId"] as? String
                 let pair = selected.flatMap { report.statistics[$0] }
                 let rtt = (pair?.values["currentRoundTripTime"] as? NSNumber)?.doubleValue
                 continuation.resume(returning: .init(roundTripTime: rtt,
@@ -107,7 +111,8 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         return WebRTCSessionDescription(kind: .offer, sdp: await connection.gatheredSDP(fallback: sdp))
     }
 
-    public override func acceptOffer(_ offer: WebRTCSessionDescription, from peerID: PeerID) async -> WebRTCSessionDescription? {
+        public override func acceptOffer(_ offer: WebRTCSessionDescription, from peerID: PeerID) async
+            -> WebRTCSessionDescription? {
         guard let connection = lock.withLock({ peerConnections[peerID] }) else { return nil }
         let remoteDescription = RTCSessionDescription(type: .offer, sdp: offer.sdp)
         guard await connection.rtcSetRemoteDescription(remoteDescription) else { return nil }
@@ -144,7 +149,10 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
                 emit(.connectionStateChanged(.failed))
                 continue
             }
-            guard let channel = existing ?? connection.dataChannel(forLabel: "rideintercom", configuration: config) else { continue }
+                guard
+                    let channel = existing
+                        ?? connection.dataChannel(forLabel: "rideintercom", configuration: config)
+                else { continue }
             let retained = lock.withLock {
                 guard peerConnections[peerID] === connection else { return false }
                 channels[peerID, default: [:]][allocation.id] = channel
@@ -162,7 +170,8 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         guard let data = try? encoder.encode(message), data.count <= 49152 else { return false }
         let channel = lock.withLock { publishers[peerID]?[message.delivery].flatMap { channels[peerID]?[$0] } }
         guard let channel, channel.readyState == .open,
-              (message.delivery == .reliable ? channel.bufferedAmount <= 65536 : channel.bufferedAmount == 0) else { return false }
+                message.delivery == .reliable ? channel.bufferedAmount <= 65536 : channel.bufferedAmount == 0
+            else { return false }
         guard message.delivery == .reliable || (!channel.isOrdered && channel.maxRetransmits == 0) else { return false }
         return channel.sendData(RTCDataBuffer(data: data, isBinary: true))
     }
@@ -206,7 +215,9 @@ extension WebRTCNativeEngine: RTCPeerConnectionDelegate {
     }
 
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) { dataChannel.close() }
+        public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
+            dataChannel.close()
+        }
 }
 
 extension WebRTCNativeEngine: RTCDataChannelDelegate {
@@ -221,7 +232,8 @@ extension WebRTCNativeEngine: RTCDataChannelDelegate {
     }
     public func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         guard buffer.isBinary, buffer.data.count <= 49152,
-              let message = try? PropertyListDecoder().decode(ApplicationDataMessage.self, from: buffer.data) else { return }
+                let message = try? PropertyListDecoder().decode(ApplicationDataMessage.self, from: buffer.data)
+            else { return }
         lock.withLock {
             guard let origin = channelOrigins[ObjectIdentifier(dataChannel)] else { return }
             emit(.receivedApplicationData(.init(peerID: origin, message: message)))
@@ -275,7 +287,6 @@ private extension RTCPeerConnection {
             }
         }
     }
-
 
 }
 

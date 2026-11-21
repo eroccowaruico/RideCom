@@ -46,7 +46,8 @@ private actor NativeSFUPair {
         guard let answer = await engine.acceptOffer(offer, from: peer) else {
             source.yield(.failed("Fixture could not answer native SDP")); return
         }
-        source.yield(.dataChannels([.init(id: 2, isPublisher: true), .init(id: 6, isPublisher: true, delivery: .reliable)]))
+        source.yield(
+            .dataChannels([.init(id: 2, isPublisher: true), .init(id: 6, isPublisher: true, delivery: .reliable)]))
         source.yield(.answer(answer, from: .init(rawValue: "cloudflare-sfu")))
     }
     func publish(_ peer: PeerID) {
@@ -56,7 +57,10 @@ private actor NativeSFUPair {
             let others = participants.keys.filter { $0 != id && participants[$0]?.published == true }
             participant.source.yield(.dataChannels([
                 .init(id: 2, isPublisher: true), .init(id: 6, isPublisher: true, delivery: .reliable)
-            ] + others.flatMap { [WebRTCDataChannel(id: 4, peerID: $0), .init(id: 8, peerID: $0, delivery: .reliable)] }))
+                    ]
+                        + others.flatMap {
+                            [WebRTCDataChannel(id: 4, peerID: $0), .init(id: 8, peerID: $0, delivery: .reliable)]
+                        }))
             participant.source.yield(.members(others.map { .init(id: $0, displayName: "Fixture") }))
         }
     }
@@ -128,8 +132,11 @@ private actor ContinuityRecord {
     }
     func record(_ event: RouteEvent) {
         if case .membersChanged(let kind, let members) = event {
-            if kind == .multipeer { localPeers = Set(members.map(\.peer.id)) }
-            else { internetPeers = Set(members.map(\.peer.id)) }
+            if kind == .multipeer {
+                localPeers = Set(members.map(\.peer.id))
+            } else {
+                internetPeers = Set(members.map(\.peer.id))
+            }
         }
         if case .receivedApplicationData(.multipeer, let data) = event, data.message.namespace == "control-proof" {
             localControl.append(data.message)
@@ -161,13 +168,15 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
     }
     let stored = try #require(Mirror(reflecting: route).children.first { $0.label == "session" }?.value)
     let session = try #require(unwrap(stored))
-    let media = try #require(Mirror(reflecting: session).children.first { $0.label?.hasSuffix("datagrams") == true }?.value)
+    let media = try #require(
+        Mirror(reflecting: session).children.first { $0.label?.hasSuffix("datagrams") == true }?.value)
     return try #require(unwrap(media) as? LocalDatagramTransport)
 }
 
 @Suite(.serialized) struct NativeRouteContinuityTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
-    func nativeQUICControlSurvivesMediaBlackholesAndWebRTCRecovers(bothDirections: Bool, blockedAtStart: Bool) async throws {
+    func nativeQUICControlSurvivesMediaBlackholesAndWebRTCRecovers(bothDirections: Bool, blockedAtStart: Bool)
+        async throws {
         let server = NativeSFUPair()
         let ids = [PeerID(rawValue: "native-a"), PeerID(rawValue: "native-b")]
         let local = [LocalCallRoute(), LocalCallRoute()]
@@ -176,7 +185,8 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
                 workerURL: URL(string: "https://fixture.invalid")!, accessToken: "fixture"),
                 signalingClient: PairSignaling(server), engine: loopbackEngine()))
         }
-        let config = CallRouteConfiguration(enabledRoutes: [.multipeer, .webRTC], preferredRoute: .multipeer, fallbackDelay: 0)
+        let config = CallRouteConfiguration(
+            enabledRoutes: [.multipeer, .webRTC], preferredRoute: .multipeer, fallbackDelay: 0)
         let managers = ids.indices.map { i in RouteManager(routes: [local[i], internet[i]],
             configuration: config, runtimeStatusPolicy: .init(isAutomaticBroadcastEnabled: false)) }
         let records = [ContinuityRecord(), ContinuityRecord()]
@@ -192,7 +202,9 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
         var proxies: [MediaBlackhole] = []
         do {
             for i in ids.indices {
-                await managers[i].prepare(.init(sessionID: "continuity", localPeer: .init(id: ids[i], displayName: "Rider"),
+                await managers[i].prepare(
+                    .init(
+                        sessionID: "continuity", localPeer: .init(id: ids[i], displayName: "Rider"),
                     credential: credential, configuration: config))
                 await managers[i].startConnection()
             }
@@ -226,7 +238,9 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
             if !blockedAtStart {
                 for marker in UInt32(1)...100 {
                     await send(marker)
-                    if media[0].hasRecentMediaReceipt(for: ids[1]) && media[1].hasRecentMediaReceipt(for: ids[0]) { break }
+                    if media[0].hasRecentMediaReceipt(for: ids[1]) && media[1].hasRecentMediaReceipt(for: ids[0]) {
+                        break
+                    }
                     try await Task.sleep(for: .milliseconds(20))
                 }
                 #expect(media[0].hasRecentMediaReceipt(for: ids[1]) && media[1].hasRecentMediaReceipt(for: ids[0]))
@@ -237,17 +251,27 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
                 await send(marker)
                 try await Task.sleep(for: .milliseconds(20))
             }
-            for record in records { try await requireContinuity("Fresh media arrives over the surviving route") { await record.has(1099) } }
+            for record in records {
+                try await requireContinuity("Fresh media arrives over the surviving route") {
+                    await record.has(1099)
+                }
+            }
             #expect(media[0].isReady(for: ids[1]) && !media[0].hasRecentMediaReceipt(for: ids[1]))
             if bothDirections { #expect(media[1].isReady(for: ids[0]) && !media[1].hasRecentMediaReceipt(for: ids[0])) }
             #expect(await internet[0].mediaSends > 0)
             let fallbackDispatch = try #require(await managers[0].networkDiagnostics().outboundAudioDispatch)
             #expect(fallbackDispatch.transportAcceptance == [.multipeer: true, .webRTC: true],
                 "The network can drop Local packets after the backend has accepted them")
-            #expect(await server.forwardedMedia > 0, "Fallback must cross native DTLS/SCTP, not a manufactured route event")
+            #expect(
+                await server.forwardedMedia > 0,
+                "Fallback must cross native DTLS/SCTP, not a manufactured route event")
             let control = ApplicationDataMessage(namespace: "control-proof", payload: Data([1]))
             for route in local { _ = await route.sendApplicationData(control) }
-            for record in records { try await requireContinuity("QUIC still carries reliable control") { await record.localControl.contains(control) } }
+            for record in records {
+                try await requireContinuity("QUIC still carries reliable control") {
+                    await record.localControl.contains(control)
+                }
+            }
             #expect(proxies[0].droppedCount > 0)
             if bothDirections { #expect(proxies[1].droppedCount > 0) }
             for proxy in proxies { proxy.setBlocked(false) }
@@ -259,7 +283,9 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
             #expect(media[0].hasRecentMediaReceipt(for: ids[1]) && media[1].hasRecentMediaReceipt(for: ids[0]))
             let before = [await internet[0].mediaSends, await internet[1].mediaSends]
             await send(3000)
-            for record in records { try await requireContinuity("New media arrives after Local recovery") { await record.has(3000) } }
+            for record in records {
+                try await requireContinuity("New media arrives after Local recovery") { await record.has(3000) }
+            }
             let after = [await internet[0].mediaSends, await internet[1].mediaSends]
             #expect(after == before, "Proven Local paths suppress unnecessary Internet copies")
             for i in ids.indices {
@@ -267,8 +293,12 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
                 #expect(dispatch.transportAcceptance == [.multipeer: true])
                 #expect(dispatch.internetCoveredByLocal)
                 let markers = await records[i].markers
-                #expect(Set(markers).count == markers.count, "Multiple native copies are delivered to the receiver only once")
-                if !blockedAtStart && (i == 1 || bothDirections) { #expect(!markers.contains(1000), "Lost old speech is not replayed") }
+                #expect(
+                    Set(markers).count == markers.count,
+                    "Multiple native copies are delivered to the receiver only once")
+                if !blockedAtStart && (i == 1 || bothDirections) {
+                    #expect(!markers.contains(1000), "Lost old speech is not replayed")
+                }
                 #expect(await records[i].localPeers == [ids[1-i]])
                 #expect(await records[i].errors.isEmpty)
                 #expect(await internet[i].starts == 1, "Recovery must not restart the group")
@@ -277,7 +307,10 @@ private func mediaTransport(_ route: LocalCallRoute) throws -> LocalDatagramTran
             let stopped = [await records[0].markers.count, await records[1].markers.count]
             await send(4000)
             try await Task.sleep(for: .milliseconds(100))
-            for i in ids.indices { #expect(await records[i].markers.count == stopped[i]); #expect(!media[i].hasRecentMediaReceipt(for: ids[1-i])) }
+            for i in ids.indices {
+                #expect(await records[i].markers.count == stopped[i])
+                #expect(!media[i].hasRecentMediaReceipt(for: ids[1 - i]))
+            }
         } catch {
             for manager in managers { await manager.stopConnection() }
             for proxy in proxies { proxy.stop() }

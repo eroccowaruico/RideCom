@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import RTC
 
@@ -54,7 +55,9 @@ struct CloudflareClientTests {
         let client = makeClient()
         var events = client.events.makeAsyncIterator()
         await client.connect(request())
-        guard case .iceServers(let servers) = await events.next() else { Issue.record("Expected ICE before connect"); return }
+        guard case .iceServers(let servers) = await events.next() else {
+            Issue.record("Expected ICE before connect"); return
+        }
         #expect(servers.first?.urls == ["stun:stun.cloudflare.com:3478"])
         #expect(await events.next() == .connected)
         await client.disconnect()
@@ -67,17 +70,29 @@ struct CloudflareClientTests {
         SFUHTTPStub.reset()
         let client = makeClient(), request = request()
         let events = client.events
-        let failure = Task { for await event in events { if case .failed = event { return true } }; return false }
+        let failed = Mutex(false)
+        let observer = Task {
+            for await event in events {
+                if case .failed = event {
+                    failed.withLock { $0 = true }
+                    return
+                }
+            }
+        }
+        defer { observer.cancel() }
         await client.connect(request)
         await client.sendOffer(.init(kind: .offer, sdp: "audio-offer"), to: .init(rawValue: "cloudflare-sfu"))
-        try? await Task.sleep(for: .seconds(3.3))
-        let calls = SFUHTTPStub.requests
+        let calls = await SFUHTTPStub.waitForRequests { calls in
+            failed.withLock { $0 } && calls.contains {
+                $0.httpMethod == "DELETE" && $0.url?.path.hasSuffix("/sessions/same-session") == true
+            }
+        }
         #expect(calls.filter { $0.url!.path.hasSuffix("/join") }.count == 1)
         #expect(calls.filter { $0.url!.path.hasSuffix("/renew") }.count == 2)
         #expect(calls.contains { $0.httpMethod == "DELETE" && $0.url!.path.hasSuffix("/sessions/same-session") })
         #expect(calls.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer device-token" })
         #expect(calls.allSatisfy { $0.url!.path.contains(request.call.credential!.groupHash) })
-        #expect(await failure.value)
+        #expect(failed.withLock { $0 })
         await client.disconnect()
     }
     @Test func temporaryRenewalFailureKeepsTheExistingSessionAndRetries() async {
@@ -85,10 +100,12 @@ struct CloudflareClientTests {
         let client = makeClient()
         await client.connect(request())
         await client.sendOffer(.init(kind: .offer, sdp: "audio-offer"), to: .init(rawValue: "cloudflare-sfu"))
-        try? await Task.sleep(for: .seconds(3.3))
-        let calls = SFUHTTPStub.requests
+        // A third renewal proves the recovered session entered its next renewal cycle.
+        let calls = await SFUHTTPStub.waitForRequests { calls in
+            calls.filter { $0.url?.path.hasSuffix("/renew") == true }.count >= 3
+        }
         #expect(calls.filter { $0.url!.path.hasSuffix("/join") }.count == 1)
-        #expect(calls.filter { $0.url!.path.hasSuffix("/renew") }.count >= 2)
+        #expect(calls.filter { $0.url?.path.hasSuffix("/renew") == true }.count >= 3)
         #expect(!calls.contains { $0.httpMethod == "DELETE" })
         await client.disconnect()
     }
@@ -125,7 +142,10 @@ struct CloudflareClientTests {
         await client.sendOffer(.init(kind: .offer, sdp: "duplicate"), to: .init(rawValue: "cloudflare-sfu"))
         #expect(SFUHTTPStub.requests.filter { $0.url!.path.hasSuffix("/join") }.count == 2)
         await client.disconnect()
-        #expect(SFUHTTPStub.requests.contains { $0.httpMethod == "DELETE" && $0.url!.path.hasSuffix("/sessions/session-2") })
+        #expect(
+            SFUHTTPStub.requests.contains {
+                $0.httpMethod == "DELETE" && $0.url!.path.hasSuffix("/sessions/session-2")
+            })
     }
 
     @Test func serviceCheckValidatesConfigurationAndDoesNotCreateMedia() async throws {
@@ -138,7 +158,8 @@ struct CloudflareClientTests {
         #expect(status.activeSessions == 0)
         #expect(SFUHTTPStub.requests.map { $0.url!.path } == ["/api/status"])
         do {
-            _ = try await CloudflareRealtimeSignalingClient.checkService(request(url: "http://public.example").cloudflare, session: session)
+            _ = try await CloudflareRealtimeSignalingClient.checkService(
+                request(url: "http://public.example").cloudflare, session: session)
             Issue.record("Insecure public endpoint accepted")
         } catch { }
         #expect(SFUHTTPStub.requests.count == 1)
@@ -156,11 +177,23 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var recorded: [URLRequest] = []
     static var requests: [URLRequest] { lock.withLock { recorded } }
+    static func waitForRequests(_ ready: ([URLRequest]) -> Bool) async -> [URLRequest] {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var calls = requests
+        while !ready(calls), ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(20))
+            calls = requests
+        }
+        return calls
+    }
     nonisolated(unsafe) private static var transient = false
     nonisolated(unsafe) private static var delayFirstDelete = false
     nonisolated(unsafe) private static var rejectedStage: String?
     static func reset(transient: Bool = false, delayFirstDelete: Bool = false, rejectedStage: String? = nil) {
-        lock.withLock { recorded = []; self.transient = transient; self.delayFirstDelete = delayFirstDelete; self.rejectedStage = rejectedStage }
+        lock.withLock {
+            recorded = []; self.transient = transient; self.delayFirstDelete = delayFirstDelete
+            self.rejectedStage = rejectedStage
+        }
     }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.scheme == "https" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -187,25 +220,38 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
             request.httpMethod == "POST" && (Self.rejectedStage == "ice" && request.url!.path.contains("/ice/")
                 || Self.rejectedStage == "join" && request.url!.path.hasSuffix("/join"))
         }
-        let status = rejected ? 409 : renewing ? (transient ? (renewals == 1 ? 503 : 200) : (renewals >= 2 ? 429 : 200)) : 200
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!
-        let sid = Self.lock.withLock { Self.delayFirstDelete ? "session-\(Self.recorded.filter { $0.url!.path.hasSuffix("/join") }.count)" : "same-session" }
-        var data = Data("{\"sessionId\":\"\(sid)\",\"expiresAt\":9999999999999,\"renewAfterSeconds\":1,\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"}}".utf8)
+        let status =
+            rejected
+            ? 409 : renewing ? (transient ? (renewals == 1 ? 503 : 200) : (renewals >= 2 ? 429 : 200)) : 200
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: status, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"])!
+        let sid = Self.lock.withLock {
+            Self.delayFirstDelete
+                ? "session-\(Self.recorded.filter { $0.url!.path.hasSuffix("/join") }.count)" : "same-session"
+        }
+        var data = Data(
+            "{\"sessionId\":\"\(sid)\",\"expiresAt\":9999999999999,\"renewAfterSeconds\":1,\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"}}"
+                .utf8)
         if request.url!.path.contains("/ice/") {
             data = Data("{\"iceServers\":[{\"urls\":[\"stun:stun.cloudflare.com:3478\"]}]}".utf8)
         }
         if request.url!.path == "/api/status" {
-            data = Data("{\"month\":\"2026-10\",\"reservedParticipantSeconds\":0,\"monthlyParticipantSeconds\":1000000,\"activeSessions\":0}".utf8)
+            data = Data(
+                "{\"month\":\"2026-10\",\"reservedParticipantSeconds\":0,\"monthlyParticipantSeconds\":1000000,\"activeSessions\":0}"
+                    .utf8)
         }
         if rejected { data = Data("{\"code\":\"account_in_use\",\"error\":\"private-upstream-message\"}".utf8) }
         let responseData = data
-        let delayed = Self.lock.withLock { Self.delayFirstDelete && request.httpMethod == "DELETE" && Self.recorded.filter { $0.httpMethod == "DELETE" }.count == 1 }
+        let delayed = Self.lock.withLock {
+            Self.delayFirstDelete && request.httpMethod == "DELETE"
+                && Self.recorded.filter { $0.httpMethod == "DELETE" }.count == 1
+        }
         let finish: @Sendable () -> Void = { [self] in
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: responseData); client?.urlProtocolDidFinishLoading(self)
         }
-        if delayed { DispatchQueue.global().asyncAfter(deadline: .now() + 0.5, execute: finish) }
-        else { finish() }
+        if delayed { DispatchQueue.global().asyncAfter(deadline: .now() + 0.5, execute: finish) } else { finish() }
     }
     override func stopLoading() {}
 }
