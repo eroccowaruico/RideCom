@@ -27,7 +27,7 @@ from scripts.validate import Runner, file_fingerprint, fingerprints_match
 
 
 class AudioE2ELifecycleTests(unittest.TestCase):
-    def test_network_audio_selects_requested_cases_in_matrix_order(self):
+    def test_network_audio_selects_requested_cases_in_matrix_order(self) -> None:
         argv = ['audio_e2e.py', '--output', str(self.root / 'selection'), '--matrix', 'quick',
                 '--scenario', 'output-recovery', '--scenario', 'pcm16-16k-voicechat']
         with patch.object(sys, 'argv', argv), patch.dict(os.environ), \
@@ -39,7 +39,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual(cases, [case for case in scenarios('quick', 8)
                                 if case['id'] in {'pcm16-16k-voicechat', 'output-recovery'}])
 
-    def test_network_audio_keeps_the_whole_matrix_without_selection(self):
+    def test_network_audio_keeps_the_whole_matrix_without_selection(self) -> None:
         argv = ['audio_e2e.py', '--output', str(self.root / 'all-cases'), '--matrix', 'smoke']
         with patch.object(sys, 'argv', argv), patch.dict(os.environ), \
                 patch.object(audio, 'simulator_resource_root', return_value=self.root), \
@@ -47,7 +47,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertEqual(audio.main(), 0)
         self.assertEqual(execute.call_args.args[3], scenarios('smoke', 8))
 
-    def test_standalone_mode_carries_one_plan_for_selection_and_measurements(self):
+    def test_standalone_mode_carries_one_plan_for_selection_and_measurements(self) -> None:
         examples = {
             'pipeline': (('testSpeechContinuityWithoutNetwork',), ('pipeline-20ms', 'pipeline-100ms'), 180),
             'realtime': (('testRealtimeAudioLatencyAndIdentity',),
@@ -75,7 +75,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                     'AudioE2ETests/testReceiveIsolationKeepsItsEffectWhenEnabledAgain',
                 ) if mode == 'switches' else ())
 
-    def test_evidence_names_the_measurements_required_for_each_run(self):
+    def test_evidence_names_the_measurements_required_for_each_run(self) -> None:
         examples = [
             ('standalone', ['--switches-only'], ['live-settings', 'input-mode-recovery'], None),
             ('selected', ['--scenario', 'output-mute'], ['output-mute'], ['output-mute']),
@@ -101,7 +101,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 else:
                     self.assertEqual([case['id'] for case in json.loads(scenarios_file.read_text())], scenario_ids)
 
-    def test_audio_scenario_errors_stop_before_creating_run_artifacts(self):
+    def test_audio_scenario_errors_stop_before_creating_run_artifacts(self) -> None:
         examples = [
             (['--matrix', 'smoke', '--scenario', 'output-mute'], 'not in the smoke matrix'),
             (['--scenario', 'default', '--scenario', 'default'], 'each scenario ID only once'),
@@ -119,7 +119,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 self.assertIn(message, stderr.getvalue())
                 self.assertFalse(out.exists())
 
-    def test_configuring_audio_hosts_requires_isolated_real_products(self):
+    def test_configuring_audio_hosts_requires_isolated_real_products(self) -> None:
         for platform in ('mac', 'ios'):
             products = self.root / platform
             app = products / ('Release' if platform == 'mac' else 'Release-iphonesimulator') / 'RideIntercom.app'
@@ -139,7 +139,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertEqual(configured['EnvironmentVariables']['AUDIO_E2E_ROLE'], 'a')
             self.assertEqual(configured['OnlyTestIdentifiers'], ['AudioE2ETests/testDuplexSpeechOverNetwork'])
 
-    def test_audio_debug_and_release_use_native_isolated_configurations(self):
+    def test_audio_debug_and_release_use_native_isolated_configurations(self) -> None:
         from scripts.validate import ROOT
         from scripts.xcode_paths import scheme_configuration
         project = json.loads(subprocess.check_output(['plutil', '-convert', 'json', '-o', '-',
@@ -157,7 +157,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             names = {objects[key]['name'] for key in objects[objects[target_id]['buildConfigurationList']]['buildConfigurations']}
             self.assertIn('Release-Validation', names)
 
-    def test_audio_build_discovers_standard_paths_and_rejects_wrong_namespace(self):
+    def test_audio_build_discovers_standard_paths_and_rejects_wrong_namespace(self) -> None:
         for configuration in ['Debug', 'Release']:
             runner = Runner(self.root / configuration)
             products = self.root / 'Xcode Default/Build/Products'
@@ -183,7 +183,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertFalse(any(arg.startswith(('ENABLE_TESTABILITY=', 'RIDEINTERCOM_STORAGE_NAMESPACE=', 'CODE_SIGN_')) for arg in argv))
             self.assertEqual(argv[argv.index('-configuration') + 1], configuration + '-Validation')
 
-    def test_shared_products_survive_cleaning_both_platforms(self):
+    def test_shared_products_survive_cleaning_both_platforms(self) -> None:
         runner = Runner(self.root / 'evidence')
         products = self.root / 'shared-products'
         events = []
@@ -218,7 +218,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertTrue((Path(values['TARGET_BUILD_DIR']) / 'RideIntercom.app').is_dir())
         self.assertEqual(events, [('clean', 'mac'), ('clean', 'ios'), ('build', 'mac'), ('build', 'ios')])
 
-    def test_platform_specific_generated_runs_do_not_overwrite_each_other(self):
+    def test_platform_specific_generated_runs_do_not_overwrite_each_other(self) -> None:
         products = self.root / 'products'
         products.mkdir()
         outputs = []
@@ -239,14 +239,14 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             target = plistlib.loads(output.read_bytes())['TestConfigurations'][0]['TestTargets'][0]
             self.assertEqual(target['EnvironmentVariables']['AUDIO_E2E_ROLE'], role)
 
-    def test_pair_timeout_recovers_the_owned_process_without_type_error(self):
+    def test_pair_timeout_recovers_the_owned_process_without_type_error(self) -> None:
         runner = Runner(self.root / 'timeout-run')
         command = [sys.executable, '-u', '-c', 'import time; print("AUDIO_E2E_NATIVE_READY", flush=True); time.sleep(60)']
         with self.assertRaises(TimeoutError):
             run_pair(runner, [('only', command)], timeout=0.1)
         self.assertNotEqual(runner.results['only']['exit_code'], 0)
 
-    def test_source_gate_includes_new_surface_code_and_signing_configuration(self):
+    def test_source_gate_includes_new_surface_code_and_signing_configuration(self) -> None:
         from scripts.audio_e2e import source_manifest
         names = ['RideIntercomWatch/WatchApp.swift', 'RideIntercomWidgets/Widget.swift',
                  'RideIntercomWidgets/Widget.entitlements', 'Config/Test.xcconfig',
@@ -273,7 +273,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                     self.assertFalse(fingerprints_match(before['files'], after['files']))
                     (self.root / name).write_text('fixture')
 
-    def test_source_gate_rejects_all_project_changes_including_build_number(self):
+    def test_source_gate_rejects_all_project_changes_including_build_number(self) -> None:
         project = self.root / 'project.pbxproj'
         def capture(number, setting='Release'):
             project.write_text(f'CURRENT_PROJECT_VERSION = {number};\nCONFIGURATION = {setting};\nCURRENT_PROJECT_VERSION = {number};\n')
@@ -294,7 +294,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertTrue(fingerprints_match(dotted, capture('44.2.1')))
         self.assertFalse(fingerprints_match(dotted, capture('44.2.2')))
 
-    def test_pair_initializes_native_audio_before_launching_the_other_host(self):
+    def test_pair_initializes_native_audio_before_launching_the_other_host(self) -> None:
         ready = self.root / 'ready'
         joined = self.root / 'joined'
         first = ['first', [sys.executable, '-u', '-c',
@@ -308,7 +308,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         run_pair(runner, [first, second], timeout=3)
         self.assertEqual(runner.exit_code, 0)
 
-    def test_pair_does_not_launch_another_host_after_native_setup_failure(self):
+    def test_pair_does_not_launch_another_host_after_native_setup_failure(self) -> None:
         started = self.root / 'second-started'
         runner = Runner(self.root / 'run')
         commands = [('first', [sys.executable, '-c', 'raise SystemExit(1)']),
@@ -317,7 +317,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             run_pair(runner, commands, timeout=3)
         self.assertFalse(started.exists())
 
-    def test_simulator_pair_starts_both_hosts_without_a_setup_marker(self):
+    def test_simulator_pair_starts_both_hosts_without_a_setup_marker(self) -> None:
         joined = self.root / 'joined'
         wait_for_peer = ('import sys, time\nfrom pathlib import Path\n'
                          'marker = Path(sys.argv[1])\ndeadline = time.monotonic() + 2\n'
@@ -329,13 +329,13 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         run_pair(runner, commands, timeout=3, wait_for_first_native_setup=False)
         self.assertEqual(runner.exit_code, 0)
 
-    def test_identity_matrix_preserves_full_utterance_and_codec_controls(self):
+    def test_identity_matrix_preserves_full_utterance_and_codec_controls(self) -> None:
         cases = scenarios('identity', 8)
         self.assertEqual([case['codec'] for case in cases], ['mpeg4AACELD', 'pcm16', 'opus'])
         self.assertTrue(all(case['seconds'] >= 20 for case in cases))
         self.assertEqual([case['transmitIsolation'] for case in cases], [True, False, False])
 
-    def test_duplex_latency_pairs_remote_capture_and_uses_one_global_alignment(self):
+    def test_duplex_latency_pairs_remote_capture_and_uses_one_global_alignment(self) -> None:
         rows = [dict(role='a', transport='local', scenario='speech', expectedSilence=False, continuityPassed=True,
                      firstCaptureHostTime=100, firstOutputHostTime=102.1, localFixtureDurationSeconds=8,
                      continuity=dict(referenceOffsetSeconds=1)),
@@ -355,12 +355,12 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             duplex_latencies(rows[:1])
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
 
-    def test_concurrent_runs_are_rejected_and_lock_releases_on_failure(self):
+    def test_concurrent_runs_are_rejected_and_lock_releases_on_failure(self) -> None:
         lock = self.root / 'run.lock'
         with self.assertRaisesRegex(RuntimeError, 'injected'):
             with exclusive_run(lock):
@@ -371,7 +371,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         with exclusive_run(lock):
             pass
 
-    def test_release_matrix_covers_every_exposed_audio_choice(self):
+    def test_release_matrix_covers_every_exposed_audio_choice(self) -> None:
         full = scenarios('full', 8)
         self.assertEqual(len({case['id'] for case in full}), len(full))
         for codec in ['pcm16', 'opus', 'mpeg4AACELD']:
@@ -394,7 +394,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 self.assertTrue(limits <= {c['bitRate'] for c in full if c['codec'] == codec and c['format'] == rate})
         self.assertLess(sum(c['seconds'] for c in scenarios('quick', 8)), 40)
 
-    def test_acceptance_requires_every_scenario_from_the_expected_endpoint(self):
+    def test_acceptance_requires_every_scenario_from_the_expected_endpoint(self) -> None:
         def write(name, scenario, role='a', transport='local'):
             (self.root / name).write_text(json.dumps(dict(scenario=scenario, role=role, transport=transport)))
         write('one.json', 'voice')
@@ -409,7 +409,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         write('two.json', 'mute')
         self.assertEqual(len(measurements(self.root, ['voice', 'mute'], 'a', 'local')), 2)
 
-    def test_recorded_host_path_cannot_authorize_stopping_a_gui_process(self):
+    def test_recorded_host_path_cannot_authorize_stopping_a_gui_process(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         lease.state = {'executable': str(self.root / 'Default DerivedData/RideIntercom.app/Contents/MacOS/RideIntercom')}
@@ -422,7 +422,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual(runner.results['recorded-host']['status'], 'failed')
         self.assertIn('ownership', runner.results['recorded-host']['reason'])
 
-    def test_create_failure_is_recovered_by_exact_journaled_name(self):
+    def test_create_failure_is_recovered_by_exact_journaled_name(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         lease.reserve('owned-unique-name')
@@ -438,7 +438,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual(calls, [['xcrun', 'simctl', 'shutdown', 'ours'], ['xcrun', 'simctl', 'delete', 'ours']])
         self.assertFalse(lease.journal.exists())
 
-    def test_delete_is_attempted_even_when_shutdown_fails_and_failure_is_retained(self):
+    def test_delete_is_attempted_even_when_shutdown_fails_and_failure_is_retained(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         lease.reserve('owned')
@@ -452,7 +452,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual([c[2] for c in calls], ['shutdown', 'delete'])
         self.assertTrue(lease.journal.exists())
 
-    def test_reusable_device_is_stopped_and_remains_owned_for_the_next_run(self):
+    def test_reusable_device_is_stopped_and_remains_owned_for_the_next_run(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         lease.reserve('one-managed-device', reusable=True)
@@ -465,7 +465,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual(calls, [['xcrun', 'simctl', 'shutdown', 'our-uuid']])
         self.assertEqual(SimulatorLease(runner, lease.journal).state['udid'], 'our-uuid')
 
-    def test_missing_journal_adopts_latest_device_and_removes_only_idle_managed_duplicates(self):
+    def test_missing_journal_adopts_latest_device_and_removes_only_idle_managed_duplicates(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         devices = [dict(name=name, udid=uid, state='Shutdown', runtime='ios',
@@ -482,7 +482,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual(SimulatorLease(runner, lease.journal).state['udid'], 'new')
         self.assertTrue((runner.out / 'simulator-inventory.json').exists())
 
-    def test_another_device_type_keeps_its_own_managed_simulator(self):
+    def test_another_device_type_keeps_its_own_managed_simulator(self) -> None:
         # The iOS validation leases an iPhone and an iPad; preparing one must not delete the other.
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
@@ -495,7 +495,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertEqual(lease.prepare('ios', 'phone'), 'phone')
         run.assert_not_called()
 
-    def test_busy_managed_device_blocks_reconciliation_without_deleting_anything(self):
+    def test_busy_managed_device_blocks_reconciliation_without_deleting_anything(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
@@ -506,7 +506,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         run.assert_not_called()
         self.assertFalse(lease.acquired)
 
-    def test_cleanup_failure_prevents_creating_a_replacement(self):
+    def test_cleanup_failure_prevents_creating_a_replacement(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
@@ -516,7 +516,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 lease.prepare('ios', 'phone')
         self.assertEqual([c.args[1][2] for c in run.call_args_list], ['delete'])
 
-    def test_inventory_is_checked_before_creation_and_creation_is_journaled(self):
+    def test_inventory_is_checked_before_creation_and_creation_is_journaled(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         def create(name, command, **kwargs):
@@ -530,7 +530,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertTrue(lease.acquired)
         self.assertTrue(lease.state['reusable'])
 
-    def test_cleanup_only_removes_orphans_without_creating_a_device(self):
+    def test_cleanup_only_removes_orphans_without_creating_a_device(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
@@ -540,7 +540,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual([c.args[1] for c in run.call_args_list], [['xcrun', 'simctl', 'delete', 'old']])
         self.assertFalse(lease.journal.exists())
 
-    def test_previous_mode_only_checks_old_host_without_touching_simulator(self):
+    def test_previous_mode_only_checks_old_host_without_touching_simulator(self) -> None:
         runner = Runner(self.root / 'evidence')
         old = SimulatorLease(runner, self.root / 'ephemeral.json')
         old.reserve('RideIntercom Audio E2E 12345678')
@@ -558,7 +558,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         run.assert_not_called()
         self.assertNotIn('executable', old.state)
 
-    def test_runner_sigterm_stops_child_and_executes_final_cleanup_without_ai(self):
+    def test_runner_sigterm_stops_child_and_executes_final_cleanup_without_ai(self) -> None:
         marker = self.root / 'child.pid'
         cleaned = self.root / 'cleaned'
         child = f'import os,time;open({str(marker)!r},"w").write(str(os.getpid()));time.sleep(60)'
@@ -598,10 +598,10 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
             {'_name': 'Display Speaker', 'coreaudio_device_output': 8, 'coreaudio_device_srate': 96000,
              'coreaudio_default_audio_output_device': 'spaudio_yes'}]
 
-    def test_selects_the_single_48_khz_device_with_both_directions(self):
+    def test_selects_the_single_48_khz_device_with_both_directions(self) -> None:
         self.assertEqual(audio.shared_host_audio_device(self.DEVICES, self.HOST), 'wave')
 
-    def test_rejects_hosts_without_one_unambiguous_duplex_device(self):
+    def test_rejects_hosts_without_one_unambiguous_duplex_device(self) -> None:
         only_split = [item for item in self.HOST if item['_name'] != 'Wave']
         with self.assertRaises(ValueError):
             audio.shared_host_audio_device(self.DEVICES, only_split)
@@ -615,7 +615,7 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             audio.shared_host_audio_device(twins, plain + [other])
 
-    def test_pins_both_directions_and_restores_the_original_selection(self):
+    def test_pins_both_directions_and_restores_the_original_selection(self) -> None:
         calls = []
         state = {'audioInputDevice': {'systemDefault': {}}, 'audioOutputDevice': {'systemDefault': {}}, 'volume': 60}
 
