@@ -117,6 +117,123 @@ struct StandardCallView: View {
         }
     }
 
+    private func detailSections(_ group: IntercomGroup) -> some View {
+        callDetails(
+            group,
+            inviteMembers: { addingUsers = group },
+            openInvitation: { invitationPerson = $0 }
+        )
+    }
+
+    @ViewBuilder private func primaryActions(_ group: IntercomGroup, compact: Bool) -> some View {
+        let reference = viewModel.currentCallReference
+        let access = viewModel.accountAccessID
+        if group.id == viewModel.activeGroupID, viewModel.hasAnyActiveGroupConnection {
+            let diameter = compact ? AppSize.callControlCompactDiameter : AppSize.callControlDiameter
+            GlassEffectContainer(spacing: AppSpacing.callControls) {
+                ViewThatFits(in: .horizontal) {
+                    controlRow(
+                        reference: reference, diameter: diameter, vertical: false,
+                        horizontalLabels: compact && dynamicTypeSize.isAccessibilitySize
+                    )
+                    controlRow(
+                        reference: reference, diameter: diameter, vertical: true,
+                        horizontalLabels: compact && dynamicTypeSize.isAccessibilitySize
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity)
+        } else if !viewModel.hasAnyActiveGroupConnection {
+            // Connected elsewhere, there is no switch here: ending that call comes first.
+            Button("Connect", systemImage: "phone") {
+                viewModel.startCall(to: .group(group.id), accountAccessID: access)
+            }
+            .appProminentButtonStyle()
+            .disabled(!viewModel.canStartCalls)
+            .accessibilityIdentifier("standardConnectButton")
+        }
+    }
+
+    private func controlRow(
+        reference: CallReference,
+        diameter: CGFloat,
+        vertical: Bool,
+        horizontalLabels: Bool
+    ) -> some View {
+        let controlLayout = horizontalLabels
+            ? AnyLayout(HStackLayout(spacing: AppSpacing.xs)) : AnyLayout(VStackLayout(spacing: AppSpacing.m))
+        // Side by side, the three spread across the column with the outer ones at its edges;
+        // End keeps at least 32pt from its neighbour.
+        let layout = vertical
+            ? AnyLayout(VStackLayout(spacing: AppSpacing.m)) : AnyLayout(HStackLayout(alignment: .top, spacing: 0))
+        // The glass style pads its label; the label is smaller so the visible circle is the diameter.
+        let symbol = diameter - 2 * AppSize.callControlGlassPadding
+        return layout {
+            if viewModel.canControlMicrophone {
+                controlLayout {
+                    Button { viewModel.setCallMuted(!viewModel.isMuted, for: reference) } label: {
+                        Image(systemName: "mic.slash").frame(width: symbol, height: symbol)
+                    }
+                    .modifier(CallMuteButtonStyle(isMuted: viewModel.isMuted))
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Mute Microphone")
+                    .accessibilityValue(viewModel.isMuted ? "Muted" : "Unmuted")
+                    .accessibilityAddTraits(viewModel.isMuted ? .isSelected : [])
+                    .accessibilityIdentifier("standardMuteButton")
+                    Text(viewModel.isMuted ? "Muted" : "Mute")
+                        .font(AppTypography.footnoteStrong)
+                        .fixedSize(horizontal: horizontalLabels, vertical: true)
+                        .accessibilityIdentifier("standardMuteState")
+                }
+            } else {
+                Label("Control the microphone on your Watch", systemImage: "applewatch")
+                    .font(.caption).accessibilityIdentifier("standardMicrophoneStatus")
+            }
+            if !vertical { Spacer(minLength: AppSpacing.callControls) }
+            outputControl(layout: controlLayout, symbol: symbol, horizontalLabels: horizontalLabels)
+            if !vertical { Spacer(minLength: AppSpacing.destructiveSeparation) }
+            controlLayout {
+                Button(role: .destructive) {
+                    pendingEndReference = reference
+                    endingCallName = viewModel.groups.first { $0.id == viewModel.activeGroupID }
+                        .map { viewModel.callTitle(for: $0) } ?? ""
+                    confirmsEnd = true
+                } label: {
+                    Image(systemName: "phone.down.fill").frame(width: symbol, height: symbol)
+                }
+                .buttonStyle(.glassProminent).tint(AppColorPalette.danger)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("End Call")
+                .accessibilityIdentifier("standardEndCallButton")
+                Text("End").font(AppTypography.footnoteStrong)
+                    .fixedSize(horizontal: horizontalLabels, vertical: true)
+                    .accessibilityIdentifier("standardEndControlLabel")
+            }
+        }
+    }
+
+    private func outputControl(layout: AnyLayout, symbol: CGFloat, horizontalLabels: Bool) -> some View {
+        layout {
+            Button { viewModel.toggleOutputMute() } label: {
+                Image(systemName: "speaker.slash").frame(width: symbol, height: symbol)
+            }
+            .modifier(
+                CallMuteButtonStyle(isMuted: viewModel.isOutputMuted, tint: AppColorPalette.buttonProminentBackground)
+            )
+            .buttonBorderShape(.circle)
+            // Silence, not "Speaker": the phone's Speaker switches where the sound goes.
+            .accessibilityLabel("Silence")
+            .accessibilityValue(viewModel.isOutputMuted ? "On" : "Off")
+            .accessibilityAddTraits(viewModel.isOutputMuted ? .isSelected : [])
+            .accessibilityIdentifier("standardSpeakerButton")
+            Text(viewModel.isOutputMuted ? "Silenced" : "Silence").font(AppTypography.footnoteStrong)
+                .fixedSize(horizontal: horizontalLabels, vertical: true)
+                .accessibilityIdentifier("standardSpeakerControlLabel")
+        }
+    }
+}
+
+extension StandardCallView {
     /// The status hero: a glass card, leading-aligned, with the kind and size, the destination,
     /// the state and its reason. The route is not shown. VoiceOver reads it as one element.
     private func hero(_ group: IntercomGroup, compact: Bool, card: Bool = true) -> some View {
@@ -163,145 +280,14 @@ struct StandardCallView: View {
                                    state: heroState.title, reason: heroState.detail)
     }
 
-    @ViewBuilder private func detailSections(_ group: IntercomGroup) -> some View {
-        if group.id == viewModel.activeGroupID {
-            audioDetails(for: group.kind)
-            if viewModel.isAudioPausedForDeviceChange, viewModel.canResumeAudioOnThisDevice {
-                Section {
-                    if viewModel.audioPauseError == nil { Text("Check your headphones or speaker, then resume audio.") }
-                    Button("Resume Audio") { viewModel.resumeAudioAfterDeviceChange() }
-                        .appProminentButtonStyle()
-                        .accessibilityIdentifier("resumeAudioButton")
-                }
-            }
-            if let notice = viewModel.audioRouteNotice { noticeSection(notice) }
-            if let notice = viewModel.connectivityNotice { noticeSection(notice) }
-            if let error = viewModel.audioErrorMessage, viewModel.audioPauseError == nil { noticeSection(error) }
-        }
-        if group.kind == .group {
-            membersSection(group)
-        }
-    }
-
-    private func membersSection(_ group: IntercomGroup) -> some View {
-        Section {
-            if viewModel.canManageRegularGroups {
-                Button("Invite Members", systemImage: "person.badge.plus") { addingUsers = group }
-                    .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
-                    .accessibilityIdentifier("addSavedUsersButton")
-            }
-            if group.id == viewModel.activeGroupID {
-                HStack {
-                    DestinationAvatar(isGroup: false)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("You")
-                        if viewModel.isMuted {
-                            Text("Muted").font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    StandardVoiceIndicator(kind: .input, level: viewModel.diagnosticsInputLevel,
-                                           isSilenced: viewModel.isMuted, label: Text("Your voice"))
-                        .accessibilityIdentifier("standardVoiceIndicatorSelf")
-                }
-                .frame(minHeight: 44)
-            }
-            ForEach(Array(group.members.dropFirst())) { member in
-                Group {
-                    if let person = viewModel.personForGroupInvitation(memberID: member.id, groupID: group.id) {
-                        Button { invitationPerson = person } label: {
-                            HStack {
-                                memberRow(member, in: group)
-                                Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.tertiary).accessibilityHidden(true)
-                            }
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("standardCallInvitee-\(member.id)")
-                    } else if group.id == viewModel.activeGroupID, viewModel.authenticatedPeerIDs.contains(member.id) {
-                        DisclosureGroup {
-                            Slider(value: Binding(get: { Double(viewModel.remoteOutputVolume(for: member.id)) },
-                                                  set: { viewModel.setRemoteOutputVolume(peerID: member.id, volume: Float($0)) }), in: 0...1) {
-                                Text("Volume for \(member.resolvedDisplayName)")
-                            }
-                            .labelsHidden()
-                            .accessibilityIdentifier("standardPeerVolume-\(member.id)")
-                        } label: {
-                            memberRow(member, in: group)
-                        }
-                        .accessibilityIdentifier("standardPeerRow-\(member.id)")
-                    } else {
-                        memberRow(member, in: group)
-                    }
-                }
-            }
-        } header: {
-            Text("People in This Call").accessibilityIdentifier("standardCallParticipantsHeading")
-        }
-    }
-
-    private func memberRow(_ member: GroupMember, in group: IntercomGroup) -> some View {
-        HStack {
-            HStack {
-                if member.id.hasPrefix(GroupMember.pendingInvitePrefix) {
-                    PendingAvatar()
-                } else {
-                    DestinationAvatar(isGroup: false)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(member.resolvedDisplayName)
-                    if let invitation = StandardGroupInvitationStatus(viewModel: viewModel, memberID: member.id,
-                                                                      groupID: group.id, includeReceived: false) {
-                        invitation.font(.footnote).foregroundStyle(.secondary)
-                    } else if group.id == viewModel.activeGroupID {
-                        memberState(member)
-                    }
-                }
-            }
-            .accessibilityElement(children: .combine)
-            Spacer()
-            // Only someone in the conversation has a voice to show; still and grey while quiet.
-            if group.id == viewModel.activeGroupID, viewModel.authenticatedPeerIDs.contains(member.id) {
-                StandardVoiceIndicator(kind: .peer, level: member.voiceLevel, isSilenced: member.isMuted,
-                                       label: Text("\(member.resolvedDisplayName)'s voice"))
-                    .accessibilityIdentifier("standardVoiceIndicator-\(member.id)")
-            }
-        }
-        .frame(minHeight: 44)
-    }
-
-    /// One state word under the name while in this call: speaking, connecting, or not connected.
-    /// Connected and quiet needs no word. Color never carries the state alone.
-    @ViewBuilder private func memberState(_ member: GroupMember) -> some View {
-        Group {
-            if member.isTalking {
-                // The word goes with the indicator's steps; color alone never says who is speaking.
-                Text("Speaking")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("standardMemberSpeaking-\(member.id)")
-            } else if viewModel.authenticatedPeerIDs.contains(member.id) {
-                if member.isMuted { Text("Muted").foregroundStyle(.secondary) }
-            } else if viewModel.connectedPeerIDs.contains(member.id) {
-                // Reached but not yet verified: not part of the conversation yet.
-                Text("Connecting")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("standardMemberConnecting-\(member.id)")
-            } else {
-                // The live peer sets, not the stored member state, say who has joined.
-                Text("Not connected right now")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("standardMemberNotConnected-\(member.id)")
-            }
-        }
-        .font(.footnote)
-    }
-
     /// The hero's words: the call's own state. A call notification never changes it.
     private var heroState: (title: String, detail: String?) {
         let status = viewModel.standardCallStatus
         let detail = status == .audioPaused ? viewModel.audioPauseError ?? status.detail : status.detail
-        return (String(localized: .init(stringLiteral: status.title)), detail.map { String(localized: .init(stringLiteral: $0)) })
+        return (
+            String(localized: .init(stringLiteral: status.title)),
+            detail.map { String(localized: .init(stringLiteral: $0)) }
+        )
     }
 
     /// The shared state symbol; the hero's larger type takes the larger progress.
@@ -332,133 +318,6 @@ struct StandardCallView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    @ViewBuilder private func primaryActions(_ group: IntercomGroup, compact: Bool) -> some View {
-        let reference = viewModel.currentCallReference
-        let access = viewModel.accountAccessID
-        if group.id == viewModel.activeGroupID, viewModel.hasAnyActiveGroupConnection {
-            let diameter = compact ? AppSize.callControlCompactDiameter : AppSize.callControlDiameter
-            GlassEffectContainer(spacing: AppSpacing.callControls) {
-                ViewThatFits(in: .horizontal) {
-                    controlRow(reference: reference, diameter: diameter, vertical: false, horizontalLabels: compact && dynamicTypeSize.isAccessibilitySize)
-                    controlRow(reference: reference, diameter: diameter, vertical: true, horizontalLabels: compact && dynamicTypeSize.isAccessibilitySize)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        } else if !viewModel.hasAnyActiveGroupConnection {
-            // Connected elsewhere, there is no switch here: ending that call comes first.
-            Button("Connect", systemImage: "phone") {
-                viewModel.startCall(to: .group(group.id), accountAccessID: access)
-            }
-            .appProminentButtonStyle()
-            .disabled(!viewModel.canStartCalls)
-            .accessibilityIdentifier("standardConnectButton")
-        }
-    }
-
-    private func controlRow(reference: CallReference, diameter: CGFloat, vertical: Bool, horizontalLabels: Bool) -> some View {
-        let controlLayout = horizontalLabels ? AnyLayout(HStackLayout(spacing: AppSpacing.xs)) : AnyLayout(VStackLayout(spacing: AppSpacing.m))
-        // Side by side, the three spread across the column with the outer ones at its edges;
-        // End keeps at least 32pt from its neighbour.
-        let layout = vertical ? AnyLayout(VStackLayout(spacing: AppSpacing.m)) : AnyLayout(HStackLayout(alignment: .top, spacing: 0))
-        // The glass style pads its label; the label is smaller so the visible circle is the diameter.
-        let symbol = diameter - 2 * AppSize.callControlGlassPadding
-        return layout {
-            if viewModel.canControlMicrophone {
-                controlLayout {
-                    Button { viewModel.setCallMuted(!viewModel.isMuted, for: reference) } label: {
-                        Image(systemName: "mic.slash").frame(width: symbol, height: symbol)
-                    }
-                    .modifier(CallMuteButtonStyle(isMuted: viewModel.isMuted))
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Mute Microphone")
-                    .accessibilityValue(viewModel.isMuted ? "Muted" : "Unmuted")
-                    .accessibilityAddTraits(viewModel.isMuted ? .isSelected : [])
-                    .accessibilityIdentifier("standardMuteButton")
-                    Text(viewModel.isMuted ? "Muted" : "Mute")
-                        .font(AppTypography.footnoteStrong)
-                        .fixedSize(horizontal: horizontalLabels, vertical: true)
-                        .accessibilityIdentifier("standardMuteState")
-                }
-            } else {
-                Label("Control the microphone on your Watch", systemImage: "applewatch")
-                    .font(.caption).accessibilityIdentifier("standardMicrophoneStatus")
-            }
-            if !vertical { Spacer(minLength: AppSpacing.callControls) }
-            controlLayout {
-                Button { viewModel.toggleOutputMute() } label: {
-                    Image(systemName: "speaker.slash").frame(width: symbol, height: symbol)
-                }
-                .modifier(CallMuteButtonStyle(isMuted: viewModel.isOutputMuted, tint: AppColorPalette.buttonProminentBackground))
-                .buttonBorderShape(.circle)
-                // Silence, not "Speaker": the phone's Speaker switches where the sound goes.
-                .accessibilityLabel("Silence")
-                .accessibilityValue(viewModel.isOutputMuted ? "On" : "Off")
-                .accessibilityAddTraits(viewModel.isOutputMuted ? .isSelected : [])
-                .accessibilityIdentifier("standardSpeakerButton")
-                Text(viewModel.isOutputMuted ? "Silenced" : "Silence").font(AppTypography.footnoteStrong)
-                    .fixedSize(horizontal: horizontalLabels, vertical: true)
-                    .accessibilityIdentifier("standardSpeakerControlLabel")
-            }
-            if !vertical { Spacer(minLength: AppSpacing.destructiveSeparation) }
-            controlLayout {
-                Button(role: .destructive) {
-                    pendingEndReference = reference
-                    endingCallName = viewModel.groups.first { $0.id == viewModel.activeGroupID }.map { viewModel.callTitle(for: $0) } ?? ""
-                    confirmsEnd = true
-                } label: {
-                    Image(systemName: "phone.down.fill").frame(width: symbol, height: symbol)
-                }
-                .buttonStyle(.glassProminent).tint(AppColorPalette.danger)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel("End Call")
-                .accessibilityIdentifier("standardEndCallButton")
-                Text("End").font(AppTypography.footnoteStrong)
-                    .fixedSize(horizontal: horizontalLabels, vertical: true)
-                    .accessibilityIdentifier("standardEndControlLabel")
-            }
-        }
-    }
-
-    /// The slider uses the space between the output indicators, with a visual reference at 100%.
-    private func audioDetails(for kind: IntercomGroup.Kind) -> some View {
-        Section {
-            HStack(spacing: AppSpacing.s) {
-                Image(systemName: "speaker").foregroundStyle(.secondary).accessibilityHidden(true)
-                Slider(value: Binding(get: { Double(viewModel.masterOutputVolume) }, set: { viewModel.setMasterOutputVolume(Float($0)) }),
-                       in: 0...2) {
-                    Text("Volume")
-                }
-                .labelsHidden()
-                // SwiftUI slider ticks define selectable values. The midpoint is a visual reference.
-                .overlay(alignment: .bottom) {
-                    Capsule().fill(.secondary).frame(width: 2, height: 4)
-                        .offset(y: 5)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-                .accessibilityIdentifier("standardVolumeSlider")
-                // What actually plays, so a moving symbol you cannot hear points at the volume or device.
-                StandardVoiceIndicator(kind: .output, level: viewModel.diagnosticsOutputLevel,
-                                       isSilenced: viewModel.isOutputMuted, label: Text("Output"))
-                    .accessibilityIdentifier("standardVoiceIndicatorOutput")
-            }
-            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-            if viewModel.supportsSoundIsolation {
-                Toggle(isOn: Binding(get: { viewModel.receiveMasterSoundIsolationEnabled },
-                                     set: viewModel.setReceiveMasterSoundIsolationEnabled)) {
-                    let label: LocalizedStringKey = kind == .direct ? "Isolate the Other Person’s Voice" : "Isolate Incoming Voices"
-                    Text(label)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityIdentifier("standardReceiveVoiceIsolationToggle")
-            }
-        }
-    }
-
-    private func noticeSection(_ message: String) -> some View {
-        Section { Label(LocalizedStringKey(message), systemImage: "exclamationmark.circle") }
     }
 }
 
