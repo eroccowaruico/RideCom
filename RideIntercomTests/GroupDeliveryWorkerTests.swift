@@ -148,6 +148,7 @@ import Testing
 
             let transfer = RecordingBackgroundInvitationTransfer()
             if scenario == .background { right.invitationBackgroundTransfer = transfer }
+            let acceptanceWrites = GroupWorkerHTTPBridge.contactAcceptanceWrites.withLock { $0 }
             right.groupDeliveryClient = client
             try #require(right.previewContactInvitation(share.url))
             try #require(right.acceptPresentedContactInvitation())
@@ -158,6 +159,27 @@ import Testing
             await right.invitationInternetReplyWindow?.task?.value
             #expect(right.contactInvitationRecord(share.id)?.state == .pending)
             #expect(left.contactInvitationRecord(share.id)?.state == .pending)
+            if scenario == .group {
+                #expect(GroupWorkerHTTPBridge.contactAcceptanceWrites.withLock { $0 } == acceptanceWrites + 1)
+                let reopened = try b.harness(knowing: [], onDisk: true).viewModel
+                defer { reopened.stopGroupDeliverySync() }
+                #expect(reopened.contactInvitationRecord(share.id)?.internetAcceptanceSubmitted == true)
+                #expect(reopened.contactInvitationRecord(share.id)?.state == .pending)
+                reopened.setRTCTransportRoutes([.webRTC])
+                reopened.invitationInternetReplyRetryDelays = []
+                reopened.groupDeliveryClient = client
+                reopened.requestInvitationInternetReply()
+                await reopened.invitationInternetReplyWindow?.task?.value
+                #expect(GroupWorkerHTTPBridge.contactAcceptanceWrites.withLock { $0 } == acceptanceWrites + 1)
+
+                reopened.invitationBackgroundTransfer = transfer
+                reopened.requestInvitationInternetReply()
+                #expect(transfer.enqueued.isEmpty)
+                #expect(reopened.contactInvitationRecord(share.id)?.state == .pending)
+            }
+            if scenario == .renewedAuthor {
+                #expect(right.contactInvitationRecord(share.id)?.internetAcceptanceSubmitted != true)
+            }
             if scenario == .background {
                 let key = try #require(transfer.enqueued.first)
                 let queued = transfer.requests[key]
@@ -954,6 +976,7 @@ private enum WorkerFixtureFailure: Error { case unavailable }
 
 private final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let ordinaryReplyInboxReads = Mutex(0)
+    nonisolated static let contactAcceptanceWrites = Mutex(0)
     nonisolated(unsafe) static var origin: URL?
     nonisolated(unsafe) static var cancellation: (id: UUID, recipient: String, token: String)?
     nonisolated(unsafe) static var cancellationResponse: String?
@@ -976,6 +999,9 @@ private final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
             Self.interruptOrdinaryGroupAcknowledgement = false
             client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
             return
+        }
+        if original.path == "/api/ordinary-group-replies/acceptance", request.httpMethod == "PUT" {
+            Self.contactAcceptanceWrites.withLock { $0 += 1 }
         }
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         components.path = original.path; components.percentEncodedQuery = URLComponents(url: original, resolvingAgainstBaseURL: false)?.percentEncodedQuery

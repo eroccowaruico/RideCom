@@ -171,7 +171,7 @@ extension IntercomViewModel {
         guard signer.principal == window.access.principal else { return }
         let uploadInProgress = contactAcceptanceUploadID(record, access: window.access)
             .map { invitationBackgroundTransfer?.contains($0) == true } ?? false
-        if record.internetAcceptanceSubmitted != true, !uploadInProgress, !window.submittedReceiptIDs.contains(pending.id) {
+        if record.internetAcceptanceSubmitted != true, !uploadInProgress {
             let (packet, admission) = try prepareContactInternetAcceptance(pending, payload: payload, invitation: invitation, address: address)
             do {
                 try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access, admission: admission)
@@ -180,7 +180,9 @@ extension IntercomViewModel {
                 guard contactInternetReplyIsCurrent(record, window: window) else { return }
                 try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access)
             }
-            window.submittedReceiptIDs.insert(pending.id)
+            guard contactInternetReplyIsCurrent(record, window: window) else { return }
+            try groupRepository.markContactInternetAcceptanceSubmitted(record.id, receiptID: pending.id)
+            refreshGroupStorageStatus()
         }
         guard contactInternetReplyIsCurrent(record, window: window),
               let reply = try await window.client.invitationReplyReceipt(id: pending.id, address: address, owner: owner, access: window.access),
