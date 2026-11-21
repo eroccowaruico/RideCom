@@ -8,7 +8,7 @@ let package = Package(
     platforms: [
         .iOS("27.0"),
         .macOS("27.0"),
-        .watchOS("27.0"),
+        .watchOS("27.0")
     ],
     products: [
         .library(
@@ -18,7 +18,7 @@ let package = Package(
         .library(
             name: "RTCNativeWebRTC",
             targets: ["RTCNativeWebRTC"]
-        ),
+        )
     ],
     dependencies: [],
     targets: [
@@ -29,7 +29,7 @@ let package = Package(
             name: "RTCNativeWebRTC",
             dependencies: [
                 "RTC",
-                "WebRTC",
+                "WebRTC"
             ]
         ),
         .binaryTarget(
@@ -43,7 +43,7 @@ let package = Package(
         .testTarget(
             name: "RTCTests",
             dependencies: ["RTC", "RTCTestSupport"]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )

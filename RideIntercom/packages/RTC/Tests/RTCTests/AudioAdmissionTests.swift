@@ -92,7 +92,14 @@ extension RealtimeTransportTests {
             request.audioPolicy.peerPolicy = .admittedMemberships([fixture.remoteID: old])
             await fixture.manager.prepare(request)
             await fixture.manager.startConnection(); await fixture.manager.startMedia()
-            fixture.route.source.yield(.membersChanged(.multipeer, [.init(peer: .init(id: fixture.remoteID, displayName: "Remote"), route: .multipeer, isConnected: true)]))
+                fixture.route.source.yield(
+                    .membersChanged(
+                        .multipeer,
+                        [
+                            .init(
+                                peer: .init(id: fixture.remoteID, displayName: "Remote"), route: .multipeer,
+                                isConnected: true)
+                        ]))
             try await fixture.receive(.presence, from: &remote)
             #expect(await fixture.record.members.first?.membershipID != old)
             try await fixture.receive(.audio(fixture.packet(1)), from: &remote)
@@ -144,7 +151,8 @@ private struct AdmissionFixture: Sendable {
     func request(peer: String) -> CallStartRequest {
         .init(sessionID: "admission", localPeer: .init(id: .init(rawValue: peer), displayName: peer),
               credential: .derived(groupID: "admission", secret: "fixture"),
-              configuration: .init(enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute),
+            configuration: .init(
+                enabledRoutes: [.multipeer], preferredRoute: .multipeer, selectionMode: .singleRoute),
               audioPolicy: .init(peerPolicy: .admittedMemberships([:])))
     }
     func packet(_ value: UInt8) -> RTCAudioPacket { .init(sequenceNumber: 0, codec: .pcm16, payload: Data([value])) }
@@ -156,20 +164,24 @@ private struct AdmissionFixture: Sendable {
         route.source.yield(.membersChanged(.multipeer, ([remoteID] + additionalLocalPeers).map {
             .init(peer: .init(id: $0, displayName: $0.rawValue), route: .multipeer, isConnected: true)
         }))
-        do { try await body(self) }
-        catch { await manager.stopConnection(); task.cancel(); throw error }
+        do { try await body(self) } catch { await manager.stopConnection(); task.cancel(); throw error }
         await manager.stopConnection(); task.cancel()
     }
     func receive(_ body: RelayBody, from remote: inout GroupRelay) async throws {
         let now = ProcessInfo.processInfo.systemUptime
         route.source.yield(.receivedApplicationData(.multipeer, .init(peerID: remoteID,
-            message: .init(namespace: GroupRelay.namespace, payload: try remote.make(body, now: now), delivery: body.delivery))))
+                    message: .init(
+                        namespace: GroupRelay.namespace, payload: try remote.make(body, now: now),
+                        delivery: body.delivery))))
         // A reliable application marker passes through the same actor and event
         // stream, so assertions do not race the preceding incoming packet.
         let marker = Data(UUID().uuidString.utf8)
-        let checkpoint = RelayBody.application(.init(namespace: "test.checkpoint", payload: marker, delivery: .reliable))
+        let checkpoint = RelayBody.application(
+            .init(namespace: "test.checkpoint", payload: marker, delivery: .reliable))
         route.source.yield(.receivedApplicationData(.multipeer, .init(peerID: remoteID,
-            message: .init(namespace: GroupRelay.namespace, payload: try remote.make(checkpoint, now: now), delivery: .reliable))))
+                    message: .init(
+                        namespace: GroupRelay.namespace, payload: try remote.make(checkpoint, now: now),
+                        delivery: .reliable))))
         for _ in 0..<1_000 {
             if await record.markers.contains(marker) { return }
             try await Task.sleep(for: .milliseconds(1))

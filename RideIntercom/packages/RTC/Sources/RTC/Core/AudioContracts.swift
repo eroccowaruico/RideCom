@@ -1,6 +1,7 @@
 import Foundation
 
-public struct RTCAudioCodecIdentifier: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
+public struct RTCAudioCodecIdentifier: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStringLiteral,
+    CustomStringConvertible {
     public let rawValue: String
 
     public init(rawValue: String) {

@@ -9,11 +9,11 @@ public struct RTCEventDropReport: Codable, Equatable, Sendable {
 
 public struct RTCNetworkStatistics: Codable, Equatable, Sendable {
     public var roundTripTime: TimeInterval?
-    public var sentMediaDatagrams: UInt64? = nil
-    public var receivedMediaDatagrams: UInt64? = nil
+    public var sentMediaDatagrams: UInt64?
+    public var receivedMediaDatagrams: UInt64?
     public var bufferedBytes: UInt64?
     /// DataChannel/SCTP does not expose an RTP packet-loss fraction. Never substitute zero.
-    public var packetLoss: Double? = nil
+    public var packetLoss: Double?
     public var unavailableReason: String
     public init(roundTripTime: TimeInterval? = nil, bufferedBytes: UInt64? = nil,
                 unavailableReason: String = "Network statistics are unavailable") {
@@ -26,7 +26,10 @@ public struct RTCRouteNetworkDiagnostics: Codable, Equatable, Sendable {
     public var route: RouteKind
     public var statistics: RTCNetworkStatistics
     public var eventDrops: [String: RTCEventDropReport]
-    public init(route: RouteKind, statistics: RTCNetworkStatistics = .init(), eventDrops: [String: RTCEventDropReport] = [:]) {
+    public init(
+        route: RouteKind, statistics: RTCNetworkStatistics = .init(),
+        eventDrops: [String: RTCEventDropReport] = [:]
+    ) {
         self.route = route; self.statistics = statistics; self.eventDrops = eventDrops
     }
 }

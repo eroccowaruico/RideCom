@@ -30,7 +30,10 @@ public struct CallMemberState: Codable, Equatable, Sendable {
     /// Local membership incarnation; nil on native route observations.
     public var membershipID: UUID?
 
-    public init(peer: PeerDescriptor, route: RouteKind?, isConnected: Bool, isMuted: Bool = false, membershipID: UUID? = nil) {
+    public init(
+        peer: PeerDescriptor, route: RouteKind?, isConnected: Bool, isMuted: Bool = false,
+        membershipID: UUID? = nil
+    ) {
         self.peer = peer
         self.route = route
         self.isConnected = isConnected

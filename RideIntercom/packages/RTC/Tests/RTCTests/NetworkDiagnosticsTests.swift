@@ -18,16 +18,19 @@ import Testing
 
 @Test func relayReportsTheAuthenticatedObservedPath() throws {
     func request(_ id: String) -> CallStartRequest {
-        .init(sessionID: "group", localPeer: .init(id: .init(rawValue: id), displayName: id), credential: .derived(groupID: "group", secret: "secret"))
+        .init(
+            sessionID: "group", localPeer: .init(id: .init(rawValue: id), displayName: id),
+            credential: .derived(groupID: "group", secret: "secret"))
     }
-    var a = GroupRelay(request: request("a")), b = GroupRelay(request: request("b")), c = GroupRelay(request: request("c"))
-    let presence = try a.make(.presence, now: 1)
-    let accepted = b.receive(presence, from: .init(rawValue: "a"), now: 1)
+    var sender = GroupRelay(request: request("a")), relay = GroupRelay(request: request("b")),
+        receiver = GroupRelay(request: request("c"))
+    let presence = try sender.make(.presence, now: 1)
+    let accepted = relay.receive(presence, from: .init(rawValue: "a"), now: 1)
     let direct = try #require(accepted)
     #expect(direct.path.map(\.rawValue) == ["a", "b"])
     let forwarded = try #require(direct.forward)
-    let received = c.receive(forwarded, from: .init(rawValue: "b"), now: 1)
+    let received = receiver.receive(forwarded, from: .init(rawValue: "b"), now: 1)
     let relayed = try #require(received)
     #expect(relayed.path.map(\.rawValue) == ["a", "b", "c"])
-    #expect(c.receive(forwarded, from: .init(rawValue: "impostor"), now: 1) == nil)
+    #expect(receiver.receive(forwarded, from: .init(rawValue: "impostor"), now: 1) == nil)
 }

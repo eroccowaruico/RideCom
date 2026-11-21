@@ -20,20 +20,6 @@ struct PacketAudioReceiveBufferReport: Equatable, Sendable {
     var receivedPacketCount: Int
     var droppedPacketCount: Int
     var queuedPacketCount: Int
-
-    init(
-        readyPackets: [ReceivedAudioPacket],
-        expiredPacketCount: Int,
-        receivedPacketCount: Int,
-        droppedPacketCount: Int,
-        queuedPacketCount: Int
-    ) {
-        self.readyPackets = readyPackets
-        self.expiredPacketCount = expiredPacketCount
-        self.receivedPacketCount = receivedPacketCount
-        self.droppedPacketCount = droppedPacketCount
-        self.queuedPacketCount = queuedPacketCount
-    }
 }
 
 struct PacketAudioReceiveBuffer: Sendable {
