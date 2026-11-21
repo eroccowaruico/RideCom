@@ -42,25 +42,19 @@ extension AppCallOwner {
         }
         if request.action == .refresh { return reply() }
         guard let viewModel = try? callModel(), viewModel.hasCurrentAccountAccess else { return reply(.noAccount) }
-        guard request.reference == viewModel.currentCallReference.encoded, request.validUntil > now,
-              request.validUntil <= now.addingTimeInterval(120) else { return reply(.stale) }
+        guard watchRequestIsCurrent(request, viewModel: viewModel, now: now) else { return reply(.stale) }
+        return await performWatchRequest(request, viewModel: viewModel, reply: reply)
+    }
+
+    private func performWatchRequest(
+        _ request: WatchControlRequest, viewModel: IntercomViewModel,
+        reply: (WatchControlProblem?) -> WatchControlReply
+    ) async -> WatchControlReply {
         let succeeded: Bool
         switch request.action {
-        case .refresh: return reply()
+        case .refresh: return reply(nil)
         case .startAudio(let id, let offer):
-            guard offer.key.count == 32,
-                  let target = watchCallTargets.first(where: { $0.entity.id == id }) else {
-                return reply(.missingDestination)
-            }
-            guard viewModel.startCall(to: target.destination, accountAccessID: viewModel.accountAccessID,
-                               allowSwitchingCall: false, source: .watchAudio) else { return reply(.denied) }
-            do {
-                let endpoint = try await viewModel.attachWatchAudio(offer)
-                guard let current = try? callModel(), current === viewModel, viewModel.hasCurrentAccountAccess else {
-                    return reply(.noAccount)
-                }
-                return .init(snapshot: watchSnapshot(), problem: nil, audioEndpoint: endpoint)
-            } catch { return reply(.unavailable) }
+            return await startWatchAudio(id: id, offer: offer, viewModel: viewModel, reply: reply)
         case .start(let id), .startRemote(let id):
             guard let target = watchCallTargets.first(where: { $0.entity.id == id }) else {
                 return reply(.missingDestination)
@@ -69,6 +63,36 @@ extension AppCallOwner {
             succeeded = viewModel.startCall(to: target.destination, accountAccessID: viewModel.accountAccessID,
                                      allowSwitchingCall: false, source: source)
         #if DEBUG
+        case .startAudioCheck, .playAudioCheck, .stopAudioCheck:
+            return await handleWatchAudioCheck(request.action, viewModel: viewModel, reply: reply)
+        #endif
+        case .end: succeeded = viewModel.endCall(viewModel.currentCallReference)
+        case .setMuted(let value): succeeded = viewModel.setCallMuted(value, for: viewModel.currentCallReference)
+        }
+        guard watchModelIsCurrent(viewModel) else {
+            return reply(.noAccount)
+        }
+        return reply(succeeded ? nil : .denied)
+    }
+
+    private func watchModelIsCurrent(_ viewModel: IntercomViewModel) -> Bool {
+        guard let current = try? callModel() else { return false }
+        return current === viewModel && viewModel.hasCurrentAccountAccess
+    }
+
+    private func watchRequestIsCurrent(
+        _ request: WatchControlRequest, viewModel: IntercomViewModel, now: Date
+    ) -> Bool {
+        request.reference == viewModel.currentCallReference.encoded && request.validUntil > now
+            && request.validUntil <= now.addingTimeInterval(120)
+    }
+
+    #if DEBUG
+    private func handleWatchAudioCheck(
+        _ action: WatchCallAction, viewModel: IntercomViewModel,
+        reply: (WatchControlProblem?) -> WatchControlReply
+    ) async -> WatchControlReply {
+        switch action {
         case .startAudioCheck(let offer):
             guard offer.key.count == 32, viewModel.canStartAudioCheck else { return reply(.denied) }
             do {
@@ -80,14 +104,29 @@ extension AppCallOwner {
         case .stopAudioCheck(let id):
             guard viewModel.audioCheckWatchSessionID == id else { return reply(.stale) }
             viewModel.cancelAudioCheck()
-            return reply()
-        #endif
-        case .end: succeeded = viewModel.endCall(viewModel.currentCallReference)
-        case .setMuted(let value): succeeded = viewModel.setCallMuted(value, for: viewModel.currentCallReference)
+            return reply(nil)
+        default: return reply(.denied)
         }
-        guard let current = try? callModel(), current === viewModel, viewModel.hasCurrentAccountAccess else {
-            return reply(.noAccount)
-        }
-        return reply(succeeded ? nil : .denied)
     }
+    #endif
+
+    private func startWatchAudio(
+        id: String, offer: WatchAudioOffer, viewModel: IntercomViewModel,
+        reply: (WatchControlProblem?) -> WatchControlReply
+    ) async -> WatchControlReply {
+        guard offer.key.count == 32,
+              let target = watchCallTargets.first(where: { $0.entity.id == id }) else {
+            return reply(.missingDestination)
+        }
+        guard viewModel.startCall(to: target.destination, accountAccessID: viewModel.accountAccessID,
+                           allowSwitchingCall: false, source: .watchAudio) else { return reply(.denied) }
+        do {
+            let endpoint = try await viewModel.attachWatchAudio(offer)
+            guard watchModelIsCurrent(viewModel) else {
+                return reply(.noAccount)
+            }
+            return .init(snapshot: watchSnapshot(), problem: nil, audioEndpoint: endpoint)
+        } catch { return reply(.unavailable) }
+    }
+
 }
