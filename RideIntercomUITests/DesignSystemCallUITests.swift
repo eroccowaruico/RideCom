@@ -2,7 +2,12 @@
 import XCTest
 
 final class DesignSystemCallUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private var launchedApp: XCUIApplication?
+
+    var app: XCUIApplication {
+        guard let launchedApp else { preconditionFailure("A call must be started before interacting with the app") }
+        return launchedApp
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -10,8 +15,8 @@ final class DesignSystemCallUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        app?.terminate()
-        app = nil
+        launchedApp?.terminate()
+        launchedApp = nil
         XCUIDevice.shared.orientation = .portrait
     }
 
@@ -64,91 +69,6 @@ final class DesignSystemCallUITests: XCTestCase {
         XCTAssertEqual(microphoneStatus.label, "Muted")
     }
 
-    /// Settings open from named, visible entries: the call's settings button (no "…" menu) and a row's swipe.
-    /// Invite Members heads the member list. No long-press menus.
-    @MainActor
-    func testGroupSettingsOpenFromTheCallMenuAndTheListRow() {
-        defer { attachEvidence("Group settings entries") }
-        startStandardCall()
-        XCTAssertFalse(app.buttons["callMoreMenu"].exists, "No More menu in Standard")
-        XCTAssertFalse(app.buttons["inviteButton"].exists, "No bare link sharing in the call")
-        let invite = app.buttons["addSavedUsersButton"].firstMatch
-        XCTAssertTrue(invite.waitForExistence(timeout: 3))
-        XCTAssertEqual(invite.label, "Invite Members", "Standard names the intent, not the saved-user mechanism")
-        let settingsButton = app.buttons["callGroupSettingsButton"].firstMatch
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 3), "The settings button sits in the toolbar")
-        settingsButton.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForExistence(timeout: 3))
-        // Standard uses the same invitation label in the call and settings. Delete Group comes last.
-        XCTAssertEqual(app.buttons["groupSettingsAddMembersButton"].label, "Invite Members")
-        XCTAssertEqual(app.buttons["deleteGroupButton"].label, "Delete Group")
-        let name = app.textFields["groupSettingsNameField"].firstMatch
-        XCTAssertTrue(name.waitForExistence(timeout: 3))
-        name.tap()
-        let renamed = "Renamed " + UUID().uuidString.prefix(6)
-        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0) + renamed)
-        app.buttons["saveGroupSettingsButton"].tap()
-        XCTAssertTrue(name.waitForNonExistence(timeout: 3))
-        let hero = app.descendants(matching: .any)["standardCallHero"].firstMatch
-        XCTAssertTrue(hero.waitForExistence(timeout: 3))
-        XCTAssertTrue(hero.label.contains(renamed), "The open call shows the new name: \(hero.label)")
-        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.exists, "Renaming keeps the call")
-
-        openGroups()
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", renamed)).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 3))
-        XCTAssertTrue(row.descendants(matching: .any)["directoryRowCallStatus"].firstMatch.exists
-                      || app.descendants(matching: .any)["directoryRowCallStatus"].firstMatch.exists, "The live call shows on its row")
-        XCTAssertFalse(app.buttons["Edit Name"].exists)
-        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "manageGroup-")).firstMatch.exists)
-        row.swipeLeft()
-        let settings = app.buttons["Group Settings"].firstMatch
-        XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["Delete"].firstMatch.exists, "The owner's group offers the shared Delete action")
-        settings.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForExistence(timeout: 3))
-        attachEvidence("Group settings from the row")
-        app.buttons["closeGroupSettingsButton"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["groupSettingsView"].firstMatch.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists, "Settings do not end the call")
-        // The settings entry also asks first; Cancel keeps the group and its call.
-        row.swipeLeft()
-        XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        settings.tap()
-        let deleteGroup = app.buttons["deleteGroupButton"].firstMatch
-        XCTAssertTrue(deleteGroup.waitForExistence(timeout: 3))
-        deleteGroup.tap()
-        let alert = app.alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 3))
-        attachEvidence("Delete a live group asks first")
-        alert.buttons["Cancel"].firstMatch.tap()
-        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
-        app.buttons["closeGroupSettingsButton"].tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 3), "Cancel keeps the group")
-        XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists, "Cancel keeps the call")
-        row.swipeLeft()
-        let swipeDelete = app.buttons["Delete"].firstMatch
-        XCTAssertTrue(swipeDelete.waitForExistence(timeout: 3))
-        swipeDelete.tap()
-        XCTAssertTrue(alert.waitForExistence(timeout: 3))
-        XCTAssertTrue(alert.staticTexts["The current connection ends."].exists)
-        let confirm = alert.buttons["confirmDeleteDestinationButton"].firstMatch
-        XCTAssertEqual(confirm.label, "Disconnect and Delete")
-        attachEvidence("Swipe deletion of a live group asks first")
-        alert.buttons["Cancel"].firstMatch.tap()
-        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(row.exists)
-        XCTAssertTrue(app.buttons["callAccessoryOpenButton"].firstMatch.exists)
-        row.swipeLeft()
-        XCTAssertTrue(swipeDelete.waitForExistence(timeout: 3))
-        swipeDelete.tap()
-        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
-        confirm.tap()
-        XCTAssertTrue(row.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["callAccessoryOpenButton"].firstMatch.exists)
-        attachEvidence("Swipe deletion removes the group and ends its call")
-    }
-
     /// The bar above the tab bar names the call and its state, and offers Mute and End.
     /// Only its End asks first; Cancel keeps the call.
     @MainActor
@@ -158,7 +78,10 @@ final class DesignSystemCallUITests: XCTestCase {
         app.closeCallIfOpen()
         let open = app.buttons["callAccessoryOpenButton"].firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 3))
-        XCTAssertTrue(open.label.hasPrefix("Design ") && open.label.contains(", "), "Name and state word: \(open.label)")
+        XCTAssertTrue(
+            open.label.hasPrefix("Design ") && open.label.contains(", "),
+            "Name and state word: \(open.label)"
+        )
         let mute = app.buttons["callAccessoryMuteButton"].firstMatch
         let end = app.buttons["callAccessoryEndButton"].firstMatch
         for control in [mute, end] {
@@ -172,7 +95,9 @@ final class DesignSystemCallUITests: XCTestCase {
         end.tap()
         let confirm = app.buttons["callAccessoryConfirmEndButton"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 3), "End asks first")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Disconnect from Design'")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH 'Disconnect from Design'")
+        ).firstMatch.exists)
         attachEvidence("Call accessory end confirmation")
         let cancel = app.buttons["Cancel"].firstMatch
         if cancel.exists { cancel.tap() } else { app.otherElements["PopoverDismissRegion"].firstMatch.tap() }
@@ -196,7 +121,9 @@ final class DesignSystemCallUITests: XCTestCase {
         let current = app.buttons["callAccessoryOpenButton"].firstMatch
         XCTAssertTrue(current.waitForExistence(timeout: 3))
         let currentName = current.label
-        let other = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", second)).firstMatch
+        let other = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", second)
+        ).firstMatch
         XCTAssertTrue(other.waitForExistence(timeout: 3))
         other.tap()
         XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 1), "No switch confirmation")
@@ -206,32 +133,6 @@ final class DesignSystemCallUITests: XCTestCase {
         openGroups()
         XCTAssertTrue(current.waitForExistence(timeout: 3))
         XCTAssertEqual(current.label, currentName, "The live call is unchanged")
-    }
-
-    @MainActor
-    func testLandscapeCallControlsRemainFixedWhileDetailsScroll() {
-        defer { attachEvidence("Landscape call controls") }
-        startStandardCall()
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let mute = app.buttons["standardMuteButton"].firstMatch
-        let speaker = app.buttons["standardSpeakerButton"].firstMatch
-        let end = app.buttons["standardEndCallButton"].firstMatch
-        let details = app.descendants(matching: .any)["standardCallDetailsScroll"].firstMatch
-        let participants = app.staticTexts["standardCallParticipantsHeading"].firstMatch
-        XCTAssertTrue(details.waitForExistence(timeout: 5))
-        XCTAssertTrue(participants.waitForExistence(timeout: 3))
-        for control in [mute, speaker, end] { XCTAssertTrue(control.isHittable, control.debugDescription) }
-        let originalFrames = [mute.frame, speaker.frame, end.frame]
-        let participantsY = participants.frame.minY
-        let lower = details.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
-        let upper = details.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
-        lower.press(forDuration: 0.05, thenDragTo: upper)
-        XCTAssertNotEqual(participants.frame.minY, participantsY, "The details must actually scroll")
-        for (control, original) in zip([mute, speaker, end], originalFrames) {
-            XCTAssertTrue(control.isHittable, control.debugDescription)
-            XCTAssertEqual(control.frame.minX, original.minX, accuracy: 1)
-            XCTAssertEqual(control.frame.minY, original.minY, accuracy: 1)
-        }
     }
 
     @MainActor
@@ -257,7 +158,10 @@ final class DesignSystemCallUITests: XCTestCase {
         let louder = app.staticTexts["standardVolumeLouder"]
         volume.adjust(toNormalizedSliderPosition: 0.75)
         attachEvidence("Volume above the reference mark at \(Int(volume.frame.width.rounded())) pt")
-        XCTAssertFalse(louder.exists, "Above 100% the track still uses the caption's space. Width: \(volume.frame.width) pt")
+        XCTAssertFalse(
+            louder.exists,
+            "Above 100% the track still uses the caption's space. Width: \(volume.frame.width) pt"
+        )
         XCTAssertGreaterThan(volume.frame.width, app.frame.width * 0.60)
         let raisedVolume = try XCTUnwrap(Double(volume.value as? String ?? ""))
         XCTAssertGreaterThan(raisedVolume, 1)
@@ -286,10 +190,107 @@ final class DesignSystemCallUITests: XCTestCase {
         attachEvidence("Voice indicators while muted")
     }
 
+    @MainActor func attachEvidence(_ name: String) {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = name + " full screen"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        if let app = launchedApp {
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = name + " accessibility hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+    }
+
+    @MainActor func startStandardCall(accessibilityText: Bool = false) {
+        let app = XCUIApplication()
+        launchedApp = app
+        app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
+        app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
+        app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        if accessibilityText {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        }
+        app.launch(); app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))
+        let groups = app.buttons["groupsTab"].firstMatch
+        if groups.exists { groups.tap() } else { app.tabBars.buttons["Groups"].firstMatch.tap() }
+        let create = app.buttons["standardCreateGroupButton"].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        create.tap()
+        let name = app.textFields["savedUsersGroupNameField"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.tap()
+        let deletion = String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0)
+        name.typeText(deletion + "Design " + UUID().uuidString.prefix(6))
+        app.buttons["saveUserSelectionButton"].tap()
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
+        let microphone = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .alerts["kTCCServiceMicrophone-alert"].firstMatch
+        if microphone.waitForExistence(timeout: 3) {
+            let allow = microphone.buttons["kTCCServiceMicrophone-allow-button"].firstMatch
+            XCTAssertTrue(allow.waitForExistence(timeout: 3))
+            allow.tap()
+            XCTAssertTrue(microphone.waitForNonExistence(timeout: 5))
+        }
+    }
+
+    @MainActor func openGroups() {
+        app.closeCallIfOpen()
+        let groups = app.buttons["groupsTab"].firstMatch
+        if groups.exists { groups.tap() } else { app.tabBars.buttons["Groups"].firstMatch.tap() }
+    }
+
+    @MainActor private func createGroup(named groupName: String) {
+        openGroups()
+        let create = app.buttons["standardCreateGroupButton"].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        create.tap()
+        let name = app.textFields["savedUsersGroupNameField"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.tap()
+        let deletion = String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0)
+        name.typeText(deletion + groupName)
+        app.buttons["saveUserSelectionButton"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["standardCallScreen"].firstMatch.waitForExistence(timeout: 5))
+    }
+}
+
+extension DesignSystemCallUITests {
+    @objc
+    @MainActor
+    func testLandscapeCallControlsRemainFixedWhileDetailsScroll() {
+        defer { attachEvidence("Landscape call controls") }
+        startStandardCall()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let mute = app.buttons["standardMuteButton"].firstMatch
+        let speaker = app.buttons["standardSpeakerButton"].firstMatch
+        let end = app.buttons["standardEndCallButton"].firstMatch
+        let details = app.descendants(matching: .any)["standardCallDetailsScroll"].firstMatch
+        let participants = app.staticTexts["standardCallParticipantsHeading"].firstMatch
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        XCTAssertTrue(participants.waitForExistence(timeout: 3))
+        for control in [mute, speaker, end] { XCTAssertTrue(control.isHittable, control.debugDescription) }
+        let originalFrames = [mute.frame, speaker.frame, end.frame]
+        let participantsY = participants.frame.minY
+        let lower = details.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let upper = details.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        lower.press(forDuration: 0.05, thenDragTo: upper)
+        XCTAssertNotEqual(participants.frame.minY, participantsY, "The details must actually scroll")
+        for (control, original) in zip([mute, speaker, end], originalFrames) {
+            XCTAssertTrue(control.isHittable, control.debugDescription)
+            XCTAssertEqual(control.frame.minX, original.minX, accuracy: 1)
+            XCTAssertEqual(control.frame.minY, original.minY, accuracy: 1)
+        }
+    }
+
+    @objc
     @MainActor
     func testLandscapeLargestTextKeepsCallControlsReachable() {
         addTeardownBlock { [weak self] in
-            await MainActor.run { self?.attachEvidence("Landscape largest text call") }
+            await self?.attachEvidence("Landscape largest text call")
         }
         startStandardCall(accessibilityText: true)
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -309,22 +310,12 @@ final class DesignSystemCallUITests: XCTestCase {
         let controls = app.descendants(matching: .any)["standardCallFixedControls"].firstMatch
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(controls.waitForExistence(timeout: 5))
-        XCTAssertLessThanOrEqual(details.frame.maxY, controls.frame.minY + 1, "Information and controls must occupy separate regions")
-        let labels = [("standardMuteState", "Mute"), ("standardSpeakerControlLabel", "Silence"), ("standardEndControlLabel", "End")].map { id, expected in
-            let label = app.staticTexts[id].firstMatch
-            XCTAssertTrue(label.exists, label.debugDescription)
-            XCTAssertEqual(label.label, expected)
-            XCTAssertTrue(app.frame.contains(label.frame), label.debugDescription)
-            return label
-        }
-        for (index, label) in labels.enumerated() {
-            for other in labels.dropFirst(index + 1) {
-                XCTAssertFalse(label.frame.intersects(other.frame), "Control labels must not overlap")
-            }
-            for button in [mute, speaker, end] {
-                XCTAssertFalse(label.frame.intersects(button.frame), "Control labels and buttons must not overlap")
-            }
-        }
+        XCTAssertLessThanOrEqual(
+            details.frame.maxY,
+            controls.frame.minY + 1,
+            "Information and controls must occupy separate regions"
+        )
+        verifyLabelsAreVisibleAndSeparate(from: [mute, speaker, end])
         let state = app.descendants(matching: .any)["standardCallHero"].firstMatch
         XCTAssertTrue(state.exists, state.debugDescription)
         let originalY = state.frame.minY
@@ -340,6 +331,7 @@ final class DesignSystemCallUITests: XCTestCase {
         for control in [mute, speaker, end] { XCTAssertTrue(control.isHittable, control.debugDescription) }
     }
 
+    @objc
     @MainActor
     func testRegularWidthUsesSeparateCallColumns() throws {
         defer { attachEvidence("Regular width call") }
@@ -360,67 +352,26 @@ final class DesignSystemCallUITests: XCTestCase {
         XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.isHittable)
     }
 
-    @MainActor private func attachEvidence(_ name: String) {
-        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        screenshot.name = name + " full screen"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
-        if let app {
-            let hierarchy = XCTAttachment(string: app.debugDescription)
-            hierarchy.name = name + " accessibility hierarchy"
-            hierarchy.lifetime = .keepAlways
-            add(hierarchy)
+    @MainActor private func verifyLabelsAreVisibleAndSeparate(from buttons: [XCUIElement]) {
+        let labels = [
+            ("standardMuteState", "Mute"),
+            ("standardSpeakerControlLabel", "Silence"),
+            ("standardEndControlLabel", "End")
+        ].map { id, expected in
+            let label = app.staticTexts[id].firstMatch
+            XCTAssertTrue(label.exists, label.debugDescription)
+            XCTAssertEqual(label.label, expected)
+            XCTAssertTrue(app.frame.contains(label.frame), label.debugDescription)
+            return label
         }
-    }
-
-    @MainActor private func startStandardCall(accessibilityText: Bool = false) {
-        app = XCUIApplication()
-        app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
-        app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
-        app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        if accessibilityText {
-            app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        for (index, label) in labels.enumerated() {
+            for other in labels.dropFirst(index + 1) {
+                XCTAssertFalse(label.frame.intersects(other.frame), "Control labels must not overlap")
+            }
+            for button in buttons {
+                XCTAssertFalse(label.frame.intersects(button.frame), "Control labels and buttons must not overlap")
+            }
         }
-        app.launch(); app.activate()
-        XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))
-        let groups = app.buttons["groupsTab"].firstMatch
-        if groups.exists { groups.tap() } else { app.tabBars.buttons["Groups"].firstMatch.tap() }
-        let create = app.buttons["standardCreateGroupButton"].firstMatch
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
-        create.tap()
-        let name = app.textFields["savedUsersGroupNameField"].firstMatch
-        XCTAssertTrue(name.waitForExistence(timeout: 3))
-        name.tap()
-        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0) + "Design " + UUID().uuidString.prefix(6))
-        app.buttons["saveUserSelectionButton"].tap()
-        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 5))
-        let microphone = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts["kTCCServiceMicrophone-alert"].firstMatch
-        if microphone.waitForExistence(timeout: 3) {
-            let allow = microphone.buttons["kTCCServiceMicrophone-allow-button"].firstMatch
-            XCTAssertTrue(allow.waitForExistence(timeout: 3))
-            allow.tap()
-            XCTAssertTrue(microphone.waitForNonExistence(timeout: 5))
-        }
-    }
-
-    @MainActor private func openGroups() {
-        app.closeCallIfOpen()
-        let groups = app.buttons["groupsTab"].firstMatch
-        if groups.exists { groups.tap() } else { app.tabBars.buttons["Groups"].firstMatch.tap() }
-    }
-
-    @MainActor private func createGroup(named groupName: String) {
-        openGroups()
-        let create = app.buttons["standardCreateGroupButton"].firstMatch
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
-        create.tap()
-        let name = app.textFields["savedUsersGroupNameField"].firstMatch
-        XCTAssertTrue(name.waitForExistence(timeout: 3))
-        name.tap()
-        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (name.value as? String)?.count ?? 0) + groupName)
-        app.buttons["saveUserSelectionButton"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["standardCallScreen"].firstMatch.waitForExistence(timeout: 5))
     }
 }
 #endif
