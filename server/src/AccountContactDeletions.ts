@@ -1,16 +1,16 @@
 import type { NotificationAuth } from './AccountNotifications'
 
 type State = 'pending' | 'received' | 'retired'
-interface Address { id: string; expiresAt: number }
-export interface ContactDeletionRelayPacket extends Address {
-    recipient: string; recipientKey: string; packet: string; packetHash: string
+export interface ContactDeletionRelayPacket {
+    id: string; expiresAt: number; recipient: string; recipientKey: string; packet: string; packetHash: string
 }
+export type ContactDeletionAddress = Pick<ContactDeletionRelayPacket, 'id' | 'expiresAt'>
 type ActiveEntry = Omit<ContactDeletionRelayPacket, 'packet'> & {
     deviceID: string
     state: 'pending' | 'received'
     packet: string
 }
-type Entry = ActiveEntry | Address & { deviceID: string; state: 'retired' }
+type Entry = ActiveEntry | ContactDeletionAddress & { deviceID: string; state: 'retired' }
 const prefix = 'contact-deletion:'
 const capacity = 64
 
@@ -30,7 +30,7 @@ export class AccountContactDeletions {
         return this.create(slotHash, { ...value, deviceID: auth.deviceID, state: 'pending' })
     }
 
-    retire(auth: NotificationAuth, slotHash: string, value: Address) {
+    retire(auth: NotificationAuth, slotHash: string, value: ContactDeletionAddress) {
         if (value.expiresAt <= Date.now()) return 'expired'
         const previous = this.entry(slotHash)
         if (previous && !this.sameDeletion(previous, auth, value)) return 'conflict'
@@ -76,7 +76,7 @@ export class AccountContactDeletions {
         this.storage.kv.put(prefix + slotHash, entry)
         return entry.state
     }
-    private sameDeletion(entry: Entry, auth: NotificationAuth, value: Address) {
+    private sameDeletion(entry: Entry, auth: NotificationAuth, value: ContactDeletionAddress) {
         return entry.deviceID === auth.deviceID && entry.id === value.id && entry.expiresAt === value.expiresAt
     }
     private forRecipient(owner: string, slotHash: string, recipient: string, key: string) {

@@ -52,7 +52,7 @@ export async function certifyDevice(identity: DeviceIdentity & { sessionBinding:
 function proofMessage(fields: string[]) {
     const encoder = new TextEncoder()
     const prefix = encoder.encode('rideintercom.device-proof.v1\0')
-    const values = fields.map(value => encoder.encode(value))
+    const values = fields.map(encoder.encode.bind(encoder))
     const message = new Uint8Array(prefix.length + values.reduce((size, value) => size + 4 + value.length, 0))
     const lengths = new DataView(message.buffer)
     message.set(prefix)

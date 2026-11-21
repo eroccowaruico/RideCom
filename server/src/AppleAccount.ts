@@ -6,7 +6,7 @@ import { certifyDevice } from './DeviceIdentity'
 import { publicAccountIndex } from './NotificationIndex'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
 import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket, type OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
-import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
+import { AccountContactDeletions, type ContactDeletionAddress, type ContactDeletionRelayPacket } from './AccountContactDeletions'
 import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type EnrollmentPolicy, type VerifiedAppAttestKey } from './AppAttestEnrollment'
 
 import { appleKeys, appleAuthorizationConfigured, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
@@ -86,6 +86,8 @@ export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
     private readonly contactDeletions = new AccountContactDeletions(this.ctx.storage)
     private readonly ordinaryGroupReplies = new AccountOrdinaryGroupReplies(this.ctx.storage)
+    // Keep the replaceable verifier on the instance, outside the RPC prototype.
+    protected readonly verifyMacAttestation = verifyMacEnrollment
 
     async ordinaryGroupReplyOpen(auth: NotificationAuth, slot: string, expiresAt: number) {
         if (!this.notifications.authorized(auth)) return 'unauthorized'
@@ -135,7 +137,7 @@ export class UserAccount extends DurableObject<Env> {
         if (state === 'pending' || state === 'received') await this.scheduleExpiry()
         return state
     }
-    async contactDeletionRetire(auth: NotificationAuth, slotHash: string, value: { id: string; expiresAt: number }) {
+    async contactDeletionRetire(auth: NotificationAuth, slotHash: string, value: ContactDeletionAddress) {
         if (!this.notifications.authorized(auth)) return 'unauthorized'
         const state = this.contactDeletions.retire(auth, slotHash, value)
         if (state === 'retired') await this.scheduleExpiry()
@@ -271,10 +273,6 @@ export class UserAccount extends DurableObject<Env> {
         return challenge.expiresAt > Date.now() && this.authenticate(deviceID, tokenHash) ? challenge : null
     }
 
-    protected verifyMacAttestation(bytes: Uint8Array, keyID: string, nonce: string, policy: EnrollmentPolicy) {
-        return verifyMacEnrollment(bytes, keyID, nonce, policy)
-    }
-
     async enrollAttestation(deviceID: string, tokenHash: string, input: AttestationSubmission, policy: EnrollmentPolicy) {
         const { nonce, keyID, attestation } = input
         const submissionHash = await digest(JSON.stringify([nonce, keyID, attestation]))
@@ -408,7 +406,7 @@ export class UserAccount extends DurableObject<Env> {
                     ...(rooms.length ? { rooms, mediaAttempts: 0, mediaRetryAt: now } : {}) })
             })
             // Authority was removed synchronously above. Index cleanup cannot restore it.
-            await Promise.all(attestations.map(value => this.releaseAttestation(value)))
+            await Promise.all(attestations.map(this.releaseAttestation.bind(this)))
             if (userID) {
                 await Promise.all(notificationDevices.map(value => this.removeNotificationIndex(value, userID)))
                 try { await publicAccountIndex(this.env, userID).remove(this.ctx.id.toString(), userID) }

@@ -25,12 +25,12 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         ? `const systemNow = Date.now; Date.now = () => ${fixedNowMs === undefined ? `systemNow() + ${Number(clockOffsetMs)}` : Number(fixedNowMs)};\n`
         : '';
     const attestationVerifier = attestationRoot ? `
-        async verifyMacAttestation(attestation, keyID, nonce, policy) {
+        verifyMacAttestation = async (attestation, keyID, nonce, policy) => {
             const root = Uint8Array.from(atob(${JSON.stringify(attestationRoot)}), c => c.charCodeAt(0));
             const verified = await createAppAttestEnrollmentVerifier(root)(attestation, keyID, nonce, policy, new Date(Date.now()));
             if (verified && ${Boolean(onAttestationVerified)}) await fetch('${attestationVerifiedURL}');
             return verified;
-        }` : '';
+        };` : '';
     const storageObservation = trackReplyStorage ? `
         function observeStorage(Type) {
             return class extends Type {

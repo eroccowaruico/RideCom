@@ -27,7 +27,7 @@ async function reservationExpiry(response: Response): Promise<number> {
     return data.expiresAt
 }
 
-export class SignalingRoom {
+export class SignalingRoom implements DurableObject {
     private turn: TurnCredentials
     constructor(private state: DurableObjectState, private env: Env) { this.turn = new TurnCredentials(state.storage, env) }
     private usage(path: string, body: unknown) {
