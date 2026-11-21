@@ -84,11 +84,13 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 | 項目 | 契約 |
 |---|---|
 | 応答 | `certificate`と`issuerKey`。certificateはJOSE ES256のcompact JWT、headerは`alg: ES256`・`typ: rideintercom-device+jwt`。issuerKeyは署名用公開鍵の非圧縮表現をbase64url化したもの |
-| claims | `iss`は要求先のHTTPS origin、`aud`は`rideintercom-peer`、`sub`は公開userID。`deviceID`・`memberID`・`deviceKey`・秒単位の`iat`・`exp`を含む。Apple ID・メール・Bearer・内部DO locatorを含めない |
+| claims | `iss`は要求先のHTTPS origin、`aud`は`rideintercom-peer`、`sub`は公開userID。`deviceID`・`memberID`・`deviceKey`・`sessionBinding`・秒単位の`iat`・`exp`を含む。Apple ID・メール・Bearer・内部DO locatorを含めない |
 | 有効期間 | 発行から最大30日、かつ元の端末資格の期限以内。サーバーへ証明のコピーや端末公開鍵の追加登録を保持しない |
 | 発行鍵 | `DEVICE_IDENTITY_SIGNING_KEY`へES256/P-256のprivate JWKをsecretとして設定する。未設定・破損時は503。Appへは公開部分だけ返す。環境ごとに管理し、ソース・ログへ秘密を入れない |
 | 信頼の取得 | App自身の設定済みサービスへのHTTPS認証要求の応答から公開鍵を取得する。相手が送る証明・招待内の鍵をそのまま信頼の起点にしない。サービスoriginが異なるIDを統合しない |
 | 限界 | 証明は発行時のユーザーと端末鍵の対応であり、直接招待・通知許可ではない。直接招待では一意な招待と受取内容への端末署名で秘密鍵の所持を確認する。接続中の本人名は、新しい確認値への端末署名と保存した相手の端末鍵を照合する。音声接続全体や通知の認可がこの証明だけで完成したと読み替えない。オフラインで削除・失効を即時照会できるという意味ではない |
+
+`sessionBinding` は `ri1` の末尾の秘密をUTF-8としてSHA-256にかけ、小文字hexにしたサーバー保存値を、もう一度UTF-8としてSHA-256にかけた小文字hex。通知が有効なときは証明発行時に、既存の公開アカウント索引へ送信者を端末資格の期限まで登録する。索引は受信者の登録・通知許可の発行と共有し、アカウント削除で回収する。[背景用のグループ招待](通知.md#背景用の一件分のグループ招待を受け付ける)は、証明内の値と現行端末資格の値を照合する。同じ端末IDで再ログインしても古い証明を新しいセッションに使えない。既存の招待・受領で使用する端末鍵と公開IDは同じ形式で扱う。
 
 署名鍵の変更時にはAppで証明と信頼する公開鍵を再取得する。期限切れ・未知の署名鍵の証明で新しい同一人物の統合を行わない。Local通話の開始をこのAPI呼出しへ従属させず、公開identityが未取得でも既存のAppleログイン・グループ認証の経路は維持する。公開通知を追加する際は、受取側の用途別許可・取消とオンライン資格の失効確認を別途接続する。
 

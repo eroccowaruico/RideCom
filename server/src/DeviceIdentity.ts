@@ -25,7 +25,7 @@ function issuerKeys(env: Env) {
     return { key, privateScalar: stored.d, issuerKey }
 }
 
-export async function certifyDevice(identity: DeviceIdentity, issuer: string, body: Record<string, unknown>, env: Env) {
+export async function certifyDevice(identity: DeviceIdentity & { sessionBinding: string }, issuer: string, body: Record<string, unknown>, env: Env) {
     const memberID = body.memberID, deviceKey = body.deviceKey
     if (!memberIDIsValid(memberID)) throw new Error('body')
     try { await importP256VerificationKey(deviceKey) } catch { throw new Error('body') }
@@ -34,7 +34,7 @@ export async function certifyDevice(identity: DeviceIdentity, issuer: string, bo
     const issuedAt = Math.floor(Date.now() / 1000)
     const expiresAt = Math.min(Math.floor(identity.expiresAt / 1000), issuedAt + 30 * 86400)
     if (expiresAt <= issuedAt) throw new Error('expired')
-    const certificate = await new SignJWT({ deviceID: identity.deviceID, memberID, deviceKey })
+    const certificate = await new SignJWT({ deviceID: identity.deviceID, memberID, deviceKey, sessionBinding: identity.sessionBinding })
         .setProtectedHeader({ alg: 'ES256', typ: 'rideintercom-device+jwt' })
         .setIssuer(issuer).setSubject(identity.userID).setAudience('rideintercom-peer')
         .setIssuedAt(issuedAt).setExpirationTime(expiresAt).sign(signingKey)
@@ -59,7 +59,7 @@ function proofMessage(fields: string[]) {
 }
 
 export async function verifyDeviceProof(
-    identity: Pick<DeviceIdentity, 'userID' | 'deviceID'>, issuer: string, purpose: string, payload: string,
+    identity: Pick<DeviceIdentity, 'userID' | 'deviceID'> & { sessionBinding?: string }, issuer: string, purpose: string, payload: string,
     body: Record<string, unknown>, env: Env
 ) {
     const { publicKey, certificate, signature } = body
@@ -75,6 +75,7 @@ export async function verifyDeviceProof(
             requiredClaims: ['iat', 'exp', 'deviceID', 'memberID', 'deviceKey']
         })
         if (protectedHeader.typ !== 'rideintercom-device+jwt' || claims.deviceID !== identity.deviceID
+            || (identity.sessionBinding !== undefined && claims.sessionBinding !== identity.sessionBinding)
             || !memberIDIsValid(claims.memberID) || claims.deviceKey !== publicKey || typeof claims.iat !== 'number'
             || typeof claims.exp !== 'number' || !Number.isSafeInteger(claims.iat) || !Number.isSafeInteger(claims.exp)
             || claims.iat < 0 || claims.iat > Date.now() / 1000 + 60

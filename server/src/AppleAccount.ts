@@ -3,6 +3,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { errors, jwtVerify } from 'jose'
 import { Env, json, readJSON } from './types'
 import { certifyDevice } from './DeviceIdentity'
+import { publicAccountIndex } from './NotificationIndex'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
 import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket } from './AccountOrdinaryGroupReplies'
 import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
@@ -129,7 +130,13 @@ export class UserAccount extends DurableObject<Env> {
     contactDeletionAcknowledge(owner: string, slotHash: string, recipient: string, key: string, id: string, packet: string) {
         return this.contactDeletions.acknowledge(owner, slotHash, recipient, key, id, packet)
     }
-    async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
+    async groupInvitationBegin(value: NotificationGroupInvitation) {
+        const result = this.notifications.beginInvitation(value)
+        if (result === 'notify' || result === 'stored' || (result === 'duplicate' && await this.ctx.storage.getAlarm() === null)) {
+            await this.scheduleExpiry()
+        }
+        return result
+    }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
     groupInvitationStatus(userID: string, requestID: string) { return this.notifications.invitationStatus(userID, requestID) }
     groupInvitationIDsForAdditionalDevice(auth: NotificationAuth, recipientKey: string) {
@@ -148,8 +155,14 @@ export class UserAccount extends DurableObject<Env> {
     groupInvitationSenderState(auth: NotificationAuth, recipient: string, id: string) {
         return this.notifications.groupInvitationSenderState(auth, recipient, id)
     }
-    groupInvitationSendBudget(auth: NotificationAuth, recipient: string, id: string) {
-        return this.notifications.takeGroupInvitationSendBudget(auth, recipient, id)
+    groupInvitationSendBudget(auth: NotificationAuth, recipient: string, id: string, background: boolean) {
+        return this.notifications.takeGroupInvitationSendBudget(auth, recipient, id, background)
+    }
+    async authenticateGroupInvitationSession(userID: string, deviceID: string, sessionBinding: string): Promise<NotificationAuth | null> {
+        const device = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)
+        if (!device || await digest(device.tokenHash) !== sessionBinding) return null
+        if (this.authenticate(deviceID, device.tokenHash)?.userID !== userID) return null
+        return { accountID: this.ctx.id.toString(), userID, deviceID, tokenHash: device.tokenHash }
     }
     async groupInvitationCancelUnstored(auth: NotificationAuth, recipient: string, id: string) {
         const result = this.notifications.cancelUnstoredGroupInvitation(auth, recipient, id)
@@ -377,7 +390,7 @@ export class UserAccount extends DurableObject<Env> {
             await Promise.all(attestations.map(value => this.releaseAttestation(value)))
             if (userID) {
                 await Promise.all(notificationDevices.map(value => this.removeNotificationIndex(value, userID)))
-                try { await this.env.NOTIFICATION_INDEX.get(this.env.NOTIFICATION_INDEX.idFromName('user:' + userID)).remove(this.ctx.id.toString(), userID) }
+                try { await publicAccountIndex(this.env, userID).remove(this.ctx.id.toString(), userID) }
                 catch { /* An unreachable index expires; account checks already reject its old route. */ }
             }
         }
@@ -512,16 +525,25 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
         if (path === '/api/auth/identity') {
             if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
             const authorization = request.headers.get('Authorization') ?? ''
-            const token = authorization.startsWith('Bearer ') && authorization.length <= 512 ? authorization.slice(7) : ''
-            const identity = await authenticateDevice(token, env)
+            const credential = authorization.startsWith('Bearer ') && authorization.length <= 512
+                ? deviceCredential(authorization.slice(7), env) : null
+            if (!credential) return json({ error: 'Unauthorized' }, 401)
+            const tokenHash = await digest(credential.secret)
+            const identity = await credential.account.authenticate(credential.deviceID, tokenHash)
             if (!identity) return json({ error: 'Unauthorized' }, 401)
             const limited = await limitEnrollment(request, env)
             if (limited) return limited
-            const result = await certifyDevice(identity, new URL(request.url).origin, await readJSON(request), env)
-            // Signing can suspend. Do not deliver a certificate after its device
-            // was revoked, replaced, or its account was deleted in the meantime.
-            const current = await authenticateDevice(token, env)
-            return current?.userID === identity.userID ? json(result) : json({ error: 'Unauthorized' }, 401)
+            const sessionBinding = await digest(tokenHash)
+            const result = await certifyDevice({ ...identity, sessionBinding }, new URL(request.url).origin, await readJSON(request), env)
+            // Signing and route publication can suspend. Recheck the same session.
+            const current = async () => (await credential.account.authenticate(credential.deviceID, tokenHash))?.userID === identity.userID
+            if (!await current()) return json({ error: 'Unauthorized' }, 401)
+            if (env.NOTIFICATIONS_ENABLED === 'true') {
+                await publicAccountIndex(env, identity.userID).bind({ accountID: credential.accountID,
+                    userID: identity.userID, expiresAt: identity.expiresAt })
+                if (!await current()) return json({ error: 'Unauthorized' }, 401)
+            }
+            return json(result)
         }
         if (path === '/api/auth/session' || path === '/api/auth/account') {
             const authorization = request.headers.get('Authorization') ?? ''

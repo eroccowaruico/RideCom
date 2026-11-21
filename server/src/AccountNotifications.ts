@@ -93,10 +93,11 @@ export class AccountNotifications {
         const expiresAt = this.storage.kv.get<number>(groupCancellationPrefix + recipient + ':' + requestID)
         return expiresAt !== undefined && expiresAt > Date.now() ? 'cancelled' : 'active'
     }
-    takeGroupInvitationSendBudget(auth: NotificationAuth, recipient: string, requestID: string) {
+    takeGroupInvitationSendBudget(auth: NotificationAuth, recipient: string, requestID: string, background: boolean) {
         const state = this.groupInvitationSenderState(auth, recipient, requestID)
         if (state !== 'active') return state
-        return this.takeBudget('sender', 60) ? 'active' : 'limited'
+        // A copied background submission cannot fill the shared budget with its one signed ID.
+        return this.takeBudget('sender', 60, background ? `${recipient}:${requestID}` : undefined) ? 'active' : 'limited'
     }
     cancelUnstoredGroupInvitation(auth: NotificationAuth, recipient: string, requestID: string) {
         const state = this.groupInvitationSenderState(auth, recipient, requestID)
@@ -108,12 +109,16 @@ export class AccountNotifications {
         this.storage.kv.put(groupCancellationPrefix + recipient + ':' + requestID, Date.now() + groupInvitationSyncLifetime)
         return 'cancelled'
     }
-    private takeBudget(kind: string, maximum: number): boolean {
+    private takeBudget(kind: string, maximum: number, groupDeliveryKey?: string): boolean {
         const key = 'notify-rate:' + kind, minute = Math.floor(Date.now() / 60_000)
-        const previous = this.storage.kv.get<{ minute: number; count: number }>(key)
-        const count = previous?.minute === minute ? previous.count : 0
+        const stored = this.storage.kv.get<{ minute: number; count: number; groupDeliveryKeys?: string[] }>(key)
+        const previous = stored?.minute === minute ? stored : undefined
+        const count = previous?.count ?? 0
+        const groupDeliveryKeys = previous?.groupDeliveryKeys ?? []
+        if (groupDeliveryKey && groupDeliveryKeys.includes(groupDeliveryKey)) return true
         if (count >= maximum) return false
-        this.storage.kv.put(key, { minute, count: count + 1 })
+        if (groupDeliveryKey) groupDeliveryKeys.push(groupDeliveryKey)
+        this.storage.kv.put(key, { minute, count: count + 1, groupDeliveryKeys })
         return true
     }
     begin(call: NotificationCall): { call: NotificationCall; fresh: boolean } | 'forbidden' | 'limited' {
@@ -156,7 +161,7 @@ export class AccountNotifications {
         this.storage.kv.put(callPrefix + requestID, { ...call, status: 'cancelled' })
         return true
     }
-    beginInvitation(value: NotificationGroupInvitation): 'notify' | 'stored' | 'forbidden' | 'limited' | 'conflict' | 'expired' {
+    beginInvitation(value: NotificationGroupInvitation): 'notify' | 'stored' | 'duplicate' | 'forbidden' | 'limited' | 'conflict' | 'expired' {
         this.prune()
         const now = Date.now()
         if (value.expiresAt <= now) return 'expired'
@@ -170,10 +175,11 @@ export class AccountNotifications {
                 || old.expiresAt !== value.expiresAt || (old.envelope !== null && old.envelope !== value.envelope)) return 'conflict'
             // A current authenticated sender may resume its exact persisted packet after sign-in.
             // Merely retaining a packet from a signed-out credential cannot make it receivable.
-            if (old.status === 'queued') {
+            if (old.status === 'queued' && (old.sender.deviceID !== value.sender.deviceID || old.sender.tokenHash !== value.sender.tokenHash)) {
                 this.storage.kv.put(invitationPrefix + value.requestID, { ...old, sender: value.sender })
+                return 'stored'
             }
-            return 'stored'
+            return 'duplicate'
         }
         if (this.invitationResult(value.recipientID, value.requestID)) return 'conflict'
         if (!this.takeBudget('group-recipient', 20)) return 'limited'

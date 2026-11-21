@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID, sign } from 'node:crypto';
+import { createHash, randomUUID, sign } from 'node:crypto';
 import { generateKeyPair, exportJWK, exportPKCS8, SignJWT } from 'jose';
 import { makeRuntime } from './support/runtime.mjs';
 
@@ -378,6 +378,86 @@ test('an older device cannot shorten the current public route, while token owner
         assert.equal(await current.registrationID, 'second');
         await route.bind({ accountID: 'account-b', userID: 'b'.repeat(64), expiresAt: olderExpiry });
         assert.equal(await (await route.current()).expiresAt, olderExpiry, 'unrelated public identity must not inherit the expiry');
+    } finally { await r.dispose(); }
+});
+
+test('a background submission authorizes exactly the signed group invitation with the current device session', async () => {
+    let deliveries = 0;
+    const now = Date.now();
+    const r = await setup({}, async () => { deliveries++; return Response.json({}); }, { fixedNowMs: now });
+    try {
+        const a = await login(r, 'background-author'), b = await login(r, 'background-recipient');
+        assert.equal((await register(r, b)).status, 200);
+        const key = await generateKeyPair('ES256', { extractable: true });
+        const jwk = await exportJWK(key.publicKey);
+        const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+        const memberID = 'background-author';
+        const issueIdentity = async user => {
+            const response = await call(r, '/api/auth/identity', { memberID, deviceKey: publicKey }, user.accessToken);
+            assert.equal(response.status, 200);
+            return response.json();
+        };
+        const certificate = await issueIdentity(a);
+        const groupPath = '/api/notifications/group-invitations';
+        const grantResult = await call(r, groupPath + '/grants', { senderUserID: a.userID }, b.accessToken);
+        assert.equal(grantResult.status, 200);
+        const permission = await grantResult.json();
+        const body = { capability: permission.capability, requestID: randomUUID(), expiresAt: Date.now() + 60_000,
+            recipientKey: 'k'.repeat(87), envelope: Buffer.from('fixture background envelope').toString('base64') };
+        const hash = text => createHash('sha256').update(text).digest('hex');
+        const packet = async (value, user = a, identity = certificate, origin = 'https://worker.test') => {
+            const sessionBinding = hash(hash(user.accessToken.split('.')[3]));
+            const submission = Buffer.from(JSON.stringify(value)).toString('base64');
+            const payload = JSON.stringify([origin, sessionBinding, submission]);
+            const fields = ['submitBackgroundGroupInvitation', memberID, publicKey, identity.certificate, identity.issuerKey, payload];
+            const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
+            for (const field of fields) {
+                const bytes = Buffer.from(field), size = Buffer.alloc(4);
+                size.writeUInt32BE(bytes.length);
+                parts.push(size, bytes);
+            }
+            const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, Buffer.concat(parts));
+            return { senderUserID: user.userID, deviceID: user.deviceID, sessionBinding, submission,
+                proof: { publicKey, certificate: identity, signature: Buffer.from(signature).toString('base64url') } };
+        };
+        const submit = value => call(r, groupPath + '/background', value);
+        const original = await packet(body);
+        const changed = data => ({ ...original, submission: Buffer.from(JSON.stringify({ ...body, ...data })).toString('base64') });
+        for (const data of [{ requestID: randomUUID() }, { expiresAt: body.expiresAt + 1 }, { recipientKey: 'z'.repeat(87) },
+            { envelope: Buffer.from('replaced envelope').toString('base64') }, { capability: (await grant(r, b, a)).capability }]) {
+            assert.equal((await submit(changed(data))).status, 401);
+        }
+        assert.equal((await submit(await packet(body, a, certificate, 'https://second.test'))).status, 401);
+        assert.equal((await submit({ ...original, senderUserID: b.userID })).status, 401);
+        assert.equal((await call(r, groupPath, original)).status, 401);
+        assert.equal(deliveries, 0);
+        const first = await submit(original);
+        assert.equal(first.status, 200);
+        assert.deepEqual(await first.json(), { requestID: body.requestID, expiresAt: body.expiresAt, status: 'queued' });
+        for (let repeat = 0; repeat < 60; repeat++) assert.equal((await submit(original)).status, 200);
+        assert.equal((await call(r, groupPath, body, a.accessToken)).status, 200);
+        assert.equal(deliveries, 1);
+        const inbox = await call(r, groupPath + '?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        assert.equal((await inbox.json()).delivery.requestID, body.requestID);
+        const pending = { ...body, requestID: randomUUID() };
+        const stale = await packet(pending);
+        const renewed = await login(r, 'background-author', a.deviceID);
+        assert.equal((await submit(stale)).status, 401);
+        assert.equal((await submit(await packet(pending, renewed, certificate))).status, 401);
+        const renewedCertificate = await issueIdentity(renewed);
+        const cancellable = await packet(pending, renewed, renewedCertificate);
+        const cancelledPath = groupPath + '/' + b.userID + '/' + pending.requestID;
+        assert.equal((await call(r, cancelledPath, undefined, renewed.accessToken, 'DELETE')).status, 404);
+        const cancelled = await submit(cancellable);
+        assert.equal(cancelled.status, 200);
+        assert.equal((await cancelled.json()).status, 'cancelled');
+        const expired = await packet({ ...pending, expiresAt: now - 1 }, renewed, renewedCertificate);
+        assert.equal((await submit(expired)).status, 400);
+        await call(r, '/api/notifications/grants/' + permission.grantID, undefined, b.accessToken, 'DELETE');
+        assert.equal((await submit(cancellable)).status, 403);
+        assert.equal((await call(r, '/api/auth/session', undefined, renewed.accessToken, 'DELETE')).status, 200);
+        assert.equal((await submit(cancellable)).status, 401);
+        assert.equal(deliveries, 1);
     } finally { await r.dispose(); }
 });
 

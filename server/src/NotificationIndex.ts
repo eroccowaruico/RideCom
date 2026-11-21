@@ -6,6 +6,10 @@ export interface NotificationBinding {
     deviceID?: string; registrationID?: string
 }
 
+export function publicAccountIndex(env: Env, userID: string) {
+    return env.NOTIFICATION_INDEX.getByName('user:' + userID)
+}
+
 /** One opaque public-ID or token-hash index per object, never an address book. */
 export class NotificationIndex extends DurableObject<Env> {
     async bind(value: NotificationBinding): Promise<void> {
