@@ -6,15 +6,21 @@ import Testing
 @MainActor struct GroupInvitationEnvelopeTests {
     private let sender = AccountPrincipal(issuer: "https://worker.test", userID: String(repeating: "a", count: 64))
     private let receiver = AccountPrincipal(issuer: "https://worker.test", userID: String(repeating: "b", count: 64))
-    private func fixture() throws -> (GroupInviteToken, DeviceIdentitySigner, DeviceIdentitySigner, SavedUser) {
+    private struct Fixture {
+        let token: GroupInviteToken
+        let senderSigner: DeviceIdentitySigner
+        let recipientSigner: DeviceIdentitySigner
+        let user: SavedUser
+    }
+    private func fixture() throws -> Fixture {
         let senderSigner = testIdentitySigner("envelope-author"),
             recipientSigner = testIdentitySigner("envelope-recipient")
         let token = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: senderSigner, groupID: UUID(),
             groupName: "Private mountain group",
             groupSecret: "private-group-key-not-for-the-server", inviterMemberID: senderSigner.memberID)
-        return (
-            token, senderSigner, recipientSigner,
+        return Fixture(
+            token: token, senderSigner: senderSigner, recipientSigner: recipientSigner, user:
             .init(
                 displayName: "Author", memberIDs: [senderSigner.memberID],
                 deviceKeys: [senderSigner.memberID: senderSigner.publicKey],
@@ -22,7 +28,9 @@ import Testing
         )
     }
     @Test func onlyTheAddressedDeviceCanReadTheSignedGroupWithoutExposingItsKeyToTheRouter() throws {
-        let (token, senderSigner, recipientSigner, user) = try fixture()
+        let fixture = try fixture()
+        let token = fixture.token, senderSigner = fixture.senderSigner
+        let recipientSigner = fixture.recipientSigner, user = fixture.user
         let value = try GroupInvitationEnvelope.seal(
             token, sender: sender,
             recipient: .init(
@@ -67,7 +75,9 @@ import Testing
     }
 
     @Test func changedRoutingOrCiphertextAndUnknownSendersAreRejected() throws {
-        let (token, senderSigner, recipientSigner, user) = try fixture()
+        let fixture = try fixture()
+        let token = fixture.token, senderSigner = fixture.senderSigner
+        let recipientSigner = fixture.recipientSigner, user = fixture.user
         let value = try GroupInvitationEnvelope.seal(
             token, sender: sender,
             recipient: .init(

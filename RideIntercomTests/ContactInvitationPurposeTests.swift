@@ -36,7 +36,7 @@ struct ContactInvitationPurposeTests {
             try ordinary.accept(
                 signer: testIdentitySigner("purpose-friend"), displayName: "Friend", contactBootstrap: true)
         }
-        var rewritten = URLComponents(url: contactURL, resolvingAgainstBaseURL: false)!
+        var rewritten = try #require(URLComponents(url: contactURL, resolvingAgainstBaseURL: false))
         rewritten.host = "join"
         #expect(throws: GroupInviteTokenError.invalidTokenEncoding) {
             try GroupInviteTokenCodec.decodeJoinURL(#require(rewritten.url))
