@@ -44,7 +44,8 @@ struct RecentCallTests {
         let call = vm.currentCallReference
         #expect(vm.removeSavedUser(user.id))
         #expect(vm.recentCallDestination == nil && settings.load().recentCallDestination == nil)
-        #expect(!vm.startRecentCall(accountAccessID: vm.accountAccessID))
+        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.recent, reference: nil) }
         #expect(vm.activeGroupID == nil && !vm.endCall(call))
     }
 
@@ -98,8 +99,9 @@ struct RecentCallTests {
         defer { fresh.viewModel.disconnect() }
         #expect(fresh.viewModel.recentCallDestination == .group(group.id))
         #expect(fresh.viewModel.interfaceMode == .advanced)
-        fresh.viewModel.selectGroup(fresh.viewModel.groups[1])
-        #expect(fresh.viewModel.startRecentCall(accountAccessID: fresh.viewModel.accountAccessID))
+        fresh.viewModel.selectGroup(fresh.viewModel.groups[1], connectIfIdle: false)
+        let owner = AppCallOwner(account: fresh.viewModel.accountSession, viewModel: fresh.viewModel)
+        try owner.performCallSurfaceAction(.recent, reference: nil)
         #expect(fresh.viewModel.activeGroupID == group.id)
     }
 
@@ -126,10 +128,10 @@ struct RecentCallTests {
         defer { vm.disconnect() }
         let first = vm.groups[0]
         vm.selectGroup(first); h.callSession.authenticate(["member-108"]); try await prove("member-108", in: h)
-        let access = vm.accountAccessID
+        let owner = AppCallOwner(account: f.session, viewModel: vm)
         f.session.signOut(); f.signIn()
         #expect(vm.recentCallDestination == nil && vm.recentCallTitle == nil)
-        #expect(!vm.startRecentCall(accountAccessID: access))
+        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.recent, reference: nil) }
         #expect(vm.appSettingsStore.load().recentCallDestination == .group(first.id))
     }
 

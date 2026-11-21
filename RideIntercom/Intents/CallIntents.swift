@@ -13,14 +13,8 @@ struct StartSavedCallIntent: AppIntent {
     init(target: CallTargetEntity) { self.target = target }
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        let vm = try owner.callModel()
-        guard let destination = owner.callTargets.first(where: { $0.entity.id == target.id })?.destination else {
-            throw CallIntentError.unavailable("This saved call destination is no longer available. Choose it again in RideCom.")
-        }
-        guard vm.startCall(to: destination, accountAccessID: vm.accountAccessID, allowSwitchingCall: false) else {
-            throw CallIntentError.unavailable(vm.groupErrorMessage ?? "The call could not be started.")
-        }
-        owner.callPresentationID = UUID()
+        try owner.startSavedCall(id: target.id,
+                                 missingDestinationMessage: "This saved call destination is no longer available. Choose it again in RideCom.")
         return .result(dialog: "Connection started. The other person must also join the call.")
     }
 }
@@ -32,14 +26,7 @@ struct StartRecentCallIntent: AppIntent {
     @AppDependency var owner: AppCallOwner
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        let vm = try owner.callModel()
-        guard let destination = vm.recentCallDestination else {
-            throw CallIntentError.unavailable("No recent call is available. Choose a saved user or group in RideCom.")
-        }
-        guard vm.startCall(to: destination, accountAccessID: vm.accountAccessID, allowSwitchingCall: false) else {
-            throw CallIntentError.unavailable(vm.groupErrorMessage ?? "The call could not be started.")
-        }
-        owner.callPresentationID = UUID()
+        try owner.startRecentExternalCall()
         return .result(dialog: "Connection started. The other person must also join the call.")
     }
 }

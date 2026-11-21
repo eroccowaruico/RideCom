@@ -65,18 +65,29 @@ struct CallIntentTests {
         #expect(vm.activeGroupID == nil)
     }
 
-    @Test func recentIntentUsesStoredDestinationAndLeavesOtherActiveCallAlone() async throws {
+    @Test(arguments: [false, true]) func recentIntentUsesStoredDestinationAndLeavesOtherActiveCallAlone(fromControl: Bool) async throws {
         let group = IntercomSeedData.recentGroups[0]
         let h = AppTestSupport.makeHarness(appSettingsStore: InMemoryAppSettingsStore(settings: .init(recentCallDestination: .group(group.id))))
         let vm = h.viewModel; defer { vm.disconnect() }
         let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        let recent = StartRecentCallIntent(); recent.owner = owner
-        _ = try await recent.perform()
+        func resumeRecent() async throws {
+            if fromControl {
+                let recent = OpenCallControlIntent(action: .recent); recent.actions = owner
+                _ = try await recent.perform()
+            } else {
+                let recent = StartRecentCallIntent(); recent.owner = owner
+                _ = try await recent.perform()
+            }
+        }
+        try await resumeRecent()
         #expect(vm.activeGroupID == group.id)
         #expect(vm.startCall(to: .group(vm.groups[1].id), accountAccessID: vm.accountAccessID))
         let reference = vm.currentCallReference
-        await #expect(throws: CallIntentError.self) { _ = try await recent.perform() }
+        let displayed = owner.callPresentationID
+        await #expect(throws: CallIntentError.self) { try await resumeRecent() }
         #expect(vm.currentCallReference == reference)
+        #expect(owner.callPresentationID == displayed)
+        #expect(vm.groupErrorMessage?.contains("End the current call") == true)
     }
 
     @Test func queryUsesCurrentNamesAndEndDoesNotRequireTheDeletedContact() async throws {

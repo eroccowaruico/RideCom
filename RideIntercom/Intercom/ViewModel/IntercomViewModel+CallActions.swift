@@ -33,15 +33,6 @@ extension IntercomViewModel {
         }
     }
 
-    @discardableResult
-    func startRecentCall(accountAccessID: UUID) -> Bool {
-        guard let destination = recentCallDestination else {
-            groupErrorMessage = groupStorageNotice ?? "No recent call is available. Choose a saved user or group."
-            return false
-        }
-        return startCall(to: destination, accountAccessID: accountAccessID)
-    }
-
     /// Transport connection alone is insufficient: the current participant proof
     /// and the local media pipeline must both be ready.
     func recordEstablishedCall() {

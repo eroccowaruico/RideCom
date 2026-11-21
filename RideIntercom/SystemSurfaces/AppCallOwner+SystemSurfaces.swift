@@ -25,21 +25,42 @@ extension AppCallOwner {
         liveActivities.setPresentation(input.0, enabled: input.1, isForeground: input.2)
     }
     func performCallSurfaceAction(_ action: CallSurfaceAction, reference: CallSurfaceReference?) throws {
-        let vm = try callModel()
         switch action {
-        case .calls: break
-        case .saved: try startWidgetCall(id: "")
+        case .calls:
+            _ = try callModel()
+        case .saved:
+            return try startWidgetCall(id: "")
         case .recent:
-            guard let destination = vm.recentCallDestination else {
-                throw CallIntentError.unavailable("No recent call is available. Choose a saved user or group in RideCom.")
-            }
-            guard vm.startCall(to: destination, accountAccessID: vm.accountAccessID, allowSwitchingCall: false) else {
-                throw CallIntentError.unavailable(vm.groupErrorMessage ?? "The call could not be started.")
-            }
+            return try startRecentExternalCall()
         case .end:
+            let vm = try callModel()
             guard let reference, vm.endCall(reference.callReference) else {
                 throw CallIntentError.unavailable("The displayed call has ended or changed. Open RideCom to check your current call.")
             }
+        }
+        callPresentationID = UUID()
+    }
+
+    func startWidgetCall(id: String) throws {
+        try startSavedCall(id: id, missingDestinationMessage: "This call destination is no longer available. Choose a saved user or group in RideCom.")
+    }
+
+    func startSavedCall(id: String, missingDestinationMessage: String) throws {
+        let vm = try callModel()
+        let destination = callTargets.first { $0.entity.id == id }?.destination
+        try startExternalCall(to: destination, using: vm, missingDestinationMessage: missingDestinationMessage)
+    }
+
+    func startRecentExternalCall() throws {
+        let vm = try callModel()
+        try startExternalCall(to: vm.recentCallDestination, using: vm,
+                              missingDestinationMessage: "No recent call is available. Choose a saved user or group in RideCom.")
+    }
+
+    private func startExternalCall(to destination: CallDestination?, using vm: IntercomViewModel, missingDestinationMessage: String) throws {
+        guard let destination else { throw CallIntentError.unavailable(missingDestinationMessage) }
+        guard vm.startCall(to: destination, accountAccessID: vm.accountAccessID, allowSwitchingCall: false) else {
+            throw CallIntentError.unavailable(vm.groupErrorMessage ?? "The call could not be started.")
         }
         callPresentationID = UUID()
     }
