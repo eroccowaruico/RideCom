@@ -96,7 +96,8 @@ struct ArchitectureTests {
         #expect(transmitPipelineView.contains("ViewThatFits(in: .horizontal)"))
         #expect(transmitPipelineView.contains("minHeight: 104") == false)
         #expect(receivePipelineView.contains("DiagnosticsReceiveDetails(presentation: presentation, expandedStage: $expandedStage)"))
-        #expect(receivePipelineView.contains("ReceiveOutputMixGroup(step: presentation.outputBusStep"))
+        let outputGroupPattern = #"ReceiveOutputMixGroup\(\s*step:\s*presentation\.outputBusStep\b"#
+        #expect(receivePipelineView.range(of: outputGroupPattern, options: .regularExpression) != nil)
         #expect(receivePipelineView.contains("ReceivePeerBusCard") == false)
         #expect(receivePipelineView.contains("receiveCodecSummary") == false)
         #expect(transmitPipelineView.contains("input.transmitEffectChainSnapshot"))
