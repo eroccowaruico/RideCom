@@ -11,6 +11,14 @@ public enum PeakLimiterParameter: Sendable {
 	case attackTime
 	case decayTime
 	case preGain
+
+	fileprivate var binding: (id: AudioUnitParameterID, value: KeyPath<PeakLimiterConfiguration, Float>) {
+		switch self {
+		case .attackTime: (kLimiterParam_AttackTime, \.attackTime)
+		case .decayTime: (kLimiterParam_DecayTime, \.decayTime)
+		case .preGain: (kLimiterParam_PreGain, \.preGain)
+		}
+	}
 }
 
 public struct PeakLimiterConfiguration: Codable, Equatable, Sendable {
@@ -94,7 +102,8 @@ public final class PeakLimiterEffect {
 		PeakLimiterRuntimeSnapshot(configuration: configuration)
 	}
 
-	public static func make(configuration: PeakLimiterConfiguration = PeakLimiterConfiguration()) throws -> PeakLimiterEffect {
+    public static func make(configuration: PeakLimiterConfiguration = PeakLimiterConfiguration()) throws
+        -> PeakLimiterEffect {
 		guard PeakLimiterSupport.isAvailable else {
 			throw PeakLimiterError.audioUnitUnavailable
 		}
@@ -110,23 +119,23 @@ public final class PeakLimiterEffect {
 	}
 
 	public func apply(_ configuration: PeakLimiterConfiguration) throws {
-		let configuration = PeakLimiterConfiguration(attackTime: configuration.attackTime, decayTime: configuration.decayTime, preGain: configuration.preGain)
-		let parameters: [(id: AudioUnitParameterID, name: PeakLimiterParameter, value: Float, previous: Float)] = [
-			(kLimiterParam_AttackTime, .attackTime, configuration.attackTime, self.configuration.attackTime),
-			(kLimiterParam_DecayTime, .decayTime, configuration.decayTime, self.configuration.decayTime),
-			(kLimiterParam_PreGain, .preGain, configuration.preGain, self.configuration.preGain),
-		]
+        let configuration = PeakLimiterConfiguration(
+            attackTime: configuration.attackTime, decayTime: configuration.decayTime,
+            preGain: configuration.preGain)
+		let parameters: [PeakLimiterParameter] = [.attackTime, .decayTime, .preGain]
 		// These fixed v2 parameters do not need AUParameterTree listeners.
 		// The bridge can still be rebuilding its listeners when a graph is discarded.
 		try effect.withAudioUnit { unit in
 			for (index, parameter) in parameters.enumerated() {
-				let status = AudioUnitSetParameter(unit, parameter.id, kAudioUnitScope_Global, 0, parameter.value, 0)
+				let (identifier, value) = parameter.binding
+				let status = AudioUnitSetParameter(unit, identifier, kAudioUnitScope_Global, 0, configuration[keyPath: value], 0)
 				guard status == noErr else {
 					for applied in parameters.prefix(index) {
-						_ = AudioUnitSetParameter(unit, applied.id, kAudioUnitScope_Global, 0, applied.previous, 0)
+						let (identifier, value) = applied.binding
+						_ = AudioUnitSetParameter(unit, identifier, kAudioUnitScope_Global, 0, self.configuration[keyPath: value], 0)
 					}
-					if status == kAudioUnitErr_InvalidParameter { throw PeakLimiterError.missingParameter(parameter.name) }
-					throw PeakLimiterError.parameterUpdateFailed(parameter.name, status)
+					if status == kAudioUnitErr_InvalidParameter { throw PeakLimiterError.missingParameter(parameter) }
+					throw PeakLimiterError.parameterUpdateFailed(parameter, status)
 				}
 			}
 		}

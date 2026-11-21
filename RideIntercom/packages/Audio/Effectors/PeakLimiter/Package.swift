@@ -6,13 +6,13 @@ let package = Package(
     name: "PeakLimiter",
     platforms: [
         .iOS("27.0"),
-        .macOS("27.0"),
+        .macOS("27.0")
     ],
     products: [
         .library(
             name: "PeakLimiter",
             targets: ["PeakLimiter"]
-        ),
+        )
     ],
     targets: [
         .target(
@@ -21,7 +21,7 @@ let package = Package(
         .testTarget(
             name: "PeakLimiterTests",
             dependencies: ["PeakLimiter"]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )
