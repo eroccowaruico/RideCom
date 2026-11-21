@@ -10,7 +10,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'prepare_archive_info.py'
 
 
 class ArchiveNumberingTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -29,18 +29,18 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.env.pop('RIDEINTERCOM_DEVELOPMENT_WORKER_HOST', None)
         self.env.pop('RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN', None)
 
-    def run_phase(self, action='build', name='one'):
+    def run_phase(self, action: str = 'build', name: str = 'one') -> tuple[subprocess.CompletedProcess[str], Path]:
         output = self.root / name / 'Info.plist'
         result = subprocess.run([sys.executable, str(SCRIPT)],
             env=dict(self.env, ACTION=action, SCRIPT_OUTPUT_FILE_0=str(output)),
-            capture_output=True, text=True)
+            capture_output=True, text=True, check=False)
         return result, output
 
-    def install_development_credentials(self):
+    def install_development_credentials(self) -> None:
         self.env.update(RIDEINTERCOM_DEVELOPMENT_WORKER_HOST='preview.example.com',
                         RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN='synthetic-token')
 
-    def test_debug_credentials_are_injected_without_logging(self):
+    def test_debug_credentials_are_injected_without_logging(self) -> None:
         self.install_development_credentials()
         result, output = self.run_phase()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -48,7 +48,7 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.assertEqual(config, {'workerURL': 'https://preview.example.com', 'accessToken': 'synthetic-token'})
         self.assertNotIn('synthetic-token', result.stdout + result.stderr)
 
-    def test_release_archive_and_validation_never_embed_development_credentials(self):
+    def test_release_archive_and_validation_never_embed_development_credentials(self) -> None:
         self.install_development_credentials()
         source = dict(self.metadata, DevelopmentInternetConnection={'accessToken': 'stale-secret'})
         self.source.write_bytes(plistlib.dumps(source))
@@ -63,7 +63,7 @@ class ArchiveNumberingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(plistlib.loads(output.read_bytes()), self.metadata)
 
-    def test_source_custom_metadata_is_preserved_without_standard_field_generation(self):
+    def test_source_custom_metadata_is_preserved_without_standard_field_generation(self) -> None:
         # Standard version, executable, platform and INFOPLIST_KEY settings belong
         # to Xcode's ProcessInfoPlistFile rather than this credential-only phase.
         self.env.update(CURRENT_PROJECT_VERSION='315', MARKETING_VERSION='1.0',
@@ -73,7 +73,7 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.assertEqual(plistlib.loads(output.read_bytes()), self.metadata)
         self.assertEqual(plistlib.loads(self.source.read_bytes()), self.metadata)
 
-    def test_repeated_build_archive_and_indexing_leave_project_and_source_unchanged(self):
+    def test_repeated_build_archive_and_indexing_leave_project_and_source_unchanged(self) -> None:
         before = self.config.read_bytes(), self.source.read_bytes()
         for action in ['build', 'install', 'indexbuild', 'analyze', 'build']:
             result, output = self.run_phase(action)
@@ -82,7 +82,7 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.assertEqual(before, (self.config.read_bytes(), self.source.read_bytes()))
         self.assertEqual(list(self.config.parent.iterdir()), [self.config])
 
-    def test_preparation_needs_no_project_or_standard_metadata_settings(self):
+    def test_preparation_needs_no_project_or_standard_metadata_settings(self) -> None:
         self.config.unlink()
         self.config.parent.rmdir()
         for key in ['CURRENT_PROJECT_VERSION', 'MARKETING_VERSION', 'EXECUTABLE_NAME',
@@ -93,7 +93,7 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.assertEqual(plistlib.loads(output.read_bytes()), self.metadata)
         self.assertFalse(self.config.parent.exists())
 
-    def test_invalid_debug_credentials_fail_without_logging_or_changing_project(self):
+    def test_invalid_debug_credentials_fail_without_logging_or_changing_project(self) -> None:
         before = self.config.read_bytes()
         for host, token in [('preview.example.com/path', 'synthetic-token'),
                             ('preview.example.com', ''), ('', 'synthetic-token')]:
@@ -105,7 +105,7 @@ class ArchiveNumberingTests(unittest.TestCase):
             self.assertNotIn('synthetic-token', result.stdout + result.stderr)
             self.assertEqual(self.config.read_bytes(), before)
 
-    def test_invalid_source_metadata_fails_without_changing_project(self):
+    def test_invalid_source_metadata_fails_without_changing_project(self) -> None:
         before = self.config.read_bytes()
         self.source.write_bytes(b'not a plist')
         result, output = self.run_phase()
@@ -113,16 +113,16 @@ class ArchiveNumberingTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertEqual(self.config.read_bytes(), before)
 
-    def test_output_failure_leaves_project_unchanged(self):
+    def test_output_failure_leaves_project_unchanged(self) -> None:
         before = self.config.read_bytes()
         (self.root / 'one').write_text('not a directory')
-        result, output = self.run_phase()
+        result, _ = self.run_phase()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.config.read_bytes(), before)
 
 
 class BuildNumberSchemeTests(unittest.TestCase):
-    def test_every_shared_scheme_advances_all_configurations_without_extra_state(self):
+    def test_every_shared_scheme_advances_all_configurations_without_extra_state(self) -> None:
         import re
         import xml.etree.ElementTree as ET
         root = SCRIPT.parents[1]
@@ -140,10 +140,10 @@ class BuildNumberSchemeTests(unittest.TestCase):
                 actions = ET.parse(scheme).findall('BuildAction/PostActions/ExecutionAction/ActionContent')
                 numbering = [action for action in actions if 'agvtool' in action.get('scriptText', '')]
                 self.assertEqual(len(numbering), 1)
-                result = subprocess.run(['/bin/sh', '-c', numbering[0].get('scriptText')],
+                result = subprocess.run(['/bin/sh', '-c', numbering[0].attrib['scriptText']],
                     env=dict(os.environ, PROJECT_DIR=str(directory), SDKROOT='auto',
                              DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer'),
-                    capture_output=True, text=True)
+                    capture_output=True, text=True, check=False)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 after = config.read_text()
                 self.assertEqual({int(value) for value in re.findall(pattern, after)}, {next(iter(original)) + 1})
