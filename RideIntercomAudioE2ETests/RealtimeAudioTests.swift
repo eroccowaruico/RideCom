@@ -73,12 +73,15 @@ extension AudioE2ETests {
         // XCTest awaits this cleanup after each test's stream/engine defers.
         addTeardownBlock { @MainActor in
             let report = await session.requestActive(false).value
-            XCTAssertTrue([AudioSessionOperationResult.applied, .ignored(.unsupportedOnCurrentPlatform)].contains(report.result),
-                "Audio session cleanup failed: \(report.result)")
+            XCTAssertTrue(
+                [AudioSessionOperationResult.applied, .ignored(.unsupportedOnCurrentPlatform)].contains(report.result),
+                "Audio session cleanup failed: \(report.result)"
+            )
         }
         _ = try session.configure(configuration)
         let report = await session.requestActive(true).value
-        guard [AudioSessionOperationResult.applied, .ignored(.unsupportedOnCurrentPlatform)].contains(report.result) else {
+        let allowedResults: [AudioSessionOperationResult] = [.applied, .ignored(.unsupportedOnCurrentPlatform)]
+        guard allowedResults.contains(report.result) else {
             throw NSError(domain: "AudioE2E.Activation", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Audio session did not activate: \(report.result)"])
         }
@@ -89,134 +92,138 @@ extension AudioE2ETests {
         try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
         weak var previousPipeline: AppAudioPipeline?
         for fixture in ["speech-ja", "conversation-ja", "conversation-reply-ja"] {
-        for codec: RTCAudioCodecIdentifier in [.pcm16, .opus, .mpeg4AACELD] {
-            XCTAssertNil(previousPipeline, "The previous case must release its engine before opening another native I/O graph")
-            let engine = AVAudioEngine()
-            let input = try SpeechFileInput(name: fixture, engine: engine)
-            let probe = RenderedAudioProbe()
-            try input.updateVoiceProcessing(.init(soundIsolationEnabled: false, otherAudioDuckingEnabled: true))
-            let output = SystemAudioOutputStreamBackend(engine: engine)
-            try engine.mainMixerNode.installAudioTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, time in
-                probe.append(buffer, time: time)
+            for codec: RTCAudioCodecIdentifier in [.pcm16, .opus, .mpeg4AACELD] {
+                XCTAssertNil(
+                    previousPipeline,
+                    "The previous case must release its engine before opening another native I/O graph"
+                )
+                try await measureRealtimeAudio(fixture: fixture, codec: codec) { previousPipeline = $0 }
             }
-            let pipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
-            previousPipeline = pipeline
-            let transmitted = RenderedAudioProbe(), mixed = RenderedAudioProbe()
-            let inputAges = Mutex<[Double]>([]), txAges = Mutex<[Double]>([])
-            var mixAges: [Double] = []
-            let errorStore = Mutex<[String]>([])
-            let delivery = AudioFrameDelivery(initiallyActive: false) { _ in }
-            defer {
-                try? input.stopCapture()
-                delivery.finish()
-                pipeline.stop()
-                engine.mainMixerNode.removeTap(onBus: 0)
-                try? output.stopRendering()
-            }
-            pipeline.onTransmitPacket = { [weak pipeline] packet in
-                guard let pipeline else { return }
-                do {
-                    txAges.withLock { $0.append(ProcessInfo.processInfo.systemUptime - packet.capturedAt) }
-                    transmitted.append(try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "loopback"), packet: packet)), preservingTimeline: true)
-                } catch { errorStore.withLock { $0.append(String(describing: error)) } }
-            }
-            pipeline.onOutputFrame = { frame in
-                mixed.append(frame)
-                mixAges.append(ProcessInfo.processInfo.systemUptime - frame.capturedAt)
-            }
-            _ = try input.startCapture(configuration: .intercom(voiceProcessing: .init())) { frame in
-                guard delivery.isActive else { return }
-                inputAges.withLock { $0.append(ProcessInfo.processInfo.systemUptime - frame.capturedAt) }
-                pipeline.processMicrophoneFrame(frame, shouldProcess: { delivery.isActive })
-                delivery.yield(frame)
-            }
-            // Match startAudioPipelineIfNeeded: input, output, then graph.
-            // Starting capture after building the graph stops the shared engine
-            // and invalidates players that have already prepared their clocks.
-            let hardware = try output.startRendering(configuration: .intercomCall)
-            try pipeline.rebuild(configuration: .init(outputHardwareFormat: hardware, preferredCodec: codec,
-                transmitSoundIsolationEnabled: true, maximumBufferedDuration: 0.2,
-                receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002), peerIDs: ["loopback"])
-            XCTAssertEqual(pipeline.codecRuntimeReport.selectedCodec.rawValue, codec.rawValue)
-            XCTAssertFalse(pipeline.codecRuntimeReport.isFallback)
-            delivery.activate()
-            try await Task.sleep(for: .seconds(1))
-            probe.reset(); transmitted.reset(); mixed.reset()
-            inputAges.withLock { $0.removeAll() }; txAges.withLock { $0.removeAll() }; mixAges.removeAll()
-            try await Task.sleep(for: .seconds(fixture == "speech-ja" ? 8 : 20))
-            let errors = errorStore.withLock { $0 }
-            let recorded = probe.snapshot()
-            let dropped = (capture: input.droppedCaptureFrameCount, delivery: delivery.droppedFrameCount,
-                           render: pipeline.droppedRenderFrameCount)
-            let playbackResets = output.playbackResetCount ?? 0
-            let playout = pipeline.receivePlayoutDiagnostics(peerID: "loopback")
-            let nodeLatencies = engine.attachedNodes.map { node in
-                ["node": String(describing: type(of: node)), "latency": String(node.latency),
-                 "presentation": String(node.outputPresentationLatency)]
-            }
-            // End capture/render before offline analysis. Otherwise the analysis
-            // itself starves the app actor and contaminates the drop counters.
-            try input.stopCapture()
-            delivery.finish()
-            pipeline.stop()
-            try output.stopRendering()
-            let inputTime = try XCTUnwrap(input.firstCaptureTime)
-            let outputTime = try XCTUnwrap(probe.firstOutputTime)
-            let continuity = await Task.detached {
-                SpeechContinuity.measure(reference: input.samples, referenceRate: 48000,
-                    output: recorded.samples, outputRate: recorded.rate)
-            }.value
-            let replies = fixture.hasPrefix("conversation") ? try ConversationIdentity.measure(fixture: fixture, reference: input.samples,
-                output: recorded.samples, outputRate: recorded.rate, referenceOffset: continuity.referenceOffsetSeconds) : nil
-            let latency = outputTime - inputTime - continuity.referenceOffsetSeconds
-            var stages: [String: Double] = [:]
-            var stageContinuities: [String: Any] = [:]
-            for (name, stage) in [("transmitted", transmitted), ("mixed", mixed)] {
-                let recording = stage.snapshot()
-                let match = SpeechContinuity.measure(reference: input.samples, referenceRate: 48000,
-                    output: recording.samples, outputRate: recording.rate)
-                stageContinuities[name] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(match))
-                stages[name] = (stage.firstOutputTime ?? 0) - inputTime - match.referenceOffsetSeconds
-            }
-            let measurement: [String: Any] = ["scenario": "realtime-\(fixture)-\(codec.rawValue)", "role": "pipeline", "transport": "none",
-                "codec": pipeline.codecRuntimeReport.selectedCodec.rawValue, "fixture": fixture,
-                "acknowledgements": try replies.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull(),
-                "captureTiming": input.captureTiming, "captureDiscontinuities": input.captureDiscontinuities,
-                "playoutAdjustments": playout?.adjustments ?? 0, "playoutResets": playout?.resets ?? 0,
-                "stageLatencies": stages, "stageContinuities": stageContinuities, "nodeLatencies": nodeLatencies,
-                "maximumInputDeliveryAge": inputAges.withLock { $0.max() ?? 0 }, "maximumEncodeDeliveryAge": txAges.withLock { $0.max() ?? 0 },
-                "maximumMixerDeliveryAge": mixAges.max() ?? 0,
-                "renderLatencySeconds": latency, "outputPresentationLatencySeconds": engine.outputNode.outputPresentationLatency,
-                "inputStartHostTime": inputTime, "outputStartHostTime": outputTime,
-                "continuity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(continuity)),
-                "continuityPassed": continuity.passed && continuity.missingActiveRatio == 0 && (replies?.passed ?? true),
-                "renderedSamples": recorded.samples.count, "sampleRate": recorded.rate,
-                "processingFailures": errors, "encodingFailures": pipeline.transmitEncodingFailureCount,
-                "captureDroppedFrames": dropped.capture,
-                "deliveryDroppedFrames": dropped.delivery,
-                "renderDroppedFrames": dropped.render,
-                "outputPlaybackResets": playbackResets]
-            let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement, options: [.sortedKeys]),
-                uniformTypeIdentifier: "public.json")
-            attachment.name = "realtime-\(fixture)-\(codec.rawValue)-measurement"; attachment.lifetime = .keepAlways; add(attachment)
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("realtime-\(fixture)-\(codec.rawValue).wav")
-            try probe.writeWAV(to: url, rendered: recorded)
-            let recording = XCTAttachment(contentsOfFile: url)
-            recording.name = "realtime-\(fixture)-\(codec.rawValue)-speech"; recording.lifetime = .keepAlways; add(recording)
-            try? FileManager.default.removeItem(at: url)
-            XCTAssertTrue(errors.isEmpty, errors.joined(separator: "; "))
-            XCTAssertEqual(pipeline.transmitEncodingFailureCount, 0)
-            XCTAssertEqual(dropped.capture, 0)
-            XCTAssertEqual(dropped.delivery, 0)
-            XCTAssertEqual(dropped.render, 0)
-            XCTAssertTrue(continuity.passed, "\(fixture): \(continuity)")
-            XCTAssertEqual(continuity.missingActiveRatio, 0, "Even sub-percent missing speech is a regression")
-            if let replies { XCTAssertTrue(replies.passed, "\(fixture): \(replies)") }
-            XCTAssertGreaterThanOrEqual(latency, -0.01)
-            XCTAssertLessThanOrEqual(latency + 0.01, 0.125, "Include the 10 ms alignment resolution in the latency budget")
-        }
         }
     }
+
+    @MainActor
+    private func measureRealtimeAudio(
+        fixture: String, codec: RTCAudioCodecIdentifier, observePipeline: (AppAudioPipeline) -> Void
+    ) async throws {
+        let audio = try RealtimeAudioCapture(fixture: fixture, observePipeline: observePipeline)
+        defer { audio.tearDown() }
+        try audio.start(codec: codec)
+        let capture = try await audio.recordWindow(fixture: fixture)
+        let analysis = try await analyzeRealtimeAudio(audio, fixture: fixture, recording: capture.recorded)
+        try attachRealtimeAudio(audio, capture: capture, analysis: analysis, fixture: fixture, codec: codec)
+        verifyRealtimeAudio(audio, capture: capture, analysis: analysis, fixture: fixture)
+    }
+
+    @MainActor
+    private func analyzeRealtimeAudio(
+        _ audio: RealtimeAudioCapture, fixture: String, recording recorded: RenderedAudioProbe.Recording
+    ) async throws -> RealtimeAudioAnalysis {
+        let input = audio.input
+        let probe = audio.probe
+        let inputTime = try XCTUnwrap(input.firstCaptureTime)
+        let outputTime = try XCTUnwrap(probe.firstOutputTime)
+        let continuity = await Task.detached {
+            SpeechContinuity.measure(reference: input.samples, referenceRate: 48000,
+                output: recorded.samples, outputRate: recorded.rate)
+        }.value
+        let replies = fixture.hasPrefix("conversation") ? try ConversationIdentity.measure(
+            fixture: fixture, reference: input.samples, output: recorded.samples, outputRate: recorded.rate,
+            referenceOffset: continuity.referenceOffsetSeconds
+        ) : nil
+        let latency = outputTime - inputTime - continuity.referenceOffsetSeconds
+        var stages: [String: Double] = [:]
+        var stageContinuities: [String: Any] = [:]
+        for (name, stage) in [("transmitted", audio.meters.transmitted), ("mixed", audio.meters.mixed)] {
+            let recording = stage.snapshot()
+            let match = SpeechContinuity.measure(reference: input.samples, referenceRate: 48000,
+                output: recording.samples, outputRate: recording.rate)
+            stageContinuities[name] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(match))
+            stages[name] = (stage.firstOutputTime ?? 0) - inputTime - match.referenceOffsetSeconds
+        }
+        return RealtimeAudioAnalysis(
+            inputTime: inputTime, outputTime: outputTime, continuity: continuity, replies: replies, latency: latency,
+            stages: stages, stageContinuities: stageContinuities
+        )
+    }
+
+    @MainActor
+    private func attachRealtimeAudio(
+        _ audio: RealtimeAudioCapture, capture: RealtimeAudioWindow, analysis: RealtimeAudioAnalysis,
+        fixture: String, codec: RTCAudioCodecIdentifier
+    ) throws {
+        let name = "realtime-\(fixture)-\(codec.rawValue)"
+        let input = audio.input
+        let pipeline = audio.pipeline
+        let playout = capture.playout
+        let recorded = capture.recorded
+        let continuity = analysis.continuity
+        let replies = analysis.replies
+        let measurement: [String: Any] = [
+            "scenario": name, "role": "pipeline", "transport": "none",
+            "codec": pipeline.codecRuntimeReport.selectedCodec.rawValue, "fixture": fixture,
+            "acknowledgements": try audioE2EOptionalJSON(replies),
+            "captureTiming": input.captureTiming, "captureDiscontinuities": input.captureDiscontinuities,
+            "playoutAdjustments": playout?.adjustments ?? 0, "playoutResets": playout?.resets ?? 0,
+            "stageLatencies": analysis.stages, "stageContinuities": analysis.stageContinuities,
+            "nodeLatencies": capture.nodeLatencies,
+            "maximumInputDeliveryAge": audio.meters.inputAges.withLock { $0.max() ?? 0 },
+            "maximumEncodeDeliveryAge": audio.meters.txAges.withLock { $0.max() ?? 0 },
+            "maximumMixerDeliveryAge": audio.meters.mixAges.max() ?? 0,
+            "renderLatencySeconds": analysis.latency,
+            "outputPresentationLatencySeconds": audio.engine.outputNode.outputPresentationLatency,
+            "inputStartHostTime": analysis.inputTime, "outputStartHostTime": analysis.outputTime,
+            "continuity": try JSONSerialization.jsonObject(with: JSONEncoder().encode(continuity)),
+            "continuityPassed": continuity.passed && continuity.missingActiveRatio == 0
+                && (replies?.passed ?? true),
+            "renderedSamples": recorded.samples.count, "sampleRate": recorded.rate,
+            "processingFailures": capture.errors, "encodingFailures": pipeline.transmitEncodingFailureCount,
+            "captureDroppedFrames": capture.drops.capture,
+            "deliveryDroppedFrames": capture.drops.delivery,
+            "renderDroppedFrames": capture.drops.render,
+            "outputPlaybackResets": capture.playbackResets
+        ]
+        try addAudioE2EJSONAttachment(measurement, name: name + "-measurement", options: [.sortedKeys])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".wav")
+        try audio.probe.writeWAV(to: url, rendered: recorded)
+        let attachment = XCTAttachment(contentsOfFile: url)
+        attachment.name = name + "-speech"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @MainActor
+    private func verifyRealtimeAudio(
+        _ audio: RealtimeAudioCapture, capture: RealtimeAudioWindow, analysis: RealtimeAudioAnalysis, fixture: String
+    ) {
+        let errors = capture.errors
+        let dropped = capture.drops
+        let continuity = analysis.continuity
+        let latency = analysis.latency
+        XCTAssertTrue(errors.isEmpty, errors.joined(separator: "; "))
+        XCTAssertEqual(audio.pipeline.transmitEncodingFailureCount, 0)
+        XCTAssertEqual(dropped.capture, 0)
+        XCTAssertEqual(dropped.delivery, 0)
+        XCTAssertEqual(dropped.render, 0)
+        XCTAssertTrue(continuity.passed, "\(fixture): \(continuity)")
+        XCTAssertEqual(continuity.missingActiveRatio, 0, "Even sub-percent missing speech is a regression")
+        if let replies = analysis.replies { XCTAssertTrue(replies.passed, "\(fixture): \(replies)") }
+        XCTAssertGreaterThanOrEqual(latency, -0.01)
+        XCTAssertLessThanOrEqual(
+            latency + 0.01, 0.125, "Include the 10 ms alignment resolution in the latency budget"
+        )
+    }
+}
+
+private struct RealtimeAudioAnalysis {
+    let inputTime: Double
+    let outputTime: Double
+    let continuity: SpeechContinuity
+    let replies: ConversationIdentity?
+    let latency: Double
+    let stages: [String: Double]
+    let stageContinuities: [String: Any]
 }
 
 #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
