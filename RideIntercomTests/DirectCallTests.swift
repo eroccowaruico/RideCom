@@ -536,6 +536,64 @@ struct DirectCallTests {
 
 @MainActor
 struct OrdinaryGroupReplyTransportTests {
+    @Test func aRestoredLocalCallRouteResumesExpiredOrdinaryReplyAttempts() async throws {
+        let author = AppTestSupport.makeHarness(groups: [], localMemberID: "alice")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        let left = author.viewModel, right = recipient.viewModel
+        defer {
+            left.stopOrdinaryGroupReplyExchanges(); right.stopOrdinaryGroupReplyExchanges()
+            left.disconnect(); right.disconnect()
+        }
+        for model in [left, right] {
+            model.setRTCTransportRoutes([.multipeer, .webRTC])
+            model.allowsNearbyGroupDelivery = true
+        }
+        let group = UUID(), authorCall = UUID(), recipientCall = UUID()
+        try #require(left.createTalkGroup(name: "Invitation group", id: group))
+        try #require(left.createTalkGroup(name: "Author's call", id: authorCall))
+        try #require(left.startCall(to: .group(authorCall), accountAccessID: left.accountAccessID))
+        try #require(right.createTalkGroup(name: "Recipient's call", id: recipientCall))
+        try #require(right.startCall(to: .group(recipientCall), accountAccessID: right.accountAccessID))
+        let authorReference = left.currentCallReference, recipientReference = right.currentCallReference
+        let deliverToAuthor = try #require(author.callSession.onEvent)
+        let deliverToRecipient = try #require(recipient.callSession.onEvent)
+        let internet = TransportEvent.routesChanged(.init(activeRoute: .webRTC, mediaRoute: .webRTC,
+            availableRoutes: [.webRTC], isHandoverInProgress: false))
+        let mixed = TransportEvent.routesChanged(.init(activeRoute: .webRTC, mediaRoute: .webRTC,
+            availableRoutes: [.multipeer, .webRTC], isHandoverInProgress: false))
+        deliverToAuthor(mixed)
+        deliverToRecipient(internet)
+
+        var authorRequests = 0, recipientRequests = 0
+        var expireAuthor: (@MainActor () -> Void)?, expireRecipient: (@MainActor () -> Void)?
+        left.beginOrdinaryGroupReplyBackgroundTime = { expire in authorRequests += 1; expireAuthor = expire; return nil }
+        right.beginOrdinaryGroupReplyBackgroundTime = { expire in recipientRequests += 1; expireRecipient = expire; return nil }
+        let url = try #require(left.makeGroupInviteURL(for: group))
+        try right.acceptInviteURL(url)
+        let authorTimeout = try #require(expireAuthor), recipientTimeout = try #require(expireRecipient)
+        authorTimeout(); recipientTimeout()
+        deliverToAuthor(internet)
+        deliverToRecipient(internet)
+        #expect(left.ordinaryGroupReplyExchanges.isEmpty && right.ordinaryGroupReplyExchanges.isEmpty)
+        #expect(left.savedRemoteUsers.isEmpty)
+        let pending = right.groupRepository.pendingInvitation(for: group) != nil
+        #expect(pending)
+
+        deliverToAuthor(mixed); deliverToRecipient(mixed)
+        try #require(left.ordinaryGroupReplyExchanges[.inviter] != nil)
+        try #require(right.ordinaryGroupReplyExchanges[.invitee] != nil)
+        deliverToAuthor(mixed); deliverToRecipient(mixed)
+        #expect(authorRequests == 2 && recipientRequests == 2)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            right.groupRepository.pendingInvitation(for: group) == nil
+        }
+        let delivered = right.groupRepository.pendingInvitation(for: group) == nil
+        #expect(delivered)
+        #expect(left.savedRemoteUsers.first?.memberIDs == ["bob"])
+        #expect(left.currentCallReference == authorReference && right.currentCallReference == recipientReference)
+        #expect(left.activeGroupID == authorCall && right.activeGroupID == recipientCall)
+    }
+
     @Test func reopenedInviterReceivesAnAcceptanceForTheOriginalLink() async throws {
         let storage = try GroupStorageFixture()
         defer { storage.remove() }

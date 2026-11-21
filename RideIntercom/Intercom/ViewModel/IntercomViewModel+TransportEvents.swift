@@ -28,7 +28,7 @@ extension IntercomViewModel {
         guard !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970) else { return }
         switch event {
         case .routesChanged(let snapshot):
-            let internetWasAvailable = availableCallRoutes.contains(.webRTC)
+            let newlyAvailable = snapshot.availableRoutes.subtracting(availableCallRoutes)
             availableCallRoutes = snapshot.availableRoutes
             if !authenticatedPeerIDs.isEmpty {
                 connectionState = routeConnectionState(isConnected: true)
@@ -38,9 +38,10 @@ extension IntercomViewModel {
             if snapshot.availableRoutes.contains(.webRTC) {
                 connectivityNotice = nil
                 internetFailureDetail = nil
-                if !internetWasAvailable, activeGroupID != nil {
-                    requestOrdinaryGroupInternetReply()
-                }
+            }
+            if activeGroupID != nil {
+                if newlyAvailable.contains(.webRTC) { requestOrdinaryGroupInternetReply() }
+                if newlyAvailable.contains(.multipeer) { resumeSavedNearbyOrdinaryGroupReplies() }
             }
         case .commandQueueFailed:
             disconnect()

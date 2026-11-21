@@ -30,6 +30,10 @@ extension IntercomViewModel {
 
     func resumeSavedOrdinaryGroupReplies() {
         requestOrdinaryGroupInternetReply()
+        resumeSavedNearbyOrdinaryGroupReplies()
+    }
+
+    func resumeSavedNearbyOrdinaryGroupReplies() {
         guard canExchangeOrdinaryGroupReplies else { return }
         resumeIssuedOrdinaryGroupReply()
         guard ordinaryGroupReplyExchanges[.invitee] == nil else { return }
