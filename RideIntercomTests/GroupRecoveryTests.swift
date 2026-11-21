@@ -6,38 +6,38 @@ import Testing
 @MainActor
 struct GroupRecoveryTests {
     @Test func commandOverflowShowsCallEntryErrorAfterDisconnect() throws {
-        let h = AppTestSupport.makeHarness()
-        let vm = h.viewModel
-        vm.selectGroup(try #require(vm.groups.first))
-        vm.handleTransportEvent(.commandQueueFailed)
-        #expect(vm.activeGroupID == nil)
-        #expect(vm.selectedGroup != nil)
-        #expect(vm.groupErrorMessage?.contains("connect again") == true)
-        vm.connectLocal()
-        #expect(vm.groupErrorMessage == nil)
+        let harness = AppTestSupport.makeHarness()
+        let viewModel = harness.viewModel
+        viewModel.selectGroup(try #require(viewModel.groups.first))
+        viewModel.handleTransportEvent(.commandQueueFailed)
+        #expect(viewModel.activeGroupID == nil)
+        #expect(viewModel.selectedGroup != nil)
+        #expect(viewModel.groupErrorMessage?.contains("connect again") == true)
+        viewModel.connectLocal()
+        #expect(viewModel.groupErrorMessage == nil)
     }
 
     @Test func reloadPreservesActiveCallAndRecoversAfterTransientFailure() throws {
-        let h = AppTestSupport.makeHarness()
-        let vm = h.viewModel
-        vm.selectGroup(try #require(vm.groups.first))
-        let active = try #require(vm.activeGroupID)
-        h.groupStore.readError = IntercomGroupError.storageUnavailable
-        vm.reloadSavedGroups()
-        #expect(vm.activeGroupID == active)
-        #expect(vm.groupStorageIssue == nil)
-        vm.disconnect()
-        vm.reloadSavedGroups()
-        #expect(vm.groupStorageIssue == .unavailable)
-        #expect(!vm.canEditSavedGroups)
-        let original = h.groupStore.snapshot
-        vm.createTalkGroup()
-        #expect(h.groupStore.snapshot == original)
-        h.groupStore.readError = nil
-        vm.reloadSavedGroups()
-        #expect(vm.groupStorageIssue == nil)
-        #expect(vm.canEditSavedGroups)
-        #expect(vm.groups.map(\.id) == original.groups.map(\.id))
+        let harness = AppTestSupport.makeHarness()
+        let viewModel = harness.viewModel
+        viewModel.selectGroup(try #require(viewModel.groups.first))
+        let active = try #require(viewModel.activeGroupID)
+        harness.groupStore.readError = IntercomGroupError.storageUnavailable
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.activeGroupID == active)
+        #expect(viewModel.groupStorageIssue == nil)
+        viewModel.disconnect()
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.groupStorageIssue == .unavailable)
+        #expect(!viewModel.canEditSavedGroups)
+        let original = harness.groupStore.snapshot
+        viewModel.createTalkGroup()
+        #expect(harness.groupStore.snapshot == original)
+        harness.groupStore.readError = nil
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.groupStorageIssue == nil)
+        #expect(viewModel.canEditSavedGroups)
+        #expect(viewModel.groups.map(\.id) == original.groups.map(\.id))
     }
 
     @Test func resetEndsCallAndClearsOnlyGroupsWhileFutureSchemaRefusesIt() throws {
@@ -48,23 +48,23 @@ struct GroupRecoveryTests {
         let internet = RTC.CloudflareRealtimeConfiguration(
             workerURL: URL(string: "https://fixture.invalid")!, accessToken: "fixture")
         try internetStore.save(url: internet.workerURL.absoluteString, token: internet.accessToken)
-        let h = AppTestSupport.makeHarness(appSettingsStore: settingsStore, internetSettingsStore: internetStore)
-        let vm = h.viewModel
-        let identity = vm.localMemberIdentity
-        vm.selectGroup(try #require(vm.groups.first))
-        vm.resetSavedGroups()
-        #expect(vm.activeGroupID == nil)
-        #expect(vm.groups.isEmpty)
-        #expect(h.groupStore.snapshot.groups.isEmpty)
-        #expect(vm.localMemberIdentity == identity)
+        let harness = AppTestSupport.makeHarness(appSettingsStore: settingsStore, internetSettingsStore: internetStore)
+        let viewModel = harness.viewModel
+        let identity = viewModel.localMemberIdentity
+        viewModel.selectGroup(try #require(viewModel.groups.first))
+        viewModel.resetSavedGroups()
+        #expect(viewModel.activeGroupID == nil)
+        #expect(viewModel.groups.isEmpty)
+        #expect(harness.groupStore.snapshot.groups.isEmpty)
+        #expect(viewModel.localMemberIdentity == identity)
         #expect(settingsStore.load() == settings)
         #expect(try internetStore.load() == internet)
-        h.groupStore.snapshot.version = 99
-        vm.reloadSavedGroups()
-        #expect(vm.groupStorageIssue == .unsupportedVersion)
-        let writes = h.groupStore.saveCount
-        vm.resetSavedGroups()
-        #expect(h.groupStore.saveCount == writes)
-        #expect(h.groupStore.snapshot.version == 99)
+        harness.groupStore.snapshot.version = 99
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.groupStorageIssue == .unsupportedVersion)
+        let writes = harness.groupStore.saveCount
+        viewModel.resetSavedGroups()
+        #expect(harness.groupStore.saveCount == writes)
+        #expect(harness.groupStore.snapshot.version == 99)
     }
 }

@@ -16,8 +16,8 @@ struct DesignSystemContrastTests {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         #expect(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
         func linear(_ value: CGFloat) -> Double {
-            let v = Double(value)
-            return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+            let component = Double(value)
+            return component <= 0.04045 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
         }
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
@@ -27,7 +27,9 @@ struct DesignSystemContrastTests {
         #expect(1.05 / (try luminance("VoiceAqua") + 0.05) >= 3)
     }
 
-    private func ratio(_ a: Double, _ b: Double) -> Double { (max(a, b) + 0.05) / (min(a, b) + 0.05) }
+    private func ratio(_ firstLuminance: Double, _ secondLuminance: Double) -> Double {
+        (max(firstLuminance, secondLuminance) + 0.05) / (min(firstLuminance, secondLuminance) + 0.05)
+    }
 
     /// Rows sit where the gradient has ended, on BackgroundBase; only the light top also holds cards.
     @Test func cardsRemainDistinctFromTheBackgroundUnderThem() throws {
@@ -41,7 +43,9 @@ struct DesignSystemContrastTests {
     /// The earlier pair differed by 1.01 (light) and 1.03 (dark) and read as one flat color.
     @Test func backgroundChangesVisiblyFromTopToBase() throws {
         for style in [UIUserInterfaceStyle.light, .dark] {
-            #expect(ratio(try luminance("BackgroundTop", style: style), try luminance("BackgroundBase", style: style)) >= 1.1)
+            #expect(
+                ratio(try luminance("BackgroundTop", style: style), try luminance("BackgroundBase", style: style))
+                    >= 1.1)
         }
     }
 

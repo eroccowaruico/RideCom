@@ -16,14 +16,14 @@ extension AppTests {
 struct CallLifecycleTests {
     @Test func browsingPreservesCallButConnectingRejectsQueuedOldEvents() async {
         let harness = AppTestSupport.makeHarness()
-        let a = IntercomSeedData.recentGroups[0]
-        let b = IntercomSeedData.recentGroups[1]
-        harness.viewModel.selectGroup(a)
+        let firstGroup = IntercomSeedData.recentGroups[0]
+        let secondGroup = IntercomSeedData.recentGroups[1]
+        harness.viewModel.selectGroup(firstGroup)
         harness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
         let oldHandler = harness.callSession.onEvent
-        harness.viewModel.selectGroup(b)
-        #expect(harness.viewModel.activeGroupID == a.id)
+        harness.viewModel.selectGroup(secondGroup)
+        #expect(harness.viewModel.activeGroupID == firstGroup.id)
         #expect(harness.viewModel.isAudioReady)
         #expect(harness.callSession.disconnectCallCount == 0)
         harness.viewModel.connectLocal()
@@ -36,8 +36,8 @@ struct CallLifecycleTests {
         oldHandler?(.routeMetrics(RTC.RouteMetrics(route: .multipeer, receivedAudioFrameCount: 999)))
         oldHandler?(.networkDiagnostics(.init(generatedAt: 123)))
         try? await Task.sleep(for: .milliseconds(50))
-        #expect(harness.viewModel.activeGroupID == b.id)
-        #expect(harness.callSession.connectedGroup?.id == b.id)
+        #expect(harness.viewModel.activeGroupID == secondGroup.id)
+        #expect(harness.callSession.connectedGroup?.id == secondGroup.id)
         #expect(harness.viewModel.authenticatedPeerIDs.isEmpty)
         #expect(harness.viewModel.receivedVoicePacketCount == 0)
         #expect(harness.viewModel.networkDiagnostics?.generatedAt != 123)
@@ -65,122 +65,123 @@ struct CallLifecycleTests {
     }
 
     @Test func outputRestartFailureReleasesInputAndAllowsRetry() async {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        h.outputBackend.startError = AudioStreamError.engineOperationFailed("removed")
-        h.viewModel.refreshAudioDevicesIfNeeded()
-        await AppTestSupport.waitUntil { h.viewModel.audioErrorMessage != nil }
-        #expect(!h.viewModel.isAudioReady)
-        #expect(h.viewModel.audioPipeline.snapshot.busIDs.isEmpty)
-        #expect(h.inputBackend.stopCount > 0)
-        #expect(h.viewModel.audioErrorMessage != nil)
-        h.outputBackend.startError = nil
-        h.viewModel.resumeAudioAfterDeviceChange()
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        #expect(h.viewModel.isAudioReady)
-        h.viewModel.disconnect()
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        testHarness.outputBackend.startError = AudioStreamError.engineOperationFailed("removed")
+        testHarness.viewModel.refreshAudioDevicesIfNeeded()
+        await AppTestSupport.waitUntil { testHarness.viewModel.audioErrorMessage != nil }
+        #expect(!testHarness.viewModel.isAudioReady)
+        #expect(testHarness.viewModel.audioPipeline.snapshot.busIDs.isEmpty)
+        #expect(testHarness.inputBackend.stopCount > 0)
+        #expect(testHarness.viewModel.audioErrorMessage != nil)
+        testHarness.outputBackend.startError = nil
+        testHarness.viewModel.resumeAudioAfterDeviceChange()
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        #expect(testHarness.viewModel.isAudioReady)
+        testHarness.viewModel.disconnect()
     }
 
     @Test func internetConflictKeepsLocalAudioAndExplainsManualRecovery() async {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        h.viewModel.handleTransportEvent(.serviceBlocked("End the existing Internet call, then reconnect here."))
-        #expect(h.viewModel.isAudioReady)
-        #expect(h.viewModel.audioErrorMessage == nil)
-        #expect(h.viewModel.connectivityNotice?.contains("End the existing Internet call") == true)
-        #expect(h.viewModel.connectivityNotice?.contains("automatically") == false)
-        #expect(h.viewModel.internetFailureDetail != nil)
-        h.viewModel.disconnect()
-        #expect(h.viewModel.internetFailureDetail == nil)
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+            testHarness.viewModel.handleTransportEvent(
+                .serviceBlocked("End the existing Internet call, then reconnect here."))
+        #expect(testHarness.viewModel.isAudioReady)
+        #expect(testHarness.viewModel.audioErrorMessage == nil)
+        #expect(testHarness.viewModel.connectivityNotice?.contains("End the existing Internet call") == true)
+        #expect(testHarness.viewModel.connectivityNotice?.contains("automatically") == false)
+        #expect(testHarness.viewModel.internetFailureDetail != nil)
+        testHarness.viewModel.disconnect()
+        #expect(testHarness.viewModel.internetFailureDetail == nil)
     }
 
     @Test func blockedInternetOnlyCallOffersConnectInsteadOfClaimingAutomaticRecovery() {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.enabledRTCTransportRoutes = [.webRTC]
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.viewModel.handleTransportEvent(.serviceBlocked("End the existing Internet call, then try again."))
-        h.viewModel.handleTransportEvent(.linkFailed(willRetry: false))
-        #expect(h.viewModel.connectionState == .idle)
-        #expect(!h.viewModel.canDisconnectCall)
-        #expect(h.viewModel.connectivityNotice != nil)
-        h.viewModel.connectLocal()
-        #expect(h.viewModel.internetFailureDetail == nil)
-        #expect(h.viewModel.connectivityNotice == nil)
-        #expect(h.viewModel.connectionState != .idle)
-        h.viewModel.disconnect()
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.enabledRTCTransportRoutes = [.webRTC]
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.viewModel.handleTransportEvent(.serviceBlocked("End the existing Internet call, then try again."))
+        testHarness.viewModel.handleTransportEvent(.linkFailed(willRetry: false))
+        #expect(testHarness.viewModel.connectionState == .idle)
+        #expect(!testHarness.viewModel.canDisconnectCall)
+        #expect(testHarness.viewModel.connectivityNotice != nil)
+        testHarness.viewModel.connectLocal()
+        #expect(testHarness.viewModel.internetFailureDetail == nil)
+        #expect(testHarness.viewModel.connectivityNotice == nil)
+        #expect(testHarness.viewModel.connectionState != .idle)
+        testHarness.viewModel.disconnect()
     }
 
     @Test func blockedInternetDoesNotSuppressIndependentLocalRecovery() {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.viewModel.handleTransportEvent(.serviceBlocked("Reconnect Internet manually."))
-        h.viewModel.handleTransportEvent(.linkFailed(willRetry: true))
-        #expect(h.viewModel.connectionState == .reconnectingOffline)
-        #expect(h.viewModel.internetFailureDetail != nil)
-        h.viewModel.disconnect()
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.viewModel.handleTransportEvent(.serviceBlocked("Reconnect Internet manually."))
+        testHarness.viewModel.handleTransportEvent(.linkFailed(willRetry: true))
+        #expect(testHarness.viewModel.connectionState == .reconnectingOffline)
+        #expect(testHarness.viewModel.internetFailureDetail != nil)
+        testHarness.viewModel.disconnect()
     }
 
     @Test func internetFailureDoesNotMisreportHealthyLocalAudio() async {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        h.viewModel.handleTransportEvent(.serviceError("quota"))
-        #expect(h.viewModel.isAudioReady)
-        #expect(h.viewModel.audioErrorMessage == nil)
-        h.viewModel.disconnect()
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        testHarness.viewModel.handleTransportEvent(.serviceError("quota"))
+        #expect(testHarness.viewModel.isAudioReady)
+        #expect(testHarness.viewModel.audioErrorMessage == nil)
+        testHarness.viewModel.disconnect()
     }
 
     @Test func deviceResumeRetriesFailureAndPreservesMuteIntent() async {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        h.viewModel.toggleMute()
-        h.viewModel.toggleOutputMute()
-        h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
-            reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
-        #expect(h.viewModel.isAudioPausedForDeviceChange)
-        #expect(h.viewModel.callPresenceLabel == "Connected / Audio Paused")
-        h.inputBackend.startError = AudioStreamError.engineOperationFailed("missing")
-        h.viewModel.resumeAudioAfterDeviceChange()
-        await AppTestSupport.waitUntil { h.viewModel.audioErrorMessage != nil }
-        #expect(h.viewModel.isAudioPausedForDeviceChange)
-        #expect(!h.viewModel.isAudioReady)
-        h.inputBackend.startError = nil
-        h.viewModel.resumeAudioAfterDeviceChange()
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        #expect(h.viewModel.isAudioReady)
-        #expect(!h.viewModel.isAudioPausedForDeviceChange)
-        #expect(h.viewModel.isMuted && h.viewModel.isOutputMuted)
-        #expect(h.viewModel.audioRouteNotice == nil)
-        h.viewModel.disconnect()
-        #expect(h.viewModel.availableCallRoutes.isEmpty)
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        testHarness.viewModel.toggleMute()
+        testHarness.viewModel.toggleOutputMute()
+        testHarness.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+            reason: .routeChanged(.oldDeviceUnavailable), snapshot: testHarness.audioSessionBackend.current)))
+        #expect(testHarness.viewModel.isAudioPausedForDeviceChange)
+        #expect(testHarness.viewModel.callPresenceLabel == "Connected / Audio Paused")
+        testHarness.inputBackend.startError = AudioStreamError.engineOperationFailed("missing")
+        testHarness.viewModel.resumeAudioAfterDeviceChange()
+        await AppTestSupport.waitUntil { testHarness.viewModel.audioErrorMessage != nil }
+        #expect(testHarness.viewModel.isAudioPausedForDeviceChange)
+        #expect(!testHarness.viewModel.isAudioReady)
+        testHarness.inputBackend.startError = nil
+        testHarness.viewModel.resumeAudioAfterDeviceChange()
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        #expect(testHarness.viewModel.isAudioReady)
+        #expect(!testHarness.viewModel.isAudioPausedForDeviceChange)
+        #expect(testHarness.viewModel.isMuted && testHarness.viewModel.isOutputMuted)
+        #expect(testHarness.viewModel.audioRouteNotice == nil)
+        testHarness.viewModel.disconnect()
+        #expect(testHarness.viewModel.availableCallRoutes.isEmpty)
     }
 
     @Test func actualDefaultDeviceChangeRestartsBothStreamsAndInterruptsAudioCheck() async {
-        let h = AppTestSupport.makeHarness()
-        h.viewModel.startAudioCheck()
-        h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
-            reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
-        #expect(h.viewModel.audioCheckPhase == .idle)
-        #expect(!h.viewModel.audioCheckOwnsAudioPipeline)
-        h.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        let starts = h.inputBackend.startCount
-        var snapshot = h.audioSessionBackend.current
+        let testHarness = AppTestSupport.makeHarness()
+        testHarness.viewModel.startAudioCheck()
+        testHarness.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+            reason: .routeChanged(.oldDeviceUnavailable), snapshot: testHarness.audioSessionBackend.current)))
+        #expect(testHarness.viewModel.audioCheckPhase == .idle)
+        #expect(!testHarness.viewModel.audioCheckOwnsAudioPipeline)
+        testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        testHarness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        let starts = testHarness.inputBackend.startCount
+        var snapshot = testHarness.audioSessionBackend.current
         snapshot.currentOutput = .builtInSpeaker
-        h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+        testHarness.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
             reason: .defaultOutputChanged, snapshot: snapshot)))
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        #expect(h.viewModel.isAudioReady)
-        #expect(h.inputBackend.startCount == starts + 1)
-        h.viewModel.disconnect()
+        await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
+        #expect(testHarness.viewModel.isAudioReady)
+        #expect(testHarness.inputBackend.startCount == starts + 1)
+        testHarness.viewModel.disconnect()
     }
 
 }
