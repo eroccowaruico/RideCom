@@ -7,16 +7,16 @@ let package = Package(
     platforms: [
         .iOS("27.0"),
         .macOS("27.0"),
-        .watchOS("27.0"),
+        .watchOS("27.0")
     ],
     products: [
         .library(
             name: "Codec",
             targets: ["Codec"]
-        ),
+        )
     ],
     dependencies: [
-        .package(path: "../AudioCore"),
+        .package(path: "../AudioCore")
     ],
     targets: [
         .target(
@@ -27,9 +27,9 @@ let package = Package(
             name: "CodecTests",
             dependencies: [
                 "Codec",
-                "AudioCore",
+                "AudioCore"
             ]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )
