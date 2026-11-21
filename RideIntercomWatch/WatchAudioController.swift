@@ -73,49 +73,9 @@ final class WatchAudioController {
         do {
             guard await AVAudioApplication.requestRecordPermission() else { throw CocoaError(.userCancelled) }
             try requireCurrent(id)
-            let configured = try manager.configure(.init(mode: .default))
-            guard configured.operations.allSatisfy({ Self.continuable($0.result) }) else {
-                throw AudioDeviceError.invalidAudio
-            }
-            let active = await manager.requestActive(true).value
-            try requireCurrent(id)
-            guard case .applied = active.result else { throw AudioDeviceError.invalidAudio }
-            let engine = AVAudioEngine()
-            try AudioDuplexIO.prepare(engine: engine)
-            let capture = AudioInputStreamCapture(configuration: .init(voiceProcessing:
-                .init(soundIsolationEnabled: false, otherAudioDuckingEnabled: false, inputMuted: true)), engine: engine)
-            let renderer = AudioOutputStreamRenderer(configuration: .init(maximumBufferedDuration: 0.1), engine: engine)
-            self.capture = capture; self.renderer = renderer
-            let inputStarted = capture.start()
-            #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-            WatchRecordingCLI.log("native-capture-start", ["result": String(describing: inputStarted.result),
-                "sampleRate": inputStarted.snapshot.actualHardwareFormat.sampleRate,
-                "channels": inputStarted.snapshot.actualHardwareFormat.channelCount])
-            #endif
-            guard Self.continuable(inputStarted.result) else { throw AudioDeviceError.invalidAudio }
-            let outputStarted = renderer.start()
-            #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-            let inputNode = engine.inputNode, outputNode = engine.outputNode
-            let hardwareInput = inputNode.inputFormat(forBus: 0), clientInput = inputNode.outputFormat(forBus: 0)
-            let hardwareOutput = outputNode.outputFormat(forBus: 0)
-            WatchRecordingCLI.log("native-renderer-start", ["result": String(describing: outputStarted.result),
-                "reportedHardwareRate": outputStarted.snapshot.actualHardwareFormat.sampleRate,
-                "reportedHardwareChannels": outputStarted.snapshot.actualHardwareFormat.channelCount,
-                "engineRunningAfterResult": engine.isRunning,
-                "nativeInputRateAfterResult": hardwareInput.sampleRate,
-                "nativeInputChannelsAfterResult": hardwareInput.channelCount,
-                "inputClientRateAfterResult": clientInput.sampleRate,
-                "inputClientChannelsAfterResult": clientInput.channelCount,
-                "nativeOutputRateAfterResult": hardwareOutput.sampleRate,
-                "nativeOutputChannelsAfterResult": hardwareOutput.channelCount])
-            #endif
-            guard Self.continuable(outputStarted.result) else { throw AudioDeviceError.invalidAudio }
-            #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-            try WatchRecordingCLI.observeOutputIfRequested(engine)
-            #endif
-            // Preserve the actual microphone format. Stereo requires an
-            // explicit supported AAC bitrate; mono retains the existing 48k.
-            let inputFormat = inputStarted.snapshot.actualHardwareFormat
+            try await configureSession(id)
+            let native = try startNativeAudio()
+            let capture = native.capture, renderer = native.renderer, inputFormat = native.inputFormat
             let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
             let media = try AudioDeviceConnection(sessionID: id, key: key, role: .device,
                 aacOptions: .init(bitRate: inputFormat.channelCount == 1 ? 48_000 : 64_000),
@@ -136,67 +96,19 @@ final class WatchAudioController {
             self.deviceInput = deviceInput; self.deviceOutput = deviceOutput
             // Existing backend contracts provide cancellation and serialized
             // conversion. No App audio queue, converter or second clock.
-            deviceInput.setRuntimeEventHandler { [weak self] event in
-                guard case .inputFrame(let frame) = event else { return }
-                #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-                WatchRecordingCLI.received(frame)
-                #endif
-                if case .failed = renderer.schedule(frame).result {
-                    Task { @MainActor [weak self] in self?.fail(id, message: "Audio playback failed") }
-                }
-            }
-            capture.setRuntimeEventHandler { [weak self] event in
-                guard case .inputFrame(let frame) = event else { return }
-                #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-                WatchRecordingCLI.captured(frame)
-                #endif
-                if case .failed = deviceOutput.schedule(frame).result {
-                    Task { @MainActor [weak self] in self?.fail(id, message: "Microphone unavailable") }
-                }
-            }
+            installFrameHandlers(deviceInput: deviceInput, capture: capture, renderer: renderer,
+                                 deviceOutput: deviceOutput, id: id)
             let deviceInputReport = deviceInput.start(), deviceOutputReport = deviceOutput.start()
             #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-            WatchRecordingCLI.log(
-                "media-backends-start",
-                [
-                    "input": String(describing: deviceInputReport.result),
-                    "output": String(describing: deviceOutputReport.result)
-                ])
+            WatchRecordingCLI.log("media-backends-start", [
+                "input": String(describing: deviceInputReport.result),
+                "output": String(describing: deviceOutputReport.result)])
             #endif
             guard Self.continuable(deviceInputReport.result), Self.continuable(deviceOutputReport.result) else {
                 throw AudioDeviceError.invalidAudio
             }
             let offer = WatchAudioOffer(sessionID: id, key: key, endpoint: endpoint)
-            let action: WatchCallAction
-            #if DEBUG
-            action = audioCheck ? .startAudioCheck(offer) : .startAudio(target, offer)
-            #else
-            action = .startAudio(target, offer)
-            #endif
-            guard let reply = await client.perform(action), reply.problem == nil,
-                  let reference = reply.snapshot.reference, reference == client.snapshot?.reference,
-                  let remote = reply.audioEndpoint,
-                  audioCheck ? reply.snapshot.audioCheck?.sessionID == id : reply.snapshot.hasCall else {
-                throw AudioDeviceError.endpointUnavailable
-            }
-            #if DEBUG
-            if audioCheck, sessionID != id {
-                _ = await client.perform(.stopAudioCheck(id))
-                throw CancellationError()
-            }
-            #endif
-            try requireCurrent(id)
-            boundReference = reference
-            guard media.connect(to: remote) else { throw AudioDeviceError.endpointUnavailable }
-            isReady = media.isSendReady
-            if checkingAudio { setPressed(client.snapshot?.audioCheck?.phase == .recording) }
-            if !isReady {
-                connectionTimeout = Task { [weak self] in
-                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                    guard let self, sessionID == id, !isReady else { return }
-                    fail(id, message: "Audio connection timed out. Start the call again.")
-                }
-            }
+            try await connect(offer: offer, target: target, audioCheck: audioCheck, media: media, id: id)
         } catch {
             #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
             WatchRecordingCLI.log("watch-start-failed", ["error": String(describing: error)])
@@ -206,6 +118,120 @@ final class WatchAudioController {
         }
     }
 
+    private func configureSession(_ id: UUID) async throws {
+        let configured = try manager.configure(.init(mode: .default))
+        guard configured.operations.allSatisfy({ Self.continuable($0.result) }) else {
+            throw AudioDeviceError.invalidAudio
+        }
+        let active = await manager.requestActive(true).value
+        try requireCurrent(id)
+        guard case .applied = active.result else { throw AudioDeviceError.invalidAudio }
+    }
+
+    private struct NativeAudio {
+        let capture: AudioInputStreamCapture
+        let renderer: AudioOutputStreamRenderer
+        let inputFormat: AudioFormat
+    }
+
+    private func startNativeAudio() throws -> NativeAudio {
+        let engine = AVAudioEngine()
+        try AudioDuplexIO.prepare(engine: engine)
+        let capture = AudioInputStreamCapture(configuration: .init(voiceProcessing:
+            .init(soundIsolationEnabled: false, otherAudioDuckingEnabled: false, inputMuted: true)), engine: engine)
+        let renderer = AudioOutputStreamRenderer(configuration: .init(maximumBufferedDuration: 0.1), engine: engine)
+        self.capture = capture; self.renderer = renderer
+        let inputStarted = capture.start()
+        #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
+        WatchRecordingCLI.log("native-capture-start", ["result": String(describing: inputStarted.result),
+            "sampleRate": inputStarted.snapshot.actualHardwareFormat.sampleRate,
+            "channels": inputStarted.snapshot.actualHardwareFormat.channelCount])
+        #endif
+        guard Self.continuable(inputStarted.result) else { throw AudioDeviceError.invalidAudio }
+        let outputStarted = renderer.start()
+        #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
+        let inputNode = engine.inputNode, outputNode = engine.outputNode
+        let hardwareInput = inputNode.inputFormat(forBus: 0), clientInput = inputNode.outputFormat(forBus: 0)
+        let hardwareOutput = outputNode.outputFormat(forBus: 0)
+        WatchRecordingCLI.log("native-renderer-start", ["result": String(describing: outputStarted.result),
+            "reportedHardwareRate": outputStarted.snapshot.actualHardwareFormat.sampleRate,
+            "reportedHardwareChannels": outputStarted.snapshot.actualHardwareFormat.channelCount,
+            "engineRunningAfterResult": engine.isRunning,
+            "nativeInputRateAfterResult": hardwareInput.sampleRate,
+            "nativeInputChannelsAfterResult": hardwareInput.channelCount,
+            "inputClientRateAfterResult": clientInput.sampleRate,
+            "inputClientChannelsAfterResult": clientInput.channelCount,
+            "nativeOutputRateAfterResult": hardwareOutput.sampleRate,
+            "nativeOutputChannelsAfterResult": hardwareOutput.channelCount])
+        #endif
+        guard Self.continuable(outputStarted.result) else { throw AudioDeviceError.invalidAudio }
+        #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
+        try WatchRecordingCLI.observeOutputIfRequested(engine)
+        #endif
+        // Preserve the actual microphone format. Stereo requires an
+        // explicit supported AAC bitrate; mono retains the existing 48k.
+        let inputFormat = inputStarted.snapshot.actualHardwareFormat
+        return NativeAudio(capture: capture, renderer: renderer, inputFormat: inputFormat)
+    }
+
+    private func installFrameHandlers(
+        deviceInput: AudioInputStreamCapture, capture: AudioInputStreamCapture,
+        renderer: AudioOutputStreamRenderer, deviceOutput: AudioOutputStreamRenderer, id: UUID
+    ) {
+        deviceInput.setRuntimeEventHandler { [weak self] event in
+            guard case .inputFrame(let frame) = event else { return }
+            #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
+            WatchRecordingCLI.received(frame)
+            #endif
+            if case .failed = renderer.schedule(frame).result {
+                Task { @MainActor [weak self] in self?.fail(id, message: "Audio playback failed") }
+            }
+        }
+        capture.setRuntimeEventHandler { [weak self] event in
+            guard case .inputFrame(let frame) = event else { return }
+            #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
+            WatchRecordingCLI.captured(frame)
+            #endif
+            if case .failed = deviceOutput.schedule(frame).result {
+                Task { @MainActor [weak self] in self?.fail(id, message: "Microphone unavailable") }
+            }
+        }
+    }
+
+    private func connect(
+        offer: WatchAudioOffer, target: String, audioCheck: Bool, media: AudioDeviceConnection, id: UUID
+    ) async throws {
+        let action: WatchCallAction
+        #if DEBUG
+        action = audioCheck ? .startAudioCheck(offer) : .startAudio(target, offer)
+        #else
+        action = .startAudio(target, offer)
+        #endif
+        guard let reply = await client.perform(action), reply.problem == nil,
+              let reference = reply.snapshot.reference, reference == client.snapshot?.reference,
+              let remote = reply.audioEndpoint,
+              audioCheck ? reply.snapshot.audioCheck?.sessionID == id : reply.snapshot.hasCall else {
+            throw AudioDeviceError.endpointUnavailable
+        }
+        #if DEBUG
+        if audioCheck, sessionID != id {
+            _ = await client.perform(.stopAudioCheck(id))
+            throw CancellationError()
+        }
+        #endif
+        try requireCurrent(id)
+        boundReference = reference
+        guard media.connect(to: remote) else { throw AudioDeviceError.endpointUnavailable }
+        isReady = media.isSendReady
+        if checkingAudio { setPressed(client.snapshot?.audioCheck?.phase == .recording) }
+        if !isReady {
+            connectionTimeout = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                guard let self, sessionID == id, !isReady else { return }
+                fail(id, message: "Audio connection timed out. Start the call again.")
+            }
+        }
+    }
 }
 
 extension WatchAudioController {
