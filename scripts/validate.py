@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
 """Local validation orchestration. No deployment or access to user test data."""
 import argparse
-from contextlib import nullcontext
-from datetime import datetime
 import hashlib
 import json
 import os
-from pathlib import Path
 import plistlib
 import re
 import signal
 import subprocess
 import sys
-import time
 import tempfile
+import time
+from contextlib import nullcontext
+from datetime import datetime
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.crash_reports import CrashReports
-from scripts.test_lifecycle import (exclusive_run, SimulatorLease,
-                                    simulator_resource_root, process_snapshot, stop_process_tree)
-from scripts.xcode_paths import scheme_configuration, scheme_test_plan, xcode_build_settings, select_test_run
+from scripts.test_lifecycle import (
+    SimulatorLease,
+    exclusive_run,
+    process_snapshot,
+    simulator_resource_root,
+    stop_process_tree,
+)
+from scripts.xcode_paths import (
+    scheme_configuration,
+    scheme_test_plan,
+    select_test_run,
+    xcode_build_settings,
+)
 
 
 def swift_supported(output):
@@ -48,15 +58,15 @@ def verify_artifact():
 
 def tests_passed(text):
     """Require an actual nonempty test run; compilation alone is not success."""
-    if re.search(r'\bskipped[=: ]+[1-9]|\b[1-9]\d* tests? skipped|Test .* skipped', text, re.I):
+    if re.search(r'\bskipped[=: ]+[1-9]|\b[1-9]\d* tests? skipped|Test .* skipped', text, re.IGNORECASE):
         return False
     swift = re.search(r'Test run with (\d+) tests? .*passed', text)
     if swift:
         return int(swift[1]) > 0 and not re.search(r'Test .* failed', text)
     python = re.search(r'Ran (\d+) tests?\b', text)
     if python:
-        return int(python[1]) > 0 and re.search(r'^OK\s*$', text, re.M) is not None
-    node = dict(re.findall(r'^[#ℹ]\s+(tests|pass|fail|skipped|cancelled|todo)\s+(\d+)', text, re.M))
+        return int(python[1]) > 0 and re.search(r'^OK\s*$', text, re.MULTILINE) is not None
+    node = dict(re.findall(r'^[#ℹ]\s+(tests|pass|fail|skipped|cancelled|todo)\s+(\d+)', text, re.MULTILINE))
     return (int(node.get('tests', 0)) > 0 and node.get('pass') == node.get('tests')
             and all(int(node.get(key, 0)) == 0 for key in ['fail', 'skipped', 'cancelled', 'todo']))
 

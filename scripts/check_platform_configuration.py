@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Check repository-owned OS and embedded-product settings; never contact Apple."""
 import json
-from pathlib import Path
 import plistlib
 import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 APP_GROUP = 'group.com.yowamushi-inc.RideIntercom.CallWidgets'
 APNS_SETTING = '$(RIDEINTERCOM_APNS_ENVIRONMENT)'

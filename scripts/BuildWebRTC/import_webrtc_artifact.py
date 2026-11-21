@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Publish the fixed WebRTC zip/metadata pair with one macOS directory exchange."""
 import ctypes
-from datetime import datetime, timezone
 import errno
 import hashlib
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 
 RENAME_SWAP = 0x00000002
 RENAME_EXCL = 0x00000004

@@ -6,11 +6,11 @@ Speech synthesis can vary with OS/voice versions; review new output before repla
 """
 import argparse
 import json
-from pathlib import Path
 import struct
 import subprocess
 import tempfile
 import wave
+from pathlib import Path
 
 
 def generate(destination):

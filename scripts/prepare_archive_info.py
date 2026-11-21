@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Copy custom App Info keys and inject Debug-only development credentials."""
 import os
-from pathlib import Path
 import plistlib
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 

@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """Opt-in native background waiting evidence; uses the Xcode UI-test entry point."""
-import os, sys, json, shutil, subprocess, time
 import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
 from pathlib import Path
+
 os.environ['DEVELOPER_DIR']='/Applications/Xcode.app/Contents/Developer'
 os.environ['CI']='1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.test_lifecycle import (
+    SimulatorLease,
+    exclusive_run,
+    simulator_resource_root,
+)
 from scripts.validate import ROOT, Runner, snapshot
-from scripts.test_lifecycle import exclusive_run, simulator_resource_root, SimulatorLease
+
 parser=argparse.ArgumentParser(description="Native iOS waiting audio during background, without a peer; not physical-device acceptance")
 parser.add_argument('--out', type=Path, required=True)
 parser.add_argument('--reuse-settings', type=Path)
@@ -46,7 +57,6 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
         (runner.out/'simulator-duplex-device.txt').write_text(audio_pin.pin()+'\n')
         reuse=args.reuse_settings
         if reuse:
-            import shutil
             shutil.copyfile(reuse, runner.out/'reused-build-build-settings.json')
         permission='reset' if args.scenario in ['first-permission','all'] else 'grant'
         runner.run('microphone-permission',['xcrun','simctl','privacy',sim,permission,'microphone','com.yowamushi-inc.RideIntercom.RideIntercom'],needs=['ready'],timeout=30)
@@ -56,7 +66,6 @@ with exclusive_run(simulator_resource_root()/'run.lock'):
                 old.unlink()
         runner.xcode('ui','platform=iOS Simulator,id='+sim, only=tests,needs=['ready'],
                      reuse_build='reused-build' if reuse else None)
-        import subprocess, shutil
         container=Path(subprocess.check_output(['xcrun','simctl','get_app_container',sim,'com.yowamushi-inc.RideIntercom.RideIntercom','data'],text=True).strip())
         found=[]
         for layout in ['standard','advanced']:

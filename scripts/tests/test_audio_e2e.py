@@ -1,24 +1,29 @@
 """Failure and interruption coverage for the AI-independent audio E2E runner."""
-from contextlib import redirect_stderr
 import io
 import json
 import os
-from pathlib import Path
 import plistlib
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
-import signal
-import shutil
-import scripts.audio_e2e as audio
 import unittest
+from contextlib import redirect_stderr
+from pathlib import Path
 from unittest.mock import patch
 
-from scripts.test_lifecycle import exclusive_run, SimulatorLease
-from scripts.validate import Runner, file_fingerprint, fingerprints_match
+import scripts.audio_e2e as audio
+from scripts.audio_e2e import (
+    configure_test_run,
+    duplex_latencies,
+    measurements,
+    run_pair,
+)
 from scripts.audio_e2e_matrix import scenarios
-from scripts.audio_e2e import measurements, duplex_latencies, run_pair, configure_test_run
+from scripts.test_lifecycle import SimulatorLease, exclusive_run
+from scripts.validate import Runner, file_fingerprint, fingerprints_match
 
 
 class AudioE2ELifecycleTests(unittest.TestCase):
@@ -566,7 +571,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 'finally:\n'
                 f' open({str(cleaned)!r},"w").write("done")\n')
         process = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        import time, signal
+        import time
         try:
             deadline = time.monotonic() + 5
             while not marker.exists() and time.monotonic() < deadline:

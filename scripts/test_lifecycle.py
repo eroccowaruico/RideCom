@@ -1,15 +1,15 @@
 """Ownership-scoped cleanup for local test hosts; no application-name pkill."""
-from contextlib import contextmanager
-from dataclasses import dataclass
 import fcntl
 import json
 import os
 import re
-from pathlib import Path
 import signal
 import subprocess
 import time
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @contextmanager

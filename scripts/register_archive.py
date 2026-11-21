@@ -2,15 +2,14 @@
 """Place an existing signed RideCom release archive in Xcode's local Archives."""
 import argparse
 import ctypes
-from datetime import datetime, timezone
 import os
-from pathlib import Path
 import plistlib
 import re
 import subprocess
 import sys
 import tempfile
-
+from datetime import datetime, timezone
+from pathlib import Path
 
 BUNDLE_ID = 'com.yowamushi-inc.RideIntercom.RideIntercom'
 APP_PATH = 'Applications/RideIntercom.app'
@@ -19,13 +18,13 @@ RENAME_EXCL = 0x00000004  # Darwin stdio.h
 
 def check_signature_and_symbols(product, binary, symbols):
     signature = subprocess.run(['/usr/bin/codesign', '-d', '--verbose=2', product], check=True, capture_output=True)
-    if not re.search(rb'^Authority=.+$', signature.stderr, re.M):
+    if not re.search(rb'^Authority=.+$', signature.stderr, re.MULTILINE):
         raise ValueError('Archive must have a certificate signature')
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', product], check=True)
 
     def uuids(file):
         output = subprocess.check_output(['/usr/bin/xcrun', 'dwarfdump', '--uuid', file])
-        return set(re.findall(rb'^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)', output, re.M))
+        return set(re.findall(rb'^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)', output, re.MULTILINE))
 
     executable_uuids = uuids(binary)
     if not executable_uuids or executable_uuids != uuids(symbols):

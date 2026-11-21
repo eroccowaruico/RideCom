@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Real speech test with Mac and/or iPhone Simulator. Artifacts and test data are isolated."""
 import argparse
-from datetime import datetime
 import json
 import math
 import os
-from pathlib import Path
 import plistlib
 import signal
 import socket
@@ -13,12 +11,34 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.validate import ROOT, Runner, xcode_tests_passed, file_fingerprint, fingerprints_match, test_host_metadata
-from scripts.test_lifecycle import exclusive_run, SimulatorLease, simulator_resource_root, process_snapshot
-from scripts.xcode_paths import scheme_configuration, xcode_build_settings, select_test_run
-from scripts.audio_e2e_matrix import MIXED_AUDIO_MEASUREMENT_IDS, STANDALONE_AUDIO_PLANS, scenarios
+from scripts.audio_e2e_matrix import (
+    MIXED_AUDIO_MEASUREMENT_IDS,
+    STANDALONE_AUDIO_PLANS,
+    scenarios,
+)
+from scripts.test_lifecycle import (
+    SimulatorLease,
+    exclusive_run,
+    process_snapshot,
+    simulator_resource_root,
+)
+from scripts.validate import (
+    ROOT,
+    Runner,
+    file_fingerprint,
+    fingerprints_match,
+    test_host_metadata,
+    xcode_tests_passed,
+)
+from scripts.xcode_paths import (
+    scheme_configuration,
+    select_test_run,
+    xcode_build_settings,
+)
 
 
 def source_manifest():

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Read-only check of the shared Xcode / VS Code development contract."""
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def load_project(root):
