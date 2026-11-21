@@ -8,7 +8,10 @@ nonisolated struct CallNotificationGrant: Codable, Equatable, Sendable {
 
     /// A rejection filter for an already authenticated contact exchange. Decoding
     /// these claims does not establish issuer trust; the server verifies the JWT.
-    func isAddressed(to recipient: AccountPrincipal, from sender: AccountPrincipal, audience: String = "rideintercom-call-notification") -> Bool {
+    func isAddressed(
+        to recipient: AccountPrincipal, from sender: AccountPrincipal,
+        audience: String = "rideintercom-call-notification"
+    ) -> Bool {
         let parts = capability.split(separator: ".", omittingEmptySubsequences: false)
         guard isValid, parts.count == 3, recipient.issuer == sender.issuer,
               let data = IdentityEncoding.decode(String(parts[1])),
@@ -33,28 +36,41 @@ nonisolated struct CallNotificationReply: Codable, Equatable, Sendable {
 extension InternetAccountClient {
     nonisolated private struct NotificationAcknowledgement: Decodable, Sendable { var registered: Bool? }
 
-    func registerNotificationDevice(origin: URL, token: String, deviceToken: Data, environment: String, topic: String) async throws {
+    func registerNotificationDevice(
+        origin: URL, token: String, deviceToken: Data, environment: String, topic: String
+    ) async throws {
         try Self.validateNotificationAccess(origin, token: token)
-        guard !deviceToken.isEmpty, deviceToken.count <= 2048, ["sandbox", "production"].contains(environment), !topic.isEmpty else { throw Failure.invalidResponse }
-        let result: NotificationAcknowledgement = try await send(origin: origin, path: "api/notifications/device", method: "PUT",
-            body: ["token": deviceToken.map { String(format: "%02x", $0) }.joined(), "environment": environment, "topic": topic], token: token)
+        guard !deviceToken.isEmpty, deviceToken.count <= 2048, ["sandbox", "production"].contains(environment),
+            !topic.isEmpty
+        else { throw Failure.invalidResponse }
+        let result: NotificationAcknowledgement = try await send(
+            origin: origin, path: "api/notifications/device", method: "PUT",
+            body: [
+                "token": deviceToken.map { String(format: "%02x", $0) }.joined(), "environment": environment,
+                "topic": topic
+            ], token: token)
         guard result.registered == true else { throw Failure.invalidResponse }
     }
     func removeNotificationDevice(origin: URL, token: String) async throws {
         try Self.validateNotificationAccess(origin, token: token)
-        let _: NotificationAcknowledgement = try await send(origin: origin, path: "api/notifications/device", method: "DELETE", token: token)
+        let _: NotificationAcknowledgement = try await send(
+            origin: origin, path: "api/notifications/device", method: "DELETE", token: token)
     }
-    func issueNotificationGrant(origin: URL, token: String, senderUserID: String) async throws -> CallNotificationGrant {
+    func issueNotificationGrant(origin: URL, token: String, senderUserID: String) async throws
+        -> CallNotificationGrant {
         try Self.validateNotificationAccess(origin, token: token)
         guard Self.notificationUserID(senderUserID) else { throw Failure.invalidResponse }
-        let result: CallNotificationGrant = try await send(origin: origin, path: "api/notifications/grants", body: ["senderUserID": senderUserID], token: token)
+        let result: CallNotificationGrant = try await send(
+            origin: origin, path: "api/notifications/grants", body: ["senderUserID": senderUserID], token: token)
         guard result.isValid else { throw Failure.invalidResponse }
         return result
     }
-    func issueGroupInvitationGrant(origin: URL, token: String, senderUserID: String) async throws -> CallNotificationGrant {
+    func issueGroupInvitationGrant(origin: URL, token: String, senderUserID: String) async throws
+        -> CallNotificationGrant {
         try Self.validateNotificationAccess(origin, token: token)
         guard Self.notificationUserID(senderUserID) else { throw Failure.invalidResponse }
-        let value: CallNotificationGrant = try await send(origin: origin, path: "api/notifications/group-invitations/grants",
+        let value: CallNotificationGrant = try await send(
+            origin: origin, path: "api/notifications/group-invitations/grants",
             body: ["senderUserID": senderUserID], token: token)
         guard value.isValid else { throw Failure.invalidResponse }
         return value
@@ -64,19 +80,24 @@ extension InternetAccountClient {
         let path = "api/notifications/grants" + (grantID.map { "/" + $0.uuidString.lowercased() } ?? "")
         let _: NotificationAcknowledgement = try await send(origin: origin, path: path, method: "DELETE", token: token)
     }
-    func sendCallNotification(origin: URL, token: String, capability: String, requestID: UUID) async throws -> CallNotificationReply {
+    func sendCallNotification(origin: URL, token: String, capability: String, requestID: UUID) async throws
+        -> CallNotificationReply {
         try Self.validateNotificationAccess(origin, token: token)
         guard !capability.isEmpty, capability.utf8.count <= 4096 else { throw Failure.invalidResponse }
         let result: CallNotificationReply = try await send(origin: origin, path: "api/notifications/calls",
             body: ["capability": capability, "requestID": requestID.uuidString.lowercased()], token: token)
-        guard result.requestID == requestID, result.expiresAt.isFinite, result.expiresAt > 0 else { throw Failure.invalidResponse }
+        guard result.requestID == requestID, result.expiresAt.isFinite, result.expiresAt > 0 else {
+            throw Failure.invalidResponse
+        }
         return result
     }
-    func readCallNotification(origin: URL, token: String, recipientUserID: String, requestID: UUID) async throws -> CallNotificationReply {
+    func readCallNotification(origin: URL, token: String, recipientUserID: String, requestID: UUID) async throws
+        -> CallNotificationReply {
         try Self.validateNotificationAccess(origin, token: token)
         guard Self.notificationUserID(recipientUserID) else { throw Failure.invalidResponse }
         let result: CallNotificationReply = try await send(origin: origin,
-            path: "api/notifications/calls/\(recipientUserID)/\(requestID.uuidString.lowercased())", method: "GET", token: token)
+            path: "api/notifications/calls/\(recipientUserID)/\(requestID.uuidString.lowercased())", method: "GET",
+            token: token)
         guard result.requestID == requestID, result.expiresAt.isFinite, result.expiresAt > 0,
               result.senderUserID.map(Self.notificationUserID) == true else { throw Failure.invalidResponse }
         return result
@@ -131,7 +152,9 @@ extension InternetAccountClient {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(invitation)
-            guard data.count <= 16_384, !capability.isEmpty, capability.utf8.count <= 4_096 else { throw Failure.invalidResponse }
+            guard data.count <= 16_384, !capability.isEmpty, capability.utf8.count <= 4_096 else {
+                throw Failure.invalidResponse
+            }
             self.capability = capability
             self.requestID = invitation.id.uuidString.lowercased()
             self.noticeID = noticeID.uuidString.lowercased()
@@ -160,7 +183,10 @@ extension InternetAccountClient {
         let expiresAt: Double
     }
 
-    func sendGroupInvitation(_ envelope: GroupInvitationEnvelope, noticeID: UUID, capability: String, access: CallNotificationServiceAccess) async throws -> GroupDeliveryReply {
+    func sendGroupInvitation(
+        _ envelope: GroupInvitationEnvelope, noticeID: UUID, capability: String,
+        access: CallNotificationServiceAccess
+    ) async throws -> GroupDeliveryReply {
         try Self.validateNotificationAccess(access.origin, token: access.accessToken)
         let body = try GroupSubmission(envelope, noticeID: noticeID, capability: capability)
         let reply: GroupDeliveryReply = try await sendJSON(origin: access.origin, path: GroupSubmission.path,
@@ -170,28 +196,36 @@ extension InternetAccountClient {
         return reply
     }
 
-    static func backgroundGroupInvitationRequest(_ envelope: GroupInvitationEnvelope, noticeID: UUID,
-                                                  capability: String, access: CallNotificationServiceAccess,
-                                                  signer: DeviceIdentitySigner) throws -> URLRequest? {
+    static func backgroundGroupInvitationRequest(
+        _ envelope: GroupInvitationEnvelope, noticeID: UUID, capability: String,
+        access: CallNotificationServiceAccess, signer: DeviceIdentitySigner
+    ) throws -> URLRequest? {
         guard envelope.sender == access.principal, envelope.senderMemberID == signer.memberID else { return nil }
         let body = try GroupSubmission(envelope, noticeID: noticeID, capability: capability)
-        return try backgroundSubmissionRequest(body, path: GroupSubmission.path + "/background", purpose: .submitBackgroundGroupInvitation,
+        return try backgroundSubmissionRequest(
+            body, path: GroupSubmission.path + "/background", purpose: .submitBackgroundGroupInvitation,
                                           access: access, signer: signer)
     }
 
-    static func backgroundGroupInvitationCancellationRequest(_ record: GroupDeliveryRecord, access: CallNotificationServiceAccess,
-                                                              signer: DeviceIdentitySigner) throws -> URLRequest? {
-        guard record.internetAction == .cancel, record.recipient.isValid, record.recipient.issuer == access.principal.issuer,
+    static func backgroundGroupInvitationCancellationRequest(
+        _ record: GroupDeliveryRecord, access: CallNotificationServiceAccess, signer: DeviceIdentitySigner
+    ) throws -> URLRequest? {
+        guard record.internetAction == .cancel, record.recipient.isValid,
+            record.recipient.issuer == access.principal.issuer,
               record.recipient != access.principal else { return nil }
-        let body = BackgroundGroupCancellation(recipientUserID: record.recipient.userID, requestID: record.id.uuidString.lowercased(),
+        let body = BackgroundGroupCancellation(
+            recipientUserID: record.recipient.userID, requestID: record.id.uuidString.lowercased(),
                                                expiresAt: record.expiresAt * 1_000)
-        return try backgroundSubmissionRequest(body, path: GroupSubmission.path + "/background-cancellation", purpose: .cancelBackgroundGroupInvitation,
+        return try backgroundSubmissionRequest(
+            body, path: GroupSubmission.path + "/background-cancellation",
+            purpose: .cancelBackgroundGroupInvitation,
                                           access: access, signer: signer)
     }
 
-    static func backgroundSubmissionRequest(_ body: some Encodable, path: String, purpose: DeviceIdentityProof.Purpose,
-                                               access: CallNotificationServiceAccess, signer: DeviceIdentitySigner,
-                                               now: Date = Date()) throws -> URLRequest? {
+    static func backgroundSubmissionRequest(
+        _ body: some Encodable, path: String, purpose: DeviceIdentityProof.Purpose,
+        access: CallNotificationServiceAccess, signer: DeviceIdentitySigner, now: Date = Date()
+    ) throws -> URLRequest? {
         try validateNotificationAccess(access.origin, token: access.accessToken)
         let parts = access.accessToken.split(separator: ".")
         let origin = IdentityEncoding.origin(access.origin)
@@ -231,30 +265,40 @@ extension InternetAccountClient {
         return hexDigest(hexDigest(String(parts[3])))
     }
 
-    func expiredGroupInvitationOutcome(for record: GroupDeliveryRecord,
-                                       access: CallNotificationServiceAccess) async throws -> GroupDeliveryRecord.State? {
+    func expiredGroupInvitationOutcome(
+        for record: GroupDeliveryRecord, access: CallNotificationServiceAccess
+    ) async throws -> GroupDeliveryRecord.State? {
         try Self.validateNotificationAccess(access.origin, token: access.accessToken)
-        guard record.recipient.isValid, record.recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
+        guard record.recipient.isValid, record.recipient.issuer == access.principal.issuer else {
+            throw Failure.invalidResponse
+        }
         do {
-            let path = "api/notifications/group-invitations/\(record.recipient.userID)/\(record.id.uuidString.lowercased())"
-            let reply: GroupDeliveryReply = try await sendJSON(origin: access.origin, path: path, method: "GET", token: access.accessToken)
-            guard reply.matches(id: record.id, expiresAt: record.expiresAt), [.received, .cancelled].contains(reply.status)
+            let path =
+                "api/notifications/group-invitations/\(record.recipient.userID)/\(record.id.uuidString.lowercased())"
+            let reply: GroupDeliveryReply = try await sendJSON(
+                origin: access.origin, path: path, method: "GET", token: access.accessToken)
+            guard reply.matches(id: record.id, expiresAt: record.expiresAt),
+                [.received, .cancelled].contains(reply.status)
             else { throw Failure.invalidResponse }
             return reply.status
         } catch Failure.notFound { return nil }
     }
-    func nextGroupInvitation(recipientKey: String, access: CallNotificationServiceAccess) async throws -> GroupDeliveryItem? {
+    func nextGroupInvitation(recipientKey: String, access: CallNotificationServiceAccess) async throws
+        -> GroupDeliveryItem? {
         try Self.validateNotificationAccess(access.origin, token: access.accessToken)
         guard DeviceIdentityProof.isValidPublicKey(recipientKey) else { throw Failure.invalidResponse }
-        let result: GroupInbox = try await sendJSON(origin: access.origin, path: "api/notifications/group-invitations", method: "GET",
+        let result: GroupInbox = try await sendJSON(
+            origin: access.origin, path: "api/notifications/group-invitations", method: "GET",
             token: access.accessToken, query: [.init(name: "recipientKey", value: recipientKey)])
         if let value = result.delivery {
-            guard value.recipientKey == recipientKey, Self.notificationUserID(value.senderUserID), value.expiresAt.isFinite,
+            guard value.recipientKey == recipientKey, Self.notificationUserID(value.senderUserID),
+                value.expiresAt.isFinite,
                   value.expiresAt > 0, value.envelope.utf8.count <= 21848 else { throw Failure.invalidResponse }
         }
         return result.delivery
     }
-    func invitationsForAdditionalDevice(recipientKey: String, access: CallNotificationServiceAccess) async throws -> [UUID] {
+    func invitationsForAdditionalDevice(recipientKey: String, access: CallNotificationServiceAccess) async throws
+        -> [UUID] {
         try Self.validateNotificationAccess(access.origin, token: access.accessToken)
         guard DeviceIdentityProof.isValidPublicKey(recipientKey) else { throw Failure.invalidResponse }
         let result: AdditionalDeviceInvitations = try await sendJSON(origin: access.origin,
@@ -265,11 +309,16 @@ extension InternetAccountClient {
         return ids
     }
 
-    func additionalDevices(for record: GroupDeliveryRecord, access: CallNotificationServiceAccess) async throws -> [GroupInvitationAddress] {
+    func additionalDevices(for record: GroupDeliveryRecord, access: CallNotificationServiceAccess) async throws
+        -> [GroupInvitationAddress] {
         try Self.validateNotificationAccess(access.origin, token: access.accessToken)
-        guard record.recipient.isValid, record.recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
+        guard record.recipient.isValid, record.recipient.issuer == access.principal.issuer else {
+            throw Failure.invalidResponse
+        }
+        let recipient = record.recipient.userID
+        let invitationID = record.id.uuidString.lowercased()
         let result: AdditionalDevices = try await sendJSON(origin: access.origin,
-            path: "api/notifications/group-invitations/\(record.recipient.userID)/\(record.id.uuidString.lowercased())/additional-devices",
+            path: "api/notifications/group-invitations/\(recipient)/\(invitationID)/additional-devices",
             method: "GET", token: access.accessToken, acceptsMissing: true)
         let devices = result.devices ?? []
         guard devices.count <= 8 else { throw Failure.invalidResponse }
@@ -294,7 +343,8 @@ extension InternetAccountClient {
         guard recipient.isValid, recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
         do {
             let reply: GroupAcknowledgement = try await sendJSON(origin: access.origin,
-                path: "api/notifications/group-invitations/\(recipient.userID)/\(id.uuidString.lowercased())", method: "DELETE", token: access.accessToken,
+                path: "api/notifications/group-invitations/\(recipient.userID)/\(id.uuidString.lowercased())",
+                method: "DELETE", token: access.accessToken,
                 query: discard ? [.init(name: "discard", value: "1")] : [])
             guard reply.status == .received || reply.status == .cancelled else { throw Failure.invalidResponse }
             return reply.status
@@ -303,7 +353,8 @@ extension InternetAccountClient {
         }
     }
 
-    func acknowledgeGroupInvitation(_ id: UUID, access: CallNotificationServiceAccess) async throws -> GroupDeliveryRecord.State? {
+    func acknowledgeGroupInvitation(_ id: UUID, access: CallNotificationServiceAccess) async throws
+        -> GroupDeliveryRecord.State? {
         try await finishGroupInvitation(recipient: access.principal, id: id, access: access)
     }
 }

@@ -82,7 +82,8 @@ final class InvitationBackgroundTransfer: NSObject, InvitationBackgroundTransfer
         headers.httpBody = nil
         // A file upload in a background session copies the source when the task is created.
         let task = session.uploadTask(with: headers, fromFile: file)
-        task.taskDescription = [key.deliveryID.uuidString, key.sessionBinding, key.operation.rawValue].joined(separator: ":")
+        task.taskDescription = [key.deliveryID.uuidString, key.sessionBinding, key.operation.rawValue].joined(
+            separator: ":")
         uploads[key] = task
         task.resume()
     }
@@ -93,7 +94,8 @@ final class InvitationBackgroundTransfer: NSObject, InvitationBackgroundTransfer
     }
 
     private static func key(for task: URLSessionTask) -> InvitationBackgroundUploadID? {
-        guard let fields = task.taskDescription?.split(separator: ":", omittingEmptySubsequences: false), fields.count == 3,
+        guard let fields = task.taskDescription?.split(separator: ":", omittingEmptySubsequences: false),
+            fields.count == 3,
               let id = UUID(uuidString: String(fields[0])), InternetAccountClient.notificationUserID(String(fields[1])),
               let operation = InvitationBackgroundUploadID.Operation(rawValue: String(fields[2])) else { return nil }
         return .init(deliveryID: id, sessionBinding: String(fields[1]), operation: operation)

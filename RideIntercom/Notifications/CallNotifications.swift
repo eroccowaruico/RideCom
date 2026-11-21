@@ -11,40 +11,44 @@ final class CallNotifications {
     private var permissions: [CallNotificationPermission] = []
     @ObservationIgnored private let store: InternetConnectionSettingsStore
     @ObservationIgnored private let memberID: String
-    @ObservationIgnored private let client: InternetAccountClient
+    @ObservationIgnored let client: InternetAccountClient
     @ObservationIgnored private let isCurrentUser: @MainActor () -> Bool
-    @ObservationIgnored private let contacts: @MainActor () -> [SavedUser]
+    @ObservationIgnored let contacts: @MainActor () -> [SavedUser]
     @ObservationIgnored private let requestAuthorization: @MainActor () async throws -> Bool
     @ObservationIgnored private let authorizationGranted: @MainActor () async -> Bool
     @ObservationIgnored private let register: @MainActor () -> Void
     @ObservationIgnored private let unregister: @MainActor () -> Void
-    @ObservationIgnored private let now: @MainActor () -> Date
-    @ObservationIgnored private var generation = 0
+    @ObservationIgnored let now: @MainActor () -> Date
+    @ObservationIgnored private(set) var generation = 0
     @ObservationIgnored private var tokenGeneration = 0
     @ObservationIgnored private var deviceOperation: Task<Void, Never>?
     @ObservationIgnored private var deviceOperationID: UUID?
     @ObservationIgnored private var storageAvailable = true
 
-    init(store: InternetConnectionSettingsStore, memberID: String, client: InternetAccountClient = .init(),
-         isCurrentUser: @escaping @MainActor () -> Bool, contacts: @escaping @MainActor () -> [SavedUser],
-         requestAuthorization: @escaping @MainActor () async throws -> Bool = NotificationSystem.requestAuthorization,
-         authorizationGranted: @escaping @MainActor () async -> Bool = NotificationSystem.authorizationGranted,
-         register: @escaping @MainActor () -> Void = NotificationSystem.register,
-         unregister: @escaping @MainActor () -> Void = NotificationSystem.unregister, now: @escaping @MainActor () -> Date = Date.init) {
-        self.store = store; self.memberID = memberID; self.client = client; self.isCurrentUser = isCurrentUser; self.contacts = contacts
+    init(
+        store: InternetConnectionSettingsStore, memberID: String, client: InternetAccountClient = .init(),
+        isCurrentUser: @escaping @MainActor () -> Bool, contacts: @escaping @MainActor () -> [SavedUser],
+        requestAuthorization: @escaping @MainActor () async throws -> Bool = NotificationSystem.requestAuthorization,
+        authorizationGranted: @escaping @MainActor () async -> Bool = NotificationSystem.authorizationGranted,
+        register: @escaping @MainActor () -> Void = NotificationSystem.register,
+        unregister: @escaping @MainActor () -> Void = NotificationSystem.unregister,
+        now: @escaping @MainActor () -> Date = Date.init
+    ) {
+        self.store = store; self.memberID = memberID; self.client = client; self.isCurrentUser = isCurrentUser
+        self.contacts = contacts
         self.requestAuthorization = requestAuthorization; self.authorizationGranted = authorizationGranted
         self.register = register; self.unregister = unregister; self.now = now
         do { permissions = try store.notificationPermissions() } catch {
-            storageAvailable = false;
+            storageAvailable = false
             message = "Notification permissions could not be read. Your saved data has been preserved."
         }
     }
-    var canUseNotifications: Bool { access() != nil }
     var canRegisterNotifications: Bool { serviceAccess() != nil }
     var hasPermissionsToShare: Bool {
         guard !permissions.isEmpty, let context = access() else { return false }
         return permissions.contains { record in
-            record.owner == context.principal && record.revision > 0 && contacts().contains { $0.principal == record.peer }
+            record.owner == context.principal && record.revision > 0
+                && contacts().contains { $0.principal == record.peer }
         }
     }
     var isEnabled: Bool { store.notificationRegistrationEnabled }
@@ -54,20 +58,26 @@ final class CallNotifications {
         guard isCurrentUser() else { return nil }
         return try? store.notificationAccess(memberID: memberID)
     }
-    private func access() -> CallNotificationServiceAccess? { storageAvailable ? serviceAccess() : nil }
-    private func current(_ context: CallNotificationServiceAccess, generation expected: Int) -> Bool {
+    func access() -> CallNotificationServiceAccess? { storageAvailable ? serviceAccess() : nil }
+    func current(_ context: CallNotificationServiceAccess, generation expected: Int) -> Bool {
         generation == expected && !Task.isCancelled && serviceAccess() == context
     }
-    private func contact(_ id: UUID, context: CallNotificationServiceAccess) -> SavedUser? {
-        contacts().first { $0.id == id && $0.principal?.isValid == true && $0.principal?.issuer == context.principal.issuer
-            && $0.principal != context.principal && $0.deviceKeys?.isEmpty == false }
+    func contact(_ id: UUID, context: CallNotificationServiceAccess) -> SavedUser? {
+        contacts().first {
+            $0.id == id && $0.principal?.isValid == true && $0.principal?.issuer == context.principal.issuer
+                && $0.principal != context.principal && $0.deviceKeys?.isEmpty == false
+        }
     }
-    private func permission(_ id: UUID, context: CallNotificationServiceAccess) -> CallNotificationPermission? {
+    func permission(_ id: UUID, context: CallNotificationServiceAccess) -> CallNotificationPermission? {
         guard let user = contact(id, context: context) else { return nil }
         return permissions.first { $0.owner == context.principal && $0.peer == user.principal }
     }
-    private func update(_ id: UUID, context: CallNotificationServiceAccess, _ change: (inout CallNotificationPermission) -> Void) throws {
-        guard let user = contact(id, context: context), let peer = user.principal else { throw DeviceIdentityProof.Failure.invalid }
+    func update(
+        _ id: UUID, context: CallNotificationServiceAccess, _ change: (inout CallNotificationPermission) -> Void
+    ) throws {
+        guard let user = contact(id, context: context), let peer = user.principal else {
+            throw DeviceIdentityProof.Failure.invalid
+        }
         var next = permissions
         if let index = next.firstIndex(where: { $0.owner == context.principal && $0.peer == peer }) {
             next[index].contactID = id
@@ -76,15 +86,11 @@ final class CallNotifications {
             var record = CallNotificationPermission(contactID: id, owner: context.principal, peer: peer)
             change(&record); next.append(record)
         }
-        try store.saveNotificationPermissions(next); permissions = next
+        try savePermissions(next)
     }
-    func allowsIncoming(from id: UUID) -> Bool {
-        guard let context = access(), let record = permission(id, context: context) else { return false }
-        return record.allowsIncoming && record.receiving != nil
-    }
-    func canNotify(_ id: UUID) -> Bool {
-        guard let context = access(), let record = permission(id, context: context) else { return false }
-        return record.sending?.isAddressed(to: record.peer, from: context.principal) == true
+    private func savePermissions(_ next: [CallNotificationPermission]) throws {
+        try store.saveNotificationPermissions(next)
+        permissions = next
     }
     func enable() async {
         guard !isBusy, let context = serviceAccess() else { return }
@@ -97,7 +103,7 @@ final class CallNotifications {
             guard granted else {
                 receivesNotifications = false
                 if isEnabled { await disable() }
-                if current(context, generation: expected), !store.notificationRemovalPending { message = "Notifications are off in system settings." }
+                reportAuthorizationDenied(context, generation: expected)
                 return
             }
             store.notificationRegistrationEnabled = true
@@ -116,45 +122,40 @@ final class CallNotifications {
         if granted && !isEnabled && !isBusy { await enable() } else { await refresh() }
         if granted { await allowEveryContact() } else { await allowGroupInvitations() }
     }
-    /// Issues the receiving grant for every saved person who does not have one yet. Stops at the first failure
-    /// (usually offline) and tries again at the next start.
-    func allowEveryContact() async {
-        guard let context = access() else { return }
-        for user in contacts() where contact(user.id, context: context) != nil && !allowsIncoming(from: user.id) {
-            guard await setIncomingAllowed(true, contactID: user.id) else { return }
-        }
-        await allowGroupInvitations()
-    }
     /// Inbox delivery is independent of OS alert permission. Directly registered people may invite you.
     func allowGroupInvitations() async {
         guard let context = access() else { return }
         let expected = generation
-        for user in contacts() where contact(user.id, context: context) != nil && permission(user.id, context: context)?.groupReceiving == nil {
+        for user in contacts()
+        where contact(user.id, context: context) != nil
+            && permission(user.id, context: context)?.groupReceiving == nil {
             guard let peer = user.principal else { continue }
             var issued: CallNotificationGrant?
             do {
-                let grant = try await client.issueGroupInvitationGrant(origin: context.origin, token: context.accessToken, senderUserID: peer.userID)
+                let grant = try await client.issueGroupInvitationGrant(
+                    origin: context.origin, token: context.accessToken, senderUserID: peer.userID)
                 issued = grant
                 guard grant.isAddressed(to: context.principal, from: peer, audience: "rideintercom-group-invitation"),
-                      current(context, generation: expected), contact(user.id, context: context) != nil else { throw DeviceIdentityProof.Failure.invalid }
-                let revision = try store.nextNotificationRevision(after: permission(user.id, context: context)?.revision ?? 0)
-                try update(user.id, context: context) { $0.groupReceiving = grant; $0.allowsGroupInvitations = true; $0.revision = revision }
+                    current(context, generation: expected), contact(user.id, context: context) != nil
+                else { throw DeviceIdentityProof.Failure.invalid }
+                let revision = try store.nextNotificationRevision(
+                    after: permission(user.id, context: context)?.revision ?? 0)
+                try update(user.id, context: context) {
+                    $0.groupReceiving = grant; $0.allowsGroupInvitations = true; $0.revision = revision
+                }
             } catch {
-                if let issued { try? await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: issued.grantID) }
+                if let issued { try? await revoke(issued, context: context) }
                 return
             }
         }
     }
-    func groupInvitationGrant(for contactID: UUID) -> CallNotificationGrant? {
-        guard let context = access(), let record = permission(contactID, context: context),
-              let grant = record.groupSending, grant.isAddressed(to: record.peer, from: context.principal, audience: "rideintercom-group-invitation") else { return nil }
-        return grant
-    }
     func refresh() async {
         guard isCurrentUser() else { return }
-        if !storageAvailable {
-            do { permissions = try store.notificationPermissions(); storageAvailable = true; message = nil } catch
-            { /* Device removal must still work with unreadable contact permissions. */  }
+        // Device removal must still work with unreadable contact permissions.
+        if !storageAvailable, let loaded = try? store.notificationPermissions() {
+            permissions = loaded
+            storageAvailable = true
+            message = nil
         }
         guard let context = serviceAccess() else { return }
         let expected = generation
@@ -169,12 +170,17 @@ final class CallNotifications {
             authorizationDenied = !granted
             if granted { register() } else {
                 await disable()
-                if current(context, generation: expected), !store.notificationRemovalPending { message = "Notifications are off in system settings." }
+                reportAuthorizationDenied(context, generation: expected)
             }
         } else if store.notificationRemovalPending {
             await removePendingDevice(context, generation: expected)
         }
         await retryRevocations()
+    }
+    private func reportAuthorizationDenied(_ context: CallNotificationServiceAccess, generation expected: Int) {
+        if current(context, generation: expected), !store.notificationRemovalPending {
+            message = "Notifications are off in system settings."
+        }
     }
     func disable() async {
         guard isCurrentUser() else { return }
@@ -221,20 +227,30 @@ final class CallNotifications {
         await performDeviceOperation(context, generation: expected) {
             guard self.isEnabled, expectedToken == self.tokenGeneration else { return }
             do {
-                try await self.client.registerNotificationDevice(origin: context.origin, token: context.accessToken, deviceToken: token, environment: environment, topic: topic)
-                guard self.current(context, generation: expected), expectedToken == self.tokenGeneration, self.isEnabled else { return }
+                try await self.client.registerNotificationDevice(
+                    origin: context.origin, token: context.accessToken, deviceToken: token,
+                    environment: environment, topic: topic)
+                guard self.current(context, generation: expected), expectedToken == self.tokenGeneration,
+                    self.isEnabled
+                else { return }
                 self.store.notificationRemovalPending = false
                 self.receivesNotifications = true; self.message = "Notifications are enabled on this device."
             } catch {
                 guard self.current(context, generation: expected), expectedToken == self.tokenGeneration else { return }
-                self.receivesNotifications = false; self.message = "Notifications could not be registered. Please try again."
+                self.receivesNotifications = false
+                self.message = "Notifications could not be registered. Please try again."
             }
         }
     }
-    func registrationFailed() { if isCurrentUser(), isEnabled { receivesNotifications = false; message = "Notifications could not be registered. Please try again." } }
+    func registrationFailed() {
+        if isCurrentUser(), isEnabled {
+            receivesNotifications = false; message = "Notifications could not be registered. Please try again."
+        }
+    }
     @discardableResult
     func stop() -> Task<Void, Never>? {
-        let previous = isEnabled || store.notificationRemovalPending ? try? store.notificationAccess(memberID: memberID) : nil
+        let previous =
+            isEnabled || store.notificationRemovalPending ? try? store.notificationAccess(memberID: memberID) : nil
         let operation = deviceOperation
         generation += 1; tokenGeneration += 1; isBusy = false; receivesNotifications = false
         deviceOperation = nil; deviceOperationID = nil
@@ -247,6 +263,10 @@ final class CallNotifications {
         }
         return nil
     }
+}
+
+// Receiving grants stay with the account's permission state and persistence.
+extension CallNotifications {
     @discardableResult
     func setIncomingAllowed(_ allowed: Bool, contactID: UUID) async -> Bool {
         guard !isBusy, let context = access(), contact(contactID, context: context) != nil else { return false }
@@ -254,31 +274,22 @@ final class CallNotifications {
         defer { if generation == expected { isBusy = false } }
         do {
             if !allowed {
-                let revision = try store.nextNotificationRevision(after: permission(contactID, context: context)?.revision ?? 0)
+                let revision = try store.nextNotificationRevision(
+                    after: permission(contactID, context: context)?.revision ?? 0)
                 try update(contactID, context: context) { $0.allowsIncoming = false; $0.revision = revision }
                 await retryRevocations()
                 return current(context, generation: expected)
             }
-            if let existing = permission(contactID, context: context), !existing.allowsIncoming, let grant = existing.receiving {
-                try await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: grant.grantID)
-                guard current(context, generation: expected), contact(contactID, context: context) != nil else { return false }
-                try update(contactID, context: context) { if $0.receiving == grant { $0.receiving = nil } }
-            }
-            if permission(contactID, context: context)?.receiving == nil {
-                guard let peer = contact(contactID, context: context)?.principal else { return false }
-                let grant = try await client.issueNotificationGrant(origin: context.origin, token: context.accessToken, senderUserID: peer.userID)
+            if let existing = permission(contactID, context: context), !existing.allowsIncoming,
+                let grant = existing.receiving {
+                try await revoke(grant, context: context)
                 guard current(context, generation: expected), contact(contactID, context: context) != nil else {
-                    try? await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: grant.grantID)
                     return false
                 }
-                do {
-                    let revision = try store.nextNotificationRevision(after: permission(contactID, context: context)?.revision ?? 0)
-                    try update(contactID, context: context) { $0.receiving = grant; $0.allowsIncoming = true; $0.revision = revision }
-                } catch {
-                    // Never knowingly lose a newly issued, unpersisted grant.
-                    try? await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: grant.grantID)
-                    throw error
-                }
+                try update(contactID, context: context) { if $0.receiving == grant { $0.receiving = nil } }
+            }
+            guard try await ensureReceivingGrant(contactID, context: context, generation: expected) else {
+                return false
             }
             message = "Call notification permission saved. It is shared when you connect one to one with this person."
             return true
@@ -288,112 +299,84 @@ final class CallNotifications {
             return false
         }
     }
+    private func ensureReceivingGrant(
+        _ contactID: UUID, context: CallNotificationServiceAccess, generation expected: Int
+    ) async throws -> Bool {
+        guard permission(contactID, context: context)?.receiving == nil else { return true }
+        guard let peer = contact(contactID, context: context)?.principal else { return false }
+        let grant = try await client.issueNotificationGrant(
+            origin: context.origin, token: context.accessToken, senderUserID: peer.userID)
+        guard current(context, generation: expected), contact(contactID, context: context) != nil else {
+            try? await revoke(grant, context: context)
+            return false
+        }
+        do {
+            let revision = try store.nextNotificationRevision(
+                after: permission(contactID, context: context)?.revision ?? 0)
+            try update(contactID, context: context) {
+                $0.receiving = grant; $0.allowsIncoming = true; $0.revision = revision
+            }
+        } catch {
+            // Never knowingly lose a newly issued, unpersisted grant.
+            try? await revoke(grant, context: context)
+            throw error
+        }
+        return true
+    }
     func suppressContact(_ id: UUID) throws {
         guard let context = access(), permission(id, context: context) != nil else { return }
         let revision = try store.nextNotificationRevision(after: permission(id, context: context)?.revision ?? 0)
-        try update(id, context: context) { $0.allowsIncoming = false; $0.allowsGroupInvitations = false; $0.sending = nil; $0.groupSending = nil; $0.revision = revision }
+        try update(id, context: context) {
+            $0.allowsIncoming = false; $0.allowsGroupInvitations = false; $0.sending = nil; $0.groupSending = nil
+            $0.revision = revision
+        }
     }
     func retryRevocations() async {
         guard let context = access() else { return }
         let expected = generation
-        for record in permissions where record.owner == context.principal && !record.allowsIncoming {
-            guard let grant = record.receiving else { continue }
-            do {
-                try await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: grant.grantID)
-                guard current(context, generation: expected) else { return }
-                var next = permissions
-                if let index = next.firstIndex(where: { $0.contactID == record.contactID && !$0.allowsIncoming && $0.receiving == grant }) {
-                    next[index].receiving = nil
-                    try store.saveNotificationPermissions(next); permissions = next
-                }
-            } catch { break } // Keep this grant and still reclaim already cancelled rows.
-        }
-        guard current(context, generation: expected) else { return }
-        for record in permissions where record.owner == context.principal && record.allowsGroupInvitations == false {
-            guard let grant = record.groupReceiving else { continue }
-            do {
-                try await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: grant.grantID)
-                guard current(context, generation: expected) else { return }
-                var next = permissions
-                if let index = next.firstIndex(where: { $0.contactID == record.contactID && $0.allowsGroupInvitations == false && $0.groupReceiving == grant }) {
-                    next[index].groupReceiving = nil
-                    try store.saveNotificationPermissions(next); permissions = next
-                }
-            } catch { break }
-        }
-        guard current(context, generation: expected) else { return }
+        guard await revokePendingGrants(\.receiving, context: context, generation: expected, where: {
+            !$0.allowsIncoming
+        }), current(context, generation: expected) else { return }
+        guard await revokePendingGrants(\.groupReceiving, context: context, generation: expected, where: {
+            $0.allowsGroupInvitations == false
+        }), current(context, generation: expected) else { return }
         let next = permissions.filter { record in
-            !(record.owner == context.principal && record.receiving == nil && record.groupReceiving == nil && !record.allowsIncoming
+            !(record.owner == context.principal && record.receiving == nil && record.groupReceiving == nil
+                && !record.allowsIncoming
               && !contacts().contains(where: { $0.principal == record.peer }))
         }
         guard next.count != permissions.count else { return }
         do {
             // Keep issued revisions monotonic even after the last contact row is removed.
             try store.retainNotificationRevision(atLeast: permissions.map(\.revision).max() ?? 0)
-            try store.saveNotificationPermissions(next); permissions = next
+            try savePermissions(next)
         } catch {
             // A failed write must leave the persisted records and in-memory retry state intact.
         }
     }
-    func permissionMessage(for peerID: String, signer: DeviceIdentitySigner) throws -> CallNotificationPermissionMessage? {
-        guard let context = access(), let user = contacts().first(where: { $0.memberIDs.contains(peerID) }),
-              let record = permission(user.id, context: context), record.revision > 0 else { return nil }
-        return try .make(owner: context.principal, allowedSender: record.peer, revision: record.revision,
-                         grant: record.allowsIncoming ? record.receiving : nil, signer: signer)
-    }
-    func groupPermissionMessage(for peerID: String, signer: DeviceIdentitySigner) throws -> CallNotificationPermissionMessage? {
-        guard let context = access(), let user = contacts().first(where: { $0.memberIDs.contains(peerID) }),
-              let record = permission(user.id, context: context), record.revision > 0 else { return nil }
-        return try .make(owner: context.principal, allowedSender: record.peer, revision: record.revision,
-                         grant: record.allowsIncoming ? record.receiving : nil, signer: signer,
-                         groupGrant: record.allowsGroupInvitations == true ? record.groupReceiving : nil, groupInvitationsSupported: true)
-    }
-    func receivePermission(_ value: CallNotificationPermissionMessage, peerID: String) throws {
-        guard let context = access(), let user = contacts().first(where: { $0.memberIDs.contains(peerID) }),
-              contact(user.id, context: context) != nil else { throw DeviceIdentityProof.Failure.invalid }
-        let grant = try value.verifiedGrant(peerID: peerID, savedUser: user, local: context.principal)
-        guard let source = value.proof?.publicKey else { throw DeviceIdentityProof.Failure.invalid }
-        let previous = permission(user.id, context: context)
-        let updatesCall = !(previous?.receivedRevisionSource == source && value.revision <= (previous?.receivedRevision ?? 0))
-            && !(grant == nil && previous?.sending != nil && previous?.receivedRevisionSource != source)
-        let updatesGroup = value.groupInvitationsSupported == true
-            && !(previous?.groupReceivedRevisionSource == source && value.revision <= (previous?.groupReceivedRevision ?? 0))
-            && !(value.groupGrant == nil && previous?.groupSending != nil && previous?.groupReceivedRevisionSource != source)
-        guard updatesCall || updatesGroup else { return }
-        try update(user.id, context: context) {
-            if updatesCall { $0.sending = grant; $0.receivedRevision = value.revision; $0.receivedRevisionSource = source }
-            if updatesGroup { $0.groupSending = value.groupGrant; $0.groupReceivedRevision = value.revision; $0.groupReceivedRevisionSource = source }
+    private func revokePendingGrants(
+        _ receiving: WritableKeyPath<CallNotificationPermission, CallNotificationGrant?>,
+        context: CallNotificationServiceAccess, generation expected: Int,
+        where isSuppressed: (CallNotificationPermission) -> Bool
+    ) async -> Bool {
+        for record in permissions where record.owner == context.principal && isSuppressed(record) {
+            guard let grant = record[keyPath: receiving] else { continue }
+            do {
+                try await revoke(grant, context: context)
+                guard current(context, generation: expected) else { return false }
+                var next = permissions
+                if let index = next.firstIndex(where: {
+                    $0.contactID == record.contactID && isSuppressed($0) && $0[keyPath: receiving] == grant
+                }) {
+                    next[index][keyPath: receiving] = nil
+                    try savePermissions(next)
+                }
+            } catch { break } // Keep this grant and still reclaim already cancelled rows.
         }
+        return true
     }
-
-    func send(to contactID: UUID) async -> CallNotificationReply? {
-        // Not held back by `isBusy`: grants are issued by themselves at launch and sign-in, and a notice
-        // that is sent once and never followed up must not be lost to that housekeeping.
-        guard let context = access(), let record = permission(contactID, context: context),
-              let grant = record.sending, grant.isAddressed(to: record.peer, from: context.principal) else { return nil }
-        let capability = grant.capability
-        let expected = generation
-        do {
-            let reply = try await client.sendCallNotification(origin: context.origin, token: context.accessToken, capability: capability, requestID: UUID())
-            guard current(context, generation: expected), permission(contactID, context: context)?.sending?.capability == capability else { return nil }
-            // A courtesy sent once: its result is not shown or followed up.
-            return reply
-        } catch { return nil }
-    }
-    func canReceive(_ tap: CallNotificationTap) -> Bool { receivingAccess(for: tap) != nil }
-    private func receivingAccess(for tap: CallNotificationTap) -> CallNotificationServiceAccess? {
-        guard isEnabled, let context = access(), context.principal.userID == tap.recipientID else { return nil }
-        return context
-    }
-    func resolveTap(_ tap: CallNotificationTap) async -> UUID? {
-        guard let context = receivingAccess(for: tap) else { return nil }
-        let expected = generation
-        do {
-            let reply = try await client.readCallNotification(origin: context.origin, token: context.accessToken, recipientUserID: tap.recipientID, requestID: tap.requestID)
-            guard isEnabled, current(context, generation: expected), reply.isLive(at: now()),
-                  let user = contacts().first(where: { $0.principal?.userID == reply.senderUserID && $0.principal?.issuer == context.principal.issuer }),
-                  allowsIncoming(from: user.id) else { return nil }
-            return user.id
-        } catch { return nil }
+    private func revoke(_ grant: CallNotificationGrant, context: CallNotificationServiceAccess) async throws {
+        try await client.revokeNotificationGrant(
+            origin: context.origin, token: context.accessToken, grantID: grant.grantID)
     }
 }

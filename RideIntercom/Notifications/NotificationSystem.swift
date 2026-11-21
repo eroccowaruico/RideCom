@@ -20,7 +20,7 @@ enum NotificationSystem {
     /// tapping the notification) and Ignore (closes it in the background; nothing is sent to the sender).
     static var callRequestCategory: UNNotificationCategory {
         let connect = UNNotificationAction(identifier: connectActionIdentifier, title: String(localized: "Connect"),
-                                           options: [.foreground], icon: UNNotificationActionIcon(systemImageName: "phone.fill"))
+            options: [.foreground], icon: UNNotificationActionIcon(systemImageName: "phone.fill"))
         let ignore = UNNotificationAction(identifier: ignoreActionIdentifier, title: String(localized: "Ignore"),
                                           options: [], icon: UNNotificationActionIcon(systemImageName: "xmark"))
         return UNNotificationCategory(identifier: callRequestCategoryIdentifier, actions: [connect, ignore],

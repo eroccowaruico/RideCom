@@ -14,18 +14,29 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         self.owner = owner
         if NotificationSystem.permitsSystemAccess {
             UNUserNotificationCenter.current().delegate = self
-            UNUserNotificationCenter.current().setNotificationCategories([NotificationSystem.callRequestCategory, NotificationSystem.groupInvitationCategory])
+            UNUserNotificationCenter.current().setNotificationCategories([
+                NotificationSystem.callRequestCategory, NotificationSystem.groupInvitationCategory
+            ])
         }
     }
     func receivedDeviceToken(_ token: Data) {
-        guard NotificationSystem.permitsSystemAccess, let model = owner?.viewModel, model.hasCurrentAccountAccess, let topic = Bundle.main.bundleIdentifier else { return }
-        Task { await model.notifications.receivedDeviceToken(token, environment: NotificationSystem.environment, topic: topic) }
+        guard NotificationSystem.permitsSystemAccess, let model = owner?.viewModel, model.hasCurrentAccountAccess,
+            let topic = Bundle.main.bundleIdentifier
+        else { return }
+        Task {
+            await model.notifications.receivedDeviceToken(
+                token, environment: NotificationSystem.environment, topic: topic)
+        }
     }
     func registrationFailed() { owner?.viewModel?.notifications.registrationFailed() }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
+    ) async {
         guard SystemSurfaceScope.permitsSystemAccess else { return }
         if let group = GroupInvitationTap(payload: response.notification.request.content.userInfo) {
-            if response.actionIdentifier == UNNotificationDefaultActionIdentifier { _ = await owner?.respondToGroupInvitation(group) }
+            if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+                _ = await owner?.respondToGroupInvitation(group)
+            }
             return
         }
         guard let tap = CallNotificationTap(payload: response.notification.request.content.userInfo) else { return }
@@ -40,16 +51,21 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
                     && categoryIdentifier == NotificationSystem.callRequestCategoryIdentifier) else { return false }
         return await owner?.respondToCallNotification(tap) ?? false
     }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
         guard SystemSurfaceScope.permitsSystemAccess else { return [] }
-        if let group = GroupInvitationTap(payload: notification.request.content.userInfo) { return await groupPresentationOptions(for: group) }
+        if let group = GroupInvitationTap(payload: notification.request.content.userInfo) {
+            return await groupPresentationOptions(for: group)
+        }
         guard let tap = CallNotificationTap(payload: notification.request.content.userInfo) else { return [] }
         return await presentationOptions(for: tap)
     }
     func groupPresentationOptions(for tap: GroupInvitationTap) -> UNNotificationPresentationOptions {
-        guard let owner, let model = owner.viewModel, model.accountSession === owner.account, model.hasCurrentAccountAccess,
-              let access = try? model.internetSettingsStore.notificationAccess(memberID: model.localMemberIdentity.memberID),
+        guard let owner, let model = owner.viewModel, model.accountSession === owner.account,
+            model.hasCurrentAccountAccess,
+            let access = try? model.internetSettingsStore.notificationAccess(
+                memberID: model.localMemberIdentity.memberID),
               access.principal.userID == tap.recipientID else { return [] }
         model.requestGroupDeliverySync(.notification)
         return [.list]
@@ -64,8 +80,12 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
 
 #if os(macOS)
 extension RideIntercomApplicationDelegate {
-    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) { notificationBridge?.receivedDeviceToken(token) }
-    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) { notificationBridge?.registrationFailed() }
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        notificationBridge?.receivedDeviceToken(token)
+    }
+    func application(
+        _ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error
+    ) { notificationBridge?.registrationFailed() }
 }
 #else
 @MainActor
@@ -79,7 +99,11 @@ final class RideIntercomApplicationDelegate: NSObject, UIApplicationDelegate {
         }
         InvitationBackgroundTransfer.shared.handleEvents(completion: completionHandler)
     }
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) { notificationBridge?.receivedDeviceToken(token) }
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) { notificationBridge?.registrationFailed() }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        notificationBridge?.receivedDeviceToken(token)
+    }
+    func application(
+        _ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error
+    ) { notificationBridge?.registrationFailed() }
 }
 #endif

@@ -34,16 +34,19 @@ extension IntercomViewModel {
               let payload = try? JSONEncoder().encode(value), payload.count <= 8192 else { return }
         if let groupValue = try? notifications.groupPermissionMessage(for: context.peerID, signer: signer),
            let groupPayload = try? JSONEncoder().encode(groupValue), groupPayload.count <= 8192 {
-            callSession.sendApplicationData(.init(namespace: CallNotificationPermissionMessage.groupNamespace, payload: groupPayload))
+            callSession.sendApplicationData(
+                .init(namespace: CallNotificationPermissionMessage.groupNamespace, payload: groupPayload))
         }
         callSession.sendApplicationData(.init(namespace: CallNotificationPermissionMessage.namespace, payload: payload))
     }
     func receiveNotificationPermission(peerID: String, message: ApplicationDataMessage) {
-        guard [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace].contains(message.namespace), message.payload.count <= 8192,
+        guard
+            [CallNotificationPermissionMessage.namespace, CallNotificationPermissionMessage.groupNamespace]
+                .contains(message.namespace), message.payload.count <= 8192,
               notificationExchangeContext()?.peerID == peerID,
               let value = message.decodedPayload(CallNotificationPermissionMessage.self, from: peerID) else { return }
         do {
-            try notifications.receivePermission(value, peerID: peerID);
+            try notifications.receivePermission(value, peerID: peerID)
             requestGroupDeliverySync(
                 message.namespace == CallNotificationPermissionMessage.groupNamespace ? .localChange : .refresh)
         } catch { /* Untrusted or unrelated capabilities cannot authorize a call. */  }
