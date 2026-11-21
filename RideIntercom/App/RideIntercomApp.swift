@@ -33,7 +33,7 @@ struct RideIntercomApp: App {
         owner.notificationBridge.bind(to: owner)
         appDelegate.notificationBridge = owner.notificationBridge
         #if os(iOS)
-        if SystemSurfaceScope.permitsSystemAccess { GroupInvitationBackgroundTransfer.shared.bind(to: owner) }
+        if SystemSurfaceScope.permitsSystemAccess { InvitationBackgroundTransfer.shared.bind(to: owner) }
         #endif
         #if os(iOS) && (DEBUG || RIDEINTERCOM_VALIDATION)
         owner.watchBridge = WatchPhoneBridge(owner: owner)

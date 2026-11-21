@@ -27,6 +27,8 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     var receivedBySharing: Bool?
     /// The existing Internet inbox has accepted our acknowledgement.
     var internetAcknowledged: Bool?
+    /// The background upload reached the inbox. Delivery still requires the peer's signed acknowledgement.
+    var internetAcceptanceSubmitted: Bool?
 
     var invitedGroupID: UUID? = nil
     var pendingGroupMemberID: String { GroupMember.pendingInvitePrefix + "contact-" + id.uuidString.lowercased() }

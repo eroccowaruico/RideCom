@@ -18,7 +18,8 @@ nonisolated struct DeviceIdentityCertificate: Codable, Equatable, Sendable {
               let issuerBytes = IdentityEncoding.decode(trustedIssuerKey), issuerBytes.count == 65 else { throw Failure.invalid }
         let key = try P256.Signing.PublicKey(x963Representation: issuerBytes)
         guard key.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signature), for: Data((parts[0] + "." + parts[1]).utf8)) else { throw Failure.invalid }
-        let claims = try JSONDecoder().decode(Claims.self, from: payload)
+        let decoder = JSONDecoder()
+        let claims = try decoder.decode(Claims.self, from: payload)
         let instant = now.timeIntervalSince1970
         guard claims.iss == IdentityEncoding.origin(origin), claims.aud == "rideintercom-peer",
               claims.sub.utf8.count == 64, claims.sub.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
@@ -29,9 +30,11 @@ nonisolated struct DeviceIdentityCertificate: Codable, Equatable, Sendable {
               claims.iat <= instant + 60, claims.exp > instant, claims.exp > claims.iat, claims.exp - claims.iat <= 30 * 86400,
               let deviceBytes = IdentityEncoding.decode(claims.deviceKey), deviceBytes.count == 65 else { throw Failure.invalid }
         _ = try P256.Signing.PublicKey(x963Representation: deviceBytes)
+        let relayKey = (try? decoder.decode(RelayClaims.self, from: payload))?.invitationRelayKey
         return VerifiedDeviceIdentity(envelope: self, issuer: claims.iss, userID: claims.sub, deviceID: claims.deviceID,
                                       memberID: claims.memberID, deviceKey: claims.deviceKey, expiresAt: claims.exp,
-                                      sessionBinding: claims.sessionBinding)
+                                      sessionBinding: claims.sessionBinding,
+                                      invitationRelayKey: relayKey?.belongsToCertificate(issuedAt: claims.iat) == true ? relayKey : nil)
     }
     enum Failure: Error { case invalid }
     private struct Claims: Decodable {
@@ -40,6 +43,7 @@ nonisolated struct DeviceIdentityCertificate: Codable, Equatable, Sendable {
         let iat: TimeInterval; let exp: TimeInterval
         let sessionBinding: String?
     }
+    private struct RelayClaims: Decodable { let invitationRelayKey: InvitationRelayKey? }
 }
 
 nonisolated struct VerifiedDeviceIdentity: Sendable {
@@ -51,11 +55,14 @@ nonisolated struct VerifiedDeviceIdentity: Sendable {
     let deviceKey: String
     let expiresAt: TimeInterval
     let sessionBinding: String?
+    let invitationRelayKey: InvitationRelayKey?
     fileprivate init(envelope: DeviceIdentityCertificate, issuer: String, userID: String, deviceID: String,
-                     memberID: String, deviceKey: String, expiresAt: TimeInterval, sessionBinding: String?) {
+                     memberID: String, deviceKey: String, expiresAt: TimeInterval, sessionBinding: String?,
+                     invitationRelayKey: InvitationRelayKey?) {
         self.envelope = envelope; self.issuer = issuer; self.userID = userID; self.deviceID = deviceID
         self.memberID = memberID; self.deviceKey = deviceKey; self.expiresAt = expiresAt
         self.sessionBinding = sessionBinding
+        self.invitationRelayKey = invitationRelayKey
     }
 }
 

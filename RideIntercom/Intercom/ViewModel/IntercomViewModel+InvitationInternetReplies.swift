@@ -34,6 +34,7 @@ extension IntercomViewModel {
         guard let client = groupDeliveryClient, hasCurrentAccountAccess, allowsInternetInvitationReplies,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
               hasInternetInvitationReplies(access: access) else { return }
+        scheduleBackgroundContactAcceptances(access: access)
         let contactIDs = Set(internetContactReplyRecords(access: access).map(\.id))
         if let window = invitationInternetReplyWindow, !restart, window.access == access, window.generation == accountAccessID {
             activeInternetContactReplyIDs = contactIDs
@@ -56,6 +57,11 @@ extension IntercomViewModel {
         let delays = [Duration.zero] + invitationInternetReplyRetryDelays
         window.task = Task { [weak self] in
             defer { self?.stopInvitationInternetReply(id: id) }
+            if let transfer = self?.invitationBackgroundTransfer, !transfer.hasRestored {
+                await transfer.restore()
+                guard let self, self.internetReplyWindowIsCurrent(window) else { return }
+                self.scheduleBackgroundContactAcceptances(access: window.access)
+            }
             for delay in delays {
                 do { if delay > .zero { try await Task.sleep(for: delay) } }
                 catch { return }

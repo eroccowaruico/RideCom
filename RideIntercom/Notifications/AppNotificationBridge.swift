@@ -73,11 +73,11 @@ final class RideIntercomApplicationDelegate: NSObject, UIApplicationDelegate {
     var notificationBridge: AppNotificationBridge?
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
-        guard SystemSurfaceScope.permitsSystemAccess, identifier == GroupInvitationBackgroundTransfer.identifier else {
+        guard SystemSurfaceScope.permitsSystemAccess, identifier == InvitationBackgroundTransfer.identifier else {
             completionHandler()
             return
         }
-        GroupInvitationBackgroundTransfer.shared.handleEvents(completion: completionHandler)
+        InvitationBackgroundTransfer.shared.handleEvents(completion: completionHandler)
     }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) { notificationBridge?.receivedDeviceToken(token) }
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) { notificationBridge?.registrationFailed() }

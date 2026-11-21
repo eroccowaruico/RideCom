@@ -12,11 +12,12 @@ import UserNotifications
 
 @MainActor @Suite(.serialized) struct GroupDeliveryFlowTests {
     #if os(iOS)
-    @Test(.timeLimit(.minutes(1))) func systemBackgroundSessionSendsTheCopiedFileAndAppliesTheReply() async throws {
+    @Test(.timeLimit(.minutes(2))) func systemBackgroundSessionSendsTheCopiedFileAndAppliesTheReply() async throws {
         let a = GroupDeliveryTestIdentity("native-upload-author"), b = GroupDeliveryTestIdentity("native-upload-recipient")
         defer { a.remove(); b.remove() }
-        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
-        try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let issuer = P256.Signing.PrivateKey()
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer, relayEnabled: true)
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer)
         let model = try a.harness(knowing: [b]).viewModel
         model.groupDeliveryClient = nil
         let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal,
@@ -27,28 +28,17 @@ import UserNotifications
         try #require(model.createTalkGroup(name: "System upload", userIDs: [b.personID]))
         let record = try #require(model.groupRepository.groupDeliveries.first)
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
-        let transfer = GroupInvitationBackgroundTransfer()
+        let transfer = InvitationBackgroundTransfer()
         transfer.bind(to: owner)
         await transfer.restore()
         defer { transfer.reconcile(keeping: []) }
-        for operation in [GroupInvitationUploadID.Operation.send, .cancel] {
+        for operation in [InvitationBackgroundUploadID.Operation.send, .cancel] {
             let key = try #require(model.backgroundGroupInvitationUploadIDs().first)
             #expect(key.operation == operation)
             var request = try #require(try model.backgroundGroupInvitationRequest(for: key.deliveryID))
-            let expectedBody = try #require(request.httpBody)
             let reply = try JSONSerialization.data(withJSONObject: ["requestID": record.id.uuidString.lowercased(),
                 "expiresAt": record.expiresAt * 1_000, "status": operation == .send ? "queued" : "cancelled"])
-            let endpoint = try BackgroundUploadLoopback(reply: reply)
-            defer { endpoint.listener.cancel() }
-            await AppTestSupport.waitUntil(timeout: .seconds(5)) { (endpoint.listener.port?.rawValue ?? 0) > 0 }
-            let port = try #require(endpoint.listener.port)
-            try #require(port.rawValue > 0)
-            request.url = URL(string: "http://localhost:\(port.rawValue)/receipt")
-            try transfer.enqueue(request, for: key)
-            await AppTestSupport.waitUntil(timeout: .seconds(22)) { !transfer.contains(key) }
-            let captured = endpoint.received.withLock { $0 }
-            #expect(captured == expectedBody)
-            #expect(!transfer.contains(key))
+            try await checkBackgroundUpload(request: &request, key: key, reply: reply, transfer: transfer)
             if operation == .send {
                 #expect(model.groupRepository.groupDeliveries.first?.state == .queued)
                 try #require(model.removeMember(b.memberID, from: record.groupID))
@@ -56,10 +46,156 @@ import UserNotifications
                 #expect(model.groupRepository.groupDeliveries.isEmpty)
             }
         }
+        let author = try b.harness(knowing: [a]).viewModel
+        defer { model.stopGroupDeliverySync(); author.stopGroupDeliverySync() }
+        author.groupDeliveryClient = nil
+        model.setRTCTransportRoutes([.webRTC])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        model.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        let recording = RecordingBackgroundInvitationTransfer()
+        model.invitationBackgroundTransfer = recording
+        let url = try #require(author.makeContactInviteURL())
+        try model.acceptContactInviteURL(url)
+        let contact = try #require(model.groupRepository.contactInvitations.first)
+        let contactKey = try #require(recording.enqueued.first)
+        var contactRequest = try #require(recording.requests[contactKey])
+        let receiptID = try #require(contact.receiptID)
+        let reply = try JSONSerialization.data(withJSONObject: ["id": receiptID.uuidString.lowercased(),
+            "expiresAt": Int64((contact.expiresAt * 1000).rounded(.down))])
+        model.invitationBackgroundTransfer = transfer
+        let payload = try model.groupRepository.contactInvitationPayload(contact.id)
+        let address = try InvitationReplyAddress(contactToken: payload.token)
+        try await checkBackgroundRedirect(request: contactRequest, key: contactKey, reply: reply, transfer: transfer,
+            excluded: [try a.principal.userID, try b.principal.userID, address.slot, receiptID.uuidString.lowercased(), url.absoluteString])
+        #expect(model.contactInvitationRecord(contact.id)?.internetAcceptanceSubmitted == nil)
+        #expect(model.contactInvitationRecord(contact.id)?.state == .pending)
+        try await checkBackgroundUpload(request: &contactRequest, key: contactKey, reply: reply, transfer: transfer)
+        #expect(model.contactInvitationRecord(contact.id)?.internetAcceptanceSubmitted == true)
+        #expect(model.contactInvitationRecord(contact.id)?.state == .pending)
         // Keep the account owner alive while the session delivers its completion.
         #expect(owner.viewModel === model)
     }
+
+    private func checkBackgroundUpload(request: inout URLRequest, key: InvitationBackgroundUploadID, reply: Data,
+                                       transfer: InvitationBackgroundTransfer) async throws {
+        let expectedBody = try #require(request.httpBody)
+        let endpoint = try BackgroundUploadLoopback(reply: reply)
+        defer { endpoint.listener.cancel() }
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { (endpoint.listener.port?.rawValue ?? 0) > 0 }
+        let port = try #require(endpoint.listener.port)
+        try #require(port.rawValue > 0)
+        request.url = URL(string: "http://localhost:\(port.rawValue)/receipt")
+        try transfer.enqueue(request, for: key)
+        await AppTestSupport.waitUntil(timeout: .seconds(16)) { !transfer.contains(key) }
+        let sameBody = endpoint.received.withLock { $0 == expectedBody }
+        #expect(sameBody)
+        #expect(!transfer.contains(key))
+    }
+
+    private func checkBackgroundRedirect(request: URLRequest, key: InvitationBackgroundUploadID, reply: Data,
+                                         transfer: InvitationBackgroundTransfer, excluded: [String]) async throws {
+        let destination = try BackgroundUploadLoopback(reply: reply)
+        defer { destination.listener.cancel() }
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { (destination.listener.port?.rawValue ?? 0) > 0 }
+        let destinationPort = try #require(destination.listener.port)
+        try #require(destinationPort.rawValue > 0)
+        let location = try #require(URL(string: "http://127.0.0.1:\(destinationPort.rawValue)/receipt"))
+        let redirect = try BackgroundUploadLoopback(reply: Data(), redirectingTo: location)
+        defer { redirect.listener.cancel() }
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { (redirect.listener.port?.rawValue ?? 0) > 0 }
+        let redirectPort = try #require(redirect.listener.port)
+        try #require(redirectPort.rawValue > 0)
+        var outgoing = request
+        outgoing.url = URL(string: "http://localhost:\(redirectPort.rawValue)/receipt")
+        try transfer.enqueue(outgoing, for: key)
+        await AppTestSupport.waitUntil(timeout: .seconds(16)) { !transfer.contains(key) }
+        let originalReceivedBody = redirect.received.withLock { $0 == request.httpBody }
+        #expect(originalReceivedBody)
+        let body = try #require(destination.received.withLock { $0 })
+        let sameBody = body == request.httpBody
+        #expect(sameBody)
+        #expect(containsOnlySealedAcceptance(body, excluding: excluded))
+        #expect(!transfer.contains(key))
+    }
     #endif
+
+    @Test(arguments: [true, false])
+    func acceptingContactInvitationLetsIOSOwnTheSavedAcceptance(relayEnabled: Bool) async throws {
+        let a = GroupDeliveryTestIdentity("contact-upload-author"), b = GroupDeliveryTestIdentity("contact-upload-recipient")
+        defer { a.remove(); b.remove() }
+        let issuer = P256.Signing.PrivateKey()
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
+        try b.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer, relayEnabled: relayEnabled)
+        let author = try a.harness(knowing: []).viewModel
+        let recipient = try b.harness(knowing: [], onDisk: true).viewModel
+        defer { author.stopGroupDeliverySync(); recipient.stopGroupDeliverySync() }
+        author.groupDeliveryClient = nil
+        recipient.setRTCTransportRoutes([.webRTC])
+        recipient.invitationInternetReplyRetryDelays = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        recipient.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
+        let transfer = RecordingBackgroundInvitationTransfer()
+        recipient.invitationBackgroundTransfer = transfer
+        let url = try #require(author.makeContactInviteURL())
+        try recipient.acceptContactInviteURL(url)
+        let record = try #require(recipient.groupRepository.contactInvitations.first)
+        #expect(record.state == .pending)
+        if !relayEnabled {
+            #expect(transfer.enqueued.isEmpty)
+            return
+        }
+        let upload = try #require(transfer.enqueued.first)
+        #expect(upload.deliveryID == record.id)
+        #expect(upload.operation == .contactAcceptance)
+        let request = try #require(transfer.requests[upload])
+        #expect(request.url?.path == "/api/ordinary-group-replies/background-acceptance")
+        let anonymousRequest = request.value(forHTTPHeaderField: "Authorization") == nil
+        let body = try #require(request.httpBody)
+        let access = try #require(try b.store.notificationAccess(memberID: b.memberID))
+        let receiptID = try #require(record.receiptID)
+        let payload = try recipient.groupRepository.contactInvitationPayload(record.id)
+        let address = try InvitationReplyAddress(contactToken: payload.token)
+        let anonymousBody = containsOnlySealedAcceptance(body, excluding: [access.accessToken, b.memberID, access.principal.userID,
+            try a.principal.userID, a.memberID, address.slot, receiptID.uuidString.lowercased(), url.absoluteString])
+        #expect(anonymousRequest && anonymousBody)
+        recipient.requestInvitationInternetReply(restart: true)
+        #expect(transfer.enqueued.count == 1)
+
+        let expiry = Int64((record.expiresAt * 1000).rounded(.down))
+        let wrongExpiry = try JSONSerialization.data(withJSONObject: ["id": receiptID.uuidString, "expiresAt": expiry + 1])
+        recipient.applyBackgroundInvitationResponse(wrongExpiry, for: upload)
+        #expect(recipient.contactInvitationRecord(record.id)?.internetAcceptanceSubmitted == nil)
+        let reply = try JSONSerialization.data(withJSONObject: ["id": receiptID.uuidString, "expiresAt": expiry])
+        let oldSession = InvitationBackgroundUploadID(deliveryID: upload.deliveryID,
+            sessionBinding: String(repeating: "0", count: 64), operation: .contactAcceptance)
+        recipient.applyBackgroundInvitationResponse(reply, for: oldSession)
+        #expect(recipient.contactInvitationRecord(record.id)?.internetAcceptanceSubmitted == nil)
+        transfer.active.remove(upload)
+        recipient.applyBackgroundInvitationResponse(reply, for: upload)
+        #expect(recipient.contactInvitationRecord(record.id)?.internetAcceptanceSubmitted == true)
+        #expect(recipient.contactInvitationRecord(record.id)?.state == .pending)
+        let reopened = try b.harness(knowing: [], onDisk: true).viewModel
+        defer { reopened.stopGroupDeliverySync() }
+        #expect(reopened.contactInvitationRecord(record.id)?.internetAcceptanceSubmitted == true)
+        #expect(reopened.contactInvitationRecord(record.id)?.state == .pending)
+    }
+
+    private func containsOnlySealedAcceptance(_ body: Data, excluding values: [String]) -> Bool {
+        guard let fields = try? JSONSerialization.jsonObject(with: body) as? [String: String],
+              fields.count == 1, let sealed = fields["sealed"] else { return false }
+        let parts = sealed.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 5, parts[1].isEmpty else { return false }
+        var visible = body
+        for part in parts where !part.isEmpty {
+            let base64 = part.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            let padding = String(repeating: "=", count: (4 - base64.count % 4) % 4)
+            guard let bytes = Data(base64Encoded: base64 + padding) else { return false }
+            visible.append(bytes)
+        }
+        return values.allSatisfy { visible.range(of: Data($0.utf8)) == nil }
+    }
 
     @Test func savingEnqueuesOneBackgroundUploadAndCancelsItWhenTheMemberIsRemoved() async throws {
         let a = GroupDeliveryTestIdentity("background-author"), b = GroupDeliveryTestIdentity("background-recipient")
@@ -75,7 +211,7 @@ import UserNotifications
         GroupDeliveryHTTPStub.users = [access.accessToken: try a.principal.userID]
         model.groupDeliveryClient = .init(session: URLSession(configuration: configuration))
         let transfer = RecordingBackgroundInvitationTransfer()
-        model.groupInvitationBackgroundTransfer = transfer
+        model.invitationBackgroundTransfer = transfer
         let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal,
             revision: 1, grant: nil, signer: b.signer,
             groupGrant: testCallNotificationGrant(owner: b.principal, allowedSender: a.principal, audience: "rideintercom-group-invitation"),
@@ -1835,16 +1971,18 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-@MainActor private final class RecordingBackgroundInvitationTransfer: GroupInvitationBackgroundTransferring {
+@MainActor final class RecordingBackgroundInvitationTransfer: InvitationBackgroundTransferring {
     var hasRestored = true
-    var active: Set<GroupInvitationUploadID> = []
-    var enqueued: [GroupInvitationUploadID] = []
+    var active: Set<InvitationBackgroundUploadID> = []
+    var enqueued: [InvitationBackgroundUploadID] = []
+    private(set) var requests: [InvitationBackgroundUploadID: URLRequest] = [:]
     func restore() async { hasRestored = true }
-    func reconcile(keeping keys: Set<GroupInvitationUploadID>) { active.formIntersection(keys) }
-    func contains(_ key: GroupInvitationUploadID) -> Bool { active.contains(key) }
-    func enqueue(_ request: URLRequest, for key: GroupInvitationUploadID) throws {
+    func reconcile(keeping keys: Set<InvitationBackgroundUploadID>) { active.formIntersection(keys) }
+    func contains(_ key: InvitationBackgroundUploadID) -> Bool { active.contains(key) }
+    func enqueue(_ request: URLRequest, for key: InvitationBackgroundUploadID) throws {
         active.insert(key)
         enqueued.append(key)
+        requests[key] = request
     }
 }
 
@@ -1855,8 +1993,12 @@ private final class BackgroundUploadLoopback: Sendable {
     private let queue = DispatchQueue(label: "BackgroundUploadLoopback")
     private let response: Data
 
-    init(reply: Data) throws {
-        response = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(reply.count)\r\nConnection: close\r\n\r\n".utf8) + reply
+    init(reply: Data, redirectingTo location: URL? = nil) throws {
+        if let location {
+            response = Data("HTTP/1.1 307 Temporary Redirect\r\nLocation: \(location.absoluteString)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+        } else {
+            response = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(reply.count)\r\nConnection: close\r\n\r\n".utf8) + reply
+        }
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)

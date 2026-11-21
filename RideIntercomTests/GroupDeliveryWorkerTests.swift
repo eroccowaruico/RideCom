@@ -99,7 +99,7 @@ import Testing
         }
     }
 
-    enum ContactMailboxCase: CaseIterable { case group, contact, renewedAuthor }
+    enum ContactMailboxCase: CaseIterable { case group, contact, renewedAuthor, background }
 
     @Test(.timeLimit(.minutes(1)), arguments: ContactMailboxCase.allCases)
     func contactInvitationCompletesWhileTheTwoAppsConnectAtDifferentTimes(scenario: ContactMailboxCase) async throws {
@@ -110,7 +110,8 @@ import Testing
             try await register(a); try await register(b)
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
-            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let session = URLSession(configuration: configuration)
+            let client = InternetAccountClient(session: session)
             let left = try a.harness(knowing: [], onDisk: true).viewModel
             let right = try b.harness(knowing: [], onDisk: true).viewModel
             defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync(); left.disconnect(); right.disconnect() }
@@ -142,6 +143,8 @@ import Testing
             // Renewal keeps the same issuing device but revokes its previous opening permission.
             if scenario == .renewedAuthor { try await register(a) }
 
+            let transfer = RecordingBackgroundInvitationTransfer()
+            if scenario == .background { right.invitationBackgroundTransfer = transfer }
             right.groupDeliveryClient = client
             try #require(right.previewContactInvitation(share.url))
             try #require(right.acceptPresentedContactInvitation())
@@ -152,6 +155,19 @@ import Testing
             await right.invitationInternetReplyWindow?.task?.value
             #expect(right.contactInvitationRecord(share.id)?.state == .pending)
             #expect(left.contactInvitationRecord(share.id)?.state == .pending)
+            if scenario == .background {
+                let key = try #require(transfer.enqueued.first)
+                let queued = transfer.requests[key]
+                let request = try #require(queued)
+                let (reply, response) = try await session.data(for: request)
+                try #require((response as? HTTPURLResponse)?.statusCode == 200)
+                transfer.active.remove(key)
+                right.applyBackgroundInvitationResponse(reply, for: key)
+                await right.invitationInternetReplyWindow?.task?.value
+                #expect(right.contactInvitationRecord(share.id)?.internetAcceptanceSubmitted == true)
+                #expect(right.contactInvitationRecord(share.id)?.state == .pending)
+                #expect(transfer.enqueued.count == 1)
+            }
             right.groupDeliveryClient = nil
             right.groupDeliveryNetworkPathChanged(isAvailable: false)
 

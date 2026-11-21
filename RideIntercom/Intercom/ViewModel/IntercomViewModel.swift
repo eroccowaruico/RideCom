@@ -34,7 +34,7 @@ final class IntercomViewModel {
     @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
     @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
     @ObservationIgnored var groupDeliveryClient: InternetAccountClient? = SystemSurfaceScope.permitsSystemAccess ? .init() : nil
-    @ObservationIgnored var groupInvitationBackgroundTransfer: (any GroupInvitationBackgroundTransferring)?
+    @ObservationIgnored var invitationBackgroundTransfer: (any InvitationBackgroundTransferring)?
     @ObservationIgnored var groupDeliveryPathMonitor: NWPathMonitor?
     @ObservationIgnored var groupDeliveryNetworkWasAvailable: Bool?
     @ObservationIgnored var beginGroupDeliveryBackgroundTime: AppBackgroundTime.Request = {

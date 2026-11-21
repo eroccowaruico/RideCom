@@ -143,12 +143,16 @@ extension InternetAccountClient {
         }
     }
 
-    nonisolated private struct BackgroundGroupSubmission: Encodable {
+    nonisolated private struct BackgroundSubmission: Encodable {
         let senderUserID: String
         let deviceID: String
         let sessionBinding: String
         let submission: String
         let proof: DeviceIdentityProof
+    }
+
+    nonisolated private struct SealedBackgroundSubmission: Encodable {
+        let sealed: String
     }
 
     nonisolated private struct BackgroundGroupCancellation: Encodable {
@@ -172,7 +176,7 @@ extension InternetAccountClient {
                                                   signer: DeviceIdentitySigner) throws -> URLRequest? {
         guard envelope.sender == access.principal, envelope.senderMemberID == signer.memberID else { return nil }
         let body = try GroupSubmission(envelope, noticeID: noticeID, capability: capability)
-        return try backgroundGroupRequest(body, endpoint: "background", purpose: .submitBackgroundGroupInvitation,
+        return try backgroundSubmissionRequest(body, path: GroupSubmission.path + "/background", purpose: .submitBackgroundGroupInvitation,
                                           access: access, signer: signer)
     }
 
@@ -182,19 +186,20 @@ extension InternetAccountClient {
               record.recipient != access.principal else { return nil }
         let body = BackgroundGroupCancellation(recipientUserID: record.recipient.userID, requestID: record.id.uuidString.lowercased(),
                                                expiresAt: record.expiresAt * 1_000)
-        return try backgroundGroupRequest(body, endpoint: "background-cancellation", purpose: .cancelBackgroundGroupInvitation,
+        return try backgroundSubmissionRequest(body, path: GroupSubmission.path + "/background-cancellation", purpose: .cancelBackgroundGroupInvitation,
                                           access: access, signer: signer)
     }
 
-    private static func backgroundGroupRequest(_ body: some Encodable, endpoint: String, purpose: DeviceIdentityProof.Purpose,
-                                               access: CallNotificationServiceAccess, signer: DeviceIdentitySigner) throws -> URLRequest? {
+    static func backgroundSubmissionRequest(_ body: some Encodable, path: String, purpose: DeviceIdentityProof.Purpose,
+                                               access: CallNotificationServiceAccess, signer: DeviceIdentitySigner,
+                                               now: Date = Date()) throws -> URLRequest? {
         try validateNotificationAccess(access.origin, token: access.accessToken)
         let parts = access.accessToken.split(separator: ".")
         let origin = IdentityEncoding.origin(access.origin)
         guard let identity = signer.identity, signer.principal == access.principal,
               identity.issuer == origin, identity.deviceID == parts[2],
               let binding = identity.sessionBinding,
-              binding == groupInvitationSessionBinding(for: access.accessToken) else { return nil }
+              binding == backgroundSubmissionSessionBinding(for: access.accessToken) else { return nil }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -202,16 +207,25 @@ extension InternetAccountClient {
         guard submission.utf8.count <= 36 * 1024 else { throw Failure.invalidResponse }
         let message = try encoder.encode([origin, binding, submission])
         let proof = try signer.sign(message, purpose: purpose)
-        let packet = BackgroundGroupSubmission(senderUserID: identity.userID, deviceID: identity.deviceID,
+        let packet = BackgroundSubmission(senderUserID: identity.userID, deviceID: identity.deviceID,
                                                sessionBinding: binding, submission: submission, proof: proof)
-        var request = URLRequest(url: access.origin.appendingPathComponent(GroupSubmission.path + "/" + endpoint), timeoutInterval: 10)
+        var request = URLRequest(url: access.origin.appendingPathComponent(path), timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(packet)
+        let signedRequest = try encoder.encode(packet)
+        if purpose == .submitBackgroundContactInvitationAcceptance {
+            guard let sealed = try identity.invitationRelayKey?.seal(signedRequest, now: now) else { return nil }
+            let encoded = try encoder.encode(SealedBackgroundSubmission(sealed: sealed))
+            guard encoded.count <= 64 * 1024 else { return nil }
+            request.httpBody = encoded
+            request.httpShouldHandleCookies = false
+        } else {
+            request.httpBody = signedRequest
+        }
         return request
     }
 
-    static func groupInvitationSessionBinding(for token: String) -> String? {
+    static func backgroundSubmissionSessionBinding(for token: String) -> String? {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4, parts[0] == "ri1", notificationUserID(String(parts[3])) else { return nil }
         func hexDigest(_ value: String) -> String {

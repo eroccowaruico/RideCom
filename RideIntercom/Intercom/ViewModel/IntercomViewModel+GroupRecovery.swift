@@ -32,6 +32,9 @@ extension IntercomViewModel {
     func refreshGroupStorageStatus() {
         reconcileOrdinaryGroupReplyExchanges()
         reconcileInvitationInternetReply()
+        if let transfer = invitationBackgroundTransfer, transfer.hasRestored {
+            transfer.reconcile(keeping: backgroundInvitationUploadIDs())
+        }
         if let id = contactInvitationID,
            groupRepository.contactInvitations.contains(where: { $0.id == id && $0.state == .cancelled }) {
             stopContactInvitationSession()

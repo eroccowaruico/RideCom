@@ -15,14 +15,21 @@ import Foundation
         self.memberID = memberID
         store = InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
     }
-    func authorizeFixture(userID: String, issuer: P256.Signing.PrivateKey = P256.Signing.PrivateKey()) throws {
+    func authorizeFixture(userID: String, issuer: P256.Signing.PrivateKey = P256.Signing.PrivateKey(), relayEnabled: Bool = false) throws {
         let deviceID = try store.accountDeviceID()
         let key = try store.deviceSigningKey()
         let hash = { (text: String) in SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
         let secret = hash(deviceID)
+        let now = Date()
+        var claims: [String: Any] = ["sessionBinding": hash(hash(secret))]
+        if relayEnabled {
+            let period = Int(now.timeIntervalSince1970 / 2_592_000)
+            let relay = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+            claims["invitationRelayKey"] = ["kid": "v1-\(period)", "x": IdentityEncoding.encode(relay), "expiresAt": (period + 2) * 2_592_000]
+        }
         let certificate = try testIdentityCertificate(signer: issuer, userID: userID, deviceID: deviceID, memberID: memberID,
-            deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), origin: "https://delivery.test",
-            changes: ["sessionBinding": hash(hash(secret))])
+            deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), origin: "https://delivery.test", now: now,
+            changes: claims)
         let identity = try certificate.verify(origin: URL(string: "https://delivery.test")!, trustedIssuerKey: certificate.issuerKey)
         try store.save(url: "https://delivery.test", token: "ri1." + userID + "." + deviceID + "." + secret, identity: identity)
     }

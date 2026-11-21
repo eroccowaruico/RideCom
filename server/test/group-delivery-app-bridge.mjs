@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { generateKeyPair, exportJWK, exportPKCS8, SignJWT } from 'jose';
 import { makeRuntime } from './support/runtime.mjs';
 
@@ -29,6 +30,7 @@ const apple = await generateKeyPair('RS256'), signing = await generateKeyPair('E
 const applePublic = { ...await exportJWK(apple.publicKey), kid: 'group-app-fixture', alg: 'RS256' };
 const runtime = await makeRuntime({ APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CLIENT_TOKENS_JSON: '{}',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
+    INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
     APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APNS_TEAM_ID: 'fixtureteam',
     APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' }, { appleKeys: [applePublic], apns: async () => Response.json({}) });
 const origin = 'https://delivery.test';

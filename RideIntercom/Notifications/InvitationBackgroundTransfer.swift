@@ -1,37 +1,40 @@
 import Foundation
 
-nonisolated struct GroupInvitationUploadID: Hashable, Sendable {
-    enum Operation: String, Hashable, Sendable { case send, cancel }
+nonisolated struct InvitationBackgroundUploadID: Hashable, Sendable {
+    enum Operation: String, Hashable, Sendable { case send, cancel, contactAcceptance }
     let deliveryID: UUID
     let sessionBinding: String
     let operation: Operation
 }
 
 @MainActor
-protocol GroupInvitationBackgroundTransferring: AnyObject {
+protocol InvitationBackgroundTransferring: AnyObject {
     var hasRestored: Bool { get }
     func restore() async
-    func reconcile(keeping keys: Set<GroupInvitationUploadID>)
-    func contains(_ key: GroupInvitationUploadID) -> Bool
-    func enqueue(_ request: URLRequest, for key: GroupInvitationUploadID) throws
+    func reconcile(keeping keys: Set<InvitationBackgroundUploadID>)
+    func contains(_ key: InvitationBackgroundUploadID) -> Bool
+    func enqueue(_ request: URLRequest, for key: InvitationBackgroundUploadID) throws
 }
 
 #if os(iOS)
 @MainActor
-final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgroundTransferring, URLSessionDataDelegate {
-    static let shared = GroupInvitationBackgroundTransfer()
+final class InvitationBackgroundTransfer: NSObject, InvitationBackgroundTransferring, URLSessionDataDelegate {
+    static let shared = InvitationBackgroundTransfer()
     static let identifier = "com.yowamushi-inc.RideIntercom.group-invitations"
 
     private weak var owner: AppCallOwner?
     private var restoration: Task<[URLSessionTask], Never>?
     private(set) var hasRestored = false
-    private var uploads: [GroupInvitationUploadID: URLSessionTask] = [:]
+    private var uploads: [InvitationBackgroundUploadID: URLSessionTask] = [:]
     private var responses: [Int: Data] = [:]
     private var backgroundCompletion: (() -> Void)?
 
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.background(withIdentifier: Self.identifier)
         configuration.isDiscretionary = false
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
         configuration.timeoutIntervalForResource = GroupDeliveryRecord.invitationLifetime
         return URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
     }()
@@ -40,7 +43,7 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
         self.owner = owner
         Task {
             await restore()
-            reconcile(keeping: self.owner?.viewModel?.backgroundGroupInvitationUploadIDs() ?? [])
+            reconcile(keeping: self.owner?.viewModel?.backgroundInvitationUploadIDs() ?? [])
         }
     }
 
@@ -56,7 +59,7 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
         restoration = nil
     }
 
-    func reconcile(keeping keys: Set<GroupInvitationUploadID>) {
+    func reconcile(keeping keys: Set<InvitationBackgroundUploadID>) {
         for key in Array(uploads.keys) {
             guard let task = uploads[key] else { continue }
             if !keys.contains(key) {
@@ -68,9 +71,9 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
         }
     }
 
-    func contains(_ key: GroupInvitationUploadID) -> Bool { uploads[key] != nil }
+    func contains(_ key: InvitationBackgroundUploadID) -> Bool { uploads[key] != nil }
 
-    func enqueue(_ request: URLRequest, for key: GroupInvitationUploadID) throws {
+    func enqueue(_ request: URLRequest, for key: InvitationBackgroundUploadID) throws {
         guard uploads[key] == nil, let body = request.httpBody else { return }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: file) }
@@ -89,10 +92,10 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
         _ = session
     }
 
-    private static func key(for task: URLSessionTask) -> GroupInvitationUploadID? {
+    private static func key(for task: URLSessionTask) -> InvitationBackgroundUploadID? {
         guard let fields = task.taskDescription?.split(separator: ":", omittingEmptySubsequences: false), fields.count == 3,
               let id = UUID(uuidString: String(fields[0])), InternetAccountClient.notificationUserID(String(fields[1])),
-              let operation = GroupInvitationUploadID.Operation(rawValue: String(fields[2])) else { return nil }
+              let operation = InvitationBackgroundUploadID.Operation(rawValue: String(fields[2])) else { return nil }
         return .init(deliveryID: id, sessionBinding: String(fields[1]), operation: operation)
     }
 
@@ -117,9 +120,8 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
                 uploads.removeValue(forKey: key)
             }
             guard error == nil, let response = task.response as? HTTPURLResponse, response.statusCode == 200,
-                  let originalURL = task.originalRequest?.url, response.url == originalURL, let data,
-                  let reply = try? JSONDecoder().decode(GroupDeliveryReply.self, from: data) else { return }
-            owner?.viewModel?.applyBackgroundGroupInvitationReply(reply, for: key)
+                  let originalURL = task.originalRequest?.url, response.url == originalURL, let data else { return }
+            owner?.viewModel?.applyBackgroundInvitationResponse(data, for: key)
         }
     }
 

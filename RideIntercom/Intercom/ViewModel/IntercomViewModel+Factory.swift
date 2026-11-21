@@ -54,7 +54,7 @@ extension IntercomViewModel {
         )
         if model.groupDeliveryClient != nil {
             #if os(iOS)
-            model.groupInvitationBackgroundTransfer = GroupInvitationBackgroundTransfer.shared
+            model.invitationBackgroundTransfer = InvitationBackgroundTransfer.shared
             #endif
             let monitor = NWPathMonitor()
             monitor.pathUpdateHandler = { [weak model] path in

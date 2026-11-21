@@ -23,6 +23,7 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         case deliverGroupInvitation, acknowledgeGroupInvitation, requestGroupInvitationRedelivery
         case openContactInvitationReply
         case submitBackgroundGroupInvitation, cancelBackgroundGroupInvitation
+        case submitBackgroundContactInvitationAcceptance
         case cancelGroupInvitation, acknowledgeGroupInvitationCancellation
         case deleteContact, acknowledgeContactDeletion
         case readContactDeletion, acknowledgeContactDeletionRelay
@@ -57,7 +58,11 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
 
     fileprivate static func message(_ payload: Data, purpose: Purpose, memberID: String, publicKey: String,
                                     certificate: DeviceIdentityCertificate?) throws -> Data {
-        let maximumPayloadSize = purpose == .submitBackgroundGroupInvitation ? 37 * 1024 : 16_384
+        let maximumPayloadSize: Int
+        switch purpose {
+        case .submitBackgroundGroupInvitation, .submitBackgroundContactInvitationAcceptance: maximumPayloadSize = 37 * 1024
+        default: maximumPayloadSize = 16_384
+        }
         guard payload.count <= maximumPayloadSize, IntercomGroup.isValidMemberID(memberID), !memberID.hasPrefix("invite-pending-"),
               publicKey.utf8.count == 87, (certificate?.certificate.utf8.count ?? 0) <= 4096,
               (certificate?.issuerKey.utf8.count ?? 0) <= 87 else { throw Failure.invalid }

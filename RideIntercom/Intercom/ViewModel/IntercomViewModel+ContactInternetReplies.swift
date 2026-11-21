@@ -1,6 +1,75 @@
 import Foundation
 
 extension IntercomViewModel {
+    private struct ContactAcceptanceUploadReply: Decodable {
+        let id: UUID
+        let expiresAt: Int64
+    }
+
+    func backgroundInvitationUploadIDs() -> Set<InvitationBackgroundUploadID> {
+        let groups = backgroundGroupInvitationUploadIDs()
+        guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,
+              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return groups }
+        return groups.union(backgroundContactAcceptanceUploadIDs(access: access))
+    }
+
+    func applyBackgroundInvitationResponse(_ data: Data, for key: InvitationBackgroundUploadID) {
+        let decoder = JSONDecoder()
+        switch key.operation {
+        case .send, .cancel:
+            if let reply = try? decoder.decode(GroupDeliveryReply.self, from: data) {
+                applyBackgroundGroupInvitationReply(reply, for: key)
+            }
+        case .contactAcceptance:
+            guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,
+                  let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+                  let record = contactInvitationRecord(key.deliveryID),
+                  contactAcceptanceUploadID(record, access: access) == key,
+                  contactInternetReplyIsEligible(record, access: access, now: callAccessNow().timeIntervalSince1970),
+                  let reply = try? decoder.decode(ContactAcceptanceUploadReply.self, from: data), record.receiptID == reply.id,
+                  Int64(exactly: (record.expiresAt * 1000).rounded(.down)) == reply.expiresAt else { return }
+            do {
+                try groupRepository.markContactInternetAcceptanceSubmitted(record.id, receiptID: reply.id)
+                requestInvitationInternetReply()
+            } catch { reportGroupStorageError(error) }
+        }
+    }
+
+    private func contactAcceptanceUploadID(_ record: ContactInvitationRecord, access: CallNotificationServiceAccess) -> InvitationBackgroundUploadID? {
+        guard record.direction == .incoming, record.state == .pending, record.internetAcceptanceSubmitted != true,
+              let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken) else { return nil }
+        return .init(deliveryID: record.id, sessionBinding: binding, operation: .contactAcceptance)
+    }
+
+    private func backgroundContactAcceptanceUploadIDs(access: CallNotificationServiceAccess) -> Set<InvitationBackgroundUploadID> {
+        Set(internetContactReplyRecords(access: access).compactMap { contactAcceptanceUploadID($0, access: access) })
+    }
+
+    func scheduleBackgroundContactAcceptances(access: CallNotificationServiceAccess) {
+        guard let transfer = invitationBackgroundTransfer, transfer.hasRestored else { return }
+        let contactKeys = backgroundContactAcceptanceUploadIDs(access: access)
+        transfer.reconcile(keeping: backgroundGroupInvitationUploadIDs().union(contactKeys))
+        let capacity = 60 - contactKeys.count(where: { transfer.contains($0) })
+        guard capacity > 0 else { return }
+        for key in contactKeys.lazy.filter({ !transfer.contains($0) }).prefix(capacity) {
+            guard let record = contactInvitationRecord(key.deliveryID),
+                  let request = try? backgroundContactAcceptanceRequest(record, access: access) else { continue }
+            try? transfer.enqueue(request, for: key)
+        }
+    }
+
+    private func backgroundContactAcceptanceRequest(_ record: ContactInvitationRecord, access: CallNotificationServiceAccess) throws -> URLRequest? {
+        let payload = try groupRepository.contactInvitationPayload(record.id)
+        guard let owner = contactInternetReplyOwner(record, access: access),
+              let pending = payload.receipt, let key = pending.inviteeDeviceKey,
+              let invitation = payload.token.directInvitation?.context else { return nil }
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: key)
+        let address = try InvitationReplyAddress(contactToken: payload.token)
+        let (packet, admission) = try prepareContactInternetAcceptance(pending, payload: payload, invitation: invitation, address: address)
+        return try InternetAccountClient.backgroundContactAcceptanceRequest(packet, address: address, owner: owner,
+                                                                            access: access, signer: signer, admission: admission, now: callAccessNow())
+    }
+
     func canTryContactInternetReply(_ record: ContactInvitationRecord) -> Bool {
         guard groupDeliveryClient != nil, hasCurrentAccountAccess, allowsInternetInvitationReplies,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return false }
@@ -100,11 +169,10 @@ extension IntercomViewModel {
               let key = pending.inviteeDeviceKey else { return }
         let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: key)
         guard signer.principal == window.access.principal else { return }
-        if !window.submittedReceiptIDs.contains(pending.id) {
-            let now = callAccessNow()
-            let packet = try InvitationReplyPacket.seal(pending, address: address, invitation: invitation, now: now.timeIntervalSince1970)
-            let admission = ContactInvitationReplyAdmission(token: payload.token, address: address,
-                                                                 trust: try internetSettingsStore.identityTrust(), now: now)
+        let uploadInProgress = contactAcceptanceUploadID(record, access: window.access)
+            .map { invitationBackgroundTransfer?.contains($0) == true } ?? false
+        if record.internetAcceptanceSubmitted != true, !uploadInProgress, !window.submittedReceiptIDs.contains(pending.id) {
+            let (packet, admission) = try prepareContactInternetAcceptance(pending, payload: payload, invitation: invitation, address: address)
             do {
                 try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access, admission: admission)
             } catch InternetAccountClient.Failure.rejected where admission != nil {
@@ -122,8 +190,20 @@ extension IntercomViewModel {
         try applyContactReply(confirmation, receivedBySharing: false)
     }
 
+    private func prepareContactInternetAcceptance(_ receipt: DirectInvitationReceipt, payload: ContactInvitationPayload,
+                                                  invitation: DirectInvitationContext, address: InvitationReplyAddress)
+        throws -> (InvitationReplyPacket, ContactInvitationReplyAdmission?) {
+        let now = callAccessNow()
+        let packet = try InvitationReplyPacket.seal(receipt, address: address, invitation: invitation, now: now.timeIntervalSince1970)
+        let admission = ContactInvitationReplyAdmission(token: payload.token, address: address,
+                                                        trust: try internetSettingsStore.identityTrust(), now: now)
+        return (packet, admission)
+    }
+
     private func contactInternetReplyIsCurrent(_ record: ContactInvitationRecord, window: InvitationInternetReplyWindow) -> Bool {
-        internetReplyWindowIsCurrent(window) && contactInvitationRecord(record.id) == record
-            && contactInternetReplyIsEligible(record, access: window.access, now: callAccessNow().timeIntervalSince1970)
+        guard internetReplyWindowIsCurrent(window), let current = contactInvitationRecord(record.id),
+              current.state == record.state, current.receiptID == record.receiptID,
+              current.credentialReference == record.credentialReference else { return false }
+        return contactInternetReplyIsEligible(current, access: window.access, now: callAccessNow().timeIntervalSince1970)
     }
 }
