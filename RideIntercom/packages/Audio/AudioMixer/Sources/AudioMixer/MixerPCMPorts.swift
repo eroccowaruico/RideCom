@@ -335,20 +335,9 @@ public final class MixerPCMSource {
                 }
             }
         }
-        let startSample: AVAudioFramePosition
-        // Remote and local clocks have unrelated epochs. Retain only their
-        // relative mapping, and rebase after a restart or a discontinuity
-        // outside the bounded playout window. Never reserve arbitrary future audio.
-        if !target.isFinite || target < Double(rendered) - limit * mixerFormat.sampleRate
-            || target > Double(rendered) + limit * mixerFormat.sampleRate
-            || lastCapturedAt.map({ capturedAt <= $0 }) == true {
-            playoutAnchor = (capturedAt, delayedStart)
-            startSample = delayedStart
-            if scheduledEndSample > rendered { options = .interrupts }
-            playbackResetCount += 1
-        } else {
-            startSample = AVAudioFramePosition(target.rounded())
-        }
+        let startSample = boundedStartSample(
+            target: target, input: input, delayedStart: delayedStart, options: &options
+        )
         if let adjustment {
             playoutAdjustmentCount += 1
             lastPlayoutAdjustment = MixerPlayoutAdjustment(
@@ -362,6 +351,25 @@ public final class MixerPCMSource {
         lastCapturedAt = capturedAt
         lastCapturedEnd = capturedAt + duration
         return (startSample, options)
+    }
+
+    private func boundedStartSample(
+        target: Double, input: ReservationInput, delayedStart: AVAudioFramePosition,
+        options: inout AVAudioPlayerNodeBufferOptions
+    ) -> AVAudioFramePosition {
+        // Remote and local clocks have unrelated epochs. Retain only their
+        // relative mapping, and rebase after a restart or a discontinuity
+        // outside the bounded playout window. Never reserve arbitrary future audio.
+        if !target.isFinite || target < Double(input.position.writable) - input.limit * mixerFormat.sampleRate
+            || target > Double(input.position.writable) + input.limit * mixerFormat.sampleRate
+            || lastCapturedAt.map({ input.capturedAt <= $0 }) == true {
+            playoutAnchor = (input.capturedAt, delayedStart)
+            if scheduledEndSample > input.position.writable { options = .interrupts }
+            playbackResetCount += 1
+            return delayedStart
+        } else {
+            return AVAudioFramePosition(target.rounded())
+        }
     }
 
 	/// A rejected native start keeps the request; the next schedule retries it
