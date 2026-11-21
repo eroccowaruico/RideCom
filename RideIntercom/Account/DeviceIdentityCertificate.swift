@@ -30,13 +30,15 @@ nonisolated struct DeviceIdentityCertificate: Codable, Equatable, Sendable {
               let deviceBytes = IdentityEncoding.decode(claims.deviceKey), deviceBytes.count == 65 else { throw Failure.invalid }
         _ = try P256.Signing.PublicKey(x963Representation: deviceBytes)
         return VerifiedDeviceIdentity(envelope: self, issuer: claims.iss, userID: claims.sub, deviceID: claims.deviceID,
-                                      memberID: claims.memberID, deviceKey: claims.deviceKey, expiresAt: claims.exp)
+                                      memberID: claims.memberID, deviceKey: claims.deviceKey, expiresAt: claims.exp,
+                                      sessionBinding: claims.sessionBinding)
     }
     enum Failure: Error { case invalid }
     private struct Claims: Decodable {
         let iss: String; let sub: String; let aud: String
         let deviceID: String; let memberID: String; let deviceKey: String
         let iat: TimeInterval; let exp: TimeInterval
+        let sessionBinding: String?
     }
 }
 
@@ -48,10 +50,12 @@ nonisolated struct VerifiedDeviceIdentity: Sendable {
     let memberID: String
     let deviceKey: String
     let expiresAt: TimeInterval
+    let sessionBinding: String?
     fileprivate init(envelope: DeviceIdentityCertificate, issuer: String, userID: String, deviceID: String,
-                     memberID: String, deviceKey: String, expiresAt: TimeInterval) {
+                     memberID: String, deviceKey: String, expiresAt: TimeInterval, sessionBinding: String?) {
         self.envelope = envelope; self.issuer = issuer; self.userID = userID; self.deviceID = deviceID
         self.memberID = memberID; self.deviceKey = deviceKey; self.expiresAt = expiresAt
+        self.sessionBinding = sessionBinding
     }
 }
 

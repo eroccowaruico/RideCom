@@ -21,6 +21,7 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         case issueInvitation, acceptInvitation, acknowledgeInvitation
         case shareDisplayName, shareCallAccess, callNotificationPermission
         case deliverGroupInvitation, acknowledgeGroupInvitation, requestGroupInvitationRedelivery
+        case submitBackgroundGroupInvitation
         case cancelGroupInvitation, acknowledgeGroupInvitationCancellation
         case deleteContact, acknowledgeContactDeletion
         case readContactDeletion, acknowledgeContactDeletionRelay
@@ -55,7 +56,8 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
 
     fileprivate static func message(_ payload: Data, purpose: Purpose, memberID: String, publicKey: String,
                                     certificate: DeviceIdentityCertificate?) throws -> Data {
-        guard payload.count <= 16_384, IntercomGroup.isValidMemberID(memberID), !memberID.hasPrefix("invite-pending-"),
+        let maximumPayloadSize = purpose == .submitBackgroundGroupInvitation ? 37 * 1024 : 16_384
+        guard payload.count <= maximumPayloadSize, IntercomGroup.isValidMemberID(memberID), !memberID.hasPrefix("invite-pending-"),
               publicKey.utf8.count == 87, (certificate?.certificate.utf8.count ?? 0) <= 4096,
               (certificate?.issuerKey.utf8.count ?? 0) <= 87 else { throw Failure.invalid }
         var result = Data("rideintercom.device-proof.v1\0".utf8)
@@ -73,14 +75,14 @@ nonisolated struct DeviceIdentitySigner: Sendable {
     let memberID: String
     let publicKey: String
     let principal: AccountPrincipal?
+    let identity: VerifiedDeviceIdentity?
     private let key: P256.Signing.PrivateKey
-    private let certificate: DeviceIdentityCertificate?
     init(memberID: String, key: P256.Signing.PrivateKey, identity: VerifiedDeviceIdentity? = nil) throws {
         let publicKey = IdentityEncoding.encode(key.publicKey.x963Representation)
         guard IntercomGroup.isValidMemberID(memberID), !memberID.hasPrefix("invite-pending-"),
               identity.map({ $0.memberID == memberID && $0.deviceKey == publicKey }) ?? true else { throw DeviceIdentityProof.Failure.invalid }
         self.principal = identity.map { AccountPrincipal(issuer: $0.issuer, userID: $0.userID) }
-        self.memberID = memberID; self.key = key; self.publicKey = publicKey; self.certificate = identity?.envelope
+        self.memberID = memberID; self.key = key; self.publicKey = publicKey; self.identity = identity
     }
     static let nearbyGroupDeliveryDomain = "rideintercom.group-delivery.nearby.v1"
 
@@ -139,6 +141,7 @@ nonisolated struct DeviceIdentitySigner: Sendable {
     }
 
     func sign(_ payload: Data, purpose: DeviceIdentityProof.Purpose) throws -> DeviceIdentityProof {
+        let certificate = identity?.envelope
         let message = try DeviceIdentityProof.message(payload, purpose: purpose, memberID: memberID, publicKey: publicKey, certificate: certificate)
         return DeviceIdentityProof(publicKey: publicKey, certificate: certificate,
                                    signature: IdentityEncoding.encode(try key.signature(for: message).rawRepresentation))

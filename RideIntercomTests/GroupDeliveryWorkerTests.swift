@@ -7,6 +7,72 @@ import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryWorkerTests {
+    @Test(.timeLimit(.minutes(1))) func savedInvitationMakesAnUploadThatTheWorkerCanReceiveWithoutTheBearer() async throws {
+        try await withWorker {
+            let a = GroupDeliveryTestIdentity("background-author"), b = GroupDeliveryTestIdentity("background-recipient")
+            defer { a.remove(); b.remove() }
+            try await register(a); try await register(b)
+            let sender = try a.harness(knowing: [b], onDisk: true).viewModel
+            let recipient = try b.harness(knowing: [a], onDisk: true).viewModel
+            defer { sender.stopGroupDeliverySync(); recipient.stopGroupDeliverySync() }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let session = URLSession(configuration: configuration)
+            let client = InternetAccountClient(session: session)
+            sender.groupDeliveryClient = nil
+            recipient.groupDeliveryClient = client
+            recipient.notifications = CallNotifications(store: b.store, memberID: b.memberID, client: client,
+                isCurrentUser: { [weak recipient] in recipient?.canStartCalls == true }, contacts: { [weak recipient] in recipient?.savedRemoteUsers ?? [] })
+            await recipient.notifications.allowGroupInvitations()
+            let permission = try #require(try recipient.notifications.groupPermissionMessage(for: a.memberID, signer: b.signer))
+            try sender.notifications.receivePermission(permission, peerID: b.memberID)
+
+            let groupID = UUID()
+            try #require(sender.createTalkGroup(name: "Background delivery", userIDs: [b.personID], id: groupID))
+            let record = try #require(sender.groupRepository.groupDeliveries.first)
+            #expect(record.state == .pending && recipient.groups.isEmpty)
+            let request = try #require(try sender.backgroundGroupInvitationRequest(for: record.id))
+            #expect(request.url?.path == "/api/notifications/group-invitations/background")
+            #expect(request.httpMethod == "POST" && request.value(forHTTPHeaderField: "Authorization") == nil)
+            let outbound = try #require(request.httpBody)
+            let object = try #require(JSONSerialization.jsonObject(with: outbound) as? [String: Any])
+            let hasOnlySubmissionFields = Set(object.keys) == ["senderUserID", "deviceID", "sessionBinding", "submission", "proof"]
+            let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+            let locator = try #require(access.accessToken.split(separator: ".").dropFirst().first)
+            let body = String(decoding: outbound, as: UTF8.self)
+            let containsNoCredentials = !body.contains(access.accessToken) && !body.contains(locator)
+            #expect(hasOnlySubmissionFields && containsNoCredentials)
+
+            let identity = try #require(try a.store.loadIdentity(memberID: a.memberID))
+            let tokenPrefix = access.accessToken.split(separator: ".").dropLast().joined(separator: ".")
+            try a.store.save(url: access.origin.absoluteString, token: tokenPrefix + "." + String(repeating: "a", count: 64), identity: identity)
+            #expect(try sender.backgroundGroupInvitationRequest(for: record.id) == nil)
+            try a.store.save(url: access.origin.absoluteString, token: access.accessToken, identity: identity)
+
+            let reopened = try a.harness(knowing: [b], onDisk: true).viewModel
+            defer { reopened.stopGroupDeliverySync() }
+            let retry = try #require(try reopened.backgroundGroupInvitationRequest(for: record.id))
+            let retryBody = try #require(retry.httpBody)
+            let retryObject = try #require(JSONSerialization.jsonObject(with: retryBody) as? [String: Any])
+            let sameSubmission = object["submission"] as? String == retryObject["submission"] as? String
+            #expect(sameSubmission)
+            for upload in [request, retry] {
+                let (bytes, response) = try await session.data(for: upload)
+                try #require((response as? HTTPURLResponse)?.statusCode == 200)
+                let reply = try JSONDecoder().decode(GroupDeliveryReply.self, from: bytes)
+                #expect(reply.matches(id: record.id, expiresAt: record.expiresAt) && reply.status == .queued)
+            }
+            await recipient.synchronizeGroupDeliveries()
+            #expect(recipient.groups.map(\.id) == [groupID])
+            let sameGroupKey = try recipient.groupRepository.credential(for: groupID) == reopened.groupRepository.credential(for: groupID)
+            #expect(sameGroupKey)
+            reopened.groupDeliveryClient = client
+            await reopened.synchronizeGroupDeliveries()
+            #expect(reopened.groupInvitationDeliveryState(for: try b.savedUser(), in: groupID) == .received)
+            #expect(try reopened.backgroundGroupInvitationRequest(for: record.id) == nil)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func aRestoredInternetCallRouteResumesSavedOrdinaryInvitationReplies() async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("ordinary-reconnect-author")

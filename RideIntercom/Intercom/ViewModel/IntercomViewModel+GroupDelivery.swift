@@ -170,8 +170,7 @@ extension IntercomViewModel {
                 catch { reportGroupStorageError(error); return }
                 continue
             }
-            guard let user = savedRemoteUsers.first(where: { $0.principal == record.recipient }),
-                  let grant = notifications.groupInvitationGrant(for: user.id) else { continue }
+            guard let grant = groupDeliveryGrant(for: record) else { continue }
             let envelope: GroupInvitationEnvelope
             do {
                 guard let prepared = try prepareGroupDeliveryEnvelope(record, sender: access.principal) else { continue }
@@ -191,6 +190,25 @@ extension IntercomViewModel {
         await receiveGroupDeliveries(client: client, access: access, generation: generation)
         await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
         finishNearbyGroupDeliveryIfComplete()
+    }
+
+    private func groupDeliveryGrant(for record: GroupDeliveryRecord) -> CallNotificationGrant? {
+        guard let user = savedRemoteUsers.first(where: { $0.principal == record.recipient }) else { return nil }
+        return notifications.groupInvitationGrant(for: user.id)
+    }
+
+    func backgroundGroupInvitationRequest(for id: UUID) throws -> URLRequest? {
+        guard canEditSavedGroups, notifications.canUseNotifications,
+              let access = try internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+              let record = groupRepository.groupDeliveries.first(where: { $0.id == id }),
+              record.state == .pending, record.internetAction == .send, record.recipient.issuer == access.principal.issuer,
+              record.expiresAt > callAccessNow().timeIntervalSince1970,
+              let grant = groupDeliveryGrant(for: record) else { return nil }
+        let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+        guard signer.identity?.sessionBinding != nil,
+              let envelope = try prepareGroupDeliveryEnvelope(record, sender: access.principal) else { return nil }
+        return try InternetAccountClient.backgroundGroupInvitationRequest(envelope, noticeID: record.noticeID,
+            capability: grant.capability, access: access, signer: signer)
     }
 
     func prepareGroupDeliveryEnvelope(_ record: GroupDeliveryRecord, sender: AccountPrincipal) throws -> GroupInvitationEnvelope? {

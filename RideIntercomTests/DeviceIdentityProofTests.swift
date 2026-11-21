@@ -36,4 +36,15 @@ struct DeviceIdentityProofTests {
         copied.certificate = certificate
         #expect(throws: (any Error).self) { try copied.verify(message, purpose: .acceptInvitation, memberID: "friend", trust: trust) }
     }
+
+    @Test func backgroundSubmissionCanSignTheLargerWorkerPayloadWithoutExpandingOtherProofs() throws {
+        let signer = try DeviceIdentitySigner(memberID: "author", key: P256.Signing.PrivateKey())
+        let payload = Data(repeating: 65, count: 37 * 1024)
+        let proof = try signer.sign(payload, purpose: .submitBackgroundGroupInvitation)
+        _ = try proof.verify(payload, purpose: .submitBackgroundGroupInvitation, memberID: signer.memberID)
+        #expect(throws: DeviceIdentityProof.Failure.self) { try signer.sign(payload, purpose: .deliverGroupInvitation) }
+        #expect(throws: DeviceIdentityProof.Failure.self) {
+            try signer.sign(payload + Data([65]), purpose: .submitBackgroundGroupInvitation)
+        }
+    }
 }
