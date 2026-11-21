@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 """Explicit, local StoreKit integration checks; no Apple account or Simulator."""
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -9,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.audio_e2e import source_manifest
+from scripts.audio_e2e import SourceManifest, source_manifest
 from scripts.test_lifecycle import exclusive_run, simulator_resource_root
 from scripts.validate import Runner, file_fingerprint, fingerprints_match
 
@@ -21,13 +22,16 @@ CORE_CASES = (
 )
 
 
-def record_selection_coverage(runner, bundle):
+def record_selection_coverage(runner: Runner, bundle: Path) -> None:
     runner.run('storekit-executed-tree', ['xcrun', 'xcresulttool', 'get', 'test-results', 'tests', '--path', str(bundle)], timeout=60)
-    cases = {}
-    def visit(value):
+    cases: dict[str, str | None] = {}
+
+    def visit(value: object) -> None:
         if isinstance(value, dict):
             if value.get('nodeType') == 'Test Case':
-                cases[value.get('nodeIdentifier', '')] = value.get('result')
+                name, result = value.get('nodeIdentifier'), value.get('result')
+                if isinstance(name, str):
+                    cases[name] = result if isinstance(result, str) else None
             for child in value.values():
                 visit(child)
         elif isinstance(value, list):
@@ -45,14 +49,14 @@ def record_selection_coverage(runner, bundle):
                   time.monotonic(), 'All selected suites and real purchase/restore core cases must execute')
 
 
-def manifest():
+def manifest() -> SourceManifest:
     value = source_manifest()
     fixture = 'RideIntercomTests/Fixtures/LocalPurchases.storekit'
     value['files'][fixture] = file_fingerprint(ROOT / fixture)
     return value
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -62,7 +66,7 @@ def main():
         return run(args.output)
 
 
-def run(output):
+def run(output: Path) -> int:
     runner = Runner(output)
     before = manifest()
     (runner.out / 'source-before.json').write_text(json.dumps(before, indent=2) + '\n')
