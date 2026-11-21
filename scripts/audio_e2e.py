@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
@@ -22,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.audio_e2e_matrix import (
     MIXED_AUDIO_MEASUREMENT_IDS,
     STANDALONE_AUDIO_PLANS,
+    StandaloneAudioPlan,
     scenarios,
 )
 from scripts.test_lifecycle import (
@@ -44,6 +46,13 @@ from scripts.xcode_paths import (
     select_test_run,
     xcode_build_settings,
 )
+
+
+class AudioCase(TypedDict):
+    id: str
+    seconds: int
+    codec: str
+    transmitIsolation: bool
 
 
 class SourceManifest(TypedDict):
@@ -136,7 +145,7 @@ def run_devicectl_json(args):
 
 
 def configure_test_run(source: Path, purpose: str, platform: str, namespace: str,
-                       environment: dict[str, str], identifiers: list[str] | None = None) -> Path:
+                       environment: dict[str, str], identifiers: Sequence[str] | None = None) -> Path:
     data = plistlib.loads(source.read_bytes())
     targets = [target for config in data['TestConfigurations'] for target in config['TestTargets']]
     if len(targets) != 1 or targets[0]['BlueprintName'] != 'RideIntercomAudioE2ETests':
@@ -187,7 +196,7 @@ def build_audio_hosts(runner: Runner, endpoints: list[tuple[str, str, str]], opt
     return products
 
 
-def measurements(folder, expected_ids, role, transport):
+def measurements(folder: Path, expected_ids: Sequence[str], role: str, transport: str) -> list[dict[str, object]]:
     rows = [json.loads(path.read_text()) for path in folder.glob('*.json') if path.name != 'manifest.json']
     rows = [row for row in rows if 'scenario' in row]
     actual = [row.get('scenario') for row in rows]
@@ -198,7 +207,7 @@ def measurements(folder, expected_ids, role, transport):
     return rows
 
 
-def duplex_latencies(rows):
+def duplex_latencies(rows: Sequence[Mapping[str, object]]) -> list[float]:
     """Mac and its Simulator share the monotonic host clock, unlike two phones.
 
     Resolve the known repeating fixture phase ONCE per recording. The bounded
@@ -219,11 +228,21 @@ def duplex_latencies(rows):
             continue
         sender = remote[0]
         period = sender['localFixtureDurationSeconds']
-        delay = row['firstOutputHostTime'] - sender['firstCaptureHostTime'] - row['continuity']['referenceOffsetSeconds']
+        output_time = row['firstOutputHostTime']
+        capture_time = sender['firstCaptureHostTime']
+        continuity = row['continuity']
+        if not isinstance(continuity, dict):
+            raise TypeError('Invalid continuity measurement')
+        offset = continuity['referenceOffsetSeconds']
+        if not isinstance(period, (int, float)) or not isinstance(output_time, (int, float)) or not isinstance(capture_time, (int, float)) or not isinstance(offset, (int, float)):
+            raise TypeError('Invalid capture/render timing')
+        delay = output_time - capture_time - offset
         if not math.isfinite(period) or period < 2 or not math.isfinite(delay):
             failures.append('Invalid capture/render timing')
             continue
         delay -= round(delay / period) * period
+        if not isinstance(row, dict):
+            raise TypeError('Measurement row must be mutable')
         row['captureToRenderLatencySeconds'] = delay
         values.append(delay)
         # Retain a 10 ms allowance for alignment resolution in the 125 ms budget.
@@ -240,11 +259,14 @@ def duplex_latencies(rows):
     return values
 
 
-def run_pair(runner, commands, timeout, *, wait_for_first_native_setup=True):
+def run_pair(runner: Runner, commands: Sequence[Sequence[str | list[str]]], timeout: float,
+             *, wait_for_first_native_setup: bool = True) -> None:
     processes = []
     started = time.monotonic()
     try:
         for name, command in commands:
+            if not isinstance(name, str) or not isinstance(command, list) or not all(isinstance(arg, str) for arg in command):
+                raise TypeError('Invalid audio endpoint command')
             log = (runner.out / (name + '.log')).open('w')
             try:
                 process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -338,7 +360,8 @@ def main() -> int:
         return 1
 
 
-def execute(args, runner, resource_root, cases, standalone):
+def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases: list[AudioCase],
+            standalone: StandaloneAudioPlan | None) -> int:
     out = runner.out
     run_id = str(uuid.uuid4())
     for case in cases:
