@@ -16,7 +16,7 @@ function bundleMatches() {
     let count = 0;
     for (let i = 0; i < map.sources.length; i++) {
         const path = resolve(serverRoot, 'dist', map.sources[i]);
-        if (path.startsWith(resolve(serverRoot, 'src') + '/')) {
+        if (path.startsWith(`${resolve(serverRoot, 'src')}/`)) {
             if (readFileSync(path, 'utf8') !== map.sourcesContent[i]) return false;
             count++;
         }

@@ -61,8 +61,8 @@ function inspect(file, checker, shapes) {
                     checker.getTypeFromTypeNode(member.type)?.id,
                 ]).sort((a, b) => a[0].localeCompare(b[0])))
                 const first = shapes.get(shape)
-                if (first) report(pos, 'review', 'duplicate-shape (see ' + first + ')')
-                else shapes.set(shape, relative(root, file.fileName) + ':' + (file.getLineAndCharacterOfPosition(pos).line + 1))
+                if (first) report(pos, 'review', `duplicate-shape (see ${first})`)
+                else shapes.set(shape, `${relative(root, file.fileName)}:${file.getLineAndCharacterOfPosition(pos).line + 1}`)
             }
         }
         if (forwardedCall(node)) report(pos, 'review', 'forwarding-wrapper')

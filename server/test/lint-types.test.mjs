@@ -17,7 +17,7 @@ test('type lint reports unsafe types and review candidates without printing sour
     const valid = 'export const caption = "// @ts-ignore private-fixture-marker" as const\n'
     writeFileSync(input, valid)
     assert.equal(lint().status, 0)
-    const code = '// @ts-nocheck\n' + valid + [
+    const code = `// @ts-nocheck\n${valid}${[
         'type First = { id: string }',
         'type Second = { id: string }',
         'type Alias = First',
@@ -32,7 +32,7 @@ test('type lint reports unsafe types and review candidates without printing sour
         'const converted = String(present)',
         '// @ts-ignore',
         'accept(123)',
-    ].join('\n') + '\n'
+    ].join('\n')}\n`
     writeFileSync(input, code)
     const all = lint()
     assert.equal(all.status, 1, all.stderr)

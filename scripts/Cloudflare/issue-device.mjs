@@ -16,9 +16,9 @@ export function issueDevice(endpoint, owner, directory) {
     registry[createHash('sha256').update(token).digest('hex')] = owner;
     // This manual registry is for the invited trial, not public user enrollment.
     if (Buffer.byteLength(JSON.stringify(registry)) > 4500) throw new Error('Trial registry full; use a public identity service before expanding');
-    writeFileSync(devicePath, JSON.stringify({ workerURL: url.origin, accessToken: token }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-    const temporary = registryPath + '.tmp';
-    writeFileSync(temporary, JSON.stringify(registry, null, 2) + '\n', { mode: 0o600 });
+    writeFileSync(devicePath, `${JSON.stringify({ workerURL: url.origin, accessToken: token }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    const temporary = `${registryPath}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
     chmodSync(temporary, 0o600); renameSync(temporary, registryPath);
     return { devicePath, registryPath };
 }
