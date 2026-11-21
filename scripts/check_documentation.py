@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import re
 import sys
+import subprocess
 from urllib.parse import unquote, urlsplit
 
 LINK = re.compile(r'\[[^\]\n]*\]\((<[^>]+>|[^\n)]+)\)')
@@ -171,5 +172,13 @@ if __name__ == '__main__':
     root = Path(__file__).resolve().parents[1]
     errors = check(root)
     for error in errors: print(error, file=sys.stderr)
-    if errors: sys.exit(1)
+    if not (root / 'tools/doc-lint/node_modules/textlint/package.json').is_file():
+        sys.exit('文書検査の依存が未導入です。npm ci --prefix tools/doc-lint --ignore-scripts --no-audit --no-fund を実行してください。')
+    try:
+        lint = subprocess.run(['node', 'lint.mjs'], cwd=root / 'tools/doc-lint')
+    except OSError:
+        sys.exit('日本語の文書検査にはNode.jsが必要です。')
+    if lint.returncode:
+        print('文書検査の準備と指摘の直し方は、文書作成規約の「日本語の技術文書を検査する」を参照してください。', file=sys.stderr)
+    if errors or lint.returncode: sys.exit(1)
     print('Documentation links, navigation, backlog coverage, design HTML IDs, empty directories, and Settings coverage: OK')
