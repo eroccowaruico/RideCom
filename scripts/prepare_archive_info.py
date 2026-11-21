@@ -1,13 +1,15 @@
-#!/usr/bin/env python3
 """Copy custom App Info keys and inject Debug-only development credentials."""
+from __future__ import annotations
+
 import os
 import plistlib
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
 
-def development_internet_defaults(env):
+def development_internet_defaults(env: Mapping[str, str]) -> dict[str, str] | None:
     # Trial credentials remain in an ignored local directory, outside App resources.
     if (env.get('CONFIGURATION') != 'Debug' or env.get('ACTION') == 'install'
             or env.get('RIDEINTERCOM_STORAGE_NAMESPACE', 'RideIntercom') != 'RideIntercom'):
@@ -25,7 +27,7 @@ def development_internet_defaults(env):
     return {'workerURL': url, 'accessToken': token.strip()}
 
 
-def prepare(env):
+def prepare(env: Mapping[str, str]) -> None:
     root = Path(env['SRCROOT'])
     output = Path(env['SCRIPT_OUTPUT_FILE_0'])
     info = plistlib.loads((root / 'RideIntercom/Info.plist').read_bytes())

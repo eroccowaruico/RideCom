@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 """Publish the fixed WebRTC zip/metadata pair with one macOS directory exchange."""
+from __future__ import annotations
+
 import ctypes
 import errno
 import hashlib
@@ -16,7 +17,7 @@ ZIP_NAME = 'WebRTC.xcframework.zip'
 METADATA_NAME = 'WebRTC.xcframework.metadata'
 
 
-def _rename_directory(source, destination, flags):
+def _rename_directory(source: Path, destination: Path, flags: int) -> None:
     if sys.platform != 'darwin':
         raise OSError(errno.ENOTSUP, 'Atomic artifact publication requires macOS')
     rename = ctypes.CDLL(None, use_errno=True).renamex_np
@@ -27,7 +28,7 @@ def _rename_directory(source, destination, flags):
         raise OSError(code, os.strerror(code), str(destination))
 
 
-def _write_metadata(path, source_name, checksum):
+def _write_metadata(path: Path, source_name: str, checksum: str) -> None:
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     with path.open('w') as stream:
         stream.write(f'source_zip={source_name}\nchecksum={checksum}\nimported_at={timestamp}\n')
@@ -35,7 +36,7 @@ def _write_metadata(path, source_name, checksum):
         os.fsync(stream.fileno())
 
 
-def _validate_destination(destination):
+def _validate_destination(destination: Path) -> None:
     # Replacing this directory must not discard an unrelated user file or follow
     # an artifact-directory symlink. Only the existing pair belongs to this tool.
     if destination.is_symlink():
@@ -46,7 +47,7 @@ def _validate_destination(destination):
             raise ValueError('Artifact directory contains unrelated files; existing contents were preserved')
 
 
-def _cleanup_owned_pair(staging):
+def _cleanup_owned_pair(staging: Path) -> None:
     if not os.path.lexists(staging):
         return
     if not staging.is_symlink():
@@ -64,7 +65,7 @@ def _cleanup_owned_pair(staging):
     print(f'Unrelated staging contents were preserved at: {staging}', file=sys.stderr)
 
 
-def import_artifact(source, destination, verifier):
+def import_artifact(source: str | Path, destination: str | Path, verifier: str | Path) -> str:
     source, destination, verifier = Path(source), Path(destination), Path(verifier)
     _validate_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +97,7 @@ def import_artifact(source, destination, verifier):
     return checksum
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 4:
         raise ValueError('Expected source zip, artifact directory and verifier')
     checksum = import_artifact(*map(Path, sys.argv[1:]))

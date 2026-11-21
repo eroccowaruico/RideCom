@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Place an existing signed RideCom release archive in Xcode's local Archives."""
 import argparse
 import ctypes
@@ -8,7 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 BUNDLE_ID = 'com.yowamushi-inc.RideIntercom.RideIntercom'
@@ -16,13 +15,13 @@ APP_PATH = 'Applications/RideIntercom.app'
 RENAME_EXCL = 0x00000004  # Darwin stdio.h
 
 
-def check_signature_and_symbols(product, binary, symbols):
+def check_signature_and_symbols(product: Path, binary: Path, symbols: Path) -> None:
     signature = subprocess.run(['/usr/bin/codesign', '-d', '--verbose=2', product], check=True, capture_output=True)
     if not re.search(rb'^Authority=.+$', signature.stderr, re.MULTILINE):
         raise ValueError('Archive must have a certificate signature')
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', product], check=True)
 
-    def uuids(file):
+    def uuids(file: Path) -> set[tuple[bytes, bytes]]:
         output = subprocess.check_output(['/usr/bin/xcrun', 'dwarfdump', '--uuid', file])
         return set(re.findall(rb'^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)', output, re.MULTILINE))
 
@@ -31,7 +30,7 @@ def check_signature_and_symbols(product, binary, symbols):
         raise ValueError('Archive dSYM UUIDs must match the App executable')
 
 
-def archive_info(archive):
+def archive_info(archive: Path) -> tuple[date, str, str, str]:
     if archive.suffix != '.xcarchive' or not archive.is_dir():
         raise ValueError('Select a RideIntercom .xcarchive directory')
     with (archive / 'Info.plist').open('rb') as info:
@@ -79,7 +78,7 @@ def archive_info(archive):
     return created.replace(tzinfo=created.tzinfo or timezone.utc).astimezone().date(), platform_name, version, build
 
 
-def publish_archive(staged, destination):
+def publish_archive(staged: Path, destination: Path) -> None:
     rename = ctypes.CDLL(None, use_errno=True).renamex_np
     rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
     rename.restype = ctypes.c_int
@@ -88,7 +87,7 @@ def publish_archive(staged, destination):
         raise OSError(code, os.strerror(code), destination)
 
 
-def register(source, archives):
+def register(source: Path, archives: Path) -> Path:
     source = source.resolve(strict=True)
     day, platform_name, version, build = archive_info(source)
     archives = archives.resolve()
@@ -110,7 +109,7 @@ def register(source, archives):
     return destination
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('archive', type=Path, help='Path to an existing signed RideIntercom .xcarchive')
     args = parser.parse_args()
