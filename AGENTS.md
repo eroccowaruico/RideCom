@@ -13,6 +13,8 @@
 
 すべての作業で[efficient-work](.agents/skills/efficient-work/SKILL.md)を必ず適用する。まずスキルの入口だけを読み、参照先は今回の作業・担当に必要な節だけを読む。
 
+Terraに範囲を限って委任するときや、Solに短く簡単な作業を頼むときは、[作業指示だけで委任できる条件](.agents/skills/efficient-work/SKILL.md#作業指示だけで委任できる条件)に従う。必要な規約とスキルを依頼する側が読み、その条件を満たす場合は、受け手が同じ資料を読む手間を省ける。
+
 作業の選択・計画・着手と追加依頼の優先判断、実装・検証・完了報告では[core-story-first](.agents/skills/core-story-first/SKILL.md)を必ず適用する。まず入口を読み、理由・判断・実装/E2E・完了判定の詳細は必要な節だけを読む。
 
 すべての作業で[責務分離スキル](.agents/skills/architecture-refinement/SKILL.md#常時適用)の入口を適用し、変更に関係する節だけを読む。
