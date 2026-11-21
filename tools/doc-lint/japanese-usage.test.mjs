@@ -55,3 +55,23 @@ test('technical verbs specify the operation while literal actions keep their mea
         assert.deepEqual(usageFindings(literal), [], literal);
     }
 });
+
+test('use the historically common name for a displayed color, preserving other meanings', async () => {
+    const colorRule = 'ridecom-ja/display-color';
+    for (const text of ['警告ランプがレッドに点灯する', 'グリーンのボタンを押す',
+        '文字色をレッドにする', '丸印をグリーンで表示する', '表示色はグリーン。', '結果をレッドで表示する']) {
+        assert.deepEqual(usageFindings(text).map(i => i.rule), [colorRule], text);
+    }
+    for (const text of ['警告ランプが赤く点灯する', '緑のボタンを押す', '文字色を赤にする', '結果を赤で表示する',
+        '配色名は「ダークレッド」', '製品名「レッド」のボタン', 'レッドカードを出す',
+        'スレッドの表示', 'レッド→グリーン→リファクター']) {
+        assert.deepEqual(usageFindings(text), [], text);
+    }
+    assert.equal(usageFindings('レッド')[0].severity, 1);
+    assert.deepEqual(usageFindings('テストがレッド').map(i => i.rule), ['ridecom-ja/test-result']);
+    const lint = await markdownLinter();
+    const issues = await findings(lint, 'メインスレッドの表示。**グリーン**のボタンを押す。', '例.md');
+    assert.equal(issues.filter(i => i.rule === colorRule).length, 1);
+    const label = await findings(lint, 'レッド', '例.md');
+    assert.equal(label.find(i => i.rule === 'ridecom-ja/color-label-context').severity, 1);
+});

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLinter, loadTextlintrc } from 'textlint';
 import { checkUIUsage } from './ui-usage.mjs';
-import { japaneseUsageRule, usageRuleIds } from './japanese-usage.mjs';
+import { japaneseUsageRule, usageRuleIds, usageWarnings } from './japanese-usage.mjs';
 import japaneseWriting from 'textlint-rule-preset-ja-technical-writing';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -145,7 +145,7 @@ export async function findings(linter, text, name) {
     return messages.map(m => {
         const rule = m.ruleId === 'ridecom-wording' ? m.message.split(' ')[0] : m.ruleId;
         const advice = usageRuleIds.includes(rule) ? m.message.slice(rule.length + 1) : undefined;
-        return {line: m.line, column: m.column, rule, severity: m.severity, advice};
+        return {line: m.line, column: m.column, rule, severity: usageWarnings.has(rule) ? 1 : m.severity, advice};
     });
 }
 

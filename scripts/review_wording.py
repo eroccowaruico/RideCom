@@ -39,6 +39,27 @@ def paths(root: Path, *args: str, all_passages: bool) -> set[str]:
     return set(git(root, *args, '--', *selected).rstrip('\0').split('\0')) - {''}
 
 
+def read_lines(path: Path) -> tuple[list[str], str]:
+    data = path.read_bytes()
+    encoding = 'utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8'
+    return data.decode(encoding).split('\n'), encoding
+
+
+def occurrences(root: Path, terms: list[str]) -> Iterator[str]:
+    """Locate literal spellings in all wording sources, including unchanged files."""
+    if not terms or any(not term.strip() for term in terms):
+        raise ValueError('Specify a nonempty term')
+    names = paths(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z', all_passages=True)
+    for name in sorted(names):
+        path = root / name
+        if not path.is_file() or path.resolve() != path:
+            continue
+        lines, _ = read_lines(path)
+        for number, line in enumerate(lines, 1):
+            if any(term in line for term in terms):
+                yield f'{name}:{number}'
+
+
 def candidates(root: Path, base: str, *, all_passages: bool = False) -> Iterator[str]:
     changed = paths(root, 'diff', '--name-only', '-z', base, all_passages=all_passages)
     new = paths(root, 'ls-files', '--others', '--exclude-standard', '-z', all_passages=all_passages)
@@ -46,9 +67,7 @@ def candidates(root: Path, base: str, *, all_passages: bool = False) -> Iterator
         path = root / name
         if path.is_symlink() or not path.is_file():
             continue
-        data = path.read_bytes()
-        encoding = 'utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8'
-        lines = data.decode(encoding).split('\n')
+        lines, encoding = read_lines(path)
         if name in new or encoding == 'utf-16':
             spans = [(1, len(lines))]
         else:
@@ -75,9 +94,14 @@ def candidates(root: Path, base: str, *, all_passages: bool = False) -> Iterator
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', default='HEAD', help='commit to compare with the working tree')
-    parser.add_argument('--all-passages', action='store_true',
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--term', action='append', help='locate this literal spelling in all wording sources (repeatable)')
+    selection.add_argument('--all-passages', action='store_true',
                         help='list all changed Japanese passages, including unregistered expressions')
     args = parser.parse_args()
-    for finding in candidates(ROOT, args.base, all_passages=args.all_passages):
+    if args.term and any(not term.strip() for term in args.term):
+        parser.error('検索する言葉を指定してください。')
+    results = occurrences(ROOT, args.term) if args.term else candidates(ROOT, args.base, all_passages=args.all_passages)
+    for finding in results:
         print(finding)
     print('候補の抽出が終わりました。変更した文章は元の指示・操作と照合してください。')
