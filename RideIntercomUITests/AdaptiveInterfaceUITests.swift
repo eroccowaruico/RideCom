@@ -3,7 +3,12 @@ import XCTest
 
 /// Runs on iPhone too; the dedicated iPad run covers regular-width tab and sheet presentation.
 final class AdaptiveInterfaceUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private var launchedApp: XCUIApplication?
+
+    private var app: XCUIApplication {
+        guard let launchedApp else { preconditionFailure("The app must be launched before interacting with it") }
+        return launchedApp
+    }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -11,8 +16,8 @@ final class AdaptiveInterfaceUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        app?.terminate()
-        app = nil
+        launchedApp?.terminate()
+        launchedApp = nil
         XCUIDevice.shared.orientation = .portrait
     }
 
@@ -21,7 +26,8 @@ final class AdaptiveInterfaceUITests: XCTestCase {
 
     /// On wide screens rows stay at most 640 pt and centered while the list itself spans the area.
     @MainActor func testListsAndSettingsKeepReadableWidth() {
-        app = XCUIApplication()
+        let app = XCUIApplication()
+        launchedApp = app
         app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
         app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
         app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
@@ -77,11 +83,14 @@ final class AdaptiveInterfaceUITests: XCTestCase {
     }
 
     @MainActor private func checkInterface(japanese: Bool) {
-        app = XCUIApplication()
+        let app = XCUIApplication()
+        launchedApp = app
         app.launchEnvironment["RIDEINTERCOM_LOCAL_TESTING"] = "1"
         app.launchEnvironment["RIDEINTERCOM_ACCOUNT_FIXTURE"] = "signed-in"
         app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
-        app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
+        app.launchArguments = [
+            "-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"
+        ]
         app.launch(); app.activate()
         XCTAssertTrue(element("standardUsersList").waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["diagnosticsTab"].exists)
@@ -89,14 +98,7 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         XCTAssertTrue(element("standardUsersList").waitForExistence(timeout: 3))
         tab(japanese ? "グループ" : "Groups", id: "groupsTab")
         let create = app.buttons["standardCreateGroupButton"]
-        assertVisible(create)
-        create.tap()
-        let cancel = app.buttons["closeSavedUsersButton"]
-        assertVisible(cancel)
-        assertVisible(app.buttons["saveUserSelectionButton"])
-        screenshot("\(japanese ? "Japanese" : "English") portrait group sheet")
-        cancel.tap()
-        XCTAssertTrue(element("standardGroupsList").waitForExistence(timeout: 3))
+        verifyPortraitGroupSheet(create: create, japanese: japanese)
 
         XCUIDevice.shared.orientation = .landscapeLeft
         assertVisible(create)
@@ -104,7 +106,9 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         let field = app.textFields["savedUsersGroupNameField"]
         assertVisible(field)
         field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String)?.count ?? 0) + "Tablet " + UUID().uuidString.prefix(6))
+        field.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String)?.count ?? 0)
+                + "Tablet " + UUID().uuidString.prefix(6))
         assertVisible(app.buttons["saveUserSelectionButton"])
         screenshot("\(japanese ? "Japanese" : "English") landscape group sheet with keyboard")
         app.buttons["saveUserSelectionButton"].tap()
@@ -131,6 +135,26 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         assertVisible(end)
         assertVisible(status)
         XCTAssertEqual(status.label, mutedText)
+        verifySettingsAndReturnToCall(japanese: japanese, end: end, status: status, mutedText: mutedText)
+    }
+
+    @MainActor private func verifyPortraitGroupSheet(create: XCUIElement, japanese: Bool) {
+        assertVisible(create)
+        create.tap()
+        let cancel = app.buttons["closeSavedUsersButton"]
+        assertVisible(cancel)
+        assertVisible(app.buttons["saveUserSelectionButton"])
+        screenshot("\(japanese ? "Japanese" : "English") portrait group sheet")
+        cancel.tap()
+        XCTAssertTrue(element("standardGroupsList").waitForExistence(timeout: 3))
+    }
+
+    @MainActor private func verifySettingsAndReturnToCall(
+        japanese: Bool,
+        end: XCUIElement,
+        status: XCUIElement,
+        mutedText: String
+    ) {
         tab(japanese ? "設定" : "Settings", id: "settingsTab")
         let nameRow = app.buttons["localDisplayNameRow"].firstMatch
         revealInSettings(nameRow)
@@ -189,7 +213,9 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         }
         XCTAssertTrue(control.exists, control.debugDescription, file: file, line: line)
         XCTAssertTrue(control.isHittable, control.debugDescription, file: file, line: line)
-        XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(control.frame), control.debugDescription, file: file, line: line)
+        XCTAssertTrue(
+            app.frame.insetBy(dx: -1, dy: -1).contains(control.frame), control.debugDescription, file: file,
+            line: line)
     }
 
     /// In landscape the bars and the call accessory leave a short visible band.
@@ -206,8 +232,8 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         for _ in 0..<24 where !isInBand() {
             let below = !element.exists || element.frame.maxY > bandBottom
             let from = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.5 : 0.35))
-            let to = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.35 : 0.5))
-            from.press(forDuration: 0.3, thenDragTo: to)
+            let destination = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.35 : 0.5))
+            from.press(forDuration: 0.3, thenDragTo: destination)
         }
     }
 
