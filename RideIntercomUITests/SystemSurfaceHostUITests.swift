@@ -26,8 +26,7 @@ final class SystemSurfaceHostUITests: XCTestCase {
             if widget.exists {
                 widget.press(forDuration: 1.2)
                 let appIcon = home.buttons["アプリアイコン"].firstMatch
-                if appIcon.waitForExistence(timeout: 3) { appIcon.tap() }
-                else { XCUIDevice.shared.press(.home) }
+                if appIcon.waitForExistence(timeout: 3) { appIcon.tap() } else { XCUIDevice.shared.press(.home) }
             }
             app.terminate()
         }

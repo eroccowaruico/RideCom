@@ -5,7 +5,7 @@ import WidgetKit
 private struct SelectedCallEntry: TimelineEntry {
     let date: Date
     let destination: WidgetCallDestination?
-    var currentCall: CallLivePresentation? = nil
+    var currentCall: CallLivePresentation?
 }
 
 private struct SelectedCallProvider: AppIntentTimelineProvider {
