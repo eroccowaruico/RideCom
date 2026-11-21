@@ -85,9 +85,14 @@ nonisolated struct DeviceIdentitySigner: Sendable {
     static let nearbyGroupDeliveryDomain = "rideintercom.group-delivery.nearby.v1"
 
     /// The private scalar stays inside the signer; only authenticated plaintext is returned.
-    func decryptGroupInvitation(_ ciphertext: Data, ephemeralKey: Data, header: Data) throws -> Data {
+    func openSealedPayload(_ ciphertext: Data, ephemeralKey: Data, domain: String, header: Data) throws -> Data {
         let secret = try sharedSecret(with: ephemeralKey)
-        return try AES.GCM.open(.init(combined: ciphertext), using: GroupInvitationEnvelope.key(secret, header: header), authenticating: header)
+        let key = Self.sealedPayloadKey(secret, domain: domain, header: header)
+        return try AES.GCM.open(.init(combined: ciphertext), using: key, authenticating: header)
+    }
+
+    static func sealedPayloadKey(_ secret: SharedSecret, domain: String, header: Data) -> SymmetricKey {
+        secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(domain.utf8), sharedInfo: header, outputByteCount: 32)
     }
 
     /// Both ends derive this value from their own key and a previously verified peer key.

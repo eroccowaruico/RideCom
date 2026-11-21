@@ -96,7 +96,8 @@ nonisolated struct InternetAccountClient: Sendable {
         try await sendJSON(origin: origin, path: path, method: method, body: try body.map { try JSONEncoder().encode($0) }, token: token)
     }
     func sendJSON<T: Decodable & Sendable>(origin: URL, path: String, method: String = "POST", body: Data? = nil,
-                                         token: String? = nil, query: [URLQueryItem] = [], acceptsMissing: Bool = false) async throws -> T {
+                                         token: String? = nil, query: [URLQueryItem] = [], acceptsMissing: Bool = false,
+                                         maximumResponseBytes: Int = 32 * 1024) async throws -> T {
         var components = URLComponents(url: origin.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!, timeoutInterval: 10)
@@ -119,7 +120,7 @@ nonisolated struct InternetAccountClient: Sendable {
         guard response.statusCode == 200 || enrollmentConflict else { throw Failure.rejected }
         var data = Data()
         for try await byte in bytes {
-            guard data.count < 32768 else { throw Failure.invalidResponse }
+            guard data.count < maximumResponseBytes else { throw Failure.invalidResponse }
             data.append(byte)
         }
         if enrollmentConflict {

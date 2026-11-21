@@ -5,6 +5,76 @@ import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryWorkerTests {
+    @Test(.timeLimit(.minutes(1))) func workerCarriesEncryptedOrdinaryGroupAcceptanceAndAcknowledgement() async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("ordinary-reply-author")
+            let recipient = GroupDeliveryTestIdentity("ordinary-reply-recipient")
+            defer { author.remove(); recipient.remove() }
+            try await register(author); try await register(recipient)
+            let left = try #require(try author.store.notificationAccess(memberID: author.memberID))
+            let right = try #require(try recipient.store.notificationAccess(memberID: recipient.memberID))
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let authority = testInvitationAuthority()
+            let key = GroupAccessCredential(groupID: UUID(), secret: "worker-ordinary-reply-fixture")
+            let token = try GroupInviteToken.make(authority: authority, signer: author.signer, groupID: key.groupID,
+                groupName: "Test group", groupSecret: key.secret, inviterMemberID: author.memberID)
+            let invite = try #require(token.directInvitation?.context)
+            let accepted = try token.accept(signer: recipient.signer, displayName: "Recipient", trust: recipient.store.identityTrust())
+            #expect(accepted.inviter.principal == left.principal)
+            let address = try OrdinaryGroupReplyAddress(invitation: invite, credential: key)
+            let packet = try OrdinaryGroupReplyPacket.seal(accepted.receipt, address: address, invitation: invite)
+            let absent = try await client.ordinaryGroupReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
+            #expect(absent == nil)
+            try await client.openOrdinaryGroupReply(address, access: left)
+            try await client.submitOrdinaryGroupAcceptance(packet, address: address, owner: left.principal, access: right)
+            let inbox = try await client.ordinaryGroupReplyInbox(address, access: left)
+            #expect(inbox.count == 1)
+            let first = try #require(inbox.first)
+            let received = try first.open(address: address, invitation: invite, kind: .accepted, signer: author.signer)
+            let verified = try authority.verify(received, trust: author.store.identityTrust())
+            #expect(verified?.identity.principal == right.principal)
+            let reply = try OrdinaryGroupReplyPacket.seal(received.acknowledged(by: author.signer), address: address, invitation: invite)
+            try await client.acknowledgeOrdinaryGroupReply(reply, address: address, access: left)
+            let delivered = try await client.ordinaryGroupReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
+            let acknowledgement = try #require(delivered).open(address: address, invitation: invite, kind: .acknowledged, signer: recipient.signer)
+            try acknowledgement.verifyAcknowledgement(of: accepted.receipt, trust: recipient.store.identityTrust(), now: Date().timeIntervalSince1970)
+            #expect(try await client.ordinaryGroupReplyInbox(address, access: left).isEmpty)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func workerInboxReadsEightMaximumSizePackets() async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("ordinary-reply-limit-author")
+            let participants = (0..<8).map { GroupDeliveryTestIdentity("ordinary-reply-limit-\($0)") }
+            defer { author.remove(); participants.forEach { $0.remove() } }
+            try await register(author)
+            let access = try #require(try author.store.notificationAccess(memberID: author.memberID))
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let key = GroupAccessCredential(groupID: UUID(), secret: "worker-ordinary-reply-limit")
+            let invitation = DirectInvitationContext(groupID: key.groupID, inviterMemberID: author.memberID,
+                inviterDeviceKey: try author.signer.publicKey, expiresAt: Date().timeIntervalSince1970 + 60)
+            let address = try OrdinaryGroupReplyAddress(invitation: invitation, credential: key)
+            try await client.openOrdinaryGroupReply(address, access: access)
+            let data = String(repeating: "A", count: 12 * 1024)
+            var ids = Set<UUID>()
+            for participant in participants {
+                try await register(participant)
+                let recipient = try #require(try participant.store.notificationAccess(memberID: participant.memberID))
+                let packet = OrdinaryGroupReplyPacket(id: UUID(), packet: data)
+                ids.insert(packet.id)
+                try await client.submitOrdinaryGroupAcceptance(packet, address: address, owner: access.principal, access: recipient)
+            }
+            let results = try await client.ordinaryGroupReplyInbox(address, access: access)
+            #expect(Set(results.map(\.id)) == ids)
+            let sizesMatch = results.allSatisfy { $0.packet.utf8.count == 12 * 1024 }
+            #expect(sizesMatch)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [1, 9]) func theActualWorkerDeliversAndAcknowledgesAGroupWithoutStartingTheRecipientsCall(count: Int) async throws {
         try await withWorker { try await exerciseGroupDelivery(count: count) }
     }

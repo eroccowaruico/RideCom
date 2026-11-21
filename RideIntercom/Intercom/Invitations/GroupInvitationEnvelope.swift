@@ -5,6 +5,7 @@ import Foundation
 nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
     private static let clockSkew: TimeInterval = 300
     private static let lifetime: TimeInterval = 7 * 86400
+    private static let encryptionDomain = "rideintercom.group-delivery.ecdh.v1"
 
     var version = 1
     var id: UUID
@@ -43,7 +44,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
             sourceRequestID: sourceRequestID)
         let aad = try result.header()
         let secret = try ephemeral.sharedSecretFromKeyAgreement(with: target)
-        let key = Self.key(secret, header: aad)
+        let key = DeviceIdentitySigner.sealedPayloadKey(secret, domain: Self.encryptionDomain, header: aad)
         result.ciphertext = try AES.GCM.seal(JSONEncoder().encode(token), using: key, authenticating: aad).combined!
         guard result.ciphertext.count <= 8192 else { throw DeviceIdentityProof.Failure.invalid }
         result.proof = try signer.sign(result.message(), purpose: .deliverGroupInvitation)
@@ -71,7 +72,7 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
             _ = try proof.verify(message(), purpose: .deliverGroupInvitation, memberID: senderMemberID)
         }
         let aad = try header()
-        let data = try signer.decryptGroupInvitation(ciphertext, ephemeralKey: ephemeral, header: aad)
+        let data = try signer.openSealedPayload(ciphertext, ephemeralKey: ephemeral, domain: Self.encryptionDomain, header: aad)
         let token = try JSONDecoder().decode(GroupInviteToken.self, from: data)
         try token.validate()
         guard token.inviterMemberID == senderMemberID, token.identityProof?.publicKey == proof.publicKey,
@@ -92,9 +93,6 @@ nonisolated struct GroupInvitationEnvelope: Codable, Sendable {
     }
 
     func receiptDigest() throws -> Data { Data(SHA256.hash(data: try message())) }
-    static func key(_ secret: SharedSecret, header: Data) -> SymmetricKey {
-        secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data("rideintercom.group-delivery.ecdh.v1".utf8), sharedInfo: header, outputByteCount: 32)
-    }
 }
 
 /// The recipient's device attests that it saved this exact delivery.
