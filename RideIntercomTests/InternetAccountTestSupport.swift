@@ -174,9 +174,10 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
         } else if url.path.hasSuffix("/identity") {
             let input = Self.requestBody(request)
             let changes = Self.lock.withLock { Self.identityChanges }
+            guard let origin = IdentityEncoding.origin(url) else { throw URLError(.badURL) }
             let proof = try testIdentityCertificate(
                 deviceID: device, memberID: input["memberID"] as? String ?? "missing",
-                deviceKey: input["deviceKey"] as? String ?? "missing", origin: IdentityEncoding.origin(url),
+                deviceKey: input["deviceKey"] as? String ?? "missing", origin: origin,
                 changes: changes)
             body = ["certificate": proof.certificate, "issuerKey": proof.issuerKey]
         } else if request.httpMethod == "DELETE" {

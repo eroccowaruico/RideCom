@@ -43,7 +43,7 @@ extension InternetAccountClient {
         let body = ReplySubmission(slot: address.slot, id: packet.id.uuidString.lowercased(), packet: packet.packet,
                                    owner: owner.userID, admission: admission, expiresAt: address.expiresAt)
         return try backgroundSubmissionRequest(body, path: replyMailboxPath + "background-acceptance",
-                                               purpose: .submitBackgroundContactInvitationAcceptance, access: access, signer: signer, now: now)
+                                               purpose: .submitBackgroundContactAcceptance, access: access, signer: signer, now: now)
     }
 
     func invitationReplyInbox(_ address: InvitationReplyAddress, access: CallNotificationServiceAccess) async throws -> [InvitationReplyPacket] {

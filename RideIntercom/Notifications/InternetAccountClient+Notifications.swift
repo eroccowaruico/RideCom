@@ -228,8 +228,8 @@ extension InternetAccountClient {
     ) throws -> URLRequest? {
         try validateNotificationAccess(access.origin, token: access.accessToken)
         let parts = access.accessToken.split(separator: ".")
-        let origin = IdentityEncoding.origin(access.origin)
-        guard let identity = signer.identity, signer.principal == access.principal,
+        guard let origin = IdentityEncoding.origin(access.origin),
+              let identity = signer.identity, signer.principal == access.principal,
               identity.issuer == origin, identity.deviceID == parts[2],
               let binding = identity.sessionBinding,
               binding == backgroundSubmissionSessionBinding(for: access.accessToken),

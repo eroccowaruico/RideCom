@@ -15,26 +15,34 @@ nonisolated struct DeviceIdentityCertificate: Codable, Equatable, Sendable {
               let header = try JSONSerialization.jsonObject(with: headerData) as? [String: String],
               header == ["alg": "ES256", "typ": "rideintercom-device+jwt"],
               let payload = IdentityEncoding.decode(parts[1]), let signature = IdentityEncoding.decode(parts[2]),
-              let issuerBytes = IdentityEncoding.decode(trustedIssuerKey), issuerBytes.count == 65 else { throw Failure.invalid }
+            let issuerBytes = IdentityEncoding.decode(trustedIssuerKey), issuerBytes.count == 65
+        else { throw Failure.invalid }
         let key = try P256.Signing.PublicKey(x963Representation: issuerBytes)
-        guard key.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signature), for: Data((parts[0] + "." + parts[1]).utf8)) else { throw Failure.invalid }
+        guard
+            key.isValidSignature(
+                try P256.Signing.ECDSASignature(rawRepresentation: signature),
+                for: Data((parts[0] + "." + parts[1]).utf8))
+        else { throw Failure.invalid }
         let decoder = JSONDecoder()
         let claims = try decoder.decode(Claims.self, from: payload)
         let instant = now.timeIntervalSince1970
         guard claims.iss == IdentityEncoding.origin(origin), claims.aud == "rideintercom-peer",
-              claims.sub.utf8.count == 64, claims.sub.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+            claims.sub.utf8.count == 64,
+            claims.sub.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
               UUID(uuidString: claims.deviceID)?.uuidString.lowercased() == claims.deviceID,
               IntercomGroup.isValidMemberID(claims.memberID), !claims.memberID.hasPrefix("invite-pending-"),
               claims.iat.isFinite, claims.exp.isFinite, instant.isFinite,
               claims.iat >= 0, claims.iat.rounded(.down) == claims.iat, claims.exp.rounded(.down) == claims.exp,
-              claims.iat <= instant + 60, claims.exp > instant, claims.exp > claims.iat, claims.exp - claims.iat <= 30 * 86400,
-              let deviceBytes = IdentityEncoding.decode(claims.deviceKey), deviceBytes.count == 65 else { throw Failure.invalid }
+            claims.iat <= instant + 60, claims.exp > instant, claims.exp > claims.iat,
+            claims.exp - claims.iat <= 30 * 86400,
+            let deviceBytes = IdentityEncoding.decode(claims.deviceKey), deviceBytes.count == 65
+        else { throw Failure.invalid }
         _ = try P256.Signing.PublicKey(x963Representation: deviceBytes)
         let relayKey = (try? decoder.decode(RelayClaims.self, from: payload))?.invitationRelayKey
         return VerifiedDeviceIdentity(envelope: self, issuer: claims.iss, userID: claims.sub, deviceID: claims.deviceID,
                                       memberID: claims.memberID, deviceKey: claims.deviceKey, expiresAt: claims.exp,
                                       sessionBinding: claims.sessionBinding,
-                                      invitationRelayKey: relayKey?.belongsToCertificate(issuedAt: claims.iat) == true ? relayKey : nil)
+            invitationRelayKey: relayKey?.belongsToCertificate(issuedAt: claims.iat) == true ? relayKey : nil)
     }
     enum Failure: Error { case invalid }
     private struct Claims: Decodable {
@@ -68,19 +76,23 @@ nonisolated struct VerifiedDeviceIdentity: Sendable {
 
 nonisolated enum IdentityEncoding {
     static func encode(_ data: Data) -> String {
-        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(
+            of: "/", with: "_"
+        ).replacingOccurrences(of: "=", with: "")
     }
     static func decode(_ text: String) -> Data? {
         guard !text.isEmpty, text.utf8.count <= 8192 else { return nil }
         let base64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        guard let data = Data(base64Encoded: base64 + String(repeating: "=", count: (4 - base64.count % 4) % 4)), encode(data) == text else { return nil }
+        guard let data = Data(base64Encoded: base64 + String(repeating: "=", count: (4 - base64.count % 4) % 4)),
+            encode(data) == text
+        else { return nil }
         return data
     }
-    static func origin(_ url: URL) -> String {
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+    static func origin(_ url: URL) -> String? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         components.scheme = components.scheme?.lowercased(); components.host = components.host?.lowercased()
         if components.port == 443 { components.port = nil }
         components.path = ""; components.query = nil; components.fragment = nil
-        return components.string!
+        return components.string
     }
 }

@@ -5,7 +5,9 @@ nonisolated struct AccountPrincipal: Codable, Equatable, Hashable, Sendable {
     let issuer: String
     let userID: String
     var isValid: Bool {
-        guard let url = try? InternetAccountClient.origin(issuer), IdentityEncoding.origin(url) == issuer else { return false }
+        guard let url = try? InternetAccountClient.origin(issuer), IdentityEncoding.origin(url) == issuer else {
+            return false
+        }
         return userID.utf8.count == 64 && userID.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 }
@@ -23,7 +25,7 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         case deliverGroupInvitation, acknowledgeGroupInvitation, requestGroupInvitationRedelivery
         case openContactInvitationReply
         case submitBackgroundGroupInvitation, cancelBackgroundGroupInvitation
-        case submitBackgroundContactInvitationAcceptance
+        case submitBackgroundContactAcceptance = "submitBackgroundContactInvitationAcceptance"
         case cancelGroupInvitation, acknowledgeGroupInvitationCancellation
         case deleteContact, acknowledgeContactDeletion
         case readContactDeletion, acknowledgeContactDeletionRelay
@@ -43,8 +45,11 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         guard let keyBytes = IdentityEncoding.decode(publicKey), keyBytes.count == 65,
               let signatureBytes = IdentityEncoding.decode(signature) else { throw Failure.invalid }
         let key = try P256.Signing.PublicKey(x963Representation: keyBytes)
-        let message = try Self.message(payload, purpose: purpose, memberID: memberID, publicKey: publicKey, certificate: certificate)
-        guard key.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signatureBytes), for: message) else { throw Failure.invalid }
+        let message = try Self.message(
+            payload, purpose: purpose, memberID: memberID, publicKey: publicKey, certificate: certificate)
+        guard
+            key.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signatureBytes), for: message)
+        else { throw Failure.invalid }
         var principal: AccountPrincipal?
         if let trust, let certificate,
            let identity = try? certificate.verify(origin: trust.origin, trustedIssuerKey: trust.issuerKey, now: now) {
@@ -60,10 +65,12 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
                                     certificate: DeviceIdentityCertificate?) throws -> Data {
         let maximumPayloadSize: Int
         switch purpose {
-        case .submitBackgroundGroupInvitation, .submitBackgroundContactInvitationAcceptance: maximumPayloadSize = 37 * 1024
+        case .submitBackgroundGroupInvitation, .submitBackgroundContactAcceptance:
+            maximumPayloadSize = 37 * 1024
         default: maximumPayloadSize = 16_384
         }
-        guard payload.count <= maximumPayloadSize, IntercomGroup.isValidMemberID(memberID), !memberID.hasPrefix("invite-pending-"),
+        guard payload.count <= maximumPayloadSize, IntercomGroup.isValidMemberID(memberID),
+            !memberID.hasPrefix("invite-pending-"),
               publicKey.utf8.count == 87, (certificate?.certificate.utf8.count ?? 0) <= 4096,
               (certificate?.issuerKey.utf8.count ?? 0) <= 87 else { throw Failure.invalid }
         var result = Data("rideintercom.device-proof.v1\0".utf8)
@@ -86,7 +93,8 @@ nonisolated struct DeviceIdentitySigner: Sendable {
     init(memberID: String, key: P256.Signing.PrivateKey, identity: VerifiedDeviceIdentity? = nil) throws {
         let publicKey = IdentityEncoding.encode(key.publicKey.x963Representation)
         guard IntercomGroup.isValidMemberID(memberID), !memberID.hasPrefix("invite-pending-"),
-              identity.map({ $0.memberID == memberID && $0.deviceKey == publicKey }) ?? true else { throw DeviceIdentityProof.Failure.invalid }
+            identity.map({ $0.memberID == memberID && $0.deviceKey == publicKey }) ?? true
+        else { throw DeviceIdentityProof.Failure.invalid }
         self.principal = identity.map { AccountPrincipal(issuer: $0.issuer, userID: $0.userID) }
         self.memberID = memberID; self.key = key; self.publicKey = publicKey; self.identity = identity
     }
@@ -100,7 +108,8 @@ nonisolated struct DeviceIdentitySigner: Sendable {
     }
 
     static func sealedPayloadKey(_ secret: SharedSecret, domain: String, header: Data) -> SymmetricKey {
-        secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(domain.utf8), sharedInfo: header, outputByteCount: 32)
+        secret.hkdfDerivedSymmetricKey(
+            using: SHA256.self, salt: Data(domain.utf8), sharedInfo: header, outputByteCount: 32)
     }
 
     /// Both ends derive this value from their own key and a previously verified peer key.
@@ -148,9 +157,10 @@ nonisolated struct DeviceIdentitySigner: Sendable {
 
     func sign(_ payload: Data, purpose: DeviceIdentityProof.Purpose) throws -> DeviceIdentityProof {
         let certificate = identity?.envelope
-        let message = try DeviceIdentityProof.message(payload, purpose: purpose, memberID: memberID, publicKey: publicKey, certificate: certificate)
+        let message = try DeviceIdentityProof.message(
+            payload, purpose: purpose, memberID: memberID, publicKey: publicKey, certificate: certificate)
         return DeviceIdentityProof(publicKey: publicKey, certificate: certificate,
-                                   signature: IdentityEncoding.encode(try key.signature(for: message).rawRepresentation))
+            signature: IdentityEncoding.encode(try key.signature(for: message).rawRepresentation))
     }
 }
 
