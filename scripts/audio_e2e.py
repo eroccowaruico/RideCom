@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Real speech test with Mac and/or iPhone Simulator. Artifacts and test data are isolated."""
+from __future__ import annotations
+
 import argparse
 import json
 import math
@@ -13,6 +15,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.audio_e2e_matrix import (
@@ -28,6 +31,7 @@ from scripts.test_lifecycle import (
 )
 from scripts.validate import (
     ROOT,
+    Fingerprint,
     Runner,
     file_fingerprint,
     fingerprints_match,
@@ -41,7 +45,12 @@ from scripts.xcode_paths import (
 )
 
 
-def source_manifest():
+class SourceManifest(TypedDict):
+    head: str
+    files: dict[str, Fingerprint]
+
+
+def source_manifest() -> SourceManifest:
     names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
     files = {}
     for name in sorted(set(names)):
@@ -49,7 +58,7 @@ def source_manifest():
         is_asset = any(part.endswith(('.xcassets', '.icon')) for part in path.parts)
         if name and (is_asset or path.suffix in {'.swift', '.py', '.pbxproj', '.xcscheme', '.wav', '.metadata', '.json', '.plist', '.resolved', '.xcstrings', '.storekit', '.entitlements', '.xcconfig', '.xctestplan', '.png', '.strings', '.stringsdict', '.xcprivacy', '.zip'}):
             files[name] = file_fingerprint(path)
-    return dict(head=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), files=files)
+    return {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'files': files}
 
 
 def shared_host_audio_device(devices, host_items):
@@ -125,7 +134,8 @@ def run_devicectl_json(args):
     return data.get('result', data) if args[0] == 'xcrun' else data
 
 
-def configure_test_run(source, purpose, platform, namespace, environment, identifiers=None):
+def configure_test_run(source: Path, purpose: str, platform: str, namespace: str,
+                       environment: dict[str, str], identifiers: list[str] | None = None) -> Path:
     data = plistlib.loads(source.read_bytes())
     targets = [target for config in data['TestConfigurations'] for target in config['TestTargets']]
     if len(targets) != 1 or targets[0]['BlueprintName'] != 'RideIntercomAudioE2ETests':
@@ -140,7 +150,8 @@ def configure_test_run(source, purpose, platform, namespace, environment, identi
     return destination
 
 
-def build_audio_host(runner, platform, destination, optimization):
+def build_audio_host(runner: Runner, platform: str, destination: str,
+                     optimization: str) -> tuple[dict[str, str], Path]:
     configuration = optimization + '-Validation'
     if optimization == 'Debug' and scheme_configuration(ROOT, 'RideIntercomAudioE2E') != configuration:
         raise ValueError('Audio E2E TestAction must use the native Debug validation configuration')
@@ -153,10 +164,13 @@ def build_audio_host(runner, platform, destination, optimization):
     test_run = select_test_run(settings, 'RideIntercomAudioE2E')
     if not runner.check_test_host('host-preflight-' + platform, test_run, settings['RIDEINTERCOM_STORAGE_NAMESPACE']):
         raise RuntimeError('Audio E2E host isolation check failed')
+    if test_run is None:
+        raise RuntimeError('Audio E2E host isolation check accepted a missing test run')
     return settings, test_run
 
 
-def build_audio_hosts(runner, endpoints, optimization, clean=False):
+def build_audio_hosts(runner: Runner, endpoints: list[tuple[str, str, str]], optimization: str,
+                      clean: bool = False) -> dict[str, tuple[dict[str, str], Path]]:
     destinations = {platform: destination for _, platform, destination in endpoints}
     # Both SDKs share Xcode's product root. Finish every clean before building
     # either endpoint, so the second SDK cannot remove the first SDK's products.
