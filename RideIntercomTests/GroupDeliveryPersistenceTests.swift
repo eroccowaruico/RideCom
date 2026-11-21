@@ -124,6 +124,15 @@ import Testing
         try repository.setGroupDeliveryState(record.id, state: .queued)
         let restarted = fixture.restart(); _ = try restarted.load(localMemberID: "local")
         #expect(restarted.groupDeliveries.first?.state == .queued)
+        try verifyDeletionReclaimsPacket(
+            group: group, repository: restarted, fixture: fixture, delivery: (record, key), user: user)
+    }
+
+    private func verifyDeletionReclaimsPacket(
+        group: IntercomGroup, repository restarted: GroupRepository, fixture: GroupStorageFixture,
+        delivery: (GroupDeliveryRecord, UUID), user: SavedUser
+    ) throws {
+        let (record, key) = delivery
         var rotated = group
         rotated.members[1] = .init(id: "new-representative", displayName: "Friend")
         rotated.accountDevices["new-representative"] = .init(
@@ -184,6 +193,31 @@ import Testing
                 && repository.groupDeliveries.first?.state == .received)
         #expect(!repository.ownsGroup(token.groupID) && repository.users == [user])
         #expect(try fixture.file.read()?.groups.first?.invitationDeviceKeys == ["sender": senderSigner.publicKey])
+        try verifyRepeatedDelivery(ReceivedDeliveryContext(
+            fixture: fixture, repository: repository, token: token, opened: opened, envelope: envelope,
+            senderSigner: senderSigner, recipientSigner: recipientSigner, user: user, now: now))
+    }
+
+}
+
+extension GroupDeliveryPersistenceTests {
+    private struct ReceivedDeliveryContext {
+        let fixture: GroupStorageFixture
+        let repository: GroupRepository
+        let token: GroupInviteToken
+        let opened: GroupInviteToken
+        let envelope: GroupInvitationEnvelope
+        let senderSigner: DeviceIdentitySigner
+        let recipientSigner: DeviceIdentitySigner
+        let user: SavedUser
+        let now: TimeInterval
+    }
+
+    private func verifyRepeatedDelivery(_ context: ReceivedDeliveryContext) throws {
+        let fixture = context.fixture, repository = context.repository
+        let token = context.token, opened = context.opened, envelope = context.envelope
+        let senderSigner = context.senderSigner, recipientSigner = context.recipientSigner
+        let user = context.user, now = context.now
         let conflict = try GroupInviteToken.make(
             authority: testInvitationAuthority(), signer: senderSigner, groupID: token.groupID,
             groupName: token.groupName,
