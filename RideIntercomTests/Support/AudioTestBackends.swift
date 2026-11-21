@@ -145,12 +145,14 @@ final class OfflineAudioDriver {
         createdEngineCount += 1
         let engine = AVAudioEngine()
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1) else {
-            preconditionFailure("Could not create the offline test audio format.")
+            Issue.record("Could not create the offline test audio format.")
+            return FailingEffectGraphEngine()
         }
         do {
             try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
         } catch {
-            preconditionFailure("Could not configure the test audio engine for offline rendering.")
+            Issue.record("Could not configure the test audio engine for offline rendering.")
+            return FailingEffectGraphEngine()
         }
         engines.removeAll { !$0.isRunning }
         engines.append(engine)
@@ -168,7 +170,8 @@ final class OfflineAudioDriver {
     private func render() {
         for engine in engines where engine.isRunning {
             guard let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1024) else {
-                preconditionFailure("Could not allocate the offline test audio buffer.")
+                Issue.record("Could not allocate the offline test audio buffer.")
+                continue
             }
             do {
                 _ = try engine.renderOffline(1024, to: buffer)
@@ -182,6 +185,9 @@ final class OfflineAudioDriver {
 }
 
 final class FailingEffectGraphEngine: AVAudioEngine, @unchecked Sendable {
+    // AudioMixer calls prepare before start. Keep the failing engine from preparing native I/O.
+    override func prepare() {}
+
     override func start() throws {
         throw NSError(domain: "EffectGraphTest", code: 1)
     }

@@ -125,7 +125,8 @@ enum AppTestSupport {
             do {
                 try credentialStore.saveSecret(secret, reference: reference)
             } catch {
-                preconditionFailure("Could not seed the test group credential store.")
+                Issue.record("Could not seed the test group credential store.")
+                continue
             }
             groupStore.snapshot.groups[index].credentialReference = reference
         }
@@ -138,7 +139,7 @@ enum AppTestSupport {
         do {
             try keychain.saveSecret(key, service: namespace + ".InternetConnection", account: "identity-key")
         } catch {
-            preconditionFailure("Could not seed the test device identity.")
+            Issue.record("Could not seed the test device identity.")
         }
         return InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
     }
@@ -205,5 +206,21 @@ enum AppTestSupport {
             peerID: RTC.PeerID(rawValue: peerID),
             packet: try AppAudioCodecBridge.encode(frame, preferred: codec)
         )
+    }
+}
+
+extension AppTestSupport {
+    @Test static func failedGroupCredentialSeedLeavesNoReference() {
+        let groups = [IntercomSeedData.recentGroups[0]]
+        let store = InMemoryGroupStore(groups: groups)
+
+        withKnownIssue("The injected credential store rejects the fixture write.") {
+            seedGroupCredentials(for: groups, in: store, using: RejectingGroupCredentialStore())
+        } matching: { issue in
+            issue.comments.contains { $0.rawValue == "Could not seed the test group credential store." }
+        }
+
+        #expect(store.snapshot.groups.count == groups.count)
+        #expect(store.snapshot.credentialReferences.isEmpty)
     }
 }
