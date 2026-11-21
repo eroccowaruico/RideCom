@@ -16,7 +16,8 @@ import Testing
         let senderSigner = testIdentitySigner("envelope-author"),
             recipientSigner = testIdentitySigner("envelope-recipient")
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: senderSigner, credential: .init(groupID: UUID(), secret: "private-group-key-not-for-the-server"),
+            authority: testInvitationAuthority(), signer: senderSigner,
+            credential: .init(groupID: UUID(), secret: "private-group-key-not-for-the-server"),
             groupName: "Private mountain group", inviterMemberID: senderSigner.memberID)
         return Fixture(
             token: token, senderSigner: senderSigner, recipientSigner: recipientSigner, user:
@@ -51,7 +52,8 @@ import Testing
         let now = Date(), senderSigner = testIdentitySigner("clock-author"),
             recipientSigner = testIdentitySigner("clock-recipient")
         let token = try GroupInviteToken.make(
-            authority: testInvitationAuthority(), signer: senderSigner, credential: .init(groupID: UUID(), secret: "synthetic-clock-key"),
+            authority: testInvitationAuthority(), signer: senderSigner,
+            credential: .init(groupID: UUID(), secret: "synthetic-clock-key"),
             groupName: "Clock group", inviterMemberID: senderSigner.memberID,
             issuedAt: now.timeIntervalSince1970,
             expiresAt: now.addingTimeInterval(7 * 86400).timeIntervalSince1970)

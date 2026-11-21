@@ -1,3 +1,4 @@
+import CryptoKit
 #if os(macOS)
 import Foundation
 import Synchronization

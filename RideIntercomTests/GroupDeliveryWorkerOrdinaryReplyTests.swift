@@ -1,3 +1,4 @@
+import Synchronization
 #if os(macOS)
 import CallControl
 import Foundation
