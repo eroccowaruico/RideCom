@@ -222,6 +222,64 @@ import Testing
         }
     }
 
+    @Test(.timeLimit(.minutes(1))) func reopenedInviterReceivesRepliesForBothIssuedGroupLinks() async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("multi-ordinary-author")
+            let recipient = GroupDeliveryTestIdentity("multi-ordinary-recipient")
+            defer { author.remove(); recipient.remove() }
+            try await register(author); try await register(recipient)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let source = try author.harness(knowing: [], onDisk: true).viewModel
+            defer { source.stopGroupDeliverySync(); source.disconnect() }
+            source.allowsNearbyGroupDelivery = false
+            source.setRTCTransportRoutes([.webRTC])
+            let first = UUID(), second = UUID(), unrelated = UUID()
+            try #require(source.createTalkGroup(name: "First", id: first))
+            try #require(source.createTalkGroup(name: "Second", id: second))
+            try #require(source.createTalkGroup(name: "Ongoing", id: unrelated))
+            let firstLink = try #require(source.makeGroupInviteURL(for: first))
+            let secondLink = try #require(source.makeGroupInviteURL(for: second))
+            source.disconnect()
+
+            let left = try author.harness(knowing: [], onDisk: true).viewModel
+            let right = try recipient.harness(knowing: [], onDisk: true).viewModel
+            defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync(); left.disconnect(); right.disconnect() }
+            for model in [left, right] {
+                model.allowsNearbyGroupDelivery = false
+                model.setRTCTransportRoutes([.webRTC])
+                model.ordinaryGroupInternetReplyRetryDelays = []
+                model.groupDeliveryClient = client
+            }
+            try #require(left.startCall(to: .group(unrelated), accountAccessID: left.accountAccessID))
+            let currentCall = left.currentCallReference
+            let owner = AppCallOwner(account: left.accountSession, viewModel: left)
+            owner.systemSurfaceIsForeground = true
+            await left.ordinaryGroupInternetReplyWindow?.task?.value
+
+            try right.acceptInviteURL(secondLink)
+            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            try right.acceptInviteURL(firstLink)
+            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            let before = [first, second].filter { right.groupRepository.pendingInvitation(for: $0) != nil }
+            #expect(before.count == 2)
+
+            owner.systemSurfaceIsForeground = false
+            owner.systemSurfaceIsForeground = true
+            await left.ordinaryGroupInternetReplyWindow?.task?.value
+            #expect(left.savedRemoteUsers.map(\.memberIDs) == [[recipient.memberID]])
+            #expect(left.currentCallReference == currentCall)
+            let recipientOwner = AppCallOwner(account: right.accountSession, viewModel: right)
+            recipientOwner.systemSurfaceIsForeground = true
+            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            let newerCompleted = right.groupRepository.pendingInvitation(for: second) == nil
+            let olderCompleted = right.groupRepository.pendingInvitation(for: first) == nil
+            #expect(newerCompleted)
+            #expect(olderCompleted)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func workerCarriesEncryptedOrdinaryGroupAcceptanceAndAcknowledgement() async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("ordinary-reply-author")

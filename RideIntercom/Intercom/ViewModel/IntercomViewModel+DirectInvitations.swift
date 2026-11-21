@@ -61,6 +61,9 @@ extension IntercomViewModel {
         } catch GroupInviteTokenError.accountVerificationRequired {
             groupErrorMessage = "Verify your account in Internet Connection before sharing a new individual call invitation."
             return nil
+        } catch GroupInviteTokenError.activeOrdinaryGroupInvitationLimit {
+            groupErrorMessage = "Too many active group invitation links. Try again after an earlier link expires."
+            return nil
         } catch { reportGroupStorageError(error); return nil }
     }
 

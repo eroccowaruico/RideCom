@@ -6711,6 +6711,17 @@
         }
       }
     },
+    "Too many active group invitation links. Try again after an earlier link expires." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効なグループ招待が上限に達しました。発行したリンクの期限が切れてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "Too many pending operations. The call stopped; connect again to retry." : {
       "extractionState" : "manual",
       "localizations" : {

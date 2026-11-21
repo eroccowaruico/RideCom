@@ -40,7 +40,7 @@ final class GroupRepository {
             // in the same commit as orphan cleanup, before reclaiming their keys.
             let beforeMaintenance = current
             current.groups.removeAll { isOrphanedDirectGroup($0, users: current.users) }
-            current.discardIssuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970)
+            current.discardIssuedOrdinaryGroupInvitations(now: Date().timeIntervalSince1970)
             reconcileInvitations(in: &current)
             if current != beforeMaintenance {
                 current.generation = UUID()
@@ -586,14 +586,22 @@ final class GroupRepository {
               let group = snapshot.groups.first(where: { $0.id == invitation.groupID && $0.kind == .group }),
               let reference = group.credentialReference else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot, now: now) { next in
-            next.lastIssuedOrdinaryGroupInvitation = .init(invitation: invitation, credentialReference: reference)
+            next.discardIssuedOrdinaryGroupInvitations(now: now)
+            guard next.issuedOrdinaryGroupInvitations.count < GroupSnapshot.maximumIssuedOrdinaryGroupInvitations else {
+                throw GroupInviteTokenError.activeOrdinaryGroupInvitationLimit
+            }
+            next.issuedOrdinaryGroupInvitations.append(.init(invitation: invitation, credentialReference: reference))
         }
     }
 
-    func issuedOrdinaryGroupInvitation(now: TimeInterval) -> DirectInvitationContext? {
-        guard isWritable, let invitation = snapshot?.lastIssuedOrdinaryGroupInvitation?.invitation,
-              invitation.inviterMemberID == localMemberID, invitation.expiresAt > now else { return nil }
-        return invitation
+    func issuedOrdinaryGroupInvitations(now: TimeInterval) -> [DirectInvitationContext] {
+        guard isWritable, let snapshot else { return [] }
+        return snapshot.issuedOrdinaryGroupInvitations.compactMap { issued in
+            let invitation = issued.invitation
+            guard invitation.inviterMemberID == localMemberID, invitation.expiresAt > now,
+                  !missingCredentialGroupIDs.contains(invitation.groupID) else { return nil }
+            return invitation
+        }
     }
 
     func ordinaryGroupReplyCredentialReference(for invitation: DirectInvitationContext, now: TimeInterval) -> UUID? {
@@ -601,7 +609,9 @@ final class GroupRepository {
               !missingCredentialGroupIDs.contains(invitation.groupID),
               let group = snapshot.groups.first(where: { $0.id == invitation.groupID && $0.kind == .group }) else { return nil }
         if invitation.inviterMemberID == localMemberID {
-            guard snapshot.lastIssuedOrdinaryGroupInvitation?.invitation == invitation else { return nil }
+            guard snapshot.issuedOrdinaryGroupInvitations.contains(where: {
+                $0.invitation == invitation && $0.credentialReference == group.credentialReference
+            }) else { return nil }
         } else {
             guard let pending = group.pendingInvitation, pending.inviteeMemberID == localMemberID,
                   pending.invitation == invitation else { return nil }
@@ -762,10 +772,10 @@ final class GroupRepository {
            contactDeletionPublications: previous.contactDeletionPublications.filter { Double($0.expiresAt) > now * 1_000 },
            contactDeletionRelayReceipts: previous.contactDeletionRelayReceipts.filter { Double($0.expiresAt) > now * 1_000 },
            contactDeletionFormerPairs: previous.contactDeletionFormerPairs.filter { $0.expiresAt > now })
-        next.lastIssuedOrdinaryGroupInvitation = previous.lastIssuedOrdinaryGroupInvitation
+        next.issuedOrdinaryGroupInvitations = previous.issuedOrdinaryGroupInvitations
         try modify(&next)
         let allCredentials = (credential.map { [$0] } ?? []) + additionalCredentials
-        next.discardIssuedOrdinaryGroupInvitation(now: now, replacingKeys: Set(allCredentials.map(\.groupID)))
+        next.discardIssuedOrdinaryGroupInvitations(now: now, replacingKeys: Set(allCredentials.map(\.groupID)))
         let retainedGroupIDs = Set(next.groups.map(\.id))
         for removed in previous.groups where removed.kind == .group && !retainedGroupIDs.contains(removed.id) {
             next.retireGroupLinks(from: removed)

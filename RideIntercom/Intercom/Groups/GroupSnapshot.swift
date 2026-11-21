@@ -2,8 +2,9 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 23
+    static let currentVersion = 24
     static let maximumGroupDeliveries = 512
+    static let maximumIssuedOrdinaryGroupInvitations = 32
     struct GroupRemovalReceipt: Codable, Equatable {
         let groupID: UUID
         let eventID: UUID
@@ -165,7 +166,7 @@ struct GroupSnapshot: Codable, Equatable {
     var contactDeletionPublications: [ContactDeletionPublication] = []
     var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []
     var contactDeletionFormerPairs: [ContactDeletionFormerPair] = []
-    var lastIssuedOrdinaryGroupInvitation: IssuedOrdinaryGroupInvitation?
+    var issuedOrdinaryGroupInvitations: [IssuedOrdinaryGroupInvitation] = []
 
     var credentialReferences: [UUID] {
         groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
@@ -198,7 +199,7 @@ struct GroupSnapshot: Codable, Equatable {
         case version, generation, groups, users, contactInvitations, groupDeliveries, groupLinkReceipts, groupRemovalReceipts
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
         case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
-        case lastIssuedOrdinaryGroupInvitation
+        case issuedOrdinaryGroupInvitations
     }
 
     init(from decoder: Decoder) throws {
@@ -224,16 +225,22 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactDeletionRelayReceipt].self, forKey: .contactDeletionRelayReceipts)
         contactDeletionFormerPairs = version < 23 ? []
             : try values.decode([ContactDeletionFormerPair].self, forKey: .contactDeletionFormerPairs)
-        lastIssuedOrdinaryGroupInvitation = version < 23 ? nil
-            : try values.decodeIfPresent(IssuedOrdinaryGroupInvitation.self, forKey: .lastIssuedOrdinaryGroupInvitation)
+        issuedOrdinaryGroupInvitations = version < 24 ? []
+            : try values.decode([IssuedOrdinaryGroupInvitation].self, forKey: .issuedOrdinaryGroupInvitations)
     }
 
-    mutating func discardIssuedOrdinaryGroupInvitation(now: TimeInterval, replacingKeys: Set<UUID> = []) {
-        guard let issued = lastIssuedOrdinaryGroupInvitation else { return }
-        let groupID = issued.invitation.groupID
-        if issued.invitation.expiresAt <= now || replacingKeys.contains(groupID)
-            || !groups.contains(where: { $0.id == groupID && $0.kind == .group && $0.credentialReference == issued.credentialReference }) {
-            lastIssuedOrdinaryGroupInvitation = nil
+    mutating func discardIssuedOrdinaryGroupInvitations(now: TimeInterval, replacingKeys: Set<UUID> = []) {
+        issuedOrdinaryGroupInvitations = issuedOrdinaryGroupInvitations.filter { issued in
+            issued.invitation.expiresAt > now && !replacingKeys.contains(issued.invitation.groupID)
+                && containsOrdinaryGroup(for: issued)
+        }
+    }
+
+    private func containsOrdinaryGroup(for issued: IssuedOrdinaryGroupInvitation) -> Bool {
+        groups.contains { group in
+            group.id == issued.invitation.groupID && group.kind == .group
+                && group.credentialReference == issued.credentialReference
+                && group.members.contains { $0.id == issued.invitation.inviterMemberID }
         }
     }
 
@@ -323,13 +330,12 @@ struct GroupSnapshot: Codable, Equatable {
         guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else { throw IntercomGroupError.invalidStoredGroups }
         guard groups.count <= 256, Set(groups.map(\.id)).count == groups.count else { throw IntercomGroupError.invalidStoredGroups }
-        if let issued = lastIssuedOrdinaryGroupInvitation {
-            guard version >= 23, issued.invitation.isValid, issued.invitation.isOrdinaryGroupInvitation,
-                  groups.contains(where: { $0.id == issued.invitation.groupID && $0.kind == .group
-                      && $0.credentialReference == issued.credentialReference
-                      && $0.members.contains(where: { $0.id == issued.invitation.inviterMemberID }) })
-            else { throw IntercomGroupError.invalidStoredGroups }
-        }
+        guard version >= 24 || issuedOrdinaryGroupInvitations.isEmpty,
+              issuedOrdinaryGroupInvitations.count <= Self.maximumIssuedOrdinaryGroupInvitations,
+              Set(issuedOrdinaryGroupInvitations.map(\.invitation.id)).count == issuedOrdinaryGroupInvitations.count,
+              issuedOrdinaryGroupInvitations.allSatisfy({
+                  $0.invitation.isValid && $0.invitation.isOrdinaryGroupInvitation && containsOrdinaryGroup(for: $0)
+              }) else { throw IntercomGroupError.invalidStoredGroups }
         guard version >= 9 || contactInvitations.isEmpty else { throw IntercomGroupError.invalidStoredGroups }
         guard contactInvitations.count <= 1024, contactInvitations.allSatisfy(\.isValid),
               Set(contactInvitations.map(\.id)).count == contactInvitations.count else { throw IntercomGroupError.invalidStoredGroups }

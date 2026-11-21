@@ -219,6 +219,7 @@ enum GroupInviteTokenError: Error, Equatable {
     case wrongRecipient
     case incompatibleCall
     case accountVerificationRequired
+    case activeOrdinaryGroupInvitationLimit
 }
 
 enum GroupInviteTokenCodec {

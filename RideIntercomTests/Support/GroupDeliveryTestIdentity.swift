@@ -39,7 +39,8 @@ import Foundation
                 if try file.read() == nil { try file.commit(GroupSnapshot(users: people.map { try $0.savedUser() })) }
             }
             return AppTestSupport.makeHarness(groups: [], groupRepository: GroupRepository(store: file, credentials: groupKeys),
-                credentialStore: groupKeys, internetSettingsStore: store, localMemberID: memberID)
+                credentialStore: groupKeys, internetSettingsStore: store,
+                invitationAuthority: testInvitationAuthority(keychain: keychain), localMemberID: memberID)
         }
         if memoryGroups == nil {
             let groups = InMemoryGroupStore(groups: []); groups.snapshot.users = try people.map { try $0.savedUser() }; memoryGroups = groups

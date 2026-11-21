@@ -40,7 +40,7 @@ extension IntercomViewModel {
     }
 
     private func resumeIssuedOrdinaryGroupReply() {
-        guard let invitation = groupRepository.issuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970),
+        guard let invitation = groupRepository.issuedOrdinaryGroupInvitations(now: Date().timeIntervalSince1970).last,
               let expectedKey = invitation.inviterDeviceKey,
               (try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)) != nil
         else { return }

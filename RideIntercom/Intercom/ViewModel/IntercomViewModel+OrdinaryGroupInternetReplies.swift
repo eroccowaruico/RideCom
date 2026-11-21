@@ -9,7 +9,7 @@ import RTC
     var task: Task<Void, Never>?
     var deadline: Task<Void, Never>?
     var endBackgroundTime: (() -> Void)?
-    var openedInvitationID: UUID?
+    var openedInvitationIDs: Set<UUID> = []
     var submittedReceiptIDs: Set<UUID> = []
 
     init(client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID) {
@@ -79,8 +79,7 @@ extension IntercomViewModel {
 
     private func hasInternetOrdinaryReplies(access: CallNotificationServiceAccess) -> Bool {
         let now = Date().timeIntervalSince1970
-        if let issued = groupRepository.issuedOrdinaryGroupInvitation(now: now),
-           groupRepository.ordinaryGroupReplyCredentialReference(for: issued, now: now) != nil { return true }
+        if !groupRepository.issuedOrdinaryGroupInvitations(now: now).isEmpty { return true }
         return groupRepository.pendingOrdinaryGroupReplies(now: now).contains {
             internetOrdinaryReplyOwner(for: $0, access: access) != nil
         }
@@ -95,7 +94,9 @@ extension IntercomViewModel {
 
     private func synchronizeOrdinaryGroupInternetReplies(_ window: OrdinaryGroupInternetReplyWindow) async -> Bool {
         let now = Date().timeIntervalSince1970
-        if let invitation = groupRepository.issuedOrdinaryGroupInvitation(now: now), let target = internetReplyTarget(invitation) {
+        for invitation in groupRepository.issuedOrdinaryGroupInvitations(now: now) {
+            guard internetReplyWindowIsCurrent(window) else { return false }
+            guard let target = internetReplyTarget(invitation) else { continue }
             do { try await receiveOrdinaryGroupInternetAcceptances(target, window: window) }
             catch InternetAccountClient.Failure.rateLimited { return false }
             catch { /* A later pass can try the invitation again. */ }
@@ -131,9 +132,9 @@ extension IntercomViewModel {
         let invitation = target.invitation, address = target.address
         guard let expectedKey = invitation.inviterDeviceKey,
               let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey) else { return }
-        if window.openedInvitationID != invitation.id {
+        if !window.openedInvitationIDs.contains(invitation.id) {
             try await window.client.openOrdinaryGroupReply(address, access: window.access)
-            window.openedInvitationID = invitation.id
+            window.openedInvitationIDs.insert(invitation.id)
         }
         guard internetReplyIsCurrent(target, window: window) else { return }
         let inbox = try await window.client.ordinaryGroupReplyInbox(address, access: window.access)

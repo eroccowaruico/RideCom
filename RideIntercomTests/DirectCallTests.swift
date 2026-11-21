@@ -123,11 +123,13 @@ struct DirectCallTests {
         #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
     }
 
-    @Test func issuedOrdinaryGroupInvitationSurvivesReloadOnlyWithItsOriginalGroupKey() throws {
+    @Test func issuedOrdinaryGroupInvitationsSurviveReloadOnlyWithTheirOriginalGroupKeys() throws {
         let storage = try GroupStorageFixture()
         defer { storage.remove() }
         let group = try storage.group()
-        try storage.repository.save([group], credential: .init(groupID: group.id, secret: "original-fixture"))
+        let otherGroup = try storage.group()
+        try storage.repository.save([group, otherGroup], credential: .init(groupID: group.id, secret: "original-fixture"))
+        try storage.repository.save([group, otherGroup], credential: .init(groupID: otherGroup.id, secret: "other-fixture"))
         let app = AppTestSupport.makeHarness(groups: [], groupRepository: storage.repository, localMemberID: "local")
         defer { app.viewModel.disconnect() }
         let firstURL = try #require(app.viewModel.makeGroupInviteURL(for: group.id))
@@ -137,22 +139,43 @@ struct DirectCallTests {
         let secondToken = try GroupInviteTokenCodec.decodeJoinURL(secondURL)
         let second = try #require(secondToken.directInvitation).context
         #expect(first.id != second.id)
+        let otherURL = try #require(app.viewModel.makeGroupInviteURL(for: otherGroup.id))
+        let otherToken = try GroupInviteTokenCodec.decodeJoinURL(otherURL)
+        let other = try #require(otherToken.directInvitation).context
         let reopened = storage.restart()
         _ = try reopened.load(localMemberID: "local")
         let now = Date().timeIntervalSince1970
-        #expect(reopened.issuedOrdinaryGroupInvitation(now: now)?.id == second.id)
-        #expect(reopened.issuedOrdinaryGroupInvitation(now: second.expiresAt)?.id == nil)
-        let retained = try storage.file.read()
-        let saved = try #require(retained)
-        #expect(saved.lastIssuedOrdinaryGroupInvitation?.credentialReference == saved.groups.first?.credentialReference)
+        #expect(reopened.issuedOrdinaryGroupInvitations(now: now).map(\.id) == [first.id, second.id, other.id])
+        #expect(reopened.issuedOrdinaryGroupInvitations(now: max(first.expiresAt, second.expiresAt, other.expiresAt)).isEmpty)
 
-        try reopened.save([group], credential: .init(groupID: group.id, secret: "replacement-fixture"))
-        #expect(try storage.file.read()?.lastIssuedOrdinaryGroupInvitation == nil)
+        try reopened.save([group, otherGroup], credential: .init(groupID: group.id, secret: "replacement-fixture"))
+        #expect(reopened.issuedOrdinaryGroupInvitations(now: now).map(\.id) == [other.id])
         let updated = AppTestSupport.makeHarness(groups: [], groupRepository: reopened, localMemberID: "local")
         defer { updated.viewModel.disconnect() }
         _ = try #require(updated.viewModel.makeGroupInviteURL(for: group.id))
-        try reopened.delete(group.id, remaining: [])
-        #expect(try storage.file.read()?.lastIssuedOrdinaryGroupInvitation == nil)
+        try reopened.delete(group.id, remaining: [otherGroup])
+        #expect(try storage.file.read()?.issuedOrdinaryGroupInvitations.map(\.invitation.id) == [other.id])
+    }
+
+    @Test func groupInvitationCapacityKeepsPreviouslyIssuedLinksUntilExpiry() throws {
+        let storage = try GroupStorageFixture()
+        defer { storage.remove() }
+        let group = try storage.group()
+        try storage.repository.save([group], credential: .init(groupID: group.id, secret: "capacity-group-fixture"))
+        let now = Date().timeIntervalSince1970
+        let signer = testIdentitySigner("local")
+        let existing = (0..<GroupSnapshot.maximumIssuedOrdinaryGroupInvitations).map {
+            DirectInvitationContext(groupID: group.id, inviterMemberID: "local", inviterDeviceKey: signer.publicKey,
+                                    expiresAt: now + ($0 == 0 ? 5 : 30))
+        }
+        for invitation in existing { try storage.repository.rememberIssuedOrdinaryGroupInvitation(invitation, now: now) }
+        let new = DirectInvitationContext(groupID: group.id, inviterMemberID: "local", inviterDeviceKey: signer.publicKey, expiresAt: now + 30)
+        #expect(throws: GroupInviteTokenError.activeOrdinaryGroupInvitationLimit) {
+            try storage.repository.rememberIssuedOrdinaryGroupInvitation(new, now: now)
+        }
+        #expect(storage.repository.issuedOrdinaryGroupInvitations(now: now).map(\.id) == existing.map(\.id))
+        try storage.repository.rememberIssuedOrdinaryGroupInvitation(new, now: now + 5)
+        #expect(storage.repository.issuedOrdinaryGroupInvitations(now: now + 5).map(\.id) == Array(existing.dropFirst()).map(\.id) + [new.id])
     }
 
     @Test func ordinaryTwoMemberGroupRemainsAGroup() throws {
