@@ -49,6 +49,12 @@ GitHub連携ではSettings → Builds → Branch controlのEnable Preview Builds
 
 Cloudflare設定チャットから引き継いだ残件は、実SFU/TURNを通した双方向音声、実費用・停止運用、およびbuild監視pathと旧作業branchの自動build設定の確認。固定URLの作成・HTTP認証成功だけでは音声受入完了にしない。本番を含む監視pathの変更は当時の自動承認審査で拒否されており、変更済みと扱わない。実サービスの実行条件は[開発方針](../policies/開発方針.md#実サービスを使う検証の費用制約)に従う。
 
+### サーバー変更のあるpushにビルドを絞る設定案
+
+2026-11-21。読み取りAPIで `rideintercom` 本番の対象ブランチが `main`、ビルドの作業ディレクトリが `/server`、Build watch pathsのIncludesが `*`、Excludesが空であることを確認した。6時から12時までの本番配置25件をCloudflare Buildsが記録したGitコミットと照合した。24件のコミットは `server/` に差分がなく、25件が参照した `server/` のツリーは2種類だった。[配置回数の点検](history/バックログの優先順位と進捗の記録.md#本番workerの配置をgitの差分と照合する)
+
+設定変更を適用できる場合、対象Workerの **Settings → Build → Build watch paths** で、本番のIncludesをリポジトリルートからの `server/*` にする。次の通常のpushで、`server/` に触れない小さな変更ではビルドされず、`server/` を変更するpushでは本番が従来のブランチとコマンドでビルドされることをCloudflare Buildsで確認する。固定 `preview` は別に確認する。配備に使うファイルを `server/` の外へ追加したときは、そのパスもIncludesへ加える。失敗時はIncludesを `*` に戻し、通常のビルドが再開することを確認する。連携元が大きなpushを送った場合など、Cloudflareはパス判定を省略する条件がある。[CloudflareのBuild watch paths](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)
+
 ## Apple登録入口の保護
 
 削除時のApple認可取消には、AppleのSign in with Apple private keyから発行した有効なclient-secret JWTを環境別secret `APPLE_CLIENT_SECRET`へ登録する。client ID・team ID・key ID・有効期限をApple側設定と合わせ、期限前に更新する。Workerへ登録する値は署名済みJWT。署名に使ったAppleのprivate keyは発行担当が保管する。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)値を通常変数・Git・ログへ入れない。未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
