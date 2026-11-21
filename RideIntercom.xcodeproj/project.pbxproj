@@ -177,6 +177,7 @@
 				packages/Audio/Effectors/SoundIsolation,
 				packages/Audio/Effectors/VADGate,
 				packages/Audio/SessionManager,
+				packages/CallControl,
 				packages/RTC,
 			);
 			target = 93F300C72F93829C0046716D /* RideIntercom */;
@@ -662,6 +663,7 @@
 				A10000000000000000000007 /* XCLocalSwiftPackageReference "RideIntercom/packages/Audio/Effectors/SoundIsolation" */,
 				A10000000000000000000008 /* XCLocalSwiftPackageReference "RideIntercom/packages/Audio/Effectors/VADGate" */,
 				934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RideIntercom/packages/RTC" */,
+				CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */,
 				9374C4B62FA364F000D259B2 /* XCRemoteSwiftPackageReference "swift-log" */,
 			);
 			preferredProjectObjectVersion = 110;
@@ -2104,6 +2106,10 @@
 		A10000000000000000000008 /* XCLocalSwiftPackageReference "RideIntercom/packages/Audio/Effectors/VADGate" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = RideIntercom/packages/Audio/Effectors/VADGate;
+		};
+		CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = RideIntercom/packages/CallControl;
 		};
 /* End XCLocalSwiftPackageReference section */
 

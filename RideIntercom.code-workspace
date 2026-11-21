@@ -43,6 +43,10 @@
     {
       "name": "RTC",
       "path": "RideIntercom/packages/RTC"
+    },
+    {
+      "name": "CallControl",
+      "path": "RideIntercom/packages/CallControl"
     }
   ],
   "settings": {

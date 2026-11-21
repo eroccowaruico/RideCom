@@ -26,6 +26,7 @@ App は必要な package だけを組み合わせる。package 内の責務を A
 | codec encode / decodeだけ使う | `Codec` | `AudioCore` | `SessionManager`, `AudioMixer`, `RTC` |
 | VAD / Dynamics / Limiter / SoundIsolationだけ使う | 対象Effector | packageごとの依存だけ | `AudioMixer`, `SessionManager`, `Codec`, `RTC` |
 | route / packet / encryption / handoverだけ使う | `RTC` | なし | Audio packages |
+| 現在の通話世代を端末の操作入口へ渡す | [CallControl](CallControl.md) | なし | RTC、Audio、画面・OSの操作SDK |
 
 ## 統合時だけの関係
 

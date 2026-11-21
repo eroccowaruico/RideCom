@@ -570,7 +570,7 @@ def main():
     if mode in ('all', 'headless', 'packages'):
         packages = ['Audio/' + name for name in ['AudioCore', 'AudioMixer', 'Codec', 'SessionManager', 'AudioDevice']]
         packages += ['Audio/Effectors/' + name for name in ['DynamicsProcessor', 'PeakLimiter', 'SoundIsolation', 'VADGate']]
-        packages += ['RTC']
+        packages += ['RTC', 'CallControl']
         for package in packages:
             name = package.split('/')[-1]
             command = ['swift', 'test', '--package-path', 'RideIntercom/packages/' + package]
