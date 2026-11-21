@@ -36,3 +36,22 @@ test('skill descriptions expose usage in the original source location', async ()
     const issues = await findings(lint, '---\nname: example\ndescription: 通知を配送する\n---\n# 説明', 'SKILL.md');
     assert.deepEqual(issues.filter(i => i.rule.startsWith('ridecom-ja/')).map(i => i.line), [3]);
 });
+
+test('technical verbs specify the operation while literal actions keep their meaning', () => {
+    for (const [phrase, literal] of [
+        ['テストを最後まで走らせた', '自転車を最後まで走らせた'],
+        ['コードをここで走らせてください', 'ここで模型の車を走らせてください'],
+        ['検査が自動で走ります', '試験で自転車が走ります'],
+        ['ジョブは夜間に走っている', '通勤で夜間に走っている'],
+        ['走らせる', '道路を走る'],
+        ['CIをもう一度回して', '音量つまみをもう一度回して'],
+        ['APIを直接叩いた', 'ドアを直接叩いた'],
+        ['要求をサーバーに投げる', '相手にボールを投げる'],
+        ['ログを吐かない', '息を吐かない'],
+        ['例外を握りつぶした', '紙を握りつぶした'],
+        ['返されたエラーを飲み込む', '水を飲み込む'],
+    ]) {
+        assert.equal(usageFindings(phrase).length, 1, phrase);
+        assert.deepEqual(usageFindings(literal), [], literal);
+    }
+});

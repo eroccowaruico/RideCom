@@ -54,3 +54,9 @@ class WordingReviewTests(unittest.TestCase):
             review = list(candidates(root, 'HEAD', all_passages=True))
             self.assertEqual(len(review), 1)
             self.assertTrue(review[0].startswith('README.md:2 '))
+
+            (root / 'README.md').write_text('通話の音量を上げる。\n次に飛び石を蹴った。\n')
+            for all_passages in (False, True):
+                review = list(candidates(root, 'HEAD', all_passages=all_passages))
+                self.assertEqual(len(review), 1)
+                self.assertIn('動詞が表す操作', review[0])
