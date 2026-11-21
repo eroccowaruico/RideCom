@@ -170,8 +170,7 @@ final class GroupContactInvitationUITests: XCTestCase {
         let copy = app.cells.matching(NSPredicate(format: "label IN %@", ["Copy", "Copy Link"])).firstMatch
         XCTAssertTrue(copy.waitForExistence(timeout: 5))
         let closeShare = app.buttons["Close"].firstMatch
-        if closeShare.exists && closeShare.isHittable { closeShare.tap() }
-        else { app.swipeDown() }
+        if closeShare.exists && closeShare.isHittable { closeShare.tap() } else { app.swipeDown() }
         XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
         XCTAssertTrue(share.waitForExistence(timeout: 5)); XCTAssertTrue(share.isHittable)
         if !advanced { XCTAssertEqual(personState.label, unsent) }

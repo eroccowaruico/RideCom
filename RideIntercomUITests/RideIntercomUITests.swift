@@ -297,7 +297,6 @@ final class RideIntercomUITests: XCTestCase {
         attachScreen("Signed Out Apple Login")
     }
 
-
     /// The simulator keeps saved riders between runs, and a rider ID seen again with a new
     /// key is an identity conflict. Each test run therefore uses its own rider IDs; within the
     /// run the same inviter keeps one ID and key, so restarts still find the saved rider.
@@ -1277,9 +1276,11 @@ final class RideIntercomUITests: XCTestCase {
         app.closeCallIfOpen()
         if app.descendants(matching: .any)[root].firstMatch.exists { return }
         let identified = app.buttons[identifier].firstMatch
-        if identified.exists { identified.tap() }
-        else if app.radioButtons[identifier].firstMatch.exists { app.radioButtons[identifier].firstMatch.tap() }
-        else {
+        if identified.exists {
+            identified.tap()
+        } else if app.radioButtons[identifier].firstMatch.exists {
+            app.radioButtons[identifier].firstMatch.tap()
+        } else {
             let button = app.tabBars.buttons[title].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: 3))
             button.tap()
@@ -1309,10 +1310,15 @@ final class RideIntercomUITests: XCTestCase {
     private func openDiagnosticsTab() {
         app.closeCallIfOpen()
         if app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch.exists { return }
-        if app.tabBars.buttons["Diagnostics"].firstMatch.exists { app.tabBars.buttons["Diagnostics"].firstMatch.tap() }
-        else if app.radioButtons["diagnosticsTab"].firstMatch.exists { app.radioButtons["diagnosticsTab"].firstMatch.tap() }
-        else if app.buttons["diagnosticsTab"].firstMatch.exists { app.buttons["diagnosticsTab"].firstMatch.tap() }
-        else { app.buttons["Diagnostics"].firstMatch.tap() }
+        if app.tabBars.buttons["Diagnostics"].firstMatch.exists {
+            app.tabBars.buttons["Diagnostics"].firstMatch.tap()
+        } else if app.radioButtons["diagnosticsTab"].firstMatch.exists {
+            app.radioButtons["diagnosticsTab"].firstMatch.tap()
+        } else if app.buttons["diagnosticsTab"].firstMatch.exists {
+            app.buttons["diagnosticsTab"].firstMatch.tap()
+        } else {
+            app.buttons["Diagnostics"].firstMatch.tap()
+        }
         XCTAssertTrue(app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch.waitForExistence(timeout: 3))
     }
 
@@ -1340,8 +1346,7 @@ final class RideIntercomUITests: XCTestCase {
             button.tap()
             #else
             let radio = app.radioButtons["settingsTab"].firstMatch
-            if radio.exists { radio.tap() }
-            else {
+            if radio.exists { radio.tap() } else {
                 let identified = app.buttons["settingsTab"].firstMatch
                 let button = identified.exists ? identified : app.tabBars.buttons["Settings"].firstMatch
                 XCTAssertTrue(button.waitForExistence(timeout: 3))

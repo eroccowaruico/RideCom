@@ -61,8 +61,11 @@ final class ContactReplyUITests: XCTestCase {
         let predicate = NSPredicate(format: "label IN %@", ["Paste", "ペースト"])
         let menu = app.menuItems.matching(predicate).firstMatch
         let button = app.buttons.matching(predicate).firstMatch
-        if menu.waitForExistence(timeout: 2) { menu.tap() }
-        else { XCTAssertTrue(button.waitForExistence(timeout: 2)); button.tap() }
+            if menu.waitForExistence(timeout: 2) {
+                menu.tap()
+            } else {
+                XCTAssertTrue(button.waitForExistence(timeout: 2)); button.tap()
+            }
         let value = try XCTUnwrap(field.value as? String)
         let match = try XCTUnwrap(value.range(of: #"rideintercom://[^\s]+"#, options: .regularExpression))
         return try XCTUnwrap(URL(string: String(value[match])))
@@ -104,8 +107,7 @@ final class ContactReplyUITests: XCTestCase {
         share.tap()
         XCTAssertTrue(copy().waitForExistence(timeout: 5))
         let close = app.buttons["Close"].firstMatch
-        if close.exists && close.isHittable { close.tap() }
-        else { app.swipeDown() }
+        if close.exists && close.isHittable { close.tap() } else { app.swipeDown() }
         XCTAssertTrue(copy().waitForNonExistence(timeout: 5))
         XCTAssertTrue(share.isHittable, "Closing sharing keeps the user in the same call")
         share.tap()

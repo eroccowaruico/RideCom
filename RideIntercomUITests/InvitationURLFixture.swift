@@ -105,7 +105,12 @@ enum InvitationURLFixture {
               let group = context["groupID"] as? String else { throw Failure.invalidURL }
         var hash = Array(SHA256.hash(data: Data(("rideintercom.invitation-receipt.v2|" + id + "|" + invitee).utf8)).prefix(16))
         hash[6] = (hash[6] & 0x0f) | 0x80; hash[8] = (hash[8] & 0x3f) | 0x80
-        let receiptID = UUID(uuid: (hash[0],hash[1],hash[2],hash[3],hash[4],hash[5],hash[6],hash[7],hash[8],hash[9],hash[10],hash[11],hash[12],hash[13],hash[14],hash[15])).uuidString
+        let receiptID = UUID(
+            uuid: (
+                hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7], hash[8], hash[9], hash[10],
+                hash[11], hash[12], hash[13], hash[14], hash[15]
+            )
+        ).uuidString
         let publicKey = base64url(signingKey.publicKey.x963Representation)
         let proofFields: [String: Any] = ["receiptID": receiptID, "inviteeMemberID": invitee, "inviteeDeviceKey": publicKey, "invitation": context]
         let proofBytes = Data("rideintercom.direct-invitation.receipt.v2\0".utf8) + (try canonicalData(proofFields))
@@ -148,12 +153,15 @@ enum InvitationURLFixture {
                 for value in array { try container.encode(Self(value: value)) }
             } else {
                 var container = encoder.singleValueContainer()
-                if let string = value as? String { try container.encode(string) }
-                else if let number = value as? NSNumber {
-                    if CFGetTypeID(number) == CFBooleanGetTypeID() { try container.encode(number.boolValue) }
-                    else { try container.encode(number.doubleValue) }
-                } else if value is NSNull { try container.encodeNil() }
-                else { throw Failure.invalidURL }
+                if let string = value as? String {
+                    try container.encode(string)
+                } else if let number = value as? NSNumber {
+                    if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                        try container.encode(number.boolValue)
+                    } else {
+                        try container.encode(number.doubleValue)
+                    }
+                } else if value is NSNull { try container.encodeNil() } else { throw Failure.invalidURL }
             }
         }
     }
