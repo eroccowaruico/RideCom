@@ -33,7 +33,8 @@ final class IntercomViewModel {
     /// How long the person who accepted keeps the exchange open for the two notification permissions.
     @ObservationIgnored var contactPermissionExchangeDuration: Duration = .seconds(10)
     @ObservationIgnored var contactPermissionExchange: (sent: Bool, received: Bool) = (false, false)
-    @ObservationIgnored var groupDeliveryClient: InternetAccountClient? = SystemSurfaceScope.permitsSystemAccess ? .init() : nil
+    @ObservationIgnored var groupDeliveryClient: InternetAccountClient? =
+        SystemSurfaceScope.permitsSystemAccess ? .init() : nil
     @ObservationIgnored var invitationBackgroundTransfer: (any InvitationBackgroundTransferring)?
     @ObservationIgnored var groupDeliveryPathMonitor: NWPathMonitor?
     @ObservationIgnored var groupDeliveryNetworkWasAvailable: Bool?
@@ -49,10 +50,14 @@ final class IntercomViewModel {
     @ObservationIgnored var nearbyGroupDeliveryExchange: NearbyGroupDeliveryExchange?
     @ObservationIgnored var nearbyGroupDeliveryWindow: NearbyGroupDeliveryWindow?
     @ObservationIgnored var nearbyGroupDeliverySchedule = NearbyGroupDeliverySchedule()
-    @ObservationIgnored var ordinaryGroupReplyExchanges: [OrdinaryGroupReplyExchange.Role: OrdinaryGroupReplyExchange] = [:]
+    @ObservationIgnored var ordinaryGroupReplyExchanges: [
+        OrdinaryGroupReplyExchange.Role: OrdinaryGroupReplyExchange
+    ] = [:]
     @ObservationIgnored var ordinaryGroupReplyBackgroundWindow: (id: UUID, end: (@MainActor () -> Void)?)?
     @ObservationIgnored var invitationInternetReplyWindow: InvitationInternetReplyWindow?
-    @ObservationIgnored var invitationInternetReplyRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(8)]
+    @ObservationIgnored var invitationInternetReplyRetryDelays: [Duration] = [
+        .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(8)
+    ]
     @ObservationIgnored var beginOrdinaryGroupReplyBackgroundTime: AppBackgroundTime.Request = {
         AppBackgroundTime.begin(name: "Finish Group Invitation Reply", expiration: $0)
     }
@@ -71,28 +76,13 @@ final class IntercomViewModel {
     @ObservationIgnored var isRefreshingCallAccess = false
     @ObservationIgnored var lastCallAccessSaveAttempt: TimeInterval?
     let storeAccess: StoreKitAccess
-    @ObservationIgnored lazy var notifications = CallNotifications(store: internetSettingsStore, memberID: localMemberIdentity.memberID,
-        isCurrentUser: { [weak self] in self?.canStartCalls == true }, contacts: { [weak self] in self?.savedRemoteUsers ?? [] })
-    var hasCurrentAccountAccess: Bool {
-        !accountSession.deletion.blocksSignIn && accountUserID != nil && accountSession.userID == accountUserID && accountSession.accessID == accountAccessID
-    }
+    @ObservationIgnored lazy var notifications = CallNotifications(
+        store: internetSettingsStore, memberID: localMemberIdentity.memberID,
+        isCurrentUser: { [weak self] in self?.canStartCalls == true },
+        contacts: { [weak self] in self?.savedRemoteUsers ?? [] }
+    )
     var requiresAccountDataReset = false
-    var canStartCalls: Bool { hasCurrentAccountAccess && !requiresAccountDataReset }
-    nonisolated static let defaultSoundIsolationEnabled = true
-    nonisolated static let defaultReceiveSoundIsolationEnabled = false
-    nonisolated static let defaultAudioSessionProfile = AudioSessionProfile.echoCancelledInput
-    nonisolated static let defaultDuckOthersEnabled = true
-    nonisolated static let defaultVADSensitivity = VoiceActivitySensitivity.standard
-    nonisolated static let defaultTransmitCodec: AudioCodecIdentifier = .mpeg4AACELD
-    nonisolated static let defaultRTCAudioFormatPreset: RTCAudioFormatPreset = .mono48k
-    nonisolated static let defaultAACELDv2BitRate = 48_000
-    nonisolated static let defaultOpusBitRate = Codec.OpusOptions().bitRate
-    nonisolated static let supportedRTCTransportRoutes = AppRTCTransportRoutePolicy.supportedRoutes
-    nonisolated static let defaultEnabledRTCTransportRoutes: Set<RTC.RouteKind> = supportedRTCTransportRoutes
     nonisolated static let defaultOverallOutputVolume: Float = 1
-    nonisolated static let defaultRemoteOutputVolume: Float = 1
-    nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
-    nonisolated static let runtimePackageReportPublishInterval: TimeInterval = 0.5
 
     var interfaceMode: InterfaceMode = .standard
     var internetWorkerURL = ""
@@ -112,8 +102,6 @@ final class IntercomViewModel {
     var callDisconnectDeadline: Date?
     var connectionState: CallConnectionState = .idle
     var isMuted = false
-    var canControlMicrophone: Bool { !isUsingWatchAudio }
-    var effectiveInputMuted: Bool { canControlMicrophone && isMuted }
     var isVoiceActive = false
     @ObservationIgnored var localInputObservedAt: TimeInterval?
     var isAudioReady = false
@@ -140,38 +128,6 @@ final class IntercomViewModel {
     var remoteOutputVolumes: [String: Float] = [:]
     var receiveMixSoundIsolationEnabled = IntercomViewModel.defaultReceiveSoundIsolationEnabled
     var remoteSoundIsolationEnabled: [String: Bool] = [:]
-    var isMicrophoneCaptureRunning: Bool {
-        isAudioReady
-    }
-
-    var supportsAdvancedMixingOptions: Bool { true }
-    var isOtherAudioDuckingActive: Bool { isOtherAudioDuckingActiveInternal }
-    var diagnosticsInputLevel: Float {
-        if audioCheckPhase == .recording {
-            return audioCheckInputLevel
-        }
-        guard let localMember = selectedGroup?.members.first, !effectiveInputMuted else { return 0 }
-        return localMember.voiceLevel
-    }
-    var diagnosticsInputPeakLevel: Float {
-        if audioCheckPhase == .recording {
-            return audioCheckInputPeakLevel
-        }
-        guard let localMember = selectedGroup?.members.first, !effectiveInputMuted else { return 0 }
-        return localMember.voicePeakLevel
-    }
-    var diagnosticsOutputLevel: Float {
-        if audioCheckPhase == .playing {
-            return audioCheckOutputLevel
-        }
-        return lastScheduledOutputRMS
-    }
-    var diagnosticsOutputPeakLevel: Float {
-        if audioCheckPhase == .playing {
-            return audioCheckOutputPeakLevel
-        }
-        return lastScheduledOutputPeakRMS
-    }
     var audioCheckPhase: AudioCheckPhase = .idle
     var audioCheckInputLevel: Float = 0
     var audioCheckInputPeakLevel: Float = 0
@@ -205,10 +161,6 @@ final class IntercomViewModel {
     var droppedAudioPacketCount = 0
     var jitterQueuedFrameCount = 0
     var groupCallIssue: GroupCallIssue?
-    var groupErrorMessage: String? {
-        get { groupCallIssue?.message }
-        set { groupCallIssue = newValue.map(GroupCallIssue.notice) }
-    }
     var groupStorageIssue: GroupStorageIssue?
     var groupsMissingKeys: Set<UUID> = []
     var groupKeyCleanupPending = false
@@ -281,7 +233,49 @@ final class IntercomViewModel {
     var lastRuntimePackageReportPublishedAt: TimeInterval?
     var isDiagnosticsVisible = false
 
-    init(
+    private init(startup: Startup) {
+        self.callAccessEvaluation = startup.callAccessEvaluation
+        self.callAccessNow = startup.callAccessNow
+        self.invitationAuthority = startup.invitationAuthority
+        self.requestMicrophoneAccess = startup.requestMicrophoneAccess
+        self.accountSession = startup.accountSession
+        self.accountUserID = startup.accountUserID
+        self.accountAccessID = startup.accountAccessID
+        self.storeAccess = startup.storeAccess
+        self.enforceCallAccess = startup.enforceCallAccess
+        self.groupRepository = startup.groupRepository
+        self.groups = startup.groups
+        self.callSession = startup.callSession
+        self.audioSessionManager = startup.audioSessionManager
+        self.nativeAudioOutputRenderer = startup.output
+        self.nativeAudioInputCapture = startup.input
+        self.audioOutputRenderer = startup.output
+        self.audioInputCapture = startup.input
+        self.audioPipeline = startup.audioPipeline
+        self.callTicker = startup.callTicker
+        self.appSettingsStore = startup.appSettingsStore
+        self.internetSettingsStore = startup.internetSettingsStore
+        self.localMemberIdentity = startup.localMemberIdentity
+        self.localMemberIdentityStore = startup.localMemberIdentityStore
+        self.audioSessionSnapshot = startup.audioSessionSnapshot
+        self.remoteTalkerTimeout = startup.remoteTalkerTimeout
+
+        restoreStartupState(startup)
+        bindStartupEvents()
+    }
+
+    deinit {
+        groupDeliveryPathMonitor?.cancel()
+        #if os(iOS)
+        if let audioEngineConfigurationObserver {
+            NotificationCenter.default.removeObserver(audioEngineConfigurationObserver)
+        }
+        #endif
+    }
+}
+
+extension IntercomViewModel {
+    convenience init(
         accountSession: AppleAccountSession,
         enforceCallAccess: Bool? = nil,
         callAccessEvaluation: (@MainActor (Date) -> StoreAccessEvaluation)? = nil,
@@ -301,98 +295,41 @@ final class IntercomViewModel {
         callTicker: CallTicking? = nil,
         remoteTalkerTimeout: TimeInterval = 0.6
     ) {
-        self.callAccessEvaluation = callAccessEvaluation
-        self.callAccessNow = callAccessNow
-        self.invitationAuthority = invitationAuthority
-        self.requestMicrophoneAccess = requestMicrophoneAccess
-        self.accountSession = accountSession
-        self.accountUserID = accountSession.userID
-        self.accountAccessID = accountSession.accessID
-        let purchaseUserID = accountSession.userID
-        let purchaseAccessID = accountSession.accessID
-        let storeAccess = StoreKitAccess(isCurrentUser: {
-            !accountSession.deletion.blocksSignIn && purchaseUserID != nil &&
-            accountSession.userID == purchaseUserID && accountSession.accessID == purchaseAccessID
-        })
-        self.storeAccess = storeAccess
-        self.enforceCallAccess = enforceCallAccess ?? storeAccess.catalog.isConfigured
-        let internetSettingsStore = internetSettingsStore ?? InternetConnectionSettingsStore()
-        let localMemberIdentity = localMemberIdentityStore.loadOrCreate()
-        let appSettings = appSettingsStore.load()
-        self.menuBarEnabled = appSettings.menuBarEnabled
-        self.liveActivityEnabled = appSettings.liveActivityEnabled
-        self.interfaceMode = appSettings.interfaceMode
-        self.showsGroupsTab = appSettings.showsGroupsTab
-        let repository = groupRepository
-        self.groupRepository = repository
-        do {
-            let restored = try repository.load(localMemberID: localMemberIdentity.memberID)
-            self.groups = restored
-        } catch {
-            self.groups = []
-            let issue = GroupStorageIssue.classify(error)
-            self.groupStorageIssue = issue
-            self.groupCallIssue = .notice(issue.message)
-        }
-        let internetConfiguration: RTC.CloudflareRealtimeConfiguration?
-        do { internetConfiguration = try internetSettingsStore.load() } catch {
-            internetConfiguration = nil
-            self.internetCheckMessage = "Could not read saved Internet credentials. Saved data has been preserved."
-        }
-        self.callSession = callSession ?? RideIntercomCallSessionAdapter(memberID: localMemberIdentity.memberID, internetConfiguration: internetConfiguration)
-        let sessionManager = audioSessionManager ?? SessionManager.AudioSessionManager()
-        self.audioSessionManager = sessionManager
-        let output = audioOutputRenderer ?? Self.makeDefaultAudioOutputRenderer()
-        let input = audioInputCapture ?? Self.makeDefaultAudioInputCapture(engine: output.renderingEngine ?? AVAudioEngine())
-        self.nativeAudioOutputRenderer = output
-        self.nativeAudioInputCapture = input
-        self.audioOutputRenderer = output
-        self.audioInputCapture = input
-        if let audioPipeline {
-            self.audioPipeline = audioPipeline
-        } else if let engine = output.renderingEngine {
-            self.audioPipeline = AppAudioPipeline(makeEngine: { engine }, usesHardwareClock: true)
-        } else {
-            self.audioPipeline = AppAudioPipeline()
-        }
-        self.audioPipeline.setTransmissionController(audioTransmissionController ?? AudioTransmissionController())
-        self.callTicker = callTicker ?? RepeatingCallTicker()
-        self.appSettingsStore = appSettingsStore
-        self.internetSettingsStore = internetSettingsStore
-        self.requiresAccountDataReset = internetSettingsStore.requiresAccountDataReset
-        self.localAccountPrincipal = try? internetSettingsStore.loadPrincipal(memberID: localMemberIdentity.memberID)
-        if let saved = internetConfiguration {
-            self.internetWorkerURL = saved.workerURL.absoluteString
-            self.hasInternetCredentials = true
-            self.internetCheckMessage = "Device token configured. Service not checked."
-        }
-        self.localMemberIdentity = localMemberIdentity
-        self.localMemberIdentityStore = localMemberIdentityStore
-        self.audioSessionSnapshot = (try? sessionManager.snapshot()) ?? Self.defaultAudioSessionSnapshot()
-        self.remoteTalkerTimeout = remoteTalkerTimeout
-        self.storedRecentCallDestination = appSettings.recentCallDestination
-        self.callDisconnectInterval = appSettings.callDisconnectInterval
-        self.watchCallDisconnectInterval = appSettings.watchCallDisconnectInterval
-        self.audioSessionProfile = appSettings.audioSessionProfile
-        self.vadSensitivity = appSettings.vadSensitivity
-        self.isSoundIsolationEnabled = appSettings.transmitSoundIsolationEnabled
-        self.preferredTransmitCodec = appSettings.preferredTransmitCodec
-        self.rtcAudioFormatPreset = appSettings.rtcAudioFormatPreset
-        self.aacELDv2BitRate = appSettings.aacELDv2BitRate
-        self.opusBitRate = appSettings.opusBitRate
-        self.enabledRTCTransportRoutes = Self.normalizedRTCTransportRoutes(appSettings.enabledRTCTransportRoutes)
-        self.audioPipeline.applyVADSensitivity(vadSensitivity)
-        self.refreshPackageRuntimeSnapshots()
-        self.callSession.setEnabledRoutes(enabledRTCTransportRoutes)
-        self.callSession.setAudioPolicy(currentCallAudioPolicy())
+        self.init(startup: Startup(
+            accountSession: accountSession,
+            enforceCallAccess: enforceCallAccess,
+            callAccessEvaluation: callAccessEvaluation,
+            callAccessNow: callAccessNow,
+            callSession: callSession,
+            groupRepository: groupRepository,
+            appSettingsStore: appSettingsStore,
+            internetSettingsStore: internetSettingsStore,
+            localMemberIdentityStore: localMemberIdentityStore,
+            invitationAuthority: invitationAuthority,
+            requestMicrophoneAccess: requestMicrophoneAccess,
+            audioSessionManager: audioSessionManager,
+            audioInputCapture: audioInputCapture,
+            audioOutputRenderer: audioOutputRenderer,
+            audioPipeline: audioPipeline,
+            audioTransmissionController: audioTransmissionController,
+            callTicker: callTicker,
+            remoteTalkerTimeout: remoteTalkerTimeout
+        ))
+    }
+
+    private func bindStartupEvents() {
+        audioPipeline.applyVADSensitivity(vadSensitivity)
+        refreshPackageRuntimeSnapshots()
+        callSession.setEnabledRoutes(enabledRTCTransportRoutes)
+        callSession.setAudioPolicy(currentCallAudioPolicy())
 
         refreshGroupStorageStatus()
         bindConnectionEvents()
-        self.audioSessionManager.setRuntimeEventHandler { [weak self] event in
+        audioSessionManager.setRuntimeEventHandler { [weak self] event in
             DispatchQueue.main.async { self?.handleAudioSessionRuntimeEvent(event) }
         }
         #if os(iOS)
-        if let engine = output.renderingEngine {
+        if let engine = nativeAudioOutputRenderer.renderingEngine {
             audioEngineConfigurationObserver = NotificationCenter.default.addObserver(
                 forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
             ) { [weak self] _ in
@@ -402,17 +339,10 @@ final class IntercomViewModel {
         }
         #endif
         bindAudioEvents()
-        self.callTicker.onTick = { [weak self] now in
+        callTicker.onTick = { [weak self] now in
             self?.handleCallTick(now: now)
         }
         accountSession.onAccessRevoked = { [weak self] in self?.endAccountAccess() }
         observeCallAccess()
-    }
-
-    deinit {
-        groupDeliveryPathMonitor?.cancel()
-        #if os(iOS)
-        if let audioEngineConfigurationObserver { NotificationCenter.default.removeObserver(audioEngineConfigurationObserver) }
-        #endif
     }
 }

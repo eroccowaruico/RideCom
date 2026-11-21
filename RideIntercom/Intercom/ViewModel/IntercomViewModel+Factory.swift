@@ -18,7 +18,7 @@ extension IntercomViewModel {
         guard let userID = accountSession.userID else { return nil }
         let base = Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String ?? "RideIntercom"
         let namespace = AppleAccountSession.storageNamespace(base: base, userID: userID)
-        let defaults = UserDefaults(suiteName: namespace)!
+        guard let defaults = UserDefaults(suiteName: namespace) else { return nil }
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(namespace, isDirectory: true).appendingPathComponent("Groups", isDirectory: true)
         let localMemberIdentityStore = UserDefaultsLocalMemberIdentityStore(defaults: defaults)
@@ -35,10 +35,13 @@ extension IntercomViewModel {
         let groupStore = FileGroupStore(directory: directory)
         let callAccessNow: @MainActor () -> Date = Date.init
         #endif
+        let groupRepository = GroupRepository(
+            store: groupStore, credentials: KeychainGroupCredentialStore(namespace: namespace)
+        )
         let model = IntercomViewModel(
             accountSession: accountSession,
             callAccessNow: callAccessNow,
-            groupRepository: GroupRepository(store: groupStore, credentials: KeychainGroupCredentialStore(namespace: namespace)),
+            groupRepository: groupRepository,
             appSettingsStore: UserDefaultsAppSettingsStore(defaults: defaults),
             internetSettingsStore: InternetConnectionSettingsStore.makeForCurrentProcess(namespace: namespace),
             localMemberIdentityStore: localMemberIdentityStore,
@@ -52,18 +55,23 @@ extension IntercomViewModel {
             },
             audioSessionManager: processAudioSessionManager
         )
-        if model.groupDeliveryClient != nil {
-            #if os(iOS)
-            model.invitationBackgroundTransfer = InvitationBackgroundTransfer.shared
-            #endif
-            let monitor = NWPathMonitor()
-            monitor.pathUpdateHandler = { [weak model] path in
-                MainActor.assumeIsolated { model?.groupDeliveryNetworkPathChanged(isAvailable: path.status == .satisfied) }
-            }
-            model.groupDeliveryPathMonitor = monitor
-            monitor.start(queue: .main)
-        }
+        model.monitorGroupDeliveryPath()
         return model
+    }
+
+    private func monitorGroupDeliveryPath() {
+        guard groupDeliveryClient != nil else { return }
+        #if os(iOS)
+        invitationBackgroundTransfer = InvitationBackgroundTransfer.shared
+        #endif
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            MainActor.assumeIsolated {
+                self?.groupDeliveryNetworkPathChanged(isAvailable: path.status == .satisfied)
+            }
+        }
+        groupDeliveryPathMonitor = monitor
+        monitor.start(queue: .main)
     }
 
     static func makeDefaultAudioInputCapture(engine: AVAudioEngine) -> SessionManager.AudioInputStreamCapture {
