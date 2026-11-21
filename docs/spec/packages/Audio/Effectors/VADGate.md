@@ -35,7 +35,7 @@ VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を�
 | `VADGateAnalysis` | struct | 1回の処理結果として状態、RMS、ノイズフロア、しきい値、gain を返す |
 | `VADGateRuntimeSnapshot` | struct | 現在の設定、状態、ノイズフロア、gain、最後の解析結果を Codable で返す |
 | `VADGateState` | enum | `silence` と `speech` の状態を表す |
-| `VADGateError` | enum | `unsupported` — Audio Unit のを生成できなかったときに `VADGateEffect.make()` が投げるエラー |
+| `VADGateError` | enum | `instantiationFailed(String)`。たとえば、`VADGateEffect.make()` がAudio Unitを生成できないときに送出する |
 
 ## 判定仕様
 

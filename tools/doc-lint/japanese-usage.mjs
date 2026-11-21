@@ -1,5 +1,8 @@
 // A rule describes one meaning. Its exception is tested at the same occurrence,
 // so an ordinary use earlier in a sentence cannot excuse a different use later.
+const executionSubject = /(?:テスト|試験|検査|検証|ジョブ|タスク|処理|アプリ|サーバー?|コード|プロセス|ワークフロー|チェック|クエリ|シミュレーション|ベンチマーク|ジョブキュー|スクリプト|コマンド|プログラム|バッチ|ツール|ビルド|パイプライン|プレーヤー|プレイヤー|player|CI|E2E)(?:を|が|は|も)$/iu;
+const executionModifiers = /(?:(?:先に|実際に|同時に|順番に|自動で|自動的に|手動で|夜間に|最後まで|もう一度|何度も|再度|毎回|並行して|ここで|裏で|バックグラウンドで|ローカルで|定期的に|一度|一回|連続で|[0-9０-９]+回)\s*)+$/u;
+
 const rules = [
     {
         id: 'document-authority', word: /正本/gu,
@@ -39,6 +42,25 @@ const rules = [
             return !/(?:書籍|刊行物|書物|教科書|小説|校正刷り|木版画)(?:の|の旧い|の新しい)$/u.test(before);
         },
         advice: 'アプリのバージョン、保存形式の番号、文書の改訂など、何が違うのかを明示してください。',
+    },
+    {
+        id: 'run-operation', word: /走(?:らせ|らす|らず|らな|ります|り|る|れ|った|って)|回(?:す|さな|して|した|しま|せば|そう)/gu,
+        applies(before, after, word) {
+            // A control with only a causative verb leaves both the object and the action unclear.
+            if (word === '走らせ' && !before.trim() && /^(?:る|ます)[。！]?\s*$/u.test(after)) return true;
+            return executionSubject.test(before.trimEnd().replace(executionModifiers, '').trimEnd());
+        },
+        advice: '試験を実行する、処理を繰り返す、再生を始めるなど、その場で行う操作を書いてください。',
+    },
+    {
+        id: 'invoke-or-send',
+        word: /(?:API|エンドポイント|コマンド)(?:を|は)(?:直接|繰り返し|再度)?(?:叩[かきくけこい]|たた[かきくけこい])|(?:要求|リクエスト|クエリ|問い合わせ)(?:を|は)(?:(?:サーバー?|API|データベース)(?:に|へ))?投げ/giu,
+        advice: 'どの機能を呼び出すか、何をどこへ送るかを書いてください。',
+    },
+    {
+        id: 'log-or-handle-error',
+        word: /(?:ログ|メッセージ|診断情報)(?:を|は)吐[かきくけこい]|(?:エラー|例外)(?:を|は)(?:握り(?:つぶ|潰)[さしすせそ]|飲み込[まみむめもん])/gu,
+        advice: '記録する内容や、エラーを受け取った後に何を記録し、呼び出し元に何を伝えるかを書いてください。',
     },
     {
         id: 'unfinished-action',

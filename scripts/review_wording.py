@@ -12,7 +12,12 @@ PATHS = [
     'AGENTS.md', 'CLAUDE.md', 'README.md', '.github/copilot-instructions.md',
 ]
 # These expressions identify passages to read. They do not prescribe replacements.
+# A predicate without a known technical noun still deserves a contextual reading.
+VERB_CUE = re.compile(r'走らせ|走って|走った|走る|叩[かきくけこい]|たた[かきくけこい]|投げ|吐[かきくけこい]|'
+                      r'握り(?:つぶ|潰)|飲み込|流し込|蹴[らりるれろっ]|火を[吹噴]|(?:を|は)回[さしすせそ]')
+VERB_QUESTION = '誰が何をすると、相手や画面にどんな変化がありますか。動詞が表す操作を確かめてください。'
 QUESTIONS = [
+    (VERB_CUE, VERB_QUESTION),
     (re.compile(r'再?試行|(?<![a-z])(?:retry|attempt)(?![a-z])', re.IGNORECASE),
      '何を始める、またはやり直す操作ですか。相手や結果は読み取れますか。'),
     (re.compile(r'適宜|必要に応じて|よしなに|差分を閉じる|\bas (?:needed|appropriate)\b', re.IGNORECASE),
@@ -56,7 +61,8 @@ def candidates(root: Path, base: str, *, all_passages: bool = False) -> Iterator
                     # Include every edited line with Japanese script, even when no
                     # registered expression (or opening Swift quote) is on this line.
                     if re.search(r'[ぁ-ヿ一-龯々]', line):
-                        yield f'{name}:{number}  読み手に具体的な操作と結果が伝わるかを読む。'
+                        question = VERB_QUESTION if VERB_CUE.search(line) else '読み手に具体的な操作と結果が伝わるかを読む。'
+                        yield f'{name}:{number}  {question}'
                     continue
                 if path.suffix == '.swift' and '"' not in line:
                     continue

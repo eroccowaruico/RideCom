@@ -438,7 +438,7 @@ capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.sche
 
 実時間modeでは`playerTime`の最後のrender境界から現在のhost時刻までを補正し、予約量と収録時刻の上限判定へ使う。offline・停止中は補正しない。境界の古さだけで正常な予約を過負荷または時計不連続として破棄しない。
 
-収録時刻再生のsourceは、固定時刻・offline再生では`start()`で開始を要求し、最初のbufferを予約してからplayerを開始する。実時間のadaptive再生はローカルの無音1sampleでplayer時計を先に確立し、最初の音声の収録時刻を動作中の時計に対応付ける。この準備は通信packetを生成しない。固定時刻・offline再生では最初の収録時刻とplayerのsample 0を同時に確立し、音声到着前の負の再生位置を基準にしない。開始済みの`start()`は時計を再起動せず、`stop()`は開始要求と収録時計を解除する。通常の連続予約sourceも、最初のbufferを用意してからplayerを開始し、空のplayerを先に走らせない。
+収録時刻再生のsourceは、固定時刻・offline再生では`start()`で開始を要求し、最初のbufferを予約してからplayerを開始する。実時間のadaptive再生はローカルの無音1sampleでplayer時計を先に確立し、最初の音声の収録時刻を動作中の時計に対応付ける。この準備は通信packetを生成しない。固定時刻・offline再生では最初の収録時刻とplayerのsample 0を同時に確立し、音声到着前の負の再生位置を基準にしない。開始済みの`start()`は時計を再起動せず、`stop()`は開始要求と収録時計を解除する。通常の連続予約sourceも、最初のbufferを用意してからplayerを開始し、バッファーを予約する前に再生を始めない。
 
 ## 低遅延の連続処理
 
