@@ -1,9 +1,13 @@
 """Inspect staged changes or the committed project locally. Emit only a closed vocabulary."""
+from __future__ import annotations
+
 import json
 import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterator, Sequence
+from typing import Literal, TypedDict
 
 MAX_BYTES = 2 * 1024 * 1024
 # Flags are review signals. Unknown formats and operational controls need separate evidence.
@@ -22,7 +26,16 @@ PATTERNS = {
 }
 
 
-def git(*args):
+class ReportDetails(TypedDict, total=False):
+    signals: list[str]
+    changes: dict[str, list[str]]
+
+
+class Report(ReportDetails):
+    state: Literal['empty', 'review', 'checked', 'matches', 'changed', 'unavailable']
+
+
+def git(*args: str | bytes) -> bytes:
     # No inherited tokens, tracing, replacement objects, external diff or lazy network fetch.
     return subprocess.run(
         ['/usr/bin/git', '--no-replace-objects', '-c', 'core.fsmonitor=false', *args],
@@ -33,13 +46,13 @@ def git(*args):
         check=True, timeout=30).stdout
 
 
-def detect(data, signals):
+def detect(data: bytes, signals: set[str]) -> None:
     for label, pattern in PATTERNS.items():
         if pattern.search(data):
             signals.add(label)
 
 
-def sensitive_path(path):
+def sensitive_path(path: bytes) -> bool:
     components = path.lower().split(b'/')
     name = components[-1]
     return (name == b'.env' or name.startswith((b'.env.', b'.dev.vars')) or
@@ -48,7 +61,7 @@ def sensitive_path(path):
             any(part in (b'.ssh', b'.aws', b'.gnupg') for part in components))
 
 
-def validate_oid(oid, *, allow_tree=False):
+def validate_oid(oid: str, *, allow_tree: bool = False) -> None:
     if not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', oid):
         raise ValueError
     if git('rev-parse', '--verify', oid + '^{object}').strip() != oid.encode():
@@ -58,12 +71,12 @@ def validate_oid(oid, *, allow_tree=False):
         raise ValueError
 
 
-def raw_changes(*revisions):
+def raw_changes(*revisions: str) -> bytes:
     return git('diff', '--raw', '-z', '--abbrev=64', '--no-renames', '--no-relative',
                '--no-ext-diff', '--no-textconv', '--ignore-submodules=none', *revisions, '--')
 
 
-def snapshot_entries(option, revisions):
+def snapshot_entries(option: str | None, revisions: Sequence[str]) -> Iterator[tuple[bytes, bytes, bytes, bytes, int | None]]:
     if option == '--project':
         tree = git('ls-tree', '--full-tree', '-r', '-l', '-z', revisions[0] if revisions else 'HEAD')
         for record in tree.split(b'\0')[:-1]:
@@ -80,7 +93,7 @@ def snapshot_entries(option, revisions):
         yield path, mode, oid, status, None
 
 
-def area(path):
+def area(path: bytes) -> str:
     if path.startswith(b'RideIntercom/packages/'):
         return 'packages'
     top = path.split(b'/')[0]
@@ -92,8 +105,9 @@ def area(path):
             b'RideIntercomWatchUITests': 'tests'}.get(top, 'other')
 
 
-def inspect_snapshot(option, revisions):
-    signals, changes = set(), {}
+def inspect_snapshot(option: str | None, revisions: Sequence[str]) -> Report:
+    signals: set[str] = set()
+    changes: dict[str, set[str]] = {}
     seen = False
     for path, mode, oid, status, size in snapshot_entries(option, revisions):
         seen = True
@@ -126,14 +140,14 @@ def inspect_snapshot(option, revisions):
             signals.add('opaque')
             continue
         detect(blob, signals)
-    state = 'empty' if not seen else 'review' if signals else 'checked'
-    report = {'state': state, 'signals': sorted(signals)}
+    report: Report = {'state': 'empty' if not seen else 'review' if signals else 'checked',
+                      'signals': sorted(signals)}
     if option == '--changes':
         report['changes'] = {key: sorted(actions) for key, actions in changes.items()}
     return report
 
 
-def audit(args):
+def audit(args: Sequence[str]) -> Report:
     if any(key in os.environ for key in (
         'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
         'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE',
@@ -158,9 +172,9 @@ def audit(args):
     return inspect_snapshot(option, revisions)
 
 
-def main():
+def main() -> int:
     try:
-        report = audit(sys.argv[1:])
+        report: Report = audit(sys.argv[1:])
     except (OSError, ValueError, subprocess.SubprocessError):
         report = {'state': 'unavailable', 'signals': []}
     print(json.dumps(report, sort_keys=True))
