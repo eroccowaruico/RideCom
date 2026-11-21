@@ -20,7 +20,8 @@ public protocol AudioSessionBackend: AnyObject {
 }
 
 public extension AudioSessionBackend {
-    func unsupportedSettings(in configuration: ResolvedAudioSessionConfiguration) -> [AudioSessionConfigurationSetting] { [] }
+    func unsupportedSettings(in configuration: ResolvedAudioSessionConfiguration)
+        -> [AudioSessionConfigurationSetting] { [] }
     func setSnapshotChangeHandler(_ handler: ((AudioSessionSnapshotChange) -> Void)?) {
         _ = handler
     }

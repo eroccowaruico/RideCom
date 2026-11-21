@@ -8,6 +8,45 @@ import Foundation
 import CoreAudio
 #endif
 
+public enum AudioInputVoiceProcessingSetting: Codable, Equatable, Sendable {
+    case advancedDucking
+}
+
+public struct AudioInputVoiceProcessingConfiguration: Codable, Equatable, Sendable {
+    public var soundIsolationEnabled: Bool
+    public var otherAudioDuckingEnabled: Bool
+    public var duckingLevel: AudioSessionDuckingLevel
+    public var inputMuted: Bool
+
+    public init(
+        soundIsolationEnabled: Bool = true,
+        otherAudioDuckingEnabled: Bool = false,
+        duckingLevel: AudioSessionDuckingLevel = .systemDefault,
+        inputMuted: Bool = false
+    ) {
+        self.soundIsolationEnabled = soundIsolationEnabled
+        self.otherAudioDuckingEnabled = otherAudioDuckingEnabled
+        self.duckingLevel = duckingLevel
+        self.inputMuted = inputMuted
+    }
+
+    public var voiceProcessingEnabled: Bool {
+        soundIsolationEnabled || otherAudioDuckingEnabled
+    }
+
+    public var voiceProcessingBypassed: Bool {
+        !soundIsolationEnabled
+    }
+
+    public var advancedDuckingEnabled: Bool {
+        voiceProcessingEnabled && otherAudioDuckingEnabled
+    }
+
+    public var resolvedDuckingLevel: AudioSessionDuckingLevel {
+        otherAudioDuckingEnabled ? duckingLevel : .systemDefault
+    }
+}
+
 public final class AudioInputVoiceProcessingManager {
     private let backend: AudioInputVoiceProcessingBackend
     private var appliedConfiguration: AudioInputVoiceProcessingConfiguration?
@@ -135,7 +174,6 @@ public final class SystemAudioInputVoiceProcessingBackend: AudioInputVoiceProces
         #endif
     }
 }
-
 
 #if os(iOS)
 private extension AudioSessionDuckingLevel {

@@ -68,7 +68,9 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
             // both asynchronous; the manager serializes their completion.
             let authorized = try await session.activate(options: [])
             try await Self.finishActivation(authorized: authorized,
-                isCurrent: { self.activationStateLock.withLock { self.activity.activate(ifUnchangedFrom: generation) } },
+                    isCurrent: {
+                        self.activationStateLock.withLock { self.activity.activate(ifUnchangedFrom: generation) }
+                    },
                 deactivate: { try await self.deactivateSession() })
         } else {
             try await deactivateSession()
@@ -83,8 +85,11 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
     // Called before the serialized backend operation finishes. If an old
     // authorization succeeded after an interruption/reset, undo its native
     // side effect before a subsequent request can activate another session.
-    @MainActor static func finishActivation(authorized: Bool, isCurrent: () -> Bool,
-                                           deactivate: () async throws -> Void) async throws {
+    @MainActor static func finishActivation(
+        authorized: Bool,
+        isCurrent: () -> Bool,
+        deactivate: () async throws -> Void
+    ) async throws {
         guard authorized else {
             throw NSError(domain: "SessionManager.AudioSession", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Audio session activation was not authorized"])
@@ -105,7 +110,8 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
     }
     #endif
 
-    public func unsupportedSettings(in configuration: ResolvedAudioSessionConfiguration) -> [AudioSessionConfigurationSetting] {
+    public func unsupportedSettings(in configuration: ResolvedAudioSessionConfiguration)
+        -> [AudioSessionConfigurationSetting] {
         #if os(watchOS)
         Self.watchUnsupportedSettings(in: configuration)
         #else
@@ -191,7 +197,9 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
             isActive: isActive,
             availableInputs: sessionAvailableInputs(),
             availableOutputs: sessionAvailableOutputs(),
-            currentInput: session.currentRoute.inputs.first.map { AudioSessionDevice(id: .init(rawValue: $0.uid), name: $0.portName, direction: .input) } ?? .systemDefaultInput,
+                currentInput: session.currentRoute.inputs.first.map {
+                    AudioSessionDevice(id: .init(rawValue: $0.uid), name: $0.portName, direction: .input)
+                } ?? .systemDefaultInput,
             currentOutput: sessionCurrentOutput()
         )
         #elseif os(macOS)
@@ -201,8 +209,11 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
             isActive: true,
             availableInputs: [.systemDefaultInput] + inputs,
             availableOutputs: [.systemDefaultOutput] + outputs,
-            currentInput: currentMacDevice(selector: kAudioHardwarePropertyDefaultInputDevice, direction: .input) ?? .systemDefaultInput,
-            currentOutput: currentMacDevice(selector: kAudioHardwarePropertyDefaultOutputDevice, direction: .output) ?? .systemDefaultOutput
+                currentInput: currentMacDevice(
+                    selector: kAudioHardwarePropertyDefaultInputDevice, direction: .input) ?? .systemDefaultInput,
+                currentOutput: currentMacDevice(
+                    selector: kAudioHardwarePropertyDefaultOutputDevice, direction: .output)
+                    ?? .systemDefaultOutput
         )
         #else
         return AudioSessionSnapshot(
@@ -243,7 +254,9 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
         removeCoreAudioListeners()
         #endif
     }
+}
 
+extension SystemAudioSessionBackend {
     #if os(iOS) || os(watchOS)
     private func observeAudioSessionNotifications() {
         sessionObservers.append(notificationCenter.addObserver(forName: AVAudioSession.routeChangeNotification,
@@ -252,19 +265,27 @@ public final class SystemAudioSessionBackend: AudioSessionBackend, @unchecked Se
         })
         sessionObservers.append(notificationCenter.addObserver(forName: AVAudioSession.didBecomeInactiveNotification,
             object: nil, queue: .main) { [weak self] notification in
-            let context = notification.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
+                    let context =
+                        notification.userInfo?[AVAudioSession.deactivationContextKey]
+                        as? AVAudioSession.DeactivationContext
             // An explicit stop is already owned by setActive(false). Do not
             // report it as another interruption and trigger stop recursively.
             guard context?.source != .app else { return }
             self?.observeSessionChange(.interruptionBegan)
         })
-        sessionObservers.append(notificationCenter.addObserver(forName: AVAudioSession.resumptionRecommendationNotification,
+            sessionObservers.append(
+                notificationCenter.addObserver(
+                    forName: AVAudioSession.resumptionRecommendationNotification,
             object: nil, queue: .main) { [weak self] notification in
-            let context = notification.userInfo?[AVAudioSession.resumptionContextKey] as? AVAudioSession.ResumptionContext
+                    let context =
+                        notification.userInfo?[AVAudioSession.resumptionContextKey]
+                        as? AVAudioSession.ResumptionContext
             // A recommendation is not authorization to reopen the microphone.
             self?.observeSessionChange(.interruptionEnded(shouldResume: context?.recommendation == .shouldResume))
         })
-        sessionObservers.append(notificationCenter.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
+            sessionObservers.append(
+                notificationCenter.addObserver(
+                    forName: AVAudioSession.mediaServicesWereResetNotification,
             object: nil, queue: .main) { [weak self] _ in
             self?.observeSessionChange(.mediaServicesReset)
         })

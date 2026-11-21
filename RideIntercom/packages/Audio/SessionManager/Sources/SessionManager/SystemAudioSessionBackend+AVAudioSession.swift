@@ -48,12 +48,8 @@ extension Set where Element == AudioSessionCategoryOption {
 
 extension SystemAudioSessionBackend {
     static func sessionRouteChangeReason(from notification: Notification) -> AudioSessionRouteChangeReason {
-        let rawValue: UInt?
-        if let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber {
-            rawValue = value.uintValue
-        } else {
-            rawValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-        }
+        let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey]
+        let rawValue = (value as? NSNumber)?.uintValue ?? (value as? UInt)
         guard let rawValue,
               let reason = AVAudioSession.RouteChangeReason(rawValue: rawValue)
         else { return .unknown }

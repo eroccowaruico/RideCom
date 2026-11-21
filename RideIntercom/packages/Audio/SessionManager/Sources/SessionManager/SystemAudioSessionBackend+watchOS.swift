@@ -7,7 +7,8 @@ extension SystemAudioSessionBackend {
         options.subtracting([.defaultToSpeaker, .farFieldInput, .bluetoothHighQualityRecording])
     }
 
-    static func watchUnsupportedSettings(in configuration: ResolvedAudioSessionConfiguration) -> [AudioSessionConfigurationSetting] {
+    static func watchUnsupportedSettings(in configuration: ResolvedAudioSessionConfiguration)
+        -> [AudioSessionConfigurationSetting] {
         var settings: [AudioSessionConfigurationSetting] = [.preferredSampleRate, .preferredIOBufferDuration]
         for option in [AudioSessionCategoryOption.defaultToSpeaker, .farFieldInput, .bluetoothHighQualityRecording]
             where configuration.options.contains(option) {

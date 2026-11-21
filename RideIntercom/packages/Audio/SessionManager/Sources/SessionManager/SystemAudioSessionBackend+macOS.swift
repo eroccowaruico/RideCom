@@ -78,10 +78,16 @@ extension SystemAudioSessionBackend {
             mElement: kAudioObjectPropertyElementMain
         )
         var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize) == noErr else { return [] }
+            guard
+                AudioObjectGetPropertyDataSize(
+                    AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize) == noErr
+            else { return [] }
         let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
         var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &deviceIDs) == noErr else { return [] }
+            guard
+                AudioObjectGetPropertyData(
+                    AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &deviceIDs) == noErr
+            else { return [] }
 
         return deviceIDs.compactMap { deviceID in
             guard deviceHasStreams(deviceID, scope: scope), let name = deviceName(deviceID) else { return nil }
@@ -90,7 +96,8 @@ extension SystemAudioSessionBackend {
         }
     }
 
-    func currentMacDevice(selector: AudioObjectPropertySelector, direction: AudioSessionDevice.Direction) -> AudioSessionDevice? {
+        func currentMacDevice(selector: AudioObjectPropertySelector, direction: AudioSessionDevice.Direction)
+            -> AudioSessionDevice? {
         var address = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -98,7 +105,9 @@ extension SystemAudioSessionBackend {
         )
         var deviceID = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID) == noErr,
+            guard
+                AudioObjectGetPropertyData(
+                    AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID) == noErr,
               let name = deviceName(deviceID)
         else { return nil }
         return AudioSessionDevice(id: .init(rawValue: String(deviceID)), name: name, direction: direction)

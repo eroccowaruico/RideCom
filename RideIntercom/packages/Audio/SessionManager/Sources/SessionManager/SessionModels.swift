@@ -45,7 +45,7 @@ public enum AudioSessionCategoryOption: Codable, Equatable, Hashable, Sendable {
 }
 
 public struct AudioSessionDevice: Codable, Equatable, Hashable, Sendable, Identifiable {
-    public struct ID: RawRepresentable, Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral {
+    public struct Identifier: RawRepresentable, Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral {
         public var rawValue: String
 
         public init(rawValue: String) {
@@ -62,12 +62,12 @@ public struct AudioSessionDevice: Codable, Equatable, Hashable, Sendable, Identi
         case output
     }
 
-    public var id: ID
+    public var id: Identifier
     public var name: String
     public var direction: Direction
     public var isSystemDefault: Bool
 
-    public init(id: ID, name: String, direction: Direction, isSystemDefault: Bool = false) {
+    public init(id: Identifier, name: String, direction: Direction, isSystemDefault: Bool = false) {
         self.id = id
         self.name = name
         self.direction = direction
@@ -190,7 +190,8 @@ public struct AudioSessionConfiguration: Codable, Equatable, Sendable {
         self.preferredInput = preferredInput
         self.preferredOutput = preferredOutput
         self.preferredSampleRate = preferredSampleRate.isFinite ? min(96_000, max(8_000, preferredSampleRate)) : 48_000
-        self.preferredIOBufferDuration = preferredIOBufferDuration.isFinite ? min(0.1, max(0.001, preferredIOBufferDuration)) : 128.0 / 48_000
+        self.preferredIOBufferDuration =
+            preferredIOBufferDuration.isFinite ? min(0.1, max(0.001, preferredIOBufferDuration)) : 128.0 / 48_000
     }
 
     public func resolved() throws -> ResolvedAudioSessionConfiguration {
@@ -206,7 +207,7 @@ public struct AudioSessionConfiguration: Codable, Equatable, Sendable {
             .allowBluetoothHFP,
             .duckOthers,
             .mixWithOthers,
-            .overrideMutedMicrophoneInterruption,
+            .overrideMutedMicrophoneInterruption
         ]
         // Specialized Bluetooth capture is not a universal call capability.
         // Far-field input can reject the whole category on unsupported routes;
@@ -260,7 +261,8 @@ public struct ResolvedAudioSessionConfiguration: Codable, Equatable, Sendable {
         self.preferredInput = preferredInput
         self.preferredOutput = preferredOutput
         self.preferredSampleRate = preferredSampleRate.isFinite ? min(96_000, max(8_000, preferredSampleRate)) : 48_000
-        self.preferredIOBufferDuration = preferredIOBufferDuration.isFinite ? min(0.1, max(0.001, preferredIOBufferDuration)) : 128.0 / 48_000
+        self.preferredIOBufferDuration =
+            preferredIOBufferDuration.isFinite ? min(0.1, max(0.001, preferredIOBufferDuration)) : 128.0 / 48_000
     }
 }
 
@@ -368,43 +370,4 @@ public enum AudioSessionRuntimeEvent: Codable, Equatable, Sendable {
     case operation(AudioSessionOperationReport)
     case configuration(AudioSessionConfigurationReport)
     case snapshotChanged(AudioSessionSnapshotChange)
-}
-
-public enum AudioInputVoiceProcessingSetting: Codable, Equatable, Sendable {
-    case advancedDucking
-}
-
-public struct AudioInputVoiceProcessingConfiguration: Codable, Equatable, Sendable {
-    public var soundIsolationEnabled: Bool
-    public var otherAudioDuckingEnabled: Bool
-    public var duckingLevel: AudioSessionDuckingLevel
-    public var inputMuted: Bool
-
-    public init(
-        soundIsolationEnabled: Bool = true,
-        otherAudioDuckingEnabled: Bool = false,
-        duckingLevel: AudioSessionDuckingLevel = .systemDefault,
-        inputMuted: Bool = false
-    ) {
-        self.soundIsolationEnabled = soundIsolationEnabled
-        self.otherAudioDuckingEnabled = otherAudioDuckingEnabled
-        self.duckingLevel = duckingLevel
-        self.inputMuted = inputMuted
-    }
-
-    public var voiceProcessingEnabled: Bool {
-        soundIsolationEnabled || otherAudioDuckingEnabled
-    }
-
-    public var voiceProcessingBypassed: Bool {
-        !soundIsolationEnabled
-    }
-
-    public var advancedDuckingEnabled: Bool {
-        voiceProcessingEnabled && otherAudioDuckingEnabled
-    }
-
-    public var resolvedDuckingLevel: AudioSessionDuckingLevel {
-        otherAudioDuckingEnabled ? duckingLevel : .systemDefault
-    }
 }
