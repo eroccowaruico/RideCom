@@ -76,10 +76,10 @@ import Testing
     var completed = false
     let activation = Task { @MainActor in
         await #expect(throws: (any Error).self) {
-            try await SystemAudioSessionBackend.finishActivation(authorized: true, isCurrent: { false }) {
+            try await SystemAudioSessionBackend.finishActivation(authorized: true, isCurrent: { false }, deactivate: {
                 enteredCleanup = true
                 for await _ in cleanup { break }
-            }
+            })
         }
         completed = true
     }

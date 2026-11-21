@@ -23,7 +23,9 @@ import Testing
         #expect(!report.snapshot.isRunning && !engine.isRunning && !player.isPlaying)
         engine.rejectConnection = false; player.rejectPlayback = false
         #expect(renderer.start().result == .applied)
-        #expect(renderer.schedule(.init(sequenceNumber: 0, samples: Array(repeating: 0, count: 480))).result == .applied)
+            #expect(
+                renderer.schedule(.init(sequenceNumber: 0, samples: Array(repeating: 0, count: 480))).result
+                    == .applied)
         #expect(renderer.stop().result == .applied)
     }
 }
@@ -101,7 +103,9 @@ private final class StopCallbackBackend: AudioOutputStreamBackend {
     var startCount = 0
     var stopCount = 0
     var stopError: (any Error)?
-    func startRendering(configuration: AudioOutputStreamConfiguration) throws -> AudioFormat { startCount += 1; return configuration.preferredFormat }
+        func startRendering(configuration: AudioOutputStreamConfiguration) throws -> AudioFormat {
+            startCount += 1; return configuration.preferredFormat
+        }
     func stopRendering() throws {
         stopCount += 1
         duringStop?()

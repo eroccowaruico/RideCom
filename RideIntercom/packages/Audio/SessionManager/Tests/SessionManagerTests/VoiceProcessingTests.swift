@@ -53,7 +53,7 @@ import Testing
         .setVoiceProcessingEnabled(true),
         .setAdvancedDucking(enabled: true, level: .maximum),
         .setVoiceProcessingBypassed(true),
-        .setInputMuted(true),
+        .setInputMuted(true)
     ])
 }
 
@@ -91,7 +91,7 @@ import Testing
         .setVoiceProcessingEnabled(true),
         .setAdvancedDucking(enabled: false, level: .systemDefault),
         .setVoiceProcessingBypassed(false),
-        .setInputMuted(false),
+        .setInputMuted(false)
     ])
 }
 
@@ -111,7 +111,7 @@ import Testing
     #expect(backend.events == [
         .setVoiceProcessingEnabled(false),
         .setAdvancedDucking(enabled: false, level: .systemDefault),
-        .setInputMuted(true),
+        .setInputMuted(true)
     ])
 }
 

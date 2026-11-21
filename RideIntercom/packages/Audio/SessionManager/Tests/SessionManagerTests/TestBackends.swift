@@ -1,3 +1,4 @@
+import AudioCore
 import Testing
 @testable import SessionManager
 
@@ -12,7 +13,8 @@ final class FakeAudioSessionBackend: AudioSessionBackend {
 
     var events: [Event] = []
     var unsupportedSettings: [AudioSessionConfigurationSetting] = []
-    func unsupportedSettings(in configuration: ResolvedAudioSessionConfiguration) -> [AudioSessionConfigurationSetting] {
+    func unsupportedSettings(in configuration: ResolvedAudioSessionConfiguration)
+        -> [AudioSessionConfigurationSetting] {
         unsupportedSettings
     }
     var appliedConfigurations: [ResolvedAudioSessionConfiguration] = []
@@ -110,5 +112,100 @@ final class FakeVoiceProcessingBackend: AudioInputVoiceProcessingBackend {
 
     func setInputMuted(_ muted: Bool) throws {
         events.append(.setInputMuted(muted))
+    }
+}
+
+final class FakeInputStreamBackend: AudioInputStreamBackend {
+    enum Event: Equatable {
+        case updateVoiceProcessing(AudioInputVoiceProcessingConfiguration)
+        case startCapture
+        case stopCapture
+    }
+
+    var events: [Event] = []
+    var startCount = 0
+    var stopCount = 0
+    var actualHardwareFormat: AudioFormat
+    var startError: Error?
+    var updateVoiceProcessingError: Error?
+    var stopError: Error?
+    var onFrame: ((PCMFrame) -> Void)?
+    var callbacks: [(PCMFrame) -> Void] = []
+
+    init(actualHardwareFormat: AudioFormat = AudioFormat()) {
+        self.actualHardwareFormat = actualHardwareFormat
+    }
+
+    func startCapture(
+        configuration: AudioInputStreamConfiguration,
+        onFrame: @escaping (PCMFrame) -> Void
+    ) throws -> AudioFormat {
+        _ = configuration
+        events.append(.startCapture)
+        callbacks.append(onFrame)
+        startCount += 1
+        if let startError {
+            throw startError
+        }
+        self.onFrame = onFrame
+        return actualHardwareFormat
+    }
+
+    func updateVoiceProcessing(_ configuration: AudioInputVoiceProcessingConfiguration) throws {
+        events.append(.updateVoiceProcessing(configuration))
+        if let updateVoiceProcessingError {
+            throw updateVoiceProcessingError
+        }
+    }
+
+    func stopCapture() throws {
+        events.append(.stopCapture)
+        stopCount += 1
+        if let stopError {
+            throw stopError
+        }
+        onFrame = nil
+    }
+
+    func emit(_ frame: PCMFrame) {
+        onFrame?(frame)
+    }
+}
+
+final class FakeOutputStreamBackend: AudioOutputStreamBackend {
+    var configurations: [AudioOutputStreamConfiguration] = []
+    var startCount = 0
+    var stopCount = 0
+    var scheduledFrames: [PCMFrame] = []
+    var actualHardwareFormat: AudioFormat
+    var startError: Error?
+    var stopError: Error?
+    var scheduleError: Error?
+
+    init(actualHardwareFormat: AudioFormat = AudioFormat()) {
+        self.actualHardwareFormat = actualHardwareFormat
+    }
+
+    func startRendering(configuration: AudioOutputStreamConfiguration) throws -> AudioFormat {
+        configurations.append(configuration)
+        startCount += 1
+        if let startError {
+            throw startError
+        }
+        return actualHardwareFormat
+    }
+
+    func stopRendering() throws {
+        stopCount += 1
+        if let stopError {
+            throw stopError
+        }
+    }
+
+    func schedule(_ frame: PCMFrame) throws {
+        if let scheduleError {
+            throw scheduleError
+        }
+        scheduledFrames.append(frame)
     }
 }

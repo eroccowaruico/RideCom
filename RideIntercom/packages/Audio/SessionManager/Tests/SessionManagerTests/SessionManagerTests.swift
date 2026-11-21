@@ -1,7 +1,8 @@
 import Testing
 
 @Test func realtimeIOPreferencesSurviveConfigurationResolution() throws {
-    let configuration = AudioSessionConfiguration(preferredSampleRate: 48_000, preferredIOBufferDuration: 128.0 / 48_000)
+    let configuration = AudioSessionConfiguration(
+        preferredSampleRate: 48_000, preferredIOBufferDuration: 128.0 / 48_000)
     let resolved = try configuration.resolved()
     #expect(resolved.preferredSampleRate == 48_000)
     #expect(resolved.preferredIOBufferDuration == 128.0 / 48_000)
@@ -18,7 +19,7 @@ import Testing
         .allowBluetoothHFP,
         .duckOthers,
         .mixWithOthers,
-        .overrideMutedMicrophoneInterruption,
+        .overrideMutedMicrophoneInterruption
     ])
     #expect(resolved.prefersEchoCancelledInput == false)
 }
@@ -84,7 +85,7 @@ import Testing
         .setPreferredInput(input.id),
         .setPreferredOutput(output.id),
         .setPrefersEchoCancelledInput(true),
-        .setActive(true),
+        .setActive(true)
     ])
     #expect(backend.appliedConfigurations.first?.options.contains(.defaultToSpeaker) == true)
 }
@@ -104,7 +105,7 @@ import Testing
         .applyConfiguration,
         .setPreferredInput(nil),
         .setPreferredOutput(nil),
-        .setPrefersEchoCancelledInput(false),
+        .setPrefersEchoCancelledInput(false)
     ])
 }
 
@@ -126,15 +127,17 @@ import Testing
 
     #expect(report.operations == [
         AudioSessionOperationReport(operation: .applyConfiguration, result: .applied),
-        AudioSessionOperationReport(operation: .setPreferredInput(.device(missingInput)), result: .ignored(.unavailableDevice(missingInput))),
+            AudioSessionOperationReport(
+                operation: .setPreferredInput(.device(missingInput)),
+                result: .ignored(.unavailableDevice(missingInput))),
         AudioSessionOperationReport(operation: .setPreferredOutput(.device(output.id)), result: .applied),
-        AudioSessionOperationReport(operation: .setPrefersEchoCancelledInput(false), result: .applied),
+        AudioSessionOperationReport(operation: .setPrefersEchoCancelledInput(false), result: .applied)
     ])
     #expect(backend.events == [
         .applyConfiguration,
         .setPreferredInput(missingInput),
         .setPreferredOutput(output.id),
-        .setPrefersEchoCancelledInput(false),
+        .setPrefersEchoCancelledInput(false)
     ])
     #expect(runtimeEvents.contains(.configuration(report)))
 }
@@ -178,7 +181,7 @@ import Testing
         AudioSessionSnapshotChange(
             reason: .defaultOutputChanged,
             snapshot: backend.snapshot
-        ),
+        )
     ])
 }
 
@@ -196,7 +199,7 @@ import Testing
         .snapshotChanged(AudioSessionSnapshotChange(
             reason: .deviceListChanged,
             snapshot: backend.snapshot
-        )),
+        ))
     ])
 }
 
@@ -237,7 +240,9 @@ import Testing
 @Test func initializerRejectsInvalidConfigurationBeforeUsingBackend() {
     let backend = FakeAudioSessionBackend()
     #expect(throws: AudioSessionManagerError.echoCancelledInputRequiresDefaultMode) {
-        try AudioSessionManager(configuration: AudioSessionConfiguration(mode: .voiceChat, prefersEchoCancelledInput: true), backend: backend)
+        try AudioSessionManager(
+            configuration: AudioSessionConfiguration(mode: .voiceChat, prefersEchoCancelledInput: true),
+            backend: backend)
     }
     #expect(backend.events.isEmpty)
 }
