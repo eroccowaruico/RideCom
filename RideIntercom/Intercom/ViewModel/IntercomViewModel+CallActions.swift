@@ -81,21 +81,7 @@ extension IntercomViewModel {
         }
         switch destination {
         case .group(let id):
-            guard let group = groups.first(where: { $0.id == id }) else {
-                groupErrorMessage = "This saved group is no longer available."
-                return false
-            }
-            // A retained individual call is not a way around removing its contact.
-            // Keep its existing ID and key when reconnecting a still-saved contact.
-            guard
-                group.kind != .direct || directCallAccountRecipient(for: group) != nil
-                    || directCallRecipient(for: group) != nil
-            else {
-                groupErrorMessage = "This saved user is no longer available for an individual call."
-                return false
-            }
-            guard requireCallSwitchAllowed(to: group.id, allowSwitchingCall: allowSwitchingCall) else { return false }
-            selectGroup(group, connectIfIdle: false)
+            guard selectGroupForCall(id, allowSwitchingCall: allowSwitchingCall) else { return false }
         case .user(let id):
             guard selectUser(id, connectIfIdle: false, allowSwitchingCall: allowSwitchingCall) else { return false }
         }
@@ -106,6 +92,25 @@ extension IntercomViewModel {
         // Every new one-to-one connection notifies the person once, from a list, Widget, Watch or Siri.
         if started, case .user(let id) = destination { noticeNewDirectCall(to: id) }
         return started
+    }
+
+    private func selectGroupForCall(_ id: UUID, allowSwitchingCall: Bool) -> Bool {
+        guard let group = groups.first(where: { $0.id == id }) else {
+            groupErrorMessage = "This saved group is no longer available."
+            return false
+        }
+        // A retained individual call is not a way around removing its contact.
+        // Keep its existing ID and key when reconnecting a still-saved contact.
+        guard
+            group.kind != .direct || directCallAccountRecipient(for: group) != nil
+                || directCallRecipient(for: group) != nil
+        else {
+            groupErrorMessage = "This saved user is no longer available for an individual call."
+            return false
+        }
+        guard requireCallSwitchAllowed(to: group.id, allowSwitchingCall: allowSwitchingCall) else { return false }
+        selectGroup(group, connectIfIdle: false)
+        return true
     }
 
     func requireCallSwitchAllowed(to groupID: UUID, allowSwitchingCall: Bool) -> Bool {

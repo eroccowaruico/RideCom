@@ -36,23 +36,7 @@ extension IntercomViewModel {
         internetFailureDetail = nil
         cancelAudioCheck()
 
-        if let activeGroupID,
-           activeGroupID != selectedGroup.id,
-           hasAnyActiveGroupConnection {
-            disconnect()
-        }
-
-        if activeGroupID != selectedGroup.id || !hasAnyActiveGroupConnection {
-            let usesWatchAudio = source == .watchAudio
-            let changedInputRoute = isUsingWatchAudio != usesWatchAudio
-            isUsingWatchAudio = usesWatchAudio
-            activeGroupID = selectedGroup.id
-            resetConnectionRuntimeState()
-            if changedInputRoute { applyEffectiveInputMute() }
-            bindConnectionEvents()
-            let interval = source == .thisDevice ? callDisconnectInterval : watchCallDisconnectInterval
-            callDisconnectDeadline = callAccessNow().addingTimeInterval(interval.seconds)
-        }
+        switchActiveCallIfNeeded(to: selectedGroup.id, source: source)
 
         connectionState = routeConnectionState(isConnected: !connectedPeerIDs.isEmpty)
         markMembers(connectedPeerIDs.isEmpty ? .connecting : .connected)
@@ -76,6 +60,26 @@ extension IntercomViewModel {
         }
     }
 
+    private func switchActiveCallIfNeeded(to groupID: UUID, source: CallStartSource) {
+        if let activeGroupID,
+           activeGroupID != groupID,
+           hasAnyActiveGroupConnection {
+            disconnect()
+        }
+
+        if activeGroupID != groupID || !hasAnyActiveGroupConnection {
+            let usesWatchAudio = source == .watchAudio
+            let changedInputRoute = isUsingWatchAudio != usesWatchAudio
+            isUsingWatchAudio = usesWatchAudio
+            activeGroupID = groupID
+            resetConnectionRuntimeState()
+            if changedInputRoute { applyEffectiveInputMute() }
+            bindConnectionEvents()
+            let interval = source == .thisDevice ? callDisconnectInterval : watchCallDisconnectInterval
+            callDisconnectDeadline = callAccessNow().addingTimeInterval(interval.seconds)
+        }
+    }
+
     func startActiveCallAfterAuthenticatedPeer() {
         if enforceCallAccess { refreshCallAccess(); return }
         startAudioPipelineIfNeeded()
@@ -94,16 +98,6 @@ extension IntercomViewModel {
             if resumingDevice { reportAudioDeviceRestartFailure() }
             return
         }
-        // Failed preparation releases audio. A stopped call that was resuming keeps a reason and the retry action.
-        let abandonStart = { [weak self] (reason: String?) in
-            guard let self else { return }
-            self.stopAudioPipeline()
-            if resumingDevice {
-                self.reportAudioDeviceRestartFailure(reason: reason)
-            } else if let reason {
-                self.audioErrorMessage = reason
-            }
-        }
         let generation = audioGeneration, connection = connectionGeneration
         audioStartTask = Task { [weak self] in
             guard let self, !Task.isCancelled, self.audioGeneration == generation,
@@ -114,7 +108,7 @@ extension IntercomViewModel {
             guard !Task.isCancelled, self.audioGeneration == generation,
                   self.connectionGeneration == connection, self.callStillRequestsAudio() else { return }
             guard authorized else {
-                abandonStart(Self.microphoneAccessRequiredMessage)
+                self.abandonAudioStart(resumingDevice: resumingDevice, reason: Self.microphoneAccessRequiredMessage)
                 return
             }
             let activation = self.audioSessionManager.requestActive(true)
@@ -128,31 +122,53 @@ extension IntercomViewModel {
                 return
             }
             guard report.result != .ignored(.superseded) else { return }
-            guard self.applyAudioSessionActivationReport(report) else { abandonStart(nil); return }
-            guard self.rebuildAudioPipeline(startsOutputClock: false),
-                  self.applyCurrentVoiceProcessingConfiguration(), self.startInputCapture(),
-                  self.startPreparedAudioOutput(configuration: .intercomCall) else { abandonStart(nil); return }
-            self.inputFrameDelivery?.activate()
-            self.callTicker.start()
-            self.isAudioReady = true
-            self.refreshCallMediaAdmission()
-            self.watchAudioLink?.setSendingAllowed(self.isUsingWatchAudio)
-            if resumingDevice {
-                self.isAudioPausedForDeviceChange = false
-                self.audioRouteNotice = nil
+            guard self.prepareCallAudio(report) else {
+                self.abandonAudioStart(resumingDevice: resumingDevice)
+                return
             }
-            self.connectionState = self.routeConnectionState(isConnected: !self.connectedPeerIDs.isEmpty)
-            self.markConnectedMembers(peerIDs: self.connectedPeerIDs)
-            self.callSession.setAudioPolicy(self.currentCallAudioPolicy())
-            self.refreshOtherAudioDuckingState()
-            self.publishRuntimePackageReports(force: true)
-            self.audioErrorMessage = nil
-            AppLoggers.audio.info("audio.media.started", metadata: .event("audio.media.started", [
-                "route": "\(self.routeLabel)", "codec": "\(self.selectedTransmitCodec.rawValue)"
-            ]))
-            self.refreshCallAccess()
-            self.recordEstablishedCall()
+            self.finishCallAudioStart(resumingDevice: resumingDevice)
         }
+    }
+
+    private func prepareCallAudio(_ report: AudioSessionOperationReport) -> Bool {
+        applyAudioSessionActivationReport(report)
+            && rebuildAudioPipeline(startsOutputClock: false)
+            && applyCurrentVoiceProcessingConfiguration()
+            && startInputCapture()
+            && startPreparedAudioOutput(configuration: .intercomCall)
+    }
+
+    // Failed preparation releases audio. A stopped call that was resuming keeps a reason and the retry action.
+    private func abandonAudioStart(resumingDevice: Bool, reason: String? = nil) {
+        stopAudioPipeline()
+        if resumingDevice {
+            reportAudioDeviceRestartFailure(reason: reason)
+        } else if let reason {
+            audioErrorMessage = reason
+        }
+    }
+
+    private func finishCallAudioStart(resumingDevice: Bool) {
+        inputFrameDelivery?.activate()
+        callTicker.start()
+        isAudioReady = true
+        refreshCallMediaAdmission()
+        watchAudioLink?.setSendingAllowed(isUsingWatchAudio)
+        if resumingDevice {
+            isAudioPausedForDeviceChange = false
+            audioRouteNotice = nil
+        }
+        connectionState = routeConnectionState(isConnected: !connectedPeerIDs.isEmpty)
+        markConnectedMembers(peerIDs: connectedPeerIDs)
+        callSession.setAudioPolicy(currentCallAudioPolicy())
+        refreshOtherAudioDuckingState()
+        publishRuntimePackageReports(force: true)
+        audioErrorMessage = nil
+        AppLoggers.audio.info("audio.media.started", metadata: .event("audio.media.started", [
+            "route": "\(routeLabel)", "codec": "\(selectedTransmitCodec.rawValue)"
+        ]))
+        refreshCallAccess()
+        recordEstablishedCall()
     }
 
     /// A call says the same two things on any route; only the word names the route in use.
@@ -273,211 +289,5 @@ extension IntercomViewModel {
             guard let self, self.connectionGeneration == generation else { return }
             self.handleTransportEvent(event)
         }
-    }
-
-    func bindAudioEvents(finiteRecordingDuration: TimeInterval? = nil) {
-        audioGeneration = UUID()
-        let generation = audioGeneration
-        inputFrameDelivery?.finish()
-        let delivery = AudioFrameDelivery(initiallyActive: false, coalescesObservations: finiteRecordingDuration == nil,
-                                          finiteRecordingDuration: finiteRecordingDuration) { [weak self] frame in
-            guard let self, self.audioGeneration == generation else { return }
-            self.handleMicrophoneFrame(frame)
-        }
-        inputFrameDelivery = delivery
-        let pipeline = audioPipeline
-        let recording = audioCheckRecording
-        pipeline.setInputMuted(effectiveInputMuted || (recording == nil && !isCallMediaStarted))
-        audioInputCapture.setRuntimeEventHandler { [weak self] event in
-            if case .inputFrame(let frame) = event {
-                guard delivery.isActive else { return }
-                guard let accepted = recording == nil ? frame : recording?.acceptInput(frame) else { return }
-                pipeline.processMicrophoneFrame(accepted, shouldProcess: { delivery.isActive })
-                delivery.yield(accepted)
-                return
-            }
-            DispatchQueue.main.async {
-                guard let self, self.audioGeneration == generation else { return }
-                self.handleAudioStreamRuntimeEvent(event)
-            }
-        }
-        if let recording {
-            audioPipeline.onTransmitPacket = { recording.receive($0) }
-        } else {
-            audioPipeline.onTransmitPacket = callSession.audioPacketSink
-        }
-        if finiteRecordingDuration == nil, pipeline.usesHardwareClock, audioOutputRenderer.rendersToHardware {
-            pipeline.onOutputFrame = nil
-            return
-        }
-        audioPipeline.onOutputFrame = { [weak self] frame in
-            guard let self, self.audioGeneration == generation else { return }
-            if self.audioCheckPhase == .playing {
-                #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
-                if self.audioPipeline.rendersToHardware { self.audioCheckObservation?.appendOutput(frame) }
-                #endif
-                if !self.audioPipeline.rendersToHardware {
-                    self.lastOutputStreamOperationReport = self.audioOutputRenderer.schedule(frame)
-                }
-                return
-            }
-            guard self.isAudioReady, !self.audioPipeline.rendersToHardware else { return }
-            self.scheduleOutputFrame(frame: frame, receivedAt: Date().timeIntervalSince1970)
-            #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
-            BackgroundCallValidationObservation.observe(self, output: true)
-            #endif
-        }
-    }
-
-    func applyAudioSessionActivationReport(_ report: AudioSessionOperationReport) -> Bool {
-        guard report.result != .ignored(.superseded) else { return false }
-        lastAudioSessionActivationReport = report
-        guard report.result.isContinuable else {
-            reportAudioSessionFailure("Audio session activation failed", operation: "setActive")
-            return false
-        }
-        return true
-    }
-
-    func configureAudioSession() -> Bool {
-        do {
-            let report = try audioSessionManager.configure(makeAudioSessionConfiguration())
-            lastAudioSessionConfigurationReport = report
-            if let snapshot = report.snapshot {
-                applyAudioSessionSnapshot(snapshot)
-            }
-            guard report.operations.allSatisfy(\.result.isContinuable) else {
-                reportAudioSessionFailure("Audio session configuration failed", operation: "configure")
-                return false
-            }
-            publishRuntimePackageReports(force: true)
-            return true
-        } catch {
-            reportAudioSessionFailure("Audio session configuration failed", operation: "configure", error: error)
-            return false
-        }
-    }
-
-    private func reportAudioSessionFailure(_ message: String, operation: String, error: (any Error)? = nil) {
-        audioErrorMessage = message
-        publishRuntimePackageReports(force: true)
-        var values: Logger.Metadata = ["operation": "\(operation)", "isRecoverable": "true"]
-        if let error { values["errorType"] = "\(type(of: error))" }
-        AppLoggers.audio.error("audio.session.failed", metadata: .event("audio.session.failed", values))
-    }
-
-    func makeAudioSessionConfiguration() -> SessionManager.AudioSessionConfiguration {
-        .intercom(
-            profile: audioSessionProfile,
-            prefersSpeakerOutput: selectedOutputPort == .speaker,
-            preferredInput: selectedInputPort.sessionManagerInputSelection,
-            preferredOutput: selectedOutputPort.sessionManagerOutputSelection
-        )
-    }
-
-    func startInputCapture() -> Bool {
-        let report = audioInputCapture.start()
-        lastInputStreamOperationReport = report
-        guard report.result.isContinuable else {
-            audioErrorMessage = "Microphone capture failed"
-            return false
-        }
-        return true
-    }
-
-    func startPreparedAudioOutput(configuration: SessionManager.AudioOutputStreamConfiguration? = nil) -> Bool {
-        guard startOutputRenderer(configuration: configuration) else { return false }
-        do { try audioPipeline.startPreparedOutput(); return true } catch {
-            audioErrorMessage = "Audio output failed"; return false
-        }
-    }
-
-    func startOutputRenderer(configuration: SessionManager.AudioOutputStreamConfiguration? = nil) -> Bool {
-        let report = audioOutputRenderer.start(configuration: configuration ?? .intercom)
-        lastOutputStreamOperationReport = report
-        guard report.result.isContinuable else {
-            audioErrorMessage = "Audio output failed"
-            return false
-        }
-        return true
-    }
-
-    func currentVoiceProcessingConfiguration() -> SessionManager.AudioInputVoiceProcessingConfiguration {
-        SessionManager.AudioInputVoiceProcessingConfiguration(
-            soundIsolationEnabled: false,
-            // Keep the I/O mode fixed while the ducking feature is enabled.
-            // Incoming speech changes the ducking level, not RemoteIO/VoiceIO.
-            // A local recording checks the transmitted effects, not other apps'
-            // volume. Avoid switching its prepared graph to VoiceProcessingIO.
-            otherAudioDuckingEnabled: isDuckOthersEnabled && !audioCheckOwnsAudioPipeline,
-            duckingLevel: isOtherAudioDuckingActiveInternal ? .medium : .minimum,
-            // Finite checks keep the capture clock while the transmitter owns mute.
-            inputMuted: !audioCheckOwnsAudioPipeline && effectiveInputMuted
-        )
-    }
-
-    @discardableResult
-    func applyCurrentVoiceProcessingConfiguration() -> Bool {
-        // Watch owns input hardware. Do not open the iPhone input node for
-        // ducking or mute changes while its microphone is not the source.
-        if isUsingWatchAudio { return true }
-        let requested = currentVoiceProcessingConfiguration()
-        let changesClock = isAudioReady
-            && audioInputCapture.configuration.voiceProcessing.voiceProcessingEnabled
-                != requested.voiceProcessingEnabled
-        let update = { self.audioInputCapture.updateVoiceProcessing(requested) }
-        let report = changesClock ? audioPipeline.reconfigureInput(update) : update()
-        lastVoiceProcessingOperationReport = report
-        if case .ignored(let reason) = report.result {
-            AppLoggers.audio.debug(
-                "audio.input.voice_processing_ignored",
-                metadata: .event("audio.input.voice_processing_ignored", [
-                    "reason": "\(reason)"
-                ])
-            )
-        }
-        guard report.result.isContinuable else {
-            audioErrorMessage = "Audio input processing update failed"
-            AppLoggers.audio.warning(
-                "audio.input.voice_processing_failed",
-                metadata: .event("audio.input.voice_processing_failed", [
-                    "errorType": "\(report.result)",
-                    "isRecoverable": "true"
-                ])
-            )
-            return false
-        }
-        return true
-    }
-}
-
-private extension SessionManager.AudioSessionOperationResult {
-    var isContinuable: Bool {
-        switch self {
-        case .applied, .ignored(.unsupportedOnCurrentPlatform), .ignored(.unsupportedSelection),
-            .ignored(.unavailableDevice):
-            true
-        case .ignored(.superseded), .failed:
-            false
-        }
-    }
-}
-
-private extension SessionManager.AudioStreamOperationResult {
-    var isContinuable: Bool {
-        switch self {
-        case .applied, .ignored:
-            true
-        case .failed:
-            false
-        }
-    }
-}
-
-/// Media can start with a denied microphone and send silence, so the denial is logged at media start.
-enum MicrophonePermissionLog {
-    static func denied(_ permission: AVAudioApplication.recordPermission) -> Logger.Metadata? {
-        guard permission == .denied else { return nil }
-        return .event("app.permission.microphone.denied", ["permission": "denied"])
     }
 }
