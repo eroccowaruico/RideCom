@@ -3855,6 +3855,7 @@
       }
     },
     "No recent call is available. Choose a saved user or group." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -6700,17 +6701,6 @@
         }
       }
     },
-    "Too many attempts. Wait before trying again." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "試行が多すぎます。しばらく待ってから、もう一度お試しください。"
-          }
-        }
-      }
-    },
     "Too many active group invitation links. Try again after an earlier link expires." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6718,6 +6708,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有効なグループ招待が上限に達しました。発行したリンクの期限が切れてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Too many attempts. Wait before trying again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "試行が多すぎます。しばらく待ってから、もう一度お試しください。"
           }
         }
       }
