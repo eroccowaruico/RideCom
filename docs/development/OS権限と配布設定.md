@@ -89,3 +89,5 @@ profile更新後の端末受入は、Appleログイン、OSのマイク／ロー
 2026-11-18、iOSの1.0.0 (1041)を標準Release Archiveで作成した。App・Widget・Watchの番号一致、strictな署名検証、Appのcompiler警告0を確認。開発署名の実entitlementにはSign in with Apple、App Group、developmentのAPNsが含まれ、get-task-allowはtrueだった。これは開発署名のArchiveであり、productionの最終配布署名はExportで確認する。InfoはReleaseのproductionのまま維持する。
 
 Internal Only指定の送信は、Xcodeが「App Store Connect access for UAY8FH5FF8 is required」で拒否し、未送信。通常のAPI key設定も見つからなかった。配布する際はXcode → Settings → Accountsで、このチームと対象AppへApp Store Connectアクセスを持つApple Accountの認証・権限を確認する。開発署名を作れることと、App Store Connectへ送信できることを分けて扱う。認証復旧後に同じArchiveを再使用できる。詳細と保存先は[配布の検証記録](../validation/history/配布ビルド採番とOrganizer認証調査.md)を参照する。
+
+2026-11-21、Build 1897の標準Archiveを共有の `scripts/ExportOptions.plist` でこのMacに書き出した。IPAはApple Distribution署名で、AppのInfoと署名のAPNs環境がproductionで一致した。TestFlightの送信権限と処理状況、テスターへの配布とインストールは引き続き確認する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)

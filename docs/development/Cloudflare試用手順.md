@@ -190,6 +190,8 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 
 登録済み相手への配送は、ローカルWorkerとAppの送受信・ファイル保存・ACKまで[検証済み](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)。同じアカウントの追加端末では、個人招待の交換なしで、元の招待と同じグループを保存できることも[ローカルで検証済み](../validation/history/招待返信の手動共有.md#新端末で個人招待を交換せずグループを保存する)。配置後は表の実APNs・実機・実SFUの受入へ進む。
 
+固定Previewを更新する前に、稼働版のSFU App IDと対応するSecret、Apple登録・通知・招待の鍵を配置単位で照合する。2026-11-21の固定PreviewのSFU App IDは、Previews Baseと本番のどちらとも異なる。固定Previewで使う組を承認済みの設定から確認し、配置前後に照合する。稼働版はWorkers Buildsの対象コミット・結果と、固定Previewの配置の表示を照合する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)
+
 ### 設定が合わないときの戻し方
 
 | 確認点 | 次へ進める状態 | 中断した場合の再開位置 |
@@ -198,7 +200,7 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 | Worker配置 | 対象の配置番号とコードが一致し、6つのDO bindingとv4までのmigrationが揃う | 失敗した配置の記録から未適用分を確認する。既存namespaceと適用済みmigrationを保持して同じ環境から再開する |
 | 機能の有効化 | 同じWorkerで端末登録を完了し、通知なら対象端末へ到達、Internet通話なら両端で受話できる | 登録失敗はApple登録の工程、登録成功後の通知失敗はAPNs設定、音声だけの失敗はSFU・必要に応じてTURNから再開する |
 
-Debug端末で届きTestFlightで届かない場合は、署名済みAppのentitlement、Workerの `APNS_ENVIRONMENT`、topic、鍵が許可する環境をこの順で照合する。Debug用の共有Previewをsandboxのまま利用中なら、TestFlight用には別のPreviewとproduction APNsを組み合わせる。対象が一致するまで次の受入へ進めず、鍵を作り直す前に不一致を直す。[署名成果物での確認](OS権限と配布設定.md#生成物での確認)・[AppleのAPNs鍵の環境とtopic](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)
+Debug端末で届きTestFlightで届かない場合は、署名済みAppのentitlement、Workerの `APNS_ENVIRONMENT`、topic、鍵が許可する環境をこの順で照合する。固定PreviewをTestFlightで試す場合は、Debug試用の利用状況を確認し、同じ固定Previewで配布署名と対応するproduction APNsへ揃える。対象が一致するまで次の受入へ進めず、鍵を作り直す前に不一致を直す。[署名成果物での確認](OS権限と配布設定.md#生成物での確認)・[AppleのAPNs鍵の環境とtopic](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)
 
 設定変更前に対象の配置番号と変更予定の公開値・secret名を控える。有効化直後に失敗した場合は、その環境で変更したフラグを直前の値へ戻して配置し、他の機能が以前どおり使えるか確認する。秘密値の置換はコードの再配置だけで戻ると想定せず、対象環境用の有効な値を管理元から再登録する。DOのmigrationと保存データは保持する。作業記録には環境、配置番号、成功した段階、次に確認する項目を残す。
 
