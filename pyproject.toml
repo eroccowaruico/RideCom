@@ -1,0 +1,5 @@
+[tool.ruff.lint]
+extend-select = ["ANN", "B", "RUF100"]
+
+[tool.ty.terminal]
+error-on-warning = true
