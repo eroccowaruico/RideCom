@@ -81,7 +81,7 @@ struct DirectCallTests {
         recipient.viewModel.beginOrdinaryGroupReplyBackgroundTime = { _ in { recipientReleases += 1 } }
         let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
         try recipient.viewModel.acceptInviteURL(url)
-        try #require(author.viewModel.ordinaryGroupReplyExchanges[.inviter] != nil)
+        try #require(!author.viewModel.ordinaryGroupReplyExchanges.isEmpty)
         try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee] != nil)
 
         #expect(author.viewModel.renameGroup(group.id, to: "New name"))
@@ -685,7 +685,7 @@ struct OrdinaryGroupReplyTransportTests {
         #expect(pending)
 
         deliverToAuthor(mixed); deliverToRecipient(mixed)
-        try #require(left.ordinaryGroupReplyExchanges[.inviter] != nil)
+        try #require(!left.ordinaryGroupReplyExchanges.isEmpty)
         try #require(right.ordinaryGroupReplyExchanges[.invitee] != nil)
         deliverToAuthor(mixed); deliverToRecipient(mixed)
         #expect(authorRequests == 2 && recipientRequests == 2)
@@ -699,13 +699,16 @@ struct OrdinaryGroupReplyTransportTests {
         #expect(left.activeGroupID == authorCall && right.activeGroupID == recipientCall)
     }
 
-    @Test func reopenedInviterReceivesAnAcceptanceForTheOriginalLink() async throws {
+    @Test func reopenedInviterReceivesAcceptancesForBothIssuedLinks() async throws {
         let storage = try GroupStorageFixture()
         defer { storage.remove() }
         let group = try storage.group()
-        try storage.repository.save([group], credential: .init(groupID: group.id, secret: "original-link-fixture"))
+        let other = try storage.group()
+        try storage.repository.save([group, other], credential: .init(groupID: group.id, secret: "original-link-fixture"))
+        try storage.repository.save([group, other], credential: .init(groupID: other.id, secret: "second-link-fixture"))
         let issuer = AppTestSupport.makeHarness(groups: [], groupRepository: storage.repository, localMemberID: "local")
         let url = try #require(issuer.viewModel.makeGroupInviteURL(for: group.id))
+        let otherURL = try #require(issuer.viewModel.makeGroupInviteURL(for: other.id))
         issuer.viewModel.stopOrdinaryGroupReplyExchanges()
 
         let author = AppTestSupport.makeHarness(accountSession: issuer.viewModel.accountSession, groups: [],
@@ -718,9 +721,20 @@ struct OrdinaryGroupReplyTransportTests {
         }
         author.viewModel.allowsNearbyGroupDelivery = true
         recipient.viewModel.allowsNearbyGroupDelivery = false
+        var authorWindows = 0, authorReleases = 0
+        var expiration: (@MainActor () -> Void)?
+        author.viewModel.beginOrdinaryGroupReplyBackgroundTime = { callback in
+            authorWindows += 1
+            expiration = callback
+            return { authorReleases += 1 }
+        }
         let owner = AppCallOwner(account: author.viewModel.accountSession, viewModel: author.viewModel)
         owner.systemSurfaceIsForeground = true
-        try recipient.viewModel.acceptInviteURL(url)
+        let activeTargets = Set(author.viewModel.ordinaryGroupReplyExchanges.values.map(\.invitation.groupID))
+        #expect(activeTargets == [group.id, other.id])
+        #expect(authorWindows == 1)
+        // The newer link still works; its confirmation must leave the older link reachable.
+        try recipient.viewModel.acceptInviteURL(otherURL)
         #expect(author.viewModel.savedRemoteUsers.isEmpty)
         #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
         let selected = recipient.viewModel.activeGroupID
@@ -728,14 +742,35 @@ struct OrdinaryGroupReplyTransportTests {
         recipient.viewModel.allowsNearbyGroupDelivery = true
         receiverOwner.systemSurfaceIsForeground = true
         await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+            recipient.viewModel.groupRepository.pendingInvitation(for: other.id) == nil
+        }
+        let newerAcknowledged = recipient.viewModel.groupRepository.pendingInvitation(for: other.id) == nil
+        try #require(newerAcknowledged)
+        try recipient.viewModel.acceptInviteURL(url)
+        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
             recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil
         }
         let acknowledged = recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil
         #expect(acknowledged)
-        #expect(author.viewModel.savedRemoteUsers.first?.memberIDs == ["bob"])
+        #expect(author.viewModel.savedRemoteUsers.map(\.memberIDs) == [["bob"]])
         #expect(author.viewModel.activeGroupID == nil)
         #expect(recipient.viewModel.activeGroupID == selected)
         #expect(owner.viewModel === author.viewModel)
+
+        let expire = try #require(expiration)
+        expire()
+        #expect(author.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+        #expect(authorReleases == 1)
+        owner.systemSurfaceIsForeground = false
+        owner.systemSurfaceIsForeground = true
+        expire()
+        #expect(authorWindows == 2)
+        #expect(author.viewModel.ordinaryGroupReplyExchanges.count == 2)
+        #expect(authorReleases == 1)
+        try #require(author.viewModel.deleteGroup(group.id))
+        let remainingTargets = author.viewModel.ordinaryGroupReplyExchanges.values.map(\.invitation.groupID)
+        #expect(remainingTargets == [other.id])
+        #expect(authorReleases == 1)
     }
 
     @Test func ordinaryInvitationReplyReachesTheInviterAfterSwitchingToAnIndividualCall() async throws {
