@@ -216,7 +216,6 @@ public final class MixerPCMSource {
     ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
         let capturedAt = input.capturedAt
         let arrivedAt = input.arrivedAt
-        let frameLength = input.frameLength
         let duration = input.duration
         let audible = input.audible
         let position = input.position
@@ -299,33 +298,10 @@ public final class MixerPCMSource {
                    // A start-up backlog or local outage longer than the
                    // window cannot be absorbed and is not link jitter.
                    transit - fastest.seconds < limit {
-                    // Learn this packet's whole excess transit, not only
-                    // the part the current wait failed to cover, plus the
-                    // packet and one more for the render quantum that
-                    // must start before its first sample (one packet
-                    // alone left gaps on the audio E2E).
-                    let excessTransit = max(0, transit - fastest.seconds)
-                    let elapsedWait = excessTransit * mixerFormat.sampleRate
-                    let excess = elapsedWait + 2 * Double(frameLength)
-                    // Even after a calm link, a late packet can arrive
-                    // with all the audio captured while it was held.
-                    // Leave room for that tail before adding learned wait.
-                    let window = (limit - delay - packetizationJitter) * mixerFormat.sampleRate
-                    let remainingBatch = max(0, batch.previousDuration - batch.offset)
-                    let reserved = max(remainingBatch, excessTransit + duration) * mixerFormat.sampleRate
-                        + Double(nativeLead)
-                    let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
-                    let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
-                    let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
-                    jitterMargin = (learned, capturedAt)
-                    // The writable frontier already covers the native block.
-                    // Subtract that part of the second packet's headroom from
-                    // this reservation only. Keep the learned link wait intact.
-                    let coveredQuantum = min(AVAudioFramePosition(frameLength), rendered - position.completed)
-                    let waitedFrames = AVAudioFramePosition(elapsedWait.rounded(.down))
-                    let remainingWait = max(0, learned - waitedFrames - coveredQuantum)
-                    start = rendered + min(requestedLead - margin + min(remainingWait, availableWait),
-                        AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
+                    start = learnedLateStart(
+                        input: input, margin: margin, batch: batch, requestedLead: requestedLead,
+                        fastestTransitSeconds: fastest.seconds
+                    )
                 }
                 target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))
                 playoutAnchor = (capturedAt, AVAudioFramePosition(target))
@@ -351,6 +327,42 @@ public final class MixerPCMSource {
         lastCapturedAt = capturedAt
         lastCapturedEnd = capturedAt + duration
         return (startSample, options)
+    }
+
+    private func learnedLateStart(
+        input: ReservationInput, margin: AVAudioFramePosition,
+        batch: (previousDuration: TimeInterval, offset: TimeInterval),
+        requestedLead: AVAudioFramePosition, fastestTransitSeconds: TimeInterval
+    ) -> AVAudioFramePosition {
+        // Learn this packet's whole excess transit, not only
+        // the part the current wait failed to cover, plus the
+        // packet and one more for the render quantum that
+        // must start before its first sample (one packet
+        // alone left gaps on the audio E2E).
+        let excessTransit = max(0, input.arrivedAt - input.capturedAt - fastestTransitSeconds)
+        let elapsedWait = excessTransit * mixerFormat.sampleRate
+        let excess = elapsedWait + 2 * Double(input.frameLength)
+        // Even after a calm link, a late packet can arrive
+        // with all the audio captured while it was held.
+        // Leave room for that tail before adding learned wait.
+        let window = (input.limit - input.delay - input.packetizationJitter) * mixerFormat.sampleRate
+        let remainingBatch = max(0, batch.previousDuration - batch.offset)
+        let reserved = max(remainingBatch, excessTransit + input.duration) * mixerFormat.sampleRate
+            + Double(input.nativeLead)
+        let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
+        let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
+        let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
+        jitterMargin = (learned, input.capturedAt)
+        // The writable frontier already covers the native block.
+        // Subtract that part of the second packet's headroom from
+        // this reservation only. Keep the learned link wait intact.
+        let coveredQuantum = min(
+            AVAudioFramePosition(input.frameLength), input.position.writable - input.position.completed
+        )
+        let waitedFrames = AVAudioFramePosition(elapsedWait.rounded(.down))
+        let remainingWait = max(0, learned - waitedFrames - coveredQuantum)
+        return input.position.writable + min(requestedLead - margin + min(remainingWait, availableWait),
+            AVAudioFramePosition((input.limit * mixerFormat.sampleRate).rounded(.down)) - 1)
     }
 
     private func boundedStartSample(
