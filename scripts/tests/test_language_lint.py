@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,24 @@ class LanguageLintTests(unittest.TestCase):
         with patch.object(sys, "argv", ["lint", "--base", "HEAD"]), \
                 patch.object(shutil, "which", return_value="/usr/bin/true"):
             self.assertEqual(lint.main(), 1)
+
+    def test_swiftlint_gets_xcode_from_the_caller_or_validation_default(self) -> None:
+        (self.root / "Example.swift").touch()
+        (self.root / ".swiftlint.yml").touch()
+        probe = self.root / "swiftlint"
+        probe.write_text('#!/bin/sh\nprintf "%s" "$DEVELOPER_DIR" > selected-xcode\n')
+        probe.chmod(0o755)
+        for selected in (None, "/custom/Xcode.app/Contents/Developer"):
+            with self.subTest(selected=selected), patch.dict(os.environ), \
+                    patch.object(sys, "argv", ["lint", "--base", "HEAD"]), \
+                    patch.object(lint, "audit_paths", return_value={Path("Example.swift")}), \
+                    patch.object(shutil, "which", return_value=str(probe)):
+                os.environ.pop("DEVELOPER_DIR", None)
+                if selected:
+                    os.environ["DEVELOPER_DIR"] = selected
+                self.assertEqual(lint.main(), 0)
+                self.assertEqual((self.root / "selected-xcode").read_text(),
+                                 selected or "/Applications/Xcode.app/Contents/Developer")
 
     def test_moved_worker_source_still_runs_project_type_check(self) -> None:
         self.git("mv", "server/src/contract.ts", "contract.ts")

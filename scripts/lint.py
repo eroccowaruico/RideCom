@@ -78,8 +78,12 @@ def main() -> int:
             ok = False
             return
         print(f"{tool}: {len(files)} file(s)" if files else "Worker type-check", flush=True)
+        environment = {**os.environ, "PATH": search_path}
+        if tool == "swiftlint":
+            # Match the Xcode validation launcher when invoked directly from Finder or a shell.
+            environment.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
         with subprocess.Popen(
-            [binary, *command[1:], *(files or [])], cwd=ROOT, env={**os.environ, "PATH": search_path},
+            [binary, *command[1:], *(files or [])], cwd=ROOT, env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
         ) as process:
             if process.stdout is None:
