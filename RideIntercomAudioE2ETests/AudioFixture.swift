@@ -335,7 +335,13 @@ final class RenderedAudioProbe: @unchecked Sendable {
         return (Array(UnsafeBufferPointer(start: storage, count: state.0)), state.1, state.2)
     }
 
-    func finishTimedRecording() -> (audio: Recording, blocks: [RenderClockBlock]?, firstHostTime: Double?) {
+    struct TimedRecording {
+        let audio: Recording
+        let blocks: [RenderClockBlock]?
+        let firstHostTime: Double?
+    }
+
+    func finishTimedRecording() -> TimedRecording {
         let state = lock.withLock {
             defer { renderClockBlocks = nil }
             return (count, rate, invalidSampleCount, renderClockBlocks, firstRenderTime)
@@ -343,7 +349,7 @@ final class RenderedAudioProbe: @unchecked Sendable {
         // Capture the sample prefix and its block index under the same lock.
         // Later callbacks append past that prefix while the test copies it.
         let audio = (Array(UnsafeBufferPointer(start: storage, count: state.0)), state.1, state.2)
-        return (audio, state.3, state.4)
+        return TimedRecording(audio: audio, blocks: state.3, firstHostTime: state.4)
     }
 
     func writeWAV(to url: URL, rendered: Recording) throws {

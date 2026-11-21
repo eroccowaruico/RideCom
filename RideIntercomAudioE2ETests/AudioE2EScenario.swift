@@ -126,3 +126,92 @@ struct AudioE2EScenario: Codable {
         effect("rx-output", "peak-limiter", active: true)
     }
 }
+
+struct AudioE2ENetworkRun {
+    let scenarios: [AudioE2EScenario]
+    let initial: AudioE2EScenario
+    let identifier: String
+    let role: String
+    let groupID: UUID
+    let transport: String
+    let startsFromSavedGroup: Bool
+    let waitsForInternet: Bool
+    let standaloneReceiver: Bool
+    let startsBeforeInternet: Bool
+    let waitsForLateParticipant: Bool
+    let movesToBackground: Bool
+    let checksInternetRecovery: Bool
+    let checksLocalRecovery: Bool
+    let checksBackgroundSilence: Bool
+    let checksBackgroundMute: Bool
+    let mutedWait: Int
+    let workerURL: String?
+    let speechPair: String?
+
+    var mixed: Bool { transport == "mixed" }
+    var usesInternet: Bool { transport == "webrtc" || mixed || waitsForInternet }
+    var recovery: Bool { checksInternetRecovery || checksLocalRecovery }
+    var soleRoute: RouteKind { usesInternet ? .webRTC : .multipeer }
+    var groupSecret: String { "fixture-only-\(identifier)" }
+    var memberID: String { "e2e-\(role)-\(identifier.prefix(8))" }
+    var enabledRoutes: Set<RouteKind> {
+        if mixed || waitsForInternet { return [.multipeer, .webRTC] }
+        return transport == "webrtc" ? [.webRTC] : [.multipeer]
+    }
+
+    init(environment env: [String: String]) throws {
+        let scenarioData = try XCTUnwrap(env["AUDIO_E2E_SCENARIOS"]?.data(using: .utf8))
+        scenarios = try JSONDecoder().decode([AudioE2EScenario].self, from: scenarioData)
+        initial = try XCTUnwrap(scenarios.first)
+        identifier = try XCTUnwrap(env["AUDIO_E2E_RUN"], "Run scripts/audio_e2e.py; a second endpoint is required")
+        role = try XCTUnwrap(env["AUDIO_E2E_ROLE"])
+        XCTAssertTrue(["a", "b"].contains(role))
+        groupID = try XCTUnwrap(UUID(uuidString: identifier))
+        transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
+        startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
+        waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
+        standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
+        startsBeforeInternet = env["AUDIO_E2E_DELAY_INTERNET"] == "1"
+        waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
+        movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
+        checksInternetRecovery = env["AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY"] == "1"
+        checksLocalRecovery = env["AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY"] == "1"
+        checksBackgroundSilence = env["AUDIO_E2E_BACKGROUND_SILENCE"] == "1"
+        checksBackgroundMute = env["AUDIO_E2E_BACKGROUND_MIC_OFF"] == "1"
+        mutedWait = env["AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS"].map { Int($0) ?? -1 } ?? 0
+        workerURL = env["AUDIO_E2E_WORKER_URL"]
+        speechPair = env["AUDIO_E2E_SPEECH_PAIR"]
+    }
+
+    func verifyConfiguration() {
+        XCTAssertTrue((0...300).contains(mutedWait))
+        if standaloneReceiver {
+            XCTAssertTrue(role == "b" && transport == "local" && !waitsForLateParticipant && !movesToBackground
+                && !recovery && !checksBackgroundMute && !checksBackgroundSilence && mutedWait == 0)
+            XCTAssertEqual(scenarios.count, 1)
+        }
+        if mutedWait > 0 { XCTAssertTrue(checksBackgroundMute && recovery) }
+        if startsFromSavedGroup {
+            XCTAssertTrue(transport == "local" && !standaloneReceiver && !waitsForLateParticipant)
+        }
+        if waitsForInternet {
+            XCTAssertTrue(startsFromSavedGroup && scenarios.count == 1 && initial.seconds <= 10)
+        }
+        if waitsForLateParticipant { XCTAssertTrue(["local", "webrtc"].contains(transport)) }
+        if startsBeforeInternet { XCTAssertTrue(mixed) }
+        verifyBackgroundConfiguration()
+    }
+
+    private func verifyBackgroundConfiguration() {
+        if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
+        if checksInternetRecovery {
+            XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "webrtc")
+        }
+        if checksLocalRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "local") }
+        if checksBackgroundSilence || checksBackgroundMute {
+            XCTAssertTrue(movesToBackground && waitsForLateParticipant)
+            if recovery { XCTAssertTrue(checksBackgroundMute && mutedWait > 0) }
+            XCTAssertFalse(checksBackgroundSilence && checksBackgroundMute)
+        }
+    }
+}
