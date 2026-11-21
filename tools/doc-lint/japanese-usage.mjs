@@ -3,6 +3,13 @@
 const executionSubject = /(?:テスト|試験|検査|検証|ジョブ|タスク|処理|アプリ|サーバー?|コード|プロセス|ワークフロー|チェック|クエリ|シミュレーション|ベンチマーク|ジョブキュー|スクリプト|コマンド|プログラム|バッチ|ツール|ビルド|パイプライン|プレーヤー|プレイヤー|player|CI|E2E)(?:を|が|は|も)$/iu;
 const executionModifiers = /(?:(?:先に|実際に|同時に|順番に|自動で|自動的に|手動で|夜間に|最後まで|もう一度|何度も|再度|毎回|並行して|ここで|裏で|バックグラウンドで|ローカルで|定期的に|一度|一回|連続で|[0-9０-９]+回)\s*)+$/u;
 
+// Only a complete color word can stand for a basic display color.
+const borrowedColor = /(?<![\p{Script=Katakana}ー])(?:レッド|グリーン)(?![\p{Script=Katakana}ー])/gu;
+function describesDisplayColor(before, after) {
+    return /(?:表示色|背景色|文字色|点灯色|色|ランプ|インジケーター|ボタン|アイコン)(?:を|が|は|：|:)\s*$/u.test(before) ||
+        /^(?:の(?:ボタン|ランプ|アイコン|文字|線|枠|丸印|点)|(?:で|に)(?:点灯|点滅|表示|描画|塗る))/u.test(after);
+}
+
 const rules = [
     {
         id: 'document-authority', word: /正本/gu,
@@ -23,8 +30,19 @@ const rules = [
         advice: '送り出した段階、サービスが受け付けた段階、相手に届いた段階のうち、記録で確かめたことを書いてください。',
     },
     {
-        id: 'test-result', word: /赤|緑|グリーン|レッド/gu,
+        id: 'display-color', word: borrowedColor,
+        applies: describesDisplayColor,
+        advice: '表示色は「赤」「緑」で表してください。点灯の理由や操作の結果も必要に応じて示してください。',
+    },
+    {
+        id: 'color-label-context', word: borrowedColor, severity: 1,
+        applies(before, after) { return !before.trim() && !after.trim(); },
+        advice: '色だけの表示なら「赤」「緑」を使います。正式な名称を示す場合は元の表記を確かめてください。',
+    },
+    {
+        id: 'test-result', word: /赤|緑|(?<![\p{Script=Katakana}ー])(?:グリーン|レッド)(?![\p{Script=Katakana}ー])/gu,
         applies(before, after) {
+            if (describesDisplayColor(before, after)) return false;
             if (/^(?:字|外線|道|茶|十字|地|み|色|い(?:ボタン|印|点|文字|線|枠|表示)|の(?:ボタン|印|点|文字|線|枠|アイコン|チェックマーク))/u.test(after)) return false;
             return /(?:テスト|検査|検証|試験|CI|ビルド|回帰|結果|全件|すべて|全部|全て)(?:が|は|を|も|で|の|:|：|\s)*$/iu.test(before)
                 || /^(?:(?:い|の)?テスト|から(?:赤|緑)|→(?:赤|緑)|になった(?:ので|ら)(?:マージ|統合)|を先に作ってから(?:緑|グリーン)に|のまま(?:通す|マージ|進む)|なら(?:合格|成功|マージ))/u.test(after)
@@ -75,6 +93,7 @@ const rules = [
 ];
 
 export const usageRuleIds = rules.map(rule => `ridecom-ja/${rule.id}`);
+export const usageWarnings = new Set(rules.filter(rule => rule.severity === 1).map(rule => `ridecom-ja/${rule.id}`));
 
 export function usageFindings(text) {
     const issues = [];
@@ -86,7 +105,7 @@ export function usageFindings(text) {
             const after = text.slice(index + length, index + length + 48);
             if (rule.before?.test(before) || rule.after?.test(after)) continue;
             if (rule.applies && !rule.applies(before, after, match[0])) continue;
-            issues.push({index, length, rule: `ridecom-ja/${rule.id}`, message: rule.advice, severity: 2});
+            issues.push({index, length, rule: `ridecom-ja/${rule.id}`, message: rule.advice, severity: rule.severity ?? 2});
         }
     }
     return issues.sort((a, b) => a.index - b.index);

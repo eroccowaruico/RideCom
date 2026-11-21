@@ -81,3 +81,15 @@ test('the same rule blocks catalog, Swift, HTML attributes, and permission promp
         if (!process.stdout.isTTY) assert.match(line, /^UI:\d+ /u);
     }
 });
+
+
+test('a standalone UI label invites review, while an unambiguous display color needs correction', async t => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), 'ridecom-ui-color-')));
+    t.after(() => rm(root, {recursive: true, force: true}));
+    execFileSync('git', ['init', '-q', root]);
+    await mkdir(path.join(root, 'docs/design'), {recursive: true});
+    await writeFile(path.join(root, 'docs/design/dialog.html'),
+        '<button>レッド</button><p>背景色はレッド。</p><p>製品名「レッド」を選ぶ。</p>');
+    t.mock.method(console, 'log', () => {});
+    assert.deepEqual(await checkUIUsage(root), {errors: 1, warnings: 1});
+});

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.review_wording import candidates
+from scripts.review_wording import candidates, occurrences
 
 
 class WordingReviewTests(unittest.TestCase):
@@ -60,3 +60,19 @@ class WordingReviewTests(unittest.TestCase):
                 review = list(candidates(root, 'HEAD', all_passages=all_passages))
                 self.assertEqual(len(review), 1)
                 self.assertIn('動詞が表す操作', review[0])
+
+
+    def test_reported_spellings_include_unchanged_and_new_occurrences(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+            (root / 'README.md').write_text('タイトル\n見本の色を示す。\n')
+            subprocess.run(['git', 'add', 'README.md'], cwd=root, check=True)
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                            'commit', '-qm', 'baseline'], cwd=root, check=True)
+            localized = root / 'RideIntercom/ja.lproj/InfoPlist.strings'
+            localized.parent.mkdir(parents=True)
+            localized.write_text('"Example" = "標本";', encoding='utf-16')
+            self.assertEqual(list(occurrences(root, ['見本', '標本'])),
+                             ['README.md:2', 'RideIntercom/ja.lproj/InfoPlist.strings:1'])
+            self.assertEqual(list(occurrences(root, ['.*'])), [])
