@@ -7,6 +7,74 @@ import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryWorkerTests {
+    @Test(.timeLimit(.minutes(1))) func aRestoredInternetCallRouteResumesSavedOrdinaryInvitationReplies() async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("ordinary-reconnect-author")
+            let recipient = GroupDeliveryTestIdentity("ordinary-reconnect-recipient")
+            defer { author.remove(); recipient.remove() }
+            try await register(author); try await register(recipient)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let source = try author.harness(knowing: [], onDisk: true)
+            let receiver = try recipient.harness(knowing: [], onDisk: true)
+            let left = source.viewModel, right = receiver.viewModel
+            defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync(); left.disconnect(); right.disconnect() }
+            for model in [left, right] {
+                model.allowsNearbyGroupDelivery = false
+                model.setRTCTransportRoutes([.multipeer, .webRTC])
+                model.ordinaryGroupInternetReplyRetryDelays = []
+            }
+            let invitationGroup = UUID(), authorCall = UUID(), recipientCall = UUID()
+            try #require(left.createTalkGroup(name: "Invited", id: invitationGroup))
+            try #require(left.createTalkGroup(name: "Author's local call", id: authorCall))
+            try #require(left.startCall(to: .group(authorCall), accountAccessID: left.accountAccessID))
+            try #require(right.createTalkGroup(name: "Recipient's local call", id: recipientCall))
+            try #require(right.startCall(to: .group(recipientCall), accountAccessID: right.accountAccessID))
+            let expectedAuthorCall = left.currentCallReference, expectedRecipientCall = right.currentCallReference
+            let sendToAuthor = try #require(source.callSession.onEvent)
+            let sendToRecipient = try #require(receiver.callSession.onEvent)
+            let mixed = TransportEvent.routesChanged(.init(activeRoute: .multipeer, mediaRoute: .multipeer,
+                availableRoutes: [.multipeer, .webRTC], isHandoverInProgress: false))
+            let local = TransportEvent.routesChanged(.init(activeRoute: .multipeer, mediaRoute: .multipeer,
+                availableRoutes: [.multipeer], isHandoverInProgress: false))
+            sendToAuthor(mixed); sendToRecipient(mixed)
+
+            left.groupDeliveryClient = client; right.groupDeliveryClient = client
+            let link = try #require(left.makeGroupInviteURL(for: invitationGroup))
+            await left.ordinaryGroupInternetReplyWindow?.task?.value
+            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+            sendToAuthor(local)
+            try right.acceptInviteURL(link)
+            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            #expect(right.ordinaryGroupInternetReplyWindow == nil)
+            let pending = right.groupRepository.pendingInvitation(for: invitationGroup) != nil
+            #expect(pending)
+            sendToRecipient(local)
+            sendToAuthor(local)
+            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+
+            sendToAuthor(mixed)
+            let authorWindow = try #require(left.ordinaryGroupInternetReplyWindow)
+            sendToAuthor(mixed)
+            #expect(left.ordinaryGroupInternetReplyWindow?.id == authorWindow.id)
+            await authorWindow.task?.value
+            #expect(left.savedRemoteUsers.first?.memberIDs == [recipient.memberID])
+            sendToAuthor(mixed)
+            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+
+            sendToRecipient(mixed)
+            let recipientWindow = try #require(right.ordinaryGroupInternetReplyWindow?.task)
+            await recipientWindow.value
+            let completed = right.groupRepository.pendingInvitation(for: invitationGroup) == nil
+            #expect(completed)
+            #expect(left.currentCallReference == expectedAuthorCall)
+            #expect(right.currentCallReference == expectedRecipientCall)
+            #expect(left.activeGroupID == authorCall)
+            #expect(right.activeGroupID == recipientCall)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func lateOrdinaryInvitationReplyArrivesWithoutReturningToTheForeground() async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("ordinary-retry-author")
