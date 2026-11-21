@@ -7,13 +7,13 @@ import Testing
 
 @MainActor struct WatchMicrophoneBoundaryTests {
     @Test func watchSnapshotDoesNotObserveRecordingProgressButPublishesFinalStateAndSession() throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         let session = UUID(), now = Date(timeIntervalSince1970: 1_000)
-        vm.audioCheckWatchSessionID = session
-        vm.audioCheckPhase = .recording
-        vm.audioCheckRecordedFrameCount = 480
-        vm.audioCheckRecordedNonzeroSamples = 100
+        viewModel.audioCheckWatchSessionID = session
+        viewModel.audioCheckPhase = .recording
+        viewModel.audioCheckRecordedFrameCount = 480
+        viewModel.audioCheckRecordedNonzeroSamples = 100
         let notifications = Mutex(0)
         let initial = withObservationTracking {
             owner.watchSnapshot(now: now)
@@ -24,16 +24,19 @@ import Testing
         #expect(initialCheck.sessionID == session && initialCheck.phase == .recording)
         #expect(initialCheck.recordedFrames == 0 && initialCheck.nonzeroSamples == 0)
 
-        vm.audioCheckRecordedFrameCount = 240_000
-        vm.audioCheckRecordedNonzeroSamples = 12_345
+        viewModel.audioCheckRecordedFrameCount = 240_000
+        viewModel.audioCheckRecordedNonzeroSamples = 12_345
         let progress = owner.watchSnapshot(now: now)
-        #expect(notifications.withLock { $0 } == 0, "Recording progress must not invalidate the real snapshot observation")
+        #expect(
+            notifications.withLock { $0 } == 0,
+            "Recording progress must not invalidate the real snapshot observation")
         #expect(progress == initial)
         #expect(!progress.needsPublication(after: initial))
-        #expect(vm.audioCheckRecordedFrameCount == 240_000 && vm.audioCheckRecordedNonzeroSamples == 12_345,
+        #expect(
+            viewModel.audioCheckRecordedFrameCount == 240_000 && viewModel.audioCheckRecordedNonzeroSamples == 12_345,
                 "The phone retains its actual recording counters")
 
-        vm.audioCheckPhase = .preparing
+        viewModel.audioCheckPhase = .preparing
         #expect(notifications.withLock { $0 } == 1, "The phase transition must invalidate the snapshot observation")
         let completedRecording = owner.watchSnapshot(now: now)
         let finalCheck = try #require(completedRecording.audioCheck)
@@ -44,13 +47,13 @@ import Testing
         _ = withObservationTracking { owner.watchSnapshot(now: now) } onChange: {
             phaseNotifications.withLock { $0 += 1 }
         }
-        vm.audioCheckRecordedNonzeroSamples = 12_346
+        viewModel.audioCheckRecordedNonzeroSamples = 12_346
         #expect(phaseNotifications.withLock { $0 } == 1, "Final counters are observable outside recording")
         let updatedFinal = owner.watchSnapshot(now: now)
         #expect(updatedFinal.audioCheck?.nonzeroSamples == 12_346)
         #expect(updatedFinal.needsPublication(after: completedRecording))
 
-        vm.audioCheckWatchSessionID = UUID()
+        viewModel.audioCheckWatchSessionID = UUID()
         let nextSession = owner.watchSnapshot(now: now)
         #expect(nextSession.needsPublication(after: updatedFinal))
     }
@@ -90,34 +93,37 @@ import Testing
     }
 
     @Test func watchRouteIgnoresSavedPhoneMuteAndRejectsPhoneControls() async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        defer { vm.disconnect() }
-        vm.applyLocalMute(true)
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID))
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        vm.selectWatchAudioRoute()
-        let reference = vm.currentCallReference
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        viewModel.applyLocalMute(true)
+        #expect(viewModel.startCall(to: .group(viewModel.groups[0].id), accountAccessID: viewModel.accountAccessID))
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
+        viewModel.selectWatchAudioRoute()
+        let reference = viewModel.currentCallReference
         let surface = try #require(owner.currentLivePresentation)
         #expect(!surface.canControlMicrophone)
         #expect(!surface.isMuted, "The saved phone mute is not the Watch microphone state")
-        #expect(h.callSession.localMuteValues.last == false, "RTC must accept Watch audio despite the saved phone mute")
-        #expect(!vm.setCallMuted(false, for: reference))
+        #expect(
+            harness.callSession.localMuteValues.last == false,
+            "RTC must accept Watch audio despite the saved phone mute")
+        #expect(!viewModel.setCallMuted(false, for: reference))
         #expect(!owner.setCallSurfaceMuted(false, reference: surface.reference))
         let intent = SetCallMutedIntent(muted: false); intent.owner = owner
         await #expect(throws: CallIntentError.self) { _ = try await intent.perform() }
-        #expect(vm.isMuted, "The phone preference must survive Watch use")
-        vm.disconnect()
-        #expect(vm.isMuted && !vm.isUsingWatchAudio)
-        #expect(vm.setCallMuted(false, for: vm.currentCallReference))
-        #expect(!vm.isMuted)
+        #expect(viewModel.isMuted, "The phone preference must survive Watch use")
+        viewModel.disconnect()
+        #expect(viewModel.isMuted && !viewModel.isUsingWatchAudio)
+        #expect(viewModel.setCallMuted(false, for: viewModel.currentCallReference))
+        #expect(!viewModel.isMuted)
     }
 
     @Test func initialWatchStartRejectsStaleWidgetMuteWithoutOpeningPhoneInput() throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        defer { vm.disconnect() }
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID, source: .watchAudio))
-        #expect(!vm.setCallMuted(true, for: vm.currentCallReference))
-        #expect(h.inputBackend.startCount == 0)
-        #expect(!vm.isMuted)
+        let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        #expect(viewModel.startCall(
+            to: .group(viewModel.groups[0].id), accountAccessID: viewModel.accountAccessID, source: .watchAudio))
+        #expect(!viewModel.setCallMuted(true, for: viewModel.currentCallReference))
+        #expect(harness.inputBackend.startCount == 0)
+        #expect(!viewModel.isMuted)
     }
 }

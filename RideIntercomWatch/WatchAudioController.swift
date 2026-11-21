@@ -74,7 +74,9 @@ final class WatchAudioController {
             guard await AVAudioApplication.requestRecordPermission() else { throw CocoaError(.userCancelled) }
             try requireCurrent(id)
             let configured = try manager.configure(.init(mode: .default))
-            guard configured.operations.allSatisfy({ Self.continuable($0.result) }) else { throw AudioDeviceError.invalidAudio }
+            guard configured.operations.allSatisfy({ Self.continuable($0.result) }) else {
+                throw AudioDeviceError.invalidAudio
+            }
             let active = await manager.requestActive(true).value
             try requireCurrent(id)
             guard case .applied = active.result else { throw AudioDeviceError.invalidAudio }
@@ -120,7 +122,9 @@ final class WatchAudioController {
                 onAvailability: { [weak self] ready in
                     Task { @MainActor [weak self] in self?.availabilityChanged(ready, session: id) }
                 }, onFailure: { [weak self] _ in
-                    Task { @MainActor [weak self] in self?.fail(id, message: "Audio connection failed. Start the call again.") }
+                    Task { @MainActor [weak self] in
+                        self?.fail(id, message: "Audio connection failed. Start the call again.")
+                    }
                 })
             link = media
             let endpoint = try await media.prepare()
@@ -152,9 +156,16 @@ final class WatchAudioController {
             }
             let deviceInputReport = deviceInput.start(), deviceOutputReport = deviceOutput.start()
             #if DEBUG && RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-            WatchRecordingCLI.log("media-backends-start", ["input": String(describing: deviceInputReport.result), "output": String(describing: deviceOutputReport.result)])
+            WatchRecordingCLI.log(
+                "media-backends-start",
+                [
+                    "input": String(describing: deviceInputReport.result),
+                    "output": String(describing: deviceOutputReport.result)
+                ])
             #endif
-            guard Self.continuable(deviceInputReport.result), Self.continuable(deviceOutputReport.result) else { throw AudioDeviceError.invalidAudio }
+            guard Self.continuable(deviceInputReport.result), Self.continuable(deviceOutputReport.result) else {
+                throw AudioDeviceError.invalidAudio
+            }
             let offer = WatchAudioOffer(sessionID: id, key: key, endpoint: endpoint)
             let action: WatchCallAction
             #if DEBUG
@@ -201,8 +212,11 @@ final class WatchAudioController {
         let matches = boundReference != nil && client.snapshot?.reference == boundReference
         let hasPermission = checkingAudio
             ? client.snapshot?.audioCheck?.sessionID == sessionID && client.snapshot?.audioCheck?.phase == .recording
-            : client.snapshot?.hasCall == true && client.snapshot?.state != .audioPaused && client.snapshot?.state != .audioUnavailable
-        let allowed = microphoneIntent.isOn && isReady && client.isReachable && link?.isSendReady == true && matches && hasPermission
+            : client.snapshot?.hasCall == true && client.snapshot?.state != .audioPaused
+                && client.snapshot?.state != .audioUnavailable
+        let allowed =
+            microphoneIntent.isOn && isReady && client.isReachable && link?.isSendReady == true && matches
+            && hasPermission
         if pressed && !allowed { microphoneIntent.close() }
         link?.setSendingAllowed(false)
         let configuration = AudioInputVoiceProcessingConfiguration(soundIsolationEnabled: false,
@@ -321,9 +335,16 @@ final class WatchAudioController {
     }
 
     private static func continuable(_ result: AudioSessionOperationResult) -> Bool {
-        switch result { case .applied, .ignored(.unsupportedOnCurrentPlatform): true; case .ignored, .failed: false }
+        switch result {
+        case .applied, .ignored(.unsupportedOnCurrentPlatform): true
+        case .ignored, .failed: false
+        }
     }
     private static func continuable(_ result: AudioStreamOperationResult) -> Bool {
-        switch result { case .applied: true; case .ignored: true; case .failed: false }
+        switch result {
+        case .applied: true
+        case .ignored: true
+        case .failed: false
+        }
     }
 }

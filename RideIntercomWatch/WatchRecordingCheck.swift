@@ -19,9 +19,15 @@ struct WatchRecordingCheckView: View {
                     Task { await connection.audio.startAudioCheck() }
                 }
             } label: {
-                Text(isAudioCheckActive ? LocalizedStringKey("Stop Audio Check") : LocalizedStringKey("Record 5s and Play on Watch"))
+                Text(
+                    isAudioCheckActive
+                        ? LocalizedStringKey("Stop Audio Check")
+                        : LocalizedStringKey("Record 5s and Play on Watch"))
             }
-            .disabled(!isAudioCheckActive && (!connection.client.isReachable || connection.client.snapshot?.hasCall == true))
+            .disabled(
+                !isAudioCheckActive
+                    && (!connection.client.isReachable || connection.client.snapshot?.hasCall == true)
+            )
             .accessibilityIdentifier("watchAudioCheckButton")
             Text("Recorded on iPhone. Played on Watch.")
             if let check = connection.client.snapshot?.audioCheck {
@@ -57,7 +63,8 @@ import AudioCore
     nonisolated private static let measurements = WatchCheckMeasurements()
     private static var started = false
     private static var rows: [[String: Any]] = []
-    private static let file = FileManager.default.temporaryDirectory.appendingPathComponent("watch-audio-check-watch.json")
+    private static let file = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "watch-audio-check-watch.json")
 
     static func observeOutputIfRequested(_ engine: AVAudioEngine) throws {
         guard requested else { return }
@@ -74,7 +81,9 @@ import AudioCore
         row["stage"] = stage; row["uptime"] = ProcessInfo.processInfo.systemUptime
         for (key, value) in extra { row[key] = value }
         rows.append(row)
-        if let data = try? JSONSerialization.data(withJSONObject: rows, options: .sortedKeys) { try? data.write(to: file, options: .atomic) }
+        if let data = try? JSONSerialization.data(withJSONObject: rows, options: .sortedKeys) {
+            try? data.write(to: file, options: .atomic)
+        }
     }
     static func runIfRequested(_ connection: WatchConnectivityClient) async {
         guard requested, !started else { return }
@@ -93,15 +102,22 @@ import AudioCore
             let check = connection.client.snapshot?.audioCheck
             if check?.phase != previous {
                 previous = check?.phase
-                log("phone-phase", ["phase": check?.phase.rawValue ?? "none", "sessionID": check?.sessionID.uuidString ?? "",
-                    "phoneRecordedFrames": check?.recordedFrames ?? 0, "phoneNonzeroSamples": check?.nonzeroSamples ?? 0,
+                log(
+                    "phone-phase",
+                    [
+                        "phase": check?.phase.rawValue ?? "none", "sessionID": check?.sessionID.uuidString ?? "",
+                        "phoneRecordedFrames": check?.recordedFrames ?? 0,
+                        "phoneNonzeroSamples": check?.nonzeroSamples ?? 0,
                     "watchMicOpen": connection.audio.isTalking])
             }
             if check?.phase == .completed || check?.phase == .failed || connection.audio.problem != nil { break }
             try? await Task.sleep(for: .milliseconds(50))
         }
         let check = connection.client.snapshot?.audioCheck
-        log("story-result", ["phase": check?.phase.rawValue ?? "none", "phoneRecordedFrames": check?.recordedFrames ?? 0,
+        log(
+            "story-result",
+            [
+                "phase": check?.phase.rawValue ?? "none", "phoneRecordedFrames": check?.recordedFrames ?? 0,
             "phoneNonzeroSamples": check?.nonzeroSamples ?? 0, "watchMicOpen": connection.audio.isTalking,
             "problem": connection.audio.problem.map { String(localized: $0) } ?? ""])
         await connection.audio.stopAudioCheck()
@@ -117,7 +133,9 @@ private nonisolated final class WatchCheckMeasurements: @unchecked Sendable {
     private var firstInput: Double?, lastInput: Double?, firstOutput: Double?, lastOutput: Double?
     init() {
         let env = ProcessInfo.processInfo.environment
-        enabled = (Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String)?.hasPrefix("RideIntercom.Validation.") == true
+        enabled =
+            (Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String)?.hasPrefix(
+                "RideIntercom.Validation.") == true
             && env["RIDEINTERCOM_LOCAL_TESTING"] == "1" && env["RIDEINTERCOM_RECORDING_CHECK"] == "1"
     }
     func input(_ frame: PCMFrame) {
@@ -137,9 +155,13 @@ private nonisolated final class WatchCheckMeasurements: @unchecked Sendable {
         guard enabled else { return }
         var signal = 0
         buffer.withUnsafeAudioBufferList { buffers in
-            for channel in UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffers)) where channel.mData != nil {
-                let count = min(Int(buffer.frameLength) * Int(channel.mNumberChannels), Int(channel.mDataByteSize) / MemoryLayout<Float>.stride)
-                for sample in UnsafeBufferPointer(start: channel.mData!.assumingMemoryBound(to: Float.self), count: count)
+            for channel in UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffers)) {
+                guard let data = channel.mData else { continue }
+                let count = min(
+                    Int(buffer.frameLength) * Int(channel.mNumberChannels),
+                    Int(channel.mDataByteSize) / MemoryLayout<Float>.stride)
+                for sample in UnsafeBufferPointer(
+                    start: data.assumingMemoryBound(to: Float.self), count: count)
                     where sample.isFinite && abs(sample) > 0.00001 { signal += 1 }
             }
         }
@@ -153,8 +175,12 @@ private nonisolated final class WatchCheckMeasurements: @unchecked Sendable {
     }
     func snapshot() -> [String: Any] {
         lock.withLock { ["inputFrames": inputFrames, "inputNonzero": inputNonzero, "receivedFrames": receivedFrames,
-            "receivedNonzero": receivedNonzero, "nativeOutputFrames": outputFrames, "nativeOutputNonzero": outputNonzero,
-            "inputSpan": (lastInput ?? 0) - (firstInput ?? 0), "nativeOutputSignalSpan": (lastOutput ?? 0) - (firstOutput ?? 0)] }
+                "receivedNonzero": receivedNonzero, "nativeOutputFrames": outputFrames,
+                "nativeOutputNonzero": outputNonzero,
+                "inputSpan": (lastInput ?? 0) - (firstInput ?? 0),
+                "nativeOutputSignalSpan": (lastOutput ?? 0) - (firstOutput ?? 0)
+            ]
+        }
     }
 }
 #endif

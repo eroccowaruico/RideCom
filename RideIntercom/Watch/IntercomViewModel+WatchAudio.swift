@@ -30,7 +30,9 @@ extension IntercomViewModel {
         let link = try AudioDeviceConnection(sessionID: offer.sessionID, key: offer.key, role: .controller,
             renderingEngine: nativeAudioOutputRenderer.renderingEngine,
             onAvailability: { [weak self] available in
-                Task { @MainActor [weak self] in self?.watchAudioAvailabilityChanged(sessionID: offer.sessionID, available: available) }
+                    Task { @MainActor [weak self] in
+                        self?.watchAudioAvailabilityChanged(sessionID: offer.sessionID, available: available)
+                    }
             }, onFailure: { [weak self] _ in
                 Task { @MainActor [weak self] in self?.watchAudioFailed(sessionID: offer.sessionID) }
             })
@@ -70,8 +72,15 @@ extension IntercomViewModel {
               available == link.isSendReady else { return }
         // Resume the phone's mixed receive output when the existing path returns.
         // The Watch input gate remains local and requires another explicit press.
-        link.setSendingAllowed(available && isUsingWatchAudio && (audioCheckWatchSessionID == sessionID ? audioCheckPhase == .playing : isAudioReady))
-        audioRouteNotice = available ? nil : String(localized: "Watch audio is reconnecting. Control the microphone on your Watch after it reconnects.")
+        link.setSendingAllowed(
+            available && isUsingWatchAudio
+                && (audioCheckWatchSessionID == sessionID ? audioCheckPhase == .playing : isAudioReady))
+        audioRouteNotice =
+            available
+            ? nil
+            : String(
+                localized: "Watch audio is reconnecting. Control the microphone on your Watch after it reconnects."
+            )
     }
 
     func stopWatchAudioLink() {

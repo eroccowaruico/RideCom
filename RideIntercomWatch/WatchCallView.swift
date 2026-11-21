@@ -75,7 +75,9 @@ private struct WatchDestinationList: View {
                 ProgressView("Updating…")
             }
             if let problem = audio.problem { Text(problem).font(.footnote).foregroundStyle(.secondary) }
-            if let problem = client.problem { Text(WatchText.problem(problem)).font(.footnote).foregroundStyle(.secondary) }
+            if let problem = client.problem {
+                Text(WatchText.problem(problem)).font(.footnote).foregroundStyle(.secondary)
+            }
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await client.perform(.refresh) } }
                 .disabled(client.isWaiting)
         }
@@ -240,7 +242,9 @@ private struct WatchMessageView<Action: View>: View {
             VStack(spacing: 8) {
                 Image(systemName: symbol).font(.title2)
                 Text(title).font(.headline).multilineTextAlignment(.center)
-                if let detail { Text(detail).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }
+                if let detail {
+                    Text(detail).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
                 action()
             }
             .frame(maxWidth: .infinity)

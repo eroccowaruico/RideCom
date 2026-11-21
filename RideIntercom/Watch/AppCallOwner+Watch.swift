@@ -8,74 +8,86 @@ extension AppCallOwner {
     }
 
     func watchSnapshot(now: Date = Date()) -> WatchCallSnapshot {
-        guard let vm = try? callModel(), vm.hasCurrentAccountAccess else {
+        guard let viewModel = try? callModel(), viewModel.hasCurrentAccountAccess else {
             return .init(reference: nil, generatedAt: now, validUntil: now.addingTimeInterval(120),
                          targets: [], title: nil, hasCall: false, isMuted: true, state: .signedOut)
         }
-        let hasCall = vm.hasAnyActiveGroupConnection
-        let state: WatchCallState = switch vm.callStatus(for: vm.activeGroupID) {
+        let hasCall = viewModel.hasAnyActiveGroupConnection
+        let state: WatchCallState = switch viewModel.callStatus(for: viewModel.activeGroupID) {
         case .chooseDestination, .ready: .idle
         case .connecting: .connecting
         case .inCall: .inCall
         case .audioPaused: .audioPaused
         case .audioUnavailable: .audioUnavailable
         }
-        return .init(reference: vm.currentCallReference.encoded, generatedAt: now, validUntil: now.addingTimeInterval(120),
+        return .init(reference: viewModel.currentCallReference.encoded, generatedAt: now,
+                     validUntil: now.addingTimeInterval(120),
                      targets: watchCallTargets.map { .init(id: $0.entity.id, name: $0.entity.name) },
-                     title: vm.groups.first { $0.id == vm.activeGroupID }.map(vm.callTitle),
-                     hasCall: hasCall, isMuted: vm.isMuted, state: state,
-                     audioCheck: vm.audioCheckWatchSessionID.map { sessionID in
-                         let phase = vm.audioCheckPhase
+                     title: viewModel.groups.first { $0.id == viewModel.activeGroupID }.map(viewModel.callTitle),
+                     hasCall: hasCall, isMuted: viewModel.isMuted, state: state,
+                     audioCheck: viewModel.audioCheckWatchSessionID.map { sessionID in
+                         let phase = viewModel.audioCheckPhase
                          if phase == .recording {
                              return .init(sessionID: sessionID, phase: phase, recordedFrames: 0, nonzeroSamples: 0)
                          }
                          return .init(sessionID: sessionID, phase: phase,
-                             recordedFrames: vm.audioCheckRecordedFrameCount, nonzeroSamples: vm.audioCheckRecordedNonzeroSamples)
+                             recordedFrames: viewModel.audioCheckRecordedFrameCount,
+                             nonzeroSamples: viewModel.audioCheckRecordedNonzeroSamples)
                      }, supportsRemoteStart: true)
     }
 
     func handleWatchRequest(_ request: WatchControlRequest, now: Date = Date()) async -> WatchControlReply {
-        func reply(_ problem: WatchControlProblem? = nil) -> WatchControlReply { .init(snapshot: watchSnapshot(now: now), problem: problem) }
+        func reply(_ problem: WatchControlProblem? = nil) -> WatchControlReply {
+            .init(snapshot: watchSnapshot(now: now), problem: problem)
+        }
         if request.action == .refresh { return reply() }
-        guard let vm = try? callModel(), vm.hasCurrentAccountAccess else { return reply(.noAccount) }
-        guard request.reference == vm.currentCallReference.encoded, request.validUntil > now,
+        guard let viewModel = try? callModel(), viewModel.hasCurrentAccountAccess else { return reply(.noAccount) }
+        guard request.reference == viewModel.currentCallReference.encoded, request.validUntil > now,
               request.validUntil <= now.addingTimeInterval(120) else { return reply(.stale) }
         let succeeded: Bool
         switch request.action {
         case .refresh: return reply()
         case .startAudio(let id, let offer):
             guard offer.key.count == 32,
-                  let target = watchCallTargets.first(where: { $0.entity.id == id }) else { return reply(.missingDestination) }
-            guard vm.startCall(to: target.destination, accountAccessID: vm.accountAccessID,
+                  let target = watchCallTargets.first(where: { $0.entity.id == id }) else {
+                return reply(.missingDestination)
+            }
+            guard viewModel.startCall(to: target.destination, accountAccessID: viewModel.accountAccessID,
                                allowSwitchingCall: false, source: .watchAudio) else { return reply(.denied) }
             do {
-                let endpoint = try await vm.attachWatchAudio(offer)
-                guard let current = try? callModel(), current === vm, vm.hasCurrentAccountAccess else { return reply(.noAccount) }
+                let endpoint = try await viewModel.attachWatchAudio(offer)
+                guard let current = try? callModel(), current === viewModel, viewModel.hasCurrentAccountAccess else {
+                    return reply(.noAccount)
+                }
                 return .init(snapshot: watchSnapshot(), problem: nil, audioEndpoint: endpoint)
             } catch { return reply(.unavailable) }
         case .start(let id), .startRemote(let id):
-            guard let target = watchCallTargets.first(where: { $0.entity.id == id }) else { return reply(.missingDestination) }
+            guard let target = watchCallTargets.first(where: { $0.entity.id == id }) else {
+                return reply(.missingDestination)
+            }
             let source: CallStartSource = request.action == .startRemote(id) ? .watchRemote : .watchAudio
-            succeeded = vm.startCall(to: target.destination, accountAccessID: vm.accountAccessID,
+            succeeded = viewModel.startCall(to: target.destination, accountAccessID: viewModel.accountAccessID,
                                      allowSwitchingCall: false, source: source)
         #if DEBUG
         case .startAudioCheck(let offer):
-            guard offer.key.count == 32, vm.canStartAudioCheck else { return reply(.denied) }
+            guard offer.key.count == 32, viewModel.canStartAudioCheck else { return reply(.denied) }
             do {
-                let endpoint = try await vm.attachWatchAudio(offer, audioCheck: true)
+                let endpoint = try await viewModel.attachWatchAudio(offer, audioCheck: true)
                 return .init(snapshot: watchSnapshot(), problem: nil, audioEndpoint: endpoint)
             } catch { return reply(.unavailable) }
         case .playAudioCheck(let id):
-            return reply(vm.playWatchAudioCheck(sessionID: id) ? nil : .stale)
+            return reply(viewModel.playWatchAudioCheck(sessionID: id) ? nil : .stale)
         case .stopAudioCheck(let id):
-            guard vm.audioCheckWatchSessionID == id else { return reply(.stale) }
-            vm.cancelAudioCheck()
+            guard viewModel.audioCheckWatchSessionID == id else { return reply(.stale) }
+            viewModel.cancelAudioCheck()
             return reply()
         #endif
-        case .end: succeeded = vm.endCall(vm.currentCallReference)
-        case .setMuted(let value): succeeded = vm.setCallMuted(value, for: vm.currentCallReference)
+        case .end: succeeded = viewModel.endCall(viewModel.currentCallReference)
+        case .setMuted(let value): succeeded = viewModel.setCallMuted(value, for: viewModel.currentCallReference)
         }
-        guard let current = try? callModel(), current === vm, vm.hasCurrentAccountAccess else { return reply(.noAccount) }
+        guard let current = try? callModel(), current === viewModel, viewModel.hasCurrentAccountAccess else {
+            return reply(.noAccount)
+        }
         return reply(succeeded ? nil : .denied)
     }
 }

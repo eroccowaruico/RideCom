@@ -3,13 +3,12 @@ import XCTest
 /// The Watch screens from the validation fixtures (RIDEINTERCOM_WATCH_UI_FIXTURE). Nothing reaches
 /// the iPhone and no audio starts; the fixture fills the snapshot the iPhone would send.
 final class WatchLaunchUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private let app = XCUIApplication()
 
     override func setUpWithError() throws { continueAfterFailure = false }
 
     override func tearDownWithError() throws {
-        app?.terminate()
-        app = nil
+        app.terminate()
     }
 
     @MainActor
@@ -70,7 +69,6 @@ final class WatchLaunchUITests: XCTestCase {
     }
 
     @MainActor private func launch(_ fixture: String, language: String = "en") {
-        app = XCUIApplication()
         app.launchEnvironment["RIDEINTERCOM_WATCH_UI_FIXTURE"] = fixture
         app.launchArguments = ["-AppleLanguages", "(\(language))", "-AppleLocale", language == "ja" ? "ja_JP" : "en_US"]
         app.launch()
