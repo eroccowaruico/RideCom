@@ -8,7 +8,7 @@ let package = Package(
     products: [.library(name: "CallControl", targets: ["CallControl"])],
     targets: [
         .target(name: "CallControl"),
-        .testTarget(name: "CallControlTests", dependencies: ["CallControl"]),
+        .testTarget(name: "CallControlTests", dependencies: ["CallControl"])
     ],
     swiftLanguageModes: [.v6]
 )

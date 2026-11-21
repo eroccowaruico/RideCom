@@ -3,13 +3,20 @@ import Foundation
 import Testing
 
 struct CallReferenceTests {
-    private let access = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-    private let generation = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
-    private let group = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+    private let access: UUID
+    private let generation: UUID
+    private let group: UUID
+
+    init() throws {
+        access = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+        generation = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
+        group = try #require(UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC"))
+    }
 
     @Test func watchAndDisplayedControlsEncodeTheSameActiveReference() throws {
         let current = CallReference(accountAccessID: access, connectionGeneration: generation, groupID: group)
-        let expected = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA|BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB|CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC"
+        let expected = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA|"
+            + "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB|CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC"
         let displayed = try #require(current.displayedCall)
         #expect(current.encoded == expected)
         #expect(displayed.encoded == expected)
@@ -31,10 +38,21 @@ struct CallReferenceTests {
     }
 
     @Test func displayedReferenceDecodesTheExistingSnapshotFieldsAndRequiresAGroup() throws {
-        let json = #"{"accountAccessID":"\#(access.uuidString)","connectionGeneration":"\#(generation.uuidString)","groupID":"\#(group.uuidString)"}"#
+        let json = #"""
+        {
+            "accountAccessID":"\#(access.uuidString)",
+            "connectionGeneration":"\#(generation.uuidString)",
+            "groupID":"\#(group.uuidString)"
+        }
+        """#
         let displayed = try JSONDecoder().decode(CallSurfaceReference.self, from: Data(json.utf8))
         #expect(displayed == .init(accountAccessID: access, connectionGeneration: generation, groupID: group))
-        let missingGroup = #"{"accountAccessID":"\#(access.uuidString)","connectionGeneration":"\#(generation.uuidString)"}"#
+        let missingGroup = #"""
+        {
+            "accountAccessID":"\#(access.uuidString)",
+            "connectionGeneration":"\#(generation.uuidString)"
+        }
+        """#
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(CallSurfaceReference.self, from: Data(missingGroup.utf8))
         }
