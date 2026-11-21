@@ -1,11 +1,11 @@
 """Exercise the audit through a real index using synthetic inputs only."""
-from pathlib import Path
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 CHECK = Path(__file__).resolve().parents[2] / '.agents/skills/security-audit/scripts/check_staged.py'
 

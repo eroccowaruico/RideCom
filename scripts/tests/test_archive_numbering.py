@@ -1,10 +1,10 @@
 import os
-from pathlib import Path
 import plistlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'prepare_archive_info.py'
 

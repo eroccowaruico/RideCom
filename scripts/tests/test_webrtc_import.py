@@ -3,16 +3,16 @@ import errno
 import hashlib
 import importlib.util
 import os
-from pathlib import Path
 import selectors
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 import zipfile
+from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / 'scripts/BuildWebRTC'
