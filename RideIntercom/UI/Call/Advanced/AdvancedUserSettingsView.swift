@@ -25,17 +25,22 @@ struct AdvancedUserSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name on this device", text: $name, prompt: Text(verbatim: currentUser.displayName)).accessibilityIdentifier("savedUserNameField")
+                TextField("Name on this device", text: $name, prompt: Text(verbatim: currentUser.displayName))
+                    .accessibilityIdentifier("savedUserNameField")
                 if currentUser.isRegistered {
-                LabeledContent("Name shared by this person", value: currentUser.displayName)
-                    .accessibilityIdentifier("savedUserOriginalName")
-                if !currentUser.needsNameConfirmation && currentUser.localName != nil {
-                Button("Use Shared Name") {
-                    if viewModel.resetSavedUserName(user.id) { dismiss() }
-                }
-                .accessibilityIdentifier("resetUserNameButton")
-                Text("Your name for this person stays on this device. Use Shared Name removes your edit and follows their name updates.").font(.footnote)
-                }
+                    LabeledContent("Name shared by this person", value: currentUser.displayName)
+                        .accessibilityIdentifier("savedUserOriginalName")
+                    if !currentUser.needsNameConfirmation && currentUser.localName != nil {
+                        Button("Use Shared Name") {
+                            if viewModel.resetSavedUserName(user.id) { dismiss() }
+                        }
+                        .accessibilityIdentifier("resetUserNameButton")
+                        Text("""
+                            Your name for this person stays on this device. \
+                            Use Shared Name removes your edit and follows their name updates.
+                            """)
+                            .font(.footnote)
+                    }
                 }
                 AdvancedContactNameConfirmation(viewModel: viewModel, person: currentUser,
                     allowsConfirmation: !hasUncommittedNameEdit, onResolved: { useShared in
@@ -47,7 +52,8 @@ struct AdvancedUserSettingsView: View {
                 }
                 if let call = viewModel.existingDirectCall(for: user.id), viewModel.canShareGroup(call.id) {
                     Section {
-                        CallInvitationButton(viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton")
+                        CallInvitationButton(
+                            viewModel: viewModel, group: call, accessibilityIdentifier: "userSettingsInviteButton")
                     }
                 }
                 Section {
@@ -55,7 +61,9 @@ struct AdvancedUserSettingsView: View {
                         .disabled(!viewModel.canEditSavedGroups)
                         .accessibilityIdentifier("deleteUserButton")
                 }
-                if let message = viewModel.groupErrorMessage { Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger) }
+                if let message = viewModel.groupErrorMessage {
+                    Text(LocalizedStringKey(message)).foregroundStyle(AppColorPalette.danger)
+                }
             }
             .formStyle(.grouped)
             .screenBackground(AppColorPalette.listScreenBackground)

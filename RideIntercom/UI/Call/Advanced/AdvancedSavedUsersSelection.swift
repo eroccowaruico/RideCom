@@ -20,7 +20,10 @@ struct AdvancedSavedUsersSelection: View {
         Form {
             if groupID == nil {
                 Section("Group name") {
-                    TextField("Group name", text: $selection.typedName, prompt: selection.suggestedName.map { Text(verbatim: $0) })
+                    TextField(
+                        "Group name", text: $selection.typedName,
+                        prompt: selection.suggestedName.map { Text(verbatim: $0) }
+                    )
                         .accessibilityIdentifier("savedUsersGroupNameField")
                 }
             }
@@ -62,7 +65,8 @@ struct AdvancedSavedUsersSelection: View {
             ToolbarItem(placement: .confirmationAction) {
                 // A new group connects at once when no other call is live, so the button says so.
                 Button(LocalizedStringKey(groupID != nil ? "Add Users"
-                                          : viewModel.hasAnyActiveGroupConnection ? "Create Group" : "Create and Connect")) {
+                            : viewModel.hasAnyActiveGroupConnection ? "Create Group" : "Create and Connect")
+                ) {
                     if case .some(let added) = selection.save() { onSaved(added, selection.selected) }
                 }
                 .disabled(!selection.canSave)

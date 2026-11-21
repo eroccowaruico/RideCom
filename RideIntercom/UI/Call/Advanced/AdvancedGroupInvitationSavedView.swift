@@ -26,13 +26,18 @@ struct AdvancedGroupInvitationSavedView: View {
                 Section {
                     ForEach(people, id: \.self) { personID in
                         if let person = viewModel.contactPerson(personID) {
-                        NavigationLink {
-                            AdvancedContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID)
-                        } label: {
-                            AdvancedRecordRow(title: person.resolvedDisplayName, value: "isRegistered \(person.isRegistered)",
-                                detail: "id " + person.id.uuidString.lowercased(), monospacedDetail: true)
-                        }
-                        .accessibilityIdentifier("groupInvitePerson-\(personID)")
+                            NavigationLink {
+                                AdvancedContactPersonDetail(
+                                    viewModel: viewModel, person: person, presentationPersonID: personID)
+                            } label: {
+                                AdvancedRecordRow(
+                                    title: person.resolvedDisplayName,
+                                    value: "isRegistered \(person.isRegistered)",
+                                    detail: "id " + person.id.uuidString.lowercased(),
+                                    monospacedDetail: true
+                                )
+                            }
+                            .accessibilityIdentifier("groupInvitePerson-\(personID)")
                         }
                     }
                 } header: { Text(verbatim: "SavedUser") }

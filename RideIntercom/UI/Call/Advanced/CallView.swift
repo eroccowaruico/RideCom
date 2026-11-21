@@ -122,6 +122,44 @@ struct CallView: View {
             .accessibilityIdentifier("audioErrorLabel")
     }
 
+    private var remoteMembers: [GroupMember] {
+        Array(viewModel.selectedGroup?.members.dropFirst() ?? [])
+    }
+
+    private var controls: some View { primaryConnectionButton }
+
+    private var primaryConnectionButton: some View {
+        let reference = viewModel.currentCallReference
+        let destination = viewModel.selectedGroup.map { CallDestination.group($0.id) }
+        let accessID = viewModel.accountAccessID
+        return Group {
+            if viewModel.canDisconnectCall {
+                Button {
+                    viewModel.endCall(reference)
+                } label: {
+                    Label("Disconnect", systemImage: "xmark.circle.fill")
+                }
+                .tint(AppColorPalette.danger)
+                .accessibilityIdentifier("disconnectButton")
+            } else {
+                Button {
+                    // One place at a time: a different live call is not replaced from here.
+                    if let destination {
+                        viewModel.startCall(to: destination, accountAccessID: accessID, allowSwitchingCall: false)
+                    }
+                } label: {
+                    Label("Connect", systemImage: "antenna.radiowaves.left.and.right")
+                }
+                .accessibilityIdentifier("connectButton")
+            }
+        }
+        .appProminentButtonStyle()
+        .controlSize(.large)
+        .accessibilityValue(viewModel.callPresenceLabel)
+    }
+}
+
+extension CallView {
     private var statusHeader: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xxl) {
             HStack(alignment: .center, spacing: AppSpacing.xl) {
@@ -173,7 +211,8 @@ struct CallView: View {
                     HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
                         Label("Output", systemImage: "speaker.wave.2.fill")
                             .font(AppTypography.captionStrong)
-                            .foregroundStyle(viewModel.isOutputMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
+                            .foregroundStyle(
+                                viewModel.isOutputMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
 
                         if showsDuckingStatusIcon {
                             Image(systemName: "waveform")
@@ -229,7 +268,10 @@ struct CallView: View {
                         .frame(width: AppSize.tapPrimary.width, height: AppSize.tapPrimary.height)
                 }
                 .appSecondaryButtonStyle()
-                .modifier(AdvancedSelectedControlStyle(isSelected: viewModel.isOutputMuted, tint: AppColorPalette.buttonProminentBackground))
+                .modifier(
+                    AdvancedSelectedControlStyle(
+                        isSelected: viewModel.isOutputMuted, tint: AppColorPalette.buttonProminentBackground)
+                )
                 .accessibilityAddTraits(viewModel.isOutputMuted ? .isSelected : [])
                 .accessibilityLabel(viewModel.isOutputMuted ? "Unmute Output" : "Mute Output")
                 .accessibilityValue(outputPercentLabel)
@@ -243,10 +285,6 @@ struct CallView: View {
 
     private var localMember: GroupMember? {
         viewModel.selectedGroup?.members.first
-    }
-
-    private var remoteMembers: [GroupMember] {
-        Array(viewModel.selectedGroup?.members.dropFirst() ?? [])
     }
 
     private var outputPercentLabel: String {
@@ -271,36 +309,6 @@ struct CallView: View {
 
     private var duckingStatusAccessibilityValue: String {
         viewModel.isOtherAudioDuckingActive ? "Active" : "Enabled"
-    }
-
-    private var controls: some View { primaryConnectionButton }
-
-    private var primaryConnectionButton: some View {
-        let reference = viewModel.currentCallReference
-        let destination = viewModel.selectedGroup.map { CallDestination.group($0.id) }
-        let accessID = viewModel.accountAccessID
-        return Group {
-            if viewModel.canDisconnectCall {
-                Button {
-                    viewModel.endCall(reference)
-                } label: {
-                    Label("Disconnect", systemImage: "xmark.circle.fill")
-                }
-                .tint(AppColorPalette.danger)
-                .accessibilityIdentifier("disconnectButton")
-            } else {
-                Button {
-                    // One place at a time: a different live call is not replaced from here.
-                    if let destination { viewModel.startCall(to: destination, accountAccessID: accessID, allowSwitchingCall: false) }
-                } label: {
-                    Label("Connect", systemImage: "antenna.radiowaves.left.and.right")
-                }
-                .accessibilityIdentifier("connectButton")
-            }
-        }
-        .appProminentButtonStyle()
-        .controlSize(.large)
-        .accessibilityValue(viewModel.callPresenceLabel)
     }
 
     private var connectionIconName: String {

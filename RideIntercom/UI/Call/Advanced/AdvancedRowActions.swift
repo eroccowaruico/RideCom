@@ -9,12 +9,16 @@ extension View {
                                   remove: @escaping () -> Void) -> some View {
         let ask = { pending.wrappedValue = PendingMemberRemoval(name: name, perform: remove) }
         return swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if canRemove { Button(role: .destructive, action: ask) { Label("Remove", systemImage: "person.badge.minus") } }
+            if canRemove {
+                Button(role: .destructive, action: ask) { Label("Remove", systemImage: "person.badge.minus") }
+            }
             Button(action: edit) { Label("Edit Name", systemImage: "pencil") }
         }
         .macRightClickMenu {
             Button(action: edit) { Label("Edit Name", systemImage: "pencil") }
-            if canRemove { Button(role: .destructive, action: ask) { Label("Remove", systemImage: "person.badge.minus") } }
+            if canRemove {
+                Button(role: .destructive, action: ask) { Label("Remove", systemImage: "person.badge.minus") }
+            }
         }
     }
 }

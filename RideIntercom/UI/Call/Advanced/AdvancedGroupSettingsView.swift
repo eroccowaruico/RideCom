@@ -24,27 +24,39 @@ struct AdvancedGroupSettingsView: View {
                     Section {
                         ForEach(Array(group.members.dropFirst())) { member in
                             Group {
-                                if let invitation = viewModel.outgoingGroupInvitation(forPendingMember: member.id, in: groupID),
+                                if let invitation = viewModel.outgoingGroupInvitation(
+                                    forPendingMember: member.id, in: groupID),
                                    let personID = invitation.personID, let person = viewModel.contactPerson(personID) {
                                     Button { invitationPerson = person } label: {
                                         VStack(alignment: .leading, spacing: AppSpacing.xxs) {
                                             Text(verbatim: member.resolvedDisplayName)
                                             let sent = invitation.sent.map(String.init) ?? "nil"
-                                            Text(verbatim: "\(invitation.direction.rawValue) · \(invitation.state.rawValue) · sent \(sent)")
+                                            let direction = invitation.direction.rawValue
+                                            let state = invitation.state.rawValue
+                                            Text(verbatim: "\(direction) · \(state) · sent \(sent)")
                                                 .font(.subheadline.monospaced()).foregroundStyle(.secondary)
-                                            Text(verbatim: "expiresAt \(Date(timeIntervalSince1970: invitation.expiresAt).formatted(.iso8601))")
+                                            let expiry = Date(timeIntervalSince1970: invitation.expiresAt)
+                                            Text(verbatim: "expiresAt \(expiry.formatted(.iso8601))")
                                                 .font(.caption.monospaced()).foregroundStyle(.secondary)
                                         }
                                         .accessibilityElement(children: .combine)
                                     }
                                     .accessibilityIdentifier("groupSettingsMember-\(member.id)")
-                                } else { Label { Text(member.resolvedDisplayName) } icon: { DestinationAvatar(isGroup: false, diameter: 28) } }
-                            }
-                                .advancedMemberRowActions(edit: { editingMember = member }, canRemove: viewModel.canManageRegularGroups,
-                                                  pending: $pendingRemoval,
-                                                  name: member.resolvedDisplayName) {
-                                    viewModel.removeMember(member.id, from: groupID)
+                                } else {
+                                    Label {
+                                        Text(member.resolvedDisplayName)
+                                    } icon: {
+                                        DestinationAvatar(isGroup: false, diameter: 28)
+                                    }
                                 }
+                            }
+                            .advancedMemberRowActions(
+                                edit: { editingMember = member },
+                                canRemove: viewModel.canManageRegularGroups,
+                                pending: $pendingRemoval,
+                                name: member.resolvedDisplayName,
+                                remove: { viewModel.removeMember(member.id, from: groupID) }
+                            )
                         }
                         if viewModel.canManageRegularGroups {
                             Button("Add Members", systemImage: "person.badge.plus") { addingUsers = true }
@@ -54,14 +66,17 @@ struct AdvancedGroupSettingsView: View {
                     } header: {
                         Text("Members")
                     } footer: {
-                        // iPhone and iPad swipe the row (no long-press menu); a mouse cannot swipe, so a Mac right-clicks.
+                        // iPhone and iPad swipe the row (no long-press menu);
+                        // a mouse cannot swipe, so a Mac right-clicks.
                         #if os(macOS)
                         Text("Control-click a member for available actions.")
                         #endif
                     }
                     if viewModel.canShareGroup(groupID) {
                         Section {
-                            CallInvitationButton(viewModel: viewModel, group: group, accessibilityIdentifier: "groupSettingsInviteButton")
+                            CallInvitationButton(
+                                viewModel: viewModel, group: group,
+                                accessibilityIdentifier: "groupSettingsInviteButton")
                         }
                     }
                     AdvancedGroupDeliveryRecords(records: viewModel.groupInvitationDeliveries(in: groupID))
@@ -86,7 +101,9 @@ struct AdvancedGroupSettingsView: View {
                         if let name, name != group?.name, !viewModel.renameGroup(groupID, to: name) { return }
                         dismiss()
                     }
-                    .disabled(group == nil || !(name.map { IntercomGroup.isValidName($0) && !$0.contains("|") } ?? true))
+                    .disabled(
+                        group == nil || !(name.map { IntercomGroup.isValidName($0) && !$0.contains("|") } ?? true)
+                    )
                     .accessibilityIdentifier("saveGroupSettingsButton")
                 }
             }

@@ -10,7 +10,9 @@ struct AdvancedCallMoreMenu: View {
     var body: some View {
         if let group = viewModel.selectedGroup {
             let actions: Actions = group.kind == .group
-                ? .group(canInvite: viewModel.canManageRegularGroups, hasRoom: group.members.count < IntercomGroup.maximumMemberCount)
+                ? .group(
+                    canInvite: viewModel.canManageRegularGroups,
+                    hasRoom: group.members.count < IntercomGroup.maximumMemberCount)
                 : .direct(userID: viewModel.savedUserID(forDirectCall: group))
             let options = Options(groupID: group.id, actions: actions,
                                   shareTitle: viewModel.canShareSelectedGroup ? viewModel.callTitle(for: group) : nil)

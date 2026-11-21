@@ -43,14 +43,18 @@ struct LocalMicrophoneHeaderControl: View {
                 .appSecondaryButtonStyle()
                 .modifier(AdvancedSelectedControlStyle(isSelected: isMuted, tint: AppColorPalette.danger))
                 .accessibilityLabel("Mute")
-                .accessibilityValue(!canControlMicrophone ? "Control the microphone on your Watch" : isMuted ? "Muted" : "Unmuted")
+                .accessibilityValue(
+                    !canControlMicrophone ? "Control the microphone on your Watch" : isMuted ? "Muted" : "Unmuted"
+                )
                 .accessibilityAddTraits(isMuted ? .isSelected : [])
                 .accessibilityIdentifier("localMicrophoneMuteButton")
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your microphone")
-        .accessibilityValue(!canControlMicrophone ? "Control the microphone on your Watch" : isMuted ? "Muted" : "Unmuted")
+        .accessibilityValue(
+            !canControlMicrophone ? "Control the microphone on your Watch" : isMuted ? "Muted" : "Unmuted"
+        )
         .accessibilityIdentifier("localMicrophoneHeaderControl")
     }
 }

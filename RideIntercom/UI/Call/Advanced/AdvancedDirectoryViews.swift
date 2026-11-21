@@ -23,10 +23,15 @@ struct AdvancedUsersView: View {
                             viewModel.showContactPerson(user.id)
                         }
                     } label: {
-                        AdvancedRecordRow(title: user.resolvedDisplayName, value: userValue(user),
-                                          detail: user.isRegistered ? "Name shared by this person: \(user.displayName)" : "memberIDs [] · principal nil",
-                                          state: viewModel.isInCall(with: .user(user.id))
-                                              ? viewModel.callStatus(for: viewModel.activeGroupID).title : nil)
+                        AdvancedRecordRow(
+                            title: user.resolvedDisplayName,
+                            value: userValue(user),
+                            detail: user.isRegistered
+                                ? "Name shared by this person: \(user.displayName)"
+                                : "memberIDs [] · principal nil",
+                            state: viewModel.isInCall(with: .user(user.id))
+                                ? viewModel.callStatus(for: viewModel.activeGroupID).title : nil
+                        )
                     }
                     .directoryRowButtonStyle()
                     .accessibilityIdentifier("standardUser-\(user.id)")
@@ -36,7 +41,11 @@ struct AdvancedUsersView: View {
             } header: {
                 Text(verbatim: "Saved Users \(viewModel.directoryUsers.count)")
             } footer: {
-                Text("Saved names may have no identity yet. Direct invitations register a person. Removing a saved user also removes their direct group and ends a call with them. Regular groups keep them.")
+                Text("""
+                    Saved names may have no identity yet. Direct invitations register a person. \
+                    Removing a saved user also removes their direct group and ends a call with them. \
+                    Regular groups keep them.
+                    """)
             }
             AdvancedInvitationsSection(viewModel: viewModel)
             CallErrorSection(viewModel: viewModel)
@@ -78,7 +87,9 @@ struct AdvancedGroupsView: View {
             CallStorageSection(viewModel: viewModel)
             Section {
                 if viewModel.regularGroups.isEmpty {
-                    ContentUnavailableView("No Groups Yet", systemImage: "person.3", description: Text("Create a group or open an invitation from a friend."))
+                    ContentUnavailableView(
+                        "No Groups Yet", systemImage: "person.3",
+                        description: Text("Create a group or open an invitation from a friend."))
                 }
                 ForEach(viewModel.regularGroups) { group in
                     Button {
@@ -125,25 +136,34 @@ struct AdvancedGroupsView: View {
         .navigationTitle("Groups")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("New Group", systemImage: "plus") { previousSelection = viewModel.selectedGroup?.id; createsGroup = true }
+                Button("New Group", systemImage: "plus") {
+                    previousSelection = viewModel.selectedGroup?.id; createsGroup = true
+                }
                     .disabled(!viewModel.canManageRegularGroups).accessibilityIdentifier("standardCreateGroupButton")
             }
         }
         .screenBackground(AppColorPalette.listScreenBackground)
-        .sheet(isPresented: $createsGroup, onDismiss: {
-            if viewModel.selectedGroup?.id != previousSelection { selectedTab = .call }
-        }) { SavedUsersView(viewModel: viewModel) }
+        .sheet(
+            isPresented: $createsGroup,
+            onDismiss: {
+                if viewModel.selectedGroup?.id != previousSelection { selectedTab = .call }
+            },
+            content: { SavedUsersView(viewModel: viewModel) }
+        )
         .destinationSettingsSheet($settings, viewModel: viewModel)
         .destinationDeleteConfirmation($pendingDelete)
         .onAppear { if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .onChange(of: selectedTab) { _, tab in if tab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
-        .onChange(of: viewModel.contactInvitationRevision) { _, _ in if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
+        .onChange(of: viewModel.contactInvitationRevision) { _, _ in
+            if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() }
+        }
         .accessibilityIdentifier("standardGroupsList")
     }
 
     /// Member count and whether the stored call key is present (`groupsMissingKeys`).
     private func groupValue(_ group: IntercomGroup) -> String {
-        "\(group.members.count.memberCountText) · \(viewModel.groupsMissingKeys.contains(group.id) ? "key missing" : "key ready")"
+        let keyStatus = viewModel.groupsMissingKeys.contains(group.id) ? "key missing" : "key ready"
+        return "\(group.members.count.memberCountText) · \(keyStatus)"
     }
 }
 
