@@ -1,8 +1,10 @@
 import Foundation
 
 nonisolated struct GroupInvitationUploadID: Hashable, Sendable {
+    enum Operation: String, Hashable, Sendable { case send, cancel }
     let deliveryID: UUID
     let sessionBinding: String
+    let operation: Operation
 }
 
 @MainActor
@@ -77,7 +79,7 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
         headers.httpBody = nil
         // A file upload in a background session copies the source when the task is created.
         let task = session.uploadTask(with: headers, fromFile: file)
-        task.taskDescription = key.deliveryID.uuidString + ":" + key.sessionBinding
+        task.taskDescription = [key.deliveryID.uuidString, key.sessionBinding, key.operation.rawValue].joined(separator: ":")
         uploads[key] = task
         task.resume()
     }
@@ -88,9 +90,10 @@ final class GroupInvitationBackgroundTransfer: NSObject, GroupInvitationBackgrou
     }
 
     private static func key(for task: URLSessionTask) -> GroupInvitationUploadID? {
-        guard let fields = task.taskDescription?.split(separator: ":"), fields.count == 2,
-              let id = UUID(uuidString: String(fields[0])), InternetAccountClient.notificationUserID(String(fields[1])) else { return nil }
-        return .init(deliveryID: id, sessionBinding: String(fields[1]))
+        guard let fields = task.taskDescription?.split(separator: ":", omittingEmptySubsequences: false), fields.count == 3,
+              let id = UUID(uuidString: String(fields[0])), InternetAccountClient.notificationUserID(String(fields[1])),
+              let operation = GroupInvitationUploadID.Operation(rawValue: String(fields[2])) else { return nil }
+        return .init(deliveryID: id, sessionBinding: String(fields[1]), operation: operation)
     }
 
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {

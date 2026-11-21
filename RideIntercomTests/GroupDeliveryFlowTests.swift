@@ -26,32 +26,36 @@ import UserNotifications
         try model.notifications.receivePermission(permission, peerID: b.memberID)
         try #require(model.createTalkGroup(name: "System upload", userIDs: [b.personID]))
         let record = try #require(model.groupRepository.groupDeliveries.first)
-        let key = try #require(model.backgroundGroupInvitationUploadIDs().first)
-        var request = try #require(try model.backgroundGroupInvitationRequest(for: key.deliveryID))
-        let expectedBody = try #require(request.httpBody)
-        let reply = try JSONSerialization.data(withJSONObject: ["requestID": record.id.uuidString.lowercased(),
-            "expiresAt": record.expiresAt * 1_000, "status": "queued"])
-        let endpoint = try BackgroundUploadLoopback(reply: reply)
-        defer { endpoint.listener.cancel() }
-        await AppTestSupport.waitUntil(timeout: .seconds(5)) { (endpoint.listener.port?.rawValue ?? 0) > 0 }
-        let port = try #require(endpoint.listener.port)
-        try #require(port.rawValue > 0)
-        request.url = URL(string: "http://localhost:\(port.rawValue)/receipt")
-
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let transfer = GroupInvitationBackgroundTransfer()
         transfer.bind(to: owner)
         await transfer.restore()
         defer { transfer.reconcile(keeping: []) }
-        try transfer.enqueue(request, for: key)
-        await AppTestSupport.waitUntil(timeout: .seconds(22)) {
-            model.groupRepository.groupDeliveries.first?.state == .queued
+        for operation in [GroupInvitationUploadID.Operation.send, .cancel] {
+            let key = try #require(model.backgroundGroupInvitationUploadIDs().first)
+            #expect(key.operation == operation)
+            var request = try #require(try model.backgroundGroupInvitationRequest(for: key.deliveryID))
+            let expectedBody = try #require(request.httpBody)
+            let reply = try JSONSerialization.data(withJSONObject: ["requestID": record.id.uuidString.lowercased(),
+                "expiresAt": record.expiresAt * 1_000, "status": operation == .send ? "queued" : "cancelled"])
+            let endpoint = try BackgroundUploadLoopback(reply: reply)
+            defer { endpoint.listener.cancel() }
+            await AppTestSupport.waitUntil(timeout: .seconds(5)) { (endpoint.listener.port?.rawValue ?? 0) > 0 }
+            let port = try #require(endpoint.listener.port)
+            try #require(port.rawValue > 0)
+            request.url = URL(string: "http://localhost:\(port.rawValue)/receipt")
+            try transfer.enqueue(request, for: key)
+            await AppTestSupport.waitUntil(timeout: .seconds(22)) { !transfer.contains(key) }
+            let captured = endpoint.received.withLock { $0 }
+            #expect(captured == expectedBody)
+            #expect(!transfer.contains(key))
+            if operation == .send {
+                #expect(model.groupRepository.groupDeliveries.first?.state == .queued)
+                try #require(model.removeMember(b.memberID, from: record.groupID))
+            } else {
+                #expect(model.groupRepository.groupDeliveries.isEmpty)
+            }
         }
-        let captured = endpoint.received.withLock { $0 }
-        let sameBody = captured == expectedBody
-        #expect(sameBody)
-        #expect(model.groupRepository.groupDeliveries.first?.state == .queued)
-        #expect(!transfer.contains(key))
         // Keep the account owner alive while the session delivers its completion.
         #expect(owner.viewModel === model)
     }
@@ -88,10 +92,21 @@ import UserNotifications
         #expect(model.groupRepository.groupDeliveries.first?.state == .pending)
         let reply = GroupDeliveryReply(requestID: record.id, expiresAt: record.expiresAt * 1_000, status: .queued)
         model.applyBackgroundGroupInvitationReply(reply,
-            for: .init(deliveryID: record.id, sessionBinding: String(repeating: "0", count: 64)))
+            for: .init(deliveryID: record.id, sessionBinding: String(repeating: "0", count: 64), operation: .send))
         #expect(model.groupRepository.groupDeliveries.first?.state == .pending)
         model.applyBackgroundGroupInvitationReply(reply, for: upload)
         #expect(model.groupRepository.groupDeliveries.first?.state == .queued)
+        model.removeMember(b.memberID, from: first)
+        let withdrawal = try #require(transfer.enqueued.last)
+        #expect(withdrawal != upload && withdrawal.deliveryID == record.id)
+        await model.synchronizeGroupDeliveries()
+        #expect(GroupDeliveryHTTPStub.deletions.isEmpty)
+        model.applyBackgroundGroupInvitationReply(reply, for: withdrawal)
+        #expect(model.groupRepository.groupDeliveries.first { $0.id == record.id }?.state == .cancelled)
+        model.applyBackgroundGroupInvitationReply(.init(requestID: record.id, expiresAt: record.expiresAt * 1_000 + 10, status: .received), for: withdrawal)
+        #expect(model.groupRepository.groupDeliveries.first { $0.id == record.id }?.state == .cancelled)
+        model.applyBackgroundGroupInvitationReply(.init(requestID: record.id, expiresAt: record.expiresAt * 1_000, status: .received), for: withdrawal)
+        #expect(model.groupRepository.groupDeliveries.first { $0.id == record.id } == nil)
 
         let second = UUID()
         try #require(model.createTalkGroup(name: "Withdrawn offline", userIDs: [b.personID], id: second))
@@ -100,8 +115,12 @@ import UserNotifications
         #expect(cancelledUpload.deliveryID == removed.id)
         model.removeMember(b.memberID, from: second)
         #expect(!transfer.active.contains(cancelledUpload))
+        let withdrawnBeforeAcceptance = try #require(transfer.enqueued.last)
+        #expect(withdrawnBeforeAcceptance != cancelledUpload && withdrawnBeforeAcceptance.deliveryID == removed.id)
         model.applyBackgroundGroupInvitationReply(.init(requestID: removed.id, expiresAt: removed.expiresAt * 1_000, status: .queued), for: cancelledUpload)
         #expect(model.groupRepository.groupDeliveries.first { $0.id == removed.id }?.state == .cancelled)
+        model.applyBackgroundGroupInvitationReply(.init(requestID: removed.id, expiresAt: removed.expiresAt * 1_000, status: .cancelled), for: withdrawnBeforeAcceptance)
+        #expect(model.groupRepository.groupDeliveries.first { $0.id == removed.id } == nil)
         await model.groupDeliveryTask?.value
     }
 

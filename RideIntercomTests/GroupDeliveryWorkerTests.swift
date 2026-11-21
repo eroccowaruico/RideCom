@@ -70,6 +70,32 @@ import Testing
             await reopened.synchronizeGroupDeliveries()
             #expect(reopened.groupInvitationDeliveryState(for: try b.savedUser(), in: groupID) == .received)
             #expect(try reopened.backgroundGroupInvitationRequest(for: record.id) == nil)
+
+            reopened.groupDeliveryClient = nil
+            let secondGroup = UUID()
+            try #require(reopened.createTalkGroup(name: "Withdrawn background delivery", userIDs: [b.personID], id: secondGroup))
+            let pending = try #require(reopened.groupRepository.groupDeliveries.first { $0.groupID == secondGroup })
+            let pendingRequest = try #require(try reopened.backgroundGroupInvitationRequest(for: pending.id))
+            let (accepted, response) = try await session.data(for: pendingRequest)
+            try #require((response as? HTTPURLResponse)?.statusCode == 200)
+            let sendKey = try #require(reopened.backgroundGroupInvitationUploadIDs().first { $0.deliveryID == pending.id })
+            reopened.applyBackgroundGroupInvitationReply(try JSONDecoder().decode(GroupDeliveryReply.self, from: accepted), for: sendKey)
+            try #require(reopened.removeMember(b.memberID, from: secondGroup))
+            let cancelKey = try #require(reopened.backgroundGroupInvitationUploadIDs().first { $0.deliveryID == pending.id })
+            let cancelRequest = try #require(try reopened.backgroundGroupInvitationRequest(for: pending.id))
+            #expect(cancelKey.operation == .cancel)
+            #expect(cancelRequest.url?.path == "/api/notifications/group-invitations/background-cancellation")
+            #expect(cancelRequest.httpMethod == "POST" && cancelRequest.value(forHTTPHeaderField: "Authorization") == nil)
+            let cancelBody = String(decoding: try #require(cancelRequest.httpBody), as: UTF8.self)
+            #expect(!cancelBody.contains(access.accessToken) && !cancelBody.contains(locator))
+            let (withdrawn, cancellationResponse) = try await session.data(for: cancelRequest)
+            try #require((cancellationResponse as? HTTPURLResponse)?.statusCode == 200)
+            let cancellation = try JSONDecoder().decode(GroupDeliveryReply.self, from: withdrawn)
+            #expect(cancellation.status == .cancelled)
+            reopened.applyBackgroundGroupInvitationReply(cancellation, for: cancelKey)
+            #expect(reopened.groupRepository.groupDeliveries.first { $0.id == pending.id } == nil)
+            await recipient.synchronizeGroupDeliveries()
+            #expect(recipient.groups.map(\.id) == [groupID])
         }
     }
 
