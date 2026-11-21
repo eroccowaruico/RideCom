@@ -40,14 +40,20 @@ struct StoreAccessSection: View {
             } else if !access.catalog.isConfigured {
                 Text("Purchases are not available yet.")
             } else {
-                Text("Restore purchases using the App Store account on this device. Restoring does not extend their original period.")
+                Text("""
+                     Restore purchases using the App Store account on this device. \
+                     Restoring does not extend their original period.
+                     """)
             }
         }
     }
 
     private var expirationBoundaries: [Date] {
-        [Date()] + (access.snapshot?.entitlements.flatMap { [$0.purchaseDate, $0.effectiveExpirationDate].compactMap { $0 } } ?? [])
-            .filter { $0 > Date() }.sorted()
+        let now = Date()
+        let boundaries = access.snapshot?.entitlements.flatMap { entitlement in
+            [entitlement.purchaseDate, entitlement.effectiveExpirationDate].compactMap { $0 }
+        } ?? []
+        return [now] + boundaries.filter { $0 > Date() }.sorted()
     }
     private func title(for state: StoreAccessEvaluation) -> String {
         if state.origin == .testDistribution { return "Available with Test Distribution" }

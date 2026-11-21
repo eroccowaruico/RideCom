@@ -15,7 +15,8 @@ nonisolated struct StoreProductCatalog: Equatable, Sendable {
         let environment = ProcessInfo.processInfo.environment
         if environment["RIDEINTERCOM_LOCAL_TESTING"] == "1" {
             switch environment["RIDEINTERCOM_STOREKIT_CATALOG_FIXTURE"] {
-            case "1": return .init(weeklyProductID: "test.rideintercom.week", monthlyProductID: "test.rideintercom.month")
+            case "1":
+                return .init(weeklyProductID: "test.rideintercom.week", monthlyProductID: "test.rideintercom.month")
             case "unavailable": return .init(weeklyProductID: "test.rideintercom.unavailable", monthlyProductID: nil)
             default: break
             }

@@ -43,7 +43,8 @@ nonisolated struct StoreEntitlement: Equatable, Sendable {
     func isActive(at now: Date) -> Bool {
         guard revocationDate == nil, !isUpgraded, purchaseDate <= now,
               let end = effectiveExpirationDate else { return false }
-        if kind == .monthly, let subscriptionStatus, ["expired", "billingRetry", "revoked", "unknown"].contains(subscriptionStatus) { return false }
+        if kind == .monthly, let subscriptionStatus,
+           ["expired", "billingRetry", "revoked", "unknown"].contains(subscriptionStatus) { return false }
         return now < end
     }
 }
@@ -65,7 +66,9 @@ nonisolated struct StoreEntitlementSnapshot: Equatable, Sendable {
         let values = entitlements.map { item in
             guard item.kind == .monthly, item.subscriptionStatus == nil,
                   item.revocationDate == nil, !item.isUpgraded,
-                  let known = previous?.entitlements.first(where: { $0.transactionID == item.transactionID }) else { return item }
+                  let known = previous?.entitlements.first(where: { $0.transactionID == item.transactionID }) else {
+                return item
+            }
             var refreshed = item
             refreshed.graceExpirationDate = known.graceExpirationDate
             refreshed.subscriptionStatus = known.subscriptionStatus
@@ -80,7 +83,9 @@ nonisolated struct StoreEntitlementSnapshot: Equatable, Sendable {
         }
         if hasUnverifiedTransactions { return .init(status: .unknown) }
         if entitlements.isEmpty { return .init(status: .notPurchased) }
-        if entitlements.allSatisfy({ $0.revocationDate != nil || $0.subscriptionStatus == "revoked" }) { return .init(status: .revoked) }
+        if entitlements.allSatisfy({ $0.revocationDate != nil || $0.subscriptionStatus == "revoked" }) {
+            return .init(status: .revoked)
+        }
         return .init(status: .expired)
     }
 }

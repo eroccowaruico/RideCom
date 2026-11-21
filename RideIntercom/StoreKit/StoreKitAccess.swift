@@ -4,7 +4,10 @@ import StoreKit
 
 @MainActor
 protocol StoreKitAccessSource: AnyObject {
-    func read(catalog: StoreProductCatalog, onVerifiedTransactions: @MainActor (StoreEntitlementSnapshot) -> Bool) async throws -> StoreEntitlementSnapshot
+    func read(
+        catalog: StoreProductCatalog,
+        onVerifiedTransactions: @MainActor (StoreEntitlementSnapshot) -> Bool
+    ) async throws -> StoreEntitlementSnapshot
     func sync() async throws
     func updates(catalog: StoreProductCatalog) -> AsyncStream<Void>
 }
@@ -164,24 +167,33 @@ final class StoreKitAccess {
             }
             repeat {
                 pendingRefresh = false
-                let attempt = StoreKitReadAttempt<StoreEntitlementSnapshot>()
-                cancelRead = attempt.cancel
-                let value = try await attempt.run(timeout: readTimeout) { [source, catalog, weak self] in
-                    return try await source.read(catalog: catalog) { [weak self] partial in
-                        guard let self, self.generation == expectedGeneration, self.isCurrentUser(), !attempt.isCompleted, !Task.isCancelled else { return false }
-                        self.snapshot = partial.retainingKnownSubscriptionStatus(from: self.snapshot)
-                        return true
-                    }
-                }
+                let value = try await readSnapshot(generation: expectedGeneration)
                 guard generation == expectedGeneration, isCurrentUser(), !Task.isCancelled else { return }
                 snapshot = value.retainingKnownSubscriptionStatus(from: snapshot)
                 lastRefreshFailed = false
-                message = value.hasUnverifiedTransactions ? "Some purchases could not be verified. Try Restore Purchases." : nil
+                message = value.hasUnverifiedTransactions
+                    ? "Some purchases could not be verified. Try Restore Purchases."
+                    : nil
             } while pendingRefresh
         } catch {
             guard generation == expectedGeneration, isCurrentUser(), !Task.isCancelled else { return }
             lastRefreshFailed = true
-            message = restore ? "Purchases could not be restored. Check your App Store account and try again." : "Purchase status could not be checked. Try Restore Purchases."
+            message = restore
+                ? "Purchases could not be restored. Check your App Store account and try again."
+                : "Purchase status could not be checked. Try Restore Purchases."
+        }
+    }
+
+    private func readSnapshot(generation expectedGeneration: Int) async throws -> StoreEntitlementSnapshot {
+        let attempt = StoreKitReadAttempt<StoreEntitlementSnapshot>()
+        cancelRead = attempt.cancel
+        return try await attempt.run(timeout: readTimeout) { [source, catalog, weak self] in
+            try await source.read(catalog: catalog) { [weak self] partial in
+                guard let self, self.generation == expectedGeneration, self.isCurrentUser(),
+                      !attempt.isCompleted, !Task.isCancelled else { return false }
+                self.snapshot = partial.retainingKnownSubscriptionStatus(from: self.snapshot)
+                return true
+            }
         }
     }
 }
@@ -206,7 +218,12 @@ private final class StoreKitReadAttempt<Value: Sendable> {
                 }
                 if let timeout {
                     deadline = Task {
-                        do { try await Task.sleep(for: timeout); complete(.failure(Failure.timedOut)) } catch { /* Completion cancelled the deadline. */  }
+                        do {
+                            try await Task.sleep(for: timeout)
+                            complete(.failure(Failure.timedOut))
+                        } catch {
+                            // Completion cancelled the deadline.
+                        }
                     }
                 }
             }
