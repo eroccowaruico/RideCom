@@ -132,14 +132,18 @@ unit / UI / 音声E2Eのcurrent-process compositionは、XCTestの環境変数�
 
 ## TURN有効化
 
-TURNによる中継を試す環境でのみ、Cloudflare RealtimeでTURN keyを作り、Key IDを `CLOUDFLARE_TURN_KEY_ID`、対応するAPI tokenを `CLOUDFLARE_TURN_API_TOKEN` として同じWorker環境のruntime secretへ登録する。対象が固定Previewなら `server/` で以下を実行する。
+TURNによる中継を試す環境でのみ、Cloudflare Realtimeで環境ごとに別のTURN keyを作る。Previewは `rideintercom-turn-preview`、Productionは `rideintercom-turn-production` とし、同じkeyを共有しない。環境を示さない自動生成名のkeyはWorkerからの参照を確認できない限り再利用せず、未参照を確認してから削除する。
+
+Dashboardでkeyを作成するときは、登録より先に、その画面で表示されたKey IDとAPI tokenの組を環境名付きで秘密管理先へ保存する。API tokenを後から再表示できず、保存済みの値も確認できない場合は、そのkeyをWorkerへ登録せず削除して作り直す。保存できた組のKey IDを `CLOUDFLARE_TURN_KEY_ID`、対応するAPI tokenを `CLOUDFLARE_TURN_API_TOKEN` として、同じ環境のWorker runtime secretへ登録する。秘密値をrepo、作業記録、チャット、コマンド引数へ残さない。
+
+対象が固定Previewなら `server/` で以下を実行する。
 
 ```sh
 npx wrangler preview secret put CLOUDFLARE_TURN_KEY_ID --name preview
 npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
 ```
 
-固定Previewでは `previews.vars`、本番では本番用の2つのsecretと `vars` を使う。対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
+固定Previewでは `previews.vars`、本番では本番用の2つのsecretと `vars` を使う。keyの作成・秘密管理先への保存・対象環境への2つのsecret登録が揃うまで `TURN_ENABLED` はfalseを保つ。最後に対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
 
 ## 検証環境の間接依存
 
@@ -203,5 +207,7 @@ Debug端末で届きTestFlightで届かない場合は、署名済みAppのentit
 | 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。SERVICE_ENABLEDはtrue |
 
 Apple登録と通知は鍵・プロフィール・APNsの環境を揃えてから、対象環境でAPPLE_AUTH_ENABLEDとNOTIFICATIONS_ENABLEDを有効にする。TestFlightで固定Previewを使う場合は、production APNsに対応する設定と署名を同じPreviewへ揃える。
+
+2026-11-21、現行のProductionと固定Previewを含む3つのPreviewを読取APIで再確認し、全環境で `TURN_ENABLED=false`、`CLOUDFLARE_TURN_KEY_ID` と `CLOUDFLARE_TURN_API_TOKEN` のbindingなしを確認した。用途不明のTURN key `lively-bar-4bf6`（ID `17dfb79b3f05d349aa02155b021a49f5`）は未参照と判断して削除した。新しいPreview／Production用keyは未作成であり、上記の取得・保存順を満たすときに別々に作成する。
 
 照合結果は `.validation/notification-cloudflare-state-20261119/settings.json` に保存した。Worker管理APIは読取だけを実行した。[検証記録](../validation/history/Cloudflare検証.md#productionと固定previewの読取2026-11-19)

@@ -187,3 +187,9 @@ Cloudflare APIのWorker一覧・settings・secret名一覧をGETし、対象ride
 管理APIのGETを使い、現在のProductionのWorker設定・secret名一覧・migration、固定Previewの配置番号382に含まれる公開設定・binding名を照合した。両環境でApp IDと5つのDO、migration v3を確認した。Productionはsecret名0件、SFU App IDのbindingなし。固定PreviewはSFU App ID、`CLOUDFLARE_SFU_APP_SECRET`、`CLIENT_TOKENS_JSON`があり、SERVICE_ENABLEDがtrueだった。両環境でAPPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。
 
 公開設定とsecret名の証跡は `.validation/notification-cloudflare-state-20261119/settings.json`。Previews Baseには照合を広げていない。アカウント固有のsecret値を記録していない。固定PreviewとBaseの入力先の違いはCloudflare公式手順と、リポジトリのWrangler 4.151.3のヘルプで照合した。同じ試用手順で、1対1の呼び出しを開く操作、通話を開始しないグループ招待、実音声の受入を明記した。[試用手順](../../development/Cloudflare試用手順.md#外部設定の確認状況)
+
+## 未参照TURN keyの削除と環境別命名（2026-11-21）
+
+Cloudflare APIのGETで、Productionと固定`preview`を含む現存3 Previewの公開設定・binding名を照合した。Productionはsecret名0件、3 Previewはいずれも`TURN_ENABLED=false`で、全対象に`CLOUDFLARE_TURN_KEY_ID`と`CLOUDFLARE_TURN_API_TOKEN`のbindingがなかった。リポジトリにも対象ID・名前の参照はなかった。
+
+Accountingアカウントに存在したTURN key `lively-bar-4bf6`（ID `17dfb79b3f05d349aa02155b021a49f5`）を未参照と判断し、対象の名前とIDを再照合して削除した。削除後のGETは404を返した。秘密値は取得・表示・記録していない。新しいkeyは作成しておらず、[Cloudflare試用手順](../../development/Cloudflare試用手順.md#turn有効化)へPreview=`rideintercom-turn-preview`、Production=`rideintercom-turn-production`の分離と、作成時にKey ID・API tokenを先に秘密管理先へ保存してからWorkerへ登録する順序を記録した。
