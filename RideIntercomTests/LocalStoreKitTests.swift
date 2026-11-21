@@ -237,8 +237,7 @@ struct LocalStoreKitTests {
     }
 
     private func purchaseResult(_ product: Product) async -> Result<Product.PurchaseResult, any Error> {
-        do { return .success(try await product.purchase()) }
-        catch { return .failure(error) }
+        do { return .success(try await product.purchase()) } catch { return .failure(error) }
     }
     private func unfinishedIDs() async -> Set<UInt64> {
         var ids: Set<UInt64> = []

@@ -35,7 +35,7 @@ struct LoggingPrivacyTests {
             (GroupInviteTokenError.activeGroupKeyChanged, "active_group_key_changed"),
             (GroupInviteTokenError.accountVerificationRequired, "account_verification_required"),
             (IntercomGroupError.storageUnavailable, "storage_unavailable"),
-            (CocoaError(.fileWriteUnknown), "other"),
+            (CocoaError(.fileWriteUnknown), "other")
         ]
         for (error, reason) in cases {
             let metadata = InviteDeepLinkLog.rejected(error)

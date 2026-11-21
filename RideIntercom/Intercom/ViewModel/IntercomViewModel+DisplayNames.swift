@@ -176,8 +176,7 @@ extension IntercomViewModel {
     @discardableResult
     func resetSavedUserName(_ id: UUID) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
-        do { try groupRepository.resetUserName(id) }
-        catch { reportGroupStorageError(error); return false }
+        do { try groupRepository.resetUserName(id) } catch { reportGroupStorageError(error); return false }
         refreshGroupStorageStatus(); groupErrorMessage = nil
         return true
     }
@@ -196,8 +195,9 @@ extension IntercomViewModel {
 
     private func setGroupMemberName(_ memberID: String, in groupID: UUID, localName: String?) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
-        do { try groupRepository.setMemberName(memberID, in: groupID, localName: localName) }
-        catch { reportGroupStorageError(error); return false }
+        do { try groupRepository.setMemberName(memberID, in: groupID, localName: localName) } catch {
+            reportGroupStorageError(error); return false
+        }
         refreshGroupStorageStatus(); groupErrorMessage = nil
         return true
     }

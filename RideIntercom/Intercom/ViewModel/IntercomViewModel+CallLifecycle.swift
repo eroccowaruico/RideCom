@@ -20,16 +20,16 @@ extension IntercomViewModel {
         }
         guard let selectedGroup else { return }
         let storedCredential: GroupAccessCredential?
-        do { storedCredential = try credential(for: selectedGroup) }
-        catch { groupErrorMessage = "Could not read the group key. Try again."; return }
+        do { storedCredential = try credential(for: selectedGroup) } catch {
+            groupErrorMessage = "Could not read the group key. Try again."; return
+        }
         guard let credential = storedCredential else {
             groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
             return
         }
         resumeOrdinaryGroupReply(for: selectedGroup)
         if let invitation = contactInvitationSession {
-            if invitation.canContinueDuringCall { invitation.stopCallRoute() }
-            else { stopContactInvitationSession() }
+            if invitation.canContinueDuringCall { invitation.stopCallRoute() } else { stopContactInvitationSession() }
         }
         groupErrorMessage = nil
         connectivityNotice = nil
@@ -98,8 +98,11 @@ extension IntercomViewModel {
         let abandonStart = { [weak self] (reason: String?) in
             guard let self else { return }
             self.stopAudioPipeline()
-            if resumingDevice { self.reportAudioDeviceRestartFailure(reason: reason) }
-            else if let reason { self.audioErrorMessage = reason }
+            if resumingDevice {
+                self.reportAudioDeviceRestartFailure(reason: reason)
+            } else if let reason {
+                self.audioErrorMessage = reason
+            }
         }
         let generation = audioGeneration, connection = connectionGeneration
         audioStartTask = Task { [weak self] in
@@ -172,8 +175,7 @@ extension IntercomViewModel {
         if !admitted { audioPipeline.setInputMuted(true) }
         if admitted != isCallMediaStarted {
             isCallMediaStarted = admitted
-            if admitted { callSession.startMedia() }
-            else { callSession.stopMedia() }
+            if admitted { callSession.startMedia() } else { callSession.stopMedia() }
         }
         audioPipeline.setInputMuted(effectiveInputMuted || !admitted)
     }
@@ -299,8 +301,11 @@ extension IntercomViewModel {
                 self.handleAudioStreamRuntimeEvent(event)
             }
         }
-        if let recording { audioPipeline.onTransmitPacket = { recording.receive($0) } }
-        else { audioPipeline.onTransmitPacket = callSession.audioPacketSink }
+        if let recording {
+            audioPipeline.onTransmitPacket = { recording.receive($0) }
+        } else {
+            audioPipeline.onTransmitPacket = callSession.audioPacketSink
+        }
         if finiteRecordingDuration == nil, pipeline.usesHardwareClock, audioOutputRenderer.rendersToHardware {
             pipeline.onOutputFrame = nil
             return
@@ -382,8 +387,9 @@ extension IntercomViewModel {
 
     func startPreparedAudioOutput(configuration: SessionManager.AudioOutputStreamConfiguration? = nil) -> Bool {
         guard startOutputRenderer(configuration: configuration) else { return false }
-        do { try audioPipeline.startPreparedOutput(); return true }
-        catch { audioErrorMessage = "Audio output failed"; return false }
+        do { try audioPipeline.startPreparedOutput(); return true } catch {
+            audioErrorMessage = "Audio output failed"; return false
+        }
     }
 
     func startOutputRenderer(configuration: SessionManager.AudioOutputStreamConfiguration? = nil) -> Bool {
@@ -449,7 +455,7 @@ private extension SessionManager.AudioSessionOperationResult {
         switch self {
         case .applied, .ignored(.unsupportedOnCurrentPlatform), .ignored(.unsupportedSelection), .ignored(.unavailableDevice):
             true
-        case .ignored(.superseded), .failed(_):
+        case .ignored(.superseded), .failed:
             false
         }
     }
@@ -458,9 +464,9 @@ private extension SessionManager.AudioSessionOperationResult {
 private extension SessionManager.AudioStreamOperationResult {
     var isContinuable: Bool {
         switch self {
-        case .applied, .ignored(_):
+        case .applied, .ignored:
             true
-        case .failed(_):
+        case .failed:
             false
         }
     }

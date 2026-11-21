@@ -8,7 +8,7 @@ struct TestWaitTests {
     /// waited: it must still give the awaited work its turns before it gives up.
     @Test func aWaitThatTheMainThreadKeptFromRunningStillSeesTheAwaitedWork() async {
         var finished = false
-        Task { @MainActor in
+        DispatchQueue.main.async {
             Thread.sleep(forTimeInterval: 1.2)
             Task { @MainActor in finished = true }
         }

@@ -71,9 +71,9 @@ struct RealtimeConversationTests {
         defer { if held { lock.unlock() } }
         DispatchQueue.global(qos: .userInteractive).async {
             entered.signal()
-            do { _ = try receiver.receive(packet) }
-            catch AppAudioPipelineError.notConfigured { rejected.withLock { $0 = true } }
-            catch {}
+                do { _ = try receiver.receive(packet) } catch AppAudioPipelineError.notConfigured {
+                    rejected.withLock { $0 = true }
+                } catch {}
             completed.signal()
         }
         #expect(entered.wait(timeout: .now() + 1) == .success)
@@ -300,8 +300,7 @@ struct RealtimeConversationTests {
             var failed = 0, received = 0
             started.signal()
             repeat {
-                do { _ = try pipeline.processReceivedAudioPacket(packet); received += 1 }
-                catch { failed += 1 }
+                do { _ = try pipeline.processReceivedAudioPacket(packet); received += 1 } catch { failed += 1 }
                 try? await Task.sleep(for: .milliseconds(1))
             } while !finished.withLock({ $0 })
             return (received, failed)

@@ -87,8 +87,9 @@ extension IntercomViewModel {
         retryWaitingRepresentativeProfiles(afterDeparture: !disconnectedPeerIDs.isEmpty)
 
         for peerID in disconnectedPeerIDs {
-            do { try audioPipeline.stopReceivePeer(peerID) }
-            catch { audioErrorMessage = "Could not release the rider's audio. Reconnect to reset audio." }
+            do { try audioPipeline.stopReceivePeer(peerID) } catch {
+                audioErrorMessage = "Could not release the rider's audio. Reconnect to reset audio."
+            }
             remoteVoiceReceivedAt.removeValue(forKey: peerID)
             remoteRuntimeStatuses.removeValue(forKey: peerID)
             setRemotePeer(peerID, isTalking: false)

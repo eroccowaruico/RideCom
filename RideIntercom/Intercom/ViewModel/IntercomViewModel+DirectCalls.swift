@@ -144,8 +144,11 @@ extension IntercomViewModel {
     func refreshContactInvitationGroup(_ invitationID: UUID) {
         guard let groupID = groupRepository.contactInvitations.first(where: { $0.id == invitationID })?.invitedGroupID,
               let stored = groupRepository.storedGroup(groupID) else { return }
-        if groups.contains(where: { $0.id == groupID }) { refreshStoredAccountCall(groupID) }
-        else { groups.insert(stored, at: 0) }
+        if groups.contains(where: { $0.id == groupID }) {
+            refreshStoredAccountCall(groupID)
+        } else {
+            groups.insert(stored, at: 0)
+        }
     }
 
     /// Merge durable membership without resetting live mute, audio or connection state.

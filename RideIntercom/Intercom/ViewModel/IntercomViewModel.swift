@@ -328,16 +328,14 @@ final class IntercomViewModel {
         do {
             let restored = try repository.load(localMemberID: localMemberIdentity.memberID)
             self.groups = restored
-        }
-        catch {
+        } catch {
             self.groups = []
             let issue = GroupStorageIssue.classify(error)
             self.groupStorageIssue = issue
             self.groupCallIssue = .notice(issue.message)
         }
         let internetConfiguration: RTC.CloudflareRealtimeConfiguration?
-        do { internetConfiguration = try internetSettingsStore.load() }
-        catch {
+        do { internetConfiguration = try internetSettingsStore.load() } catch {
             internetConfiguration = nil
             self.internetCheckMessage = "Could not read saved Internet credentials. Saved data has been preserved."
         }

@@ -82,8 +82,9 @@ extension IntercomViewModel {
            storedStart.map({ !CallAccessState.validStart($0, now: now) || start > $0 }) ?? true,
            lastCallAccessSaveAttempt != start {
             lastCallAccessSaveAttempt = start
-            do { try groupRepository.recordSponsoredStart(start, for: groupID, now: now) }
-            catch { reportGroupStorageError(error) }
+            do { try groupRepository.recordSponsoredStart(start, for: groupID, now: now) } catch {
+                reportGroupStorageError(error)
+            }
         }
         if previousAdmission != callAccessAdmittedMemberships { callSession.setAudioPolicy(currentCallAudioPolicy()) }
         sendCallAccess(now: now)

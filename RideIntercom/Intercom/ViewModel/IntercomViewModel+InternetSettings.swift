@@ -33,8 +33,9 @@ extension IntercomViewModel {
             return
         }
         // Disable saved Internet access before the asynchronous server request.
-        do { _ = try internetSettingsStore.retireAppleCredential() }
-        catch { internetCheckMessage = "Could not read Internet access for sign-out. Saved data has been preserved." }
+        do { _ = try internetSettingsStore.retireAppleCredential() } catch {
+            internetCheckMessage = "Could not read Internet access for sign-out. Saved data has been preserved."
+        }
         hasInternetCredentials = false
         localAccountPrincipal = nil
         Task { await retryInternetAccountRevocation() }
@@ -52,8 +53,7 @@ extension IntercomViewModel {
     }
     func saveInternetConnection(url: String, token: String, identity: VerifiedDeviceIdentity? = nil) throws {
         guard canStartCalls else { throw InternetAccountClient.Failure.rejected }
-        do { try internetSettingsStore.save(url: url, token: token, identity: identity) }
-        catch {
+        do { try internetSettingsStore.save(url: url, token: token, identity: identity) } catch {
             if internetSettingsStore.requiresAccountDataReset {
                 requiresAccountDataReset = true
                 invitationBackgroundTransfer?.reconcile(keeping: [])
@@ -92,8 +92,9 @@ extension IntercomViewModel {
     func checkInternetService(session: URLSession = .shared) async {
         guard canStartCalls, !isCheckingInternet else { return }
         let stored: CloudflareRealtimeConfiguration?
-        do { stored = try internetSettingsStore.load() }
-        catch { internetCheckMessage = "Could not read saved Internet credentials. Try again."; return }
+        do { stored = try internetSettingsStore.load() } catch {
+            internetCheckMessage = "Could not read saved Internet credentials. Try again."; return
+        }
         guard let configuration = stored else {
             internetCheckMessage = "Configure Internet Connection in Settings first."
             return

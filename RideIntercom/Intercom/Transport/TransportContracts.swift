@@ -38,4 +38,3 @@ enum CallConnectionState: Equatable {
         }
     }
 }
-

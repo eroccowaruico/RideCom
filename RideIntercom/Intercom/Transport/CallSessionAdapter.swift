@@ -130,8 +130,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func setLocalMute(_ muted: Bool) {
         requestedLocalMute = muted
-        if muted { clearPendingAudio() }
-        else if mediaRequested { audioDelivery.begin() }
+        if muted { clearPendingAudio() } else if mediaRequested { audioDelivery.begin() }
         enqueue(.localMute(muted))
     }
 

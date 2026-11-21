@@ -146,8 +146,7 @@ extension IntercomViewModel {
             connectedPeerIDs = []
             authenticatedPeerIDs = []
             peerProfiles.removeAll()
-            if willRetry { refreshCallMediaAdmission() }
-            else { stopAudioPipeline() }
+            if willRetry { refreshCallMediaAdmission() } else { stopAudioPipeline() }
             localNetworkStatus = willRetry ? .unavailable : .idle
             connectionState = willRetry ? .reconnectingOffline : .idle
             markMembers(willRetry ? .connecting : .offline)

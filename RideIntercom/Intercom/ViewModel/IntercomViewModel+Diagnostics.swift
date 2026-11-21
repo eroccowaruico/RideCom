@@ -116,7 +116,6 @@ extension IntercomViewModel {
         authenticatedPeerIDs.count
     }
 
-
 }
 
 struct DiagnosticsAppliedRow: Identifiable {

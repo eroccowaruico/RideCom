@@ -43,8 +43,11 @@ struct ContentView: View {
         .onOpenURL { url in
             if url.scheme == "rideintercom", url.host == "call" { selectedTab = .call; return }
             guard !account.deletion.blocksSignIn, url.scheme == "rideintercom", url.host == "join" || url.host == "contact" || url.host == "contact-reply" else { return }
-            if let viewModel, viewModel.canStartCalls { openInvitation(url, in: viewModel) }
-            else { pendingInviteURL = url }
+            if let viewModel, viewModel.canStartCalls {
+                openInvitation(url, in: viewModel)
+            } else {
+                pendingInviteURL = url
+            }
         }
     }
 

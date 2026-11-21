@@ -19,15 +19,15 @@ enum AppColorPalette {
     /// Layer 2: cards drawn by hand (Advanced, Diagnostics) match a List row, opaque.
     /// Layer 3: the nested surface inside a card, also opaque.
     #if os(macOS)
-    static let cardSurface: Color = Color(nsColor: .controlBackgroundColor)
-    static let panelSurface: Color = Color(nsColor: .windowBackgroundColor)
+    static let cardSurface = Color(nsColor: .controlBackgroundColor)
+    static let panelSurface = Color(nsColor: .windowBackgroundColor)
     #else
-    static let cardSurface: Color = Color(uiColor: .secondarySystemGroupedBackground)
-    static let panelSurface: Color = Color(uiColor: .tertiarySystemGroupedBackground)
+    static let cardSurface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let panelSurface = Color(uiColor: .tertiarySystemGroupedBackground)
     #endif
-    static let cardBorder: Color = Color.secondary.opacity(0.35)
+    static let cardBorder = Color.secondary.opacity(0.35)
 
-    static let meterTrack: Color = Color.secondary.opacity(0.16)
+    static let meterTrack = Color.secondary.opacity(0.16)
 
     static let buttonProminentBackground: Color = .accentColor
     static let buttonProminentForeground: Color = .white

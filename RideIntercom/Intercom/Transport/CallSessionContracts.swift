@@ -61,7 +61,6 @@ struct LocalNetworkEvent: Equatable {
     }
 }
 
-
 nonisolated enum AudioPacketReception: Equatable, Sendable {
     case processed(level: Float)
     case unavailable
@@ -81,8 +80,7 @@ nonisolated enum AudioPacketReception: Equatable, Sendable {
 extension ApplicationDataMessage {
     /// Callers check namespace and size first, so only a known namespace reaches the log.
     func decodedPayload<T: Decodable>(_ type: T.Type, from peerID: String) -> T? {
-        do { return try JSONDecoder().decode(T.self, from: payload) }
-        catch {
+        do { return try JSONDecoder().decode(T.self, from: payload) } catch {
             AppLoggers.rtc.warning("rtc.application_data.decode_failed",
                                    metadata: ApplicationDataLog.decodeFailed(namespace: namespace, peerID: peerID, error: error))
             return nil
@@ -142,4 +140,3 @@ protocol CallSession: AnyObject {
 extension CallSession {
     func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration) {}
 }
-
