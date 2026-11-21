@@ -266,7 +266,7 @@ struct AudioE2EEndpoint {
             let url = try XCTUnwrap(worker.url)
             rendezvous = { phase, timeout in
                 try await AudioE2EWorker.waitForPairStage(
-                    at: url, room: worker.room, run: run.identifier, role: run.role, phase: phase, timeout: timeout
+                    at: url, room: worker.room, run: run, phase: phase, timeout: timeout
                 )
             }
         } else {

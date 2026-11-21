@@ -9,7 +9,7 @@ final class SwitchMeasurementTests: XCTestCase {
                 if index < gap * (rate / 1_000) { return 0 }
                 return Float(0.04 * sin(2 * Double.pi * 600 * Double(index) / Double(rate)))
             }
-            let recording: RenderedAudioProbe.Recording = (samples, Double(rate), 0)
+            let recording = RenderedAudioProbe.Recording(samples: samples, rate: Double(rate), invalid: 0)
             let audio = SwitchRecordings(final: recording, decoded: recording, mixed: recording)
             let window = SwitchStageWindow(
                 name: "tone", time: 0, duration: 0,

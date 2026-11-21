@@ -16,16 +16,23 @@ struct AudioE2EScenario: Codable {
     let speaker: Bool
     let vad: String
     var transmitIsolation: Bool
-    let masterIsolation: Bool
+    let receiveMixIsolation: Bool
     let peerIsolation: Bool
     let duck: Bool
-    let masterVolume: Float
+    let receiveMixVolume: Float
     let peerVolume: Float
     let localMute: Bool
     let outputMute: Bool
     let seconds: Double
 
-    var expectsSilence: Bool { localMute || outputMute || masterVolume == 0 || peerVolume == 0 }
+    private enum CodingKeys: String, CodingKey {
+        case id, codec, format, bitRate, profile, speaker, vad, transmitIsolation, peerIsolation
+        case duck, peerVolume, localMute, outputMute, seconds
+        case receiveMixIsolation = "masterIsolation"
+        case receiveMixVolume = "masterVolume"
+    }
+
+    var expectsSilence: Bool { localMute || outputMute || receiveMixVolume == 0 || peerVolume == 0 }
 
     private var wantsSpeaker: Bool {
         #if os(iOS)
@@ -49,7 +56,16 @@ struct AudioE2EScenario: Codable {
         if model.rtcAudioFormatPreset != rate { model.setRTCAudioFormatPreset(rate) }
         if model.preferredTransmitCodec != requested { model.setPreferredTransmitCodec(requested) }
         if codec == "opus", model.opusBitRate != bitRate { model.setOpusBitRate(bitRate) }
-        if ["mpeg4AACELD", "mpeg4AACELDv2"].contains(codec), model.aacELDv2BitRate != bitRate { model.setAACELDv2BitRate(bitRate) }
+        if ["mpeg4AACELD", "mpeg4AACELDv2"].contains(codec), model.aacELDv2BitRate != bitRate {
+            model.setAACELDv2BitRate(bitRate)
+        }
+        applySessionSettings(to: model, session: session)
+        if model.vadSensitivity != sensitivity { model.setVADSensitivity(sensitivity) }
+        applyMixSettings(to: model, peerID: peerID)
+    }
+
+    @MainActor
+    private func applySessionSettings(to model: IntercomViewModel, session: AudioSessionProfile) {
         // Exercise the same independent controls as Settings, including speaker
         // with Stream mode and both explicit Echo Cancellation preferences.
         if model.audioSessionModeProfile != session.settingsModeProfile {
@@ -61,14 +77,19 @@ struct AudioE2EScenario: Codable {
             model.setSessionEchoCancellationEnabled(session.prefersEchoCancelledInput)
         }
         if model.isSpeakerOutputEnabled != wantsSpeaker { model.setSpeakerOutputEnabled(wantsSpeaker) }
-        if model.vadSensitivity != sensitivity { model.setVADSensitivity(sensitivity) }
+    }
+
+    @MainActor
+    private func applyMixSettings(to model: IntercomViewModel, peerID: String) {
         if model.isSoundIsolationEnabled != transmitIsolation { model.setSoundIsolationEnabled(transmitIsolation) }
-        if model.receiveMasterSoundIsolationEnabled != masterIsolation { model.setReceiveMasterSoundIsolationEnabled(masterIsolation) }
+        if model.receiveMasterSoundIsolationEnabled != receiveMixIsolation {
+            model.setReceiveMasterSoundIsolationEnabled(receiveMixIsolation)
+        }
         if model.isRemoteSoundIsolationEnabled(peerID: peerID) != peerIsolation {
             model.setRemoteSoundIsolationEnabled(peerID: peerID, enabled: peerIsolation)
         }
         if model.isDuckOthersEnabled != duck { model.setDuckOthersEnabled(duck) }
-        model.setMasterOutputVolume(masterVolume)
+        model.setMasterOutputVolume(receiveMixVolume)
         model.setRemoteOutputVolume(peerID: peerID, volume: peerVolume)
         if model.isMuted != localMute { model.toggleMute() }
         if model.isOutputMuted != outputMute { model.toggleOutputMute() }
@@ -86,27 +107,19 @@ struct AudioE2EScenario: Codable {
         let sessionReport = model.lastAudioSessionConfigurationReport
         XCTAssertEqual(sessionReport?.requestedConfiguration.mode, session.mode)
         XCTAssertEqual(sessionReport?.requestedConfiguration.defaultToSpeaker, wantsSpeaker)
-        XCTAssertEqual(sessionReport?.requestedConfiguration.prefersEchoCancelledInput, session.prefersEchoCancelledInput)
+        XCTAssertEqual(
+            sessionReport?.requestedConfiguration.prefersEchoCancelledInput, session.prefersEchoCancelledInput
+        )
         for operation in sessionReport?.operations ?? [] {
             if case .failed = operation.result { XCTFail("\(id): \(operation)") }
         }
-        XCTAssertEqual(model.vadGateRuntimeSnapshot.configuration, model.vadSensitivity.configuration)
-        let report = model.audioPipeline.codecRuntimeReport
-        XCTAssertEqual(report.requestedConfiguration.codec.rawValue, codec)
-        XCTAssertEqual(report.requestedConfiguration.format, model.rtcAudioFormatPreset.audioFormat)
-        if codec != "pcm16" { XCTAssertEqual(report.requestedConfiguration.activeBitRate, bitRate) }
-        XCTAssertEqual(model.selectedTransmitCodec.rawValue, report.selectedCodec.rawValue)
-        XCTAssertEqual(report.isFallback, report.selectedCodec.rawValue != codec)
-        if codec != "mpeg4AACELDv2" { XCTAssertFalse(report.isFallback) }
-        if report.isFallback {
-            XCTAssertFalse(report.availableCodecs.map(\.rawValue).contains(codec))
-            XCTAssertEqual(report.selectedCodec.rawValue, "pcm16")
-        }
+        verifyCodecAndVAD(on: model)
         let buses = model.audioPipeline.snapshot.buses
-        XCTAssertEqual(buses.first(where: { $0.id == "rx-master" })?.volume, outputMute ? 0 : masterVolume)
+        XCTAssertEqual(buses.first(where: { $0.id == "rx-master" })?.volume, outputMute ? 0 : receiveMixVolume)
         XCTAssertEqual(model.remoteOutputVolumes[peerID] ?? 1, peerVolume)
         XCTAssertEqual(model.lastInputStreamOperationReport?.snapshot.isRunning, true)
-        XCTAssertEqual(model.lastVoiceProcessingOperationReport?.snapshot.inputVoiceProcessing?.otherAudioDuckingEnabled, duck)
+        let voiceProcessing = model.lastVoiceProcessingOperationReport?.snapshot.inputVoiceProcessing
+        XCTAssertEqual(voiceProcessing?.otherAudioDuckingEnabled, duck)
         XCTAssertEqual(model.lastVoiceProcessingOperationReport?.snapshot.inputVoiceProcessing?.inputMuted, localMute)
         #if os(iOS)
         XCTAssertEqual(model.lastVoiceProcessingOperationReport?.result, .applied)
@@ -121,10 +134,26 @@ struct AudioE2EScenario: Codable {
         effect("tx-bus", "sound-isolation", active: transmitIsolation)
         effect("tx-bus", "dynamics-processor", active: true)
         effect("tx-bus", "peak-limiter", active: true)
-        effect("rx-master", "sound-isolation", active: masterIsolation)
+        effect("rx-master", "sound-isolation", active: receiveMixIsolation)
         effect("rx-peer-\(peerID)", "sound-isolation", active: peerIsolation)
         effect("rx-output", "peak-limiter", active: true)
     }
+    @MainActor
+    private func verifyCodecAndVAD(on model: IntercomViewModel) {
+        XCTAssertEqual(model.vadGateRuntimeSnapshot.configuration, model.vadSensitivity.configuration)
+        let report = model.audioPipeline.codecRuntimeReport
+        XCTAssertEqual(report.requestedConfiguration.codec.rawValue, codec)
+        XCTAssertEqual(report.requestedConfiguration.format, model.rtcAudioFormatPreset.audioFormat)
+        if codec != "pcm16" { XCTAssertEqual(report.requestedConfiguration.activeBitRate, bitRate) }
+        XCTAssertEqual(model.selectedTransmitCodec.rawValue, report.selectedCodec.rawValue)
+        XCTAssertEqual(report.isFallback, report.selectedCodec.rawValue != codec)
+        if codec != "mpeg4AACELDv2" { XCTAssertFalse(report.isFallback) }
+        if report.isFallback {
+            XCTAssertFalse(report.availableCodecs.map(\.rawValue).contains(codec))
+            XCTAssertEqual(report.selectedCodec.rawValue, "pcm16")
+        }
+    }
+
 }
 
 struct AudioE2ENetworkRun {
