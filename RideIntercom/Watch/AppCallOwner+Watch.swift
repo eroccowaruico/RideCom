@@ -1,15 +1,10 @@
+import CallControl
 import Foundation
 
 extension AppCallOwner {
     /// Watch starts calls to saved people; Widget and Siri keep their broader directory.
     private var watchCallTargets: [(entity: CallTargetEntity, destination: CallDestination)] {
         callTargets.filter { if case .user = $0.destination { true } else { false } }
-    }
-
-    /// An opaque reference to the existing account/call generation, not another call state.
-    private func watchReference(_ vm: IntercomViewModel) -> String {
-        let call = vm.currentCallReference
-        return "\(call.accountAccessID)|\(call.connectionGeneration)|\(call.groupID?.uuidString ?? "idle")"
     }
 
     func watchSnapshot(now: Date = Date()) -> WatchCallSnapshot {
@@ -25,7 +20,7 @@ extension AppCallOwner {
         case .audioPaused: .audioPaused
         case .audioUnavailable: .audioUnavailable
         }
-        return .init(reference: watchReference(vm), generatedAt: now, validUntil: now.addingTimeInterval(120),
+        return .init(reference: vm.currentCallReference.encoded, generatedAt: now, validUntil: now.addingTimeInterval(120),
                      targets: watchCallTargets.map { .init(id: $0.entity.id, name: $0.entity.name) },
                      title: vm.groups.first { $0.id == vm.activeGroupID }.map(vm.callTitle),
                      hasCall: hasCall, isMuted: vm.isMuted, state: state,
@@ -43,7 +38,7 @@ extension AppCallOwner {
         func reply(_ problem: WatchControlProblem? = nil) -> WatchControlReply { .init(snapshot: watchSnapshot(now: now), problem: problem) }
         if request.action == .refresh { return reply() }
         guard let vm = try? callModel(), vm.hasCurrentAccountAccess else { return reply(.noAccount) }
-        guard request.reference == watchReference(vm), request.validUntil > now,
+        guard request.reference == vm.currentCallReference.encoded, request.validUntil > now,
               request.validUntil <= now.addingTimeInterval(120) else { return reply(.stale) }
         let succeeded: Bool
         switch request.action {

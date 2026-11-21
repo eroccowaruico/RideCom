@@ -1,3 +1,4 @@
+import CallControl
 import Foundation
 
 /// Choosing from a list: `opened` started or reopened that call; `showsLiveCall` kept you where you are,
@@ -13,13 +14,6 @@ enum CallStartSource {
     case thisDevice
     case watchRemote
     case watchAudio
-}
-
-/// A snapshot of the account and connection being controlled, including idle mute intent.
-nonisolated struct CallReference: Equatable, Sendable {
-    let accountAccessID: UUID
-    let connectionGeneration: UUID
-    let groupID: UUID?
 }
 
 extension IntercomViewModel {

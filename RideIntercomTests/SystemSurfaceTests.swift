@@ -1,3 +1,4 @@
+import CallControl
 import AppIntents
 import Foundation
 import Testing
@@ -126,11 +127,15 @@ struct SystemSurfaceTests {
         let h = AppTestSupport.makeHarness(appSettingsStore: store), vm = h.viewModel
         defer { vm.disconnect() }
         let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        #expect(owner.currentLivePresentation == nil)
+        #expect(owner.watchSnapshot().reference?.hasSuffix("|idle") == true)
         vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
         vm.selectGroup(vm.groups[1], connectIfIdle: false)
         #expect(vm.standardCallStatus == .ready)
         #expect(owner.currentLivePresentation?.status == vm.callStatus(for: vm.activeGroupID))
-        #expect(owner.currentLivePresentation?.reference.groupID == vm.activeGroupID)
+        let displayed = try #require(owner.currentLivePresentation?.reference)
+        #expect(displayed.groupID == vm.activeGroupID)
+        #expect(displayed.encoded == owner.watchSnapshot().reference)
         vm.setLiveActivityEnabled(true)
         vm.saveAppSettings(); vm.resetAllSettings()
         #expect(store.load().liveActivityEnabled)

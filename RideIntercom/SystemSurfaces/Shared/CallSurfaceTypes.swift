@@ -1,3 +1,4 @@
+import CallControl
 import Foundation
 
 nonisolated enum StandardCallStatus: String, Codable, Hashable, Sendable {
@@ -29,23 +30,6 @@ nonisolated enum StandardCallStatus: String, Codable, Hashable, Sendable {
         case .audioUnavailable: "Check your settings"
         case .chooseDestination, .ready, .inCall: nil
         }
-    }
-}
-
-/// Displayed-operation identity only. No account identifier, credentials or names.
-nonisolated struct CallSurfaceReference: Codable, Hashable, Sendable {
-    let accountAccessID: UUID
-    let connectionGeneration: UUID
-    let groupID: UUID
-    init(accountAccessID: UUID, connectionGeneration: UUID, groupID: UUID) {
-        self.accountAccessID = accountAccessID; self.connectionGeneration = connectionGeneration; self.groupID = groupID
-    }
-    var encoded: String { [accountAccessID, connectionGeneration, groupID].map(\.uuidString).joined(separator: "|") }
-    init?(encoded: String) {
-        guard encoded.utf8.count == 110 else { return nil }
-        let parts = encoded.split(separator: "|").compactMap { UUID(uuidString: String($0)) }
-        guard parts.count == 3 else { return nil }
-        accountAccessID = parts[0]; connectionGeneration = parts[1]; groupID = parts[2]
     }
 }
 

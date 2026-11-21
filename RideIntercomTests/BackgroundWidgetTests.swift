@@ -1,4 +1,5 @@
 #if os(macOS)
+import CallControl
 import AppIntents
 import Foundation
 import Testing

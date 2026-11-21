@@ -1,4 +1,5 @@
 #if os(macOS)
+import CallControl
 import Foundation
 import Testing
 @testable import RideIntercom

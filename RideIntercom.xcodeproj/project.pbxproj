@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CA1100000000000000000004 /* CallControl in Frameworks */ = {isa = PBXBuildFile; productRef = CA1100000000000000000002 /* CallControl */; };
+		CA1100000000000000000005 /* CallControl in Frameworks */ = {isa = PBXBuildFile; productRef = CA1100000000000000000003 /* CallControl */; };
 		46D1F67273160099EA54F6D1 /* RideIntercomWidgets.appex in Embed Widget Extension */ = {isa = PBXBuildFile; fileRef = 56F6D0BB98E4179BB121F578 /* RideIntercomWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4A70295CC8984182A928FC3A /* AudioDevice in Frameworks */ = {isa = PBXBuildFile; productRef = FD5319A4F84D41EEBD886629 /* AudioDevice */; };
 		60BF422F1B3694AA5E84F16C /* RideIntercom/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 24CAD00D525C7DAC722B6173 /* RideIntercom/Localizable.xcstrings */; };
@@ -300,11 +302,13 @@
 		867B78FE89392B598E01383C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				CA1100000000000000000005 /* CallControl in Frameworks */,
 			);
 		};
 		93F300C52F93829C0046716D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				CA1100000000000000000004 /* CallControl in Frameworks */,
 				9306F02A2FA8DFD30030B045 /* AVFAudio.framework in Frameworks */,
 				9306F0282FA8DFBA0030B045 /* AVFoundation.framework in Frameworks */,
 				93C60CE62FA3B46A00841E64 /* SafetyKit.framework in Frameworks */,
@@ -482,6 +486,9 @@
 				F2FF24FCC7CD717AC0CF70D8 /* RideIntercom/SystemSurfaces/Shared */,
 			);
 			name = RideIntercomWidgets;
+			packageProductDependencies = (
+				CA1100000000000000000003 /* CallControl */,
+			);
 			productName = RideIntercomWidgets;
 			productReference = 56F6D0BB98E4179BB121F578 /* RideIntercomWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -508,6 +515,7 @@
 			);
 			name = RideIntercom;
 			packageProductDependencies = (
+				CA1100000000000000000002 /* CallControl */,
 				934630842F9C0001001548C3 /* RTC */,
 				934630882F9C0001001548C3 /* RTCNativeWebRTC */,
 				9374C4B92FA364F000D259B2 /* Logging */,
@@ -1051,7 +1059,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1812;
+				CURRENT_PROJECT_VERSION = 1815;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1218,7 +1226,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1812;
+				CURRENT_PROJECT_VERSION = 1815;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1504,7 +1512,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1812;
+				CURRENT_PROJECT_VERSION = 1815;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1574,7 +1582,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1812;
+				CURRENT_PROJECT_VERSION = 1815;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -2125,6 +2133,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CA1100000000000000000002 /* CallControl */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */;
+			productName = CallControl;
+		};
+		CA1100000000000000000003 /* CallControl */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */;
+			productName = CallControl;
+		};
 		2B44E19C9FE402C8B4453651 /* RTC */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RideIntercom/packages/RTC" */;

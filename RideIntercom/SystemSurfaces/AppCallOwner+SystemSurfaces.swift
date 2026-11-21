@@ -1,3 +1,4 @@
+import CallControl
 import Foundation
 import Observation
 
@@ -6,17 +7,14 @@ extension AppCallOwner {
 
     @discardableResult
     func setCallSurfaceMuted(_ muted: Bool, reference: CallSurfaceReference) -> Bool {
-        viewModel?.setCallMuted(muted, for: .init(accountAccessID: reference.accountAccessID,
-            connectionGeneration: reference.connectionGeneration, groupID: reference.groupID)) == true
+        viewModel?.setCallMuted(muted, for: reference.callReference) == true
     }
 
     var currentLivePresentation: CallLivePresentation? {
         guard let vm = viewModel, vm.canStartCalls, vm.hasAnyActiveGroupConnection,
-              let groupID = vm.activeGroupID else { return nil }
-        let reference = vm.currentCallReference
-        return .init(reference: .init(accountAccessID: reference.accountAccessID,
-            connectionGeneration: reference.connectionGeneration, groupID: groupID),
-            status: vm.callStatus(for: groupID), isMuted: vm.effectiveInputMuted, canControlMicrophone: vm.canControlMicrophone)
+              let reference = vm.currentCallReference.displayedCall else { return nil }
+        return .init(reference: reference, status: vm.callStatus(for: reference.groupID),
+                     isMuted: vm.effectiveInputMuted, canControlMicrophone: vm.canControlMicrophone)
     }
     func observeSystemSurfaces() {
         let input = withObservationTracking {
@@ -39,8 +37,7 @@ extension AppCallOwner {
                 throw CallIntentError.unavailable(vm.groupErrorMessage ?? "The call could not be started.")
             }
         case .end:
-            guard let reference, vm.endCall(.init(accountAccessID: reference.accountAccessID,
-                connectionGeneration: reference.connectionGeneration, groupID: reference.groupID)) else {
+            guard let reference, vm.endCall(reference.callReference) else {
                 throw CallIntentError.unavailable("The displayed call has ended or changed. Open RideCom to check your current call.")
             }
         }
