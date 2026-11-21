@@ -94,6 +94,14 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 
 署名鍵の変更時にはAppで証明と信頼する公開鍵を再取得する。期限切れ・未知の署名鍵の証明で新しい同一人物の統合を行わない。Local通話の開始をこのAPI呼出しへ従属させず、公開identityが未取得でも既存のAppleログイン・グループ認証の経路は維持する。公開通知を追加する際は、受取側の用途別許可・取消とオンライン資格の失効確認を別途接続する。
 
+#### 招待を預けるサービスの暗号化公開鍵
+
+対象サービスに `INVITATION_RELAY_KEY_SEED` が設定されている場合、既存の端末証明の署名対象に `invitationRelayKey: {kid,x,expiresAt}` を加える。設定するのは環境専用のランダムな32byteをpaddingなしbase64urlで表現したsecret。未設定や形式不正では項目を省略し、既存の端末証明を発行する。応答のキー構成と認証手順は変えない。
+
+公開鍵はRFC 7748のX25519の32byte公開座標をpaddingなしbase64urlとした `x`。発行時刻をUnix秒として30日ごとの区間番号 `period = floor(iat / 2592000)` を求める。元の32byteをHKDF-SHA-256の入力、UTF-8の `rideintercom.invitation-relay-key.v1` をsalt、空白を加えない `JSON.stringify([iss,period])` のUTF-8をinfoとし、32byteのX25519秘密鍵を導出する。鍵識別子は `v1-{period}`、公開鍵の期限はUnix秒の `(period + 2) * 2592000`。新しい証明は次の区間で別の公開鍵を受け取る。旧区間の公開鍵にも次の区間の末まで期限があるので、発行済み証明の有効期間を覆う。
+
+本番とPreviewには別々のsecretを使い、同じsecretであってもoriginが異なれば鍵が異なる。区間ごとの鍵の生成や交換に定期の手作業は発生しない。Workerは元のsecret・導出した秘密鍵・証明のコピーを返さず、公開鍵の追加DB、回収処理やアラームも作らない。ここで扱うのは鍵の配布まで。OSへ渡す要求の外側の暗号化と、Workerが期限内の対象鍵で暗号文を開く処理は、個人招待の背景転送を接続するときに検証する。[X25519の定義](https://www.rfc-editor.org/rfc/rfc7748.html)、[CloudflareのWeb Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
+
 ### アカウントの端末登録削除
 
 | 項目 | 契約 |

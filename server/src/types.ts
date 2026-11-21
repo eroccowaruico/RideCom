@@ -14,6 +14,7 @@ export interface Env extends Omit<WorkerBindings, 'SIGNALING_ROOM' | 'USAGE_GUAR
     APNS_KEY_ID?: string
     APNS_TEAM_ID?: string
     DEVICE_IDENTITY_SIGNING_KEY?: string
+    INVITATION_RELAY_KEY_SEED?: string
     CLIENT_TOKENS_JSON: string
 }
 export interface Description { type: 'offer' | 'answer'; sdp: string }

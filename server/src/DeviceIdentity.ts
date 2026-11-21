@@ -1,6 +1,7 @@
 import { base64url, importJWK, jwtVerify, SignJWT } from 'jose'
 import { Env } from './types'
 import type { DeviceIdentity } from './AppleAccount'
+import { currentInvitationRelayKey } from './InvitationRelayKey'
 
 function memberIDIsValid(value: unknown): value is string {
     return typeof value === 'string' && /^[A-Za-z0-9_-]{1,63}$/.test(value) && !value.startsWith('invite-pending-')
@@ -34,7 +35,8 @@ export async function certifyDevice(identity: DeviceIdentity & { sessionBinding:
     const issuedAt = Math.floor(Date.now() / 1000)
     const expiresAt = Math.min(Math.floor(identity.expiresAt / 1000), issuedAt + 30 * 86400)
     if (expiresAt <= issuedAt) throw new Error('expired')
-    const certificate = await new SignJWT({ deviceID: identity.deviceID, memberID, deviceKey, sessionBinding: identity.sessionBinding })
+    const invitationRelayKey = await currentInvitationRelayKey(env.INVITATION_RELAY_KEY_SEED, issuer, issuedAt)
+    const certificate = await new SignJWT({ deviceID: identity.deviceID, memberID, deviceKey, sessionBinding: identity.sessionBinding, invitationRelayKey })
         .setProtectedHeader({ alg: 'ES256', typ: 'rideintercom-device+jwt' })
         .setIssuer(issuer).setSubject(identity.userID).setAudience('rideintercom-peer')
         .setIssuedAt(issuedAt).setExpirationTime(expiresAt).sign(signingKey)

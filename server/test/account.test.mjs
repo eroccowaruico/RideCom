@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import assert from 'node:assert/strict';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, hkdfSync, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -850,6 +850,7 @@ test('device identity certificate binds only authenticated user and device to a 
         assert.deepEqual(Object.keys(protectedHeader).sort(), ['alg', 'typ']);
         assert.equal(payload.sub, one.userID); assert.equal(payload.deviceID, one.deviceID);
         assert.equal(payload.memberID, 'member-fixture'); assert.equal(payload.deviceKey, deviceKey);
+        assert.equal(payload.invitationRelayKey, undefined);
         assert.ok(payload.exp * 1000 <= one.expiresAt && payload.exp > payload.iat);
         const serialized = JSON.stringify(result);
         for (const secret of [one.accessToken, one.accessToken.split('.')[1], signingJWK.d, 'apple-private-subject', 'private@example.invalid']) assert.ok(!serialized.includes(secret));
@@ -864,10 +865,63 @@ test('device identity certificate binds only authenticated user and device to a 
     } finally { await runtime.dispose(); }
 });
 
+test('device certificates publish only the current origin-bound invitation relay key', async () => {
+    const signer = await generateKeyPair('ES256', { extractable: true });
+    const device = await generateKeyPair('ES256');
+    const deviceKey = Buffer.from(await crypto.subtle.exportKey('raw', device.publicKey)).toString('base64url');
+    const seed = randomBytes(32).toString('base64url');
+    const runtime = await makeRuntime({ ...options, DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signer.privateKey)),
+        INVITATION_RELAY_KEY_SEED: seed }, { appleKeys: [publicKey], adjustableClock: true });
+    try {
+        const period = 30 * 86400;
+        const nextPeriodAt = (Math.floor(Date.now() / 1000 / period) + 1) * period;
+        await runtime.advanceClock(nextPeriodAt * 1000 - Date.now() - 20_000);
+        const user = await enrolled(runtime);
+        const read = async (origin = 'https://worker.test') => {
+            const response = await runtime.dispatchFetch(origin + '/api/auth/identity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10', Authorization: 'Bearer ' + user.accessToken },
+                body: JSON.stringify({ memberID: 'key-fixture', deviceKey })
+            });
+            assert.equal(response.status, 200);
+            const result = await response.json();
+            const { payload } = await jwtVerify(result.certificate, signer.publicKey, {
+                issuer: origin, audience: 'rideintercom-peer', algorithms: ['ES256']
+            });
+            const key = payload.invitationRelayKey;
+            assert.ok(key, 'The verified certificate must carry a relay key');
+            assert.deepEqual(Object.keys(key).sort(), ['expiresAt', 'kid', 'x']);
+            assert.equal(Buffer.from(key.x, 'base64url').length, 32);
+            assert.equal(JSON.stringify(key).includes(seed), false);
+            assert.ok(key.expiresAt >= payload.exp);
+            return key;
+        };
+        const first = await read();
+        assert.equal(first.kid, 'v1-' + (nextPeriodAt / period - 1));
+        assert.equal(first.expiresAt, nextPeriodAt + period);
+        const material = hkdfSync('sha256', Buffer.from(seed, 'base64url'), 'rideintercom.invitation-relay-key.v1',
+            JSON.stringify(['https://worker.test', nextPeriodAt / period - 1]), 32);
+        const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b656e04220420', 'hex'), Buffer.from(material)]);
+        const expected = createPublicKey(createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' })).export({ format: 'jwk' });
+        assert.equal(first.x === expected.x, true, 'The advertised coordinate must match the derived private key');
+        assert.deepEqual(await read(), first);
+        const preview = await read('https://preview.worker.test');
+        assert.equal(preview.kid, first.kid);
+        assert.equal(preview.x === first.x, false);
+
+        await runtime.advanceClock(40_000);
+        const next = await read();
+        assert.equal(next.kid, 'v1-' + nextPeriodAt / period);
+        assert.equal(next.expiresAt, first.expiresAt + period);
+        assert.equal(next.x === first.x, false);
+    } finally { await runtime.dispose(); }
+});
+
 test('device identity issuance rejects invalid keys, identifiers and unconfigured signing', async () => {
     const signer = await generateKeyPair('ES256', { extractable: true });
     const deviceKey = Buffer.from(await crypto.subtle.exportKey('raw', signer.publicKey)).toString('base64url');
-    const runtime = await makeRuntime({ ...options, DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signer.privateKey)) }, { appleKeys: [publicKey] });
+    const runtime = await makeRuntime({ ...options, DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signer.privateKey)),
+        INVITATION_RELAY_KEY_SEED: 'invalid' }, { appleKeys: [publicKey] });
     const disabled = await makeRuntime(options, { appleKeys: [publicKey] });
     try {
         const one = await enrolled(runtime), other = await enrolled(disabled);
@@ -879,6 +933,10 @@ test('device identity issuance rejects invalid keys, identifiers and unconfigure
             { ...valid, memberID: '' }, { ...valid, memberID: 'invite-pending-test' }, { ...valid, memberID: 'x'.repeat(64) }]) {
             assert.equal((await call(runtime, '/api/auth/identity', body, one.accessToken)).status, 400);
         }
+        const issued = await call(runtime, '/api/auth/identity', valid, one.accessToken);
+        assert.equal(issued.status, 200);
+        const { payload } = await jwtVerify((await issued.json()).certificate, signer.publicKey);
+        assert.equal(payload.invitationRelayKey, undefined);
     } finally { await runtime.dispose(); await disabled.dispose(); }
 });
 
