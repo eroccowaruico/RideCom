@@ -15,17 +15,19 @@ let cachedClientSecret: {
     value: Promise<string>
 } | undefined
 
-export function appleAuthorizationConfigured(env: Env): boolean {
+type AppleSigningEnv = Env & Required<Pick<Env,
+    'APPLE_CLIENT_ID' | 'APPLE_SIGN_IN_PRIVATE_KEY' | 'APPLE_SIGN_IN_KEY_ID' | 'APPLE_TEAM_ID'>>
+
+export function appleAuthorizationConfigured(env: Env): env is AppleSigningEnv {
     return Boolean(env.APPLE_CLIENT_ID && env.APPLE_SIGN_IN_PRIVATE_KEY
         && env.APPLE_SIGN_IN_KEY_ID && env.APPLE_TEAM_ID)
 }
 
-async function appleClientSecret(env: Env): Promise<string> {
-    if (!appleAuthorizationConfigured(env)) throw new Error('Apple authorization unavailable')
-    const clientID = env.APPLE_CLIENT_ID!
-    const privateKey = env.APPLE_SIGN_IN_PRIVATE_KEY!
-    const keyID = env.APPLE_SIGN_IN_KEY_ID!
-    const teamID = env.APPLE_TEAM_ID!
+async function appleClientSecret(env: AppleSigningEnv): Promise<string> {
+    const clientID = env.APPLE_CLIENT_ID
+    const privateKey = env.APPLE_SIGN_IN_PRIVATE_KEY
+    const keyID = env.APPLE_SIGN_IN_KEY_ID
+    const teamID = env.APPLE_TEAM_ID
     const issuedAt = Math.floor(Date.now() / 1000)
     if (cachedClientSecret && cachedClientSecret.clientID === clientID
         && cachedClientSecret.privateKey === privateKey && cachedClientSecret.keyID === keyID
@@ -55,11 +57,12 @@ async function appleClientSecret(env: Env): Promise<string> {
 }
 
 async function request(env: Env, path: 'token' | 'revoke', fields: Record<string, string>): Promise<Response> {
+    if (!appleAuthorizationConfigured(env)) throw new Error('Apple authorization unavailable')
     const clientSecret = await appleClientSecret(env)
     return fetch(`https://appleid.apple.com/auth/${path}`, {
         method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(8000),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ client_id: env.APPLE_CLIENT_ID!, client_secret: clientSecret, ...fields })
+        body: new URLSearchParams({ client_id: env.APPLE_CLIENT_ID, client_secret: clientSecret, ...fields })
     })
 }
 
@@ -79,8 +82,9 @@ export async function appleDeletionToken(env: Env, code: string, subject: string
     } finally { reader.releaseLock() }
     const bytes = new Uint8Array(length); let offset = 0
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-    const body = JSON.parse(new TextDecoder().decode(bytes))
-    if (typeof body.refresh_token !== 'string' || !body.refresh_token || body.refresh_token.length > 8192
+    const body: unknown = JSON.parse(new TextDecoder().decode(bytes))
+    if (!body || typeof body !== 'object' || !('refresh_token' in body) || !('id_token' in body)
+        || typeof body.refresh_token !== 'string' || !body.refresh_token || body.refresh_token.length > 8192
         || typeof body.id_token !== 'string' || body.id_token.length > 16384) throw new Error('Apple authorization unavailable')
     const { payload } = await jwtVerify(body.id_token, appleKeys, {
         algorithms: ['RS256'], issuer: 'https://appleid.apple.com', audience: env.APPLE_CLIENT_ID,

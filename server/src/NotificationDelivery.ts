@@ -12,14 +12,16 @@ export function notificationsConfigured(env: Env): boolean {
 // avoids per-push signing; production connection reuse remains an APNs acceptance check.
 let providerCredential: { configuration: string; issuedAt: number; token: Promise<string> } | undefined
 export async function notificationProviderToken(env: Env): Promise<string> {
-    const configuration = JSON.stringify([env.APNS_PRIVATE_KEY, env.APNS_KEY_ID, env.APPLE_TEAM_ID])
+    const { APNS_PRIVATE_KEY: privateKey, APNS_KEY_ID: keyID, APPLE_TEAM_ID: teamID } = env
+    if (!privateKey || !keyID || !teamID) throw new Error('Notifications are unavailable')
+    const configuration = JSON.stringify([privateKey, keyID, teamID])
     const issuedAt = Math.floor(Date.now() / 1000)
     if (providerCredential?.configuration === configuration && issuedAt >= providerCredential.issuedAt
         && issuedAt - providerCredential.issuedAt < 50 * 60) return providerCredential.token
     const entry = { configuration, issuedAt, token: (async () => {
-        const key = await importPKCS8(env.APNS_PRIVATE_KEY!, 'ES256')
-        return new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: env.APNS_KEY_ID! })
-            .setIssuer(env.APPLE_TEAM_ID!).setIssuedAt(issuedAt).sign(key)
+        const key = await importPKCS8(privateKey, 'ES256')
+        return new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: keyID })
+            .setIssuer(teamID).setIssuedAt(issuedAt).sign(key)
     })() }
     providerCredential = entry
     try { return await entry.token }
