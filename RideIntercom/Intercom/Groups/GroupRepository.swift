@@ -566,6 +566,16 @@ final class GroupRepository {
         snapshot?.groups.first { $0.id == groupID }?.pendingInvitation
     }
 
+    func resumableOrdinaryGroupReply(now: TimeInterval) -> DirectInvitationContext? {
+        guard let snapshot else { return nil }
+        let candidates = snapshot.groups.compactMap { group -> DirectInvitationContext? in
+            guard let invitation = group.pendingInvitation?.invitation,
+                  ordinaryGroupReplyCredentialReference(for: invitation, now: now) != nil else { return nil }
+            return invitation
+        }
+        return candidates.count == 1 ? candidates.first : nil
+    }
+
     func rememberIssuedOrdinaryGroupInvitation(_ invitation: DirectInvitationContext, now: TimeInterval) throws {
         guard invitation.isValid, invitation.isOrdinaryGroupInvitation, invitation.inviterMemberID == localMemberID,
               invitation.expiresAt > now, let snapshot,

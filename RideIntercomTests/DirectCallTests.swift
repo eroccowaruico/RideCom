@@ -5,6 +5,66 @@ import Testing
 
 @MainActor
 struct DirectCallTests {
+    @Test func foregroundRestoresOnePendingReplyWithoutStartingAnotherCall() throws {
+        let group = try IntercomGroup(name: "Riders", members: [.init(id: "alice", displayName: "Alice")],
+                                      accessSecret: "foreground-reply-fixture")
+        let author = AppTestSupport.makeHarness(groups: [group], localMemberID: "alice")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        defer { recipient.viewModel.stopOrdinaryGroupReplyExchanges(); recipient.viewModel.disconnect() }
+        recipient.viewModel.allowsNearbyGroupDelivery = true
+        var windows = 0
+        var expire: (@MainActor () -> Void)?
+        recipient.viewModel.beginOrdinaryGroupReplyBackgroundTime = { callback in
+            windows += 1
+            expire = callback
+            return nil
+        }
+        let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
+        try recipient.viewModel.acceptInviteURL(url)
+        let activeGroupID = recipient.viewModel.activeGroupID
+        let disconnects = recipient.callSession.disconnectCallCount
+        let mediaStarts = recipient.callSession.startMediaCallCount
+        let expireFirstWindow = try #require(expire)
+        expireFirstWindow()
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+
+        let owner = AppCallOwner(account: recipient.viewModel.accountSession, viewModel: recipient.viewModel)
+        owner.systemSurfaceIsForeground = true
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee]?.invitation.groupID == group.id)
+        #expect(recipient.viewModel.activeGroupID == activeGroupID)
+        #expect(recipient.callSession.disconnectCallCount == disconnects)
+        #expect(recipient.callSession.startMediaCallCount == mediaStarts)
+        owner.systemSurfaceIsForeground = false
+        owner.systemSurfaceIsForeground = true
+        #expect(windows == 2)
+    }
+
+    @Test func foregroundDoesNotChooseBetweenTwoPendingReplies() throws {
+        let members = [GroupMember(id: "alice", displayName: "Alice")]
+        let first = try IntercomGroup(name: "First", members: members, accessSecret: "foreground-first-reply")
+        let second = try IntercomGroup(name: "Second", members: members, accessSecret: "foreground-second-reply")
+        let author = AppTestSupport.makeHarness(groups: [first, second], localMemberID: "alice")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        defer { recipient.viewModel.stopOrdinaryGroupReplyExchanges(); recipient.viewModel.disconnect() }
+        recipient.viewModel.allowsNearbyGroupDelivery = false
+        for group in [first, second] {
+            let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
+            try recipient.viewModel.acceptInviteURL(url)
+            let saved = recipient.viewModel.groupRepository.pendingInvitation(for: group.id) != nil
+            try #require(saved)
+        }
+
+        let owner = AppCallOwner(account: recipient.viewModel.accountSession, viewModel: recipient.viewModel)
+        recipient.viewModel.allowsNearbyGroupDelivery = true
+        owner.systemSurfaceIsForeground = true
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+
+        try #require(recipient.viewModel.deleteGroup(second.id))
+        owner.systemSurfaceIsForeground = false
+        owner.systemSurfaceIsForeground = true
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee]?.invitation.groupID == first.id)
+    }
+
     @Test func removingTheSourceGroupReleasesBothKindsOfOrdinaryReplyWindowImmediately() throws {
         let group = try IntercomGroup(name: "Riders", members: [.init(id: "alice", displayName: "Alice")],
                                       accessSecret: "reply-window-fixture")
@@ -494,11 +554,16 @@ struct OrdinaryGroupReplyTransportTests {
             author.viewModel.disconnect(); recipient.viewModel.disconnect()
         }
         author.viewModel.allowsNearbyGroupDelivery = true
-        recipient.viewModel.allowsNearbyGroupDelivery = true
+        recipient.viewModel.allowsNearbyGroupDelivery = false
         let owner = AppCallOwner(account: author.viewModel.accountSession, viewModel: author.viewModel)
         owner.systemSurfaceIsForeground = true
         try recipient.viewModel.acceptInviteURL(url)
         #expect(author.viewModel.savedRemoteUsers.isEmpty)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+        let selected = recipient.viewModel.activeGroupID
+        let receiverOwner = AppCallOwner(account: recipient.viewModel.accountSession, viewModel: recipient.viewModel)
+        recipient.viewModel.allowsNearbyGroupDelivery = true
+        receiverOwner.systemSurfaceIsForeground = true
         await AppTestSupport.waitUntil(timeout: .seconds(12)) {
             recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil
         }
@@ -506,6 +571,7 @@ struct OrdinaryGroupReplyTransportTests {
         #expect(acknowledged)
         #expect(author.viewModel.savedRemoteUsers.first?.memberIDs == ["bob"])
         #expect(author.viewModel.activeGroupID == nil)
+        #expect(recipient.viewModel.activeGroupID == selected)
         #expect(owner.viewModel === author.viewModel)
     }
 

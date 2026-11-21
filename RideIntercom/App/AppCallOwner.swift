@@ -73,7 +73,7 @@ final class AppCallOwner: CallSurfaceActions {
 
     private func refreshNearbyDeliveryForegroundState() {
         viewModel?.setNearbyGroupDeliveryForeground(systemSurfaceIsForeground)
-        if systemSurfaceIsForeground { viewModel?.resumeIssuedOrdinaryGroupReply() }
+        if systemSurfaceIsForeground { viewModel?.resumeSavedOrdinaryGroupReplies() }
     }
 
     func refreshAccountForForeground() async {

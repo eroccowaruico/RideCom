@@ -28,9 +28,16 @@ extension IntercomViewModel {
         allowsNearbyGroupDelivery && canEditSavedGroups && enabledRTCTransportRoutes.contains(.multipeer)
     }
 
-    func resumeIssuedOrdinaryGroupReply() {
-        guard canExchangeOrdinaryGroupReplies,
-              let invitation = groupRepository.issuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970),
+    func resumeSavedOrdinaryGroupReplies() {
+        guard canExchangeOrdinaryGroupReplies else { return }
+        resumeIssuedOrdinaryGroupReply()
+        guard ordinaryGroupReplyExchanges[.invitee] == nil else { return }
+        let invitation = groupRepository.resumableOrdinaryGroupReply(now: Date().timeIntervalSince1970)
+        resumeReceivedOrdinaryGroupReply(invitation)
+    }
+
+    private func resumeIssuedOrdinaryGroupReply() {
+        guard let invitation = groupRepository.issuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970),
               let expectedKey = invitation.inviterDeviceKey,
               (try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)) != nil,
               let credential = try? groupRepository.credential(for: invitation.groupID) else { return }
@@ -48,7 +55,11 @@ extension IntercomViewModel {
         } else {
             pending = nil
         }
-        guard let invitation = pending?.invitation,
+        resumeReceivedOrdinaryGroupReply(pending?.invitation)
+    }
+
+    private func resumeReceivedOrdinaryGroupReply(_ invitation: DirectInvitationContext?) {
+        guard let invitation,
               let credential = try? groupRepository.credential(for: invitation.groupID) else { return }
         startOrdinaryGroupReplyExchange(invitation, credential: credential, role: .invitee)
     }
