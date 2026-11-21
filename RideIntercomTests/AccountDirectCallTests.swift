@@ -175,6 +175,54 @@ struct AccountDirectCallTests {
         #endif
     }
 
+    @Test(arguments: [false, true])
+    func ordinaryGroupRegistrationKeepsItsCallKeyWhenOnlyOneSideKnowsMoreDevices(authorKnowsMore: Bool) async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("alice", account: "a")
+        let recipient = try fixture.peer("bob", account: "b")
+        let extra = try fixture.peer("other-device", account: authorKnowsMore ? "b" : "a")
+        let a = author.viewModel, b = recipient.viewModel
+        a.allowsNearbyGroupDelivery = false
+        b.allowsNearbyGroupDelivery = false
+        extra.viewModel.allowsNearbyGroupDelivery = false
+        try fixture.introduce(extra, to: authorKnowsMore ? author : recipient)
+        try fixture.introduce(author, to: recipient)
+        let groupID = try #require(a.selectedGroup?.id)
+        let acceptance = try #require(b.signedPendingInvitationReceipt(for: groupID))
+        let activeCalls = (a.activeGroupID, b.activeGroupID)
+        let acknowledgement = try #require(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true))
+        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
+        try #require(b.groupRepository.pendingInvitation(for: groupID) == nil)
+        #expect((a.activeGroupID, b.activeGroupID) == activeCalls)
+        let authorSnapshot = author.groupStore.snapshot, recipientSnapshot = recipient.groupStore.snapshot
+        #expect(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true) != nil)
+        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
+        #expect(author.groupStore.snapshot == authorSnapshot && recipient.groupStore.snapshot == recipientSnapshot)
+
+        let reloadedAuthor = try fixture.restart(author), reloadedRecipient = try fixture.restart(recipient)
+        let authorContact = try #require(reloadedAuthor.viewModel.savedRemoteUsers.first)
+        let recipientContact = try #require(reloadedRecipient.viewModel.savedRemoteUsers.first)
+        try #require(Set(authorContact.memberIDs) == (authorKnowsMore ? ["bob", "other-device"] : ["bob"]))
+        try #require(Set(recipientContact.memberIDs) == (authorKnowsMore ? ["alice"] : ["alice", "other-device"]))
+        for (peer, person) in [(reloadedAuthor, authorContact), (reloadedRecipient, recipientContact)] {
+            peer.viewModel.setRTCTransportRoutes([.multipeer])
+            try #require(peer.viewModel.startCall(to: .user(person.id), accountAccessID: peer.viewModel.accountAccessID))
+        }
+        let callID = try #require(reloadedAuthor.viewModel.activeGroupID)
+        try #require(reloadedRecipient.viewModel.activeGroupID == callID)
+        let leftKey = try #require(try reloadedAuthor.viewModel.groupRepository.credential(for: callID)).secret
+        let rightKey = try #require(try reloadedRecipient.viewModel.groupRepository.credential(for: callID)).secret
+        let bothUseSameKey = leftKey == rightKey
+        try #require(bothUseSameKey)
+        let groupKey = try #require(try reloadedAuthor.viewModel.groupRepository.credential(for: groupID)).secret
+        let keepsGroupKeySeparate = groupKey != leftKey
+        #expect(keepsGroupKeySeparate)
+        #if os(iOS)
+        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(reloadedAuthor.callSession.connectedGroup),
+                                                   bobGroup: try #require(reloadedRecipient.callSession.connectedGroup))
+        #endif
+    }
+
     @Test func twoSavedDeviceCallKeysAreNotChosenByDirectoryOrder() throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
         let author = try fixture.peer("alice", account: "a")

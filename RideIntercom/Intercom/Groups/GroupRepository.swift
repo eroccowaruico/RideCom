@@ -671,9 +671,12 @@ final class GroupRepository {
         // Persist receipt IDs even if the contact is later deleted. Retrying an
         // already accepted invitation must not silently recreate that contact.
         guard !record.receivedInvitationIDs.contains(receipt.id) else { return }
-        let known = snapshot.users.first { $0.memberIDs.contains(verified.identity.memberID) }
-        let canPrepareDeviceCall = known.map { $0.principal == nil && $0.memberIDs == [verified.identity.memberID] } ?? true
-        try updateAfterInvitationReply(snapshot, receipt: receipt, peer: verified.identity,
+        let peer = verified.identity
+        let known = snapshot.users.first { $0.memberIDs.contains(peer.memberID) }
+        let canPrepareDeviceCall = known.map {
+            $0.principal == peer.principal && (peer.principal != nil || $0.memberIDs == [peer.memberID])
+        } ?? true
+        try updateAfterInvitationReply(snapshot, receipt: receipt, peer: peer,
                                        name: canPrepareDeviceCall ? receipt.displayName : nil, signer: signer) { next in
             guard let index = next.groups.firstIndex(where: { $0.id == receipt.groupID }) else { throw GroupStorageError.invalidUpdate }
             try next.remember(.init(id: receipt.inviteeMemberID, displayName: receipt.displayName), identity: verified.identity)
@@ -683,7 +686,8 @@ final class GroupRepository {
     }
 
     @discardableResult
-    func acknowledgeInvitation(_ receipt: DirectInvitationReceipt, signer: DeviceIdentitySigner? = nil) throws -> Bool {
+    func acknowledgeInvitation(_ receipt: DirectInvitationReceipt, signer: DeviceIdentitySigner? = nil,
+                               trust: DeviceIdentityTrust? = nil) throws -> Bool {
         guard receipt.kind == .acknowledged, let snapshot,
               let index = snapshot.groups.firstIndex(where: { $0.id == receipt.groupID }),
               let pending = snapshot.groups[index].pendingInvitation,
@@ -693,17 +697,19 @@ final class GroupRepository {
               let proof = receipt.acknowledgementProof,
               proof.publicKey == pending.invitation?.inviterDeviceKey else { return false }
         guard let peer = try? proof.verify(receipt.acknowledgementMessage(), purpose: .acknowledgeInvitation,
-                                           memberID: receipt.inviterMemberID) else { return false }
+                                           memberID: receipt.inviterMemberID, trust: trust) else { return false }
         let person = snapshot.users.first {
-            $0.memberIDs == [peer.memberID] && $0.principal == nil && $0.deviceKeys?[peer.memberID] == peer.publicKey
+            $0.principal == peer.principal && $0.deviceKeys?[peer.memberID] == peer.publicKey
+                && (peer.principal != nil || $0.memberIDs == [peer.memberID])
         }
         // A retransmission is signed again and may include a newer display name.
-        let isDeviceAcknowledgement = proof.certificate == nil && pending.inviteeDeviceKey == receipt.inviteeDeviceKey
-            && pending.inviteeDeviceKey == receipt.acceptanceProof?.publicKey
-            && (try? receipt.acceptanceProof?.verify(receipt.identityMessage(), purpose: .acceptInvitation,
-                                                     memberID: receipt.inviteeMemberID)) != nil
+        let acceptance = try? receipt.acceptanceProof?.verify(receipt.identityMessage(), purpose: .acceptInvitation,
+                                                              memberID: receipt.inviteeMemberID, trust: trust)
+        let matchesAcceptance = acceptance != nil && pending.inviteeDeviceKey == receipt.inviteeDeviceKey
+            && pending.inviteeDeviceKey == acceptance?.publicKey
+            && (peer.principal == nil ? proof.certificate == nil : acceptance?.principal == signer?.principal)
         try updateAfterInvitationReply(snapshot, receipt: receipt, peer: peer,
-                                       name: isDeviceAcknowledgement ? person?.displayName : nil, signer: signer) { next in
+                                       name: matchesAcceptance ? person?.displayName : nil, signer: signer) { next in
             next.groups[index].pendingInvitation = nil
         }
         return true
@@ -714,16 +720,16 @@ final class GroupRepository {
                                             modify: (inout GroupSnapshot) throws -> Void) throws {
         var groups = try snapshot.groups.map { try $0.group() }
         var credential: GroupAccessCredential?
-        if let signer, let name, signer.memberID == localMemberID, signer.principal == nil, peer.principal == nil,
+        if let signer, let name, signer.memberID == localMemberID,
            peer.memberID != signer.memberID, peer.publicKey != signer.publicKey,
            let invitation = receipt.invitation, invitation.expiresAt > Date().timeIntervalSince1970,
-           invitation.isOrdinaryGroupInvitation, receipt.acceptanceProof?.certificate == nil,
+           invitation.isOrdinaryGroupInvitation,
            signer.publicKey == (receipt.kind == .accepted ? invitation.inviterDeviceKey : receipt.inviteeDeviceKey),
            let source = groups.first(where: { $0.id == receipt.groupID && $0.kind == .group }),
            let local = source.members.first(where: { $0.id == signer.memberID }) {
             let id = IntercomGroup.directCallID(memberIDs: [signer.memberID, peer.memberID])
-            if !groups.contains(where: { $0.id == id }) {
-                let secret = try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey)
+            if !groups.contains(where: { $0.id == id }),
+               let secret = try ordinaryReplyDirectCallSecret(signer: signer, peer: peer, acceptance: receipt.acceptanceProof) {
                 let direct = try IntercomGroup(id: id, name: "Direct Call",
                                                members: [local, .init(id: peer.memberID, displayName: name)], kind: .direct)
                 groups.append(direct)
@@ -731,6 +737,17 @@ final class GroupRepository {
             }
         }
         try update(groups, credential: credential, modify: modify)
+    }
+
+    private func ordinaryReplyDirectCallSecret(signer: DeviceIdentitySigner, peer: VerifiedDeviceProof,
+                                               acceptance: DeviceIdentityProof?) throws -> String? {
+        if let local = signer.principal, let remote = peer.principal, local != remote, local.issuer == remote.issuer {
+            // Use the same key the first account call derives when only this peer device is known.
+            return try signer.accountDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey,
+                                                      callID: AccountCallPair(local, remote).id)
+        }
+        guard signer.principal == nil, peer.principal == nil, acceptance?.certificate == nil else { return nil }
+        return try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey)
     }
 
     private func prepareKey(_ secret: String) throws -> UUID {
