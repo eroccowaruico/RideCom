@@ -73,7 +73,10 @@ struct ArchitectureTests {
         let receivePresentation = try AppTestSupport.source("RideIntercom/UI/Diagnostics/ReceivePipelinePresentation.swift")
         let diagnosticsInput = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsInput.swift")
         let effectChainSource = try AppTestSupport.source("RideIntercom/Intercom/ViewModel/IntercomViewModel+EffectChains.swift")
-        let callSessionAdapter = try ["CallSessionAdapter", "CallSessionContracts"].map {
+        let transportSources = [
+            "CallSessionAdapter", "CallSessionAdapter+EventMapping", "CallSessionAdapter+RTCSetup", "CallSessionContracts"
+        ]
+        let callSessionAdapter = try transportSources.map {
             try AppTestSupport.source("RideIntercom/Intercom/Transport/" + $0 + ".swift")
         }.joined(separator: "\n")
         let diagnosticsSpec = try AppTestSupport.source("docs/spec/App/UI/Diagnostics.md")
@@ -135,7 +138,8 @@ struct ArchitectureTests {
         #expect(callSessionAdapter.contains("case .noEnabledRoute"))
         #expect(callSessionAdapter.contains("makeRouteConfiguration"))
         #expect(callSessionAdapter.contains("RTCRuntimeStatusTransport.decode(message)"))
-        #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: activeAudioCodec())"))
+        #expect(callSessionAdapter.contains("makeKeepaliveMessage(activeCodec: activeAudioCodec())"))
+        #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: activeCodec)"))
         #expect(callSessionAdapter.contains("return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)"))
         #expect(diagnosticsSpec.contains("receive-master-effect-stage-peak-limiter"))
     }
