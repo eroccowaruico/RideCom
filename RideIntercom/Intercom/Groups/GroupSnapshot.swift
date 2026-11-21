@@ -5,160 +5,6 @@ struct GroupSnapshot: Codable, Equatable {
     static let currentVersion = 24
     static let maximumGroupDeliveries = 512
     static let maximumIssuedOrdinaryGroupInvitations = 32
-    struct GroupRemovalReceipt: Codable, Equatable {
-        let groupID: UUID
-        let eventID: UUID
-        let signedDigest: Data
-        let expiresAt: TimeInterval
-
-        var isValid: Bool { signedDigest.count == 32 && expiresAt.isFinite && expiresAt >= 0 }
-    }
-    struct GroupLinkReceipt: Codable, Equatable {
-        let groupID: UUID
-        let receiptID: UUID
-        /// Old acknowledged receipts only recorded their IDs.
-        let expiresAt: TimeInterval?
-        var retired: Bool
-    }
-    struct IssuedOrdinaryGroupInvitation: Codable, Equatable {
-        let invitation: DirectInvitationContext
-        let credentialReference: UUID
-    }
-    struct RemovedMember: Codable, Equatable {
-        var memberIDs: Set<String>
-        let principal: AccountPrincipal?
-        let removedAt: TimeInterval
-        /// Nil for removals from before the invitation IDs were recorded.
-        var priorInvitationIDs: Set<UUID>?
-        var reinstated: Bool?
-
-        var isExcluded: Bool { reinstated != true }
-
-        func blocksInvitation(_ id: UUID, issuedAt: TimeInterval) -> Bool {
-            priorInvitationIDs?.contains(id) ?? (issuedAt <= removedAt)
-        }
-
-        func matches(_ memberID: String, principal: AccountPrincipal?) -> Bool {
-            memberIDs.contains(memberID) || (principal != nil && self.principal == principal)
-        }
-
-        var isValid: Bool {
-            !memberIDs.isEmpty && memberIDs.allSatisfy {
-                IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix)
-            } && (principal?.isValid ?? true) && removedAt.isFinite && removedAt >= 0
-        }
-    }
-    struct Member: Codable, Equatable {
-        var id: String
-        var displayName: String
-        var userID: UUID?
-        var localName: String?
-    }
-    struct Record: Codable, Equatable {
-        var id: UUID
-        var name: String
-        var members: [Member]
-        var credentialReference: UUID?
-        var kind: IntercomGroup.Kind?
-        var accountPair: AccountCallPair?
-        var accountDevices: [String: AccountDeviceBinding] = [:]
-        var invitationDeviceKeys: [String: String]?
-        var pendingInvitation: DirectInvitationReceipt?
-        var receivedInvitationIDs: [UUID] = []
-        var lastSponsoredStart: TimeInterval?
-        /// True when this device joined the group through someone's invitation, so someone else owns it.
-        /// Nil (groups made here, and groups saved before this was kept) means you own it.
-        var joinedByInvitation: Bool?
-        /// Only newly received groups have false; nil preserves the behavior of legacy records.
-        var groupTabOfferAcknowledged: Bool?
-        var removedMembers: [RemovedMember]?
-
-        init(_ group: IntercomGroup, credentialReference: UUID? = nil) {
-            id = group.id; name = group.name
-            members = group.members.map { Member(id: $0.id, displayName: $0.displayName, localName: $0.localName) }
-            self.credentialReference = credentialReference
-            kind = group.kind
-            accountPair = group.accountPair; accountDevices = group.accountDevices
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs,
-                accountPair, accountDevices, invitationDeviceKeys, lastSponsoredStart, joinedByInvitation,
-                groupTabOfferAcknowledged, removedMembers
-        }
-        init(from decoder: Decoder) throws {
-            let values = try decoder.container(keyedBy: CodingKeys.self)
-            id = try values.decode(UUID.self, forKey: .id)
-            name = try values.decode(String.self, forKey: .name)
-            members = try values.decode([Member].self, forKey: .members)
-            credentialReference = try values.decodeIfPresent(UUID.self, forKey: .credentialReference)
-            kind = try values.decodeIfPresent(IntercomGroup.Kind.self, forKey: .kind)
-            accountPair = try values.decodeIfPresent(AccountCallPair.self, forKey: .accountPair)
-            accountDevices =
-                try values.decodeIfPresent([String: AccountDeviceBinding].self, forKey: .accountDevices) ?? [:]
-            invitationDeviceKeys = try values.decodeIfPresent([String: String].self, forKey: .invitationDeviceKeys)
-            pendingInvitation = try values.decodeIfPresent(DirectInvitationReceipt.self, forKey: .pendingInvitation)
-            receivedInvitationIDs = try values.decodeIfPresent([UUID].self, forKey: .receivedInvitationIDs) ?? []
-            lastSponsoredStart = try values.decodeIfPresent(TimeInterval.self, forKey: .lastSponsoredStart)
-            joinedByInvitation = try values.decodeIfPresent(Bool.self, forKey: .joinedByInvitation)
-            groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
-            removedMembers = try values.decodeIfPresent([RemovedMember].self, forKey: .removedMembers)
-        }
-        func group() throws -> IntercomGroup {
-            try IntercomGroup(
-                id: id, name: name,
-                members: members.map {
-                    GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName)
-                }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
-        }
-
-        func matchesInvitationDeviceKey(_ key: String, for memberID: String) -> Bool {
-            invitationDeviceKeys?[memberID].map { $0 == key } ?? true
-        }
-
-        func excludesMember(_ memberID: String, principal: AccountPrincipal?) -> Bool {
-            removedMembers?.contains { $0.isExcluded && $0.matches(memberID, principal: principal) } == true
-        }
-
-        mutating func rememberInvitationDevice(_ identity: VerifiedDeviceProof) throws {
-            let memberID = identity.memberID
-            guard kind == .group, members.contains(where: { $0.id == memberID }) else { return }
-            guard matchesInvitationDeviceKey(identity.publicKey, for: memberID),
-                  accountDevices[memberID].map({ $0.publicKey == identity.publicKey }) ?? true else {
-                throw GroupStorageError.identityConflict
-            }
-            var keys = invitationDeviceKeys ?? [:]
-            keys[memberID] = identity.publicKey
-            invitationDeviceKeys = keys
-        }
-
-        mutating func discardInvitationKeysForDepartedMembers() {
-            guard let invitationDeviceKeys else { return }
-            let memberIDs = Set(members.map(\.id))
-            let remaining = invitationDeviceKeys.filter { memberIDs.contains($0.key) }
-            self.invitationDeviceKeys = remaining.isEmpty ? nil : remaining
-        }
-
-        mutating func reinstateMembers(matching matches: (RemovedMember) -> Bool) {
-            guard let removals = removedMembers else { return }
-            removedMembers = removals.map { removal in
-                guard matches(removal) else { return removal }
-                var reinstated = removal
-                reinstated.reinstated = true
-                return reinstated
-            }
-        }
-
-        mutating func discardRemovalHistory(withPendingInvitations pending: Set<UUID>) {
-            guard let removals = removedMembers else { return }
-            let retained = removals.compactMap { removal -> RemovedMember? in
-                var removal = removal
-                removal.priorInvitationIDs?.formIntersection(pending)
-                return removal.isExcluded || !(removal.priorInvitationIDs ?? pending).isEmpty ? removal : nil
-            }
-            removedMembers = retained.isEmpty ? nil : retained
-        }
-    }
     var version = Self.currentVersion
     var generation = UUID()
     var groups: [Record] = []
@@ -182,8 +28,8 @@ struct GroupSnapshot: Codable, Equatable {
 
     init(groups: [Record] = [], users: [SavedUser] = [], contactInvitations: [ContactInvitationRecord] = [],
          groupDeliveries: [GroupDeliveryRecord] = [], groupLinkReceipts: [GroupLinkReceipt] = [],
-        groupRemovalReceipts: [GroupRemovalReceipt] = [],
-        nearbyGroupCancellations: [GroupInvitationCancellation.Target] = [],
+         groupRemovalReceipts: [GroupRemovalReceipt] = [],
+         nearbyGroupCancellations: [GroupInvitationCancellation.Target] = [],
          contactDeletions: [ContactDeletionNotice] = [], contactDeletionReceipts: [ContactDeletionReceipt] = [],
          contactDeletionPublications: [ContactDeletionPublication] = [],
          contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = [],
@@ -241,21 +87,6 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactDeletionFormerPair].self, forKey: .contactDeletionFormerPairs)
         issuedOrdinaryGroupInvitations = version < 24 ? []
             : try values.decode([IssuedOrdinaryGroupInvitation].self, forKey: .issuedOrdinaryGroupInvitations)
-    }
-
-    mutating func discardIssuedOrdinaryGroupInvitations(now: TimeInterval, replacingKeys: Set<UUID> = []) {
-        issuedOrdinaryGroupInvitations = issuedOrdinaryGroupInvitations.filter { issued in
-            issued.invitation.expiresAt > now && !replacingKeys.contains(issued.invitation.groupID)
-                && containsOrdinaryGroup(for: issued)
-        }
-    }
-
-    private func containsOrdinaryGroup(for issued: IssuedOrdinaryGroupInvitation) -> Bool {
-        groups.contains { group in
-            group.id == issued.invitation.groupID && group.kind == .group
-                && group.credentialReference == issued.credentialReference
-                && group.members.contains { $0.id == issued.invitation.inviterMemberID }
-        }
     }
 
     func upgraded() -> GroupSnapshot {
@@ -339,151 +170,6 @@ struct GroupSnapshot: Codable, Equatable {
         groupLinkReceipts.removeAll { $0.retired && ($0.expiresAt.map { $0 <= now } ?? false) }
     }
 
-    func validated() throws -> GroupSnapshot {
-        guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
-        guard version < 3 || groups.allSatisfy({ $0.kind != nil }) else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 3 || groups.allSatisfy({ $0.kind == nil || $0.kind == .group }) else {
-            throw IntercomGroupError.invalidStoredGroups
-        }
-        guard version >= 6 || groups.allSatisfy({ $0.accountPair == nil && $0.accountDevices.isEmpty }) else {
-            throw IntercomGroupError.invalidStoredGroups
-        }
-        guard groups.count <= 256, Set(groups.map(\.id)).count == groups.count else {
-            throw IntercomGroupError.invalidStoredGroups
-        }
-        guard version >= 24 || issuedOrdinaryGroupInvitations.isEmpty,
-              issuedOrdinaryGroupInvitations.count <= Self.maximumIssuedOrdinaryGroupInvitations,
-              Set(issuedOrdinaryGroupInvitations.map(\.invitation.id)).count == issuedOrdinaryGroupInvitations.count,
-              issuedOrdinaryGroupInvitations.allSatisfy({
-                  $0.invitation.isValid && $0.invitation.isOrdinaryGroupInvitation && containsOrdinaryGroup(for: $0)
-              }) else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 9 || contactInvitations.isEmpty else { throw IntercomGroupError.invalidStoredGroups }
-        guard contactInvitations.count <= 1024, contactInvitations.allSatisfy(\.isValid),
-            Set(contactInvitations.map(\.id)).count == contactInvitations.count
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 11 || groupDeliveries.isEmpty, groupDeliveries.count <= Self.maximumGroupDeliveries,
-            groupDeliveries.allSatisfy(\.isValid), Set(groupDeliveries.map(\.id)).count == groupDeliveries.count
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 12 || groupDeliveries.allSatisfy({ $0.direction == .outgoing || $0.state == .received })
-        else { throw IntercomGroupError.invalidStoredGroups }
-        let regularGroupIDs = Set(groups.filter { $0.kind == .group }.map(\.id))
-        guard version >= 17 || groupRemovalReceipts.isEmpty,
-              groupRemovalReceipts.count <= 1024, groupRemovalReceipts.allSatisfy(\.isValid),
-              Set(groupRemovalReceipts.map { [$0.groupID, $0.eventID] }).count == groupRemovalReceipts.count
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 18 || nearbyGroupCancellations.isEmpty,
-            nearbyGroupCancellations.count <= Self.maximumGroupDeliveries,
-            nearbyGroupCancellations.allSatisfy(\.isValid),
-              Set(nearbyGroupCancellations).count == nearbyGroupCancellations.count
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 19 || contactDeletions.isEmpty, contactDeletions.allSatisfy(\.isValid),
-              Set(contactDeletions.map(\.id)).count == contactDeletions.count
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 20 || contactDeletionReceipts.isEmpty, contactDeletionReceipts.allSatisfy(\.isValid),
-              Set(contactDeletionReceipts.map(\.id)).count == contactDeletionReceipts.count
-        else { throw IntercomGroupError.invalidStoredGroups }
-        let pendingContactDeletionIDs = Set(contactDeletions.map(\.id))
-        guard version >= 21 || contactDeletionPublications.isEmpty,
-              Set(contactDeletionPublications.map(\.id)).count == contactDeletionPublications.count,
-              contactDeletionPublications.allSatisfy({
-                  $0.isValid && ($0.payload != nil) == pendingContactDeletionIDs.contains($0.id)
-              })
-        else { throw IntercomGroupError.invalidStoredGroups }
-        let contactDeletionReceiptIDs = Set(contactDeletionReceipts.map(\.id))
-        guard version >= 22 || contactDeletionRelayReceipts.isEmpty,
-              Set(contactDeletionRelayReceipts.map(\.id)).count == contactDeletionRelayReceipts.count,
-              contactDeletionRelayReceipts.allSatisfy({ $0.isValid && contactDeletionReceiptIDs.contains($0.id) })
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 23 || contactDeletionFormerPairs.isEmpty, contactDeletionFormerPairs.allSatisfy(\.isValid)
-        else { throw IntercomGroupError.invalidStoredGroups }
-        guard version >= 16 || groupLinkReceipts.isEmpty,
-              Set(groupLinkReceipts.map { [$0.groupID, $0.receiptID] }).count == groupLinkReceipts.count,
-              groupLinkReceipts.allSatisfy({ record in
-                  (record.expiresAt.map { $0.isFinite && $0 >= 0 } ?? record.retired)
-                      && (record.retired || regularGroupIDs.contains(record.groupID))
-              }) else { throw IntercomGroupError.invalidStoredGroups }
-        let references = credentialReferences
-        guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
-        for record in groups {
-            _ = try record.group()
-            if let keys = record.invitationDeviceKeys {
-                let memberIDs = Set(record.members.map(\.id))
-                guard version >= 14, record.kind == .group, !keys.isEmpty, keys.allSatisfy({ memberID, key in
-                    memberIDs.contains(memberID) && !memberID.hasPrefix(GroupMember.pendingInvitePrefix)
-                        && DeviceIdentityProof.isValidPublicKey(key)
-                        && (record.accountDevices[memberID].map { $0.publicKey == key } ?? true)
-                }) else { throw IntercomGroupError.invalidStoredGroups }
-            }
-            if let removed = record.removedMembers, !removed.isEmpty {
-                guard version >= 13, record.kind == .group, removed.allSatisfy({
-                    $0.isValid && (version >= 15 || ($0.priorInvitationIDs == nil && $0.reinstated == nil))
-                }),
-                      !record.members.contains(where: { member in
-                          record.excludesMember(member.id, principal: record.accountDevices[member.id]?.principal)
-                      }) else { throw IntercomGroupError.invalidStoredGroups }
-            }
-            if let start = record.lastSponsoredStart {
-                guard start.isFinite, start > 0 else { throw IntercomGroupError.invalidStoredGroups }
-            }
-        }
-        for record in groups {
-            guard Set(record.receivedInvitationIDs).count == record.receivedInvitationIDs.count,
-                  record.receivedInvitationIDs.count <= 1024 else { throw IntercomGroupError.invalidStoredGroups }
-            if let receipt = record.pendingInvitation {
-                guard version < 5 || receipt.isValid, receipt.kind == .accepted, receipt.groupID == record.id
-                else { throw IntercomGroupError.invalidStoredGroups }
-                if version >= 5 {
-                    guard receipt.invitation != nil, receipt.proof != nil, let acceptance = receipt.acceptanceProof,
-                          receipt.acknowledgementProof == nil,
-                        (try? acceptance.verify(
-                            receipt.identityMessage(), purpose: .acceptInvitation,
-                            memberID: receipt.inviteeMemberID)) != nil
-                    else {
-                        throw IntercomGroupError.invalidStoredGroups
-                    }
-                }
-            }
-        }
-        if version >= 2 {
-            let principals = users.compactMap(\.principal)
-            guard Set(principals).count == principals.count, principals.allSatisfy(\.isValid),
-                users.allSatisfy({ user in
-                guard let keys = user.deviceKeys else { return user.principal == nil }
-                    return Set(keys.keys) == Set(user.memberIDs)
-                        && keys.values.allSatisfy(DeviceIdentityProof.isValidPublicKey)
-            }) else { throw IntercomGroupError.invalidStoredGroups }
-            guard users.filter({ !$0.isRegistered }).allSatisfy({ $0.principal == nil && $0.deviceKeys == nil }) else {
-                throw IntercomGroupError.invalidStoredGroups
-            }
-            guard users.allSatisfy({ $0.usesProvisionalName != true || $0.localName != nil }) else {
-                throw IntercomGroupError.invalidStoredGroups
-            }
-            let memberIDs = users.flatMap(\.memberIDs)
-            guard Set(users.map(\.id)).count == users.count,
-                  Set(memberIDs).count == memberIDs.count,
-                users.allSatisfy({
-                    IntercomGroup.isValidName($0.displayName)
-                        && ($0.localName.map(IntercomGroup.isValidName) ?? true)
-                        && (version >= 10 || !$0.memberIDs.isEmpty)
-                }),
-                memberIDs.allSatisfy({
-                    IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix)
-                })
-            else { throw IntercomGroupError.invalidStoredGroups }
-            let directory = Dictionary(
-                uniqueKeysWithValues: users.flatMap { user in user.memberIDs.map { ($0, user) } })
-            guard groups.allSatisfy({ group in group.members.allSatisfy { member in
-                if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { return member.userID == nil }
-                let user = directory[member.id] ?? group.accountDevices[member.id].flatMap { binding in
-                    users.first { $0.principal == binding.principal }
-                }
-                if member.userID == nil { return user == nil }
-                        return user?.displayName == member.displayName && user?.id == member.userID
-                            && user?.localName == member.localName
-            } }) else { throw IntercomGroupError.invalidStoredGroups }
-        }
-        return self
-    }
     func encoded() throws -> Data {
         _ = try validated()
         let bytes = try JSONEncoder().encode(self)
@@ -503,6 +189,166 @@ struct GroupSnapshot: Codable, Equatable {
             // proposed edits must not offer a reset of the valid old snapshot.
             throw IntercomGroupError.invalidStoredGroups
         }
+    }
+}
+
+extension GroupSnapshot {
+    struct GroupRemovalReceipt: Codable, Equatable {
+        let groupID: UUID
+        let eventID: UUID
+        let signedDigest: Data
+        let expiresAt: TimeInterval
+
+        var isValid: Bool { signedDigest.count == 32 && expiresAt.isFinite && expiresAt >= 0 }
+    }
+    struct GroupLinkReceipt: Codable, Equatable {
+        let groupID: UUID
+        let receiptID: UUID
+        /// Old acknowledged receipts only recorded their IDs.
+        let expiresAt: TimeInterval?
+        var retired: Bool
+    }
+    struct IssuedOrdinaryGroupInvitation: Codable, Equatable {
+        let invitation: DirectInvitationContext
+        let credentialReference: UUID
+    }
+    struct RemovedMember: Codable, Equatable {
+        var memberIDs: Set<String>
+        let principal: AccountPrincipal?
+        let removedAt: TimeInterval
+        /// Nil for removals from before the invitation IDs were recorded.
+        var priorInvitationIDs: Set<UUID>?
+        var reinstated: Bool?
+
+        var isExcluded: Bool { reinstated != true }
+
+        func blocksInvitation(_ id: UUID, issuedAt: TimeInterval) -> Bool {
+            priorInvitationIDs?.contains(id) ?? (issuedAt <= removedAt)
+        }
+
+        func matches(_ memberID: String, principal: AccountPrincipal?) -> Bool {
+            memberIDs.contains(memberID) || (principal != nil && self.principal == principal)
+        }
+
+        var isValid: Bool {
+            !memberIDs.isEmpty && memberIDs.allSatisfy {
+                IntercomGroup.isValidMemberID($0) && !$0.hasPrefix(GroupMember.pendingInvitePrefix)
+            } && (principal?.isValid ?? true) && removedAt.isFinite && removedAt >= 0
+        }
+    }
+    struct Member: Codable, Equatable {
+        var id: String
+        var displayName: String
+        var userID: UUID?
+        var localName: String?
+    }
+    struct Record: Codable, Equatable {
+        var id: UUID
+        var name: String
+        var members: [Member]
+        var credentialReference: UUID?
+        var kind: IntercomGroup.Kind?
+        var accountPair: AccountCallPair?
+        var accountDevices: [String: AccountDeviceBinding] = [:]
+        var invitationDeviceKeys: [String: String]?
+        var pendingInvitation: DirectInvitationReceipt?
+        var receivedInvitationIDs: [UUID] = []
+        var lastSponsoredStart: TimeInterval?
+        /// True when this device joined the group through someone's invitation, so someone else owns it.
+        /// Nil (groups made here, and groups saved before this was kept) means you own it.
+        var joinedByInvitation: Bool?
+        /// Only newly received groups have false; nil preserves the behavior of legacy records.
+        var groupTabOfferAcknowledged: Bool?
+        var removedMembers: [RemovedMember]?
+
+        init(_ group: IntercomGroup, credentialReference: UUID? = nil) {
+            id = group.id; name = group.name
+            members = group.members.map { Member(id: $0.id, displayName: $0.displayName, localName: $0.localName) }
+            self.credentialReference = credentialReference
+            kind = group.kind
+            accountPair = group.accountPair; accountDevices = group.accountDevices
+        }
+
+        func group() throws -> IntercomGroup {
+            try IntercomGroup(
+                id: id, name: name,
+                members: members.map {
+                    GroupMember(id: $0.id, displayName: $0.displayName, localName: $0.localName)
+                }, kind: kind ?? .group, accountPair: accountPair, accountDevices: accountDevices)
+        }
+
+        func matchesInvitationDeviceKey(_ key: String, for memberID: String) -> Bool {
+            invitationDeviceKeys?[memberID].map { $0 == key } ?? true
+        }
+
+        func excludesMember(_ memberID: String, principal: AccountPrincipal?) -> Bool {
+            removedMembers?.contains { $0.isExcluded && $0.matches(memberID, principal: principal) } == true
+        }
+
+        mutating func rememberInvitationDevice(_ identity: VerifiedDeviceProof) throws {
+            let memberID = identity.memberID
+            guard kind == .group, members.contains(where: { $0.id == memberID }) else { return }
+            guard matchesInvitationDeviceKey(identity.publicKey, for: memberID),
+                  accountDevices[memberID].map({ $0.publicKey == identity.publicKey }) ?? true else {
+                throw GroupStorageError.identityConflict
+            }
+            var keys = invitationDeviceKeys ?? [:]
+            keys[memberID] = identity.publicKey
+            invitationDeviceKeys = keys
+        }
+
+        mutating func discardInvitationKeysForDepartedMembers() {
+            guard let invitationDeviceKeys else { return }
+            let memberIDs = Set(members.map(\.id))
+            let remaining = invitationDeviceKeys.filter { memberIDs.contains($0.key) }
+            self.invitationDeviceKeys = remaining.isEmpty ? nil : remaining
+        }
+
+        mutating func reinstateMembers(matching matches: (RemovedMember) -> Bool) {
+            guard let removals = removedMembers else { return }
+            removedMembers = removals.map { removal in
+                guard matches(removal) else { return removal }
+                var reinstated = removal
+                reinstated.reinstated = true
+                return reinstated
+            }
+        }
+
+        mutating func discardRemovalHistory(withPendingInvitations pending: Set<UUID>) {
+            guard let removals = removedMembers else { return }
+            let retained = removals.compactMap { removal -> RemovedMember? in
+                var removal = removal
+                removal.priorInvitationIDs?.formIntersection(pending)
+                return removal.isExcluded || !(removal.priorInvitationIDs ?? pending).isEmpty ? removal : nil
+            }
+            removedMembers = retained.isEmpty ? nil : retained
+        }
+    }
+}
+
+extension GroupSnapshot.Record {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs,
+            accountPair, accountDevices, invitationDeviceKeys, lastSponsoredStart, joinedByInvitation,
+            groupTabOfferAcknowledged, removedMembers
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        members = try values.decode([GroupSnapshot.Member].self, forKey: .members)
+        credentialReference = try values.decodeIfPresent(UUID.self, forKey: .credentialReference)
+        kind = try values.decodeIfPresent(IntercomGroup.Kind.self, forKey: .kind)
+        accountPair = try values.decodeIfPresent(AccountCallPair.self, forKey: .accountPair)
+        accountDevices =
+            try values.decodeIfPresent([String: AccountDeviceBinding].self, forKey: .accountDevices) ?? [:]
+        invitationDeviceKeys = try values.decodeIfPresent([String: String].self, forKey: .invitationDeviceKeys)
+        pendingInvitation = try values.decodeIfPresent(DirectInvitationReceipt.self, forKey: .pendingInvitation)
+        receivedInvitationIDs = try values.decodeIfPresent([UUID].self, forKey: .receivedInvitationIDs) ?? []
+        lastSponsoredStart = try values.decodeIfPresent(TimeInterval.self, forKey: .lastSponsoredStart)
+        joinedByInvitation = try values.decodeIfPresent(Bool.self, forKey: .joinedByInvitation)
+        groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
+        removedMembers = try values.decodeIfPresent([GroupSnapshot.RemovedMember].self, forKey: .removedMembers)
     }
 }
 
