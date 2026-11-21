@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
 [vars]
-APPLE_AUTH_ENABLED = "false"
+APPLE_AUTH_ENABLED = "true"
 APPLE_CLIENT_ID = "com.yowamushi-inc.RideIntercom.RideIntercom"
 DEVICE_ATTESTATION_ENABLED = "false"
 DEVICE_ATTESTATION_MAC_POLICY = ""
