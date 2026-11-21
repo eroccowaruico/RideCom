@@ -13,11 +13,11 @@ struct OpusLowBandwidthAppTests {
             for rate in [8_000, 16_000, 26_000, 28_000, 40_000] {
                 let settings = AppSettings(rtcAudioFormatPreset: preset, opusBitRate: rate)
                 #expect(settings.opusBitRate == 48_000)
-                let h = AppTestSupport.makeHarness()
-                defer { h.viewModel.disconnect() }
-                h.viewModel.setRTCAudioFormatPreset(preset)
-                h.viewModel.setOpusBitRate(rate)
-                #expect(h.viewModel.opusBitRate == 48_000)
+                let harness = AppTestSupport.makeHarness()
+                defer { harness.viewModel.disconnect() }
+                harness.viewModel.setRTCAudioFormatPreset(preset)
+                harness.viewModel.setOpusBitRate(rate)
+                #expect(harness.viewModel.opusBitRate == 48_000)
             }
         }
         #expect(AppSettings().opusBitRate == 48_000)
@@ -26,7 +26,14 @@ struct OpusLowBandwidthAppTests {
     @Test func lowQualityExplanationHasJapaneseResources() throws {
         let path = try #require(Bundle.main.path(forResource: "ja", ofType: "lproj"))
         let bundle = try #require(Bundle(path: path))
-        #expect(bundle.localizedString(forKey: "Opus 24 and 32 kbps are lower-quality options. The default remains 48 kbps. Encoding bitrate is not total network usage.", value: nil, table: nil)
+        #expect(
+            bundle.localizedString(
+                forKey:
+                    """
+                    Opus 24 and 32 kbps are lower-quality options. The default remains 48 kbps. Encoding bitrate \
+                    is not total network usage.
+                    """,
+                value: nil, table: nil)
             == "Opusの24・32kbpsは音質低下を許容する選択肢です。既定は48kbpsのままです。符号化ビットレートは通信量全体を表しません。")
     }
     @Test func onlyExplicitLowCandidatesJoinTheExistingQualityRange() {
@@ -45,28 +52,28 @@ struct OpusLowBandwidthAppTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = UserDefaultsAppSettingsStore(defaults: defaults)
-        let h = AppTestSupport.makeHarness(appSettingsStore: store)
-        let vm = h.viewModel
-        defer { vm.disconnect() }
-        vm.selectGroup(IntercomSeedData.recentGroups[0])
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.isAudioReady)
-        let outputStarts = h.outputBackend.configurations.count
-        vm.setPreferredTransmitCodec(.opus)
-        vm.setRTCAudioFormatPreset(preset)
-        vm.setOpusBitRate(rate)
-        #expect(vm.audioPipeline.codecRuntimeReport.activeConfiguration.codec == .opus)
-        #expect(vm.audioPipeline.codecRuntimeReport.activeConfiguration.activeBitRate == rate)
-        #expect(h.callSession.audioPolicies.last?.maximumBitRate == rate)
-        #expect(h.outputBackend.configurations.count == outputStarts)
-        vm.setPreferredTransmitCodec(.pcm16); vm.setPreferredTransmitCodec(.opus)
-        #expect(vm.opusBitRate == rate && store.load().opusBitRate == rate)
+        let harness = AppTestSupport.makeHarness(appSettingsStore: store)
+        let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+        harness.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { viewModel.isAudioReady }
+        #expect(viewModel.isAudioReady)
+        let outputStarts = harness.outputBackend.configurations.count
+        viewModel.setPreferredTransmitCodec(.opus)
+        viewModel.setRTCAudioFormatPreset(preset)
+        viewModel.setOpusBitRate(rate)
+        #expect(viewModel.audioPipeline.codecRuntimeReport.activeConfiguration.codec == .opus)
+        #expect(viewModel.audioPipeline.codecRuntimeReport.activeConfiguration.activeBitRate == rate)
+        #expect(harness.callSession.audioPolicies.last?.maximumBitRate == rate)
+        #expect(harness.outputBackend.configurations.count == outputStarts)
+        viewModel.setPreferredTransmitCodec(.pcm16); viewModel.setPreferredTransmitCodec(.opus)
+        #expect(viewModel.opusBitRate == rate && store.load().opusBitRate == rate)
         for next in RTCAudioFormatPreset.allCases {
-            vm.setRTCAudioFormatPreset(next)
-            #expect(vm.opusBitRate == rate)
+            viewModel.setRTCAudioFormatPreset(next)
+            #expect(viewModel.opusBitRate == rate)
         }
-        vm.setRTCAudioFormatPreset(preset)
+        viewModel.setRTCAudioFormatPreset(preset)
         let restored = AppTestSupport.makeHarness(appSettingsStore: store)
         defer { restored.viewModel.disconnect() }
         #expect(restored.viewModel.opusBitRate == rate)
@@ -80,15 +87,16 @@ struct OpusLowBandwidthAppTests {
     // instance owned by a running App transmitter.
     @Test(arguments: [24_000, 32_000], RTCAudioFormatPreset.allCases)
     func manualChoiceConfigurationCreatesNativeEncoder(rate: Int, preset: RTCAudioFormatPreset) throws {
-        let h = AppTestSupport.makeHarness()
-        defer { h.viewModel.disconnect() }
-        h.viewModel.setRTCAudioFormatPreset(preset)
-        h.viewModel.setPreferredTransmitCodec(.opus)
-        h.viewModel.setOpusBitRate(rate)
-        let configuration = h.viewModel.codecRuntimeReport.activeConfiguration
+        let harness = AppTestSupport.makeHarness()
+        defer { harness.viewModel.disconnect() }
+        harness.viewModel.setRTCAudioFormatPreset(preset)
+        harness.viewModel.setPreferredTransmitCodec(.opus)
+        harness.viewModel.setOpusBitRate(rate)
+        let configuration = harness.viewModel.codecRuntimeReport.activeConfiguration
         #expect(configuration.codec == .opus && configuration.activeBitRate == rate)
         let encoder = try StreamingCodecEncoder(configuration: configuration)
-        let native = try #require(Mirror(reflecting: encoder).children.first { $0.label == "converter" }?.value as? AVAudioConverter)
+        let native = try #require(
+            Mirror(reflecting: encoder).children.first { $0.label == "converter" }?.value as? AVAudioConverter)
         #expect(native.bitRate == rate)
         #expect(native.inputFormat.sampleRate == preset.audioFormat.sampleRate)
         let samples = (0..<Int(preset.audioFormat.sampleRate / 100)).map {
