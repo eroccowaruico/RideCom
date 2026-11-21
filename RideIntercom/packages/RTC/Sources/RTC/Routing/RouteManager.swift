@@ -4,39 +4,41 @@ import Foundation
 /// disconnects one group of members merely because another path became ready.
 public actor RouteManager: CallSession {
     nonisolated public var events: AsyncStream<CallSessionEvent> { eventSource.stream }
-    private let eventSource = EventSource<CallSessionEvent>(isTransient: { $0.isTransient }, overflowEvent: .stateChanged(.failed))
-    private let routes: [RouteKind: RTCCallRoute]
-    private var configuration: CallRouteConfiguration
-    private let runtimeStatusPolicy: RTCRuntimeStatusPolicy
-    private var generation = UUID()
-    private var request: CallStartRequest?
+    private let eventSource = EventSource<CallSessionEvent>(
+        isTransient: { $0.isTransient }, overflowEvent: .stateChanged(.failed))
+    let routes: [RouteKind: RTCCallRoute]
+    private(set) var configuration: CallRouteConfiguration
+    let runtimeStatusPolicy: RTCRuntimeStatusPolicy
+    private(set) var generation = UUID()
+    private(set) var request: CallStartRequest?
     private var routeTasks: [Task<Void, Never>] = []
     private var timer: Task<Void, Never>?
     private(set) var maintenanceDeadline: TimeInterval?
     private var isConnectionStarted = false
     private var fallbackTask: Task<Void, Never>?
-    private var routeStates: [RouteKind: RouteConnectionState] = [:]
-    private var routeAvailabilities: [RouteKind: RouteAvailability] = [:]
-    private var routeMembers: [RouteKind: Set<PeerID>] = [:]
-    private var started: Set<RouteKind> = []
+    private(set) var routeStates: [RouteKind: RouteConnectionState] = [:]
+    private(set) var routeAvailabilities: [RouteKind: RouteAvailability] = [:]
+    private(set) var routeMembers: [RouteKind: Set<PeerID>] = [:]
+    private(set) var started: Set<RouteKind> = []
     private var blocked: Set<RouteKind> = []
-    private var retries: [RouteKind: ConnectionRetry] = [:]
-    private var activeRoute: RouteKind?
-    private var mediaRoute: RouteKind? { activeRoute }
-    private var availableRoutes: Set<RouteKind> = []
-    private var connectionState: CallConnectionState = .idle
-    private var isMediaStarted = false
-    private var localMute = false
-    private var outputMute = false
-    private var relay: GroupRelay?
+    private(set) var retries: [RouteKind: ConnectionRetry] = [:]
+    private(set) var activeRoute: RouteKind?
+    var mediaRoute: RouteKind? { activeRoute }
+    private(set) var availableRoutes: Set<RouteKind> = []
+    private(set) var connectionState: CallConnectionState = .idle
+    private(set) var isMediaStarted = false
+    private(set) var localMute = false
+    private(set) var outputMute = false
+    private(set) var relay: GroupRelay?
     private var receiveBuffer = PacketAudioReceiveBuffer()
     private var memberSnapshot: [CallMemberState] = []
-    private var observedPaths: [PeerID: RTCObservedPeerPath] = [:]
-    private var outboundAudioDispatch: RTCOutboundAudioDispatch?
+    private(set) var observedPaths: [PeerID: RTCObservedPeerPath] = [:]
+    private(set) var outboundAudioDispatch: RTCOutboundAudioDispatch?
     private var memberRoutes: [PeerID: RouteKind] = [:]
     private var lastPresence: TimeInterval = 0
     private var lastRuntimeStatus: TimeInterval = 0
-    private var runtimePackageReports: [RTCRuntimePackageReport] = []
+    var eventDropReport: RTCEventDropReport { eventSource.report }
+    private(set) var runtimePackageReports: [RTCRuntimePackageReport] = []
 
     public init(routes: [RTCCallRoute], configuration: CallRouteConfiguration = .init(),
                 runtimeStatusPolicy: RTCRuntimeStatusPolicy = .init()) {
@@ -98,7 +100,9 @@ public actor RouteManager: CallSession {
         if generation == token { scheduleMaintenance() }
     }
     private func start(_ kind: RouteKind) async {
-        guard configuration.enabledRoutes.contains(kind), let route = routes[kind], !started.contains(kind), !blocked.contains(kind) else { return }
+        guard configuration.enabledRoutes.contains(kind), let route = routes[kind], !started.contains(kind),
+            !blocked.contains(kind)
+        else { return }
         started.insert(kind); routeStates[kind] = .connecting
         await route.startConnection()
     }
@@ -177,7 +181,8 @@ public actor RouteManager: CallSession {
         await sendRuntimeStatus(reason: .localControlsChanged)
     }
     private func broadcast(_ body: RelayBody, recordsOutboundAudio: Bool = false) async {
-        guard let data = try? relay?.make(body, now: ProcessInfo.processInfo.systemUptime), data.count <= 32768 else { return }
+        guard let data = try? relay?.make(body, now: ProcessInfo.processInfo.systemUptime), data.count <= 32768
+        else { return }
         await forward(data, body: body, recordsOutboundAudio: recordsOutboundAudio)
     }
     private func forward(_ data: Data, body: RelayBody, excluding: RouteKind? = nil, path: [PeerID] = [],
@@ -217,27 +222,55 @@ public actor RouteManager: CallSession {
                                           transportAcceptance: transportAcceptance.isEmpty ? nil : transportAcceptance)
         }
     }
-    private func handle(_ event: RouteEvent, generation token: UUID) async {
+    private func deliverAudio(now: TimeInterval) {
+        for packet in receiveBuffer.drain(now: now).readyPackets
+            where isMediaStarted && allowsAudio(from: packet.peerID, now: now) {
+            emit(.receivedAudioPacket(packet))
+        }
+    }
+    private func updateMembers() {
+        let now = ProcessInfo.processInfo.systemUptime
+        let next = (relay?.members(now: now) ?? []).map {
+            CallMemberState(peer: $0, route: memberRoutes[$0.id], isConnected: true,
+                            membershipID: relay?.membershipID(for: $0.id, now: now))
+        }
+        guard next != memberSnapshot else { return }
+        let departed = Set(memberSnapshot.map { $0.peer.id }).subtracting(next.map { $0.peer.id })
+        for peer in departed { receiveBuffer.removePeer(peer); memberRoutes[peer] = nil; observedPaths[peer] = nil }
+        memberSnapshot = next
+        emit(.membersChanged(next)); updateState()
+    }
+    private func updateState() {
+        let live = availableRoutes.intersection(started)
+        activeRoute =
+            live.contains(configuration.preferredRoute)
+            ? configuration.preferredRoute : live.sorted { $0.rawValue < $1.rawValue }.first
+        // A started route still on its first attempt (Local searching alone, say) is a normal wait,
+        // so another route's retry does not make the call reconnecting.
+        let searching = started.subtracting(blocked).contains { routeStates[$0] == .connecting && retries[$0] == nil }
+        let state: CallConnectionState =
+            live.isEmpty && configuration.enabledRoutes.isSubset(of: blocked)
+            ? .failed
+            : !memberSnapshot.isEmpty
+                ? (isMediaStarted ? .mediaReady : .connected)
+                : (live.isEmpty && !retries.isEmpty && !searching ? .reconnecting : .connecting)
+        if connectionState != state { emitState(state) }
+    }
+    private func emitState(_ state: CallConnectionState) {
+        connectionState = state
+        emit(.stateChanged(state))
+    }
+
+    func emit(_ event: CallSessionEvent) { eventSource.yield(event) }
+}
+
+private extension RouteManager {
+    func handle(_ event: RouteEvent, generation token: UUID) async {
         guard generation == token, request != nil else { return }
         defer { if generation == token { scheduleMaintenance() } }
         switch event {
         case .stateChanged(let kind, let state):
-            let previous = routeStates.updateValue(state, forKey: kind)
-            if kind == .webRTC { relay?.internetReady = state == .mediaReady }
-            if [.connected, .authenticated, .mediaReady].contains(state) {
-                let becameAvailable = availableRoutes.insert(kind).inserted
-                retries[kind] = nil
-                // Member events already announce newly authenticated links, including same-ID replacements.
-                if becameAvailable || previous != state { await broadcast(.presence) }
-            } else if state == .failed || state == .disconnected {
-                availableRoutes.remove(kind); routeMembers[kind] = []
-                // Several state events can report the same outage while a retry is already scheduled.
-                if started.contains(kind), !blocked.contains(kind), retries[kind]?.deadline.isFinite != true {
-                    retries[kind] = ConnectionRetry(after: retries[kind],
-                        at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
-                }
-            }
-            updateState(); emitRouteSnapshot()
+            await handleStateChange(state, for: kind)
         case .availabilityChanged(let availability):
             routeAvailabilities[availability.route] = availability
             emit(.routeAvailabilityChanged([availability]))
@@ -245,41 +278,7 @@ public actor RouteManager: CallSession {
             routeMembers[kind] = Set(members.filter(\.isConnected).map { $0.peer.id })
             await broadcast(.presence)
         case .receivedApplicationData(let kind, let data):
-            guard started.contains(kind), routeMembers[kind, default: []].contains(data.peerID),
-                  data.message.namespace == GroupRelay.namespace,
-                  let result = relay?.receive(data.message.payload, from: data.peerID, now: ProcessInfo.processInfo.systemUptime) else { return }
-            if result.didRestart {
-                receiveBuffer.removePeer(result.peer.id)
-                memberSnapshot.removeAll { $0.peer.id == result.peer.id }
-                emit(.membersChanged(memberSnapshot))
-            }
-            observedPaths[result.peer.id] = .init(peerID: result.peer.id, route: kind, path: result.path, observedAt: Date().timeIntervalSince1970)
-            memberRoutes[result.peer.id] = kind
-            updateMembers()
-            switch result.body {
-            case .audio(let packet):
-                let now = ProcessInfo.processInfo.systemUptime
-                if isMediaStarted, allowsAudio(from: result.peer.id, now: now) {
-                    receiveBuffer.enqueue(.init(received: .init(peerID: result.peer.id, packet: packet)), receivedAt: now)
-                    deliverAudio(now: now)
-                }
-            case .application(let message): emit(.receivedApplicationData(.init(peerID: result.peer.id, message: message)))
-            case .presence, .leave: break
-            }
-            // SFU already fans out to every subscriber. Local links may be a chain.
-            if let bytes = result.forward {
-                var excluded: RouteKind? = kind == .webRTC ? .webRTC : nil
-                if case .audio = result.body, kind == .multipeer {
-                    // One ready gateway per directly connected Local neighborhood.
-                    // During topology convergence duplicate suppression still protects playback.
-                    var candidates = (relay?.internetGateways(now: ProcessInfo.processInfo.systemUptime) ?? []).intersection(routeMembers[.multipeer, default: []])
-                    if relay?.internetReady == true, let id = request?.localPeer.id { candidates.insert(id) }
-                    let elected = candidates.min { $0.rawValue < $1.rawValue }
-                    let originHasInternet = relay?.internetGateways(now: ProcessInfo.processInfo.systemUptime).contains(result.peer.id) == true
-                    if originHasInternet || elected != request?.localPeer.id { excluded = .webRTC }
-                }
-                await forward(bytes, body: result.body, excluding: excluded, path: result.path)
-            }
+            await handleApplicationData(data, from: kind)
         case .metricsChanged(let metrics): emit(.metricsChanged(metrics))
         case .connectionBlocked(let kind, let message):
             blocked.insert(kind); retries[kind] = nil
@@ -287,9 +286,63 @@ public actor RouteManager: CallSession {
         case .error(_, let error): emit(.error(error))
         }
     }
+
+    func handleStateChange(_ state: RouteConnectionState, for kind: RouteKind) async {
+        let previous = routeStates.updateValue(state, forKey: kind)
+        if kind == .webRTC { relay?.internetReady = state == .mediaReady }
+        if [.connected, .authenticated, .mediaReady].contains(state) {
+            let becameAvailable = availableRoutes.insert(kind).inserted
+            retries[kind] = nil
+            // Member events already announce newly authenticated links, including same-ID replacements.
+            if becameAvailable || previous != state { await broadcast(.presence) }
+        } else if state == .failed || state == .disconnected {
+            availableRoutes.remove(kind); routeMembers[kind] = []
+            // Several state events can report the same outage while a retry is already scheduled.
+            if started.contains(kind), !blocked.contains(kind), retries[kind]?.deadline.isFinite != true {
+                retries[kind] = ConnectionRetry(after: retries[kind],
+                    at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
+            }
+        }
+        updateState(); emitRouteSnapshot()
+    }
+
+    func handleApplicationData(_ data: ReceivedApplicationData, from kind: RouteKind) async {
+        guard started.contains(kind), routeMembers[kind, default: []].contains(data.peerID),
+              data.message.namespace == GroupRelay.namespace,
+            let result = relay?.receive(
+                data.message.payload, from: data.peerID, now: ProcessInfo.processInfo.systemUptime)
+        else { return }
+        if result.didRestart {
+            receiveBuffer.removePeer(result.peer.id)
+            memberSnapshot.removeAll { $0.peer.id == result.peer.id }
+            emit(.membersChanged(memberSnapshot))
+        }
+        observedPaths[result.peer.id] = .init(
+            peerID: result.peer.id, route: kind, path: result.path, observedAt: Date().timeIntervalSince1970)
+        memberRoutes[result.peer.id] = kind
+        updateMembers()
+        switch result.body {
+        case .audio(let packet):
+            let now = ProcessInfo.processInfo.systemUptime
+            if isMediaStarted, allowsAudio(from: result.peer.id, now: now) {
+                receiveBuffer.enqueue(
+                    .init(received: .init(peerID: result.peer.id, packet: packet)), receivedAt: now)
+                deliverAudio(now: now)
+            }
+        case .application(let message):
+            emit(.receivedApplicationData(.init(peerID: result.peer.id, message: message)))
+        case .presence, .leave: break
+        }
+        guard let bytes = result.forward else { return }
+        let excluded = forwardingExclusion(from: kind, body: result.body, sender: result.peer.id)
+        await forward(bytes, body: result.body, excluding: excluded, path: result.path)
+    }
+}
+
+private extension RouteManager {
     /// Healthy packets leave in handle(). Wake only for an unresolved reorder
     /// gap, presence expiry, retry, or explicitly enabled diagnostics.
-    private func scheduleMaintenance() {
+    func scheduleMaintenance() {
         guard isConnectionStarted else { return }
         if configuration.enabledRoutes.isSubset(of: blocked) {
             timer?.cancel(); timer = nil; maintenanceDeadline = nil
@@ -313,7 +366,7 @@ public actor RouteManager: CallSession {
         }
     }
 
-    private func tick(generation token: UUID, deadline: TimeInterval) async {
+    func tick(generation token: UUID, deadline: TimeInterval) async {
         guard generation == token, maintenanceDeadline == deadline else { return }
         timer = nil; maintenanceDeadline = nil
         defer { if generation == token { scheduleMaintenance() } }
@@ -342,128 +395,5 @@ public actor RouteManager: CallSession {
             lastRuntimeStatus = now
             await sendRuntimeStatus(reason: .periodic)
         }
-    }
-    private func allowsAudio(from peerID: PeerID, now: TimeInterval) -> Bool {
-        guard let membership = relay?.membershipID(for: peerID, now: now) else { return false }
-        switch request?.audioPolicy.peerPolicy {
-        case .groupMembers: return true
-        case .admittedMemberships(let admitted): return admitted[peerID] == membership
-        case nil: return false
-        }
-    }
-    private func deliverAudio(now: TimeInterval) {
-        for packet in receiveBuffer.drain(now: now).readyPackets
-            where isMediaStarted && allowsAudio(from: packet.peerID, now: now) {
-            emit(.receivedAudioPacket(packet))
-        }
-    }
-    private func updateMembers() {
-        let now = ProcessInfo.processInfo.systemUptime
-        let next = (relay?.members(now: now) ?? []).map {
-            CallMemberState(peer: $0, route: memberRoutes[$0.id], isConnected: true,
-                            membershipID: relay?.membershipID(for: $0.id, now: now))
-        }
-        guard next != memberSnapshot else { return }
-        let departed = Set(memberSnapshot.map { $0.peer.id }).subtracting(next.map { $0.peer.id })
-        for peer in departed { receiveBuffer.removePeer(peer); memberRoutes[peer] = nil; observedPaths[peer] = nil }
-        memberSnapshot = next
-        emit(.membersChanged(next)); updateState()
-    }
-    private func updateState() {
-        let live = availableRoutes.intersection(started)
-        activeRoute = live.contains(configuration.preferredRoute) ? configuration.preferredRoute : live.sorted { $0.rawValue < $1.rawValue }.first
-        // A started route still on its first attempt (Local searching alone, say) is a normal wait,
-        // so another route's retry does not make the call reconnecting.
-        let searching = started.subtracting(blocked).contains { routeStates[$0] == .connecting && retries[$0] == nil }
-        let state: CallConnectionState = live.isEmpty && configuration.enabledRoutes.isSubset(of: blocked) ? .failed : !memberSnapshot.isEmpty ? (isMediaStarted ? .mediaReady : .connected) : (live.isEmpty && !retries.isEmpty && !searching ? .reconnecting : .connecting)
-        if connectionState != state { emitState(state) }
-    }
-    private func emitRouteSnapshot() { emit(.routeChanged(routeSnapshot())) }
-    private func routeSnapshot() -> ActiveRouteSnapshot {
-        ActiveRouteSnapshot(activeRoute: activeRoute, mediaRoute: mediaRoute, availableRoutes: availableRoutes,
-                            isHandoverInProgress: !retries.isEmpty && availableRoutes.isEmpty)
-    }
-    private func sendRuntimeStatus(reason: RTCRuntimeStatusReason) async {
-        guard runtimeStatusPolicy.isAutomaticBroadcastEnabled else { return }
-        let token = generation
-        let network = await networkDiagnostics()
-        guard token == generation else { return }
-        emit(.networkDiagnosticsChanged(network))
-        var status = makeRuntimeStatus(reason: reason)
-        if let report = try? RTCRuntimePackageReport.json(package: "RTC", kind: "network", payload: network) {
-            status.packageReports.append(report)
-        }
-        guard let message = try? RTCRuntimeStatusTransport.makeMessage(status) else { return }
-        await sendApplicationData(message)
-    }
-    public func networkDiagnostics() async -> RTCNetworkDiagnostics {
-        let token = generation
-        var diagnostics: [RTCRouteNetworkDiagnostics] = []
-        for kind in started.sorted(by: { $0.rawValue < $1.rawValue }) {
-            if let route = routes[kind] { diagnostics.append(await route.networkDiagnostics()) }
-            guard generation == token else { return .init(generatedAt: Date().timeIntervalSince1970, eventDrops: .init(), routes: [], peers: []) }
-        }
-        let now = Date().timeIntervalSince1970
-        let paths = observedPaths.values.filter { path in
-            now - path.observedAt < GroupRelay.presenceLifetime && availableRoutes.contains(path.route)
-                && path.path.dropLast().last.map { routeMembers[path.route, default: []].contains($0) } == true
-        }
-        return .init(generatedAt: now, eventDrops: eventSource.report, routes: diagnostics,
-                     peers: paths.sorted { $0.peerID.rawValue < $1.peerID.rawValue },
-                     outboundAudioDispatch: outboundAudioDispatch)
-    }
-
-    private func makeRuntimeStatus(reason: RTCRuntimeStatusReason) -> RTCRuntimeStatus {
-        let request = request ?? CallStartRequest(
-            sessionID: "",
-            localPeer: PeerDescriptor(id: PeerID(rawValue: ""), displayName: ""),
-            configuration: configuration
-        )
-        return RTCRuntimeStatus(
-            reason: reason,
-            generatedAt: Date().timeIntervalSince1970,
-            sessionID: request.sessionID,
-            localPeer: request.localPeer,
-            expectedPeers: request.expectedPeers,
-            connectionState: connectionState,
-            isMediaStarted: isMediaStarted,
-            localMute: localMute,
-            outputMute: outputMute,
-            routeSnapshot: routeSnapshot(),
-            routes: routes.values
-                .sorted { $0.kind.rawValue < $1.kind.rawValue }
-                .map { route in
-                    RTCRouteRuntimeStatus(
-                        route: route.kind,
-                        state: routeStates[route.kind] ?? .idle,
-                        isAvailable: availableRoutes.contains(route.kind),
-                        availabilityReason: routeAvailabilities[route.kind]?.reason,
-                        capabilities: route.capabilities,
-                        isActiveRoute: activeRoute == route.kind,
-                        isMediaRoute: mediaRoute == route.kind,
-                        selectedAudioCodec: selectedAudioCodec(for: route, request: request)
-                    )
-                },
-            packageReports: runtimePackageReports,
-            configuration: configuration,
-            audioPolicy: request.audioPolicy
-        )
-    }
-
-    private func selectedAudioCodec(
-        for route: RTCCallRoute,
-        request: CallStartRequest
-    ) -> RTCAudioCodecIdentifier? {
-        let supported = route.capabilities.supportedAudioCodecs
-        return request.audioPolicy.preferredCodecs.first { supported.contains($0) } ?? supported.first
-    }
-
-    private func emitState(_ state: CallConnectionState) {
-        connectionState = state
-        emit(.stateChanged(state))
-    }
-
-    private func emit(_ event: CallSessionEvent) {
-        eventSource.yield(event)
     }
 }
