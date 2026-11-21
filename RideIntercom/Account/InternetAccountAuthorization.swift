@@ -39,7 +39,7 @@ nonisolated struct InternetAccountClient: Sendable {
         self.session = session
     }
     enum Failure: Error {
-        case invalidAddress, rejected, forbidden, invalidResponse, deviceLimitReached, deletionPending, deletionReauthenticationRequired
+        case invalidAddress, rejected, forbidden, notFound, invalidResponse, deviceLimitReached, deletionPending, deletionReauthenticationRequired
         case rateLimited(retryAfter: Int)
     }
     static func origin(_ text: String) throws -> URL {
@@ -107,7 +107,10 @@ nonisolated struct InternetAccountClient: Sendable {
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.url == request.url else { throw Failure.rejected }
-        if acceptsMissing, response.statusCode == 404 { return try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
+        if response.statusCode == 404 {
+            guard acceptsMissing else { throw Failure.notFound }
+            return try JSONDecoder().decode(T.self, from: Data("{}".utf8))
+        }
         // An already revoked credential needs no further server cleanup.
         if method == "DELETE", path == "api/auth/session", response.statusCode == 401 { return try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
         if method == "DELETE", path == "api/auth/account", response.statusCode == 401 { throw Failure.deletionReauthenticationRequired }

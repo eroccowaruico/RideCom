@@ -872,7 +872,6 @@ import UserNotifications
         await right.viewModel.synchronizeGroupDeliveries()
         #expect(!right.viewModel.groups.contains { $0.id == group.id })
         #expect(right.viewModel.groupRepository.groupDeliveries.first?.state == .pending)
-        GroupDeliveryHTTPStub.legacyAcknowledgement = true
         await right.viewModel.synchronizeGroupDeliveries()
         #expect(right.viewModel.groups.contains { $0.id == group.id })
         #expect(right.viewModel.currentCallReference == rightCall && left.viewModel.currentCallReference == leftCall)
@@ -1550,8 +1549,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
-    nonisolated(unsafe) static var legacyAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; legacyAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil; onContactDeletion = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil; onContactDeletion = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -1596,11 +1594,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
             onQueued?()
             return (200, ["requestID": id, "expiresAt": expiry, "status": "queued"])
         }
-        if request.httpMethod == "GET" {
-            if url.lastPathComponent != "group-invitations" {
-                guard let item = items[url.lastPathComponent], item["recipientID"] as? String == caller else { return (404, [:]) }
-                return (200, item)
-            }
+        if request.httpMethod == "GET", url.path == "/api/notifications/group-invitations" {
             let key = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
             let item = items.values.first { $0["recipientID"] as? String == caller && $0["recipientKey"] as? String == key && $0["status"] as? String == "queued" }
             return (200, ["delivery": item.map { $0 as Any } ?? NSNull()])
@@ -1620,7 +1614,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
                     action?()
                 }
             }
-            return (200, legacyAcknowledgement ? [:] : ["status": item["status"]!])
+            return (200, ["status": item["status"]!])
         }
         return (404, [:])
     }

@@ -12,6 +12,30 @@ struct NotificationClientTests {
     let token = "ri1." + String(repeating: "a", count: 64) + ".00000000-0000-0000-0000-000000000001." + String(repeating: "b", count: 64)
     let userID = String(repeating: "c", count: 64)
 
+    @Test func groupInvitationAcknowledgementUsesOnlyTheCurrentDeleteResponse() async throws {
+        let client = makeClient()
+        let fixture = try NotificationModelFixture(client: client); defer { fixture.remove() }
+        let access = try #require(try fixture.store.notificationAccess(memberID: "local"))
+        let id = UUID()
+
+        NotificationHTTPStub.response = "{}"
+        await #expect(throws: DecodingError.self) {
+            try await client.acknowledgeGroupInvitation(id, access: access)
+        }
+        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["DELETE"])
+
+        NotificationHTTPStub.requests = []
+        NotificationHTTPStub.status = 404
+        #expect(try await client.acknowledgeGroupInvitation(id, access: access) == nil)
+        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["DELETE"])
+
+        NotificationHTTPStub.requests = []
+        NotificationHTTPStub.status = 200
+        NotificationHTTPStub.response = #"{"status":"received"}"#
+        #expect(try await client.acknowledgeGroupInvitation(id, access: access) == .received)
+        #expect(NotificationHTTPStub.requests.map(\.httpMethod) == ["DELETE"])
+    }
+
     @Test func foregroundArrivalOnlyChangesPresentationAndStaysQuietThroughoutACall() async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         fixture.store.notificationRegistrationEnabled = true

@@ -110,8 +110,9 @@ extension InternetAccountClient {
     nonisolated private struct AdditionalDeviceInvitations: Decodable, Sendable { let requestIDs: [UUID]? }
     nonisolated private struct AdditionalDevices: Decodable, Sendable { let devices: [GroupInvitationAddress]? }
     nonisolated private struct GroupAcknowledgement: Decodable, Sendable {
-        let status: GroupDeliveryRecord.State?
+        let status: GroupDeliveryRecord.State
     }
+    nonisolated private struct RedeliveryAcknowledgement: Decodable, Sendable {}
     nonisolated private struct GroupSubmission: Encodable, Sendable {
         let capability: String; let requestID: String; let noticeID: String; let expiresAt: Double; let recipientKey: String; let envelope: String
         let sourceRequestID: String?
@@ -168,7 +169,7 @@ extension InternetAccountClient {
         guard access.principal.isValid, signer.principal == access.principal else { throw Failure.invalidResponse }
         let requestID = id.uuidString.lowercased()
         let proof = try signer.sign(Data(requestID.utf8), purpose: .requestGroupInvitationRedelivery)
-        let _: GroupAcknowledgement = try await sendJSON(origin: access.origin,
+        let _: RedeliveryAcknowledgement = try await sendJSON(origin: access.origin,
             path: "api/notifications/group-invitations/\(access.principal.userID)/\(requestID)/additional-devices",
             body: JSONEncoder().encode(proof), token: access.accessToken, acceptsMissing: true)
     }
@@ -178,22 +179,18 @@ extension InternetAccountClient {
                                access: CallNotificationServiceAccess) async throws -> GroupDeliveryRecord.State? {
         try validateNotificationAccess(access.origin, token: access.accessToken)
         guard recipient.isValid, recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
-        let reply: GroupAcknowledgement = try await sendJSON(origin: access.origin,
-            path: "api/notifications/group-invitations/\(recipient.userID)/\(id.uuidString.lowercased())", method: "DELETE", token: access.accessToken,
-            query: discard ? [.init(name: "discard", value: "1")] : [], acceptsMissing: true)
-        return reply.status
+        do {
+            let reply: GroupAcknowledgement = try await sendJSON(origin: access.origin,
+                path: "api/notifications/group-invitations/\(recipient.userID)/\(id.uuidString.lowercased())", method: "DELETE", token: access.accessToken,
+                query: discard ? [.init(name: "discard", value: "1")] : [])
+            guard reply.status == .received || reply.status == .cancelled else { throw Failure.invalidResponse }
+            return reply.status
+        } catch Failure.notFound {
+            return nil
+        }
     }
 
     func acknowledgeGroupInvitation(_ id: UUID, access: CallNotificationServiceAccess) async throws -> GroupDeliveryRecord.State? {
-        var status = try await finishGroupInvitation(recipient: access.principal, id: id, access: access)
-        if status == nil {
-            // Older Workers return an empty success body. Only the status lookup can confirm receipt.
-            let reply: GroupAcknowledgement = try await sendJSON(origin: access.origin,
-                path: "api/notifications/group-invitations/\(access.principal.userID)/\(id.uuidString.lowercased())",
-                method: "GET", token: access.accessToken, acceptsMissing: true)
-            status = reply.status
-        }
-        guard status == nil || status == .received || status == .cancelled else { throw Failure.invalidResponse }
-        return status
+        try await finishGroupInvitation(recipient: access.principal, id: id, access: access)
     }
 }
