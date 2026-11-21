@@ -2,10 +2,68 @@
 import CryptoKit
 import Foundation
 import RTC
+import Synchronization
 import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct GroupDeliveryWorkerTests {
+    @Test(.timeLimit(.minutes(1))) func lateOrdinaryInvitationReplyArrivesWithoutReturningToTheForeground() async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("ordinary-retry-author")
+            let recipient = GroupDeliveryTestIdentity("ordinary-retry-recipient")
+            defer { author.remove(); recipient.remove() }
+            try await register(author); try await register(recipient)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let left = try author.harness(knowing: [], onDisk: true).viewModel
+            let right = try recipient.harness(knowing: [], onDisk: true).viewModel
+            defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync(); left.disconnect(); right.disconnect() }
+            for model in [left, right] {
+                model.allowsNearbyGroupDelivery = false
+                model.setRTCTransportRoutes([.webRTC])
+            }
+            let invited = UUID()
+            try #require(left.createTalkGroup(name: "Late reply", id: invited))
+            left.groupDeliveryClient = client; right.groupDeliveryClient = client
+            var issuerExpiration: (@MainActor () -> Void)?
+            var issuerEnds = 0, recipientEnds = 0
+            left.beginGroupDeliveryBackgroundTime = { expire in issuerExpiration = expire; return { issuerEnds += 1 } }
+            right.beginGroupDeliveryBackgroundTime = { _ in { recipientEnds += 1 } }
+
+            let reads = GroupWorkerHTTPBridge.ordinaryReplyInboxReads.withLock { $0 }
+            let link = try #require(left.makeGroupInviteURL(for: invited))
+            await AppTestSupport.waitUntil(timeout: .seconds(5)) {
+                GroupWorkerHTTPBridge.ordinaryReplyInboxReads.withLock { $0 > reads }
+            }
+            try #require(GroupWorkerHTTPBridge.ordinaryReplyInboxReads.withLock { $0 > reads })
+            let issuerWindow = try #require(left.ordinaryGroupInternetReplyWindow?.id)
+            await left.synchronizeGroupDeliveries()
+            #expect(left.ordinaryGroupInternetReplyWindow?.id == issuerWindow)
+            try right.acceptInviteURL(link)
+            await AppTestSupport.waitUntil(timeout: .seconds(6)) {
+                !left.savedRemoteUsers.isEmpty && right.groupRepository.pendingInvitation(for: invited) == nil
+            }
+            #expect(left.savedRemoteUsers.first?.memberIDs == [recipient.memberID])
+            let complete = right.groupRepository.pendingInvitation(for: invited) == nil
+            #expect(complete)
+            #expect(right.ordinaryGroupInternetReplyWindow == nil)
+            #expect(recipientEnds == 1)
+            let expire = try #require(issuerExpiration)
+            left.requestOrdinaryGroupInternetReply(restart: true)
+            let renewed = try #require(left.ordinaryGroupInternetReplyWindow?.id)
+            expire()
+            #expect(left.ordinaryGroupInternetReplyWindow?.id == renewed)
+            #expect(issuerEnds == 1)
+            let expireRenewed = try #require(issuerExpiration)
+            expireRenewed()
+            expireRenewed()
+            expire()
+            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+            #expect(issuerEnds == 2)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func ordinaryInvitationOperationsDeliverAfterForegroundResumeAndKeepTheCall() async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("ordinary-reply-lifecycle-author")
@@ -21,6 +79,7 @@ import Testing
             for model in [left, right] {
                 model.allowsNearbyGroupDelivery = false
                 model.setRTCTransportRoutes([.webRTC])
+                model.ordinaryGroupInternetReplyRetryDelays = []
                 #expect(!model.notifications.isEnabled)
             }
             let invited = UUID(), ongoing = UUID(), otherCall = UUID()
@@ -37,13 +96,13 @@ import Testing
             left.beginGroupDeliveryBackgroundTime = { _ in leftWindows += 1; return {} }
             right.beginGroupDeliveryBackgroundTime = { _ in rightWindows += 1; return {} }
             let link = try #require(left.makeGroupInviteURL(for: invited))
-            try #require(left.groupDeliveryTask != nil)
-            await left.groupDeliveryTask?.value
+            let opening = try #require(left.ordinaryGroupInternetReplyWindow?.task)
+            await opening.value
             #expect(leftWindows == 1)
 
             try right.acceptInviteURL(link)
-            try #require(right.groupDeliveryTask != nil)
-            await right.groupDeliveryTask?.value
+            let accepting = try #require(right.ordinaryGroupInternetReplyWindow?.task)
+            await accepting.value
             #expect(rightWindows == 1)
             let pending = right.groupRepository.pendingInvitation(for: invited) != nil
             #expect(pending)
@@ -55,8 +114,8 @@ import Testing
             GroupWorkerHTTPBridge.interruptOrdinaryGroupAcknowledgement = true
             defer { GroupWorkerHTTPBridge.interruptOrdinaryGroupAcknowledgement = false }
             issuerOwner.systemSurfaceIsForeground = true
-            try #require(left.groupDeliveryTask != nil)
-            await left.groupDeliveryTask?.value
+            let delivering = try #require(left.ordinaryGroupInternetReplyWindow?.task)
+            await delivering.value
             #expect(!GroupWorkerHTTPBridge.interruptOrdinaryGroupAcknowledgement)
             #expect(left.savedRemoteUsers.first?.memberIDs == [recipient.memberID])
             #expect(left.currentCallReference == oldCall)
@@ -68,23 +127,24 @@ import Testing
             defer { reopened.stopGroupDeliverySync(); reopened.disconnect() }
             reopened.allowsNearbyGroupDelivery = false
             reopened.setRTCTransportRoutes([.webRTC])
+            reopened.ordinaryGroupInternetReplyRetryDelays = []
             reopened.groupDeliveryClient = client
             let inviteeOwner = AppCallOwner(account: reopened.accountSession, viewModel: reopened)
             inviteeOwner.systemSurfaceIsForeground = true
-            try #require(reopened.groupDeliveryTask != nil)
-            await reopened.groupDeliveryTask?.value
+            let receiving = try #require(reopened.ordinaryGroupInternetReplyWindow?.task)
+            await receiving.value
             let stillPending = reopened.groupRepository.pendingInvitation(for: invited) != nil
             #expect(stillPending)
 
             issuerOwner.systemSurfaceIsForeground = false
             issuerOwner.systemSurfaceIsForeground = true
-            await left.groupDeliveryTask?.value
+            await left.ordinaryGroupInternetReplyWindow?.task?.value
             #expect(left.savedRemoteUsers.map(\.id) == [savedUser].compactMap { $0 })
             #expect(left.currentCallReference == oldCall)
 
             inviteeOwner.systemSurfaceIsForeground = false
             inviteeOwner.systemSurfaceIsForeground = true
-            await reopened.groupDeliveryTask?.value
+            await reopened.ordinaryGroupInternetReplyWindow?.task?.value
             let completed = reopened.groupRepository.pendingInvitation(for: invited) == nil
             #expect(completed)
             #expect(reopened.savedRemoteUsers.first?.memberIDs == [author.memberID])
@@ -517,6 +577,7 @@ import Testing
 private enum WorkerFixtureFailure: Error { case unavailable }
 
 private final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
+    nonisolated static let ordinaryReplyInboxReads = Mutex(0)
     nonisolated(unsafe) static var origin: URL?
     nonisolated(unsafe) static var cancellation: (id: UUID, recipient: String, token: String)?
     nonisolated(unsafe) static var cancellationResponse: String?
@@ -548,6 +609,9 @@ private final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
             do {
                 let (data, result) = try await URLSession.shared.data(for: value)
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
+                if status == 200, value.url?.path == "/api/ordinary-group-replies/inbox" {
+                    Self.ordinaryReplyInboxReads.withLock { $0 += 1 }
+                }
                 if value.httpMethod == "DELETE", status == 200,
                    let id = Self.dropReceiptForID, value.url?.lastPathComponent == id.uuidString.lowercased(),
                    let receipt = try? JSONSerialization.jsonObject(with: data) as? [String: String], receipt["status"] == "received" {

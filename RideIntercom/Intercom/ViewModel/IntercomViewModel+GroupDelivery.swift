@@ -5,7 +5,6 @@ extension IntercomViewModel {
         case refresh
         case localChange
         case notification
-        case ordinaryGroupReply
     }
 
     func groupDeliveryRecords(for selected: Set<UUID>, groupID: UUID) -> [GroupDeliveryRecord] {
@@ -65,7 +64,7 @@ extension IntercomViewModel {
         }
         let outgoingInvitation = trigger == .localChange && groupRepository.groupDeliveries.contains { $0.internetAction != nil }
         let outgoingDeletion = trigger == .localChange && hasPendingContactDeletionRelay
-        if trigger == .ordinaryGroupReply || outgoingDeletion || ((trigger == .notification || outgoingInvitation) && notifications.canUseNotifications) {
+        if outgoingDeletion || ((trigger == .notification || outgoingInvitation) && notifications.canUseNotifications) {
             requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
         }
     }
@@ -97,6 +96,7 @@ extension IntercomViewModel {
     }
     func stopGroupDeliverySync() {
         stopOrdinaryGroupReplyExchanges()
+        stopOrdinaryGroupInternetReply()
         stopNearbyGroupDelivery()
         stopInternetGroupDeliverySync()
     }
@@ -112,8 +112,6 @@ extension IntercomViewModel {
         guard canEditSavedGroups, let client = groupDeliveryClient,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID) else { return }
         let generation = accountAccessID
-        await synchronizeOrdinaryGroupInternetReplies(client: client, access: access, generation: generation)
-        guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
         await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
         guard canEditSavedGroups, notifications.canUseNotifications, groupDeliveryIsCurrent(access, accountID: generation) else { return }
         do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }

@@ -45,6 +45,8 @@ final class IntercomViewModel {
     @ObservationIgnored var nearbyGroupDeliveryWindow: NearbyGroupDeliveryWindow?
     @ObservationIgnored var nearbyGroupDeliverySchedule = NearbyGroupDeliverySchedule()
     @ObservationIgnored var ordinaryGroupReplyExchanges: [OrdinaryGroupReplyExchange.Role: OrdinaryGroupReplyExchange] = [:]
+    @ObservationIgnored var ordinaryGroupInternetReplyWindow: OrdinaryGroupInternetReplyWindow?
+    @ObservationIgnored var ordinaryGroupInternetReplyRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(8)]
     @ObservationIgnored var beginOrdinaryGroupReplyBackgroundTime: AppBackgroundTime.Request = {
         AppBackgroundTime.begin(name: "Finish Group Invitation Reply", expiration: $0)
     }

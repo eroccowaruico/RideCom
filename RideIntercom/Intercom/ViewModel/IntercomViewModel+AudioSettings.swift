@@ -218,6 +218,7 @@ extension IntercomViewModel {
         guard normalizedRoutes != enabledRTCTransportRoutes else { return }
         stopContactInvitationSession()
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
+        if !normalizedRoutes.contains(.webRTC) { stopOrdinaryGroupInternetReply() }
 
         if hasAnyActiveGroupConnection {
             disconnect()
