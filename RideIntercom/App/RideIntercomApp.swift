@@ -22,7 +22,8 @@ struct RideIntercomApp: App {
     init() {
         RideIntercomLogging.bootstrap()
         let account = AppleAccountSession.makeForCurrentProcess()
-        let owner = AppCallOwner(account: account, viewModel: IntercomViewModel.makeForCurrentProcess(accountSession: account))
+        let owner = AppCallOwner(
+            account: account, viewModel: IntercomViewModel.makeForCurrentProcess(accountSession: account))
         #if DEBUG && RIDEINTERCOM_VALIDATION
         AppleAccountFixture.stageLegacyContactInvitationIfRequested(owner.viewModel)
         #if os(iOS)
@@ -51,12 +52,30 @@ struct RideIntercomApp: App {
 
     var body: some Scene {
         #if os(macOS)
-        let _ = configureOpenWindowBridge()
+        appDelegate.openMainWindow = {
+            openWindow(id: SingleWindowPolicy.mainWindowID)
+        }
+        return macScenes
+        #else
+        return WindowGroup {
+            ContentView(owner: callOwner)
+                .environment(\.callLiveActivityPresenter, callOwner.liveActivities)
+                    .onChange(of: scenePhase, initial: true) { _, phase in
+                        callOwner.systemSurfaceIsForeground = phase == .active
+                    }
+        }
+        #endif
+    }
 
+    #if os(macOS)
+    @SceneBuilder
+    private var macScenes: some Scene {
         WindowGroup(id: SingleWindowPolicy.mainWindowID) {
             ContentView(owner: callOwner)
                 .environment(\.callLiveActivityPresenter, callOwner.liveActivities)
-                .onChange(of: scenePhase, initial: true) { _, phase in callOwner.systemSurfaceIsForeground = phase == .active }
+                    .onChange(of: scenePhase, initial: true) { _, phase in
+                        callOwner.systemSurfaceIsForeground = phase == .active
+                    }
                 .onAppear {
                     SingleWindowPolicy.enforce()
                 }
@@ -84,20 +103,6 @@ struct RideIntercomApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
-        #else
-        WindowGroup {
-            ContentView(owner: callOwner)
-                .environment(\.callLiveActivityPresenter, callOwner.liveActivities)
-                .onChange(of: scenePhase, initial: true) { _, phase in callOwner.systemSurfaceIsForeground = phase == .active }
-        }
-        #endif
-    }
-
-    #if os(macOS)
-    private func configureOpenWindowBridge() {
-        appDelegate.openMainWindow = {
-            openWindow(id: SingleWindowPolicy.mainWindowID)
-        }
     }
     #endif
 }
