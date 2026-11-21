@@ -1,16 +1,24 @@
 #if os(iOS)
-import CryptoKit
 import XCTest
 
 final class GroupContactInvitationUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private var appForTeardown: XCUIApplication?
+
     override func setUpWithError() throws { continueAfterFailure = false }
-    override func tearDownWithError() throws { app?.terminate(); app = nil }
+
+    override func tearDownWithError() throws {
+        appForTeardown?.terminate()
+        appForTeardown = nil
+    }
 
     func testReplyFixtureUsesTheSameFractionalTimestampSpellingAsCodable() throws {
-        struct Fields: Encodable { let expiresAt: Double; let contactBootstrap: Bool }
+        struct Fields: Encodable {
+            let expiresAt: Double
+            let contactBootstrap: Bool
+        }
         let value = Fields(expiresAt: 1795596316.992827, contactBootstrap: true)
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(value)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(try InvitationURLFixture.canonicalData(object), data)
@@ -20,38 +28,50 @@ final class GroupContactInvitationUITests: XCTestCase {
     @MainActor func testAdvancedPreparesANewPersonsGroupInvitation() throws { try prepare(advanced: true) }
     @MainActor func testStandardGroupSettingsPreparesANewPersonsInvitation() throws { try prepare(entry: "settings") }
     @MainActor func testStandardCallReopensASavedGroupInvitation() throws { try prepare(entry: "call") }
-    @MainActor func testStandardGroupSettingsReopensASavedGroupInvitation() throws { try prepare(reopenInSettings: true) }
-    @MainActor func testAdvancedCallPreparesANewPersonsInvitation() throws { try prepare(advanced: true, entry: "call") }
+    @MainActor func testStandardGroupSettingsReopensASavedGroupInvitation() throws {
+        try prepare(reopenInSettings: true)
+    }
+
+    @MainActor func testAdvancedCallPreparesANewPersonsInvitation() throws {
+        try prepare(advanced: true, entry: "call")
+    }
     @MainActor func testAdvancedGroupSettingsShowsTheStoredInvitationState() throws {
         try prepare(advanced: true, reopenInSettings: true)
     }
+
     @MainActor func testJapaneseReceiverRegistersAndJoinsTogether() throws { try receive(japanese: true) }
     @MainActor func testAdvancedReceiverRegistersAndJoinsTogether() throws { try receive(advanced: true) }
-    @MainActor func testStandardLeavingAReceivedGroupKeepsThePersonAndRejectsTheOldInvitation() throws { try receive(leaves: true) }
-    @MainActor func testAdvancedLeavingAReceivedGroupKeepsThePersonAndRejectsTheOldInvitation() throws { try receive(advanced: true, leaves: true) }
+    @MainActor func testStandardLeavingAReceivedGroupKeepsThePersonAndRejectsTheOldInvitation() throws {
+        try receive(leaves: true)
+    }
+
+    @MainActor func testAdvancedLeavingAReceivedGroupKeepsThePersonAndRejectsTheOldInvitation() throws {
+        try receive(advanced: true, leaves: true)
+    }
 
     @MainActor func testStandardRenewsAnExpiredGroupInvitationInTheSamePersonDetail() throws {
-        app = XCUIApplication()
+        let app = makeApp()
         let timeFixture = "RIDEINTERCOM_PAST_GROUP_INVITATION_FIXTURE"
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
-                                 "RIDEINTERCOM_INTERFACE_FIXTURE": "standard", timeFixture: "1"]
+        app.launchEnvironment = [
+            "RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": "standard", timeFixture: "1"
+        ]
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
-        let groups = app.tabBars.buttons["Groups"]
-        XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
-        app.buttons["standardCreateGroupButton"].firstMatch.tap()
-        let group = try XCTUnwrap(app.textFields["savedUsersGroupNameField"].value as? String)
+        let group = try createGroup(in: app)
         let nickname = "Renew rider " + String(UUID().uuidString.prefix(6))
-        saveNewGroupInvitee(named: nickname)
+        saveNewGroupInvitee(in: app, named: nickname)
         let finish = app.buttons["finishAddingUsersButton"]
-        XCTAssertTrue(finish.waitForExistence(timeout: 5)); finish.tap()
+        XCTAssertTrue(finish.waitForExistence(timeout: 5))
+        finish.tap()
         app.terminate()
         app.launchEnvironment.removeValue(forKey: timeFixture)
         app.launch()
 
-        openSavedGroupSettings(group, advanced: false)
-        let memberRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-            "groupSettingsMember-invite-pending-contact-", nickname))
+        openSavedGroupSettings(in: app, groupName: group, advanced: false)
+        let memberRows = buttons(
+            in: app, identifierPrefix: "groupSettingsMember-invite-pending-contact-", label: nickname
+        )
         let member = memberRows.firstMatch
         XCTAssertTrue(member.waitForExistence(timeout: 5))
         XCTAssertTrue(member.label.contains("Expired"), member.label)
@@ -66,11 +86,7 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(destination.exists)
 
         app.buttons["shareContactInvitationButton"].tap()
-        let copy = app.cells.matching(NSPredicate(format: "label IN %@", ["Copy", "Copy Link"])).firstMatch
-        XCTAssertTrue(copy.waitForExistence(timeout: 5))
-        let close = app.buttons["Close"].firstMatch
-        if close.exists && close.isHittable { close.tap() } else { app.swipeDown() }
-        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
+        cancelInvitationSharing(in: app)
         XCTAssertEqual(state.label, "Not sent yet")
         XCTAssertEqual(name.label, nickname)
         XCTAssertTrue(destination.exists)
@@ -86,152 +102,70 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(member.label.contains("Not sent yet"), member.label)
     }
 
-    @MainActor private func saveNewGroupInvitee(named nickname: String) {
+    @MainActor private func makeApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        appForTeardown = app
+        return app
+    }
+
+    @MainActor func launchApp(advanced: Bool, japanese: Bool = false) -> XCUIApplication {
+        let app = makeApp()
+        app.launchEnvironment = [
+            "RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard"
+        ]
+        app.launchArguments = [
+            "-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"
+        ]
+        app.launch()
+        app.activate()
+        return app
+    }
+
+    @MainActor func buttons(in app: XCUIApplication, identifierPrefix: String, label: String) -> XCUIElementQuery {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", identifierPrefix, label)
+        )
+    }
+
+    @MainActor func createGroup(in app: XCUIApplication) throws -> String {
+        let groups = app.tabBars.buttons["Groups"]
+        XCTAssertTrue(groups.waitForExistence(timeout: 5))
+        groups.tap()
+        app.buttons["standardCreateGroupButton"].firstMatch.tap()
+        return try XCTUnwrap(app.textFields["savedUsersGroupNameField"].value as? String)
+    }
+
+    @MainActor func saveNewGroupInvitee(in app: XCUIApplication, named nickname: String) {
         let add = app.buttons["addNewGroupInviteeButton"]
         for _ in 0..<24 where !add.exists || !add.isHittable { app.swipeUp() }
-        XCTAssertTrue(add.waitForExistence(timeout: 3)); add.tap()
-        let name = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH %@", "newGroupInviteName-")).firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 3))
+        add.tap()
+        let name = app.textFields.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "newGroupInviteName-")
+        ).firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 3))
-        name.tap(); name.typeText(nickname + "\n")
+        name.tap()
+        name.typeText(nickname + "\n")
         app.buttons["saveUserSelectionButton"].tap()
     }
 
-    @MainActor private func prepare(advanced: Bool = false, entry: String = "new", reopenInSettings: Bool = false) throws {
-        app = XCUIApplication()
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in", "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard"]
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launch(); app.activate()
-        let groups = app.tabBars.buttons["Groups"]
-        XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
-        app.buttons["standardCreateGroupButton"].firstMatch.tap()
-        let groupName = try XCTUnwrap(app.textFields["savedUsersGroupNameField"].value as? String)
-        let fromStandardCall = !advanced && entry == "call"
-        if entry != "new" {
-            app.buttons["saveUserSelectionButton"].tap()
-            if fromStandardCall {
-                let invite = app.buttons["addSavedUsersButton"]
-                XCTAssertTrue(app.staticTexts["standardCallParticipantsHeading"].waitForExistence(timeout: 5))
-                for _ in 0..<6 where !invite.isHittable { app.swipeUp() }
-                XCTAssertTrue(invite.isHittable)
-                invite.tap()
-            } else {
-                let more = app.buttons[advanced ? "callMoreMenu" : "callGroupSettingsButton"]
-                XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
-                if entry == "settings" {
-                    if advanced { app.buttons["callGroupSettingsButton"].tap() }
-                    let invite = app.buttons["groupSettingsAddMembersButton"]
-                    XCTAssertTrue(invite.waitForExistence(timeout: 3)); XCTAssertTrue(invite.isEnabled); invite.tap()
-                } else { app.buttons["callAddMembersButton"].tap() }
-            }
-        }
-        let nickname = "New rider " + String(UUID().uuidString.prefix(6))
-        let callInvitee = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-            "standardCallInvitee-", nickname)).firstMatch
-        saveNewGroupInvitee(named: nickname)
-        let finish = app.buttons["finishAddingUsersButton"]
-        XCTAssertTrue(finish.waitForExistence(timeout: 5))
-        let person = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "groupInvitePerson-", nickname)).firstMatch
-        XCTAssertTrue(person.waitForExistence(timeout: 3))
-        let settingsInvitee = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-            "groupSettingsMember-invite-pending-contact-", nickname)).firstMatch
-        let personState = app.staticTexts["contactPersonOutgoingInvitationState"]
-        let unsent = advanced ? "outgoing · pending · sent false" : "Not sent yet"
-        let shared = advanced ? "outgoing · pending · sent true" : "Waiting to be accepted"
-        if reopenInSettings {
-            finish.tap()
-            openSavedGroupSettings(groupName, advanced: advanced)
-            XCTAssertTrue(settingsInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(settingsInvitee.label.contains(unsent), settingsInvitee.label)
-            if advanced { XCTAssertTrue(settingsInvitee.label.contains("expiresAt "), settingsInvitee.label) }
-            settingsInvitee.tap()
-        } else if fromStandardCall {
-            finish.tap()
-            XCTAssertTrue(callInvitee.waitForExistence(timeout: 5))
-            for _ in 0..<4 where !callInvitee.isHittable { app.swipeUp() }
-            XCTAssertTrue(callInvitee.isHittable, "The group offers the saved invitation before the other person joins")
-            XCTAssertTrue(callInvitee.label.contains("Not sent yet"))
-            XCTAssertLessThan(app.buttons["addSavedUsersButton"].frame.minY, callInvitee.frame.minY)
-            let attachment = XCTAttachment(screenshot: app.screenshot())
-            attachment.name = "Group shows a saved unsent invitation"; attachment.lifetime = .keepAlways; self.add(attachment)
-            callInvitee.tap()
-        } else {
-            person.tap()
-        }
-        let share = app.buttons["shareContactInvitationButton"]
-        XCTAssertTrue(share.waitForExistence(timeout: 3))
-        if reopenInSettings {
-            XCTAssertTrue(app.staticTexts["contactPersonSavedName"].firstMatch.label.hasSuffix(nickname))
-        }
-        if !advanced {
-            XCTAssertTrue(personState.waitForExistence(timeout: 3))
-            XCTAssertEqual(personState.label, unsent)
-        }
-        share.tap()
+    @discardableResult
+    @MainActor func cancelInvitationSharing(in app: XCUIApplication) -> XCUIElement {
         let copy = app.cells.matching(NSPredicate(format: "label IN %@", ["Copy", "Copy Link"])).firstMatch
         XCTAssertTrue(copy.waitForExistence(timeout: 5))
-        let closeShare = app.buttons["Close"].firstMatch
-        if closeShare.exists && closeShare.isHittable { closeShare.tap() } else { app.swipeDown() }
+        let close = app.buttons["Close"].firstMatch
+        if close.exists && close.isHittable { close.tap() } else { app.swipeDown() }
         XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(share.waitForExistence(timeout: 5)); XCTAssertTrue(share.isHittable)
-        if !advanced { XCTAssertEqual(personState.label, unsent) }
-        if reopenInSettings {
-            app.buttons["closeContactInvitationButton"].tap()
-            XCTAssertTrue(settingsInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(settingsInvitee.label.contains(unsent), settingsInvitee.label)
-            settingsInvitee.tap()
-            XCTAssertTrue(share.waitForExistence(timeout: 3))
-            XCTAssertTrue(app.staticTexts["contactPersonSavedName"].firstMatch.label.hasSuffix(nickname))
-        } else if fromStandardCall {
-            app.buttons["closeContactInvitationButton"].tap()
-            XCTAssertTrue(callInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(callInvitee.label.contains("Not sent yet"), "Closing the share sheet leaves the invitation unsent")
-            callInvitee.tap()
-            XCTAssertTrue(share.waitForExistence(timeout: 3))
-        }
-        share.tap(); XCTAssertTrue(copy.waitForExistence(timeout: 5)); copy.tap()
-        XCTAssertTrue(app.buttons["shareContactInvitationButton"].waitForExistence(timeout: 5), "Sharing keeps the same saved detail")
-        if !advanced {
-            let updated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", shared), object: personState)
-            XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 5), .completed)
-        }
-        let invitation = try copiedURL()
-        // Finish explicitly before opening the reply: XCUIApplication.open relaunches this test app.
-        if reopenInSettings {
-            app.buttons["closeContactInvitationButton"].tap()
-            XCTAssertTrue(settingsInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(settingsInvitee.label.contains(shared), settingsInvitee.label)
-            app.buttons["closeGroupSettingsButton"].tap()
-        } else if fromStandardCall {
-            let done = app.buttons["closeContactInvitationButton"]
-            XCTAssertTrue(done.waitForExistence(timeout: 3)); done.tap()
-            XCTAssertTrue(callInvitee.waitForExistence(timeout: 5))
-            XCTAssertTrue(callInvitee.label.contains("Waiting to be accepted"))
-            app.buttons["callGroupSettingsButton"].tap()
-            let state = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@",
-                "groupSettingsInvitationState-")).firstMatch
-            XCTAssertTrue(state.waitForExistence(timeout: 3))
-            XCTAssertEqual(state.label, "Waiting to be accepted")
-            app.buttons["closeGroupSettingsButton"].tap()
-        } else {
-            if !finish.exists || !finish.isHittable { app.navigationBars.buttons.element(boundBy: 0).tap() }
-            XCTAssertTrue(finish.waitForExistence(timeout: 3)); finish.tap()
-        }
-        let suffix = String(UUID().uuidString.prefix(6)), peer = "group-peer-" + suffix
-        app.open(try InvitationURLFixture.acceptance(invitation, invitee: peer, sharedName: "Remote " + suffix))
-        openSavedGroupSettings(groupName, advanced: advanced)
-        if !advanced {
-            XCTAssertTrue(app.buttons["groupSettingsMember-" + peer].waitForExistence(timeout: 5))
-        }
-        XCTAssertFalse(settingsInvitee.exists, "The signed reply replaces the invitation row")
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", nickname)).firstMatch.exists)
-        let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Signed reply replaces only its saved group invitation slot"; attachment.lifetime = .keepAlways; self.add(attachment)
+        return copy
     }
 
-    @MainActor private func openSavedGroupSettings(_ groupName: String, advanced: Bool) {
+    @MainActor func openSavedGroupSettings(in app: XCUIApplication, groupName: String, advanced: Bool) {
         app.closeCallIfOpen()
         let groupsTab = app.tabBars.buttons["Groups"]
-        XCTAssertTrue(groupsTab.waitForExistence(timeout: 5)); groupsTab.tap()
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", groupName)).firstMatch
+        XCTAssertTrue(groupsTab.waitForExistence(timeout: 5))
+        groupsTab.tap()
+        let row = buttons(in: app, identifierPrefix: "standardGroup-", label: groupName).firstMatch
         for _ in 0..<20 where !row.exists || !row.isHittable { app.swipeUp() }
         XCTAssertTrue(row.exists)
         if advanced {
@@ -248,30 +182,17 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(app.textFields["groupSettingsNameField"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textFields["groupSettingsNameField"].value as? String, groupName)
     }
+}
 
-    @MainActor private func copiedURL() throws -> URL {
-        let edit = app.buttons["editContactPersonNameButton"]
-        for _ in 0..<8 where !edit.exists || !edit.isHittable { app.swipeDown() }
-        XCTAssertTrue(edit.exists); edit.tap()
-        let field = app.textFields["savedUserNameField"]
-        XCTAssertTrue(field.waitForExistence(timeout: 3)); field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count))
-        field.press(forDuration: 1)
-        let menu = app.menuItems["Paste"], button = app.buttons["Paste"]
-        if menu.waitForExistence(timeout: 2) { menu.tap() } else { XCTAssertTrue(button.waitForExistence(timeout: 2)); button.tap() }
-        let value = try XCTUnwrap(field.value as? String)
-        app.buttons["closeUserSettingsButton"].tap()
-        let match = try XCTUnwrap(value.range(of: #"rideintercom://[^\s]+"#, options: .regularExpression))
-        return try XCTUnwrap(URL(string: String(value[match])))
-    }
-
-    @MainActor private func receive(advanced: Bool = false, japanese: Bool = false, leaves: Bool = false) throws {
-        app = XCUIApplication()
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in", "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard"]
-        app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
-        app.launch(); app.activate()
-        let suffix = String(UUID().uuidString.prefix(6)), name = "Group author " + suffix, groupName = "Joined group " + suffix
-        let url = try InvitationURLFixture.make(inviter: "join-author-" + suffix, sharedName: name, contact: true, invitedGroupName: groupName)
+private extension GroupContactInvitationUITests {
+    @MainActor func receive(advanced: Bool = false, japanese: Bool = false, leaves: Bool = false) throws {
+        let app = launchApp(advanced: advanced, japanese: japanese)
+        let suffix = String(UUID().uuidString.prefix(6))
+        let name = "Group author " + suffix
+        let groupName = "Joined group " + suffix
+        let url = try InvitationURLFixture.make(
+            inviter: "join-author-" + suffix, sharedName: name, contact: true, invitedGroupName: groupName
+        )
         app.open(url)
         XCTAssertTrue(app.staticTexts["invitedGroupPreview"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["invitedGroupPreview"].label.contains(groupName))
@@ -281,32 +202,54 @@ final class GroupContactInvitationUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["contactPersonSavedName"].waitForExistence(timeout: 5))
         let done = app.buttons["closeContactInvitationButton"]
         XCTAssertTrue(done.exists, "Registration keeps the saved detail open")
-        let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "One consent saves the person and group"; attachment.lifetime = .keepAlways; self.add(attachment)
-        done.tap(); app.terminate(); app.launch(); app.activate()
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "One consent saves the person and group"
+        attachment.lifetime = .keepAlways
+        self.add(attachment)
+        done.tap()
+        app.terminate()
+        app.launch()
+        app.activate()
         let groups = app.tabBars.buttons[japanese ? "グループ" : "Groups"]
-        XCTAssertTrue(groups.waitForExistence(timeout: 5)); groups.tap()
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardGroup-", groupName)).firstMatch
+        XCTAssertTrue(groups.waitForExistence(timeout: 5))
+        groups.tap()
+        let row = buttons(in: app, identifierPrefix: "standardGroup-", label: groupName).firstMatch
         for _ in 0..<20 where !row.exists || !row.isHittable { app.swipeUp() }
         XCTAssertTrue(row.exists, "The received group survives restart without starting a call")
         if leaves {
-            app.removeGroupRow(row)
-            XCTAssertTrue(row.waitForNonExistence(timeout: 5))
-            app.open(url)
-            XCTAssertTrue(app.buttons["acceptContactInvitationButton"].waitForExistence(timeout: 5))
-            app.buttons["acceptContactInvitationButton"].tap()
-            XCTAssertTrue(app.staticTexts["This invitation could not be accepted. Ask the sender for a new invitation."].waitForExistence(timeout: 3))
-            XCTAssertFalse(app.staticTexts["contactPersonSavedName"].exists, "An old link cannot report a deleted group as saved")
-            app.buttons["cancelContactInvitationButton"].tap()
-            app.terminate(); app.launch(); app.activate()
-            let users = app.tabBars.buttons["Users"]
-            XCTAssertTrue(users.waitForExistence(timeout: 5)); users.tap()
-            let person = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardUser-", name)).firstMatch
-            for _ in 0..<20 where !person.exists || !person.isHittable { app.swipeUp() }
-            XCTAssertTrue(person.exists, "Leaving only the group keeps the registered contact")
-            app.tabBars.buttons["Groups"].tap()
-            XCTAssertFalse(row.exists, "An old link must not recreate a group after leaving")
-            let evidence = XCTAttachment(screenshot: app.screenshot()); evidence.name = "Leaving the group cancels only its invitation"; evidence.lifetime = .keepAlways; self.add(evidence)
+            verifyLeaving(in: app, group: row, invitation: url, authorName: name)
         }
+    }
+
+    @MainActor func verifyLeaving(
+        in app: XCUIApplication, group: XCUIElement, invitation: URL, authorName: String
+    ) {
+        app.removeGroupRow(group)
+        XCTAssertTrue(group.waitForNonExistence(timeout: 5))
+        app.open(invitation)
+        XCTAssertTrue(app.buttons["acceptContactInvitationButton"].waitForExistence(timeout: 5))
+        app.buttons["acceptContactInvitationButton"].tap()
+        let error = app.staticTexts["This invitation could not be accepted. Ask the sender for a new invitation."]
+        XCTAssertTrue(error.waitForExistence(timeout: 3))
+        XCTAssertFalse(
+            app.staticTexts["contactPersonSavedName"].exists, "An old link cannot report a deleted group as saved"
+        )
+        app.buttons["cancelContactInvitationButton"].tap()
+        app.terminate()
+        app.launch()
+        app.activate()
+        let users = app.tabBars.buttons["Users"]
+        XCTAssertTrue(users.waitForExistence(timeout: 5))
+        users.tap()
+        let person = buttons(in: app, identifierPrefix: "standardUser-", label: authorName).firstMatch
+        for _ in 0..<20 where !person.exists || !person.isHittable { app.swipeUp() }
+        XCTAssertTrue(person.exists, "Leaving only the group keeps the registered contact")
+        app.tabBars.buttons["Groups"].tap()
+        XCTAssertFalse(group.exists, "An old link must not recreate a group after leaving")
+        let evidence = XCTAttachment(screenshot: app.screenshot())
+        evidence.name = "Leaving the group cancels only its invitation"
+        evidence.lifetime = .keepAlways
+        self.add(evidence)
     }
 }
 #endif
