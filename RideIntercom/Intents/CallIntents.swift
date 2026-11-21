@@ -13,8 +13,10 @@ struct StartSavedCallIntent: AppIntent {
     init(target: CallTargetEntity) { self.target = target }
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        try owner.startSavedCall(id: target.id,
-                                 missingDestinationMessage: "This saved call destination is no longer available. Choose it again in RideCom.")
+        try owner.startSavedCall(
+            id: target.id,
+            missingDestinationMessage: "This saved call destination is no longer available. Choose it again in RideCom."
+        )
         return .result(dialog: "Connection started. The other person must also join the call.")
     }
 }
@@ -38,9 +40,9 @@ struct EndCurrentCallIntent: AppIntent {
     @AppDependency var owner: AppCallOwner
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        let vm = try owner.callModel()
-        let reference = vm.currentCallReference
-        guard vm.endCall(reference) else { return .result(dialog: "There is no current call to end.") }
+        let model = try owner.callModel()
+        let reference = model.currentCallReference
+        guard model.endCall(reference) else { return .result(dialog: "There is no current call to end.") }
         owner.callPresentationID = UUID()
         return .result(dialog: "Call ended.")
     }
@@ -57,13 +59,15 @@ struct SetCallMutedIntent: AppIntent {
     init(muted: Bool) { self.muted = muted }
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        let vm = try owner.callModel()
-        let reference = vm.currentCallReference
-        guard vm.canControlMicrophone else {
+        let model = try owner.callModel()
+        let reference = model.currentCallReference
+        guard model.canControlMicrophone else {
             throw CallIntentError.unavailable("Control the microphone on your Watch")
         }
-        guard vm.setCallMuted(muted, for: reference) else {
-            throw CallIntentError.unavailable(vm.groupStorageNotice ?? "The microphone could not be changed. Open RideCom and try again.")
+        guard model.setCallMuted(muted, for: reference) else {
+            throw CallIntentError.unavailable(
+                model.groupStorageNotice ?? "The microphone could not be changed. Open RideCom and try again."
+            )
         }
         owner.callPresentationID = UUID()
         if muted { return .result(dialog: "Microphone muted.") }

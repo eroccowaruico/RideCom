@@ -28,11 +28,21 @@ struct CallTargetQuery: EntityStringQuery {
 
 extension AppCallOwner {
     var callTargets: [(entity: CallTargetEntity, destination: CallDestination)] {
-        guard let vm = viewModel, vm.canStartCalls, vm.groupStorageIssue == nil else { return [] }
-        return vm.savedRemoteUsers.map {
-            (CallTargetEntity(id: "\(vm.localMemberIdentity.memberID)|user|\($0.id.uuidString)", name: $0.resolvedDisplayName, kind: "User"), .user($0.id))
-        } + vm.regularGroups.map {
-            (CallTargetEntity(id: "\(vm.localMemberIdentity.memberID)|group|\($0.id.uuidString)", name: $0.name, kind: "Group"), .group($0.id))
+        guard let model = viewModel, model.canStartCalls, model.groupStorageIssue == nil else { return [] }
+        return model.savedRemoteUsers.map {
+            let entity = CallTargetEntity(
+                id: "\(model.localMemberIdentity.memberID)|user|\($0.id.uuidString)",
+                name: $0.resolvedDisplayName,
+                kind: "User"
+            )
+            return (entity, .user($0.id))
+        } + model.regularGroups.map {
+            let entity = CallTargetEntity(
+                id: "\(model.localMemberIdentity.memberID)|group|\($0.id.uuidString)",
+                name: $0.name,
+                kind: "Group"
+            )
+            return (entity, .group($0.id))
         }
     }
 
@@ -48,7 +58,9 @@ extension AppCallOwner {
 nonisolated enum CallIntentError: LocalizedError, CustomLocalizedStringResourceConvertible {
     case unavailable(String)
     var localizedStringResource: LocalizedStringResource {
-        switch self { case .unavailable(let message): LocalizedStringResource(stringLiteral: message) }
+        switch self {
+        case .unavailable(let message): LocalizedStringResource(stringLiteral: message)
+        }
     }
     var errorDescription: String? { String(localized: localizedStringResource) }
 }
