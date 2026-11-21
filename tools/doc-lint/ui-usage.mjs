@@ -116,7 +116,7 @@ function swiftText(source) {
         const quote = source.startsWith('"""', i) ? '"""' : '"';
         i += quote.length;
         const end = quote + hashes;
-        const escapePrefix = '\\' + hashes;
+        const escapePrefix = `\\${hashes}`;
         let text = '';
         while (i < source.length && !source.startsWith(end, i)) {
             if (!source.startsWith(escapePrefix, i)) {
@@ -189,8 +189,8 @@ export async function checkUIUsage(root) {
                 else errors++;
                 const label = process.stdout.isTTY ? JSON.stringify(name) : 'UI';
                 const line = source.slice(0, entry.index).split('\n').length;
-                const advice = process.stdout.isTTY ? ' ' + finding.message : '';
-                console.log(label + ':' + line + (warning ? ' 要確認 ' : ' 要修正 ') + finding.rule + advice);
+                const advice = process.stdout.isTTY ? ` ${finding.message}` : '';
+                console.log(`${label}:${line}${warning ? ' 要確認 ' : ' 要修正 '}${finding.rule}${advice}`);
             }
         }
     }
@@ -201,7 +201,7 @@ if (process.argv[1] && await realpath(process.argv[1]).catch(() => null) === fil
     try {
         const root = fileURLToPath(new URL('../../', import.meta.url));
         const {errors, warnings} = await checkUIUsage(root);
-        console.log('画面の日本語の検査結果　要修正 ' + errors + '件、要確認 ' + warnings + '件');
+        console.log(`画面の日本語の検査結果　要修正 ${errors}件、要確認 ${warnings}件`);
         process.exitCode = errors ? 1 : 0;
     } catch {
         console.error('画面の日本語を検査できません。対象の形式と依存関係を確認してください。');

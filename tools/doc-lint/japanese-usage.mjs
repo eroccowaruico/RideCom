@@ -52,7 +52,7 @@ const rules = [
     },
 ];
 
-export const usageRuleIds = rules.map(rule => 'ridecom-ja/' + rule.id);
+export const usageRuleIds = rules.map(rule => `ridecom-ja/${rule.id}`);
 
 export function usageFindings(text) {
     const issues = [];
@@ -64,7 +64,7 @@ export function usageFindings(text) {
             const after = text.slice(index + length, index + length + 48);
             if (rule.before?.test(before) || rule.after?.test(after)) continue;
             if (rule.applies && !rule.applies(before, after, match[0])) continue;
-            issues.push({index, length, rule: 'ridecom-ja/' + rule.id, message: rule.advice, severity: 2});
+            issues.push({index, length, rule: `ridecom-ja/${rule.id}`, message: rule.advice, severity: 2});
         }
     }
     return issues.sort((a, b) => a.index - b.index);
@@ -91,7 +91,7 @@ function visibleText(node) {
             // References and commands must retain their exact spelling.
             const code = child.value;
             if (/\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Han}/u.test(code) &&
-                !/[\/\\#]|\.[a-z0-9]{1,8}$/iu.test(code)) {
+                !/[/\\#]|\.[a-z0-9]{1,8}$/iu.test(code)) {
                 append(code, child.range[0] + child.raw.indexOf(code));
             } else {
                 append(' ', child.range[0]);
@@ -116,7 +116,7 @@ export function japaneseUsageRule(context) {
         }
         const {text, offsets} = visibleText(node);
         for (const issue of usageFindings(text)) {
-            context.report(node, new context.RuleError(issue.rule + ' ' + issue.message, {
+            context.report(node, new context.RuleError(`${issue.rule} ${issue.message}`, {
                 index: offsets[issue.index] - node.range[0],
             }));
         }

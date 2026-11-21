@@ -19,7 +19,7 @@ test('distinguish the meaning of each occurrence within a sentence', () => {
     ]) {
         assert.ok(usageFindings(bad).some(i => i.severity === 2), bad);
         assert.deepEqual(usageFindings(good), [], good);
-        assert.equal(usageFindings(good + '。' + bad).length, 1);
+        assert.equal(usageFindings(`${good}。${bad}`).length, 1);
     }
     assert.equal(usageFindings('荷物を配送し、次に通知を配送する。')[0].index, 12);
 });

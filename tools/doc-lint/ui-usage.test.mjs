@@ -56,11 +56,11 @@ test('the same rule blocks catalog, Swift, HTML attributes, and permission promp
     execFileSync('git', ['init', '-q', root]);
     const source = '仕様の正本を確認する';
     const files = {
-        'RideIntercomWatch/View.swift': 'Text("' + source + '") // 仕様の正本',
+        'RideIntercomWatch/View.swift': `Text("${source}") // 仕様の正本`,
         'RideIntercomWidgets/Widget.swift': 'Text("正本は規約にある")',
         'RideIntercom/packages/A/Tests/Sample.swift': 'let fixture = "仕様の正本"',
-        'docs/design/preview.html': '<button aria-label="' + source + '">開く</button><script>正本</script>',
-        'RideIntercom/ja.lproj/InfoPlist.strings': '"NSExample" = "' + source + '";',
+        'docs/design/preview.html': `<button aria-label="${source}">開く</button><script>正本</script>`,
+        'RideIntercom/ja.lproj/InfoPlist.strings': `"NSExample" = "${source}";`,
         'RideIntercom/Localizable.xcstrings': JSON.stringify({sourceLanguage: 'en', strings: {s: {
             comment: source, localizations: {en: {stringUnit: {value: source}},
                 ja: {substitutions: {n: {variations: {plural: {other: {stringUnit: {value: source}}}}}}}}
@@ -69,7 +69,7 @@ test('the same rule blocks catalog, Swift, HTML attributes, and permission promp
     for (const [name, contents] of Object.entries(files)) {
         const file = path.join(root, name);
         await mkdir(path.dirname(file), {recursive: true});
-        await writeFile(file, name.endsWith('.strings') ? Buffer.from('\ufeff' + contents, 'utf16le') : contents);
+        await writeFile(file, name.endsWith('.strings') ? Buffer.from(`\ufeff${contents}`, 'utf16le') : contents);
     }
     const output = t.mock.method(console, 'log', () => {});
     assert.deepEqual(await checkUIUsage(root), {errors: 5, warnings: 0});
