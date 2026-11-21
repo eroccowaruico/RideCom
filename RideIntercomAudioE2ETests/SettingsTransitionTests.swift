@@ -56,11 +56,11 @@ extension AudioE2ETests {
                 let packet = RTCAudioPacket(sequenceNumber: index, codec: .pcm16, format: format,
                     capturedAt: captureOrigin + Double(index) / 100, sampleCount: 480, payload: payload)
                 let arrival = ProcessInfo.processInfo.systemUptime
-                do { _ = try pipeline.processReceivedAudioPacket(.init(peerID: peer, packet: packet)) }
-                catch AppAudioPipelineError.notConfigured {
+                do {
+                    _ = try pipeline.processReceivedAudioPacket(.init(peerID: peer, packet: packet))
+                } catch AppAudioPipelineError.notConfigured {
                     rejected.withLock { $0.append((arrival, ProcessInfo.processInfo.systemUptime)) }
-                }
-                catch { failures.withLock { $0.append(String(describing: error)) } }
+                } catch { failures.withLock { $0.append(String(describing: error)) } }
             }
         }
         timer.schedule(deadline: start, repeating: .milliseconds(10), leeway: .microseconds(100))
@@ -86,8 +86,11 @@ extension AudioE2ETests {
             try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled && !peerOnly,
                 peers: enabled && peerOnly ? ["one": true] : [:])
             let end = ProcessInfo.processInfo.systemUptime
-            if peerOnly { peerChanges.append(.init(start: start, end: end, enabled: enabled)) }
-            else { masterChanges.append(start...end) }
+            if peerOnly {
+                peerChanges.append(.init(start: start, end: end, enabled: enabled))
+            } else {
+                masterChanges.append(start...end)
+            }
         }
         for peerOnly in [false, true] {
             try updateIsolation(peerOnly: peerOnly, enabled: true)
@@ -172,8 +175,9 @@ extension AudioE2ETests {
         }
         pipeline.onTransmitPacket = { [weak pipeline] packet in
             guard let pipeline else { return }
-            do { _ = try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "peer"), packet: packet)) }
-            catch { failures.withLock { $0.append(String(describing: error)) } }
+            do {
+                _ = try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "peer"), packet: packet))
+            } catch { failures.withLock { $0.append(String(describing: error)) } }
         }
         XCTAssertEqual(capture.start().result, .applied)
         let hardware = try output.startRendering(configuration: .intercomCall)
@@ -181,8 +185,9 @@ extension AudioE2ETests {
             transmitSoundIsolationEnabled: false, receiveMaximumBufferedDuration: 0.12, receivePlayoutDelay: 0.002), peerIDs: ["peer"])
         capture.setRuntimeEventHandler { event in
             guard case .inputFrame(let frame) = event else { return }
-            do { try pipeline.processCapturedFrame(frame) }
-            catch { failures.withLock { $0.append(String(describing: error)) } }
+            do { try pipeline.processCapturedFrame(frame) } catch {
+                failures.withLock { $0.append(String(describing: error)) }
+            }
         }
         try await Task.sleep(for: .seconds(1))
         var rows: [[String: Any]] = []
@@ -230,17 +235,20 @@ extension AudioE2ETests {
         pipeline.onTransmitPacket = { [weak pipeline] packet in
             guard let pipeline else { return }
             let start = ProcessInfo.processInfo.systemUptime
-            do { decodedProbe.append(try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "peer"), packet: packet))) }
-            catch AppAudioPipelineError.notConfigured {
+            do {
+                decodedProbe.append(
+                    try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "peer"), packet: packet))
+                )
+            } catch AppAudioPipelineError.notConfigured {
                 rejectedReceives.withLock { $0.append((start, ProcessInfo.processInfo.systemUptime)) }
-            }
-            catch { failureStore.withLock { $0.append(String(describing: error)) } }
+            } catch { failureStore.withLock { $0.append(String(describing: error)) } }
         }
         pipeline.onOutputFrame = { mixedProbe.append($0) }
         _ = try input.startCapture(configuration: .intercom(voiceProcessing: .init())) { frame in
             guard delivery.isActive else { return }
-            do { try pipeline.processCapturedFrame(frame) }
-            catch { failureStore.withLock { $0.append(String(describing: error)) } }
+            do { try pipeline.processCapturedFrame(frame) } catch {
+                failureStore.withLock { $0.append(String(describing: error)) }
+            }
             delivery.yield(frame)
         }
         let hardware = try output.startRendering(configuration: .intercomCall)

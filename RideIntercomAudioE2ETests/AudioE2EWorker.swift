@@ -144,10 +144,15 @@ actor AudioE2EWorker {
     private static func receive(_ connection: NWConnection) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, complete, error in
-                if let error { continuation.resume(throwing: error) }
-                else if let data, !data.isEmpty { continuation.resume(returning: data) }
-                else if complete { continuation.resume(returning: Data()) }
-                else { continuation.resume(throwing: Failure.disconnected) }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data, !data.isEmpty {
+                    continuation.resume(returning: data)
+                } else if complete {
+                    continuation.resume(returning: Data())
+                } else {
+                    continuation.resume(throwing: Failure.disconnected)
+                }
             }
         }
     }
@@ -310,8 +315,11 @@ actor AudioE2EWorker {
             "displayName": $0.peer.displayName, "sessionId": $0.sessionID] }
         guard let data = try? JSONSerialization.data(withJSONObject: ["type": "peers", "peers": peers]), data.count < 65_536 else { return }
         var frame = Data([0x81])
-        if data.count < 126 { frame.append(UInt8(data.count)) }
-        else { frame.append(contentsOf: [126, UInt8(data.count >> 8), UInt8(data.count & 255)]) }
+        if data.count < 126 {
+            frame.append(UInt8(data.count))
+        } else {
+            frame.append(contentsOf: [126, UInt8(data.count >> 8), UInt8(data.count & 255)])
+        }
         frame.append(data)
         for connection in sockets.values { try? await Self.send(connection, bytes: frame) }
     }

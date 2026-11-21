@@ -24,8 +24,11 @@ extension AudioE2ETests {
                         let sent = Mutex((packets: 0, bytes: 0))
                         pipeline.onTransmitPacket = { packet in
                             sent.withLock { $0.packets += 1; $0.bytes += packet.payload.count }
-                            do { probe.append(try decoder.withLock { try AppAudioCodecBridge.decode(packet, using: $0) }, preservingTimeline: true) }
-                            catch { failureStore.withLock { $0.append(String(describing: error)) } }
+                            do {
+                                probe.append(
+                                    try decoder.withLock { try AppAudioCodecBridge.decode(packet, using: $0) },
+                                    preservingTimeline: true)
+                            } catch { failureStore.withLock { $0.append(String(describing: error)) } }
                         }
                         try pipeline.rebuild(configuration: .init(preferredCodec: codec,
                             transmitSoundIsolationEnabled: isolation), peerIDs: [])

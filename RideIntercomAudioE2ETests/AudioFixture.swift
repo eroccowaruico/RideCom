@@ -115,7 +115,9 @@ final class SpeechFileInput: AudioInputStreamBackend {
     private var processingUpdates: [[String: Double]] = []
     var voiceProcessingTimings: [[String: Double]] { timingLock.withLock { processingUpdates } }
     var captureTiming: [String: Double] { timingLock.withLock {
-        ["maximumCallbackAge": captureAges.max() ?? 0, "meanCallbackAge": captureAges.reduce(0,+) / Double(max(1,captureAges.count)),
+            [
+                "maximumCallbackAge": captureAges.max() ?? 0,
+                "meanCallbackAge": captureAges.reduce(0, +) / Double(max(1, captureAges.count)),
          "minimumCompletedSampleAge": zip(captureAges, captureDurations).map { $0 - $1 }.min() ?? 0,
          "maximumFrameDuration": captureDurations.max() ?? 0, "minimumFrameDuration": captureDurations.min() ?? 0]
     } }

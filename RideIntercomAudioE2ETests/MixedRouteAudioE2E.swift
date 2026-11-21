@@ -197,8 +197,11 @@ final class MixedRouteAudioE2E {
                 XCTAssertEqual(decoded, 0)
                 XCTAssertLessThan(render.samples.reduce(Float(0)) { max($0, abs($1)) }, 0.001)
             }
-            if blocked { XCTAssertEqual(localDatagrams, 0, "The receiver must not get Local audio during the cut") }
-            else { XCTAssertGreaterThan(localDatagrams, 20, "The Local route must carry current media") }
+                if blocked {
+                    XCTAssertEqual(localDatagrams, 0, "The receiver must not get Local audio during the cut")
+                } else {
+                    XCTAssertGreaterThan(localDatagrams, 20, "The Local route must carry current media")
+                }
             let evidence: [String: Any] = ["scenario": phase, "role": role, "transport": "mixed",
                 "received": received, "decoded": decoded, "receivedLocalDatagrams": localDatagrams, "remoteMatch": remoteMatch,
                 "localMatch": localMatch, "renderedSamples": render.samples.count, "renderedRate": render.rate,

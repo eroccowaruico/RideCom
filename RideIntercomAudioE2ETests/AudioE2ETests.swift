@@ -134,8 +134,10 @@ final class AudioE2ETests: XCTestCase {
             let processingFailureStore = Mutex<[String]>([])
             pipeline.onTransmitPacket = { [weak pipeline] packet in
                 guard let pipeline else { return }
-                do { try pipeline.processReceivedAudioPacket(.init(peerID: PeerID(rawValue: "loopback"), packet: packet)) }
-                catch { processingFailureStore.withLock { $0.append(String(describing: error)) } }
+                do {
+                    try pipeline.processReceivedAudioPacket(
+                        .init(peerID: PeerID(rawValue: "loopback"), packet: packet))
+                } catch { processingFailureStore.withLock { $0.append(String(describing: error)) } }
             }
             try pipeline.rebuild(configuration: .init(rtcSendFormat: .init(sampleRate: 48_000, channelCount: 1),
                 outputHardwareFormat: hardware, preferredCodec: .pcm16, transmitSoundIsolationEnabled: false,
@@ -271,7 +273,7 @@ final class AudioE2ETests: XCTestCase {
             AudioSessionConfiguration(),
             AudioSessionConfiguration(prefersEchoCancelledInput: true),
             AudioSessionConfiguration(defaultToSpeaker: true),
-            AudioSessionConfiguration(mode: .voiceChat),
+            AudioSessionConfiguration(mode: .voiceChat)
         ] {
             let report = try manager.configure(configuration)
             print("SYSTEM SESSION: \(report)")
@@ -909,8 +911,7 @@ final class AudioE2ETests: XCTestCase {
         checkBackgroundIfRequested(true)
         let call = viewModel.currentCallReference
         let callDeadline = viewModel.callDisconnectDeadline
-        if bothMute { XCTAssertTrue(viewModel.setCallMuted(true, for: call)) }
-        else { input.setSilentInput(true) }
+        if bothMute { XCTAssertTrue(viewModel.setCallMuted(true, for: call)) } else { input.setSilentInput(true) }
         defer { if !bothMute { input.setSilentInput(false) } }
         try await barrier.meet("\(scenario)-input")
         try await Task.sleep(for: .seconds(1)) // Let VAD release and buffers drain.
@@ -926,8 +927,11 @@ final class AudioE2ETests: XCTestCase {
             XCTAssertEqual(viewModel.authenticatedPeerIDs, [peerID])
             XCTAssertTrue(viewModel.isAudioReady)
             XCTAssertTrue(viewModel.isCallMediaStarted)
-            if bothMute { XCTAssertTrue(viewModel.effectiveInputMuted) }
-            else { XCTAssertEqual(viewModel.audioPipeline.vadRuntimeSnapshot.state, .silence) }
+            if bothMute {
+                XCTAssertTrue(viewModel.effectiveInputMuted)
+            } else {
+                XCTAssertEqual(viewModel.audioPipeline.vadRuntimeSnapshot.state, .silence)
+            }
             try await Task.sleep(for: .seconds(1))
         } while ProcessInfo.processInfo.systemUptime - started < 60
         checkBackgroundIfRequested(true)

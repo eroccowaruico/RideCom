@@ -30,13 +30,14 @@ extension AudioE2ETests {
             let probe = RenderedAudioProbe()
             var failures: [String] = []
             let processor = try AudioFrameProcessor(format: .init(), outputFormat: .init(sampleRate: rate, channelCount: 1)) { input, _ in
-                do { if let packet = try encoder.encode(input) { probe.append(try decoder.decode(packet)) } }
-                catch { failures.append(String(describing: error)) }
+                    do {
+                        if let packet = try encoder.encode(input) { probe.append(try decoder.decode(packet)) }
+                    } catch { failures.append(String(describing: error)) }
             }
             try processor.start()
             defer { processor.stop() }
             for offset in stride(from: 0, to: reference.count, by: 480) {
-                let samples = Array(reference[offset..<min(reference.count,offset+480)])
+                let samples = Array(reference[offset..<min(reference.count, offset+480)])
                 let input = PCMFrame(sequenceNumber: UInt64(offset / 480), capturedAt: Double(offset) / 48000, samples: samples)
                 try processor.process(input)
             }
@@ -44,17 +45,17 @@ extension AudioE2ETests {
             let output = probe.snapshot()
             let match = SpeechContinuity.measure(reference: reference, referenceRate: 48000, output: output.samples, outputRate: output.rate)
             let name = "native-\(fixture)-\(codec.rawValue)-\(Int(rate))-\(bitRate)"
-            print("CODEC_SPEECH",name,match.alignmentCorrelation,match.matchedWindowRatio,match.missingActiveRatio)
+            print("CODEC_SPEECH", name, match.alignmentCorrelation, match.matchedWindowRatio, match.missingActiveRatio)
             rows.append(["case": name, "matchedWindowRatio": match.matchedWindowRatio,
                 "missingActiveRatio": match.missingActiveRatio, "passed": match.passed && match.missingActiveRatio == 0])
             let data = XCTAttachment(data: try JSONEncoder().encode(match), uniformTypeIdentifier: "public.json")
             data.name = name + "-continuity"; data.lifetime = .keepAlways; add(data)
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".wav")
-            try probe.writeWAV(to:url,rendered:output)
-            let audio = XCTAttachment(contentsOfFile:url); audio.name=name;audio.lifetime = .keepAlways;add(audio)
-            try? FileManager.default.removeItem(at:url)
-            XCTAssertTrue(match.passed,name)
-            XCTAssertEqual(match.missingActiveRatio,0,name)
+            try probe.writeWAV(to: url, rendered: output)
+            let audio = XCTAttachment(contentsOfFile: url); audio.name=name;audio.lifetime = .keepAlways;add(audio)
+            try? FileManager.default.removeItem(at: url)
+            XCTAssertTrue(match.passed, name)
+            XCTAssertEqual(match.missingActiveRatio, 0, name)
             if fixture.hasPrefix("conversation") {
                 let replies = try ConversationIdentity.measure(fixture: fixture, reference: reference,
                     output: output.samples, outputRate: output.rate, referenceOffset: match.referenceOffsetSeconds)

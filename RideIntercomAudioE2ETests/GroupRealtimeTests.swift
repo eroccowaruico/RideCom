@@ -23,11 +23,11 @@ extension AudioE2ETests {
         let network = DelayedGroupNetwork()
         let kinds: [Set<RouteKind>] = [[.multipeer], [.multipeer], [.multipeer, .webRTC], [.multipeer, .webRTC],
             [.webRTC], [.webRTC], [.multipeer, .webRTC], [.multipeer, .webRTC]]
-        let settings: [(CodecIdentifier, Double, Int)] = [(.pcm16,48000,32000),(.opus,48000,48000),
-            (.opus,24000,64000),(.opus,16000,128000),(.mpeg4AACELD,48000,64000),
-            (.mpeg4AACELD,48000,32000),(.mpeg4AACELD,24000,32000),(.mpeg4AACELD,16000,24000)]
-        let frequencies = [230.0,310,430,570,710,890,1070,1270]
-        var managers: [RouteManager] = [], encoders: [StreamingCodecEncoder] = [], listeners: [Task<Void,Never>] = []
+        let settings: [(CodecIdentifier, Double, Int)] = [(.pcm16, 48000, 32000), (.opus, 48000, 48000),
+            (.opus, 24000, 64000), (.opus, 16000, 128000), (.mpeg4AACELD, 48000, 64000),
+            (.mpeg4AACELD, 48000, 32000), (.mpeg4AACELD, 24000, 32000), (.mpeg4AACELD, 16000, 24000)]
+        let frequencies = [230.0, 310, 430, 570, 710, 890, 1070, 1270]
+        var managers: [RouteManager] = [], encoders: [StreamingCodecEncoder] = [], listeners: [Task<Void, Never>] = []
         let records = (0..<8).map { _ in GroupAudioRecord() }
         var sent = Array(repeating: UInt64(0), count: 8)
         var decoded: [String: [PCMFrame]] = [:]
@@ -56,8 +56,7 @@ extension AudioE2ETests {
                                         "capturedAt": received.packet.capturedAt, "bufferedDuration": state.bufferedDuration,
                                         "adjustments": state.adjustments, "resets": state.resets])
                                 }
-                            }
-                            catch { errors.append(String(describing: error)) }
+                            } catch { errors.append(String(describing: error)) }
                         }
                     default: break
                     }
@@ -139,25 +138,26 @@ extension AudioE2ETests {
             XCTAssertEqual(recorded.invalid, 0)
             let samples = recorded.samples
             guard samples.count >= Int(rate * 10.35) else { XCTFail("Incomplete decoded conversation for peer \(index)"); continue }
-            for beginning in [5.0,7.1,10.2] {
-                let window = samples[Int(beginning * rate)..<min(samples.count,Int((beginning + 0.15) * rate))]
+            for beginning in [5.0, 7.1, 10.2] {
+                let window = samples[Int(beginning * rate)..<min(samples.count, Int((beginning + 0.15) * rate))]
                 XCTAssertGreaterThan(window.filter { abs($0) > 0.003 }.count, Int(rate * 0.07), "Short reply after silence must survive")
             }
         }
         XCTAssertTrue(sent.allSatisfy { $0 < 270 }, "Quiet periods must remove over half of the 540 input packets per participant")
-        let measurement: [String:Any] = ["scenario":"eight-person-mixed", "role":"pipeline", "transport":"none",
-            "participants":8,"mixedRoutes":true,"sentPackets":sent,"lostPackets":losses,"duplicatePackets":duplicates,
-            "maximumSendIterationSeconds":maximumSendIteration,"waveform":waveform.dictionary,
-            "playoutChanges":playoutChanges,"firstOutputHostTime":probe.firstOutputTime ?? 0,
-            "processingFailures":errors,"renderedSamples":rendered.samples.count,"sampleRate":rendered.rate,
-            "continuityPassed":waveform.passed && losses == 0 && duplicates == 0 && errors.isEmpty]
+        let measurement: [String: Any] = ["scenario": "eight-person-mixed", "role": "pipeline", "transport": "none",
+            "participants": 8, "mixedRoutes": true, "sentPackets": sent, "lostPackets": losses,
+            "duplicatePackets": duplicates,
+            "maximumSendIterationSeconds": maximumSendIteration, "waveform": waveform.dictionary,
+            "playoutChanges": playoutChanges, "firstOutputHostTime": probe.firstOutputTime ?? 0,
+            "processingFailures": errors, "renderedSamples": rendered.samples.count, "sampleRate": rendered.rate,
+            "continuityPassed": waveform.passed && losses == 0 && duplicates == 0 && errors.isEmpty]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement, options: [.sortedKeys]), uniformTypeIdentifier: "public.json")
         attachment.name = "eight-person-mixed-measurement"; attachment.lifetime = .keepAlways; add(attachment)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("eight-person-mixed.wav")
         try probe.writeWAV(to: url, rendered: rendered)
         let audio = XCTAttachment(contentsOfFile: url); audio.name = "eight-person-mixed-audio"; audio.lifetime = .keepAlways; add(audio)
         try? FileManager.default.removeItem(at: url)
-        XCTAssertTrue(errors.isEmpty, errors.joined(separator:"; "))
+        XCTAssertTrue(errors.isEmpty, errors.joined(separator: "; "))
         XCTAssertTrue(waveform.passed, String(describing: waveform.dictionary))
         XCTAssertLessThan(maximumSendIteration, 0.02, "Eight encode/send paths must finish inside their 20 ms input period")
     }
@@ -165,15 +165,15 @@ extension AudioE2ETests {
 
 @MainActor private final class GroupAudioRecord {
     var members = 0
-    var sequences: [String:[UInt64]] = [:]
+    var sequences: [String: [UInt64]] = [:]
 }
 
 private actor DelayedGroupNetwork {
-    var routes: [RouteKind:[PeerID:AsyncStream<RouteEvent>.Continuation]] = [:]
-    var pending: [UUID:Task<Void,Never>] = [:]
+    var routes: [RouteKind: [PeerID: AsyncStream<RouteEvent>.Continuation]] = [:]
+    var pending: [UUID: Task<Void, Never>] = [:]
     var counter = 0
     func join(_ peer: PeerID, kind: RouteKind, source: AsyncStream<RouteEvent>.Continuation) {
-        routes[kind,default:[:]][peer] = source; publish(kind)
+        routes[kind, default: [:]][peer] = source; publish(kind)
     }
     func leave(_ peer: PeerID, kind: RouteKind) { routes[kind]?[peer] = nil; publish(kind) }
     func send(_ peer: PeerID, kind: RouteKind, message: ApplicationDataMessage) {
@@ -183,21 +183,22 @@ private actor DelayedGroupNetwork {
         let identity = UUID()
         pending[identity] = Task {
             do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
-            deliver(peer,kind:kind,message:message)
+            deliver(peer, kind: kind, message: message)
             pending[identity] = nil
         }
     }
     func deliver(_ peer: PeerID, kind: RouteKind, message: ApplicationDataMessage) {
-        for (other, source) in routes[kind,default:[:]] where other != peer {
-            source.yield(.receivedApplicationData(kind,.init(peerID:peer,message:message)))
+        for (other, source) in routes[kind, default: [:]] where other != peer {
+            source.yield(.receivedApplicationData(kind, .init(peerID: peer, message: message)))
         }
     }
     func publish(_ kind: RouteKind) {
-        for (peer,source) in routes[kind,default:[:]] {
-            let members = routes[kind,default:[:]].keys.filter { $0 != peer }.map {
-                CallMemberState(peer:.init(id:$0,displayName:$0.rawValue),route:kind,isConnected:true)
+        for (peer, source) in routes[kind, default: [:]] {
+            let members = routes[kind, default: [:]].keys.filter { $0 != peer }.map {
+                CallMemberState(peer: .init(id: $0, displayName: $0.rawValue), route: kind, isConnected: true)
             }
-            source.yield(.membersChanged(kind,members)); source.yield(.stateChanged(kind,kind == .webRTC ? .mediaReady : .authenticated))
+            source.yield(.membersChanged(kind, members))
+            source.yield(.stateChanged(kind, kind == .webRTC ? .mediaReady : .authenticated))
         }
     }
     func stop() { pending.values.forEach { $0.cancel() }; pending.removeAll(); routes.removeAll() }
@@ -208,13 +209,15 @@ private actor DelayedGroupRoute: RTCCallRoute {
     let network: DelayedGroupNetwork
     nonisolated let stream = AsyncStream<RouteEvent>.makeStream()
     nonisolated var events: AsyncStream<RouteEvent> { stream.stream }
-    let capabilities = RouteCapabilities(supportsLocalDiscovery:true,supportsOfflineOperation:true,
-        supportsReliableApplicationData:true,supportsUnreliableApplicationData:true,requiresSignaling:false,
-        supportedAudioCodecs:[.pcm16,.opus,.mpeg4AACELD])
-    init(peer:PeerID,kind:RouteKind,network:DelayedGroupNetwork) {self.peer=peer;self.kind=kind;self.network=network}
-    func prepare(_ request:CallStartRequest) async {}
-    func startConnection() async {await network.join(peer,kind:kind,source:stream.continuation)}
-    func stopConnection() async {await network.leave(peer,kind:kind)}
+    let capabilities = RouteCapabilities(supportsLocalDiscovery: true, supportsOfflineOperation: true,
+        supportsReliableApplicationData: true, supportsUnreliableApplicationData: true, requiresSignaling: false,
+        supportedAudioCodecs: [.pcm16, .opus, .mpeg4AACELD])
+    init(peer: PeerID, kind: RouteKind, network: DelayedGroupNetwork) {
+        self.peer = peer; self.kind = kind; self.network = network
+    }
+    func prepare(_ request: CallStartRequest) async {}
+    func startConnection() async {await network.join(peer, kind: kind, source: stream.continuation)}
+    func stopConnection() async {await network.leave(peer, kind: kind)}
     func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult {
         await network.send(peer, kind: kind, message: message)
         guard kind == .multipeer else { return .init() }
