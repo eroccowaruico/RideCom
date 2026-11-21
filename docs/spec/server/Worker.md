@@ -103,7 +103,7 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 | 再登録 | 新しい公開userIDを発行し、古いIDの関係を引き継がない。並行する登録は同じ新IDを使う。WebRTCの接続枠は内部アカウントIDで管理し、Apple取消または削除前の通話資源が未回収なら登録を`409 deletion_pending`で拒否する。関係・通知許可を内部IDへ結び付けない |
 | Apple取消用の再認証 | 同じAPIへ任意の`challengeID`・`identityToken`・`authorizationCode`を一緒に渡せる。challengeの端末とBearerの端末、Apple subjectから求めたアカウントDOを照合する。コード交換応答の署名・audience・subject・nonceも確認し、別人のコードを取消へ使わない。通常ログインではApple refresh tokenを追加保存しない |
 | 失効後の復旧 | 再認証proofに保存済みの公開`expectedUserID`を追加できる。Apple subjectがBearerのDOと一致し、challengeの端末も一致した場合だけ、失効・30日期限切れ・受領記録の失効後も復旧を許す。現在の公開IDが対象と違う場合は`deleted: true, appleAuthorizationRevoked: false, newerAccountPreserved: true`を返し、新規登録・Apple認可を保持する。元の対象が存在しないことを確認した結果であり、新しいアカウントを削除した意味ではない。コード交換も行わない |
-| Appleへの通信 | 固定originの`/auth/token`と`/auth/revoke`だけを使用し、redirectを追わない。native認証のためredirect_uriを送らない。client secretは環境別の`APPLE_CLIENT_SECRET`、コード最大8192文字・identity token最大16384文字、交換応答最大32768byte、各HTTP要求8秒。取消の200を成功とし、過去に取消済みの場合も同じ結果として扱う |
+| Appleへの通信 | 固定originの`/auth/token`と`/auth/revoke`だけを使用し、redirectを追わない。native認証のためredirect_uriを送らない。Workerは環境別のSign in with Apple用`.p8`・Key ID・Team IDと`APPLE_CLIENT_ID`から有効期間5分のclient-secret JWTを必要時に生成し、残り1分になるまで同じisolate内で再利用する。期限更新を運用者へ要求しない。コード最大8192文字・identity token最大16384文字、交換応答最大32768byte、各HTTP要求8秒。取消の200を成功とし、過去に取消済みの場合も同じ結果として扱う |
 | 応答 | データ削除は`deleted: true`。Apple取消の200を確認した場合だけ`appleAuthorizationRevoked: true`。トークンを保持して再試行中なら`appleAuthorizationRevoked: false, appleRevocationPending: true`。Apple証明を送らない削除は従来どおりfalseで、手動取消が必要。稼働媒体の回収待ちは`mediaCleanupPending: true`で別に返し、回収後は省略する。`deleted`単独は媒体回収や端末内消去の完了を意味しない |
 | 同時実行 | Appleコード交換前に30秒の準備参照を永続化し、同じアカウントの二重交換・再登録・別の削除を抑止する。交換失敗は準備を解除し、データを保持する。取得したrefresh tokenと資格削除を同じtransactionで保存してから取消へ進む。取消または媒体回収待ち中の再登録は`409 deletion_pending`。成功した古い削除の再送ではAppleコードを再交換しない |
 | 取消再試行 | 最初の失敗から1分・5分・30分・2時間・6時間の順でalarmを予約し、自動実行は初回を含め最大6回。以後は利用者の同じDELETE再送で再試行し、最低1分間隔を保持する。試行前に次回時刻を保存し、並行DELETE・alarm・再起動で頻度を増やさない。未完のrefresh tokenは受領記録の24時間を超えても保持し、取消成功時に消す |
@@ -229,7 +229,9 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 | SERVICE_ENABLED | false | 無設定で課金対象処理を始めない。資格登録後、wrangler.tomlでtrueへ変更してdeploy |
 | APPLE_AUTH_ENABLED | false | 新規Apple認証・端末登録を明示的に有効化する。公開前にApp連携とabuse制限を整える |
 | APPLE_CLIENT_ID | com.yowamushi-inc.RideIntercom.RideIntercom | Apple identity tokenのaudience。iOS/macOS AppのBundle IDと一致させる |
-| APPLE_CLIENT_SECRET | secret未設定 | Appleコード交換と認可取消用のclient-secret JWT。環境別に保存し、有効期限前に更新する。端末へ渡さない |
+| APPLE_SIGN_IN_PRIVATE_KEY | secret未設定 | Appleコード交換と認可取消用のSign in with Apple `.p8`。Workerが短期client-secret JWTを生成する。APNs鍵と共用せず、端末へ渡さない |
+| APPLE_SIGN_IN_KEY_ID | secret未設定 | 上記Sign in with Apple鍵のKey ID |
+| APPLE_SIGN_IN_TEAM_ID | secret未設定 | 上記Sign in with Apple鍵を所有するTeam ID |
 | MAX_ROOM_PARTICIPANTS | 8 | hard maximumも8 |
 | MAX_ACTIVE_SESSIONS | 32 | 全部屋共通、maximum512 |
 | MONTHLY_PARTICIPANT_SECONDS | 1,000,000 | UTC月でリセット。失敗/早期切断の予約も返金しない |

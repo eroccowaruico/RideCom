@@ -4,6 +4,12 @@ CLOUDFLARE_SFU_APP_ID=""
 CLOUDFLARE_SFU_APP_SECRET=""
 CLIENT_TOKENS_JSON="{}"
 
+# Optional Sign in with Apple authorization-revocation credentials.
+# The Worker derives short-lived client-secret JWTs; do not store a generated JWT here.
+APPLE_SIGN_IN_PRIVATE_KEY=""
+APPLE_SIGN_IN_KEY_ID=""
+APPLE_SIGN_IN_TEAM_ID=""
+
 # Optional notification delivery secrets. Leave empty for local/default-disabled use.
 # Never use operational APNs keys in automated tests; the tests create ephemeral fixtures.
 APNS_PRIVATE_KEY=""

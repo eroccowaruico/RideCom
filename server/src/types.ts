@@ -7,7 +7,9 @@ export interface Env extends Omit<WorkerBindings, 'SIGNALING_ROOM' | 'USAGE_GUAR
     CLOUDFLARE_SFU_APP_SECRET: string
     CLOUDFLARE_TURN_KEY_ID?: string
     CLOUDFLARE_TURN_API_TOKEN?: string
-    APPLE_CLIENT_SECRET?: string
+    APPLE_SIGN_IN_PRIVATE_KEY?: string
+    APPLE_SIGN_IN_KEY_ID?: string
+    APPLE_SIGN_IN_TEAM_ID?: string
     APNS_PRIVATE_KEY?: string
     APNS_KEY_ID?: string
     APNS_TEAM_ID?: string

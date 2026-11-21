@@ -5,13 +5,19 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPair, exportJWK, SignJWT, jwtVerify } from 'jose';
+import { generateKeyPair, exportJWK, exportPKCS8, SignJWT, jwtVerify } from 'jose';
 import { makeRuntime, offer, room, provider } from './support/runtime.mjs';
 
 const keys = await generateKeyPair('RS256');
 const publicKey = { ...await exportJWK(keys.publicKey), kid: 'apple-fixture', alg: 'RS256', use: 'sig' };
 const audience = 'com.yowamushi-inc.RideIntercom.RideIntercom';
 const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: audience, CLIENT_TOKENS_JSON: '{}' };
+const appleClientKeys = await generateKeyPair('ES256', { extractable: true });
+const appleClientConfiguration = {
+    APPLE_SIGN_IN_PRIVATE_KEY: await exportPKCS8(appleClientKeys.privateKey),
+    APPLE_SIGN_IN_KEY_ID: 'SIGNINKEY1',
+    APPLE_SIGN_IN_TEAM_ID: 'TEAMID1234'
+};
 const call = (runtime, path, body, token, method = 'POST') => runtime.dispatchFetch(`https://worker.test${path}`, {
     method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.10', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
@@ -872,8 +878,18 @@ test('device identity issuance rejects invalid keys, identifiers and unconfigure
 });
 
 test('deletion verifies Apple code ownership and revokes before reporting completion', async () => {
-    const runtime = await makeRuntime({ ...options, APPLE_CLIENT_SECRET: 'test-client-secret' }, { appleKeys: [publicKey], appleAuthorization: async (path, form) => {
-        assert.equal(form.get('client_id'), audience); assert.equal(form.get('client_secret'), 'test-client-secret');
+    const clientSecrets = [];
+    const runtime = await makeRuntime({ ...options, ...appleClientConfiguration }, { appleKeys: [publicKey], appleAuthorization: async (path, form) => {
+        assert.equal(form.get('client_id'), audience);
+        const clientSecret = form.get('client_secret');
+        assert.ok(clientSecret);
+        const { payload, protectedHeader } = await jwtVerify(clientSecret, appleClientKeys.publicKey, {
+            algorithms: ['ES256'], issuer: appleClientConfiguration.APPLE_SIGN_IN_TEAM_ID,
+            audience: 'https://appleid.apple.com', subject: audience
+        });
+        assert.equal(protectedHeader.kid, appleClientConfiguration.APPLE_SIGN_IN_KEY_ID);
+        assert.equal(payload.exp - payload.iat, 300);
+        clientSecrets.push(clientSecret);
         if (path.endsWith('/token')) {
             assert.equal(form.get('grant_type'), 'authorization_code');
             assert.equal(form.get('code'), 'delete-code');
@@ -892,12 +908,31 @@ test('deletion verifies Apple code ownership and revokes before reporting comple
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { deleted: true, appleAuthorizationRevoked: true });
         assert.equal(revoked, 1);
+        assert.equal(clientSecrets.length, 2);
+        assert.equal(clientSecrets[0], clientSecrets[1], 'A valid generated client secret should be reused within one isolate');
         assert.equal((await call(runtime, '/api/auth/session', undefined, user.accessToken, 'GET')).status, 401);
         const replacement = await enrolled(runtime);
         assert.equal((await call(runtime, '/api/auth/account', body, user.accessToken, 'DELETE')).status, 200);
         assert.equal(revoked, 1, 'Old deletion must not revoke a newly registered Apple authorization');
         assert.equal((await call(runtime, '/api/auth/session', undefined, replacement.accessToken, 'GET')).status, 200);
     } finally { await runtime.dispose(); }
+});
+
+test('Apple authorization requires every long-lived signing credential', async () => {
+    for (const missing of Object.keys(appleClientConfiguration)) {
+        const configuration = { ...appleClientConfiguration };
+        delete configuration[missing];
+        let requests = 0;
+        const runtime = await makeRuntime({ ...options, ...configuration }, {
+            appleKeys: [publicKey], appleAuthorization: async () => { requests++; return new Response(null, { status: 500 }); }
+        });
+        try {
+            const user = await enrolled(runtime);
+            const response = await call(runtime, '/api/auth/account', { proof: 'present' }, user.accessToken, 'DELETE');
+            assert.equal(response.status, 503, missing);
+            assert.equal(requests, 0, missing);
+        } finally { await runtime.dispose(); }
+    }
 });
 
 test('Apple revocation failure persists and blocks re-enrollment until retry succeeds', async () => {
@@ -907,7 +942,7 @@ test('Apple revocation failure persists and blocks re-enrollment until retry suc
         if (path.endsWith('/token')) { tokens++; return Response.json({ refresh_token: 'retry-token', id_token: await proof(attempt) }); }
         revocations++; return new Response(null, { status: fail ? 503 : 200 });
     };
-    const config = { ...options, APPLE_CLIENT_SECRET: 'test-client-secret' };
+    const config = { ...options, ...appleClientConfiguration };
     let runtime = await makeRuntime(config, { storageDirectory, appleKeys: [publicKey], appleAuthorization });
     try {
         const user = await enrolled(runtime);
@@ -932,7 +967,7 @@ test('Apple revocation failure persists and blocks re-enrollment until retry suc
 
 test('deletion rejects another account, token subject, redirects and oversized Apple responses', async () => {
     let attempt, mode = 'other-subject', tokens = 0, revocations = 0;
-    const runtime = await makeRuntime({ ...options, APPLE_CLIENT_SECRET: 'test-client-secret' }, { appleKeys: [publicKey], appleAuthorization: async path => {
+    const runtime = await makeRuntime({ ...options, ...appleClientConfiguration }, { appleKeys: [publicKey], appleAuthorization: async path => {
         if (path.endsWith('/revoke')) { revocations++; return new Response(null, { status: 200 }); }
         tokens++;
         if (mode === 'redirect') return new Response(null, { status: 302, headers: { Location: 'https://other.invalid/token' } });
@@ -962,7 +997,7 @@ test('concurrent deletion preparation cannot mint a second Apple grant', async (
     let attempt, tokens = 0, entered, release;
     const waiting = new Promise(resolve => { entered = resolve; });
     const gate = new Promise(resolve => { release = resolve; });
-    const runtime = await makeRuntime({ ...options, APPLE_CLIENT_SECRET: 'test-client-secret' }, { appleKeys: [publicKey], appleAuthorization: async path => {
+    const runtime = await makeRuntime({ ...options, ...appleClientConfiguration }, { appleKeys: [publicKey], appleAuthorization: async path => {
         if (path.endsWith('/revoke')) return new Response(null, { status: 200 });
         tokens++; entered(); await gate;
         return Response.json({ refresh_token: 'once-token', id_token: await proof(attempt) });
@@ -985,7 +1020,7 @@ test('concurrent deletion preparation cannot mint a second Apple grant', async (
 test('pending Apple revocation outlives receipt expiry and retries remain bounded after exhaustion', async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-apple-retry-limit-'));
     let attempt, revocations = 0, user;
-    const config = { ...options, APPLE_CLIENT_SECRET: 'test-client-secret' };
+    const config = { ...options, ...appleClientConfiguration };
     const appleAuthorization = async path => {
         if (path.endsWith('/token')) return Response.json({ refresh_token: 'pending-token', id_token: await proof(attempt) });
         revocations++; return new Response(null, { status: 503 });
@@ -1019,7 +1054,7 @@ async function recoveryBody(attempt, userID, changes = {}) {
 
 test('deletion recovery authorizes revoked credentials only with same Apple subject and target', async () => {
     let attempt, exchanges = 0;
-    const runtime = await makeRuntime({ ...options, APPLE_CLIENT_SECRET: 'fixture' }, { appleKeys: [publicKey], appleAuthorization: async path => {
+    const runtime = await makeRuntime({ ...options, ...appleClientConfiguration }, { appleKeys: [publicKey], appleAuthorization: async path => {
         if (path.endsWith('/revoke')) return new Response(null, { status: 200 });
         exchanges++; return Response.json({ refresh_token: 'recovered', id_token: await recoveryProof(attempt) });
     } });
@@ -1048,7 +1083,7 @@ test('deletion recovery authorizes revoked credentials only with same Apple subj
 test('deletion recovery survives credential expiry and later receipt expiry without registering an account', async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-deletion-recovery-'));
     let attempt, exchanges = 0;
-    const config = { ...options, APPLE_CLIENT_SECRET: 'fixture' };
+    const config = { ...options, ...appleClientConfiguration };
     const provider = { storageDirectory, appleKeys: [publicKey], appleAuthorization: async path => {
         if (path.endsWith('/revoke')) return new Response(null, { status: 200 });
         exchanges++; return Response.json({ refresh_token: 'recovered', id_token: await recoveryProof(attempt) });
@@ -1072,7 +1107,7 @@ test('deletion recovery survives credential expiry and later receipt expiry with
 test('deletion recovery preserves a newer public account and never cancels its Apple grant', async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-deletion-newer-'));
     let exchanges = 0;
-    const config = { ...options, APPLE_CLIENT_SECRET: 'fixture' };
+    const config = { ...options, ...appleClientConfiguration };
     const provider = { storageDirectory, appleKeys: [publicKey], appleAuthorization: async () => { exchanges++; return new Response(null, { status: 500 }); } };
     let runtime = await makeRuntime(config, provider);
     try {
@@ -1093,7 +1128,7 @@ test('deletion recovery preserves a newer public account and never cancels its A
 
 test('deletion recovery lets another authenticated owner device observe pending revocation without a new grant', async () => {
     let attempt, exchanges = 0;
-    const runtime = await makeRuntime({ ...options, APPLE_CLIENT_SECRET: 'fixture' }, { appleKeys: [publicKey], appleAuthorization: async path => {
+    const runtime = await makeRuntime({ ...options, ...appleClientConfiguration }, { appleKeys: [publicKey], appleAuthorization: async path => {
         if (path.endsWith('/revoke')) return new Response(null, { status: 503 });
         exchanges++; return Response.json({ refresh_token: 'pending', id_token: await recoveryProof(attempt) });
     } });

@@ -1,15 +1,65 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import type { Env } from './types'
 
 // Neither tokens nor request bodies can select the verification or token origin.
 export const appleKeys = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'), { timeoutDuration: 5000 })
 
+const clientSecretLifetimeSeconds = 300
+const clientSecretRefreshMarginSeconds = 60
+let cachedClientSecret: {
+    clientID: string
+    privateKey: string
+    keyID: string
+    teamID: string
+    refreshAt: number
+    value: Promise<string>
+} | undefined
+
+export function appleAuthorizationConfigured(env: Env): boolean {
+    return Boolean(env.APPLE_CLIENT_ID && env.APPLE_SIGN_IN_PRIVATE_KEY
+        && env.APPLE_SIGN_IN_KEY_ID && env.APPLE_SIGN_IN_TEAM_ID)
+}
+
+async function appleClientSecret(env: Env): Promise<string> {
+    if (!appleAuthorizationConfigured(env)) throw new Error('Apple authorization unavailable')
+    const clientID = env.APPLE_CLIENT_ID!
+    const privateKey = env.APPLE_SIGN_IN_PRIVATE_KEY!
+    const keyID = env.APPLE_SIGN_IN_KEY_ID!
+    const teamID = env.APPLE_SIGN_IN_TEAM_ID!
+    const issuedAt = Math.floor(Date.now() / 1000)
+    if (cachedClientSecret && cachedClientSecret.clientID === clientID
+        && cachedClientSecret.privateKey === privateKey && cachedClientSecret.keyID === keyID
+        && cachedClientSecret.teamID === teamID && cachedClientSecret.refreshAt > issuedAt) {
+        return cachedClientSecret.value
+    }
+    const value = (async () => {
+        const signingKey = await importPKCS8(privateKey, 'ES256')
+        return new SignJWT({})
+            .setProtectedHeader({ alg: 'ES256', kid: keyID })
+            .setIssuer(teamID)
+            .setSubject(clientID)
+            .setAudience('https://appleid.apple.com')
+            .setIssuedAt(issuedAt)
+            .setExpirationTime(issuedAt + clientSecretLifetimeSeconds)
+            .sign(signingKey)
+    })()
+    cachedClientSecret = {
+        clientID, privateKey, keyID, teamID,
+        refreshAt: issuedAt + clientSecretLifetimeSeconds - clientSecretRefreshMarginSeconds,
+        value
+    }
+    try { return await value } catch (error) {
+        if (cachedClientSecret?.value === value) cachedClientSecret = undefined
+        throw error
+    }
+}
+
 async function request(env: Env, path: 'token' | 'revoke', fields: Record<string, string>): Promise<Response> {
-    if (!env.APPLE_CLIENT_ID || !env.APPLE_CLIENT_SECRET) throw new Error('Apple authorization unavailable')
+    const clientSecret = await appleClientSecret(env)
     return fetch(`https://appleid.apple.com/auth/${path}`, {
         method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(8000),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ client_id: env.APPLE_CLIENT_ID, client_secret: env.APPLE_CLIENT_SECRET, ...fields })
+        body: new URLSearchParams({ client_id: env.APPLE_CLIENT_ID!, client_secret: clientSecret, ...fields })
     })
 }
 

@@ -20,7 +20,8 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | CLIENT_TOKENS_JSON | Secret（旧手動試用だけ） | 試用資格の登録用`client-tokens.json`の内容。native Apple登録には不要 |
 | APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
 | DEVICE_IDENTITY_SIGNING_KEY | Secret | 環境ごとに生成し安全に保管したEC P-256秘密鍵のJWK JSON（kty・crv・x・y・dを含む）。端末証明と用途別通知許可の署名に使用し、継続して保持する |
-| APPLE_CLIENT_SECRET | Secret | AppleのSign in with Apple鍵で発行するclient-secret JWT。削除時のApple認可取消用。APNsのp8とは別 |
+| APPLE_SIGN_IN_PRIVATE_KEY | Secret | AppleのSign in with Apple用`.p8`全文。Workerが削除時のApple認可取消に必要な短期client-secret JWTを自動生成する。APNsのp8とは別 |
+| APPLE_SIGN_IN_KEY_ID / APPLE_SIGN_IN_TEAM_ID | Secret | 上記Sign in with Apple鍵のKey IDとTeam ID。期限付きJWTではなく、鍵とともに一度登録する値 |
 | APNS_PRIVATE_KEY | Secret | Appleで作成するAPNs用p8（PKCS8 P-256）。対象環境・topicへの送信権限がある鍵 |
 | APNS_KEY_ID / APNS_TEAM_ID | Secret | 上記APNs鍵のKey IDとTeam ID |
 | APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
@@ -57,7 +58,11 @@ Cloudflare設定チャットから引き継いだ残件は、実SFU/TURNを通�
 
 ## Apple登録入口の保護
 
-削除時のApple認可取消には、AppleのSign in with Apple private keyから発行した有効なclient-secret JWTを環境別secret `APPLE_CLIENT_SECRET`へ登録する。client ID・team ID・key ID・有効期限をApple側設定と合わせ、期限前に更新する。Workerへ登録する値は署名済みJWT。署名に使ったAppleのprivate keyは発行担当が保管する。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)値を通常変数・Git・ログへ入れない。未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
+削除時のApple認可取消には、AppleのSign in with Apple用`.p8`全文、Key ID、Team IDを環境別secret `APPLE_SIGN_IN_PRIVATE_KEY`・`APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerは`APPLE_CLIENT_ID`と組み合わせ、有効期間5分のclient-secret JWTを必要時に生成し、残り1分で自動更新する。期限付きJWTの手動作成・登録・更新は行わない。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens) 鍵とIDを通常変数・Git・ログへ入れず、APNs用の鍵と取り違えない。3項目のどれかが未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
+
+旧`APPLE_CLIENT_SECRET`から本番を止めずに移行する順序は、(1) 新しい3 secretを登録、(2) この実装のWorkerを配置、(3) 実Appleコード交換と取消を確認、(4) 旧secretを削除、の順とする。旧Workerは新しい3項目を参照しないため先行登録できる。新Workerは旧secretへフォールバックしないため、配置前に3項目を揃える。
+
+Cloudflareへ手動登録する値は、各サービスの長期鍵・ID・API tokenに限る。APNsのprovider JWTは既存実装が`.p8`から生成して50分未満で自動更新し、TURNの短期資格は通話leaseに合わせてTURN APIから生成・更新・失効する。端末資格や招待など製品の安全性に必要な期限は維持するが、期限付きの派生値を運用者が定期交換する手順は設けない。長期鍵の漏えい・担当変更・provider側の失効時は、期限更新ではなく鍵のローテーションとして扱う。
 
 `APPLE_AUTH_ENABLED`はProduction/Previewとも既定でfalseのままにする。AppのInternet登録は端末証明の発行も必要なため、有効化する際は環境専用のP-256 private JWKをsecret `DEVICE_IDENTITY_SIGNING_KEY`へ登録する。未設定では証明発行が503となり、Appは新資格を回収して登録を完了させない。既存のLocal通話はこの設定を待たない。秘密鍵を通常変数・Git・ログへ入れない。証明の契約と鍵変更時の再取得は[Worker仕様](../spec/server/Worker.md#ユーザーと端末の署名付き証明)を参照する。合わせて`APPLE_CLIENT_ID`と、`APPLE_ENROLLMENT_IP_LIMIT`・`APPLE_ENROLLMENT_GLOBAL_LIMIT`の両bindingを配置する。`wrangler.toml`は送信元別30回/60秒、全体300回/60秒を指定し、Productionのnamespace 1001/1002とPreviewの1003/1004を分ける。同じCloudflareアカウントの別Workerでこのnamespaceを共用しない。
 
@@ -202,7 +207,7 @@ Debug端末で届きTestFlightで届かない場合は、署名済みAppのentit
 | APNsとAppleの公開値 | APNS_ENVIRONMENTはproduction。APNS_TOPICとAPPLE_CLIENT_IDはApp IDと一致 | APNS_ENVIRONMENTはsandbox。APNS_TOPICとAPPLE_CLIENT_IDは同じApp ID |
 | Durable Objects | 5 binding、migration v3 | 5 binding、migration v3 |
 | 現在の設定 | secret名一覧は空。SFU App IDのbindingも未登録 | SFU App IDと`CLOUDFLARE_SFU_APP_SECRET`、旧手動試用の`CLIENT_TOKENS_JSON`を確認 |
-| Apple・通知で残る設定 | `DEVICE_IDENTITY_SIGNING_KEY`とAPNsの3項目を登録。Apple認可取消には`APPLE_CLIENT_SECRET`も登録 | 同じ項目をsandbox用に登録。既存の固定Previewを対象にする |
+| Apple・通知で残る設定 | `DEVICE_IDENTITY_SIGNING_KEY`、Sign in with Appleの3項目、APNsの3項目を登録。期限付きclient-secret JWTは登録しない | 同じ項目を対象Preview用に登録。既存の固定Previewを対象にする |
 | SFUで残る設定 | `CLOUDFLARE_SFU_APP_ID`と`CLOUDFLARE_SFU_APP_SECRET`を登録し、SERVICE_ENABLEDを有効にする | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
 | 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。SERVICE_ENABLEDはtrue |
 

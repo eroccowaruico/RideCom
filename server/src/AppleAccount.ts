@@ -9,7 +9,7 @@ import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket } from './Ac
 import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
 import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type EnrollmentPolicy, type VerifiedAppAttestKey } from './AppAttestEnrollment'
 
-import { appleKeys, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
+import { appleKeys, appleAuthorizationConfigured, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
 const devicePattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const objectPattern = /^[a-f0-9]{64}$/
 const randomSecret = () => hex(crypto.getRandomValues(new Uint8Array(32)))
@@ -568,7 +568,7 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
                 if (request.method !== 'DELETE') return json({ error: 'Method not allowed' }, 405)
                 const previous = await credential.account.deletionResult(credential.deviceID, tokenHash)
                 if (!previous && request.body) {
-                    if (!env.APPLE_CLIENT_SECRET) return json({ error: 'Apple authorization unavailable' }, 503)
+                    if (!appleAuthorizationConfigured(env)) return json({ error: 'Apple authorization unavailable' }, 503)
                     const limited = await limitEnrollment(request, env); if (limited) return limited
                     const body = await readJSON(request)
                     if (typeof body.challengeID !== 'string' || !objectPattern.test(body.challengeID)
