@@ -1,4 +1,6 @@
 """Ownership-scoped cleanup for local test hosts; no application-name pkill."""
+from __future__ import annotations
+
 import fcntl
 import json
 import os
@@ -7,13 +9,45 @@ import signal
 import subprocess
 import time
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, TypedDict
+
+
+class SimulatorDevice(TypedDict, total=False):
+    name: str
+    udid: str
+    state: str
+    runtime: str
+    isAvailable: bool
+    deviceTypeIdentifier: str
+    lastUsedAt: str
+
+
+class SimulatorInventory(TypedDict):
+    devices: dict[str, list[SimulatorDevice]]
+
+
+class LeaseState(TypedDict, total=False):
+    name: str
+    udid: str
+    executable: str
+    reusable: bool
+
+
+class LeaseRunner(Protocol):
+    out: Path
+
+    def run(self, name: str, command: list[str], *, timeout: int) -> bool: ...
+
+    def record(self, name: str, command: list[str], status: str, code: int,
+               started: float, reason: str) -> bool: ...
 
 
 @contextmanager
-def exclusive_run(path):
+def exclusive_run(path: str | os.PathLike[str]) -> Generator[None, None, None]:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a') as lock:
@@ -22,11 +56,11 @@ def exclusive_run(path):
         yield
 
 
-def process_listing():
+def process_listing() -> str:
     return subprocess.check_output(['ps', '-axo', 'pid=,comm='], text=True, timeout=10)
 
 
-def matching_processes(executable):
+def matching_processes(executable: str | os.PathLike[str]) -> list[int]:
     expected = Path(executable).resolve()
     result = []
     for line in process_listing().splitlines():
@@ -45,13 +79,13 @@ class ProcessIdentity:
     command: str
     state: str
 
-    def same_process(self, other, *, check_command=True):
+    def same_process(self, other: ProcessIdentity | None, *, check_command: bool = True) -> bool:
         return (other is not None and (self.pid, self.uid, self.started) ==
                 (other.pid, other.uid, other.started) and
                 (not check_command or self.command == other.command))
 
 
-def process_snapshot():
+def process_snapshot() -> dict[int, ProcessIdentity]:
     # Keep command lines only in memory for identity checks, never in evidence.
     output = subprocess.check_output(
         ['ps', '-ww', '-axo', 'pid=,ppid=,uid=,stat=,lstart=,command='],
@@ -68,11 +102,11 @@ def process_snapshot():
     return result
 
 
-def owned_process_tree(original):
+def owned_process_tree(original: ProcessIdentity | None) -> list[ProcessIdentity]:
     snapshot = process_snapshot()
     root = snapshot.get(original.pid) if original else None
     # Commands may exec while running; birth time and UID still identify the root.
-    if root is None or not original.same_process(root, check_command=False):
+    if original is None or root is None or not original.same_process(root, check_command=False):
         return []
     owned = [root]
     seen = {root.pid}
@@ -85,12 +119,12 @@ def owned_process_tree(original):
     return owned
 
 
-def live_owned_process(original, snapshot):
+def live_owned_process(original: ProcessIdentity, snapshot: dict[int, ProcessIdentity]) -> bool:
     current = snapshot.get(original.pid)
-    return original.same_process(current) and not current.state.startswith('Z')
+    return current is not None and original.same_process(current) and not current.state.startswith('Z')
 
 
-def signal_owned_process(original, signum):
+def signal_owned_process(original: ProcessIdentity, signum: int) -> None:
     # PPID can change after the parent exits. Never replace the captured identity
     # with a new occupant of that PID, even during TERM -> KILL escalation.
     if live_owned_process(original, process_snapshot()):
@@ -100,7 +134,7 @@ def signal_owned_process(original, signum):
             pass
 
 
-def stop_process_tree(process, original):
+def stop_process_tree(process: subprocess.Popen[str] | subprocess.Popen[bytes], original: ProcessIdentity | None) -> None:
     # Capture descendants before terminating their parent. A test executable may
     # have its own session/PGID, so killpg alone cannot reclaim it.
     owned = owned_process_tree(original)
@@ -124,12 +158,19 @@ def stop_process_tree(process, original):
                        ', '.join(str(info.pid) for info in remaining))
 
 
-def simulator_devices():
-    data = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', '-j'], text=True, timeout=60))
-    return [dict(device, runtime=runtime) for runtime, devices in data['devices'].items() for device in devices]
+def simulator_devices() -> list[SimulatorDevice]:
+    data: SimulatorInventory = json.loads(subprocess.check_output(
+        ['xcrun', 'simctl', 'list', 'devices', '-j'], text=True, timeout=60))
+    result: list[SimulatorDevice] = []
+    for runtime, devices in data['devices'].items():
+        for device in devices:
+            entry = device.copy()
+            entry['runtime'] = runtime
+            result.append(entry)
+    return result
 
 
-def simulator_resource_root():
+def simulator_resource_root() -> Path:
     # Shared across worktrees and both validation entry points.
     return Path('/tmp') / f'RideIntercom-AudioE2E-{os.getuid()}'
 
@@ -140,31 +181,31 @@ class SimulatorLease:
     A reusable lease retains exactly one powered-off device. Ephemeral leases
     delete it. Only the recorded full name and (when known) UUID are eligible.
     """
-    def __init__(self, runner, journal):
+    def __init__(self, runner: LeaseRunner, journal: str | os.PathLike[str]) -> None:
         self.runner = runner
         self.journal = Path(journal)
-        self.state = json.loads(self.journal.read_text()) if self.journal.exists() else {}
+        self.state: LeaseState = json.loads(self.journal.read_text()) if self.journal.exists() else {}
         self.acquired = False
 
-    def save(self):
+    def save(self) -> None:
         self.journal.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.journal.with_suffix('.tmp')
         temporary.write_text(json.dumps(self.state, indent=2) + '\n')
         temporary.replace(self.journal)
 
-    def reserve(self, name, reusable=False):
-        self.state = dict(name=name, reusable=reusable)
+    def reserve(self, name: str, reusable: bool = False) -> None:
+        self.state = {'name': name, 'reusable': reusable}
         self.save()
 
-    def identify(self, device_id):
+    def identify(self, device_id: str) -> None:
         self.state['udid'] = device_id
         self.save()
 
-    def owned_devices(self):
+    def owned_devices(self) -> list[SimulatorDevice]:
         return [d for d in simulator_devices() if d['name'] == self.state.get('name')
                 and (not self.state.get('udid') or d['udid'] == self.state['udid'])]
 
-    def prepare(self, runtime, device_type, reusable=True, delete_all=False):
+    def prepare(self, runtime: str, device_type: str, reusable: bool = True, delete_all: bool = False) -> str | None:
         """Recover lost journals by inspecting the reserved test-device names.
 
         Caller holds the shared run lock through final cleanup. Never adopt or
@@ -214,7 +255,7 @@ class SimulatorLease:
         self.identify(device_id)
         return device_id
 
-    def cleanup_host(self, prefix):
+    def cleanup_host(self, prefix: str) -> bool:
         # Older journals recorded only a binary path. With standard DerivedData
         # that path may also belong to a GUI-launched host; it proves no ownership.
         executable = self.state.get('executable')
@@ -230,7 +271,7 @@ class SimulatorLease:
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
             return self.runner.record(prefix + '-host', [], 'failed', 1, started, str(error))
 
-    def cleanup(self, prefix):
+    def cleanup(self, prefix: str) -> bool:
         success = self.cleanup_host(prefix)
         if not self.state:
             return success
