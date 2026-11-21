@@ -586,7 +586,7 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
                     const proof = await attempt.exchange(body.identityToken)
                     if (!proof || proof.deviceID !== credential.deviceID
                         || env.USER_ACCOUNT.idFromName(await digest(`apple:${proof.subject}`)).toString() !== credential.accountID) return json({ error: 'Unauthorized' }, 401)
-                    const result = await credential.account.eraseWithAppleProof(credential.deviceID, tokenHash, body.authorizationCode, proof.subject, proof.nonce, body.expectedUserID as string | undefined)
+                    const result = await credential.account.eraseWithAppleProof(credential.deviceID, tokenHash, body.authorizationCode, proof.subject, proof.nonce, body.expectedUserID)
                     return result ? json(result) : json({ error: 'Unauthorized' }, 401)
                 }
                 const result = await credential.account.erase(credential.deviceID, tokenHash)

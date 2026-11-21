@@ -3,6 +3,7 @@ import { decode, decodeFirst } from 'cborg'
 import { base64url } from 'jose'
 import { BasicConstraints, Certificate, CertificateChainValidationEngine, CryptoEngine } from 'pkijs'
 import { type AppAttestLaunch, appAttestCBOR, appAttestLaunchMatches, appAttestNonce, sha256 } from './AppAttestData'
+import { isRecord } from './types'
 
 // Apple App Attestation Root CA, https://www.apple.com/certificateauthority/private/
 const appleRoot = `
@@ -36,14 +37,15 @@ export interface VerifiedAppAttestKey extends AppAttestLaunch {
 
 export function macAttestationPolicy(value: string | undefined, bundleID: string | undefined): EnrollmentPolicy | null {
     try {
-        const policy = JSON.parse(value ?? '')
-        if (!bundleID || typeof policy?.appID !== 'string' || !/^[A-Z0-9]{10}\./.test(policy.appID)
-            || policy.appID.slice(11) !== bundleID || !['production', 'development'].includes(policy.environment)
-            || ![2, 3, 4, 5, 6].includes(policy.validationCategory)) return null
-        const version = policy.bundleVersion
-        if (!(typeof version === 'string' && /^\d+(\.\d+){0,2}$/.test(version) && version.length <= 32)
-            && !(version === null && policy.validationCategory === 3)) return null
-        return { appID: policy.appID, environment: policy.environment, validationCategory: policy.validationCategory, bundleVersion: version }
+        const policy: unknown = JSON.parse(value ?? '')
+        if (!bundleID || !isRecord(policy)) return null
+        const { appID, environment, validationCategory, bundleVersion } = policy
+        if (typeof appID !== 'string' || !/^[A-Z0-9]{10}\./.test(appID) || appID.slice(11) !== bundleID
+            || (environment !== 'production' && environment !== 'development')
+            || typeof validationCategory !== 'number' || ![2, 3, 4, 5, 6].includes(validationCategory)) return null
+        if (!(typeof bundleVersion === 'string' && /^\d+(\.\d+){0,2}$/.test(bundleVersion) && bundleVersion.length <= 32)
+            && !(bundleVersion === null && validationCategory === 3)) return null
+        return { appID, environment, validationCategory, bundleVersion }
     } catch { return null }
 }
 
