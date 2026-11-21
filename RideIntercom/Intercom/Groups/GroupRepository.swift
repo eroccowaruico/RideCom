@@ -636,30 +636,50 @@ final class GroupRepository {
     }
 
     func pendingOrdinaryGroupReceipt(for user: SavedUser, now: TimeInterval) -> DirectInvitationReceipt? {
-        let candidates = pendingOrdinaryGroupReceipts(for: user, now: now)
+        let candidates = pendingOrdinaryGroupReceipts(for: user, localPrincipal: nil, now: now)
         return candidates.count == 1 ? candidates.first : nil
     }
 
-    func pendingOrdinaryGroupDeviceCallKeys(for user: SavedUser, now: TimeInterval)
-        -> (peerMemberID: String, peerPublicKey: String, localPublicKey: String)? {
-        let candidates = pendingOrdinaryGroupReceipts(for: user, now: now)
-        guard let first = candidates.first, let localKey = first.inviteeDeviceKey,
-              let peerKey = first.invitation?.inviterDeviceKey,
-              candidates.allSatisfy({ $0.inviteeDeviceKey == localKey }) else { return nil }
-        return (first.inviterMemberID, peerKey, localKey)
+    struct OrdinaryGroupDeviceCallKeys {
+        let peerMemberID: String
+        let peerPublicKey: String
+        let localPublicKey: String
     }
 
-    private func pendingOrdinaryGroupReceipts(for user: SavedUser, now: TimeInterval) -> [DirectInvitationReceipt] {
-        guard let snapshot, let localMemberID, user.principal == nil, user.memberIDs.count == 1,
-              let inviter = user.memberIDs.first, let key = user.deviceKeys?[inviter] else { return [] }
+    func pendingOrdinaryGroupDeviceCallKeys(for user: SavedUser, localPrincipal: AccountPrincipal?,
+                                            now: TimeInterval) -> OrdinaryGroupDeviceCallKeys? {
+        let candidates = pendingOrdinaryGroupReceipts(for: user, localPrincipal: localPrincipal, now: now)
+        guard let first = candidates.first, let localKey = first.inviteeDeviceKey,
+              let peerKey = first.invitation?.inviterDeviceKey,
+              candidates.allSatisfy({
+                  $0.inviterMemberID == first.inviterMemberID && $0.invitation?.inviterDeviceKey == peerKey
+                      && $0.inviteeDeviceKey == localKey
+              }) else { return nil }
+        return .init(peerMemberID: first.inviterMemberID, peerPublicKey: peerKey, localPublicKey: localKey)
+    }
+
+    private func pendingOrdinaryGroupReceipts(for user: SavedUser, localPrincipal: AccountPrincipal?,
+                                              now: TimeInterval) -> [DirectInvitationReceipt] {
+        guard let snapshot, let localMemberID else { return [] }
         return snapshot.groups.compactMap { group -> DirectInvitationReceipt? in
-            guard group.kind == .group, group.accountDevices[inviter] == nil,
-                  group.invitationDeviceKeys?[inviter] == key, !group.excludesMember(inviter, principal: nil),
+            guard group.kind == .group,
                   let pending = group.pendingInvitation, pending.inviteeMemberID == localMemberID,
-                  pending.inviterMemberID == inviter, let acceptance = pending.acceptanceProof,
-                  acceptance.certificate == nil, acceptance.publicKey == pending.inviteeDeviceKey,
+                  let acceptance = pending.acceptanceProof, acceptance.publicKey == pending.inviteeDeviceKey,
                   let invitation = pending.invitation, invitation.isOrdinaryGroupInvitation,
-                  invitation.inviterDeviceKey == key, invitation.expiresAt > now else { return nil }
+                  invitation.expiresAt > now else { return nil }
+            let inviter = pending.inviterMemberID
+            guard user.memberIDs.contains(inviter), let key = user.deviceKeys?[inviter],
+                  invitation.inviterDeviceKey == key, group.invitationDeviceKeys?[inviter] == key,
+                  !group.excludesMember(inviter, principal: user.principal) else { return nil }
+            if let localPrincipal, let remote = user.principal {
+                guard localPrincipal != remote, localPrincipal.issuer == remote.issuer,
+                      group.accountDevices[inviter] == .init(principal: remote, publicKey: key),
+                      group.accountDevices[localMemberID] == .init(principal: localPrincipal, publicKey: acceptance.publicKey),
+                      acceptance.certificate != nil else { return nil }
+            } else {
+                guard localPrincipal == nil, user.principal == nil, user.memberIDs.count == 1,
+                      group.accountDevices[inviter] == nil, acceptance.certificate == nil else { return nil }
+            }
             return pending
         }
     }

@@ -58,8 +58,11 @@ extension IntercomViewModel {
         }
         do {
             let deviceCall = try groupRepository.singleDeviceCall(for: user)
-            let preferred = deviceCall.map { [$0.peerID] } ?? []
-            let orderedIDs = preferred + user.memberIDs.filter { $0 != deviceCall?.peerID }.sorted()
+            let pending = deviceCall == nil ? groupRepository.pendingOrdinaryGroupDeviceCallKeys(
+                for: user, localPrincipal: localAccountPrincipal, now: Date().timeIntervalSince1970
+            ) : nil
+            let preferredPeer = deviceCall?.peerID ?? pending?.peerMemberID
+            let orderedIDs = (preferredPeer.map { [$0] } ?? []) + user.memberIDs.filter { $0 != preferredPeer }.sorted()
             let remoteIDs = orderedIDs.prefix(IntercomGroup.maximumMemberCount - 1)
             let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
                 + remoteIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
@@ -76,7 +79,7 @@ extension IntercomViewModel {
             }
             let group = try IntercomGroup(id: id, name: "Direct Call", members: members, kind: .direct,
                                          accountPair: pair, accountDevices: devices)
-            let secret = try deviceCall?.secret ?? initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner)
+            let secret = try deviceCall?.secret ?? initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner, pending: pending)
             try groupRepository.save([group] + groups, credential: .init(groupID: id, secret: secret))
             refreshGroupStorageStatus()
             groups.insert(group, at: 0)
@@ -86,21 +89,26 @@ extension IntercomViewModel {
     }
 
     private func initialDirectCallSecret(for group: IntercomGroup, user: SavedUser,
-                                         accountSigner: DeviceIdentitySigner?) throws -> String {
+                                         accountSigner: DeviceIdentitySigner?,
+                                         pending: GroupRepository.OrdinaryGroupDeviceCallKeys?) throws -> String {
+        if let pending {
+            if let accountSigner, accountSigner.publicKey == pending.localPublicKey,
+               accountSigner.principal == localAccountPrincipal {
+                return try accountSigner.accountDirectCallSecret(peerMemberID: pending.peerMemberID,
+                    peerPublicKey: pending.peerPublicKey, callID: group.id)
+            }
+            if localAccountPrincipal == nil,
+               let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
+                                                                        expectedPublicKey: pending.localPublicKey),
+               signer.principal == nil {
+                return try signer.ordinaryGroupDirectCallSecret(peerMemberID: pending.peerMemberID, peerPublicKey: pending.peerPublicKey)
+            }
+        }
         if user.memberIDs.count == 1, let peer = user.memberIDs.first,
            let accountSigner, let binding = group.accountDevices[peer] {
             return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
         }
-        return try pendingOrdinaryGroupDirectCallSecret(for: user)
-            ?? SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
-    }
-
-    private func pendingOrdinaryGroupDirectCallSecret(for user: SavedUser) throws -> String? {
-        guard localAccountPrincipal == nil,
-              let keys = groupRepository.pendingOrdinaryGroupDeviceCallKeys(for: user, now: Date().timeIntervalSince1970),
-              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: keys.localPublicKey),
-              signer.principal == nil else { return nil }
-        return try signer.ordinaryGroupDirectCallSecret(peerMemberID: keys.peerMemberID, peerPublicKey: keys.peerPublicKey)
+        return SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
     }
 
     private func directCallTarget(for user: SavedUser) -> (id: UUID, pair: AccountCallPair?)? {

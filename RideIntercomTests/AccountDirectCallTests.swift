@@ -223,6 +223,49 @@ struct AccountDirectCallTests {
         #endif
     }
 
+    @Test func recipientWithSeveralKnownDevicesCanStartAnOrdinaryInvitationCallBeforeAcknowledgement() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("alice", account: "a")
+        let recipient = try fixture.peer("bob", account: "b")
+        let extra = try fixture.peer("other-device", account: "a")
+        for peer in [author, recipient, extra] { peer.viewModel.allowsNearbyGroupDelivery = false }
+        let a = author.viewModel, b = recipient.viewModel
+        try fixture.introduce(extra, to: recipient)
+        let otherGroupID = try #require(b.selectedGroup?.id)
+        try fixture.introduce(author, to: recipient)
+        let groupID = try #require(a.selectedGroup?.id)
+        let acceptance = try #require(b.signedPendingInvitationReceipt(for: groupID))
+        let inviter = try #require(b.savedRemoteUsers.first)
+        try #require(Set(inviter.memberIDs) == ["alice", "other-device"])
+        #expect(b.groupRepository.pendingOrdinaryGroupDeviceCallKeys(for: inviter, localPrincipal: b.localAccountPrincipal,
+                                                                    now: Date().timeIntervalSince1970) == nil)
+        try #require(b.deleteGroup(otherGroupID))
+        b.setRTCTransportRoutes([.multipeer])
+        try #require(b.startCall(to: .user(inviter.id), accountAccessID: b.accountAccessID))
+        let callID = try #require(b.activeGroupID)
+
+        let acknowledgement = try #require(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true))
+        let invitee = try #require(a.savedRemoteUsers.first)
+        a.setRTCTransportRoutes([.multipeer])
+        try #require(a.startCall(to: .user(invitee.id), accountAccessID: a.accountAccessID))
+        try #require(a.activeGroupID == callID)
+        let authorKey = try #require(try a.groupRepository.credential(for: callID)).secret
+        let recipientKey = try #require(try b.groupRepository.credential(for: callID)).secret
+        let bothUseSameKey = authorKey == recipientKey
+        try #require(bothUseSameKey)
+        try #require(b.groupRepository.pendingInvitation(for: groupID) != nil)
+        #if os(iOS)
+        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(author.callSession.connectedGroup),
+                                                   bobGroup: try #require(recipient.callSession.connectedGroup))
+        #endif
+
+        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
+        #expect(b.groupRepository.pendingInvitation(for: groupID) == nil)
+        #expect(a.activeGroupID == callID && b.activeGroupID == callID)
+        let keepsCallKey = try b.groupRepository.credential(for: callID)?.secret == recipientKey
+        #expect(keepsCallKey)
+    }
+
     @Test func twoSavedDeviceCallKeysAreNotChosenByDirectoryOrder() throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
         let author = try fixture.peer("alice", account: "a")
