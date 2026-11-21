@@ -398,7 +398,9 @@ struct ContactInvitationPersistenceTests {
         #expect(b.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
         // Allow discovery, authentication and the route’s automatic retry to complete.
         let deadline = ContinuousClock.now + .seconds(45)
-        while (a.viewModel.savedRemoteUsers.isEmpty || !b.viewModel.pendingContactInvitations.isEmpty), ContinuousClock.now < deadline {
+        while a.viewModel.savedRemoteUsers.isEmpty || !b.viewModel.pendingContactInvitations.isEmpty,
+            ContinuousClock.now < deadline
+        {
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]], "Actual near-range acceptance reaches the author's atomic registration")

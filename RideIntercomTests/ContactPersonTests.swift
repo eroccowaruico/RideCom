@@ -222,8 +222,11 @@ struct ContactPersonTests {
             let verified = try #require(try h.viewModel.invitationAuthority.verify(acceptance.receipt, now: now))
             try repo.confirmContactInvitation(verified, localDisplayName: "Author", now: now)
             if index == 0 {
-                if followSharedName { try repo.resetUserName(firstID) }
-                else { try repo.renameUser(firstID, displayName: "My chosen name") }
+                if followSharedName {
+                    try repo.resetUserName(firstID)
+                } else {
+                    try repo.renameUser(firstID, displayName: "My chosen name")
+                }
             }
         }
         #expect(repo.users.map(\.id) == [firstID])

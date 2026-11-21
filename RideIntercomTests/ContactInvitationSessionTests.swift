@@ -32,7 +32,7 @@ struct ContactInvitationSessionTests {
         try friend.accept(url)
         #expect(friendsContacts == [authorID], "Explicit acceptance stores the signed inviter immediately")
         let deadline = ContinuousClock.now + .seconds(30)
-        while (!author.isConfirmed || !friend.isAcknowledged), ContinuousClock.now < deadline {
+        while !author.isConfirmed || !friend.isAcknowledged, ContinuousClock.now < deadline {
             friend.retry()
             try await Task.sleep(for: .milliseconds(50))
         }
@@ -50,8 +50,10 @@ struct ContactInvitationSessionTests {
         friend.onNotificationPermission = { peerID, message in
             guard message.namespace == CallNotificationPermissionMessage.groupNamespace,
                   let value = try? JSONDecoder().decode(CallNotificationPermissionMessage.self, from: message.payload) else { return }
-            do { _ = try value.verifiedGrant(peerID: peerID, savedUser: savedAuthor, local: destination); receivedGroupPermission = value.groupGrant == grant }
-            catch { Issue.record("The group permission must verify against the registered device") }
+            do {
+                _ = try value.verifiedGrant(peerID: peerID, savedUser: savedAuthor, local: destination);
+                receivedGroupPermission = value.groupGrant == grant
+            } catch { Issue.record("The group permission must verify against the registered device") }
         }
         #expect(author.sendNotificationPermission(try JSONEncoder().encode(permission), namespace: CallNotificationPermissionMessage.groupNamespace))
         let permissionDeadline = ContinuousClock.now + .seconds(5)

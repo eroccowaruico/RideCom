@@ -12,8 +12,7 @@ extension IntercomViewModel {
 
     @discardableResult
     func handleContactReplyURL(_ url: URL) -> Bool {
-        do { try receiveContactReplyURL(url); return true }
-        catch {
+        do { try receiveContactReplyURL(url); return true } catch {
             contactInvitationMessage = "This reply could not be saved. Check the sender and invitation, then try again."
             return false
         }
@@ -73,8 +72,9 @@ extension IntercomViewModel {
             }
             try receipt.verifyAcknowledgement(of: expected, trust: internetSettingsStore.identityTrust(), now: now)
             if record.state == .pending {
-                do { try groupRepository.completeContactNotification(record.id) }
-                catch { reportGroupStorageError(error); throw error }
+                do { try groupRepository.completeContactNotification(record.id) } catch {
+                    reportGroupStorageError(error); throw error
+                }
             }
             if contactInvitationID == record.id { stopContactInvitationSession() }
         }
@@ -83,8 +83,9 @@ extension IntercomViewModel {
     }
     /// A checkpoint read failure needs the same reload path as a failed registration write.
     private func loadContactReplyPayload(_ id: UUID) throws -> ContactInvitationPayload {
-        do { return try groupRepository.contactInvitationPayload(id) }
-        catch { reportGroupStorageError(error); throw error }
+        do { return try groupRepository.contactInvitationPayload(id) } catch {
+            reportGroupStorageError(error); throw error
+        }
     }
 
 }

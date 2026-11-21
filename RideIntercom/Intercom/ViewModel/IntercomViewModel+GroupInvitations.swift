@@ -45,8 +45,11 @@ extension IntercomViewModel {
             }
             try groupRepository.saveGroupInvitationSelection(group, credential: key, invitees: invitees,
                 now: callAccessNow().timeIntervalSince1970, selectedUsers: selected, deliveries: groupDeliveryRecords(for: selected, groupID: groupID))
-            if groups.contains(where: { $0.id == groupID }) { refreshStoredAccountCall(groupID) }
-            else if let saved = groupRepository.storedGroup(groupID) { groups.insert(saved, at: 0) }
+            if groups.contains(where: { $0.id == groupID }) {
+                refreshStoredAccountCall(groupID)
+            } else if let saved = groupRepository.storedGroup(groupID) {
+                groups.insert(saved, at: 0)
+            }
             refreshGroupStorageStatus()
             if creating, let saved = groups.first(where: { $0.id == groupID }) { selectGroup(saved) }
             requestGroupDeliverySync(.localChange)

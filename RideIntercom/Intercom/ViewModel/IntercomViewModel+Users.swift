@@ -68,8 +68,10 @@ extension IntercomViewModel {
         var updated = groups[index]
         updated.members = combined
         updated.accountDevices.merge(groupAccountDevices(for: members)) { old, _ in old }
-        do { try groupRepository.saveGroupMembers(updated, selectedUsers: ids, deliveries: groupDeliveryRecords(for: ids, groupID: groupID)) }
-        catch { reportGroupStorageError(error); return false }
+        do {
+            try groupRepository.saveGroupMembers(
+                updated, selectedUsers: ids, deliveries: groupDeliveryRecords(for: ids, groupID: groupID))
+        } catch { reportGroupStorageError(error); return false }
         refreshStoredAccountCall(groupID)
         refreshGroupStorageStatus()
         requestGroupDeliverySync(.localChange)
@@ -85,8 +87,7 @@ extension IntercomViewModel {
             try notifications.suppressContact(id)
             let signer = try? internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
             removedGroups = try groupRepository.removeUser(id, signer: signer, sender: localAccountPrincipal, now: callAccessNow())
-        }
-        catch { reportGroupStorageError(error); return false }
+        } catch { reportGroupStorageError(error); return false }
         finishSavedUserRemoval(removedGroups)
         requestGroupDeliverySync(.localChange)
         return true
@@ -128,8 +129,9 @@ extension IntercomViewModel {
             groupErrorMessage = "Enter a valid display name."
             return false
         }
-        do { try groupRepository.renameUser(id, displayName: name) }
-        catch { reportGroupStorageError(error); return false }
+        do { try groupRepository.renameUser(id, displayName: name) } catch {
+            reportGroupStorageError(error); return false
+        }
         refreshGroupStorageStatus()
         groupErrorMessage = nil
         return true

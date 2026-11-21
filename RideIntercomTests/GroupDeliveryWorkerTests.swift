@@ -766,7 +766,8 @@ import Testing
         guard FileManager.default.fileExists(atPath: portFile.path) else { throw WorkerFixtureFailure.unavailable }
         let fields = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: portFile)) as? [String: Int])
         let port = try #require(fields["port"])
-        GroupWorkerHTTPBridge.origin = try #require(URL(string: "http://127.0.0.1:\(port)"))
+        guard let origin = URL(string: "http://127.0.0.1:\(port)") else { throw WorkerFixtureFailure.unavailable }
+        GroupWorkerHTTPBridge.origin = origin
         defer { GroupWorkerHTTPBridge.origin = nil }
         try await exercise()
     }

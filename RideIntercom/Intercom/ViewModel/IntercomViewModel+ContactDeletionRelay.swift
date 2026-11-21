@@ -49,8 +49,9 @@ extension IntercomViewModel {
             else { continue }
             guard (try? await client.writeContactDeletion(retirement, access: access)) == .retired,
                   contactDeletionRelayIsCurrent(access, generation: generation) else { return }
-            do { try groupRepository.finishContactDeletionRelay(retirement, now: callAccessNow()) }
-            catch { reportGroupStorageError(error); return }
+            do { try groupRepository.finishContactDeletionRelay(retirement, now: callAccessNow()) } catch {
+                reportGroupStorageError(error); return
+            }
         }
     }
 
@@ -87,8 +88,9 @@ extension IntercomViewModel {
             let pairID = IntercomGroup.directCallID(memberIDs: [signer.memberID, member])
             guard let group = groupRepository.storedGroup(pairID), group.kind == .direct, group.accountPair == nil else { continue }
             let secret: String?
-            do { secret = try groupRepository.credential(for: pairID)?.secret }
-            catch { reportGroupStorageError(error); return }
+            do { secret = try groupRepository.credential(for: pairID)?.secret } catch {
+                reportGroupStorageError(error); return
+            }
             guard let secret, let address = ContactDeletionRelayAddress(owner: user.principal, recipient: access.principal,
                 pairSecret: secret, senderID: member, recipientID: signer.memberID) else { continue }
             if !(await receiveRelayedContactDeletion(address, member: member, key: key, client: client,
@@ -100,14 +102,16 @@ extension IntercomViewModel {
                                                client: InternetAccountClient, access: CallNotificationServiceAccess,
                                                generation: UUID, signer: DeviceIdentitySigner) async -> Bool {
         let message: ContactDeletionWorkerPacket?
-        do { message = try await client.readContactDeletion(owner: address.owner, slot: address.slot, access: access, recipient: signer) }
-        catch { return false }
+        do {
+            message = try await client.readContactDeletion(
+                owner: address.owner, slot: address.slot, access: access, recipient: signer)
+        } catch { return false }
         guard contactDeletionRelayIsCurrent(access, generation: generation) else { return false }
         guard let message, let notice = try? ContactDeletionPublication.openNotice(message.packet, slot: address.slot,
             recipient: signer, senderID: member, senderKey: key), message.matches(notice.target) else { return true }
-        do { _ = try receiveContactDeletion(notice, from: member) }
-        catch is DeviceIdentityProof.Failure { return true }
-        catch { reportGroupStorageError(error); return false }
+        do { _ = try receiveContactDeletion(notice, from: member) } catch is DeviceIdentityProof.Failure {
+            return true
+        } catch { reportGroupStorageError(error); return false }
         guard let receipt = groupRepository.contactDeletionRelayReceipts.first(where: { $0.id == notice.id }) else { return true }
         return await submitContactDeletionReceipt(receipt, client: client, access: access, generation: generation, signer: signer)
     }
@@ -120,8 +124,9 @@ extension IntercomViewModel {
         guard let delivered = try? await client.acknowledgeRelayedContactDeletion(record, signer: signer, access: access),
               contactDeletionRelayIsCurrent(access, generation: generation) else { return false }
         if delivered {
-            do { try groupRepository.finishContactDeletionRelay(record, now: callAccessNow()) }
-            catch { reportGroupStorageError(error); return false }
+            do { try groupRepository.finishContactDeletionRelay(record, now: callAccessNow()) } catch {
+                reportGroupStorageError(error); return false
+            }
         }
         return true
     }

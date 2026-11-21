@@ -43,8 +43,8 @@ extension IntercomViewModel {
         let acceptance = try token.accept(signer: signer, displayName: localMemberIdentity.displayName,
             trust: internetSettingsStore.identityTrust(), now: callAccessNow().timeIntervalSince1970, contactBootstrap: true)
         do { try groupRepository.acceptContactInvitation(token, accepted: acceptance,
-            localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970) }
-        catch { reportGroupStorageError(error); throw error }
+                localDisplayName: localMemberIdentity.displayName, now: callAccessNow().timeIntervalSince1970)
+        } catch { reportGroupStorageError(error); throw error }
         adoptStoredContactRegistration(with: acceptance.inviter.memberID, invitationID: id)
         refreshGroupStorageStatus()
         _ = resumeContactInvitation(id, continuingInBackground: true)
@@ -81,8 +81,7 @@ extension IntercomViewModel {
             let transport = contactSessionFactory?()
             let configuration: RTC.CloudflareRealtimeConfiguration?
             if transport == nil, routes.contains(.webRTC) {
-                do { configuration = try internetSettingsStore.load() }
-                catch {
+                do { configuration = try internetSettingsStore.load() } catch {
                     guard routes.contains(.multipeer) else { throw error }
                     configuration = nil
                 }
@@ -110,8 +109,11 @@ extension IntercomViewModel {
                     self.refreshGroupStorageStatus()
                     // Registration is complete. The exchange stays only as long as the two notification
                     // permissions need, and not at all when this device cannot take part.
-                    if self.notifications.canUseNotifications { self.closeContactInvitation(id, after: self.contactPermissionExchangeDuration) }
-                    else { self.stopContactInvitationSession() }
+                    if self.notifications.canUseNotifications {
+                        self.closeContactInvitation(id, after: self.contactPermissionExchangeDuration)
+                    } else {
+                        self.stopContactInvitationSession()
+                    }
                 }, confirm: { _, _ in
                     // Explicit acceptance is committed atomically before restore.
                     throw ContactInvitationError.unavailable

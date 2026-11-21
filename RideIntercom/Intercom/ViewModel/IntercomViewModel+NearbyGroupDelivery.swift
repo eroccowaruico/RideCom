@@ -228,8 +228,7 @@ extension IntercomViewModel {
         guard afterSave, window.endBackgroundTime == nil else { return }
         let id = window.id
         let end = beginGroupDeliveryBackgroundTime { [weak self] in self?.expireNearbyGroupDeliveryWindow(id) }
-        if nearbyGroupDeliveryWindow === window { window.endBackgroundTime = end }
-        else { end?() }
+        if nearbyGroupDeliveryWindow === window { window.endBackgroundTime = end } else { end?() }
     }
 
     private func scheduleNearbyGroupDeliveryBatch(on window: NearbyGroupDeliveryWindow, hasMore: Bool, changed: Bool) {

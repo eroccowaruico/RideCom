@@ -60,7 +60,6 @@ extension IntercomViewModel {
         inviteStatusMessage = nil
     }
 
-
     var hasAnyActiveGroupConnection: Bool {
         guard activeGroupID != nil else { return false }
         return connectionState != .idle || isAudioReady || !authenticatedPeerIDs.isEmpty || localNetworkStatus != .idle
@@ -125,8 +124,10 @@ extension IntercomViewModel {
     func deleteGroup(_ groupID: UUID, receipt: GroupSnapshot.GroupRemovalReceipt? = nil) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         let remaining = groups.filter { $0.id != groupID }
-        do { try groupRepository.delete(groupID, remaining: remaining, receipt: receipt, now: callAccessNow().timeIntervalSince1970) }
-        catch { reportGroupStorageError(error); return false }
+        do {
+            try groupRepository.delete(
+                groupID, remaining: remaining, receipt: receipt, now: callAccessNow().timeIntervalSince1970)
+        } catch { reportGroupStorageError(error); return false }
         refreshGroupStorageStatus()
         if activeGroupID == groupID { disconnect() }
         if selectedGroup?.id == groupID { selectedGroup = nil }
@@ -174,8 +175,10 @@ extension IntercomViewModel {
             return deleteGroup(groupID, receipt: receipt)
         }
         let removed: Set<String>
-        do { removed = try groupRepository.removeGroupMember(memberID, from: groupID, receipt: receipt, now: callAccessNow().timeIntervalSince1970) }
-        catch { reportGroupStorageError(error); return false }
+        do {
+            removed = try groupRepository.removeGroupMember(
+                memberID, from: groupID, receipt: receipt, now: callAccessNow().timeIntervalSince1970)
+        } catch { reportGroupStorageError(error); return false }
         refreshStoredAccountCall(groupID)
         refreshGroupStorageStatus()
         groupErrorMessage = nil
@@ -189,8 +192,9 @@ extension IntercomViewModel {
             for id in removed {
                 remoteVoiceReceivedAt.removeValue(forKey: id)
                 remoteVoicePeakWindows.removeValue(forKey: id)
-                do { try audioPipeline.stopReceivePeer(id) }
-                catch { audioErrorMessage = "Could not release the rider's audio. Reconnect to reset audio." }
+                do { try audioPipeline.stopReceivePeer(id) } catch {
+                    audioErrorMessage = "Could not release the rider's audio. Reconnect to reset audio."
+                }
             }
         }
         return true
@@ -226,8 +230,12 @@ extension IntercomViewModel {
             return false
         }
         let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
-        do { try groupRepository.save([newGroup] + groups, credential: .init(groupID: groupID, secret: secret), deliveries: groupDeliveryRecords(for: userIDs, groupID: groupID)); refreshGroupStorageStatus() }
-        catch {
+        do {
+            try groupRepository.save(
+                [newGroup] + groups, credential: .init(groupID: groupID, secret: secret),
+                deliveries: groupDeliveryRecords(for: userIDs, groupID: groupID));
+            refreshGroupStorageStatus()
+        } catch {
             reportGroupStorageError(error)
             return false
         }
@@ -267,9 +275,9 @@ extension IntercomViewModel {
             throw IntercomGroupError.storageUnavailable
         }
         let token: GroupInviteToken
-        do { token = try GroupInviteTokenCodec.decodeJoinURL(url) }
-        catch let error as GroupInviteTokenError { throw error }
-        catch { throw GroupInviteTokenError.invalidTokenEncoding }
+        do { token = try GroupInviteTokenCodec.decodeJoinURL(url) } catch let error as GroupInviteTokenError {
+            throw error
+        } catch { throw GroupInviteTokenError.invalidTokenEncoding }
         guard !token.isExpired(now: now) else {
             throw GroupInviteTokenError.expired
         }
@@ -292,8 +300,9 @@ extension IntercomViewModel {
                                         displayName: localMemberIdentity.displayName, trust: try internetSettingsStore.identityTrust(), now: now)
         guard kind != .group || !groupRepository.hasRetiredGroupLink(accepted) else { throw GroupInviteTokenError.retiredGroupLink }
         let previous: GroupAccessCredential?
-        do { previous = try groupRepository.credential(for: token.groupID) }
-        catch { reportGroupStorageError(error); throw error }
+        do { previous = try groupRepository.credential(for: token.groupID) } catch {
+            reportGroupStorageError(error); throw error
+        }
         // Account calls converge by principal, independently of which device invited.
         // Do not replace a call that has already connected; reconnect explicitly.
         let keepsLocalKey = token.accountPair.map { $0.first == localAccountPrincipal }
@@ -354,8 +363,7 @@ extension IntercomViewModel {
             try groupRepository.save(updated, credential: .init(groupID: token.groupID, secret: token.groupSecret),
                                      acceptedInvitation: accepted, inviterName: inviterName, now: now)
             refreshGroupStorageStatus()
-        }
-        catch {
+        } catch {
             reportGroupStorageError(error)
             throw error
         }

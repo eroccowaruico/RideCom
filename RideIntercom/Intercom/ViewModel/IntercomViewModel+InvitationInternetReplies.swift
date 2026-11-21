@@ -50,8 +50,7 @@ extension IntercomViewModel {
         guard invitationInternetReplyWindow === window else { end?(); return }
         window.endBackgroundTime = end
         window.deadline = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(30)) }
-            catch { return }
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
             self?.stopInvitationInternetReply(id: id)
         }
         let delays = [Duration.zero] + invitationInternetReplyRetryDelays
@@ -63,8 +62,7 @@ extension IntercomViewModel {
                 self.scheduleBackgroundContactAcceptances(access: window.access)
             }
             for delay in delays {
-                do { if delay > .zero { try await Task.sleep(for: delay) } }
-                catch { return }
+                do { if delay > .zero { try await Task.sleep(for: delay) } } catch { return }
                 guard let self, let window = self.invitationInternetReplyWindow, window.id == id,
                       self.internetReplyWindowIsCurrent(window), self.hasInternetInvitationReplies(access: window.access)
                 else { return }
@@ -113,16 +111,18 @@ extension IntercomViewModel {
         for invitation in groupRepository.issuedOrdinaryGroupInvitations(now: now) {
             guard internetReplyWindowIsCurrent(window) else { return false }
             guard let target = internetReplyTarget(invitation) else { continue }
-            do { try await receiveOrdinaryGroupInternetAcceptances(target, window: window) }
-            catch InternetAccountClient.Failure.rateLimited { return false }
-            catch { /* A later pass can try the invitation again. */ }
+            do {
+                try await receiveOrdinaryGroupInternetAcceptances(target, window: window)
+            } catch InternetAccountClient.Failure.rateLimited { return false } catch
+            { /* A later pass can try the invitation again. */  }
         }
         for invitation in groupRepository.pendingOrdinaryGroupReplies(now: Date().timeIntervalSince1970) {
             guard internetReplyWindowIsCurrent(window) else { return false }
             if let target = internetReplyTarget(invitation) {
-                do { try await submitOrdinaryGroupInternetAcceptance(target, window: window) }
-                catch InternetAccountClient.Failure.rateLimited { return false }
-                catch { /* The pending receipt stays saved. */ }
+                do {
+                    try await submitOrdinaryGroupInternetAcceptance(target, window: window)
+                } catch InternetAccountClient.Failure.rateLimited { return false } catch
+                { /* The pending receipt stays saved. */  }
             }
         }
         return internetReplyWindowIsCurrent(window) && hasInternetInvitationReplies(access: window.access)

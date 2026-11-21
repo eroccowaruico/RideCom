@@ -301,7 +301,7 @@ struct GroupContactInvitationTests {
         let secondDeviceUsingSameID = try DeviceIdentitySigner(memberID: b.memberID, key: P256.Signing.PrivateKey())
         let group = try IntercomGroup(name: "Riders", members: [
             GroupMember(id: "parallel-observer", displayName: "Observer"),
-            GroupMember(id: a.memberID, displayName: "A"), GroupMember(id: c.memberID, displayName: "C"),
+            GroupMember(id: a.memberID, displayName: "A"), GroupMember(id: c.memberID, displayName: "C")
         ])
         var roster = GroupSnapshot.Record(group)
         roster.invitationDeviceKeys = [a.memberID: a.publicKey, c.memberID: c.publicKey]
