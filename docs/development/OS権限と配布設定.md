@@ -29,7 +29,7 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 | Identifiers → App Groups | `group.com.yowamushi-inc.RideIntercom.CallWidgets` | AppとWidgetの両IDへ割り当てる。macOSでも`group.`形式は使用できるが、そのgroupを含むprofileが必要 |
 | Profiles | 上記のApp/Widget/Watch IDと実際の配布先 | capability変更後に再生成／ダウンロードし、XcodeのSigning & Capabilitiesで正しいteamとprofileを選択。自動管理の場合も取得結果を検証 |
 | Keys → Apple Push Notifications service | 通知provider用のkey | 対象topicと環境への送信権限を確認する。p8・Key ID・Team IDを対応するWorker secretへ設定。App・Git・ログへ置かない |
-| Keys → Sign in with Apple | AppのApple認可取消用のkey | 対象App IDに対応する`.p8`・Key ID・Team IDをWorkerの`APPLE_SIGN_IN_PRIVATE_KEY`・`APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerが短期client-secret JWTを生成・更新する。APNs鍵と取り違えない |
+| Keys → Sign in with Apple | AppのApple認可取消用のkey | 対象App IDに対応する`.p8`をWorker secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key ID・Team IDを通常Variable `APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerが短期client-secret JWTを生成・更新する。APNs鍵と取り違えない |
 
 2026-10-31の読取監査では、既存profileファイル6件のうち現App IDに一致する4件（iOS用3、macOS用1）は期限内だったが、いずれもSign in with Appleと今回のApp Groupを含まなかった。Widget/Watchの上記IDに一致するprofileはローカル一覧に見つからなかった。これは**インストール済みprofileの不足**であり、Developer portalに登録がないと断定しない。portalは未照会である。Apple Development／Apple Distribution／Developer ID Applicationのidentityは読取で確認できたが、鍵のunlock、Apple ID再認証、profile取得・署名は実行していない。
 

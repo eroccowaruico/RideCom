@@ -15,13 +15,15 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 
 | 名前 | 種類 | 値 |
 |---|---|---|
-| CLOUDFLARE_SFU_APP_ID | VariableまたはSecret | SFU App ID |
+| CLOUDFLARE_SFU_APP_ID | Variable | SFU App ID。Productionは`vars`、PreviewはPreviews BaseのVariableへ環境別に設定 |
 | CLOUDFLARE_SFU_APP_SECRET | Secret | SFU App Secret |
+| CLOUDFLARE_TURN_KEY_ID | Variable | TURN Key ID。Productionは`vars`、PreviewはPreviews BaseのVariableへ環境別に設定 |
+| CLOUDFLARE_TURN_API_TOKEN | Secret | TURN資格発行・失効用のAPI token |
 | CLIENT_TOKENS_JSON | Secret（旧手動試用だけ） | 試用資格の登録用`client-tokens.json`の内容。native Apple登録には不要 |
 | APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
 | DEVICE_IDENTITY_SIGNING_KEY | Secret | 環境ごとに生成し安全に保管したEC P-256秘密鍵のJWK JSON（kty・crv・x・y・dを含む）。端末証明と用途別通知許可の署名に使用し、継続して保持する |
 | APPLE_SIGN_IN_PRIVATE_KEY | Secret | AppleのSign in with Apple用`.p8`全文。Workerが削除時のApple認可取消に必要な短期client-secret JWTを自動生成する。APNsのp8とは別 |
-| APPLE_SIGN_IN_KEY_ID / APPLE_SIGN_IN_TEAM_ID | Secret | 上記Sign in with Apple鍵のKey IDとTeam ID。期限付きJWTではなく、鍵とともに一度登録する値 |
+| APPLE_SIGN_IN_KEY_ID / APPLE_SIGN_IN_TEAM_ID | Variable | 上記Sign in with Apple鍵のKey IDとTeam ID。Productionは`vars`、PreviewはPreviews BaseのVariableへ設定し、画面で対応を再確認できるようにする |
 | APNS_PRIVATE_KEY | Secret | Appleで作成するAPNs用p8（PKCS8 P-256）。対象環境・topicへの送信権限がある鍵 |
 | APNS_KEY_ID / APNS_TEAM_ID | Secret | 上記APNs鍵のKey IDとTeam ID |
 | APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
@@ -58,9 +60,9 @@ Cloudflare設定チャットから引き継いだ残件は、実SFU/TURNを通�
 
 ## Apple登録入口の保護
 
-削除時のApple認可取消には、AppleのSign in with Apple用`.p8`全文、Key ID、Team IDを環境別secret `APPLE_SIGN_IN_PRIVATE_KEY`・`APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerは`APPLE_CLIENT_ID`と組み合わせ、有効期間5分のclient-secret JWTを必要時に生成し、残り1分で自動更新する。期限付きJWTの手動作成・登録・更新は行わない。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens) 鍵とIDを通常変数・Git・ログへ入れず、APNs用の鍵と取り違えない。3項目のどれかが未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
+削除時のApple認可取消には、AppleのSign in with Apple用`.p8`全文を環境別secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key IDとTeam IDを通常Variable `APPLE_SIGN_IN_KEY_ID`・`APPLE_SIGN_IN_TEAM_ID`へ一度登録する。Workerは`APPLE_CLIENT_ID`と組み合わせ、有効期間5分のclient-secret JWTを必要時に生成し、残り1分で自動更新する。期限付きJWTの手動作成・登録・更新は行わない。[Appleの認可取消とclient secret](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens) `.p8`を通常変数・Git・ログへ入れず、APNs用の鍵と取り違えない。3項目のどれかが未設定でもBearerによるアカウントデータ削除は利用できるが、Apple再認証付きの取消は503となる。実Apple受入は別途行う。
 
-旧`APPLE_CLIENT_SECRET`から本番を止めずに移行する順序は、(1) 新しい3 secretを登録、(2) この実装のWorkerを配置、(3) 実Appleコード交換と取消を確認、(4) 旧secretを削除、の順とする。旧Workerは新しい3項目を参照しないため先行登録できる。新Workerは旧secretへフォールバックしないため、配置前に3項目を揃える。
+旧`APPLE_CLIENT_SECRET`から本番を止めずに移行する順序は、(1) 新しい`.p8` secretとKey ID／Team ID Variableを登録、(2) この実装のWorkerを配置、(3) 実Appleコード交換と取消を確認、(4) 旧secretを削除、の順とする。旧Workerは新しい3項目を参照しないため先行登録できる。新Workerは旧secretへフォールバックしないため、配置前に3項目を揃える。
 
 Cloudflareへ手動登録する値は、各サービスの長期鍵・ID・API tokenに限る。APNsのprovider JWTは既存実装が`.p8`から生成して50分未満で自動更新し、TURNの短期資格は通話leaseに合わせてTURN APIから生成・更新・失効する。端末資格や招待など製品の安全性に必要な期限は維持するが、期限付きの派生値を運用者が定期交換する手順は設けない。長期鍵の漏えい・担当変更・provider側の失効時は、期限更新ではなく鍵のローテーションとして扱う。
 
@@ -87,10 +89,9 @@ node --test scripts/Cloudflare/*.test.mjs
 
 以下のCLIはすべて `server/` で実行する。初回は `npx wrangler login`、続いて `npx wrangler whoami` とダッシュボードでアカウント、Worker名 `rideintercom`、対象Preview名 `preview` を照合する。複数のアカウントが表示される場合は対象のAccount IDを指定してから進める（Wranglerの `CLOUDFLARE_ACCOUNT_ID`）。固定Previewが未作成なら、[管理画面とプレビューの設定](#管理画面とプレビューの設定)でPreviews Baseを準備してから `npx wrangler preview --name preview` で作成する。
 
-既存の固定PreviewのSFU資格を**新規登録または更新するときだけ**、次を一つずつ実行して対話入力する。各操作は指定Previewの新しい配置を作る。登録済みなら名前と対象を照合し、Appの接続確認へ進む。
+既存の固定PreviewのSFU資格を**新規登録または更新するときだけ**、SFU App IDはPreviews BaseのVariableへ設定し、App Secretだけを次の対話入力で登録する。操作は指定Previewの新しい配置を作る。登録済みなら名前と対象を照合し、Appの接続確認へ進む。
 
 ```sh
-npx wrangler preview secret put CLOUDFLARE_SFU_APP_ID --name preview
 npx wrangler preview secret put CLOUDFLARE_SFU_APP_SECRET --name preview
 ```
 
@@ -139,16 +140,15 @@ unit / UI / 音声E2Eのcurrent-process compositionは、XCTestの環境変数�
 
 TURNによる中継を試す環境でのみ、Cloudflare Realtimeで環境ごとに別のTURN keyを作る。Previewは `rideintercom-turn-preview`、Productionは `rideintercom-turn-production` とし、同じkeyを共有しない。環境を示さない自動生成名のkeyはWorkerからの参照を確認できない限り再利用せず、未参照を確認してから削除する。
 
-Dashboardでkeyを作成するときは、登録より先に、その画面で表示されたKey IDとAPI tokenの組を環境名付きで秘密管理先へ保存する。API tokenを後から再表示できず、保存済みの値も確認できない場合は、そのkeyをWorkerへ登録せず削除して作り直す。保存できた組のKey IDを `CLOUDFLARE_TURN_KEY_ID`、対応するAPI tokenを `CLOUDFLARE_TURN_API_TOKEN` として、同じ環境のWorker runtime secretへ登録する。秘密値をrepo、作業記録、チャット、コマンド引数へ残さない。
+Dashboardでkeyを作成するときは、登録より先に、その画面で表示されたKey IDとAPI tokenの組を環境名付きで秘密管理先へ保存する。API tokenを後から再表示できず、保存済みの値も確認できない場合は、そのkeyをWorkerへ登録せず削除して作り直す。Key IDは `CLOUDFLARE_TURN_KEY_ID` の通常Variable、対応するAPI tokenは `CLOUDFLARE_TURN_API_TOKEN` のSecretとして同じ環境へ登録する。秘密値であるAPI tokenをrepo、作業記録、チャット、コマンド引数へ残さない。
 
 対象が固定Previewなら `server/` で以下を実行する。
 
 ```sh
-npx wrangler preview secret put CLOUDFLARE_TURN_KEY_ID --name preview
 npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
 ```
 
-固定Previewでは `previews.vars`、本番では本番用の2つのsecretと `vars` を使う。keyの作成・秘密管理先への保存・対象環境への2つのsecret登録が揃うまで `TURN_ENABLED` はfalseを保つ。最後に対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
+固定PreviewではPreviews BaseのVariableと対象PreviewのSecret、本番では`vars`と本番Secretを使う。keyの作成・秘密管理先への保存・対象環境へのID VariableとAPI token Secretの登録が揃うまで `TURN_ENABLED` はfalseを保つ。最後に対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
 
 ## 検証環境の間接依存
 
