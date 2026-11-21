@@ -113,16 +113,14 @@ extension IntercomViewModel {
             guard let target = internetReplyTarget(invitation) else { continue }
             do {
                 try await receiveOrdinaryGroupInternetAcceptances(target, window: window)
-            } catch InternetAccountClient.Failure.rateLimited { return false } catch
-            { /* A later pass can try the invitation again. */  }
+            } catch InternetAccountClient.Failure.rateLimited { return false } catch { /* A later pass can try the invitation again. */  }
         }
         for invitation in groupRepository.pendingOrdinaryGroupReplies(now: Date().timeIntervalSince1970) {
             guard internetReplyWindowIsCurrent(window) else { return false }
             if let target = internetReplyTarget(invitation) {
                 do {
                     try await submitOrdinaryGroupInternetAcceptance(target, window: window)
-                } catch InternetAccountClient.Failure.rateLimited { return false } catch
-                { /* The pending receipt stays saved. */  }
+                } catch InternetAccountClient.Failure.rateLimited { return false } catch { /* The pending receipt stays saved. */  }
             }
         }
         return internetReplyWindowIsCurrent(window) && hasInternetInvitationReplies(access: window.access)

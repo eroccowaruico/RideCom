@@ -907,7 +907,7 @@ struct AudioPipelineTests {
         let collected = Mutex<[Float]>([])
         pipeline.onTransmitPacket = { packet in
                 do {
-                    let samples = try AppAudioCodecBridge.decode(packet).samples;
+                    let samples = try AppAudioCodecBridge.decode(packet).samples
                     collected.withLock { $0 += samples }
                 } catch { Issue.record("Effect output could not be decoded: \(error)") }
         }

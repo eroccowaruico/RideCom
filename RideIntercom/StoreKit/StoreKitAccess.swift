@@ -206,8 +206,7 @@ private final class StoreKitReadAttempt<Value: Sendable> {
                 }
                 if let timeout {
                     deadline = Task {
-                        do { try await Task.sleep(for: timeout); complete(.failure(Failure.timedOut)) } catch
-                        { /* Completion cancelled the deadline. */  }
+                        do { try await Task.sleep(for: timeout); complete(.failure(Failure.timedOut)) } catch { /* Completion cancelled the deadline. */  }
                     }
                 }
             }

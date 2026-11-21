@@ -51,7 +51,7 @@ struct ContactInvitationSessionTests {
             guard message.namespace == CallNotificationPermissionMessage.groupNamespace,
                   let value = try? JSONDecoder().decode(CallNotificationPermissionMessage.self, from: message.payload) else { return }
             do {
-                _ = try value.verifiedGrant(peerID: peerID, savedUser: savedAuthor, local: destination);
+                _ = try value.verifiedGrant(peerID: peerID, savedUser: savedAuthor, local: destination)
                 receivedGroupPermission = value.groupGrant == grant
             } catch { Issue.record("The group permission must verify against the registered device") }
         }

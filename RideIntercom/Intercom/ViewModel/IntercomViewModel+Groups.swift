@@ -233,7 +233,7 @@ extension IntercomViewModel {
         do {
             try groupRepository.save(
                 [newGroup] + groups, credential: .init(groupID: groupID, secret: secret),
-                deliveries: groupDeliveryRecords(for: userIDs, groupID: groupID));
+                deliveries: groupDeliveryRecords(for: userIDs, groupID: groupID))
             refreshGroupStorageStatus()
         } catch {
             reportGroupStorageError(error)

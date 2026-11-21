@@ -142,8 +142,12 @@ extension IntercomViewModel {
         let uploadBinding = invitationBackgroundTransfer == nil ? nil : InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
         await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
         guard canEditSavedGroups, notifications.canUseNotifications, groupDeliveryIsCurrent(access, accountID: generation) else { return }
-        do { try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970) }
-        catch { reportGroupStorageError(error); return }
+        do {
+            try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970)
+        } catch {
+            reportGroupStorageError(error)
+            return
+        }
         // One finite pass. Offline work stays in the manifest for the next sync trigger.
         let outgoing = groupRepository.groupDeliveries
         // The inbox accepts cancellations even when the Worker rejects new submissions.
@@ -159,15 +163,16 @@ extension IntercomViewModel {
             if action == .checkOutcome {
                 guard now < record.outcomeDeadline else { continue }
                 let outcome: GroupDeliveryRecord.State?
-                do { outcome = try await client.expiredGroupInvitationOutcome(for: record, access: access) }
-                catch InternetAccountClient.Failure.forbidden { continue }
-                catch { break }
+                do {
+                    outcome = try await client.expiredGroupInvitationOutcome(for: record, access: access) } catch InternetAccountClient.Failure.forbidden { continue
+                } catch {
+                    break
+                }
                 guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
                 do {
                     try groupRepository.confirmExpiredGroupDeliveryOutcome(id, state: outcome, now: callAccessNow().timeIntervalSince1970)
                     refreshGroupStorageStatus()
-                }
-                catch { reportGroupStorageError(error); return }
+                } catch { reportGroupStorageError(error); return }
                 continue
             }
             guard now < record.expiresAt else { continue }
@@ -176,11 +181,18 @@ extension IntercomViewModel {
                 deliveryID: id, sessionBinding: uploadBinding, operation: operation
             )) == true { continue }
             if action == .cancel {
-                do { try await client.finishGroupInvitation(recipient: record.recipient, id: record.id, access: access) }
-                catch { continue }
+                do {
+                    try await client.finishGroupInvitation(recipient: record.recipient, id: record.id, access: access)
+                } catch {
+                    continue
+                }
                 guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
-                do { try confirmInternetGroupInvitationCancellation(record.id) }
-                catch { reportGroupStorageError(error); return }
+                do {
+                    try confirmInternetGroupInvitationCancellation(record.id)
+                } catch {
+                    reportGroupStorageError(error)
+                    return
+                }
                 continue
             }
             guard let grant = groupDeliveryGrant(for: record) else { continue }
@@ -190,15 +202,18 @@ extension IntercomViewModel {
                 envelope = prepared
             } catch { reportGroupStorageError(error); return }
             let reply: GroupDeliveryReply
-            do { reply = try await client.sendGroupInvitation(envelope, noticeID: record.noticeID, capability: grant.capability, access: access) }
-            catch InternetAccountClient.Failure.forbidden { continue } // This recipient's grant cannot block unrelated people.
+            do { reply = try await client.sendGroupInvitation(envelope, noticeID: record.noticeID, capability: grant.capability, access: access) } catch InternetAccountClient.Failure.forbidden { continue } // This recipient's grant cannot block unrelated people.
             catch { break } // Shared auth, rate limit or network failure waits for the next sync trigger.
             guard groupDeliveryIsCurrent(access, accountID: generation),
                   let current = groupRepository.groupDeliveries.first(where: { $0.id == record.id }) else { return }
             if current.internetAction == .cancel { groupDeliveryNeedsSync = true }
             guard current.internetAction == .send else { continue }
-            do { if current.state != reply.status { try groupRepository.setGroupDeliveryState(record.id, state: reply.status) } }
-            catch { reportGroupStorageError(error); return }
+            do {
+                if current.state != reply.status { try groupRepository.setGroupDeliveryState(record.id, state: reply.status) }
+            } catch {
+                reportGroupStorageError(error)
+                return
+            }
         }
         await receiveGroupDeliveries(client: client, access: access, generation: generation)
         await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
@@ -381,8 +396,7 @@ extension IntercomViewModel {
 
     private func publishReceivedGroup(_ group: IntercomGroup?) {
         if let group {
-            if groups.contains(where: { $0.id == group.id }) { refreshStoredAccountCall(group.id) }
-            else { groups.insert(group, at: 0) }
+            if groups.contains(where: { $0.id == group.id }) { refreshStoredAccountCall(group.id) } else { groups.insert(group, at: 0) }
         }
         refreshGroupStorageStatus()
     }
@@ -393,9 +407,11 @@ extension IntercomViewModel {
         for source in sources {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications else { return }
             let devices: [GroupInvitationAddress]
-            do { devices = try await client.additionalDevices(for: source, access: access) }
-            catch InternetAccountClient.Failure.forbidden { continue }
-            catch { return }
+            do {
+                devices = try await client.additionalDevices(for: source, access: access) } catch InternetAccountClient.Failure.forbidden { continue
+            } catch {
+                return
+            }
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications else { return }
             do {
                 if try groupRepository.queueAdditionalDeviceDeliveries(sourceID: source.id, devices: devices,
@@ -420,8 +436,11 @@ extension IntercomViewModel {
             }
             let item: GroupDeliveryItem?
             if pending == nil {
-                do { item = try await client.nextGroupInvitation(recipientKey: signer.publicKey, access: access) }
-                catch { break }
+                do {
+                    item = try await client.nextGroupInvitation(recipientKey: signer.publicKey, access: access)
+                } catch {
+                    break
+                }
                 guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications
                 else { return }
             } else {
@@ -432,8 +451,12 @@ extension IntercomViewModel {
                 break
             }
             let restored: GroupInvitationEnvelope?
-            do { restored = try pending.map { try groupRepository.groupDeliveryEnvelope($0.id) } }
-            catch { reportGroupStorageError(error); return }
+            do {
+                restored = try pending.map { try groupRepository.groupDeliveryEnvelope($0.id) }
+            } catch {
+                reportGroupStorageError(error)
+                return
+            }
             let envelope: GroupInvitationEnvelope, token: GroupInviteToken, redeliveryTrust: DeviceIdentityTrust?
             do {
                 if let restored {
@@ -453,18 +476,20 @@ extension IntercomViewModel {
                 token = try envelope.open(recipient: signer, local: access.principal, sender: user, now: callAccessNow(),
                                           redeliveryTrust: redeliveryTrust)
             } catch {
-                do { try groupRepository.cancelPendingGroupReceipt(id) }
-                catch { reportGroupStorageError(error); return }
-                do { try await client.finishGroupInvitation(recipient: access.principal, id: id, discard: true, access: access) }
-                catch { break } // Do not repeatedly fetch the same invalid packet after a failed discard.
+                do {
+                    try groupRepository.cancelPendingGroupReceipt(id)
+                } catch {
+                    reportGroupStorageError(error)
+                    return
+                }
+                do { try await client.finishGroupInvitation(recipient: access.principal, id: id, discard: true, access: access) } catch { break } // Do not repeatedly fetch the same invalid packet after a failed discard.
                 continue
             }
             let state: GroupDeliveryRecord.State
             do {
                 state = try groupRepository.stageGroupDelivery(envelope, token: token,
                     now: callAccessNow().timeIntervalSince1970, redeliveryTrust: redeliveryTrust)
-            }
-            catch { reportGroupStorageError(error); return }
+            } catch { reportGroupStorageError(error); return }
             let outcome: GroupDeliveryRecord.State?
             do {
                 if state != .pending {
@@ -497,9 +522,11 @@ extension IntercomViewModel {
         for id in ids {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups, notifications.canUseNotifications
             else { return }
-            do { try await client.requestGroupInvitationForAdditionalDevice(id, signer: signer, access: access) }
-            catch InternetAccountClient.Failure.forbidden { continue }
-            catch { return }
+            do {
+                try await client.requestGroupInvitationForAdditionalDevice(id, signer: signer, access: access) } catch InternetAccountClient.Failure.forbidden { continue
+            } catch {
+                return
+            }
         }
     }
 }

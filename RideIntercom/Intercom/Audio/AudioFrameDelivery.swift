@@ -29,8 +29,7 @@ final class AudioFrameDelivery {
             for await (frame, queuedAt) in stream.stream {
                 guard !Task.isCancelled, metrics.state.load(ordering: .acquiring) == 1 else { return }
                 if metrics.isFiniteRecording || coalescesObservations
-                    || queuedAt.duration(to: .now) < .milliseconds(100)
-                {
+                    || queuedAt.duration(to: .now) < .milliseconds(100) {
                     receive(frame)
                 } else {
                     metrics.dropped.wrappingAdd(frame.frameCount, ordering: .relaxed)

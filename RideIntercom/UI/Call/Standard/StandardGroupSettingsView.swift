@@ -50,8 +50,7 @@ struct StandardGroupSettingsView: View {
                             // The tap opens the member's own page; the swipe removes them.
                             Button {
                                 if let person = viewModel.personForGroupInvitation(
-                                    memberID: member.id, groupID: groupID)
-                                {
+                                    memberID: member.id, groupID: groupID) {
                                     invitationPerson = person
                                 } else {
                                     editingMember = member
