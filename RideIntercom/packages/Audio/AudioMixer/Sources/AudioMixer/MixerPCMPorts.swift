@@ -11,30 +11,14 @@ public final class MixerPCMSource {
 	private let recordSchedule: (PCMFrame, AudioProcessingReport?, String?, Bool) -> Void
 	private let maximumBufferedDuration: TimeInterval?
 	private let captureTimePlayoutDelay: TimeInterval?
-	private var playoutAnchor: (capturedAt: TimeInterval, sample: AVAudioFramePosition)?
-	private var lastCapturedAt: TimeInterval?
-    private var lastCapturedEnd: TimeInterval?
-    private var lastAudibleEnd: AVAudioFramePosition = 0
-    private var recoveringQuietBurst = false
-    // Wi-Fi links hold packets for tens of milliseconds and release them in a
-    // burst, again and again. Keep the wait each late arrival proved necessary
-    // through conversation pauses; release it only after the link stays calm.
-    private var jitterMargin: (frames: AVAudioFramePosition, observedAt: TimeInterval)?
-    // Fastest observed transit: local arrival time minus remote capture time.
-    // It may rise only as fast as independent device clocks can drift.
-    private var fastestTransit: (seconds: Double, observedAt: TimeInterval)?
-    private var arrivalBatch: ArrivalBatch?
-    static let clockDriftAllowance = 0.0002
-    static let jitterMarginHold: TimeInterval = 10
-    static let jitterMarginReleasePerSecond: TimeInterval = 0.01
+    private let playout: MixerPCMPlayout
     private let adaptivePlayout: Bool
     private let renderClock: MixerRenderClock
     private var normalizer = MixerPCMStreamNormalizer()
-    public private(set) var playoutAdjustmentCount = 0
-    public private(set) var lastPlayoutAdjustment: MixerPlayoutAdjustment?
+    public var playoutAdjustmentCount: Int { playout.playoutAdjustmentCount }
+    public var lastPlayoutAdjustment: MixerPlayoutAdjustment? { playout.lastPlayoutAdjustment }
 	private var startRequested = false
-	private var scheduledEndSample: AVAudioFramePosition = 0
-	public private(set) var playbackResetCount = 0
+	public var playbackResetCount: Int { playout.playbackResetCount }
 
 	typealias PlaybackPosition = (completed: AVAudioFramePosition, writable: AVAudioFramePosition)
 
@@ -62,7 +46,7 @@ public final class MixerPCMSource {
 		} ?? PlaybackClockReading(position: (0, 0), anchorSample: nil, anchorHostTime: nil)
 	}
 	public var bufferedDuration: TimeInterval {
-		Double(max(0, scheduledEndSample - playbackPosition.position.writable)) / mixerFormat.sampleRate
+		Double(max(0, playout.scheduledEndSample - playbackPosition.position.writable)) / mixerFormat.sampleRate
 	}
 
 	public var volume: Float {
@@ -88,6 +72,7 @@ public final class MixerPCMSource {
 		self.recordSchedule = recordSchedule
 		self.maximumBufferedDuration = maximumBufferedDuration
 		self.captureTimePlayoutDelay = captureTimePlayoutDelay
+        self.playout = MixerPCMPlayout(mixerFormat: mixerFormat, adaptivePlayout: adaptivePlayout)
         self.adaptivePlayout = adaptivePlayout
         self.renderClock = renderClock
 	}
@@ -134,8 +119,8 @@ public final class MixerPCMSource {
             ))
             let startSample = reservation.startSample
             let options = reservation.options
-			scheduledEndSample = startSample + AVAudioFramePosition(buffer.frameLength)
-            if audible { lastAudibleEnd = scheduledEndSample }
+			playout.scheduledEndSample = startSample + AVAudioFramePosition(buffer.frameLength)
+            if audible { playout.lastAudibleEnd = playout.scheduledEndSample }
 			// Timestamped sources preserve omitted silence and absorb arrival jitter.
 			// Keep capture-time sources explicit even when adjacent: after an
             // interrupt, native implicit adjacency can retain a different clock
@@ -209,12 +194,12 @@ public final class MixerPCMSource {
             // Bound the wait before this frame starts, not its completion.
             // A full capture batch may overlap the previous batch's healthy tail.
             if let limit = maximumBufferedDuration,
-               scheduledEndSample - rendered >= AVAudioFramePosition(limit * mixerFormat.sampleRate) {
+               playout.scheduledEndSample - rendered >= AVAudioFramePosition(limit * mixerFormat.sampleRate) {
                 options = .interrupts
-                scheduledEndSample = rendered
-                playbackResetCount += 1
+                playout.scheduledEndSample = rendered
+                playout.playbackResetCount += 1
             }
-            startSample = max(scheduledEndSample, rendered)
+            startSample = max(playout.scheduledEndSample, rendered)
         }
         return (startSample, options)
     }
@@ -227,223 +212,17 @@ public final class MixerPCMSource {
 		}
 	}
 
-    struct ReservationInput {
-        let capturedAt: TimeInterval
-        let arrivedAt: TimeInterval
-        let frameLength: AVAudioFrameCount
-        let duration: TimeInterval
-        let audible: Bool
-        let position: PlaybackPosition
-        let nativeLead: AVAudioFramePosition
-        let delay: TimeInterval
-        let limit: TimeInterval
-        let packetizationJitter: TimeInterval
-        var startsNewArrivalTiming = false
-    }
-
-    /// Update the capture-to-playout mapping using the position already observed for this packet.
     func captureTimeReservation(
-        _ input: ReservationInput
+        _ input: MixerPCMPlayout.ReservationInput
     ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
-        let capturedAt = input.capturedAt
-        let arrivedAt = input.arrivedAt
-        let duration = input.duration
-        let position = input.position
-        let limit = input.limit
-        let startsNewArrivalTiming = input.startsNewArrivalTiming
-        let rendered = position.writable
-        var options: AVAudioPlayerNodeBufferOptions = []
-        // Device handoff and arrival jitter are independent. Taking
-        // their maximum silently removes the configured jitter margin.
-        // Reserve only the sender's measured capture/codec remainder.
-        // This is independent of network jitter; aligned codecs add zero.
-        let margin = adaptivePlayout ? retainedJitterMargin(at: capturedAt) : 0
-        if startsNewArrivalTiming {
-            // A codec/capture change can shift the minimum transit even on a
-            // calm link. Keep the wait previously earned by real arrivals.
-            fastestTransit = nil
-            arrivalBatch = nil
-        }
-        let transit = arrivedAt - capturedAt
-        let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
-            arrivedAt: arrivedAt, packetDuration: duration) : (previousDuration: 0, offset: 0)
-        if let fastest = fastestTransit,
-           transit >= fastest.seconds + (capturedAt - fastest.observedAt) * Self.clockDriftAllowance {
-        } else { fastestTransit = (transit, capturedAt) }
-        let requestedLead = input.nativeLead + margin
-            + AVAudioFramePosition(((input.delay + input.packetizationJitter) * mixerFormat.sampleRate).rounded())
-        let boundedLead = min(requestedLead, AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
-        let delayedStart = rendered + boundedLead
-        let anchor = playoutAnchor ?? (capturedAt: capturedAt, sample: delayedStart)
-        if playoutAnchor == nil { playoutAnchor = anchor }
-        var target = Double(anchor.sample) + (capturedAt - anchor.capturedAt) * mixerFormat.sampleRate
-        var adjustment: (reason: MixerPlayoutAdjustment.Reason, previousSample: AVAudioFramePosition?)?
-        if adaptivePlayout {
-            adjustment = adjustAdaptiveTarget(
-                input: input, context: .init(margin: margin, batch: batch, requestedLead: requestedLead,
-                    delayedStart: delayedStart), target: &target, options: &options
-            )
-        }
-        let startSample = boundedStartSample(
-            target: target, input: input, delayedStart: delayedStart, options: &options
-        )
-        if let adjustment {
-            playoutAdjustmentCount += 1
-            lastPlayoutAdjustment = MixerPlayoutAdjustment(
-                reason: adjustment.reason,
-                capturedAt: capturedAt,
-                completedSample: position.completed,
-                previousSample: adjustment.previousSample,
-                scheduledSample: startSample
-            )
-        }
-        lastCapturedAt = capturedAt
-        lastCapturedEnd = capturedAt + duration
-        return (startSample, options)
-    }
-
-    private struct AdaptiveReservationContext {
-        let margin: AVAudioFramePosition
-        let batch: (previousDuration: TimeInterval, offset: TimeInterval)
-        let requestedLead: AVAudioFramePosition
-        let delayedStart: AVAudioFramePosition
-    }
-
-    private func adjustAdaptiveTarget(
-        input: ReservationInput, context: AdaptiveReservationContext, target: inout Double,
-        options: inout AVAudioPlayerNodeBufferOptions
-    ) -> (reason: MixerPlayoutAdjustment.Reason, previousSample: AVAudioFramePosition?)? {
-        let capturedAt = input.capturedAt
-        let duration = input.duration
-        let audible = input.audible
-        let position = input.position
-        let rendered = position.writable
-        let delay = input.delay
-        let limit = input.limit
-        let startsNewArrivalTiming = input.startsNewArrivalTiming
-        let transit = input.arrivedAt - input.capturedAt
-        var adjustment: (reason: MixerPlayoutAdjustment.Reason, previousSample: AVAudioFramePosition?)?
-        let contiguous = lastCapturedEnd.map { abs(capturedAt - $0) <= 2 / mixerFormat.sampleRate } ?? false
-        // Exact sample adjacency wins over host-time rounding. Each
-        // peer retains its own clock; a late arrival never overlaps
-        // or trims the preceding or following packet.
-        if contiguous {
-            target = Double(scheduledEndSample)
-        }
-        let resumed = lastCapturedEnd.map { capturedAt - $0 > 0.25 } ?? false
-        // Only the previous burst's observed duration counts as
-        // normal tail growth. A one-off backlog can still shrink.
-        let normalTail = min(context.batch.offset, context.batch.previousDuration)
-        let recoveryMargin = (max(0.02, duration * 2) + normalTail) * mixerFormat.sampleRate
-        if audible || target <= Double(context.delayedStart) { recoveringQuietBurst = false }
-        // Replacing silence must use the confirmed player clock,
-        // not the future scheduling frontier. A block currently
-        // rendering can still contain the end of the last word.
-        let canReduceDelay = !audible && lastAudibleEnd <= position.completed
-            && (target > Double(context.delayedStart) + recoveryMargin || recoveringQuietBurst)
-        // Omitted silence is still part of the capture clock. Do
-        // not move a healthy returning syllable merely because the
-        // pause was long; reduce only an accumulated excess wait.
-        // The player reserves whole samples. A fractional clock
-        // residue at the boundary must not shorten a healthy pause.
-        let resumeAllowance = (max(delay, duration) * mixerFormat.sampleRate).rounded()
-        let resumedWithExcessWait = resumed
-            && target.rounded() > Double(context.delayedStart) + resumeAllowance
-        // The writable frontier reserves a future native quantum;
-        // crossing it does not prove that the target has rendered.
-        // This also applies after omitted silence. Rebasing there
-        // shifts every following syllable despite timely arrival.
-        let expired = target.rounded() < Double(position.completed)
-        if expired || resumedWithExcessWait || canReduceDelay {
-            let reason: MixerPlayoutAdjustment.Reason
-            if expired {
-                reason = .pastRenderPosition
-            } else if resumedWithExcessWait {
-                reason = .excessDelayAfterPause
-            } else {
-                reason = .excessQueuedSilence
-            }
-            adjustment = (reason, AVAudioFramePosition(exactly: target.rounded()))
-            var start = context.delayedStart
-            if expired, !startsNewArrivalTiming, let fastest = fastestTransit,
-               // A start-up backlog or local outage longer than the
-               // window cannot be absorbed and is not link jitter.
-               transit - fastest.seconds < limit {
-                start = learnedLateStart(
-                    input: input, margin: context.margin, batch: context.batch, requestedLead: context.requestedLead,
-                    fastestTransitSeconds: fastest.seconds
-                )
-            }
-            target = Double(max(start, lastAudibleEnd > rendered ? scheduledEndSample : start))
-            playoutAnchor = (capturedAt, AVAudioFramePosition(target))
-            if canReduceDelay {
-                options = .interrupts // only queued silence is replaced
-                recoveringQuietBurst = true
-            }
-        }
-        return adjustment
-    }
-
-    private func learnedLateStart(
-        input: ReservationInput, margin: AVAudioFramePosition,
-        batch: (previousDuration: TimeInterval, offset: TimeInterval),
-        requestedLead: AVAudioFramePosition, fastestTransitSeconds: TimeInterval
-    ) -> AVAudioFramePosition {
-        // Learn this packet's whole excess transit, not only
-        // the part the current wait failed to cover, plus the
-        // packet and one more for the render quantum that
-        // must start before its first sample (one packet
-        // alone left gaps on the audio E2E).
-        let excessTransit = max(0, input.arrivedAt - input.capturedAt - fastestTransitSeconds)
-        let elapsedWait = excessTransit * mixerFormat.sampleRate
-        let excess = elapsedWait + 2 * Double(input.frameLength)
-        // Even after a calm link, a late packet can arrive
-        // with all the audio captured while it was held.
-        // Leave room for that tail before adding learned wait.
-        let window = (input.limit - input.delay - input.packetizationJitter) * mixerFormat.sampleRate
-        let remainingBatch = max(0, batch.previousDuration - batch.offset)
-        let reserved = max(remainingBatch, excessTransit + input.duration) * mixerFormat.sampleRate
-            + Double(input.nativeLead)
-        let availableWait = AVAudioFramePosition(max(0, window - reserved).rounded(.down))
-        let ceiling = min(AVAudioFramePosition(max(0, window / 2)), availableWait)
-        let learned = max(margin, min(AVAudioFramePosition(excess.rounded(.up)), ceiling))
-        jitterMargin = (learned, input.capturedAt)
-        // The writable frontier already covers the native block.
-        // Subtract that part of the second packet's headroom from
-        // this reservation only. Keep the learned link wait intact.
-        let coveredQuantum = min(
-            AVAudioFramePosition(input.frameLength), input.position.writable - input.position.completed
-        )
-        let waitedFrames = AVAudioFramePosition(elapsedWait.rounded(.down))
-        let remainingWait = max(0, learned - waitedFrames - coveredQuantum)
-        return input.position.writable + min(requestedLead - margin + min(remainingWait, availableWait),
-            AVAudioFramePosition((input.limit * mixerFormat.sampleRate).rounded(.down)) - 1)
-    }
-
-    private func boundedStartSample(
-        target: Double, input: ReservationInput, delayedStart: AVAudioFramePosition,
-        options: inout AVAudioPlayerNodeBufferOptions
-    ) -> AVAudioFramePosition {
-        // Remote and local clocks have unrelated epochs. Retain only their
-        // relative mapping, and rebase after a restart or a discontinuity
-        // outside the bounded playout window. Never reserve arbitrary future audio.
-        if !target.isFinite || target < Double(input.position.writable) - input.limit * mixerFormat.sampleRate
-            || target > Double(input.position.writable) + input.limit * mixerFormat.sampleRate
-            || lastCapturedAt.map({ input.capturedAt <= $0 }) == true {
-            playoutAnchor = (input.capturedAt, delayedStart)
-            if scheduledEndSample > input.position.writable { options = .interrupts }
-            playbackResetCount += 1
-            return delayedStart
-        } else {
-            return AVAudioFramePosition(target.rounded())
-        }
+        playout.captureTimeReservation(input)
     }
 
 	/// A rejected native start keeps the request; the next schedule retries it
 	/// and reports the failure through the schedule result.
 	public func start() {
         startRequested = true
-        if adaptivePlayout, captureTimePlayoutDelay != nil, playoutAnchor == nil,
+        if adaptivePlayout, captureTimePlayoutDelay != nil, playout.playoutAnchor == nil,
            !playerNode.isPlaying, playerNode.engine?.isInManualRenderingMode == false {
             // One local silent sample establishes the native player clock
             // before speech arrives. No microphone/network data is involved.
@@ -458,7 +237,8 @@ public final class MixerPCMSource {
         // A timestamped player starts with its first buffer so sample zero and
         // the capture anchor are established together in offline/fixed playback.
         guard !playerNode.isPlaying,
-              captureTimePlayoutDelay == nil ? scheduledEndSample > 0 : playoutAnchor != nil else { return }
+              captureTimePlayoutDelay == nil ? playout.scheduledEndSample > 0 : playout.playoutAnchor != nil
+        else { return }
 		try? playerNode.playAudio()
 	}
 
@@ -471,173 +251,15 @@ public final class MixerPCMSource {
 	public func stop() {
         startRequested = false
 		playerNode.stop()
-		scheduledEndSample = 0
-		playoutAnchor = nil
-		lastCapturedAt = nil
-        lastCapturedEnd = nil
-        arrivalBatch = nil
-        lastAudibleEnd = 0
-        recoveringQuietBurst = false
+        playout.resetClock()
         // The learned wait and fastest arrival describe the peer's link, not
         // this player: an output or input restart keeps them.
         normalizer = MixerPCMStreamNormalizer()
 	}
-
-    /// The learned wait, held for 10 s after the last late arrival and then
-    /// released at 10 ms per second of calm sender time.
-    private func retainedJitterMargin(at capturedAt: TimeInterval) -> AVAudioFramePosition {
-        guard let margin = jitterMargin else { return 0 }
-        let calm = max(0, capturedAt - margin.observedAt - Self.jitterMarginHold)
-        let release = calm * Self.jitterMarginReleasePerSecond * mixerFormat.sampleRate
-        return max(0, margin.frames - AVAudioFramePosition(release.rounded()))
-    }
-
-    /// Contiguous audio delivered faster than its sample clock is one burst.
-    /// The previous burst estimates the space for a new tail. Within a burst,
-    /// the offset measures how much of that tail has already been scheduled.
-    private func updateArrivalBatch(
-        capturedAt: TimeInterval,
-        arrivedAt: TimeInterval,
-        packetDuration: TimeInterval
-    ) -> (previousDuration: TimeInterval, offset: TimeInterval) {
-        if let batch = arrivalBatch, let end = lastCapturedEnd {
-            let deliveryGap = arrivedAt - batch.lastArrival
-            if abs(capturedAt - end) <= 2 / mixerFormat.sampleRate,
-               deliveryGap >= 0 && deliveryGap < packetDuration / 2 {
-                arrivalBatch?.lastArrival = arrivedAt
-                return (batch.previousDuration, capturedAt - batch.firstCapture)
-            }
-            let previousDuration = max(0, end - batch.firstCapture)
-            arrivalBatch = ArrivalBatch(
-                firstCapture: capturedAt, lastArrival: arrivedAt, previousDuration: previousDuration
-            )
-            return (previousDuration, 0)
-        }
-        arrivalBatch = ArrivalBatch(firstCapture: capturedAt, lastArrival: arrivedAt, previousDuration: 0)
-        return (0, 0)
-    }
-
-    private struct ArrivalBatch {
-        let firstCapture: TimeInterval
-        var lastArrival: TimeInterval
-        let previousDuration: TimeInterval
-    }
 
     private struct PlaybackClockReading {
         let position: PlaybackPosition
         let anchorSample: AVAudioFramePosition?
         let anchorHostTime: TimeInterval?
     }
-}
-
-public final class MixerPCMSink {
-	public let id: String
-	public let mixerFormat: AudioFormat
-	public internal(set) var targetFormat: AudioFormat
-
-	private let onFrame: (PCMFrame, AudioProcessingReport) -> Void
-	private let recordEmit: (AudioProcessingReport?, String?) -> Void
-	private let packetDuration: TimeInterval?
-    private let maximumFrameDuration: TimeInterval?
-	private var nextSequenceNumber: UInt64 = 0
-	private let streamingNormalizer = MixerPCMStreamNormalizer()
-	private var pendingSamples: [Float] = []
-	private var pendingCapturedAt: TimeInterval = 0
-    private var transition = PCMStreamTransition()
-
-    /// An upstream stream reset discards unsent audio, never flushes it late.
-    func resetStream() {
-        pendingSamples.removeAll(keepingCapacity: true)
-        streamingNormalizer.reset()
-        transition.reset()
-    }
-
-    func beginTransition(settlingDuration: TimeInterval, holding: Bool = false) {
-        transition.begin(settlingDuration: settlingDuration, holding: holding)
-    }
-
-	init(
-		id: String,
-		mixerFormat: AudioFormat,
-		targetFormat: AudioFormat,
-		packetDuration: TimeInterval?,
-		maximumFrameDuration: TimeInterval?,
-		onFrame: @escaping (PCMFrame, AudioProcessingReport) -> Void,
-		recordEmit: @escaping (AudioProcessingReport?, String?) -> Void
-	) {
-		self.id = id
-		self.mixerFormat = mixerFormat
-		self.targetFormat = targetFormat
-		self.packetDuration = packetDuration
-        self.maximumFrameDuration = maximumFrameDuration
-		self.onFrame = onFrame
-		self.recordEmit = recordEmit
-	}
-
-	@discardableResult
-	func receive(_ mixerFrame: PCMFrame) throws -> AudioProcessingReport {
-        let mixerFrame = transition.process(mixerFrame)
-		guard let duration = packetDuration, !mixerFrame.samples.isEmpty else {
-			return try emit(mixerFrame)
-		}
-		_ = try mixerFrame.validated()
-        let rate = mixerFrame.format.sampleRate
-        let channels = mixerFrame.format.channelCount
-        let count = max(1, Int((rate * duration).rounded(.down))) * channels
-        var report: AudioProcessingReport?
-        if !pendingSamples.isEmpty {
-            let expected = pendingCapturedAt + Double(pendingSamples.count / channels) / rate
-            if abs(mixerFrame.capturedAt - expected) > 2 / rate {
-                report = try emit(.init(sequenceNumber: nextSequenceNumber, format: mixerFrame.format,
-                    capturedAt: pendingCapturedAt, samples: pendingSamples))
-                nextSequenceNumber &+= 1
-                pendingSamples.removeAll(keepingCapacity: true)
-            }
-        }
-        if pendingSamples.isEmpty { pendingCapturedAt = mixerFrame.capturedAt }
-        pendingSamples.append(contentsOf: mixerFrame.samples)
-        // Packetize before sample-rate conversion. Rounding each 512-frame
-        // quantum independently at 16 kHz adds samples and overlaps the next
-        // packet. Exact-duration packets preserve both sample and capture clocks.
-        while pendingSamples.count >= count {
-            report = try emit(.init(sequenceNumber: nextSequenceNumber, format: mixerFrame.format,
-                capturedAt: pendingCapturedAt, samples: Array(pendingSamples.prefix(count))))
-            nextSequenceNumber &+= 1
-            pendingSamples.removeFirst(count)
-            pendingCapturedAt += Double(count / channels) / rate
-        }
-        return report ?? AudioProcessingReport(operation: .normalizeSink,
-            sourceFormat: mixerFrame.format, targetFormat: targetFormat,
-            inputSampleCount: mixerFrame.samples.count, outputSampleCount: 0, result: .notRequired)
-    }
-
-	private func emit(_ mixerFrame: PCMFrame) throws -> AudioProcessingReport {
-		do {
-			let normalized = try packetDuration == nil
-                ? streamingNormalizer.normalize(mixerFrame, to: targetFormat, operation: .normalizeSink)
-                : MixerPCMNormalizer.normalize(mixerFrame, to: targetFormat, operation: .normalizeSink)
-            let frame = normalized.frame
-            let limit = maximumFrameDuration.map {
-                max(1, Int($0 * targetFormat.sampleRate)) * targetFormat.channelCount
-            }
-                ?? max(1, frame.samples.count)
-            for start in stride(from: 0, to: frame.samples.count, by: limit) {
-                let samples = Array(frame.samples[start..<min(frame.samples.count, start + limit)])
-                var report = normalized.report
-                report.inputSampleCount = start == 0 ? normalized.report.inputSampleCount : 0
-                report.outputSampleCount = samples.count
-                recordEmit(report, nil)
-                onFrame(.init(sequenceNumber: frame.sequenceNumber, format: targetFormat,
-                    capturedAt: frame.capturedAt + Double(start / targetFormat.channelCount) / targetFormat.sampleRate,
-                    samples: samples), report)
-            }
-			return normalized.report
-		} catch let failure as AudioProcessingFailure {
-			recordEmit(nil, failure.reason)
-			throw failure
-		} catch {
-			recordEmit(nil, String(describing: error))
-			throw AudioMixerError.pcmSinkInstallFailed(String(describing: error))
-		}
-	}
 }
