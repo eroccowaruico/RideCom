@@ -76,20 +76,34 @@ import UIKit
         let source = output ? "output" : (frame == nil ? "stop" : "input")
         guard source == "stop" || now - (lastRecordedAt[source] ?? 0) >= 1 else { return }
         lastRecordedAt[source] = now
+        let environment = ProcessInfo.processInfo.environment
+        records.append(snapshot(model, frame: frame, output: output, now: now, environment: environment))
+        if records.count > 256 { records.removeFirst(records.count - 256) }
+        let layout = environment["RIDEINTERCOM_INTERFACE_FIXTURE"] == "advanced" ? "advanced" : "standard"
+        let suffix = observationSuffix(environment)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("background-call-\(layout)-\(suffix).json")
+        try? write(records, to: url)
+    }
+
+    private static func snapshot(
+        _ model: IntercomViewModel, frame: PCMFrame?, output: Bool, now: TimeInterval,
+        environment: [String: String]
+    ) -> [String: Any] {
         #if targetEnvironment(simulator)
         let platform = "simulator"
         #else
         let platform = "device"
         #endif
-        let environment = ProcessInfo.processInfo.environment
         let testRunner = NSClassFromString("XCTestCase") != nil || NSClassFromString("XCTest.XCTestCase") != nil
-            || ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"].contains { environment[$0] != nil }
+            || ["XCTestConfigurationFilePath", "XCTestBundlePath", "XCTestSessionIdentifier"]
+                .contains { environment[$0] != nil }
         let usesNativeOutput = model.audioPipeline.rendersToHardware
         let lastAudibleOutputAt = usesNativeOutput ? model.lastAudibleReceivedAudioAt : nil
         let network = model.networkDiagnostics
         let localRoute = network?.routes.first { $0.route == .multipeer }
         let decode = model.audioPipeline.receiveDecodeCounts
-        records.append(["uptime": now, "background": UIApplication.shared.applicationState == .background,
+        return ["uptime": now, "background": UIApplication.shared.applicationState == .background,
             "recordedAt": Date().timeIntervalSince1970, "processInstance": processInstance,
             "processID": ProcessInfo.processInfo.processIdentifier, "platform": platform,
             "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
@@ -107,20 +121,18 @@ import UIKit
             "receivedVoicePackets": model.receivedVoicePacketCount,
             "localMediaObservationAt": (localRoute == nil ? nil : network?.generatedAt) as Any? ?? NSNull(),
             "localReceivedDatagrams": localRoute?.statistics.receivedMediaDatagrams as Any? ?? NSNull(),
-            "localRouteEventDrops": localRoute?.eventDrops["route"].map { $0.overflow + $0.expired } as Any? ?? NSNull(),
+            "localRouteEventDrops": localRoute?.eventDrops["route"]
+                .map { $0.overflow + $0.expired } as Any? ?? NSNull(),
             "sessionEventDrops": network.map { $0.eventDrops.overflow + $0.eventDrops.expired } as Any? ?? NSNull(),
             "decodedPCMPackets": decode.pcmPackets, "decodeFailures": decode.failures,
             "usesNativeOutput": usesNativeOutput,
-            "nativeOutput": (usesNativeOutput ? model.audioPipeline.backgroundOutputProbe?.fields : nil) as Any? ?? NSNull(),
+            "nativeOutput": (usesNativeOutput ? model.audioPipeline.backgroundOutputProbe?.fields : nil)
+                as Any? ?? NSNull(),
             "lastAudibleOutputAt": lastAudibleOutputAt as Any? ?? NSNull(),
             "lastNativeAudibleOutputAt": model.audioPipeline.lastNativeAudibleOutputAt as Any? ?? NSNull(),
             "lastDuckingChange": lastDuckingChange?.fields as Any? ?? NSNull(),
             "longestDuckingChange": longestDuckingChange?.fields as Any? ?? NSNull(),
-            "deadline": model.callDisconnectDeadline?.timeIntervalSince1970 as Any? ?? NSNull()])
-        if records.count > 256 { records.removeFirst(records.count - 256) }
-        let layout = environment["RIDEINTERCOM_INTERFACE_FIXTURE"] == "advanced" ? "advanced" : "standard"
-        let suffix = observationSuffix(environment)
-        try? write(records, to: FileManager.default.temporaryDirectory.appendingPathComponent("background-call-\(layout)-\(suffix).json"))
+            "deadline": model.callDisconnectDeadline?.timeIntervalSince1970 as Any? ?? NSNull()]
     }
 
     private static func observationSuffix(_ environment: [String: String]) -> String {
