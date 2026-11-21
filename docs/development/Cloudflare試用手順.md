@@ -22,6 +22,7 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | CLIENT_TOKENS_JSON | Secret（旧手動試用だけ） | 試用資格の登録用`client-tokens.json`の内容。native Apple登録には不要 |
 | APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
 | DEVICE_IDENTITY_SIGNING_KEY | Secret | 環境ごとに生成し安全に保管したEC P-256秘密鍵のJWK JSON（kty・crv・x・y・dを含む）。端末証明と用途別通知許可の署名に使用し、継続して保持する |
+| INVITATION_RELAY_KEY_SEED | Secret | 個人招待の受諾とグループ招待の送信・取消をiOSの背景転送に預ける環境で設定する。環境ごとのランダムな32 byteをpaddingなしbase64urlで表す。公開鍵の発行と使用期限は[Worker仕様](../spec/server/Worker.md#招待を預けるサービスの暗号化公開鍵)に従う |
 | APPLE_SIGN_IN_PRIVATE_KEY | Secret | AppleのSign in with Apple用`.p8`全文。Workerが削除時のApple認可取消に必要な短期client-secret JWTを自動生成する。APNsのp8とは別 |
 | APPLE_SIGN_IN_KEY_ID | Variable | 上記Sign in with Apple鍵のKey ID。Productionは`vars`、Previewは`previews.vars`へ設定する |
 | APPLE_TEAM_ID | Variable | Sign in with AppleとAPNsで共通のApple Developer Team ID。Productionは`vars`、Previewは`previews.vars`へ設定し、環境内で一つに集約する |
@@ -181,9 +182,11 @@ Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、T
 | 8 | 1対1の呼び出し | 呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する。[通常通知の受入](../validation/未確認事項.md#通常通知の受入) |
 | 9 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
 
-グループ鍵・名前は端末で暗号化されるため、group専用のserver secretを作らない。用途別grantは既存のDEVICE_IDENTITY_SIGNING_KEYで発行する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。
+グループ鍵・名前は受取端末の鍵で暗号化する。用途別grantはDEVICE_IDENTITY_SIGNING_KEYで発行する。iOSに預ける送信・取消・受諾の要求全体は、別途、そのWorker宛てに暗号化する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。
 
 secretは対象の環境を選んで入力する。CLIを使う場合は`server/`で、今後作成するPreviewに渡す値を`npx wrangler preview base-config secret put SECRET_NAME`、既存の固定Previewへは`npx wrangler preview secret put SECRET_NAME --name preview`で設定する。固定Previewへの設定は新しい配置を作る。Productionの`npx wrangler secret put SECRET_NAME`もその場で新しいバージョンを配置する。対象環境と配置するコードを照合し、値は対話入力へ渡す。実値はGit・通常変数・ログへ置かない。[Workersのsecret設定](https://developers.cloudflare.com/workers/configuration/secrets/)、[Previewsの設定](https://developers.cloudflare.com/workers/previews/configuration/)
+
+背景転送の初回設定では、環境ごとに別の値を安全な実行環境で生成し、既存のシークレット保管先と対象環境のSecretへ登録する。その後、端末証明にサービスの公開鍵が含まれ、その接続先で背景要求を受け付けることを試験用端末で確認する。未設定時は通常の認証付き同期を利用できる。区間ごとの鍵の更新は同じ設定値からWorkerが行う。期間をまたいでも、鍵の定期更新を人が操作する必要はない。
 
 登録済み相手への配送は、ローカルWorkerとAppの送受信・ファイル保存・ACKまで[検証済み](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)。同じアカウントの追加端末では、個人招待の交換なしで、元の招待と同じグループを保存できることも[ローカルで検証済み](../validation/history/招待返信の手動共有.md#新端末で個人招待を交換せずグループを保存する)。配置後は表の実APNs・実機・実SFUの受入へ進む。
 

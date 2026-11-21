@@ -35,13 +35,13 @@ import Testing
             #expect(request.url?.path == "/api/notifications/group-invitations/background")
             #expect(request.httpMethod == "POST" && request.value(forHTTPHeaderField: "Authorization") == nil)
             let outbound = try #require(request.httpBody)
-            let object = try #require(JSONSerialization.jsonObject(with: outbound) as? [String: Any])
-            let hasOnlySubmissionFields = Set(object.keys) == ["senderUserID", "deviceID", "sessionBinding", "submission", "proof"]
+            let object = try #require(JSONSerialization.jsonObject(with: outbound) as? [String: String])
+            let hasOnlySealedField = Set(object.keys) == ["sealed"]
             let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
             let locator = try #require(access.accessToken.split(separator: ".").dropFirst().first)
             let body = String(decoding: outbound, as: UTF8.self)
             let containsNoCredentials = !body.contains(access.accessToken) && !body.contains(locator)
-            #expect(hasOnlySubmissionFields && containsNoCredentials)
+            #expect(hasOnlySealedField && containsNoCredentials)
 
             let identity = try #require(try a.store.loadIdentity(memberID: a.memberID))
             let tokenPrefix = access.accessToken.split(separator: ".").dropLast().joined(separator: ".")
@@ -53,9 +53,8 @@ import Testing
             defer { reopened.stopGroupDeliverySync() }
             let retry = try #require(try reopened.backgroundGroupInvitationRequest(for: record.id))
             let retryBody = try #require(retry.httpBody)
-            let retryObject = try #require(JSONSerialization.jsonObject(with: retryBody) as? [String: Any])
-            let sameSubmission = object["submission"] as? String == retryObject["submission"] as? String
-            #expect(sameSubmission)
+            let sealedAgain = outbound != retryBody
+            #expect(sealedAgain)
             for upload in [request, retry] {
                 let (bytes, response) = try await session.data(for: upload)
                 try #require((response as? HTTPURLResponse)?.statusCode == 200)
@@ -86,8 +85,12 @@ import Testing
             #expect(cancelKey.operation == .cancel)
             #expect(cancelRequest.url?.path == "/api/notifications/group-invitations/background-cancellation")
             #expect(cancelRequest.httpMethod == "POST" && cancelRequest.value(forHTTPHeaderField: "Authorization") == nil)
-            let cancelBody = String(decoding: try #require(cancelRequest.httpBody), as: UTF8.self)
-            #expect(!cancelBody.contains(access.accessToken) && !cancelBody.contains(locator))
+            let cancelBytes = try #require(cancelRequest.httpBody)
+            let cancelObject = try #require(JSONSerialization.jsonObject(with: cancelBytes) as? [String: String])
+            let cancelBody = String(decoding: cancelBytes, as: UTF8.self)
+            let sealedCancellation = Set(cancelObject.keys) == ["sealed"] && !cancelBody.contains(access.accessToken)
+                && !cancelBody.contains(locator)
+            #expect(sealedCancellation)
             let (withdrawn, cancellationResponse) = try await session.data(for: cancelRequest)
             try #require((cancellationResponse as? HTTPURLResponse)?.statusCode == 200)
             let cancellation = try JSONDecoder().decode(GroupDeliveryReply.self, from: withdrawn)

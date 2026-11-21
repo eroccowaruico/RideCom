@@ -5,8 +5,8 @@ import { createHash, createPrivateKey, createPublicKey, hkdfSync, randomBytes, r
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CompactEncrypt, decodeJwt, generateKeyPair, exportJWK, exportPKCS8, importJWK, SignJWT, jwtVerify } from 'jose';
-import { makeRuntime, offer, room, provider } from './support/runtime.mjs';
+import { decodeJwt, generateKeyPair, exportJWK, exportPKCS8, SignJWT, jwtVerify } from 'jose';
+import { makeRuntime, offer, room, provider, sealInvitationSubmission } from './support/runtime.mjs';
 
 const keys = await generateKeyPair('RS256');
 const publicKey = { ...await exportJWK(keys.publicKey), kid: 'apple-fixture', alg: 'RS256', use: 'sig' };
@@ -354,13 +354,6 @@ async function signReplyDevice(runtime, user, memberID) {
     return { sessionBinding, proof, relayKey: decodeJwt(certificate.certificate).invitationRelayKey };
 }
 
-async function sealBackgroundContactAcceptance(body, relayKey) {
-    const key = await importJWK({ kty: 'OKP', crv: 'X25519', x: relayKey.x }, 'ECDH-ES');
-    return new CompactEncrypt(Buffer.from(JSON.stringify(body)))
-        .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM', kid: relayKey.kid })
-        .encrypt(key);
-}
-
 async function signBackgroundContactAcceptance(body, sender, identity, origin, purpose = 'submitBackgroundContactInvitationAcceptance') {
     const submission = Buffer.from(JSON.stringify(body)).toString('base64');
     const { sessionBinding } = identity;
@@ -387,12 +380,12 @@ test('a background contact acceptance is limited to the originally signed reply 
         const value = { owner: a.userID, slot, expiresAt, id: randomUUID(), packet: replyPacket(), admission: await signedAdmission(slot, expiresAt) };
         const signed = (body = value, target = origin, purpose) => signBackgroundContactAcceptance(body, b, receiver, target, purpose);
         const endpoint = replyPath + '/background-acceptance';
-        const submit = async body => call(r, endpoint, { sealed: await sealBackgroundContactAcceptance(body, receiver.relayKey) });
+        const submit = async body => call(r, endpoint, { sealed: await sealInvitationSubmission(body, receiver.relayKey) });
         const inbox = () => call(r, replyPath + '/inbox', { slot }, a.accessToken);
         const exact = await signed();
         assert.equal((await inbox()).status, 404);
         assert.equal((await call(r, endpoint, exact)).status, 400, 'the background contact route has no unsealed submission');
-        const sealed = await sealBackgroundContactAcceptance(exact, receiver.relayKey);
+        const sealed = await sealInvitationSubmission(exact, receiver.relayKey);
         const transferred = Buffer.concat(sealed.split('.').map(part => Buffer.from(part, 'base64url')));
         for (const marker of [slot, value.id, a.userID, b.userID, b.deviceID, exact.proof.signature]) {
             assert.equal(transferred.includes(Buffer.from(marker)), false, 'the OS transfer excludes readable invitation metadata');
@@ -485,7 +478,7 @@ test('background contact acceptance can use the previous relay key until the nex
             return { signed: await signBackgroundContactAcceptance(body, receiver, identity, origin), key: identity.relayKey, id };
         };
         const original = await prepare(boundary + 60_000);
-        const queued = await sealBackgroundContactAcceptance(original.signed, original.key);
+        const queued = await sealInvitationSubmission(original.signed, original.key);
         await r.advanceClock(40_000);
         const received = await call(r, endpoint, { sealed: queued });
         assert.equal(received.status, 200);
@@ -493,9 +486,9 @@ test('background contact acceptance can use the previous relay key until the nex
 
         await r.advanceClock(period);
         const ready = await prepare(boundary + period + 60_000);
-        const encryptedForExpiredKey = await sealBackgroundContactAcceptance(ready.signed, original.key);
+        const encryptedForExpiredKey = await sealInvitationSubmission(ready.signed, original.key);
         assert.equal((await call(r, endpoint, { sealed: encryptedForExpiredKey })).status, 401);
-        const encryptedForCurrentKey = await sealBackgroundContactAcceptance(ready.signed, ready.key);
+        const encryptedForCurrentKey = await sealInvitationSubmission(ready.signed, ready.key);
         assert.equal((await call(r, endpoint, { sealed: encryptedForCurrentKey })).status, 200);
     } finally { await r.dispose(); }
 });

@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { CompactEncrypt, importJWK } from 'jose';
 import { Miniflare, Response } from 'miniflare';
+
+export async function sealInvitationSubmission(body, relayKey) {
+    const key = await importJWK({ kty: 'OKP', crv: 'X25519', x: relayKey.x }, 'ECDH-ES');
+    return new CompactEncrypt(Buffer.from(JSON.stringify(body)))
+        .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM', kid: relayKey.kid })
+        .encrypt(key);
+}
 
 export const token = 'test-device-token-with-at-least-32-characters';
 export const hash = createHash('sha256').update(token).digest('hex');

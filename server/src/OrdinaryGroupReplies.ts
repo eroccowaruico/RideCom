@@ -2,7 +2,7 @@ import { notificationAuth } from './AppleAccount'
 import { groupInvitationLifetime } from './AccountNotifications'
 import type { OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { verifyDeviceProof } from './DeviceIdentity'
-import { authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
+import { allowSealedInvitationSource, authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { json, readJSON, sha256Hex, type Env } from './types'
 
@@ -73,11 +73,7 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
     try {
         let submission: Awaited<ReturnType<typeof authenticateBackgroundSubmission>> = null
         if (background) {
-            // Bound unauthenticated decryption work with a short-lived edge rate-limit bucket.
-            const source = request.headers.get('CF-Connecting-IP')
-            if (!source || source.length > 64) return json({ error: 'Group reply service unavailable' }, 503)
-            const sourceKey = await sha256Hex(`${Math.floor(Date.now() / 86400000)}:${source}`)
-            if (!(await env.CALL_API_LIMIT.limit({ key: 'sealed-contact-reply:' + sourceKey })).success) return limited()
+            if (!await allowSealedInvitationSource(request, env)) return limited()
             const signed = await openSealedInvitationSubmission(request, url.origin, env)
             if (!signed) return unauthorized()
             submission = await authenticateBackgroundSubmission(signed, url.origin, 'submitBackgroundContactInvitationAcceptance', env)

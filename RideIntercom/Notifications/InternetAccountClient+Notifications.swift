@@ -199,7 +199,8 @@ extension InternetAccountClient {
         guard let identity = signer.identity, signer.principal == access.principal,
               identity.issuer == origin, identity.deviceID == parts[2],
               let binding = identity.sessionBinding,
-              binding == backgroundSubmissionSessionBinding(for: access.accessToken) else { return nil }
+              binding == backgroundSubmissionSessionBinding(for: access.accessToken),
+              let relayKey = identity.invitationRelayKey else { return nil }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -209,19 +210,16 @@ extension InternetAccountClient {
         let proof = try signer.sign(message, purpose: purpose)
         let packet = BackgroundSubmission(senderUserID: identity.userID, deviceID: identity.deviceID,
                                                sessionBinding: binding, submission: submission, proof: proof)
+        let signedRequest = try encoder.encode(packet)
+        guard let sealed = try relayKey.seal(signedRequest, now: now) else { return nil }
+        let encoded = try encoder.encode(SealedBackgroundSubmission(sealed: sealed))
+        guard encoded.count <= 64 * 1024 else { return nil }
+
         var request = URLRequest(url: access.origin.appendingPathComponent(path), timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let signedRequest = try encoder.encode(packet)
-        if purpose == .submitBackgroundContactInvitationAcceptance {
-            guard let sealed = try identity.invitationRelayKey?.seal(signedRequest, now: now) else { return nil }
-            let encoded = try encoder.encode(SealedBackgroundSubmission(sealed: sealed))
-            guard encoded.count <= 64 * 1024 else { return nil }
-            request.httpBody = encoded
-            request.httpShouldHandleCookies = false
-        } else {
-            request.httpBody = signedRequest
-        }
+        request.httpBody = encoded
+        request.httpShouldHandleCookies = false
         return request
     }
 

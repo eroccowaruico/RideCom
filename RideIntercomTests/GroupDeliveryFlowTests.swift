@@ -27,6 +27,10 @@ import UserNotifications
         try model.notifications.receivePermission(permission, peerID: b.memberID)
         try #require(model.createTalkGroup(name: "System upload", userIDs: [b.personID]))
         let record = try #require(model.groupRepository.groupDeliveries.first)
+        let access = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        let locator = try #require(access.accessToken.split(separator: ".").dropFirst().first)
+        let excluded = [access.accessToken, String(locator), try a.principal.userID, try b.principal.userID,
+                        record.id.uuidString.lowercased(), a.memberID, b.memberID]
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let transfer = InvitationBackgroundTransfer()
         transfer.bind(to: owner)
@@ -38,6 +42,10 @@ import UserNotifications
             var request = try #require(try model.backgroundGroupInvitationRequest(for: key.deliveryID))
             let reply = try JSONSerialization.data(withJSONObject: ["requestID": record.id.uuidString.lowercased(),
                 "expiresAt": record.expiresAt * 1_000, "status": operation == .send ? "queued" : "cancelled"])
+            let beforeRedirect = model.groupRepository.groupDeliveries
+            try await checkBackgroundRedirect(request: request, key: key, reply: reply, transfer: transfer, excluded: excluded)
+            let unchanged = model.groupRepository.groupDeliveries == beforeRedirect
+            #expect(unchanged)
             try await checkBackgroundUpload(request: &request, key: key, reply: reply, transfer: transfer)
             if operation == .send {
                 #expect(model.groupRepository.groupDeliveries.first?.state == .queued)
@@ -115,7 +123,7 @@ import UserNotifications
         let body = try #require(destination.received.withLock { $0 })
         let sameBody = body == request.httpBody
         #expect(sameBody)
-        #expect(containsOnlySealedAcceptance(body, excluding: excluded))
+        #expect(containsOnlySealedInvitation(body, excluding: excluded))
         #expect(!transfer.contains(key))
     }
     #endif
@@ -157,7 +165,7 @@ import UserNotifications
         let receiptID = try #require(record.receiptID)
         let payload = try recipient.groupRepository.contactInvitationPayload(record.id)
         let address = try InvitationReplyAddress(contactToken: payload.token)
-        let anonymousBody = containsOnlySealedAcceptance(body, excluding: [access.accessToken, b.memberID, access.principal.userID,
+        let anonymousBody = containsOnlySealedInvitation(body, excluding: [access.accessToken, b.memberID, access.principal.userID,
             try a.principal.userID, a.memberID, address.slot, receiptID.uuidString.lowercased(), url.absoluteString])
         #expect(anonymousRequest && anonymousBody)
         recipient.requestInvitationInternetReply(restart: true)
@@ -182,7 +190,7 @@ import UserNotifications
         #expect(reopened.contactInvitationRecord(record.id)?.state == .pending)
     }
 
-    private func containsOnlySealedAcceptance(_ body: Data, excluding values: [String]) -> Bool {
+    private func containsOnlySealedInvitation(_ body: Data, excluding values: [String]) -> Bool {
         guard let fields = try? JSONSerialization.jsonObject(with: body) as? [String: String],
               fields.count == 1, let sealed = fields["sealed"] else { return false }
         let parts = sealed.split(separator: ".", omittingEmptySubsequences: false)
@@ -197,10 +205,11 @@ import UserNotifications
         return values.allSatisfy { visible.range(of: Data($0.utf8)) == nil }
     }
 
-    @Test func savingEnqueuesOneBackgroundUploadAndCancelsItWhenTheMemberIsRemoved() async throws {
+    @Test(arguments: [true, false])
+    func savingEnqueuesOneBackgroundUploadAndCancelsItWhenTheMemberIsRemoved(relayEnabled: Bool) async throws {
         let a = GroupDeliveryTestIdentity("background-author"), b = GroupDeliveryTestIdentity("background-recipient")
         defer { a.remove(); b.remove(); GroupDeliveryHTTPStub.reset() }
-        try a.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64), relayEnabled: relayEnabled)
         try b.authorizeFixture(userID: String(repeating: "b", count: 64))
         let model = try a.harness(knowing: [b], onDisk: true).viewModel
         defer { model.stopGroupDeliverySync() }
@@ -221,6 +230,18 @@ import UserNotifications
         let first = UUID()
         try #require(model.createTalkGroup(name: "Offline", userIDs: [b.personID], id: first))
         let record = try #require(model.groupRepository.groupDeliveries.first { $0.groupID == first })
+        if !relayEnabled {
+            #expect(try model.backgroundGroupInvitationRequest(for: record.id) == nil)
+            await model.synchronizeGroupDeliveries()
+            #expect(GroupDeliveryHTTPStub.submitted.count == 1)
+            #expect(model.groupRepository.groupDeliveries.first?.state == .queued)
+            try #require(model.removeMember(b.memberID, from: first))
+            #expect(try model.backgroundGroupInvitationRequest(for: record.id) == nil)
+            await model.synchronizeGroupDeliveries()
+            #expect(GroupDeliveryHTTPStub.deletions == [record.id.uuidString.lowercased()])
+            #expect(transfer.enqueued.isEmpty)
+            return
+        }
         let upload = try #require(transfer.enqueued.first)
         #expect(upload.deliveryID == record.id)
         await model.synchronizeGroupDeliveries()

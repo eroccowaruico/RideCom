@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, randomUUID, sign } from 'node:crypto';
-import { generateKeyPair, exportJWK, exportPKCS8, SignJWT } from 'jose';
-import { makeRuntime } from './support/runtime.mjs';
+import { createHash, randomBytes, randomUUID, sign } from 'node:crypto';
+import { decodeJwt, generateKeyPair, exportJWK, exportPKCS8, SignJWT } from 'jose';
+import { makeRuntime, sealInvitationSubmission } from './support/runtime.mjs';
 
 const apple = await generateKeyPair('RS256');
 const applePublic = { ...await exportJWK(apple.publicKey), kid: 'notification-apple-fixture', alg: 'RS256' };
 const signing = await generateKeyPair('ES256', { extractable: true });
+const groupPath = '/api/notifications/group-invitations';
 const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CLIENT_TOKENS_JSON: '{}',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
@@ -381,10 +382,20 @@ test('an older device cannot shorten the current public route, while token owner
     } finally { await r.dispose(); }
 });
 
+test('background invitation deliveries share a source limit before reading the request body', async () => {
+    const r = await setup({}, undefined, { apiLimit: 1 });
+    try {
+        assert.equal((await call(r, groupPath + '/background', {})).status, 400);
+        assert.equal((await call(r, groupPath + '/background-cancellation', {})).status, 429);
+        assert.equal((await call(r, '/api/ordinary-group-replies/background-acceptance', {})).status, 429);
+    } finally { await r.dispose(); }
+});
+
 test('a background submission authorizes exactly the signed group invitation with the current device session', async () => {
     let deliveries = 0;
     const now = Date.now();
-    const r = await setup({}, async () => { deliveries++; return Response.json({}); }, { fixedNowMs: now });
+    const r = await setup({ INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url') },
+        async () => { deliveries++; return Response.json({}); }, { fixedNowMs: now });
     try {
         const a = await login(r, 'background-author'), b = await login(r, 'background-recipient');
         assert.equal((await register(r, b)).status, 200);
@@ -398,7 +409,6 @@ test('a background submission authorizes exactly the signed group invitation wit
             return response.json();
         };
         const certificate = await issueIdentity(a);
-        const groupPath = '/api/notifications/group-invitations';
         const grantResult = await call(r, groupPath + '/grants', { senderUserID: a.userID }, b.accessToken);
         assert.equal(grantResult.status, 200);
         const permission = await grantResult.json();
@@ -420,13 +430,21 @@ test('a background submission authorizes exactly the signed group invitation wit
             return { senderUserID: user.userID, deviceID: user.deviceID, sessionBinding, submission,
                 proof: { publicKey, certificate: identity, signature: Buffer.from(signature).toString('base64url') } };
         };
-        const submit = value => call(r, groupPath + '/background', value);
-        const cancel = value => call(r, groupPath + '/background-cancellation', value);
+        const relay = decodeJwt(certificate.certificate).invitationRelayKey;
+        const submit = async value => call(r, groupPath + '/background', { sealed: await sealInvitationSubmission(value, relay) });
+        const cancel = async value => call(r, groupPath + '/background-cancellation', { sealed: await sealInvitationSubmission(value, relay) });
         const cancellation = (invitation, user = a, identity = certificate) => packet(
             { recipientUserID: b.userID, requestID: invitation.requestID, expiresAt: invitation.expiresAt },
             user, identity, 'https://worker.test', 'cancelBackgroundGroupInvitation'
         );
         const original = await packet(body);
+        assert.equal((await call(r, groupPath + '/background', original)).status, 400,
+            'background group delivery requires a sealed body');
+        const sealed = await sealInvitationSubmission(original, relay);
+        const redirected = await r.dispatchFetch('https://other.worker.test' + groupPath + '/background', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77' }, body: JSON.stringify({ sealed })
+        });
+        assert.equal(redirected.status, 401);
         const changed = data => ({ ...original, submission: Buffer.from(JSON.stringify({ ...body, ...data })).toString('base64') });
         for (const data of [{ requestID: randomUUID() }, { expiresAt: body.expiresAt + 1 }, { recipientKey: 'z'.repeat(87) },
             { envelope: Buffer.from('replaced envelope').toString('base64') }, { capability: (await grant(r, b, a)).capability }]) {
@@ -448,6 +466,7 @@ test('a background submission authorizes exactly the signed group invitation wit
         const receipt = await call(r, receivedPath, undefined, b.accessToken, 'DELETE');
         assert.deepEqual(await receipt.json(), { status: 'received' });
         const exactCancellation = await cancellation(body);
+        assert.equal((await call(r, groupPath + '/background-cancellation', exactCancellation)).status, 400);
         assert.equal((await submit(exactCancellation)).status, 401);
         assert.equal((await cancel(original)).status, 401);
         const tampered = { ...exactCancellation, submission: Buffer.from(JSON.stringify({

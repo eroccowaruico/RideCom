@@ -2,7 +2,7 @@ import { base64url, compactDecrypt, decodeProtectedHeader } from 'jose'
 import { verifyDeviceProof } from './DeviceIdentity'
 import { invitationRelayDecryptionKey } from './InvitationRelayKey'
 import { publicAccountIndex } from './NotificationIndex'
-import { readJSON, type Env } from './types'
+import { readJSON, sha256Hex, type Env } from './types'
 
 const hex = /^[a-f0-9]{64}$/
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -18,6 +18,13 @@ function parseSubmission(bytes: Uint8Array): Record<string, unknown> {
     try { value = JSON.parse(decoder.decode(bytes)) } catch { throw new Error('body') }
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('body')
     return value as Record<string, unknown>
+}
+
+export async function allowSealedInvitationSource(request: Request, env: Env): Promise<boolean> {
+    const source = request.headers.get('CF-Connecting-IP')
+    if (!source || source.length > 64) throw new Error('configuration')
+    const sourceKey = await sha256Hex(`${Math.floor(Date.now() / 86400000)}:${source}`)
+    return (await env.CALL_API_LIMIT.limit({ key: 'sealed-invitation-source:' + sourceKey })).success
 }
 
 export async function openSealedInvitationSubmission(request: Request, origin: string, env: Env) {
