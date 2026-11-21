@@ -39,7 +39,7 @@ struct StandardCallView: View {
                 HStack(alignment: .top, spacing: AppSpacing.screen) {
                     // Landscape: the left column takes 45% and holds the state and controls in its middle,
                     // as in the design sample; the details scroll on the right.
-                    VStack(spacing: AppSpacing.m) {
+                    VStack(spacing: AppSpacing.medium) {
                         hero(group, compact: compactHeight)
                         primaryActions(group, compact: compactHeight)
                     }
@@ -66,14 +66,14 @@ struct StandardCallView: View {
                         // below, and the section's rounded clip falls on the card's edge.
                         Section {
                             hero(group, compact: false, card: false)
-                                .padding(.vertical, AppSpacing.xs)
+                                .padding(.vertical, AppSpacing.extraSmall)
                                 .listRowBackground(StandardHeroCard.surface)
                                 .listRowSeparator(.hidden)
                         }
                         Section {
                             primaryActions(group, compact: false)
                                 // The row of controls spans the hero's width, as in the design sample.
-                                .listRowInsets(.horizontal, AppSpacing.xs)
+                                .listRowInsets(.horizontal, AppSpacing.extraSmall)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                         }
@@ -82,7 +82,7 @@ struct StandardCallView: View {
                     CallErrorSection(viewModel: viewModel, offersDirectInvitationRecovery: true)
                 }
                 // The hero sits right under the sheet's toolbar, as in the design sample.
-                .contentMargins(.top, AppSpacing.s, for: .scrollContent)
+                .contentMargins(.top, AppSpacing.small, for: .scrollContent)
                 #if os(iOS)
                 .listSectionSpacing(.compact)
                 #endif
@@ -161,11 +161,12 @@ struct StandardCallView: View {
         horizontalLabels: Bool
     ) -> some View {
         let controlLayout = horizontalLabels
-            ? AnyLayout(HStackLayout(spacing: AppSpacing.xs)) : AnyLayout(VStackLayout(spacing: AppSpacing.m))
+            ? AnyLayout(HStackLayout(spacing: AppSpacing.extraSmall))
+            : AnyLayout(VStackLayout(spacing: AppSpacing.medium))
         // Side by side, the three spread across the column with the outer ones at its edges;
         // End keeps at least 32pt from its neighbour.
         let layout = vertical
-            ? AnyLayout(VStackLayout(spacing: AppSpacing.m)) : AnyLayout(HStackLayout(alignment: .top, spacing: 0))
+            ? AnyLayout(VStackLayout(spacing: AppSpacing.medium)) : AnyLayout(HStackLayout(alignment: .top, spacing: 0))
         // The glass style pads its label; the label is smaller so the visible circle is the diameter.
         let symbol = diameter - 2 * AppSize.callControlGlassPadding
         return layout {
@@ -237,7 +238,7 @@ extension StandardCallView {
     /// The status hero: a glass card, leading-aligned, with the kind and size, the destination,
     /// the state and its reason. The route is not shown. VoiceOver reads it as one element.
     private func hero(_ group: IntercomGroup, compact: Bool, card: Bool = true) -> some View {
-        VStack(alignment: .leading, spacing: compact ? AppSpacing.xxs : AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: compact ? AppSpacing.extraExtraSmall : AppSpacing.extraSmall) {
             // At accessibility sizes the state must stay on screen with the controls.
             if !(compact && dynamicTypeSize.isAccessibilitySize) { kindLine(group) }
             Text(viewModel.callTitle(for: group))
@@ -245,11 +246,11 @@ extension StandardCallView {
                 .lineLimit(2)
             // Words are never broken: when the symbol and state do not fit side by side, stack them.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: AppSpacing.s) { statusSymbolView; statusTitle }
-                VStack(alignment: .leading, spacing: AppSpacing.xs) { statusSymbolView; statusTitle }
+                HStack(spacing: AppSpacing.small) { statusSymbolView; statusTitle }
+                VStack(alignment: .leading, spacing: AppSpacing.extraSmall) { statusSymbolView; statusTitle }
             }
             .font(.title3.weight(.semibold))
-            .padding(.top, AppSpacing.xxs)
+            .padding(.top, AppSpacing.extraExtraSmall)
             statusDetail
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -354,7 +355,7 @@ private struct StandardHeroCard: ViewModifier {
 
     func body(content: Content) -> some View {
         if drawsSurface {
-            content.padding(AppSpacing.xxl)
+            content.padding(AppSpacing.extraExtraLarge)
                 .background(Self.glass(in: RoundedRectangle(cornerRadius: 18, style: .continuous)))
         } else {
             content

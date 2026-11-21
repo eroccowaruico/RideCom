@@ -11,7 +11,7 @@ struct DiagnosticsTransmitRoutes: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let dispatch = presentation.outboundRoutes(now: context.date.timeIntervalSince1970)
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                 Text(dispatch.summary)
                     .foregroundStyle(.secondary)
                 ForEach(dispatch.branches) { branch in
@@ -31,7 +31,7 @@ struct DiagnosticsReceiveDetails: View {
     var body: some View {
         let members = presentation.receiveParticipants
         let states = presentation.receivePeerStates
-        VStack(alignment: .leading, spacing: AppSpacing.m) {
+        VStack(alignment: .leading, spacing: AppSpacing.medium) {
             Text("Participants").font(.headline).accessibilityIdentifier("receive-mix-topology")
             if members.isEmpty { Text("No participants") }
             ForEach(members.filter { states[$0.id] == nil }) { member in
@@ -41,18 +41,18 @@ struct DiagnosticsReceiveDetails: View {
                 CompactPipelineStepRow(step: presentation.receiveMixStep)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: AppSpacing.m) {
+                    VStack(alignment: .leading, spacing: AppSpacing.medium) {
                         ForEach(members.filter { states[$0.id] != nil }) { member in
                             branch { participant(member, state: states[member.id]) }
                         }
                     }
-                    .padding(.bottom, AppSpacing.m)
+                    .padding(.bottom, AppSpacing.medium)
                     .overlay(alignment: .leading) {
-                        connectionLine.frame(width: 1).padding(.top, AppSpacing.m)
+                        connectionLine.frame(width: 1).padding(.top, AppSpacing.medium)
                     }
                     branch { CompactPipelineStepRow(step: presentation.receiveMixStep) }
                         .overlay(alignment: .topLeading) {
-                            connectionLine.frame(width: 1, height: AppSpacing.m)
+                            connectionLine.frame(width: 1, height: AppSpacing.medium)
                         }
                 }
             }
@@ -70,11 +70,11 @@ struct DiagnosticsReceiveDetails: View {
 
     private func branch<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(.leading, AppSpacing.l + AppSpacing.xs)
+            .padding(.leading, AppSpacing.large + AppSpacing.extraSmall)
             .overlay(alignment: .topLeading) {
                 connectionLine
-                    .frame(width: AppSpacing.l, height: 1)
-                    .padding(.top, AppSpacing.m)
+                    .frame(width: AppSpacing.large, height: 1)
+                    .padding(.top, AppSpacing.medium)
             }
     }
 
@@ -85,7 +85,7 @@ struct DiagnosticsReceiveDetails: View {
         )) {
             peer(member)
         } label: {
-            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                 Text(member.resolvedDisplayName)
                 if let state {
                     Label(state.statusText, systemImage: state.statusSymbol)
@@ -105,7 +105,7 @@ struct DiagnosticsReceiveDetails: View {
         let codecReport = detail.codec
         let vad = detail.vad
         let isolation = detail.isolation
-        return VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        return VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             if member.connectionState != .offline {
                 if status?.localMute == true {
                     Label {

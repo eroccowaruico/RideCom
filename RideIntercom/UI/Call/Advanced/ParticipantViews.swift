@@ -8,9 +8,9 @@ struct LocalMicrophoneHeaderControl: View {
     let onToggleMute: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: AppSpacing.xl) {
-            VStack(alignment: .leading, spacing: AppSpacing.s) {
-                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+        HStack(alignment: .center, spacing: AppSpacing.extraLarge) {
+            VStack(alignment: .leading, spacing: AppSpacing.small) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.medium) {
                     Label {
                         Text("Input")
                             .font(AppTypography.subheadlineStrong)
@@ -65,16 +65,16 @@ struct RemoteParticipantRowView: View {
     let member: GroupMember
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.l) {
-            HStack(alignment: .top, spacing: AppSpacing.xl) {
+        VStack(alignment: .leading, spacing: AppSpacing.large) {
+            HStack(alignment: .top, spacing: AppSpacing.extraLarge) {
                 DestinationAvatar(isGroup: false)
-                VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                     Text(member.resolvedDisplayName)
                         .font(AppTypography.rowTitle)
                         .lineLimit(2)
                         .accessibilityIdentifier("participantName\(index)")
 
-                    HStack(spacing: AppSpacing.m) {
+                    HStack(spacing: AppSpacing.medium) {
                         Image(systemName: connectionIconName)
                             .foregroundStyle(connectionIconColor)
                         Image(systemName: authIconName)
@@ -89,7 +89,7 @@ struct RemoteParticipantRowView: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: AppSpacing.xxs) {
+                VStack(alignment: .trailing, spacing: AppSpacing.extraExtraSmall) {
                     Label(codecLabel, systemImage: audioPipelineIconName)
                         .font(AppTypography.caption)
                         .foregroundStyle(audioPipelineColor)
@@ -98,7 +98,7 @@ struct RemoteParticipantRowView: View {
                 .accessibilityIdentifier("participantAudioPipelineState\(index)")
             }
 
-            VStack(alignment: .leading, spacing: AppSpacing.l) {
+            VStack(alignment: .leading, spacing: AppSpacing.large) {
                 participantMeter
                 participantOutputControls
             }
@@ -111,7 +111,7 @@ struct RemoteParticipantRowView: View {
     }
 
     private var participantMeter: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.s) {
+        VStack(alignment: .leading, spacing: AppSpacing.small) {
             Label("Input", systemImage: member.isMuted ? "mic.slash.fill" : "mic.fill")
                 .font(AppTypography.captionStrong)
                 .foregroundStyle(member.isMuted ? AppColorPalette.danger : AppColorPalette.textSecondary)
@@ -127,8 +127,8 @@ struct RemoteParticipantRowView: View {
     }
 
     private var participantOutputControls: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.s) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+        VStack(alignment: .leading, spacing: AppSpacing.small) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                 Label("Output", systemImage: "speaker.wave.2.fill")
                     .font(AppTypography.captionStrong)
                     .foregroundStyle(AppColorPalette.textSecondary)

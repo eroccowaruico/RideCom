@@ -155,7 +155,7 @@ extension StandardCallView {
     /// The slider uses the space between the output indicators, with a visual reference at 100%.
     private func audioDetails(for kind: IntercomGroup.Kind) -> some View {
         Section {
-            HStack(spacing: AppSpacing.s) {
+            HStack(spacing: AppSpacing.small) {
                 Image(systemName: "speaker").foregroundStyle(.secondary).accessibilityHidden(true)
                 Slider(
                     value: Binding(

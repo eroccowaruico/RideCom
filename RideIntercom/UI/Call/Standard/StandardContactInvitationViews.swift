@@ -34,7 +34,7 @@ struct StandardInvitationRow: View {
     let isSending: Bool
 
     var body: some View {
-        HStack(spacing: AppSpacing.m) {
+        HStack(spacing: AppSpacing.medium) {
             PendingAvatar()
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: name).foregroundStyle(Color.primary).lineLimit(2)
@@ -79,7 +79,7 @@ struct StandardContactInvitationDetail: View {
     var body: some View {
         Form {
             Section {
-                VStack(spacing: AppSpacing.s) {
+                VStack(spacing: AppSpacing.small) {
                     PendingAvatar(diameter: 56)
                     Text(outgoing ? "Contact Invitation" : "Invitation from \(person)")
                         .font(.subheadline).foregroundStyle(Color.secondary)
@@ -88,7 +88,7 @@ struct StandardContactInvitationDetail: View {
                     if let message = viewModel.contactInvitationMessage { sentence(LocalizedStringKey(message)) }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, AppSpacing.s)
+                .padding(.vertical, AppSpacing.small)
             }
             if isAwaitingAcceptance {
                 Section("Name on this device") {
@@ -179,7 +179,7 @@ struct StandardContactInvitationDetail: View {
     }
 
     private func stateWord(_ word: LocalizedStringKey, busy: Bool) -> some View {
-        HStack(spacing: AppSpacing.xs) {
+        HStack(spacing: AppSpacing.extraSmall) {
             if busy { ProgressView().controlSize(.small) }
             Text(word).font(.headline)
         }

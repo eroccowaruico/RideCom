@@ -185,7 +185,7 @@ struct AdvancedRecordRow: View {
                     .font(monospacedDetail ? .caption.monospaced() : .caption)
                     .foregroundStyle(Color.secondary)
             }
-            Spacer(minLength: AppSpacing.s)
+            Spacer(minLength: AppSpacing.small)
             if let state {
                 Label {
                     Text(verbatim: state)

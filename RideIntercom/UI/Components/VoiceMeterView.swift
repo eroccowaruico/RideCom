@@ -12,7 +12,7 @@ struct VoiceMeterView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()

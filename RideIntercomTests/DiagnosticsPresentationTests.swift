@@ -69,7 +69,7 @@ struct DiagnosticsPresentationTests {
         let row = DiagnosticsValueRow(title, value: value)
             .frame(width: 260)
             .environment(\.dynamicTypeSize, .accessibility5)
-        let stacked = VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        let stacked = VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             Text(verbatim: title)
             Text(verbatim: value).monospacedDigit()
         }

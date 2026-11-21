@@ -14,7 +14,7 @@ struct LiveReceivePipelineView: View {
     }
 
     private func pipeline(_ presentation: ReceivePipelinePresentation) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.m) {
+        VStack(alignment: .leading, spacing: AppSpacing.medium) {
             CompactPipelineHeader(
                 title: "Live RX Pipeline", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath",
                 detail: "Peers -> mix -> RX master -> output")

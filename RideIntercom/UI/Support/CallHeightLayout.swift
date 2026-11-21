@@ -21,7 +21,7 @@ struct CallHeightLayout<Content: View>: View {
 extension View {
     func appDetailedCallHeroStyle() -> some View {
         #if os(macOS)
-        self.padding(AppSpacing.xl).appCallHeroStyle()
+        self.padding(AppSpacing.extraLarge).appCallHeroStyle()
         #else
         self.appCallCardStyle()
         #endif

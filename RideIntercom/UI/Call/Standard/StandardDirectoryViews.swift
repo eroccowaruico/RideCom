@@ -172,7 +172,7 @@ struct DirectoryRowLabel: View {
 
     var body: some View {
         Label {
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                 Text(verbatim: title).lineLimit(2)
                 if let status {
                     Label {
@@ -189,7 +189,7 @@ struct DirectoryRowLabel: View {
         } icon: {
             DestinationAvatar(isGroup: isGroup)
                 #if os(macOS)
-                .padding(.trailing, AppSpacing.m) // Mac labels set the title against the icon.
+                .padding(.trailing, AppSpacing.medium) // Mac labels set the title against the icon.
                 #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)

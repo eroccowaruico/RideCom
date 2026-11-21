@@ -29,7 +29,7 @@ struct StandardGroupSettingsView: View {
                     Section {
                         if viewModel.canManageRegularGroups {
                             Button { invitingMembers = true } label: {
-                                HStack(spacing: AppSpacing.m) {
+                                HStack(spacing: AppSpacing.medium) {
                                     PendingAvatar(diameter: 28)
                                     Text("Invite Members")
                                 }
@@ -40,7 +40,7 @@ struct StandardGroupSettingsView: View {
                             .disabled(group.members.count >= IntercomGroup.maximumMemberCount)
                             .accessibilityIdentifier("groupSettingsAddMembersButton")
                         }
-                        HStack(spacing: AppSpacing.m) {
+                        HStack(spacing: AppSpacing.medium) {
                             DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true)
                             Text("You")
                         }
@@ -56,13 +56,13 @@ struct StandardGroupSettingsView: View {
                                     editingMember = member
                                 }
                             } label: {
-                                HStack(spacing: AppSpacing.m) {
+                                HStack(spacing: AppSpacing.medium) {
                                     if member.id.hasPrefix(GroupMember.pendingInvitePrefix) {
                                         PendingAvatar(diameter: 28).accessibilityHidden(true)
                                     } else {
                                         DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true)
                                     }
-                                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                    VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                                         Text(verbatim: member.resolvedDisplayName).lineLimit(2)
                                         if let invitation = StandardGroupInvitationStatus(
                                             viewModel: viewModel,

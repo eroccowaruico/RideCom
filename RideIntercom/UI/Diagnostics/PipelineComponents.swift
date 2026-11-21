@@ -46,15 +46,15 @@ struct CompactPipelineHeader: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.medium) {
                 titleLabel
 
-                Spacer(minLength: AppSpacing.m)
+                Spacer(minLength: AppSpacing.medium)
 
                 detailText(lineLimit: 1, fixedHorizontal: true)
             }
 
-            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                 titleLabel
                 detailText(lineLimit: nil, fixedHorizontal: false)
             }
@@ -96,7 +96,7 @@ struct CompactPipelineStepRow: View {
                 }
             }
         }
-        .padding(.vertical, AppSpacing.xs)
+        .padding(.vertical, AppSpacing.extraSmall)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(step.package) \(step.title)")
         .accessibilityValue("\(step.state.statusText), \(step.detail)")
@@ -104,7 +104,7 @@ struct CompactPipelineStepRow: View {
     }
 
     private var wideRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.m) {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.medium) {
             statusSymbol(topPadding: 0)
 
             Image(systemName: step.icon)
@@ -137,7 +137,7 @@ struct CompactPipelineStepRow: View {
     }
 
     private var narrowRow: some View {
-        HStack(alignment: .top, spacing: AppSpacing.s) {
+        HStack(alignment: .top, spacing: AppSpacing.small) {
             statusSymbol(topPadding: 5)
 
             Image(systemName: step.icon)
@@ -146,7 +146,7 @@ struct CompactPipelineStepRow: View {
                 .padding(.top, 1)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                 Text(step.title)
                     .font(AppTypography.captionStrong)
                     .foregroundStyle(AppColorPalette.textPrimary)
@@ -189,27 +189,27 @@ struct CompactEffectChainGroup: View {
 
     private var columns: [GridItem] {
         [GridItem(dynamicTypeSize.isAccessibilitySize ? .flexible() : .adaptive(minimum: 124),
-            spacing: AppSpacing.xs, alignment: .top)]
+            spacing: AppSpacing.extraSmall, alignment: .top)]
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(accessibilityIdentifier)-summary")
 
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                         chainName
                         stageCount
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                         chainName
                         stageCount
                     }
                 }
 
-                LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.xs) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: AppSpacing.extraSmall) {
                     ForEach(stages) { stage in
                         EffectChainStageChip(stage: stage)
                             .accessibilityIdentifier("\(stageIdentifierPrefix)-\(stage.id)")
@@ -218,7 +218,7 @@ struct CompactEffectChainGroup: View {
             }
             .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : CompactPipelineLayout.childIndent)
         }
-        .padding(.vertical, AppSpacing.xs)
+        .padding(.vertical, AppSpacing.extraSmall)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
@@ -237,28 +237,28 @@ struct CompactEffectChainGroup: View {
 }
 
 enum CompactPipelineLayout {
-    static let childIndent: CGFloat = AppSize.iconS + AppSpacing.l + 8
+    static let childIndent: CGFloat = AppSize.iconS + AppSpacing.large + 8
 }
 
 struct EffectChainStageChip: View {
     let stage: EffectChainStage
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppSpacing.s) {
+        HStack(alignment: .top, spacing: AppSpacing.small) {
             Image(systemName: stage.state.statusSymbol)
                 .font(AppTypography.caption)
                 .foregroundStyle(stage.state.color)
                 .padding(.top, 4)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                         stageName
                         stateLabel
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                         stageName
                         stateLabel
                     }
@@ -271,8 +271,8 @@ struct EffectChainStageChip: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, AppSpacing.s)
-        .padding(.vertical, AppSpacing.xs)
+        .padding(.horizontal, AppSpacing.small)
+        .padding(.vertical, AppSpacing.extraSmall)
         .background(AppColorPalette.panelSurface)
         .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
         .accessibilityElement(children: .combine)

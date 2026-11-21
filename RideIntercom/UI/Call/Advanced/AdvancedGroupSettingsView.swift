@@ -28,7 +28,7 @@ struct AdvancedGroupSettingsView: View {
                                     forPendingMember: member.id, in: groupID),
                                    let personID = invitation.personID, let person = viewModel.contactPerson(personID) {
                                     Button { invitationPerson = person } label: {
-                                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                                        VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                                             Text(verbatim: member.resolvedDisplayName)
                                             let sent = invitation.sent.map(String.init) ?? "nil"
                                             let direction = invitation.direction.rawValue

@@ -38,10 +38,10 @@ struct StandardMemberSelection: View {
                     ForEach(selection.users) { user in
                         let isSelected = selection.selected.contains(user.id)
                         Button { selection.toggle(user.id) } label: {
-                            HStack(spacing: AppSpacing.m) {
+                            HStack(spacing: AppSpacing.medium) {
                                 DestinationAvatar(isGroup: false).accessibilityHidden(true)
                                 Text(verbatim: user.resolvedDisplayName).foregroundStyle(Color.primary).lineLimit(2)
-                                Spacer(minLength: AppSpacing.s)
+                                Spacer(minLength: AppSpacing.small)
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                                     .font(.title3)
                                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
@@ -67,7 +67,7 @@ struct StandardMemberSelection: View {
         .formStyle(.grouped)
         // The count and the one action stay below the list, reachable however long it is.
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: AppSpacing.s) {
+            VStack(spacing: AppSpacing.small) {
                 Text("\(selection.memberCount)/8 people including you")
                     .font(.footnote).foregroundStyle(Color.secondary)
                     .accessibilityIdentifier("memberSelectionCount")
@@ -80,7 +80,7 @@ struct StandardMemberSelection: View {
                 .accessibilityIdentifier("saveUserSelectionButton")
             }
             .padding(.horizontal, AppSpacing.screen)
-            .padding(.vertical, AppSpacing.s)
+            .padding(.vertical, AppSpacing.small)
         }
         .screenBackground(AppColorPalette.listScreenBackground)
         .navigationTitle(LocalizedStringKey(groupID == nil ? "New Group" : "Invite Members"))

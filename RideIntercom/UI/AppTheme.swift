@@ -34,13 +34,13 @@ enum AppColorPalette {
 }
 
 enum AppSpacing {
-    static let xxs: CGFloat = 2
-    static let xs: CGFloat = 4
-    static let s: CGFloat = 6
-    static let m: CGFloat = 8
-    static let l: CGFloat = 10
-    static let xl: CGFloat = 12
-    static let xxl: CGFloat = 14
+    static let extraExtraSmall: CGFloat = 2
+    static let extraSmall: CGFloat = 4
+    static let small: CGFloat = 6
+    static let medium: CGFloat = 8
+    static let large: CGFloat = 10
+    static let extraLarge: CGFloat = 12
+    static let extraExtraLarge: CGFloat = 14
     static let screen: CGFloat = 16
     /// The system's side margin at regular width.
     static let regularMargin: CGFloat = 20
@@ -62,7 +62,7 @@ enum AppSize {
     static let diagnosticsTwoColumnMinimumWidth: CGFloat = 900
     static let callControlDiameter: CGFloat = 64
     static let callControlCompactDiameter: CGFloat = 56
-    /// What `.glass`/`.glassProminent` add around a circular button's label (measured: a 64pt label drew a 78pt circle).
+    /// Padding added around a circular glass button label. A 64pt label drew a 78pt circle.
     static let callControlGlassPadding: CGFloat = 7
     static let singleColumnMaxWidth: CGFloat = 640
     /// One focused group: sign-in, name input, an empty state.
@@ -141,7 +141,7 @@ extension View {
 
     private func appCardStyle() -> some View {
         let shape = RoundedRectangle(cornerRadius: AppCornerRadius.card)
-        return padding(AppSpacing.xl)
+        return padding(AppSpacing.extraLarge)
             .background(AppColorPalette.cardSurface, in: shape)
             .overlay(shape.stroke(AppColorPalette.cardBorder, lineWidth: AppBorderWidth.card))
     }

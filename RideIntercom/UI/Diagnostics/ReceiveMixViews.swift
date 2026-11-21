@@ -13,25 +13,25 @@ struct ReceiveOutputMixGroup: View {
 
     private var summaryLayout: AnyLayout {
         if dynamicTypeSize.isAccessibilitySize {
-            AnyLayout(VStackLayout(alignment: .leading, spacing: AppSpacing.s))
+            AnyLayout(VStackLayout(alignment: .leading, spacing: AppSpacing.small))
         } else {
-            AnyLayout(HStackLayout(alignment: .top, spacing: AppSpacing.s))
+            AnyLayout(HStackLayout(alignment: .top, spacing: AppSpacing.small))
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             CompactPipelineStepRow(step: step, accessibilityIdentifier: "\(step.accessibilityIdentifier)-summary")
 
             summaryLayout {
-                HStack(alignment: .top, spacing: AppSpacing.s) {
+                HStack(alignment: .top, spacing: AppSpacing.small) {
                     Circle()
                         .fill(outputMix.state.color)
                         .frame(width: 6, height: 6)
                         .padding(.top, 5)
                         .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                         Text("\(outputMix.sourceBusCount) buses / RX \(outputMix.receivedFrameCount)")
                             .font(AppTypography.caption2Mono)
                             .foregroundStyle(AppColorPalette.textSecondary)
@@ -57,8 +57,8 @@ struct ReceiveOutputMixGroup: View {
                 )
                 .frame(width: 72)
             }
-            .padding(.horizontal, AppSpacing.s)
-            .padding(.vertical, AppSpacing.xs)
+            .padding(.horizontal, AppSpacing.small)
+            .padding(.vertical, AppSpacing.extraSmall)
             .background(AppColorPalette.panelSurface)
             .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.card))
             .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : CompactPipelineLayout.childIndent)
@@ -76,7 +76,7 @@ struct ReceiveOutputMixGroup: View {
             )
             .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : CompactPipelineLayout.childIndent)
         }
-        .padding(.vertical, AppSpacing.xs)
+        .padding(.vertical, AppSpacing.extraSmall)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(step.accessibilityIdentifier)
     }

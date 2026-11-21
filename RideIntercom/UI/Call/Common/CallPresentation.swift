@@ -56,9 +56,9 @@ struct CallAccessory: View {
             let reference = viewModel.currentCallReference
             let name = viewModel.callTitle(for: group)
             let state = stateWord(viewModel.callStatus(for: id))
-            HStack(spacing: AppSpacing.m) {
+            HStack(spacing: AppSpacing.medium) {
                 Button(action: open) {
-                    HStack(spacing: AppSpacing.m) {
+                    HStack(spacing: AppSpacing.medium) {
                         CallStatusSymbol(status: viewModel.callStatus(for: id))
                         VStack(alignment: .leading, spacing: 0) {
                             Text(verbatim: name).font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -91,12 +91,12 @@ struct CallAccessory: View {
                     circle("phone.down.fill", foreground: AppColorPalette.danger, fill: .clear)
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, AppSpacing.xs)
+                .padding(.leading, AppSpacing.extraSmall)
                 .accessibilityLabel("End Call")
                 .accessibilityIdentifier("callAccessoryEndButton")
             }
-            .padding(.leading, AppSpacing.l)
-            .padding(.trailing, AppSpacing.xs)
+            .padding(.leading, AppSpacing.large)
+            .padding(.trailing, AppSpacing.extraSmall)
             .confirmationDialog(Text("Disconnect from \(name)?"), isPresented: Binding(
                 get: { pendingEnd != nil }, set: { if !$0 { pendingEnd = nil } }),
                                 titleVisibility: .visible, presenting: pendingEnd) { shown in

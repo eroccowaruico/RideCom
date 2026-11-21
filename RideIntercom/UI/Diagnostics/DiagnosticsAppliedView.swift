@@ -12,9 +12,9 @@ struct DiagnosticsAppliedView: View {
         let inputStream = viewModel.lastInputStreamOperationReport?.snapshot
         let outputStream = viewModel.lastOutputStreamOperationReport?.snapshot
         let analysis = viewModel.vadGateRuntimeSnapshot.lastAnalysis
-        return VStack(alignment: .leading, spacing: AppSpacing.l) {
+        return VStack(alignment: .leading, spacing: AppSpacing.large) {
             GroupBox {
-                VStack(alignment: .leading, spacing: AppSpacing.m) {
+                VStack(alignment: .leading, spacing: AppSpacing.medium) {
                     appliedRow(
                         "Codec", requested: codecText(codec.requestedConfiguration),
                         applied: codecText(codec.activeConfiguration),
@@ -107,7 +107,7 @@ struct DiagnosticsAppliedView: View {
             }
             ForEach(viewModel.diagnosticsAppliedRows) { row in
                 GroupBox(row.title) {
-                    VStack(alignment: .leading, spacing: AppSpacing.s) {
+                    VStack(alignment: .leading, spacing: AppSpacing.small) {
                         DiagnosticsValueRow("State", value: row.summary)
                         Text(row.detail).font(.subheadline).foregroundStyle(.secondary)
                     }
@@ -132,9 +132,9 @@ struct DiagnosticsAppliedView: View {
     /// where it compares them: Same, or Differs with a warning symbol. No verdict where it does not compare.
     private func appliedRow(_ title: String, requested: String, applied: String, detail: String? = nil,
                             verdict differs: Bool? = nil, id: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
             Text(verbatim: title).font(.subheadline)
-            Spacer(minLength: AppSpacing.s)
+            Spacer(minLength: AppSpacing.small)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(verbatim: requested == applied ? applied : "\(requested) → \(applied)").font(.subheadline)
                     .monospacedDigit()
@@ -174,7 +174,7 @@ struct DiagnosticsInternetSection: View {
     @Bindable var viewModel: IntercomViewModel
     var body: some View {
         GroupBox("Internet Service") {
-            VStack(alignment: .leading, spacing: AppSpacing.m) {
+            VStack(alignment: .leading, spacing: AppSpacing.medium) {
                 Text(viewModel.internetCheckMessage)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("internetServiceCheckStatus")

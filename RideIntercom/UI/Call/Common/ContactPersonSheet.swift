@@ -126,7 +126,7 @@ private struct ContactPersonCreation: View {
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier("saveContactPersonButton")
             .padding(.horizontal, AppSpacing.screen)
-            .padding(.vertical, AppSpacing.s)
+            .padding(.vertical, AppSpacing.small)
         }
         .onAppear {
             guard candidate.isEmpty else { return }
@@ -149,6 +149,6 @@ struct ContactPersonShareButton: View {
         .appProminentButtonStyle()
         .frame(maxWidth: .infinity)
         .padding(.horizontal, AppSpacing.screen)
-        .padding(.vertical, AppSpacing.s)
+        .padding(.vertical, AppSpacing.small)
     }
 }

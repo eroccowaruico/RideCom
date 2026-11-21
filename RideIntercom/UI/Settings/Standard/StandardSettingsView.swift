@@ -41,7 +41,7 @@ struct StandardSettingsView: View {
                 Form {
                     Section {
                         Label {
-                            VStack(alignment: .leading, spacing: AppSpacing.s) {
+                            VStack(alignment: .leading, spacing: AppSpacing.small) {
                                 Text("Do not normally change these settings")
                                     .font(.headline)
                                     .accessibilityIdentifier("advancedSettingsWarningTitle")

@@ -11,7 +11,7 @@ struct StandardContactPersonDetail: View {
     var body: some View {
         Form {
             Section {
-                VStack(spacing: AppSpacing.s) {
+                VStack(spacing: AppSpacing.small) {
                     if currentPerson.isRegistered {
                         DestinationAvatar(isGroup: false, diameter: 56)
                     } else {
@@ -32,7 +32,7 @@ struct StandardContactPersonDetail: View {
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, AppSpacing.s)
+                .padding(.vertical, AppSpacing.small)
             }
             StandardContactNameConfirmation(viewModel: viewModel, person: currentPerson)
             if currentPerson.isRegistered {

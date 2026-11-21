@@ -14,18 +14,18 @@ struct DiagnosticsView: View {
     @State private var scrollTarget: String?
 
     var body: some View {
-        VStack(spacing: AppSpacing.l) {
+        VStack(spacing: AppSpacing.large) {
             pageSelector
                 .padding(.horizontal, AppSpacing.screen)
             GeometryReader { geometry in
                 TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                     ScrollViewReader { proxy in
                         ScrollView {
-                            GlassEffectContainer(spacing: AppSpacing.l) {
+                            GlassEffectContainer(spacing: AppSpacing.large) {
                                 Group {
                                     if geometry.size.width >= AppSize.diagnosticsTwoColumnMinimumWidth
                                         && !dynamicTypeSize.isAccessibilitySize && page != .overview {
-                                        HStack(alignment: .top, spacing: AppSpacing.l) {
+                                        HStack(alignment: .top, spacing: AppSpacing.large) {
                                             overviewContent
                                                 .frame(maxWidth: AppSize.callColumnMaxWidth, alignment: .leading)
                                             pageContent
@@ -38,7 +38,7 @@ struct DiagnosticsView: View {
                                             .frame(maxWidth: .infinity)
                                     }
                                 }
-                                .padding(AppSpacing.l)
+                                .padding(AppSpacing.large)
                             }
                         }
                         .accessibilityIdentifier("diagnosticsScrollView")
@@ -97,7 +97,7 @@ struct DiagnosticsView: View {
     private var overviewContent: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let steps = pipelineSteps(now: context.date.timeIntervalSince1970)
-            VStack(alignment: .leading, spacing: AppSpacing.l) {
+            VStack(alignment: .leading, spacing: AppSpacing.large) {
                 verdicts(transmit: steps.transmit, receive: steps.receive)
                 pipelineOverview(transmit: steps.transmit, receive: steps.receive)
                 participantsOverview
@@ -125,7 +125,7 @@ extension DiagnosticsView {
     /// The conclusion first: one verdict per direction with the reason the stages report.
     private func verdicts(transmit: [PipelineStep], receive: [PipelineStep]) -> some View {
         GroupBox {
-            VStack(alignment: .leading, spacing: AppSpacing.m) {
+            VStack(alignment: .leading, spacing: AppSpacing.medium) {
                 verdictRow("TX", verdict: PipelineVerdict(steps: transmit))
                 verdictRow("RX", verdict: PipelineVerdict(steps: receive))
             }
@@ -134,7 +134,7 @@ extension DiagnosticsView {
     }
 
     private func verdictRow(_ name: String, verdict: PipelineVerdict) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             Label {
                 Text(verbatim: "\(name): \(verdict.text)").font(.headline)
             } icon: {
@@ -158,11 +158,11 @@ extension DiagnosticsView {
     }
 
     private func stageFlow(_ name: String, steps: [PipelineStep]) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
             Text(verbatim: name).font(.subheadline.bold()).frame(minWidth: 28, alignment: .leading)
-            WrappingRow(spacing: AppSpacing.xs, lineSpacing: AppSpacing.xs) {
+            WrappingRow(spacing: AppSpacing.extraSmall, lineSpacing: AppSpacing.extraSmall) {
                 ForEach(steps) { step in
-                    HStack(spacing: AppSpacing.xs) {
+                    HStack(spacing: AppSpacing.extraSmall) {
                         if step.id != steps.first?.id {
                             Image(systemName: "arrow.right")
                                 .font(.caption)
@@ -185,7 +185,7 @@ extension DiagnosticsView {
     }
 
     private var symptomButtons: some View {
-        WrappingRow(spacing: AppSpacing.s, lineSpacing: AppSpacing.s) {
+        WrappingRow(spacing: AppSpacing.small, lineSpacing: AppSpacing.small) {
             Button("Others can't hear me") { navigate(.transmit, target: firstTransmitIssue) }
                 .accessibilityIdentifier("diagnosticsOthersCannotHearButton")
             Button("I can't hear someone") { navigate(.receive, target: "receive-peers") }
@@ -213,7 +213,7 @@ extension DiagnosticsView {
 
     private func pipelineOverview(transmit: [PipelineStep], receive: [PipelineStep]) -> some View {
         GroupBox("Pipeline") {
-            VStack(alignment: .leading, spacing: AppSpacing.s) {
+            VStack(alignment: .leading, spacing: AppSpacing.small) {
                 stageFlow("TX", steps: transmit)
                 Divider()
                 stageFlow("RX", steps: receive)
@@ -226,7 +226,7 @@ extension DiagnosticsView {
         let members = Array(viewModel.selectedGroup?.members.dropFirst() ?? [])
         let peers = viewModel.networkDiagnostics?.peers ?? []
         return GroupBox {
-            VStack(spacing: AppSpacing.s) {
+            VStack(spacing: AppSpacing.small) {
                 if members.isEmpty { Text("No participants").foregroundStyle(.secondary) }
                 ForEach(members) { member in
                     let paths = peers.filter { $0.peerID.rawValue == member.id }
@@ -255,7 +255,7 @@ extension DiagnosticsView {
     @ViewBuilder private var networkOverview: some View {
         if let report = viewModel.networkDiagnostics, !report.routes.isEmpty {
             GroupBox("Network") {
-                VStack(spacing: AppSpacing.s) {
+                VStack(spacing: AppSpacing.small) {
                     ForEach(report.routes, id: \.route.rawValue) { route in
                         let count = report.peers.filter { $0.route == route.route }.count
                         overviewRow(route.route == .webRTC ? "Internet" : "Local",
@@ -272,11 +272,11 @@ extension DiagnosticsView {
     }
 
     private func overviewRow(_ name: String, value: String, state: PipelineStepState, status: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
             Text(verbatim: name).font(.subheadline.bold()).lineLimit(2)
             Text(verbatim: value).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-            Spacer(minLength: AppSpacing.s)
-            HStack(spacing: AppSpacing.xs) {
+            Spacer(minLength: AppSpacing.small)
+            HStack(spacing: AppSpacing.extraSmall) {
                 PipelineStateDot(state: state)
                 Text(verbatim: status).font(.subheadline.monospacedDigit())
             }

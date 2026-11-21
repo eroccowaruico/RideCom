@@ -82,7 +82,7 @@ struct CallView: View {
 
     private var detailColumn: some View {
         VStack(alignment: .leading, spacing: AppSpacing.screen) {
-                VStack(alignment: .leading, spacing: AppSpacing.l) {
+                VStack(alignment: .leading, spacing: AppSpacing.large) {
                     Text("Participants")
                         .font(AppTypography.sectionTitle)
                         .foregroundStyle(AppColorPalette.textSecondary)
@@ -97,7 +97,7 @@ struct CallView: View {
                         .appCallCardStyle()
                         .accessibilityIdentifier("emptyRemoteParticipantsLabel")
                 } else {
-                    VStack(spacing: AppSpacing.l) {
+                    VStack(spacing: AppSpacing.large) {
                         ForEach(Array(remoteMembers.enumerated()), id: \.element.id) { index, member in
                             RemoteParticipantRowView(
                                 viewModel: viewModel,
@@ -161,20 +161,20 @@ struct CallView: View {
 
 extension CallView {
     private var statusHeader: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xxl) {
-            HStack(alignment: .center, spacing: AppSpacing.xl) {
-                HStack(spacing: AppSpacing.l) {
+        VStack(alignment: .leading, spacing: AppSpacing.extraExtraLarge) {
+            HStack(alignment: .center, spacing: AppSpacing.extraLarge) {
+                HStack(spacing: AppSpacing.large) {
                     Image(systemName: connectionIconName)
                         .imageScale(.large)
                         .foregroundStyle(connectionStatusColor)
                         .frame(width: AppSize.iconM)
 
-                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                         Text(viewModel.callPresenceLabel)
                             .font(AppTypography.rowTitle)
                             .lineLimit(2)
                             .accessibilityIdentifier("callPresenceLabel")
-                        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                        HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                             Image(systemName: routeIconName)
                                 .foregroundStyle(routeIconColor)
                                 .frame(width: AppSize.iconS)
@@ -206,9 +206,9 @@ extension CallView {
                 )
             }
 
-            HStack(alignment: .center, spacing: AppSpacing.xl) {
-                VStack(alignment: .leading, spacing: AppSpacing.s) {
-                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+            HStack(alignment: .center, spacing: AppSpacing.extraLarge) {
+                VStack(alignment: .leading, spacing: AppSpacing.small) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                         Label("Output", systemImage: "speaker.wave.2.fill")
                             .font(AppTypography.captionStrong)
                             .foregroundStyle(

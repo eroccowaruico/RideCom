@@ -14,7 +14,14 @@ struct LocalDisplayNameSection: View {
                 .accessibilityIdentifier("saveLocalDisplayNameButton")
             if saved { Text("Name saved.").accessibilityIdentifier("localDisplayNameSaved") }
         } header: { Text("Your Display Name") }
-        footer: { Text("Choose the name you share with people in your groups. They can keep a different name for you on their own device.") }
+        footer: {
+            Text(
+                """
+                Choose the name you share with people in your groups. They can keep a different name for \
+                you on their own device.
+                """
+            )
+        }
         .onAppear { name = viewModel.localMemberIdentity.displayName }
         .onChange(of: name) { saved = false }
     }
@@ -46,8 +53,12 @@ struct GroupMemberNameView: View {
                 Button("Use Shared Name") {
                     if viewModel.resetGroupMemberName(member.id, in: groupID) { dismiss() }
                 }.accessibilityIdentifier("resetGroupMemberNameButton")
-                Text("This edit stays on this device. People you have not invited directly remain in this group only.").font(.footnote)
-                if let error = viewModel.groupErrorMessage { Text(LocalizedStringKey(error)).foregroundStyle(AppColorPalette.danger) }
+                Text(
+                    "This edit stays on this device. People you have not invited directly remain in this group only."
+                ).font(.footnote)
+                if let error = viewModel.groupErrorMessage {
+                    Text(LocalizedStringKey(error)).foregroundStyle(AppColorPalette.danger)
+                }
             }
             .screenBackground(AppColorPalette.listScreenBackground)
             .navigationTitle("Edit Name")
@@ -57,10 +68,15 @@ struct GroupMemberNameView: View {
                     Button("Save") {
                         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                         let saved = trimmed.isEmpty ? viewModel.resetGroupMemberName(member.id, in: groupID)
-                                                    : viewModel.renameGroupMember(member.id, in: groupID, displayName: trimmed)
+                            : viewModel.renameGroupMember(member.id, in: groupID, displayName: trimmed)
                         if saved { dismiss() }
                     }
-                    .disabled({ let t = name.trimmingCharacters(in: .whitespacesAndNewlines); return !t.isEmpty && !IntercomGroup.isValidName(t) }())
+                    .disabled(
+                        {
+                            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                            return !trimmedName.isEmpty && !IntercomGroup.isValidName(trimmedName)
+                        }()
+                    )
                     .accessibilityIdentifier("saveGroupMemberNameButton")
                 }
             }
@@ -119,6 +135,8 @@ struct DisplayNameChoiceView: View {
 
     private func save() {
         guard IntercomGroup.isValidName(trimmed) else { return }
-        failure = viewModel.setLocalDisplayName(trimmed) ? nil : viewModel.groupErrorMessage ?? "Could not save the name."
+        failure =
+            viewModel.setLocalDisplayName(trimmed)
+            ? nil : viewModel.groupErrorMessage ?? "Could not save the name."
     }
 }

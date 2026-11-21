@@ -37,7 +37,7 @@ struct AudioCheckMeterSection: View {
     let accessibilityIdentifier: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.m) {
+        VStack(alignment: .leading, spacing: AppSpacing.medium) {
             Label(title, systemImage: systemImage)
                 .font(AppTypography.subheadlineStrong)
             VoiceMeterView(

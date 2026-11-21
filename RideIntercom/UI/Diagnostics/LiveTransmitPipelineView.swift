@@ -11,7 +11,7 @@ struct LiveTransmitPipelineView: View {
 
     var body: some View {
         let presentation = TransmitPipelinePresentation(input: DiagnosticsInput(viewModel))
-        VStack(alignment: .leading, spacing: AppSpacing.m) {
+        VStack(alignment: .leading, spacing: AppSpacing.medium) {
             CompactPipelineHeader(
                 title: "Live TX Pipeline", systemImage: "point.topleft.down.curvedto.point.bottomright.up",
                 detail: "Session -> Input -> VAD -> TX bus -> Codec -> RTC")

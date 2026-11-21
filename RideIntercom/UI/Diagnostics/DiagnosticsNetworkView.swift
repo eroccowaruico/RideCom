@@ -8,7 +8,7 @@ struct DiagnosticsNetworkView: View {
 
     var body: some View {
         let report = viewModel.networkDiagnostics
-        VStack(alignment: .leading, spacing: AppSpacing.l) {
+        VStack(alignment: .leading, spacing: AppSpacing.large) {
             Text(
                 report == nil
                     ? "Not measured. Connect to a group to collect network diagnostics." : "Network diagnostics"
@@ -49,7 +49,7 @@ struct DiagnosticsNetworkView: View {
             ?? "Not measured"
         let jitter = metrics?.jitter.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured"
         return GroupBox {
-            VStack(alignment: .leading, spacing: AppSpacing.s) {
+            VStack(alignment: .leading, spacing: AppSpacing.small) {
                 DiagnosticsValueRow(
                     "RTT",
                     value: route?.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) }
@@ -86,7 +86,7 @@ struct DiagnosticsNetworkView: View {
         let peers = report?.peers ?? []
         let members = viewModel.selectedGroup?.members ?? []
         return GroupBox {
-            VStack(alignment: .leading, spacing: AppSpacing.s) {
+            VStack(alignment: .leading, spacing: AppSpacing.small) {
                 if peers.isEmpty { Text("Not measured").foregroundStyle(.secondary) }
                 ForEach(peers, id: \.peerID) { peer in
                     let age = max(0, Date().timeIntervalSince1970 - peer.observedAt)
@@ -97,7 +97,7 @@ struct DiagnosticsNetworkView: View {
                     let topology = peer.path.count > 2 ? "Relayed" : "Direct group path"
                     let arrow = dynamicTypeSize.isAccessibilitySize ? "\n↓\n" : " → "
                     let hops = peer.path.map { String($0.rawValue.prefix(8)) }.joined(separator: arrow)
-                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                    VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                         Text(verbatim: name).font(.subheadline.bold())
                         Text(verbatim: "\(route) · \(topology)").font(.subheadline)
                         Text(verbatim: hops).font(.caption.monospaced())
@@ -131,12 +131,12 @@ struct DiagnosticsCardHeader: View {
         if let trailing {
             let note = Text(verbatim: trailing).font(.subheadline).foregroundStyle(.secondary)
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                     Text(verbatim: title).fixedSize()
                     Spacer(minLength: 0)
                     note.fixedSize()
                 }
-                VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                     Text(verbatim: title)
                     note
                 }
@@ -165,14 +165,14 @@ struct DiagnosticsValueRow: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.s) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
                 Text(verbatim: title).fixedSize()
                 Spacer(minLength: 0)
                 valueLabel(alignment: .trailing)
                     .multilineTextAlignment(.trailing)
                     .fixedSize()
             }
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
                 Text(verbatim: title)
                 valueLabel(alignment: .leading)
             }
@@ -184,8 +184,8 @@ struct DiagnosticsValueRow: View {
     }
 
     private func valueLabel(alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: AppSpacing.xxs) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs) {
+        VStack(alignment: alignment, spacing: AppSpacing.extraExtraSmall) {
+            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.extraSmall) {
                 if warns { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(AppColorPalette.warning) }
                 Text(verbatim: value).monospacedDigit()
             }
