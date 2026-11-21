@@ -1,6 +1,12 @@
 import AudioCore
 import Testing
 
+@Test func defaultFormatPreservesStandardStereoPCM() throws {
+    let expected = try #require(AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false))
+    #expect(AudioMixer.defaultFormat == expected)
+}
+
 @Test func removingBusReleasesItsNodesAndAllowsRecreation() throws {
     let mixer = AudioMixer()
     let output = try mixer.createBus("output")
@@ -166,12 +172,12 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
 @Test func routeRejectsCycles() throws {
     let mixer = AudioMixer()
     let local = try mixer.createBus("local")
-    let master = try mixer.createBus("master")
+    let outputBus = try mixer.createBus("master")
 
-    try mixer.route(local, to: master)
+    try mixer.route(local, to: outputBus)
 
     do {
-        try mixer.route(master, to: local)
+        try mixer.route(outputBus, to: local)
         Issue.record("cycle route should throw")
     } catch {
         #expect(error as? AudioMixerError == .cycleDetected(source: "master", destination: "local"))
@@ -181,13 +187,13 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
 @Test func routeRejectsMultipleParents() throws {
     let mixer = AudioMixer()
     let local = try mixer.createBus("local")
-    let voiceMaster = try mixer.createBus("voiceMaster")
-    let finalMaster = try mixer.createBus("finalMaster")
+    let voiceBus = try mixer.createBus("voiceMaster")
+    let finalBus = try mixer.createBus("finalMaster")
 
-    try mixer.route(local, to: voiceMaster)
+    try mixer.route(local, to: voiceBus)
 
     do {
-        try mixer.route(local, to: finalMaster)
+        try mixer.route(local, to: finalBus)
         Issue.record("second parent route should throw")
     } catch {
         #expect(error as? AudioMixerError == .busAlreadyRouted("local"))
@@ -197,19 +203,19 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
 @Test func mixerSnapshotReportsGraphState() throws {
     let mixer = AudioMixer()
     let local = try mixer.createBus("local")
-    let master = try mixer.createBus("master")
+    let outputBus = try mixer.createBus("master")
     try local.addSource(AVAudioPlayerNode(), id: "local-monitor")
     try local.addEffect(
         AVAudioMixerNode(),
         id: "local-limiter",
         state: .active,
         parameters: [
-            MixerEffectParameterSnapshot(id: "preGain", value: "0", unit: "dB"),
+            MixerEffectParameterSnapshot(id: "preGain", value: "0", unit: "dB")
         ]
     )
     local.volume = 0.5
-    try mixer.route(local, to: master)
-    try mixer.routeToOutput(master)
+    try mixer.route(local, to: outputBus)
+    try mixer.routeToOutput(outputBus)
 
     let snapshot = mixer.snapshot()
 
@@ -220,7 +226,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         sourceCount: 1,
         effectCount: 1,
         sources: [
-            MixerSourceSnapshot(id: "local-monitor", typeName: "AVAudioPlayerNode", index: 0, inputBusIndex: 0),
+            MixerSourceSnapshot(id: "local-monitor", typeName: "AVAudioPlayerNode", index: 0, inputBusIndex: 0)
         ],
         effectChain: [
             MixerEffectSnapshot(
@@ -229,16 +235,21 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
                 index: 0,
                 state: .active,
                 parameters: [
-                    MixerEffectParameterSnapshot(id: "preGain", value: "0", unit: "dB"),
+                    MixerEffectParameterSnapshot(id: "preGain", value: "0", unit: "dB")
                 ]
-            ),
+            )
         ]
     )))
     #expect(snapshot.routes == [
-        MixerRouteSnapshot(sourceBusID: "local", destinationBusID: "master", destinationInputBusIndex: 0),
+        MixerRouteSnapshot(sourceBusID: "local", destinationBusID: "master", destinationInputBusIndex: 0)
     ])
     #expect(snapshot.outputBusID == "master")
-    #expect(snapshot.graph.nodes.contains(MixerGraphNodeSnapshot(
+    checkGraphNodes(snapshot.graph)
+    checkGraphEdges(snapshot.graph)
+}
+
+private func checkGraphNodes(_ graph: MixerGraphSnapshot) {
+    #expect(graph.nodes.contains(MixerGraphNodeSnapshot(
         id: "bus:local:source:local-monitor",
         kind: .source,
         label: "local-monitor",
@@ -246,7 +257,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         index: 0,
         typeName: "AVAudioPlayerNode"
     )))
-    #expect(snapshot.graph.nodes.contains(MixerGraphNodeSnapshot(
+    #expect(graph.nodes.contains(MixerGraphNodeSnapshot(
         id: "bus:local:effect:local-limiter",
         kind: .effect,
         label: "local-limiter",
@@ -254,7 +265,10 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         index: 0,
         typeName: "AVAudioMixerNode"
     )))
-    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+}
+
+private func checkGraphEdges(_ graph: MixerGraphSnapshot) {
+    #expect(graph.edges.contains(MixerGraphEdgeSnapshot(
         id: "source:local:local-monitor",
         sourceNodeID: "bus:local:source:local-monitor",
         destinationNodeID: "bus:local:input",
@@ -263,7 +277,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         destinationBusID: "local",
         destinationInputBusIndex: 0
     )))
-    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+    #expect(graph.edges.contains(MixerGraphEdgeSnapshot(
         id: "chain:local:input->local-limiter",
         sourceNodeID: "bus:local:input",
         destinationNodeID: "bus:local:effect:local-limiter",
@@ -272,7 +286,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         destinationBusID: "local",
         destinationInputBusIndex: nil
     )))
-    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+    #expect(graph.edges.contains(MixerGraphEdgeSnapshot(
         id: "route:local->master",
         sourceNodeID: "bus:local:fader",
         destinationNodeID: "bus:master:input",
@@ -281,7 +295,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         destinationBusID: "master",
         destinationInputBusIndex: 0
     )))
-    #expect(snapshot.graph.edges.contains(MixerGraphEdgeSnapshot(
+    #expect(graph.edges.contains(MixerGraphEdgeSnapshot(
         id: "output:master",
         sourceNodeID: "bus:master:fader",
         destinationNodeID: "mixer:output",
@@ -301,7 +315,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
 
     #expect(bus.snapshot().effectChain == [
         MixerEffectSnapshot(id: "gate", typeName: "AVAudioMixerNode", index: 0),
-        MixerEffectSnapshot(id: "effect-0", typeName: "AVAudioMixerNode", index: 1),
+        MixerEffectSnapshot(id: "effect-0", typeName: "AVAudioMixerNode", index: 1)
     ])
 }
 
@@ -314,7 +328,7 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
         id: "vad",
         state: .bypassed,
         parameters: [
-            MixerEffectParameterSnapshot(id: "gain", value: "0.25"),
+            MixerEffectParameterSnapshot(id: "gain", value: "0.25")
         ]
     )
 
@@ -325,8 +339,8 @@ private final class ObservedHardwareEngine: AVAudioEngine, @unchecked Sendable {
             index: 0,
             state: .bypassed,
             parameters: [
-                MixerEffectParameterSnapshot(id: "gain", value: "0.25"),
+                MixerEffectParameterSnapshot(id: "gain", value: "0.25")
             ]
-        ),
+        )
     ])
 }

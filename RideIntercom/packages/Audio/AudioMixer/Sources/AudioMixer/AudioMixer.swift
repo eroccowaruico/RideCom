@@ -3,12 +3,11 @@ import AudioCore
 import Foundation
 
 public final class AudioMixer {
-	public static let defaultFormat = AVAudioFormat(
-		commonFormat: .pcmFormatFloat32,
-		sampleRate: 48_000,
-		channels: 2,
-		interleaved: false
-	)!
+	public static let defaultFormat: AVAudioFormat = {
+		var stereo = AudioChannelLayout()
+		stereo.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo
+		return AVAudioFormat(standardFormatWithSampleRate: 48_000, channelLayout: AVAudioChannelLayout(layout: &stereo))
+	}()
 
 	public let engine: AVAudioEngine
 	public let format: AVAudioFormat
@@ -59,7 +58,7 @@ public final class AudioMixer {
 			buses: busSnapshots,
 			routes: routes,
 			outputBusID: outputBusID,
-			graph: makeGraphSnapshot(busIDs: ids, buses: busSnapshots, routes: routes)
+			graph: MixerGraphSnapshot(buses: busSnapshots, routes: routes, outputBusID: outputBusID)
 		)
 	}
 
@@ -86,7 +85,9 @@ public final class AudioMixer {
 			return existing
 		}
 
-		let bus = MixerBus(id: id, engine: engine, format: format, audioFormat: audioFormat, renderClock: renderClock) { [weak self] in
+        let bus = MixerBus(
+            id: id, engine: engine, format: format, audioFormat: audioFormat, renderClock: renderClock
+        ) { [weak self] in
             self?.resetSources(feeding: id)
         }
 		engine.attach(bus.inputMixer)
@@ -175,113 +176,14 @@ public final class AudioMixer {
 		}
 		return false
 	}
+}
 
-	private func makeGraphSnapshot(busIDs: [String], buses: [MixerBusSnapshot], routes: [MixerRouteSnapshot]) -> MixerGraphSnapshot {
-		var nodes: [MixerGraphNodeSnapshot] = []
-		var edges: [MixerGraphEdgeSnapshot] = []
-		let busesByID = Dictionary(uniqueKeysWithValues: buses.map { ($0.id, $0) })
-
-		for busID in busIDs {
-			guard let bus = busesByID[busID] else { continue }
-			let inputNodeID = Self.inputNodeID(for: busID)
-			let faderNodeID = Self.faderNodeID(for: busID)
-			nodes.append(MixerGraphNodeSnapshot(id: inputNodeID, kind: .busInput, label: "\(busID) input", busID: busID))
-			nodes.append(MixerGraphNodeSnapshot(id: faderNodeID, kind: .busFader, label: "\(busID) fader", busID: busID))
-
-			for source in bus.sources {
-				let sourceNodeID = Self.sourceNodeID(busID: busID, sourceID: source.id)
-				nodes.append(MixerGraphNodeSnapshot(
-					id: sourceNodeID,
-					kind: .source,
-					label: source.id,
-					busID: busID,
-					index: source.index,
-					typeName: source.typeName
-				))
-				edges.append(MixerGraphEdgeSnapshot(
-					id: "source:\(busID):\(source.id)",
-					sourceNodeID: sourceNodeID,
-					destinationNodeID: inputNodeID,
-					kind: .sourceToBusInput,
-					destinationBusID: busID,
-					destinationInputBusIndex: source.inputBusIndex
-				))
-			}
-
-			for sink in bus.sinks {
-				let sinkNodeID = Self.sinkNodeID(busID: busID, sinkID: sink.id)
-				nodes.append(MixerGraphNodeSnapshot(
-					id: sinkNodeID,
-					kind: .sink,
-					label: sink.id,
-					busID: busID,
-					index: sink.index,
-					typeName: "MixerPCMSink"
-				))
-				edges.append(MixerGraphEdgeSnapshot(
-					id: "sink:\(busID):\(sink.id)",
-					sourceNodeID: faderNodeID,
-					destinationNodeID: sinkNodeID,
-					kind: .busToSink,
-					sourceBusID: busID
-				))
-			}
-
-			let effectNodeIDs = bus.effectChain.map { effect in
-				let nodeID = Self.effectNodeID(busID: busID, effectID: effect.id)
-				nodes.append(MixerGraphNodeSnapshot(
-					id: nodeID,
-					kind: .effect,
-					label: effect.id,
-					busID: busID,
-					index: effect.index,
-					typeName: effect.typeName
-				))
-				return nodeID
-			}
-
-			if let firstEffectNodeID = effectNodeIDs.first,
-			   let firstEffect = bus.effectChain.first {
-				edges.append(MixerGraphEdgeSnapshot(
-					id: "chain:\(busID):input->\(firstEffect.id)",
-					sourceNodeID: inputNodeID,
-					destinationNodeID: firstEffectNodeID,
-					kind: .busSignal,
-					sourceBusID: busID,
-					destinationBusID: busID
-				))
-				for pair in zip(bus.effectChain, bus.effectChain.dropFirst()) {
-					edges.append(MixerGraphEdgeSnapshot(
-						id: "chain:\(busID):\(pair.0.id)->\(pair.1.id)",
-						sourceNodeID: Self.effectNodeID(busID: busID, effectID: pair.0.id),
-						destinationNodeID: Self.effectNodeID(busID: busID, effectID: pair.1.id),
-						kind: .busSignal,
-						sourceBusID: busID,
-						destinationBusID: busID
-					))
-				}
-				if let lastEffect = bus.effectChain.last {
-					edges.append(MixerGraphEdgeSnapshot(
-						id: "chain:\(busID):\(lastEffect.id)->fader",
-						sourceNodeID: Self.effectNodeID(busID: busID, effectID: lastEffect.id),
-						destinationNodeID: faderNodeID,
-						kind: .busSignal,
-						sourceBusID: busID,
-						destinationBusID: busID
-					))
-				}
-			} else {
-				edges.append(MixerGraphEdgeSnapshot(
-					id: "chain:\(busID):input->fader",
-					sourceNodeID: inputNodeID,
-					destinationNodeID: faderNodeID,
-					kind: .busSignal,
-					sourceBusID: busID,
-					destinationBusID: busID
-				))
-			}
+private extension MixerGraphSnapshot {
+	init(buses: [MixerBusSnapshot], routes: [MixerRouteSnapshot], outputBusID: String?) {
+		self.init()
+		for bus in buses {
+			appendBus(bus)
 		}
-
 		for route in routes {
 			edges.append(MixerGraphEdgeSnapshot(
 				id: "route:\(route.sourceBusID)->\(route.destinationBusID)",
@@ -304,8 +206,75 @@ public final class AudioMixer {
 				sourceBusID: outputBusID
 			))
 		}
+	}
 
-		return MixerGraphSnapshot(nodes: nodes, edges: edges)
+	mutating func appendBus(_ bus: MixerBusSnapshot) {
+		let busID = bus.id
+		let inputNodeID = Self.inputNodeID(for: busID)
+		let faderNodeID = Self.faderNodeID(for: busID)
+		nodes.append(MixerGraphNodeSnapshot(id: inputNodeID, kind: .busInput, label: "\(busID) input", busID: busID))
+		nodes.append(MixerGraphNodeSnapshot(id: faderNodeID, kind: .busFader, label: "\(busID) fader", busID: busID))
+
+		for source in bus.sources {
+			let sourceNodeID = Self.sourceNodeID(busID: busID, sourceID: source.id)
+			nodes.append(MixerGraphNodeSnapshot(
+				id: sourceNodeID,
+				kind: .source,
+				label: source.id,
+				busID: busID,
+				index: source.index,
+				typeName: source.typeName
+			))
+			edges.append(MixerGraphEdgeSnapshot(
+				id: "source:\(busID):\(source.id)",
+				sourceNodeID: sourceNodeID,
+				destinationNodeID: inputNodeID,
+				kind: .sourceToBusInput,
+				destinationBusID: busID,
+				destinationInputBusIndex: source.inputBusIndex
+			))
+		}
+
+		for sink in bus.sinks {
+			let sinkNodeID = Self.sinkNodeID(busID: busID, sinkID: sink.id)
+			nodes.append(MixerGraphNodeSnapshot(
+				id: sinkNodeID,
+				kind: .sink,
+				label: sink.id,
+				busID: busID,
+				index: sink.index,
+				typeName: "MixerPCMSink"
+			))
+			edges.append(MixerGraphEdgeSnapshot(
+				id: "sink:\(busID):\(sink.id)",
+				sourceNodeID: faderNodeID,
+				destinationNodeID: sinkNodeID,
+				kind: .busToSink,
+				sourceBusID: busID
+			))
+		}
+		appendSignalChain(bus)
+	}
+
+	mutating func appendSignalChain(_ bus: MixerBusSnapshot) {
+		let busID = bus.id
+		var previous = (label: "input", nodeID: Self.inputNodeID(for: busID))
+		func connection(to label: String, nodeID: String) -> MixerGraphEdgeSnapshot {
+			MixerGraphEdgeSnapshot(
+				id: "chain:\(busID):\(previous.label)->\(label)",
+				sourceNodeID: previous.nodeID, destinationNodeID: nodeID,
+				kind: .busSignal, sourceBusID: busID, destinationBusID: busID
+			)
+		}
+		for effect in bus.effectChain {
+			let nodeID = Self.effectNodeID(busID: busID, effectID: effect.id)
+			nodes.append(MixerGraphNodeSnapshot(
+				id: nodeID, kind: .effect, label: effect.id, busID: busID, index: effect.index, typeName: effect.typeName
+			))
+			edges.append(connection(to: effect.id, nodeID: nodeID))
+			previous = (effect.id, nodeID)
+		}
+		edges.append(connection(to: "fader", nodeID: Self.faderNodeID(for: busID)))
 	}
 
 	private static func sourceNodeID(busID: String, sourceID: String) -> String {
