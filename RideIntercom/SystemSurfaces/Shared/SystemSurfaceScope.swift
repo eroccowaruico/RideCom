@@ -10,7 +10,8 @@ nonisolated enum SystemSurfaceScope {
         if permitsSystemAccess { return true }
         #if DEBUG && RIDEINTERCOM_VALIDATION
         let environment = ProcessInfo.processInfo.environment
-        return (Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String)?.hasPrefix("RideIntercom.Validation.") == true
+        return (Bundle.main.object(forInfoDictionaryKey: "StorageNamespace") as? String)?.hasPrefix(
+            "RideIntercom.Validation.") == true
             && environment["RIDEINTERCOM_LOCAL_TESTING"] == "1" && environment["RIDEINTERCOM_RECORDING_CHECK"] == "1"
         #else
         return false

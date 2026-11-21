@@ -40,7 +40,9 @@ nonisolated struct WidgetDestinationStore: Sendable {
         }
     }
     static func system(storageNamespace: String?, containerURL: () -> URL?) -> Self {
-        guard SystemSurfaceScope.permitsSystemAccess(storageNamespace: storageNamespace) else { return .init(fileURL: nil) }
+        guard SystemSurfaceScope.permitsSystemAccess(storageNamespace: storageNamespace) else {
+            return .init(fileURL: nil)
+        }
         return .init(fileURL: containerURL()?.appending(path: "call-destinations.json"))
     }
     func read() -> [WidgetCallDestination] {

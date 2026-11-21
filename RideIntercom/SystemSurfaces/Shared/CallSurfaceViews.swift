@@ -260,7 +260,9 @@ struct CallActivityMicrophone: View {
     let call: CallLivePresentation
     var iconOnly = false
     private var label: String {
-        !call.canControlMicrophone ? String(localized: "Control the microphone on your Watch") : call.isMuted ? String(localized: "Microphone off") : String(localized: "Microphone on")
+        !call.canControlMicrophone
+            ? String(localized: "Control the microphone on your Watch")
+            : call.isMuted ? String(localized: "Microphone off") : String(localized: "Microphone on")
     }
     private var symbol: String { !call.canControlMicrophone ? "applewatch" : call.isMuted ? "mic.slash" : "mic" }
     private var symbolColor: Color { call.canControlMicrophone && call.isMuted ? RideComColors.danger : .white }

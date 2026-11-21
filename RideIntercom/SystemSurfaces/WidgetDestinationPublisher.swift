@@ -9,7 +9,8 @@ extension WidgetDestinationStore {
     }
     func write(_ snapshot: WidgetDestinationSnapshot) throws {
         guard let fileURL else { return }
-        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(snapshot)
         guard data.count <= 1_048_576 else { throw CocoaError(.fileWriteOutOfSpace) }
         #if os(iOS)
@@ -28,11 +29,14 @@ extension WidgetDestinationStore {
         WidgetCenter.shared.reloadTimelines(ofKind: "RideIntercom.SelectedCall")
     }) { self.store = store; self.reload = reload }
 
-    func publish(_ destinations: [WidgetCallDestination], currentDestinationID: String? = nil, currentCall: CallLivePresentation? = nil,
-                 recentDestinationID: String? = nil) {
+    func publish(
+        _ destinations: [WidgetCallDestination], currentDestinationID: String? = nil,
+        currentCall: CallLivePresentation? = nil, recentDestinationID: String? = nil
+    ) {
         guard store.fileURL != nil else { return }
-        let snapshot = WidgetDestinationSnapshot(destinations: destinations, currentDestinationID: currentDestinationID, currentCall: currentCall,
-                                                 recentDestinationID: recentDestinationID)
+        let snapshot = WidgetDestinationSnapshot(
+            destinations: destinations, currentDestinationID: currentDestinationID, currentCall: currentCall,
+            recentDestinationID: recentDestinationID)
         guard published != snapshot || store.readSnapshot() != snapshot else { return }
         do {
             try store.write(snapshot)
@@ -56,8 +60,8 @@ extension AppCallOwner {
                     kind: { if case .user = target.destination { return .user }; return .group }())
             }
             let currentDestinationID: String? = {
-                guard let vm = viewModel, let group = vm.groups.first(where: { $0.id == vm.activeGroupID }),
-                      let destination = vm.callDestination(of: group) else { return nil }
+                guard let model = viewModel, let group = model.groups.first(where: { $0.id == model.activeGroupID }),
+                      let destination = model.callDestination(of: group) else { return nil }
                 return targets.first { $0.destination == destination }?.entity.id
             }()
             let recentDestinationID = viewModel?.recentCallDestination.flatMap { recent in
@@ -70,7 +74,9 @@ extension AppCallOwner {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.observeWidgetDestinations() }
         }
-        widgetDestinations.publish(snapshot.destinations, currentDestinationID: snapshot.currentDestinationID, currentCall: snapshot.currentCall,
-                                   recentDestinationID: snapshot.recentDestinationID)
+        widgetDestinations.publish(
+            snapshot.destinations, currentDestinationID: snapshot.currentDestinationID,
+            currentCall: snapshot.currentCall,
+            recentDestinationID: snapshot.recentDestinationID)
     }
 }

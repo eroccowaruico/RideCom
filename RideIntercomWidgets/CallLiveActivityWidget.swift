@@ -13,7 +13,9 @@ struct CallLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) { CallActivityBrand() }
-                DynamicIslandExpandedRegion(.trailing) { CallActivityMicrophone(call: presentation(context), iconOnly: true) }
+                DynamicIslandExpandedRegion(.trailing) {
+                    CallActivityMicrophone(call: presentation(context), iconOnly: true)
+                }
                 DynamicIslandExpandedRegion(.center) { CallActivityStatus(call: presentation(context)) }
             } compactLeading: {
                 RideComAppMark(size: 18, dark: true)

@@ -41,7 +41,8 @@ struct DestinationCallControl: ControlWidget {
             configuration.destination.map { .ready($0) } ?? .unconfigured
         }
         func currentValue(configuration: SelectControlCallDestination) async throws -> CallControlState {
-            CallControlState(configured: configuration.destination, snapshot: WidgetDestinationStore.system.readSnapshot())
+            CallControlState(
+                configured: configuration.destination, snapshot: WidgetDestinationStore.system.readSnapshot())
         }
     }
 }

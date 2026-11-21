@@ -16,7 +16,9 @@ struct MenuBarCallView: View {
                 Button {
                     owner.setCallSurfaceMuted(!call.isMuted, reference: call.reference)
                 } label: {
-                    Label(LocalizedStringKey(call.isMuted ? "Unmute" : "Mute"), systemImage: call.isMuted ? "mic" : "mic.slash")
+                    Label(
+                        LocalizedStringKey(call.isMuted ? "Unmute" : "Mute"),
+                        systemImage: call.isMuted ? "mic" : "mic.slash")
                 }
                 .accessibilityValue(call.isMuted ? Text("Muted") : Text("Unmuted"))
                 .accessibilityIdentifier("menuBarMute")

@@ -11,10 +11,10 @@ extension AppCallOwner {
     }
 
     var currentLivePresentation: CallLivePresentation? {
-        guard let vm = viewModel, vm.canStartCalls, vm.hasAnyActiveGroupConnection,
-              let reference = vm.currentCallReference.displayedCall else { return nil }
-        return .init(reference: reference, status: vm.callStatus(for: reference.groupID),
-                     isMuted: vm.effectiveInputMuted, canControlMicrophone: vm.canControlMicrophone)
+        guard let model = viewModel, model.canStartCalls, model.hasAnyActiveGroupConnection,
+              let reference = model.currentCallReference.displayedCall else { return nil }
+        return .init(reference: reference, status: model.callStatus(for: reference.groupID),
+                     isMuted: model.effectiveInputMuted, canControlMicrophone: model.canControlMicrophone)
     }
     func observeSystemSurfaces() {
         let input = withObservationTracking {
@@ -33,34 +33,40 @@ extension AppCallOwner {
         case .recent:
             return try startRecentExternalCall()
         case .end:
-            let vm = try callModel()
-            guard let reference, vm.endCall(reference.callReference) else {
-                throw CallIntentError.unavailable("The displayed call has ended or changed. Open RideCom to check your current call.")
+            let model = try callModel()
+            guard let reference, model.endCall(reference.callReference) else {
+                throw CallIntentError.unavailable(
+                    "The displayed call has ended or changed. Open RideCom to check your current call.")
             }
         }
         callPresentationID = UUID()
     }
 
     func startWidgetCall(id: String) throws {
-        try startSavedCall(id: id, missingDestinationMessage: "This call destination is no longer available. Choose a saved user or group in RideCom.")
+        try startSavedCall(
+            id: id,
+            missingDestinationMessage:
+                "This call destination is no longer available. Choose a saved user or group in RideCom.")
     }
 
     func startSavedCall(id: String, missingDestinationMessage: String) throws {
-        let vm = try callModel()
+        let model = try callModel()
         let destination = callTargets.first { $0.entity.id == id }?.destination
-        try startExternalCall(to: destination, using: vm, missingDestinationMessage: missingDestinationMessage)
+        try startExternalCall(to: destination, using: model, missingDestinationMessage: missingDestinationMessage)
     }
 
     func startRecentExternalCall() throws {
-        let vm = try callModel()
-        try startExternalCall(to: vm.recentCallDestination, using: vm,
-                              missingDestinationMessage: "No recent call is available. Choose a saved user or group in RideCom.")
+        let model = try callModel()
+        try startExternalCall(to: model.recentCallDestination, using: model,
+            missingDestinationMessage: "No recent call is available. Choose a saved user or group in RideCom.")
     }
 
-    private func startExternalCall(to destination: CallDestination?, using vm: IntercomViewModel, missingDestinationMessage: String) throws {
+    private func startExternalCall(
+        to destination: CallDestination?, using model: IntercomViewModel, missingDestinationMessage: String
+    ) throws {
         guard let destination else { throw CallIntentError.unavailable(missingDestinationMessage) }
-        guard vm.startCall(to: destination, accountAccessID: vm.accountAccessID, allowSwitchingCall: false) else {
-            throw CallIntentError.unavailable(vm.groupErrorMessage ?? "The call could not be started.")
+        guard model.startCall(to: destination, accountAccessID: model.accountAccessID, allowSwitchingCall: false) else {
+            throw CallIntentError.unavailable(model.groupErrorMessage ?? "The call could not be started.")
         }
         callPresentationID = UUID()
     }

@@ -13,7 +13,8 @@ nonisolated enum CallSurfaceAction: String, AppEnum {
     case calls, recent, end, saved
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Call action"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .calls: "Choose a call", .recent: "Resume recent call", .end: "End displayed call", .saved: "Start selected call"
+        .calls: "Choose a call", .recent: "Resume recent call", .end: "End displayed call",
+        .saved: "Start selected call"
     ]
 }
 
@@ -37,7 +38,8 @@ struct OpenCallControlIntent: OpenIntent {
         if target == .saved {
             try actions.startWidgetCall(id: selectedDestinationID ?? "")
         } else {
-            try actions.performCallSurfaceAction(target, reference: displayedReference.flatMap(CallSurfaceReference.init(encoded:)))
+            try actions.performCallSurfaceAction(
+                target, reference: displayedReference.flatMap(CallSurfaceReference.init(encoded:)))
         }
         return .result()
     }
