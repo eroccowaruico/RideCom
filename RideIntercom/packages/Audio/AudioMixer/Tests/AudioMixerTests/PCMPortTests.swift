@@ -159,7 +159,7 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
 
 @Test(arguments: 0..<20) func liveSourceDiscardsBacklogAndPlaysNewestBuffer(_ iteration: Int) throws {
     let engine = AVAudioEngine()
-    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
     try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
     let mixer = try AudioMixer(engine: engine, audioFormat: .init(sampleRate: 48000, channelCount: 1))
     let bus = try mixer.createBus("live")
@@ -171,13 +171,14 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
         _ = try source.schedule(.init(sequenceNumber: UInt64(sequence), format: mixer.audioFormat, capturedAt: 0,
             samples: Array(repeating: sequence == 5 ? Float(0.8) : Float(0.1), count: 960)))
     }
-    let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
     // AVAudioPlayerNode applies interrupts asynchronously at a render boundary.
     // Require fresh audio within 64 ms, and no old backlog after it arrives.
     var rendered: [Float] = []
     for _ in 0..<3 {
         #expect(try engine.renderOffline(1024, to: output) == .success)
-        rendered += (0..<Int(output.frameLength)).map { abs(output.floatChannelData![0][$0]) }
+        let samples = try #require(output.floatChannelData)[0]
+        rendered += (0..<Int(output.frameLength)).map { abs(samples[$0]) }
     }
     let fresh = try #require(rendered.firstIndex { $0 > 0.79 && $0 < 0.81 },
         "Replacement must arrive within 64 ms, iteration \(iteration)")
@@ -187,14 +188,21 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
     #expect(source.bufferedDuration == 0)
     #expect(bus.snapshot().sources.first?.playbackResetCount == 1)
     #expect(throws: (any Error).self) {
-        try source.schedule(.init(sequenceNumber: 9, format: mixer.audioFormat, capturedAt: 0, samples: Array(repeating: 0.2, count: 9600)))
+        try source.schedule(
+            .init(
+                sequenceNumber: 9, format: mixer.audioFormat, capturedAt: 0,
+                samples: Array(repeating: 0.2, count: 9600)))
     }
-    _ = try source.schedule(.init(sequenceNumber: 10, format: mixer.audioFormat, capturedAt: 0, samples: Array(repeating: 0.3, count: 960)))
+    _ = try source.schedule(
+        .init(
+            sequenceNumber: 10, format: mixer.audioFormat, capturedAt: 0,
+            samples: Array(repeating: 0.3, count: 960)))
     mixer.stop()
     #expect(source.bufferedDuration == 0)
     try mixer.start(); source.start()
     #expect(try engine.renderOffline(1024, to: output) == .success)
-    #expect((0..<Int(output.frameLength)).allSatisfy { abs(output.floatChannelData![0][$0]) < 0.001 })
+    let samples = try #require(output.floatChannelData)[0]
+    #expect((0..<Int(output.frameLength)).allSatisfy { abs(samples[$0]) < 0.001 })
 }
 
 @Test func rejectsInvalidSinkFormatBeforeInstallingTap() throws {
@@ -210,7 +218,7 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
 
 @Test func overflowReplacesBuffersWithoutResettingTheLivePlayerClock() throws {
     let engine = AVAudioEngine()
-    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
     try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
     let mixer = try AudioMixer(engine: engine, audioFormat: .init())
     let bus = try mixer.createBus("live-clock")
@@ -218,7 +226,7 @@ func sinkBoundsHardwareTapFramesWithoutLosingDuration(_ rate: Double) throws {
     try mixer.routeToOutput(bus)
     try mixer.start(); source.start()
     defer { mixer.stop() }
-    let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
     var positions: [AVAudioFramePosition] = []
     for _ in 0..<2 {
         for index in 0..<6 {

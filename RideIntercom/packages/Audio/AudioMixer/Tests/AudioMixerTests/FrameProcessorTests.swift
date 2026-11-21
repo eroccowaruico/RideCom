@@ -38,7 +38,9 @@ import Testing
     defer { processor.stop() }
     #expect(processor.bus.processingLatency == 0)
     #expect(processor.bus.processingTailTime == 0)
-    #expect(!delay.withAUAudioUnit { $0.renderResourcesAllocated }, "Disabled effects must be outside the active native graph")
+    #expect(
+        !delay.withAUAudioUnit { $0.renderResourcesAllocated },
+        "Disabled effects must be outside the active native graph")
 }
 
 @Test func enablingNativeEffectPublishesLatencyBeforeTheNextFrame() throws {
@@ -51,7 +53,9 @@ import Testing
     try processor.start()
     defer { processor.stop() }
     #expect(processor.bus.processingLatency == 0)
-    #expect(!effect.withAUAudioUnit { $0.renderResourcesAllocated }, "Disabled SoundIsolation must not allocate a native render chain")
+    #expect(
+        !effect.withAUAudioUnit { $0.renderResourcesAllocated },
+        "Disabled SoundIsolation must not allocate a native render chain")
     effect.bypass = false
     try processor.bus.setEffectBypassed(id: "isolation", bypassed: false)
     #expect(processor.bus.processingLatency > 0, "The caller needs initialized native latency to bound the transition")
@@ -81,7 +85,9 @@ import Testing
     #expect(processor.bus.processingLatency > 0)
     effect.bypass = true
     try processor.bus.setEffectBypassed(id: "isolation", bypassed: true)
-    #expect(!effect.withAUAudioUnit { $0.renderResourcesAllocated }, "Disabled effects must release their native resources")
+    #expect(
+        !effect.withAUAudioUnit { $0.renderResourcesAllocated },
+        "Disabled effects must release their native resources")
 }
 
 @Test func frameProcessorPreservesSamplesAndClockWithoutWaitingForHardware() throws {
@@ -93,7 +99,8 @@ import Testing
     let start = ContinuousClock.now
     for index in 0..<300 {
         let samples = (0..<256).map { Float(sin(Double(index * 256 + $0) * 2 * .pi * 400 / 48000) * 0.2) }
-        try processor.process(.init(sequenceNumber: UInt64(index), capturedAt: Double(index * 256) / 48000, samples: samples))
+        try processor.process(
+            .init(sequenceNumber: UInt64(index), capturedAt: Double(index * 256) / 48000, samples: samples))
         #expect(received.count == (index + 1) * 256 / 480)
     }
     #expect(start.duration(to: .now) < .seconds(1), "1.6 s of audio must not wait for a device playback clock")
@@ -174,7 +181,8 @@ import Testing
         let samples = (0..<480).map { sample in
             index < 2 ? Float(sin(Double(index * 480 + sample) * 0.09) * 0.2) : 0
         }
-        try processor.process(.init(sequenceNumber: UInt64(index + 12), capturedAt: 1.1 + Double(index) * 0.01, samples: samples))
+        try processor.process(
+            .init(sequenceNumber: UInt64(index + 12), capturedAt: 1.1 + Double(index) * 0.01, samples: samples))
     }
     #expect(frames.filter { $0.capturedAt >= 1.14 }.flatMap(\.samples).contains { abs($0) > 0.05 },
         "The same native effect must still process the next utterance")
@@ -265,7 +273,11 @@ func nextUtteranceAfterDiscontinuityMatchesAFreshNativeEffect(_ formatChanges: B
 
 @Test func finiteNativeEffectEmitsTheFinalMarker() throws {
     var frames: [PCMFrame] = []
-    let processor = try AudioFrameProcessor(format: .init(), outputFormat: .init(), suspendsDuringSilence: true) { frame, _ in frames.append(frame) }
+    let processor = try AudioFrameProcessor(
+        format: .init(), outputFormat: .init(), suspendsDuringSilence: true
+    ) { frame, _ in
+        frames.append(frame)
+    }
     let effect = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
         componentType: kAudioUnitType_Effect, componentSubType: kAudioUnitSubType_PeakLimiter,
         componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0))

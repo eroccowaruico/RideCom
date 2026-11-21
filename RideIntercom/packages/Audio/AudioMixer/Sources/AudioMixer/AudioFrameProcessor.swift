@@ -83,7 +83,8 @@ public final class AudioFrameProcessor {
         while offset < normalized.frameCount {
             let count = AVAudioFrameCount(min(Int(output.frameCapacity), normalized.frameCount - offset))
             guard try mixer.engine.renderOffline(count, to: output) == .success, output.frameLength == count else {
-                throw AudioMixerError.pcmSourceScheduleFailed("Audio Unit chain did not render the complete input quantum")
+                throw AudioMixerError.pcmSourceScheduleFailed(
+                    "Audio Unit chain did not render the complete input quantum")
             }
             guard let processed = PCMFrame(buffer: output, sequenceNumber: sequence,
                 capturedAt: normalized.capturedAt + Double(offset) / mixer.audioFormat.sampleRate) else {
@@ -141,8 +142,11 @@ private final class ManualFrameInput: @unchecked Sendable {
         guard let buffer, let channels = buffer.floatChannelData,
               offset + Int(count) <= Int(buffer.frameLength) else { return kAudio_ParamError }
         for (channel, destination) in UnsafeMutableAudioBufferListPointer(buffers).enumerated() {
-            guard let data = destination.mData, channel < Int(buffer.format.channelCount) else { return kAudio_ParamError }
-            data.copyMemory(from: channels[channel].advanced(by: offset), byteCount: Int(count) * MemoryLayout<Float>.size)
+            guard let data = destination.mData, channel < Int(buffer.format.channelCount) else {
+                return kAudio_ParamError
+            }
+            data.copyMemory(
+                from: channels[channel].advanced(by: offset), byteCount: Int(count) * MemoryLayout<Float>.size)
         }
         offset += Int(count)
         return noErr
