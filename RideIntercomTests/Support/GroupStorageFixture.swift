@@ -15,7 +15,9 @@ final class GroupStorageFixture {
         repository = GroupRepository(store: store, credentials: keys)
         _ = try repository.load(localMemberID: "local")
     }
-    func group() throws -> IntercomGroup { try IntercomGroup(name: "Saved", members: [.init(id: "local", displayName: "You")]) }
+    func group() throws -> IntercomGroup {
+        try IntercomGroup(name: "Saved", members: [.init(id: "local", displayName: "You")])
+    }
     func restart() -> GroupRepository { GroupRepository(store: store, credentials: keys) }
     func remove() { try? FileManager.default.removeItem(at: directory) }
 }
