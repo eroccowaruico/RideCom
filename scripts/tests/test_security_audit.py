@@ -80,6 +80,60 @@ class StagedAuditTests(unittest.TestCase):
         self.assertEqual(result, {'state': 'review', 'signals': ['personal-data'],
                                  'changes': {'other': ['remove'], 'server': ['add']}})
 
+    def oid(self, *args):
+        return subprocess.check_output(['/usr/bin/git', *args], cwd=self.root,
+                                       env=TEST_ENV, stderr=subprocess.DEVNULL).decode().strip()
+
+    def commit(self):
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid',
+                 'commit', '-qm', 'fixture')
+
+    def test_parallel_candidate_and_unrelated_commit_use_one_worktree(self):
+        self.stage('guide', b'base')
+        self.commit()
+        base = self.oid('rev-parse', 'HEAD')
+        (self.root / 'guide').write_bytes(b'accepted version')
+        self.stage('independent', b'other work')
+        original_index = self.oid('write-tree')
+        with tempfile.TemporaryDirectory() as private:
+            env = dict(TEST_ENV, GIT_INDEX_FILE=str(Path(private) / 'index'))
+            for args in [('read-tree', base), ('--literal-pathspecs', 'add', '-A', '--', 'guide')]:
+                subprocess.run(['/usr/bin/git', *args], cwd=self.root, env=env, check=True)
+            tree = subprocess.check_output(['/usr/bin/git', 'write-tree'], cwd=self.root, env=env).decode().strip()
+        self.assertEqual(self.check(0, '--changes', base, tree)['changes'], {'other': ['modify']})
+        self.assertEqual(self.oid('write-tree'), original_index)
+        self.assertEqual(self.check(1, '--match-index', base, tree), {'state': 'changed'})
+        self.commit()
+        self.git('add', 'guide')
+        self.assertEqual(self.check(0, '--match-index', base, tree), {'state': 'matches'})
+        self.stage('guide', b'different version')
+        self.assertEqual(self.check(1, '--match-index', base, tree), {'state': 'changed'})
+
+    def test_pinned_project_and_candidate_do_not_follow_head(self):
+        self.stage('guide', b'safe')
+        self.commit()
+        base = self.oid('rev-parse', 'HEAD')
+        self.stage('guide', EMAIL.encode())
+        self.commit()
+        tip = self.oid('rev-parse', 'HEAD')
+        self.assertEqual(self.check(0, '--project', base)['state'], 'checked')
+        self.assertEqual(self.check(1, '--changes', base, tip)['signals'], ['personal-data'])
+        self.assertEqual(self.check(1, '--project', tip)['signals'], ['personal-data'])
+        for args in [('--project', 'HEAD'), ('--changes', base, 'f' * 40),
+                     ('--changes', base, self.oid('rev-parse', 'HEAD:guide'))]:
+            self.assertEqual(self.check(2, *args), {'state': 'unavailable', 'signals': []})
+
+    def test_matching_categories_are_insufficient_for_reuse(self):
+        self.stage('guide', b'base')
+        self.commit()
+        base = self.oid('rev-parse', 'HEAD')
+        self.stage('guide', b'after')
+        tree = self.oid('write-tree')
+        self.stage('guide', b'competing base')
+        self.commit()
+        self.stage('guide', b'after')
+        self.assertEqual(self.check(1, '--match-index', base, tree), {'state': 'changed'})
+
     def test_failure_does_not_emit_path_or_git_diagnostics(self):
         with tempfile.TemporaryDirectory() as outside:
             self.assertEqual(self.check(2, cwd=outside), {'state': 'unavailable', 'signals': []})

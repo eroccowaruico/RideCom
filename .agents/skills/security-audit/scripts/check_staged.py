@@ -48,16 +48,30 @@ def sensitive_path(path):
             any(part in (b'.ssh', b'.aws', b'.gnupg') for part in components))
 
 
-def snapshot_entries(project):
-    if project:
-        tree = git('ls-tree', '--full-tree', '-r', '-l', '-z', 'HEAD')
+def validate_oid(oid, *, allow_tree=False):
+    if not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', oid):
+        raise ValueError
+    if git('rev-parse', '--verify', oid + '^{object}').strip() != oid.encode():
+        raise ValueError
+    kind = git('cat-file', '-t', oid).strip()
+    if kind != b'commit' and not (allow_tree and kind == b'tree'):
+        raise ValueError
+
+
+def raw_changes(*revisions):
+    return git('diff', '--raw', '-z', '--abbrev=64', '--no-renames', '--no-relative',
+               '--no-ext-diff', '--no-textconv', '--ignore-submodules=none', *revisions, '--')
+
+
+def snapshot_entries(option, revisions):
+    if option == '--project':
+        tree = git('ls-tree', '--full-tree', '-r', '-l', '-z', revisions[0] if revisions else 'HEAD')
         for record in tree.split(b'\0')[:-1]:
             header, path = record.split(b'\t', 1)
             mode, _, oid, size = header.split()
             yield path, mode, oid, b'M', int(size) if size.isdigit() else None
         return
-    entries = git('diff', '--cached', '--raw', '-z', '--abbrev=64', '--no-renames',
-                  '--no-relative', '--no-ext-diff', '--no-textconv', '--ignore-submodules=none', '--')
+    entries = raw_changes(*revisions) if revisions else raw_changes('--cached')
     fields = entries.split(b'\0')
     if fields.pop() or len(fields) % 2:
         raise ValueError
@@ -78,15 +92,10 @@ def area(path):
             b'RideIntercomWatchUITests': 'tests'}.get(top, 'other')
 
 
-def inspect_snapshot(option):
-    if any(key in os.environ for key in (
-        'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
-        'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE',
-    )):
-        raise ValueError
+def inspect_snapshot(option, revisions):
     signals, changes = set(), {}
     seen = False
-    for path, mode, oid, status, size in snapshot_entries(option == '--project'):
+    for path, mode, oid, status, size in snapshot_entries(option, revisions):
         seen = True
         if option == '--changes':
             action = {b'A': 'add', b'M': 'modify', b'T': 'replace', b'D': 'remove'}.get(status, 'unknown')
@@ -124,17 +133,39 @@ def inspect_snapshot(option):
     return report
 
 
+def audit(args):
+    if any(key in os.environ for key in (
+        'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+        'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE',
+    )):
+        raise ValueError
+    option = args[0] if args else None
+    revisions = args[1:]
+    if option == '--project' and len(revisions) == 1:
+        validate_oid(revisions[0])
+    elif option in ('--changes', '--match-index') and len(revisions) == 2:
+        base, target = revisions
+        validate_oid(base)
+        validate_oid(target, allow_tree=True)
+        if option == '--match-index':
+            head = git('rev-parse', '--verify', 'HEAD').decode().strip()
+            git('merge-base', '--is-ancestor', base, head)
+            approved_delta = raw_changes(base, target)
+            same = bool(approved_delta) and approved_delta == raw_changes('--cached', head)
+            return {'state': 'matches' if same else 'changed'}
+    elif revisions or option not in (None, '--changes', '--project'):
+        raise ValueError
+    return inspect_snapshot(option, revisions)
+
+
 def main():
     try:
-        args = sys.argv[1:]
-        if args not in ([], ['--project'], ['--changes']):
-            raise ValueError
-        report = inspect_snapshot(args[0] if args else None)
+        report = audit(sys.argv[1:])
     except (OSError, ValueError, subprocess.SubprocessError):
         report = {'state': 'unavailable', 'signals': []}
     print(json.dumps(report, sort_keys=True))
     state = report['state']
-    return {'empty': 0, 'checked': 0, 'review': 1, 'unavailable': 2}[state]
+    return {'empty': 0, 'checked': 0, 'matches': 0, 'changed': 1, 'review': 1, 'unavailable': 2}[state]
 
 
 if __name__ == '__main__':
