@@ -1,11 +1,11 @@
 """Regression checks for artifact validation and failed-update preservation."""
 import os
 import plistlib
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / 'scripts/BuildWebRTC'
@@ -13,12 +13,12 @@ ARTIFACT = ROOT / 'RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcfra
 
 
 class WebRTCScriptTests(unittest.TestCase):
-    def test_xcframework_build_defaults_match_supported_os_floor(self):
+    def test_xcframework_build_defaults_match_supported_os_floor(self) -> None:
         script = (SCRIPTS / 'build-webrtc-xcframework.sh').read_text()
         self.assertIn('IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-27.0}"', script)
         self.assertIn('MACOS_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-27.0}"', script)
 
-    def test_camera_capture_symbol_is_rejected(self):
+    def test_camera_capture_symbol_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
@@ -30,11 +30,11 @@ class WebRTCScriptTests(unittest.TestCase):
             result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'),
                                      str(root / 'WebRTC.xcframework')],
                                     env=dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH']),
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Camera capture API found', result.stderr)
 
-    def test_packaged_frameworks_do_not_reference_camera_capture(self):
+    def test_packaged_frameworks_do_not_reference_camera_capture(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
             root = Path(directory) / 'WebRTC.xcframework'
@@ -45,18 +45,18 @@ class WebRTCScriptTests(unittest.TestCase):
                 with self.subTest(slice=library['LibraryIdentifier']):
                     self.assertNotRegex(symbols, r'AVCapture|RTCCamera')
 
-    def test_cleanup_rejects_non_checkout_without_removing_files(self):
+    def test_cleanup_rejects_non_checkout_without_removing_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             sentinel = root / 'important.txt'
             sentinel.write_text('preserve')
             result = subprocess.run([str(SCRIPTS / 'clean-webrtc-build-resources.sh')],
                                     env=dict(os.environ, WEBRTC_BUILD_ROOT=str(root),
-                                             CLEAN_MODE='source', DRY_RUN='false'), capture_output=True)
+                                             CLEAN_MODE='source', DRY_RUN='false'), capture_output=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(sentinel.read_text(), 'preserve')
 
-    def test_cleanup_only_removes_verified_checkout_output(self):
+    def test_cleanup_only_removes_verified_checkout_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'webrtc-build'
             (root / 'src/out').mkdir(parents=True)
@@ -66,12 +66,12 @@ class WebRTCScriptTests(unittest.TestCase):
             (root / 'src/out/generated').write_text('remove')
             result = subprocess.run([str(SCRIPTS / 'clean-webrtc-build-resources.sh')],
                                     env=dict(os.environ, WEBRTC_BUILD_ROOT=str(root),
-                                             CLEAN_MODE='build-output', DRY_RUN='false'), capture_output=True)
+                                             CLEAN_MODE='build-output', DRY_RUN='false'), capture_output=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse((root / 'src/out').exists())
             self.assertTrue((root / 'src/BUILD.gn').exists())
 
-    def test_cleanup_rejects_symlink_escape_and_misspelled_dry_run(self):
+    def test_cleanup_rejects_symlink_escape_and_misspelled_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'webrtc-build'
             (root / 'src/.git').mkdir(parents=True)
@@ -88,17 +88,17 @@ class WebRTCScriptTests(unittest.TestCase):
                     (root / 'src/out').mkdir()
                 result = subprocess.run([str(SCRIPTS / 'clean-webrtc-build-resources.sh')],
                                         env=dict(os.environ, WEBRTC_BUILD_ROOT=str(root),
-                                                 CLEAN_MODE=mode, DRY_RUN=dry), capture_output=True)
+                                                 CLEAN_MODE=mode, DRY_RUN=dry), capture_output=True, check=False)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertTrue(sentinel.exists())
                 self.assertTrue((root / 'src/BUILD.gn').exists())
 
-    def test_empty_xcframework_is_rejected(self):
+    def test_empty_xcframework_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), directory], capture_output=True)
+            result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), directory], capture_output=True, check=False)
             self.assertNotEqual(result.returncode, 0, result.stdout.decode())
 
-    def test_distribution_slice_without_symbols_is_rejected(self):
+    def test_distribution_slice_without_symbols_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
             root = Path(directory) / 'WebRTC.xcframework'
@@ -110,11 +110,11 @@ class WebRTCScriptTests(unittest.TestCase):
             device.pop('DebugSymbolsPath', None)
             manifest_path.write_bytes(plistlib.dumps(manifest))
             result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), str(root)],
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Missing dSYM', result.stderr)
 
-    def test_missing_or_mismatched_dsym_is_rejected(self):
+    def test_missing_or_mismatched_dsym_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
             root = Path(directory) / 'WebRTC.xcframework'
@@ -126,7 +126,7 @@ class WebRTCScriptTests(unittest.TestCase):
                      / 'WebRTC.framework.dSYM/Contents/Resources/DWARF/WebRTC')
             dwarf.unlink()
             result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), str(root)],
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Missing dSYM', result.stderr)
             # Use a real Mach-O from another slice, so a file-existence check cannot pass.
@@ -134,11 +134,11 @@ class WebRTCScriptTests(unittest.TestCase):
                        if item['SupportedPlatform'] == 'macos')
             shutil.copyfile(root / mac['LibraryIdentifier'] / mac['LibraryPath'] / 'WebRTC', dwarf)
             result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), str(root)],
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('dSYM UUID mismatch', result.stderr)
 
-    def test_failed_native_validation_keeps_installed_artifact(self):
+    def test_failed_native_validation_keeps_installed_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             scripts = root / 'scripts/BuildWebRTC'
@@ -166,7 +166,7 @@ class WebRTCScriptTests(unittest.TestCase):
                                WEBRTC_BUILD_ROOT=str(root / 'build'), RTC_PACKAGE_DIR=str(package),
                                WEBRTC_BRANCH='branch-heads/test', RUN_SWIFTPM_VALIDATION='true', RUN_TESTS='true')
             result = subprocess.run([str(scripts / 'update-webrtc-binary.sh')], env=environment,
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Invalid manifest', result.stderr)
             self.assertEqual(artifact.stat().st_size, len(b'previous artifact must survive'))

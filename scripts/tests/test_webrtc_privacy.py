@@ -1,13 +1,15 @@
 """Privacy resource layout checks without compiling WebRTC or using signing keys."""
+from __future__ import annotations
+
 import os
-from pathlib import Path
 import plistlib
 import shutil
 import stat
-import zipfile
 import subprocess
 import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / 'scripts/BuildWebRTC'
@@ -20,13 +22,11 @@ PRIVACY = plistlib.dumps({
         'NSPrivacyAccessedAPITypeReasons': ['35F9.1'],
     }],
 })
-HEADERS = ('WebRTC RTCAudioSource RTCAudioTrack RTCConfiguration RTCDataChannel '
-           'RTCDataChannelConfiguration RTCIceCandidate RTCIceServer RTCMediaConstraints '
-           'RTCPeerConnection RTCPeerConnectionFactory RTCSessionDescription').split()
+HEADERS = ['WebRTC', 'RTCAudioSource', 'RTCAudioTrack', 'RTCConfiguration', 'RTCDataChannel', 'RTCDataChannelConfiguration', 'RTCIceCandidate', 'RTCIceServer', 'RTCMediaConstraints', 'RTCPeerConnection', 'RTCPeerConnectionFactory', 'RTCSessionDescription']
 
 
 class WebRTCPrivacyTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name)
@@ -63,8 +63,8 @@ fi''')
                 for name in ['Headers', 'Resources', 'WebRTC']:
                     (framework / name).symlink_to('Versions/Current/' + name)
                 self.mac = framework
-            entry = dict(LibraryIdentifier=identifier, LibraryPath='WebRTC.framework',
-                         SupportedPlatform=platform, SupportedArchitectures=['arm64'])
+            entry = {'LibraryIdentifier': identifier, 'LibraryPath': 'WebRTC.framework',
+                         'SupportedPlatform': platform, 'SupportedArchitectures': ['arm64']}
             if variant or platform == 'macos':
                 entry['SupportedArchitectures'].append('x86_64')
             if variant:
@@ -75,43 +75,43 @@ fi''')
                 dwarf.parent.mkdir(parents=True)
                 dwarf.write_bytes(b'unchanged symbols fixture')
             libraries.append(entry)
-        (self.root / 'Info.plist').write_bytes(plistlib.dumps(dict(AvailableLibraries=libraries)))
+        (self.root / 'Info.plist').write_bytes(plistlib.dumps({'AvailableLibraries': libraries}))
         self.manifest = self.mac / 'Versions/A/Resources/PrivacyInfo.xcprivacy'
         self.legacy = self.mac / 'Versions/A/Versions/A/Resources/PrivacyInfo.xcprivacy'
 
-    def command(self, name, body):
+    def command(self, name: str, body: str) -> None:
         path = self.commands / name
         path.write_text('#!/bin/sh\nset -eu\n' + body + '\n')
         path.chmod(0o755)
 
-    def verify(self):
+    def verify(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), str(self.root)],
-                              env=self.env, capture_output=True, text=True)
+                              env=self.env, capture_output=True, text=True, check=False)
 
-    def test_standard_resources_and_manifest_bytes_are_accepted(self):
+    def test_standard_resources_and_manifest_bytes_are_accepted(self) -> None:
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.mac / 'Resources/PrivacyInfo.xcprivacy').read_bytes(), PRIVACY)
 
-    def test_missing_manifest_is_rejected(self):
+    def test_missing_manifest_is_rejected(self) -> None:
         self.manifest.unlink()
         result = self.verify()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('privacy', result.stderr.lower())
 
-    def test_known_nested_misplacement_is_rejected_by_verification(self):
+    def test_known_nested_misplacement_is_rejected_by_verification(self) -> None:
         self.legacy.parent.mkdir(parents=True)
         self.manifest.rename(self.legacy)
         result = self.verify()
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(self.legacy.exists(), 'Verification must not repair its input')
 
-    def test_broken_plist_is_rejected(self):
+    def test_broken_plist_is_rejected(self) -> None:
         self.manifest.write_bytes(b'not a property list')
         result = self.verify()
         self.assertNotEqual(result.returncode, 0)
 
-    def test_external_resources_symlink_is_rejected(self):
+    def test_external_resources_symlink_is_rejected(self) -> None:
         outside = self.base / 'outside'
         outside.mkdir()
         (outside / 'PrivacyInfo.xcprivacy').write_bytes(PRIVACY)
@@ -121,13 +121,13 @@ fi''')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((outside / 'PrivacyInfo.xcprivacy').read_bytes(), PRIVACY)
 
-    def test_cyclic_resources_symlink_is_rejected(self):
+    def test_cyclic_resources_symlink_is_rejected(self) -> None:
         (self.mac / 'Resources').unlink()
         (self.mac / 'Resources').symlink_to('Resources')
         result = self.verify()
         self.assertNotEqual(result.returncode, 0)
 
-    def archive(self):
+    def archive(self) -> Path:
         archive = self.base / 'candidate.zip'
         with zipfile.ZipFile(archive, 'w') as output:
             for path in self.root.rglob('*'):
@@ -141,7 +141,7 @@ fi''')
                     output.write(path, name)
         return archive
 
-    def test_failed_privacy_import_preserves_installed_zip_and_metadata(self):
+    def test_failed_privacy_import_preserves_installed_zip_and_metadata(self) -> None:
         self.manifest.unlink()
         archive = self.archive()
         destination = self.base / 'installed'
@@ -152,12 +152,12 @@ fi''')
         metadata.write_bytes(b'previous metadata')
         result = subprocess.run([str(SCRIPTS / 'import-webrtc-xcframework.sh')],
             env=dict(self.env, WEBRTC_XCFRAMEWORK_ZIP=str(archive),
-                     WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True)
+                     WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True, check=False)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(previous.read_bytes(), b'previous archive')
         self.assertEqual(metadata.read_bytes(), b'previous metadata')
 
-    def test_assembly_repairs_only_copied_macos_privacy_resource(self):
+    def test_assembly_repairs_only_copied_macos_privacy_resource(self) -> None:
         self.legacy.parent.mkdir(parents=True)
         self.manifest.rename(self.legacy)
         build = self.base / 'build'
@@ -177,7 +177,7 @@ fi''')
             self.command(name, 'exit 99')  # Assembly must not fetch or compile.
         result = subprocess.run([str(SCRIPTS / 'build-webrtc-xcframework.sh')],
             env=dict(self.env, WEBRTC_BUILD_ROOT=str(build), DEPOT_TOOLS_DIR=str(self.commands),
-                     WEBRTC_BRANCH='fixture', ASSEMBLE_ONLY='true'), capture_output=True, text=True)
+                     WEBRTC_BRANCH='fixture', ASSEMBLE_ONLY='true'), capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         assembled = output / 'WebRTC.xcframework/macos-x86_64_arm64/WebRTC.framework'
         self.assertTrue((assembled / 'Resources/PrivacyInfo.xcprivacy').is_file())
@@ -186,17 +186,17 @@ fi''')
         self.assertEqual(self.legacy.read_bytes(), PRIVACY)
         self.assertTrue((output / 'macos-x64/WebRTC.framework' / self.legacy.relative_to(self.mac)).exists())
 
-    def normalize(self):
+    def normalize(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(['python3', str(SCRIPTS / 'webrtc_privacy.py'), str(self.root),
                                '--repair-known-macos-location'],
-                              env=self.env, capture_output=True, text=True)
+                              env=self.env, capture_output=True, text=True, check=False)
 
-    def snapshot(self):
+    def snapshot(self) -> dict[str, tuple[str, str | bytes]]:
         return {str(p.relative_to(self.root)): ('link', os.readlink(p)) if p.is_symlink()
                 else ('file', p.read_bytes()) for p in self.root.rglob('*')
                 if p.is_symlink() or p.is_file()}
 
-    def test_relocation_preserves_every_payload_and_is_idempotent(self):
+    def test_relocation_preserves_every_payload_and_is_idempotent(self) -> None:
         signature = self.root / 'ios-x86_64_arm64-simulator/WebRTC.framework/_CodeSignature/CodeResources'
         signature.parent.mkdir()
         signature.write_bytes(b'unchanged iOS resource signature')
@@ -212,7 +212,7 @@ fi''')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.snapshot(), expected)
 
-    def test_normalization_preflights_all_slices_before_moving_any_file(self):
+    def test_normalization_preflights_all_slices_before_moving_any_file(self) -> None:
         self.legacy.parent.mkdir(parents=True)
         self.manifest.rename(self.legacy)
         metadata = self.root / 'Info.plist'
@@ -225,7 +225,7 @@ fi''')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.snapshot(), before)
 
-    def test_duplicate_and_sealed_mac_resources_are_not_automatically_rewritten(self):
+    def test_duplicate_and_sealed_mac_resources_are_not_automatically_rewritten(self) -> None:
         self.legacy.parent.mkdir(parents=True)
         self.legacy.write_bytes(PRIVACY)
         before = self.snapshot()
@@ -239,13 +239,13 @@ fi''')
         self.assertNotEqual(self.normalize().returncode, 0)
         self.assertEqual(self.snapshot(), before)
 
-    def test_plist_root_and_known_field_types_are_checked(self):
+    def test_plist_root_and_known_field_types_are_checked(self) -> None:
         for document in [[], {'NSPrivacyTracking': 'false'}, {'NSPrivacyAccessedAPITypes': 'none'}]:
             with self.subTest(document=document):
                 self.manifest.write_bytes(plistlib.dumps(document))
                 self.assertNotEqual(self.verify().returncode, 0)
 
-    def test_external_xcframework_metadata_symlink_is_rejected(self):
+    def test_external_xcframework_metadata_symlink_is_rejected(self) -> None:
         metadata = self.root / 'Info.plist'
         outside = self.base / 'outside.plist'
         metadata.rename(outside)
@@ -253,13 +253,13 @@ fi''')
         result = self.verify()
         self.assertNotEqual(result.returncode, 0)
 
-    def test_valid_import_preserves_archive_and_records_its_checksum(self):
+    def test_valid_import_preserves_archive_and_records_its_checksum(self) -> None:
         import hashlib
         archive = self.archive()
         destination = self.base / 'installed'
         result = subprocess.run([str(SCRIPTS / 'import-webrtc-xcframework.sh')],
             env=dict(self.env, WEBRTC_XCFRAMEWORK_ZIP=str(archive),
-                     WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True)
+                     WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((destination / 'WebRTC.xcframework.zip').read_bytes(), archive.read_bytes())
         self.assertIn('checksum=' + hashlib.sha256(archive.read_bytes()).hexdigest(),

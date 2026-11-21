@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Validate SDK privacy resources; optionally repair only the known GN Mac layout."""
+from __future__ import annotations
+
 import argparse
-from pathlib import Path
 import plistlib
 import sys
+from pathlib import Path
 
 
-def child(root, value):
+def child(root: Path, value: str) -> Path:
     path = Path(value)
     if path.is_absolute() or '..' in path.parts:
         raise ValueError(f'Unsafe artifact path: {value}')
@@ -15,13 +17,13 @@ def child(root, value):
     return result
 
 
-def check_plist(path):
+def check_plist(path: Path) -> None:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f'Missing regular privacy manifest: {path}')
     with path.open('rb') as source:
         document = plistlib.load(source)
     if not isinstance(document, dict):
-        raise ValueError(f'Privacy manifest must be a dictionary: {path}')
+        raise TypeError(f'Privacy manifest must be a dictionary: {path}')
     # Check the resource format, not Apple's changing reason-code policy.
     types = {'NSPrivacyTracking': bool, 'NSPrivacyTrackingDomains': list,
              'NSPrivacyCollectedDataTypes': list, 'NSPrivacyAccessedAPITypes': list}
@@ -30,7 +32,7 @@ def check_plist(path):
             raise ValueError(f'Invalid {key} type in privacy manifest: {path}')
 
 
-def check_framework(framework, platform, repair):
+def check_framework(framework: Path, platform: str, repair: bool) -> tuple[Path, Path] | None:
     resolved = framework.resolve(strict=True)
     # Check before following resource links or passing any framework path to tools.
     for path in framework.rglob('*'):
@@ -55,7 +57,7 @@ def check_framework(framework, platform, repair):
     raise ValueError(f'Privacy manifest is missing or misplaced: expected {target}')
 
 
-def validate(root, repair=False):
+def validate(root: str | Path, repair: bool = False) -> None:
     root = Path(root)
     with child(root, 'Info.plist').open('rb') as source:
         libraries = plistlib.load(source)['AvailableLibraries']
@@ -75,7 +77,7 @@ def validate(root, repair=False):
         print(f'Relocated macOS privacy resource: {target}')
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('xcframework', type=Path)
     parser.add_argument('--repair-known-macos-location', action='store_true')
