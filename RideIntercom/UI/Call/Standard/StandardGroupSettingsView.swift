@@ -49,12 +49,20 @@ struct StandardGroupSettingsView: View {
                         ForEach(Array(group.members.dropFirst())) { member in
                             // The tap opens the member's own page; the swipe removes them.
                             Button {
-                                if let person = viewModel.personForGroupInvitation(memberID: member.id, groupID: groupID) { invitationPerson = person }
-                                else { editingMember = member }
+                                if let person = viewModel.personForGroupInvitation(
+                                    memberID: member.id, groupID: groupID)
+                                {
+                                    invitationPerson = person
+                                } else {
+                                    editingMember = member
+                                }
                             } label: {
                                 HStack(spacing: AppSpacing.m) {
-                                    if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { PendingAvatar(diameter: 28).accessibilityHidden(true) }
-                                    else { DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true) }
+                                    if member.id.hasPrefix(GroupMember.pendingInvitePrefix) {
+                                        PendingAvatar(diameter: 28).accessibilityHidden(true)
+                                    } else {
+                                        DestinationAvatar(isGroup: false, diameter: 28).accessibilityHidden(true)
+                                    }
                                     VStack(alignment: .leading, spacing: AppSpacing.xs) {
                                         Text(verbatim: member.resolvedDisplayName).lineLimit(2)
                                         if let invitation = StandardGroupInvitationStatus(viewModel: viewModel,

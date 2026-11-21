@@ -5,7 +5,7 @@ import SwiftUI
 struct ContactPersonSheet: View {
     let viewModel: IntercomViewModel
     let personID: UUID
-    var onClose: (() -> Void)? = nil
+    var onClose: (() -> Void)?
     @State private var saved = false
 
     private var person: SavedUser? { viewModel.contactPerson(personID) }
@@ -33,8 +33,12 @@ struct ContactPersonSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(person == nil && !saved ? "Cancel" : "Done") {
-                        if let onClose { onClose() }
-                        else { viewModel.dismissContactInvitationPresentation(expectedPresentationID: "person-" + personID.uuidString) }
+                        if let onClose {
+                            onClose()
+                        } else {
+                            viewModel.dismissContactInvitationPresentation(
+                                expectedPresentationID: "person-" + personID.uuidString)
+                        }
                     }
                     .accessibilityIdentifier("closeContactInvitationButton")
                 }
@@ -44,10 +48,13 @@ struct ContactPersonSheet: View {
         }
         .interactiveDismissDisabled()
         .onChange(of: person?.id) { _, current in
-            if current != nil { saved = true }
-            else if saved {
-                if let onClose { onClose() }
-                else { viewModel.dismissContactInvitationPresentation(expectedPresentationID: "person-" + personID.uuidString) }
+            if current != nil { saved = true } else if saved {
+                if let onClose {
+                    onClose()
+                } else {
+                    viewModel.dismissContactInvitationPresentation(
+                        expectedPresentationID: "person-" + personID.uuidString)
+                }
             }
         }
         .onAppear {

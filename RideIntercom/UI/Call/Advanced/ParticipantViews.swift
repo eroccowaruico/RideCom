@@ -260,7 +260,6 @@ struct RemoteParticipantRowView: View {
     }
 }
 
-
 struct AdvancedSelectedControlStyle: ViewModifier {
     let isSelected: Bool
     let tint: Color

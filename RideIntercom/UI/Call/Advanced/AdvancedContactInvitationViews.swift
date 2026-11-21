@@ -56,7 +56,7 @@ struct AdvancedContactInvitationDetail: View {
 struct AdvancedContactInvitationContent: View {
     let viewModel: IntercomViewModel
     let record: ContactInvitationRecord
-    var personID: UUID? = nil
+    var personID: UUID?
     @State private var confirmsCancellation = false
 
     private var stopsRetrying: Bool { record.direction == .incoming || record.state == .confirmed }

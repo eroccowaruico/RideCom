@@ -17,8 +17,11 @@ struct AdvancedUsersView: View {
                 }
                 ForEach(viewModel.directoryUsers) { user in
                     Button {
-                        if user.isRegistered { viewModel.open(.user(user.id)) { selectedTab = .call } }
-                        else { viewModel.showContactPerson(user.id) }
+                        if user.isRegistered {
+                            viewModel.open(.user(user.id)) { selectedTab = .call }
+                        } else {
+                            viewModel.showContactPerson(user.id)
+                        }
                     } label: {
                         AdvancedRecordRow(title: user.resolvedDisplayName, value: userValue(user),
                                           detail: user.isRegistered ? "Name shared by this person: \(user.displayName)" : "memberIDs [] · principal nil",

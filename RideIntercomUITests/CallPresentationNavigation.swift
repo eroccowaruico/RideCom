@@ -50,8 +50,7 @@ extension XCUIApplication {
         let bottom = window.maxY - 170
         for _ in 0..<20 {
             if target.exists, target.isHittable, target.frame.minY >= top, target.frame.maxY <= bottom { break }
-            if target.exists, target.frame.minY < top { list.swipeDown() }
-            else { list.swipeUp() }
+            if target.exists, target.frame.minY < top { list.swipeDown() } else { list.swipeUp() }
         }
         XCTAssertTrue(target.exists && target.isHittable)
         XCTAssertGreaterThanOrEqual(target.frame.minY, top)

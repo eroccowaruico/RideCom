@@ -24,8 +24,11 @@ struct StandardUsersView: View {
             Section {
                 ForEach(users) { user in
                     Button {
-                        if user.isRegistered { viewModel.open(.user(user.id)) { selectedTab = .call } }
-                        else { viewModel.showContactPerson(user.id) }
+                        if user.isRegistered {
+                            viewModel.open(.user(user.id)) { selectedTab = .call }
+                        } else {
+                            viewModel.showContactPerson(user.id)
+                        }
                     } label: {
                         if user.isRegistered {
                             DirectoryRowLabel(title: user.resolvedDisplayName, isGroup: false,

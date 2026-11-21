@@ -1672,9 +1672,11 @@ final class StandardInterfaceUITests: XCTestCase {
         if id == "callTab" { app.openCurrentCall(); return }
         app.closeCallIfOpen()
         let identified = app.buttons[id].firstMatch
-        if identified.exists { identified.tap() }
-        else if app.radioButtons[id].exists { app.radioButtons[id].tap() }
-        else {
+        if identified.exists {
+            identified.tap()
+        } else if app.radioButtons[id].exists {
+            app.radioButtons[id].tap()
+        } else {
             let button = app.tabBars.buttons[title].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: 3)); button.tap()
         }

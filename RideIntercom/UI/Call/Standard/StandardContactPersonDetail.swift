@@ -12,8 +12,11 @@ struct StandardContactPersonDetail: View {
         Form {
             Section {
                 VStack(spacing: AppSpacing.s) {
-                    if currentPerson.isRegistered { DestinationAvatar(isGroup: false, diameter: 56) }
-                    else { PendingAvatar(diameter: 56) }
+                    if currentPerson.isRegistered {
+                        DestinationAvatar(isGroup: false, diameter: 56)
+                    } else {
+                        PendingAvatar(diameter: 56)
+                    }
                     Text(verbatim: currentPerson.resolvedDisplayName).font(.title2.bold())
                         .accessibilityIdentifier("contactPersonSavedName")
                     Text(currentPerson.isRegistered ? "Registered" : "Not registered").font(.headline)
@@ -38,8 +41,11 @@ struct StandardContactPersonDetail: View {
             if let invitation = viewModel.contactPersonInvitations(presentationPersonID).first(where: { $0.invitedGroupID != nil && $0.state != .cancelled }),
                let group = viewModel.groups.first(where: { $0.id == invitation.invitedGroupID }) {
                 Section {
-                    if invitation.direction == .incoming { Text("Group saved: \(group.name)") }
-                    else { Text("Group invitation: \(group.name)") }
+                    if invitation.direction == .incoming {
+                        Text("Group saved: \(group.name)")
+                    } else {
+                        Text("Group invitation: \(group.name)")
+                    }
                 }
             }
             StandardContactReplyStatus(viewModel: viewModel, personID: presentationPersonID)

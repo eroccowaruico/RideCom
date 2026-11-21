@@ -35,7 +35,7 @@ struct StandardCallView: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("standardCallFixedControls")
                 }
-            } else if (compactHeight || regularWidth), let group = viewModel.selectedGroup {
+            } else if compactHeight || regularWidth, let group = viewModel.selectedGroup {
                 HStack(alignment: .top, spacing: AppSpacing.screen) {
                     // Landscape: the left column takes 45% and holds the state and controls in its middle,
                     // as in the design sample; the details scroll on the right.
@@ -244,8 +244,11 @@ struct StandardCallView: View {
     private func memberRow(_ member: GroupMember, in group: IntercomGroup) -> some View {
         HStack {
             HStack {
-                if member.id.hasPrefix(GroupMember.pendingInvitePrefix) { PendingAvatar() }
-                else { DestinationAvatar(isGroup: false) }
+                if member.id.hasPrefix(GroupMember.pendingInvitePrefix) {
+                    PendingAvatar()
+                } else {
+                    DestinationAvatar(isGroup: false)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(member.resolvedDisplayName)
                     if let invitation = StandardGroupInvitationStatus(viewModel: viewModel, memberID: member.id,
@@ -458,8 +461,6 @@ struct StandardCallView: View {
         Section { Label(LocalizedStringKey(message), systemImage: "exclamationmark.circle") }
     }
 }
-
-
 
 private struct CallMuteButtonStyle: ViewModifier {
     let isMuted: Bool

@@ -116,8 +116,11 @@ struct StandardContactInvitationDetail: View {
                 .accessibilityIdentifier("confirmCancelContactInvitationButton")
             Button(outgoing ? "Keep Invitation" : "Cancel", role: .cancel) {}
         } message: {
-            if outgoing { Text("An invitation already sent may still be accepted until it expires.") }
-            else if endsCall { Text("The current connection ends.") }
+            if outgoing {
+                Text("An invitation already sent may still be accepted until it expires.")
+            } else if endsCall {
+                Text("The current connection ends.")
+            }
         }
         // Keeps listening for, or delivering, the reply while the detail is open.
         .onAppear { if !isExpired { viewModel.retryPresentedContactInvitation(record.id) } }

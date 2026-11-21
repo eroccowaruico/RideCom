@@ -110,8 +110,10 @@ struct MemberSelection {
                 name: groupName, selected: selected, newPeople: newPeople) else { return nil }
             return .some(.some(id))
         }
-        let saved = if let groupID { viewModel.addSavedUsers(selected, to: groupID) }
-                    else { viewModel.createTalkGroup(name: groupName, userIDs: selected, id: newGroupID) }
+        let saved =
+            if let groupID { viewModel.addSavedUsers(selected, to: groupID) } else {
+                viewModel.createTalkGroup(name: groupName, userIDs: selected, id: newGroupID)
+            }
         guard saved else { return .none }
         return .some(selected.isEmpty ? nil : groupID ?? viewModel.selectedGroup?.id)
     }

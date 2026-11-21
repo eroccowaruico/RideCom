@@ -31,8 +31,9 @@ nonisolated struct InvitationShare: Transferable {
         let access = viewModel.accountAccessID
         makeURL = { [weak viewModel] in
             guard let viewModel else { throw CocoaError(.userCancelled) }
-            do { return try viewModel.contactReplyURLForSharing(contactReplyID, expectedAccountAccessID: access) }
-            catch {
+            do {
+                return try viewModel.contactReplyURLForSharing(contactReplyID, expectedAccountAccessID: access)
+            } catch {
                 viewModel.contactInvitationMessage = "Could not prepare this reply. Try again."
                 throw error
             }

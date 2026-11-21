@@ -385,8 +385,7 @@ final class DesignSystemCallUITests: XCTestCase {
         app.launch(); app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))
         let groups = app.buttons["groupsTab"].firstMatch
-        if groups.exists { groups.tap() }
-        else { app.tabBars.buttons["Groups"].firstMatch.tap() }
+        if groups.exists { groups.tap() } else { app.tabBars.buttons["Groups"].firstMatch.tap() }
         let create = app.buttons["standardCreateGroupButton"].firstMatch
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         create.tap()
