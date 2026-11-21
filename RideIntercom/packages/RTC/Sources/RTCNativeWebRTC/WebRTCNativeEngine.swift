@@ -153,14 +153,23 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
                     let channel = existing
                         ?? connection.dataChannel(forLabel: "rideintercom", configuration: config)
                 else { continue }
-            let retained = lock.withLock {
-                guard peerConnections[peerID] === connection else { return false }
-                channels[peerID, default: [:]][allocation.id] = channel
-                if allocation.isPublisher { publishers[peerID, default: [:]][allocation.delivery] = allocation.id }
-                if let origin = allocation.peerID { channelOrigins[ObjectIdentifier(channel)] = origin }
-                return true
-            }
+            let retained = retainDataChannel(channel, allocation: allocation, peerID: peerID, connection: connection)
             if retained { channel.delegate = self } else { channel.close() }
+        }
+    }
+
+    private func retainDataChannel(
+        _ channel: RTCDataChannel,
+        allocation: WebRTCDataChannel,
+        peerID: PeerID,
+        connection: RTCPeerConnection
+    ) -> Bool {
+        lock.withLock {
+            guard peerConnections[peerID] === connection else { return false }
+            channels[peerID, default: [:]][allocation.id] = channel
+            if allocation.isPublisher { publishers[peerID, default: [:]][allocation.delivery] = allocation.id }
+            if let origin = allocation.peerID { channelOrigins[ObjectIdentifier(channel)] = origin }
+            return true
         }
     }
 
