@@ -105,6 +105,7 @@ extension IntercomViewModel {
         do {
             try groupRepository.markContactInvitationSent(share.id)
             refreshGroupStorageStatus()
+            requestInvitationInternetReply(restart: true)
         } catch {
             reportGroupStorageError(error)
         }
@@ -240,12 +241,12 @@ extension IntercomViewModel {
                 : "This invitation was already accepted. Confirmation can be resent."
         }
         if contactInvitationIsUnsent(record) { return "This invitation has not been sent to anyone yet." }
-        if contactInvitationWaitsForCurrentCall {
+        if contactReplyWaitsForCurrentCall(record) {
             return record.direction == .incoming
                 ? "Contact saved. Waiting for the current call to end."
                 : "Waiting for the current call to end."
         }
-        if contactInvitationID == record.id {
+        if isTryingContactReply(record.id) {
             return record.direction == .incoming
                 ? "Contact saved. Sending the acceptance notification."
                 : "Waiting for an acceptance."

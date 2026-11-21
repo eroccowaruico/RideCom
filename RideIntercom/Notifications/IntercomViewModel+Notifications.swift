@@ -4,7 +4,7 @@ import RTC
 extension IntercomViewModel {
     /// Registers for notifications by itself when the OS allows them and lets every saved person notify you.
     func startNotifications() async {
-        requestOrdinaryGroupInternetReply()
+        requestInvitationInternetReply()
         await notifications.start()
         sendNotificationPermissions()
         await synchronizeGroupDeliveries()

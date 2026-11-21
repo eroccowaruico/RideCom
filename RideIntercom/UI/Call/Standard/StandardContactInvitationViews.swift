@@ -125,7 +125,7 @@ struct StandardContactInvitationDetail: View {
     }
 
     @ViewBuilder private var stateAndAction: some View {
-        let waitsForCall = viewModel.contactInvitationWaitsForCurrentCall
+        let waitsForCall = viewModel.contactReplyWaitsForCurrentCall(record)
         if isExpired {
             stateWord("Expired", busy: false)
             sentence("This invitation can no longer be used.")
@@ -144,7 +144,7 @@ struct StandardContactInvitationDetail: View {
             .appProminentButtonStyle()
         } else if waitsForCall {
             sentence("Waiting for the current call to end.")
-        } else if viewModel.contactInvitationID == record.id {
+        } else if viewModel.isTryingContactReply(record.id) {
             stateWord("Sending a reply", busy: true)
             if outgoing {
                 sentence("\(person) accepted the invitation. Once the reply arrives, you can call each other.")

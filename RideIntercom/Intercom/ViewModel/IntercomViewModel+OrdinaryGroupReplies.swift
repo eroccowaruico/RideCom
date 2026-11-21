@@ -25,8 +25,8 @@ extension IntercomViewModel {
         allowsNearbyGroupDelivery && canEditSavedGroups && enabledRTCTransportRoutes.contains(.multipeer)
     }
 
-    func resumeSavedOrdinaryGroupReplies() {
-        requestOrdinaryGroupInternetReply()
+    func resumeSavedInvitationReplies() {
+        requestInvitationInternetReply()
         resumeSavedNearbyOrdinaryGroupReplies()
     }
 

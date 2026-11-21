@@ -25,6 +25,8 @@ struct ContactInvitationRecord: Codable, Equatable, Identifiable {
     var personID: UUID?
     /// The inviter received this signed reply through an explicit URL share, so it can offer a return confirmation.
     var receivedBySharing: Bool?
+    /// The existing Internet inbox has accepted our acknowledgement.
+    var internetAcknowledged: Bool?
 
     var invitedGroupID: UUID? = nil
     var pendingGroupMemberID: String { GroupMember.pendingInvitePrefix + "contact-" + id.uuidString.lowercased() }

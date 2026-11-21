@@ -99,6 +99,97 @@ import Testing
         }
     }
 
+    enum ContactMailboxCase: CaseIterable { case group, contact, renewedAuthor }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ContactMailboxCase.allCases)
+    func contactInvitationCompletesWhileTheTwoAppsConnectAtDifferentTimes(scenario: ContactMailboxCase) async throws {
+        try await withWorker {
+            let includesGroup = scenario != .contact
+            let a = GroupDeliveryTestIdentity("contact-box-author"), b = GroupDeliveryTestIdentity("contact-box-recipient")
+            defer { a.remove(); b.remove() }
+            try await register(a); try await register(b)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [GroupWorkerHTTPBridge.self]
+            let client = InternetAccountClient(session: URLSession(configuration: configuration))
+            let left = try a.harness(knowing: [], onDisk: true).viewModel
+            let right = try b.harness(knowing: [], onDisk: true).viewModel
+            defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync(); left.disconnect(); right.disconnect() }
+            for model in [left, right] {
+                model.groupDeliveryClient = nil
+                model.allowsNearbyGroupDelivery = false
+                model.setRTCTransportRoutes([.webRTC])
+                model.invitationInternetReplyRetryDelays = []
+            }
+            let invited = UUID(), authorCall = UUID(), recipientCall = UUID()
+            try #require(left.createTalkGroup(name: "Invited group", id: invited))
+            try #require(left.createTalkGroup(name: "Author's call", id: authorCall))
+            try #require(right.createTalkGroup(name: "Recipient's call", id: recipientCall))
+            try #require(left.startCall(to: .group(authorCall), accountAccessID: left.accountAccessID))
+            try #require(right.startCall(to: .group(recipientCall), accountAccessID: right.accountAccessID))
+            let draft = GroupInvitationDraft(name: "Friend", suggestedName: "Rider")
+            let personID: UUID
+            if includesGroup {
+                try #require(left.saveGroupInvitations(groupID: invited, creating: false, name: "", selected: [], newPeople: [draft]) == invited)
+                personID = draft.id
+            } else {
+                left.beginContactInvitationPresentation()
+                guard case .person(let id) = left.contactInvitationPresentation else { throw GroupStorageError.invalidUpdate }
+                try #require(left.saveContactPerson(id, name: "Friend"))
+                personID = id
+            }
+            let share = try left.prepareContactPersonShare(personID, expectedAccountAccessID: left.accountAccessID)
+            left.completeContactInvitationSharing(share)
+            // Renewal keeps the same issuing device but revokes its previous opening permission.
+            if scenario == .renewedAuthor { try await register(a) }
+
+            right.groupDeliveryClient = client
+            try #require(right.previewContactInvitation(share.url))
+            try #require(right.acceptPresentedContactInvitation())
+            let pending = try #require(right.contactInvitationRecord(share.id))
+            #expect(!right.contactReplyWaitsForCurrentCall(pending))
+            #expect(right.isTryingContactReply(share.id))
+            right.suspendContactInvitationForBackground()
+            await right.invitationInternetReplyWindow?.task?.value
+            #expect(right.contactInvitationRecord(share.id)?.state == .pending)
+            #expect(left.contactInvitationRecord(share.id)?.state == .pending)
+            right.groupDeliveryClient = nil
+            right.groupDeliveryNetworkPathChanged(isAvailable: false)
+
+            left.groupDeliveryClient = client
+            left.groupDeliveryNetworkPathChanged(isAvailable: false)
+            left.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await left.invitationInternetReplyWindow?.task?.value
+            if scenario == .renewedAuthor {
+                #expect(left.contactInvitationRecord(share.id)?.state == .pending)
+                right.groupDeliveryClient = client
+                right.groupDeliveryNetworkPathChanged(isAvailable: true)
+                await right.invitationInternetReplyWindow?.task?.value
+                #expect(right.contactInvitationRecord(share.id)?.state == .pending)
+                right.groupDeliveryClient = nil
+                right.groupDeliveryNetworkPathChanged(isAvailable: false)
+                left.groupDeliveryNetworkPathChanged(isAvailable: false)
+                left.groupDeliveryNetworkPathChanged(isAvailable: true)
+                await left.invitationInternetReplyWindow?.task?.value
+            }
+            #expect(left.contactInvitationRecord(share.id)?.state == .confirmed)
+            #expect(left.contactInvitationRecord(share.id)?.internetAcknowledged == true)
+            #expect(left.contactPerson(personID)?.memberIDs == [b.memberID])
+            left.groupDeliveryClient = nil
+
+            right.groupDeliveryClient = client
+            right.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await right.invitationInternetReplyWindow?.task?.value
+            #expect(right.contactInvitationRecord(share.id)?.state == .delivered)
+            #expect(right.savedRemoteUsers.first?.memberIDs == [a.memberID])
+            if includesGroup {
+                #expect(left.groups.first { $0.id == invited }?.members.contains { $0.id == b.memberID } == true)
+                let sameGroupKey = try right.groupRepository.credential(for: invited) == left.groupRepository.credential(for: invited)
+                #expect(sameGroupKey)
+            }
+            #expect(left.activeGroupID == authorCall && right.activeGroupID == recipientCall)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func aRestoredInternetCallRouteResumesSavedOrdinaryInvitationReplies() async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("ordinary-reconnect-author")
@@ -115,7 +206,7 @@ import Testing
             for model in [left, right] {
                 model.allowsNearbyGroupDelivery = false
                 model.setRTCTransportRoutes([.multipeer, .webRTC])
-                model.ordinaryGroupInternetReplyRetryDelays = []
+                model.invitationInternetReplyRetryDelays = []
             }
             let invitationGroup = UUID(), authorCall = UUID(), recipientCall = UUID()
             try #require(left.createTalkGroup(name: "Invited", id: invitationGroup))
@@ -134,29 +225,29 @@ import Testing
 
             left.groupDeliveryClient = client; right.groupDeliveryClient = client
             let link = try #require(left.makeGroupInviteURL(for: invitationGroup))
-            await left.ordinaryGroupInternetReplyWindow?.task?.value
-            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+            await left.invitationInternetReplyWindow?.task?.value
+            #expect(left.invitationInternetReplyWindow == nil)
             sendToAuthor(local)
             try right.acceptInviteURL(link)
-            await right.ordinaryGroupInternetReplyWindow?.task?.value
-            #expect(right.ordinaryGroupInternetReplyWindow == nil)
+            await right.invitationInternetReplyWindow?.task?.value
+            #expect(right.invitationInternetReplyWindow == nil)
             let pending = right.groupRepository.pendingInvitation(for: invitationGroup) != nil
             #expect(pending)
             sendToRecipient(local)
             sendToAuthor(local)
-            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+            #expect(left.invitationInternetReplyWindow == nil)
 
             sendToAuthor(mixed)
-            let authorWindow = try #require(left.ordinaryGroupInternetReplyWindow)
+            let authorWindow = try #require(left.invitationInternetReplyWindow)
             sendToAuthor(mixed)
-            #expect(left.ordinaryGroupInternetReplyWindow?.id == authorWindow.id)
+            #expect(left.invitationInternetReplyWindow?.id == authorWindow.id)
             await authorWindow.task?.value
             #expect(left.savedRemoteUsers.first?.memberIDs == [recipient.memberID])
             sendToAuthor(mixed)
-            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+            #expect(left.invitationInternetReplyWindow == nil)
 
             sendToRecipient(mixed)
-            let recipientWindow = try #require(right.ordinaryGroupInternetReplyWindow?.task)
+            let recipientWindow = try #require(right.invitationInternetReplyWindow?.task)
             await recipientWindow.value
             let completed = right.groupRepository.pendingInvitation(for: invitationGroup) == nil
             #expect(completed)
@@ -197,9 +288,9 @@ import Testing
                 GroupWorkerHTTPBridge.ordinaryReplyInboxReads.withLock { $0 > reads }
             }
             try #require(GroupWorkerHTTPBridge.ordinaryReplyInboxReads.withLock { $0 > reads })
-            let issuerWindow = try #require(left.ordinaryGroupInternetReplyWindow?.id)
+            let issuerWindow = try #require(left.invitationInternetReplyWindow?.id)
             await left.synchronizeGroupDeliveries()
-            #expect(left.ordinaryGroupInternetReplyWindow?.id == issuerWindow)
+            #expect(left.invitationInternetReplyWindow?.id == issuerWindow)
             try right.acceptInviteURL(link)
             await AppTestSupport.waitUntil(timeout: .seconds(6)) {
                 !left.savedRemoteUsers.isEmpty && right.groupRepository.pendingInvitation(for: invited) == nil
@@ -207,19 +298,19 @@ import Testing
             #expect(left.savedRemoteUsers.first?.memberIDs == [recipient.memberID])
             let complete = right.groupRepository.pendingInvitation(for: invited) == nil
             #expect(complete)
-            #expect(right.ordinaryGroupInternetReplyWindow == nil)
+            #expect(right.invitationInternetReplyWindow == nil)
             #expect(recipientEnds == 1)
             let expire = try #require(issuerExpiration)
-            left.requestOrdinaryGroupInternetReply(restart: true)
-            let renewed = try #require(left.ordinaryGroupInternetReplyWindow?.id)
+            left.requestInvitationInternetReply(restart: true)
+            let renewed = try #require(left.invitationInternetReplyWindow?.id)
             expire()
-            #expect(left.ordinaryGroupInternetReplyWindow?.id == renewed)
+            #expect(left.invitationInternetReplyWindow?.id == renewed)
             #expect(issuerEnds == 1)
             let expireRenewed = try #require(issuerExpiration)
             expireRenewed()
             expireRenewed()
             expire()
-            #expect(left.ordinaryGroupInternetReplyWindow == nil)
+            #expect(left.invitationInternetReplyWindow == nil)
             #expect(issuerEnds == 2)
         }
     }
@@ -239,7 +330,7 @@ import Testing
             for model in [left, right] {
                 model.allowsNearbyGroupDelivery = false
                 model.setRTCTransportRoutes([.webRTC])
-                model.ordinaryGroupInternetReplyRetryDelays = []
+                model.invitationInternetReplyRetryDelays = []
                 #expect(!model.notifications.isEnabled)
             }
             let invited = UUID(), ongoing = UUID(), otherCall = UUID()
@@ -256,12 +347,12 @@ import Testing
             left.beginGroupDeliveryBackgroundTime = { _ in leftWindows += 1; return {} }
             right.beginGroupDeliveryBackgroundTime = { _ in rightWindows += 1; return {} }
             let link = try #require(left.makeGroupInviteURL(for: invited))
-            let opening = try #require(left.ordinaryGroupInternetReplyWindow?.task)
+            let opening = try #require(left.invitationInternetReplyWindow?.task)
             await opening.value
             #expect(leftWindows == 1)
 
             try right.acceptInviteURL(link)
-            let accepting = try #require(right.ordinaryGroupInternetReplyWindow?.task)
+            let accepting = try #require(right.invitationInternetReplyWindow?.task)
             await accepting.value
             #expect(rightWindows == 1)
             let pending = right.groupRepository.pendingInvitation(for: invited) != nil
@@ -274,7 +365,7 @@ import Testing
             GroupWorkerHTTPBridge.interruptOrdinaryGroupAcknowledgement = true
             defer { GroupWorkerHTTPBridge.interruptOrdinaryGroupAcknowledgement = false }
             issuerOwner.systemSurfaceIsForeground = true
-            let delivering = try #require(left.ordinaryGroupInternetReplyWindow?.task)
+            let delivering = try #require(left.invitationInternetReplyWindow?.task)
             await delivering.value
             #expect(!GroupWorkerHTTPBridge.interruptOrdinaryGroupAcknowledgement)
             #expect(left.savedRemoteUsers.first?.memberIDs == [recipient.memberID])
@@ -287,24 +378,24 @@ import Testing
             defer { reopened.stopGroupDeliverySync(); reopened.disconnect() }
             reopened.allowsNearbyGroupDelivery = false
             reopened.setRTCTransportRoutes([.webRTC])
-            reopened.ordinaryGroupInternetReplyRetryDelays = []
+            reopened.invitationInternetReplyRetryDelays = []
             reopened.groupDeliveryClient = client
             let inviteeOwner = AppCallOwner(account: reopened.accountSession, viewModel: reopened)
             inviteeOwner.systemSurfaceIsForeground = true
-            let receiving = try #require(reopened.ordinaryGroupInternetReplyWindow?.task)
+            let receiving = try #require(reopened.invitationInternetReplyWindow?.task)
             await receiving.value
             let stillPending = reopened.groupRepository.pendingInvitation(for: invited) != nil
             #expect(stillPending)
 
             issuerOwner.systemSurfaceIsForeground = false
             issuerOwner.systemSurfaceIsForeground = true
-            await left.ordinaryGroupInternetReplyWindow?.task?.value
+            await left.invitationInternetReplyWindow?.task?.value
             #expect(left.savedRemoteUsers.map(\.id) == [savedUser].compactMap { $0 })
             #expect(left.currentCallReference == oldCall)
 
             inviteeOwner.systemSurfaceIsForeground = false
             inviteeOwner.systemSurfaceIsForeground = true
-            await reopened.ordinaryGroupInternetReplyWindow?.task?.value
+            await reopened.invitationInternetReplyWindow?.task?.value
             let completed = reopened.groupRepository.pendingInvitation(for: invited) == nil
             #expect(completed)
             #expect(reopened.savedRemoteUsers.first?.memberIDs == [author.memberID])
@@ -356,30 +447,30 @@ import Testing
             for model in [left, right] {
                 model.allowsNearbyGroupDelivery = false
                 model.setRTCTransportRoutes([.webRTC])
-                model.ordinaryGroupInternetReplyRetryDelays = []
+                model.invitationInternetReplyRetryDelays = []
                 model.groupDeliveryClient = client
             }
             try #require(left.startCall(to: .group(unrelated), accountAccessID: left.accountAccessID))
             let currentCall = left.currentCallReference
             let owner = AppCallOwner(account: left.accountSession, viewModel: left)
             owner.systemSurfaceIsForeground = true
-            await left.ordinaryGroupInternetReplyWindow?.task?.value
+            await left.invitationInternetReplyWindow?.task?.value
 
             try right.acceptInviteURL(secondLink)
-            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            await right.invitationInternetReplyWindow?.task?.value
             try right.acceptInviteURL(firstLink)
-            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            await right.invitationInternetReplyWindow?.task?.value
             let before = [first, second].filter { right.groupRepository.pendingInvitation(for: $0) != nil }
             #expect(before.count == 2)
 
             owner.systemSurfaceIsForeground = false
             owner.systemSurfaceIsForeground = true
-            await left.ordinaryGroupInternetReplyWindow?.task?.value
+            await left.invitationInternetReplyWindow?.task?.value
             #expect(left.savedRemoteUsers.map(\.memberIDs) == [[recipient.memberID]])
             #expect(left.currentCallReference == currentCall)
             let recipientOwner = AppCallOwner(account: right.accountSession, viewModel: right)
             recipientOwner.systemSurfaceIsForeground = true
-            await right.ordinaryGroupInternetReplyWindow?.task?.value
+            await right.invitationInternetReplyWindow?.task?.value
             let newerCompleted = right.groupRepository.pendingInvitation(for: second) == nil
             let olderCompleted = right.groupRepository.pendingInvitation(for: first) == nil
             #expect(newerCompleted)

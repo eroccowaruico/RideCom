@@ -69,9 +69,9 @@ struct StandardContactReplyStatus: View {
                 if reply.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Text("Reply expired").accessibilityIdentifier("contactInvitationState")
                     Text("Ask the sender for a new invitation.")
-                } else if viewModel.contactInvitationWaitsForCurrentCall {
+                } else if viewModel.contactReplyWaitsForCurrentCall(reply) {
                     Text("Waiting for the current call to end.").accessibilityIdentifier("contactInvitationState")
-                } else if viewModel.contactInvitationID == reply.id {
+                } else if viewModel.isTryingContactReply(reply.id) {
                     HStack { ProgressView(); Text("Sending a reply") }
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("contactInvitationState")

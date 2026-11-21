@@ -40,7 +40,7 @@ extension IntercomViewModel {
                 internetFailureDetail = nil
             }
             if activeGroupID != nil {
-                if newlyAvailable.contains(.webRTC) { requestOrdinaryGroupInternetReply() }
+                if newlyAvailable.contains(.webRTC) { requestInvitationInternetReply() }
                 if newlyAvailable.contains(.multipeer) { resumeSavedNearbyOrdinaryGroupReplies() }
             }
         case .commandQueueFailed:

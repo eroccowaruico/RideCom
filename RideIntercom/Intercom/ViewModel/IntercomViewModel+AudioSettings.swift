@@ -218,7 +218,7 @@ extension IntercomViewModel {
         guard normalizedRoutes != enabledRTCTransportRoutes else { return }
         stopContactInvitationSession()
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
-        if !normalizedRoutes.contains(.webRTC) { stopOrdinaryGroupInternetReply() }
+        if !normalizedRoutes.contains(.webRTC) { stopInvitationInternetReply() }
 
         if hasAnyActiveGroupConnection {
             disconnect()
@@ -227,7 +227,7 @@ extension IntercomViewModel {
         enabledRTCTransportRoutes = normalizedRoutes
         callSession.setEnabledRoutes(normalizedRoutes)
         refreshNearbyGroupDelivery()
-        if nearbyGroupDeliveryIsForeground { resumeSavedOrdinaryGroupReplies() }
+        if nearbyGroupDeliveryIsForeground { resumeSavedInvitationReplies() }
         saveAppSettings()
         logSettingChange("settings.rtc_routes.changed", ["enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"])
         publishRuntimePackageReports(force: true)

@@ -12,6 +12,7 @@ extension IntercomViewModel {
         let wasAvailable = groupDeliveryNetworkWasAvailable
         groupDeliveryNetworkWasAvailable = isAvailable
         guard wasAvailable == false, isAvailable, groupDeliveryClient != nil, canEditSavedGroups else { return }
+        requestInvitationInternetReply(restart: true)
         if hasPendingContactDeletionRelay {
             requestGroupDeliverySync(.networkRecovered)
             return
@@ -117,7 +118,7 @@ extension IntercomViewModel {
     func stopGroupDeliverySync() {
         groupInvitationBackgroundTransfer?.reconcile(keeping: [])
         stopOrdinaryGroupReplyExchanges()
-        stopOrdinaryGroupInternetReply()
+        stopInvitationInternetReply()
         stopNearbyGroupDelivery()
         stopInternetGroupDeliverySync()
     }

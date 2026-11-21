@@ -1,7 +1,7 @@
 import Foundation
 import RTC
 
-@MainActor final class OrdinaryGroupInternetReplyWindow {
+@MainActor final class InvitationInternetReplyWindow {
     let id = UUID()
     let client: InternetAccountClient
     let access: CallNotificationServiceAccess
@@ -26,58 +26,68 @@ extension IntercomViewModel {
         let address: InvitationReplyAddress
     }
 
-    private var allowsInternetOrdinaryReplies: Bool {
+    var allowsInternetInvitationReplies: Bool {
         canEditSavedGroups && enabledRTCTransportRoutes.contains(.webRTC)
     }
 
-    func requestOrdinaryGroupInternetReply(restart: Bool = false) {
-        guard let client = groupDeliveryClient, hasCurrentAccountAccess, allowsInternetOrdinaryReplies,
+    func requestInvitationInternetReply(restart: Bool = false) {
+        guard let client = groupDeliveryClient, hasCurrentAccountAccess, allowsInternetInvitationReplies,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
-              hasInternetOrdinaryReplies(access: access) else { return }
-        if let window = ordinaryGroupInternetReplyWindow, !restart, window.access == access, window.generation == accountAccessID { return }
-        stopOrdinaryGroupInternetReply()
+              hasInternetInvitationReplies(access: access) else { return }
+        let contactIDs = Set(internetContactReplyRecords(access: access).map(\.id))
+        if let window = invitationInternetReplyWindow, !restart, window.access == access, window.generation == accountAccessID {
+            activeInternetContactReplyIDs = contactIDs
+            return
+        }
+        stopInvitationInternetReply()
 
-        let window = OrdinaryGroupInternetReplyWindow(client: client, access: access, generation: accountAccessID)
+        let window = InvitationInternetReplyWindow(client: client, access: access, generation: accountAccessID)
         let id = window.id
-        ordinaryGroupInternetReplyWindow = window
-        let end = beginGroupDeliveryBackgroundTime { [weak self] in self?.stopOrdinaryGroupInternetReply(id: id) }
-        guard ordinaryGroupInternetReplyWindow === window else { end?(); return }
+        invitationInternetReplyWindow = window
+        activeInternetContactReplyIDs = contactIDs
+        let end = beginGroupDeliveryBackgroundTime { [weak self] in self?.stopInvitationInternetReply(id: id) }
+        guard invitationInternetReplyWindow === window else { end?(); return }
         window.endBackgroundTime = end
         window.deadline = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(30)) }
             catch { return }
-            self?.stopOrdinaryGroupInternetReply(id: id)
+            self?.stopInvitationInternetReply(id: id)
         }
-        let delays = [Duration.zero] + ordinaryGroupInternetReplyRetryDelays
+        let delays = [Duration.zero] + invitationInternetReplyRetryDelays
         window.task = Task { [weak self] in
-            defer { self?.stopOrdinaryGroupInternetReply(id: id) }
+            defer { self?.stopInvitationInternetReply(id: id) }
             for delay in delays {
                 do { if delay > .zero { try await Task.sleep(for: delay) } }
                 catch { return }
-                guard let self, let window = self.ordinaryGroupInternetReplyWindow, window.id == id,
-                      self.internetReplyWindowIsCurrent(window), self.hasInternetOrdinaryReplies(access: window.access)
+                guard let self, let window = self.invitationInternetReplyWindow, window.id == id,
+                      self.internetReplyWindowIsCurrent(window), self.hasInternetInvitationReplies(access: window.access)
                 else { return }
+                if !(await self.synchronizeInternetContactReplies(window)) { return }
                 if !(await self.synchronizeOrdinaryGroupInternetReplies(window)) { return }
             }
         }
     }
 
-    func stopOrdinaryGroupInternetReply(id: UUID? = nil) {
-        guard let window = ordinaryGroupInternetReplyWindow, id == nil || window.id == id else { return }
-        ordinaryGroupInternetReplyWindow = nil
+    func stopInvitationInternetReply(id: UUID? = nil) {
+        guard let window = invitationInternetReplyWindow, id == nil || window.id == id else { return }
+        invitationInternetReplyWindow = nil
+        activeInternetContactReplyIDs = []
         window.task?.cancel()
         window.deadline?.cancel()
         window.endBackgroundTime?()
     }
 
-    func reconcileOrdinaryGroupInternetReply() {
-        guard let window = ordinaryGroupInternetReplyWindow else { return }
-        if !internetReplyWindowIsCurrent(window) || !hasInternetOrdinaryReplies(access: window.access) {
-            stopOrdinaryGroupInternetReply(id: window.id)
+    func reconcileInvitationInternetReply() {
+        guard let window = invitationInternetReplyWindow else { return }
+        if !internetReplyWindowIsCurrent(window) || !hasInternetInvitationReplies(access: window.access) {
+            stopInvitationInternetReply(id: window.id)
+        } else {
+            activeInternetContactReplyIDs = Set(internetContactReplyRecords(access: window.access).map(\.id))
         }
     }
 
-    private func hasInternetOrdinaryReplies(access: CallNotificationServiceAccess) -> Bool {
+    private func hasInternetInvitationReplies(access: CallNotificationServiceAccess) -> Bool {
+        if !internetContactReplyRecords(access: access).isEmpty { return true }
         let now = Date().timeIntervalSince1970
         if !groupRepository.issuedOrdinaryGroupInvitations(now: now).isEmpty { return true }
         return groupRepository.pendingOrdinaryGroupReplies(now: now).contains {
@@ -92,7 +102,7 @@ extension IntercomViewModel {
         return owner
     }
 
-    private func synchronizeOrdinaryGroupInternetReplies(_ window: OrdinaryGroupInternetReplyWindow) async -> Bool {
+    private func synchronizeOrdinaryGroupInternetReplies(_ window: InvitationInternetReplyWindow) async -> Bool {
         let now = Date().timeIntervalSince1970
         for invitation in groupRepository.issuedOrdinaryGroupInvitations(now: now) {
             guard internetReplyWindowIsCurrent(window) else { return false }
@@ -109,7 +119,7 @@ extension IntercomViewModel {
                 catch { /* The pending receipt stays saved. */ }
             }
         }
-        return internetReplyWindowIsCurrent(window) && hasInternetOrdinaryReplies(access: window.access)
+        return internetReplyWindowIsCurrent(window) && hasInternetInvitationReplies(access: window.access)
     }
 
     private func internetReplyTarget(_ invitation: DirectInvitationContext) -> InternetReplyTarget? {
@@ -118,17 +128,17 @@ extension IntercomViewModel {
         return .init(invitation: invitation, savedCredential: saved, address: address)
     }
 
-    private func internetReplyWindowIsCurrent(_ window: OrdinaryGroupInternetReplyWindow) -> Bool {
-        ordinaryGroupInternetReplyWindow === window && allowsInternetOrdinaryReplies
+    func internetReplyWindowIsCurrent(_ window: InvitationInternetReplyWindow) -> Bool {
+        invitationInternetReplyWindow === window && allowsInternetInvitationReplies
             && groupDeliveryIsCurrent(window.access, accountID: window.generation)
     }
 
-    private func internetReplyIsCurrent(_ target: InternetReplyTarget, window: OrdinaryGroupInternetReplyWindow) -> Bool {
+    private func internetReplyIsCurrent(_ target: InternetReplyTarget, window: InvitationInternetReplyWindow) -> Bool {
         internetReplyWindowIsCurrent(window)
             && groupRepository.ordinaryGroupReplyCredential(for: target.invitation, now: Date().timeIntervalSince1970) == target.savedCredential
     }
 
-    private func receiveOrdinaryGroupInternetAcceptances(_ target: InternetReplyTarget, window: OrdinaryGroupInternetReplyWindow) async throws {
+    private func receiveOrdinaryGroupInternetAcceptances(_ target: InternetReplyTarget, window: InvitationInternetReplyWindow) async throws {
         let invitation = target.invitation, address = target.address
         guard let signer = ordinaryGroupInviterSigner(for: invitation) else { return }
         if !window.openedInvitationIDs.contains(invitation.id) {
@@ -146,7 +156,7 @@ extension IntercomViewModel {
         }
     }
 
-    private func submitOrdinaryGroupInternetAcceptance(_ target: InternetReplyTarget, window: OrdinaryGroupInternetReplyWindow) async throws {
+    private func submitOrdinaryGroupInternetAcceptance(_ target: InternetReplyTarget, window: InvitationInternetReplyWindow) async throws {
         let invitation = target.invitation, address = target.address
         guard let owner = internetOrdinaryReplyOwner(for: invitation, access: window.access),
               let pending = groupRepository.pendingInvitation(for: invitation.groupID), pending.invitation == invitation,

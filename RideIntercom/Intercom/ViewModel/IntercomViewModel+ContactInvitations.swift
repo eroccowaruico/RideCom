@@ -53,7 +53,7 @@ extension IntercomViewModel {
     @discardableResult
     func resumeContactInvitation(_ id: UUID, continuingInBackground: Bool = false) -> Bool {
         let routes = contactInvitationRoutes
-        guard canEditSavedGroups, !routes.isEmpty,
+        guard canEditSavedGroups,
               let record = groupRepository.contactInvitations.first(where: { $0.id == id }),
               record.canResume else { return false }
         guard !record.hasExpired(at: callAccessNow().timeIntervalSince1970) else {
@@ -62,6 +62,10 @@ extension IntercomViewModel {
             refreshGroupStorageStatus()
             return false
         }
+        if canTryContactInternetReply(record) {
+            requestInvitationInternetReply(restart: continuingInBackground)
+        }
+        guard !routes.isEmpty else { return activeInternetContactReplyIDs.contains(id) }
         if contactInvitationID == id, let session = contactInvitationSession, !session.isStopped {
             if continuingInBackground { requestContactInvitationBackgroundTime(for: session) }
             guard !session.isStopped else { return false }

@@ -22,6 +22,7 @@ final class IntercomViewModel {
     @ObservationIgnored var contactSessionFactory: (() -> CallSession)?
     @ObservationIgnored var contactInvitationSession: ContactInvitationSession?
     var contactInvitationID: UUID?
+    var activeInternetContactReplyIDs: Set<UUID> = []
     @ObservationIgnored var suspendedContactInvitation: (id: UUID, access: UUID)?
     @ObservationIgnored var contactInvitationExpiryTask: Task<Void, Never>?
     @ObservationIgnored var beginContactInvitationBackgroundTime: AppBackgroundTime.Request = {
@@ -50,8 +51,8 @@ final class IntercomViewModel {
     @ObservationIgnored var nearbyGroupDeliverySchedule = NearbyGroupDeliverySchedule()
     @ObservationIgnored var ordinaryGroupReplyExchanges: [OrdinaryGroupReplyExchange.Role: OrdinaryGroupReplyExchange] = [:]
     @ObservationIgnored var ordinaryGroupReplyBackgroundWindow: (id: UUID, end: (@MainActor () -> Void)?)?
-    @ObservationIgnored var ordinaryGroupInternetReplyWindow: OrdinaryGroupInternetReplyWindow?
-    @ObservationIgnored var ordinaryGroupInternetReplyRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(8)]
+    @ObservationIgnored var invitationInternetReplyWindow: InvitationInternetReplyWindow?
+    @ObservationIgnored var invitationInternetReplyRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(8)]
     @ObservationIgnored var beginOrdinaryGroupReplyBackgroundTime: AppBackgroundTime.Request = {
         AppBackgroundTime.begin(name: "Finish Group Invitation Reply", expiration: $0)
     }

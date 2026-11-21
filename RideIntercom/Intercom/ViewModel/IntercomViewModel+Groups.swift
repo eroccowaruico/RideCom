@@ -252,7 +252,7 @@ extension IntercomViewModel {
         if let accepted {
             if accepted.kind == .group {
                 resumeOrdinaryGroupReply(for: accepted)
-                requestOrdinaryGroupInternetReply(restart: true)
+                requestInvitationInternetReply(restart: true)
             }
             AppLoggers.app.info("app.deeplink.invite.accepted", metadata: InviteDeepLinkLog.accepted(groupID: accepted.id, kind: accepted.kind))
         } else {

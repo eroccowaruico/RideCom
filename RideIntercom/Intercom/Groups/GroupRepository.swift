@@ -1547,6 +1547,13 @@ extension GroupRepository {
         try setContactInvitationState(id, state: .delivered)
     }
 
+    func markContactInternetAcknowledged(_ id: UUID, receiptID: UUID) throws {
+        guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
+              record.direction == .outgoing, record.state == .confirmed, record.receiptID == receiptID,
+              record.internetAcknowledged != true else { return }
+        try amendContactInvitation(id, in: snapshot) { $0.internetAcknowledged = true }
+    }
+
     func cancelContactInvitation(_ id: UUID) throws {
         try setContactInvitationState(id, state: .cancelled)
     }

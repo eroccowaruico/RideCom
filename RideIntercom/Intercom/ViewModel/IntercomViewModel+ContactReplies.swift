@@ -40,8 +40,11 @@ extension IntercomViewModel {
 
     /// Equivalent to the bounded control exchange, without requiring any network or changing calls.
     func receiveContactReplyURL(_ url: URL) throws {
+        try applyContactReply(ContactReplyURL.decode(url), receivedBySharing: true)
+    }
+
+    func applyContactReply(_ receipt: DirectInvitationReceipt, receivedBySharing: Bool) throws {
         guard canEditSavedGroups else { throw ContactInvitationError.unavailable }
-        let receipt = try ContactReplyURL.decode(url)
         let now = callAccessNow().timeIntervalSince1970
         guard let context = receipt.invitation, now < context.expiresAt,
               let record = contactInvitationRecord(context.id), now < record.expiresAt else { throw ContactInvitationError.unavailable }
@@ -54,7 +57,8 @@ extension IntercomViewModel {
                   payload.receipt == nil || payload.receipt == receipt,
                   let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust(), now: now) else { throw GroupStorageError.identityConflict }
             do {
-                try groupRepository.confirmContactInvitation(verified, localDisplayName: localMemberIdentity.displayName, now: now, receivedBySharing: true)
+                try groupRepository.confirmContactInvitation(verified, localDisplayName: localMemberIdentity.displayName,
+                    now: now, receivedBySharing: receivedBySharing)
             } catch { reportGroupStorageError(error); throw error }
             adoptStoredContactRegistration(with: verified.identity.memberID, invitationID: record.id)
         case .acknowledged:
