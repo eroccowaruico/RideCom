@@ -122,8 +122,13 @@ struct AccountDirectCallTests {
         try f.introduce(b, to: a); try f.introduce(a, to: b)
         #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
         #expect(b.viewModel.selectUser(try #require(b.viewModel.savedRemoteUsers.first).id))
-        let au = try #require(a.viewModel.makeSelectedGroupInviteURL()), bu = try #require(b.viewModel.makeSelectedGroupInviteURL())
         let id = try #require(a.viewModel.selectedGroup?.id)
+        let originalA = try a.viewModel.groupRepository.credential(for: id)
+        let originalB = try b.viewModel.groupRepository.credential(for: id)
+        let initiallyMatched = originalA != nil && originalA == originalB
+        #expect(initiallyMatched)
+        try b.viewModel.groupRepository.save(b.viewModel.groups, credential: .init(groupID: id, secret: "conflicting-account-call-fixture"))
+        let au = try #require(a.viewModel.makeSelectedGroupInviteURL()), bu = try #require(b.viewModel.makeSelectedGroupInviteURL())
         let winner = try a.viewModel.groupRepository.credential(for: id)
         a.viewModel.disconnect(); b.viewModel.disconnect()
         try a.viewModel.acceptInviteURL(bu); try b.viewModel.acceptInviteURL(au)
@@ -147,6 +152,8 @@ struct AccountDirectCallTests {
             }
             let oldID = try #require(author.viewModel.selectedGroup?.id)
             #expect(recipient.viewModel.selectedGroup?.id == oldID)
+            try recipient.viewModel.groupRepository.save(recipient.viewModel.groups,
+                credential: .init(groupID: oldID, secret: "prior-account-call-fixture"))
             #expect(try author.viewModel.groupRepository.credential(for: oldID) != recipient.viewModel.groupRepository.credential(for: oldID))
         }
         let groupID = UUID()

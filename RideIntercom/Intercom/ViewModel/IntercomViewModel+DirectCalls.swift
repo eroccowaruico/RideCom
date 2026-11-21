@@ -59,8 +59,10 @@ extension IntercomViewModel {
             + remoteIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
         do {
             var devices: [String: AccountDeviceBinding] = [:]
+            var accountSigner: DeviceIdentitySigner?
             if let pair, let local = localAccountPrincipal, let remote = pair.other(than: local) {
                 let signer = try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+                accountSigner = signer
                 devices[signer.memberID] = .init(principal: local, publicKey: signer.publicKey)
                 for id in remoteIDs {
                     guard let key = user.deviceKeys?[id] else { throw GroupStorageError.identityConflict }
@@ -69,19 +71,29 @@ extension IntercomViewModel {
             }
             let group = try IntercomGroup(id: id, name: "Direct Call", members: members, kind: .direct,
                                          accountPair: pair, accountDevices: devices)
-            // A contact invitation already gave both sides one key for this device pair.
-            // Reuse it when the call resolves by account, so neither side invents another key.
-            let contactCall = remoteIDs.count == 1
-                ? IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, remoteIDs[0]]) : nil
-            let secret = try contactCall.flatMap { try groupRepository.credential(for: $0)?.secret }
-                ?? pendingOrdinaryGroupDirectCallSecret(for: user)
-                ?? SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
+            let secret = try initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner)
             try groupRepository.save([group] + groups, credential: .init(groupID: id, secret: secret))
             refreshGroupStorageStatus()
             groups.insert(group, at: 0)
             selectGroup(group, connectIfIdle: connectIfIdle)
             return true
         } catch { reportGroupStorageError(error); return false }
+    }
+
+    private func initialDirectCallSecret(for group: IntercomGroup, user: SavedUser,
+                                         accountSigner: DeviceIdentitySigner?) throws -> String {
+        if user.memberIDs.count == 1, let peer = user.memberIDs.first {
+            let deviceCallID = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, peer])
+            if let deviceCall = groupRepository.storedGroup(deviceCallID), deviceCall.kind == .direct, deviceCall.accountPair == nil,
+               let credential = try groupRepository.credential(for: deviceCallID) {
+                return credential.secret
+            }
+            if let accountSigner, let binding = group.accountDevices[peer] {
+                return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
+            }
+        }
+        return try pendingOrdinaryGroupDirectCallSecret(for: user)
+            ?? SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
     }
 
     private func pendingOrdinaryGroupDirectCallSecret(for user: SavedUser) throws -> String? {

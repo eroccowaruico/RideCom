@@ -112,6 +112,12 @@ nonisolated struct DeviceIdentitySigner: Sendable {
             .withUnsafeBytes { Data($0).base64EncodedString() }
     }
 
+    func accountDirectCallSecret(peerMemberID: String, peerPublicKey: String, callID: UUID) throws -> String {
+        try devicePairKey(peerMemberID: peerMemberID, peerPublicKey: peerPublicKey,
+                          domain: "rideintercom.account-direct-call.v1", context: [callID.uuidString])
+            .withUnsafeBytes { Data($0).base64EncodedString() }
+    }
+
     private func devicePairKey(peerMemberID: String, peerPublicKey: String,
                                domain: String, context: [String] = []) throws -> SymmetricKey {
         guard IntercomGroup.isValidMemberID(peerMemberID), !peerMemberID.hasPrefix("invite-pending-"),

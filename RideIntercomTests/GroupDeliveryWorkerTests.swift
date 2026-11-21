@@ -219,6 +219,21 @@ import Testing
             #expect(reopened.activeGroupID == nil)
             let persisted = try recipient.harness(knowing: [], onDisk: true).viewModel.groupRepository.pendingInvitation(for: invited) == nil
             #expect(persisted)
+
+            let personOnLeft = try #require(left.savedRemoteUsers.first)
+            let personOnRight = try #require(reopened.savedRemoteUsers.first)
+            let leftPrincipal = try author.principal, rightPrincipal = try recipient.principal
+            try #require(personOnLeft.principal == rightPrincipal && personOnRight.principal == leftPrincipal)
+            let pair = AccountCallPair(leftPrincipal, rightPrincipal)
+            try #require(left.existingDirectCall(for: personOnLeft.id) == nil && reopened.existingDirectCall(for: personOnRight.id) == nil)
+            left.disconnect()
+            try #require(left.startCall(to: .user(personOnLeft.id), accountAccessID: left.accountAccessID))
+            try #require(reopened.startCall(to: .user(personOnRight.id), accountAccessID: reopened.accountAccessID))
+            #expect(left.activeGroupID == pair.id && reopened.activeGroupID == pair.id)
+            let firstKey = try left.groupRepository.credential(for: pair.id)
+            let secondKey = try reopened.groupRepository.credential(for: pair.id)
+            let match = firstKey != nil && firstKey == secondKey
+            #expect(match)
         }
     }
 
