@@ -590,11 +590,11 @@ final class GroupRepository {
     }
 
     func issuedOrdinaryGroupInvitations(now: TimeInterval) -> [DirectInvitationContext] {
-        guard isWritable, let snapshot else { return [] }
+        guard let localMemberID, let snapshot else { return [] }
         return snapshot.issuedOrdinaryGroupInvitations.compactMap { issued in
             let invitation = issued.invitation
-            guard invitation.inviterMemberID == localMemberID, invitation.expiresAt > now,
-                  !missingCredentialGroupIDs.contains(invitation.groupID) else { return nil }
+            guard invitation.inviterMemberID == localMemberID,
+                  ordinaryGroupReplyCredentialReference(for: invitation, now: now) != nil else { return nil }
             return invitation
         }
     }
