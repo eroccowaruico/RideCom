@@ -4,7 +4,7 @@ import type { OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { verifyDeviceProof } from './DeviceIdentity'
 import { allowSealedInvitationSource, authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
-import { json, readJSON, sha256Hex, type Env } from './types'
+import { isRecord, json, readJSON, sha256Hex, type Env } from './types'
 
 export const ordinaryGroupReplyPrefix = '/api/ordinary-group-replies/'
 const hex = /^[a-f0-9]{64}$/
@@ -34,17 +34,16 @@ function replyExpiry(value: unknown): number {
     return value
 }
 
-async function contactReplyAdmission(value: unknown, owner: string, slot: string, origin: string, env: Env) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('body')
-    const admission = value as Record<string, unknown>
+async function contactReplyAdmission(admission: unknown, owner: string, slot: string, origin: string, env: Env) {
+    if (!isRecord(admission)) throw new Error('body')
     const deviceID = field(admission.deviceID, uuid, 36)
     const sessionBinding = field(admission.sessionBinding, hex, 64)
     const expiresAt = replyExpiry(admission.expiresAt)
     const proof = admission.proof
-    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) throw new Error('body')
+    if (!isRecord(proof)) throw new Error('body')
     const message = JSON.stringify([origin, sessionBinding, slot, expiresAt])
     const verified = await verifyDeviceProof({ userID: owner, deviceID, sessionBinding }, origin,
-        'openContactInvitationReply', message, proof as Record<string, unknown>, env)
+        'openContactInvitationReply', message, proof, env)
     return verified ? { deviceID, sessionBinding, expiresAt } : null
 }
 

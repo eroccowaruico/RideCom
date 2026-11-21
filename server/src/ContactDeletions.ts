@@ -1,6 +1,6 @@
 import { notificationAuth } from './AppleAccount'
 import { verifyDeviceProof } from './DeviceIdentity'
-import { json, readJSON, sha256Hex, type Env } from './types'
+import { isRecord, json, readJSON, sha256Hex, type Env } from './types'
 
 const path = '/api/contact-deletions'
 const hex = /^[a-f0-9]{64}$/
@@ -53,7 +53,7 @@ export async function contactDeletionRequest(request: Request, env: Env): Promis
         }
         const own = env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(auth.accountID))
         const index = (owner: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName(`user:${owner}`))
-        const body = await readJSON(request) as Record<string, unknown>
+        const body = await readJSON(request)
         const slot = field(body.slot, hex)
         const slotHash = await sha256Hex(slot)
 
@@ -81,12 +81,12 @@ export async function contactDeletionRequest(request: Request, env: Env): Promis
             const saved = await own.contactDeletionReceipt(auth, slotHash)
             return saved ? json({ receipt: saved }) : missing()
         }
-        if (owner === auth.userID || !body.proof || typeof body.proof !== 'object' || Array.isArray(body.proof)) return missing()
+        if (owner === auth.userID || !isRecord(body.proof)) return missing()
         const id = receipt ? field(body.id, uuid) : ''
         const sealedReceipt = receipt ? packet(body.packet) : ''
         const values = receipt ? [owner, slot, id, sealedReceipt] : [owner, slot]
         const proof = await verifyDeviceProof(auth, url.origin, receipt ? 'acknowledgeContactDeletionRelay' : 'readContactDeletion',
-            JSON.stringify(values), body.proof as Record<string, unknown>, env)
+            JSON.stringify(values), body.proof, env)
         if (!proof) return missing()
         const route = await index(owner).current()
         if (route?.userID !== owner || !await own.notificationAuthorized(auth)) return missing()
