@@ -693,9 +693,8 @@ final class GroupRepository {
            let local = source.members.first(where: { $0.id == signer.memberID }) {
             let id = IntercomGroup.directCallID(memberIDs: [signer.memberID, peer.memberID])
             if !groups.contains(where: { $0.id == id }) {
-                // Bind the fresh key to the signed receipt without using the ordinary group secret.
                 let secret = try signer.ordinaryGroupDirectCallSecret(peerMemberID: peer.memberID, peerPublicKey: peer.publicKey,
-                                                                     receiptID: receipt.id)
+                                                                     receiptID: receipt.deviceCallKeyReceiptID)
                 let direct = try IntercomGroup(id: id, name: "Direct Call",
                                                members: [local, .init(id: peer.memberID, displayName: name)], kind: .direct)
                 groups.append(direct)

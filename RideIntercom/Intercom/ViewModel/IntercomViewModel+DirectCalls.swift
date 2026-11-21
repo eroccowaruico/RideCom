@@ -91,7 +91,7 @@ extension IntercomViewModel {
               let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: localKey),
               signer.principal == nil else { return nil }
         return try signer.ordinaryGroupDirectCallSecret(peerMemberID: receipt.inviterMemberID, peerPublicKey: peerKey,
-                                                        receiptID: receipt.id)
+                                                        receiptID: receipt.deviceCallKeyReceiptID)
     }
 
     private func directCallTarget(for user: SavedUser) -> (id: UUID, pair: AccountCallPair?)? {

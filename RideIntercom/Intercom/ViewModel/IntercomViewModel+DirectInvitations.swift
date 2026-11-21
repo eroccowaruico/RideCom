@@ -50,7 +50,8 @@ extension IntercomViewModel {
             let token = try GroupInviteToken.make(authority: invitationAuthority, signer: signer,
                 groupID: group.id, groupName: group.name, groupSecret: credential.secret,
                 inviterMemberID: localMemberIdentity.memberID, inviterDisplayName: localMemberIdentity.displayName,
-                recipientMemberID: directCallRecipient(for: group), recipientAccount: directCallAccountRecipient(for: group))
+                recipientMemberID: directCallRecipient(for: group), recipientAccount: directCallAccountRecipient(for: group),
+                deviceCallKeyVersion: group.kind == .group && signer.principal == nil ? .devicePair : nil)
             let url = try GroupInviteTokenCodec.joinURL(for: token)
             if group.kind == .group, let invitation = token.directInvitation?.context {
                 try groupRepository.rememberIssuedOrdinaryGroupInvitation(invitation, now: Date().timeIntervalSince1970)
