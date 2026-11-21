@@ -131,6 +131,7 @@ export class UserAccount extends DurableObject<Env> {
     }
     async groupInvitationBegin(value: NotificationGroupInvitation) { const result = this.notifications.beginInvitation(value); await this.scheduleExpiry(); return result }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
+    groupInvitationStatus(userID: string, requestID: string) { return this.notifications.invitationStatus(userID, requestID) }
     groupInvitationIDsForAdditionalDevice(auth: NotificationAuth, recipientKey: string) {
         return this.notifications.invitationIDsForAdditionalDevice(auth, recipientKey)
     }
@@ -438,6 +439,7 @@ export class UserAccount extends DurableObject<Env> {
 
     private prune() {
         this.notifications.prune()
+        this.notifications.pruneGroupInvitationResults()
         this.notifications.pruneUnstoredGroupCancellations()
         this.contactDeletions.prune()
         this.ordinaryGroupReplies.prune()

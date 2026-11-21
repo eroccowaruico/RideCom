@@ -107,7 +107,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         const groupRoute = path.match(/^\/api\/notifications\/group-invitations\/([a-f0-9]{64})\/([a-f0-9-]{36})$/i)
         if (groupRoute && uuidPattern.test(groupRoute[2]) && ['GET', 'DELETE'].includes(method)) {
             const recipient = groupRoute[1].toLowerCase(), id = groupRoute[2].toLowerCase(), receiver = await target(env, recipient)
-            const value = await receiver?.groupInvitationGet(recipient, id)
+            const value = await receiver?.groupInvitationStatus(recipient, id)
             if (!value) {
                 if (method !== 'DELETE' || auth.userID === recipient) return json({ error: 'Not found' }, 404)
                 const result = await owner.groupInvitationCancelUnstored(auth, recipient, id)
@@ -119,7 +119,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 }
                 return json({ error: 'Not found' }, 404)
             }
-            if (!await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.sender.userID)
+            if (!await owner.notificationAuthorized(auth) || (auth.userID !== recipient && auth.userID !== value.senderUserID)
                 || (auth.userID === recipient && value.recipientDeviceID !== undefined && value.recipientDeviceID !== auth.deviceID)) {
                 return json({ error: 'Not found' }, 404)
             }

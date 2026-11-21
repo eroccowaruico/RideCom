@@ -651,7 +651,10 @@ test('early group cancellations are bounded per sender and expire', { timeout: 1
         assert.equal((await cancel(a, randomUUID())).status, 429);
         assert.equal((await cancel(b, randomUUID())).status, 404, 'The limit is local to the sender');
         await r.dispose();
-        r = await setup({}, undefined, { storageDirectory, fixedNowMs: now + 7 * 86400000 + 300000 });
+        r = await setup({}, undefined, { storageDirectory, fixedNowMs: now + 8 * 86400000 });
+        assert.equal((await cancel(a, randomUUID())).status, 429, 'The cancel-before-storage records survive the invitation window');
+        await r.dispose();
+        r = await setup({}, undefined, { storageDirectory, fixedNowMs: now + 28 * 86400000 });
         assert.equal((await cancel(a, randomUUID())).status, 404, 'Expired cancellations release their slots');
     } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
 });
@@ -690,6 +693,63 @@ test('group invitation lifetime tolerates a small device clock difference but st
         assert.equal((await call(r, '/api/notifications/group-invitations', body, a.accessToken)).status, 200);
         assert.equal((await call(r, '/api/notifications/group-invitations', { ...body, requestID: randomUUID(), expiresAt: Date.now() + 7 * 86400000 + 600000 }, a.accessToken)).status, 400);
     } finally { await r.dispose(); }
+});
+
+test('group invitation outcomes survive the invite deadline for up to 28 days from storage', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-outcome-retention-'));
+    const day = 86_400_000, now = Date.now();
+    const at = fixedNowMs => setup({}, undefined, { storageDirectory, fixedNowMs });
+    let r = await at(now);
+    try {
+        const sender = await login(r, 'retained-outcome-sender');
+        const receiver = await login(r, 'retained-outcome-receiver');
+        const other = await login(r, 'retained-outcome-unrelated');
+        const path = '/api/notifications/group-invitations';
+        const grant = await call(r, path + '/grants', { senderUserID: sender.userID }, receiver.accessToken);
+        assert.equal(grant.status, 200);
+        const { capability } = await grant.json();
+        const expiresAt = now + 7 * day;
+        const make = key => ({ requestID: randomUUID(), capability, expiresAt,
+            recipientKey: key.repeat(87), envelope: Buffer.from('opaque invitation').toString('base64') });
+        const received = make('r'), cancelled = make('c'), pending = make('p');
+        const item = id => `${path}/${receiver.userID}/${id}`;
+        const lookup = (request, user = sender) => call(r, item(request.requestID), undefined, user.accessToken, 'GET');
+        const finish = (request, user) => call(r, item(request.requestID), undefined, user.accessToken, 'DELETE');
+        for (const request of [received, cancelled, pending]) {
+            assert.equal((await call(r, path, request, sender.accessToken)).status, 200);
+        }
+        assert.deepEqual(await (await finish(received, receiver)).json(), { status: 'received' });
+        assert.deepEqual(await (await finish(cancelled, sender)).json(), { status: 'cancelled' });
+
+        await r.dispose(); r = await at(now + 8 * day);
+        for (const [request, status] of [[received, 'received'], [cancelled, 'cancelled']]) {
+            const response = await lookup(request);
+            assert.equal(response.status, 200);
+            assert.deepEqual(await response.json(), { requestID: request.requestID, expiresAt, status });
+            assert.deepEqual(await (await finish(request, receiver)).json(), { status });
+            assert.equal((await lookup(request, other)).status, 404);
+        }
+        assert.equal((await lookup(pending)).status, 404);
+        assert.equal((await finish(pending, receiver)).status, 404);
+        const inbox = await call(r, path + '?recipientKey=' + pending.recipientKey, undefined, receiver.accessToken, 'GET');
+        assert.deepEqual(await inbox.json(), { delivery: null });
+        const additional = await call(r, item(received.requestID) + '/additional-devices', undefined, sender.accessToken, 'GET');
+        assert.equal(additional.status, 404);
+        assert.equal((await call(r, path, received, sender.accessToken)).status, 400);
+        const fresh = { ...received, expiresAt: now + 9 * day };
+        assert.equal((await call(r, path, fresh, sender.accessToken)).status, 409);
+        assert.equal((await call(r, path, { ...fresh, requestID: randomUUID() }, sender.accessToken)).status, 200);
+
+        await r.dispose(); r = await at(now + 28 * day - 1);
+        assert.equal((await lookup(received)).status, 200);
+        assert.equal((await lookup(cancelled)).status, 200);
+        await r.dispose(); r = await at(now + 28 * day);
+        assert.equal((await lookup(received)).status, 404);
+        assert.equal((await lookup(cancelled)).status, 404);
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
 });
 
 test('the original sender can read a certified additional device for a live group invitation', async () => {
