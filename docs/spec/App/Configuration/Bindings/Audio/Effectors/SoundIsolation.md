@@ -23,7 +23,7 @@ Settings の `Voice Isolation Effect` は送信用 `SoundIsolation` package の 
 |---|---|
 | chain ごとの有効設定が `true` かつ `VoiceIsolationSupport.isAvailable == true` | 該当 bus の effect chain に `VoiceIsolationEffect` を挿入する |
 | chain ごとの有効設定が `true` かつ `VoiceIsolationSupport.isAvailable == false` | Toggle を非表示にし、support reportで非対応とする。存在しないnodeをchainへ捏造しない |
-| chain ごとの有効設定が `false` | 実Audio Unitのbypassを有効にし、runtime chain snapshot では bypassed stage として返し、Diagnostics はその snapshot を表示する。実音声処理では no-op / bypass として扱い、App 側で別の表示用 stage を作らない |
+| chain ごとの有効設定が `false` | 実Audio Unitのbypassを有効にし、runtime chain snapshot では bypassed stage として返す。Diagnostics はその snapshot を表示する。実音声処理では no-op / bypass として扱い、App 側で別の表示用 stage を作らない |
 
 ## App 画面に出さない値
 

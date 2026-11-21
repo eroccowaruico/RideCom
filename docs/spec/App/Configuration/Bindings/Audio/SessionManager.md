@@ -16,7 +16,7 @@
 | `preferredInput` | `selectedInputDevice` | 画面設定 | requested / current input |
 | `preferredOutput` | `selectedOutputDevice` | 画面設定 | requested / current output |
 
-既定は `Burst mode` + `Use Speaker = false` + `Echo Cancellation = true` とし、Duck Other Audio も opt-in ON から開始する。`voiceChat + prefersEchoCancelledInput` は不正な組み合わせのため UI に出さない。`defaultToSpeaker = true` は speaker 出力希望としてだけ App から渡し、`mode == .default` で speaker 向け echo cancellation を有効化するかは `SessionManager` の resolved configuration / report を正とする。`mode == .voiceChat` では明示的な `prefersEchoCancelledInput` を使わない。
+既定は `Burst mode` + `Use Speaker = false` + `Echo Cancellation = true` とする。Duck Other Audio も opt-in ON から開始する。`voiceChat + prefersEchoCancelledInput` は不正な組み合わせのため UI に出さない。`defaultToSpeaker = true` は speaker 出力希望としてだけ App から渡す。`mode == .default` で speaker 向け echo cancellation を有効化するかは `SessionManager` の resolved configuration / report を正とする。`mode == .voiceChat` では明示的な `prefersEchoCancelledInput` を使わない。
 
 | UI 状態 | `mode` | App が渡す `defaultToSpeaker` | App が渡す `prefersEchoCancelledInput` | SessionManager resolved |
 |---|---|---:|---:|---|
@@ -36,7 +36,7 @@
 | `bufferFrameCount` | `128` | 固定 | start operation report |
 | `voiceProcessing` | `AudioInputVoiceProcessingConfiguration` の導出値 | 画面設定と再生状態から導出 | input stream snapshot `inputVoiceProcessing` |
 
-入力 stream の初期適用、未開始時更新、実行中更新はすべて `AudioInputStreamCapture.updateVoiceProcessing(_:)` と `start()` の report/event で確認する。App は `AudioInputVoiceProcessingManager` や `AVAudioInputNode` を保持しない。
+入力 stream の初期適用、開始前と実行中の更新を確認する。どれも `AudioInputStreamCapture.updateVoiceProcessing(_:)` と `start()` の report/event で確認する。App は `AudioInputVoiceProcessingManager` や `AVAudioInputNode` を保持しない。
 
 ## AudioInputVoiceProcessingConfiguration
 

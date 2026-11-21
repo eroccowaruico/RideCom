@@ -11,7 +11,7 @@
 | パス | `RideIntercom/packages/Audio/Codec` |
 | Product | `Codec` library |
 | 依存 | `AudioCore` |
-| 実装基盤 | `Foundation`, `CoreAudioTypes`, `CoreMedia`, `AVFAudio`, `AVAudioConverter`。AAC cookieの形式解釈は`CoreMedia`の公開APIを使う |
+| 実装基盤 | `Foundation`、`CoreAudioTypes`、`CoreMedia`、`AVFAudio`、`AVAudioConverter`。AAC cookieの形式解釈は`CoreMedia`の公開APIを使う |
 | 対応プラットフォーム | iOS/iPadOS/macOS/watchOS 27.0 以降。codecごとのhardware条件は下表のとおり |
 | Swift | Swift `6` |
 | テスト | Swift Testing の SwiftPM テスト |
@@ -86,7 +86,7 @@ PCMFrame(format A)
 | codec | 想定用途 | 運用上の注意 |
 |---|---|---|
 | `pcm16` | fallback、テスト基準、環境差を受けないpacket audio | bitrateは高い。低帯域transportでは別codecを検討する |
-| `mpeg4AACELDv2` | Apple環境での低遅延音声候補 | availability は OS / SDK / 実行環境の AudioConverter 実装に依存する |
+| `mpeg4AACELDv2` | Apple環境での低遅延の音声候補 | availability は OS / SDK / 実行環境の AudioConverter 実装に依存する |
 | `opus` | 低bitrate packet audio候補 | availability は OS / SDK / 実行環境の AudioConverter 実装に依存する |
 
 `CodecSupport.isEncodingAvailable` は変換器の生成に加え、指定format / bit rateで20msのPCMを実際にencodeする。`isDecodingAvailable` はdecoderの生成可否を表す。`CodecRuntimeReport.availableCodecs` はさらに実encode/decode後のsample数・有限値・非無音を確認する。変換器の生成だけ成功し、実変換が失敗する組合せを使用可能として広告しない。PCM16 は外部依存がないため常に available とする。
@@ -100,7 +100,7 @@ PCMFrame(format A)
 | AAC-ELD / AAC-ELD v2 | encoderのcookieと基本形式から`CMAudioFormatDescriptionCreate`で形式一覧を作り、`CMAudioFormatDescriptionGetMostCompatibleFormat`でnative core形式を復元する。cookieを復号器へ渡す | 同じ公開APIと変換経路を使い、OS名で一律に除外しない |
 | capability / 選択 | nativeの実変換結果を反映する | 同じ実行時判定を使う。SDKでのコンパイルは、実端末の全format / bitrateの対応を保証しない |
 
-codecの識別子・payload・priming・cookieはOS間で変えない。watchOS専用の符号化器やpayloadを追加しない。AACのcookieを単に`AVAudioFormat`へ設定した基本形式はframe数が0のままの場合があるため、CoreMediaの形式一覧から480 / 512 sampleの周期とELDv2のcore sample rate / channel数を取得する。cookieが欠落・不正で有効なnative frame数を復元できなければ形式生成失敗とする。AAC bit列を独自解析しない。
+codecの識別子・payload・priming・cookieはOS間で変えない。watchOS専用の符号化器やpayloadを追加しない。AACのcookieを単に`AVAudioFormat`へ設定した基本形式はframe数が0のままの場合がある。そのため、CoreMediaの形式一覧から480 / 512 sampleの周期とELDv2のcore sample rate / channel数を取得する。cookieが欠落・不正で有効なnative frame数を復元できなければ形式生成失敗とする。AAC bit列を独自解析しない。
 
 直接の`CodecEncoder` / `CodecDecoder` / `StreamingCodecEncoder` / `StreamingCodecDecoder`は非対応codecをPCMへ置き換えない。既存の`CodecRuntimeReport.resolving`は要求・選択結果・`isFallback`を明示し、呼出側が選択結果を適用する契約を維持する。
 
@@ -156,7 +156,7 @@ codecの識別子・payload・priming・cookieはOS間で変えない。watchOS�
 | priming frame count | encoderの初期遅延を復号PCMから除き、元の語尾を残す |
 | data | compressed bytes |
 
-AAC / Opus の payload は raw compressed bytes ではない。Codec package 専用 envelope として transport し、外部decoderへ直接渡さない。
+AAC / Opusでは生の圧縮バイト列をそのままpayloadにしない。Codec package 専用 envelope として transport し、外部decoderへ直接渡さない。
 
 ## Format Policy
 
@@ -262,7 +262,7 @@ RideComのLocal / Internet / 中継は同じ符号化済みpacket経路を使い
 
 bit rateはAVAudioFormatの辞書だけでなく、生成したAVAudioConverterのbitRateへ設定する。圧縮bufferは対応codecの最小packet時間とflush分から容量を決め、PCM sample数と同数の最大packetを確保しない。独立frameのCodecEncoderでは非空PCMに圧縮packetが返らない場合は変換失敗とする。StreamingCodecEncoderではnative packetが未完成ならnilを返し、次の入力で継続する。
 
-streamのnative packet frame数はencoder初期化時に一度取得する。AACはencoderのcookieを共通のCoreMedia経路で解釈し、Opusは`AVAudioConverter.outputFormat`を使う。core sample rateが入力PCMと異なるELDv2では、core frame数をPCMのsample rate比で換算し、buffer容量・sample数・時刻・priming・周期差を同じPCM単位で扱う。frame数が0、不正または非整数の換算なら形式生成失敗とする。packet descriptionに可変frame数があればそれを優先し、同じsample rate比で換算する。毎packetの形式取得は行わず、cookieの送付を維持する。
+streamのnative packet frame数はencoder初期化時に一度取得する。AACはencoderのcookieを共通のCoreMedia経路で解釈し、Opusは`AVAudioConverter.outputFormat`を使う。core sample rateが入力PCMと異なるELDv2では、core frame数をPCMのsample rate比で換算する。そのうえでbuffer容量・sample数・時刻・priming・周期差を同じPCM単位で扱う。frame数が0、不正または非整数の換算なら形式生成失敗とする。packet descriptionに可変frame数があればそれを優先し、同じsample rate比で換算する。毎packetの形式取得は行わず、cookieの送付を維持する。
 
 [Appleのcodec変換例](https://developer.apple.com/documentation/AudioToolbox/encoding-and-decoding-audio)に従い、encoderのmagic cookieを復号器へ引き渡す。decoderの出力bufferには元frame数に初期遅延を加えた容量を用意し、先頭の初期遅延を除去してから元sample数を取り出す。毎packetの先頭に初期無音を残し、末尾を切り落とすことを防ぐ。primingは8,192 frames、magic cookieは16 KiBを上限としてallocation前に検証する。compressed envelopeのpriming frame countは必須であり、この情報を持たない旧payloadは拒否する。
 
@@ -282,7 +282,7 @@ streamのnative packet frame数はencoder初期化時に一度取得する。AAC
 | finish() | 有限streamの末尾をnative EOSで送り切り、残packetを返す。末尾のpaddingはsampleCountから復号時に除去し、元の音声時間を維持する。入力前・二度目のfinishは空配列。次のencodeは新しいstream identityと独立したnative履歴で開始する。通常streamのencodeにはEOSを追加しない |
 | suppressesSilence | 既定false。trueでは完全な0の入力が100ms続くまでnative末尾を送り、その後は符号化とpacket生成を休止する。音量閾値による小声の除去はしない。次の非無音入力を同じ呼出しで処理し、省略した時刻の不連続によりstream identityとnative履歴を更新する。各packetにcookieを保持し、信頼あり通信への依存を追加しない |
 | Opus | native frameは5msのCELT-only。10ms入力の2frameを同じ送信packetに格納し、送信回数を増やさず、既定48kbpsで短時間の波形乱れを抑える。24／32kbpsは音質低下を許容する手動候補。制約付き可変bitrateで短い変化へbitを配分し、選択したbitrateをstreamの目標として維持する。既定20msのpacket完成待ちを減らす |
-| AAC-ELD | ELD v1 monoのnative変換。480sample/frame（48/24/16kHzで10/20/30ms）。long-term average bitrateで発話過渡音と無音へのbit配分を行う |
+| AAC-ELD | ELD v1 monoのnative変換。480sample/frame（48/24/16kHzで10/20/30ms）。long-term average bitrateで発話の過渡音と無音へbitを配分する |
 | availableEncodingBitRates | OSが当該codec/PCM formatで受け入れるencode bitrate一覧。App側の品質下限とは別の能力情報 |
 | stream identity | UUIDをpayloadに含め、入力clockが2sampleを超えて不連続ならencoder履歴をリセットしてidentityを更新 |
 | 無音復帰のpriming | 新streamの先頭にnative 1packet分の無音を内部で供給する。primingFrameCountで明示し、復号時に初期欠落分とともに消費して再生へ出さない。Opusの初期2.5msで発話を削らず、無音prefixによる再生待ちも増やさない |
@@ -300,7 +300,7 @@ compressed envelopeはFoundation JSONのCodableを維持し、内部CodingKeys�
 
 Streamingの外側EncodedCodecFrameのsampleCountとcapturedAtは、内部primingと有限stream末尾のpaddingを除いた実音声を表す。native packet数・buffer容量を表すenvelope内のsourceFrameCountとは区別する。復号後にもprimingを足し直さず、実音声時刻を保持する。
 
-Opusの公開範囲は24〜128kbpsとし、初期化・Codable読み込み・property変更の各入口で共通に正規化する。24kbpsは今回検証して提供する製品上の下限であり、OSの技術下限ではない。24／32kbpsは帯域節約のため波形誤差の増加を許容する手動候補で、既定・品質推奨の48kbpsを置き換えない。既定48kbpsでは、16bit量子化を含む12位相×3振幅×2入力の72条件で、2ms窓の波形誤差上限0.006を維持する。低帯域専用試験は16／24／48kHzの実native bitrate・復号・短い音声の連続性・符号化payload削減を確認し、この波形基準を緩めない。OSの対応値とAppの選択肢はそれぞれ別の契約とする。[比較と検証記録](../../../validation/history/低帯域codecの通信なし比較.md)を参照。
+Opusの公開範囲は24〜128kbpsとし、初期化・Codable読み込み・property変更の各入口で共通に正規化する。24kbpsは今回検証して提供する製品上の下限であり、OSの技術下限ではない。24／32kbpsは帯域節約のため波形誤差の増加を許容する手動候補で、既定・品質推奨の48kbpsを置き換えない。既定48kbpsでは、16bit量子化を含む12位相×3振幅×2入力の72条件で、2ms窓の波形誤差上限0.006を維持する。低帯域に特化した試験は16／24／48kHzの実native bitrate・復号・短い音声の連続性・符号化payload削減を確認し、この波形基準を緩めない。OSの対応値とAppの選択肢はそれぞれ別の契約とする。[比較と検証記録](../../../validation/history/低帯域codecの通信なし比較.md)を参照。
 
 継続streamの受信では、無音後にstream IDだけ変わりcodec・PCM format・magic cookieが一致する場合、専有decoderを`reset()`して再利用する。設定が変わる場合はnative converterを作り直す。履歴を共有せず、独立decoderと同じ全sample結果（明示的な復帰fade込み）になることを16/24/48kHzのOpus/AACで検証する。
 
@@ -308,4 +308,4 @@ Opusの公開範囲は24〜128kbpsとし、初期化・Codable読み込み・pro
 
 StreamingCodecEncoderは入力quantumとnative codec frameの剰余が生む送出間隔の揺れを計算する。両者のsample数の最大公約数を使い、`min(最大入力quantum, native frame) - gcd` sampleだけを上限とする。20ms入力・16kHz AAC-ELDの30ms frameでは10ms、整合する10ms入力では0となる。codec名による受信側分岐や一律の再生待ちは追加しない。
 
-0でない場合だけpayloadの任意key `j` にsample数を付ける。既存payloadで省略された場合は0とし、未知keyを無視する旧decoderとの後方互換を維持する。通常は0〜480 sample、ELDv2はPCM換算後のnative周期に合わせ最大1,024 sampleに制限し、StreamingCodecDecoderの`packetizationJitterDuration`へ秒で公開する。上限480はAAC-ELDのnative frame sizeであり、最小対応8kHzでは60msとなる。ELDv2はcoreの512 sampleがPCMの1,024 sampleに相当する組合せがある。PCMと周期が整合するcodecではfield自体を送らない。無音抑制・codec履歴・元の音声timestampは変更しない。
+0でない場合だけpayloadの任意key `j` にsample数を付ける。既存payloadで省略された場合は0とし、未知keyを無視する旧decoderとの後方互換を維持する。通常は0〜480 sample、ELDv2はPCM換算後のnative周期に合わせて上限を1,024 sampleとし、StreamingCodecDecoderの`packetizationJitterDuration`へ秒で公開する。上限480はAAC-ELDのnative frame sizeであり、最小対応8kHzでは60msとなる。ELDv2はcoreの512 sampleがPCMの1,024 sampleに相当する組合せがある。PCMと周期が整合するcodecではfield自体を送らない。無音抑制・codec履歴・元の音声timestampは変更しない。

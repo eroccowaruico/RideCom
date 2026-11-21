@@ -184,7 +184,7 @@ flowchart TB
 
 | 対象 | 状態の所有者 | 生成・変更・解放 | 経路変更時 |
 |---|---|---|---|
-| 音声エンジン・bus/source/sink・effect順序 | AudioMixer | compositionがgraphを指定、Mixerが接続・format変換・合成・停止を実行 | 同じgraphを維持 |
+| 音声エンジン・bus/source/sink・effect順序 | AudioMixer | compositionがgraphを指定、Mixerが接続・format変換・合成・停止を担う | 同じgraphを維持 |
 | DSP内部状態・パラメータ | 各Effector / AVAudioUnit | busごとに独立instance。bypass/parameter更新で同一nodeを変更 | リセットしない |
 | peer音量 | Mixer source fader | origin peer IDに対する設定をcompositionから渡す | route/gateway IDではなく同じ話者に追従 |
 | TX / RX master音量とmute | Mixer bus fader / input gate | ユーザー設定で更新 | 同じ設定を維持 |
@@ -192,7 +192,7 @@ flowchart TB
 | 認証・重複・経路・中継・ネットワーク待ち | RTC | session/peer lifecycleに従い初期化。配送特性は音声と制御で分ける | 残った経路を維持 |
 | 選択設定・graphの組み合わせ・callback寿命 | App composition | package生成・接続・停止。DSP計算や経路選択は持たない | 音声所有者を切り替えない |
 
-EffectorはMixerそのものでも通信routeでもない。Mixerは注入されたAVAudioNodeを順序どおり実行し、各Effectorの種類を知る必要がない。同じnode instanceを複数peerのbusへ共有しない。Appは標準effectの組み合わせを一箇所で決め、DiagnosticsにはMixerの実snapshotを渡す。外部plugin探索・追加のregistry・中間packageは設けない。
+EffectorはMixerそのものや通信routeとは別である。Mixerは注入されたAVAudioNodeを順序どおり実行し、各Effectorの種類を知る必要がない。同じnode instanceを複数peerのbusへ共有しない。Appは標準effectの組み合わせを一箇所で決め、DiagnosticsにはMixerの実snapshotを渡す。外部plugin探索・追加のregistry・中間packageは設けない。
 
 ## 差し替え実装の受け入れ契約
 

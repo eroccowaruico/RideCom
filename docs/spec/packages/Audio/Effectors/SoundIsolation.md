@@ -1,6 +1,6 @@
 # SoundIsolation 仕様
 
-SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideCom の音声パイプラインから再利用しやすい Swift Package として切り出したエフェクトライブラリである。
+SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を扱うエフェクトライブラリである。RideCom の音声パイプラインで再利用するため、Swift Package に分けている。
 
 このライブラリはマイク入力、受信音声、ミキサー出力など任意の `AVAudioEngine` ノードチェーンに差し込める音声分離エフェクトだけを扱う。音声ルーティング、通信、コーデック、録音、再生デバイス制御は責務に含めない。
 
@@ -8,8 +8,8 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideCom �
 
 | 観点 | 仕様 |
 |---|---|
-| 主目的 | `kAudioUnitSubType_AUSoundIsolation` を `AVAudioUnitEffect` として生成し、任意の `AVAudioEngine` グラフに挿入できるようにする |
-| 利用箇所 | マイク入力後、受信音声再生前、個別チャンネル、マスター出力前など、呼び出し側が選んだ位置 |
+| 主目的 | `kAudioUnitSubType_AUSoundIsolation` を `AVAudioUnitEffect` として生成し、任意の `AVAudioEngine` グラフへの挿入を可能にする |
+| 利用箇所 | マイク入力後、受信音声の再生前、個別チャンネル、マスター出力前など、呼び出し側が選んだ位置 |
 | 非目的 | VoiceProcessingIO への固定、マイク権限管理、Audio Session 管理、通信経路への組み込み、音声仕様全体の変更 |
 | 設計姿勢 | Audio Unit の存在確認、設定値の正規化、パラメータ適用だけを薄く包む |
 
@@ -47,7 +47,7 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideCom �
 | componentFlags | `0` |
 | componentFlagsMask | `0` |
 
-`VoiceIsolationSupport.isAvailable` は `AudioComponentFindNext` で現在の実行環境に `AUSoundIsolation` が存在するか確認する。呼び出し側はこの値を見て、設定UIの有効化やフォールバック経路の選択を行う。
+`VoiceIsolationSupport.isAvailable` は `AudioComponentFindNext` で現在の実行環境に `AUSoundIsolation` が存在するか確認する。呼び出し側はこの値を見て、設定UIを有効にするか、フォールバック経路を使うかを選ぶ。
 
 ## 設定仕様
 
@@ -79,7 +79,7 @@ SoundIsolation は Apple 標準の `AUSoundIsolation` Audio Unit を、RideCom �
 
 | 処理 | 仕様 |
 |---|---|
-| 生成 | `VoiceIsolationEffect.make(configuration:)` が `AUSoundIsolation` の存在確認後に `AVAudioUnitEffect(audioComponentDescription:)` で生成する |
+| 生成 | `VoiceIsolationEffect.make(configuration:)` が `AUSoundIsolation` の存在を確認する。確認後、`AVAudioUnitEffect(audioComponentDescription:)` で生成する |
 | ノード取得 | `VoiceIsolationEffect.node` で `AVAudioNode` として取得する |
 | 詳細アクセス | `VoiceIsolationEffect.avAudioUnitEffect` で `AVAudioUnitEffect` として取得する |
 | 設定適用 | `VoiceIsolationEffect.apply(_:)` が Audio Unit parameter tree に Wet/Dry Mix と Sound Type を設定する |
@@ -137,7 +137,7 @@ engine.connect(isolation.node, to: engine.mainMixerNode, format: format)
 |---|---|
 | `make(configuration:) throws` | 組込みApple Audio Unitを存在確認後に同期生成し、設定を適用して返す。audio render callbackからは呼ばない |
 | グラフ構成 | node生成・設定・busへの挿入を同じ構成工程で完了できる。生成待ちの古いcallbackが新しいgraphへ混入しない |
-| 検証 | 実Audio Unitの生成、parameterの再適用、runtime snapshot一致を実行する |
+| 検証 | 実Audio Unitの生成、parameterの再適用、runtime snapshotの一致を検証する |
 
 任意の外部AU extensionの非同期ロードは対象外。旧async factoryは残さず、Apple SDKのEffect initializerを使用する。
 

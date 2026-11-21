@@ -75,7 +75,7 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 
 [CloudflareのRate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)はlocation単位で非同期に集計する近似制限であり、分散攻撃の厳密な全世界上限・請求額上限ではない。共有回線では登録枠を共有する。公開時のedge対策・請求監視・緊急停止は別途整備する。
 
-このserver実装は公開運用の完了ではない。Apple認可取消とAppからの削除は後述の契約を実装済みであり、実サービス受入・削除対象サービスの範囲・サーバー通知は後続工程とする。登録成功応答を失った場合は新しいnonceで再認証する。端末の自己資格失効後は新規APIとlease更新を拒否し、成立済みのmedia・WebSocketは現在のlease回収まで残り得る。アカウント削除では次節の即時回収を開始する。
+このserver実装は公開運用の完了ではない。Apple認可取消とAppからの削除は後述の契約を実装済みであり、実サービス受入・削除対象サービスの範囲・サーバー通知は後続工程とする。登録成功応答を失った場合は新しいnonceで再認証する。端末が自身の資格を失効させた後は新規APIとlease更新を拒否し、成立済みのmedia・WebSocketは現在のlease回収まで残り得る。アカウント削除では次節の即時回収を開始する。
 
 ### ユーザーと端末の署名付き証明
 
@@ -92,13 +92,13 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 
 `sessionBinding` は `ri1` の末尾の秘密をUTF-8としてSHA-256にかけ、小文字hexにしたサーバー保存値を、もう一度UTF-8としてSHA-256にかけた小文字hex。証明発行時に、既存の公開アカウント索引へ証明の発行者を端末資格の期限まで登録する。通知の配信設定とは独立している。索引は受信者の登録・通知許可の発行と共有し、アカウント削除で回収する。[背景用のグループ招待](通知.md#背景用の一件分のグループ招待を受け付ける)は、証明内の値と現行端末資格の値を照合する。同じ端末IDで再ログインしても古い証明を新しいセッションに使えない。既存の招待・受領で使用する端末鍵と公開IDは同じ形式で扱う。
 
-署名鍵の変更時にはAppで証明と信頼する公開鍵を再取得する。期限切れ・未知の署名鍵の証明で新しい同一人物の統合を行わない。Local通話の開始をこのAPI呼出しへ従属させず、公開identityが未取得でも既存のAppleログイン・グループ認証の経路は維持する。公開通知を追加する際は、受取側の用途別許可・取消とオンライン資格の失効確認を別途接続する。
+署名鍵の変更時にはAppで証明と信頼する公開鍵を再取得する。期限切れ・未知の署名鍵の証明で新たに同一人物として統合しない。Local通話の開始をこのAPI呼出しへ従属させず、公開identityが未取得でも既存のAppleログイン・グループ認証の経路は維持する。公開通知を追加する際は、受取側の用途別許可・取消とオンライン資格の失効確認を別途接続する。
 
 #### 招待を預けるサービスの暗号化公開鍵
 
 対象サービスに `INVITATION_RELAY_KEY_SEED` が設定されている場合、既存の端末証明の署名対象に `invitationRelayKey: {kid,x,expiresAt}` を加える。設定するのは環境専用のランダムな32byteをpaddingなしbase64urlで表現したsecret。未設定や形式不正では項目を省略し、既存の端末証明を発行する。応答のキー構成と認証手順は変えない。
 
-公開鍵はRFC 7748のX25519の32byte公開座標をpaddingなしbase64urlとした `x`。発行時刻をUnix秒として30日ごとの区間番号 `period = floor(iat / 2592000)` を求める。元の32byteをHKDF-SHA-256の入力、UTF-8の `rideintercom.invitation-relay-key.v1` をsalt、空白を加えない `JSON.stringify([iss,period])` のUTF-8をinfoとし、32byteのX25519秘密鍵を導出する。鍵識別子は `v1-{period}`、公開鍵の期限はUnix秒の `(period + 2) * 2592000`。新しい証明は次の区間で別の公開鍵を受け取る。旧区間の公開鍵にも次の区間の末まで期限があるので、発行済み証明の有効期間を覆う。
+公開鍵はRFC 7748のX25519の32byte公開座標をpaddingなしbase64urlとした `x`。発行時刻をUnix秒として30日ごとの区間番号 `period = floor(iat / 2592000)` を求める。HKDF-SHA-256で32byteのX25519秘密鍵を導出する。入力は元の32byte、saltはUTF-8の `rideintercom.invitation-relay-key.v1` を使う。infoは空白を加えない `JSON.stringify([iss,period])` のUTF-8とする。鍵識別子は `v1-{period}`、公開鍵の期限はUnix秒の `(period + 2) * 2592000`。新しい証明は次の区間で別の公開鍵を受け取る。旧区間の公開鍵にも次の区間の末まで期限があるので、発行済み証明の有効期間を覆う。
 
 本番とPreviewには別々のsecretを使い、同じsecretであってもoriginが異なれば鍵が異なる。区間ごとの鍵の生成や交換に定期の手作業は発生しない。Workerは元のsecret・導出した秘密鍵・証明のコピーを返さず、公開鍵の追加DB、回収処理やアラームも作らない。Workerが前の期間の鍵で開ける範囲は[招待の背景転送を保護する](#招待の背景転送を保護する)に従う。[X25519の定義](https://www.rfc-editor.org/rfc/rfc7748.html)、[CloudflareのWeb Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
 
@@ -110,8 +110,8 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 | 削除範囲 | 対象アカウントの公開userIDと全端末資格を同じSQLite transactionで削除する。他アカウントの資格は維持する。登録入口・通話サービスの停止中も削除を受け付ける |
 | 再登録 | 新しい公開userIDを発行し、古いIDの関係を引き継がない。並行する登録は同じ新IDを使う。WebRTCの接続枠は内部アカウントIDで管理し、Apple取消または削除前の通話資源が未回収なら登録を`409 deletion_pending`で拒否する。関係・通知許可を内部IDへ結び付けない |
 | Apple取消用の再認証 | 同じAPIへ任意の`challengeID`・`identityToken`・`authorizationCode`を一緒に渡せる。challengeの端末とBearerの端末、Apple subjectから求めたアカウントDOを照合する。コード交換応答の署名・audience・subject・nonceも確認し、別人のコードを取消へ使わない。通常ログインではApple refresh tokenを追加保存しない |
-| 失効後の復旧 | 再認証proofに保存済みの公開`expectedUserID`を追加できる。Apple subjectがBearerのDOと一致し、challengeの端末も一致した場合だけ、失効・30日期限切れ・受領記録の失効後も復旧を許す。現在の公開IDが対象と違う場合は`deleted: true, appleAuthorizationRevoked: false, newerAccountPreserved: true`を返し、新規登録・Apple認可を保持する。元の対象が存在しないことを確認した結果であり、新しいアカウントを削除した意味ではない。コード交換も行わない |
-| Appleへの通信 | 固定originの`/auth/token`と`/auth/revoke`だけを使用し、redirectを追わない。native認証のためredirect_uriを送らない。Workerは環境別のSign in with Apple用`.p8`・Key ID・Team IDと`APPLE_CLIENT_ID`から有効期間5分のclient-secret JWTを必要時に生成し、残り1分になるまで同じisolate内で再利用する。期限更新を運用者へ要求しない。コード最大8192文字・identity token最大16384文字、交換応答最大32768byte、各HTTP要求8秒。取消の200を成功とし、過去に取消済みの場合も同じ結果として扱う |
+| 失効後の復旧 | 再認証proofに保存済みの公開`expectedUserID`を追加できる。Apple subjectがBearerのDOと一致し、challengeの端末も一致した場合だけ、失効・30日期限切れ・受領記録の失効後も復旧を許す。現在の公開IDが対象と違う場合は`deleted: true, appleAuthorizationRevoked: false, newerAccountPreserved: true`を返す。この場合は新規登録・Apple認可を保持する。元の対象が存在しないことを確認した結果であり、新しいアカウントを削除した意味ではない。コード交換も行わない |
+| Appleへの通信 | 固定originの`/auth/token`と`/auth/revoke`だけを使用し、redirectを追わない。native認証のためredirect_uriを送らない。Workerは環境別のSign in with Apple用`.p8`・Key ID・Team IDと`APPLE_CLIENT_ID`から必要時にclient-secret JWTを生成する。有効期間は5分で、残り1分になるまで同じisolate内で再利用する。期限更新を運用者へ要求しない。コード最大8192文字・identity token最大16384文字、交換応答最大32768byte、各HTTP要求8秒。取消の200を成功とし、過去に取消済みの場合も同じ結果として扱う |
 | 応答 | データ削除は`deleted: true`。Apple取消の200を確認した場合だけ`appleAuthorizationRevoked: true`。トークンを保持して再試行中なら`appleAuthorizationRevoked: false, appleRevocationPending: true`。Apple証明を送らない削除は従来どおりfalseで、手動取消が必要。稼働媒体の回収待ちは`mediaCleanupPending: true`で別に返し、回収後は省略する。`deleted`単独は媒体回収や端末内消去の完了を意味しない |
 | 同時実行 | Appleコード交換前に30秒の準備参照を永続化し、同じアカウントの二重交換・再登録・別の削除を抑止する。交換失敗は準備を解除し、データを保持する。取得したrefresh tokenと資格削除を同じtransactionで保存してから取消へ進む。取消または媒体回収待ち中の再登録は`409 deletion_pending`。成功した古い削除の再送ではAppleコードを再交換しない |
 | 取消再試行 | 最初の失敗から1分・5分・30分・2時間・6時間の順でalarmを予約し、自動実行は初回を含め最大6回。以後は利用者の同じDELETE再送で再試行し、最低1分間隔を保持する。試行前に次回時刻を保存し、並行DELETE・alarm・再起動で頻度を増やさない。未完のrefresh tokenは受領記録の24時間を超えても保持し、取消成功時に消す |
@@ -145,7 +145,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | Method / path | 入力 | 結果 |
 |---|---|---|
 | GET `/health` | なし | `service="RideCom SFU"` / `protocol=1`。SFUへの接続確認ではない |
-| GET `/api/status` | Bearer | 月の予約参加者秒・上限・active数。試用資格保持者に公開 |
+| GET `/api/status` | Bearer | 月の予約参加者秒・上限・active数。試用資格を持つ人に公開 |
 | POST `R/join` | participantId、iceLeaseID、offer {type,sdp} | sessionId、expiresAt (Unix ms)、renewAfterSeconds、answer |
 | POST `R/sessions/{id}/publish` | `{}` | audio/control channel ID。ICE接続後、同じsessionで1回確保 |
 | POST `R/sessions/{id}/pull` | peerIds | peerID・channel ID・配送方針。部屋外peerは拒否 |
@@ -183,13 +183,13 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | 保存・ログ | bindingのkey以外にaccount別の回数台帳を追加しない。Bearer・内部ID・room capabilityを応答やログに含めない |
 | 設定 | Production namespace `1005`、Preview `1006`。上限は両環境とも600回/60秒で、登録用namespaceとは分ける |
 
-現在のRTCは参加時にICE・join・publish・WebSocket接続を各1回要求し、参加者差分をまとめてpullする。最大8人でも相手は7人で、通常のleaseは600秒、更新開始は300秒後。WebSocket再接続は1秒から最大10秒へ待機を広げ、pullの接続切断再試行は最大2回である。statusは明示確認であり定期pollingしない。この頻度に余裕を持たせて600回/60秒とし、同一ownerに8人分の開始・全相手購読・更新・status 120回を集めた160要求が通るローカル回帰を置く。人数枠や既存の開始回数制限を変更するものではない。
+現在のRTCは参加時にICE・join・publish・WebSocket接続を各1回要求し、参加者差分をまとめてpullする。最大8人でも相手は7人で、通常のleaseは600秒、更新開始は300秒後。WebSocket再接続は1秒から最大10秒へ待機を広げ、pullの接続切断後の再試行は最大2回である。statusは明示確認であり定期pollingしない。この頻度に余裕を持たせて600回/60秒とし、同一ownerに8人分の開始・全相手購読・更新・status 120回を集めた160要求が通るローカル回帰を置く。人数枠や既存の開始回数制限を変更するものではない。
 
 [CloudflareのRate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)はlocation単位の近似制限で、厳密な全世界上限やmedia転送量・請求額の上限ではない。実egress・請求監視・停止運用は[未実装課題](../../backlog/未実装課題.md)に残す。RTCの429処理は既存のエラー処理のままで、今回のserver工程では自動待機・再試行を追加していない。
 
 ### 表示名を保存しない境界
 
-RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・配信しない。余分な`displayName`を受け取ってもmemberへコピーしない。participant ID・owner・SFU session ID・期限・channel・購読関係は接続認可と回収のため保持する。表示名は端末側のグループ情報と、グループ鍵で認証・暗号化されたpresenceで扱う。Workerのpeer一覧ではIDだけを名前の代替値に使い、グループの復号後に相手の表示名を取得する。
+RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・配信しない。余分な`displayName`を受け取ってもmemberへコピーしない。participant ID・owner・SFU session ID・期限・channel・購読関係は接続認可と回収のため保持する。表示名は端末側のグループ情報と、グループ鍵を使って認証・暗号化したpresenceで扱う。Workerのpeer一覧ではIDだけを名前の代替値に使い、グループの復号後に相手の表示名を取得する。
 
 新規開発のため旧形式の利用者データ移行や旧client用の互換フィールドは追加しない。これは今回以後に作る通話状態の契約であり、配置済みproviderのbackup・保存期間・過去データの物理削除を確認したものではない。
 
@@ -218,7 +218,7 @@ RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・�
 | DELETE R/ice/{participantId} | SFU未成立の試行だけ回収。leaseID不一致は409。古いcallbackが新資格を失効できない |
 | DELETE session / expiry | SFU channel回収と短期資格失効。失効が失敗すれば記録を保持してalarmで再試行 |
 | 途中離脱 | SFU未成立でもalarmで資格の期限を回収。既発行資格は自身のTTLでも制限される |
-| 更新時の旧資格 | 新資格が端末に届く前に旧資格を即失効しない。旧資格の期限まで保持し、切断時は未期限切れの全資格を失効 |
+| 更新時の旧資格 | 新資格が端末へ届く前に旧資格を即時失効させない。旧資格の期限まで保持し、切断時は未期限切れの全資格を失効 |
 | TTL | 利用枠の有効期限までを秒へ切り上げ、最大7200秒。最大3600秒のleaseの前倒し更新を含む。通常既定は初回600秒程度 |
 | 秘密の保存 | 短期資格をroom DOへ保存。no-store応答で返し、ログ・runtime reportへ含めない。取得・失効の長期秘密はWorkerのみ |
 
@@ -258,9 +258,9 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 
 ## 異常入力とcleanupの期限
 
-HTTP JSONはobjectだけを受け入れ、最大64 KiB・読取完了まで3秒。停滞したbodyをcancelしてroomを解放する。joinのparticipantIdは文字列のASCII英数/ハイフン/アンダースコア1–63字、displayNameは空白のみ不可・制御文字不可・UTF-8最大320 byte、SCTP属性は`a=sctp-port:5000`行の完全一致を要求する。WebSocketのnull/array/primitiveは例外にせず1008で切断する。
+HTTP JSONはobjectだけを受け入れ、最大64 KiB・読取完了まで3秒。停滞したbodyをcancelしてroomを解放する。joinのparticipantIdは文字列のASCII英数/ハイフン/アンダースコア1–63字とする。displayNameは空白のみ不可・制御文字不可・UTF-8最大320 byteとする。SCTP属性は`a=sctp-port:5000`行の完全一致を要求する。WebSocketのnull/array/primitiveは例外にせず1008で切断する。
 
-alarmは開始時点のmemberとTURN leaseを取得し、member cleanup（status取得・channel close・TURN revoke）と、memberを所有者に持たないorphan資格の失効を同時に始める。同じ資格を二重失効しない。独立batchを順番に待って8秒の上限を余分に足さない。各provider操作の上限は8秒、失敗記録は保持して再試行する。
+alarmは開始時点のmemberとTURN leaseを取得する。その後、member cleanup（status取得・channel close・TURN revoke）と、memberを所有者に持たないorphan資格の失効を同時に始める。同じ資格を二重失効しない。独立batchを順番に待って8秒の上限を余分に足さない。各provider操作の上限は8秒、失敗記録は保持して再試行する。
 
 ## グループ除外の端末署名検証
 
@@ -272,7 +272,7 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 | ビルド番号が省略された開発署名版 | Appleの起動検証カテゴリが3で、登録値が明示的に `null` の場合に限り、他の照合条件を満たせば受理する |
 | 不一致、形式不正、期限切れ、確認要求が既に消費済み | 確認要求とカウンタを変更しない |
 
-署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名が通る場合に受理する。登録済み端末から除外署名を受け付ける公開APIは未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
+署名のauthenticator dataは37バイトのヘッダーと拡張マップを照合する。拡張を示すビットを必須とし、Macが併せて設定するattested-credentialビットも、拡張マップが正しく署名を検証できる場合に受理する。登録済み端末から除外署名を受け付ける公開APIは未実装。起動検証カテゴリは証明書のAAGUIDが示すApp Attestの環境と独立して確認する。[MacとローカルWorkerでの検証](../../validation/history/通常グループの代表端末検証.md#macが取得したapp-attest署名をローカルworkerで照合する)
 
 ### 端末鍵登録の確認要求
 
@@ -287,7 +287,7 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 | 照合対象 | 受理条件 |
 |---|---|
 | 鍵証明の形式と有効性 | Apple形式のCBORからleaf・中間証明書と空でないreceiptを取得する。DER全体が読み取れ、証明書が有効期間内にあり、固定したApple App Attestation Root CAまでのチェーンが成立する |
-| 確認要求とMacのセキュリティ条件 | leafのnonce拡張が `SHA256(authData || SHA256(UTF8(確認要求)))` に一致し、ACL拡張がAppleの指定値と一致する |
+| 確認要求とMacのセキュリティ条件 | leafのnonce拡張が `SHA256(authData \|\| SHA256(UTF8(確認要求)))` に一致し、ACL拡張がAppleの指定値と一致する |
 | 本人のAppと期待する配布条件 | RP IDが期待するApp IDのSHA-256に一致し、AAGUIDが期待する環境を示す。カウンタは0で、起動検証カテゴリとビルド番号が期待値に一致する。ビルド番号の省略条件は端末署名と同じ |
 | 鍵 | leafとCOSEの鍵が同じP-256公開鍵で、その非圧縮X9.62形式のSHA-256、資格ID、提示された鍵IDが一致する |
 
@@ -324,7 +324,7 @@ Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` お�
 
 [個人招待と個人登録付きグループ招待の暗号文](../App/通信仕様.md#個人招待の受諾を中継する暗号文)も同じ中継へ送れる。Appは種類に応じてslotを導出する。Workerの操作、受け渡し先の上限と回収処理は共用する。発行端末がまだ受け渡し先を開いていない場合は[発行端末の署名を添えた受諾](#発行端末が圏外の間に個人招待の受諾を預ける)を使う。
 
-共通のパスは `/api/ordinary-group-replies/`。JSONの `slot` は招待ごとの推測困難な64桁小文字hexとし、保存キーには文字列のSHA-256を使う。 `owner` は発行者の公開アカウントID、`id` は受諾IDの小文字UUID、`packet` は暗号文の標準base64（40〜12,288文字、4の倍数）、`expiresAt` はUnix msの整数（現在より後、7日と5分以内）。受諾側の紐付けには認証した公開IDと端末IDを `:` で結んだ文字列のSHA-256を使う。中継は一時保管の応答を返し、端末での配送完了はAppが判定する。
+共通のパスは `/api/ordinary-group-replies/`。JSONの `slot` は招待ごとの推測困難な64桁小文字hexとし、保存キーには文字列のSHA-256を使う。 `owner` は発行者の公開アカウントID、`id` は受諾IDの小文字UUIDとする。`packet` は暗号文の標準base64（40〜12,288文字、4の倍数）、`expiresAt` はUnix msの整数（現在より後、7日と5分以内）。受諾側の紐付けには認証した公開IDと端末IDを `:` で結んだ文字列のSHA-256を使う。中継は一時保管の応答を返し、端末での配送完了はAppが判定する。
 
 | 操作 | 本文 | 成功時の応答と状態 |
 |---|---|---|
@@ -344,7 +344,7 @@ Worker単体の状態遷移と、Appの通常操作に続く暗号文の往復�
 
 ### 発行端末が圏外の間に個人招待の受諾を預ける
 
-受け手は自分の端末Bearerで通常の `PUT /api/ordinary-group-replies/acceptance` を行い、本文の `{owner,slot,id,packet}` に `admission: {deviceID,sessionBinding,expiresAt,proof}` を添える。admissionの端末・セッションは発行者のもの。期限は元の招待のUnix msで、現在より後、7日5分以内の安全な整数とする。`proof` は[端末証明を含む署名](#ユーザーと端末の署名付き証明)の `{publicKey,certificate,signature}`。用途は `openContactInvitationReply`、署名するUTF-8の文字列は空白を足さずスラッシュをエスケープしない `JSON.stringify([origin, sessionBinding, slot, expiresAt])` とする。originは発行先WorkerのHTTPS origin、slotはハッシュ化する前の64桁小文字hex。ownerは証明のsubjectと照合する。本文に発行者の端末Bearerを含めない。
+受け手は自分の端末Bearerで通常の `PUT /api/ordinary-group-replies/acceptance` を実行する。その際は本文の `{owner,slot,id,packet}` に `admission: {deviceID,sessionBinding,expiresAt,proof}` を添える。admissionの端末・セッションは発行者のもの。期限は元の招待のUnix msで、現在より後、7日5分以内の安全な整数とする。`proof` は[端末証明を含む署名](#ユーザーと端末の署名付き証明)の `{publicKey,certificate,signature}`。用途は `openContactInvitationReply`とする。署名するUTF-8の文字列は空白を足さずスラッシュをエスケープしない `JSON.stringify([origin, sessionBinding, slot, expiresAt])` とする。originは発行先WorkerのHTTPS origin、slotはハッシュ化する前の64桁小文字hex。ownerは証明のsubjectと照合する。本文に発行者の端末Bearerを含めない。
 
 Workerは受け手の認証・頻度制限に続き、署名と発行者の公開ID・端末ID・セッション・originを照合する。公開アカウント索引で発行者を解決し、発行者の現在の端末資格を再確認する。同じアカウント内で元の発行端末に結び付けた受け渡し先を開き、受諾の暗号文を同じ処理で保存する。発行者はその端末から受諾を取得し、受け手は元の受諾端末から到着確認を取得する。別端末へこの権限を移さない。先に同じ端末・期限で開いていても、同じ受け手・受諾IDの再送でも一件のまま扱う。
 
@@ -352,7 +352,7 @@ Workerは受け手の認証・頻度制限に続き、署名と発行者の公�
 
 ### 招待の背景転送を保護する
 
-背景用の個人招待の受諾、グループ招待の送信・取消は、共通の暗号化形式を使う。本文はJSONの `{sealed}` 一項目、全体で64 KiB以下。sealedは[サービスの暗号化公開鍵](#招待を預けるサービスの暗号化公開鍵)宛てのcompact JWE。保護ヘッダーは `{alg:"ECDH-ES",enc:"A256GCM",kid,epk}`。一件ごとに新しく作る `epk` は `{kty:"OKP",crv:"X25519",x}` とし、`x` は32byteの公開座標をpaddingなしbase64urlとしたもの。保護ヘッダーの文字列は512文字以下。Workerが使う鍵は要求先originの現区間または直前の区間の鍵に限る。元の区間の次の区間が終わると、その鍵を使った要求を拒否する。復号前はCloudflareの接続元を日単位でハッシュ化した一時的な頻度枠を、三つの操作で共有する。枠を超えた要求は本文を読む前に429で拒否する。接続元情報を取得できない場合は503を返す。[compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)、[JOSEでのX25519](https://www.rfc-editor.org/rfc/rfc8037.html)
+背景用の個人招待の受諾、グループ招待の送信・取消は、共通の暗号化形式を使う。本文はJSONの `{sealed}` 一項目、全体で64 KiB以下。sealedは[サービスの暗号化公開鍵](#招待を預けるサービスの暗号化公開鍵)宛てのcompact JWE。保護ヘッダーは `{alg:"ECDH-ES",enc:"A256GCM",kid,epk}`。一件ごとに新しく作る `epk` は `{kty:"OKP",crv:"X25519",x}` とし、`x` は32byteの公開座標をpaddingなしbase64urlとしたもの。保護ヘッダーの文字列は512文字以下。Workerが使う鍵は要求先originの現区間または直前の区間の鍵に限る。元の区間の次の区間が終わると、その鍵を使った要求を拒否する。復号前はCloudflareの接続元を日単位でハッシュ化した一時的な頻度枠を、3つの操作で共有する。枠を超えた要求は本文を読む前に429で拒否する。接続元情報を取得できない場合は503を返す。[compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)、[JOSEでのX25519](https://www.rfc-editor.org/rfc/rfc8037.html)
 
 暗号文と復号した署名付き要求はWorkerのメモリ内で扱う。認証や復号を通った後は、用途に応じた既存の保管と上限を使う。
 

@@ -35,7 +35,7 @@
 
 ## watchOS の音声基盤と非同期 activation
 
-watchOSでも既存のconfigure、入力capture、出力renderer、PCM型を使う。Watch専用の通話・通信エンジンを本packageへ持たせず、CallKitを導入しない。対応するSDKでcompileできることと、Watchの内蔵マイク・スピーカー、背景動作、端末間音声配送が成立することを区別する。本packageのactivation成功は低レベル通信の利用許可や通話成立を保証しない。
+watchOSでも既存のconfigure、入力capture、出力renderer、PCM型を使う。Watch専用の通話・通信エンジンを本packageへ持たせず、CallKitを導入しない。対応するSDKでcompileできることと、Watchの内蔵マイク・スピーカー、背景動作、端末間の音声配送が成立することを区別する。本packageのactivation成功は低レベル通信の利用許可や通話成立を保証しない。
 
 | 項目 | watchOSの扱い |
 |---|---|
@@ -103,10 +103,10 @@ sequenceDiagram
 
 | 実装箇所 | 実装している仕様 | 利用者への意味 | 改修者への意味 |
 |---|---|---|---|
-| `AudioSessionConfiguration.resolved()` の標準options | `.allowBluetoothA2DP`, `.allowBluetoothHFP`, `.duckOthers`, `.mixWithOthers`, `.overrideMutedMicrophoneInterruption` を入れる | Bluetooth、他アプリ音声共存、duck、hardware mute準異常系を標準で扱う | optionを消す変更は体験変更。仕様表とテスト更新が必要 |
+| `AudioSessionConfiguration.resolved()` の標準options | Bluetooth用に `.allowBluetoothA2DP` と `.allowBluetoothHFP` を入れる。さらに `.duckOthers`、`.mixWithOthers`、`.overrideMutedMicrophoneInterruption` を入れる | Bluetooth、他アプリ音声共存、duck、hardware mute準異常系を標準で扱う | optionを消す変更は体験変更。仕様表とテスト更新が必要 |
 | `defaultToSpeaker` 分岐 | 明示時だけ `.defaultToSpeaker` を追加する | speaker出力に寄せたいときだけroute希望を強める | 常時ONにすると receiver / accessory route 体験が変わる |
 | `resolvedPrefersEchoCancelledInput` | default mode では `prefersEchoCancelledInput || defaultToSpeaker` | speaker利用時にecho-cancelled input希望を自動補完する | `voiceChat` では `nil` にして session preference 操作を出さない |
-| `AudioInputVoiceProcessingConfiguration.duckingLevel` | advanced ducking level を4段階で保持する | 通話音声優先度を利用場面ごとに調整できる | `otherAudioDuckingEnabled == false` では `.systemDefault` として無効化する |
+| `AudioInputVoiceProcessingConfiguration.duckingLevel` | advanced ducking level を4段階で保持する | 通話音声の優先度を利用場面ごとに調整できる | `otherAudioDuckingEnabled == false` では `.systemDefault` として無効化する |
 | `mode == .voiceChat && prefersEchoCancelledInput` | 設定矛盾として throw する | 曖昧なecho設定を通さない | modeとpreferenceを暗黙mergeしない |
 | `AudioSessionManager.configure` | apply -> input -> output -> echo preference -> snapshot の順で実行する | route希望と結果を operation report で確認できる | 途中の継続可能失敗で全体を壊さず、operation単位で返す |
 | `SystemAudioSessionBackend.setActive(false)` | `.notifyOthersOnDeactivation` を付ける | 他アプリが再開判断できる通知をOSへ出す | 再生再開そのものは他アプリ / OS責務として残す |
@@ -115,7 +115,7 @@ sequenceDiagram
 
 | iOS / macOS の複雑さ | package が吸収する内容 | 呼び出し側へ出す情報 |
 |---|---|---|
-| iOS は `category`, `mode`, `options`, route override, echo-cancelled input preference の組み合わせで挙動が変わる | `AudioSessionConfiguration.resolved()` で矛盾を検出し、適用順を固定する | 要求設定、解決後設定、操作結果 |
+| iOS は `category`、`mode`、`options`、route override、echo-cancelled input preference の組み合わせで挙動が変わる | `AudioSessionConfiguration.resolved()` で矛盾を検出し、適用順を固定する | 要求設定、解決後設定、操作結果 |
 | iOS は任意の output device ID を直接選べず、speaker / receiver override が中心になる | `AudioSessionDeviceSelection` を platform ごとの実操作へ変換する | 非対応selection、未検出deviceの操作結果 |
 | macOS は `AVAudioSession` ではなく CoreAudio default device を扱う | 同じ selection API で CoreAudio default input / output を切り替える | device一覧、default input / output snapshot |
 | OS voice processing は input node / route に結び付く | `AudioInputVoiceProcessingConfiguration` を input boundary で適用する | voice processing operation report |
@@ -171,7 +171,7 @@ sequenceDiagram
 | OS voice processing | codec encode / decode |
 | platform差分の report 化 | RTC route / packet / encryption |
 
-`SessionManager` は Mixer ではない。hardware format と consumer target format の差異は `AudioMixer` の source ingress / sink egress で吸収する。
+`SessionManager` は Mixer の役割を持たない。hardware format と consumer target format の差異は `AudioMixer` の source ingress / sink egress で吸収する。
 
 ## Package Boundary Diagram
 
@@ -219,9 +219,9 @@ flowchart LR
 
 | flow | 経路 | SessionManager の責務 |
 |---|---|---|
-| capture send | `hardware input -> SessionManager input -> AudioMixer source -> AudioMixer sink(send format) -> Codec -> RTC` | hardware actual PCM を出す |
-| receive output | `RTC -> Codec -> AudioMixer source -> AudioMixer sink(output hardware format) -> SessionManager output -> hardware output` | hardware actual PCM だけ受け取る |
-| local monitor | `hardware input -> SessionManager input -> AudioMixer source -> AudioMixer sink(output hardware format) -> SessionManager output` | input / output hardware 境界を維持する |
+| capture send | 機器の入力をSessionManagerの入力からAudioMixerのsourceへ渡す。sinkで送信形式に変換し、CodecからRTCへ渡す | hardware actual PCM を出す |
+| receive output | RTCからCodecを経てAudioMixerのsourceへ渡す。sinkで機器の出力形式に変換し、SessionManagerの出力から機器へ渡す | hardware actual PCM だけ受け取る |
+| local monitor | 機器の入力をSessionManagerの入力からAudioMixerのsourceへ渡す。sinkで機器の出力形式に変換し、SessionManagerの出力へ渡す | input / output hardware 境界を維持する |
 
 ```text
 input hardware -> SessionManager -> PCMFrame(actual hardware format) -> AudioMixer
@@ -301,11 +301,11 @@ stateDiagram-v2
 |---|---|---|---|---|
 | `mode == .default`, `defaultToSpeaker == true`, `prefersEchoCancelledInput == false` | `prefersEchoCancelledInput = true` | `setPrefersEchoCancelledInput(true)` | speakerを既定出力にするとマイク入力へ再回り込みしやすい。呼び出し側がecho希望を書き忘れても、通話品質側へ倒す | なし。PCMの変換、gain、noise reduction は行わない |
 | `mode == .default`, `prefersEchoCancelledInput == true` | `prefersEchoCancelledInput = true` | `setPrefersEchoCancelledInput(true)` | 呼び出し側がdefault modeのままecho-cancelled inputを明示したため、その希望をそのまま通す | なし |
-| `mode == .default`, speakerもecho希望もなし | `prefersEchoCancelledInput = false` | `setPrefersEchoCancelledInput(false)` | 呼び出し側が希望しない処理は増やさない | なし |
+| `mode == .default`, speakerとechoのどちらも希望しない | `prefersEchoCancelledInput = false` | `setPrefersEchoCancelledInput(false)` | 呼び出し側が希望しない処理は増やさない | なし |
 | `mode == .voiceChat` | `prefersEchoCancelledInput = nil` | 操作しない | echoに関する挙動は `voiceChat` mode 側へ任せる | なし |
 | `mode == .voiceChat`, `prefersEchoCancelledInput == true` | 解決しない | 操作しない | mode由来の挙動と明示preferenceが衝突するため、暗黙解決せず throw する | なし |
 
-`setPrefersEchoCancelledInput` と input node voice processing は別の適用点である。session側の echo preference は route / session の希望であり、`AudioInputVoiceProcessingConfiguration` は input node の sound isolation、ducking、mute を制御する。
+`setPrefersEchoCancelledInput` と input node voice processing は別の適用点である。session側の echo preference は route / session の希望を表す。`AudioInputVoiceProcessingConfiguration` は input node の sound isolation、ducking、mute を制御する。
 
 ## iOS Category Options
 
@@ -494,7 +494,7 @@ flowchart LR
 | `.medium` | `.mid` | 中間ducking | 通話音声と他アプリ音声のバランスを取る |
 | `.maximum` | `.max` | 最大ducking | 通話の聞き取りやすさを優先する |
 
-`otherAudioDuckingEnabled` は advanced ducking の有効/無効を表す。`duckingLevel` は advanced ducking が有効なときの強さを表す。`otherAudioDuckingEnabled == false` の場合、package は advanced ducking を無効にし、level は `.systemDefault` としてOSへ渡す。
+`otherAudioDuckingEnabled` は advanced ducking の有効/無効を表す。`duckingLevel` は advanced ducking が有効なときの強さを表す。`otherAudioDuckingEnabled == false` の場合、package は advanced ducking を無効にする。この場合、level は `.systemDefault` としてOSへ渡す。
 
 ## Voice Processing Configuration Matrix
 
@@ -508,7 +508,7 @@ flowchart LR
 | false | true | `.maximum` | true | true | 有効、level `.maximum` | true | true | uplink処理はbypassし、advanced duckingとmuteだけ維持する |
 | false | false | `.maximum` | true | false | 無効、level `.systemDefault` | 呼ばない | true | voice processing を無効化し、mute状態だけ反映する |
 
-`inputMuted = true` は mixer volume ではない。入力engineとrouteを維持したまま OS voice processing input mute を切り替える。
+`inputMuted = true` で mixer volume を変更しない。入力engineとrouteを維持したまま OS voice processing input mute を切り替える。
 
 ## Voice Processing Platform Matrix
 
@@ -647,7 +647,7 @@ SessionManagerは受け取ったhardware formatのPCMを予約するだけで、
 
 ## 初期化と入力境界
 
-既定の`AudioSessionManager(backend:)`は既知の有効な設定で初期化する。明示設定を渡す`init(configuration:backend:)`はthrowsであり、voiceChatとecho cancelled inputの不整合を初期化失敗として通知し、backendへ適用しない。
+既定の`AudioSessionManager(backend:)`は既知の有効な設定で初期化する。明示設定を渡す`init(configuration:backend:)`はthrowsである。voiceChatとecho cancelled inputの不整合を初期化失敗として通知し、backendへ適用しない。
 
 入力voice processingの結果がfailedならcaptureを開始せずbackendを停止する。unsupportedのignoredは従来通りcaptureを継続する。hardware PCMは有限の8–96 kHz・1–2 channelを要求し、対応外channelを丸めて偽ったmetadataで配送しない。interleaved/noninterleaved Float bufferを同じPCM sample順へ読み出す。利用者callbackは内部状態lockの外で呼び、開始・停止は単一の直列ownerが管理する。
 
@@ -657,7 +657,7 @@ SessionManagerは受け取ったhardware formatのPCMを予約するだけで、
 
 実時間再生の予約量は、playerの`lastRenderTime`が示す過去のrender境界から現在のhost時刻までを補正して見積もる。既に経過したquantumを未再生として数え、通常のbatchを誤って破棄しない。停止中・manual rendering中はhost時刻で進めず、明示されたplayer sample時計を用いる。
 
-未再生の発話がなく、新frameも無音（RMS 0.0001未満かつpeak 0.001未満）の場合は、上限未満でも蓄積した待ちを解消する。10msまたは新frame長を超えた無音予約を`.interrupts`で置換し、そのbufferと後続bufferへ新しいsample時刻を指定する。`at:nil`だけでは破棄した予約の旧末尾が後続に残る場合がある。実時間では現在のrenderとの競合を避けるため新frameの1quantum分を確保し、同期manual renderingでは現在位置から予約する。playerもdevice engineも停止・再起動しない。発話が未再生ならこの短縮を行わない。
+未再生の発話がなく、新frameも無音（RMS 0.0001未満かつpeak 0.001未満）の場合は、上限未満でも蓄積した待ちを解消する。10msまたは新frame長を超えた無音予約を`.interrupts`で置換し、そのbufferと後続bufferへ新しいsample時刻を指定する。`at:nil`だけでは破棄した予約の旧末尾が後続に残る場合がある。実時間では現在のrenderとの競合を避けるため新frameの1quantum分を確保し、同期manual renderingでは現在位置から予約する。playerとdevice engineのどちらも停止・再起動しない。発話が未再生なら待ちを短縮しない。
 
 `AudioOutputStreamRenderer.start(configuration:)`は停止中の開始時に指定設定を適用する。省略時は保持している設定を使う。既に開始済みなら`alreadyRunning`として無視し、実行中の設定を書き換えない。停止後の再開始で用途別の出力予算へ変更でき、実適用した設定をrendererから取得できる。
 
@@ -667,7 +667,7 @@ SessionManagerは受け取ったhardware formatのPCMを予約するだけで、
 
 SystemAudioInputStreamBackendはinput nodeからAVAudioSinkNodeへ接続する。render callbackは事前確保AudioRenderCaptureへコピーし、非render threadでPCMFrame化する。約100msに集約されるinput tapは使わない。droppedCaptureFrameCountでring overflowを計上する。停止時はrender captureの未配信frameを破棄し、engineを止めてからnodeを切断する。既に実行中のcallbackはcapture世代で拒否する。
 
-AudioSessionConfiguration / ResolvedAudioSessionConfigurationはpreferredSampleRate（既定48,000Hz、8,000〜96,000Hz）とpreferredIOBufferDuration（既定128/48,000秒、1〜100ms）を保持する。iOSではsession有効化前に希望値を適用する。これはOSへの要求であり、実sample rate・quantumはhardwareが返す値を使う。voice processingの構成とcapture開始を分離し、同じIOモード内の設定を不要に再起動しない。
+`AudioSessionConfiguration` と `ResolvedAudioSessionConfiguration` は次の希望値を保持する。preferredSampleRateの既定値は48,000Hz、範囲は8,000〜96,000Hzである。preferredIOBufferDurationの既定値は128/48,000秒、範囲は1〜100msである。iOSではsession有効化前に希望値を適用する。これはOSへの要求であり、実sample rate・quantumはhardwareが返す値を使う。voice processingの構成とcapture開始を分離し、同じIOモード内の設定を不要に再起動しない。
 
 ## 出力graphの共有
 

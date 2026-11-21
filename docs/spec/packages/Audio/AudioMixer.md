@@ -184,8 +184,8 @@ external caller
 
 | flow | graph |
 |---|---|
-| capture send | `SessionManager input actual PCM -> MixerPCMSource -> capture bus effects -> MixerPCMSink(send format) -> Codec -> RTC` |
-| receive output | `RTC -> Codec -> peer MixerPCMSource -> peer/master effects -> MixerPCMSink(output hardware format) -> SessionManager output` |
+| capture send | SessionManagerの入力PCMを `MixerPCMSource` からcapture busのeffectへ渡す。`MixerPCMSink` が送信形式で出力し、Codecを経由してRTCへ渡す |
+| receive output | RTCからCodecを経て相手別の `MixerPCMSource` に入る。peer/masterのeffectを経た音声を `MixerPCMSink` が機器の出力形式でSessionManagerへ渡す |
 | local monitor | capture source / bus を monitor bus または output sink へ route する |
 
 送信だけ、受信だけの特別な mixer API は作らない。違いは source、bus、sink の組み方だけで表す。
@@ -210,7 +210,7 @@ external caller
 | `MixerPCMSource` | 任意formatの `PCMFrame` を bus processing format に正規化して graph へ入れる |
 | `MixerPCMSink` | bus processing format の PCM を target format に正規化して emit する |
 | `AudioMixerSnapshot` | bus、source、sink、effect、route、graph を診断する |
-| `MixerSourceSnapshot` | source original format、mixer format、scheduled count、`lastScheduledAt`、normalization report、last failure とPCM sourceの再生予約情報を持つ |
+| `MixerSourceSnapshot` | source original format、mixer format、scheduled count、`lastScheduledAt`、normalization report、last failureを保持する。PCM sourceの再生予約情報も保持する |
 | `MixerSinkSnapshot` | mixer format、target format、emitted count、normalization report、last failure を持つ |
 | `MixerEffectSnapshot` | effect id、型名、順序、状態、表示用parameterを持つ |
 | `MixerGraphSnapshot` | node / edge として現在の信号経路を表す |
@@ -430,7 +430,7 @@ Graphの作成・変更・schedule・snapshotは単一の直列ownerから呼ぶ
 
 開始遅延は有限・0以上で、有限の`maximumBufferedDuration`未満でなければ作成を拒否する。正常な受信では開始遅延の範囲で揺れを吸収する。収録時刻が非有限ならscheduleを拒否する。時刻逆行、待ち上限を超える遅着、上限より先の予約は時計の不連続として再基準化し、残った古い予約を置換する。上限内の単発の遅着では時計全体をずらさず、playerが既に過ぎたsample部分だけを省略する。次のframeは元の収録時刻に沿って再生する。`playbackResetCount`へ反映する。停止は時刻の対応も破棄する。
 
-capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.scheduleBuffer`へ同じ時計の時刻を明示する。連続frameのtargetは直前の終端に一致させる。省略した無音から戻るframeも、保守的な予約用frontierを越えただけでは再基準化しない。期限切れはnativeと同じ整数sampleへ丸め、nativeが報告した再生位置で判断する。同じsampleへ届いたframeを浮動小数点誤差で過去扱いしない。無音回復のinterrupt後も暗黙予約と混在させず、次の省略無音で発話時刻が戻る不整合を防ぐ。`at: nil`は前のbufferの直後を意味し、収録時刻の間隔を自動で復元しない（[Appleの説明](https://developer.apple.com/documentation/avfaudio/avaudioplayernode)）。80 msの無音を挟む20 msの2packetを一括で予約し、先行待機・両音声・間の無音の全sampleを検証する。大きな時計ジャンプでも待ち時間を上限内に戻し、停止後に古い時計を使わない試験も持つ。
+capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.scheduleBuffer`へ同じ時計の時刻を明示する。連続frameのtargetは直前の終端に一致させる。省略した無音から戻るframeも、保守的な予約用frontierを越えただけでは再基準化しない。期限切れはnativeと同じ整数sampleへ丸め、nativeが報告した再生位置で判断する。同じsampleへ届いたframeを浮動小数点の誤差で過去扱いしない。無音回復のinterrupt後も暗黙予約と混在させず、次の省略無音で発話時刻が戻る不整合を防ぐ。`at: nil`は前のbufferの直後を意味し、収録時刻の間隔を自動で復元しない（[Appleの説明](https://developer.apple.com/documentation/avfaudio/avaudioplayernode)）。80 msの無音を挟む20 msの2packetを一括で予約し、先行待機・両音声・間の無音の全sampleを検証する。大きな時計ジャンプでも待ち時間を上限内に戻し、停止後に古い時計を使わない試験も持つ。
 
 10 ms遅着したframeの未経過半分と直後のframeを全sample照合し、完全に期限を過ぎたframeが再生されず後続音声の時刻も変わらないことを確認する。遅着ごとに開始待機を足し直して再同期を連鎖させない。
 
@@ -443,7 +443,7 @@ capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.sche
 | API / 境界 | 契約 |
 |---|---|
 | AudioFrameProcessor | 単一の直列ownerからprocessを呼ぶ。graph構築前にoffline manual renderingへ入り、AVAudioSourceNodeが現在の入力bufferを同期供給する。native Audio Unit chainをoffline renderし、hardware出力・playerの非同期queueを持たない。software node検査はengineのinputNode/outputNodeを取得せず、不要なdevice I/O初期化を避ける |
-| AudioFrameProcessor.finish | 有限入力の終了時、active effectの報告するlatency＋tailTimeとsinkの1 packet分の無音を同じprocessorへ入力し、既存sink callbackから残りを出す。出力時刻は入力終端から連続するrender clockであり、先頭latencyの補償と元の有限timelineへの切り詰めは呼出側の責務。無音休止を迂回し、drain時間が非有限・負・10秒超ならエラーとし切り詰めない。終了後にnative・変換・sink履歴を破棄し、再finishは何も出さず、次のprocessは独立streamを開始する。通常processの周期は変更しない |
+| AudioFrameProcessor.finish | 有限入力の終了時、active effectの報告するlatency＋tailTimeとsinkの1 packet分の無音を同じprocessorへ入力する。既存sink callbackから残りを出す。出力時刻は入力終端から連続するrender clockであり、先頭latencyの補償と元の有限timelineへの切り詰めは呼出側の責務。無音休止を迂回し、drain時間が非有限・負・10秒超ならエラーとし切り詰めない。終了後にnative・変換・sink履歴を破棄し、再finishは何も出さず、次のprocessは独立streamを開始する。通常processの周期は変更しない |
 | AudioFrameProcessorの入力不連続 | 入力format変更、または前の入力末尾から2sampleを超える時刻差を検出したら、所有するnative処理履歴・入力変換履歴・未送出sink端数とtransitionを破棄する。古い発話をgap後へemitしない。graph・Audio Unit identity・設定値・native sample clockは維持する。一般の受信sinkや出力format切替の契約は変更しない |
 | suspendsDuringSilence | 既定false。trueでは入力が完全な0で、active effectのlatency＋tailTime以上を流し、さらに出力の完全な0が250ms続いた場合にnative描画とbuffer生成を休止する。閾値で小声を削らない。次の非無音入力を同じprocess呼出しで処理し、音声時刻の間隔を保持する。休止しても観測した入力末尾を進め、連続無音を毎回gapとして起こさない |
 | processingTailTime | active native effectのtailTime合計。無効effectはlatency・tailTime・render resource allocationの対象外。休止前にはCodecの100ms排出より長い250msの無音出力を渡す |
@@ -461,19 +461,30 @@ adaptivePlayoutは相手ごとのcapture clockとsample clockを対応付け、�
 
 ## 無音の滞留と入力バッチ
 
-呼び出し側が送信側の収録・符号化タイミングの変更を検知したら、変更後に初めてPCMを再生予約する`MixerPCMSource.schedule`へ`startsNewArrivalTiming: true`を渡す。既定値は`false`。空の正規化結果は予約せず、変更の合図は次の予約可能なPCMへ渡す。適応再生は最速到着と到着のまとまりの観測をこのPCMから取り直す。すでに学習した待ちとその保持・解放の起点、再生時計と予約済みの音声はこの合図で初期化しない。最初のPCMが古い予約位置に間に合わなければ、保持中の学習値までを使って通常の遅着回復を行う。この最初のPCMの遅れから新しい待ちは学習しない。以降の遅着では新しい到着基準を使って通常どおり学習する。
+呼び出し側が送信側の収録・符号化タイミングの変更を検知したら、変更後に初めてPCMを再生予約する`MixerPCMSource.schedule`へ`startsNewArrivalTiming: true`を渡す。既定値は`false`。空の正規化結果は予約せず、変更の合図は次の予約可能なPCMへ渡す。適応再生は最速到着と到着のまとまりの観測をこのPCMから取り直す。すでに学習した待ちとその保持・解放の起点、再生時計と予約済みの音声はこの合図で初期化しない。最初のPCMが古い予約位置に間に合わなければ、保持中の学習値までを使って通常の手順で遅着から回復する。この最初のPCMの遅れから新しい待ちは学習しない。以降の遅着では新しい到着基準を使って通常どおり学習する。
 
-adaptivePlayoutは、無線が同じ相手のpacketを数十ms保持してまとめて届ける揺れを、相手ごとに学習した待ちとして保持する。最も速く届いたpacketの到着（`schedule`の`arrivedAt`で渡すlocalの単調到着時刻、既定は呼出時のuptime、とremote収録時刻の差）を基準に、期限切れで到着したpacketの余分な到着時間に、そのpacketと最初のsampleより前に始まる描画quantumの2 packet分を加えた値を学習する（1 packet分では音声E2EのAACに欠落が残った）。再基準化では、直前の到着のまとまりの残り時間と、今回の余分な到着時間に到着packetの長さを足した値の大きい方を使い、続いて到着し得るpacketの予約枠を先に確保する。新たに学習する待ちは、予約上限から開始待機と送信側packet化の余裕を引いた範囲の半分までとし、続くpacketの予約枠とnative描画への引き渡し分を引いた残りに収める。学習値は保持し、後続packetが早く届いた場合の揺れを吸収する。学習した待ちは会話の無音・省略無音・3秒の間でも保持する。無音中や省略無音明けに余分な予約を縮める場合は、保持中の学習値を下限にする。最後の遅着から相手の収録時刻で10秒保持し、その後は1秒あたり10msずつ解放する。基準到着は2台の時計ずれとして200ppmまでだけ上昇を許す。揺れのない相手では学習値は0のままで、待ちを追加しない。出力の再開・描画時計の飛びなどlocal側の事情で期限切れになった場合も、到着が平穏なら学習するのは2 packet分だけで、描画時計の変化を通信の揺れとして覚えない。待ち上限以上の余分な到着時間（開始時の滞留、長いlocal停止）は吸収できないため学習しない。学習値と基準到着は相手の回線の性質であり、出力・入力の再開に伴うsourceの停止・再開でも保持する。sourceを作り直した相手だけが新しく学習する。0.5秒ごとの60ms停止と0.4秒の会話間を含む4発話で、欠落が最初の発話の学習中だけに限られること、揺れのない同条件で欠落がないこと、3秒の間の後も学習値を保ち、揺れのない20秒後に解放されること、平穏な到着のまま描画時計が100ms飛んでも待ちが35ms以下に留まること、500ms滞留した20 packetの後も無音で待ちが35ms以下へ戻ること、学習後にsourceを停止・再開しても学習した待ちを保つことを検査する。
+adaptivePlayoutは、無線が同じ相手のpacketを数十ms保持してまとめて届ける揺れを、相手ごとに学習した待ちとして保持する。到着時間は、localの単調到着時刻とremote収録時刻の差とする。localの到着時刻は`schedule`の`arrivedAt`で渡し、既定値には呼出時のuptimeを使う。最も速く届いたpacketの到着時間を基準にする。期限切れで届いたpacketについては、基準を超えた到着時間に2 packet分を加えた値を学習する。この2 packet分は、到着したpacketと、その最初のsampleよりも前から始まる描画quantumを指す。1 packet分では音声E2EのAACに欠落が残った。再基準化では、直前の到着のまとまりの残り時間と、今回の余分な到着時間に到着packetの長さを足した値の大きい方を使い、続いて到着し得るpacketの予約枠を先に確保する。新たに学習する待ちは、予約上限から開始待機と送信側packet化の余裕を引いた範囲の半分までとし、続くpacketの予約枠とnative描画への引き渡し分を引いた残りに収める。学習値は保持し、後続packetが早く届いた場合の揺れを吸収する。学習した待ちは会話の無音・省略無音・3秒の間でも保持する。無音中や省略無音明けに余分な予約を縮める場合は、保持中の学習値を下限にする。最後の遅着から相手の収録時刻で10秒保持し、その後は1秒あたり10msずつ解放する。基準到着は2台の時計ずれとして200ppmまでだけ上昇を許す。揺れのない相手では学習値は0のままで、待ちを追加しない。出力の再開・描画時計の飛びなどlocal側の事情で期限切れになった場合も、到着が平穏なら学習するのは2 packet分だけで、描画時計の変化を通信の揺れとして覚えない。待ち上限以上の余分な到着時間（開始時の滞留、長いlocal停止）は吸収できないため学習しない。学習値と基準到着は相手の回線の性質であり、出力・入力の再開に伴うsourceの停止・再開でも保持する。sourceを作り直した相手だけが新しく学習する。
+
+再生待ちの検査では、次の条件と結果を照合する。
+
+| 条件 | 期待する結果 |
+|---|---|
+| 0.5秒ごとに60ms停止し、0.4秒の間を挟んで4回発話する | 欠落は最初の発話で学習している間だけに限られる |
+| 同条件で到着に揺れがない | 欠落しない |
+| 学習後、3秒の間が空く | 学習値を保つ。揺れのない状態が20秒続いた後は解放する |
+| 到着は平穏だが描画時計が100ms飛ぶ | 待ちは35ms以下に留まる |
+| 20 packetが500ms滞留する | その後の無音中に待ちが35ms以下へ戻る |
+| 学習後にsourceを停止して再開する | 学習した待ちを保つ |
 
 期限切れのpacketを再予約するとき、学習値から差し引くのは、そのpacketがすでに余分に待った到着時間と、再生予約の下限がすでに確保している描画分である。描画分は描画済み位置から予約の下限までの差と今回のpacket長の小さい方。残りを0以上かつ後続packetの予約枠に収め、開始待機、packet化の余裕、nativeへの引き渡し分と合わせて予約する。描画済み位置と予約の下限が同じoffline再生では描画分を差し引かない。短縮は今回の予約だけに適用し、後続の揺れに備える学習値は保持する。48kHz・480 sampleで、基準より10ms余計にかかり、予定位置を32 sample過ぎたpacketを使う。予約の下限が描画済み位置より0／256／512 sample先の場合、今回の待ちがそれぞれ0／256／480 sample短くなることを検査する。実時間の再生では、遅着したpacketと続けて届くpacketを1回ずつ順に再生し、相手の再生時計をリセットしないことを照合する。
 
 適応再生では、サンプルが隣接し、到着間隔が後続packetの長さの半分未満のpacketをひとまとまりとして観測する。無音の短縮は、開始余裕と20msまたは2 packet分の大きい方に加え、直前のまとまりの長さまでの通常の予約を超えた場合に開始する。通常の予約は、現在のまとまり内で先に届いたサンプルの長さで求める。滞留を検出した同一無音バーストの残りだけを集約する。再生時計の初期化で到着のまとまりの観測をやり直す。通常の時計位置へ戻るか発話を受けると集約を終了する。未再生の発話は短縮しない。これは新しい固定待機を追加する処理ではなく、過剰な短縮による発話位置の揺れを防ぐ条件である。
 
-実描画の回帰では、発話の間に続く無音packetと後半の送信省略を含む450msの無音を入力する。到着の待ちが21／33／50ms短くなった条件では、増えた再生予約を無音で縮めた量と、前後の全有声サンプルの件数・順序・値を照合する。一定の到着では元の間を保つ。実時間の別試験では、遅着を回復した後の省略無音明けを学習済みの再生範囲内に届け、追加の再基準化なしで二つの発話の開始間隔と全有声サンプルを確かめる。
+実描画の回帰では、発話の間に続く無音packetと後半の送信省略を含む450msの無音を入力する。到着の待ちが21／33／50ms短くなった条件では、増えた再生予約を無音で縮めた量と、前後の全有声サンプルの件数・順序・値を照合する。一定の到着では元の間を保つ。実時間の別試験では、遅着を回復した後の省略無音明けを学習済みの再生範囲内に届け、追加の再基準化なしで2つの発話の開始間隔と全有声サンプルを確かめる。
 
 ## 設定切替の実出力
 
-個別のbus出力を保護するときは、busを組み立てる際に`prepareOutputTransition()`を呼ぶ。同じbusへの再呼び出しでnodeは増えない。PCM sinkを後から有効にすると同じ出力nodeに計測を追加する。sinkがない間は、音声のコピー・配送用メモリ確保・配送キューの起動を行わない。
+個別のbus出力を保護するときは、busを組み立てる際に`prepareOutputTransition()`を呼ぶ。同じbusへの再呼び出しでnodeは増えない。PCM sinkを後から有効にすると同じ出力nodeに計測を追加する。sinkがない間は、音声をコピーせず、配送用のメモリ確保や配送キューの起動も省く。
 
 出力保護を用意したbusとrender captureを持つbusの`beginSinkTransition`は、そのbusのpost-renderの実PCMに2msのfade-out、指定した整定時間、2msのfade-inを適用する。別のbusはそのまま合流し、hardware outputと全sinkが同じ変更後のPCMを観測する。render threadは事前確保したchannel別状態とatomicな切替要求を使う。同期processorのbusはsinkで同じ境界処理を行う。定常時のPCM・frame数・時刻は変更しない。
 
@@ -485,7 +496,7 @@ native設定呼び出しの所要時間がまだ分からない間は、`holding
 
 adaptive再生はcapture時計に対応する明示時刻を使う。render captureで観測したnative描画ブロックの長さを共有し、新規の予約時計を作る際は`lastRenderTime`と描画ブロックから保守的な予約下限を求める。この将来の予約位置は、既存capture時計の期限切れ判定には使わない。単なる連続追記と絶対時刻を混在させず、実予約と待ち時間診断を同じ時計へ揃える。
 
-実時間のadaptive再生では、時計の取得とplayerへの予約の間にも描画が進むため、再生中の再基準化は指定した到着揺らぎ時間にnative手渡し余裕を加算する。手渡し余裕は実測quantumと2msの小さい方とし、機器の大きな描画周期を丸ごと重ねない。再生予約の下限には現在ブロックの終端が既に含まれる。到着揺らぎと手渡しの両者の最大値だけにすると設定したjitter余裕を失うため、独立に確保する。停止中のplayerは初回bufferを予約してから開始するため指定時間だけを使う。合計は最大待機予算未満へ制限し、offline描画へnative余裕は追加しない。正常な連続packetごとに余裕を足し直さない。10秒の連続発話と遅延無音、1秒の省略無音後の発話間隔を厳密に検査する。
+実時間のadaptive再生では、時計の取得とplayerへの予約の間にも描画が進むため、再生中の再基準化は指定した到着揺らぎ時間にnative手渡し余裕を加算する。手渡し余裕は実測quantumと2msの小さい方とし、機器の大きな描画周期を丸ごと重ねない。再生予約の下限には現在ブロックの終端が既に含まれる。到着揺らぎと手渡しの両者の最大値だけにすると設定したjitter余裕を失うため、独立に確保する。停止中のplayerは初回bufferを予約してから開始するため指定時間だけを使う。合計は待機予算の上限未満に抑え、offline描画へnative余裕は追加しない。正常な連続packetごとに余裕を足し直さない。10秒の連続発話と遅延無音、1秒の省略無音後の発話間隔を厳密に検査する。
 
 無音予約を置換できるかの判定には、この未来の予約下限を使わない。最後の有声音が確実に終わったことをplayerの確定位置で確認する。描画中のブロックに残っている語尾を、無音の置換で取り消さない。
 
@@ -497,10 +508,10 @@ adaptive再生はcapture時計に対応する明示時刻を使う。render capt
 
 44.1/48kHzのように整数比でないstream変換は、Appleの連続sample-rate converterを使う。Normal / high quality / prime noneで、入力を次のcaptureまで保持しない。変換器と位相は連続frame間で保持し、formatまたはcapture時刻の不連続時だけ作り直す。同一formatでは変換器を生成せず、整数比の既存sample変換は維持する。
 
-独立した全入力一括のnative参照と、任意のcapture分割後の全sampleを1e-6以内で比較する。従来の「位相遅延ゼロの直線補間」を期待する比較をnative参照へ置き換え、毎captureのsample数誤差1以内、600Hzの振幅差0.0002未満、不要成分0.00002未満、impulseの伝搬遅延1ms未満、左右channel独立も同時に要求する。独立音声E2Eの音質・途切れ・125ms判定は変更しない。
+独立した全入力一括のnative参照と、任意のcapture分割後の全sampleを1e-6以内で比較する。従来の「位相遅延ゼロの直線補間」を期待する比較をnative参照へ置き換える。毎captureのsample数誤差は1以内、600Hzの振幅差は0.0002未満、不要成分は0.00002未満とする。同時に、impulseの伝搬遅延1ms未満と左右channelの独立も要求する。独立音声E2Eの音質・途切れ・125ms判定は変更しない。
 
 端数rate変換は、入出力formatが同じ無音復帰では既存converterを`reset()`し、format変更時だけ再生成する。filter履歴・sample phase・capture epochは復帰時に初期化し、独立converterとの全sample一致を検証する。初期化のために語頭を待たせない。
 
 ## codec由来の送出間隔の揺れ
 
-`MixerPCMSource.schedule(_:packetizationJitter:)` はcodecやtransportから独立した秒数を受け取り、capture時刻を最初に再生時刻へ写す際の余裕へ加える。既定0、有限の0〜60msのみ許可する。native command handoff、設定したnetwork jitter余裕、codecの周期差は独立に扱い、総量は既存の最大buffer時間を超えない。30ms codec frameを20ms入力から作る40/20ms交互到着でも、必要な10msだけでsample隣接性を維持する。後続の正常音声を移動・重複・伸縮しない。無音中の余剰遅延除去はこの必要分を保つ。
+`MixerPCMSource.schedule(_:packetizationJitter:)` はcodecやtransportから独立した秒数を受け取る。その値を、capture時刻を最初に再生時刻へ写す際の余裕へ加える。既定0、有限の0〜60msのみ許可する。native command handoff、設定したnetwork jitter余裕、codecの周期差は独立に扱い、総量は既存の最大buffer時間を超えない。30ms codec frameを20ms入力から作る40/20ms交互到着でも、必要な10msだけでsample隣接性を維持する。後続の正常音声を移動・重複・伸縮しない。無音中の余剰遅延除去はこの必要分を保つ。

@@ -4,7 +4,7 @@ Watchは当面開発・検証用とする。通常のiOS ReleaseにはWatch App�
 
 将来の開発用にWatchのtarget・schemeと共通コードを維持する。Watch・Widget・Appで利用するソースとリソースは実ファイルを共有し、Xcodeの `Shared Build Inputs` から元ファイルを確認できる。[開発環境のファイル表示とビルド対象](../../development/開発環境.md#ファイル表示とビルド対象)
 
-再公開の判断には、iPhoneをロックした状態と、別のアプリを使うなどRideComを背景化した状態の両方で、公開するリモコンの全操作がiPhoneへ反映され、結果をWatchで確認できる実機の記録を使う。最低限、通話先の取得と選択、待受からの開始、ミュートと解除、終了、状態の取得を含める。呼出し通知の送信・取消を提供する場合も対象に含める。操作直後のiPhoneのロック、通信が切れた場合の失敗表示と復帰後の再操作も確かめる。Watch自身の端末ロック、手首を下げた暗転、アプリの背景化は区別して記録する。Watchのマイク・スピーカーを用いる音声は別の受入とする。
+再公開の判断には、iPhoneをロックした状態と、別のアプリを使うなどRideComを背景化した状態の両方で実機の記録を取る。各状態で公開するリモコンの全操作がiPhoneへ反映され、結果をWatchで確認できることを記録する。最低限、通話先の取得と選択、待受からの開始を含める。ミュートと解除、終了、状態の取得も必須とする。呼出し通知の送信・取消を提供する場合も対象に含める。操作直後のiPhoneのロック、通信が切れた場合の失敗表示と復帰後の再操作も確かめる。Watch自身の端末ロック、手首を下げた暗転、アプリの背景化は区別して記録する。Watchのマイク・スピーカーを用いる音声は別の受入とする。
 
 ## 確定した操作範囲
 
@@ -13,7 +13,7 @@ Widgetとの違いは、Watchでは登録済みの通話先を選べることと
 | 項目 | 契約 |
 |---|---|
 | 通話先と開始 | iPhoneに保存済みの相手（個人）からWatch上で選択し、Watchの操作から開始する。毎回iPhoneを操作して先に開始することを求めない |
-| 管理 | Watchではユーザー追加、グループ作成、メンバー追加を行わない。登録と管理はiPhoneに置く |
+| 管理 | Watchではユーザー追加、グループ作成、メンバー追加には対応しない。登録と管理はiPhoneに置く |
 | 通話・音声処理 | 通話接続、複数参加者の混合、ミキサー、エフェクト、VADはすべてiPhoneが所有する。Watch独立通話・独自RTC接続・ミキサーを設けない |
 | Watchの音声 | マイク音声をiPhoneへ渡し、iPhoneで処理済みの単一音声を受け取って再生する。必要最小限の音声入出力・符号化復号だけを持つ |
 | 押して話す操作 | 押下中だけWatchの送話を許可する。解除・取消・中断・切断で閉じ、再接続だけでは開かない。通話と受信は押下ごとに作り直さない |
@@ -31,7 +31,7 @@ Widgetとの違いは、Watchでは登録済みの通話先を選べることと
 | 到達不能 | 操作をqueueへ積まず、未接続を表示する。接続復帰時に現在状態を取得し、古い開始・マイクONを自動実行しない |
 | 着信 | iPhone宛APNsの標準転送を利用する。通知には「接続」「無視」が出る。「接続」は`.foreground`のため、Watchへ転送された通知ではWatch Appを開く（Appleのaction規則）。Watch AppからiPhoneの通知検証と通話開始へ渡す処理は未実装（[通知の設計の実装](../../backlog/未実装課題.md)）。「無視」は通知を閉じるだけ。Watch上の通常tapはWatch Appを開くだけで、通知到着では通話を開始しない |
 
-watchOS targetはiPhone依存の単一Appとし、最低OSは27.0。iPhone/iPad・macOSを含む各製品targetも同じ最低OSへ揃える。`WKApplication=true`、`WKCompanionAppBundleIdentifier=com.yowamushi-inc.RideIntercom.RideIntercom`、`WKRunsIndependentlyOfCompanionApp=false`。Watch音声にはマイク・ローカルネットワークの用途説明、`_ride-audio._udp`、標準のaudio background modeを設定する。APNs・CarPlay専用の外部登録は追加しない。
+watchOS targetはiPhone依存の単一Appとし、最低OSは27.0。iPhone/iPad・macOSを含む各製品targetも同じ最低OSへ揃える。アプリを`WKApplication=true`とする。`WKCompanionAppBundleIdentifier=com.yowamushi-inc.RideIntercom.RideIntercom`を設定する。単独実行は`WKRunsIndependentlyOfCompanionApp=false`とする。Watch音声にはマイク・ローカルネットワークの用途説明、`_ride-audio._udp`、標準のaudio background modeを設定する。APNs・CarPlay専用の外部登録は追加しない。
 
 ## 音声接続時の要求と現行の境界
 
@@ -79,7 +79,7 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 | `WatchControlMessage.swift` | Codableの操作要求／応答／表示snapshot。表示snapshotには音声・秘密・本人の認証資格を含めない。明示開始のofferだけが一時pair資格を持つ |
 | `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、`startCall`・`endCall`・`setCallMuted`へ渡す。Watch音声選択中のphone mute要求は共通入口が拒否する。開始は別通話への切替を許可しない。開始資格・購入・24時間条件は既存処理の所有 |
 | リモコンの開始 | ログイン済みiPhoneはsnapshotの`supportsRemoteStart`をtrueにする。省略された旧snapshotも読める。対応端末への`startRemote`は保存済みの相手をiPhoneの音声入出力で開始し、Watch用の自動切断時間を使う。開始した通話のミュート・終了は既存の操作を使う。`start`・`startAudio`はWatch音声の操作として扱う。Watch画面からのリモコン既定化は[残作業](../../backlog/未実装課題.md#watchはリモコンを既定にし通話を開発者向けオプションにする)で追う |
-| 参照 | [CallControl](../packages/CallControl.md)が既存のaccountAccessID・connectionGeneration・groupIDを一つの形式で符号化する。Watchは待機中を含む不透明な参照を受け取る。要求の参照を現在値と比較してから実行。Watch専用epochを増やさない |
+| 参照 | [CallControl](../packages/CallControl.md)が既存のaccountAccessID・connectionGeneration・groupIDを1つの形式で符号化する。Watchは待機中を含む不透明な参照を受け取る。要求の参照を現在値と比較してから実行。Watch専用epochを増やさない |
 | 期限 | iPhoneが発行したsnapshotを120秒有効とする。要求が遅延し期限切れなら実行しない。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
 | 重複 | 開始・終了は既存通話世代、ミュートはtoggleではなく指定したBoolで処理する。同じ指定値は既存処理で冪等。専用requestIDや永続重複台帳を追加しない |
 | 削除・切替 | 実行時に保存相手を再解決する。相手削除後の新規開始を拒否する。相手を削除するとその相手との通話は切断されるため、削除前の表示からの終了は古い操作として拒否する。別ログイン・別通話・再接続前の要求を拒否する |
@@ -114,7 +114,7 @@ snapshotの現在通話は閲覧中groupと分ける。表示状態は未ログ�
 
 #### 背景継続の成立条件と確認待ち
 
-iPhoneのローカルマイクを使わないことと、既存音声エンジンの時計を使わないことを混同しない。manual renderingを必須とした先行判断は撤回する。実装は、既存AppAudioReceiverの実通話音声の合成・処理結果を最終端末出力前のPCM sinkからWatchへ渡し、iPhoneの最終出力だけを消音する構成。追加のミキサー・周期timer・無関係な無音音声による延命を設けない。このApp接続は背景継続の実証ではない。
+iPhoneのローカルマイクを使わないことと、既存音声エンジンの時計を使わないことを混同しない。manual renderingを必須とした先行判断は撤回する。実装は、既存AppAudioReceiverの実通話音声の合成・処理結果を端末の最終出力前のPCM sinkからWatchへ渡し、iPhoneの最終出力だけを消音する構成。追加のミキサー・周期timer・無関係な無音音声による延命を設けない。このApp接続は背景継続の実証ではない。
 
 | 項目 | 現在の判断 |
 |---|---|

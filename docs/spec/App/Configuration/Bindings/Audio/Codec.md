@@ -16,7 +16,7 @@
 | `aacELDv2Options.bitRate` | `aacELDv2BitRate` | 画面設定 | codec option summary |
 | `opusOptions.bitRate` | `opusBitRate` | 画面設定 | codec option summary |
 
-Codec は App の送信設定として選ぶ。Codec package の availability により要求 codec が使えない場合、App composition は `CodecRuntimeReport.resolving` の結果を Diagnostics に残し、通話継続可能なら `pcm16` へ fallback する。
+Codec は App の送信設定として選ぶ。Codec package の availability により要求 codec が使えない場合、App composition は `CodecRuntimeReport.resolving` の結果を Diagnostics に残す。この場合、通話を継続できれば `pcm16` へ fallback する。
 
 ## Codec UI 設定
 

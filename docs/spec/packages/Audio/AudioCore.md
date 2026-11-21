@@ -89,7 +89,7 @@ caller input
 | 副作用 | なし |
 | 利用先 | Diagnostics、meter表示、VAD入力、runtime report |
 
-`AudioSignalMeter` は測定器であり effect ではない。測定結果を frame に保存しない。
+`AudioSignalMeter` は信号を測定する。effect として音声を加工しない。測定結果を frame に保存しない。
 
 ## Error I/O
 

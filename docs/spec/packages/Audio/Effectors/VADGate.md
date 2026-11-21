@@ -1,6 +1,6 @@
 # VADGate 仕様
 
-VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を使ってリアルタイム音声区間を判定し、必要に応じてサンプルへ gate gain を適用する Swift Package である。
+VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を使って音声区間をリアルタイムに判定する Swift Package である。必要に応じてサンプルへ gate gain を適用する。
 
 このライブラリは機械学習を使わない軽量な VAD と gate 処理だけを扱う。マイク取得、Audio Session 管理、AVAudioEngine の接続、通信、コーデック、音声デバイス制御は責務に含めない。
 
@@ -29,13 +29,13 @@ VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を�
 
 | API | 種別 | 役割 |
 |---|---|---|
-| `VADGate` | final class | RMS 計算、状態遷移、ノイズフロア更新、gate gain 更新、サンプルへの gain 適用を行う |
+| `VADGate` | final class | RMS 計算、状態遷移、ノイズフロア更新、gate gain 更新、サンプルへの gain 適用を担う |
 | `VADGateEffect` | struct | `AUAudioUnit` を内包し `AVAudioNode` として AudioMixer へ挿入できる AVAudioEngine 対応ラッパー |
 | `VADGateConfiguration` | struct | attack/release、しきい値offset、ノイズフロア、gain ramp などを保持する |
 | `VADGateAnalysis` | struct | 1回の処理結果として状態、RMS、ノイズフロア、しきい値、gain を返す |
 | `VADGateRuntimeSnapshot` | struct | 現在の設定、状態、ノイズフロア、gain、最後の解析結果を Codable で返す |
 | `VADGateState` | enum | `silence` と `speech` の状態を表す |
-| `VADGateError` | enum | `unsupported` — Audio Unit の生成に失敗したときに `VADGateEffect.make()` が投げるエラー |
+| `VADGateError` | enum | `unsupported` — Audio Unit のを生成できなかったときに `VADGateEffect.make()` が投げるエラー |
 
 ## 判定仕様
 
@@ -73,7 +73,7 @@ VADGate は RMS、ノイズフロア推定、ヒステリシス、hangover を�
 
 | 処理 | 仕様 |
 |---|---|
-| `process(rmsDBFS:duration:)` | dBFS 値を直接受け取り、状態遷移、ノイズフロア更新、gain 更新を行って `VADGateAnalysis` を返す |
+| `process(rmsDBFS:duration:)` | dBFS 値を直接受け取り、状態を遷移させ、ノイズフロアとgainを更新して `VADGateAnalysis` を返す |
 | `process(samples:duration:)` | `[Float]` PCM サンプルから RMS dBFS を計算し、`process(rmsDBFS:duration:)` と同じ処理を行う |
 | `applyGate(to:duration:)` | `[Float]` PCM サンプルを解析し、更新後の gain をサンプルへ乗算して `VADGateAnalysis` を返す |
 | `apply(configuration:)` | 設定を更新し、定常入力の候補を破棄する。状態を維持したまま次のフレームから新しい設定で動作する |
@@ -146,7 +146,7 @@ if analysis.state == .speech {
 
 | 観点 | 内容 |
 |---|---|
-| ML 非使用 | 機械学習VADではないため、騒音環境では誤検出が起きる可能性がある |
+| ML 非使用 | 機械学習VADではないため、騒音環境では誤検出の可能性がある |
 | hangover | `releaseDuration` を短くしすぎると語尾や文節間で gate が閉じやすい |
 | ノイズフロア | 通常はsilence中に追従する。speech中は一定の小さい入力が長く続いた条件でだけ補正する。入力の特徴をRMSで判定するため、実環境の騒音や発話は個別に評価する |
 | gate gain | 完全 mute が不自然な場合は `silenceGain` を `0.1` などに上げる |

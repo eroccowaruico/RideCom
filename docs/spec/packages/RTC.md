@@ -4,7 +4,7 @@
 
 RouteManagerは固定20ms pollingを行わず、未解決の並べ替え期限、2秒のpresence、再試行期限、有効な周期診断の最も早い期限だけで起床する。正常順のpacketは到着時に即時配送し、timer起床を待たない。複数経路の最初の認証済み到着を使う方針と、音声の再送なし通信は維持する。
 
-自動runtime statusが無効なら周期起床・native統計収集・配信を行わない。必要時の明示的な`networkDiagnostics()`は利用できる。停止ではtimerも破棄する。
+自動runtime statusが無効なら周期的に起床せず、native統計を収集・配信しない。必要時の明示的な`networkDiagnostics()`は利用できる。停止ではtimerも破棄する。
 
 高頻度の`updateRuntimePackageReports`は最新snapshotだけを保持し、周期status（既定5秒）または接続・操作のstatusに同梱する。更新ごとのnative統計取得・JSON生成・通信はしない。周期をnilにした明示更新方式では更新時に配信する。mute・設定・接続操作は集約せず即時通知する。
 
@@ -42,7 +42,7 @@ flowchart LR
 | Local専用A、両経路B、Internet専用C | A↔B↔Cで元の話者を保持して中継。AはCloudflare資格を持たなくてよい |
 | 中継候補が複数 | Local近隣でInternet媒体がreadyと通知された候補の最小PeerIDを選ぶ。直接Internetへ送る話者の再出版は抑止 |
 | 経路の準備と参加者更新 | 経路が利用可能になったときや利用可能な経路の状態が変わったとき、在席を通知する。同じ状態の再通知による在席送信を省く。参加者の更新通知による在席送信は、同じIDの再認証も含めて維持する |
-| 全員近くにいる | Localへ先に即時送信し、Internetの既知の全参加者がその送信の媒体到達確認済み集合に含まれればInternet音声コピーを省く。Localは現在のUDP flowでの即時受付と、有効期限内の認証済み媒体受領確認を必要とする。制御接続やOSのreadyだけでは省略しない。空のInternet参加者集合、初回・期限切れ・UDP未準備・上限超過ではInternetコピーを維持する。現在の音声のACK待ち・再送は行わない |
+| 全員近くにいる | Localへ先に即時送信し、Internetの既知の全参加者がその送信で媒体が届いたことを確認済みの集合に含まれればInternet音声コピーを省く。Localは現在のUDP flowでの即時受付と、有効期限内の認証済み媒体受領確認を必要とする。制御接続やOSのreadyだけでは省略しない。空のInternet参加者集合、初回・期限切れ・UDP未準備・上限超過ではInternetコピーを維持する。現在の音声のACK待ち・再送は行わない |
 | 遠隔参加者がいる | Internet音声も配送する。SFUは全購読者へfan-outするため、この場合は近隣にもInternetコピーが届き得る。先着した認証済みenvelopeだけ再生する。Internetの制御・参加者探索は維持する |
 | 複雑なLocal接続グラフ | Localは重複破棄付き転送。近隣ごとに候補が異なる間は重複転送があり得るが、再生は1回。最大8hop |
 | 中継離脱・接続障害 | 残る経路を停止しない。membership/presence更新で中継候補を再評価し、失敗した経路だけ2〜30秒間隔で再試行 |
@@ -65,7 +65,7 @@ flowchart LR
 
 | 境界 | 制約 |
 |---|---|
-| Local接続 | BonjourのTXTで同じgroupHashを探索し、QUICのmutual TLSで制御路を開く。双方の証明書を束縛したgroup共有鍵のhandshakeに失敗した相手は認証せず、通信失敗の `connectionFailed` と区別して `CallSessionError.handshakeRejected(route)` を通知する。拒否理由・secret・peerの申告値は含めない |
+| Local接続 | BonjourのTXTで同じgroupHashを探索し、QUICのmutual TLSで制御路を開く。双方の証明書を束縛したgroup共有鍵のhandshakeに失敗した相手は認証しない。この場合は通信失敗の `connectionFailed` と区別して `CallSessionError.handshakeRejected(route)` を通知する。拒否理由・secret・peerの申告値は含めない |
 | peer識別 | handshakeの送信者は `CallStartRequest.localPeer.id`。広告名は通話世代ごとに生成する。表示名の変更でInternet側と別人にならない |
 | Internet接続 | Workerの端末資格・同一room購読認可。SFU App Secretはサーバーのみ |
 | 中継envelope | `rtc.group-relay.v2`。session、origin、epoch、sequence、path、body、Internet ready状態。招待由来のgroup keyでAES-GCM暗号化。Foundation binary PropertyListのCodingKeysを短縮し、packetごとのmetadata量を減らす。独自parserや信頼ありの辞書同期は導入しない。v1参加者との混在は不可 |
@@ -74,7 +74,7 @@ flowchart LR
 | 近距離の音声中継 | 直接つながった相手が全員その音声のpathに含まれるとき、Localへ送り返さない。未経由の相手がいるLocalと、中継が必要なInternetへは既存の経路判定に従って送る |
 | duplicate / replay | originと接続epochごとの1024 sequence window。古いepochは直近8世代を拒否。音声はpresenceで参加済みかつ有効な話者だけ受理。認証済み音声も活動期限を更新し、制御streamの再接続を音声の停止条件にしない |
 | 再参加 | 新epochで当該peerの受信待ちを破棄し、memberの再認証をAppへ通知。他のpeerは維持 |
-| presence | 2秒周期のreliable制御。presenceも認証済み音声も8秒届かない場合に失効。leave以前の遅延presenceで離脱を取り消さない |
+| presence | 2秒周期のreliable制御。presenceと認証済み音声のどちらも8秒届かない場合に失効。leave以前の遅延presenceで離脱を取り消さない |
 | 上限 | リモート7人、path最大8、envelope 32KiB、音声payload 8KiB、受信待ち256件。過剰分は古い受信待ちから破棄 |
 | 再生時刻 | 端末間時計の同期を前提にしない。最終受信端末では順序通りなら即時配送し、sequence欠落だけ15msの並べ替え猶予（20ms timerでもdrain）、100msを過ぎた受信待ちは破棄。enqueue時とdrain時にpeerごとの再生済みsequenceを検査し、待機中に古くなったフレームも破棄 |
 | codec / format | policyで許可されたcodec、8〜48kHz、1〜2ch。対応範囲内のformat差は保持し、PCM変換しない |
@@ -83,7 +83,7 @@ flowchart LR
 
 ## 参加単位の音声許可
 
-`RTCAudioPolicy.peerPolicy`は、自端末への音声配送と、自端末からの音声送信開始を共通のCallSession境界で制御する。既定の`groupMembers`は有効なgroup参加者の音声を配送する。`admittedMemberships`は、現在の`membersChanged`に含まれるPeerIDと`CallMemberState.membershipID`の組を明示的に許可する。空集合なら自端末への配送・自端末からの音声送信を行わない。
+`RTCAudioPolicy.peerPolicy`は、自端末への音声配送と、自端末からの音声送信開始を共通のCallSession境界で制御する。既定の`groupMembers`は有効なgroup参加者の音声を配送する。`admittedMemberships`は、現在の`membersChanged`に含まれるPeerIDと`CallMemberState.membershipID`の組を明示的に許可する。空集合なら自端末へ配送せず、自端末からも音声を送らない。
 
 | 境界 | 動作 |
 |---|---|
@@ -91,12 +91,12 @@ flowchart LR
 | 再参加・再接続 | 相手のepoch変更、leave後の再参加、8秒の活動期限後のpresence、受信側sessionのprepareで新しい値になる。期限後のpresenceが次の定期snapshot更新より先に届いても以前の許可を復活させない |
 | 複数経路 | 有効な同一参加のLocal/Internet間の経路変化、codec/format設定更新では値を維持する |
 | 受信 | 許可していない参加者の音声を受信待ちへ入れず破棄する。許可取り消し時にその参加者の受信待ちを消去し、配送時にも現在の許可を確認する。後で許可しても過去の音声を再生しない |
-| 送信 | 明示許可方式では、現在も有効な参加と一致する許可が一つ以上ある場合だけ自端末の音声を送信する。自端末のミュート・media開始条件も引き続き適用する |
+| 送信 | 明示許可方式では、現在も有効な参加と一致する許可が1つ以上ある場合だけ自端末の音声を送信する。自端末のミュート・media開始条件も引き続き適用する |
 | 制御と中継 | 本人確認などのapplication data、presence、他端末の暗号化音声の中継はこの許可で止めない。自分が再生しない端末を経由する混在通話も維持する |
 
 許可する本人・アカウント・用途の判断は呼び出し側が行い、RTCへその時点の参加参照を渡す。RTCはAppleログイン・連絡先・購入条件を扱わない。古い参照による遅延更新は現在の参加に一致せず、許可にならない。
 
-この設定は自端末の媒体処理の制御であり、送信先別の暗号化ではない。group鍵を持つ端末には中継音声が届き得るため、特定のgroup参加者が暗号文を復号できないことや、音声の個人署名による本人認証を保証しない。取り消し以前にCallSessionのイベントへ配送済みの音声を回収する契約でもない。 参加許可を外しても、ほかの許可済み参加が残る場合は同じグループ鍵で送信を続ける。鍵が共通の間は、許可を外された端末へ音声が届く場合がある。[3端末相当での検証](../../validation/history/通常グループの代表端末検証.md#メンバー除外後の音声とグループ鍵の境界2026-11-19)。
+この設定は自端末の媒体処理の制御であり、送信先別の暗号化ではない。group鍵を持つ端末には中継音声が届き得るため、特定のgroup参加者が暗号文を復号できないことや、音声の個人署名による本人認証を保証しない。取り消し以前にCallSessionのイベントへ配送済みの音声を回収する契約でもない。 参加許可を外しても、ほかの許可済み参加が残る場合は同じグループ鍵で送信を続ける。鍵が共通の間は、許可を外された端末へ音声が届く可能性を残す。[3端末相当での検証](../../validation/history/通常グループの代表端末検証.md#メンバー除外後の音声とグループ鍵の境界2026-11-19)。
 
 ## Cloudflareの媒体契約
 
@@ -142,11 +142,11 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 | `LocalControlIdentity` | 鍵と証明書から`SecIdentity`を作る。Apple OSに鍵と証明書から直接identityを作る公開APIがないため、PKCS#12の入れ物（鍵はPBES2で暗号化、SHA-1のMAC）をメモリ上で組み立てて`SecPKCS12Import`で取り込む。Keychainへ書かず、後始末も要らない（macOSは`kSecImportToMemoryOnly`）。入れ物のパスワードは形式を満たすためだけの使い捨てで、何も保護しない。証明書のSHA-256を`fingerprint`として公開する |
 | `LocalControlTLS` | QUIC（ALPN `ride-control`、TLS 1.3）のparametersを作る。双方が自分のidentityを提示し（mutual TLS）、相手の証明書は内容を問わず受け入れる。相手が誰かは証明書では決めず、`LocalControlLink`のhandshakeで決める。peer-to-peer Wi-Fiを含め、セルラーは使わない |
 | `LocalControlFraming` | 信頼できるstream上のmessageの境界。4 byteのbig-endianの長さの後にmessageを置く。上限は現行のLocal制御と同じ64 KiBで、超える長さを告げた相手の続きは読まない |
-| `LocalControlHandshake` | 相手が誰かを決めるmessage。group共有鍵のHMAC-SHA256で、groupHash・送信者ID・nonce・送信側の証明書のfingerprint・受信側の証明書のfingerprintを、各項目に長さを付けて覆う。間に入って中継する者は自分の証明書を両側へ提示するしかなく、両側が見るfingerprintが食い違うので検証に失敗する。逆向きへの使い回しと、自分のmessageの送り返しも拒否する。nonceは現行と同じくUDP媒体のlistenerの世代を示す |
+| `LocalControlHandshake` | 相手が誰かを決めるmessage。group共有鍵のHMAC-SHA256で、groupHash・送信者ID・nonce・送信側の証明書のfingerprint・受信側の証明書のfingerprintを、各項目に長さを付けて覆う。間に入って中継する者は自分の証明書を両側へ提示するしかなく、両側から見たfingerprintが食い違うので検証に失敗する。逆向きへの使い回しと、自分のmessageの送り返しも拒否する。nonceは現行と同じくUDP媒体のlistenerの世代を示す |
 | `LocalControlLink` | 相手1人との制御の接続1本（QUICのstream）。readyになったら、その接続でTLSが見た相手の証明書（接続のmetadataから読む）のfingerprintを束縛したhandshakeを送る。相手のhandshakeを同じ接続の証明書で検証できるまで、相手が送ったものを何も渡さない。検証に失敗した場合、10秒以内に認証できない場合、上限を超える長さ、通信の失敗、`close()`で閉じ、`closed`を1回だけ通知する。認証後のmessageは送った順に届く |
 | `LocalControlTransport` | 届く範囲の全員との制御の接続を持つ。開始のたびに新しいidentityとservice名（端末名・人の名前ではない乱数の識別子）を作り、QUICのlistenerをBonjour service `_ride-control._udp`として広告する。TXTの`g`に現行と同じgroupHashを載せる。同じgroupHashのserviceを探索し、service名の小さい側だけが接続を張る（双方が同時に張らないための規則）。認証できた相手を`members`として通知し、相手のUDP媒体用のnonceを`authenticated`で渡す。同じ相手が新しい接続で戻ったら新しい接続に置き換える。相手は7人まで。張った接続が認証前に閉じた、または切れた場合は、広告が見えている間2秒後に張り直す。最後の相手を失うと`disconnected`を通知する。停止で、listener・探索・接続・identityをすべて破棄する。全処理を1本の直列queueで行い、MainActorを使わない |
 
-確かめたこと: 証明書をOSが解析でき、自分自身をanchorにした検証が有効期間内だけ成功する。identityの秘密鍵で署名した値を証明書の公開鍵で検証できる。同じ端末上で、2つのidentityによる実際のQUICの接続（macOSとiPhone Simulator）で、同じgroup鍵を持つ2者が互いを認証し、上限の大きさを含むmessageが双方向に順序どおり届き、片方が閉じると双方が1回ずつ`closed`になる。group鍵を持たない相手は、TLSが成立しても何も渡されずに閉じられる。実際のBonjourの探索を使い、同じプロセス内の3者が互いを見つけて認証し、messageが順序どおり届く。別のgroupの端末と、同じgroupHashを名乗るが鍵の違う端末は、認証されず何も受け取らない。離れた相手は失われ、開始し直すと再び見つかる（macOS）。この2つの試験を各200回繰り返して、失敗もプロセスの異常終了もなかった（同じ形の繰り返しで、Multipeerは約420回のうち3回異常終了した）。framingはstreamをどこで区切っても境界を保つ。handshakeは、中継者の証明書、別のgroup、別の鍵、項目の改変、項目の境界のずらしを拒否する。
+確かめたこと: 証明書をOSが解析でき、自分自身をanchorにした検証が有効期間内だけ成功する。identityの秘密鍵で署名した値を証明書の公開鍵で検証できる。同じ端末上のmacOSとiPhone Simulatorで、2つのidentityを使って実際にQUICで接続した。同じgroup鍵を持つ2者が互いを認証した。上限の大きさを含むmessageが双方向に順序どおり届いた。片方が閉じると双方が1回ずつ`closed`になった。group鍵を持たない相手は、TLSが成立しても何も渡されずに閉じられる。実際のBonjourの探索を使い、同じプロセス内の3者が互いを見つけて認証し、messageが順序どおり届く。別のgroupの端末と、同じgroupHashを名乗るが鍵の違う端末は、認証されず何も受け取らない。離れた相手は失われ、開始し直すと再び見つかる（macOS）。この2つの試験を各200回繰り返して、失敗もプロセスの異常終了もなかった（同じ形の繰り返しで、Multipeerは約420回のうち3回異常終了した）。framingはstreamをどこで区切っても境界を保つ。handshakeは、中継者の証明書、別のgroup、別の鍵、項目の改変、項目の境界のずらしを拒否する。
 
 実装で分かった制約: 鍵を暗号化しない入れ物では、`SecPKCS12Import`は証明書だけを返しidentityを作らない。QUICの`NWListener`は接続を`newConnectionGroupHandler`のgroupで受け取り、streamはそのgroupから受け取る（`newConnectionHandler`だけを設定すると、readyになるがデータを受け取らない接続が返る）。Keychainを経由する方法は、package単独のテストのプロセスでは権限がなく使えない。
 
@@ -201,7 +201,9 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 
 近距離経路では、制御の認証とUDP音声に共通のpeer ID（UTF-8で1〜80 byte）を使う。Local制御の受信は64 KiB以下、WebSocket signaling messageも64 KiB以下。Local送信失敗はイベントで通知し、生ID・payload・OS error全文を直接ログへ出さない。nativeのmediaReady判定はchannel IDだけでなく現行channelオブジェクトの同一性を確認する。
 
-## 近距離接続試行の競合回避
+<a id="近距離接続試行の競合回避"></a>
+
+## 近距離の接続試行が競合する場合
 
 両端が同時にadvertise / browseした場合は、広告したservice名の辞書順で小さい側だけがQUIC接続を開始する。
 
@@ -242,7 +244,7 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 
 ### 登録済み端末を宛先にした探索
 
-相手ごとに共有資格が異なる用途では、`RTCLocalDataChannel(localID:knownPeers:offeredPeers:onEvent:)` に既知の端末IDと個別の資格、現在届ける相手の集合を渡す。共有グループ用と同じデータ専用の鍵導出とQUICのフレーミングを使用する。既知の相手の広告を一つのブラウザーで探し、照合できた広告にだけ接続する。宛先があるときだけリスナーを一つ起動し、既知かつ宛先に選んだ端末を最大7台まで同じ広告に載せる。自身と不正なIDを候補から除き、上限超過には `failed` を通知する。接続は認証済み最大7本、認証前のリンクは最大14本とする。
+相手ごとに共有資格が異なる用途では `RTCLocalDataChannel(localID:knownPeers:offeredPeers:onEvent:)` を使う。既知の端末IDと個別の資格、現在届ける相手の集合を渡す。共有グループ用と同じデータ専用の鍵導出とQUICのフレーミングを使用する。既知の相手の広告を1つのブラウザーで探し、照合できた広告にだけ接続する。宛先があるときだけリスナーを1つ起動し、既知かつ宛先に選んだ端末を最大7台まで同じ広告に載せる。自身と不正なIDを候補から除き、上限超過には `failed` を通知する。接続は認証済み最大7本、認証前のリンクは最大14本とする。
 
 広告は既存の近距離制御サービスを使い、起動ごとのUUIDをサービス名にする。TXTの `f` は新しいTLS証明書のSHA-256（32バイト）をbase64で表す。`p` は各宛先のHMAC-SHA256の先頭16バイトを連結したbase64値で、順序に意味はない。HMACはデータ専用の共有鍵で `rideintercom.local-addressed-advertisement.v1`、NUL、サービス名、NUL、証明書のSHA-256をこの順で認証する。端末IDと固定の組識別子を広告へ出さず、名前や証明書を差し替えた広告は既知の端末の広告と一致しない。
 
@@ -265,7 +267,7 @@ QUICのhandshakeで認証したpeerのIDと媒体用nonceから`_ride-audio._udp
 
 UDPの待受・service解決・送信は共通のparametersを使い、`includePeerToPeer = true`、セルラー禁止、特定interfaceへの固定なしとする。アクセスポイント・Internetがない場所ではApple peer-to-peer Wi-Fiを使う。Wi-Fi機能をOFFにしたBluetooth単独の音声通話には対応しない。通話中は途中参加を受け付けるため制御serviceだけを全件探索し、通話停止時に探索・接続を解放する。
 
-UDPの待受またはQUICの待受・探索が失敗した場合は、そのLocalセッションを閉じてから経路の失敗を通知する。すでに配信待ちだった古いQUIC状態は復旧待ちを解除しない。RouteManagerは同じ通話の中で新しいLocalセッションを用意し、新しいUDP受信口で再認証・媒体確認を行う。相手とのQUICリンクだけが閉じてUDP受信口が有効な条件では、従来どおり認証済みの媒体経路を保つ。
+UDPの待受またはQUICの待受・探索が失敗した場合は、そのLocalセッションを閉じてから経路の失敗を通知する。すでに配信待ちだった古いQUIC状態は復旧待ちを解除しない。RouteManagerは同じ通話の中で新しいLocalセッションを用意し、新しいUDP受信口で再び認証し、媒体を確認する。相手とのQUICリンクだけが閉じてUDP受信口が有効な条件では、従来どおり認証済みの媒体経路を保つ。
 
 `RTCCallRoute.sendApplicationData`は、その送信で代替媒体コピーを省略できる直接peerの集合を返す。Localの音声では認証済みかつ現在のUDP flowがnative ready・送信中bytes上限内で、そのflowの最近の媒体受領確認が有効なpeerだけを返す。現在のframeの受領ACKや無線上の到着・遅延・損失の保証ではない。個別の媒体到達確認を取得できないSFUと制御送信は空集合を返す。RouteManagerがこの共通契約でLocal優先を決め、Appへnative transport判定を持ち出さない。
 
@@ -289,7 +291,7 @@ UDP送受信はQUIC制御のqueueを経由しない。音声は認証済みの�
 
 送信endpointが準備できないときはその音声を保持しない。送信処理中のbytesには上限を設け、接続失敗後に古いpacketを再送しない。受信flowは16個までとし、UDPに切断handshakeがないことを考慮して最も古いflowを解放する。endpoint変更・stopで所有資源を閉じ、前世代のcallbackを拒否する。
 
-UDPは確立済みflowの無線経路を自動移行しないため、`betterPathUpdateHandler`で同じBonjour serviceへの置換flowを作る。旧flowに有効な媒体受領確認があれば、置換候補のnative readyだけでは切り替えない。最大0.5秒に1回、新しく発生した音声のコピーだけを候補へ送り、候補での受領確認後に旧flowを閉じる。候補のwireは予約値`0,1,1`とランダムUUID16byte、通常媒体で、旧flowの応答を候補の証明へ流用できない。受信後の同じ音声はGroupRelayで重複排除する。旧flowが未確認なら従来どおり候補のreadyで置換し、Internetコピーを維持する。`viabilityUpdateHandler`で到達不能になったflowは即時送信可能集合から外し、代替を解決する。置換flowはpeerごとに1本まで。前世代・旧flowの遅延callbackで新flowを取り消さない。接続・送信失敗時は共通の`ConnectionRetry`へpolicy（初期2秒・上限30秒）と単調時計を渡してbackoffを計算し、後続の新しい送信または認証・経路変更イベントで再試行する。周期pollingや捨てた音声の再送は行わない。RouteManagerも同じ間隔計算を使うが、routeの開始とtimeoutはroute側が所有する。接続試行中はdeadlineを無限大にして再起動の連打を防ぎ、成功で履歴を消す。HTTPの資格取得・signalingのrequest再試行はサーバー応答に依存する別契約として維持する。
+UDPは確立済みflowの無線経路を自動移行しないため、`betterPathUpdateHandler`で同じBonjour serviceへの置換flowを作る。旧flowに有効な媒体受領確認があれば、置換候補のnative readyだけでは切り替えない。最大0.5秒に1回、新しく発生した音声のコピーだけを候補へ送り、候補での受領確認後に旧flowを閉じる。候補のwireは予約値`0,1,1`とランダムUUID16byte、通常媒体で、旧flowの応答を候補の証明へ流用できない。受信後の同じ音声はGroupRelayで重複排除する。旧flowが未確認なら従来どおり候補のreadyで置換し、Internetコピーを維持する。`viabilityUpdateHandler`で到達不能になったflowは即時送信できる集合から外し、代替を解決する。置換flowはpeerごとに1本まで。前世代・旧flowの遅延callbackで新flowを取り消さない。接続・送信失敗時は共通の`ConnectionRetry`へpolicy（初期2秒・上限30秒）と単調時計を渡してbackoffを計算し、後続の新しい送信または認証・経路変更イベントで再試行する。周期pollingや捨てた音声の再送は行わない。RouteManagerも同じ間隔計算を使うが、routeの開始とtimeoutはroute側が所有する。接続試行中はdeadlineを無限大にして再起動の連打を防ぎ、成功で履歴を消す。HTTPの資格取得・signalingのrequest再試行はサーバー応答に依存する別契約として維持する。
 
 制御接続の切断時にはQUIC接続の認証を取り消して再handshakeを要求するが、同じ通話で認証済みのUDP媒体資格は保持する。期限切れ・離脱済み話者の音声はGroupRelayで拒否し、音声が途絶えた資格を音声packetだけで復活させない。通話stop時に両方を破棄する。
 
@@ -305,7 +307,7 @@ UDPは確立済みflowの無線経路を自動移行しないため、`betterPat
 
 ## 1組の音声機器との暗号化媒体
 
-`RTCAudioDeviceLink`は、通話を所有する端末と遠隔音声入出力機器の1組に限る媒体APIである。`CallSession`、GroupRelay参加者、group credential、RTCNativeWebRTCを作らない。配送は音声機器専用の単一UDP双方向flowを用い、groupの`LocalDatagramTransport`は変更しない。音声用のTCP、音声再送、常設制御接続、周期polling、復旧台帳を追加しない。
+`RTCAudioDeviceLink`は、通話を所有する端末と音声の入出力を担う遠隔機器の1組に限る媒体APIである。`CallSession`、GroupRelay参加者、group credential、RTCNativeWebRTCを作らない。配送は音声機器専用の単一UDP双方向flowを用い、groupの`LocalDatagramTransport`は変更しない。音声用のTCP、音声再送、常設制御接続、周期polling、復旧台帳を追加しない。
 
 | API・境界 | 契約 |
 |---|---|
@@ -315,7 +317,7 @@ UDPは確立済みflowの無線経路を自動移行しないため、`betterPat
 | 暗号化 | GroupRelayと同じAES.GCMを使う。sessionと方向でHKDF鍵を分離し、専用namespaceを追加認証する。session・方向・単調sequence・音声packetおよびhello／ackを暗号化／認証する。方向反射・別鍵・旧session・改竄を拒否する。controlのwire形式追加により同じ対応版同士が必要で、旧実装とのhandshake互換は保証しない |
 | replayと順序 | 完全な認証・packet検証と対象flowへの受入に成功してから受信sequenceを進める。既に渡した音声より古いsequence・重複を即時破棄し、並べ替え待ちbufferや先頭待ちを追加しない |
 | 共通packet上限 | 空payloadを許さず8192 byte以下。sample rateは有限の8–48kHz、channelは1–2、capturedAtは有限。sampleCountは未指定または1–96,000 frame×channel、bitRateは未指定または0–1,536,000。codec parserは複製しない。空payload／明示0 sampleの制御・DTX表現はなく、無音時はpacketを送らない |
-| send | 即時UDP送信を受け付けたときだけtrue。配送・受信・再生成功を意味しない。送信資源未準備・inFlight上限・不正packetでは破棄する。APIがqueue待ちで100ms以上遅れた音声も送らない |
+| send | 即時UDP送信を受け付けたときだけtrue。配送・受信・再生成功を意味しない。送信資源が未準備の場合、inFlight上限に達した場合、不正packetの場合は破棄する。APIがqueue待ちで100ms以上遅れた音声も送らない |
 | 受信 | 認証済packetを配送queue上のcallbackへ直接渡し、package内で音声待ちqueueを追加しない。callbackは短く処理し、後段で待機する場合は既存の有限・鮮度付き受信経路を使う |
 | isSendReady | native UDP flow上で認証済みhello／ackが成立した状態を表す。継続的な相手の生存、双方向音声や再生を証明しない。`onSendAvailabilityChange`は状態変化を通知する |
 | lastReceivedAt・statistics | 完全に認証・検証して採用した最後の音声受信を端末内systemUptimeで返す。未受信／停止後はnil。hello／ackを音声callback・最終音声時刻・媒体datagram数に含めない。受信なしを相手消失と断定しない。送信受理は配送やnetwork lossの証明ではない |

@@ -15,7 +15,7 @@
 | `selectionMode` | package default の `.automaticFallbackAndRestore` | package default | selection mode / handover state |
 | `fallbackDelay` | package default | package default | runtime status の route configuration |
 
-App は実体 route を直接構築しない。`CallSessionFactoryConfiguration` に display name、`CallRouteConfiguration`、`RTCAudioPolicy`、WebRTC native engine factory を渡し、RTC package の `CallSessionFactory` が `.multipeer` と `.webRTC` の route set を構築する。route 設定変更時は active RTC connection を止め、次回 `prepare` / `startConnection` では更新後の `enabledRoutes` と RTC package の fallback / restore policy を正とする。App は `enabledRoutes == []` を RTC package へ渡さず、旧 UserDefaults や不正値は既定 route へ修復する。App は package が返す route availability、failure reason、media ownership を Diagnostics または runtime status の入力として扱う。
+App は実体 route を直接構築しない。`CallSessionFactoryConfiguration` に display name、`CallRouteConfiguration`、`RTCAudioPolicy`、WebRTC native engine factory を渡す。RTC package の `CallSessionFactory` が `.multipeer` と `.webRTC` の route set を構築する。route 設定変更時は active RTC connection を止める。その次の `prepare` / `startConnection` では更新後の `enabledRoutes` と RTC package の fallback / restore policy を正とする。App は `enabledRoutes == []` を RTC package へ渡さず、旧 UserDefaults や不正値は既定 route へ修復する。package は route availability、failure reason、media ownership を返す。App はそれらを Diagnostics または runtime status の入力として扱う。
 
 ## Settings route opt-out
 
@@ -26,7 +26,7 @@ App は実体 route を直接構築しない。`CallSessionFactoryConfiguration`
 | Local Network OFF、Internet ON | `[.webRTC]` | active RTC connection があれば停止する。次回 connect は WebRTC route だけを有効にする |
 | Local Network OFF、Internet OFF | 許可しない | 最後に残った route の toggle は無効化し、旧設定で空集合を読んだ場合は `[.multipeer, .webRTC]` へ修復する |
 
-App は RTC package の route manager、route state、runtime status を置き換えない。Settings は `CallSession.setEnabledRoutes(_:)` で App-owned adapter policy を更新し、adapter は次回の RTC session / `CallStartRequest.configuration` へ渡すだけである。
+App は RTC package の route manager、route state、runtime status を置き換えない。Settings は `CallSession.setEnabledRoutes(_:)` で App-owned adapter policy を更新する。adapter は次回の RTC session / `CallStartRequest.configuration` へ渡すだけである。
 
 ## CallStartRequest / RTC 入力
 
@@ -66,7 +66,7 @@ Application Data の App-owned namespace と payload schema は App が所有す
 | `CallSession.updateRuntimePackageReports(_:)` | App が集約した `RTCRuntimePackageReport` 配列 | runtime report | status `packageReports` |
 | `RTCRuntimeStatusTransport.namespace` | `rideintercom.rtc.runtimeStatus` | package-owned | remote runtime status |
 
-App 側の report 更新間隔は 0.5 秒を下限とする。RTC は package report 更新を受けたときに `reason == .packageReportsChanged` の runtime status を送信できるため、接続中の peer には package 設定や操作状態が変更時と定期周期の両方で届く。
+App 側の report 更新間隔は 0.5 秒を下限とする。RTC は package report 更新を受けたときに `reason == .packageReportsChanged` の runtime status を送信できる。このため接続中の peer には package 設定や操作状態が変更時と定期周期の両方で届く。
 
 ## Runtime event / metrics の App 側処理
 

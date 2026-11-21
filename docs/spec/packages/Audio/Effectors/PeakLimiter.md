@@ -1,6 +1,6 @@
 # PeakLimiter 仕様
 
-PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音声パイプラインから再利用しやすい Swift Package として切り出したエフェクトライブラリである。
+PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を扱うエフェクトライブラリである。RideCom の音声パイプラインで再利用するため、Swift Package に分けている。
 
 このライブラリはマイク入力、受信音声、ミキサー出力など任意の `AVAudioEngine` ノードチェーンに差し込めるピーク保護エフェクトだけを扱う。音声ルーティング、通信、コーデック、録音、再生デバイス制御は責務に含めない。
 
@@ -8,9 +8,9 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 
 | 観点 | 仕様 |
 |---|---|
-| 主目的 | `kAudioUnitSubType_PeakLimiter` を `AVAudioUnitEffect` として生成し、任意の `AVAudioEngine` グラフに挿入できるようにする |
+| 主目的 | `kAudioUnitSubType_PeakLimiter` を `AVAudioUnitEffect` として生成し、任意の `AVAudioEngine` グラフへの挿入を可能にする |
 | 体験上の目的 | 突発的なピークを抑え、EQやコンプレッサー後のクリップを防ぎ、耳に痛い破綻を避ける |
-| 利用箇所 | DynamicsProcessor後、EQ後、ミキサー出力前、受信音声再生前など、呼び出し側が選んだ位置 |
+| 利用箇所 | DynamicsProcessor後、EQ後、ミキサー出力前、受信音声の再生前など、呼び出し側が選んだ位置 |
 | 非目的 | 音量差をならす主処理、ノイズ除去、Audio Session 管理、通信経路への組み込み、音声仕様全体の変更 |
 | 設計姿勢 | Audio Unit の存在確認、声用途の初期設定、設定値の正規化、パラメータ適用だけを薄く包む |
 
@@ -47,7 +47,7 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 | componentFlags | `0` |
 | componentFlagsMask | `0` |
 
-`PeakLimiterSupport.isAvailable` は `AudioComponentFindNext` で現在の実行環境に `AUPeakLimiter` が存在するか確認する。呼び出し側はこの値を見て、設定UIの有効化やフォールバック経路の選択を行う。
+`PeakLimiterSupport.isAvailable` は `AudioComponentFindNext` で現在の実行環境に `AUPeakLimiter` が存在するか確認する。呼び出し側はこの値を見て、設定UIを有効にするか、フォールバック経路を使うかを選ぶ。
 
 ## 設定仕様
 
@@ -73,7 +73,7 @@ PeakLimiter は Apple 標準の `AUPeakLimiter` Audio Unit を、RideCom の音�
 
 | 処理 | 仕様 |
 |---|---|
-| 生成 | `PeakLimiterEffect.make(configuration:)` が `AUPeakLimiter` の存在確認後に `AVAudioUnitEffect(audioComponentDescription:)` で生成する |
+| 生成 | `PeakLimiterEffect.make(configuration:)` が `AUPeakLimiter` の存在を確認する。確認後、`AVAudioUnitEffect(audioComponentDescription:)` で生成する |
 | ノード取得 | `PeakLimiterEffect.node` で `AVAudioNode` として取得する |
 | 詳細アクセス | `PeakLimiterEffect.avAudioUnitEffect` で `AVAudioUnitEffect` として取得する |
 | 設定適用 | `PeakLimiterEffect.apply(_:)` が `withAudioUnit` で Audio Unit を借り、[設定仕様](#設定仕様)の3値を表の順に `AudioUnitSetParameter` で書く |
@@ -133,7 +133,7 @@ engine.connect(limiter.node, to: engine.mainMixerNode, format: format)
 |---|---|
 | `make(configuration:) throws` | 組込みApple Audio Unitを存在確認後に同期生成し、設定を適用して返す。audio render callbackからは呼ばない |
 | グラフ構成 | node生成・設定・busへの挿入を同じ構成工程で完了できる。生成待ちの古いcallbackが新しいgraphへ混入しない |
-| 検証 | 実Audio Unitの生成、parameterの再適用、runtime snapshot一致を実行する |
+| 検証 | 実Audio Unitの生成、parameterの再適用、runtime snapshotの一致を検証する |
 
 任意の外部AU extensionの非同期ロードは対象外。旧async factoryは残さず、Apple SDKのEffect initializerを使用する。
 

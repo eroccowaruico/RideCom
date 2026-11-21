@@ -2,17 +2,17 @@
 
 ## 目的
 
-StandardとAdvancedの設定トップとその中の画面（通信、開発者向けの高度な設定、インターネット接続）は、grouped Formの行を一覧と同じ背景（高さの25%で変化が終わる。[Callの背景](Call.md)）の上に置き、内容の幅を最大640ptに保つ。Form自体は描く領域いっぱいに置き（背景とスクロールバーは端まで）、`readableScrollWidth()`で左右の`contentMargins`を足して行を中央に寄せる。中央に寄せる余りがシステムの余白（regular 20pt）以下の幅（iPhoneなど）はシステムの余白（compact 16pt）のままにし、行は角丸のまとまりになる。iPadの横で浮かぶサイドバーの分も安全領域として足し、見えている領域の中央に置く。モード切替時は新モードの設定トップへ戻り、通話・設定値は共通ViewModelに保持する。
+StandardとAdvancedの設定トップ、その中の通信・開発者向けの高度な設定・インターネット接続では、grouped Formを使う。行は一覧と同じ背景の上に置き、内容の幅は最大640ptとする。背景の変化は高さの25%で終わる。[Callの背景](Call.md)。Form自体は描く領域いっぱいに置き（背景とスクロールバーは端まで）、`readableScrollWidth()`で左右の`contentMargins`を足して行を中央に寄せる。中央に寄せる余りがシステムの余白（regular 20pt）以下の幅（iPhoneなど）はシステムの余白（compact 16pt）のままにし、行は角丸のまとまりになる。iPadの横で浮かぶサイドバーの分も安全領域として足し、見えている領域の中央に置く。モード切替時は新モードの設定トップへ戻り、通話・設定値は共通ViewModelに保持する。
 
 本書は Settings タブの UI 項目を定義する。
 
-Standardの設定トップは、同じ目的のSection（自分・接続・通信・音声・高度な設定・リセット）を並べ、Section間は`.listSectionSpacing(.compact)`にし、1つのSectionだけのグループ（通信、開発者向けの高度な設定、リセット）を36pt（`.custom(36)`）にして、その前後のグループの切れ目を一段広くする（iOS。macOSは標準のForm）。SwiftUIは隣り合う2つのSectionの大きい方の間隔を使うため、自分と接続の切れ目は広げていない（[バックログ](../../../backlog/画面実装とデザイン見本の差分.md#主画面)にデザインへの確認を記録）。Advancedの選択肢は、実装の既定値に「(Default)」を付ける（自動切断、Mode、Codec、Sample Rate、AAC-ELD Bitrate、VAD Sensitivity）。Standardの選択肢には付けない。Advancedのインターネット接続のWorker URLのプレースホルダーは`https://example.workers.dev`、Device access tokenは`Paste the token`。
+Standardの設定トップでは目的ごとにSectionを並べる。目的は自分・接続・通信・音声・高度な設定・リセット。iOSのSection間は`.listSectionSpacing(.compact)`とする。通信、開発者向けの高度な設定、リセットは、それぞれ1つのSectionだけでグループを作る。その間隔を36pt（`.custom(36)`）にして前後の切れ目を一段広くする。macOSでは標準のFormを使う。SwiftUIは隣り合う2つのSectionの大きい方の間隔を使うため、自分と接続の切れ目は広げていない（[バックログ](../../../backlog/画面実装とデザイン見本の差分.md#主画面)にデザインへの確認を記録）。Advancedの選択肢は、実装の既定値に「(Default)」を付ける（自動切断、Mode、Codec、Sample Rate、AAC-ELD Bitrate、VAD Sensitivity）。Standardの選択肢には付けない。Advancedのインターネット接続のWorker URLのプレースホルダーは`https://example.workers.dev`、Device access tokenは`Paste the token`。
 
 ## 表示切替と共通設定
 
-App Layout（`interfaceModePicker`）は2つを並べた標準の`Picker(.segmented)`（Standardは「標準／詳細」、Advancedは`Standard`／`Advanced`）。StandardのApp Layout（画面表示）には`Toggle`「グループタブを表示」（`showsGroupsTabToggle`、既定OFF、アカウント別の`RideIntercom.settings.showsGroupsTab`に保存して再起動後も同じ）を置き、footerで3人以上のグループの作成と一覧に使うことと、1対1の接続はオフでも使えることを伝える。初期値Standard、アカウント別端末設定として保持する。切替だけでは通話・選択・ミュートを変更しない。Standardはアカウント・本人の表示名・利用権、通話設定、通信経路への入口、音声入出力・VAD・録音再生チェックの順に表示し、リセットを最下部に置く。通信経路はCommunication（`communicationSettingsLink`）に有効な経路を表示し、別画面で設定する。Advanced Settings for Developers（`moreSettingsLink`）には見出し（`advancedSettingsWarningTitle`）と設定変更の注意（`advancedSettingsWarning`）、App Layout、Internet接続だけを置く。Audio Session・送信codecは[絶対ルール](../../../policies/開発方針.md#standardとadvancedの設計の絶対ルール)によりStandardに置かず、Advancedの設定だけで扱う。Internet接続は自動化が未実装の間もここから設定できる。AdvancedはApp Layoutを先頭、通信経路とInternet接続を主画面に表示し、音声設定をAudio Session・Audio I/O・Voice Activity・Transmit Codec・Audio Checkの順に表示する。録音チェックの接続状態やmeterはAdvancedに限る。Sectionの見出しは両表示とも文字だけで、記号を付けない。Standardと同じ語・部品をAdvancedで使い回さないよう、表示が分かれるSection（App Layout、Internet接続、Audio Check）はStandardが`StandardSettingsSections.swift`、Advancedが`AdvancedSettingsSections.swift`に別の型で持つ。
+App Layout（`interfaceModePicker`）は2つを並べた標準の`Picker(.segmented)`（Standardは「標準／詳細」、Advancedは`Standard`／`Advanced`）。StandardのApp Layout（画面表示）には`Toggle`「グループタブを表示」（`showsGroupsTabToggle`）を置く。既定はOFF。値はアカウント別の`RideIntercom.settings.showsGroupsTab`に保存し、再起動後も使う。footerには、3人以上のグループを作成・一覧表示する設定で、オフでも1対1の接続を使えることを書く。初期値Standard、アカウント別端末設定として保持する。切替だけでは通話・選択・ミュートを変更しない。Standardはアカウント・本人の表示名・利用権、通話設定、通信経路への入口、音声入出力・VAD・録音再生チェックの順に表示し、リセットを最下部に置く。通信経路はCommunication（`communicationSettingsLink`）に有効な経路を表示し、別画面で設定する。Advanced Settings for Developers（`moreSettingsLink`）には見出し（`advancedSettingsWarningTitle`）と設定変更の注意（`advancedSettingsWarning`）、App Layout、Internet接続だけを置く。Audio Session・送信codecは[絶対ルール](../../../policies/開発方針.md#standardとadvancedの設計の絶対ルール)によりStandardに置かず、Advancedの設定だけで扱う。Internet接続は自動化が未実装の間もここから設定できる。AdvancedはApp Layoutを先頭、通信経路とInternet接続を主画面に表示する。音声設定をAudio Session・Audio I/O・Voice Activity・Transmit Codec・Audio Checkの順に表示する。録音チェックの接続状態やmeterはAdvancedに限る。Sectionの見出しは両表示とも文字だけで、記号を付けない。App Layout、Internet接続、Audio Checkの各Sectionはモードごとに別の型を持つ。Standardと同じ語や部品をAdvancedで使い回さない。Standardは`StandardSettingsSections.swift`、Advancedは`AdvancedSettingsSections.swift`に置く。
 
-StandardのInternet接続（`StandardInternetConnectionSection`）は状態の語（Set up＝設定済み・緑の印／Not set up＝未設定）と「Set Up Internet Connection」（インターネット接続を設定）だけを置き、footerはない。sheet（`StandardInternetConnectionEditor`）はService Address（プレースホルダー「https://で始まるアドレス」）とAppleによる接続。手動のDevice access token入力・保存はAdvancedだけに表示する。Advanced（`AdvancedInternetConnectionPanel`・`AdvancedInternetConnectionEditor`）は`Device token configured`／`Not configured`、Worker URL、手動のDevice access tokenと保存操作、Diagnosticsを維持する。両表示で同じ設定保存先と音声処理を使う。商品未設定でも配布環境を独立に確認し、テスト配布で利用可能か、判定不能ならCheck Accessを表示する。配布の権利がない場合はNot Available Yetとし、商品未設定のRestore Purchasesは表示しない。
+StandardのInternet接続（`StandardInternetConnectionSection`）では、状態の語と設定ボタンだけを置く。状態は設定済みならSet upと緑の印、未設定ならNot set up。ボタンは「Set Up Internet Connection」（インターネット接続を設定）。footerは置かない。sheet（`StandardInternetConnectionEditor`）にはService AddressとAppleによる接続を置く。アドレス欄のプレースホルダーは`https://で始まるアドレス`。手動のDevice access token入力・保存はAdvancedだけに表示する。Advanced（`AdvancedInternetConnectionPanel`・`AdvancedInternetConnectionEditor`）は`Device token configured`／`Not configured`、Worker URLを表示する。手動のDevice access tokenと保存操作、Diagnosticsも維持する。両表示で同じ設定保存先と音声処理を使う。商品未設定でも配布環境を独立に確認し、テスト配布で利用可能か、判定不能ならCheck Accessを表示する。配布の権利がない場合はNot Available Yetとし、商品未設定のRestore Purchasesは表示しない。
 
 
 Settings はアカウントのサインアウトと削除、通信経路、Audio Session、入出力、Audio Check、送信 codec、VAD、設定リセットを扱う。設定値の型、既定値、永続化は `docs/spec/App/Configuration/設定値一覧.md` を正とする。
@@ -35,7 +35,7 @@ Settings はアカウントのサインアウトと削除、通信経路、Audio
 
 | 項目名（日本語） | 項目ID | 目的 | 実装 | 発現条件 | 表示仕様 |
 |---|---|---|---|---|---|
-| 設定画面 | `settingsScrollView` | 通話前後の調整、確認、自己診断を行う | `SettingsView` | 常時 | `Form` |
+| 設定画面 | `settingsScrollView` | 通話前後に設定を調整し、状態を確認して自己診断する | `SettingsView` | 常時 | `Form` |
 | 通信設定 | `communicationPanel` | RTC package に渡す有効 route を選択する | `CommunicationPanel` | 常時 | `Communication` section |
 | Internet接続設定 | なし（子IDを使用） | サービスURLと端末資格の保存 | `StandardInternetConnectionSection`／`AdvancedInternetConnectionPanel` | 常時 | `Internet Connection` section |
 | Audio Session設定 | `audioSessionPanel` | SessionManager の mode、speaker、echo cancellation、Duck Other Audio の組み合わせを選択する | `AdvancedAudioSessionPanel` | 常時 | `Audio Session` section |
@@ -89,9 +89,9 @@ Standard（`StandardLocalDisplayNameSection`）は、現在の名前と「編集
 |---|---|---|---|---|---|---|---|
 | Local Network 経路設定 | `communicationPanel` | `localNetworkRouteToggle` | `Local Network` | `enabledRTCTransportRoutes.contains(.multipeer)`。既定 ON | 常時 | Toggle | OFF にすると RTC の `enabledRoutes` から `.multipeer` を外す。最後の有効 route の場合は操作不可。active RTC connection は停止し、次回接続要求は有効 route だけを使う |
 | Internet 経路設定 | `communicationPanel` | `internetRouteToggle` | `Internet` | `enabledRTCTransportRoutes.contains(.webRTC)`。既定 ON | 常時 | Toggle | OFF にすると RTC の `enabledRoutes` から `.webRTC` を外す。最後の有効 route の場合は操作不可。WebRTC route の生成と利用可否判定は RTC package を正とする |
-| 通信設定補足文 | `communicationPanel` | `communicationPanel` | なし | 固定文言 | 常時 | section footer | route 設定の反映タイミング、最低1 routeを維持すること、route 変更時に active connection を止めることを説明する |
+| 通信設定の補足文 | `communicationPanel` | `communicationPanel` | なし | 固定文言 | 常時 | section footer | route 設定の反映タイミング、最低1 routeを維持すること、route 変更時に active connection を止めることを説明する |
 
-App は route 実体を直接構築しない。Settings の `enabledRTCTransportRoutes` と adapter が持つ codec registry / WebRTC native engine factory を RTC package の `CallSessionFactory` へ渡し、RTC package が `.multipeer` と `.webRTC` の route set を構築する。
+App は route 実体を直接構築しない。Settings の `enabledRTCTransportRoutes` と adapter が持つ codec registry / WebRTC native engine factory を RTC package の `CallSessionFactory` へ渡す。RTC package が `.multipeer` と `.webRTC` の route set を構築する。
 
 ## Audio Session
 
@@ -139,7 +139,7 @@ App は route 実体を直接構築しない。Settings の `enabledRTCTransport
 | マイクミュート状態 | `audioCheckPanel` | `audioCheckMuteState` | `Microphone mute: On` / `Off` | `isMuted` | Advanced | 状態テキスト | 現在のマイクミュート状態を表示。Watch音声使用中は、Watch音声を停止してからこの端末のチェックを開始する案内を別の行で表示 |
 | チェック実行・停止ボタン | `audioCheckPanel` | `audioCheckButton` | `Record 5s and Play` / `Stop Audio Check` | Action | 常時 | 同じボタンで開始と停止を切り替える。進行中以外は開始不可条件で disabled | 二重起動と通話中の競合を防ぐ。準備・録音・再生中は停止可能 |
 
-Standardの音声チェック（`StandardAudioCheckSection`）は「Record 5s and Play」（5秒録音して再生、実行中は「音声チェックを停止」）の1操作と、状態の行（`audioCheckStatusLabel`）、footerの1文（`audioCheckFooter`）だけを置く。状態の行は、準備中は進行表示と「準備しています」、録音中は「録音しています」と自分の声の[声のインジケーター](Call.md)（入力）、再生中は「再生しています」と出力のインジケーター、完了は「音声チェックが終わりました」、失敗は実装の理由の文。待機中は出さない。footerは、開始できないときは理由（通話中・Apple Watchが音声を使用中）、録音中・再生中・完了は次にすることの1文。機器名・ミュート・数値のmeterは出さない。Advancedは[詳細画面見本](../../../design/詳細画面/詳細画面見本.html)の順にCall、Audio Check、Recording Input、Playback Output、meter、ミュート、状態文、操作を並べる。操作は標準Formのボタン行とし、使用不可の理由やWatch所有中の案内を残す。
+Standardの音声チェック（`StandardAudioCheckSection`）は「Record 5s and Play」（5秒録音して再生、実行中は「音声チェックを停止」）の1操作と、状態の行（`audioCheckStatusLabel`）、footerの1文（`audioCheckFooter`）だけを置く。状態の行は、準備中に進行表示と「準備しています」を出す。録音中は「録音しています」と自分の声の[声のインジケーター](Call.md)（入力）を出す。再生中は「再生しています」と出力のインジケーター、完了は「音声チェックが終わりました」、失敗は実装の理由の文。待機中は出さない。footerは、開始できないときは理由（通話中・Apple Watchが音声を使用中）、録音中・再生中・完了は次にすることの1文。機器名・ミュート・数値のmeterは出さない。Advancedは[詳細画面見本](../../../design/詳細画面/詳細画面見本.html)の順にCall、Audio Check、Recording Input、Playback Output、meter、ミュート、状態文、操作を並べる。操作は標準Formのボタン行とし、使用不可の理由やWatch所有中の案内を残す。
 
 ## Transmit Codec
 
@@ -148,11 +148,10 @@ Standardの音声チェック（`StandardAudioCheckSection`）は「Record 5s an
 | 送信コーデック選択 | `transmitCodecPanel` | `transmitCodecPicker` | `Codec` | `preferredTransmitCodec`。既定は `AAC-ELD` | 常時 | `Picker(.segmented)`。`PCM 16-bit`、`AAC-ELD`、`Opus` | ユーザーが要求する codec |
 | コーデック項目名 | `transmitCodecPanel` | `transmitCodecLabel` | `Codec` | 固定文字列 | 常時 | segmented Pickerの上に明示 | サンプルレート選択と区別する |
 | サンプルレート項目名 | `transmitCodecPanel` | `rtcAudioSampleRateLabel` | `Sample Rate` | 固定文字列 | 常時 | segmented Pickerの上に明示 | kHzとkbpsを区別する |
-| AAC-ELD bitrate | `transmitCodecPanel` | `aacELDBitRatePicker` | `AAC-ELD Bitrate` | `Int`。sample rate別のOS対応値。従来の品質範囲と、48kHz・32kbps／24kHz・16kbpsの手動低帯域候補。既定48kbps | `preferredTransmitCodec == .mpeg4AACELD` | `Picker(.menu)`、kbps表示。該当候補だけ`Lower Quality`／`音質低下`を付ける。footerで周波数依存と、非対応値は従来の品質範囲から最も近い値へ補正することを説明 | codecだけの切替ではAAC候補を変更しない。Sectionはaccessibility containerとし子の識別子を維持 |
+| AAC-ELD bitrate | `transmitCodecPanel` | `aacELDBitRatePicker` | `AAC-ELD Bitrate` | `Int`。sample rate別のOS対応値。従来の品質範囲と、48kHz・32kbps／24kHz・16kbpsの手動で選ぶ低帯域の候補。既定48kbps | `preferredTransmitCodec == .mpeg4AACELD` | `Picker(.menu)`、kbps表示。該当候補だけ`Lower Quality`／`音質低下`を付ける。footerで周波数依存と、非対応値は従来の品質範囲から最も近い値へ補正することを説明 | codecだけの切替ではAAC候補を変更しない。Sectionはaccessibility containerとし子の識別子を維持 |
 | 低帯域候補の説明 | `transmitCodecPanel` | `aacLowBandwidthExplanation` | 英日説明文 | 48kHz・32kbps／24kHz・16kbpsは音質低下を伴い、既定を変更しない。符号化bitrateと総通信量は別 | AAC選択中で、現在の周波数にnative対応の低帯域候補がある | 標準Section footer内のText | 品質推奨・実通信量や電池の効果を確定した表示にしない |
-| Opus bitrate | `transmitCodecPanel` | `opusBitRateStepper` | `Opus Bitrate` | `Int`。OS対応の24／32kbpsと従来48〜128kbps。既定48kbps | `preferredTransmitCodec == .opus` | `Stepper`、24／32には`Lower Quality`／`音質低下`を付け、48以上は2kbps刻み | Appの手動候補選択後の値を表示 |
+| Opus bitrate | `transmitCodecPanel` | `opusBitRateStepper` | `Opus Bitrate` | `Int`。OS対応の24／32kbpsと従来48〜128kbps。既定48kbps | `preferredTransmitCodec == .opus` | `Stepper`、24／32には`Lower Quality`／`音質低下`を付け、48以上は2kbps刻み | Appの候補を手動で選んだ後の値を表示 |
 | Opus低帯域候補の説明 | `transmitCodecPanel` | `opusLowBandwidthExplanation` | 英日説明文 | 24／32kbpsは音質低下を伴う選択肢。既定48を維持し符号化量と全通信量を区別 | `preferredTransmitCodec == .opus` | Section footer | 推奨下限の変更ではない |
-
 | RTC Audio選択 | `transmitCodecPanel` | `rtcAudioFormatPicker` | `Sample Rate` | `.mono48k` / `.mono24k` / `.mono16k`、既定48kHz mono | 常時 | segmented Picker | 稼働中は共通音声pipelineを再構築。hardware sample rateとは別 |
 
 ## Voice Activity
@@ -192,7 +191,7 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 
 429では`internetAppleSignInStatus`に待機秒数とSet Up Internet Callingでの再試行を表示し、Apple認証は準備ができるまで無効。409では登録端末が8台あることと、別端末でのサインアウトを案内する。エラーは標準Textで表示し、色だけで区別しない。
 
-Apple認証の登録入口はserver側で有効化されている必要があり、現在の配置設定では無効が既定である。手入力欄は`Manual Access Token`へ分け、試用資格を引き続き入力できる。通信不可・Keychain失敗時は既存設定を空に変えない。サインアウト時は端末側のInternet資格を使用禁止にしてserver失効を試み、失敗時は次にこのsheetを開いた際に再試行する。禁止フラグはKeychain読出・削除より先に保存するため、失敗後の再起動でも古い資格を復帰しない。
+Apple認証の登録入口はserver側で有効化されている必要があり、現在の配置設定では無効を既定とする。手入力欄は`Manual Access Token`へ分け、試用資格を引き続き入力できる。通信不可・Keychain失敗時は既存設定を空に変えない。サインアウト時は端末側のInternet資格を使用禁止にしてserver失効を試み、失敗時は次にこのsheetを開いた際に再試行する。禁止フラグはKeychain読出・削除より先に保存するため、失敗後の再起動でも古い資格を復帰しない。
 
 ## 音声経路による操作範囲
 
