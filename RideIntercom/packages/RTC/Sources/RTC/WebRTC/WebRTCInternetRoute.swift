@@ -157,39 +157,56 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         guard self.generation == generation, connecting else { return }
         switch event {
         case .iceServers(let servers):
-            let accepted = await engine.configureIceServers(servers)
-            if !accepted { await fail("Could not apply ICE credentials", generation: generation) }
+            await configureIceServers(servers, generation: generation)
         case .connected:
-            guard connecting else { return }
-            await engine.createPeerConnection(for: sfuPeer)
-            guard self.generation == generation else { return }
-            if let offer = await engine.makeOffer(for: sfuPeer.id), self.generation == generation {
-                await signalingClient.sendOffer(offer, to: sfuPeer.id)
-            } else {
-                await fail("Could not create WebRTC offer", generation: generation)
-            }
+            await sendInitialOffer(generation: generation)
         case .dataChannels(let channels):
             await engine.configureDataChannels(channels, for: sfuPeer.id)
         case .members(let peers):
-            guard connecting else { return }
             remotePeers = Dictionary(peers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             emitMembers()
         case .disconnected:
             await stopConnection()
         case .answer(let answer, let peerID):
-            guard connecting, peerID == sfuPeer.id else { return }
-            if await !engine.acceptAnswer(answer, from: peerID) {
-                await fail("Could not accept WebRTC answer", generation: generation)
-            }
+            await acceptSignalingAnswer(answer, from: peerID, generation: generation)
         case .receivedApplicationData(let data):
-            guard remotePeers[data.peerID] != nil else { return }
-            eventSource.yield(.receivedApplicationData(kind, data))
+            forwardApplicationData(data)
         case .blocked(let message):
             eventSource.yield(.connectionBlocked(kind, message))
             await stopConnection(finalState: .failed)
         case .failed(let message):
             await fail(message, generation: generation)
         }
+    }
+
+    private func configureIceServers(_ servers: [WebRTCIceServer], generation: UUID) async {
+        if await !engine.configureIceServers(servers) {
+            await fail("Could not apply ICE credentials", generation: generation)
+        }
+    }
+
+    private func sendInitialOffer(generation: UUID) async {
+        await engine.createPeerConnection(for: sfuPeer)
+        guard self.generation == generation else { return }
+        if let offer = await engine.makeOffer(for: sfuPeer.id), self.generation == generation {
+            await signalingClient.sendOffer(offer, to: sfuPeer.id)
+        } else {
+            await fail("Could not create WebRTC offer", generation: generation)
+        }
+    }
+
+    private func acceptSignalingAnswer(
+        _ answer: WebRTCSessionDescription, from peerID: PeerID, generation: UUID
+    ) async {
+        guard peerID == sfuPeer.id else { return }
+        if await !engine.acceptAnswer(answer, from: peerID) {
+            await fail("Could not accept WebRTC answer", generation: generation)
+        }
+    }
+
+    private func forwardApplicationData(_ data: ReceivedApplicationData) {
+        guard remotePeers[data.peerID] != nil else { return }
+        eventSource.yield(.receivedApplicationData(kind, data))
     }
 
     private func fail(_ message: String, generation: UUID) async {
@@ -213,8 +230,7 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         guard self.generation == generation, connecting else { return }
         switch event {
         case .receivedApplicationData(let data):
-            guard remotePeers[data.peerID] != nil else { return }
-            eventSource.yield(.receivedApplicationData(kind, data))
+            forwardApplicationData(data)
         case .connectionStateChanged(let state):
             iceConnected = state == .connected || state == .mediaReady
             if iceConnected { await signalingClient.startPublishing() }

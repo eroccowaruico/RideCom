@@ -74,7 +74,10 @@ public struct WebRTCDataChannel: Codable, Equatable, Sendable {
     public var peerID: PeerID?
     public var isPublisher: Bool
     public var delivery: ApplicationDataDelivery
-    public init(id: Int32, peerID: PeerID? = nil, isPublisher: Bool = false, delivery: ApplicationDataDelivery = .unreliable) {
+    public init(
+        id: Int32, peerID: PeerID? = nil, isPublisher: Bool = false,
+        delivery: ApplicationDataDelivery = .unreliable
+    ) {
         self.id = id; self.peerID = peerID; self.isPublisher = isPublisher; self.delivery = delivery
     }
 }

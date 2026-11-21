@@ -29,22 +29,6 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private static let sfuID = PeerID(rawValue: "cloudflare-sfu")
 
     public init(session: URLSession = .shared) { self.session = session }
-    /// Checks device authorization and quota configuration without creating SFU media.
-    public static func checkService(
-        _ configuration: CloudflareRealtimeConfiguration, session: URLSession = .shared
-    ) async throws -> CloudflareServiceStatus {
-        guard valid(configuration) else { throw Failure.invalidConfiguration }
-        let data = try await fetch(
-            configuration, url: configuration.workerURL.appendingPathComponent("api/status"), method: "GET",
-            body: nil, session: session)
-        return try JSONDecoder().decode(CloudflareServiceStatus.self, from: data)
-    }
-    private static func valid(_ configuration: CloudflareRealtimeConfiguration) -> Bool {
-        let url = configuration.workerURL
-        return (url.scheme == "https" || (url.scheme == "http" && ["localhost", "127.0.0.1"].contains(url.host ?? "")))
-            && url.host != nil && url.user == nil && url.password == nil && url.query == nil && url.fragment == nil
-            && (url.path.isEmpty || url.path == "/") && !configuration.accessToken.isEmpty
-    }
     public func connect(_ request: WebRTCSignalingConnectRequest) async {
         let operation = UUID()
         await disconnect(generation: operation)
@@ -137,75 +121,14 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                 "type": "appData", "namespace": message.namespace,
                 "payload": message.payload.base64EncodedString()
             ])
-            guard data.count <= 32768 else { return }
-            try await socket.send(.string(String(decoding: data, as: UTF8.self)))
+            guard data.count <= 32768, let text = String(bytes: data, encoding: .utf8) else { return }
+            try await socket.send(.string(text))
         } catch {
             guard self.generation == generation, self.socket === socket else { return }
             // Control snapshots are refreshed periodically; an unavailable socket
             // must not tear down healthy media. The receive loop reconnects it.
             self.socket = nil
             socket.cancel(with: .goingAway, reason: nil)
-        }
-    }
-    private func startSocket(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) {
-        socketTask = Task { [weak self] in
-            var retry = 1
-            while !Task.isCancelled {
-                guard let self else { return }
-                do { try await self.receiveSocket(request, id: id, generation: generation); return } catch {
-                    guard !Task.isCancelled else { return }
-                    // Signaling can reconnect without replacing SFU media. Lease renewal still bounds lifetime.
-                    try? await Task.sleep(for: .seconds(retry)); retry = min(10, retry * 2)
-                }
-            }
-        }
-    }
-    private func receiveSocket(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) async throws {
-        guard self.generation == generation else { return }
-        var url = URLComponents(url: endpoint(request, path: "sessions/\(id)/signal"), resolvingAgainstBaseURL: false)!
-        url.scheme = url.scheme == "https" ? "wss" : "ws"
-        var upgrade = URLRequest(url: url.url!)
-        upgrade.setValue("Bearer \(request.cloudflare.accessToken)", forHTTPHeaderField: "Authorization")
-        let socket = session.webSocketTask(with: upgrade); socket.maximumMessageSize = 65536
-        self.socket = socket; socket.resume()
-        defer {
-            socket.cancel(with: .normalClosure, reason: nil)
-            if self.socket === socket { self.socket = nil }
-        }
-        while !Task.isCancelled {
-            let message = try await socket.receive()
-            guard self.generation == generation else { return }
-            let data: Data
-            switch message {
-            case .data(let bytes): data = bytes
-            case .string(let text): data = Data(text.utf8)
-            @unknown default: continue
-            }
-            let event = try JSONDecoder().decode(WireEvent.self, from: data)
-            if event.type == "peers", let remote = event.peers {
-                // Signaling supplies routing identities only. Human-readable names
-                // travel inside the authenticated, encrypted group presence.
-                peers = remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
-                    .init(id: .init(rawValue: $0.id), displayName: $0.id)
-                }
-                peerSessions = Dictionary(remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
-                    (PeerID(rawValue: $0.id), $0.sessionId)
-                }, uniquingKeysWith: { first, _ in first })
-                subscribed = subscribed.filter { peerSessions[$0.key] == $0.value }
-                source.yield(.members(peers))
-                do { try await subscribe(request, id: id, generation: generation) } catch {
-                    await fail(error, generation: generation); return
-                }
-            } else if event.type == "appData", let sender = event.from,
-                peers.contains(where: { $0.id.rawValue == sender }),
-                let namespace = event.namespace, let encoded = event.payload,
-                let payload = Data(base64Encoded: encoded) {
-                source.yield(
-                    .receivedApplicationData(
-                        .init(
-                            peerID: .init(rawValue: sender), message: .init(namespace: namespace, payload: payload)
-                        )))
-            }
         }
     }
     private func subscribe(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) async throws {
@@ -258,14 +181,134 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         }
         await disconnect()
     }
-    private func endpoint(_ request: WebRTCSignalingConnectRequest, path: String) -> URL {
-        request.cloudflare.workerURL.appendingPathComponent("api/rooms/\(request.call.credential!.groupHash)/\(path)")
+    private struct Rejection: Decodable { let code: String }
+    private struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
+    private struct Description: Decodable { let type: String; let sdp: String }
+    private struct Lease: Decodable {
+        let sessionId: String; let expiresAt: Double; let renewAfterSeconds: Double
+        let sessionDescription: Description?; let channels: [WebRTCDataChannel]?
+        let iceServers: [WebRTCIceServer]?
+    }
+    private struct Pull: Decodable { let channels: [WebRTCDataChannel] }
+    private struct WirePeer: Decodable { let id: String; let sessionId: String }
+    private struct WireEvent: Decodable {
+        let type: String; let peers: [WirePeer]?; let from: String?; let namespace: String?; let payload: String?
+    }
+    private enum Failure: Error, LocalizedError {
+        case invalidConfiguration, invalidResponse, accountInUse, http(Int)
+        var errorDescription: String? { description }
+        var description: String {
+            switch self {
+            case .invalidConfiguration: "A secure Worker URL and device token are required"
+            case .invalidResponse: "Invalid Cloudflare response"
+            case .accountInUse:
+                "This account already has an Internet call. End the existing call, then try again. "
+                    + "If the other device lost its connection, wait for that call to expire."
+            case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
+            }
+        }
+    }
+}
+
+private extension CloudflareRealtimeSignalingClient {
+    func startSocket(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) {
+        socketTask = Task { [weak self] in
+            var retry = 1
+            while !Task.isCancelled {
+                guard let self else { return }
+                do { try await self.receiveSocket(request, id: id, generation: generation); return } catch {
+                    guard !Task.isCancelled else { return }
+                    // Signaling can reconnect without replacing SFU media. Lease renewal still bounds lifetime.
+                    try? await Task.sleep(for: .seconds(retry)); retry = min(10, retry * 2)
+                }
+            }
+        }
+    }
+    func receiveSocket(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) async throws {
+        guard self.generation == generation else { return }
+        let socket = session.webSocketTask(with: try socketUpgrade(request, id: id))
+        socket.maximumMessageSize = 65536
+        self.socket = socket; socket.resume()
+        defer {
+            socket.cancel(with: .normalClosure, reason: nil)
+            if self.socket === socket { self.socket = nil }
+        }
+        while !Task.isCancelled {
+            let message = try await socket.receive()
+            guard self.generation == generation else { return }
+            let data: Data
+            switch message {
+            case .data(let bytes): data = bytes
+            case .string(let text): data = Data(text.utf8)
+            @unknown default: continue
+            }
+            let event = try JSONDecoder().decode(WireEvent.self, from: data)
+            if event.type == "peers", let remote = event.peers {
+                // Signaling supplies routing identities only. Human-readable names
+                // travel inside the authenticated, encrypted group presence.
+                peers = remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
+                    .init(id: .init(rawValue: $0.id), displayName: $0.id)
+                }
+                peerSessions = Dictionary(remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
+                    (PeerID(rawValue: $0.id), $0.sessionId)
+                }, uniquingKeysWith: { first, _ in first })
+                subscribed = subscribed.filter { peerSessions[$0.key] == $0.value }
+                source.yield(.members(peers))
+                do { try await subscribe(request, id: id, generation: generation) } catch {
+                    await fail(error, generation: generation); return
+                }
+            } else if event.type == "appData", let sender = event.from,
+                peers.contains(where: { $0.id.rawValue == sender }),
+                let namespace = event.namespace, let encoded = event.payload,
+                let payload = Data(base64Encoded: encoded) {
+                source.yield(
+                    .receivedApplicationData(
+                        .init(
+                            peerID: .init(rawValue: sender), message: .init(namespace: namespace, payload: payload)
+                        )))
+            }
+        }
+    }
+    func socketUpgrade(_ request: WebRTCSignalingConnectRequest, id: String) throws -> URLRequest {
+        let endpoint = try endpoint(request, path: "sessions/\(id)/signal")
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw Failure.invalidConfiguration
+        }
+        components.scheme = components.scheme == "https" ? "wss" : "ws"
+        guard let url = components.url else { throw Failure.invalidConfiguration }
+        var upgrade = URLRequest(url: url)
+        upgrade.setValue("Bearer \(request.cloudflare.accessToken)", forHTTPHeaderField: "Authorization")
+        return upgrade
+    }
+}
+
+extension CloudflareRealtimeSignalingClient {
+    /// Checks device authorization and quota configuration without creating SFU media.
+    public static func checkService(
+        _ configuration: CloudflareRealtimeConfiguration, session: URLSession = .shared
+    ) async throws -> CloudflareServiceStatus {
+        guard valid(configuration) else { throw Failure.invalidConfiguration }
+        let data = try await fetch(
+            configuration, url: configuration.workerURL.appendingPathComponent("api/status"), method: "GET",
+            body: nil, session: session)
+        return try JSONDecoder().decode(CloudflareServiceStatus.self, from: data)
+    }
+    private static func valid(_ configuration: CloudflareRealtimeConfiguration) -> Bool {
+        let url = configuration.workerURL
+        return (url.scheme == "https" || (url.scheme == "http" && ["localhost", "127.0.0.1"].contains(url.host ?? "")))
+            && url.host != nil && url.user == nil && url.password == nil && url.query == nil && url.fragment == nil
+            && (url.path.isEmpty || url.path == "/") && !configuration.accessToken.isEmpty
+    }
+
+    private func endpoint(_ request: WebRTCSignalingConnectRequest, path: String) throws -> URL {
+        guard let credential = request.call.credential else { throw Failure.invalidConfiguration }
+        return request.cloudflare.workerURL.appendingPathComponent("api/rooms/\(credential.groupHash)/\(path)")
     }
     private func http(
         _ connect: WebRTCSignalingConnectRequest, path: String, method: String = "POST", body: [String: Any]? = nil
     ) async throws -> Data {
         try await Self.fetch(
-            connect.cloudflare, url: endpoint(connect, path: path), method: method,
+            connect.cloudflare, url: try endpoint(connect, path: path), method: method,
             body: try body.map { try JSONSerialization.data(withJSONObject: $0) }, session: session,
             retryConnectionLoss: path.hasSuffix("/pull"))
     }
@@ -304,32 +347,6 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                 // and retain the original request's total deadline across retries.
                 retries += 1
                 try await Task.sleep(for: .milliseconds(retries * 100))
-            }
-        }
-    }
-    private struct Rejection: Decodable { let code: String }
-    private struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
-    private struct Description: Decodable { let type: String; let sdp: String }
-    private struct Lease: Decodable {
-        let sessionId: String; let expiresAt: Double; let renewAfterSeconds: Double
-        let sessionDescription: Description?; let channels: [WebRTCDataChannel]?
-        let iceServers: [WebRTCIceServer]?
-    }
-    private struct Pull: Decodable { let channels: [WebRTCDataChannel] }
-    private struct WireEvent: Decodable {
-        struct Peer: Decodable { let id: String; let sessionId: String }
-        let type: String; let peers: [Peer]?; let from: String?; let namespace: String?; let payload: String?
-    }
-    private enum Failure: Error, LocalizedError {
-        case invalidConfiguration, invalidResponse, accountInUse, http(Int)
-        var errorDescription: String? { description }
-        var description: String {
-            switch self {
-            case .invalidConfiguration: "A secure Worker URL and device token are required"
-            case .invalidResponse: "Invalid Cloudflare response"
-            case .accountInUse:
-                "This account already has an Internet call. End the existing call, then try again. If the other device lost its connection, wait for that call to expire."
-            case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
             }
         }
     }
