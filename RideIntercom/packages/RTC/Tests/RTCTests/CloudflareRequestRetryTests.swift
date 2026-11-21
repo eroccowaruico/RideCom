@@ -9,7 +9,7 @@ struct CloudflareRequestRetryTests {
         config.protocolClasses = [LostConnectionProtocol.self]
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
-        let origin = URL(string: "https://retry.test")!
+        let origin = try #require(URL(string: "https://retry.test"))
         return try await CloudflareRealtimeSignalingClient.fetch(
             .init(workerURL: origin, accessToken: "synthetic-test-token"),
             url: origin.appendingPathComponent(retry ? "sessions/s/pull" : "join"),
@@ -21,22 +21,21 @@ struct CloudflareRequestRetryTests {
         LostConnectionProtocol.configure(failures: 0, status: 409,
             body: "{\"code\":\"account_in_use\",\"error\":\"private-upstream-message\"}")
         do { _ = try await fetch(); Issue.record("Expected account conflict") } catch {
-            #expect(
-                error.localizedDescription
-                    == "This account already has an Internet call. End the existing call, then try again. If the other device lost its connection, wait for that call to expire."
-            )
+            let advice = "This account already has an Internet call. End the existing call, then try again. "
+                + "If the other device lost its connection, wait for that call to expire."
+            #expect(error.localizedDescription == advice)
         }
         #expect(LostConnectionProtocol.requests.count == 1)
     }
 
     @Test(arguments: ["missing", "unknown", "wrongType", "invalid", "oversized", "wrongStatus"])
-    func otherConflictResponsesKeepGenericFailure(scenario: String) async {
+    func otherConflictResponsesKeepGenericFailure(scenario: String) async throws {
         let bodies = ["missing": "{}", "unknown": "{\"code\":\"unknown\"}", "wrongType": "{\"code\":5}",
             "invalid": "invalid",
             "oversized": String(repeating: " ", count: 32769) + "{\"code\":\"account_in_use\"}",
                       "wrongStatus": "{\"code\":\"account_in_use\"}"]
         let status = scenario == "wrongStatus" ? 503 : 409
-        LostConnectionProtocol.configure(failures: 0, status: status, body: bodies[scenario]!)
+        LostConnectionProtocol.configure(failures: 0, status: status, body: try #require(bodies[scenario]))
         do { _ = try await fetch(); Issue.record("Expected conflict") } catch {
             #expect(error.localizedDescription == "Cloudflare Worker rejected request (HTTP \(status))")
         }
@@ -98,16 +97,21 @@ private final class LostConnectionProtocol: URLProtocol, @unchecked Sendable {
             recorded = []; self.failures = failures; self.error = error; self.status = status; self.body = body
         }
     }
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "retry.test" }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { request.url?.host == "retry.test" }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let (fail, error, status, body) = Self.lock.withLock {
             Self.recorded.append(request)
             return (Self.recorded.count <= Self.failures, Self.error, Self.status, Self.body)
         }
         if fail { client?.urlProtocol(self, didFailWithError: URLError(error)); return }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
-            httpVersion: "HTTP/1.1", headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        guard let url = request.url, let response = HTTPURLResponse(
+                url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }

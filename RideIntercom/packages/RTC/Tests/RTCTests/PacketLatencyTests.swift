@@ -4,8 +4,11 @@ import Testing
 
 @Test func receiveMaintenanceSleepsUntilAnActualGapDeadline() throws {
     var buffer = PacketAudioReceiveBuffer()
-    func packet(_ n: UInt64) -> FilteredPacketAudioPacket {
-        .init(received: .init(peerID: .init(rawValue: "peer"), packet: .init(sequenceNumber: n, codec: .pcm16, payload: Data([0, 0]))))
+    func packet(_ sequence: UInt64) -> FilteredPacketAudioPacket {
+        .init(
+            received: .init(
+                peerID: .init(rawValue: "peer"),
+                packet: .init(sequenceNumber: sequence, codec: .pcm16, payload: Data([0, 0]))))
     }
     #expect(buffer.nextDeadline == nil)
     buffer.enqueue(packet(0), receivedAt: 1)
@@ -33,7 +36,9 @@ import Testing
             let received = ReceivedAudioPacket(peerID: .init(rawValue: "peer-\(peer)"), packet: packet)
             let arrival = Double(sequence) * 0.02 + Double(peer) * 0.001
             buffer.enqueue(.init(received: received), receivedAt: arrival)
-            #expect(buffer.drain(now: arrival).readyPackets == [received], "An in-order packet must not wait for the timer or other peers")
+            #expect(
+                buffer.drain(now: arrival).readyPackets == [received],
+                "An in-order packet must not wait for the timer or other peers")
             buffer.enqueue(.init(received: received), receivedAt: arrival)
             #expect(buffer.drain(now: arrival).readyPackets.isEmpty, "Multipath duplicates cannot replay audio")
         }
@@ -44,7 +49,10 @@ import Testing
 @Test func onlySequenceGapsWaitForReordering() {
     var buffer = PacketAudioReceiveBuffer()
     func packet(_ sequence: UInt64) -> FilteredPacketAudioPacket {
-        .init(received: .init(peerID: .init(rawValue: "peer"), packet: .init(sequenceNumber: sequence, codec: .pcm16, payload: Data([0, 0]))))
+        .init(
+            received: .init(
+                peerID: .init(rawValue: "peer"),
+                packet: .init(sequenceNumber: sequence, codec: .pcm16, payload: Data([0, 0]))))
     }
     buffer.enqueue(packet(0), receivedAt: 0)
     #expect(buffer.drain(now: 0).readyPackets.map(\.packet.sequenceNumber) == [0])

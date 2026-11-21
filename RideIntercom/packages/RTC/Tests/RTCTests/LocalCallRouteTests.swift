@@ -21,7 +21,8 @@ private final class LocalEnd: Sendable {
     deinit { listener.cancel() }
 
     func start(_ credential: RTCCredential?) async {
-        await route.prepare(.init(sessionID: "local", localPeer: .init(id: id, displayName: "Rider"), credential: credential))
+            await route.prepare(
+                .init(sessionID: "local", localPeer: .init(id: id, displayName: "Rider"), credential: credential))
         await route.startConnection()
     }
     var events: [RouteEvent] { record.log.withLock { $0 } }
@@ -50,11 +51,17 @@ extension RealtimeTransportTests {
         let routes = CallSessionFactory.makeRoutes(.init(
             routeConfiguration: .init(enabledRoutes: [.multipeer]), audioPolicy: .init(preferredCodecs: [.pcm16])))
         #expect(routes.first is LocalCallRoute)
-        #expect(Set(routes.first?.capabilities.supportedAudioCodecs ?? []) == [.pcm16, .opus, .mpeg4AACELD, .mpeg4AACELDv2])
+            #expect(
+                Set(routes.first?.capabilities.supportedAudioCodecs ?? []) == [
+                    .pcm16, .opus, .mpeg4AACELD, .mpeg4AACELDv2
+                ])
     }
 
     @Test func invalidLocalConfigurationFailsBeforeDiscovery() async throws {
-        for (name, credential) in [("", Optional(groupCredential())), (String(repeating: "a", count: 81), groupCredential()), ("local", nil)] {
+            for (name, credential) in [
+                ("", Optional(groupCredential())), (String(repeating: "a", count: 81), groupCredential()),
+                ("local", nil)
+            ] {
             let end = LocalEnd(name)
             await end.start(credential)
             try await waitForLocal { end.events.contains(.stateChanged(.multipeer, .failed)) }
@@ -90,41 +97,51 @@ extension RealtimeTransportTests {
         let mediaStorage = try #require(fields.children.first { $0.label?.hasSuffix("datagrams") == true })
         let media = try #require(Mirror(reflecting: mediaStorage.value).descendant(0) as? LocalDatagramTransport)
         let control = try #require(fields.descendant("control", 0) as? LocalControlTransport)
-        let event = try #require(Mirror(reflecting: control).descendant("onEvent") as? (@Sendable (LocalControlEvent) -> Void))
+            let event = try #require(
+                Mirror(reflecting: control).descendant("onEvent") as? (@Sendable (LocalControlEvent) -> Void))
         return (media, event)
     }
 
     @Test func simultaneousDiscoveryOfLongIdentifiersDeliversControlExactlyOnce() async throws {
-        let a = LocalEnd(String(repeating: "あ", count: 23)), b = LocalEnd(String(repeating: "b", count: 70))
+            let firstPeer = LocalEnd(String(repeating: "あ", count: 23)),
+                secondPeer = LocalEnd(String(repeating: "b", count: 70))
         let group = groupCredential()
-        async let startA: Void = a.start(group)
-        async let startB: Void = b.start(group)
+            async let startA: Void = firstPeer.start(group)
+            async let startB: Void = secondPeer.start(group)
         _ = await (startA, startB)
-        try await waitForLocal { a.knows(b) && b.knows(a) }
+            try await waitForLocal { firstPeer.knows(secondPeer) && secondPeer.knows(firstPeer) }
         for delivery in [ApplicationDataDelivery.reliable, .unreliable] {
             let message = ApplicationDataMessage(namespace: "control", payload: Data([1]), delivery: delivery)
-            _ = await a.route.sendApplicationData(message)
-            _ = await b.route.sendApplicationData(message)
-            try await waitForLocal { a.received(message, from: b) > 0 && b.received(message, from: a) > 0 }
-            #expect(a.received(message, from: b) == 1 && b.received(message, from: a) == 1)
+                _ = await firstPeer.route.sendApplicationData(message)
+                _ = await secondPeer.route.sendApplicationData(message)
+                try await waitForLocal {
+                    firstPeer.received(message, from: secondPeer) > 0
+                        && secondPeer.received(message, from: firstPeer) > 0
+                }
+                #expect(
+                    firstPeer.received(message, from: secondPeer) == 1
+                        && secondPeer.received(message, from: firstPeer) == 1)
         }
-        await a.route.stopConnection()
-        await b.route.stopConnection()
+            await firstPeer.route.stopConnection()
+            await secondPeer.route.stopConnection()
     }
 
     @Test func wrongKeyReportsRejectedHandshakeAndCannotSendControlOrAudio() async throws {
-        let group = groupCredential(), a = LocalEnd("a"), b = LocalEnd("b")
-        await a.start(group)
-        await b.start(.init(groupHash: group.groupHash, sharedSecret: Data(repeating: 7, count: 32)))
-        try await waitForLocal { (a.events + b.events).contains(.error(.multipeer, .handshakeRejected(.multipeer))) }
+        let group = groupCredential(), member = LocalEnd("a"), wrongKeyPeer = LocalEnd("b")
+            await member.start(group)
+        await wrongKeyPeer.start(.init(groupHash: group.groupHash, sharedSecret: Data(repeating: 7, count: 32)))
+            try await waitForLocal {
+                (member.events + wrongKeyPeer.events).contains(.error(.multipeer, .handshakeRejected(.multipeer)))
+            }
         for delivery in [ApplicationDataDelivery.reliable, .unreliable] {
-            let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([2]), delivery: delivery)
-            #expect(await b.route.sendApplicationData(message).verifiedLocalRecipients.isEmpty)
-            #expect(a.received(message, from: b) == 0)
+                let message = ApplicationDataMessage(
+                    namespace: GroupRelay.namespace, payload: Data([2]), delivery: delivery)
+                #expect(await wrongKeyPeer.route.sendApplicationData(message).verifiedLocalRecipients.isEmpty)
+                #expect(member.received(message, from: wrongKeyPeer) == 0)
         }
-        #expect(!a.knows(b) && !b.knows(a))
-        await a.route.stopConnection()
-        await b.route.stopConnection()
+            #expect(!member.knows(wrongKeyPeer) && !wrongKeyPeer.knows(member))
+            await member.route.stopConnection()
+            await wrongKeyPeer.route.stopConnection()
     }
 
     @Test func localAudioSendDoesNotWaitForMainActor() async {
@@ -132,7 +149,8 @@ extension RealtimeTransportTests {
         await MainActor.run {
             let completed = DispatchSemaphore(value: 0)
             Task.detached {
-                let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([1]), delivery: .unreliable)
+                    let message = ApplicationDataMessage(
+                        namespace: GroupRelay.namespace, payload: Data([1]), delivery: .unreliable)
                 _ = await route.sendApplicationData(message)
                 completed.signal()
             }
@@ -141,68 +159,81 @@ extension RealtimeTransportTests {
     }
 
     @Test func authenticatedAudioArrivesOverUDPWhileMainActorIsOccupied() async throws {
-        let group = groupCredential(), a = LocalEnd(String(repeating: "a", count: 80)), b = LocalEnd("b")
-        await a.start(group)
-        await b.start(group)
-        try await waitForLocal { a.knows(b) && b.knows(a) }
+        let group = groupCredential(), sender = LocalEnd(String(repeating: "a", count: 80)), receiver = LocalEnd("b")
+            await sender.start(group)
+            await receiver.start(group)
+            try await waitForLocal { sender.knows(receiver) && receiver.knows(sender) }
         let audio = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([11]), delivery: .unreliable)
         try await waitForLocal {
-            let send = await a.route.sendApplicationData(audio)
-            return send.transportAccepted == true && send.verifiedLocalRecipients.contains(b.id)
+                let send = await sender.route.sendApplicationData(audio)
+                return send.transportAccepted == true && send.verifiedLocalRecipients.contains(receiver.id)
         }
-        try await waitForLocal { b.received(audio, from: a) > 0 }
+            try await waitForLocal { receiver.received(audio, from: sender) > 0 }
         let fresh = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([12]), delivery: .unreliable)
         await MainActor.run {
             let completed = DispatchSemaphore(value: 0)
             Task.detached {
-                _ = await a.route.sendApplicationData(fresh)
-                try? await waitForLocal { b.received(fresh, from: a) == 1 }
+                    _ = await sender.route.sendApplicationData(fresh)
+                    try? await waitForLocal { receiver.received(fresh, from: sender) == 1 }
                 completed.signal()
             }
             #expect(completed.wait(timeout: .now() + .milliseconds(250)) == .success)
         }
-        #expect((await b.route.networkDiagnostics().statistics.receivedMediaDatagrams ?? 0) > 0)
-        await b.route.stopConnection()
-        #expect(await b.route.sendApplicationData(audio).transportAccepted == false)
-        await a.route.stopConnection()
+            #expect((await receiver.route.networkDiagnostics().statistics.receivedMediaDatagrams ?? 0) > 0)
+            await receiver.route.stopConnection()
+            #expect(await receiver.route.sendApplicationData(audio).transportAccepted == false)
+            await sender.route.stopConnection()
     }
 
     @Test func preparingAnotherGroupRejectsThePreviousGeneration() async throws {
-        let group = groupCredential(), a = LocalEnd("a"), b = LocalEnd("b"), c = LocalEnd("c")
-        await a.start(group)
-        await b.start(group)
-        try await waitForLocal { a.knows(b) && b.knows(a) }
+            let group = groupCredential(), switchingPeer = LocalEnd("a"), previousGroupPeer = LocalEnd("b"),
+                newGroupPeer = LocalEnd("c")
+            await switchingPeer.start(group)
+            await previousGroupPeer.start(group)
+        try await waitForLocal { switchingPeer.knows(previousGroupPeer) && previousGroupPeer.knows(switchingPeer) }
         let next = groupCredential()
-        await a.start(next)
-        await c.start(next)
-        try await waitForLocal { a.knows(c) && c.knows(a) }
+            await switchingPeer.start(next)
+            await newGroupPeer.start(next)
+            try await waitForLocal { switchingPeer.knows(newGroupPeer) && newGroupPeer.knows(switchingPeer) }
         let message = ApplicationDataMessage(namespace: "operation", payload: Data([3]))
-        _ = await b.route.sendApplicationData(message)
-        _ = await c.route.sendApplicationData(message)
-        try await waitForLocal { a.received(message, from: c) == 1 }
-        #expect(!a.knows(b) && a.received(message, from: b) == 0)
-        for end in [a, b, c] { await end.route.stopConnection() }
+            _ = await previousGroupPeer.route.sendApplicationData(message)
+            _ = await newGroupPeer.route.sendApplicationData(message)
+            try await waitForLocal { switchingPeer.received(message, from: newGroupPeer) == 1 }
+            #expect(
+                !switchingPeer.knows(previousGroupPeer)
+                    && switchingPeer.received(message, from: previousGroupPeer) == 0)
+            for end in [switchingPeer, previousGroupPeer, newGroupPeer] { await end.route.stopConnection() }
     }
 
     @Test func disconnectedPeerMustAuthenticateAgainAndOtherPeersKeepTalking() async throws {
-        let group = groupCredential(), a = LocalEnd("a"), b = LocalEnd("b"), c = LocalEnd("c")
-        for end in [a, b, c] { await end.start(group) }
-        try await waitForLocal { a.knows(b) && a.knows(c) && b.knows(a) && c.knows(a) }
-        await b.route.stopConnection()
-        await b.start(.init(groupHash: group.groupHash, sharedSecret: Data(repeating: 55, count: 32)))
-        try await waitForLocal { (a.events + b.events).contains(.error(.multipeer, .handshakeRejected(.multipeer))) }
+            let group = groupCredential(), sender = LocalEnd("a"), reconnectingPeer = LocalEnd("b"),
+                remainingPeer = LocalEnd("c")
+            for end in [sender, reconnectingPeer, remainingPeer] { await end.start(group) }
+            try await waitForLocal {
+                sender.knows(reconnectingPeer) && sender.knows(remainingPeer) && reconnectingPeer.knows(sender)
+                    && remainingPeer.knows(sender)
+            }
+            await reconnectingPeer.route.stopConnection()
+        await reconnectingPeer.start(.init(groupHash: group.groupHash, sharedSecret: Data(repeating: 55, count: 32)))
+            try await waitForLocal {
+                (sender.events + reconnectingPeer.events).contains(
+                    .error(.multipeer, .handshakeRejected(.multipeer)))
+            }
         let message = ApplicationDataMessage(namespace: "control", payload: Data([4]))
-        _ = await b.route.sendApplicationData(message)
-        _ = await c.route.sendApplicationData(message)
-        try await waitForLocal { a.received(message, from: c) == 1 }
-        #expect(a.received(message, from: b) == 0)
-        await b.start(group)
-        try await waitForLocal { b.knows(a) && b.events.filter { $0 == .stateChanged(.multipeer, .authenticated) }.count > 1 }
+            _ = await reconnectingPeer.route.sendApplicationData(message)
+            _ = await remainingPeer.route.sendApplicationData(message)
+            try await waitForLocal { sender.received(message, from: remainingPeer) == 1 }
+            #expect(sender.received(message, from: reconnectingPeer) == 0)
+            await reconnectingPeer.start(group)
+            try await waitForLocal {
+                reconnectingPeer.knows(sender)
+                    && reconnectingPeer.events.filter { $0 == .stateChanged(.multipeer, .authenticated) }.count > 1
+            }
         try await waitForLocal {
-            _ = await b.route.sendApplicationData(message)
-            return a.received(message, from: b) > 0
+                _ = await reconnectingPeer.route.sendApplicationData(message)
+                return sender.received(message, from: reconnectingPeer) > 0
         }
-        for end in [a, b, c] { await end.route.stopConnection() }
+            for end in [sender, reconnectingPeer, remainingPeer] { await end.route.stopConnection() }
     }
 
     @Test func losingOnlyQUICPreservesTheAuthenticatedUDPEndpointUntilStop() async throws {
@@ -219,21 +250,25 @@ extension RealtimeTransportTests {
         try await waitForLocal { media.isReady(for: local.id) }
         func sendAndObserve(_ value: UInt8) async throws {
             let payload = Data([value])
-            let message = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: payload, delivery: .unreliable)
+                let message = ApplicationDataMessage(
+                    namespace: GroupRelay.namespace, payload: payload, delivery: .unreliable)
             let expected = RouteEvent.receivedApplicationData(.multipeer, .init(peerID: peer, message: message))
             try await waitForLocal {
                 _ = media.send(payload, to: [local.id])
                 return local.events.contains(expected)
             }
         }
-        let misplacedAudio = ApplicationDataMessage(namespace: GroupRelay.namespace, payload: Data([9]), delivery: .unreliable)
+            let misplacedAudio = ApplicationDataMessage(
+                namespace: GroupRelay.namespace, payload: Data([9]), delivery: .unreliable)
         let nextControl = ApplicationDataMessage(namespace: "operation", payload: Data([10]))
         control.send(try JSONEncoder().encode(misplacedAudio))
         control.send(try JSONEncoder().encode(nextControl))
         try await waitForLocal {
             local.events.contains(.receivedApplicationData(.multipeer, .init(peerID: peer, message: nextControl)))
         }
-        #expect(!local.events.contains(.receivedApplicationData(.multipeer, .init(peerID: peer, message: misplacedAudio))))
+            #expect(
+                !local.events.contains(
+                    .receivedApplicationData(.multipeer, .init(peerID: peer, message: misplacedAudio))))
         try await sendAndObserve(1)
         control.stop()
         // The same peer name returns with a different key. Even after the old

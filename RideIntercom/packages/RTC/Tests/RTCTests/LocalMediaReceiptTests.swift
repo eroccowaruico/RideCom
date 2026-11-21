@@ -5,16 +5,23 @@ import Testing
 
 struct LocalMediaReceiptTests {
     private let credential = RTCCredential.derived(groupID: "receipt", secret: "private-fixture")
-    private let a = PeerID(rawValue: "a"), b = PeerID(rawValue: "b")
-    private func authenticator(sender: PeerID? = nil, receiver: PeerID? = nil, senderNonce: String = "a-generation", receiverNonce: String = "b-generation", credential: RTCCredential? = nil) -> LocalMediaReceiptAuthenticator {
-        .init(credential: credential ?? self.credential, sender: sender ?? a, receiver: receiver ?? b,
+    private let senderPeer = PeerID(rawValue: "a"), receiverPeer = PeerID(rawValue: "b")
+    private func authenticator(
+        sender: PeerID? = nil, receiver: PeerID? = nil, senderNonce: String = "a-generation",
+        receiverNonce: String = "b-generation", credential: RTCCredential? = nil
+    ) -> LocalMediaReceiptAuthenticator {
+        .init(
+            credential: credential ?? self.credential, sender: sender ?? senderPeer,
+            receiver: receiver ?? receiverPeer,
               senderNonce: senderNonce, receiverNonce: receiverNonce)
     }
     @Test func completeMediaReceiptsBindBothPeersGenerationsAndGroup() throws {
         let digest = Data(SHA256.hash(data: Data(repeating: 0x71, count: 960)))
         let receipt = try #require(authenticator().make(digest: digest))
         #expect(receipt.count == 67 && authenticator().decode(receipt) == digest)
-        for other in [authenticator(sender: b, receiver: a), authenticator(sender: .init(rawValue: "other")),
+        for other in [
+            authenticator(sender: receiverPeer, receiver: senderPeer),
+            authenticator(sender: .init(rawValue: "other")),
                       authenticator(receiver: .init(rawValue: "other")), authenticator(senderNonce: "old-a"),
                       authenticator(receiverNonce: "old-b"),
                       authenticator(credential: .init(groupHash: "other", sharedSecret: credential.sharedSecret)),
@@ -57,7 +64,7 @@ struct LocalMediaReceiptTests {
         #expect(candidate != LocalMediaFraming.candidate(original))
         #expect(SHA256.hash(data: original) != SHA256.hash(data: candidate))
         let packet = try #require(LocalMediaFraming.decode(candidate))
-        #expect(packet.sender == a && packet.payload == Data(repeating: 0x71, count: 256))
+        #expect(packet.sender == senderPeer && packet.payload == Data(repeating: 0x71, count: 256))
         #expect(LocalMediaFraming.decode(original)?.payload == packet.payload)
         #expect(LocalMediaFraming.decode(Data([0, 2, 1]) + candidate) == nil)
         #expect(LocalMediaFraming.decode(Data([0, 1, 1])) == nil)

@@ -22,7 +22,9 @@ struct LocalControlIdentityTests {
         #expect(SecTrustSetAnchorCertificates(evaluated, [certificate] as CFArray) == errSecSuccess)
         #expect(SecTrustSetVerifyDate(evaluated, now as CFDate) == errSecSuccess)
         #expect(SecTrustEvaluateWithError(evaluated, nil))
-        #expect(SecTrustSetVerifyDate(evaluated, now.addingTimeInterval(SelfSignedCertificate.lifetime + 60) as CFDate) == errSecSuccess)
+        #expect(
+            SecTrustSetVerifyDate(evaluated, now.addingTimeInterval(SelfSignedCertificate.lifetime + 60) as CFDate)
+                == errSecSuccess)
         #expect(!SecTrustEvaluateWithError(evaluated, nil))
     }
 
@@ -41,8 +43,11 @@ struct LocalControlIdentityTests {
         #expect(SecIdentityCopyPrivateKey(made.identity, &key) == errSecSuccess)
         let privateKey = try #require(key)
         let message = Data("bound".utf8)
-        let signature = try #require(SecKeyCreateSignature(privateKey, .ecdsaSignatureMessageX962SHA256, message as CFData, nil) as Data?)
+        let signature = try #require(
+            SecKeyCreateSignature(privateKey, .ecdsaSignatureMessageX962SHA256, message as CFData, nil) as Data?)
         let publicKey = try #require(certificate.flatMap { SecCertificateCopyKey($0) })
-        #expect(SecKeyVerifySignature(publicKey, .ecdsaSignatureMessageX962SHA256, message as CFData, signature as CFData, nil))
+        #expect(
+            SecKeyVerifySignature(
+                publicKey, .ecdsaSignatureMessageX962SHA256, message as CFData, signature as CFData, nil))
     }
 }

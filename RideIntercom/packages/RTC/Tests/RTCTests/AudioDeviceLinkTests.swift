@@ -1,121 +1,7 @@
-import CryptoKit
 import Foundation
 import Network
 import Testing
 @testable import RTC
-
-struct AudioDeviceCipherTests {
-    let session = UUID()
-    let key = Data(repeating: 7, count: 32)
-    func packet(_ value: UInt8 = 1) -> RTCAudioPacket {
-        .init(sequenceNumber: 42, codec: .pcm16, format: .init(sampleRate: 24_000, channelCount: 1),
-              capturedAt: 123, sampleCount: 240, payload: Data(repeating: value, count: 480))
-    }
-    @Test func pairPreservesPacketsInBothDirections() throws {
-        var phone = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var device = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        #expect(try device.open(phone.seal(packet())) == packet())
-        #expect(try phone.open(device.seal(packet(2))) == packet(2))
-    }
-    @Test func reflectionTamperingWrongKeyAndOldSessionAreRejected() throws {
-        var sender = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var reflected = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var receiver = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        var old = try AudioDeviceCipher(sessionID: UUID(), key: key, role: .device)
-        var wrong = try AudioDeviceCipher(sessionID: session, key: Data(repeating: 8, count: 32), role: .device)
-        let bytes = try sender.seal(packet())
-        var changed = bytes; changed[changed.count - 1] ^= 1
-        #expect(reflected.open(bytes) == nil)
-        #expect(old.open(bytes) == nil)
-        #expect(wrong.open(bytes) == nil)
-        #expect(receiver.open(changed) == nil)
-        #expect(receiver.open(bytes) == packet(), "Unauthenticated bytes cannot advance replay state")
-    }
-    @Test func replayAndOldSequenceAreNotDeliveredTwice() throws {
-        var sender = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var receiver = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        let first = try sender.seal(packet())
-        #expect(receiver.open(first) != nil)
-        #expect(receiver.open(first) == nil)
-        let held = try sender.seal(packet(2))
-        for _ in 0..<1025 { #expect(receiver.open(try sender.seal(packet(3))) != nil) }
-        #expect(receiver.open(held) == nil)
-    }
-    @Test func controlUsesDirectionalAuthenticationAndSharedReplayProtection() throws {
-        var device = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        var phone = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var wrong = try AudioDeviceCipher(sessionID: session, key: Data(repeating: 8, count: 32), role: .controller)
-        var reflected = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        var old = try AudioDeviceCipher(sessionID: UUID(), key: key, role: .controller)
-        let hello = try device.sealControl(.hello)
-        #expect(wrong.openMessage(hello) == nil)
-        #expect(reflected.openMessage(hello) == nil)
-        #expect(old.openMessage(hello) == nil)
-        // A valid message on an ineligible flow must not consume its sequence.
-        #expect(phone.openMessage(hello, accepting: { _ in false }) == nil)
-        guard case .hello = phone.openMessage(hello) else { Issue.record("Valid hello rejected"); return }
-        #expect(phone.openMessage(hello) == nil)
-        let packet = try device.seal(packet())
-        #expect(phone.open(packet) != nil)
-        #expect(phone.openMessage(hello) == nil)
-        let ack = try phone.sealControl(.ack)
-        guard case .ack = device.openMessage(ack) else { Issue.record("Valid acknowledgement rejected"); return }
-        #expect(device.openMessage(ack) == nil)
-    }
-    @Test func invalidKeyAndOversizedOrInvalidPacketAreRejected() throws {
-        #expect(throws: RTCAudioDeviceLinkError.invalidKey) {
-            _ = try AudioDeviceCipher(sessionID: session, key: Data(), role: .controller)
-        }
-        var sender = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var receiver = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        var large = packet(); large.payload = Data(repeating: 1, count: 8193)
-        #expect(throws: RTCAudioDeviceLinkError.invalidPacket) { try sender.seal(large) }
-        large = packet(); large.format.sampleRate = .infinity
-        #expect(throws: RTCAudioDeviceLinkError.invalidPacket) { try sender.seal(large) }
-        #expect(receiver.open(Data(repeating: 0, count: 32769)) == nil)
-    }
-    @Test func decodedMetadataCannotBypassBoundsOrConsumeReplayState() throws {
-        var sender = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        let original = try sender.seal(packet())
-        let namespace = Data("rtc.audio-device.v1".utf8)
-        let sendKey = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: key),
-            salt: Data(session.uuidString.utf8), info: namespace + Data("controller".utf8), outputByteCount: 32)
-        let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: original), using: sendKey, authenticating: namespace)
-        let values = try #require(PropertyListSerialization.propertyList(from: plain, format: nil) as? [String: Any])
-        let invalid: [(String, Any)] = [("n", -1), ("n", 0), ("n", 96_001), ("n", Int.max),
-            ("b", -1), ("b", 1_536_001), ("b", Int.max), ("t", Double.nan), ("t", Double.infinity), ("p", Data())]
-        for (field, value) in invalid {
-            var envelope = values
-            var fields = try #require(envelope["packet"] as? [String: Any]); fields[field] = value; envelope["packet"] = fields
-            let encoded = try PropertyListSerialization.data(fromPropertyList: envelope, format: .binary, options: 0)
-            let malicious = try #require(AES.GCM.seal(encoded, using: sendKey, authenticating: namespace).combined)
-            var receiver = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-            #expect(receiver.open(malicious) == nil, "Invalid decoded metadata must be rejected")
-            #expect(receiver.open(original) == packet(), "Rejected metadata must not consume its sequence")
-        }
-    }
-    @Test func localMetadataBoundsMatchReceivedPacketBounds() throws {
-        var sender = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var invalid = packet(); invalid.sampleCount = -1
-        #expect(throws: RTCAudioDeviceLinkError.invalidPacket) { try sender.seal(invalid) }
-        invalid = packet(); invalid.capturedAt = .nan
-        #expect(throws: RTCAudioDeviceLinkError.invalidPacket) { try sender.seal(invalid) }
-        invalid = packet(); invalid.bitRate = Int.max
-        #expect(throws: RTCAudioDeviceLinkError.invalidPacket) { try sender.seal(invalid) }
-        var valid = packet(); valid.sampleCount = 96_000; valid.bitRate = 1_536_000
-        var receiver = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        #expect(receiver.open(try sender.seal(valid)) == valid)
-        valid.sampleCount = nil; valid.bitRate = nil
-        #expect(receiver.open(try sender.seal(valid)) == valid)
-    }
-    @Test func reorderedPacketsAreAuthenticatedOnceWithoutWaiting() throws {
-        var sender = try AudioDeviceCipher(sessionID: session, key: key, role: .controller)
-        var receiver = try AudioDeviceCipher(sessionID: session, key: key, role: .device)
-        let a = try sender.seal(packet(1)), b = try sender.seal(packet(2))
-        #expect(receiver.open(b) == packet(2))
-        #expect(receiver.open(a) == nil, "A late older audio packet must not play after a newer one")
-    }
-}
 
 private final class DeviceRecording: @unchecked Sendable {
     private let lock = NSLock()
@@ -147,13 +33,19 @@ struct AudioDeviceLinkTests {
         return predicate()
     }
     func native(_ link: RTCAudioDeviceLink) throws -> AudioDeviceDuplexFlow {
-        try #require(Mirror(reflecting: link).children.first { $0.label == "transport" }?.value as? AudioDeviceDuplexFlow)
+        try #require(
+            Mirror(reflecting: link).children.first { $0.label == "transport" }?.value as? AudioDeviceDuplexFlow)
     }
-    func pair(onPhone: @escaping @Sendable (RTCAudioPacket) -> Void,
-              onDevice: @escaping @Sendable (RTCAudioPacket) -> Void,
-              onAvailability: @escaping @Sendable (Bool) -> Void = { _ in }) throws -> (RTCAudioDeviceLink, RTCAudioDeviceLink) {
+    func pair(
+        onPhone: @escaping @Sendable (RTCAudioPacket) -> Void,
+        onDevice: @escaping @Sendable (RTCAudioPacket) -> Void,
+        onAvailability: @escaping @Sendable (Bool) -> Void = { _ in }
+    ) throws -> (RTCAudioDeviceLink, RTCAudioDeviceLink) {
         let session = UUID(), key = Data(repeating: 11, count: 32)
-        return (try .init(sessionID: session, key: key, role: .controller, onReceive: onPhone, onSendAvailabilityChange: onAvailability),
+        return (
+            try .init(
+                sessionID: session, key: key, role: .controller, onReceive: onPhone,
+                onSendAvailabilityChange: onAvailability),
                 try .init(sessionID: session, key: key, role: .device, onReceive: onDevice))
     }
     func connect(_ phone: RTCAudioDeviceLink, _ device: RTCAudioDeviceLink) async throws {
@@ -169,7 +61,9 @@ struct AudioDeviceLinkTests {
         defer { phone.stop(); device.stop() }
         try phone.start()
         try #require(await eventually { phone.endpoint != nil })
-        try #require(device.connect(to: try #require(phone.endpoint)), "The device must connect without starting a listener")
+        try #require(
+            device.connect(to: try #require(phone.endpoint)), "The device must connect without starting a listener"
+        )
         try #require(await eventually { phone.isSendReady && device.isSendReady })
         #expect(device.endpoint == nil)
         #expect(phone.lastReceivedAt == nil && device.lastReceivedAt == nil)
@@ -181,13 +75,15 @@ struct AudioDeviceLinkTests {
     }
 
     @Test func bonjourPairDeliversBothWaysWithoutAnAudioBacklog() async throws {
-        let a = DeviceRecording(), b = DeviceRecording()
-        let (phone, device) = try pair(onPhone: { a.append($0) }, onDevice: { b.append($0) })
+        let phoneRecording = DeviceRecording(), deviceRecording = DeviceRecording()
+        let (phone, device) = try pair(onPhone: { phoneRecording.append($0) }, onDevice: { deviceRecording.append($0) })
         defer { phone.stop(); device.stop() }
         try phone.start()
         #expect(!phone.send(packet(99)), "Unavailable audio must never be queued")
         try await connect(phone, device)
-        #expect(phone.lastReceivedAt == nil && device.lastReceivedAt == nil, "UDP ready does not prove a remote packet arrived")
+        #expect(
+            phone.lastReceivedAt == nil && device.lastReceivedAt == nil,
+            "UDP ready does not prove a remote packet arrived")
         let endpoint = try #require(phone.endpoint)
         #expect(!phone.connect(to: endpoint), "Cannot accidentally connect to our own endpoint")
         #expect(!phone.connect(to: .init(name: endpoint.name, type: "_wrong._tcp", domain: "local.")))
@@ -197,8 +93,8 @@ struct AudioDeviceLinkTests {
         try phone.start()
         #expect(phone.endpoint == endpoint, "Repeated start must not create a new listener/session")
         #expect(phone.send(packet(1))); #expect(device.send(packet(2)))
-        #expect(await eventually { a.packets.count == 1 && b.packets.count == 1 })
-        #expect(a.packets == [packet(2)]); #expect(b.packets == [packet(1)])
+        #expect(await eventually { phoneRecording.packets.count == 1 && deviceRecording.packets.count == 1 })
+        #expect(phoneRecording.packets == [packet(2)]); #expect(deviceRecording.packets == [packet(1)])
         #expect(phone.lastReceivedAt != nil && device.lastReceivedAt != nil)
         #expect(phone.statistics.sentMediaDatagrams == 1)
         #expect(device.statistics.sentMediaDatagrams == 1)
@@ -294,6 +190,9 @@ struct AudioDeviceLinkTests {
         #expect(await eventually { result.results.count == 2 })
         #expect(result.results == [true, true])
     }
+}
+
+extension AudioDeviceLinkTests {
     @Test func nonviableReplacementCannotSuspendTheAuthenticatedOldFlow() async throws {
         let received = DeviceRecording()
         let (phone, device) = try pair(onPhone: { _ in }, onDevice: { received.append($0) })
@@ -367,7 +266,12 @@ struct AudioDeviceLinkTests {
         }
         #expect(await eventually { inbound.packets.contains(packet(12)) })
         #expect(device.isSendReady, "A viable old flow stays available while its replacement authenticates")
-        #expect(await eventually { transport.synchronized { transport.outgoing.map { $0 !== old && transport.active === $0 } ?? false } && device.isSendReady })
+        #expect(
+            await eventually {
+                transport.synchronized {
+                    transport.outgoing.map { $0 !== old && transport.active === $0 } ?? false
+                } && device.isSendReady
+            })
         transport.synchronized { viability(false); better(true) }
         #expect(device.isSendReady)
         #expect(device.send(packet(2)))

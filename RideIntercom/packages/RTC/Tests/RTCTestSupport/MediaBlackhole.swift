@@ -21,52 +21,64 @@ public final class MediaBlackhole: @unchecked Sendable {
             if front >= 0 { Darwin.close(front) }; if back >= 0 { Darwin.close(back) }
             throw POSIXError(.EMFILE)
         }
+        do {
+            port = try Self.bindLoopback(descriptor: front)
+        } catch {
+            Darwin.close(front); Darwin.close(back)
+            throw error
+        }
+        queue.setSpecific(key: key, value: true)
+        for descriptor in [front, back] { _ = fcntl(descriptor, F_SETFL, O_NONBLOCK) }
+        let destination = Self.address(port: target.rawValue)
+        for descriptor in [front, back] { monitor(descriptor: descriptor, destination: destination) }
+    }
+
+    private static func bindLoopback(descriptor: Int32) throws -> NWEndpoint.Port {
         var address = Self.address(port: 0)
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(front, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard result == 0 else { Darwin.close(front); Darwin.close(back); throw POSIXError(.EADDRINUSE) }
+        guard result == 0 else { throw POSIXError(.EADDRINUSE) }
         var size = socklen_t(MemoryLayout<sockaddr_in>.size)
         let named = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(front, $0, &size) }
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(descriptor, $0, &size) }
         }
         guard named == 0, let port = NWEndpoint.Port(rawValue: UInt16(bigEndian: address.sin_port)) else {
-            Darwin.close(front); Darwin.close(back); throw POSIXError(.EINVAL)
+            throw POSIXError(.EINVAL)
         }
-        self.port = port
-        queue.setSpecific(key: key, value: true)
-        for fd in [front, back] { _ = fcntl(fd, F_SETFL, O_NONBLOCK) }
-        let destination = Self.address(port: target.rawValue)
-        for fd in [front, back] {
-            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            source.setCancelHandler { Darwin.close(fd) }
-            source.setEventHandler { [weak self] in
-                guard let self else { return }
-                var buffer = [UInt8](repeating: 0, count: 65_536)
-                while true {
-                    var sender = Self.address(port: 0), size = socklen_t(MemoryLayout<sockaddr_in>.size)
-                    let count = withUnsafeMutablePointer(to: &sender) { pointer in
-                        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                            recvfrom(fd, &buffer, buffer.count, 0, $0, &size)
-                        }
-                    }
-                    guard count > 0 else { break }
-                    let bytes = Data(buffer.prefix(count))
-                    if fd == self.front {
-                        self.client = sender
-                        if !self.blocked {
-                            Self.send(bytes, fd: self.back, to: destination)
-                        } else {
-                            self.dropped += 1
-                        }
-                    } else if let client = self.client { Self.send(bytes, fd: self.front, to: client) }
-                }
-            }
-            sources.append(source); source.resume()
-        }
+        return port
     }
+
+    private func monitor(descriptor: Int32, destination: sockaddr_in) {
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        source.setCancelHandler { Darwin.close(descriptor) }
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            while true {
+                var sender = Self.address(port: 0), size = socklen_t(MemoryLayout<sockaddr_in>.size)
+                let count = withUnsafeMutablePointer(to: &sender) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        recvfrom(descriptor, &buffer, buffer.count, 0, $0, &size)
+                    }
+                }
+                guard count > 0 else { break }
+                let bytes = Data(buffer.prefix(count))
+                if descriptor == self.front {
+                    self.client = sender
+                    if !self.blocked {
+                        Self.send(bytes, descriptor: self.back, to: destination)
+                    } else {
+                        self.dropped += 1
+                    }
+                } else if let client = self.client { Self.send(bytes, descriptor: self.front, to: client) }
+            }
+        }
+        sources.append(source); source.resume()
+    }
+
     deinit { stop() }
     public var droppedCount: Int { queue.sync { dropped } }
     public func setBlocked(_ blocked: Bool) { queue.sync { self.blocked = blocked } }
@@ -79,12 +91,14 @@ public final class MediaBlackhole: @unchecked Sendable {
         address.sin_family = sa_family_t(AF_INET); address.sin_addr.s_addr = inet_addr("127.0.0.1")
         address.sin_port = port.bigEndian; return address
     }
-    private static func send(_ bytes: Data, fd: Int32, to destination: sockaddr_in) {
+    private static func send(_ bytes: Data, descriptor: Int32, to destination: sockaddr_in) {
         var destination = destination
         bytes.withUnsafeBytes { buffer in
             withUnsafePointer(to: &destination) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    _ = sendto(fd, buffer.baseAddress, buffer.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    _ = sendto(
+                        descriptor, buffer.baseAddress, buffer.count, 0, $0,
+                        socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
         }

@@ -34,52 +34,64 @@ struct LocalControlProtocolTests {
     }
 
     private let credential = RTCCredential.derived(groupID: "local-control", secret: "test-only")
-    private let a = Data(repeating: 0xA1, count: 32), b = Data(repeating: 0xB2, count: 32),
+    private let senderFingerprint = Data(repeating: 0xA1, count: 32),
+        receiverFingerprint = Data(repeating: 0xB2, count: 32),
         relay = Data(repeating: 0xEE, count: 32)
 
     @Test func theHandshakeProvesTheGroupKeyOnThisConnectionOnly() {
         let fromA = LocalControlHandshake.make(credential: credential, senderID: .init(rawValue: "a"),
-                                               senderFingerprint: a, receiverFingerprint: b)
+            senderFingerprint: senderFingerprint, receiverFingerprint: receiverFingerprint)
         #expect(
             fromA.verify(
-                credential: credential, localID: .init(rawValue: "b"), senderFingerprint: a, receiverFingerprint: b
+                credential: credential, localID: .init(rawValue: "b"), senderFingerprint: senderFingerprint,
+                receiverFingerprint: receiverFingerprint
             ))
 
         // Someone in the middle presents their own certificate to each side.
         #expect(
             !fromA.verify(
                 credential: credential, localID: .init(rawValue: "b"), senderFingerprint: relay,
-                receiverFingerprint: b))
+                receiverFingerprint: receiverFingerprint))
         let towardsRelay = LocalControlHandshake.make(credential: credential, senderID: .init(rawValue: "a"),
-                                                      senderFingerprint: a, receiverFingerprint: relay)
+            senderFingerprint: senderFingerprint, receiverFingerprint: relay)
         #expect(
             !towardsRelay.verify(
                 credential: credential, localID: .init(rawValue: "b"), senderFingerprint: relay,
-                receiverFingerprint: b))
+                receiverFingerprint: receiverFingerprint))
         #expect(
             !towardsRelay.verify(
-                credential: credential, localID: .init(rawValue: "b"), senderFingerprint: a, receiverFingerprint: b
+                credential: credential, localID: .init(rawValue: "b"), senderFingerprint: senderFingerprint,
+                receiverFingerprint: receiverFingerprint
             ))
 
         // The same message is no proof in the other direction, and not when sent back to its author.
         #expect(
             !fromA.verify(
-                credential: credential, localID: .init(rawValue: "b"), senderFingerprint: b, receiverFingerprint: a
+                credential: credential, localID: .init(rawValue: "b"), senderFingerprint: receiverFingerprint,
+                receiverFingerprint: senderFingerprint
             ))
         #expect(
             !fromA.verify(
-                credential: credential, localID: .init(rawValue: "a"), senderFingerprint: a, receiverFingerprint: b
+                credential: credential, localID: .init(rawValue: "a"), senderFingerprint: senderFingerprint,
+                receiverFingerprint: receiverFingerprint
             ))
     }
 
     @Test func anotherGroupAnotherKeyOrAnAlteredFieldIsRefused() {
         let local = PeerID(rawValue: "b")
         let valid = LocalControlHandshake.make(
-            credential: credential, senderID: .init(rawValue: "a"), senderFingerprint: a, receiverFingerprint: b)
+            credential: credential, senderID: .init(rawValue: "a"), senderFingerprint: senderFingerprint,
+            receiverFingerprint: receiverFingerprint)
         let otherGroup = RTCCredential.derived(groupID: "another", secret: "test-only")
         let otherKey = RTCCredential(groupHash: credential.groupHash, sharedSecret: Data(repeating: 1, count: 32))
-        #expect(!valid.verify(credential: otherGroup, localID: local, senderFingerprint: a, receiverFingerprint: b))
-        #expect(!valid.verify(credential: otherKey, localID: local, senderFingerprint: a, receiverFingerprint: b))
+        #expect(
+            !valid.verify(
+                credential: otherGroup, localID: local, senderFingerprint: senderFingerprint,
+                receiverFingerprint: receiverFingerprint))
+        #expect(
+            !valid.verify(
+                credential: otherKey, localID: local, senderFingerprint: senderFingerprint,
+                receiverFingerprint: receiverFingerprint))
         for change: (inout LocalControlHandshake) -> Void in [
             { $0.senderID = .init(rawValue: "c") }, { $0.nonce = "other" }, { $0.nonce = "" },
             { $0.mac = String(repeating: "0", count: 64) }, { $0.mac = "" }, { $0.mac += "00" },
@@ -88,15 +100,19 @@ struct LocalControlProtocolTests {
             var altered = valid; change(&altered)
             #expect(
                 !altered.verify(
-                    credential: credential, localID: local, senderFingerprint: a, receiverFingerprint: b))
+                    credential: credential, localID: local, senderFingerprint: senderFingerprint,
+                    receiverFingerprint: receiverFingerprint))
         }
     }
 
     @Test func fieldsCannotBeShiftedIntoOneAnother() {
         let local = PeerID(rawValue: "z")
         let first = LocalControlHandshake.make(credential: credential, senderID: .init(rawValue: "ab"), nonce: "c",
-                                               senderFingerprint: a, receiverFingerprint: b)
+            senderFingerprint: senderFingerprint, receiverFingerprint: receiverFingerprint)
         var shifted = first; shifted.senderID = .init(rawValue: "a"); shifted.nonce = "bc"
-        #expect(!shifted.verify(credential: credential, localID: local, senderFingerprint: a, receiverFingerprint: b))
+        #expect(
+            !shifted.verify(
+                credential: credential, localID: local, senderFingerprint: senderFingerprint,
+                receiverFingerprint: receiverFingerprint))
     }
 }

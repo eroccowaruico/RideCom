@@ -7,17 +7,18 @@ import Testing
 /// Real QUIC on this machine.
 /// The OS exchanges genuine certificates and authenticates the QUIC stream.
 struct LocalControlTLSTests {
+    private final class Record: Sendable {
+        let groups = Mutex<[NWConnectionGroup]>([])
+        let links = Mutex<[String: LocalControlLink]>([:])
+        let events = Mutex<[String: [LocalControlLink.Event]]>([:])
+    }
+
     /// A listening end and a dialing end, each with its own throwaway identity and event log.
     private final class Pair: Sendable {
         let queue = DispatchQueue(label: "LocalControlTLSTests")
         let listener: NWListener
         let listenerIdentity: LocalControlIdentity
         let dialerIdentity: LocalControlIdentity
-        private final class Record: Sendable {
-            let groups = Mutex<[NWConnectionGroup]>([])
-            let links = Mutex<[String: LocalControlLink]>([:])
-            let events = Mutex<[String: [LocalControlLink.Event]]>([:])
-        }
         private let record = Record()
 
         init(listenerCredential: RTCCredential, dialerCredential: RTCCredential) async throws {
@@ -31,8 +32,11 @@ struct LocalControlTLSTests {
             listener.newConnectionGroupHandler = { group in
                 record.groups.withLock { $0.append(group) }
                 group.newConnectionHandler = { stream in
-                    let link = LocalControlLink(connection: stream, identity: listenerIdentity, authentication: .shared(listenerCredential),
-                                                localID: .init(rawValue: "listener"), nonce: "listener-nonce", queue: queue) { event in
+                    let link = LocalControlLink(
+                        connection: stream, identity: listenerIdentity,
+                        authentication: .shared(listenerCredential),
+                        localID: .init(rawValue: "listener"), nonce: "listener-nonce", queue: queue
+                    ) { event in
                         record.events.withLock { $0["listener", default: []].append(event) }
                     }
                     record.links.withLock { $0["listener"] = link }
@@ -40,7 +44,7 @@ struct LocalControlTLSTests {
                 }
                 group.start(queue: queue)
             }
-            let port = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NWEndpoint.Port, any Error>) in
+            let port: NWEndpoint.Port = try await withCheckedThrowingContinuation { continuation in
                 let resumed = Mutex(false)
                 listener.stateUpdateHandler = { state in
                     switch state {
@@ -49,16 +53,21 @@ struct LocalControlTLSTests {
                             continuation.resume(returning: port)
                         }
                     case .failed(let error):
-                        if !resumed.withLock({ done in defer { done = true }; return done }) { continuation.resume(throwing: error) }
+                        if !resumed.withLock({ done in
+                            defer { done = true }; return done
+                        }) {
+                            continuation.resume(throwing: error)
+                        }
                     default: break
                     }
                 }
                 listener.start(queue: queue)
             }
             let dialer = LocalControlLink(connection: NWConnection(host: "127.0.0.1", port: port,
-                                                                   using: LocalControlTLS.parameters(identity: dialerIdentity)),
+                    using: LocalControlTLS.parameters(identity: dialerIdentity)),
                                           identity: dialerIdentity, authentication: .shared(dialerCredential),
-                                          localID: .init(rawValue: "dialer"), nonce: "dialer-nonce", queue: queue) { event in
+                localID: .init(rawValue: "dialer"), nonce: "dialer-nonce", queue: queue
+            ) { event in
                 record.events.withLock { $0["dialer", default: []].append(event) }
             }
             record.links.withLock { $0["dialer"] = dialer }
@@ -88,12 +97,18 @@ struct LocalControlTLSTests {
         #expect(pair.events("dialer") == [.authenticated(.init(rawValue: "listener"), nonce: "listener-nonce")])
         #expect(pair.listenerIdentity.fingerprint != pair.dialerIdentity.fingerprint)
 
-        let fromDialer = (0..<20).map { Data("d\($0)".utf8) } + [Data(repeating: 1, count: LocalControlFraming.maximumMessageBytes)]
+        let fromDialer =
+            (0..<20).map { Data("d\($0)".utf8) } + [
+                Data(repeating: 1, count: LocalControlFraming.maximumMessageBytes)
+            ]
         let fromListener = (0..<20).map { Data("l\($0)".utf8) }
         let dialer = try #require(pair.link("dialer")), listener = try #require(pair.link("listener"))
         fromDialer.forEach(dialer.send)
         fromListener.forEach(listener.send)
-        await pair.wait { pair.events("listener").count == 1 + fromDialer.count && pair.events("dialer").count == 1 + fromListener.count }
+        await pair.wait {
+            pair.events("listener").count == 1 + fromDialer.count
+                && pair.events("dialer").count == 1 + fromListener.count
+        }
         #expect(Array(pair.events("listener").dropFirst()) == fromDialer.map { .message($0) })
         #expect(Array(pair.events("dialer").dropFirst()) == fromListener.map { .message($0) })
 
