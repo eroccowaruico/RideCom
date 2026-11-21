@@ -15,6 +15,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from types import FrameType
 from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -129,7 +130,7 @@ class SimulatorAudioPin:
 
 
 def run_devicectl_json(args):
-    output = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60, check=True).stdout
+    output = subprocess.run(args, capture_output=True, text=True, timeout=60, check=True).stdout
     data = json.loads(output)
     return data.get('result', data) if args[0] == 'xcrun' else data
 
@@ -272,7 +273,7 @@ def run_pair(runner, commands, timeout, *, wait_for_first_native_setup=True):
             runner.record(name, command, 'passed' if process.returncode == 0 and not cleanup else 'failed', process.returncode, started, cleanup)
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--configuration', choices=['Debug', 'Release'], default='Debug', help='Use Release for shipping-performance measurements; thresholds are identical')
@@ -355,10 +356,10 @@ def execute(args, runner, resource_root, cases, standalone):
         measurement_ids = MIXED_AUDIO_MEASUREMENT_IDS
     else:
         measurement_ids = tuple(case['id'] for case in cases)
-    (out / 'configuration.json').write_text(json.dumps(dict(run=run_id, seconds=args.seconds, codec=args.codec,
-        isolation=args.isolation, buildConfiguration=args.configuration, input='bundled synthetic speech WAV', transport=args.transport,
-        speechPair=args.speech_pair, pipelineOnly=args.pipeline_only, realtimeOnly=args.realtime_only, groupOnly=args.group_only, codecOnly=args.codec_only, switchesOnly=args.switches_only,
-        twoSimulators=args.two_simulators, expectedMeasurementIDs=measurement_ids, output='system AVAudioEngine render tap'), indent=2) + '\n')
+    (out / 'configuration.json').write_text(json.dumps({'run': run_id, 'seconds': args.seconds, 'codec': args.codec,
+        'isolation': args.isolation, 'buildConfiguration': args.configuration, 'input': 'bundled synthetic speech WAV', 'transport': args.transport,
+        'speechPair': args.speech_pair, 'pipelineOnly': args.pipeline_only, 'realtimeOnly': args.realtime_only, 'groupOnly': args.group_only, 'codecOnly': args.codec_only, 'switchesOnly': args.switches_only,
+        'twoSimulators': args.two_simulators, 'expectedMeasurementIDs': measurement_ids, 'output': 'system AVAudioEngine render tap'}, indent=2) + '\n')
     audio_pins = []
     leases = [SimulatorLease(runner, resource_root / name) for name in ['reusable.json', 'ephemeral.json']]
     lease = leases[int(args.ephemeral)]
@@ -367,7 +368,7 @@ def execute(args, runner, resource_root, cases, standalone):
     sources = source_manifest()
     (out / 'source-manifest.json').write_text(json.dumps(sources, indent=2) + '\n')
     try:
-        def command(name, argv, timeout=1800):
+        def command(name: str, argv: list[str], timeout: int = 1800) -> None:
             if not runner.run(name, argv, timeout=timeout):
                 raise RuntimeError(name + ' failed; see ' + str(out))
         if peer_lease.state and not peer_lease.cleanup('peer-recovery'):
@@ -408,7 +409,7 @@ def execute(args, runner, resource_root, cases, standalone):
                 device = pin.pin()
             except (ValueError, KeyError, subprocess.SubprocessError) as error:
                 runner.record(step, [], 'failed', 1, time.monotonic(), str(error))
-                raise RuntimeError(step + ' failed; see ' + str(out))
+                raise RuntimeError(step + ' failed; see ' + str(out)) from error
             runner.record(step, [], 'passed', 0, time.monotonic(), 'Input and output pinned to ' + device)
         first = ('a', 'ios', 'platform=iOS Simulator,id=' + peer) if args.two_simulators else ('a', 'mac', 'platform=macOS,arch=arm64')
         endpoints = [first, ('b', 'ios', 'platform=iOS Simulator,id=' + simulator)]
@@ -475,9 +476,9 @@ def execute(args, runner, resource_root, cases, standalone):
             with socket.socket() as reservation:
                 reservation.bind(('127.0.0.1', 0))
                 port = reservation.getsockname()[1]
-            environment = dict(AUDIO_E2E_RUN=run_id, AUDIO_E2E_TRANSPORT=transport,
-                AUDIO_E2E_SPEECH_PAIR=args.speech_pair,
-                AUDIO_E2E_WORKER_URL=f'http://127.0.0.1:{port}', AUDIO_E2E_SCENARIOS=json.dumps(cases))
+            environment = {'AUDIO_E2E_RUN': run_id, 'AUDIO_E2E_TRANSPORT': transport,
+                'AUDIO_E2E_SPEECH_PAIR': args.speech_pair,
+                'AUDIO_E2E_WORKER_URL': f'http://127.0.0.1:{port}', 'AUDIO_E2E_SCENARIOS': json.dumps(cases)}
             if args.saved_group_start:
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
             if args.unanswered_internet:
@@ -488,7 +489,7 @@ def execute(args, runner, resource_root, cases, standalone):
             for role, platform, destination in endpoints:
                 settings, source = products_by_platform[platform]
                 purpose = 'pair-' + role if args.two_simulators else 'pair'
-                configured = configure_test_run(source, purpose, platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment | dict(AUDIO_E2E_ROLE=role))
+                configured = configure_test_run(source, purpose, platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment | {'AUDIO_E2E_ROLE': role})
                 name = transport + '-' + (platform + '-' + role if args.two_simulators else platform)
                 result_names[role] = name
                 commands.append(('test-' + name, ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
@@ -549,7 +550,7 @@ def execute(args, runner, resource_root, cases, standalone):
 
 
 if __name__ == '__main__':
-    def interrupted(*_):
+    def interrupted(signum: int, frame: FrameType | None) -> None:
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, interrupted)
     raise SystemExit(main())
