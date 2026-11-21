@@ -92,7 +92,7 @@ final class AppCallOwner: CallSurfaceActions {
         let previousUserID = account.userID
         let previousAccessID = account.accessID
         account.reloadSavedSignIn()
-        if previousUserID != nil, (account.userID != previousUserID || account.accessID != previousAccessID) {
+        if previousUserID != nil, account.userID != previousUserID || account.accessID != previousAccessID {
             throw CallIntentError.unavailable("This sign-in has ended. Open your current account to continue.")
         }
         guard !account.storageUnavailable, !account.deletion.blocksSignIn, !account.isSigningIn,

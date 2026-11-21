@@ -73,7 +73,7 @@ final class SystemKeychainSecretStore: KeychainSecretStoring {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account
         ]
         var attributes = accessibility(service: service)
         attributes[kSecValueData as String] = data
@@ -100,7 +100,7 @@ final class SystemKeychainSecretStore: KeychainSecretStoring {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
         if !attributes.isEmpty { query[kSecReturnAttributes as String] = true }
         var result: CFTypeRef?

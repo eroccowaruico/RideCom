@@ -20,11 +20,11 @@ nonisolated struct CallNotificationPermission: Codable, Equatable, Sendable {
     var allowsIncoming = false
     var receiving: CallNotificationGrant?
     var sending: CallNotificationGrant?
-    var allowsGroupInvitations: Bool? = nil
+    var allowsGroupInvitations: Bool?
     var groupReceiving: CallNotificationGrant?
     var groupSending: CallNotificationGrant?
-    var groupReceivedRevision: UInt64? = nil
-    var groupReceivedRevisionSource: String? = nil
+    var groupReceivedRevision: UInt64?
+    var groupReceivedRevisionSource: String?
     var revision: UInt64 = 0
     var receivedRevision: UInt64 = 0
     var receivedRevisionSource: String?
@@ -45,8 +45,8 @@ nonisolated struct CallNotificationPermissionMessage: Codable, Equatable, Sendab
     var revision: UInt64
     var grant: CallNotificationGrant?
     var proof: DeviceIdentityProof?
-    var groupGrant: CallNotificationGrant? = nil
-    var groupInvitationsSupported: Bool? = nil
+    var groupGrant: CallNotificationGrant?
+    var groupInvitationsSupported: Bool?
 
     static func make(owner: AccountPrincipal, allowedSender: AccountPrincipal, revision: UInt64,
                      grant: CallNotificationGrant?, signer: DeviceIdentitySigner, groupGrant: CallNotificationGrant? = nil, groupInvitationsSupported: Bool? = nil) throws -> Self {
@@ -57,7 +57,7 @@ nonisolated struct CallNotificationPermissionMessage: Codable, Equatable, Sendab
     }
     func verifiedGrant(peerID: String, savedUser: SavedUser, local: AccountPrincipal) throws -> CallNotificationGrant? {
         guard owner.isValid, allowedSender.isValid, owner.issuer == allowedSender.issuer, owner != allowedSender, revision > 0,
-              (groupGrant == nil || groupInvitationsSupported == true),
+              groupGrant == nil || groupInvitationsSupported == true,
               groupGrant.map({ $0.isAddressed(to: owner, from: local, audience: "rideintercom-group-invitation") }) != false,
               grant.map({ $0.isAddressed(to: owner, from: local) }) != false, savedUser.principal == owner, allowedSender == local,
               savedUser.memberIDs.contains(peerID), let proof, savedUser.deviceKeys?[peerID] == proof.publicKey else { throw DeviceIdentityProof.Failure.invalid }
@@ -76,7 +76,6 @@ nonisolated struct CallNotificationServiceAccess: Equatable, Sendable {
     let accessToken: String
     let principal: AccountPrincipal
 }
-
 
 nonisolated struct GroupInvitationTap: Equatable, Sendable {
     let requestID: UUID

@@ -51,8 +51,7 @@ import Observation
             guard let next = desired, next.reference != suppressed else { return }
             if displayed == nil {
                 guard isForeground else { return }
-                do { try await driver.start(next); displayed = next; message = nil }
-                catch {
+                do { try await driver.start(next); displayed = next; message = nil } catch {
                     suppressed = next.reference
                     message = "Call status could not be displayed. Your call can continue. Turn the display off and on to retry."
                 }

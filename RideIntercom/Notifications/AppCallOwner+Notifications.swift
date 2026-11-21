@@ -10,8 +10,11 @@ extension AppCallOwner {
         // An in-flight read may have taken its snapshot before this invitation arrived.
         await model.synchronizeGroupDeliveries(.notification)
         guard viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == generation else { return false }
-        if model.hasAnyActiveGroupConnection { model.showLiveCall(); callPresentationID = UUID() }
-        else { groupsPresentationID = UUID() }
+        if model.hasAnyActiveGroupConnection {
+            model.showLiveCall(); callPresentationID = UUID()
+        } else {
+            groupsPresentationID = UUID()
+        }
         return true
     }
 

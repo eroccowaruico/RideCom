@@ -34,8 +34,10 @@ final class CallNotifications {
         self.store = store; self.memberID = memberID; self.client = client; self.isCurrentUser = isCurrentUser; self.contacts = contacts
         self.requestAuthorization = requestAuthorization; self.authorizationGranted = authorizationGranted
         self.register = register; self.unregister = unregister; self.now = now
-        do { permissions = try store.notificationPermissions() }
-        catch { storageAvailable = false; message = "Notification permissions could not be read. Your saved data has been preserved." }
+        do { permissions = try store.notificationPermissions() } catch {
+            storageAvailable = false;
+            message = "Notification permissions could not be read. Your saved data has been preserved."
+        }
     }
     var canUseNotifications: Bool { access() != nil }
     var canRegisterNotifications: Bool { serviceAccess() != nil }
@@ -151,8 +153,8 @@ final class CallNotifications {
     func refresh() async {
         guard isCurrentUser() else { return }
         if !storageAvailable {
-            do { permissions = try store.notificationPermissions(); storageAvailable = true; message = nil }
-            catch { /* Device removal must still work with unreadable contact permissions. */ }
+            do { permissions = try store.notificationPermissions(); storageAvailable = true; message = nil } catch
+            { /* Device removal must still work with unreadable contact permissions. */  }
         }
         guard let context = serviceAccess() else { return }
         let expected = generation
@@ -165,8 +167,7 @@ final class CallNotifications {
             let granted = await authorizationGranted()
             guard current(context, generation: expected) else { return }
             authorizationDenied = !granted
-            if granted { register() }
-            else {
+            if granted { register() } else {
                 await disable()
                 if current(context, generation: expected), !store.notificationRemovalPending { message = "Notifications are off in system settings." }
             }
@@ -273,8 +274,7 @@ final class CallNotifications {
                 do {
                     let revision = try store.nextNotificationRevision(after: permission(contactID, context: context)?.revision ?? 0)
                     try update(contactID, context: context) { $0.receiving = grant; $0.allowsIncoming = true; $0.revision = revision }
-                }
-                catch {
+                } catch {
                     // Never knowingly lose a newly issued, unpersisted grant.
                     try? await client.revokeNotificationGrant(origin: context.origin, token: context.accessToken, grantID: grant.grantID)
                     throw error

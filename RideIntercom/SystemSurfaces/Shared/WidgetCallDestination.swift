@@ -16,11 +16,11 @@ nonisolated struct WidgetCallDestination: AppEntity, Codable, Hashable, Sendable
 nonisolated struct WidgetDestinationSnapshot: Codable, Equatable {
     var version = 1
     let destinations: [WidgetCallDestination]
-    var currentDestinationID: String? = nil
-    var currentCall: CallLivePresentation? = nil
+    var currentDestinationID: String?
+    var currentCall: CallLivePresentation?
     /// The last destination that connected; a new Widget or Control starts with it.
     /// Optional, so a snapshot written before it existed still decodes.
-    var recentDestinationID: String? = nil
+    var recentDestinationID: String?
 
     func currentCall(for configured: WidgetCallDestination?) -> CallLivePresentation? {
         guard let configured,

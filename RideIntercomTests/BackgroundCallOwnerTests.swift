@@ -146,8 +146,11 @@ struct BackgroundCallOwnerTests {
         let owner = AppCallOwner(account: account, viewModel: h.viewModel)
         let preparation = Task { try await owner.prepareForBackgroundCallAction() }
         await AppTestSupport.waitUntil { pending != nil }
-        if deleting { try f.session.deletion.begin(userID: "apple-user", access: nil, proof: nil) }
-        else { f.session.signOut() }
+        if deleting {
+            try f.session.deletion.begin(userID: "apple-user", access: nil, proof: nil)
+        } else {
+            f.session.signOut()
+        }
         pending?.resume(returning: .authorized)
         await #expect(throws: CallIntentError.self) { try await preparation.value }
         #expect(account.userID == nil && !h.viewModel.canStartCalls)

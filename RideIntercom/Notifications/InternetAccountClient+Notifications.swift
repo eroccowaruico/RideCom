@@ -92,7 +92,6 @@ extension InternetAccountClient {
     }
 }
 
-
 nonisolated struct GroupDeliveryReply: Decodable, Sendable {
     let requestID: UUID
     let expiresAt: Double
