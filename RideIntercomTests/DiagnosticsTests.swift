@@ -439,7 +439,6 @@ struct DiagnosticsTests {
         #expect(model.networkDiagnostics == nil)
     }
 
-
     @Test func verdictNamesTheFirstStoppedThenWaitingStageWithItsReason() {
         func step(_ title: String, _ state: PipelineStepState, _ detail: String = "") -> PipelineStep {
             PipelineStep(id: title, package: "", title: title, detail: detail, icon: "", state: state, accessibilityIdentifier: title)

@@ -606,8 +606,11 @@ struct AudioPipelineTests {
 
     @Test(arguments: [true, false]) func partialAudioStartCleansUpAndRetries(inputFails: Bool) async {
         let harness = AppTestSupport.makeHarness()
-        if inputFails { harness.inputBackend.startError = AudioStreamError.engineOperationFailed("input") }
-        else { harness.outputBackend.startError = AudioStreamError.engineOperationFailed("output") }
+            if inputFails {
+                harness.inputBackend.startError = AudioStreamError.engineOperationFailed("input")
+            } else {
+                harness.outputBackend.startError = AudioStreamError.engineOperationFailed("output")
+            }
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         let deadline = harness.viewModel.callDisconnectDeadline
         #expect(deadline != nil)
@@ -903,8 +906,10 @@ struct AudioPipelineTests {
         let pipeline = AppAudioPipeline(makeEngine: { engine })
         let collected = Mutex<[Float]>([])
         pipeline.onTransmitPacket = { packet in
-            do { let samples = try AppAudioCodecBridge.decode(packet).samples; collected.withLock { $0 += samples } }
-            catch { Issue.record("Effect output could not be decoded: \(error)") }
+                do {
+                    let samples = try AppAudioCodecBridge.decode(packet).samples;
+                    collected.withLock { $0 += samples }
+                } catch { Issue.record("Effect output could not be decoded: \(error)") }
         }
         try pipeline.rebuild(configuration: AppAudioPipelineConfiguration(rtcSendFormat: .intercomMixer, transmitSoundIsolationEnabled: false), peerIDs: [])
         defer { pipeline.stop() }

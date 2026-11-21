@@ -22,7 +22,7 @@ struct DiagnosticsPresentationTests {
         let group = try IntercomGroup(name: "Paths Ride", members: [
             .init(id: origin.rawValue, displayName: "Haruka from the Ridge Team"),
             .init(id: direct.rawValue, displayName: "Kenta"),
-            .init(id: receiver.rawValue, displayName: "Me"),
+            .init(id: receiver.rawValue, displayName: "Me")
         ])
         model.selectedGroup = group
         model.activeGroupID = group.id
@@ -37,7 +37,7 @@ struct DiagnosticsPresentationTests {
                                         routes: [.init(route: .webRTC, statistics: internet, eventDrops: ["transport": drops])],
                                         peers: [
             .init(peerID: origin, route: .multipeer, path: [origin, firstRelay, secondRelay, receiver], observedAt: now - 2),
-            .init(peerID: direct, route: .webRTC, path: [direct, receiver], observedAt: now - 20),
+            .init(peerID: direct, route: .webRTC, path: [direct, receiver], observedAt: now - 20)
         ])
 
         for (name, size) in [("standard", DynamicTypeSize.large), ("accessibility", .accessibility5)] {

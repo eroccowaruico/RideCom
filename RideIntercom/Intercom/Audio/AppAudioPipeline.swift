@@ -133,7 +133,6 @@ final class AppAudioPipeline {
         self.usesHardwareClock = usesHardwareClock
     }
 
-
     private var configuration = AppAudioPipelineConfiguration()
     private nonisolated let receiver = AppAudioReceiver()
     private nonisolated let transmitter = AppAudioTransmitter()

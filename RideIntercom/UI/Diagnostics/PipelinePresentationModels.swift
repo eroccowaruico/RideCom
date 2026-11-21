@@ -64,7 +64,6 @@ enum PipelineStepState: Equatable {
     case muted
     case idle
 
-
 }
 
 extension PipelineStepState {
@@ -79,7 +78,6 @@ extension PipelineStepState {
         }
     }
 }
-
 
 /// The one-line verdict for a direction: the first stopped stage, else the first waiting one,
 /// else Passing or Idle. The reason is that stage's existing detail.

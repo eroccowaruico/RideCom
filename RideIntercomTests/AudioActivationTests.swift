@@ -226,8 +226,11 @@ struct AudioActivationTests {
         for checking in [true, false] {
             let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate(), vm = h.viewModel
             h.audioSessionBackend.activationGate = gate
-            if checking { vm.startAudioCheck() }
-            else { vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"]) }
+            if checking {
+                vm.startAudioCheck()
+            } else {
+                vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
+            }
             await gate.waitForEntry()
             vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
                 reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
@@ -384,13 +387,19 @@ struct AudioActivationTests {
         let h = AppTestSupport.makeHarness(), vm = h.viewModel, gate = ManualAsyncGate()
         vm.setSoundIsolationEnabled(false)
         h.audioSessionBackend.activationGate = gate
-        if checking { vm.startAudioCheck() }
-        else { vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"]) }
+        if checking {
+            vm.startAudioCheck()
+        } else {
+            vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
+        }
         await gate.waitForEntry()
         vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: reason, snapshot: h.audioSessionBackend.current)))
         #expect(vm.audioCheckPhase == .idle && vm.audioStartTask == nil)
-        if checking { #expect(vm.audioCheckStatusMessage.contains("interrupted")) }
-        else { #expect(vm.isAudioPausedForDeviceChange && vm.audioRouteNotice?.contains("interrupted") == true) }
+        if checking {
+            #expect(vm.audioCheckStatusMessage.contains("interrupted"))
+        } else {
+            #expect(vm.isAudioPausedForDeviceChange && vm.audioRouteNotice?.contains("interrupted") == true)
+        }
         vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionEnded(shouldResume: true), snapshot: h.audioSessionBackend.current)))
         await gate.release()
         await AppTestSupport.waitUntil { vm.audioStartTask == nil }

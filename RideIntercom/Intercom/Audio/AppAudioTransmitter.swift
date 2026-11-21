@@ -173,8 +173,9 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
         for packet in packets {
             switch packet {
             case .voice(let pcm), .silence(let pcm):
-                do { try processFrame(pcm) }
-                catch { failures += 1; observation.failure = String(describing: type(of: error)) }
+                do { try processFrame(pcm) } catch {
+                    failures += 1; observation.failure = String(describing: type(of: error))
+                }
             }
         }
         let packetsToSend = pendingPackets, handler = packetHandler

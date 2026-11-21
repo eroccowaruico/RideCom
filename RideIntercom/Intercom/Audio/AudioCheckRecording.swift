@@ -23,8 +23,7 @@ nonisolated final class AudioCheckRecording: @unchecked Sendable {
 
     func setProcessingLatency(_ value: TimeInterval) {
         lock.withLock {
-            if value.isFinite && value >= 0 { latency = value }
-            else { failure = AppAudioPipelineError.invalidFormat }
+            if value.isFinite && value >= 0 { latency = value } else { failure = AppAudioPipelineError.invalidFormat }
         }
     }
 

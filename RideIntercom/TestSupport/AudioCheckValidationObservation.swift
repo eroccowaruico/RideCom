@@ -38,8 +38,7 @@ struct AudioCheckValidationObservation {
         // Hardware output can be stereo after route negotiation or restart.
         // Compare its mono fold-down with the recorded mono input.
         let samples: [Float]
-        if frame.format.channelCount == 1 { samples = frame.samples }
-        else {
+        if frame.format.channelCount == 1 { samples = frame.samples } else {
             samples = (0..<frame.frameCount).map { index in
                 let start = index * frame.format.channelCount
                 return frame.samples[start..<(start + frame.format.channelCount)].reduce(0, +) / Float(frame.format.channelCount)

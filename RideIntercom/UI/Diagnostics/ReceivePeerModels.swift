@@ -8,4 +8,3 @@ struct ReceiveMasterMixSnapshot: Equatable {
     let isMuted: Bool
     let state: PipelineStepState
 }
-

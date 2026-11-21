@@ -162,8 +162,9 @@ final class OfflineAudioDriver {
     private func render() {
         for engine in engines where engine.isRunning {
             let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1024)!
-            do { _ = try engine.renderOffline(1024, to: buffer) }
-            catch { Issue.record("Offline rendering failed: \(error)") }
+            do { _ = try engine.renderOffline(1024, to: buffer) } catch {
+                Issue.record("Offline rendering failed: \(error)")
+            }
         }
     }
 
@@ -175,4 +176,3 @@ final class FailingEffectGraphEngine: AVAudioEngine, @unchecked Sendable {
         throw NSError(domain: "EffectGraphTest", code: 1)
     }
 }
-
