@@ -565,6 +565,14 @@ final class GroupRepository {
         snapshot?.groups.first { $0.id == groupID }?.pendingInvitation
     }
 
+    func allowsNearbyOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
+        guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else { return false }
+        return record.members.contains { $0.id == localMemberID }
+            && !record.excludesMember(peer.memberID, principal: peer.principal)
+            && record.matchesInvitationDeviceKey(peer.publicKey, for: peer.memberID)
+            && (record.accountDevices[peer.memberID].map { $0.publicKey == peer.publicKey } ?? true)
+    }
+
     func pendingOrdinaryGroupReceipt(for user: SavedUser, now: TimeInterval) -> DirectInvitationReceipt? {
         guard let snapshot, let localMemberID, user.principal == nil, user.memberIDs.count == 1,
               let inviter = user.memberIDs.first, let key = user.deviceKeys?[inviter] else { return nil }

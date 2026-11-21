@@ -95,6 +95,7 @@ extension IntercomViewModel {
         await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {
+        stopOrdinaryGroupReplyExchanges()
         stopNearbyGroupDelivery()
         stopInternetGroupDeliverySync()
     }

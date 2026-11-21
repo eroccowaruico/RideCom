@@ -270,6 +270,7 @@ extension IntercomViewModel {
             throw error
         }
         if let accepted {
+            if accepted.kind == .group { resumeOrdinaryGroupReply(for: accepted) }
             AppLoggers.app.info("app.deeplink.invite.accepted", metadata: InviteDeepLinkLog.accepted(groupID: accepted.id, kind: accepted.kind))
         } else {
             AppLoggers.app.warning("app.deeplink.invite.rejected", metadata: InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation"))

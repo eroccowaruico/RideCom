@@ -26,6 +26,7 @@ extension IntercomViewModel {
             groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
             return
         }
+        resumeOrdinaryGroupReply(for: selectedGroup)
         if let invitation = contactInvitationSession {
             if invitation.canContinueDuringCall { invitation.stopCallRoute() }
             else { stopContactInvitationSession() }
