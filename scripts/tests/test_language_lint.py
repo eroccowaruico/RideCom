@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,6 +29,7 @@ class LanguageLintTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch()
+        shutil.copyfile(Path(lint.__file__).resolve().parents[1] / "biome.json", self.root / "biome.json")
         self.git("add", ".")
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
                  "-c", "commit.gpgsign=false", "commit", "-qm", "baseline")
@@ -46,6 +49,25 @@ class LanguageLintTests(unittest.TestCase):
         with patch.object(sys, "argv", ["lint", "--base", "HEAD"]), \
                 patch.object(shutil, "which", return_value="/usr/bin/true"):
             self.assertEqual(lint.main(), 1)
+
+    def test_web_lint_rejects_recommended_rules_and_project_type_violations(self) -> None:
+        cases = [
+            ("view.jsx", "export function View() { debugger; return <div />; }", "noDebugger"),
+            ("script.js", "export function run() { const unused = 1; }", "noUnusedVariables"),
+            ("contract.ts", "export function echo(value: any) { return value; }", "noExplicitAny"),
+        ]
+        for name, source, rule in cases:
+            with self.subTest(name=name), patch.object(sys, "argv", ["lint", "--web", "--base", "HEAD"]):
+                sample = self.root / name
+                sample.write_text(source)
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(lint.main(), 1, output.getvalue())
+                self.assertIn(rule, output.getvalue())
+                sample.write_text("export const value = 1;")
+                with redirect_stdout(output):
+                    self.assertEqual(lint.main(), 0, output.getvalue())
+                sample.unlink()
 
     def test_swiftlint_gets_xcode_from_the_caller_or_validation_default(self) -> None:
         (self.root / "Example.swift").touch()

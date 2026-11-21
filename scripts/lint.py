@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_TYPES = {".ts", ".tsx", ".mts", ".cts"}
-WEB = {".js", ".cjs", ".mjs", *WORKER_TYPES}
+WEB = {".js", ".jsx", ".cjs", ".mjs", *WORKER_TYPES}
 CONFIG_SUFFIXES = {
     Path("biome.json"): WEB,
     Path("server/tsconfig.json"): WEB,
