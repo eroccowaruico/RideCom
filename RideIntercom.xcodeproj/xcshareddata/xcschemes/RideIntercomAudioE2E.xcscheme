@@ -55,6 +55,9 @@
       <Testables>
          <TestableReference skipped = "NO" parallelizable = "NO">
             <BuildableReference BuildableIdentifier = "primary" BlueprintIdentifier = "E2E000000000000000000001" BuildableName = "RideIntercomAudioE2ETests.xctest" BlueprintName = "RideIntercomAudioE2ETests" ReferencedContainer = "container:RideIntercom.xcodeproj"/>
+            <SkippedTests>
+               <Test Identifier="AudioE2ETests/testMeasureLiveSettingsSwitchLimits()"/>
+            </SkippedTests>
          </TestableReference>
       </Testables>
    </TestAction>

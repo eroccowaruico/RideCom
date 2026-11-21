@@ -216,6 +216,19 @@ extension AudioE2ETests {
 
     @MainActor
     func testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio() async throws {
+        try await measureLiveSettings(intervalMilliseconds: 2000, acceptance: true)
+    }
+
+    @MainActor
+    func testMeasureLiveSettingsSwitchLimits() async throws {
+        for interval in [2000, 1000, 500] {
+            try await measureLiveSettings(intervalMilliseconds: interval, acceptance: false)
+        }
+    }
+
+    @MainActor
+    private func measureLiveSettings(intervalMilliseconds: Int, acceptance: Bool) async throws {
+        let scenario = acceptance ? "live-settings" : "switch-limits-\(intervalMilliseconds)ms"
         try await activateAudioSessionForTest(configuration: .init(prefersEchoCancelledInput: true))
         let probe = RenderedAudioProbe(), engine = AVAudioEngine()
         let decodedProbe = RenderedAudioProbe(), mixedProbe = RenderedAudioProbe()
@@ -261,10 +274,11 @@ extension AudioE2ETests {
         let stages = ["PCM", "isolation-on", "Opus", "AAC-48k", "AAC-16k", "AAC-24k", "AAC-48k-high", "isolation-off",
                       "receive-master-on", "receive-master-off", "receive-peer-on", "receive-peer-off",
                       "isolation-on-again", "isolation-off-again"]
-        var boundaries: [Int] = []
+        var boundaries: [SwitchProbeIndices] = []
         var changeHostTimes: [Double] = [], changeDurations: [Double] = []
-        for (index, _) in stages.enumerated() {
-            boundaries.append(probe.sampleCount)
+        for index in stages.indices {
+            boundaries.append(.init(output: probe.sampleCount, decoded: acceptance ? 0 : decodedProbe.sampleCount,
+                                    mixed: acceptance ? 0 : mixedProbe.sampleCount))
             let changeStart = ProcessInfo.processInfo.systemUptime
             changeHostTimes.append(changeStart)
             switch index {
@@ -287,7 +301,7 @@ extension AudioE2ETests {
             default: break
             }
             changeDurations.append(ProcessInfo.processInfo.systemUptime - changeStart)
-            try await Task.sleep(for: .seconds(2))
+            try await Task.sleep(for: .milliseconds(intervalMilliseconds))
         }
         let failures = failureStore.withLock { $0 }
         let rejected = rejectedReceives.withLock { $0 }
@@ -296,56 +310,62 @@ extension AudioE2ETests {
         let resets = output.playbackResetCount ?? 0
         let encodingFailures = pipeline.transmitEncodingFailureCount
         try input.stopCapture(); delivery.finish(); pipeline.stop(); try output.stopRendering()
-        boundaries.append(recorded.samples.count)
-        var rows: [[String: Any]] = []
+        let decoded = decodedProbe.snapshot(), mixed = mixedProbe.snapshot()
+        boundaries.append(.init(output: recorded.samples.count, decoded: decoded.samples.count,
+                                mixed: mixed.samples.count))
+        var stagesMeasured = SwitchStageMeasurements()
+        let recordings = SwitchRecordings(final: recorded, decoded: decoded, mixed: mixed)
         for (index, name) in stages.enumerated() {
-            let start = boundaries[index], end = boundaries[index + 1]
-            let stableStart = min(end, start + Int(recorded.rate * 0.3))
-            let stable = Array(recorded.samples[stableStart..<end])
-            let tone = ToneIntegrity.measure(samples: stable, rate: recorded.rate, frequencies: [600])
-            let all = Array(recorded.samples[start..<end])
-            let step = zip(all, all.dropFirst()).map { abs($0 - $1) }.max() ?? 1
-            let width = Int(recorded.rate / 1000)
-            var silence = 0, maximumSilence = 0
-            for offset in stride(from: 0, through: max(0, all.count - width), by: width) {
-                let rms = sqrt(all[offset..<(offset + width)].reduce(Float(0)) { $0 + $1 * $1 } / Float(width))
-                silence = rms < 0.0001 ? silence + 1 : 0
-                maximumSilence = max(maximumSilence, silence)
-            }
-            rows.append(["stage": name, "startSample": start, "endSample": end,
-                "changeHostTime": changeHostTimes[index], "changeDurationSeconds": changeDurations[index],
-                "steady": tone.dictionary, "maximumSampleStep": step, "maximumSilenceMilliseconds": maximumSilence])
-            XCTAssertTrue(tone.passed, "\(name): \(tone.dictionary)")
-            XCTAssertLessThan(step, 0.04, "No click across \(name)")
-            XCTAssertLessThanOrEqual(maximumSilence, 120, "Only a bounded native reconfiguration interval may be silent")
+            let window = SwitchStageWindow(name: name, time: changeHostTimes[index], duration: changeDurations[index],
+                                           start: boundaries[index], end: boundaries[index + 1])
+            stagesMeasured.record(window: window, audio: recordings, acceptance: acceptance)
         }
-        XCTAssertTrue(failures.isEmpty, failures.joined(separator: "; "))
-        // A master effect change invalidates all receive reservations. No
-        // packet can be rejected during a peer effect change or while settling.
-        for attempt in rejected {
-            XCTAssertTrue(stages.indices.contains { index in
+        // A master effect change can invalidate a reservation only during the change.
+        let unexpectedRejections = rejected.filter { attempt in
+            !stages.indices.contains { index in
                 stages[index].hasPrefix("receive-master-")
                     && attempt.start <= changeHostTimes[index] + changeDurations[index]
                     && attempt.end >= changeHostTimes[index]
-            }, "Unexpected receive rejection outside a master effect change: \(attempt)")
+            }
         }
-        XCTAssertEqual(drops, 0); XCTAssertEqual(resets, 0); XCTAssertEqual(encodingFailures, 0)
-        let measurement: [String: Any] = ["scenario": "live-settings", "role": "pipeline", "transport": "none",
-            "stages": rows, "firstOutputHostTime": probe.firstOutputTime ?? 0,
+        if acceptance {
+            XCTAssertTrue(failures.isEmpty, failures.joined(separator: "; "))
+            XCTAssertTrue(unexpectedRejections.isEmpty, "Unexpected receive rejection outside a master effect change")
+            XCTAssertEqual(drops, 0); XCTAssertEqual(resets, 0); XCTAssertEqual(encodingFailures, 0)
+        }
+        var measurement: [String: Any] = ["scenario": scenario, "role": "pipeline", "transport": "none",
+            "stages": stagesMeasured.rows, "firstOutputHostTime": probe.firstOutputTime ?? 0,
             "captureTiming": input.captureTiming, "captureDiscontinuities": input.captureDiscontinuities,
             "droppedFrames": drops, "outputResets": resets, "processingFailures": failures,
             "receiveRejections": rejected.map { ["start": $0.start, "end": $0.end] }]
+        if !acceptance {
+            measurement["intervalMilliseconds"] = intervalMilliseconds
+            let invalidUpstreamProbes = recordings.invalidUpstreamProbes
+            stagesMeasured.finishLimitObservation(invalidUpstreamProbes: invalidUpstreamProbes)
+            measurement["invalidUpstreamProbes"] = invalidUpstreamProbes
+            measurement["unmetStages"] = stagesMeasured.unmetStages
+            measurement["unexpectedRejections"] = unexpectedRejections.count
+            measurement["encodingFailures"] = encodingFailures
+            let met = stagesMeasured.unmetStages.isEmpty && unexpectedRejections.isEmpty && failures.isEmpty
+                && drops == 0 && resets == 0 && encodingFailures == 0
+            measurement["qualityObservation"] = stagesMeasured.unavailable ? "unavailable" : (met ? "met" : "unmet")
+        }
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: measurement), uniformTypeIdentifier: "public.json")
-        attachment.name = "live-settings-measurement"; attachment.lifetime = .keepAlways; add(attachment)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("live-settings.wav")
+        attachment.name = "\(scenario)-measurement"; attachment.lifetime = .keepAlways; add(attachment)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(scenario).wav")
+        guard !recorded.samples.isEmpty, recorded.rate.isFinite, (1000...192000).contains(recorded.rate) else { return }
         try probe.writeWAV(to: url, rendered: recorded)
-        let audio = XCTAttachment(contentsOfFile: url); audio.name = "live-settings"; audio.lifetime = .keepAlways; add(audio)
+        let audio = XCTAttachment(contentsOfFile: url); audio.name = scenario; audio.lifetime = .keepAlways; add(audio)
         try? FileManager.default.removeItem(at: url)
-        for (name, stage) in [("decoded", decodedProbe), ("mixed", mixedProbe)] {
-            let stageURL = FileManager.default.temporaryDirectory.appendingPathComponent("live-settings-\(name).wav")
-            try stage.writeWAV(to: stageURL, rendered: stage.snapshot())
+        for (name, stage, stageRecording) in [("decoded", decodedProbe, decoded), ("mixed", mixedProbe, mixed)] {
+            let stageURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(scenario)-\(name).wav")
+            guard !stageRecording.samples.isEmpty, (1000...192000).contains(stageRecording.rate) else {
+                XCTFail("Missing \(name) audio")
+                continue
+            }
+            try stage.writeWAV(to: stageURL, rendered: stageRecording)
             let attachment = XCTAttachment(contentsOfFile: stageURL)
-            attachment.name = "live-settings-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+            attachment.name = "\(scenario)-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
             try? FileManager.default.removeItem(at: stageURL)
         }
     }

@@ -185,6 +185,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 
 再調査では、先に保存済みの数値を[切替試験の比較例](../validation/history/音声同一性と途切れの再現.md#aacの定常波形と受信分離をオンにしたときの無音を分けて比較する)と照合する。試験名が同じでも、操作の区間、入出力経路、ビルド構成、判定方法が異なる値は区別する。次のコマンドは実行結果を保存したフォルダで使う。Simulatorの起動やコードの切替は不要。
 
+作業中の差分を含む試験では、コミット番号だけでは同じ入力を再現できない。各実行の `source-manifest.json` で実際に使ったファイルを照合する。動作が変わる差分を基準に採用するときは、その差分を特定できるコミットかパッチも対応付けて残す。
+
 ```sh
 jq -r '.[] | select(.scenario == "live-settings") | .stages[] |
   [.stage, .maximumSilenceMilliseconds, .steady.maximum2msRMSError, .steady.passed] | @tsv' pipeline-measurements.json
@@ -199,6 +201,28 @@ jq -r '.[] | select(.scenario == "live-settings") | .stages[] |
 | 壊した変更と最初に差が見えた段 | 変更した処理、状態の所有元、壊れた前提、前後段の観測を結ぶ。収録・送信処理・通信・復号・再生予約・実出力のうち最後に正常だった段と最初に異常を観測した段を記す。間に未計測の段があれば範囲として残す。最初に失敗を観測したビルドと、不具合が入ったことを特定できた変更は区別する |
 | 正常・失敗・修復の値 | 側・方向・観測点・単位・区間・判定方法をそろえて値を横に並べる。run、ログ・波形・測定JSONの場所を添え、ローカル成果物を開けない担当にも判断できる要点を本文に残す。試験用fixtureを使い、利用者の会話や秘密は記録しない |
 | 原因の根拠と戻せる範囲 | 1つの差を除く・戻す・再適用するなど、どの比較が原因を支持するかを書く。改善しなかった試案、悪化した別の指標、変更を残したか撤回したかも該当時に残す。次に同じ兆候が出たとき、最初に比較する処理と、維持する隣の経路を示す |
+
+### 切替時の基準を確かめる試験と、切替間隔の限界を調べる試験
+
+| 知りたいこと | 実行方法 | 結果の読み方 |
+|---|---|---|
+| 決めた条件で以前の動作と音質を保てたか | `python3 scripts/audio_e2e.py --switches-only` | 14区間の切替は各操作後に2秒待つ。定常波形・音の段差・最長無音と内部処理を判定する。共有入出力の復帰も別の試験で確認する |
+| 短い間隔で操作を繰り返すと、どの音が先に崩れるか | `python3 scripts/audio_e2e.py --switch-limits-only` | 600 Hzの入力と14区間の操作順を保ち、待ち時間を2秒、1秒、0.5秒に変える。各条件で音声処理を新しく開始する。各区間の値と目標外の箇所を記録する |
+
+限界試験が終わったら、`pipeline-measurements.json` から待ち時間別に `switch-limits-2000ms`、`switch-limits-1000ms`、`switch-limits-500ms` を読む。測定の成否と品質目標の達否を区別する。3条件のうち目標に届いた条件、外れた条件、測定できなかった条件を示す。確認した間隔と間隔の間は未測定として扱う。同じ値がすでに保存されていれば、その値を先に使う。
+
+3条件の観測結果を保存済みの記録から読み出す。
+
+```sh
+jq -r '.[] | select(.scenario | startswith("switch-limits-")) |
+  [.intervalMilliseconds, .qualityObservation, (.stages | length), (.unmetStages | join(", "))] | @tsv' pipeline-measurements.json
+```
+
+各間隔の `qualityObservation` は、測れた全項目が目標内なら `met`、目標を外れたら `unmet`、測定が成立しなければ `unavailable`。目標外の区間名は `unmetStages` に残る。限界試験の成功は測定を完了したことを示す。受入には基準試験の結果を使う。判定器だけを確認する場合は、Macで次の試験を使う。16 kHzの合成波形に119、120、121 msの無音を入れ、最初の2件が上限内、最後が超過と判定されることを確かめる。
+
+```sh
+xcodebuild test -scheme RideIntercomAudioE2E -configuration Debug-Validation -destination 'platform=macOS' -only-testing:RideIntercomAudioE2ETests/SwitchMeasurementTests
+```
 
 ### 音声が壊れたか、品質が変わったかを判断する
 

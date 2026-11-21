@@ -105,6 +105,8 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             'group': (('testEightPersonMixedRouteConversation',), ('eight-person-mixed',), 180),
             'codec': (('testTransmitChainPreservesConversationAndAcknowledgements', 'testNativeCodecsPreserveWholeSpeech'),
                       ('native-codecs', 'transmit-conversations'), 600),
+            'switch-limits': (('testMeasureLiveSettingsSwitchLimits',),
+                              ('switch-limits-2000ms', 'switch-limits-1000ms', 'switch-limits-500ms'), 180),
             'switches': (('testInputModeChangesRestoreTheSharedReceiveClock', 'testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio'),
                          ('live-settings', 'input-mode-recovery'), 180),
         }
@@ -125,6 +127,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
 
     def test_evidence_names_the_measurements_required_for_each_run(self) -> None:
         examples = [
+            ('limits', ['--switch-limits-only'], ['switch-limits-2000ms', 'switch-limits-1000ms', 'switch-limits-500ms'], None),
             ('standalone', ['--switches-only'], ['live-settings', 'input-mode-recovery'], None),
             ('selected', ['--scenario', 'output-mute'], ['output-mute'], ['output-mute']),
             ('mixed', ['--transport', 'mixed', '--matrix', 'smoke'],
@@ -270,6 +273,8 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         products = self.root / 'products'
         products.mkdir()
         outputs = []
+        limits = audio.STANDALONE_AUDIO_PLANS['switch_limits_only'].tests
+        skips = [limits[0] + '()', 'OtherTests/testUnrelated']
         for platform, role in [('mac', 'a'), ('ios', 'b')]:
             folder = 'Release-Validation' + ('-iphonesimulator' if platform == 'ios' else '')
             app = products / folder / 'RideIntercom.app'
@@ -278,14 +283,19 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             info.write_bytes(plistlib.dumps({'StorageNamespace': 'RideIntercom.Validation.Xcode'}))
             source = products / (platform + '.xctestrun')
             source.write_bytes(plistlib.dumps({'TestConfigurations': [{'TestTargets': [{
-                'BlueprintName': 'RideIntercomAudioE2ETests',
+                'BlueprintName': 'RideIntercomAudioE2ETests', 'SkipTestIdentifiers': skips,
                 'TestHostPath': '__TESTROOT__/' + str(app.relative_to(products))}]}]}))
             output = configure_test_run(source, 'pair', platform, 'RideIntercom.Validation.Xcode', {'AUDIO_E2E_ROLE': role})
             outputs.append(output)
+            limit_run = configure_test_run(source, 'limit', platform, 'RideIntercom.Validation.Xcode', {}, limits)
+            target = plistlib.loads(limit_run.read_bytes())['TestConfigurations'][0]['TestTargets'][0]
+            self.assertEqual(target['OnlyTestIdentifiers'], list(limits))
+            self.assertEqual(target['SkipTestIdentifiers'], [skips[1]])
         self.assertNotEqual(*outputs)
         for output, role in zip(outputs, ['a', 'b']):
             target = plistlib.loads(output.read_bytes())['TestConfigurations'][0]['TestTargets'][0]
             self.assertEqual(target['EnvironmentVariables']['AUDIO_E2E_ROLE'], role)
+            self.assertEqual(target['SkipTestIdentifiers'], skips)
 
     def test_pair_timeout_recovers_the_owned_process_without_type_error(self) -> None:
         runner = Runner(self.root / 'timeout-run')

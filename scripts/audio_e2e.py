@@ -180,6 +180,11 @@ def configure_test_run(source: Path, purpose: str, platform: str, namespace: str
         raise ValueError('Expected the dedicated audio E2E test target')
     test_host_metadata(source, namespace)
     targets[0].setdefault('EnvironmentVariables', {}).update(environment)
+    limits = STANDALONE_AUDIO_PLANS['switch_limits_only'].tests
+    if identifiers and tuple(identifiers) == limits:
+        targets[0]['SkipTestIdentifiers'] = [
+            name for name in targets[0].get('SkipTestIdentifiers', []) if name.removesuffix('()') not in limits
+        ]
     targets[0]['OnlyTestIdentifiers'] = identifiers or ['AudioE2ETests/testDuplexSpeechOverNetwork']
     # Mac and Simulator now share Xcode's product root. Keep distinct files
     # beside their products so __TESTROOT__ stays valid for both endpoints.
@@ -338,6 +343,7 @@ def main() -> int:
     parser.add_argument('--scenario', metavar='ID', action='append', default=[],
                         help='Run only this scenario from the network audio matrix; repeat to select multiple cases')
     parser.add_argument('--speech-pair', choices=['english', 'japanese', 'conversation'], default='english')
+    parser.add_argument('--switch-limits-only', action='store_true', help='Measure live setting changes at three intervals without changing acceptance')
     parser.add_argument('--switches-only', action='store_true', help='Live codec, format and effect changes with bounded silence and click checks')
     parser.add_argument('--codec-only', action='store_true', help='Native codec identity across four speech fixtures and all supported formats')
     parser.add_argument('--group-only', action='store_true', help='Eight participants with mixed codecs, delayed relay routes and real rendered audio')
@@ -410,7 +416,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
     (out / 'configuration.json').write_text(json.dumps({'run': run_id, 'seconds': args.seconds, 'codec': args.codec,
         'isolation': args.isolation, 'buildConfiguration': args.configuration, 'input': 'bundled synthetic speech WAV', 'transport': args.transport,
         'speechPair': args.speech_pair, 'pipelineOnly': args.pipeline_only, 'realtimeOnly': args.realtime_only, 'groupOnly': args.group_only, 'codecOnly': args.codec_only, 'switchesOnly': args.switches_only,
-        'twoSimulators': args.two_simulators, 'expectedMeasurementIDs': measurement_ids, 'output': 'system AVAudioEngine render tap'}, indent=2) + '\n')
+        'switchLimitsOnly': args.switch_limits_only, 'twoSimulators': args.two_simulators, 'expectedMeasurementIDs': measurement_ids, 'output': 'system AVAudioEngine render tap'}, indent=2) + '\n')
     audio_pins = []
     leases = [SimulatorLease(runner, resource_root / name) for name in ['reusable.json', 'ephemeral.json']]
     lease = leases[int(args.ephemeral)]
@@ -512,7 +518,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 '--path', str(out / 'pipeline.xcresult'), '--format', 'json'], timeout=60):
                 summary = json.loads((out / 'summary-pipeline.log').read_text())
                 passed = xcode_tests_passed(summary) and summary['totalTestCount'] == len(standalone.tests)
-                runner.record('accept-pipeline', [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
+                result_name = 'measure-switch-limits' if args.switch_limits_only else 'accept-pipeline'
+                runner.record(result_name, [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
             folder = out / 'attachments-pipeline'
             if runner.run('attachments-pipeline', ['xcrun', 'xcresulttool', 'export', 'attachments',
                 '--path', str(out / 'pipeline.xcresult'), '--output-path', str(folder)], timeout=60):

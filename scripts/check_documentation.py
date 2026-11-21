@@ -11,6 +11,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 LINK = re.compile(r'\[[^\]\n]*\]\((<[^>]+>|[^\n)]+)\)')
+EVIDENCE_TABLES = {
+    'docs/validation/README.md': {
+        '音声の設定切替で守る動作と現在の品質': (
+            '維持する実装と理由', '壊れた条件', '現在の結果', '測った限界と未確認の範囲', '利用者に保証する目標', '次に試す改善',
+        ),
+    },
+}
 UI_ID = re.compile(r'accessibilityIdentifier\s*[:(]\s*"([^"\\]+)"')
 
 
@@ -39,6 +46,61 @@ def without_fences(text: str) -> str:
 
 def heading_anchor(title: str) -> str:
     return re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-')
+
+
+def table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in re.split(r'(?<!\\)\|', line.strip().removeprefix('|').removesuffix('|'))]
+
+
+def check_evidence_table(document: Path, text: str, title: str, required: tuple[str, ...], root: Path) -> list[str]:
+    prefix = f'{document.relative_to(root)} [{title}]'
+    sections = list(re.finditer(rf'^## {re.escape(title)}[ \t]*$', text, re.MULTILINE))
+    if len(sections) != 1:
+        return [f'{prefix}: この見出しが1つ必要です（現在{len(sections)}件）']
+    section = re.split(r'^#{1,6}\s+', text[sections[0].end():], maxsplit=1, flags=re.MULTILINE)[0]
+    lines = section.splitlines()
+    first_row = next((index for index, line in enumerate(lines) if '|' in line), len(lines))
+    lines = lines[first_row:]
+    separator = table_cells(lines[1]) if len(lines) >= 2 else []
+    if (not lines or table_cells(lines[0]) != ['判断すること', '現在の判断', '根拠'] or len(separator) != 3
+            or not all(re.fullmatch(r':?-{3,}:?', cell) for cell in separator)):
+        return [f'{prefix}: この節の最初に置く表には「判断すること」「現在の判断」「根拠」の3列の表が必要です']
+
+    errors: list[str] = []
+    counts: Counter[str] = Counter()
+    anchors: dict[Path, set[str]] = {}
+    for line in lines[2:]:
+        if '|' not in line or line.lstrip().startswith('#'):
+            break
+        cells = table_cells(line)
+        name = cells[0]
+        counts[name] += 1
+        if len(cells) != 3 or not all(cells):
+            errors.append(f'{prefix}: 「{name}」の3列すべてに内容が必要です')
+            continue
+        linked_heading = False
+        for destination in LINK.findall(re.sub(r'(`+).*?\1', '', cells[2])):
+            link = urlsplit(destination.strip('<>'))
+            if link.scheme or link.netloc:
+                continue
+            target = (document.parent / unquote(link.path)).resolve() if link.path else document
+            if not target.is_relative_to(root) or target.suffix != '.md' or not target.is_file():
+                errors.append(f'{prefix}: 「{name}」の根拠の文書が見つかりません {destination}')
+                continue
+            if not link.fragment:
+                continue
+            linked_heading = True
+            if target not in anchors:
+                titles = re.findall(r'^#{1,6} (.+)$', without_fences(target.read_text()), re.MULTILINE)
+                anchors[target] = {heading_anchor(heading) for heading in titles}
+            if unquote(link.fragment) not in anchors[target]:
+                errors.append(f'{prefix}: 「{name}」の根拠の見出しが見つかりません {destination}')
+        if not linked_heading:
+            errors.append(f'{prefix}: 「{name}」の根拠に文書の見出しへのリンクが必要です')
+    for name in required:
+        if counts[name] != 1:
+            errors.append(f'{prefix}: 「{name}」の行が1つ必要です（現在{counts[name]}件）')
+    return errors
 
 
 def check_backlog(backlog: Path) -> list[str]:
@@ -123,6 +185,8 @@ def check(root: Path) -> list[str]:
             errors.append(f'{directory.relative_to(root)}: empty directory')
     for document in sorted(documents):
         text = without_fences(document.read_text())
+        for title, required in EVIDENCE_TABLES.get(str(document.relative_to(root)), {}).items():
+            errors.extend(check_evidence_table(document, text, title, required, root))
         targets = set()
         historical = 'history' in document.relative_to(root).parts
         for match in LINK.finditer(text):

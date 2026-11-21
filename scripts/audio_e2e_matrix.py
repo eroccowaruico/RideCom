@@ -34,6 +34,10 @@ STANDALONE_AUDIO_PLANS = {
         measurement_ids=('native-codecs', 'transmit-conversations'),
         timeout=600,
     ),
+    'switch_limits_only': StandaloneAudioPlan(
+        tests=('AudioE2ETests/testMeasureLiveSettingsSwitchLimits',),
+        measurement_ids=('switch-limits-2000ms', 'switch-limits-1000ms', 'switch-limits-500ms'),
+    ),
     'switches_only': StandaloneAudioPlan(
         tests=('AudioE2ETests/testInputModeChangesRestoreTheSharedReceiveClock',
                'AudioE2ETests/testLiveSettingsKeepBoundedSilenceAndContinuousSteadyAudio'),

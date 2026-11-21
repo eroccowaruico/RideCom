@@ -57,6 +57,46 @@ class DocumentationTests(unittest.TestCase):
                 'docs/guide.md: missing backlog heading backlog/改善候補.md#旧見出し',
             ])
 
+    def test_audio_evidence_table_requires_decisions_and_resolvable_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            folder = root / 'docs/validation'
+            folder.mkdir()
+            index = folder / 'README.md'
+            (root / 'docs/guide.md').write_text('# Guide\n[検証](validation/README.md)\n## 測定値\n')
+            heading = '## 音声の設定切替で守る動作と現在の品質'
+            columns = '| 判断すること | 現在の判断 | 根拠 |'
+            header = f'# 検証状況と証跡\n\n{heading}\n\n{columns}\n|---|---|---|\n'
+            row = '| 現在の結果 | 上限を超えた | [証拠](../guide.md#測定値) |\n'
+            source = '[証拠](#検証状況と証跡)'
+            rows = ''.join(f'| {name} | 記録あり | {source} |\n' for name in (
+                '維持する実装と理由', '壊れた条件', '測った限界と未確認の範囲', '利用者に保証する目標', '次に試す改善',
+            ))
+            index.write_text(header.replace(columns, '対象は設定の切替。\n\n' + columns) + rows + row)
+            self.assertEqual(check(root), [])
+
+            for broken, message in [
+                ('# 検証結果を読む\n', 'この見出しが1つ必要'),
+                (header.replace(heading, '## 参考例') + rows + row, 'この見出しが1つ必要'),
+                (header + rows + row + heading, 'この見出しが1つ必要'),
+                (header.replace(columns, '| 現在の判断 | 判断すること | 根拠 |') + rows + row, '3列の表'),
+                (header.replace('|---|---|---|', '|---|---|') + rows + row, '3列の表'),
+                (header.replace(columns, '後の節に記録する。\n\n## 別の節\n' + columns) + rows + row, '3列の表'),
+                (header + rows + row + row, '現在2件'),
+                (header + rows + '\n## 別の節\n' + row, '「現在の結果」の行が1つ必要'),
+                (header + rows + row.replace('上限を超えた', ' '), '3列すべてに内容が必要'),
+                (header + rows + row.replace('[証拠](../guide.md#測定値)', ''), '3列すべてに内容が必要'),
+                (header + rows + row.replace('[証拠](../guide.md#測定値)', '調査記録'), '見出しへのリンクが必要'),
+                (header + rows + row.replace('../guide.md#測定値', '../guide.md'), '見出しへのリンクが必要'),
+                (header + rows + row.replace('guide.md', 'missing.md'), '根拠の文書が見つかりません'),
+                (header + rows + row.replace('測定値', '過去の値'), '根拠の見出しが見つかりません'),
+                (header + rows + row.replace('測定値)', '測定値) [古い出典](#欠落)'), '根拠の見出しが見つかりません'),
+            ]:
+                with self.subTest(message=message, broken=broken):
+                    index.write_text(broken)
+                    self.assertTrue(any(message in error for error in check(root)))
+
     def test_unindexed_document_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
