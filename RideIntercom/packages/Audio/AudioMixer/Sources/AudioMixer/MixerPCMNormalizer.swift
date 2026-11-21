@@ -9,7 +9,9 @@ enum MixerPCMNormalizer {
 		operation: AudioProcessingOperation
 	) throws -> (frame: PCMFrame, report: AudioProcessingReport) {
 		guard targetFormat.isValid else {
-			throw AudioProcessingFailure(operation: operation, sourceFormat: frame.format, targetFormat: targetFormat, reason: "invalid target format")
+            throw AudioProcessingFailure(
+                operation: operation, sourceFormat: frame.format, targetFormat: targetFormat,
+                reason: "invalid target format")
 		}
 		do {
 			_ = try frame.validated()
@@ -22,70 +24,34 @@ enum MixerPCMNormalizer {
 			)
 		}
 
-		guard frame.format != targetFormat else {
-			return (
-				frame,
-				AudioProcessingReport(
-					operation: operation,
-					sourceFormat: frame.format,
-					targetFormat: targetFormat,
-					inputSampleCount: frame.samples.count,
-					outputSampleCount: frame.samples.count,
-					result: .notRequired
-				)
-			)
+		let normalized: PCMFrame
+		if frame.format == targetFormat {
+			normalized = frame
+		} else {
+			let samples = frame.samples.isEmpty ? [] : normalizedSamples(frame, to: targetFormat)
+			normalized = PCMFrame(sequenceNumber: frame.sequenceNumber, format: targetFormat,
+								  capturedAt: frame.capturedAt, samples: samples)
 		}
+		return (normalized, AudioProcessingReport(
+			operation: operation, sourceFormat: frame.format, targetFormat: targetFormat,
+			inputSampleCount: frame.samples.count, outputSampleCount: normalized.samples.count,
+			result: frame.format == targetFormat ? .notRequired : .applied
+		))
+	}
 
-		guard !frame.samples.isEmpty else {
-			let normalized = PCMFrame(
-				sequenceNumber: frame.sequenceNumber,
-				format: targetFormat,
-				capturedAt: frame.capturedAt,
-				samples: []
-			)
-			return (
-				normalized,
-				AudioProcessingReport(
-					operation: operation,
-					sourceFormat: frame.format,
-					targetFormat: targetFormat,
-					inputSampleCount: 0,
-					outputSampleCount: 0,
-					result: .applied
-				)
-			)
-		}
-
+	private static func normalizedSamples(_ frame: PCMFrame, to targetFormat: AudioFormat) -> [Float] {
 		let channelConverted = convertChannels(
 			frame.samples,
 			sourceChannelCount: frame.format.channelCount,
 			targetChannelCount: targetFormat.channelCount
 		)
 		let sourceFrameCount = frame.samples.count / frame.format.channelCount
-		let resampled = resample(
+		return resample(
 			channelConverted,
 			sourceFrameCount: sourceFrameCount,
 			sourceSampleRate: frame.format.sampleRate,
 			targetSampleRate: targetFormat.sampleRate,
 			channelCount: targetFormat.channelCount
-		)
-		let normalized = PCMFrame(
-			sequenceNumber: frame.sequenceNumber,
-			format: targetFormat,
-			capturedAt: frame.capturedAt,
-			samples: resampled
-		)
-
-		return (
-			normalized,
-			AudioProcessingReport(
-				operation: operation,
-				sourceFormat: frame.format,
-				targetFormat: targetFormat,
-				inputSampleCount: frame.samples.count,
-				outputSampleCount: normalized.samples.count,
-				result: .applied
-			)
 		)
 	}
 
@@ -182,8 +148,8 @@ extension PCMFrame {
 		let format = AudioFormat(avAudioFormat: buffer.format)
 		let frameLength = Int(buffer.frameLength)
 		let samples: [Float]
-        if format.channelCount == 1 {
-            samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+        if format.channelCount == 1 || buffer.format.isInterleaved {
+            samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength * format.channelCount))
         } else {
             var interleaved: [Float] = []
             interleaved.reserveCapacity(frameLength * format.channelCount)

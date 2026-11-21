@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import AudioMixer
 
-@Test(arguments: [(44100.0,48000.0),(48000.0,44100.0),(48000.0,96000.0),(48000.0,16000.0)])
+@Test(arguments: [(44100.0, 48000.0), (48000.0, 44100.0), (48000.0, 96000.0), (48000.0, 16000.0)])
 func streamingNormalizationKeepsFractionalSampleClock(rates: (Double, Double)) throws {
     let converter = MixerPCMStreamNormalizer()
     var output: [Float] = []
@@ -13,7 +13,8 @@ func streamingNormalizationKeepsFractionalSampleClock(rates: (Double, Double)) t
         let count = min(256, Int(rates.0) - offset)
         let samples = (0..<count).map { Float(0.2 * sin(Double(offset + $0) * 2 * .pi * 400 / rates.0)) }
         let result = try converter.normalize(.init(sequenceNumber: UInt64(offset),
-            format: .init(sampleRate: rates.0, channelCount: 1), capturedAt: Double(offset) / rates.0, samples: samples),
+                format: .init(sampleRate: rates.0, channelCount: 1), capturedAt: Double(offset) / rates.0,
+                samples: samples),
             to: .init(sampleRate: rates.1, channelCount: 1), operation: .normalizeSink).frame
         if let end { #expect(abs(result.capturedAt - end) < 0.1 / rates.1) }
         end = result.capturedAt + Double(result.frameCount) / rates.1
@@ -33,33 +34,39 @@ func streamingNormalizationKeepsFractionalSampleClock(rates: (Double, Double)) t
     }
 }
 
-
 /// Independent whole-signal reference: a single native conversion, no package
 /// normalizer, source scheduling, capture boundaries, or packet clocks.
 func nativeFractionalReference(_ samples: [Float], from source: Double, to target: Double) throws -> [Float] {
-    let a = AVAudioFormat(standardFormatWithSampleRate: source, channels: 1)!
-    let b = AVAudioFormat(standardFormatWithSampleRate: target, channels: 1)!
-    let converter = AVAudioConverter(from: a, to: b)!
+    let inputFormat = try #require(AVAudioFormat(standardFormatWithSampleRate: source, channels: 1))
+    let outputFormat = try #require(AVAudioFormat(standardFormatWithSampleRate: target, channels: 1))
+    let converter = try #require(AVAudioConverter(from: inputFormat, to: outputFormat))
     converter.sampleRateConverterAlgorithm = AVSampleRateConverterAlgorithm_Normal
     converter.sampleRateConverterQuality = AVAudioQuality.high.rawValue
     converter.primeMethod = .none
-    let output = AVAudioPCMBuffer(pcmFormat: b, frameCapacity: AVAudioFrameCount(ceil(Double(samples.count) * target / source) + 64))!
+    let capacity = AVAudioFrameCount(ceil(Double(samples.count) * target / source) + 64)
+    let output = try #require(AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity))
     var cursor = 0, error: NSError?
     let status = converter.convert(to: output, error: &error) { requested, state in
         guard cursor < samples.count else { state.pointee = .noDataNow; return nil }
         let count = min(Int(requested), samples.count - cursor)
-        let part = AVAudioPCMBuffer(pcmFormat: a, frameCapacity: AVAudioFrameCount(count))!
+        guard let part = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(count)),
+              let channels = part.floatChannelData else {
+            state.pointee = .noDataNow
+            return nil
+        }
         part.frameLength = AVAudioFrameCount(count)
-        for i in 0..<count { part.floatChannelData![0][i] = samples[cursor + i] }
-        cursor += count; state.pointee = .haveData
+        for index in 0..<count { channels[0][index] = samples[cursor + index] }
+        cursor += count
+        state.pointee = .haveData
         return part
     }
     #expect(status != .error)
     #expect(cursor == samples.count)
-    return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
+    let channels = try #require(output.floatChannelData)
+    return Array(UnsafeBufferPointer(start: channels[0], count: Int(output.frameLength)))
 }
 
-@Test(arguments: [(44100.0,48000.0),(48000.0,44100.0)])
+@Test(arguments: [(44100.0, 48000.0), (48000.0, 44100.0)])
 func fractionalFilterRejectsImagesWithoutAnExtraCaptureBlock(rates: (Double, Double)) throws {
     let format = AudioFormat(sampleRate: rates.0, channelCount: 1)
     let target = AudioFormat(sampleRate: rates.1, channelCount: 1)
@@ -75,10 +82,12 @@ func fractionalFilterRejectsImagesWithoutAnExtraCaptureBlock(rates: (Double, Dou
     }
     let start = Int(rates.1 * 0.005)
     let samples = Array(output.dropFirst(start)).map(Double.init)
-    let wave = samples.indices.map { (sin(Double($0 + start) * 2 * .pi * 600 / rates.1), cos(Double($0 + start) * 2 * .pi * 600 / rates.1)) }
-    let sine = zip(samples,wave).reduce(0.0) { $0 + $1.0 * $1.1.0 } * 2 / Double(samples.count)
-    let cosine = zip(samples,wave).reduce(0.0) { $0 + $1.0 * $1.1.1 } * 2 / Double(samples.count)
-    #expect(abs(hypot(sine,cosine) - 0.2) < 0.0002)
+    let wave = samples.indices.map {
+        (sin(Double($0 + start) * 2 * .pi * 600 / rates.1), cos(Double($0 + start) * 2 * .pi * 600 / rates.1))
+    }
+    let sine = zip(samples, wave).reduce(0.0) { $0 + $1.0 * $1.1.0 } * 2 / Double(samples.count)
+    let cosine = zip(samples, wave).reduce(0.0) { $0 + $1.0 * $1.1.1 } * 2 / Double(samples.count)
+    #expect(abs(hypot(sine, cosine) - 0.2) < 0.0002)
     let error = samples.indices.map { abs(samples[$0] - wave[$0].0 * sine - wave[$0].1 * cosine) }.max() ?? 1
     #expect(error < 0.00002, "Fractional-rate images must not trigger lossy-codec noise bursts")
     let impulse = MixerPCMStreamNormalizer()
@@ -105,4 +114,21 @@ func fractionalFilterRejectsImagesWithoutAnExtraCaptureBlock(rates: (Double, Dou
     #expect(output.count == expectedLeft.count * 2)
     #expect(expectedLeft.indices.allSatisfy { abs(output[$0 * 2] - expectedLeft[$0]) < 0.000001
         && abs(output[$0 * 2 + 1] - expectedRight[$0]) < 0.000001 })
+}
+
+@Test(arguments: [false, true])
+func pcmFramePreservesChannelOrder(interleaved: Bool) throws {
+    let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
+                                            channels: 2, interleaved: interleaved))
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2))
+    buffer.frameLength = 2
+    let channels = try #require(buffer.floatChannelData)
+    for channel in 0..<2 {
+        let samples = channels[interleaved ? 0 : channel]
+        let offset = interleaved ? channel : 0
+        samples[offset] = Float(channel + 1)
+        samples[offset + buffer.stride] = Float(channel + 3)
+    }
+    let frame = try #require(PCMFrame(buffer: buffer, sequenceNumber: 7, capturedAt: 2))
+    #expect(frame.samples == [1, 2, 3, 4])
 }
