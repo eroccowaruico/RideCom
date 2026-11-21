@@ -7,13 +7,15 @@ import Testing
 struct StoreKitAccessTests {
     @Test func purchaseCancellationPendingAndFailureNeverGrantOrReadPurchases() async {
         let source = FixtureStoreSource()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
         await access.start()
         await access.purchaseCompleted(productID: "fixture.week", result: .success(.userCancelled))
         #expect(access.message == "Purchase cancelled.")
         await access.purchaseCompleted(productID: "fixture.week", result: .success(.pending))
         #expect(access.message == "Purchase pending approval. Access will update when it is approved.")
-        await access.purchaseCompleted(productID: "fixture.week", result: .failure(FixtureStoreSource.Failure.unavailable))
+        await access.purchaseCompleted(
+            productID: "fixture.week", result: .failure(FixtureStoreSource.Failure.unavailable))
         #expect(access.message == "The purchase could not be completed. Please try again.")
         #expect(source.readCount == 1 && source.syncCount == 0)
         #expect(access.evaluation(at: .now).status == .notPurchased)
@@ -22,7 +24,8 @@ struct StoreKitAccessTests {
     @Test func purchaseNotificationsFromUnconfiguredProductsOrOldAccountsAreIgnored() async {
         let source = FixtureStoreSource()
         let owner = FixtureStoreOwner()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source,
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source,
                                     isCurrentUser: { owner.current })
         await access.start()
         await access.purchaseCompleted(productID: "unrelated", result: .success(.pending))
@@ -55,8 +58,11 @@ struct StoreKitAccessTests {
         let source = FixtureStoreSource()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         source.snapshot = .init(entitlements: [.init(transactionID: 1, productID: "fixture.week", kind: .week,
-            purchaseDate: now, expirationDate: nil, revocationDate: nil, isUpgraded: false, isFreeTrial: false, graceExpirationDate: nil)], hasUnverifiedTransactions: false)
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: "fixture.month"), source: source)
+                    purchaseDate: now, expirationDate: nil, revocationDate: nil, isUpgraded: false,
+                    isFreeTrial: false, graceExpirationDate: nil)
+            ], hasUnverifiedTransactions: false)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: "fixture.month"), source: source)
         await access.start()
         #expect(source.syncCount == 0)
         #expect(access.evaluation(at: now).status == .active)
@@ -71,9 +77,13 @@ struct StoreKitAccessTests {
         let source = FixtureStoreSource()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         source.snapshot = .init(entitlements: [.init(transactionID: 1, productID: "fixture.week", kind: .week,
-            purchaseDate: now, expirationDate: nil, revocationDate: nil, isUpgraded: false, isFreeTrial: false, graceExpirationDate: nil)], hasUnverifiedTransactions: false)
+                    purchaseDate: now, expirationDate: nil, revocationDate: nil, isUpgraded: false,
+                    isFreeTrial: false, graceExpirationDate: nil)
+            ], hasUnverifiedTransactions: false)
         let owner = FixtureStoreOwner()
-        let old = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source, isCurrentUser: { owner.current })
+        let old = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source,
+            isCurrentUser: { owner.current })
         await old.start()
         #expect(old.evaluation(at: now).status == .active)
         owner.current = false
@@ -82,7 +92,8 @@ struct StoreKitAccessTests {
         #expect(source.syncCount == 0)
         old.stop()
         #expect(old.snapshot == nil)
-        let fresh = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
+        let fresh = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
         await fresh.start()
         #expect(fresh.evaluation(at: now).status == .active)
         fresh.stop()
@@ -91,7 +102,8 @@ struct StoreKitAccessTests {
         let source = FixtureStoreSource()
         let gate = ManualAsyncGate()
         source.gate = gate
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: "fixture.month"), source: source)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: "fixture.month"), source: source)
         let loading = Task { await access.start() }
         await gate.waitForEntry()
         await access.refresh()
@@ -104,14 +116,17 @@ struct StoreKitAccessTests {
         let source = FixtureStoreSource()
         let gate = ManualAsyncGate()
         source.gate = gate
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
         let old = Task { await access.start() }
         await gate.waitForEntry()
         access.stop()
         #expect(!access.isRefreshing)
         source.gate = nil
         source.snapshot = .init(entitlements: [.init(transactionID: 5, productID: "fixture.week", kind: .week,
-            purchaseDate: Date(), expirationDate: nil, revocationDate: nil, isUpgraded: false, isFreeTrial: false, graceExpirationDate: nil)], hasUnverifiedTransactions: false)
+                    purchaseDate: Date(), expirationDate: nil, revocationDate: nil, isUpgraded: false,
+                    isFreeTrial: false, graceExpirationDate: nil)
+            ], hasUnverifiedTransactions: false)
         await access.start()
         #expect(source.readCount == 2 && access.snapshot?.entitlements.count == 1 && !access.isRefreshing)
         await gate.release()
@@ -123,12 +138,15 @@ struct StoreKitAccessTests {
     @Test func uncooperativeReadTimesOutAndPreservesKnownGraceThenAllowsRetry() async {
         let source = FixtureStoreSource()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
-        var entitled = StoreEntitlement(transactionID: 1, productID: "fixture.month", kind: .monthly, purchaseDate: now.addingTimeInterval(-100),
+        var entitled = StoreEntitlement(
+            transactionID: 1, productID: "fixture.month", kind: .monthly,
+            purchaseDate: now.addingTimeInterval(-100),
             expirationDate: now.addingTimeInterval(-1), revocationDate: nil, isUpgraded: false, isFreeTrial: false,
             graceExpirationDate: now.addingTimeInterval(100))
         entitled.subscriptionStatus = "grace"
         source.snapshot = .init(entitlements: [entitled], hasUnverifiedTransactions: false)
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: nil, monthlyProductID: "fixture.month"), source: source,
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: nil, monthlyProductID: "fixture.month"), source: source,
                                     readTimeout: .milliseconds(30))
         await access.start()
         let gate = ManualAsyncGate()
@@ -149,7 +167,8 @@ struct StoreKitAccessTests {
     }
     @Test func systemRestoreAuthenticationIsNotSubjectToTheReadDeadline() async throws {
         let source = FixtureStoreSource()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source,
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source,
                                     readTimeout: .milliseconds(20))
         await access.start()
         let gate = ManualAsyncGate()
@@ -167,10 +186,13 @@ struct StoreKitAccessTests {
         let source = FixtureStoreSource()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         source.partial = .init(entitlements: [.init(transactionID: 1, productID: "fixture.week", kind: .week,
-            purchaseDate: now, expirationDate: nil, revocationDate: nil, isUpgraded: false, isFreeTrial: false, graceExpirationDate: nil)], hasUnverifiedTransactions: false)
+                    purchaseDate: now, expirationDate: nil, revocationDate: nil, isUpgraded: false,
+                    isFreeTrial: false, graceExpirationDate: nil)
+            ], hasUnverifiedTransactions: false)
         let gate = ManualAsyncGate()
         source.gate = gate
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: source)
         let loading = Task { await access.start() }
         await gate.waitForEntry()
         #expect(access.evaluation(at: now).status == .active)
@@ -181,7 +203,8 @@ struct StoreKitAccessTests {
     }
     @Test func updateRefreshesAndStopPreventsFurtherObservation() async {
         let source = FixtureStoreSource()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: "fixture.month"), source: source)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: "fixture.month"), source: source)
         await access.start()
         #expect(source.readCount == 1)
         source.continuation?.yield(())
@@ -206,7 +229,8 @@ private final class FixtureStoreSource: StoreKitAccessSource {
     var gate: ManualAsyncGate?
     var fails = false
     var continuation: AsyncStream<Void>.Continuation?
-    func read(catalog: StoreProductCatalog, onVerifiedTransactions: @MainActor (StoreEntitlementSnapshot) -> Bool) async throws -> StoreEntitlementSnapshot {
+    func read(catalog: StoreProductCatalog, onVerifiedTransactions: @MainActor (StoreEntitlementSnapshot) -> Bool)
+        async throws -> StoreEntitlementSnapshot {
         readCount += 1
         let result = snapshot
         if let partial { _ = onVerifiedTransactions(partial) }
