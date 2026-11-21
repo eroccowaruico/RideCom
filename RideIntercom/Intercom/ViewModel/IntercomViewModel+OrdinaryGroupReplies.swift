@@ -7,18 +7,16 @@ final class OrdinaryGroupReplyExchange {
 
     let id: UUID
     let invitation: DirectInvitationContext
-    let credential: GroupAccessCredential
-    let credentialReference: UUID
+    let savedCredential: GroupRepository.OrdinaryGroupReplyCredential
     let channel: RTCLocalDataChannel
     var timeout: Task<Void, Never>?
     var endBackgroundTime: (() -> Void)?
 
-    init(id: UUID, invitation: DirectInvitationContext, credential: GroupAccessCredential,
-         credentialReference: UUID, channel: RTCLocalDataChannel) {
+    init(id: UUID, invitation: DirectInvitationContext, savedCredential: GroupRepository.OrdinaryGroupReplyCredential,
+         channel: RTCLocalDataChannel) {
         self.id = id
         self.invitation = invitation
-        self.credential = credential
-        self.credentialReference = credentialReference
+        self.savedCredential = savedCredential
         self.channel = channel
     }
 }
@@ -44,9 +42,9 @@ extension IntercomViewModel {
     private func resumeIssuedOrdinaryGroupReply() {
         guard let invitation = groupRepository.issuedOrdinaryGroupInvitation(now: Date().timeIntervalSince1970),
               let expectedKey = invitation.inviterDeviceKey,
-              (try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)) != nil,
-              let credential = try? groupRepository.credential(for: invitation.groupID) else { return }
-        startOrdinaryGroupReplyExchange(invitation, credential: credential, role: .inviter)
+              (try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey)) != nil
+        else { return }
+        startOrdinaryGroupReplyExchange(invitation)
     }
 
     func resumeOrdinaryGroupReply(for group: IntercomGroup) {
@@ -64,29 +62,26 @@ extension IntercomViewModel {
     }
 
     private func resumeReceivedOrdinaryGroupReply(_ invitation: DirectInvitationContext?) {
-        guard let invitation,
-              let credential = try? groupRepository.credential(for: invitation.groupID) else { return }
-        startOrdinaryGroupReplyExchange(invitation, credential: credential, role: .invitee)
+        guard let invitation else { return }
+        startOrdinaryGroupReplyExchange(invitation)
     }
 
-    func startOrdinaryGroupReplyExchange(_ invitation: DirectInvitationContext, credential: GroupAccessCredential,
-                                         role: OrdinaryGroupReplyExchange.Role) {
+    func startOrdinaryGroupReplyExchange(_ invitation: DirectInvitationContext) {
         let now = Date().timeIntervalSince1970
-        guard canExchangeOrdinaryGroupReplies, invitation.groupID == credential.groupID,
-              let reference = groupRepository.ordinaryGroupReplyCredentialReference(for: invitation, now: now),
-              (role == .inviter) == (invitation.inviterMemberID == localMemberIdentity.memberID) else { return }
+        guard canExchangeOrdinaryGroupReplies,
+              let saved = groupRepository.ordinaryGroupReplyCredential(for: invitation, now: now) else { return }
+        let role: OrdinaryGroupReplyExchange.Role = invitation.inviterMemberID == localMemberIdentity.memberID ? .inviter : .invitee
         if let current = ordinaryGroupReplyExchanges[role],
-           current.invitation == invitation, current.credentialReference == reference, current.credential == credential { return }
+           current.invitation == invitation, current.savedCredential == saved { return }
         stopOrdinaryGroupReplyExchange(role)
 
         let id = UUID()
         let access = RTCCredential.derived(groupID: "rideintercom.ordinary-group-reply.v1:" + invitation.id.uuidString,
-                                           secret: credential.secret)
+                                           secret: saved.credential.secret)
         let channel = RTCLocalDataChannel(localID: .init(rawValue: localMemberIdentity.memberID), credential: access) { [weak self] event in
             DispatchQueue.main.async { self?.receiveOrdinaryGroupReplyEvent(event, role: role, id: id) }
         }
-        let exchange = OrdinaryGroupReplyExchange(id: id, invitation: invitation, credential: credential,
-                                                   credentialReference: reference, channel: channel)
+        let exchange = OrdinaryGroupReplyExchange(id: id, invitation: invitation, savedCredential: saved, channel: channel)
         ordinaryGroupReplyExchanges[role] = exchange
         exchange.timeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(min(60, invitation.expiresAt - now)))
@@ -113,7 +108,7 @@ extension IntercomViewModel {
 
     private func isCurrentOrdinaryGroupReply(_ exchange: OrdinaryGroupReplyExchange, now: TimeInterval) -> Bool {
         canExchangeOrdinaryGroupReplies
-            && groupRepository.ordinaryGroupReplyCredentialReference(for: exchange.invitation, now: now) == exchange.credentialReference
+            && groupRepository.ordinaryGroupReplyCredentialReference(for: exchange.invitation, now: now) == exchange.savedCredential.reference
     }
 
     private func stopOrdinaryGroupReplyExchange(_ role: OrdinaryGroupReplyExchange.Role, id: UUID? = nil) {
@@ -127,8 +122,9 @@ extension IntercomViewModel {
     private func receiveOrdinaryGroupReplyEvent(_ event: RTCLocalDataChannel.Event, role: OrdinaryGroupReplyExchange.Role, id: UUID) {
         guard let exchange = ordinaryGroupReplyExchanges[role], exchange.id == id else { return }
         let invitation = exchange.invitation
-        guard isCurrentOrdinaryGroupReply(exchange, now: Date().timeIntervalSince1970),
-              (try? groupRepository.credential(for: invitation.groupID)) == exchange.credential else {
+        guard canExchangeOrdinaryGroupReplies,
+              groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970) == exchange.savedCredential
+        else {
             stopOrdinaryGroupReplyExchange(role, id: id)
             return
         }

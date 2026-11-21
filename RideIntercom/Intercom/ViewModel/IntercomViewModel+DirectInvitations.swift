@@ -54,7 +54,7 @@ extension IntercomViewModel {
             let url = try GroupInviteTokenCodec.joinURL(for: token)
             if group.kind == .group, let invitation = token.directInvitation?.context {
                 try groupRepository.rememberIssuedOrdinaryGroupInvitation(invitation, now: Date().timeIntervalSince1970)
-                startOrdinaryGroupReplyExchange(invitation, credential: credential, role: .inviter)
+                startOrdinaryGroupReplyExchange(invitation)
                 requestOrdinaryGroupInternetReply(restart: true)
             }
             return url
