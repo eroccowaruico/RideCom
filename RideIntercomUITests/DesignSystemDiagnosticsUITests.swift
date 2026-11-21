@@ -32,13 +32,26 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertLessThan(vadStage.lowerBound, bus.lowerBound)
         attachScreen("Diagnostics pages as segments")
         picker.buttons["Network"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["diagnosticsNetworkPaths"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["diagnosticsNetworkPaths"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.buttons["Network"].isSelected)
+        verifyIdleTransmitPage(in: app, picker: picker)
+        verifyIdleReceivePage(in: app, picker: picker)
+        picker.buttons["Applied"].tap()
+        let call = app.staticTexts["Call"].firstMatch
+        let invite = app.staticTexts["Invite"].firstMatch
+        reveal(invite, app: app)
+        XCTAssertTrue(call.exists)
+        XCTAssertLessThan(call.frame.minY, invite.frame.minY)
+    }
+
+    private func verifyIdleTransmitPage(in app: XCUIApplication, picker: XCUIElement) {
         picker.buttons["TX"].tap()
         let vad = app.descendants(matching: .any)["pipeline-vad-step"].firstMatch
         XCTAssertTrue(vad.waitForExistence(timeout: 3), app.debugDescription)
         vad.tap()
-        XCTAssertTrue(app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Input level: Not measured"].firstMatch.exists)
         attachScreen("TX diagnostics before microphone analysis")
         let rtc = app.descendants(matching: .any)["pipeline-rtc-step"].firstMatch
@@ -50,6 +63,9 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertEqual(local.value as? String, "Idle, No audio dispatch observed")
         XCTAssertTrue(app.descendants(matching: .any)["pipeline-rtc-route-webRTC"].firstMatch.exists)
         attachScreen("TX diagnostics route branches before a call")
+    }
+
+    private func verifyIdleReceivePage(in app: XCUIApplication, picker: XCUIElement) {
         picker.buttons["RX"].tap()
         let receipt = app.descendants(matching: .any)["receive-pipeline-rtc-step"].firstMatch
         let decode = app.descendants(matching: .any)["receive-pipeline-codec-step"].firstMatch
@@ -70,12 +86,6 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         output.tap()
         let details = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Buffered: ")).firstMatch
         XCTAssertTrue(details.waitForExistence(timeout: 3))
-        picker.buttons["Applied"].tap()
-        let call = app.staticTexts["Call"].firstMatch
-        let invite = app.staticTexts["Invite"].firstMatch
-        reveal(invite, app: app)
-        XCTAssertTrue(call.exists)
-        XCTAssertLessThan(call.frame.minY, invite.frame.minY)
     }
 
     func testDiagnosticsMenuAtAccessibilitySizeInLandscape() {
@@ -98,17 +108,23 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         let tab = app.tabBars.buttons["Diagnostics"].firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 8)); tab.tap()
         XCUIDevice.shared.orientation = .landscapeLeft
-        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+        let rotated = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 5), .completed)
         let picker = app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
         choose("Applied", in: picker, app: app, capture: true)
-        XCTAssertTrue(app.descendants(matching: .any)["diagnosticsAppliedCodec"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["diagnosticsAppliedCodec"].firstMatch.waitForExistence(timeout: 3))
         choose("Overview", in: picker, app: app, capture: true)
-        XCTAssertTrue(app.descendants(matching: .any)["diagnosticsCannotHearButton"].firstMatch.waitForExistence(timeout: 3))
-        XCTAssertFalse(app.descendants(matching: .any)["diagnosticsOverviewGrid"].firstMatch.exists, "The summary cards are retired")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["diagnosticsCannotHearButton"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertFalse(
+            app.descendants(matching: .any)["diagnosticsOverviewGrid"].firstMatch.exists,
+            "The summary cards are retired")
         choose("Applied", in: picker, app: app, capture: true)
-        XCTAssertTrue(app.descendants(matching: .any)["diagnosticsAppliedCodec"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["diagnosticsAppliedCodec"].firstMatch.waitForExistence(timeout: 3))
         XCUIDevice.shared.orientation = .portrait
         app.terminate()
     }
@@ -146,13 +162,17 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         choose("TX", in: picker, app: app)
         let vad = app.descendants(matching: .any)["pipeline-vad-step"].firstMatch
         let bus = app.descendants(matching: .any)["pipeline-mixer-step"].firstMatch
-        let active = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "Isolation active"), object: bus)
+        let active = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "Isolation active"), object: bus)
         XCTAssertEqual(XCTWaiter.wait(for: [active], timeout: 15), .completed, app.debugDescription)
         XCTAssertLessThan(vad.frame.minY, bus.frame.minY)
         XCTAssertFalse(app.descendants(matching: .any)["pipeline-effects-step"].firstMatch.exists)
         attachScreen("VAD and TX Bus isolation with effects closed")
     }
+}
 
+extension DesignSystemDiagnosticsUITests {
+    @objc
     func testDiagnosticsPagesPreserveExistingValuesAndActionsAcrossRotation() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -171,8 +191,11 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertTrue(tab.waitForExistence(timeout: 8)); tab.tap()
         let picker = app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["diagnosticsCannotHearButton"].firstMatch.waitForExistence(timeout: 3))
-        XCTAssertFalse(app.descendants(matching: .any)["diagnosticsOverviewGrid"].firstMatch.exists, "The summary cards are retired")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["diagnosticsCannotHearButton"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertFalse(
+            app.descendants(matching: .any)["diagnosticsOverviewGrid"].firstMatch.exists,
+            "The summary cards are retired")
         // Every stage of each direction on one wrapping line of state dots, then one row per participant.
         for direction in ["TX", "RX"] {
             let dots = app.descendants(matching: .any)["diagnosticsStageDots-\(direction)"].firstMatch
@@ -184,11 +207,18 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         attachScreen("Diagnostics overview with stage dots")
 
         choose("TX", in: picker, app: app)
-        XCTAssertTrue(app.descendants(matching: .any)["liveTransmitPipelineView"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["liveTransmitPipelineView"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["pipeline-session-step"].firstMatch.exists)
         attachScreen("Diagnostics TX AX5 portrait")
         choose("RX", in: picker, app: app)
-        XCTAssertTrue(app.descendants(matching: .any)["liveReceivePipelineView"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["liveReceivePipelineView"].firstMatch.waitForExistence(timeout: 3))
+        verifyNetworkValuesAcrossRotation(in: app, picker: picker)
+        verifyAppliedValuesAndRemedies(in: app, picker: picker)
+    }
+
+    private func verifyNetworkValuesAcrossRotation(in app: XCUIApplication, picker: XCUIElement) {
         choose("Network", in: picker, app: app)
         let network = app.staticTexts["networkDiagnosticsSummary"].firstMatch
         XCTAssertTrue(network.waitForExistence(timeout: 3))
@@ -208,6 +238,9 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertTrue(network.waitForExistence(timeout: 3))
         XCTAssertEqual(network.label, networkValue, "Rotation must preserve the current diagnostic input")
         attachScreen("Diagnostics Network AX5 landscape")
+    }
+
+    private func verifyAppliedValuesAndRemedies(in app: XCUIApplication, picker: XCUIElement) {
         choose("Applied", in: picker, app: app)
         let codec = app.descendants(matching: .any)["diagnosticsAppliedCodec"].firstMatch
         XCTAssertTrue(codec.waitForExistence(timeout: 3))
@@ -225,6 +258,14 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         reveal(check, app: app)
         XCTAssertTrue(check.exists)
         XCTAssertFalse(check.isEnabled, "Without credentials the existing service check remains disabled")
+        verifySymptomActions(in: app, picker: picker)
+        choose("Applied", in: picker, app: app)
+        reveal(status, app: app)
+        XCTAssertTrue(status.waitForExistence(timeout: 3))
+        XCTAssertEqual(status.label, before)
+    }
+
+    private func verifySymptomActions(in app: XCUIApplication, picker: XCUIElement) {
         for (identifier, expected) in [
             ("diagnosticsOthersCannotHearButton", "pipeline-session-step"),
             ("diagnosticsCannotHearButton", "diagnosticsReceiveDetails"),
@@ -246,12 +287,10 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
                 attachScreen("RX entry for Audio drops out")
             }
         }
-        choose("Applied", in: picker, app: app)
-        reveal(status, app: app)
-        XCTAssertTrue(status.waitForExistence(timeout: 3))
-        XCTAssertEqual(status.label, before)
     }
+}
 
+extension DesignSystemDiagnosticsUITests {
     private func choose(_ title: String, in picker: XCUIElement, app: XCUIApplication, capture: Bool = false) {
         XCTAssertTrue(picker.isHittable, picker.debugDescription)
         if capture { attachScreen("Diagnostics picker before \(title)") }
@@ -298,8 +337,10 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         let bottom = min(frame.maxY, tabBar.exists ? tabBar.frame.minY : frame.maxY) - 8
         XCTAssertGreaterThan(bottom - top, 20, app.debugDescription)
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        let lower = origin.withOffset(CGVector(dx: frame.midX - app.frame.minX, dy: top + (bottom - top) * 0.75 - app.frame.minY))
-        let upper = origin.withOffset(CGVector(dx: frame.midX - app.frame.minX, dy: top + (bottom - top) * 0.25 - app.frame.minY))
+        let lower = origin.withOffset(
+            CGVector(dx: frame.midX - app.frame.minX, dy: top + (bottom - top) * 0.75 - app.frame.minY))
+        let upper = origin.withOffset(
+            CGVector(dx: frame.midX - app.frame.minX, dy: top + (bottom - top) * 0.25 - app.frame.minY))
         for _ in 0..<20 where !target.isHittable {
             lower.press(forDuration: 0.05, thenDragTo: upper)
             XCTAssertTrue(picker.exists, "Scrolling must remain on Diagnostics")
