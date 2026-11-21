@@ -22,8 +22,7 @@ import RTC
 extension IntercomViewModel {
     private struct InternetReplyTarget {
         let invitation: DirectInvitationContext
-        let credential: GroupAccessCredential
-        let reference: UUID
+        let savedCredential: GroupRepository.OrdinaryGroupReplyCredential
         let address: OrdinaryGroupReplyAddress
     }
 
@@ -113,10 +112,9 @@ extension IntercomViewModel {
     }
 
     private func internetReplyTarget(_ invitation: DirectInvitationContext) -> InternetReplyTarget? {
-        guard let reference = groupRepository.ordinaryGroupReplyCredentialReference(for: invitation, now: Date().timeIntervalSince1970),
-              let key = try? groupRepository.credential(for: invitation.groupID),
-              let address = try? OrdinaryGroupReplyAddress(invitation: invitation, credential: key) else { return nil }
-        return .init(invitation: invitation, credential: key, reference: reference, address: address)
+        guard let saved = groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970),
+              let address = try? OrdinaryGroupReplyAddress(invitation: invitation, credential: saved.credential) else { return nil }
+        return .init(invitation: invitation, savedCredential: saved, address: address)
     }
 
     private func internetReplyWindowIsCurrent(_ window: OrdinaryGroupInternetReplyWindow) -> Bool {
@@ -126,8 +124,7 @@ extension IntercomViewModel {
 
     private func internetReplyIsCurrent(_ target: InternetReplyTarget, window: OrdinaryGroupInternetReplyWindow) -> Bool {
         internetReplyWindowIsCurrent(window)
-            && groupRepository.ordinaryGroupReplyCredentialReference(for: target.invitation, now: Date().timeIntervalSince1970) == target.reference
-            && (try? groupRepository.credential(for: target.invitation.groupID)) == target.credential
+            && groupRepository.ordinaryGroupReplyCredential(for: target.invitation, now: Date().timeIntervalSince1970) == target.savedCredential
     }
 
     private func receiveOrdinaryGroupInternetAcceptances(_ target: InternetReplyTarget, window: OrdinaryGroupInternetReplyWindow) async throws {

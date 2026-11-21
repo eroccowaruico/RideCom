@@ -609,6 +609,17 @@ final class GroupRepository {
         return group.credentialReference
     }
 
+    struct OrdinaryGroupReplyCredential: Equatable {
+        let reference: UUID
+        let credential: GroupAccessCredential
+    }
+
+    func ordinaryGroupReplyCredential(for invitation: DirectInvitationContext, now: TimeInterval) -> OrdinaryGroupReplyCredential? {
+        guard let reference = ordinaryGroupReplyCredentialReference(for: invitation, now: now),
+              let credential = try? credential(for: invitation.groupID) else { return nil }
+        return .init(reference: reference, credential: credential)
+    }
+
     func allowsStandaloneOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
         guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else { return false }
         return record.members.contains { $0.id == localMemberID }
