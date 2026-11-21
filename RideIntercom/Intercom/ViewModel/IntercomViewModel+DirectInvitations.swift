@@ -55,6 +55,7 @@ extension IntercomViewModel {
             if group.kind == .group, let invitation = token.directInvitation?.context {
                 try groupRepository.rememberIssuedOrdinaryGroupInvitation(invitation, now: Date().timeIntervalSince1970)
                 startOrdinaryGroupReplyExchange(invitation, credential: credential, role: .inviter)
+                requestOrdinaryGroupInternetReply()
             }
             return url
         } catch GroupInviteTokenError.accountVerificationRequired {
@@ -91,19 +92,19 @@ extension IntercomViewModel {
               authenticatedPeerIDs.contains(peerID),
               let receipt = message.decodedPayload(DirectInvitationReceipt.self, from: peerID),
               receipt.isValid, receipt.groupID == activeGroupID else { return }
-        if let acknowledgement = applyInvitationReceipt(receipt, from: peerID, nearby: false) {
+        if let acknowledgement = applyInvitationReceipt(receipt, from: peerID, standalone: false) {
             sendInvitationReceipt(acknowledgement)
         }
     }
 
-    func applyInvitationReceipt(_ receipt: DirectInvitationReceipt, from peerID: String, nearby: Bool) -> DirectInvitationReceipt? {
+    func applyInvitationReceipt(_ receipt: DirectInvitationReceipt, from peerID: String, standalone: Bool) -> DirectInvitationReceipt? {
         do {
             switch receipt.kind {
             case .accepted:
                 guard receipt.inviterMemberID == localMemberIdentity.memberID, receipt.inviteeMemberID == peerID else { return nil }
                 guard let verified = try invitationAuthority.verify(receipt, trust: internetSettingsStore.identityTrust()),
                       let expectedKey = receipt.invitation?.inviterDeviceKey,
-                      !nearby || groupRepository.allowsNearbyOrdinaryReply(for: receipt.groupID, from: verified.identity) else { return nil }
+                      !standalone || groupRepository.allowsStandaloneOrdinaryReply(for: receipt.groupID, from: verified.identity) else { return nil }
                 let signer = Result { try internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
                                                                                   expectedPublicKey: expectedKey) }
                 try groupRepository.receiveInvitation(verified, signer: try? signer.get())

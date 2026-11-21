@@ -324,4 +324,4 @@ Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` お�
 
 期限後は受け渡し先を使えず、既存のアカウントalarmで暗号文を回収する。発行アカウントの削除と同じ処理で当該アカウントの中継記録も消す。受諾側がアカウントを削除すると、新しい公開IDで旧到着確認へアクセスできなくなり、旧暗号文は発行側の期限で回収する。[CloudflareのSQLiteストレージ](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)、[アラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
 
-Worker単体の状態遷移と、Appが生成した暗号文の往復をローカルで検証済み。Appで招待操作から開始する処理と再試行、実環境の確認は後続で行う。[暗号文の形式](../App/通信仕様.md#通常グループの受諾を遠距離で届ける)、[Workerのローカル検証](../../validation/history/招待返信の手動共有.md#遠距離の招待返信を交互の接続で受け渡す)
+Worker単体の状態遷移と、Appの通常操作に続く暗号文の往復、相手登録と保留解消をローカルで検証済み。実Internetとロック中の確認は後続で行う。[Appの通信仕様](../App/通信仕様.md#通常グループの受諾を遠距離で届ける)、[Workerのローカル検証](../../validation/history/招待返信の手動共有.md#遠距離の招待返信を交互の接続で受け渡す)

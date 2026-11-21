@@ -567,13 +567,17 @@ final class GroupRepository {
     }
 
     func resumableOrdinaryGroupReply(now: TimeInterval) -> DirectInvitationContext? {
-        guard let snapshot else { return nil }
-        let candidates = snapshot.groups.compactMap { group -> DirectInvitationContext? in
+        let candidates = pendingOrdinaryGroupReplies(now: now)
+        return candidates.count == 1 ? candidates.first : nil
+    }
+
+    func pendingOrdinaryGroupReplies(now: TimeInterval) -> [DirectInvitationContext] {
+        guard let snapshot else { return [] }
+        return snapshot.groups.compactMap { group in
             guard let invitation = group.pendingInvitation?.invitation,
                   ordinaryGroupReplyCredentialReference(for: invitation, now: now) != nil else { return nil }
             return invitation
         }
-        return candidates.count == 1 ? candidates.first : nil
     }
 
     func rememberIssuedOrdinaryGroupInvitation(_ invitation: DirectInvitationContext, now: TimeInterval) throws {
@@ -605,7 +609,7 @@ final class GroupRepository {
         return group.credentialReference
     }
 
-    func allowsNearbyOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
+    func allowsStandaloneOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
         guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else { return false }
         return record.members.contains { $0.id == localMemberID }
             && !record.excludesMember(peer.memberID, principal: peer.principal)

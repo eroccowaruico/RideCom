@@ -29,6 +29,7 @@ extension IntercomViewModel {
     }
 
     func resumeSavedOrdinaryGroupReplies() {
+        requestOrdinaryGroupInternetReply()
         guard canExchangeOrdinaryGroupReplies else { return }
         resumeIssuedOrdinaryGroupReply()
         guard ordinaryGroupReplyExchanges[.invitee] == nil else { return }
@@ -138,7 +139,7 @@ extension IntercomViewModel {
             guard data.count <= 8192, let receipt = try? JSONDecoder().decode(DirectInvitationReceipt.self, from: data),
                   receipt.isValid, receipt.invitation == invitation,
                   (role == .inviter && receipt.kind == .accepted) || (role == .invitee && receipt.kind == .acknowledged) else { return }
-            if let acknowledgement = applyInvitationReceipt(receipt, from: peer.rawValue, nearby: true),
+            if let acknowledgement = applyInvitationReceipt(receipt, from: peer.rawValue, standalone: true),
                let payload = try? JSONEncoder().encode(acknowledgement) {
                 exchange.channel.send(payload, to: peer)
             }
