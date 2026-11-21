@@ -366,14 +366,7 @@ extension AudioE2ETests {
     #if DEBUG
     @MainActor
     private func verifyMixedRoutes(_ pair: AudioE2EPair, routes: MixedRouteAudioE2E) async throws {
-        let endpoint = pair.endpoint
-        try await routes.verify(
-            test: self, viewModel: endpoint.viewModel, peer: PeerID(rawValue: pair.peerID),
-            role: endpoint.run.role, worker: endpoint.worker.fixture, barrier: pair.barrier,
-            probe: endpoint.audio.probe,
-            input: endpoint.audio.input, remote: endpoint.audio.remote.samples, directory: endpoint.directory,
-            seconds: endpoint.run.initial.seconds, startsBeforeInternet: endpoint.run.startsBeforeInternet
-        )
+        try await routes.verify(test: self, pair: pair)
     }
     #endif
 }
