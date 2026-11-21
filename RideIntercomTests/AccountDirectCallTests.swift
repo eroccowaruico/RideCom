@@ -8,642 +8,147 @@ import Testing
 struct AccountDirectCallTests {
     @Test func multipleDevicesResolveOneCallAndAccountAddressAcceptsAnotherDevice() throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let a = try fixture.peer("alice-phone", account: "a")
-        let b = try fixture.peer("bob-phone", account: "b")
-        let b2 = try fixture.peer("bob-tablet", account: "b")
-        let c = try fixture.peer("charlie", account: "c")
-        try fixture.introduce(b, to: a); try fixture.introduce(b2, to: a)
-        try fixture.introduce(a, to: b2)
-        let user = try #require(a.viewModel.savedRemoteUsers.first)
+        let firstPeer = try fixture.peer("alice-phone", account: "a")
+        let secondPeer = try fixture.peer("bob-phone", account: "b")
+        let secondPeerSecondDevice = try fixture.peer("bob-tablet", account: "b")
+        let thirdPeer = try fixture.peer("charlie", account: "c")
+        try fixture.introduce(secondPeer, to: firstPeer); try fixture.introduce(secondPeerSecondDevice, to: firstPeer)
+        try fixture.introduce(firstPeer, to: secondPeerSecondDevice)
+        let user = try #require(firstPeer.viewModel.savedRemoteUsers.first)
         #expect(user.memberIDs.count == 2)
-        a.viewModel.disconnect()
-        #expect(a.viewModel.selectUser(user.id))
-        let direct = try #require(a.viewModel.selectedGroup)
+        firstPeer.viewModel.disconnect()
+        #expect(firstPeer.viewModel.selectUser(user.id))
+        let direct = try #require(firstPeer.viewModel.selectedGroup)
         #expect(direct.kind == .direct)
-        let url = try #require(a.viewModel.makeSelectedGroupInviteURL())
-        try b2.viewModel.acceptInviteURL(url)
-        #expect(b2.viewModel.selectedGroup?.kind == .direct)
-        #expect(b2.viewModel.selectedGroup?.id == direct.id)
-        #expect(try a.viewModel.groupRepository.credential(for: direct.id) == b2.viewModel.groupRepository.credential(for: direct.id))
-        #expect(b2.viewModel.selectUser(try #require(b2.viewModel.savedRemoteUsers.first).id))
-        #expect(b2.viewModel.selectedGroup?.id == direct.id)
-        let snapshot = c.groupStore.snapshot
-        #expect(throws: GroupInviteTokenError.wrongRecipient) { try c.viewModel.acceptInviteURL(url) }
-        #expect(c.groupStore.snapshot == snapshot)
+        let url = try #require(firstPeer.viewModel.makeSelectedGroupInviteURL())
+        try secondPeerSecondDevice.viewModel.acceptInviteURL(url)
+        #expect(secondPeerSecondDevice.viewModel.selectedGroup?.kind == .direct)
+        #expect(secondPeerSecondDevice.viewModel.selectedGroup?.id == direct.id)
+        #expect(
+            try firstPeer.viewModel.groupRepository.credential(for: direct.id)
+                == secondPeerSecondDevice.viewModel.groupRepository.credential(for: direct.id))
+        #expect(
+            secondPeerSecondDevice.viewModel.selectUser(
+                try #require(secondPeerSecondDevice.viewModel.savedRemoteUsers.first).id))
+        #expect(secondPeerSecondDevice.viewModel.selectedGroup?.id == direct.id)
+        let snapshot = thirdPeer.groupStore.snapshot
+        #expect(throws: GroupInviteTokenError.wrongRecipient) { try thirdPeer.viewModel.acceptInviteURL(url) }
+        #expect(thirdPeer.groupStore.snapshot == snapshot)
     }
 
     @Test func onlyTheOtherAccountCanEnrollADeviceAndRemovalEndsTheAccountCall() throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b")
-        let b2 = try f.peer("b2", account: "b"), c = try f.peer("c", account: "c")
-        let a2 = try f.peer("a2", account: "a")
-        try f.introduce(b, to: a)
-        let user = try #require(a.viewModel.savedRemoteUsers.first)
-        a.viewModel.disconnect()
-        #expect(a.viewModel.selectUser(user.id))
-        let groupID = try #require(a.viewModel.selectedGroup?.id)
-        let key = try a.viewModel.groupRepository.credential(for: groupID)
-        a.callSession.authenticate(["b2", "c", "a2", "unverified"])
-        #expect(a.callSession.audioPolicies.last?.peerPolicy == .admittedMemberships([:]))
-        try f.deliverProfile(from: c, to: a); try f.deliverProfile(from: a2, to: a)
-        try f.deliverProfile(from: b2, to: a)
-        let unverified = try testPeerProfile(a.viewModel, peerID: "unverified", displayName: "Same name")
-        a.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "unverified",
+        let testFixture = AccountCallFixture(); defer { testFixture.disconnect() }
+        let firstPeer = try testFixture.peer("a", account: "a"), secondPeer = try testFixture.peer("b", account: "b")
+        let secondPeerSecondDevice = try testFixture.peer("b2", account: "b"),
+            thirdPeer = try testFixture.peer("c", account: "c")
+        let firstPeerSecondDevice = try testFixture.peer("a2", account: "a")
+        try testFixture.introduce(secondPeer, to: firstPeer)
+        let user = try #require(firstPeer.viewModel.savedRemoteUsers.first)
+        firstPeer.viewModel.disconnect()
+        #expect(firstPeer.viewModel.selectUser(user.id))
+        let groupID = try #require(firstPeer.viewModel.selectedGroup?.id)
+        let key = try firstPeer.viewModel.groupRepository.credential(for: groupID)
+        firstPeer.callSession.authenticate(["b2", "c", "a2", "unverified"])
+        #expect(firstPeer.callSession.audioPolicies.last?.peerPolicy == .admittedMemberships([:]))
+        try testFixture.deliverProfile(from: thirdPeer, to: firstPeer)
+        try testFixture.deliverProfile(from: firstPeerSecondDevice, to: firstPeer)
+        try testFixture.deliverProfile(from: secondPeerSecondDevice, to: firstPeer)
+        let unverified = try testPeerProfile(firstPeer.viewModel, peerID: "unverified", displayName: "Same name")
+        firstPeer.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "unverified",
             message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(unverified))))
-        #expect(Set(IntercomViewModel.admittedMemberships(in: a.viewModel.peerProfiles).keys.map(\.rawValue)) == ["b2"])
-        #expect(Set(try #require(a.viewModel.selectedGroup).members.map(\.id)) == ["a", "b", "b2"])
-        #expect(a.viewModel.savedUsers.first?.memberIDs == ["b"])
-        a.callSession.authenticate([]); a.callSession.authenticate(["b2"])
+        #expect(
+            Set(IntercomViewModel.admittedMemberships(in: firstPeer.viewModel.peerProfiles).keys.map(\.rawValue))
+                == ["b2"])
+        #expect(Set(try #require(firstPeer.viewModel.selectedGroup).members.map(\.id)) == ["a", "b", "b2"])
+        #expect(firstPeer.viewModel.savedUsers.first?.memberIDs == ["b"])
+        firstPeer.callSession.authenticate([]); firstPeer.callSession.authenticate(["b2"])
         // No current account certificate: the earlier verified key is sufficient offline.
-        try f.deliverProfile(from: b2, to: a, certified: false)
-        #expect(a.viewModel.peerProfiles["b2"]?.verified != nil)
-        #expect(try a.viewModel.groupRepository.credential(for: groupID) == key)
-        a.callSession.authenticate([]); a.callSession.authenticate(["b2"])
-        let forged = try testPeerProfile(a.viewModel, peerID: "b2", displayName: "Same name",
+        try testFixture.deliverProfile(from: secondPeerSecondDevice, to: firstPeer, certified: false)
+        #expect(firstPeer.viewModel.peerProfiles["b2"]?.verified != nil)
+        #expect(try firstPeer.viewModel.groupRepository.credential(for: groupID) == key)
+        firstPeer.callSession.authenticate([]); firstPeer.callSession.authenticate(["b2"])
+        let forged = try testPeerProfile(firstPeer.viewModel, peerID: "b2", displayName: "Same name",
             signer: DeviceIdentitySigner(memberID: "b2", key: P256.Signing.PrivateKey()))
-        a.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b2",
+        firstPeer.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b2",
             message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(forged))))
-        #expect(a.viewModel.peerProfiles["b2"]?.verified == nil)
+        #expect(firstPeer.viewModel.peerProfiles["b2"]?.verified == nil)
         // Same device key, but now certified as another account, must not inherit access.
-        let b2key = try b2.viewModel.internetSettingsStore.deviceSigningKey()
-        let changed = try testIdentityCertificate(signer: f.issuer, userID: String(repeating: "c", count: 64),
+        let b2key = try secondPeerSecondDevice.viewModel.internetSettingsStore.deviceSigningKey()
+        let changed = try testIdentityCertificate(signer: testFixture.issuer, userID: String(repeating: "c", count: 64),
             memberID: "b2", deviceKey: IdentityEncoding.encode(b2key.publicKey.x963Representation))
-        let changedProfile = try testPeerProfile(a.viewModel, peerID: "b2", displayName: "Same name",
+        let changedProfile = try testPeerProfile(firstPeer.viewModel, peerID: "b2", displayName: "Same name",
             signer: DeviceIdentitySigner(memberID: "b2", key: b2key,
-                identity: changed.verify(origin: URL(string: "https://account.test")!, trustedIssuerKey: changed.issuerKey)))
-        a.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b2",
+                identity: changed.verify(
+                    origin: URL(string: "https://account.test")!, trustedIssuerKey: changed.issuerKey)))
+        firstPeer.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b2",
             message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(changedProfile))))
-        #expect(a.viewModel.peerProfiles["b2"]?.verified == nil)
-        #expect(a.viewModel.groupStorageIssue == nil)
+        #expect(firstPeer.viewModel.peerProfiles["b2"]?.verified == nil)
+        #expect(firstPeer.viewModel.groupStorageIssue == nil)
         // The person and their account call are one: deleting them ends and removes the call.
-        #expect(a.viewModel.removeSavedUser(user.id))
-        #expect(a.viewModel.savedUsers.isEmpty)
-        #expect(a.viewModel.activeGroupID == nil && a.viewModel.selectedGroup == nil)
-        #expect(!a.viewModel.groups.contains { $0.id == groupID })
-        #expect(try a.viewModel.groupRepository.credential(for: groupID) == nil)
+        #expect(firstPeer.viewModel.removeSavedUser(user.id))
+        #expect(firstPeer.viewModel.savedUsers.isEmpty)
+        #expect(firstPeer.viewModel.activeGroupID == nil && firstPeer.viewModel.selectedGroup == nil)
+        #expect(!firstPeer.viewModel.groups.contains { $0.id == groupID })
+        #expect(try firstPeer.viewModel.groupRepository.credential(for: groupID) == nil)
     }
 
     @Test func foreignCertificationAndFailedPersistenceNeverGrantAudio() throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b")
-        let b2 = try f.peer("b2", account: "b")
-        try f.introduce(b, to: a)
-        a.viewModel.disconnect()
-        #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
-        let id = try #require(a.viewModel.selectedGroup?.id)
-        let key = try a.viewModel.groupRepository.credential(for: id)
-        let old = a.groupStore.snapshot
-        a.callSession.authenticate(["b2"])
-        let deviceKey = try b2.viewModel.internetSettingsStore.deviceSigningKey()
-        let foreign = try testIdentityCertificate(signer: P256.Signing.PrivateKey(), userID: String(repeating: "b", count: 64),
+        let testFixture = AccountCallFixture(); defer { testFixture.disconnect() }
+        let firstPeer = try testFixture.peer("a", account: "a"), secondPeer = try testFixture.peer("b", account: "b")
+        let secondPeerSecondDevice = try testFixture.peer("b2", account: "b")
+        try testFixture.introduce(secondPeer, to: firstPeer)
+        firstPeer.viewModel.disconnect()
+        #expect(firstPeer.viewModel.selectUser(try #require(firstPeer.viewModel.savedRemoteUsers.first).id))
+        let id = try #require(firstPeer.viewModel.selectedGroup?.id)
+        let key = try firstPeer.viewModel.groupRepository.credential(for: id)
+        let old = firstPeer.groupStore.snapshot
+        firstPeer.callSession.authenticate(["b2"])
+        let deviceKey = try secondPeerSecondDevice.viewModel.internetSettingsStore.deviceSigningKey()
+        let foreign = try testIdentityCertificate(
+            signer: P256.Signing.PrivateKey(), userID: String(repeating: "b", count: 64),
             memberID: "b2", deviceKey: IdentityEncoding.encode(deviceKey.publicKey.x963Representation))
-        let forged = try testPeerProfile(a.viewModel, peerID: "b2", displayName: "Friend",
+        let forged = try testPeerProfile(firstPeer.viewModel, peerID: "b2", displayName: "Friend",
             signer: DeviceIdentitySigner(memberID: "b2", key: deviceKey,
-                identity: foreign.verify(origin: URL(string: "https://account.test")!, trustedIssuerKey: foreign.issuerKey)))
-        a.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b2",
+                identity: foreign.verify(
+                    origin: URL(string: "https://account.test")!, trustedIssuerKey: foreign.issuerKey)))
+        firstPeer.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b2",
             message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(forged))))
-        #expect(a.viewModel.peerProfiles["b2"]?.verified == nil)
-        #expect(a.groupStore.snapshot == old)
-        a.groupStore.failSaving = true
-        try f.deliverProfile(from: b2, to: a)
-        #expect(a.groupStore.snapshot == old)
-        #expect(a.viewModel.selectedGroup?.id == id)
-        #expect(a.viewModel.peerProfiles["b2"]?.verified == nil)
-        #expect(a.callSession.audioPolicies.last?.peerPolicy == .admittedMemberships([:]))
-        a.groupStore.failSaving = false
+        #expect(firstPeer.viewModel.peerProfiles["b2"]?.verified == nil)
+        #expect(firstPeer.groupStore.snapshot == old)
+        firstPeer.groupStore.failSaving = true
+        try testFixture.deliverProfile(from: secondPeerSecondDevice, to: firstPeer)
+        #expect(firstPeer.groupStore.snapshot == old)
+        #expect(firstPeer.viewModel.selectedGroup?.id == id)
+        #expect(firstPeer.viewModel.peerProfiles["b2"]?.verified == nil)
+        #expect(firstPeer.callSession.audioPolicies.last?.peerPolicy == .admittedMemberships([:]))
+        firstPeer.groupStore.failSaving = false
         // Reload reopens the repository after an uncertain commit failure.
-        _ = try a.viewModel.groupRepository.load(localMemberID: "a")
-        #expect(try a.viewModel.groupRepository.credential(for: id) == key)
+        _ = try firstPeer.viewModel.groupRepository.load(localMemberID: "a")
+        #expect(try firstPeer.viewModel.groupRepository.credential(for: id) == key)
     }
 
     @Test func simultaneousInvitationsConvergeByAccountInsteadOfDeviceOrdering() throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("z-device", account: "a"), b = try f.peer("a-device", account: "b")
-        try f.introduce(b, to: a); try f.introduce(a, to: b)
-        #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
-        #expect(b.viewModel.selectUser(try #require(b.viewModel.savedRemoteUsers.first).id))
-        let id = try #require(a.viewModel.selectedGroup?.id)
-        let originalA = try a.viewModel.groupRepository.credential(for: id)
-        let originalB = try b.viewModel.groupRepository.credential(for: id)
+        let testFixture = AccountCallFixture(); defer { testFixture.disconnect() }
+        let firstPeer = try testFixture.peer("z-device", account: "a"),
+            secondPeer = try testFixture.peer("a-device", account: "b")
+        try testFixture.introduce(secondPeer, to: firstPeer); try testFixture.introduce(firstPeer, to: secondPeer)
+        #expect(firstPeer.viewModel.selectUser(try #require(firstPeer.viewModel.savedRemoteUsers.first).id))
+        #expect(secondPeer.viewModel.selectUser(try #require(secondPeer.viewModel.savedRemoteUsers.first).id))
+        let id = try #require(firstPeer.viewModel.selectedGroup?.id)
+        let originalA = try firstPeer.viewModel.groupRepository.credential(for: id)
+        let originalB = try secondPeer.viewModel.groupRepository.credential(for: id)
         let initiallyMatched = originalA != nil && originalA == originalB
         #expect(initiallyMatched)
-        try b.viewModel.groupRepository.save(b.viewModel.groups, credential: .init(groupID: id, secret: "conflicting-account-call-fixture"))
-        let au = try #require(a.viewModel.makeSelectedGroupInviteURL()), bu = try #require(b.viewModel.makeSelectedGroupInviteURL())
-        let winner = try a.viewModel.groupRepository.credential(for: id)
-        a.viewModel.disconnect(); b.viewModel.disconnect()
-        try a.viewModel.acceptInviteURL(bu); try b.viewModel.acceptInviteURL(au)
-        #expect(try a.viewModel.groupRepository.credential(for: id) == winner)
-        #expect(try b.viewModel.groupRepository.credential(for: id) == winner)
+        try secondPeer.viewModel.groupRepository.save(
+            secondPeer.viewModel.groups, credential: .init(groupID: id, secret: "conflicting-account-call-fixture"))
+        let firstInviteURL = try #require(firstPeer.viewModel.makeSelectedGroupInviteURL()),
+            secondInviteURL = try #require(secondPeer.viewModel.makeSelectedGroupInviteURL())
+        let winner = try firstPeer.viewModel.groupRepository.credential(for: id)
+        firstPeer.viewModel.disconnect(); secondPeer.viewModel.disconnect()
+        try firstPeer.viewModel.acceptInviteURL(secondInviteURL)
+        try secondPeer.viewModel.acceptInviteURL(firstInviteURL)
+        #expect(try firstPeer.viewModel.groupRepository.credential(for: id) == winner)
+        #expect(try secondPeer.viewModel.groupRepository.credential(for: id) == winner)
     }
 
-    @Test func sharingThePreferredAccountCallKeyKeepsVerifiedDevicesFromOrdinaryInvitations() async throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("alice", account: "a")
-        let recipient = try fixture.peer("bob", account: "b")
-        let authorTablet = try fixture.peer("alice-tablet", account: "a")
-        let recipientTablet = try fixture.peer("bob-tablet", account: "b")
-        for peer in [author, recipient, authorTablet, recipientTablet] { peer.viewModel.allowsNearbyGroupDelivery = false }
-        try fixture.introduce(authorTablet, to: recipient)
-        try fixture.introduce(author, to: recipient)
-        try fixture.introduce(recipientTablet, to: author)
-        try fixture.introduce(recipient, to: author)
-        let a = author.viewModel, b = recipient.viewModel
-        for vm in [a, b] {
-            vm.disconnect()
-            vm.setRTCTransportRoutes([.multipeer])
-            let person = try #require(vm.savedRemoteUsers.first)
-            try #require(vm.startCall(to: .user(person.id), accountAccessID: vm.accountAccessID))
-        }
-        let callID = try #require(a.activeGroupID)
-        let recipientCall = try #require(b.activeDirectCall)
-        try #require(recipientCall.id == callID)
-        try #require(Set(recipientCall.accountDevices.keys) == ["alice", "alice-tablet", "bob"])
-        let authorKey = try #require(try a.groupRepository.credential(for: callID))
-        let recipientKey = try #require(try b.groupRepository.credential(for: callID))
-        let conflictingKeys = authorKey != recipientKey
-        try #require(conflictingKeys)
-        let link = try #require(a.makeGroupInviteURL(for: callID))
-        #expect(throws: GroupInviteTokenError.activeGroupKeyChanged) { try b.acceptInviteURL(link) }
-        let preservesActiveKey = try b.groupRepository.credential(for: callID) == recipientKey
-        #expect(preservesActiveKey)
-
-        b.disconnect()
-        try b.acceptInviteURL(link)
-        let repaired = try #require(b.groupRepository.storedGroup(callID))
-        let matchesSharedKey = try b.groupRepository.credential(for: callID) == authorKey
-        try #require(matchesSharedKey)
-        let keepsVerifiedDevices = repaired.accountDevices == recipientCall.accountDevices
-        try #require(keepsVerifiedDevices)
-        #expect(Set(repaired.members.map(\.id)) == Set(recipientCall.members.map(\.id)))
-        #if os(iOS)
-        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(author.callSession.connectedGroup),
-                                                   bobGroup: try #require(recipient.callSession.connectedGroup))
-        #endif
-    }
-
-    @Test(arguments: [false, true])
-    func accountCallSurvivesRegistrationThroughAnotherInvitation(creatorIsAuthor: Bool) async throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("alice", account: "a")
-        let recipient = try fixture.peer("bob", account: "b")
-        let a = author.viewModel, b = recipient.viewModel
-        a.allowsNearbyGroupDelivery = false
-        b.allowsNearbyGroupDelivery = false
-        try fixture.introduce(author, to: recipient)
-        let ordinaryGroupID = try #require(a.selectedGroup?.id)
-        let acceptance = try #require(b.signedPendingInvitationReceipt(for: ordinaryGroupID))
-        let acknowledgement = try #require(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true))
-        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
-        try #require(b.groupRepository.pendingInvitation(for: ordinaryGroupID) == nil)
-        a.disconnect(); b.disconnect()
-
-        let creator = creatorIsAuthor ? a : b
-        let other = creatorIsAuthor ? b : a
-        let creatorContact = try #require(creator.savedRemoteUsers.first)
-        try #require(creator.selectUser(creatorContact.id, connectIfIdle: false))
-        let id = try #require(creator.selectedGroup?.id)
-        let initialKey = try #require(try creator.groupRepository.credential(for: id)).secret
-
-        let newGroupID = try fixture.completeGroupContactRegistration(from: author, to: recipient)
-        #expect(other.groups.contains { $0.id == newGroupID })
-        for vm in [a, b] {
-            vm.setRTCTransportRoutes([.multipeer])
-            let person = try #require(vm.savedRemoteUsers.first)
-            try #require(vm.startCall(to: .user(person.id), accountAccessID: vm.accountAccessID))
-            try #require(vm.activeGroupID == id)
-        }
-        let creatorKeepsKey = try creator.groupRepository.credential(for: id)?.secret == initialKey
-        let otherUsesSameKey = try other.groupRepository.credential(for: id)?.secret == initialKey
-        #expect(creatorKeepsKey)
-        try #require(otherUsesSameKey)
-        #if os(iOS)
-        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(author.callSession.connectedGroup),
-                                                   bobGroup: try #require(recipient.callSession.connectedGroup))
-        #endif
-    }
-
-    @Test(arguments: [1, 7]) func groupContactRegistrationKeepsItsCallKeyWhenOnlyOneSideKnowsMoreDevices(otherDevices: Int) async throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("alice", account: "a")
-        let recipient = try fixture.peer("bob", account: "b")
-        let otherIDs = (0..<otherDevices).map { "another-bob-device-\($0)" }
-        for id in otherIDs { try fixture.introduce(fixture.peer(id, account: "b"), to: author) }
-        let groupID = try fixture.completeGroupContactRegistration(from: author, to: recipient)
-
-        // Start at the regular Users entry point, after reloading both saved directories.
-        let a = try fixture.restart(author), b = try fixture.restart(recipient)
-        let authorContact = try #require(a.viewModel.savedRemoteUsers.first)
-        let recipientContact = try #require(b.viewModel.savedRemoteUsers.first)
-        try #require(Set(authorContact.memberIDs) == Set(otherIDs + ["bob"]))
-        try #require(recipientContact.memberIDs == ["alice"])
-        let deviceID = IntercomGroup.directCallID(memberIDs: ["alice", "bob"])
-        let deviceKey = try #require(try a.viewModel.groupRepository.credential(for: deviceID)).secret
-        try #require(try b.viewModel.groupRepository.credential(for: deviceID)?.secret == deviceKey)
-        for (peer, person) in [(a, authorContact), (b, recipientContact)] {
-            #expect(peer.viewModel.existingDirectCall(for: person.id) == nil)
-            peer.viewModel.setRTCTransportRoutes([.multipeer])
-            try #require(peer.viewModel.startCall(to: .user(person.id), accountAccessID: peer.viewModel.accountAccessID))
-        }
-        let callID = try #require(a.viewModel.activeGroupID)
-        let accountCall = try #require(a.viewModel.activeDirectCall)
-        #expect(accountCall.accountPair != nil)
-        #expect(accountCall.accountDevices["bob"] != nil)
-        #expect(accountCall.members.count == min(otherDevices + 2, IntercomGroup.maximumMemberCount))
-        #expect(b.viewModel.activeGroupID == callID)
-        let accountKey = try #require(try a.viewModel.groupRepository.credential(for: callID)).secret
-        let usesMatchingAccountKey = try b.viewModel.groupRepository.credential(for: callID)?.secret == accountKey
-        try #require(usesMatchingAccountKey)
-        let keepsContactDeviceKeySeparate = accountKey != deviceKey
-        #expect(keepsContactDeviceKeySeparate)
-        let matchesGroupKey = try a.viewModel.groupRepository.credential(for: groupID)?.secret == deviceKey
-        #expect(!matchesGroupKey)
-        #if os(iOS)
-        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(a.callSession.connectedGroup),
-                                                   bobGroup: try #require(b.callSession.connectedGroup))
-        #endif
-    }
-
-    @Test(arguments: [false, true])
-    func ordinaryGroupRegistrationKeepsItsCallKeyWhenOnlyOneSideKnowsMoreDevices(authorKnowsMore: Bool) async throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("alice", account: "a")
-        let recipient = try fixture.peer("bob", account: "b")
-        let extra = try fixture.peer("other-device", account: authorKnowsMore ? "b" : "a")
-        let a = author.viewModel, b = recipient.viewModel
-        a.allowsNearbyGroupDelivery = false
-        b.allowsNearbyGroupDelivery = false
-        extra.viewModel.allowsNearbyGroupDelivery = false
-        try fixture.introduce(extra, to: authorKnowsMore ? author : recipient)
-        try fixture.introduce(author, to: recipient)
-        let groupID = try #require(a.selectedGroup?.id)
-        let acceptance = try #require(b.signedPendingInvitationReceipt(for: groupID))
-        let activeCalls = (a.activeGroupID, b.activeGroupID)
-        let acknowledgement = try #require(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true))
-        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
-        try #require(b.groupRepository.pendingInvitation(for: groupID) == nil)
-        #expect((a.activeGroupID, b.activeGroupID) == activeCalls)
-        let authorSnapshot = author.groupStore.snapshot, recipientSnapshot = recipient.groupStore.snapshot
-        #expect(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true) != nil)
-        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
-        #expect(author.groupStore.snapshot == authorSnapshot && recipient.groupStore.snapshot == recipientSnapshot)
-
-        let reloadedAuthor = try fixture.restart(author), reloadedRecipient = try fixture.restart(recipient)
-        let authorContact = try #require(reloadedAuthor.viewModel.savedRemoteUsers.first)
-        let recipientContact = try #require(reloadedRecipient.viewModel.savedRemoteUsers.first)
-        try #require(Set(authorContact.memberIDs) == (authorKnowsMore ? ["bob", "other-device"] : ["bob"]))
-        try #require(Set(recipientContact.memberIDs) == (authorKnowsMore ? ["alice"] : ["alice", "other-device"]))
-        for (peer, person) in [(reloadedAuthor, authorContact), (reloadedRecipient, recipientContact)] {
-            peer.viewModel.setRTCTransportRoutes([.multipeer])
-            try #require(peer.viewModel.startCall(to: .user(person.id), accountAccessID: peer.viewModel.accountAccessID))
-        }
-        let callID = try #require(reloadedAuthor.viewModel.activeGroupID)
-        try #require(reloadedRecipient.viewModel.activeGroupID == callID)
-        let leftKey = try #require(try reloadedAuthor.viewModel.groupRepository.credential(for: callID)).secret
-        let rightKey = try #require(try reloadedRecipient.viewModel.groupRepository.credential(for: callID)).secret
-        let bothUseSameKey = leftKey == rightKey
-        try #require(bothUseSameKey)
-        let groupKey = try #require(try reloadedAuthor.viewModel.groupRepository.credential(for: groupID)).secret
-        let keepsGroupKeySeparate = groupKey != leftKey
-        #expect(keepsGroupKeySeparate)
-        #if os(iOS)
-        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(reloadedAuthor.callSession.connectedGroup),
-                                                   bobGroup: try #require(reloadedRecipient.callSession.connectedGroup))
-        #endif
-    }
-
-    @Test func recipientWithSeveralKnownDevicesCanStartAnOrdinaryInvitationCallBeforeAcknowledgement() async throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("alice", account: "a")
-        let recipient = try fixture.peer("bob", account: "b")
-        let extra = try fixture.peer("other-device", account: "a")
-        for peer in [author, recipient, extra] { peer.viewModel.allowsNearbyGroupDelivery = false }
-        let a = author.viewModel, b = recipient.viewModel
-        try fixture.introduce(extra, to: recipient)
-        let otherGroupID = try #require(b.selectedGroup?.id)
-        try fixture.introduce(author, to: recipient)
-        let groupID = try #require(a.selectedGroup?.id)
-        let acceptance = try #require(b.signedPendingInvitationReceipt(for: groupID))
-        let inviter = try #require(b.savedRemoteUsers.first)
-        try #require(Set(inviter.memberIDs) == ["alice", "other-device"])
-        #expect(b.groupRepository.pendingOrdinaryGroupDeviceCallKeys(for: inviter, localPrincipal: b.localAccountPrincipal,
-                                                                    now: Date().timeIntervalSince1970) == nil)
-        try #require(b.deleteGroup(otherGroupID))
-        b.setRTCTransportRoutes([.multipeer])
-        try #require(b.startCall(to: .user(inviter.id), accountAccessID: b.accountAccessID))
-        let callID = try #require(b.activeGroupID)
-
-        let acknowledgement = try #require(a.applyInvitationReceipt(acceptance, from: "bob", standalone: true))
-        let invitee = try #require(a.savedRemoteUsers.first)
-        a.setRTCTransportRoutes([.multipeer])
-        try #require(a.startCall(to: .user(invitee.id), accountAccessID: a.accountAccessID))
-        try #require(a.activeGroupID == callID)
-        let authorKey = try #require(try a.groupRepository.credential(for: callID)).secret
-        let recipientKey = try #require(try b.groupRepository.credential(for: callID)).secret
-        let bothUseSameKey = authorKey == recipientKey
-        try #require(bothUseSameKey)
-        try #require(b.groupRepository.pendingInvitation(for: groupID) != nil)
-        #if os(iOS)
-        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(author.callSession.connectedGroup),
-                                                   bobGroup: try #require(recipient.callSession.connectedGroup))
-        #endif
-
-        _ = b.applyInvitationReceipt(acknowledgement, from: "alice", standalone: true)
-        #expect(b.groupRepository.pendingInvitation(for: groupID) == nil)
-        #expect(a.activeGroupID == callID && b.activeGroupID == callID)
-        let keepsCallKey = try b.groupRepository.credential(for: callID)?.secret == recipientKey
-        #expect(keepsCallKey)
-    }
-
-    @Test func twoSavedDeviceCallKeysAreNotChosenByDirectoryOrder() throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("alice", account: "a")
-        let phone = try fixture.peer("bob-phone", account: "b")
-        let tablet = try fixture.peer("bob-tablet", account: "b")
-        _ = try fixture.completeGroupContactRegistration(from: author, to: phone)
-        _ = try fixture.completeGroupContactRegistration(from: author, to: tablet)
-        let vm = try fixture.restart(author).viewModel
-        let contact = try #require(vm.savedRemoteUsers.first)
-        try #require(Set(contact.memberIDs) == ["bob-phone", "bob-tablet"])
-        let deviceKeys = try contact.memberIDs.map { peerID in
-            try #require(try vm.groupRepository.credential(for: IntercomGroup.directCallID(memberIDs: ["alice", peerID]))).secret
-        }
-        let hasDistinctKeys = Set(deviceKeys).count == 2
-        try #require(hasDistinctKeys)
-
-        try #require(vm.selectUser(contact.id, connectIfIdle: false))
-        let callID = try #require(vm.selectedGroup?.id)
-        let accountKey = try #require(try vm.groupRepository.credential(for: callID)).secret
-        let signer = try vm.internetSettingsStore.invitationSigner(memberID: "alice")
-        let possibleAccountKeys = try contact.memberIDs.map { peerID in
-            let publicKey = try #require(contact.deviceKeys?[peerID])
-            return try signer.accountDirectCallSecret(peerMemberID: peerID, peerPublicKey: publicKey, callID: callID)
-        }
-        let selectedAnAmbiguousDevice = possibleAccountKeys.contains(accountKey) || deviceKeys.contains(accountKey)
-        #expect(!selectedAnAmbiguousDevice)
-    }
-
-    @Test(arguments: [false, true]) func groupContactRegistrationUsesTheAccountCallForStartingAndResharing(existingCalls: Bool) throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let author = try fixture.peer("author-phone", account: "a")
-        let recipient = try fixture.peer("recipient-phone", account: "b")
-        if existingCalls {
-            try fixture.introduce(recipient, to: author)
-            try fixture.introduce(author, to: recipient)
-            for peer in [author, recipient] {
-                peer.viewModel.disconnect()
-                let person = try #require(peer.viewModel.savedRemoteUsers.first)
-                try #require(peer.viewModel.selectUser(person.id, connectIfIdle: false))
-            }
-            let oldID = try #require(author.viewModel.selectedGroup?.id)
-            #expect(recipient.viewModel.selectedGroup?.id == oldID)
-            try recipient.viewModel.groupRepository.save(recipient.viewModel.groups,
-                credential: .init(groupID: oldID, secret: "prior-account-call-fixture"))
-            #expect(try author.viewModel.groupRepository.credential(for: oldID) != recipient.viewModel.groupRepository.credential(for: oldID))
-        }
-        let groupID = try fixture.completeGroupContactRegistration(from: author, to: recipient)
-
-        let authorPerson = try #require(author.viewModel.savedRemoteUsers.first)
-        let recipientPerson = try #require(recipient.viewModel.savedRemoteUsers.first)
-        let authorPrincipal = try #require(author.viewModel.localAccountPrincipal)
-        let recipientPrincipal = try #require(recipient.viewModel.localAccountPrincipal)
-        #expect(authorPerson.principal == recipientPrincipal)
-        #expect(recipientPerson.principal == authorPrincipal)
-        let expectedID = AccountCallPair(authorPrincipal, recipientPrincipal).id
-        for (peer, person) in [(author, authorPerson), (recipient, recipientPerson)] {
-            #expect(peer.viewModel.existingDirectCall(for: person.id)?.id == (existingCalls ? expectedID : nil))
-            peer.viewModel.setRTCTransportRoutes([.multipeer])
-        }
-        if existingCalls {
-            let settingsCall = try #require(author.viewModel.existingDirectCall(for: authorPerson.id))
-            let url = try #require(author.viewModel.makeGroupInviteURL(for: settingsCall.id))
-            let invite = try GroupInviteTokenCodec.decodeJoinURL(url)
-            #expect(invite.groupID == expectedID)
-            #expect(invite.recipientAccount == recipientPrincipal)
-            #expect(invite.recipientMemberID == nil)
-            try recipient.viewModel.acceptInviteURL(url)
-        }
-
-        for peer in [author, recipient] {
-            let person = try #require(peer.viewModel.savedRemoteUsers.first)
-            try #require(peer.viewModel.startCall(to: .user(person.id), accountAccessID: peer.viewModel.accountAccessID))
-            #expect(peer.viewModel.existingDirectCall(for: person.id)?.id == expectedID)
-            #expect(peer.viewModel.activeGroupID == expectedID)
-        }
-        let callID = try #require(author.viewModel.activeGroupID)
-        let authorKey = try #require(try author.viewModel.groupRepository.credential(for: callID))
-        let recipientKey = try #require(try recipient.viewModel.groupRepository.credential(for: callID))
-        #expect(authorKey.secret != (try author.viewModel.groupRepository.credential(for: groupID)?.secret))
-        #expect(authorKey.secret == recipientKey.secret)
-    }
-
-    @Test func expiredLocalCertificateKeepsStableIdentityButCannotIssueNewAccountInvitation() throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a", at: Date().addingTimeInterval(-3600))
-        let b = try f.peer("b", account: "b")
-        try f.introduce(b, to: a)
-        #expect(a.viewModel.localAccountPrincipal?.userID == String(repeating: "a", count: 64))
-        #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
-        #expect(a.viewModel.selectedGroup?.accountPair != nil)
-        #expect(a.viewModel.makeSelectedGroupInviteURL() == nil)
-        #expect(a.viewModel.groupStorageIssue == nil)
-        #expect(throws: (any Error).self) { try a.viewModel.internetSettingsStore.loadIdentity(memberID: "a") }
-        #expect(try a.viewModel.internetSettingsStore.loadPrincipal(memberID: "a") == a.viewModel.localAccountPrincipal)
-        #expect(throws: (any Error).self) { try a.viewModel.internetSettingsStore.loadPrincipal(memberID: "different") }
-        try a.viewModel.internetSettingsStore.save(url: "https://account.test", token: "replacement-without-identity")
-        #expect(try a.viewModel.internetSettingsStore.loadPrincipal(memberID: "a") == nil)
-    }
-
-    @Test(arguments: [false, true]) func signedOutInternetRegistrationKeepsOfflineCallIdentityAfterNativeLogin(peerHasCertificate: Bool) throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b"), a2 = try f.peer("a2", account: "a")
-        try f.introduce(b, to: a); try f.introduce(a2, to: a)
-        let user = try #require(a.viewModel.savedRemoteUsers.first)
-        #expect(a.viewModel.selectUser(user.id))
-        let group = try #require(a.viewModel.selectedGroup)
-        let credential = try a.viewModel.groupRepository.credential(for: group.id)
-        let count = a.viewModel.groups.count
-        a.viewModel.disconnect()
-        let store = a.viewModel.internetSettingsStore
-        let retired = try #require(try store.retireAppleCredential())
-        try store.finishRevocation(retired)
-        let restarted = try f.restart(a)
-        #expect(restarted.viewModel.localAccountPrincipal == a.viewModel.localAccountPrincipal)
-        #expect(!restarted.viewModel.hasInternetCredentials)
-        #expect(try store.load() == nil && store.loadIdentity(memberID: "a") == nil)
-        #expect(restarted.viewModel.savedRemoteUsers.map(\.id) == [user.id])
-        #expect(restarted.viewModel.selectUser(user.id))
-        #expect(restarted.viewModel.selectedGroup?.id == group.id)
-        #expect(restarted.viewModel.groups.count == count)
-        #expect(try restarted.viewModel.groupRepository.credential(for: group.id) == credential)
-        #expect(restarted.viewModel.makeSelectedGroupInviteURL() == nil)
-        restarted.callSession.authenticate(["b"])
-        try f.deliverProfile(from: b, to: restarted, certified: peerHasCertificate)
-        #expect(restarted.viewModel.peerProfiles["b"]?.verified != nil)
-        #expect(Set(IntercomViewModel.admittedMemberships(in: restarted.viewModel.peerProfiles).keys.map(\.rawValue)) == ["b"])
-        // Offline trust still verifies a current peer certificate. A new account
-        // reusing the old device key must not inherit the old account's call.
-        restarted.callSession.authenticate([]); restarted.callSession.authenticate(["b"])
-        let key = try b.viewModel.internetSettingsStore.deviceSigningKey()
-        let changed = try testIdentityCertificate(signer: f.issuer, userID: String(repeating: "c", count: 64),
-            memberID: "b", deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation))
-        let identity = try changed.verify(origin: URL(string: "https://account.test")!, trustedIssuerKey: changed.issuerKey)
-        let profile = try testPeerProfile(restarted.viewModel, peerID: "b", displayName: "Same device, different account",
-            signer: DeviceIdentitySigner(memberID: "b", key: key, identity: identity))
-        restarted.viewModel.handleTransportEvent(.receivedApplicationData(peerID: "b",
-            message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))))
-        #expect(restarted.viewModel.peerProfiles["b"]?.verified == nil)
-    }
-
-    @Test func missingLocalAccountIdentityCannotDowngradeASavedAccountCallToDeviceIDs() throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b")
-        try f.introduce(b, to: a)
-        let user = try #require(a.viewModel.savedRemoteUsers.first)
-        #expect(a.viewModel.selectUser(user.id))
-        let original = a.groupStore.snapshot
-        try a.viewModel.saveInternetConnection(url: "https://account.test", token: "manual-without-account-identity")
-        #expect(a.viewModel.localAccountPrincipal == nil)
-        #expect(!a.viewModel.selectUser(user.id))
-        #expect(a.groupStore.snapshot == original)
-        #expect(a.viewModel.groupErrorMessage?.contains("Verify your account") == true)
-    }
-
-    @Test(arguments: ["current", "signed-out", "manual"]) func replacedPublicAccountStopsOldCallsAndKeepsDeletionTarget(source: String) throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b")
-        try f.introduce(b, to: a)
-        let user = try #require(a.viewModel.savedRemoteUsers.first)
-        #expect(a.viewModel.selectUser(user.id))
-        a.viewModel.connectLocal()
-        #expect(a.viewModel.activeGroupID != nil)
-        let before = a.groupStore.snapshot
-        let store = a.viewModel.internetSettingsStore
-        if source == "signed-out" {
-            let retired = try #require(try store.retireAppleCredential())
-            try store.finishRevocation(retired)
-        } else if source == "manual" {
-            try a.viewModel.saveInternetConnection(url: "https://account.test", token: "manual-token")
-        }
-        let key = try store.deviceSigningKey()
-        let certificate = try testIdentityCertificate(signer: f.issuer, userID: String(repeating: "c", count: 64),
-            deviceID: store.accountDeviceID(), memberID: "a", deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation))
-        let identity = try certificate.verify(origin: URL(string: "https://account.test")!, trustedIssuerKey: certificate.issuerKey)
-        #expect(throws: (any Error).self) {
-            try a.viewModel.saveInternetConnection(url: "https://account.test", token: "replacement-token", identity: identity)
-        }
-        #expect(!a.viewModel.canStartCalls)
-        #expect(a.viewModel.activeGroupID == nil)
-        #expect(a.viewModel.localAccountPrincipal == nil)
-        #expect(!a.viewModel.hasInternetCredentials)
-        #expect(try store.load() == nil)
-        #expect(try store.deletionAccess()?.userID == String(repeating: "a", count: 64))
-        #expect(try store.deletionAccess()?.requiresAppleVerification == true)
-        #expect(a.groupStore.snapshot == before)
-        #expect(!a.viewModel.selectUser(user.id))
-        a.viewModel.connectLocal()
-        #expect(a.viewModel.activeGroupID == nil)
-        let restarted = try f.restart(a)
-        #expect(!restarted.viewModel.canStartCalls)
-        #expect(restarted.viewModel.accountSession.userID != nil)
-        #expect(throws: (any Error).self) { try restarted.viewModel.makeInternetAccountAuthorization() }
-        #expect(throws: (any Error).self) {
-            try restarted.viewModel.saveInternetConnection(url: "https://another.test", token: "manual-token")
-        }
-    }
-
-    @Test func schemaFiveUpgradePreservesSignedPendingReceiptAndCredential() throws {
-        let f = AccountCallFixture(); defer { f.disconnect() }
-        let a = try f.peer("a", account: "a"), b = try f.peer("b", account: "b")
-        try f.introduce(b, to: a)
-        var old = a.groupStore.snapshot
-        old.version = 5
-        old.groupLinkReceipts = []
-        for index in old.groups.indices {
-            old.groups[index].accountDevices = [:]
-            old.groups[index].invitationDeviceKeys = nil
-        }
-        let receipt = try #require(old.groups.first?.pendingInvitation)
-        let upgraded = try GroupSnapshot.decode(old.encoded()).upgraded()
-        #expect(upgraded.version == GroupSnapshot.currentVersion)
-        #expect(upgraded.groups.first?.pendingInvitation == receipt)
-        #expect(upgraded.groups.first?.credentialReference == old.groups.first?.credentialReference)
-        #expect(upgraded.users == old.users)
-        #expect(a.viewModel.selectUser(try #require(a.viewModel.savedRemoteUsers.first).id))
-        var invalid = a.groupStore.snapshot; invalid.version = 5
-        invalid.groupLinkReceipts = []
-        for index in invalid.groups.indices { invalid.groups[index].invitationDeviceKeys = nil }
-        #expect(throws: (any Error).self) { try invalid.encoded() }
-    }
-
-    @Test func ownOtherDeviceCannotBecomeAnIndividualCallTarget() throws {
-        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
-        let a = try fixture.peer("alice-phone", account: "a")
-        let a2 = try fixture.peer("alice-tablet", account: "a")
-        try fixture.introduce(a2, to: a)
-        let saved = try #require(a.viewModel.savedUsers.first)
-        #expect(a.viewModel.savedRemoteUsers.isEmpty)
-        #expect(!a.viewModel.selectUser(saved.id))
-    }
-}
-
-@MainActor private final class AccountCallFixture {
-    let issuer = P256.Signing.PrivateKey()
-    var peers: [AppTestSupport.Harness] = []
-    var namespaces: [String] = []
-    var credentialStores: [String: InMemoryGroupCredentialStore] = [:]
-    func peer(_ memberID: String, account: String, at date: Date = Date()) throws -> AppTestSupport.Harness {
-        let namespace = "RideIntercom.AccountCallTests." + UUID().uuidString
-        namespaces.append(namespace)
-        let store = InternetConnectionSettingsStore(keychain: DictionaryKeychain(), namespace: namespace)
-        let key = try store.deviceSigningKey()
-        let certificate = try testIdentityCertificate(signer: issuer, userID: String(repeating: account, count: 64),
-            deviceID: store.accountDeviceID(), memberID: memberID, deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), now: date)
-        let identity = try certificate.verify(origin: URL(string: "https://account.test")!, trustedIssuerKey: certificate.issuerKey, now: date)
-        try store.save(url: "https://account.test", token: "ri1.\(String(repeating: "d", count: 64)).\(identity.deviceID).\(String(repeating: "e", count: 64))", identity: identity)
-        let credentials = InMemoryGroupCredentialStore()
-        credentialStores[memberID] = credentials
-        let h = AppTestSupport.makeHarness(groups: [], credentialStore: credentials, internetSettingsStore: store, localMemberID: memberID)
-        peers.append(h)
-        return h
-    }
-    func restart(_ previous: AppTestSupport.Harness) throws -> AppTestSupport.Harness {
-        let memberID = previous.viewModel.localMemberIdentity.memberID
-        let credentials = try #require(credentialStores[memberID])
-        let h = AppTestSupport.makeHarness(groups: [], groupStore: previous.groupStore, credentialStore: credentials,
-            internetSettingsStore: previous.viewModel.internetSettingsStore, localMemberID: memberID)
-        peers.append(h)
-        return h
-    }
-    func introduce(_ sender: AppTestSupport.Harness, to receiver: AppTestSupport.Harness) throws {
-        #expect(sender.viewModel.createTalkGroup(name: "Friends"))
-        try receiver.viewModel.acceptInviteURL(#require(sender.viewModel.makeSelectedGroupInviteURL()))
-    }
-    func completeGroupContactRegistration(from author: AppTestSupport.Harness, to recipient: AppTestSupport.Harness) throws -> UUID {
-        author.viewModel.contactSessionFactory = { RecordingCallSession() }
-        recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
-        let groupID = UUID()
-        let draft = GroupInvitationDraft(name: "Other rider", suggestedName: "New person")
-        try #require(author.viewModel.saveGroupInvitations(groupID: groupID, creating: true, name: "Mountain riders", selected: [], newPeople: [draft]) == groupID)
-        author.viewModel.disconnect()
-        let share = try author.viewModel.prepareContactPersonShare(draft.id, expectedAccountAccessID: author.viewModel.accountAccessID)
-        try recipient.viewModel.acceptContactInviteURL(share.url)
-        let reply = try recipient.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: recipient.viewModel.accountAccessID)
-        try author.viewModel.receiveContactReplyURL(reply)
-        let acknowledgement = try author.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: author.viewModel.accountAccessID)
-        try recipient.viewModel.receiveContactReplyURL(acknowledgement)
-        return groupID
-    }
-    func deliverProfile(from sender: AppTestSupport.Harness, to receiver: AppTestSupport.Harness, certified: Bool = true) throws {
-        let memberID = sender.viewModel.localMemberIdentity.memberID
-        let store = sender.viewModel.internetSettingsStore
-        let signer = try certified ? store.invitationSigner(memberID: memberID)
-            : DeviceIdentitySigner(memberID: memberID, key: store.deviceSigningKey())
-        let profile = try testPeerProfile(receiver.viewModel, peerID: memberID, displayName: "Same name", signer: signer)
-        receiver.viewModel.handleTransportEvent(.receivedApplicationData(peerID: memberID,
-            message: .init(namespace: SharedDisplayName.namespace, payload: try JSONEncoder().encode(profile))))
-    }
-    func disconnect() {
-        peers.forEach { $0.viewModel.disconnect() }
-        namespaces.forEach { UserDefaults.standard.removePersistentDomain(forName: $0) }
-    }
 }
