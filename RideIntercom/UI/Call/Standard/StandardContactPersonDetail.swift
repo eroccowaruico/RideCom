@@ -38,7 +38,9 @@ struct StandardContactPersonDetail: View {
             if currentPerson.isRegistered {
                 Section("Their Own Name") { Text(verbatim: currentPerson.displayName).foregroundStyle(.secondary) }
             }
-            if let invitation = viewModel.contactPersonInvitations(presentationPersonID).first(where: { $0.invitedGroupID != nil && $0.state != .cancelled }),
+            if let invitation = viewModel.contactPersonInvitations(presentationPersonID).first(where: {
+                $0.invitedGroupID != nil && $0.state != .cancelled
+            }),
                let group = viewModel.groups.first(where: { $0.id == invitation.invitedGroupID }) {
                 Section {
                     if invitation.direction == .incoming {
@@ -70,7 +72,9 @@ struct StandardContactReplyStatus: View {
     let personID: UUID
 
     var body: some View {
-        if let reply = viewModel.contactPersonInvitations(personID).first(where: { $0.direction == .incoming && $0.state == .pending }) {
+        if let reply = viewModel.contactPersonInvitations(personID).first(where: {
+            $0.direction == .incoming && $0.state == .pending
+        }) {
             Section {
                 if reply.hasExpired(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Text("Reply expired").accessibilityIdentifier("contactInvitationState")
@@ -108,7 +112,8 @@ struct StandardContactReplyStatus: View {
                     subject: Text("RideCom Reply"), preview: SharePreview(Text("RideCom Reply"))) {
                     Label("Share Confirmation", systemImage: "square.and.arrow.up")
                 }.accessibilityIdentifier("shareContactConfirmationButton")
-                Text("They can open this confirmation to clear their pending reply.").font(.footnote).foregroundStyle(.secondary)
+                Text("They can open this confirmation to clear their pending reply.").font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }

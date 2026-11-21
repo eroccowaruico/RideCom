@@ -15,9 +15,11 @@ struct SavedUsersView: View {
         NavigationStack {
             if let group = invitationGroup {
                 if viewModel.interfaceMode == .advanced {
-                    AdvancedGroupInvitationSavedView(viewModel: viewModel, group: group, selectedUsers: selectedUsers, onDone: { dismiss() })
+                    AdvancedGroupInvitationSavedView(
+                        viewModel: viewModel, group: group, selectedUsers: selectedUsers, onDone: { dismiss() })
                 } else {
-                    StandardGroupInvitationSavedView(viewModel: viewModel, group: group, selectedUsers: selectedUsers, onDone: { dismiss() })
+                    StandardGroupInvitationSavedView(
+                        viewModel: viewModel, group: group, selectedUsers: selectedUsers, onDone: { dismiss() })
                 }
             } else if viewModel.interfaceMode == .advanced {
                 AdvancedSavedUsersSelection(viewModel: viewModel, groupID: groupID, onSaved: finish)
@@ -83,12 +85,15 @@ struct MemberSelection {
     var canSave: Bool {
         viewModel.canManageRegularGroups && memberCount <= IntercomGroup.maximumMemberCount
             && newPeople.allSatisfy { IntercomGroup.isValidName($0.resolvedName) }
-            && (groupID == nil ? IntercomGroup.isValidName(groupName) && !groupName.contains("|") : !selected.isEmpty || !newPeople.isEmpty)
+            && (groupID == nil
+                ? IntercomGroup.isValidName(groupName) && !groupName.contains("|")
+                : !selected.isEmpty || !newPeople.isEmpty)
     }
 
     var saveMessage: String? {
         if viewModel.canManageRegularGroups { return viewModel.groupErrorMessage }
-        return viewModel.canEditSavedGroups ? IntercomViewModel.groupAccessRequiredMessage : viewModel.groupStorageNotice
+        return viewModel.canEditSavedGroups
+            ? IntercomViewModel.groupAccessRequiredMessage : viewModel.groupStorageNotice
     }
 
     mutating func addNewPerson() {
@@ -153,7 +158,10 @@ struct NewGroupInvitees: View {
             Button("Invite Someone New", systemImage: "person.badge.plus") {
                 selection.addNewPerson(); focusedPerson = selection.newPeople.last?.id
             }
-            .disabled(selection.memberCount >= IntercomGroup.maximumMemberCount || !selection.viewModel.canManageRegularGroups)
+            .disabled(
+                selection.memberCount >= IntercomGroup.maximumMemberCount
+                    || !selection.viewModel.canManageRegularGroups
+            )
             .accessibilityIdentifier("addNewGroupInviteeButton")
             ForEach($selection.newPeople) { $draft in
                 HStack {

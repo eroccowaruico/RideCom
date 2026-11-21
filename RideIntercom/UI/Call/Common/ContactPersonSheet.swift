@@ -15,9 +15,11 @@ struct ContactPersonSheet: View {
             Group {
                 if let person {
                     if viewModel.interfaceMode == .advanced {
-                        AdvancedContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID)
+                        AdvancedContactPersonDetail(
+                            viewModel: viewModel, person: person, presentationPersonID: personID)
                     } else {
-                        StandardContactPersonDetail(viewModel: viewModel, person: person, presentationPersonID: personID)
+                        StandardContactPersonDetail(
+                            viewModel: viewModel, person: person, presentationPersonID: personID)
                     }
                 } else if !saved {
                     ContactPersonCreation(viewModel: viewModel, personID: personID) { saved = true }
@@ -90,7 +92,13 @@ private struct ContactPersonCreation: View {
                     .onSubmit { nameFocused = false }
                     .accessibilityIdentifier("contactInvitationNameField")
             } header: { Text("Their Name") } footer: {
-                Text("This is your name for them. It also appears in the invitation message you share. If you leave it empty, it will be \(candidate).")
+                Text(
+                    """
+                    This is your name for them. \
+                    It also appears in the invitation message you share. \
+                    If you leave it empty, it will be \(candidate).
+                    """
+                )
             }
             if let message = viewModel.contactInvitationMessage {
                 Section {
@@ -106,7 +114,9 @@ private struct ContactPersonCreation: View {
         .formStyle(.grouped)
         .safeAreaBar(edge: .bottom) {
             Button("Save") {
-                if viewModel.saveContactPerson(personID, name: effectiveName, usesProvisionalName: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                if viewModel.saveContactPerson(
+                    personID, name: effectiveName,
+                    usesProvisionalName: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     nameFocused = false
                     onSaved()
                 }
@@ -131,7 +141,9 @@ struct ContactPersonShareButton: View {
     let person: SavedUser
 
     var body: some View {
-        ContactInvitationShareButton(viewModel: viewModel, title: "Share Invitation", personName: person.resolvedDisplayName) {
+        ContactInvitationShareButton(
+            viewModel: viewModel, title: "Share Invitation", personName: person.resolvedDisplayName
+        ) {
             try viewModel.prepareContactPersonShare(person.id, expectedAccountAccessID: viewModel.accountAccessID)
         }
         .appProminentButtonStyle()

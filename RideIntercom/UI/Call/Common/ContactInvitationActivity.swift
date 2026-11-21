@@ -99,7 +99,9 @@ struct ContactInvitationActivity: NSViewRepresentable {
                                   proposedSharingServices services: [NSSharingService]) -> [NSSharingService] {
             guard let url = items.compactMap({ $0 as? URL }).first,
                   let icon = NSImage(systemSymbolName: "link", accessibilityDescription: nil) else { return services }
-            let copy = NSSharingService(title: String(localized: "Copy Invitation Link"), image: icon, alternateImage: nil) { [weak self] in
+            let copy = NSSharingService(
+                title: String(localized: "Copy Invitation Link"), image: icon, alternateImage: nil
+            ) { [weak self] in
                 guard let self else { return }
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()

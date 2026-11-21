@@ -9,7 +9,11 @@ struct AdvancedInvitationsSection: View {
         if !records.isEmpty {
             Section {
                 ForEach(records) { record in
-                    Button { viewModel.showContactInvitation(record.id) } label: { AdvancedInvitationRow(record: record) }
+                    Button {
+                        viewModel.showContactInvitation(record.id)
+                    } label: {
+                        AdvancedInvitationRow(record: record)
+                    }
                         .buttonStyle(.borderless)
                         .accessibilityIdentifier("pendingContactInvitation-\(record.id)")
                 }
@@ -33,7 +37,10 @@ private struct AdvancedInvitationRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(verbatim: String(record.id.uuidString.prefix(8)).lowercased())
                 .font(.headline.monospaced()).foregroundStyle(Color.primary)
-            Text(verbatim: "\(record.direction.rawValue) · \(record.state.rawValue)\(record.canResume ? " · canResume" : "")")
+            Text(
+                verbatim:
+                    "\(record.direction.rawValue) · \(record.state.rawValue)\(record.canResume ? " · canResume" : "")"
+            )
                 .font(.subheadline.monospaced()).foregroundStyle(Color.primary)
             Text(verbatim: "expiresAt \(Date(timeIntervalSince1970: record.expiresAt).formatted(.iso8601))")
                 .font(.caption.monospaced()).foregroundStyle(Color.secondary)
@@ -90,14 +97,19 @@ struct AdvancedContactInvitationContent: View {
                     ContactInvitationShareButton(viewModel: viewModel,
                         title: viewModel.contactInvitationIsUnsent(record) ? "Share Invitation" : "Share Again",
                         personName: viewModel.contactInvitationName(for: record)) {
-                        try viewModel.prepareContactInvitationShare(record.id, expectedAccountAccessID: viewModel.accountAccessID)
+                        try viewModel.prepareContactInvitationShare(
+                            record.id, expectedAccountAccessID: viewModel.accountAccessID)
                     }
                 }
                 if viewModel.canShareContactReply(record) {
                     ShareLink(item: InvitationShare(viewModel: viewModel, contactReplyID: record.id),
                         subject: Text("RideCom Reply"), preview: SharePreview(Text("RideCom Reply"))) {
-                        Label(record.direction == .incoming ? "Share Accepted Receipt" : "Share Acknowledgement", systemImage: "square.and.arrow.up")
-                    }.accessibilityIdentifier(record.direction == .incoming ? "shareContactReplyButton" : "shareContactConfirmationButton")
+                        Label(
+                            record.direction == .incoming ? "Share Accepted Receipt" : "Share Acknowledgement",
+                            systemImage: "square.and.arrow.up")
+                    }.accessibilityIdentifier(
+                        record.direction == .incoming
+                            ? "shareContactReplyButton" : "shareContactConfirmationButton")
                 }
                 if record.canResume(at: viewModel.callAccessNow().timeIntervalSince1970) {
                     Button("Retry Notification", systemImage: "arrow.clockwise") {
@@ -107,14 +119,20 @@ struct AdvancedContactInvitationContent: View {
                     }
                     .disabled(!viewModel.canEditSavedGroups || viewModel.contactReplyWaitsForCurrentCall(record))
                     .accessibilityIdentifier("retryContactInvitationButton")
-                    Button(stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation", role: .destructive) {
+                    Button(
+                        stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation",
+                        role: .destructive
+                    ) {
                         confirmsCancellation = true
                     }
                     .accessibilityIdentifier("cancelPendingContactInvitationButton")
                 }
             }
         }
-        .alert(stopsRetrying ? "Stop Retrying Notification?" : "Cancel This Pending Invitation?", isPresented: $confirmsCancellation) {
+        .alert(
+            stopsRetrying ? "Stop Retrying Notification?" : "Cancel This Pending Invitation?",
+            isPresented: $confirmsCancellation
+        ) {
             Button(stopsRetrying ? "Stop Retrying Notification" : "Cancel Pending Invitation", role: .destructive) {
                 if let personID {
                     _ = viewModel.cancelContactPersonInvitation(record.id, personID: personID)

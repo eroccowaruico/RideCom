@@ -9,7 +9,9 @@ struct AdvancedContactNameConfirmation: View {
 
     var body: some View {
         Section {
-            LabeledContent { Text(verbatim: person.usesProvisionalName.map(String.init) ?? "nil").font(.caption.monospaced()) }
+            LabeledContent {
+                Text(verbatim: person.usesProvisionalName.map(String.init) ?? "nil").font(.caption.monospaced())
+            }
                 label: { Text(verbatim: "usesProvisionalName").font(.subheadline.monospaced()) }
             LabeledContent {
                 Text(verbatim: String(person.needsNameConfirmation)).font(.caption.monospaced())
@@ -21,7 +23,9 @@ struct AdvancedContactNameConfirmation: View {
                 }
                 .disabled(!viewModel.canEditSavedGroups)
                 .accessibilityIdentifier("useContactPeerNameButton")
-                Button("Keep Local Name") { if viewModel.resolveContactPersonName(person, useSharedName: false) { onResolved(false) } }
+                Button("Keep Local Name") {
+                    if viewModel.resolveContactPersonName(person, useSharedName: false) { onResolved(false) }
+                }
                     .disabled(!viewModel.canEditSavedGroups)
                     .accessibilityIdentifier("keepContactLocalNameButton")
             }

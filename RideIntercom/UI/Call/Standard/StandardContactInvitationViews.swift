@@ -106,13 +106,18 @@ struct StandardContactInvitationDetail: View {
                 }
             }
             Section {
-                Button(outgoing ? "Cancel Invitation" : "Delete This Person", role: .destructive) { confirmsCancellation = true }
+                Button(outgoing ? "Cancel Invitation" : "Delete This Person", role: .destructive) {
+                    confirmsCancellation = true
+                }
                     .accessibilityIdentifier("cancelPendingContactInvitationButton")
             }
         }
         .formStyle(.grouped)
         .alert(outgoing ? "Cancel This Invitation?" : "Delete \(person)?", isPresented: $confirmsCancellation) {
-            Button(outgoing ? "Cancel Invitation" : endsCall ? "Disconnect and Delete" : "Delete", role: .destructive, action: cancel)
+            Button(
+                outgoing ? "Cancel Invitation" : endsCall ? "Disconnect and Delete" : "Delete", role: .destructive,
+                action: cancel
+            )
                 .accessibilityIdentifier("confirmCancelContactInvitationButton")
             Button(outgoing ? "Keep Invitation" : "Cancel", role: .cancel) {}
         } message: {
@@ -140,9 +145,15 @@ struct StandardContactInvitationDetail: View {
         } else if isAwaitingAcceptance {
             let unsent = viewModel.contactInvitationIsUnsent(record)
             stateWord(unsent ? "Not sent yet" : "Waiting to be accepted", busy: false)
-            sentence(unsent ? "This invitation has not been sent to anyone yet." : "\(person) joins your Users after opening and accepting this invitation.")
-            ContactInvitationShareButton(viewModel: viewModel, title: unsent ? "Share Invitation" : "Share Again", personName: person) {
-                try viewModel.prepareContactInvitationShare(record.id, expectedAccountAccessID: viewModel.accountAccessID)
+            sentence(
+                unsent
+                    ? "This invitation has not been sent to anyone yet."
+                    : "\(person) joins your Users after opening and accepting this invitation.")
+            ContactInvitationShareButton(
+                viewModel: viewModel, title: unsent ? "Share Invitation" : "Share Again", personName: person
+            ) {
+                try viewModel.prepareContactInvitationShare(
+                    record.id, expectedAccountAccessID: viewModel.accountAccessID)
             }
             .appProminentButtonStyle()
         } else if waitsForCall {
@@ -157,7 +168,9 @@ struct StandardContactInvitationDetail: View {
         } else {
             stateWord("Reply not delivered", busy: false)
             sentence("\(person) hasn't received your reply yet.")
-            Button("Send Again", systemImage: "arrow.clockwise") { viewModel.retryPresentedContactInvitation(record.id) }
+            Button("Send Again", systemImage: "arrow.clockwise") {
+                viewModel.retryPresentedContactInvitation(record.id)
+            }
                 .appProminentButtonStyle()
                 .accessibilityIdentifier("retryContactInvitationButton")
             footnote(outgoing ? "Sends your reply to \(person) again."

@@ -17,7 +17,9 @@ struct StandardContactNameConfirmation: View {
                 }
                 .disabled(!viewModel.canEditSavedGroups)
                 .accessibilityIdentifier("useContactPeerNameButton")
-                Button("Keep This Name") { if viewModel.resolveContactPersonName(person, useSharedName: false) { onResolved(false) } }
+                Button("Keep This Name") {
+                    if viewModel.resolveContactPersonName(person, useSharedName: false) { onResolved(false) }
+                }
                     .disabled(!viewModel.canEditSavedGroups)
                     .accessibilityIdentifier("keepContactLocalNameButton")
             }
