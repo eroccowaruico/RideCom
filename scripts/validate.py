@@ -13,10 +13,11 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+from types import FrameType
 from typing import TypedDict
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,43 @@ from scripts.xcode_paths import (
     select_test_run,
     xcode_build_settings,
 )
+
+
+class TestSummary(TypedDict, total=False):
+    totalTestCount: int
+    passedTests: int
+    failedTests: int
+    skippedTests: int
+    runtimeWarnings: list[object]
+    testFailures: list[object]
+
+
+class TestNodeDetails(TypedDict, total=False):
+    name: str
+    children: list[TestNode]
+    result: str
+    nodeIdentifier: str
+
+
+class TestNode(TestNodeDetails):
+    nodeType: str
+
+
+class TestTree(TypedDict):
+    testNodes: list[TestNode]
+
+
+class SelectionCoverage(TypedDict):
+    selected: list[str]
+    executed: list[str]
+    missing: list[str]
+    unexpected: list[str]
+
+
+class Fingerprint(TypedDict, total=False):
+    sha256: str | None
+    build_number: int
+    configuration_sha256: str
 
 
 def swift_supported(output: str) -> bool:
@@ -86,7 +124,7 @@ def ios_tests_timeout(environment: Mapping[str, str]) -> int | None:
     return None if environment.get('VALIDATION_TIMEOUT_SECONDS') else IOS_TESTS_SECONDS
 
 
-def xcode_tests_passed(summary):
+def xcode_tests_passed(summary: TestSummary) -> bool:
     count = summary.get('totalTestCount', 0)
     return (count > 0 and summary.get('passedTests') == count
             and summary.get('failedTests', 0) == 0 and summary.get('skippedTests', 0) == 0
@@ -105,8 +143,8 @@ def includes_test(selector: str, identifier: str) -> bool:
     return requested == actual[:len(requested)]
 
 
-def test_selection_coverage(result, selectors):
-    def cases(nodes, target=None):
+def test_selection_coverage(result: TestTree, selectors: list[str]) -> SelectionCoverage:
+    def cases(nodes: list[TestNode], target: str | None = None) -> Iterator[str]:
         for node in nodes:
             kind = node['nodeType']
             if kind in ('Unit test bundle', 'UI test bundle'):
@@ -393,11 +431,11 @@ class Runner:
             self.record(stage, [], 'failed', 1, started, 'Cannot verify selected tests: ' + str(error))
 
 
-def file_fingerprint(path):
+def file_fingerprint(path: Path) -> Fingerprint:
     if not path.is_file():
         return {'sha256': None}
     data = path.read_bytes()
-    result = {'sha256': hashlib.sha256(data).hexdigest()}
+    result: Fingerprint = {'sha256': hashlib.sha256(data).hexdigest()}
     if path.name == 'project.pbxproj' and path.parent.name == 'RideIntercom.xcodeproj':
         pattern = rb'(CURRENT_PROJECT_VERSION\s*=\s*)([1-9][0-9]*)(\s*;)'
         numbers = re.findall(pattern, data)
@@ -410,7 +448,7 @@ def file_fingerprint(path):
     return result
 
 
-def fingerprints_match(before, after):
+def fingerprints_match(before: dict[str, Fingerprint], after: dict[str, Fingerprint]) -> bool:
     if before.keys() != after.keys():
         return False
     for name, original in before.items():
@@ -427,7 +465,7 @@ def fingerprints_match(before, after):
     return True
 
 
-def snapshot(out):
+def snapshot(out: Path) -> None:
     # Hash file contents without copying potential credentials to the report.
     files = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=ROOT).decode().split('\0')
     hashes = {}
@@ -470,7 +508,7 @@ def xctestrun_skips(path: str | os.PathLike[str]) -> list[str]:
             for identifier in target.get('SkipTestIdentifiers', [])]
 
 
-def boot_simulator(runner, sim, stage, timeout=180):
+def boot_simulator(runner: Runner, sim: str, stage: str, timeout: int = 180) -> None:
     id_filename = 'simulator-id.txt' if stage == 'simulator' else f'{stage}-simulator-id.txt'
     (runner.out / id_filename).write_text(sim + '\n')
     if runner.crash_reports is not None:
@@ -480,7 +518,8 @@ def boot_simulator(runner, sim, stage, timeout=180):
                needs=[f'{stage}-boot'], timeout=timeout)
 
 
-def run_iphone_tests(runner, runtime, iphone_tests, recovery_tests, focused):
+def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
+                     recovery_tests: list[str], focused: bool) -> None:
     lease = SimulatorLease(runner, simulator_resource_root() / 'reusable.json')
     audio_pin = None
     try:
@@ -523,7 +562,7 @@ def run_iphone_tests(runner, runtime, iphone_tests, recovery_tests, focused):
             lease.cleanup('simulator-final')
 
 
-def run_ios_tests(runner, mode, selectors):
+def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> None:
     focused = bool(selectors)
     if focused:
         iphone_tests, recovery_tests, ipad_tests = ios_test_selection(selectors)
@@ -580,7 +619,7 @@ def run_ios_tests(runner, mode, selectors):
         runner.record('simulator-availability', [], 'blocked', None, time.monotonic(), str(error))
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', nargs='?', default='all', choices=['all', 'headless', 'packages', 'worker', 'pair', 'macos', 'ios', 'ios-ui', 'scripts'])
     parser.add_argument('--clean', action='store_true', help='Run standard swift package clean before package tests, using each package .build directory')
@@ -687,7 +726,7 @@ def main():
 
 
 if __name__ == '__main__':
-    def interrupted(signum, frame):
+    def interrupted(signum: int, frame: FrameType | None) -> None:
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, interrupted)
     try:

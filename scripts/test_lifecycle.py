@@ -13,7 +13,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict, overload
 
 
 class SimulatorDevice(TypedDict, total=False):
@@ -205,12 +205,21 @@ class SimulatorLease:
         return [d for d in simulator_devices() if d['name'] == self.state.get('name')
                 and (not self.state.get('udid') or d['udid'] == self.state['udid'])]
 
-    def prepare(self, runtime: str, device_type: str, reusable: bool = True, delete_all: bool = False) -> str | None:
+    @overload
+    def prepare(self, runtime: str, device_type: str, reusable: bool = True, delete_all: Literal[False] = False) -> str: ...
+
+    @overload
+    def prepare(self, runtime: str | None, device_type: str | None, reusable: bool = True, *, delete_all: Literal[True]) -> None: ...
+
+    def prepare(self, runtime: str | None, device_type: str | None, reusable: bool = True,
+                delete_all: bool = False) -> str | None:
         """Recover lost journals by inspecting the reserved test-device names.
 
         Caller holds the shared run lock through final cleanup. Never adopt or
         delete a booted device: it may be in manual use outside that lock.
         """
+        if not delete_all and (runtime is None or device_type is None):
+            raise ValueError('Creating a simulator requires a runtime and device type')
         devices = simulator_devices()
         (self.runner.out / 'simulator-inventory.json').write_text(json.dumps(devices, indent=2) + '\n')
         managed = [d for d in devices if re.fullmatch(
@@ -248,6 +257,7 @@ class SimulatorLease:
             self.journal.unlink(missing_ok=True)
             self.state = {}
             return None
+        assert runtime is not None and device_type is not None
         self.reserve('RideIntercom Audio E2E ' + uuid.uuid4().hex[:8], reusable=reusable)
         if not self.runner.run('simulator-create', ['xcrun', 'simctl', 'create', self.state['name'], device_type, runtime], timeout=60):
             raise RuntimeError('Could not create managed simulator')
