@@ -8,43 +8,50 @@ commit; a lost translation needs its cause fixed instead.
 """
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
-def git(root, *args):
+def git(root: Path, *args: str) -> str:
     return subprocess.run(['git', *args], cwd=root, capture_output=True, text=True, check=True).stdout
 
 
-def translations(data):
+def translations(data: object) -> set[tuple[str, str]]:
+    if not isinstance(data, dict):
+        raise TypeError('Expected a String Catalog object')
     source = data.get('sourceLanguage', 'en')
-    return {(key, language)
-            for key, entry in data.get('strings', {}).items()
-            for language in entry.get('localizations', {})
-            if language != source}
+    strings = data.get('strings', {})
+    if not isinstance(source, str) or not isinstance(strings, dict):
+        raise TypeError('Invalid source language or strings')
+    result = set()
+    for key, entry in strings.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get('localizations', {}), dict):
+            raise TypeError('Invalid localized string entry')
+        result.update((key, language) for language in entry.get('localizations', {}) if language != source)
+    return result
 
-
-def check(root, base):
-    changed = git(root, 'diff', '--name-only', base, '--', '*.xcstrings').split()
+def check(root: Path, base: str) -> list[str]:
+    changed = git(root, 'diff', '--name-only', '-z', base, '--', '*.xcstrings').split('\0')
     errors = []
-    for name in changed:
+    for name in filter(None, changed):
         path = root / name
         try:
-            before = json.loads(git(root, 'show', f'{base}:{name}'))
+            baseline = git(root, 'show', f'{base}:{name}')
         except subprocess.CalledProcessError:
             continue  # A new catalog cannot lose a committed translation.
         try:
-            after = json.loads(path.read_text()) if path.is_file() else {}
-        except (OSError, json.JSONDecodeError) as error:
+            current = json.loads(path.read_text()) if path.is_file() else {}
+            lost = translations(json.loads(baseline)) - translations(current)
+        except (OSError, TypeError, ValueError) as error:
             errors.append(f'{name}: unreadable catalog ({error})')
             continue
-        for key, language in sorted(translations(before) - translations(after)):
+        for key, language in sorted(lost):
             errors.append(f'{name}: lost {language} translation for {key!r}')
     return errors
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--base', default='HEAD')
