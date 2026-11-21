@@ -3,18 +3,25 @@ import Foundation
 
 nonisolated struct InvitationRelayKey: Decodable, Sendable {
     let kid: String
-    let x: String
+    private enum CodingKeys: String, CodingKey {
+        case kid, expiresAt
+        case publicCoordinate = "x"
+    }
+
+    let publicCoordinate: String
     let expiresAt: TimeInterval
 
     func belongsToCertificate(issuedAt: TimeInterval) -> Bool {
         let period = (issuedAt / 2_592_000).rounded(.down)
         guard let number = Int64(exactly: period),
-              let coordinate = IdentityEncoding.decode(x), coordinate.count == 32 else { return false }
+              let coordinate = IdentityEncoding.decode(publicCoordinate), coordinate.count == 32 else { return false }
         return kid == "v1-\(number)" && expiresAt == (period + 2) * 2_592_000
     }
 
     func seal(_ signedRequest: Data, now: Date) throws -> String? {
-        guard expiresAt > now.timeIntervalSince1970, let coordinate = IdentityEncoding.decode(x) else { return nil }
+        guard expiresAt > now.timeIntervalSince1970,
+            let coordinate = IdentityEncoding.decode(publicCoordinate)
+        else { return nil }
         let worker = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: coordinate)
         let ephemeral = Curve25519.KeyAgreement.PrivateKey()
         let secret = try ephemeral.sharedSecretFromKeyAgreement(with: worker)

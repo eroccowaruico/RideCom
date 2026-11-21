@@ -9,9 +9,12 @@ struct BackgroundCallStorageTests {
         let fixture = BackgroundKeychainFixture()
         let store = SystemKeychainSecretStore(isIOS: true, functions: fixture.functions)
         try store.saveSecret("original", service: "Test.InternetConnection", account: "identity-key")
-        #expect(fixture.lastAttributes?[kSecAttrAccessible as String] as? String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+        #expect(
+            fixture.lastAttributes?[kSecAttrAccessible as String] as? String
+                == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
         let beforeReads = fixture.updateCount
-        let retained = try store.createSecretIfAbsent("replacement", service: "Test.InternetConnection", account: "identity-key")
+        let retained = try store.createSecretIfAbsent(
+            "replacement", service: "Test.InternetConnection", account: "identity-key")
         #expect(retained == "original" && fixture.data == Data("original".utf8))
         #expect(fixture.updateCount == beforeReads)
     }
@@ -29,7 +32,9 @@ struct BackgroundCallStorageTests {
     @Test func failedProtectionUpgradeDoesNotReplaceTheExistingKey() throws {
         let fixture = BackgroundKeychainFixture(); fixture.data = Data("original".utf8); fixture.updateFails = true
         let store = SystemKeychainSecretStore(isIOS: true, functions: fixture.functions)
-        #expect(throws: KeychainSecretStoreError.self) { try store.secret(service: "Test.GroupCredential.v2", account: "key") }
+        #expect(throws: KeychainSecretStoreError.self) {
+            try store.secret(service: "Test.GroupCredential.v2", account: "key")
+        }
         #expect(fixture.addCount == 0 && fixture.data == Data("original".utf8))
     }
 
@@ -83,7 +88,7 @@ private final class BackgroundKeychainFixture {
         .init(copy: { [self] query, result in
             if locked { return errSecInteractionNotAllowed }
             guard let data else { return errSecItemNotFound }
-            let attributes = query as! [String: Any]
+            guard let attributes = query as? [String: Any] else { return errSecParam }
             if attributes[kSecReturnAttributes as String] as? Bool == true {
                 var row: [String: Any] = [kSecValueData as String: data]
                 if let protection { row[kSecAttrAccessible as String] = protection }
@@ -93,7 +98,7 @@ private final class BackgroundKeychainFixture {
         }, add: { [self] query, _ in
             addCount += 1
             if data != nil { return errSecDuplicateItem }
-            let attributes = query as! [String: Any]
+            guard let attributes = query as? [String: Any] else { return errSecParam }
             data = attributes[kSecValueData as String] as? Data
             lastAttributes = attributes
             if let value = attributes[kSecAttrAccessible as String] as? String { protection = value }
@@ -102,7 +107,7 @@ private final class BackgroundKeychainFixture {
             updateCount += 1
             if updateFails { return errSecInteractionNotAllowed }
             guard data != nil else { return errSecItemNotFound }
-            let attributes = values as! [String: Any]
+            guard let attributes = values as? [String: Any] else { return errSecParam }
             if let changed = attributes[kSecValueData as String] as? Data { data = changed }
             lastAttributes = attributes
             if let value = attributes[kSecAttrAccessible as String] as? String { protection = value }
