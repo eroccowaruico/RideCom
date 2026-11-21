@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -324,6 +324,77 @@ async function enrolled(runtime, sub = 'apple-private-subject') {
 const replyPath = '/api/ordinary-group-replies';
 const replySlot = () => randomBytes(32).toString('hex');
 const replyPacket = () => randomBytes(64).toString('base64');
+
+test('a signed contact invitation admits an offline reply before its author opens a mailbox', async () => {
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const device = await generateKeyPair('ES256', { extractable: true });
+    const r = await makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false',
+        DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) }, { appleKeys: [publicKey], trackReplyStorage: true });
+    try {
+        const a = await enrolled(r, 'contact-author'), otherA = await enrolled(r, 'contact-author');
+        const b = await enrolled(r, 'contact-recipient'), otherB = await enrolled(r, 'contact-recipient');
+        const memberID = 'contact-author';
+        const jwk = await exportJWK(device.publicKey);
+        const deviceKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+        const issued = await call(r, '/api/auth/identity', { memberID, deviceKey }, a.accessToken);
+        assert.equal(issued.status, 200);
+        const certificate = await issued.json();
+        const hash = value => createHash('sha256').update(value).digest('hex');
+        const sessionBinding = hash(hash(a.accessToken.split('.')[3]));
+        const slot = replySlot(), expiresAt = Date.now() + 60_000;
+        const permit = async (targetSlot, expiry = expiresAt, origin = 'https://worker.test') => {
+            const payload = JSON.stringify([origin, sessionBinding, targetSlot, expiry]);
+            const fields = ['openContactInvitationReply', memberID, deviceKey, certificate.certificate, certificate.issuerKey, payload];
+            const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
+            for (const field of fields) {
+                const value = Buffer.from(field), length = Buffer.alloc(4);
+                length.writeUInt32BE(value.length);
+                parts.push(length, value);
+            }
+            const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, device.privateKey, Buffer.concat(parts));
+            return { expiresAt: expiry, deviceID: a.deviceID, sessionBinding, proof: {
+                publicKey: deviceKey, certificate, signature: Buffer.from(signature).toString('base64url')
+            } };
+        };
+        const first = { id: randomUUID(), packet: replyPacket() };
+        const write = (action, body, user) => call(r, replyPath + action, body, user?.accessToken, 'PUT');
+        const inbox = (user, mailbox = slot) => call(r, replyPath + '/inbox', { slot: mailbox }, user.accessToken);
+        const accept = (changes = {}, user = b) => write('/acceptance', { owner: a.userID, slot, ...first, ...changes }, user);
+        const admission = await permit(slot);
+        assert.equal((await inbox(a)).status, 404);
+        assert.equal((await accept()).status, 404);
+        assert.equal((await accept({ admission }, {})).status, 401);
+        assert.equal((await accept({ slot: replySlot(), admission })).status, 401);
+        assert.equal((await accept({ admission: { ...admission, expiresAt: expiresAt + 1 } })).status, 401);
+        assert.equal((await accept({ admission: { ...admission, deviceID: otherA.deviceID } })).status, 401);
+        assert.equal((await accept({ owner: b.userID, admission })).status, 401);
+        assert.equal((await accept({ admission: await permit(slot, expiresAt, 'https://other.test') })).status, 401);
+        assert.equal((await accept({ admission: await permit(slot, Date.now() - 1) })).status, 400);
+        // The account has a public route from enrollment, but the author never opened this mailbox.
+        const [stored, retried] = await Promise.all([accept({ admission }), accept({ admission })]);
+        assert.deepEqual([stored.status, retried.status], [200, 200]);
+        const accounts = await r.getDurableObjectNamespace('USER_ACCOUNT');
+        const account = accounts.get(accounts.idFromString(a.accessToken.split('.')[1]));
+        const before = JSON.parse(await account.replyStorageState());
+        assert.equal(before.alarm, expiresAt);
+        assert.equal((await accept({ admission, packet: replyPacket() })).status, 200);
+        assert.deepEqual(JSON.parse(await account.replyStorageState()), before);
+        assert.equal((await inbox(otherA)).status, 404);
+        assert.equal((await write('/open', { slot, expiresAt }, otherA)).status, 409);
+        assert.deepEqual(await (await inbox(a)).json(), { acceptances: [first] });
+        const confirmation = { id: first.id, packet: replyPacket() };
+        assert.equal((await write('/acknowledgement', { slot, ...confirmation }, a)).status, 200);
+        const lookup = { owner: a.userID, slot, id: first.id };
+        assert.equal((await call(r, replyPath + '/receipt', lookup, otherB.accessToken)).status, 404);
+        assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, b.accessToken)).json(), { receipt: confirmation });
+
+        const unopenedSlot = replySlot(), stale = await permit(unopenedSlot);
+        const renewed = await signIn(r, await challenge(r, a.deviceID), { sub: memberID });
+        assert.equal(renewed.status, 200);
+        assert.equal((await accept({ slot: unopenedSlot, admission: stale })).status, 401);
+        assert.equal((await inbox(await renewed.json(), unopenedSlot)).status, 404);
+    } finally { await r.dispose(); }
+});
 
 test('opening the same ordinary reply mailbox avoids writes and repairs missing expiry alarms', async () => {
     const r = await makeRuntime(options, { appleKeys: [publicKey], trackReplyStorage: true });

@@ -1,6 +1,8 @@
 import { notificationAuth } from './AppleAccount'
 import { groupInvitationLifetime } from './AccountNotifications'
 import type { OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
+import { verifyDeviceProof } from './DeviceIdentity'
+import { publicAccountIndex } from './NotificationIndex'
 import { json, readJSON, sha256Hex, type Env } from './types'
 
 export const ordinaryGroupReplyPrefix = '/api/ordinary-group-replies/'
@@ -22,6 +24,28 @@ function packet(id: string, value: unknown) {
     return { id, packet: encoded }
 }
 
+function replyExpiry(value: unknown): number {
+    const now = Date.now()
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= now || value > now + groupInvitationLifetime) {
+        throw new Error('body')
+    }
+    return value
+}
+
+async function contactReplyAdmission(value: unknown, owner: string, slot: string, origin: string, env: Env) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('body')
+    const admission = value as Record<string, unknown>
+    const deviceID = field(admission.deviceID, uuid, 36)
+    const sessionBinding = field(admission.sessionBinding, hex, 64)
+    const expiresAt = replyExpiry(admission.expiresAt)
+    const proof = admission.proof
+    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) throw new Error('body')
+    const message = JSON.stringify([origin, sessionBinding, slot, expiresAt])
+    const verified = await verifyDeviceProof({ userID: owner, deviceID, sessionBinding }, origin,
+        'openContactInvitationReply', message, proof as Record<string, unknown>, env)
+    return verified ? { deviceID, sessionBinding, expiresAt } : null
+}
+
 function status(value: OrdinaryGroupReplyStatus): Response {
     switch (value) {
         case 'ok': return json({})
@@ -34,7 +58,8 @@ function status(value: OrdinaryGroupReplyStatus): Response {
 }
 
 export async function ordinaryGroupReplyRequest(request: Request, env: Env): Promise<Response> {
-    const action = new URL(request.url).pathname.slice(ordinaryGroupReplyPrefix.length)
+    const url = new URL(request.url)
+    const action = url.pathname.slice(ordinaryGroupReplyPrefix.length)
     const method = request.method
     const read = action === 'inbox' || action === 'receipt'
     const write = action === 'open' || action === 'acceptance' || action === 'acknowledgement'
@@ -49,18 +74,17 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
             return json({ error: 'Too many group reply requests' }, 429)
         }
         const body = await readJSON(request) as Record<string, unknown>
-        const slotHash = await sha256Hex(field(body.slot, hex, 64))
+        const slot = field(body.slot, hex, 64)
+        const slotHash = await sha256Hex(slot)
         const account = (accountID: string) => env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(accountID))
-        const index = (userID: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName('user:' + userID))
         const own = account(auth.accountID)
 
         if (action === 'open') {
-            const expiresAt = body.expiresAt, now = Date.now()
-            if (typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > now + groupInvitationLifetime) return badBody()
+            const expiresAt = replyExpiry(body.expiresAt)
             const result = await own.ordinaryGroupReplyOpen(auth, slotHash, expiresAt)
             if (result === 'ok') {
                 if (!await own.notificationAuthorized(auth)) return unauthorized()
-                await index(auth.userID).bind({ accountID: auth.accountID, userID: auth.userID, expiresAt })
+                await publicAccountIndex(env, auth.userID).bind({ accountID: auth.accountID, userID: auth.userID, expiresAt })
             }
             return status(result)
         }
@@ -73,12 +97,19 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
         if (action === 'acknowledgement') return status(await own.ordinaryGroupReplyAcknowledge(auth, slotHash, packet(id, body.packet)))
         const owner = field(body.owner, hex, 64)
         const value = action === 'acceptance' ? packet(id, body.packet) : null
-        const route = await index(owner).current()
+        const admission = value && body.admission !== undefined
+            ? await contactReplyAdmission(body.admission, owner, slot, url.origin, env) : undefined
+        if (admission === null) return unauthorized()
+        const route = await publicAccountIndex(env, owner).current()
         if (route?.userID !== owner) return notFound()
         const recipient = await sha256Hex(auth.userID + ':' + auth.deviceID)
         if (!await own.notificationAuthorized(auth)) return unauthorized()
         const destination = account(route.accountID)
-        if (value) return status(await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value))
+        if (value) {
+            return status(admission
+                ? await destination.contactInvitationReplyAccept(owner, { ...admission, slotHash }, recipient, value)
+                : await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value))
+        }
         const receipt = await destination.ordinaryGroupReplyReceipt(owner, slotHash, recipient, id)
         return receipt && await own.notificationAuthorized(auth) ? json({ receipt }) : notFound()
     } catch (error) {

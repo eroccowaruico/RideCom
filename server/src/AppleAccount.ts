@@ -89,11 +89,7 @@ export class UserAccount extends DurableObject<Env> {
     async ordinaryGroupReplyOpen(auth: NotificationAuth, slot: string, expiresAt: number) {
         if (!this.notifications.authorized(auth)) return 'unauthorized'
         const result = this.ordinaryGroupReplies.open(auth.deviceID, slot, expiresAt)
-        if (result === 'ok') {
-            const scheduled = await this.ctx.storage.getAlarm()
-            // An earlier account alarm will check this mailbox and schedule the next expiry.
-            if (scheduled === null || scheduled > expiresAt) await this.scheduleExpiry()
-        }
+        if (result === 'ok') await this.ensureReplyExpiry(expiresAt)
         return result
     }
     ordinaryGroupReplyInbox(auth: NotificationAuth, slot: string) {
@@ -104,6 +100,24 @@ export class UserAccount extends DurableObject<Env> {
     }
     ordinaryGroupReplyAccept(owner: string, slot: string, recipient: string, packet: OrdinaryGroupReplyPacket) {
         return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.accept(slot, recipient, packet) : 'missing'
+    }
+    async contactInvitationReplyAccept(owner: string, admission: {
+        deviceID: string; sessionBinding: string; expiresAt: number; slotHash: string
+    }, recipient: string, packet: OrdinaryGroupReplyPacket) {
+        const { deviceID, sessionBinding, expiresAt, slotHash } = admission
+        const author = await this.authenticateBoundSession(owner, deviceID, sessionBinding)
+        if (!author || !this.notifications.authorized(author)) return 'unauthorized'
+        const result = this.ctx.storage.transactionSync(() => {
+            const opened = this.ordinaryGroupReplies.open(deviceID, slotHash, expiresAt)
+            return opened === 'ok' ? this.ordinaryGroupReplies.accept(slotHash, recipient, packet) : opened
+        })
+        if (result === 'ok') await this.ensureReplyExpiry(expiresAt)
+        return result
+    }
+    private async ensureReplyExpiry(expiresAt: number) {
+        const scheduled = await this.ctx.storage.getAlarm()
+        // An earlier account alarm will check this mailbox and schedule the next expiry.
+        if (scheduled === null || scheduled > expiresAt) await this.scheduleExpiry()
     }
     ordinaryGroupReplyReceipt(owner: string, slot: string, recipient: string, id: string) {
         return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.receipt(slot, recipient, id) : null
@@ -158,7 +172,7 @@ export class UserAccount extends DurableObject<Env> {
     groupInvitationSendBudget(auth: NotificationAuth, recipient: string, id: string, background: boolean) {
         return this.notifications.takeGroupInvitationSendBudget(auth, recipient, id, background)
     }
-    async authenticateGroupInvitationSession(userID: string, deviceID: string, sessionBinding: string): Promise<NotificationAuth | null> {
+    async authenticateBoundSession(userID: string, deviceID: string, sessionBinding: string): Promise<NotificationAuth | null> {
         const device = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)
         if (!device || await digest(device.tokenHash) !== sessionBinding) return null
         if (this.authenticate(deviceID, device.tokenHash)?.userID !== userID) return null
@@ -539,11 +553,9 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
             // Signing and route publication can suspend. Recheck the same session.
             const current = async () => (await credential.account.authenticate(credential.deviceID, tokenHash))?.userID === identity.userID
             if (!await current()) return json({ error: 'Unauthorized' }, 401)
-            if (env.NOTIFICATIONS_ENABLED === 'true') {
-                await publicAccountIndex(env, identity.userID).bind({ accountID: credential.accountID,
-                    userID: identity.userID, expiresAt: identity.expiresAt })
-                if (!await current()) return json({ error: 'Unauthorized' }, 401)
-            }
+            await publicAccountIndex(env, identity.userID).bind({ accountID: credential.accountID,
+                userID: identity.userID, expiresAt: identity.expiresAt })
+            if (!await current()) return json({ error: 'Unauthorized' }, 401)
             return json(result)
         }
         if (path === '/api/auth/session' || path === '/api/auth/account') {

@@ -71,7 +71,7 @@ async function handleBackgroundGroupInvitation(request: Request, origin: string,
     } catch { throw new Error('body') }
     if (!invitation || typeof invitation !== 'object' || Array.isArray(invitation)) throw new Error('body')
     const owner = await target(env, senderUserID)
-    const auth = await owner?.authenticateGroupInvitationSession(senderUserID, deviceID, sessionBinding)
+    const auth = await owner?.authenticateBoundSession(senderUserID, deviceID, sessionBinding)
     if (!owner || !auth) return unauthorized()
     return cancelling ? await cancelBackgroundGroupInvitation(invitation, auth, owner, env)
         : await submitGroupInvitation(invitation, origin, auth, owner, env, true)
