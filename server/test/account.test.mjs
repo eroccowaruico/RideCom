@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -320,6 +320,113 @@ async function enrolled(runtime, sub = 'apple-private-subject') {
     assert.equal(response.status, 200);
     return response.json();
 }
+
+const replyPath = '/api/ordinary-group-replies';
+const replySlot = () => randomBytes(32).toString('hex');
+const replyPacket = () => randomBytes(64).toString('base64');
+
+test('ordinary group replies persist while peers take turns online and leave the active call alone', async () => {
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-replies-'));
+    const local = () => makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false' }, { appleKeys: [publicKey], storageDirectory });
+    let r = await local();
+    try {
+        const a = await enrolled(r, 'reply-author'), anotherA = await enrolled(r, 'reply-author');
+        const b = await enrolled(r, 'reply-recipient'), anotherB = await enrolled(r, 'reply-recipient');
+        const c = await enrolled(r, 'second-recipient');
+        const slot = replySlot(), expiresAt = Date.now() + 60_000;
+        const write = (action, body, device = a) => call(r, replyPath + action, body, device.accessToken, 'PUT');
+        const read = (action, body, device = a) => call(r, replyPath + action, body, device.accessToken);
+        const first = { id: randomUUID(), packet: replyPacket() };
+        const second = { id: randomUUID(), packet: replyPacket() };
+        const destination = { owner: a.userID, slot };
+        const status = async (response, code) => assert.equal((await response).status, code);
+
+        provider.requests = [];
+        const started = await call(r, '/api/rooms/' + room + '/join', { participantId: a.deviceID, offer }, a.accessToken);
+        assert.equal(started.status, 200);
+        const active = (await started.json()).sessionId;
+        await status(write('/acceptance', { ...destination, ...first }, b), 404);
+        await status(write('/open', { slot, expiresAt }), 200);
+        await status(write('/open', { slot, expiresAt }, anotherA), 409);
+        await status(write('/acceptance', { ...destination, slot: replySlot(), ...first }, b), 404);
+        await status(write('/acceptance', { ...destination, ...first }, b), 200);
+        await status(write('/acceptance', { ...destination, ...first }, anotherB), 409);
+        await status(write('/acceptance', { ...destination, ...first, packet: replyPacket() }, b), 200);
+        await status(write('/acceptance', { ...destination, ...second }, c), 200);
+        await status(read('/receipt', { ...destination, id: first.id }, b), 404);
+        await status(write('/acknowledgement', { slot, id: randomUUID(), packet: replyPacket() }), 404);
+        await status(call(r, `/api/rooms/${room}/sessions/${active}/renew`, {}, a.accessToken), 200);
+        assert.equal(provider.requests.filter(p => p.url.endsWith('/sessions/new')).length, 1);
+
+        await r.dispose();
+        r = await local();
+        await status(read('/inbox', { slot }, anotherA), 404);
+        const inbox = await read('/inbox', { slot });
+        assert.equal(inbox.status, 200);
+        assert.deepEqual((await inbox.json()).acceptances.sort((l, r) => l.id.localeCompare(r.id)), [first, second].sort((l, r) => l.id.localeCompare(r.id)));
+        const confirmation = { id: first.id, packet: replyPacket() };
+        await status(write('/acknowledgement', { slot, ...confirmation }, anotherA), 404);
+        await status(write('/acknowledgement', { slot, ...confirmation }), 200);
+        await status(write('/acknowledgement', { slot, ...confirmation, packet: replyPacket() }), 200);
+        assert.deepEqual(await (await read('/inbox', { slot })).json(), { acceptances: [second] });
+
+        await r.dispose();
+        r = await local();
+        const lookup = { ...destination, id: first.id };
+        await status(read('/receipt', lookup, anotherB), 404);
+        await status(read('/receipt', lookup, c), 404);
+        await status(read('/receipt', { ...lookup, owner: c.userID }, b), 404);
+        assert.deepEqual(await (await read('/receipt', lookup, b)).json(), { receipt: confirmation });
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
+test('ordinary group reply mailboxes bound storage, reject expired credentials and clear with account deletion', async () => {
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-reply-expiry-'));
+    const local = (clockOffsetMs = 0) => makeRuntime({ ...options, CLOUDFLARE_SFU_APP_ID: '', CLOUDFLARE_SFU_APP_SECRET: '' },
+        { appleKeys: [publicKey], storageDirectory, clockOffsetMs });
+    let r = await local();
+    try {
+        const a = await enrolled(r, 'limited-author'), b = await enrolled(r, 'limited-recipient');
+        const items = Array.from({ length: 33 }, () => ({ slot: replySlot(), expiresAt: Date.now() + 60_000 }));
+        const open = (item, user = a) => call(r, replyPath + '/open', item, user.accessToken, 'PUT');
+        const inbox = (item, user = a) => call(r, replyPath + '/inbox', { slot: item.slot }, user.accessToken);
+        const accept = (packet, slot = items[0].slot, user = b) => call(r, replyPath + '/acceptance',
+            { owner: a.userID, slot, id: randomUUID(), packet }, user.accessToken, 'PUT');
+        assert.equal((await open(items[0], {})).status, 401);
+        assert.equal((await open({ ...items[0], expiresAt: Date.now() + 8 * 86_400_000 })).status, 400);
+        assert.equal((await open({ ...items[0], slot: 'too-short' })).status, 400);
+        const opened = await Promise.all(items.slice(0, 32).map(item => open(item)));
+        assert.deepEqual(new Set(opened.map(response => response.status)), new Set([200]));
+        assert.equal((await open(items[32])).status, 429);
+        assert.equal((await open(items[0])).status, 200);
+        assert.equal((await accept('A'.repeat(12 * 1024 + 4))).status, 400);
+        assert.equal((await accept(replyPacket() + '\n')).status, 400);
+        assert.equal((await accept(replyPacket())).status, 200);
+        assert.equal((await accept(replyPacket())).status, 409);
+        const recipients = [];
+        for (let i = 0; i < 8; i++) recipients.push(await enrolled(r, 'bounded-reply-' + i));
+        const simultaneous = await Promise.all(recipients.map(user => accept(replyPacket(), items[0].slot, user)));
+        assert.deepEqual(simultaneous.map(response => response.status).sort(), [200, 200, 200, 200, 200, 200, 200, 429]);
+
+        await r.dispose();
+        r = await local(61_000);
+        assert.equal((await inbox(items[0])).status, 404);
+        assert.equal((await open(items[0])).status, 400);
+        const live = { ...items[32], expiresAt: Date.now() + 120_000 };
+        assert.equal((await open(live)).status, 200);
+        assert.equal((await accept(replyPacket(), live.slot)).status, 200);
+        assert.equal((await call(r, '/api/auth/session', undefined, b.accessToken, 'DELETE')).status, 200);
+        assert.equal((await accept(replyPacket(), live.slot)).status, 401);
+        assert.equal((await call(r, '/api/auth/account', undefined, a.accessToken, 'DELETE')).status, 200);
+        assert.equal((await inbox(live)).status, 401);
+        assert.equal((await accept(replyPacket(), live.slot, recipients[0])).status, 404);
+        const replacement = await enrolled(r, 'limited-author');
+        assert.notEqual(replacement.userID, a.userID);
+        assert.equal((await inbox(live, replacement)).status, 404);
+        assert.equal((await open(live, replacement)).status, 200);
+        assert.deepEqual(await (await inbox(live, replacement)).json(), { acceptances: [] });
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
 
 test('one public account reserves one connection across rooms, devices and forged identity headers', async () => {
     const runtime = await makeRuntime(options, { appleKeys: [publicKey] });

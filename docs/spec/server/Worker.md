@@ -305,3 +305,23 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 送信アカウント1件につき有効なslotを最大64件保持する。要求頻度は既存 `CALL_API_LIMIT` の個人削除用キーで制限する。送出の完全一致は重ねず、異なる内容への差替えは409。期限は既存のアカウントalarmで回収し、送信アカウントを削除した場合も同じ処理で回収する。受取アカウントの削除後は新しい公開IDから旧宛先の内容へアクセスできなくなり、送信側に残る暗号文は期限で回収される。[Durable Objectsのアラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
 
 Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appは保存済みの暗号文を送信・取得し、受取確認を照合して回収する。[Appの配送と再開](../App/通信仕様.md#個人削除の送信待ち)、[Internetの実環境受入](../../validation/未確認事項.md#internetの個人削除の実環境受入)
+
+## 通常グループの受諾と到着確認の暗号文中継
+
+通常グループのリンクを発行した端末が、招待ごとの受け渡し先を先に開く。受諾した端末は発行端末がオフラインの間も受諾の暗号文を保存できる。発行端末は受諾端末がオフラインの間も到着確認を保存できる。Workerは暗号文と配送状態を保持し、Appが招待条件・署名・内容を照合して相手登録や保留解消を確定する。各HTTP要求は既存のApple端末Bearerで認証し、`CALL_API_LIMIT` をアカウント単位の招待返信用キーに適用する。既存の `USER_ACCOUNT` と `NOTIFICATION_INDEX` を使い、通話予約や通知の配送設定から独立して処理する。
+
+共通のパスは `/api/ordinary-group-replies/`。JSONの `slot` は招待ごとの推測困難な64桁小文字hexとし、保存キーには文字列のSHA-256を使う。 `owner` は発行者の公開アカウントID、`id` は受諾IDの小文字UUID、`packet` は暗号文の標準base64（40〜12,288文字、4の倍数）、`expiresAt` はUnix msの整数（現在より後、7日と5分以内）。受諾側の紐付けには認証した公開IDと端末IDを `:` で結んだ文字列のSHA-256を使う。中継は一時保管の応答を返し、端末での配送完了はAppが判定する。
+
+| 操作 | 本文 | 成功時の応答と状態 |
+|---|---|---|
+| PUT `open` | `{slot,expiresAt}` | `{}`。認証した発行端末に結び付ける。発行端末・期限・slotが同じ再要求は同じ受け渡し先を返す |
+| PUT `acceptance` | `{owner,slot,id,packet}` | `{}`。受け渡し先が有効な間、受諾を保存する。同じ端末・idで再送したときは初回の暗号文と処理状態を保つ |
+| POST `inbox` | `{slot}` | `{acceptances:[{id,packet}]}`。発行端末へ、到着確認をまだ保存していない受諾を返す。対象がなければ空配列 |
+| PUT `acknowledgement` | `{slot,id,packet}` | `{}`。発行端末が保存済みの受諾を最初の到着確認の暗号文で置き換える。再送しても初回の到着確認を保つ |
+| POST `receipt` | `{owner,slot,id}` | `{receipt:{id,packet}}`。受諾を送った同じ端末へ到着確認を返す。期限内は読み取りを繰り返せる |
+
+不正な本文は400、無効な端末資格は401、対象がない・期限切れ・相手の暗号文を読もうとした場合は404。`open`の既存端末か期限が一致しない場合と、`acceptance`の同じIDを別端末が使うか同じ端末が別IDを使う場合は409。発行アカウントごとに有効な受け渡し先を32件、一件につき受諾を8端末分まで保持し、上限や頻度制限では429を返す。発行前のアクセスは404となり、受諾側は後で同じIDで再送できる。
+
+期限後は受け渡し先を使えず、既存のアカウントalarmで暗号文を回収する。発行アカウントの削除と同じ処理で当該アカウントの中継記録も消す。受諾側がアカウントを削除すると、新しい公開IDで旧到着確認へアクセスできなくなり、旧暗号文は発行側の期限で回収する。[CloudflareのSQLiteストレージ](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)、[アラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
+
+Worker単体の状態遷移と回帰は検証済み。Appの暗号文生成・検証、再試行、実環境の確認は後続で行う。[ローカル検証](../../validation/history/招待返信の手動共有.md#遠距離の招待返信を交互の接続で受け渡す)

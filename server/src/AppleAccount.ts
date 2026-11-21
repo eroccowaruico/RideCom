@@ -4,6 +4,7 @@ import { errors, jwtVerify } from 'jose'
 import { Env, json, readJSON } from './types'
 import { certifyDevice } from './DeviceIdentity'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
+import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket } from './AccountOrdinaryGroupReplies'
 import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
 import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type EnrollmentPolicy, type VerifiedAppAttestKey } from './AppAttestEnrollment'
 
@@ -82,6 +83,27 @@ export class AppleAuthAttempt extends DurableObject<Env> {
 export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
     private readonly contactDeletions = new AccountContactDeletions(this.ctx.storage)
+    private readonly ordinaryGroupReplies = new AccountOrdinaryGroupReplies(this.ctx.storage)
+
+    async ordinaryGroupReplyOpen(auth: NotificationAuth, slot: string, expiresAt: number) {
+        if (!this.notifications.authorized(auth)) return 'unauthorized'
+        const result = this.ordinaryGroupReplies.open(auth.deviceID, slot, expiresAt)
+        if (result === 'ok') await this.scheduleExpiry()
+        return result
+    }
+    ordinaryGroupReplyInbox(auth: NotificationAuth, slot: string) {
+        return this.notifications.authorized(auth) ? this.ordinaryGroupReplies.inbox(auth.deviceID, slot) : null
+    }
+    ordinaryGroupReplyAcknowledge(auth: NotificationAuth, slot: string, packet: OrdinaryGroupReplyPacket) {
+        return this.notifications.authorized(auth) ? this.ordinaryGroupReplies.acknowledge(auth.deviceID, slot, packet) : 'unauthorized'
+    }
+    ordinaryGroupReplyAccept(owner: string, slot: string, recipient: string, packet: OrdinaryGroupReplyPacket) {
+        return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.accept(slot, recipient, packet) : 'missing'
+    }
+    ordinaryGroupReplyReceipt(owner: string, slot: string, recipient: string, id: string) {
+        return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.receipt(slot, recipient, id) : null
+    }
+
     async contactDeletionPublish(auth: NotificationAuth, slotHash: string, packet: ContactDeletionRelayPacket) {
         if (!this.notifications.authorized(auth)) return 'unauthorized'
         const state = this.contactDeletions.publish(auth, slotHash, packet)
@@ -339,6 +361,7 @@ export class UserAccount extends DurableObject<Env> {
                 this.ctx.storage.kv.delete('userID')
                 this.notifications.invalidateAll()
                 this.contactDeletions.clear()
+                this.ordinaryGroupReplies.clear()
                 for (const prefix of ['device:', 'room:']) for (const [key] of this.ctx.storage.kv.list({ prefix })) this.ctx.storage.kv.delete(key)
                 // The token is held only for deletion retries, never routine login.
                 this.ctx.storage.kv.put('deletion', { userID: userID ?? expectedUserID, deviceID, tokenHash, deletedAt: now, expiresAt: now + 86400000,
@@ -413,6 +436,7 @@ export class UserAccount extends DurableObject<Env> {
         this.notifications.prune()
         this.notifications.pruneUnstoredGroupCancellations()
         this.contactDeletions.prune()
+        this.ordinaryGroupReplies.prune()
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         if (preparation && preparation.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletionPreparation')
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
@@ -436,7 +460,7 @@ export class UserAccount extends DurableObject<Env> {
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         const pending = !!receipt?.appleToken || !!receipt?.rooms?.length
-        const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(),
+        const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(), ...this.ordinaryGroupReplies.deadlines(),
             ...devices.map(device => Math.min(device.expiresAt, device.attestationChallenge?.expiresAt ?? Infinity,
                 device.attestation?.expiresAt ?? Infinity)), ...(preparation ? [preparation.expiresAt] : []),
             ...(receipt?.appleToken && receipt.retryAt !== undefined && (receipt.attempts ?? 0) <= retryDelays.length ? [receipt.retryAt] : []),
