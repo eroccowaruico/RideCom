@@ -2,15 +2,15 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import plistlib
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -19,23 +19,27 @@ SPEC = importlib.util.spec_from_file_location('validation', Path(__file__).resol
 
 class ValidationTests(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
+        if SPEC is None or SPEC.loader is None:
+            raise ImportError('Unable to load validation runner')
         cls.module = importlib.util.module_from_spec(SPEC)
         SPEC.loader.exec_module(cls.module)
         from scripts import xcode_paths
         cls.paths = xcode_paths
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.runner = self.module.Runner(Path(self.temporary.name) / 'run', timeout=1)
 
-    def test_storekit_plan_selects_local_catalog_and_isolated_fixture(self):
+    def test_storekit_plan_selects_local_catalog_and_isolated_fixture(self) -> None:
         import xml.etree.ElementTree as ET
         root = Path(__file__).resolve().parents[2]
         scheme = ET.parse(root / 'RideIntercom.xcodeproj/xcshareddata/xcschemes/RideIntercom-StoreKitTests.xcscheme')
         reference = scheme.find('TestAction/TestPlans/TestPlanReference')
         self.assertIsNotNone(reference)
+        if reference is None:
+            raise AssertionError('Missing test plan reference')
         plan_path = root / reference.attrib['reference'].removeprefix('container:')
         plan = json.loads(plan_path.read_text())
         options = plan['defaultOptions']
@@ -50,7 +54,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(target['identifier'], '93F300D82F93829D0046716D')
         self.assertEqual(target['containerPath'], 'container:RideIntercom.xcodeproj')
 
-    def test_failure_blocks_dependent_but_not_independent_stage(self):
+    def test_failure_blocks_dependent_but_not_independent_stage(self) -> None:
         self.assertFalse(self.runner.run('prepare', [sys.executable, '-c', 'raise SystemExit(3)']))
         marker = Path(self.temporary.name) / 'should-not-exist'
         self.assertFalse(self.runner.run('dependent', [sys.executable, '-c', f'open({str(marker)!r}, "w").close()'], needs=['prepare']))
@@ -59,17 +63,17 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.runner.results['dependent']['status'], 'blocked')
         self.assertNotEqual(self.runner.exit_code, 0)
 
-    def test_missing_command_and_output_collision_are_failures(self):
+    def test_missing_command_and_output_collision_are_failures(self) -> None:
         self.assertFalse(self.runner.run('missing', ['/no/such/rideintercom-command']))
         with self.assertRaises(FileExistsError):
             self.module.Runner(self.runner.out)
 
-    def test_iphone_test_stage_has_its_own_limit_unless_one_is_requested(self):
+    def test_iphone_test_stage_has_its_own_limit_unless_one_is_requested(self) -> None:
         self.assertEqual(self.module.ios_tests_timeout({}), self.module.IOS_TESTS_SECONDS)
         self.assertGreater(self.module.IOS_TESTS_SECONDS, 4307)
         self.assertIsNone(self.module.ios_tests_timeout({'VALIDATION_TIMEOUT_SECONDS': '600'}))
 
-    def test_selected_ios_suites_keep_recovery_and_regular_width_on_their_own_stages(self):
+    def test_selected_ios_suites_keep_recovery_and_regular_width_on_their_own_stages(self) -> None:
         contact = 'RideIntercomTests/ContactReplyTests'
         design = 'RideIntercomUITests/DesignSystemCallUITests'
         recovery = 'RideIntercomUITests/RideIntercomUITests/testCorruptGroupStoreRecovery'
@@ -79,7 +83,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(partition([ipad + '()']), ([], [], [ipad]))
         self.assertEqual(partition([contact]), ([contact], [], []))
 
-    def test_selected_results_identify_missing_selectors_and_unexpected_tests(self):
+    def test_selected_results_identify_missing_selectors_and_unexpected_tests(self) -> None:
         cases = [{'nodeType': 'Test Case', 'nodeIdentifier': identifier, 'result': 'Passed'}
                  for identifier in ['ContactTests/reply(retrying:)', 'ContactTests/accept()', 'OtherTests/unrelated()']]
         result = {'testNodes': [{'nodeType': 'Test Plan', 'children': [
@@ -96,7 +100,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(coverage['unexpected'], ['RideIntercomTests/OtherTests/unrelated()'])
         self.assertEqual(len(coverage['executed']), 3)
 
-    def test_nested_swift_testing_selectors_preserve_suite_path_and_method_signature(self):
+    def test_nested_swift_testing_selectors_preserve_suite_path_and_method_signature(self) -> None:
         matches = self.module.includes_test
         suite = 'RideIntercomTests/AppTests/RealtimeConversationTests'
         self.assertTrue(matches(suite, suite + '/receiverReports()'))
@@ -107,7 +111,7 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(matches(suite + '/shortReplies(duration:)', suite + '/shortReplies(sensitivity:)'))
         self.assertFalse(matches(suite + '/receiverReports()', 'RideIntercomTests/AppTests/OtherTests/receiverReports()'))
 
-    def test_selection_is_a_separate_gate_even_when_xcode_succeeds(self):
+    def test_selection_is_a_separate_gate_even_when_xcode_succeeds(self) -> None:
         present = 'RideIntercomTests/ContactTests/accept'
         missing = 'RideIntercomTests/ContactTests/missing'
         case = {'nodeType': 'Test Case', 'nodeIdentifier': 'ContactTests/accept()', 'result': 'Passed'}
@@ -123,7 +127,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.runner.results['macos-tests-selection']['status'], 'failed')
         self.assertEqual(self.runner.exit_code, 1)
 
-    def test_focused_ios_routing_uses_only_requested_simulators(self):
+    def test_focused_ios_routing_uses_only_requested_simulators(self) -> None:
         from contextlib import nullcontext
         contact = 'RideIntercomTests/ContactReplyTests'
         ipad = self.module.IPAD_ONLY_TESTS[0]
@@ -150,7 +154,7 @@ class ValidationTests(unittest.TestCase):
                                          needs=['webrtc-artifact', 'ipad-ready'], reuse_build=None,
                                          verify_selection=True)
 
-    def test_timeout_kills_owned_child_process_group(self):
+    def test_timeout_kills_owned_child_process_group(self) -> None:
         child = Path(self.temporary.name) / 'child.pid'
         code = ('import subprocess,time; p=subprocess.Popen(["sleep","60"]); '
                 f'open({str(child)!r},"w").write(str(p.pid)); time.sleep(60)')
@@ -158,10 +162,10 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.runner.results['timeout']['status'], 'timeout')
         pid = int(child.read_text())
         # A terminated child may briefly be a zombie until its parent is reaped.
-        state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+        state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True, check=False).stdout.strip()
         self.assertTrue(not state or state.startswith('Z'), state)
 
-    def test_timeout_reaps_separate_session_child_without_touching_unrelated_process(self):
+    def test_timeout_reaps_separate_session_child_without_touching_unrelated_process(self) -> None:
         marker = Path(self.temporary.name) / 'separate-session.pid'
         child_code = ('import os,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); '
                       f'open({str(marker)!r}, "w").write(str(os.getpid())); time.sleep(60)')
@@ -174,7 +178,7 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(self.runner.results['separate']['status'], 'timeout')
             self.assertEqual(self.runner.results['separate']['exit_code'], 124)
             self.assertIsNone(unrelated.poll())
-            state = subprocess.run(['ps', '-o', 'stat=', '-p', marker.read_text()], capture_output=True, text=True).stdout.strip()
+            state = subprocess.run(['ps', '-o', 'stat=', '-p', marker.read_text()], capture_output=True, text=True, check=False).stdout.strip()
             self.assertTrue(not state or state.startswith('Z'), state)
             self.assertFalse(self.runner.run('dependent', [sys.executable, '-c', 'pass'], needs=['separate']))
             self.assertTrue(self.runner.run('independent', [sys.executable, '-c', 'pass']))
@@ -184,7 +188,7 @@ class ValidationTests(unittest.TestCase):
                 # Recover the deliberately leaked red fixture, never by executable name.
                 if marker.exists():
                     pid = int(marker.read_text())
-                    command = subprocess.run(['ps', '-ww', '-o', 'command=', '-p', str(pid)], capture_output=True, text=True).stdout
+                    command = subprocess.run(['ps', '-ww', '-o', 'command=', '-p', str(pid)], capture_output=True, text=True, check=False).stdout
                     if str(marker) in command:
                         try:
                             os.kill(pid, signal.SIGKILL)
@@ -194,7 +198,7 @@ class ValidationTests(unittest.TestCase):
                 unrelated.kill()
                 unrelated.wait(timeout=5)
 
-    def test_zero_skipped_and_failed_tests_are_rejected(self):
+    def test_zero_skipped_and_failed_tests_are_rejected(self) -> None:
         for output in ['Ran 0 tests\nOK', 'Ran 2 tests\nOK (skipped=1)',
                        'Test run with 0 tests passed', '# tests 2\n# pass 1\n# fail 1\n# skipped 0']:
             self.assertFalse(self.module.tests_passed(output), output)
@@ -203,24 +207,24 @@ class ValidationTests(unittest.TestCase):
                        '# tests 2\n# pass 2\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0']:
             self.assertTrue(self.module.tests_passed(output), output)
 
-    def test_missing_or_skipped_xcresult_is_rejected(self):
+    def test_missing_or_skipped_xcresult_is_rejected(self) -> None:
         self.assertFalse(self.module.xcode_tests_passed({}))
         self.assertFalse(self.module.xcode_tests_passed({'totalTestCount': 2, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 1}))
         self.assertTrue(self.module.xcode_tests_passed({'totalTestCount': 2, 'passedTests': 2, 'failedTests': 0, 'skippedTests': 0}))
 
-    def test_required_swift_version_is_not_just_a_present_binary(self):
+    def test_required_swift_version_is_not_just_a_present_binary(self) -> None:
         for version in ['Apple Swift version 6.2', '', 'swift-driver version: 1.1']:
             self.assertFalse(self.module.swift_supported(version))
         self.assertTrue(self.module.swift_supported('Apple Swift version 6.3 (swiftlang)'))
         self.assertTrue(self.module.swift_supported('Swift version 7.0'))
 
-    def test_passing_tests_with_runtime_faults_are_rejected(self):
+    def test_passing_tests_with_runtime_faults_are_rejected(self) -> None:
         summary = {'totalTestCount': 2, 'passedTests': 2, 'failedTests': 0, 'skippedTests': 0}
         for field in ['runtimeWarnings', 'testFailures']:
             self.assertFalse(self.module.xcode_tests_passed({**summary, field: [{'message': 'native runtime fault'}]}))
         self.assertTrue(self.module.xcode_tests_passed({**summary, 'runtimeWarnings': [], 'testFailures': []}))
 
-    def test_interrupt_records_failure_and_stops_owned_children(self):
+    def test_interrupt_records_failure_and_stops_owned_children(self) -> None:
         folder = Path(self.temporary.name) / 'interrupt'
         marker = Path(self.temporary.name) / 'interrupt-child.pid'
         leaf_code = f'import os,time; open({str(marker)!r}, "w").write(str(os.getpid())); time.sleep(60)'
@@ -241,20 +245,20 @@ class ValidationTests(unittest.TestCase):
             process.send_signal(signal.SIGINT)
             self.assertEqual(process.wait(timeout=5), 130)
             self.assertEqual(json.loads((folder / 'results.json').read_text())['child']['status'], 'interrupted')
-            state = subprocess.run(['ps', '-o', 'stat=', '-p', marker.read_text()], capture_output=True, text=True).stdout.strip()
+            state = subprocess.run(['ps', '-o', 'stat=', '-p', marker.read_text()], capture_output=True, text=True, check=False).stdout.strip()
             self.assertTrue(not state or state.startswith('Z'))
         finally:
             if process.poll() is None:
                 process.kill(); process.wait()
 
-    def test_cleanup_failure_preserves_timeout_status_and_exit_code(self):
+    def test_cleanup_failure_preserves_timeout_status_and_exit_code(self) -> None:
         with patch.object(self.module, 'stop_process_tree', side_effect=RuntimeError('fixture cleanup failed')):
             self.assertFalse(self.runner.run('cleanup-failure', [sys.executable, '-c', 'import time; time.sleep(60)'], timeout=0.05))
         result = self.runner.results['cleanup-failure']
         self.assertEqual((result['status'], result['exit_code']), ('timeout', 124))
         self.assertIn('fixture cleanup failed', result['reason'])
 
-    def test_results_preserve_command_and_failure(self):
+    def test_results_preserve_command_and_failure(self) -> None:
         self.runner.run('bad', [sys.executable, '-c', 'raise SystemExit(7)'])
         saved = json.loads((self.runner.out / 'results.json').read_text())
         self.assertEqual(saved['bad']['exit_code'], 7)
@@ -274,9 +278,9 @@ class ValidationTests(unittest.TestCase):
         product = 'RideIntercomWatch.app' if scheme == 'RideIntercomWatch' else 'RideIntercom.app'
         products = Path(self.temporary.name) / 'Xcode Default/Build/Products'
         target_dir = products / (configuration + ('' if platform == 'macosx' else '-' + platform))
-        settings = dict(BUILD_DIR=str(products), TARGET_BUILD_DIR=str(target_dir),
-                        FULL_PRODUCT_NAME=product, CONFIGURATION=configuration,
-                        PLATFORM_NAME=platform, RIDEINTERCOM_STORAGE_NAMESPACE=namespace)
+        settings = {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(target_dir),
+                        'FULL_PRODUCT_NAME': product, 'CONFIGURATION': configuration,
+                        'PLATFORM_NAME': platform, 'RIDEINTERCOM_STORAGE_NAMESPACE': namespace}
         def run(stage, command, **kwargs):
             commands[stage] = command
             code = 'pass'
@@ -323,7 +327,7 @@ class ValidationTests(unittest.TestCase):
                               scheme=scheme)
         return commands, marker
 
-    def test_watch_scheme_uses_selected_host_and_watchsimulator_run(self):
+    def test_watch_scheme_uses_selected_host_and_watchsimulator_run(self) -> None:
         commands, marker = self.xcode_fixture('watch-tests', 'platform=watchOS Simulator,id=owned',
                                              scheme='RideIntercomWatch', stale_platform=True)
         self.assertTrue(marker.exists())
@@ -333,7 +337,7 @@ class ValidationTests(unittest.TestCase):
         report = json.loads((self.runner.out / 'watch-tests-host-preflight.json').read_text())
         self.assertTrue(all('/RideIntercomWatch.app/' in path for path in report['hostInfoPaths']))
 
-    def test_recovery_reuses_standard_build_and_checks_its_actual_host(self):
+    def test_recovery_reuses_standard_build_and_checks_its_actual_host(self) -> None:
         commands, marker = self.xcode_fixture('ios-tests', 'platform=iOS Simulator,id=owned')
         self.assertTrue(marker.exists())
         commands2, marker2 = self.xcode_fixture('ios-recovery', 'platform=iOS Simulator,id=owned', reuse_build='ios-tests')
@@ -360,7 +364,7 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(marker3.exists())
         self.assertEqual(self.runner.results['stale-recovery']['status'], 'blocked')
 
-    def test_invalid_generated_hosts_never_launch(self):
+    def test_invalid_generated_hosts_never_launch(self) -> None:
         faults = ['RideIntercom', 'RideIntercom.Validation.other.run', '$(RIDEINTERCOM_STORAGE_NAMESPACE)', '',
                   'missing-namespace', 'missing-info', 'broken', 'credential', 'outside-host', 'unknown-host-root',
                   'missing-run', 'build-failure']
@@ -381,7 +385,7 @@ class ValidationTests(unittest.TestCase):
             self.assertFalse(any(arg.startswith(('CODE_SIGN_', 'ENABLE_APP_SANDBOX=')) for arg in commands['macos-tests-build']))
         self.assertNotIn('must-not-appear-in-diagnostics', (self.runner.out / 'results.json').read_text())
 
-    def test_specialized_scheme_uses_its_native_configuration_and_host_gate(self):
+    def test_specialized_scheme_uses_its_native_configuration_and_host_gate(self) -> None:
         commands, marker = self.xcode_fixture('storekit', 'platform=macOS', scheme='RideIntercom-StoreKitTests',
             only_tests=['RideIntercomTests/LocalStoreKitTests', 'RideIntercomTests/StoreKitAccessTests'])
         self.assertTrue(marker.exists())
@@ -401,13 +405,13 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(execution[execution.index('-testPlan') + 1], 'StoreKit')
         self.assertNotIn('-xctestrun', execution)
 
-    def test_newer_xctestrun_for_other_platform_is_not_selected(self):
+    def test_newer_xctestrun_for_other_platform_is_not_selected(self) -> None:
         commands, marker = self.xcode_fixture('ios-tests', 'platform=iOS Simulator,id=owned', stale_platform=True)
         self.assertTrue(marker.exists())
         command = commands['ios-tests']
         self.assertIn('_iphonesimulator_fixture.xctestrun', command[command.index('-xctestrun') + 1])
 
-    def test_test_host_paths_allow_double_underscores_in_build_products(self):
+    def test_test_host_paths_allow_double_underscores_in_build_products(self) -> None:
         products = Path(self.temporary.name) / 'Build__Products'
         app = products / 'Debug-Validation-iphonesimulator/RideIntercom.app'
         app.mkdir(parents=True)
@@ -423,11 +427,11 @@ class ValidationTests(unittest.TestCase):
                 metadata = self.module.test_host_metadata(test_run, namespace)
                 self.assertEqual(metadata['hostInfoPaths'], [str(info.resolve())])
 
-    def test_explicit_plan_cannot_fall_back_to_an_old_scheme_run(self):
+    def test_explicit_plan_cannot_fall_back_to_an_old_scheme_run(self) -> None:
         products = Path(self.temporary.name) / 'Products'
         products.mkdir()
         app = products / 'Debug-Validation/RideIntercom.app'
-        settings = dict(BUILD_DIR=str(products), TARGET_BUILD_DIR=str(app.parent), FULL_PRODUCT_NAME=app.name)
+        settings = {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(app.parent), 'FULL_PRODUCT_NAME': app.name}
         scheme = 'RideIntercom-StoreKitTests'
         stale = products / (scheme + '_old.xctestrun')
         stale.write_bytes(plistlib.dumps({'TestPlan': {'Name': scheme},
@@ -440,18 +444,18 @@ class ValidationTests(unittest.TestCase):
             'TestConfigurations': [{'TestTargets': [{'TestHostPath': str(app)}]}]}))
         self.assertEqual(self.paths.select_test_run(settings, scheme), empty)
 
-    def test_scheme_actions_use_the_native_shared_configurations(self):
+    def test_scheme_actions_use_the_native_shared_configurations(self) -> None:
         self.assertEqual(self.paths.scheme_configuration(self.module.ROOT, 'RideIntercom'), 'Debug-Validation')
         for scheme in ['RideIntercom-StoreKitTests', 'RideIntercom-StoreKitUITests']:
             self.assertEqual(self.paths.scheme_configuration(self.module.ROOT, scheme), 'Debug-Validation')
         self.assertEqual(self.paths.scheme_configuration(self.module.ROOT, 'RideIntercom', 'LaunchAction'), 'Debug')
 
-    def test_build_settings_keep_only_paths_and_reject_other_platform(self):
+    def test_build_settings_keep_only_paths_and_reject_other_platform(self) -> None:
         products = Path(self.temporary.name) / 'Build/Products'
-        values = dict(BUILD_DIR=str(products), TARGET_BUILD_DIR=str(products / 'Debug-Validation'),
-                      FULL_PRODUCT_NAME='RideIntercom.app', CONFIGURATION='Debug-Validation',
-                      PLATFORM_NAME='macosx', RIDEINTERCOM_STORAGE_NAMESPACE='RideIntercom.Validation.Xcode',
-                      RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN='must-not-appear-in-diagnostics')
+        values = {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(products / 'Debug-Validation'),
+                      'FULL_PRODUCT_NAME': 'RideIntercom.app', 'CONFIGURATION': 'Debug-Validation',
+                      'PLATFORM_NAME': 'macosx', 'RIDEINTERCOM_STORAGE_NAMESPACE': 'RideIntercom.Validation.Xcode',
+                      'RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN': 'must-not-appear-in-diagnostics'}
         result = SimpleNamespace(returncode=0, stdout=json.dumps([{'target': 'RideIntercom', 'buildSettings': values}]))
         with patch.object(self.paths.subprocess, 'run', return_value=result) as query:
             settings = self.paths.xcode_build_settings(self.module.ROOT, 'RideIntercom', 'platform=macOS', 'Debug-Validation')
@@ -466,7 +470,7 @@ class ValidationTests(unittest.TestCase):
                 self.paths.xcode_build_settings(self.module.ROOT, 'RideIntercom', 'platform=macOS', 'Debug-Validation')
             self.assertNotIn('must-not-appear-in-diagnostics', str(error.exception))
 
-    def test_malformed_scheme_is_a_controlled_configuration_failure(self):
+    def test_malformed_scheme_is_a_controlled_configuration_failure(self) -> None:
         root = Path(self.temporary.name)
         folder = root / 'RideIntercom.xcodeproj/xcshareddata/xcschemes'
         folder.mkdir(parents=True)
@@ -474,20 +478,20 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.paths.scheme_configuration(root, 'Broken')
 
-    def test_recovery_cannot_reuse_a_build_for_another_platform(self):
+    def test_recovery_cannot_reuse_a_build_for_another_platform(self) -> None:
         _, marker = self.xcode_fixture('ios-tests', 'platform=iOS Simulator,id=owned')
         self.assertTrue(marker.exists())
         _, marker = self.xcode_fixture('wrong-platform-recovery', 'platform=macOS', reuse_build='ios-tests')
         self.assertFalse(marker.exists())
         self.assertEqual(self.runner.results['wrong-platform-recovery-build-settings']['status'], 'failed')
 
-    def test_clean_uses_standard_package_outputs_and_reuses_rtc_for_pair(self):
+    def test_clean_uses_standard_package_outputs_and_reuses_rtc_for_pair(self) -> None:
         commands = []
         def command(stage, argv, **kwargs):
             commands.append((stage, argv))
             blocked = [need for need in kwargs.get('needs', []) if self.runner.results.get(need, {}).get('status') != 'passed']
             return self.runner.record(stage, argv, 'blocked' if blocked else 'passed', None if blocked else 0, time.monotonic())
-        def snapshot(out):
+        def snapshot(out: Path) -> None:
             (out / 'inputs.json').write_text('{}')
         with patch.object(sys, 'argv', ['validate.py', 'headless', '--clean']), \
              patch.object(self.module, 'Runner', return_value=self.runner), \
@@ -507,7 +511,7 @@ class ValidationTests(unittest.TestCase):
         self.assertIn('RideIntercom/packages/RTC', rtc)
         self.assertIn('swift-worker-pair', self.runner.results)
 
-    def test_pair_only_clean_failure_blocks_pair_without_custom_scratch(self):
+    def test_pair_only_clean_failure_blocks_pair_without_custom_scratch(self) -> None:
         def command(stage, argv, **kwargs):
             blocked = any(self.runner.results.get(need, {}).get('status') != 'passed' for need in kwargs.get('needs', []))
             status = 'blocked' if blocked else 'failed' if stage == 'package-RTC-clean' else 'passed'
@@ -520,8 +524,9 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.runner.results['swift-worker-pair']['status'], 'blocked')
         self.assertNotIn('package-RTC', self.runner.results)
 
-    def test_storekit_entry_uses_standard_scheme_and_shared_test_lease(self):
+    def test_storekit_entry_uses_standard_scheme_and_shared_test_lease(self) -> None:
         from contextlib import nullcontext
+
         from scripts import validate_storekit
         with patch.object(sys, 'argv', ['validate_storekit.py', '--output', str(self.runner.out)]), \
              patch.object(validate_storekit, 'Runner', return_value=self.runner), \
@@ -537,7 +542,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(lease.call_args.args[0], Path(self.temporary.name) / 'resources/run.lock')
         coverage.assert_called_once_with(self.runner, self.runner.out / 'storekit.xcresult')
 
-    def test_storekit_selection_rejects_missing_real_purchase_cases_even_when_other_suites_run(self):
+    def test_storekit_selection_rejects_missing_real_purchase_cases_even_when_other_suites_run(self) -> None:
         from scripts import validate_storekit
         cases = [{'nodeType': 'Test Case', 'nodeIdentifier': suite + '/fixture()', 'result': 'Passed'}
                  for suite in validate_storekit.SUITES]
@@ -550,11 +555,11 @@ class ValidationTests(unittest.TestCase):
             validate_storekit.record_selection_coverage(self.runner, self.runner.out / 'fixture.xcresult')
             self.assertEqual(self.runner.results['storekit-selection-coverage']['status'], 'passed')
 
-    def test_macos_validation_holds_the_same_audio_test_lease(self):
+    def test_macos_validation_holds_the_same_audio_test_lease(self) -> None:
         from contextlib import contextmanager
         entered = []
         @contextmanager
-        def lease(path):
+        def lease(path: Path):
             entered.append(path)
             yield
             entered.pop()
@@ -571,7 +576,7 @@ class ValidationTests(unittest.TestCase):
              patch.object(self.runner, 'xcode', side_effect=xcode), patch.dict(os.environ):
             self.assertEqual(self.module.main(), 0)
 
-    def test_launch_verification_matches_physical_path_with_spaces(self):
+    def test_launch_verification_matches_physical_path_with_spaces(self) -> None:
         root = Path(self.temporary.name)
         scripts = root / 'workspace/scripts'
         scripts.mkdir(parents=True)
@@ -608,7 +613,7 @@ class ValidationTests(unittest.TestCase):
                                    'FULL_PRODUCT_NAME': 'RideIntercom.app', 'CONFIGURATION': 'Debug',
                                    'PLATFORM_NAME': 'macosx', 'RIDEINTERCOM_STORAGE_NAMESPACE': 'RideIntercom',
                                    'RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN': 'must-not-appear-in-diagnostics'}}]))
-        result = subprocess.run([str(entry), '--verify'], env=environment, capture_output=True, text=True, timeout=10)
+        result = subprocess.run([str(entry), '--verify'], env=environment, capture_output=True, text=True, timeout=10, check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(str(output.resolve()), result.stdout)
         self.assertEqual((root / 'open.log').read_text().splitlines(), [str(binary.parents[2])])
@@ -617,7 +622,7 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn('must-not-appear-in-diagnostics', result.stdout + result.stderr)
 
 
-    def test_build_number_advance_preserves_source_fingerprint_but_keeps_raw_evidence(self):
+    def test_build_number_advance_preserves_source_fingerprint_but_keeps_raw_evidence(self) -> None:
         path = Path(self.temporary.name) / 'RideIntercom.xcodeproj/project.pbxproj'
         path.parent.mkdir()
         path.write_text('CURRENT_PROJECT_VERSION = 315;\nCURRENT_PROJECT_VERSION = 315;\nSETTING = keep;\n')
@@ -628,7 +633,7 @@ class ValidationTests(unittest.TestCase):
         self.assertNotEqual(before['sha256'], after['sha256'])
         self.assertTrue(self.module.fingerprints_match({key: before}, {key: after}))
 
-    def test_build_number_exception_does_not_hide_other_changes_or_invalid_numbers(self):
+    def test_build_number_exception_does_not_hide_other_changes_or_invalid_numbers(self) -> None:
         path = Path(self.temporary.name) / 'RideIntercom.xcodeproj/project.pbxproj'
         path.parent.mkdir()
         original = 'CURRENT_PROJECT_VERSION = 315;\nCURRENT_PROJECT_VERSION = 315;\nSETTING = keep;\n'

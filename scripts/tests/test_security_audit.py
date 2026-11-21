@@ -1,4 +1,6 @@
 """Exercise the audit through a real index using synthetic inputs only."""
+from __future__ import annotations
+
 import json
 import os
 import subprocess
@@ -15,43 +17,43 @@ EMAIL = 'synthetic' + '@' + 'example.invalid'
 
 
 class StagedAuditTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.git('init', '-q')
 
-    def git(self, *args):
+    def git(self, *args: str) -> None:
         subprocess.run(['/usr/bin/git', *args], cwd=self.root, env=TEST_ENV, check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def stage(self, name, data):
+    def stage(self, name: str, data: bytes) -> None:
         (self.root / name).write_bytes(data)
         self.git('add', '--', name)
 
-    def check(self, code, *args, **options):
+    def check(self, code: int, *args: str, cwd: str | None = None, env: dict[str, str] | None = None) -> dict[str, object]:
         result = subprocess.run([sys.executable, '-I', '-S', str(CHECK), *args],
-                                cwd=options.pop('cwd', self.root), capture_output=True,
-                                env=options.pop('env', TEST_ENV), **options)
+                                cwd=self.root if cwd is None else cwd, capture_output=True,
+                                env=TEST_ENV if env is None else env, check=False)
         self.assertEqual(result.returncode, code)
         self.assertEqual(result.stderr, b'')
         return json.loads(result.stdout)
 
-    def test_empty_index_and_clean_staged_content(self):
+    def test_empty_index_and_clean_staged_content(self) -> None:
         self.assertEqual(self.check(0)['state'], 'empty')
         self.stage('guide.md', b'Use the local test fixture.')
         (self.root / 'guide.md').write_bytes(b'contact: ' + EMAIL.encode())
         report = self.check(0)
         self.assertEqual(report, {'state': 'checked', 'signals': []})
 
-    def test_only_fixed_categories_leave_the_process(self):
+    def test_only_fixed_categories_leave_the_process(self) -> None:
         pem = b'-----BEGIN ' + b'PRIVATE KEY-----'
         self.stage(EMAIL, pem + b'\n' + b'ghp_' + b'X' * 36)
         (self.root / EMAIL).write_bytes(b'already cleaned in the worktree')
         self.assertEqual(self.check(1), {'state': 'review', 'signals': [
             'credential', 'personal-data', 'private-key']})
 
-    def test_sensitive_container_and_uninspectable_content(self):
+    def test_sensitive_container_and_uninspectable_content(self) -> None:
         self.stage('.env', b'fixture')
         self.stage('binary', b'\0fixture')
         self.stage('large', b'a' * (2 * 1024 * 1024 + 1))
@@ -60,7 +62,7 @@ class StagedAuditTests(unittest.TestCase):
         self.assertEqual(self.check(1), {'state': 'review', 'signals': [
             'opaque', 'sensitive-file']})
 
-    def test_project_covers_unchanged_files_and_keeps_worktree_out_of_release(self):
+    def test_project_covers_unchanged_files_and_keeps_worktree_out_of_release(self) -> None:
         self.stage('unchanged.md', b'contact: ' + EMAIL.encode())
         self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid',
                  'commit', '-qm', 'fixture')
@@ -69,7 +71,7 @@ class StagedAuditTests(unittest.TestCase):
         self.assertEqual(self.check(1, '--project'), {'state': 'review', 'signals': ['personal-data']})
         self.assertEqual(self.check(2, '--unexpected')['state'], 'unavailable')
 
-    def test_change_brief_distinguishes_removed_and_added_components(self):
+    def test_change_brief_distinguishes_removed_and_added_components(self) -> None:
         self.stage('notes.md', b'fixture')
         self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid',
                  'commit', '-qm', 'fixture')
@@ -80,15 +82,15 @@ class StagedAuditTests(unittest.TestCase):
         self.assertEqual(result, {'state': 'review', 'signals': ['personal-data'],
                                  'changes': {'other': ['remove'], 'server': ['add']}})
 
-    def oid(self, *args):
+    def oid(self, *args: str) -> str:
         return subprocess.check_output(['/usr/bin/git', *args], cwd=self.root,
                                        env=TEST_ENV, stderr=subprocess.DEVNULL).decode().strip()
 
-    def commit(self):
+    def commit(self) -> None:
         self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid',
                  'commit', '-qm', 'fixture')
 
-    def test_parallel_candidate_and_unrelated_commit_use_one_worktree(self):
+    def test_parallel_candidate_and_unrelated_commit_use_one_worktree(self) -> None:
         self.stage('guide', b'base')
         self.commit()
         base = self.oid('rev-parse', 'HEAD')
@@ -109,7 +111,7 @@ class StagedAuditTests(unittest.TestCase):
         self.stage('guide', b'different version')
         self.assertEqual(self.check(1, '--match-index', base, tree), {'state': 'changed'})
 
-    def test_pinned_project_and_candidate_do_not_follow_head(self):
+    def test_pinned_project_and_candidate_do_not_follow_head(self) -> None:
         self.stage('guide', b'safe')
         self.commit()
         base = self.oid('rev-parse', 'HEAD')
@@ -123,7 +125,7 @@ class StagedAuditTests(unittest.TestCase):
                      ('--changes', base, self.oid('rev-parse', 'HEAD:guide'))]:
             self.assertEqual(self.check(2, *args), {'state': 'unavailable', 'signals': []})
 
-    def test_matching_categories_are_insufficient_for_reuse(self):
+    def test_matching_categories_are_insufficient_for_reuse(self) -> None:
         self.stage('guide', b'base')
         self.commit()
         base = self.oid('rev-parse', 'HEAD')
@@ -134,23 +136,23 @@ class StagedAuditTests(unittest.TestCase):
         self.stage('guide', b'after')
         self.assertEqual(self.check(1, '--match-index', base, tree), {'state': 'changed'})
 
-    def test_failure_does_not_emit_path_or_git_diagnostics(self):
+    def test_failure_does_not_emit_path_or_git_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as outside:
             self.assertEqual(self.check(2, cwd=outside), {'state': 'unavailable', 'signals': []})
 
-    def test_nonstandard_index_is_not_certified_as_default(self):
+    def test_nonstandard_index_is_not_certified_as_default(self) -> None:
         self.stage('guide.md', b'fixture')
         self.assertEqual(self.check(2, env=dict(TEST_ENV, GIT_INDEX_FILE='/missing/' + EMAIL)),
                          {'state': 'unavailable', 'signals': []})
 
-    def test_renewed_snapshot_is_checked_again(self):
+    def test_renewed_snapshot_is_checked_again(self) -> None:
         self.stage('fixture', b'contact: ' + EMAIL.encode())
         self.assertEqual(self.check(1)['signals'], ['personal-data'])
         self.stage('fixture', b'public fixture')
         for _ in range(2):
             self.assertEqual(self.check(0), {'state': 'checked', 'signals': []})
 
-    def test_ambient_git_configuration_cannot_redirect_the_scan(self):
+    def test_ambient_git_configuration_cannot_redirect_the_scan(self) -> None:
         self.stage('guide.md', b'contact: ' + EMAIL.encode())
         env = dict(TEST_ENV, GIT_TRACE='1', GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.pager',
                    GIT_CONFIG_VALUE_0='cat')
