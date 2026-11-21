@@ -325,37 +325,127 @@ const replyPath = '/api/ordinary-group-replies';
 const replySlot = () => randomBytes(32).toString('hex');
 const replyPacket = () => randomBytes(64).toString('base64');
 
+async function signReplyDevice(runtime, user, memberID) {
+    const key = await generateKeyPair('ES256', { extractable: true });
+    const jwk = await exportJWK(key.publicKey);
+    const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+    const issued = await call(runtime, '/api/auth/identity', { memberID, deviceKey: publicKey }, user.accessToken);
+    assert.equal(issued.status, 200);
+    const certificate = await issued.json();
+    const hash = value => createHash('sha256').update(value).digest('hex');
+    const sessionBinding = hash(hash(user.accessToken.split('.')[3]));
+    const proof = async (purpose, payload) => {
+        const fields = [purpose, memberID, publicKey, certificate.certificate, certificate.issuerKey, payload];
+        const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
+        for (const field of fields) {
+            const value = Buffer.from(field), length = Buffer.alloc(4);
+            length.writeUInt32BE(value.length);
+            parts.push(length, value);
+        }
+        const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, Buffer.concat(parts));
+        return { publicKey, certificate, signature: Buffer.from(signature).toString('base64url') };
+    };
+    return { sessionBinding, proof };
+}
+
+test('a background contact acceptance is limited to the originally signed reply and current device', async () => {
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-background-reply-'));
+    const r = await makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false',
+        DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) },
+        { appleKeys: [publicKey], trackReplyStorage: true, storageDirectory });
+    try {
+        const a = await enrolled(r, 'background-reply-author'), b = await enrolled(r, 'background-reply-recipient');
+        const author = await signReplyDevice(r, a, 'background-reply-author');
+        const receiver = await signReplyDevice(r, b, 'background-reply-recipient');
+        const origin = 'https://worker.test';
+        const slot = replySlot(), expiresAt = Date.now() + 60_000;
+        const signedAdmission = async (mailbox, expiry) => ({
+            deviceID: a.deviceID, sessionBinding: author.sessionBinding, expiresAt: expiry,
+            proof: await author.proof('openContactInvitationReply', JSON.stringify([origin, author.sessionBinding, mailbox, expiry]))
+        });
+        const value = { owner: a.userID, slot, expiresAt, id: randomUUID(), packet: replyPacket(), admission: await signedAdmission(slot, expiresAt) };
+        const signed = async (body = value, target = origin, purpose = 'submitBackgroundContactInvitationAcceptance') => {
+            const submission = Buffer.from(JSON.stringify(body)).toString('base64');
+            return { senderUserID: b.userID, deviceID: b.deviceID, sessionBinding: receiver.sessionBinding, submission,
+                proof: await receiver.proof(purpose, JSON.stringify([target, receiver.sessionBinding, submission])) };
+        };
+        const endpoint = replyPath + '/background-acceptance';
+        const submit = body => call(r, endpoint, body);
+        const inbox = () => call(r, replyPath + '/inbox', { slot }, a.accessToken);
+        const exact = await signed();
+        assert.equal((await inbox()).status, 404);
+        const first = await submit(exact);
+        assert.equal(first.status, 200);
+        assert.deepEqual(await first.json(), { id: value.id, expiresAt });
+        const accounts = await r.getDurableObjectNamespace('USER_ACCOUNT');
+        const account = accounts.get(accounts.idFromString(a.accessToken.split('.')[1]));
+        const before = JSON.parse(await account.replyStorageState());
+        assert.equal((await submit(exact)).status, 200);
+        assert.deepEqual(JSON.parse(await account.replyStorageState()), before);
+        for (const changed of [{ slot: replySlot() }, { expiresAt: expiresAt + 1 }, { id: randomUUID() }, { owner: b.userID }, { packet: replyPacket() }]) {
+            assert.equal((await submit({ ...exact, submission: Buffer.from(JSON.stringify({ ...value, ...changed })).toString('base64') })).status, 401);
+        }
+        assert.equal((await submit(await signed(value, 'https://foreign.test'))).status, 401);
+        assert.equal((await submit(await signed(value, origin, 'submitBackgroundGroupInvitation'))).status, 401);
+        for (const action of ['/acceptance', '/acknowledgement', '/inbox', '/receipt']) {
+            const method = action === '/inbox' || action === '/receipt' ? 'POST' : 'PUT';
+            assert.equal((await call(r, replyPath + action, exact, undefined, method)).status, 401);
+        }
+        assert.equal((await submit(await signed({ ...value, admission: undefined, expiresAt: expiresAt + 1 }))).status, 409);
+        assert.equal((await submit(await signed({ ...value, admission: undefined, expiresAt: Date.now() - 1 }))).status, 400);
+        const extraName = 'SyntheticPrivateReplyName';
+        assert.equal((await submit(await signed({ ...value, extraName }))).status, 400);
+        assert.deepEqual(await (await inbox()).json(), { acceptances: [{ id: value.id, packet: value.packet }] });
+        const files = (await readdir(storageDirectory, { recursive: true }))
+            .filter(path => path.includes('UserAccount') && /\.sqlite(?:-wal)?$/.test(path));
+        assert.ok(files.length > 0, 'Account relay storage must be observed');
+        const persisted = Buffer.concat(await Promise.all(files.map(path => readFile(join(storageDirectory, path)))));
+        assert.ok(persisted.includes(Buffer.from(value.packet)), 'Inspect storage that actually contains the ciphertext');
+        for (const nonStored of [extraName, slot, exact.submission, exact.proof.signature, a.accessToken, b.accessToken]) {
+            assert.ok(!persisted.includes(Buffer.from(nonStored)), 'An unneeded input must not be persisted');
+        }
+        const receipt = { id: value.id, packet: replyPacket() };
+        assert.equal((await call(r, replyPath + '/acknowledgement', { slot, ...receipt }, a.accessToken, 'PUT')).status, 200);
+        assert.equal((await submit(exact)).status, 200);
+        const lookup = { owner: a.userID, slot, id: value.id };
+        assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, b.accessToken)).json(), { receipt });
+        assert.equal((await submit(await signed({ ...value, admission: undefined }))).status, 200);
+        assert.equal((await submit(await signed({ ...value, expiresAt: expiresAt + 1 }))).status, 400);
+
+        const unopenedSlot = replySlot();
+        const oldAdmission = await signedAdmission(unopenedSlot, expiresAt);
+        const updatedAuthor = await signIn(r, await challenge(r, a.deviceID), { sub: 'background-reply-author' });
+        assert.equal(updatedAuthor.status, 200);
+        assert.equal((await submit(exact)).status, 200, 'a current receiver can use a matching existing mailbox');
+        assert.equal((await submit(await signed({ ...value, slot: unopenedSlot, admission: oldAdmission }))).status, 401);
+
+        const renewed = await signIn(r, await challenge(r, b.deviceID), { sub: 'background-reply-recipient' });
+        assert.equal(renewed.status, 200);
+        assert.equal((await submit(exact)).status, 401);
+        const current = await renewed.json();
+        const next = await signReplyDevice(r, current, 'background-reply-recipient');
+        const proof = await next.proof('submitBackgroundContactInvitationAcceptance', JSON.stringify([origin, next.sessionBinding, exact.submission]));
+        const accepted = await submit({ ...exact, sessionBinding: next.sessionBinding, proof });
+        assert.equal(accepted.status, 200);
+        assert.deepEqual(await (await call(r, replyPath + '/receipt', lookup, current.accessToken)).json(), { receipt });
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
 test('a signed contact invitation admits an offline reply before its author opens a mailbox', async () => {
     const issuer = await generateKeyPair('ES256', { extractable: true });
-    const device = await generateKeyPair('ES256', { extractable: true });
     const r = await makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false',
         DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) }, { appleKeys: [publicKey], trackReplyStorage: true });
     try {
         const a = await enrolled(r, 'contact-author'), otherA = await enrolled(r, 'contact-author');
         const b = await enrolled(r, 'contact-recipient'), otherB = await enrolled(r, 'contact-recipient');
         const memberID = 'contact-author';
-        const jwk = await exportJWK(device.publicKey);
-        const deviceKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
-        const issued = await call(r, '/api/auth/identity', { memberID, deviceKey }, a.accessToken);
-        assert.equal(issued.status, 200);
-        const certificate = await issued.json();
-        const hash = value => createHash('sha256').update(value).digest('hex');
-        const sessionBinding = hash(hash(a.accessToken.split('.')[3]));
+        const author = await signReplyDevice(r, a, memberID);
         const slot = replySlot(), expiresAt = Date.now() + 60_000;
-        const permit = async (targetSlot, expiry = expiresAt, origin = 'https://worker.test') => {
-            const payload = JSON.stringify([origin, sessionBinding, targetSlot, expiry]);
-            const fields = ['openContactInvitationReply', memberID, deviceKey, certificate.certificate, certificate.issuerKey, payload];
-            const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
-            for (const field of fields) {
-                const value = Buffer.from(field), length = Buffer.alloc(4);
-                length.writeUInt32BE(value.length);
-                parts.push(length, value);
-            }
-            const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, device.privateKey, Buffer.concat(parts));
-            return { expiresAt: expiry, deviceID: a.deviceID, sessionBinding, proof: {
-                publicKey: deviceKey, certificate, signature: Buffer.from(signature).toString('base64url')
-            } };
-        };
+        const permit = async (targetSlot, expiry = expiresAt, origin = 'https://worker.test') => ({
+            expiresAt: expiry, deviceID: a.deviceID, sessionBinding: author.sessionBinding,
+            proof: await author.proof('openContactInvitationReply', JSON.stringify([origin, author.sessionBinding, targetSlot, expiry]))
+        });
         const first = { id: randomUUID(), packet: replyPacket() };
         const write = (action, body, user) => call(r, replyPath + action, body, user?.accessToken, 'PUT');
         const inbox = (user, mailbox = slot) => call(r, replyPath + '/inbox', { slot: mailbox }, user.accessToken);

@@ -23,8 +23,10 @@ export class AccountOrdinaryGroupReplies {
         return 'ok'
     }
 
-    accept(slot: string, recipient: string, value: OrdinaryGroupReplyPacket): OrdinaryGroupReplyStatus {
-        if (!this.mailbox(slot)) return 'missing'
+    accept(slot: string, recipient: string, value: OrdinaryGroupReplyPacket, expectedExpiry?: number): OrdinaryGroupReplyStatus {
+        const mailbox = this.mailbox(slot)
+        if (!mailbox) return 'missing'
+        if (expectedExpiry !== undefined && mailbox.expiresAt !== expectedExpiry) return 'conflict'
         const key = this.prefix(slot) + value.id
         const previous = this.storage.kv.get<Reply>(key)
         if (previous) return previous.recipient === recipient ? 'ok' : 'conflict'

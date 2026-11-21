@@ -98,8 +98,8 @@ export class UserAccount extends DurableObject<Env> {
     ordinaryGroupReplyAcknowledge(auth: NotificationAuth, slot: string, packet: OrdinaryGroupReplyPacket) {
         return this.notifications.authorized(auth) ? this.ordinaryGroupReplies.acknowledge(auth.deviceID, slot, packet) : 'unauthorized'
     }
-    ordinaryGroupReplyAccept(owner: string, slot: string, recipient: string, packet: OrdinaryGroupReplyPacket) {
-        return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.accept(slot, recipient, packet) : 'missing'
+    ordinaryGroupReplyAccept(owner: string, slot: string, recipient: string, packet: OrdinaryGroupReplyPacket, expectedExpiry?: number) {
+        return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.accept(slot, recipient, packet, expectedExpiry) : 'missing'
     }
     async contactInvitationReplyAccept(owner: string, admission: {
         deviceID: string; sessionBinding: string; expiresAt: number; slotHash: string

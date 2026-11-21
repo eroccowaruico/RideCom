@@ -2,6 +2,7 @@ import { notificationAuth } from './AppleAccount'
 import { groupInvitationLifetime } from './AccountNotifications'
 import type { OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { verifyDeviceProof } from './DeviceIdentity'
+import { authenticateBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { json, readJSON, sha256Hex, type Env } from './types'
 
@@ -63,17 +64,24 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
     const method = request.method
     const read = action === 'inbox' || action === 'receipt'
     const write = action === 'open' || action === 'acceptance' || action === 'acknowledgement'
-    if (!(read && method === 'POST') && !(write && method === 'PUT')) return notFound()
+    const background = action === 'background-acceptance' && method === 'POST'
+    if (!background && !(read && method === 'POST') && !(write && method === 'PUT')) return notFound()
 
     const bearer = request.headers.get('Authorization') ?? ''
     const token = bearer.startsWith('Bearer ') && bearer.length <= 512 ? bearer.slice(7) : ''
     try {
-        const auth = await notificationAuth(token, env)
+        const submission = background
+            ? await authenticateBackgroundSubmission(request, url.origin, 'submitBackgroundContactInvitationAcceptance', env)
+            : null
+        const auth = background ? submission?.auth : await notificationAuth(token, env)
         if (!auth) return unauthorized()
-        if (!(await env.CALL_API_LIMIT.limit({ key: 'ordinary-group-reply:' + auth.accountID })).success) {
+        const budget = background ? 'background-contact-reply:' : 'ordinary-group-reply:'
+        if (!(await env.CALL_API_LIMIT.limit({ key: budget + auth.accountID })).success) {
             return json({ error: 'Too many group reply requests' }, 429)
         }
-        const body = await readJSON(request) as Record<string, unknown>
+        const body: Record<string, unknown> = submission?.body ?? await readJSON(request)
+        const expectedExpiry = background ? replyExpiry(body.expiresAt) : undefined
+        if (background && Object.keys(body).some(key => !['owner', 'slot', 'id', 'packet', 'expiresAt', 'admission'].includes(key))) return badBody()
         const slot = field(body.slot, hex, 64)
         const slotHash = await sha256Hex(slot)
         const account = (accountID: string) => env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(accountID))
@@ -96,19 +104,26 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
         const id = field(body.id, uuid, 36)
         if (action === 'acknowledgement') return status(await own.ordinaryGroupReplyAcknowledge(auth, slotHash, packet(id, body.packet)))
         const owner = field(body.owner, hex, 64)
-        const value = action === 'acceptance' ? packet(id, body.packet) : null
+        const value = action === 'acceptance' || background ? packet(id, body.packet) : null
         const admission = value && body.admission !== undefined
             ? await contactReplyAdmission(body.admission, owner, slot, url.origin, env) : undefined
         if (admission === null) return unauthorized()
+        if (admission && expectedExpiry !== undefined && admission.expiresAt !== expectedExpiry) return badBody()
         const route = await publicAccountIndex(env, owner).current()
         if (route?.userID !== owner) return notFound()
         const recipient = await sha256Hex(auth.userID + ':' + auth.deviceID)
         if (!await own.notificationAuthorized(auth)) return unauthorized()
         const destination = account(route.accountID)
         if (value) {
-            return status(admission
+            let result = admission
                 ? await destination.contactInvitationReplyAccept(owner, { ...admission, slotHash }, recipient, value)
-                : await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value))
+                : await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value, expectedExpiry)
+            if (background && result === 'unauthorized') {
+                // A stale opening permission cannot create a mailbox. A matching existing mailbox is sufficient.
+                const stored = await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value, expectedExpiry)
+                if (stored !== 'missing') result = stored
+            }
+            return background && result === 'ok' ? json({ id, expiresAt: expectedExpiry }) : status(result)
         }
         const receipt = await destination.ordinaryGroupReplyReceipt(owner, slotHash, recipient, id)
         return receipt && await own.notificationAuthorized(auth) ? json({ receipt }) : notFound()

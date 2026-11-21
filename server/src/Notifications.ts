@@ -2,6 +2,7 @@ import { importJWK, jwtVerify, SignJWT } from 'jose'
 import { notificationAuth } from './AppleAccount'
 import { callLifetime, dedupeLifetime, groupInvitationLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
 import { verifyDeviceProof } from './DeviceIdentity'
+import { authenticateBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
 import { json, readJSON, sha256Hex as notificationHash, type Env } from './types'
@@ -47,32 +48,11 @@ async function handleBackgroundGroupInvitation(request: Request, origin: string,
     if (!cancelling && !notificationsConfigured(env)) {
         return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
     }
-    const body: Record<string, unknown> = await readJSON(request)
-    fields(body, ['senderUserID', 'deviceID', 'sessionBinding', 'submission', 'proof'])
-    const { senderUserID, deviceID, sessionBinding, submission, proof } = body
-    if (typeof senderUserID !== 'string' || !publicIDPattern.test(senderUserID)
-        || typeof deviceID !== 'string' || !uuidPattern.test(deviceID)
-        || typeof sessionBinding !== 'string' || !publicIDPattern.test(sessionBinding)
-        || typeof submission !== 'string' || submission.length === 0 || submission.length > 36 * 1024
-        || !base64Pattern.test(submission) || !proof || typeof proof !== 'object' || Array.isArray(proof)) throw new Error('body')
-
-    const unauthorized = () => json({ error: 'Unauthorized' }, 401)
-    // Prove the entire submission and its origin before resolving an account object.
-    const identity = { userID: senderUserID, deviceID, sessionBinding }
-    const payload = JSON.stringify([origin, sessionBinding, submission])
     const purpose = cancelling ? 'cancelBackgroundGroupInvitation' : 'submitBackgroundGroupInvitation'
-    if (!await verifyDeviceProof(identity, origin, purpose, payload, proof as Record<string, unknown>, env)) {
-        return unauthorized()
-    }
-    let invitation: Record<string, unknown>
-    try {
-        invitation = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-            .decode(Uint8Array.from(atob(submission), character => character.charCodeAt(0))))
-    } catch { throw new Error('body') }
-    if (!invitation || typeof invitation !== 'object' || Array.isArray(invitation)) throw new Error('body')
-    const owner = await target(env, senderUserID)
-    const auth = await owner?.authenticateBoundSession(senderUserID, deviceID, sessionBinding)
-    if (!owner || !auth) return unauthorized()
+    const submission = await authenticateBackgroundSubmission(request, origin, purpose, env)
+    if (!submission) return json({ error: 'Unauthorized' }, 401)
+    const { auth, body: invitation } = submission
+    const owner = account(env, auth.accountID)
     return cancelling ? await cancelBackgroundGroupInvitation(invitation, auth, owner, env)
         : await submitGroupInvitation(invitation, origin, auth, owner, env, true)
 }
