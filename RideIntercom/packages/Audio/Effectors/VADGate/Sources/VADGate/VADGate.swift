@@ -1,11 +1,4 @@
 import Foundation
-import AudioToolbox
-@preconcurrency import AVFAudio
-
-public enum VADGateError: Error, Equatable, Sendable {
-	case instantiationFailed(String)
-}
-
 public enum VADGateState: String, Codable, Equatable, Sendable {
 	case silence
 	case speech
@@ -63,7 +56,13 @@ public struct VADGateConfiguration: Codable, Equatable, Sendable {
 	}
 
 	fileprivate var normalized: Self {
-		Self(attackDuration: attackDuration, releaseDuration: releaseDuration, updateInterval: updateInterval, speechThresholdOffsetDB: speechThresholdOffsetDB, silenceThresholdOffsetDB: silenceThresholdOffsetDB, initialNoiseFloorDBFS: initialNoiseFloorDBFS, minimumNoiseFloorDBFS: minimumNoiseFloorDBFS, maximumNoiseFloorDBFS: maximumNoiseFloorDBFS, noiseFloorAdaptation: noiseFloorAdaptation, speechGain: speechGain, silenceGain: silenceGain, gainAttackDuration: gainAttackDuration, gainReleaseDuration: gainReleaseDuration)
+        Self(
+            attackDuration: attackDuration, releaseDuration: releaseDuration, updateInterval: updateInterval,
+            speechThresholdOffsetDB: speechThresholdOffsetDB, silenceThresholdOffsetDB: silenceThresholdOffsetDB,
+            initialNoiseFloorDBFS: initialNoiseFloorDBFS, minimumNoiseFloorDBFS: minimumNoiseFloorDBFS,
+            maximumNoiseFloorDBFS: maximumNoiseFloorDBFS, noiseFloorAdaptation: noiseFloorAdaptation,
+            speechGain: speechGain, silenceGain: silenceGain, gainAttackDuration: gainAttackDuration,
+            gainReleaseDuration: gainReleaseDuration)
 	}
 
 	private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
@@ -261,7 +260,9 @@ public final class VADGate {
 		let rampDuration = _state == .speech ? configuration.gainAttackDuration : configuration.gainReleaseDuration
 		let step = rampDuration <= 0 ? 1 : min(1, Float(duration / rampDuration))
 		_gain += (targetGain - gain) * step
-		_gain = min(max(gain, min(configuration.silenceGain, configuration.speechGain)), max(configuration.silenceGain, configuration.speechGain))
+        _gain = min(
+            max(gain, min(configuration.silenceGain, configuration.speechGain)),
+            max(configuration.silenceGain, configuration.speechGain))
 	}
 
 	private func makeAnalysis(rmsDBFS: Float) -> VADGateAnalysis {
@@ -278,103 +279,3 @@ public final class VADGate {
 }
 
 extension VADGate: @unchecked Sendable {}
-
-// MARK: - VADGateEffect
-
-public final class VADGateEffect {
-	private let auNode: AVAudioUnit
-
-	public private(set) var configuration: VADGateConfiguration
-
-	public var node: AVAudioNode { auNode }
-	public var avAudioUnit: AVAudioUnit { auNode }
-	public var vadGate: VADGate { auNode.withAUAudioUnit { ($0 as! AudioUnit).vadGate } }
-
-	private static let componentDescription = AudioComponentDescription(
-		componentType: kAudioUnitType_Effect,
-		componentSubType: 0x76_61_64_67, // 'vadg'
-		componentManufacturer: 0x52_64_49_63, // 'RdIc'
-		componentFlags: 0,
-		componentFlagsMask: 0
-	)
-
-	private static let registration: Void = {
-		AUAudioUnit.registerSubclass(AudioUnit.self, as: componentDescription, name: "VADGate", version: 1)
-	}()
-
-	public static func make(configuration: VADGateConfiguration = VADGateConfiguration()) async throws -> VADGateEffect {
-		_ = registration
-		return VADGateEffect(
-			auNode: try await withCheckedThrowingContinuation { continuation in
-				AVAudioUnit.instantiate(with: componentDescription) { avAudioUnit, error in
-					if let avAudioUnit {
-						continuation.resume(returning: avAudioUnit)
-					} else {
-						continuation.resume(throwing: VADGateError.instantiationFailed(error?.localizedDescription ?? ""))
-					}
-				}
-			},
-			configuration: configuration
-		)
-	}
-
-	init(auNode: AVAudioUnit, configuration: VADGateConfiguration) {
-		self.auNode = auNode
-		self.configuration = configuration
-		apply(configuration)
-	}
-
-	public func apply(_ configuration: VADGateConfiguration) {
-		vadGate.apply(configuration: configuration)
-		self.configuration = configuration
-	}
-
-	public var runtimeSnapshot: VADGateRuntimeSnapshot {
-		vadGate.runtimeSnapshot
-	}
-
-	private final class AudioUnit: AUAudioUnit {
-		let vadGate = VADGate()
-		private var _inputBusses: AUAudioUnitBusArray!
-		private var _outputBusses: AUAudioUnitBusArray!
-
-		override init(componentDescription: AudioComponentDescription, options: AudioComponentInstantiationOptions = []) throws {
-			try super.init(componentDescription: componentDescription, options: options)
-			let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false)!
-			_inputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .input, busses: [try AUAudioUnitBus(format: format)])
-			_outputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .output, busses: [try AUAudioUnitBus(format: format)])
-		}
-
-		override var inputBusses: AUAudioUnitBusArray { _inputBusses }
-		override var outputBusses: AUAudioUnitBusArray { _outputBusses }
-		override var canProcessInPlace: Bool { true }
-
-		override var internalRenderBlock: AUInternalRenderBlock {
-			let vad = vadGate
-			return { _, timestamp, frameCount, _, outputData, _, pullInputBlock in
-				guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
-				var flags: AudioUnitRenderActionFlags = []
-				let status = pullInputBlock(&flags, timestamp, frameCount, 0, outputData)
-				guard status == noErr else { return status }
-
-				let buffers = UnsafeMutableAudioBufferListPointer(outputData)
-				let n = Int(frameCount)
-				var ss: Float = 0, count = 0
-				for b in buffers {
-					guard let d = b.mData else { continue }
-					let p = UnsafeBufferPointer<Float>(start: d.assumingMemoryBound(to: Float.self), count: min(n, Int(b.mDataByteSize) / MemoryLayout<Float>.size))
-					for s in p { ss += s * s }
-					count += p.count
-				}
-				let rms = count > 0 ? (ss / Float(count)).squareRoot() : 0
-				let gain = vad.process(rmsDBFS: 20 * log10(max(rms, 0.000_001)), duration: Double(frameCount) / 48_000.0).gain
-				for b in buffers {
-					guard let d = b.mData else { continue }
-					let p = UnsafeMutableBufferPointer<Float>(start: d.assumingMemoryBound(to: Float.self), count: min(n, Int(b.mDataByteSize) / MemoryLayout<Float>.size))
-					for i in p.indices { p[i] *= gain }
-				}
-				return noErr
-			}
-		}
-	}
-}

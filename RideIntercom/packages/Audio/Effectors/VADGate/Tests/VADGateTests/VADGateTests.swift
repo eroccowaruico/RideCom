@@ -52,7 +52,9 @@ import Foundation
 }
 
 @Test func stateChangesToSpeechAfterAttackDuration() {
-    let gate = VADGate(configuration: VADGateConfiguration(attackDuration: 0.06, updateInterval: 0.02, initialNoiseFloorDBFS: -60))
+    let gate = VADGate(
+        configuration: VADGateConfiguration(attackDuration: 0.06, updateInterval: 0.02, initialNoiseFloorDBFS: -60)
+    )
 
     #expect(gate.process(rmsDBFS: -45).state == .silence)
     #expect(gate.process(rmsDBFS: -45).state == .silence)
@@ -60,7 +62,9 @@ import Foundation
 }
 
 @Test func stateUsesReleaseHangoverBeforeReturningToSilence() {
-    let gate = VADGate(configuration: VADGateConfiguration(attackDuration: 0.02, releaseDuration: 0.06, updateInterval: 0.02, initialNoiseFloorDBFS: -60))
+    let gate = VADGate(
+        configuration: VADGateConfiguration(
+            attackDuration: 0.02, releaseDuration: 0.06, updateInterval: 0.02, initialNoiseFloorDBFS: -60))
     _ = gate.process(rmsDBFS: -45)
 
     #expect(gate.state == .speech)
@@ -120,7 +124,9 @@ func quietSteadyNoiseDoesNotHoldSpeechOpenAfterTheNoiseFloorDrops(frameDuration:
 
 @Test func applyGateScalesSamplesByCurrentGain() {
     var samples: [Float] = [0.5, -0.5]
-    let gate = VADGate(configuration: VADGateConfiguration(attackDuration: 0.02, updateInterval: 0.02, initialNoiseFloorDBFS: -60, gainAttackDuration: 0.02))
+    let gate = VADGate(
+        configuration: VADGateConfiguration(
+            attackDuration: 0.02, updateInterval: 0.02, initialNoiseFloorDBFS: -60, gainAttackDuration: 0.02))
 
     let analysis = gate.applyGate(to: &samples, duration: 0.02)
 
@@ -130,7 +136,9 @@ func quietSteadyNoiseDoesNotHoldSpeechOpenAfterTheNoiseFloorDrops(frameDuration:
 }
 
 @Test func runtimeSnapshotReportsConfigurationAndCurrentAnalysis() throws {
-    let gate = VADGate(configuration: VADGateConfiguration(attackDuration: 0.02, updateInterval: 0.02, initialNoiseFloorDBFS: -60))
+    let gate = VADGate(
+        configuration: VADGateConfiguration(attackDuration: 0.02, updateInterval: 0.02, initialNoiseFloorDBFS: -60)
+    )
 
     let analysis = gate.process(rmsDBFS: -45)
     let snapshot = gate.runtimeSnapshot
@@ -160,9 +168,18 @@ func quietSteadyNoiseDoesNotHoldSpeechOpenAfterTheNoiseFloorDrops(frameDuration:
 
 @Test func concurrentSettingsAndAnalysisHaveConsistentSnapshots() {
     let gate = VADGate()
-    DispatchQueue.concurrentPerform(iterations: 200) { i in
-        if i.isMultiple(of: 3) { gate.apply(configuration: .init(speechGain: 0.7)) }
-        else { _ = gate.process(rmsDBFS: -20) }
+    DispatchQueue.concurrentPerform(iterations: 200) { index in
+        if index.isMultiple(of: 3) {
+            gate.apply(configuration: .init(speechGain: 0.7))
+        } else {
+            _ = gate.process(rmsDBFS: -20)
+        }
         #expect(gate.runtimeSnapshot.gain.isFinite)
+    }
+}
+
+@Test func unexpectedAudioUnitFailsDuringEffectCreation() {
+    #expect(throws: VADGateError.self) {
+        try VADGateEffect(auNode: AVAudioUnitEQ(numberOfBands: 1), configuration: .init())
     }
 }

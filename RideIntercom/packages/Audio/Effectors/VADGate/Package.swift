@@ -6,13 +6,13 @@ let package = Package(
     name: "VADGate",
     platforms: [
         .iOS("27.0"),
-        .macOS("27.0"),
+        .macOS("27.0")
     ],
     products: [
         .library(
             name: "VADGate",
             targets: ["VADGate"]
-        ),
+        )
     ],
     targets: [
         .target(
@@ -21,7 +21,7 @@ let package = Package(
         .testTarget(
             name: "VADGateTests",
             dependencies: ["VADGate"]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )
