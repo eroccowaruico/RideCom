@@ -32,6 +32,7 @@ struct GroupInviteToken: Codable, Equatable {
     let signature: String
     let identityProof: DeviceIdentityProof?
     let invitedGroup: ContactGroupInvitation?
+    let replyAdmissionSignature: String?
     var accountPair: AccountCallPair? { directInvitation?.context.accountPair }
     var recipientAccount: AccountPrincipal? { directInvitation?.context.recipientAccount }
 
@@ -48,7 +49,8 @@ struct GroupInviteToken: Codable, Equatable {
         directInvitation: DirectInvitationGrant? = nil,
         signature: String,
         identityProof: DeviceIdentityProof? = nil,
-        invitedGroup: ContactGroupInvitation? = nil
+        invitedGroup: ContactGroupInvitation? = nil,
+        replyAdmissionSignature: String? = nil
     ) throws {
         guard version == Self.currentVersion else {
             throw GroupInviteTokenError.unsupportedVersion
@@ -67,6 +69,7 @@ struct GroupInviteToken: Codable, Equatable {
         self.signature = signature
         self.identityProof = identityProof
         self.invitedGroup = invitedGroup
+        self.replyAdmissionSignature = replyAdmissionSignature
     }
 
     static func make(
@@ -94,10 +97,13 @@ struct GroupInviteToken: Codable, Equatable {
         let signature = makeSignature(version: currentVersion, groupID: groupID, groupName: groupName, groupSecret: groupSecret,
             inviterMemberID: inviterMemberID, inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID,
             issuedAt: issuedAt, expiresAt: expiresAt, directInvitation: grant, invitedGroup: invitedGroup)
+        let replyAdmissionSignature = contactBootstrap == true
+            ? try ContactInvitationReplyAdmission.makeSignature(for: grant.context, secret: groupSecret, signer: signer) : nil
         return try GroupInviteToken(groupID: groupID, groupName: groupName, groupSecret: groupSecret, inviterMemberID: inviterMemberID,
             inviterDisplayName: inviterDisplayName, recipientMemberID: recipientMemberID, issuedAt: issuedAt, expiresAt: expiresAt,
             directInvitation: grant, signature: signature,
-            identityProof: signer.sign(Data(signature.utf8), purpose: .issueInvitation), invitedGroup: invitedGroup)
+            identityProof: signer.sign(Data(signature.utf8), purpose: .issueInvitation), invitedGroup: invitedGroup,
+            replyAdmissionSignature: replyAdmissionSignature)
     }
 
     func accept(signer: DeviceIdentitySigner, displayName: String, trust: DeviceIdentityTrust? = nil,

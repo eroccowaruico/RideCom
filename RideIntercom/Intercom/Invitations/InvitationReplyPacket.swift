@@ -16,7 +16,12 @@ nonisolated struct InvitationReplyAddress: Sendable {
         guard contactToken.verifySignature(), let invitation = contactToken.directInvitation?.context else {
             throw DeviceIdentityProof.Failure.invalid
         }
-        try self.init(invitation: invitation, secret: contactToken.groupSecret, salt: "rideintercom.contact-invitation-reply.slot.v1")
+        try self.init(contactInvitation: invitation, secret: contactToken.groupSecret)
+    }
+
+    @MainActor fileprivate init(contactInvitation: DirectInvitationContext, secret: String) throws {
+        guard contactInvitation.contactBootstrap == true, contactInvitation.isValid else { throw DeviceIdentityProof.Failure.invalid }
+        try self.init(invitation: contactInvitation, secret: secret, salt: "rideintercom.contact-invitation-reply.slot.v1")
     }
 
     @MainActor private init(invitation: DirectInvitationContext, secret: String, salt: String) throws {
@@ -27,6 +32,46 @@ nonisolated struct InvitationReplyAddress: Sendable {
             salt: Data(salt.utf8), info: info, outputByteCount: 32)
         slot = key.withUnsafeBytes { $0.map { String(format: "%02x", $0) }.joined() }
         expiresAt = expiry
+    }
+}
+
+nonisolated struct ContactInvitationReplyAdmission: Encodable, Sendable {
+    let owner: AccountPrincipal
+    let deviceID: String
+    let sessionBinding: String
+    let expiresAt: Int64
+    let proof: DeviceIdentityProof
+
+    private enum CodingKeys: String, CodingKey { case deviceID, sessionBinding, expiresAt, proof }
+
+    @MainActor static func makeSignature(for invitation: DirectInvitationContext, secret: String,
+                                         signer: DeviceIdentitySigner) throws -> String? {
+        guard let identity = signer.identity, let binding = identity.sessionBinding,
+              InternetAccountClient.notificationUserID(binding) else { return nil }
+        let address = try InvitationReplyAddress(contactInvitation: invitation, secret: secret)
+        return try signer.sign(message(origin: identity.issuer, binding: binding, address: address),
+                               purpose: .openContactInvitationReply).signature
+    }
+
+    @MainActor init?(token: GroupInviteToken, address: InvitationReplyAddress, trust: DeviceIdentityTrust?, now: Date = Date()) {
+        guard token.directInvitation?.context.contactBootstrap == true, let signature = token.replyAdmissionSignature,
+              let issueProof = token.identityProof, let certificate = issueProof.certificate, let trust,
+              let identity = try? certificate.verify(origin: trust.origin, trustedIssuerKey: trust.issuerKey, now: now),
+              identity.memberID == token.inviterMemberID, identity.deviceKey == issueProof.publicKey,
+              let binding = identity.sessionBinding, InternetAccountClient.notificationUserID(binding),
+              Double(address.expiresAt) > now.timeIntervalSince1970 * 1000,
+              let message = try? Self.message(origin: identity.issuer, binding: binding, address: address) else { return nil }
+        let proof = DeviceIdentityProof(publicKey: issueProof.publicKey, certificate: certificate, signature: signature)
+        guard (try? proof.verify(message, purpose: .openContactInvitationReply, memberID: identity.memberID)) != nil else { return nil }
+        self.owner = .init(issuer: identity.issuer, userID: identity.userID)
+        self.deviceID = identity.deviceID
+        self.sessionBinding = binding
+        self.expiresAt = address.expiresAt
+        self.proof = proof
+    }
+
+    private static func message(origin: String, binding: String, address: InvitationReplyAddress) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [origin, binding, address.slot, address.expiresAt], options: [.withoutEscapingSlashes])
     }
 }
 

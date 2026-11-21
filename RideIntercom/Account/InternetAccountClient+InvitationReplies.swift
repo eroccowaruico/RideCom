@@ -13,6 +13,7 @@ extension InternetAccountClient {
         let id: String
         let packet: String
         let owner: String?
+        let admission: ContactInvitationReplyAdmission?
     }
     nonisolated private struct ReplyInbox: Decodable, Sendable { let acceptances: [InvitationReplyPacket]? }
     nonisolated private struct ReplyReceipt: Decodable, Sendable { let receipt: InvitationReplyPacket? }
@@ -25,9 +26,12 @@ extension InternetAccountClient {
     }
 
     func submitInvitationAcceptance(_ packet: InvitationReplyPacket, address: InvitationReplyAddress,
-                                       owner: AccountPrincipal, access: CallNotificationServiceAccess) async throws {
-        guard owner.isValid, owner.issuer == access.principal.issuer else { throw Failure.rejected }
-        try await writeInvitationReply(packet, action: "acceptance", address: address, owner: owner.userID, access: access)
+                                    owner: AccountPrincipal, access: CallNotificationServiceAccess,
+                                    admission: ContactInvitationReplyAdmission? = nil) async throws {
+        guard owner.isValid, owner.issuer == access.principal.issuer,
+              admission.map({ $0.owner == owner && $0.expiresAt == address.expiresAt }) ?? true else { throw Failure.rejected }
+        try await writeInvitationReply(packet, action: "acceptance", address: address, owner: owner.userID, access: access,
+                                       admission: admission)
     }
 
     func invitationReplyInbox(_ address: InvitationReplyAddress, access: CallNotificationServiceAccess) async throws -> [InvitationReplyPacket] {
@@ -55,8 +59,10 @@ extension InternetAccountClient {
     }
 
     private func writeInvitationReply(_ packet: InvitationReplyPacket, action: String, address: InvitationReplyAddress,
-                                         owner: String?, access: CallNotificationServiceAccess) async throws {
-        let body = ReplySubmission(slot: address.slot, id: packet.id.uuidString.lowercased(), packet: packet.packet, owner: owner)
+                                      owner: String?, access: CallNotificationServiceAccess,
+                                      admission: ContactInvitationReplyAdmission? = nil) async throws {
+        let body = ReplySubmission(slot: address.slot, id: packet.id.uuidString.lowercased(), packet: packet.packet, owner: owner,
+                                   admission: admission)
         let _: ReplyWritten = try await sendJSON(origin: access.origin, path: Self.replyMailboxPath + action, method: "PUT",
             body: JSONEncoder().encode(body), token: access.accessToken)
     }

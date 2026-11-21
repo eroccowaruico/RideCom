@@ -409,8 +409,10 @@ import Testing
                     groupName: "Test group", groupSecret: key.secret, inviterMemberID: author.memberID)
             } else {
                 let group = invitation == .contactWithGroup ? ContactGroupInvitation(id: key.groupID, name: "Test group", secret: key.secret) : nil
-                token = try ContactInvitationSession.makeToken(authority: authority, signer: author.signer, displayName: "Sender",
+                let issued = try ContactInvitationSession.makeToken(authority: authority, signer: author.signer, displayName: "Sender",
                     now: Date().timeIntervalSince1970, invitedGroup: group)
+                let url = try GroupInviteTokenCodec.joinURL(for: issued, contactBootstrap: true)
+                token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
             }
             let invite = try #require(token.directInvitation?.context)
             let accepted = try token.accept(signer: recipient.signer, displayName: "Recipient",
@@ -419,7 +421,11 @@ import Testing
             let address = try invitation == .group
                 ? InvitationReplyAddress(invitation: invite, credential: key)
                 : InvitationReplyAddress(contactToken: token)
+            let admission: ContactInvitationReplyAdmission?
             if invitation != .group {
+                let trust = try recipient.store.identityTrust()
+                admission = try #require(ContactInvitationReplyAdmission(token: token, address: address, trust: trust))
+                #expect(admission?.owner == left.principal)
                 var otherContext = invite
                 otherContext.contactBootstrap = nil
                 otherContext.invitedGroupID = nil
@@ -427,12 +433,17 @@ import Testing
                 let ordinarySlot = try InvitationReplyAddress(invitation: otherContext,
                     credential: .init(groupID: token.groupID, secret: token.groupSecret))
                 #expect(ordinarySlot.slot != address.slot)
+                #expect(ContactInvitationReplyAdmission(token: token, address: ordinarySlot, trust: trust) == nil)
+                #expect(ContactInvitationReplyAdmission(token: token, address: address, trust: trust,
+                    now: Date(timeIntervalSince1970: invite.expiresAt)) == nil)
+            } else {
+                admission = nil
             }
             let packet = try InvitationReplyPacket.seal(accepted.receipt, address: address, invitation: invite)
             let absent = try await client.invitationReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
             #expect(absent == nil)
-            try await client.openInvitationReplyMailbox(address, access: left)
-            try await client.submitInvitationAcceptance(packet, address: address, owner: left.principal, access: right)
+            if invitation == .group { try await client.openInvitationReplyMailbox(address, access: left) }
+            try await client.submitInvitationAcceptance(packet, address: address, owner: left.principal, access: right, admission: admission)
             let inbox = try await client.invitationReplyInbox(address, access: left)
             #expect(inbox.count == 1)
             let first = try #require(inbox.first)

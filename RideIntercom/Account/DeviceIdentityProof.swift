@@ -21,6 +21,7 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         case issueInvitation, acceptInvitation, acknowledgeInvitation
         case shareDisplayName, shareCallAccess, callNotificationPermission
         case deliverGroupInvitation, acknowledgeGroupInvitation, requestGroupInvitationRedelivery
+        case openContactInvitationReply
         case submitBackgroundGroupInvitation, cancelBackgroundGroupInvitation
         case cancelGroupInvitation, acknowledgeGroupInvitationCancellation
         case deleteContact, acknowledgeContactDeletion
