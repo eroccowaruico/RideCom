@@ -26,8 +26,7 @@ final class WatchConnectivityClient: NSObject, WCSessionDelegate {
     func activate() {
         guard SystemSurfaceScope.permitsCompanionAccess, WCSession.isSupported() else { return }
         session.delegate = self
-        if session.activationState != .activated { session.activate() }
-        else { refreshReachability() }
+        if session.activationState != .activated { session.activate() } else { refreshReachability() }
     }
     private func refreshReachability() {
         guard SystemSurfaceScope.permitsCompanionAccess else { return }

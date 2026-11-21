@@ -7,9 +7,13 @@ struct RideIntercomWatchApp: App {
         WindowGroup {
             #if DEBUG
             #if RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-            if WatchRecordingCLI.requested { WatchRecordingCheckView(connection: connection) }
-            else if WatchUIFixture.requested != nil { WatchCallRoot(connection: connection) }
-            else { WatchDebugRoot(connection: connection) }
+                    if WatchRecordingCLI.requested {
+                        WatchRecordingCheckView(connection: connection)
+                    } else if WatchUIFixture.requested != nil {
+                        WatchCallRoot(connection: connection)
+                    } else {
+                        WatchDebugRoot(connection: connection)
+                    }
             #else
             WatchDebugRoot(connection: connection)
             #endif

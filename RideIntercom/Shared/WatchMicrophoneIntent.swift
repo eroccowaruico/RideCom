@@ -12,8 +12,7 @@ struct WatchMicrophoneIntent {
     }
 
     mutating func request(_ on: Bool) {
-        if !on { close() }
-        else if scene == .active { isOn = true }
+        if !on { close() } else if scene == .active { isOn = true }
     }
 
     mutating func close() { isOn = false }

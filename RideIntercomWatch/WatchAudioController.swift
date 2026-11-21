@@ -165,7 +165,7 @@ final class WatchAudioController {
             guard let reply = await client.perform(action), reply.problem == nil,
                   let reference = reply.snapshot.reference, reference == client.snapshot?.reference,
                   let remote = reply.audioEndpoint,
-                  (audioCheck ? reply.snapshot.audioCheck?.sessionID == id : reply.snapshot.hasCall) else {
+                  audioCheck ? reply.snapshot.audioCheck?.sessionID == id : reply.snapshot.hasCall else {
                 throw AudioDeviceError.endpointUnavailable
             }
             #if DEBUG
@@ -312,8 +312,12 @@ final class WatchAudioController {
             }
             return
         }
-        if !state.0 || (boundReference != nil && (state.1?.reference != boundReference || state.1?.hasCall != true)) { stop() }
-        else if state.1?.state == .audioPaused || state.1?.state == .audioUnavailable { setPressed(false) }
+        if !state.0
+            || (boundReference != nil && (state.1?.reference != boundReference || state.1?.hasCall != true)) {
+            stop()
+        } else if state.1?.state == .audioPaused || state.1?.state == .audioUnavailable {
+            setPressed(false)
+        }
     }
 
     private static func continuable(_ result: AudioSessionOperationResult) -> Bool {

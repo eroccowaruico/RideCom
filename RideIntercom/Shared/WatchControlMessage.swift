@@ -41,8 +41,8 @@ nonisolated struct WatchCallSnapshot: Codable, Equatable, Sendable {
     let hasCall: Bool
     let isMuted: Bool
     let state: WatchCallState
-    var audioCheck: WatchAudioCheckState? = nil
-    var supportsRemoteStart: Bool? = nil
+    var audioCheck: WatchAudioCheckState?
+    var supportsRemoteStart: Bool?
 
     func needsPublication(after previous: Self?) -> Bool {
         guard let previous else { return true }
@@ -105,5 +105,5 @@ nonisolated enum WatchControlProblem: String, Codable, Sendable {
 nonisolated struct WatchControlReply: Codable, Equatable, Sendable {
     let snapshot: WatchCallSnapshot
     let problem: WatchControlProblem?
-    var audioEndpoint: RTCAudioDeviceEndpoint? = nil
+    var audioEndpoint: RTCAudioDeviceEndpoint?
 }
