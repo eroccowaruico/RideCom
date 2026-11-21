@@ -9,7 +9,8 @@ let package = Package(
                    .package(path: "../SessionManager"), .package(path: "../../RTC")],
     targets: [
         .target(name: "AudioDevice", dependencies: ["AudioCore", "Codec", "SessionManager", "RTC"]),
-        .testTarget(name: "AudioDeviceTests", dependencies: ["AudioDevice", "AudioCore", "Codec", "SessionManager", "RTC"])
+        .testTarget(
+            name: "AudioDeviceTests", dependencies: ["AudioDevice", "AudioCore", "Codec", "SessionManager", "RTC"])
     ],
     swiftLanguageModes: [.v6]
 )

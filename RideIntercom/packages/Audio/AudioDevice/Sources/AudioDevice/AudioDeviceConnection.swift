@@ -140,13 +140,32 @@ public final class AudioDeviceConnection: AudioInputStreamBackend, AudioOutputSt
             // AudioOutputStreamRenderer converts only when its input differs.
             // Reject an unsupported native format/bitrate at setup, rather
             // than silently changing channels, rate or codec on first speech.
-            let replacement = try StreamingCodecEncoder(configuration: .init(codec: .mpeg4AACELD,
-                format: configuration.preferredFormat, aacELDv2Options: aacOptions), suppressesSilence: true)
+            let replacement = try makeEncoder(format: configuration.preferredFormat)
             renderingFormat = configuration.preferredFormat
             maximumFrameDuration = configuration.maximumBufferedDuration
             encoder = replacement
             return configuration.preferredFormat
         }
+    }
+
+    private func makeEncoder(format: AudioFormat) throws -> StreamingCodecEncoder {
+        try StreamingCodecEncoder(
+            configuration: .init(codec: .mpeg4AACELD, format: format, aacELDv2Options: aacOptions),
+            suppressesSilence: true
+        )
+    }
+
+    // Called under the same lock as encoding so a format change cannot race validation.
+    private func validatedRenderingFormat(for frame: PCMFrame) throws -> AudioFormat {
+        try requirePrepared()
+        guard let format = renderingFormat else { throw AudioDeviceError.notPrepared }
+        guard frame.format == format else {
+            throw AudioStreamError.hardwareFormatMismatch(expected: format, actual: frame.format)
+        }
+        if let limit = maximumFrameDuration, Double(frame.frameCount) / frame.format.sampleRate > limit {
+            throw AudioStreamError.invalidFrame("Frame exceeds audio-device output budget")
+        }
+        return format
     }
 
     public func stopRendering() throws {
@@ -159,39 +178,39 @@ public final class AudioDeviceConnection: AudioInputStreamBackend, AudioOutputSt
         let output: (RTCAudioDeviceLink?, RTCAudioPacket?)
         do {
             output = try lock.withLock {
-                try requirePrepared()
-                guard let format = renderingFormat else { throw AudioDeviceError.notPrepared }
-                guard frame.format == format else {
-                    throw AudioStreamError.hardwareFormatMismatch(expected: format, actual: frame.format)
+                let format = try validatedRenderingFormat(for: frame)
+                guard sendingAllowed, sendReady, requested.duration(to: .now) < .milliseconds(100) else {
+                    return (nil, nil)
                 }
-                if let limit = maximumFrameDuration, Double(frame.frameCount) / frame.format.sampleRate > limit {
-                    throw AudioStreamError.invalidFrame("Frame exceeds audio-device output budget")
-                }
-                guard sendingAllowed, sendReady, requested.duration(to: .now) < .milliseconds(100) else { return (nil, nil) }
                 if encoder == nil {
-                    encoder = try StreamingCodecEncoder(configuration: .init(codec: .mpeg4AACELD, format: format, aacELDv2Options: aacOptions), suppressesSilence: true)
+                    encoder = try makeEncoder(format: format)
                 }
                 guard let value = try encoder?.encode(frame) else { return (nil, nil) }
                 let packet = RTCAudioPacket(sequenceNumber: value.sequenceNumber,
                     codec: .init(rawValue: value.codec.rawValue),
                     format: .init(sampleRate: value.format.sampleRate, channelCount: value.format.channelCount),
-                    capturedAt: value.capturedAt, sampleCount: value.sampleCount, bitRate: value.bitRate, payload: value.payload)
+                    capturedAt: value.capturedAt, sampleCount: value.sampleCount, bitRate: value.bitRate,
+                    payload: value.payload)
                 return (transport, packet)
             }
-        } catch let error as AudioStreamError { throw error }
-        catch let error as AudioDeviceError { throw error }
-        catch {
+        } catch let error as AudioStreamError { throw error } catch let error as AudioDeviceError {
+            throw error
+        } catch {
             fail(.invalidAudio)
             throw AudioStreamError.invalidFrame("Audio-device encoding failed: \(error)")
         }
         // Transport callbacks enter our lock. All native transport calls and
         // user callbacks must remain outside it, including stop and failures.
-        if requested.duration(to: .now) < .milliseconds(100), let packet = output.1 { _ = output.0?.send(packet) }
-        else if output.1 != nil { lock.withLock { encoder = nil } }
+        if requested.duration(to: .now) < .milliseconds(100), let packet = output.1 {
+            _ = output.0?.send(packet)
+        } else if output.1 != nil {
+            lock.withLock { encoder = nil }
+        }
     }
 
     public func stop() {
-        let state = lock.withLock { () -> (RTCAudioDeviceLink?, CheckedContinuation<RTCAudioDeviceEndpoint, any Error>?) in
+        let state = lock.withLock {
+            () -> (RTCAudioDeviceLink?, CheckedContinuation<RTCAudioDeviceEndpoint, any Error>?) in
             guard !stopped else { return (nil, nil) }
             stopped = true; prepared = false; sendReady = false; sendingAllowed = false
             encoder = nil; decoder = nil; captureHandler = nil; renderingFormat = nil
@@ -236,12 +255,14 @@ public final class AudioDeviceConnection: AudioInputStreamBackend, AudioOutputSt
         do {
             let delivery: (PCMFrame, (PCMFrame) -> Void)? = try lock.withLock {
                 guard !stopped, let captureHandler, let decoder else { return nil }
-                guard packet.codec.rawValue == CodecIdentifier.mpeg4AACELD.rawValue, let count = packet.sampleCount else {
+                guard packet.codec.rawValue == CodecIdentifier.mpeg4AACELD.rawValue, let count = packet.sampleCount
+                else {
                     throw AudioDeviceError.invalidAudio
                 }
                 let frame = try decoder.decode(.init(sequenceNumber: packet.sequenceNumber, codec: .mpeg4AACELD,
                     format: .init(sampleRate: packet.format.sampleRate, channelCount: packet.format.channelCount),
-                    capturedAt: packet.capturedAt, sampleCount: count, bitRate: packet.bitRate, payload: packet.payload))
+                        capturedAt: packet.capturedAt, sampleCount: count, bitRate: packet.bitRate,
+                        payload: packet.payload))
                 return (frame, captureHandler)
             }
             if let delivery, !delivery.0.samples.isEmpty { delivery.1(delivery.0) }

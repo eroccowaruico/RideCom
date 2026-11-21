@@ -29,13 +29,14 @@ struct AudioDeviceConnectionTests {
         return (try .init(sessionID: id, key: key, role: .controller),
                 try .init(sessionID: id, key: key, role: .device, aacOptions: .init(bitRate: 64_000)))
     }
-    func connect(_ a: AudioDeviceConnection, _ b: AudioDeviceConnection) async throws {
-        async let first = a.prepare(), second = b.prepare()
+    func connect(_ controller: AudioDeviceConnection, _ device: AudioDeviceConnection) async throws {
+        async let first = controller.prepare(), second = device.prepare()
         let endpoints = try await (first, second)
-        try #require(a.connect(to: endpoints.1) && b.connect(to: endpoints.0))
-        try #require(await waitUntil { a.isSendReady && b.isSendReady })
+        try #require(controller.connect(to: endpoints.1) && device.connect(to: endpoints.0))
+        try #require(await waitUntil { controller.isSendReady && device.isSendReady })
     }
-    func send(_ renderer: AudioOutputStreamRenderer, format: AudioFormat, offset: Int = 0, silence: Bool = false) throws {
+    func send(_ renderer: AudioOutputStreamRenderer, format: AudioFormat, offset: Int = 0, silence: Bool = false)
+        throws {
         let count = Int(format.sampleRate / 100)
         for block in 0..<12 {
             let frame = PCMFrame(sequenceNumber: UInt64(offset + block), format: format,
@@ -76,23 +77,23 @@ struct AudioDeviceConnectionTests {
     }
 
     @Test func backendsRequirePreparationAndAStoppedPairCannotRestart() async throws {
-        let (a, b) = try pair(); defer { a.stop(); b.stop() }
-        #expect(throws: (any Error).self) { try a.startCapture(configuration: .init(), onFrame: { _ in }) }
-        #expect(throws: (any Error).self) { try a.startRendering(configuration: .init()) }
-        _ = try await a.prepare()
-        a.stop()
-        #expect(!a.isSendReady && !a.isSendingAllowed)
-        do { _ = try await a.prepare(); Issue.record("Stopped pair restarted with old keys") } catch { }
-        #expect(throws: (any Error).self) { try a.startRendering(configuration: .init()) }
+        let (controller, device) = try pair(); defer { controller.stop(); device.stop() }
+        #expect(throws: (any Error).self) { try controller.startCapture(configuration: .init(), onFrame: { _ in }) }
+        #expect(throws: (any Error).self) { try controller.startRendering(configuration: .init()) }
+        _ = try await controller.prepare()
+        controller.stop()
+        #expect(!controller.isSendReady && !controller.isSendingAllowed)
+        do { _ = try await controller.prepare(); Issue.record("Stopped pair restarted with old keys") } catch { }
+        #expect(throws: (any Error).self) { try controller.startRendering(configuration: .init()) }
     }
 
     @Test func cancellationBeforePreparationClosesThePair() async throws {
-        let (a, b) = try pair(); defer { a.stop(); b.stop() }
-        let preparation = Task { try await a.prepare() }
+        let (controller, device) = try pair(); defer { controller.stop(); device.stop() }
+        let preparation = Task { try await controller.prepare() }
         preparation.cancel()
         do { _ = try await preparation.value; Issue.record("Cancelled prepare succeeded") } catch { }
-        #expect(!a.isSendReady && !a.isSendingAllowed)
-        #expect(throws: AudioDeviceError.stopped) { try a.startRendering(configuration: .init()) }
+        #expect(!controller.isSendReady && !controller.isSendingAllowed)
+        #expect(throws: AudioDeviceError.stopped) { try controller.startRendering(configuration: .init()) }
     }
 
     @Test func rejectedEndpointDoesNotPrepareTheBackend() throws {
@@ -103,19 +104,19 @@ struct AudioDeviceConnectionTests {
     }
 
     @Test func nativeEncryptedPairUsesTheExistingPCMBackendsInBothDirections() async throws {
-        let (a, b) = try pair(); defer { a.stop(); b.stop() }
-        try await connect(a, b)
+        let (controller, device) = try pair(); defer { controller.stop(); device.stop() }
+        try await connect(controller, device)
         let first = ReceivedFrames(), second = ReceivedFrames()
-        let inputA = AudioInputStreamCapture(backend: a), inputB = AudioInputStreamCapture(backend: b)
+        let inputA = AudioInputStreamCapture(backend: controller), inputB = AudioInputStreamCapture(backend: device)
         inputA.setRuntimeEventHandler { if case .inputFrame(let frame) = $0 { first.append(frame) } }
         inputB.setRuntimeEventHandler { if case .inputFrame(let frame) = $0 { second.append(frame) } }
         try #require(inputA.start().result == .applied && inputB.start().result == .applied)
         let formatA = AudioFormat(sampleRate: 24_000, channelCount: 1)
         let formatB = AudioFormat(sampleRate: 48_000, channelCount: 2)
-        let outputA = AudioOutputStreamRenderer(configuration: .init(preferredFormat: formatA), backend: a)
-        let outputB = AudioOutputStreamRenderer(configuration: .init(preferredFormat: formatB), backend: b)
+        let outputA = AudioOutputStreamRenderer(configuration: .init(preferredFormat: formatA), backend: controller)
+        let outputB = AudioOutputStreamRenderer(configuration: .init(preferredFormat: formatB), backend: device)
         try #require(outputA.start().result == .applied && outputB.start().result == .applied)
-        a.setSendingAllowed(true); b.setSendingAllowed(true)
+        controller.setSendingAllowed(true); device.setSendingAllowed(true)
         try send(outputA, format: formatA); try send(outputB, format: formatB)
         try #require(await waitUntil { !first.frames.isEmpty && !second.frames.isEmpty })
         #expect(first.frames.allSatisfy { $0.format == formatB })
@@ -180,47 +181,47 @@ struct AudioDeviceConnectionTests {
     }
 
     @Test func pathRecoveryDoesNotReopenTransmitOrDestroySubscriptions() async throws {
-        let (a, b) = try pair(); defer { a.stop(); b.stop() }
-        try await connect(a, b)
-        _ = try a.startCapture(configuration: .init(), onFrame: { _ in })
-        _ = try a.startRendering(configuration: .init())
-        a.setSendingAllowed(true)
-        #expect(a.isSendingAllowed)
-        a.availabilityChanged(false)
-        #expect(!a.isSendReady && !a.isSendingAllowed)
-        a.availabilityChanged(true)
-        #expect(a.isSendReady && !a.isSendingAllowed)
-        a.setSendingAllowed(true)
-        #expect(a.isSendingAllowed)
-        try a.stopCapture()
-        #expect(a.isSendReady && a.isSendingAllowed, "Input and output subscriptions are independent")
-        try a.stopRendering()
-        #expect(a.isSendReady && !a.isSendingAllowed)
-        _ = try a.startCapture(configuration: .init(), onFrame: { _ in })
+        let (controller, device) = try pair(); defer { controller.stop(); device.stop() }
+        try await connect(controller, device)
+        _ = try controller.startCapture(configuration: .init(), onFrame: { _ in })
+        _ = try controller.startRendering(configuration: .init())
+        controller.setSendingAllowed(true)
+        #expect(controller.isSendingAllowed)
+        controller.availabilityChanged(false)
+        #expect(!controller.isSendReady && !controller.isSendingAllowed)
+        controller.availabilityChanged(true)
+        #expect(controller.isSendReady && !controller.isSendingAllowed)
+        controller.setSendingAllowed(true)
+        #expect(controller.isSendingAllowed)
+        try controller.stopCapture()
+        #expect(controller.isSendReady && controller.isSendingAllowed, "Input and output subscriptions are independent")
+        try controller.stopRendering()
+        #expect(controller.isSendReady && !controller.isSendingAllowed)
+        _ = try controller.startCapture(configuration: .init(), onFrame: { _ in })
     }
 
     @Test func silenceAndGateClosureStopPacketsWithoutPreventingFreshSpeech() async throws {
-        let (a, b) = try pair(); defer { a.stop(); b.stop() }
-        try await connect(a, b)
+        let (controller, device) = try pair(); defer { controller.stop(); device.stop() }
+        try await connect(controller, device)
         let received = ReceivedFrames()
-        _ = try b.startCapture(configuration: .init(), onFrame: { received.append($0) })
-        let output = AudioOutputStreamRenderer(backend: a)
+        _ = try device.startCapture(configuration: .init(), onFrame: { received.append($0) })
+        let output = AudioOutputStreamRenderer(backend: controller)
         try #require(output.start().result == .applied)
-        a.setSendingAllowed(true)
+        controller.setSendingAllowed(true)
         try send(output, format: .init())
         try #require(await waitUntil { !received.frames.isEmpty })
         for offset in [12, 24, 36] { try send(output, format: .init(), offset: offset, silence: true) }
-        let drained = try #require(a.statistics?.sentMediaDatagrams)
+        let drained = try #require(controller.statistics?.sentMediaDatagrams)
         try send(output, format: .init(), offset: 48, silence: true)
-        #expect(a.statistics?.sentMediaDatagrams == drained)
-        // Leave a partial AAC block of speech, then close it before the next press.
+        #expect(controller.statistics?.sentMediaDatagrams == drained)
+        // Leave controller partial AAC block of speech, then close it before the next press.
         #expect(output.schedule(.init(sequenceNumber: 60, capturedAt: 0.6,
             samples: Array(repeating: 0.4, count: 100))).result == .applied)
-        a.setSendingAllowed(false)
-        let closed = a.statistics?.sentMediaDatagrams
+        controller.setSendingAllowed(false)
+        let closed = controller.statistics?.sentMediaDatagrams
         try send(output, format: .init(), offset: 61)
-        #expect(a.statistics?.sentMediaDatagrams == closed)
-        a.setSendingAllowed(true)
+        #expect(controller.statistics?.sentMediaDatagrams == closed)
+        controller.setSendingAllowed(true)
         try send(output, format: .init(), offset: 1000, silence: true)
         try #require(await waitUntil { received.frames.contains { $0.capturedAt >= 10 } })
         #expect(received.frames.filter { $0.capturedAt >= 10 }.flatMap(\.samples).allSatisfy { abs($0) < 0.000001 })
@@ -232,13 +233,14 @@ struct AudioDeviceConnectionTests {
     }
 
     @Test func invalidAuthenticatedAudioStopsThePairInsteadOfFallingBack() async throws {
-        let (a, b) = try pair(); defer { a.stop(); b.stop() }
-        _ = try await a.prepare()
-        _ = try a.startCapture(configuration: .init(), onFrame: { _ in Issue.record("Invalid audio was delivered") })
-        a.receive(.init(sequenceNumber: 0, codec: .pcm16, format: .init(sampleRate: 48_000, channelCount: 1),
+        let (controller, device) = try pair(); defer { controller.stop(); device.stop() }
+        _ = try await controller.prepare()
+        _ = try controller.startCapture(
+            configuration: .init(), onFrame: { _ in Issue.record("Invalid audio was delivered") })
+        controller.receive(.init(sequenceNumber: 0, codec: .pcm16, format: .init(sampleRate: 48_000, channelCount: 1),
             capturedAt: 0, sampleCount: 1, payload: Data([0, 0])))
-        #expect(!a.isSendReady && !a.isSendingAllowed)
-        #expect(throws: AudioDeviceError.stopped) { try a.startRendering(configuration: .init()) }
+        #expect(!controller.isSendReady && !controller.isSendingAllowed)
+        #expect(throws: AudioDeviceError.stopped) { try controller.startRendering(configuration: .init()) }
     }
 
 }
