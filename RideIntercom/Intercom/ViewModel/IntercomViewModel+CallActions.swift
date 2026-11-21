@@ -94,7 +94,6 @@ extension IntercomViewModel {
             groupErrorMessage = groupStorageNotice ?? "This sign-in has ended. Open your current account to continue."
             return false
         }
-        let previousSelection = selectedGroup
         switch destination {
         case .group(let id):
             guard let group = groups.first(where: { $0.id == id }) else {
@@ -107,22 +106,26 @@ extension IntercomViewModel {
                 groupErrorMessage = "This saved user is no longer available for an individual call."
                 return false
             }
+            guard requireCallSwitchAllowed(to: group.id, allowSwitchingCall: allowSwitchingCall) else { return false }
             selectGroup(group, connectIfIdle: false)
         case .user(let id):
-            guard selectUser(id, connectIfIdle: false) else { return false }
+            guard selectUser(id, connectIfIdle: false, allowSwitchingCall: allowSwitchingCall) else { return false }
         }
         guard let selectedGroup else { return false }
-        if !allowSwitchingCall, hasAnyActiveGroupConnection, activeGroupID != selectedGroup.id {
-            self.selectedGroup = previousSelection
-            groupErrorMessage = "End the current call before starting a different call."
-            return false
-        }
         if activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection { return true }
         connectSelectedGroup(source: source)
         let started = activeGroupID == selectedGroup.id && hasAnyActiveGroupConnection
         // Every new one-to-one connection notifies the person once, from a list, Widget, Watch or Siri.
         if started, case .user(let id) = destination { noticeNewDirectCall(to: id) }
         return started
+    }
+
+    func requireCallSwitchAllowed(to groupID: UUID, allowSwitchingCall: Bool) -> Bool {
+        guard allowSwitchingCall || !hasAnyActiveGroupConnection || activeGroupID == groupID else {
+            groupErrorMessage = "End the current call before starting a different call."
+            return false
+        }
+        return true
     }
 
     /// Choosing someone from a list: connect when idle, reopen the current call. While connected (waiting

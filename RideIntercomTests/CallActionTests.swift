@@ -4,6 +4,42 @@ import Testing
 
 @MainActor
 struct CallActionTests {
+    enum ExternalEntry: String, CaseIterable, Sendable { case widget, shortcut, watch }
+
+    @Test(arguments: ExternalEntry.allCases)
+    func refusedExternalStartLeavesTheSavedDirectoryAndCurrentCallAlone(entry: ExternalEntry) async throws {
+        let h = try AppTestSupport.makeHarnessWithSavedUser()
+        let vm = h.viewModel
+        defer { vm.disconnect() }
+        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let user = try #require(vm.savedRemoteUsers.first)
+        let target = try #require(owner.callTargets.first { $0.destination == .user(user.id) }?.entity)
+        let group = try #require(vm.regularGroups.first)
+
+        try #require(vm.startCall(to: .group(group.id), accountAccessID: vm.accountAccessID))
+        let reference = vm.currentCallReference
+        let selection = vm.selectedGroup
+        let snapshot = h.groupStore.snapshot
+        try #require(vm.existingDirectCall(for: user.id) == nil)
+
+        switch entry {
+        case .widget:
+            let intent = OpenCallControlIntent(destinationID: target.id); intent.actions = owner
+            await #expect(throws: CallIntentError.self) { _ = try await intent.perform() }
+        case .shortcut:
+            let intent = StartSavedCallIntent(target: target); intent.owner = owner
+            await #expect(throws: CallIntentError.self) { _ = try await intent.perform() }
+        case .watch:
+            let reply = await owner.handleWatchRequest(.init(.startRemote(target.id), snapshot: owner.watchSnapshot()))
+            #expect(reply.problem == .denied)
+        }
+        #expect(vm.groupErrorMessage?.contains("End the current call") == true)
+        #expect(vm.currentCallReference == reference && vm.selectedGroup == selection)
+        let storageUnchanged = h.groupStore.snapshot == snapshot
+        #expect(storageUnchanged)
+        #expect(vm.existingDirectCall(for: user.id) == nil)
+    }
+
     @Test func explicitDestinationDoesNotDependOnTheBrowsedGroup() throws {
         let h = try harness(); let vm = h.viewModel
         defer { vm.disconnect() }

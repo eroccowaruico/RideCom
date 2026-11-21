@@ -35,7 +35,7 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func selectUser(_ userID: UUID, connectIfIdle: Bool = true) -> Bool {
+    func selectUser(_ userID: UUID, connectIfIdle: Bool = true, allowSwitchingCall: Bool = true) -> Bool {
         groupErrorMessage = nil
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         guard let user = savedRemoteUsers.first(where: { $0.id == userID }) else {
@@ -46,11 +46,13 @@ extension IntercomViewModel {
             groupErrorMessage = "Verify your account in Internet Connection to call this user."
             return false
         }
-        if let existing = groups.first(where: { $0.id == id }) {
-            guard existing.kind == .direct else {
-                groupErrorMessage = "The saved call conflicts with another group. Reload your saved groups."
-                return false
-            }
+        let existing = groups.first(where: { $0.id == id })
+        if let existing, existing.kind != .direct {
+            groupErrorMessage = "The saved call conflicts with another group. Reload your saved groups."
+            return false
+        }
+        guard requireCallSwitchAllowed(to: id, allowSwitchingCall: allowSwitchingCall) else { return false }
+        if let existing {
             selectGroup(existing, connectIfIdle: connectIfIdle)
             return true
         }
