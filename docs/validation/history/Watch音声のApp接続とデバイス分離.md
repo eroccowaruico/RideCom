@@ -64,7 +64,7 @@ Mac・iPhone Simulatorで各1回成功し、失敗・skip・runtime warning0、H
 
 ## 通話から独立したWatchの録音確認
 
-Watch Simulatorの実Appで、標準`AVAudioRecorder`による録音→`AVAudioFile`での読取→`AVAudioPlayer`での再生を確認した。`.playAndRecord`・`.default`・optionsなし、非同期activation完了後の録音で、48kHz mono・2秒・96,000 frames・非zero 92,119 samplesを取得し、再生完了delegateまで到達した。録音内容は証跡へ保存せず、測定後に一時CAFを削除した。証跡は`.validation/watch-native-recording-check-20261101/`。
+Watch Simulatorの実Appで、標準`AVAudioRecorder`による録音→`AVAudioFile`で読み取って`AVAudioPlayer`で再生する経路を確認した。`.playAndRecord`・`.default`・optionsなし、非同期activation完了後に録音した。48kHz mono・2秒・96,000 frames・非zero 92,119 samplesを取得した。その後、再生完了delegateまで到達した。録音内容は証跡へ保存せず、測定後に一時CAFを削除した。証跡は`.validation/watch-native-recording-check-20261101/`。
 
 同じcontrollerを使うDebug専用の入口を残した。Xcodeの通常DebugでWatch Appを起動し、`Recording Check`→`Record 5s`→`Stop`／`Play`で、形式・秒数・frames・信号取得有無・エラーを確認できる。ログイン・通話・音声packageを起動せず、CLI入口は隔離Validation build・明示fixture・Simulatorの全条件を要求する。Releaseでは録音controllerと画面をコンパイルしない。実機の操作・録音と、実際に聞こえたことは未確認であり、native再生APIの完了と区別する。
 
@@ -72,7 +72,7 @@ Watch Simulatorの実Appで、標準`AVAudioRecorder`による録音→`AVAudioF
 
 削除失敗後に新しい録音が既存file参照・エラーを上書きしないguardも追加した。所有する合成ファイルのdirectoryを一時的に書込不可として実削除失敗を起こし、guardなしではエラー保持・許可要求抑止の2項目が失敗、修正後は6項目成功した。権限復元後の削除とdirectory回収も確認し、この試験ではマイク録音を開始していない。最終buildには既知のAppIntentsメタデータ対象なしwarningが1件あり、警告ゼロとは扱わない。成功時はcleanupでfileがnilになるため従来の録音経路を変えない。証跡は`.validation/watch-recording-cleanup-failure-20261101/`。
 
-Recorder成功からWatchのnative入力一般が利用不能とはいえない。先のEngine試験はsession optionsも異なっていたため、APIだけの比較ではなかった。同じcategory・mode・optionsなし・deactivate→activate完了に揃えた直接Engine＋Sinkでも入力0Hz・0 frames・開始エラー-10851、標準input tapでは-10868となった。optionsだけの原因説とSinkだけの原因説は裏付けられず、AVAudioEngine入力の未成立を残す。証跡は`.validation/watch-native-engine-empty-options-20261101/`と`.validation/watch-native-input-tap-20261101/`。診断コードはsourceから撤去した。この区切り後、利用者から「Watchで録音したファイルを送るのではなく、iPhoneで録音する」と訂正された。次の必須項目はWatchマイクのlive音声を既存AudioDeviceでiPhone設定のAudioCheckへ届け、iPhone側で処理・録音し、Watchで再生すること。録音ファイル配送案は撤回し、その仮実装と専用REDテストを本体から除いた。Watch単体録音を通話streamやWatch会話E2Eの完了とは扱わない。
+Recorder成功からWatchのnative入力一般が利用不能とはいえない。先のEngine試験はsession optionsも異なっていたため、APIだけの比較ではなかった。同じcategory・mode・optionsなし・deactivate→activate完了に揃えた直接Engine＋Sinkでも入力0Hz・0 frames・開始エラー-10851だった。標準input tapでは-10868となった。optionsだけの原因説とSinkだけの原因説は裏付けられず、AVAudioEngine入力の未成立を残す。証跡は`.validation/watch-native-engine-empty-options-20261101/`と`.validation/watch-native-input-tap-20261101/`。診断コードはsourceから撤去した。この区切り後、利用者から「Watchで録音したファイルを送るのではなく、iPhoneで録音する」と訂正された。次の必須項目はWatchマイクのlive音声を既存AudioDeviceでiPhone設定のAudioCheckへ届け、iPhone側で処理・録音し、Watchで再生すること。録音ファイル配送案は撤回し、その仮実装と専用REDテストを本体から除いた。Watch単体録音を通話streamやWatch会話E2Eの完了とは扱わない。
 
 ## iPhone設定の5秒録音と有限配送
 
@@ -91,7 +91,7 @@ Simulatorのnative入力確認では、Macの既定入力が48kHz、既定出力
 
 単独候補の影響回帰は65件中64件が成功し、残る1件は旧raw録音用のテストが実入力通知・送信処理を迂回していた。入力backendから実処理へ送るよう修正して限定再実行し、先頭・中央・末尾のtoneと有限再生の保持を確認した。製品コードはこの再実行前後で変更していない。証跡は`.validation/phone-audio-check-route-20261101/app-standalone-regression/`と`app-standalone-playback-regression/`。同回帰にはnative録音・再生の2回実行、通常通話のnative入力継続・再開始、送信失敗後のミュート録音再開始を含む。通話の認証・transportはfixtureであり、相手端末との会話成立を示すものではない。
 
-設定画面の最終実行は`.validation/phone-audio-check-route-20261101/app-standalone-settings-final/`。両回とも処理後録音240,000 frames／5秒、native出力242,880 frames／5.06秒、入力・出力観測のdropとgapは0で、録音→再生→完了→再開始と終了時の入出力停止を確認した。ただし、この実行の処理後録音と出力はともに全て無音だった。非無音区間を基準にした5秒全体の波形照合は測定不能で、波形受入判定は不合格のまま保存する。UI成功やframe数を有音の全量再生の成立へ読み替えない。条件を固定した有音検証、Mac／iPad／Watchの各経路、実機の聴感・Bluetoothは引き続き未確認である。
+設定画面の最終実行は`.validation/phone-audio-check-route-20261101/app-standalone-settings-final/`。両回とも処理後録音240,000 frames／5秒、 native出力242,880 frames／5.06秒を得た。入力・出力観測のdropとgapはいずれも0だった。録音→再生→完了→再開始と終了時の入出力停止を確認した。ただし、この実行の処理後録音と出力はともに全て無音だった。非無音区間を基準にした5秒全体の波形照合は測定不能で、波形受入判定は不合格のまま保存する。UI成功やframe数を有音の全量再生の成立へ読み替えない。条件を固定した有音検証、Mac／iPad／Watchの各経路、実機の聴感・Bluetoothは引き続き未確認である。
 
 診断用の独立したfresh AVAudioEngineマイク調査コードは、App本体のnative入力・再開始の回帰へ役割を移して撤去する。過去の失敗・成功証跡は維持し、専用Simulatorの音声設定復元・停止とsource対応を各runに記録する。
 
@@ -109,7 +109,7 @@ Simulatorのnative入力確認では、Macの既定入力が48kHz、既定出力
 
 ## Watch Simulatorの入出力固定と残るclock開始
 
-2026-11-02、所有するWatch／iPhone Simulatorペアの停止状態を確認し、Watchの入出力を互換48kHz機器へ固定して一回検証した。既存CLIの一時的なnative入力専用分岐で、通話と同じSessionManagerのcapture／rendererと共有AVAudioEngineを使った。Phoneへの到達待ちを外し、AVAudioRecorderによる事前録音は使っていない。この試験の問いはnative入力の開始可否であり、5秒録音やWatch会話の受入ではない。
+2026-11-02、所有するWatch／iPhone Simulatorペアの停止状態を確認し、Watchの入出力を互換48kHz機器へ固定して1回検証した。既存CLIの一時的なnative入力専用分岐で、通話と同じSessionManagerのcapture／rendererと共有AVAudioEngineを使った。Phoneへの到達待ちを外し、AVAudioRecorderによる事前録音は使っていない。この試験の問いはnative入力の開始可否であり、5秒録音やWatch会話の受入ではない。
 
 権限・session構成・活性化は成功し、実input hardware／client formatは以前の0Hzから48kHz monoへ変わった。capture開始は`applied`だったが、共有engineは停止状態、output hardware formatは0Hz／2chのままだった。renderer開始は`-10867`で失敗し、callback／frameは0で、native入力の成立判定は不合格である。packageの開始報告だけを入力取得の成功として扱わない。
 
@@ -139,7 +139,7 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 この実行ではnative capture／rendererが`applied`、入力48kHz mono・出力48kHz stereo・engine稼働を確認した。次のAudioDevice媒体endpoint取得で約5秒待った後`stopped`となり、iPhoneの録音要求には到達していない。入力配送handlerの設置前でマイクgateも閉じているため、このApp実行のinputFrames 0をDのnative入力成功へ混ぜない。native mixerの220,500 framesは全て無音であり、相手音声・録音内容の再生成功ではない。失敗表示とWatch終了状態、source 362ファイル一致、入出力・音量復元、所有ペア停止を確認した。媒体開始と5秒全量往復は未完として継続する。
 
-部分App単位の回帰では、Watch連携4テスト（引数別5ケース）と通常Phoneの有限5秒録音・再開始1テストが成功した。旧Watchテストの直接録音処理呼出しでは期待が失敗するREDを保持し、合成入力を実device renderer→暗号化媒体・AAC→Phoneの送信処理へ通すfixtureに修正した。成功・失敗・遅いactivationの取消、二重再生拒否、停止後のPhone録音・再生復帰とミュート設定の保持を確認する。短い合成入力の契約試験であり、Watch実Appの5秒全量往復の代替ではない。証跡は`.validation/watch-app-contract-green-20261102/`と`watch-app-phone-finite-final-20261102/`。Phone単独テストの最初のfilterが選択0件だった結果を保持し、正しいfilterの1件成功と区別する。失敗・skip・検出runtime warnings 0、362ファイル一致、最終production Swiftがnative実行時と同一であること、所有Simulator停止、一時runner5本回収を確認した。
+部分App単位の回帰では、Watch連携4テスト（引数別5ケース）と通常Phoneの有限5秒録音・再開始1テストが成功した。旧Watchテストの録音処理の直接呼出しでは期待が失敗するREDを保持し、合成入力を実device renderer→暗号化媒体・AAC→Phoneの送信処理へ通すfixtureに修正した。成功・失敗・遅いactivationの取消、二重再生拒否、停止後のPhone録音・再生復帰とミュート設定の保持を確認する。短い合成入力の契約試験であり、Watch実Appの5秒全量往復の代替ではない。証跡は`.validation/watch-app-contract-green-20261102/`と`watch-app-phone-finite-final-20261102/`。Phone単独テストの最初のfilterが選択0件だった結果を保持し、正しいfilterの1件成功と区別する。失敗・skip・検出runtime warnings 0、362ファイル一致、最終production Swiftがnative実行時と同一であることを確認した。所有Simulatorの停止と一時runner5本の回収も確認した。
 
 
 ## Watch媒体endpointの登録通知待ち
@@ -165,9 +165,9 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 ## Phone側待受とWatch単一接続の双方向対照
 
-2026-11-02、実Phone AppのNWListenerへ実Watch Appが接続し、同じUDP flowで32byteの検証値を2回echoする一時対照を行った。PhoneのBonjour登録とport取得は成功した。初回はWatchの自動refreshと検証要求が競合して要求未送信だったため、媒体不成立とは扱わず`.validation/watch-single-flow-20261102/`へ保持する。既存の到達性・待機状態が整ってから要求する補正後は、実WCでservice endpointを受け取ったが、WatchのNWConnectionはpreparingのまま期限に達し、送信・受信0だった。証跡は`.validation/watch-single-flow-ready-20261102/`。実際のcancelledと停止後250msの件数不変を両端で確認した。
+2026-11-02、実Phone AppのNWListenerへ実Watch Appが接続し、同じUDP flowで32byteの検証値を2回echoする条件で一時的に対照試験をした。PhoneのBonjour登録とport取得は成功した。初回はWatchの自動refreshと検証要求が競合して要求未送信だったため、媒体不成立とは扱わず`.validation/watch-single-flow-20261102/`へ保持する。既存の到達性・待機状態が整ってから要求する補正後は、実WCでservice endpointを受け取った。ただし、WatchのNWConnectionはpreparingのまま期限に達し、送信・受信0だった。証跡は`.validation/watch-single-flow-ready-20261102/`。実際のcancelledと停止後250msの件数不変を両端で確認した。
 
-続く対照では、Phone実processの利用中Wi-Fi／Ethernet pathと実interfaceを照合して得た非loopback IPv4候補1件・listener実portを、検証専用の有界・version付きWC返信で渡した。固定IPやlocalhostは使わず、service endpointの型をhost／portへ読み替えていない。今回の候補はwiredEthernet 1件である。WatchのhostPort接続はreadyとなり、Phone受信・echo各2、Watch送信・echo受信・全32byte一致各2を確認した。実際のlistener／connection取消と停止後250msの件数不変も成立した。これは停止後の観測であり、意図的な遅延packet注入試験ではない。
+続く対照では、Phone実processの利用中Wi-Fi／Ethernet pathと実interfaceを照合した。得られた非loopback IPv4候補1件とlistenerの実portを、検証専用の有界・version付きWC返信で渡した。固定IPやlocalhostは使わず、service endpointの型をhost／portへ読み替えていない。今回の候補はwiredEthernet 1件である。WatchのhostPort接続はreadyとなり、Phone受信・echo各2、Watch送信・echo受信・全32byte一致各2を確認した。実際のlistener／connection取消と停止後250msの件数不変も成立した。これは停止後の観測であり、意図的な遅延packet注入試験ではない。
 
 証跡は`.validation/watch-hostport-flow-20261102/`。source362ファイル一致、IP値を観測JSON・Appログへ保存していないこと、一時2sourceのHEAD完全復元、runner回収、両App終了・所有Simulator停止を確認した。音声設定は変更していない。同条件でUDP通信自体は成立し、Bonjour指定の接続準備停止とは差が出たが、根本原因を特定したものではない。LAN対照はAPなし近距離・製品fallback・暗号化音声・録音会話の成立を示さない。
 
@@ -178,7 +178,7 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 2026-11-02、RTCの音声機器専用transportを単一UDP flowの双方向配送へ変更した。listener側だけが広告し、相手は自己広告せず接続できる。有限の認証済みhello／ackで返送先を確立するため、Watchの送話gateを開く前にもPhoneから受話できる。音声再送・常設keepalive・無音packetは追加せず、group用Local transportは変更していない。AudioDeviceは接続受付後に既存capture／rendererを開始でき、従来の両側prepare経路も維持する。
 
-変更前の未広告接続失敗を確認後、実UDPとnative AACを用いて先行受話・双方向配送・送話gate・停止／新sessionでの再開始を検証した。二巡の点検で、接続候補の障害が正常な旧flowまで止める問題、交換した未認証候補の停止漏れ、古い復旧予約による再接続阻害をそれぞれ失敗再現後に修正した。未認証候補の排除、受入前のreplay状態不消費、両側接続の競合と待機期限後の継続、旧flowを維持する経路切替も確認した。
+変更前の広告していない場合の接続失敗を確認後、実UDPとnative AACを用いて先行受話・双方向配送・送話gate・停止／新sessionでの再開始を検証した。二巡の点検で、接続候補の障害が正常な旧flowまで止める問題、交換した未認証候補の停止漏れ、古い復旧予約による再接続阻害をそれぞれ失敗再現後に修正した。未認証候補の排除、受入前のreplay状態不消費、両側接続の競合と待機期限後の継続、旧flowを維持する経路切替も確認した。
 
 最終sourceでRTC 113テスト・Native WebRTC 4テスト・AudioDevice 11テストが成功した。WorkerPairの実サービス1テストはskipで未検証。途中のgroup接続待ち失敗は限定再実行と後続全回帰で成功したが、原因は未確定として保持する。初回AudioDevice実行のsandbox／native AAC環境失敗も保持し、製品コードへ環境回避は入れていない。証跡は`.validation/audio-device-duplex-20261102/`。
 
@@ -193,7 +193,7 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 補正後の`.validation/watch-rtc-device-public-flow-ready-20261102/`では、通常refresh待ちのままでも実WCの要求・返信、Phoneの広告取得、Watchのlink生成まで成立した。両端の送信・受信・一致件数は0で、新しい媒体APIでもservice指定の通信は成立しなかった。Phone listenerのreadyと実cancelled、停止後250msの件数不変を確認した。Watchの最終観測ではpackageの失敗処理後にnative outgoing／activeを保持しておらず、nilから準備中・実cancelledを推定しない。先行受話の判定も受信・一致2件を必須として不合格である。
 
-ビルド番号384→386の更新を除く実行前後362ファイルの一致、binaryと診断patchの対応、両App終了・所有Simulatorペア停止、一時2sourceのHEAD完全復元とrunner回収を確認した。観測・AppログへIP・鍵・packet内容は記録していない。同条件の追加試行を止め、通常service経路のApp本統合は保留する。既に往復を確認した実アドレス指定は診断の対照に限り、音声回路の5秒録音・全量再生を切り分ける範囲を次に確認する。製品のLAN必須化やAPなし近距離要求の撤回ではない。
+ビルド番号384→386の更新を除く実行前後362ファイルの一致、binaryと診断patchの対応を確認した。両Appの終了・所有Simulatorペアの停止、一時2sourceのHEAD完全復元とrunner回収を確認した。観測・AppログへIP・鍵・packet内容は記録していない。同条件の追加試行を止め、通常service経路のApp本統合は保留する。既に往復を確認した実アドレス指定は診断の対照に限り、音声回路の5秒録音・全量再生を切り分ける範囲を次に確認する。製品のLAN必須化やAPなし近距離要求の撤回ではない。
 
 
 ## 実アドレス対照の録音開始と制御返信の未観測
@@ -214,7 +214,7 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 ## 通常マイクONをinactiveで維持する回帰修正
 
-2026-11-02、Watchのsceneがinactiveへ変わるだけで、押下モードと通常モードの両方をOFFにする実装を修正した。共有の小さな状態型がモード・明示ON/OFF・sceneの意図を所有し、controllerが既存の認証・媒体・通話状態の条件を確認して実gateへ適用する。通常モードで既にONならinactiveでgateを操作せず、押下モードは閉じる。inactive中の新規ON、背景・明示OFF・モード変更・媒体断・適用失敗後の自動ONを防ぐ。iPhoneのミュート、受話route、renderer、RTCは変更していない。
+2026-11-02、Watchのsceneがinactiveへ変わるだけで、押下モードと通常モードの両方をOFFにする実装を修正した。共有の小さな状態型がモード・明示ON/OFF・sceneの意図を所有し、controllerが既存の認証・媒体・通話状態の条件を確認して実gateへ適用する。通常モードが既にONならinactiveでgateを操作せず、押下モードは閉じる。inactive中の新規ON、背景・明示OFF・モード変更・媒体断・適用失敗後の自動ONを防ぐ。iPhoneのミュート、受話route、renderer、RTCは変更していない。
 
 `WatchMicrophoneBoundaryTests`へ状態遷移の回帰を先行追加し、新しい型が未定義のcompile失敗を記録した。実装後は同suiteと`WatchAudioIntegrationTests`の10関数・パラメータを含む11ケースが成功し、失敗・skip・runtime warningは0。Watch Simulatorのarm64／x86_64 buildも成功した。build warningは7件残り、警告なしとは扱わない。共有の製品状態を直接検査した結果であり、Watch controllerのnative gate実行や実機の手首暗転・音声継続の証明ではない。Watch音声往復の未成立境界は維持する。
 
@@ -222,13 +222,13 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 ## Phoneの録音開始順と接続準備期限の対照
 
-2026-11-02、Phoneが媒体認証前に録音を開始する条件を分離した。診断用のlistenerとbackendを準備してWC返信を要求し、既存の媒体認証成立後にだけ録音を始める一時変更を1回実行した。Watchは返信を受けてからnative音声を開始する。新しいACKや製品の通信方式は追加していない。
+2026-11-02、Phoneが媒体認証前に録音を開始する条件を分離した。診断用のlistenerとbackendを準備してWC返信を要求し、既存の媒体の認証が成立した後にだけ録音を始める一時変更を1回実行した。Watchは返信を受けてからnative音声を開始する。新しいACKや製品の通信方式は追加していない。
 
 この対照では693 byteの返信がWatchへ届き、reply callbackとMainActor反映を各1件観測した。ただしPhoneの返信送信要求から約8.101秒かかり、Phoneの5秒の準備期限による解放から約3.085秒後だった。Watchの48kHz native開始は観測したが、相手listenerは既に終了しており、媒体認証・Phone録音は開始しなかった。35秒の実行上限で終了し、App内の最終結果・Watch cleanup段階は未観測、外部からの終了と資源復元は確認した。返信の到着1回だけで、Phone音声処理が不達の原因だったとは判断しない。
 
 続いて、同じ診断のPhone準備期限だけを5秒から20秒に変更し、他の5ソースのhash一致を確認して1回実行した。Phoneは再び693 byteの返信送信要求まで到達したが、Watchのreply／error callback・MainActor反映は12秒間すべて0だった。Watch native開始前にtimeoutし、Watch cleanup段階を観測した。終了時点ではPhoneの20秒期限に達していないため、その期限による自動解放は未観測として外部cleanupと分ける。
 
-短い準備期限と遅い返信の競合は観測できたが、準備期限を揃えるだけでは返信配送は安定しなかった。同条件の追加試行を停止する。音声の5秒全量・波形・codec末尾は未測定であり、マイクやcodecの失敗、Simulatorの非対応とは結論しない。
+短い準備期限と遅い返信の競合は観測できたが、準備期限を揃えても返信配送は安定しなかった。同条件の追加試行を停止する。音声の5秒全量・波形・codec末尾は未測定であり、マイクやcodecの失敗、Simulatorの非対応とは結論しない。
 
 証跡は`.validation/watch-audio-lan-after-auth-20261102/manifest.json`と`.validation/watch-audio-lan-prepared20-20261102/manifest.json`。各実行の362入力とbinary対応、patch・再現用runnerを保持し、一時6ソースをHEADへ完全復元した。両端の入出力固定・音量を復元し、所有AppとSimulatorを停止、一時runnerの実行用コピーを撤去した。Build番号は392→394→396へ進んだ。LAN診断経路・録音開始順・20秒期限はいずれも製品へ採用していない。
 
@@ -238,9 +238,9 @@ SessionManagerに明示的な`AudioDuplexIO.prepare(engine:)`を追加した。�
 
 ファイル受渡し、Watchの48kHz native入出力、媒体認証、Phone録音開始まで成立した。Watchの途中観測では入力1,536 samples中1,518が非zero。Phoneは48kHzで187,680 frames、3.91秒分を受け付けた後に録音失敗となり、その直前の入力dropは0だった。5秒録音完了・Watch再生・native出力波形には到達していない。Phoneの非zero集計は録音完了時にだけ行うため、未完了時の0を無音の証拠にしない。
 
-Phoneの開始API受付からWatchがRecording状態を受け取るまで約2.706秒、Phone失敗まで約6.618秒、Watchの状態受取から失敗まで約3.912秒だった。コードではPhoneの録音状態設定・入力配送開始直後から`recordDuration + 1秒`を待ち、初回sampleを起点にしていない。状態配送待ちが録音期限を消費する説明と整合するが、Phoneがrecordingになった瞬間と最初のsampleの時刻は保存しておらず、この実行だけで原因を完全に確定しない。遅い初回入力で録音不足になる条件を回帰テストで再現し、無入力・途中停止の有限期限を保った修正へ進む。
+Phoneの開始API受付からWatchがRecording状態を受け取るまで約2.706秒、Phone失敗まで約6.618秒、Watchの状態受取から失敗まで約3.912秒だった。コードではPhoneの録音状態設定・入力の配送を始めた直後から`recordDuration + 1秒`を待ち、初回sampleを起点にしていない。状態配送待ちが録音期限を消費する説明と整合するが、Phoneがrecordingになった瞬間と最初のsampleの時刻は保存しておらず、この実行だけで原因を完全に確定しない。遅い初回入力で録音不足になる条件を回帰テストで再現し、無入力・途中停止の有限期限を保った修正へ進む。
 
-証跡は`.validation/watch-audio-file-bootstrap-20261102/manifest.json`。35秒の上限で終了し、App自身の最終結果・Watch cleanup段階は未観測として外部終了と区別した。実行前後363入力とbinary対応を照合し、一時6ソースを`bbe2e625`へ完全復元、先行するマイク意図修正を維持した。秘密を含む専用一時入出力4ファイルを削除し、両端の音声設定・音量を復元、所有ペアを停止、実行用runnerとcacheを撤去した。再現用runner・patchは証跡へ保持し、Build番号は398→400へ進んだ。
+証跡は`.validation/watch-audio-file-bootstrap-20261102/manifest.json`。35秒の上限で終了し、App自身の最終結果・Watch cleanup段階は未観測として外部終了と区別した。実行前後363入力とbinary対応を照合し、一時6ソースを`bbe2e625`へ完全復元、先行するマイク意図修正を維持した。秘密を含む専用の一時入出力ファイル4件を削除し、両端の音声設定・音量を復元、所有ペアを停止、実行用runnerとcacheを撤去した。再現用runner・patchは証跡へ保持し、Build番号は398→400へ進んだ。
 
 ## 初回の有効入力から録音期限を起算する修正
 
@@ -250,15 +250,17 @@ Phoneの開始API受付からWatchがRecording状態を受け取るまで約2.70
 
 証跡は`.validation/audio-check-first-input-20261102/manifest.json`。最終5ファイルのhashと実行前後入力を照合し、専用iPhone Simulatorの入出力・音量を復元して停止、共有lockと一時runnerを回収した。build warningは4件保持し、Build番号は400→402へ進んだ。package、codec、再生時間、Watchの制御経路は変更していない。
 
-## 初回入力期限修正後のWatch媒体比較
+<a id="初回入力期限修正後のwatch媒体比較"></a>
 
-2026-11-02、`45a59179`の録音期限修正後に、同じファイルbootstrap対照を1回実行した。一時6ソースは前回と同じhash、runnerは出力先と基点のみを更新し、録音・再生の5秒量、WCによるphase／play、codec、送話gate、準備期限を変えていない。
+## 初回入力の期限を修正した後のWatch媒体比較
+
+2026-11-02、`45a59179`の録音期限の修正後に、同じファイルbootstrap対照を1回実行した。一時6ソースは前回と同じhash、runnerは出力先と基点のみを更新し、録音・再生の5秒量、WCによるphase／play、codec、送話gate、準備期限を変えていない。
 
 Phone録音は前回の187,680 frames／3.91秒から240,000 frames／5秒へ進み、録音完了後の処理済み音声を集計できた。非zero samplesは0であり、今回は実集計された全無音である。Watch入力の途中観測は2,048 samples中2,023が非zeroだったが、この値だけでPhoneの送信処理後にも有音が残るとは判断しない。
 
 Phoneは録音完了後のpreparingへ進み、約5.32秒後にfailedとなった。Watchの最後のphase観測はrecordingで、play要求・受信音声・native再生波形には到達しなかった。35秒までにWatch側の最終結果・cleanup段階も観測されていない。5秒録音量の修正効果を確認できた一方、処理後音声の内容とWatch再生を未完として保持する。静的には録音frame進捗もWatch snapshotの変更対象となるため、phase配送を阻害した原因と断定せず、frame頻度に結び付く不要な観測・公開を回帰テストで確認する。
 
-証跡は`.validation/watch-audio-file-bootstrap-first-input-20261102/manifest.json`。実行前後363入力とbinary対応を照合し、一時6ソースをHEADへ完全復元、録音期限・マイク意図の修正を維持した。秘密一時入出力4ファイルを削除し、両端の音声設定・音量を完全復元して停止、実行用runnerとcacheを撤去した。Build番号は402→404へ進んだ。
+証跡は`.validation/watch-audio-file-bootstrap-first-input-20261102/manifest.json`。実行前後363入力とbinary対応を照合し、一時6ソースをHEADへ完全復元、録音期限・マイク意図の修正を維持した。秘密を含む一時入出力ファイル4件を削除し、両端の音声設定・音量を完全復元して停止、実行用runnerとcacheを撤去した。Build番号は402→404へ進んだ。
 
 ## 録音進捗とWatch制御通知の分離
 
@@ -266,21 +268,23 @@ Phoneは録音完了後のpreparingへ進み、約5.32秒後にfailedとなっ�
 
 先行1件の期待失敗後、関連2suiteの11関数・パラメータを含む12ケースが成功し、失敗・skip・runtime warningは0。Watch buildも成功した。証跡は`.validation/watch-recording-snapshot-20261102/manifest.json`。最終5ファイルhashと実行前後の入力を照合し、専用Simulator停止・共有lock解放・一時runner回収を確認した。build warningは7件保持、Build番号は404→407。不要な観測・公開判定の修正であり、過去に毎フレーム実送信されたという計測や、実Appのphase不達の原因確定ではない。配送・再生への効果は次の同条件比較で確かめる。
 
-## 状態通知修正後の制御完了とWatch作業の区切り
+<a id="状態通知修正後の制御完了とwatch作業の区切り"></a>
 
-2026-11-02、`8c8f02bc`の状態投影修正後に同じファイルbootstrap対照を1回実行した。Phoneは240,000 frames／48kHzの5秒録音を完了し、Watchからのplay要求、Phoneのplaying／completed、Watchの終了処理まで到達した。前回未到達だった制御の進行を確認できたが、過去のWC不達原因を確定したものではない。最終結果が出たため、条件付きのスレッド採取は実施していない。
+## 状態通知を修正した後の制御完了とWatch作業の区切り
+
+2026-11-02、`8c8f02bc`の状態投影の修正後に同じファイルbootstrap対照を1回実行した。Phoneは240,000 frames／48kHzの5秒録音を完了し、Watchからのplay要求、Phoneのplaying／completed、Watchの終了処理まで到達した。前回未到達だった制御の進行を確認できたが、過去のWC不達原因を確定したものではない。最終結果が出たため、条件付きのスレッド採取は実施していない。
 
 Watch native入力は259,584 samples中256,964が非zeroだった一方、Phoneの処理後録音は全無音だった。Watch受信は無音4,800 frames／48kHz、native出力も非zero 0で、相関・全量波形は未測定。AudioDeviceは無音抑制を有効にし、StreamingCodecは完全無音を最初の100ms送った後に抑止するため、0.1秒の受信量はこの契約と整合する。受信量だけを有音欠落の証拠にしない。振幅・各DSP段の波形・媒体dropは未測定で、無音化の場所や有音の全量配送は未確認である。
 
-証跡は`.validation/watch-audio-file-bootstrap-snapshot-20261102/manifest.json`。実行前後363入力とbinary対応を照合し、一時6ソースをHEADへ完全復元した。秘密一時入出力4ファイルを削除、両端の音声設定・音量を復元して所有ペアを停止し、実行用runnerとcacheを撤去した。Build番号は407→409へ進んだ。
+証跡は`.validation/watch-audio-file-bootstrap-snapshot-20261102/manifest.json`。実行前後363入力とbinary対応を照合し、一時6ソースをHEADへ完全復元した。秘密を含む一時入出力ファイル4件を削除、両端の音声設定・音量を復元して所有ペアを停止し、実行用runnerとcacheを撤去した。Build番号は407→409へ進んだ。
 
 同日の利用者指示により、Watchの追加実験はここで止め、検証済みのマイク意図・録音期限・状態通知の修正を保持して区切る。既知speechをnative capture clockへ載せる追加対照は候補に留め、実装・実行していない。通常のBonjour／WC開始、有音の処理・Watch全量再生・会話E2Eは未完として残す。更新されたゴールに従い、主軸を一般向けの招待・参加へ移す。Watch関連は利用者から再開指示があるまで現状を保持する。
 
 ## iPadの5秒録音と送信処理の回帰
 
-2026-11-02、Watchの返信境界の読取確認と並行し、既存のiPad録音チェック回帰を実行した。所有専用iPadはOS 26.4で現最低27.0を満たさなかったため、所有記録・停止状態とValidation名前空間だけの保存を確認して退役し、同じ用途のiPad Pro 13-inch (M5)／iPadOS 27.2を1台作成した。一般・所有不明のSimulatorは変更していない。
+2026-11-02、Watchの返信境界の読取確認と並行し、既存のiPad録音チェックで回帰試験をした。所有専用iPadはOS 26.4で現最低27.0を満たさなかったため、所有記録・停止状態とValidation名前空間だけの保存を確認して退役させた。同じ用途のiPad Pro 13-inch (M5)／iPadOS 27.2を1台作成した。一般・所有不明のSimulatorは変更していない。
 
-標準Xcodeの`build-for-testing`と`test-without-building`で、`FiniteAudioCheckDeliveryTests`の次の2テストを選択し、2件成功・失敗0・skip 0・runtime warning 0を確認した。
+標準Xcodeの`build-for-testing`と`test-without-building`で、`FiniteAudioCheckDeliveryTests`の次の2テストを選んだ。2件成功し、失敗・skip・runtime warningはいずれも0だった。
 
 | テスト | 確認した範囲 |
 |---|---|

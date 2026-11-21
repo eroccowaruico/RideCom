@@ -8,12 +8,18 @@ Xcode 27.1（27A9275）の配布ログとmacOSのクラッシュ記録を照合�
 
 | 観測 | 判断・境界 |
 |---|---|
-| 19:08:54 JSTの配布失敗 | `IDEDistribution.critical.log`に`NSCocoaErrorDomain Code=4097`、`connection to service named com.apple.dt.Xcode.ITunesSoftwareService`と`account (null)`。同時刻のApple製XPCサービスが`EXC_BAD_ACCESS / SIGBUS`で終了 |
+| 19:08:54 JSTの配布失敗 | `IDEDistribution.critical.log`には`NSCocoaErrorDomain Code=4097`が記録された。同じログに`connection to service named com.apple.dt.Xcode.ITunesSoftwareService`と`account (null)`があった。同時刻のApple製XPCサービスが`EXC_BAD_ACCESS / SIGBUS`で終了 |
 | クラッシュスタック | `CDTransporterDefaults`、`CDAuthContext`、`ContentDelivery`の環境設定参照が再帰。アプリ実行コードのスタックではない |
 | 19:13の再試行 | 認証後にアップロード検証へ進み、使用済みビルド4以下として拒否。認証表示だけからログイン期限切れとは判断できない |
 | 修正範囲 | 確認した認証失敗はXcode側サービスの異常終了に伴う接続切断。アプリ設定でこのクラッシュが直る根拠はなく、資格情報やXcode設定を削除していない。別問題のビルド番号管理を修正 |
 
-証跡は`~/Library/Logs/DiagnosticReports/com.apple.dt.Xcode.ITunesSoftwareService-2026-10-29-190855.ips`と、一時領域の`RideIntercom_2026-10-29_19-08-52.533.xcdistributionlogs`。認証障害の再発防止は未確認。
+診断報告の場所は次のとおり。
+
+```text
+~/Library/Logs/DiagnosticReports/com.apple.dt.Xcode.ITunesSoftwareService-2026-10-29-190855.ips
+```
+
+一時領域にも`RideIntercom_2026-10-29_19-08-52.533.xcdistributionlogs`を保存した。認証障害の再発防止は未確認。
 
 ## 採番・Archive・書き出し
 
@@ -38,7 +44,7 @@ schemeのArchive Pre-actionで`agvtool`を実行すると、project上は新番�
 
 ## Xcode標準Archiveへの統合（2026-10-30）
 
-利用者から、専用コマンドを基本NGとし、XcodeのArchiveで自動採番し、通常Run・Buildと公開バージョンは変更せず、XcodeのBuild欄・project設定・配布物を揃えるよう指示があった。上記の専用コマンド方式を置き換えた。要求は[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)へ追記し、[要求の入口](../../requirements/README.md)から参照する。
+利用者は専用コマンドを原則使わず、XcodeのArchiveで自動採番するよう指示した。通常Run・Buildと公開バージョンは維持し、XcodeのBuild欄・project設定・配布物を揃える。上記の専用コマンド方式を置き換えた。要求は[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)へ追記し、[要求の入口](../../requirements/README.md)から参照する。
 
 | 修正 | 理由・境界 |
 |---|---|
@@ -88,6 +94,6 @@ schemeのArchive Pre-actionで`agvtool`を実行すると、project上は新番�
 
 最終は`.validation/testflight-internal-1000-final-20261118/RideCom.xcarchive`。App・Widget・Watchは1.0.0 (1041)、Build後処理の次回番号1042、source abe15a30。strictなcodesign検証が成功し、App compiler警告0、入力指紋一致（次回番号だけ許容）。開発署名のAPNsはdevelopment、Sign in with AppleとApp Groupがあり、Release Infoはproduction。配布Exportでproductionへ再署名する最終結果は未確認。
 
-送信の直前にdestination=upload、testFlightInternalTestingOnly=true、manageAppVersionAndBuildNumber=false、teamID=UAY8FH5FF8を照合した。ソース差分も次回番号以外がないことを確認し、標準xcodebuild -exportArchiveを実行したが、Failed to Use Accounts / App Store Connect access for UAY8FH5FF8 is requiredで失敗。未アップロードであり、内部配信・Apple側処理を成功としない。標準API keyの環境設定・保存先にも利用可能な設定はなかった。認証・権限の復旧は[OS権限と配布設定](../../development/OS権限と配布設定.md#現在の署名配布アクセスの確認)へ記録した。
+送信直前の設定を照合した。destination=upload、testFlightInternalTestingOnly=trueであった。manageAppVersionAndBuildNumber=falseとteamID=UAY8FH5FF8を照合した。ソース差分も次回番号以外がないことを確認した。標準のxcodebuild -exportArchiveは失敗した。原文は「Failed to Use Accounts / App Store Connect access for UAY8FH5FF8 is required」。未アップロードであり、内部配信・Apple側処理を成功としない。標準API keyの環境設定・保存先にも利用可能な設定はなかった。認証・権限の復旧は[OS権限と配布設定](../../development/OS権限と配布設定.md#現在の署名配布アクセスの確認)へ記録した。
 
-`.validation/testflight-internal-1000-20261118`は未送信の最初のArchive、`testflight-internal-1000-actor-fixed-20261118`は検証オプション衝突の失敗、最終フォルダのuploadには実送信試行のlogと使用optionsを保持する。現行の標準Archiveは従来どおりの入口・次回採番を使い、配布用の別カウンタや定期実行は導入していない。
+`.validation/testflight-internal-1000-20261118`は未送信の最初のArchiveである。`testflight-internal-1000-actor-fixed-20261118`には検証オプションの衝突による失敗を記録した。最終フォルダのuploadには実送信試行のlogと使用optionsを保持する。現行の標準Archiveは従来どおりの入口・次回採番を使い、配布用の別カウンタや定期実行は導入していない。

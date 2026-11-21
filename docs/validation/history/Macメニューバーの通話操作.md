@@ -14,9 +14,9 @@
 | 初回局所試験 | 5件成功。設定保存、OFFと音声resetの通話継続、重複mute、古い終了、ログイン置換、権利未成立の状態投影。`green.log`／`green.xcresult` |
 | 最終App回帰 | Mac 395件成功（追加6件、失敗0・skip0）。日本語compiled resourceを含む。`final-macos.log`／`final-macos.xcresult`／`final-summary.json` |
 | Release build | fixture条件なし、署名なしgeneric macOSのApp＋Widget build成功。arm64／x86_64、共通build 235。`release-build.log` |
-| 入力固定 | source manifest 375入力は自動採番以外一致。testはbuild 234。元hashと採番を前後で保持し、正規化比較結果を`results.json`へ保存 |
+| 入力固定 | source manifest 375入力は自動採番を除いて一致。testはbuild 234。元hashと採番を前後で保持し、正規化した比較結果を`results.json`へ保存 |
 | 構造 | 文書／開発構造checkと既存OS設定・採番24試験が成功。新target・entitlementは追加なし |
 
-専用DerivedDataは`/tmp/RideIntercom-MenuBar`。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`、`RIDEINTERCOM_VALIDATION`、専用storage namespace、`ENABLE_APP_SANDBOX=NO`で通信なしのunit fixtureを用いる。macOS 26.4を最低対応のまま維持し、27.2 SDKでcompileする。実OSメニュー操作・VoiceOver・画面復帰は[未確認事項](../未確認事項.md#macメニューバーのos受入)で別管理し、unit結果で代用しない。
+専用DerivedDataは`/tmp/RideIntercom-MenuBar`。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`を指定する。通信なしのunit fixtureには`RIDEINTERCOM_VALIDATION`、専用storage namespace、`ENABLE_APP_SANDBOX=NO`を使う。macOS 26.4を最低対応のまま維持し、27.2 SDKでcompileする。実OSメニュー操作・VoiceOver・画面復帰は[未確認事項](../未確認事項.md#macメニューバーのos受入)で別管理し、unit結果で代用しない。
 
 最終App試験とRelease buildにコンパイラ／runtime warningはない。先行局所試験でUIテストbundleに出たAppIntents metadata省略warningは既知の工具出力として保持する。Mac用WebRTCのprivacy manifest配置不備はこのApp工程では未修正であり、Release build成功を配布準備完了とは扱わない。

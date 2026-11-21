@@ -3,16 +3,14 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLinter, loadTextlintrc } from 'textlint';
+import japaneseWriting from 'textlint-rule-preset-ja-technical-writing';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-// The last shared revision before introducing this check. Keep it fixed across commits.
-const adoption = '4dd04e8321335a41b3ed1c53bce1baadafcd8297';
 const targets = ['docs/*.md', '.agents/skills/*.md', 'README.md', 'AGENTS.md'];
 const git = (...args) => execFileSync('git', args, {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024
 });
-const names = (...args) => git(...args, '--', ...targets).split('\0').filter(Boolean);
 
 // Japanese sentence rules visit paragraphs. Give each table cell its own paragraph,
 // using the existing inline nodes so that code, links and source positions survive.
@@ -30,69 +28,128 @@ function includeCells(node, tableLines) {
     }];
 }
 
+// An API identifier or a file path is one reference in a sentence. Keep the
+// source range for diagnostics. Only the sentence-length rule uses this view.
+function sentenceChildren(children) {
+    return children.flatMap(node => {
+        if (node.type === 'Strong' || node.type === 'Emphasis') {
+            return sentenceChildren(node.children);
+        }
+        if (node.type === 'Code' && isTechnicalReference(node.value)) {
+            return [{...node, value: 'X'}];
+        }
+        return [node];
+    });
+}
+
+function isTechnicalReference(value) {
+    // A single code identifier, file path or URL. Ordinary quoted prose,
+    // including Japanese text placed in backticks, still counts in full.
+    if (/\s/u.test(value)) return false;
+    if (/^(?:[a-z][a-z0-9]*-)+[0-9]{8,}$/u.test(value) || /^test[A-Z]\w+…$/u.test(value)) return true;
+    if (/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/iu.test(value)) return true;
+    return /^(?:https?:\/\/|(?:[.]{0,2}\/)?(?:[\w.@-]+\/)+)[^\s]+$/u.test(value)
+        || /^[a-zA-Z_$][a-zA-Z0-9_$.:-]*$/u.test(value) &&
+            /[a-z][A-Z]|[._:$]|[A-Z]{2}[a-z]/u.test(value);
+}
+
+function useRenderedSentence(rule) {
+    if (rule.ruleId !== 'ja-technical-writing/sentence-length') return rule;
+    return {...rule, rule(context, options) {
+        const handlers = rule.rule(context, options);
+        const paragraph = context.Syntax.Paragraph;
+        return {...handlers, [paragraph](node) {
+            const rendered = Object.create(node, {children: {value: sentenceChildren(node.children), enumerable: true}});
+            return handlers[paragraph](rendered);
+        }};
+    }};
+}
+
+// Quoted UI strings keep their original register. Preserve UTF-16 offsets so
+// diagnostics outside a quotation still point to the original source.
+function maskJapaneseQuotes(text) {
+    const stack = [];
+    const ranges = [];
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char === '「' || char === '『') {
+            stack.push({at: i, end: char === '「' ? '」' : '』'});
+        } else if (stack.length && char === stack.at(-1).end) {
+            const {at} = stack.pop();
+            if (!stack.length) ranges.push([at, i + 1]);
+        }
+    }
+    for (const [start, end] of ranges) {
+        text = text.slice(0, start) + text.slice(start, end).replace(/[^\r\n]/g, ' ') + text.slice(end);
+    }
+    return text;
+}
+
+function useNarrativeRegister(rule) {
+    if (rule.ruleId !== 'ja-technical-writing/no-mix-dearu-desumasu') return rule;
+    return {...rule, rule(context, options) {
+        const proseContext = Object.create(context, {
+            getSource: {value: node => maskJapaneseQuotes(context.getSource(node))}
+        });
+        return rule.rule(proseContext, options);
+    }};
+}
+
 export async function markdownLinter() {
     const config = await loadTextlintrc({configFilePath: path.join(here, '.textlintrc.json')});
     const {rules, plugins} = config.toKernelOptions();
-    if (!rules.some(rule => rule.ruleId === 'ja-technical-writing/ja-no-redundant-expression')) {
+    const enabled = new Set(rules.filter(rule => rule.options !== false).map(rule => rule.ruleId));
+    if (Object.keys(japaneseWriting.rules).some(name => !enabled.has('ja-technical-writing/' + name))) {
         throw new Error('Missing Japanese rules');
     }
     const markdown = plugins.find(p => p.pluginId === '@textlint/textlint-plugin-markdown');
     class TableMarkdown extends markdown.plugin.Processor {
         tableLines = new Set();
+        longPress = new Set();
 
         processor(ext) {
             const tableLines = this.tableLines;
             const parser = super.processor(ext);
+            const longPress = this.longPress;
             return {...parser, preProcess(text, name) {
+                longPress.clear();
+                for (const match of text.matchAll(/長押しし[てた]/gu)) longPress.add(match.index + 3);
                 tableLines.clear();
                 const tree = parser.preProcess(text, name);
                 includeCells(tree, tableLines);
                 return tree;
             }, postProcess(messages, name) {
                 // A status or column label can stand alone without a Japanese period.
-                return parser.postProcess(messages.filter(m =>
-                    !(tableLines.has(m.line) && m.ruleId === 'ja-technical-writing/ja-no-mixed-period')
-                ), name);
+                return parser.postProcess(messages.filter(m => {
+                    if (tableLines.has(m.line) && m.ruleId === 'ja-technical-writing/ja-no-mixed-period') return false;
+                    // The tokenizer counts the noun ending and the verb in 長押しして twice.
+                    if (m.ruleId === 'ja-technical-writing/ja-no-successive-word' &&
+                        longPress.has(m.index)) return false;
+                    return true;
+                }), name);
             }};
         }
     }
-    const descriptor = config.shallowMerge({plugins: [{...markdown, plugin: {Processor: TableMarkdown}}]});
+    const descriptor = config.shallowMerge({
+        rules: rules.map(useRenderedSentence).map(useNarrativeRegister),
+        plugins: [{...markdown, plugin: {Processor: TableMarkdown}}]
+    });
     return createLinter({descriptor, cwd: here});
 }
 
-async function findings(linter, text, name) {
-    const lines = text.split('\n');
+export async function findings(linter, text, name) {
     const {messages} = await linter.lintText(text, name);
     return messages.map(m => ({
-        line: m.line, column: m.column, rule: m.ruleId, severity: m.severity,
-        key: JSON.stringify([m.ruleId, m.column, lines[m.line - 1]])
+        line: m.line, column: m.column, rule: m.ruleId, severity: m.severity
     }));
-}
-
-export async function addedFindings(linter, name, currentText, previousText) {
-    const current = await findings(linter, currentText, name);
-    if (!current.length || previousText === undefined) return current;
-    const existing = new Map();
-    for (const {key} of await findings(linter, previousText, name)) {
-        existing.set(key, (existing.get(key) ?? 0) + 1);
-    }
-    return current.filter(({key}) => {
-        const remaining = existing.get(key) ?? 0;
-        if (!remaining) return true;
-        existing.set(key, remaining - 1);
-        return false;
-    });
 }
 
 async function run(args) {
     if (args.length && !(args.length === 1 && args[0] === '--all')) {
         throw new Error('Unexpected argument');
     }
-    const all = args.includes('--all');
-    const files = all ? names('ls-files', '-z', '--cached', '--others', '--exclude-standard')
-        : [...names('diff', '--no-renames', '--name-only', '--diff-filter=AMT', '-z', adoption),
-           ...names('ls-files', '-z', '--others', '--exclude-standard')];
-    const original = all ? new Set() : new Set(git('ls-tree', '-r', '-z', '--name-only', adoption, '--', 'docs', '.agents/skills', 'README.md', 'AGENTS.md').split('\0'));
+    const files = git('ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...targets)
+        .split('\0').filter(Boolean);
     const linter = await markdownLinter();
     let errors = 0;
     let warnings = 0;
@@ -101,8 +158,7 @@ async function run(args) {
         const stat = await lstat(file).catch(e => { if (e.code !== 'ENOENT') throw e; });
         if (!stat) continue;
         if (!stat.isFile() || await realpath(file) !== file) throw new Error('Unsupported document type');
-        const previous = original.has(name) ? git('show', adoption + ':' + name) : undefined;
-        const issues = await addedFindings(linter, name, await readFile(file, 'utf8'), previous);
+        const issues = await findings(linter, await readFile(file, 'utf8'), name);
         for (const {line, column, rule, severity} of issues) {
             const warning = severity === 1;
             if (warning) warnings++;
@@ -116,11 +172,11 @@ async function run(args) {
     return errors ? 1 : 0;
 }
 
-if (process.argv[1] && await realpath(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && await realpath(process.argv[1]).catch(() => null) === fileURLToPath(import.meta.url)) {
     try {
         process.exitCode = await run(process.argv.slice(2));
     } catch {
-        console.error('文書検査を実行できません。Node.jsの版、固定した依存関係、Gitの履歴を確認してください。');
+        console.error('文書検査を実行できません。Node.jsの版、固定した依存関係、Gitの作業フォルダを確認してください。');
         process.exitCode = 2;
     }
 }

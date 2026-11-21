@@ -8,7 +8,7 @@
 |---|---|
 | 人数と端末 | 確認済み本人ごとに通常グループへ代表1台を保存する。本人未確認のLocalはmember IDで区別。旧代表が有効な参加中は維持し、離脱後は新しいchallengeで確認した別端末へ交換する |
 | 満員時 | 独立レビューで、プロフィール候補の7端末制限がID順で継続代表を落とす不具合を検出。継続する同membershipの確認済み代表を優先し、通常グループの一時候補を14端末とした。人数上限8人は変えない |
-| 保存と音声 | 交換時にgroup ID・秘密鍵・呼び名・自分の位置・24時間起点を保持。保存失敗なら旧保存を残し、新端末の音声を許可しない。共通の代表参加者集合を音声・利用権・完全終話・表示・直近通話へ使う |
+| 保存と音声 | 交換時にgroup ID・秘密鍵・呼び名・自分の位置・24時間起点を保持。保存失敗なら旧保存を残し、新端末の音声を許可しない。共通の代表となる参加者の集合を音声・利用権・完全終話・表示・直近通話へ使う |
 | 関係の範囲 | グループ参加だけではSavedUser・その端末鍵・通知許可を増やさない。本人principalで既存の直接相手の名前を参照し、一覧からの削除後もグループと通話を残す |
 | Watch呼出し | 保存相手の現在の用途別許可だけを投影し、明示操作をiPhoneの既存notifications.sendへ渡す。受付を配送成功や通話成立と表示せず、現在requestIDだけ取消できる |
 | 通知応答 | iOSへ固定categoryと「iPhoneで応答」の背景actionを登録。受信ON、期限、取消、直接相手、現在ログインを共通処理で再確認し、別通話を勝手に切り替えない。Watch本体の通常tap・Watch音声とは区別する |
@@ -26,13 +26,13 @@
 | iPhone UI | 通常20件の全ケースに成功結果がある。初回の他class 7件、関連class再実行11件、Adaptive再実行1件、最終RecoveryWorkflow 1件を対応付ける。最終sourceで全20件を一括再実行した結果とは区別する |
 | 破損保存の復旧 | fixture準備→UI 1件→保存内容照合が成功。破損データを消さずに回復し、現在のschema 8を検証 |
 | iPad UI | 英語・日本語の各1件成功。対象Simulatorは専用leaseを使い、終了後shutdown |
-| unsigned Release | macOSのApp／Widgetと、iOS SimulatorのApp／Widget／Watchをbuild。埋込版番号一致、APNs production、開発用接続資格なし、対応端末family、権限文言とWatch iconを確認。署名／実機配布の受入とはしない |
+| unsigned Release | macOSのApp／Widgetと、iOS SimulatorのApp／Widget／Watchをbuild。埋込版の番号の一致、APNs production、開発用の接続資格なし、対応端末family、権限文言とWatch iconを確認。署名／実機配布の受入とはしない |
 | 復旧fixtureの単体 | schema 8の正常値が旧検査で拒否され、旧schema 4が受理されるREDを再現。4・7・9、非空group、不正usersを拒否する検査へ更新し、Python scripts全99件成功 |
 | 入力 | 各App検証の389入力がbefore／after一致。古いMac／iOS結果から後で変えたのはUI探索1ファイル、復旧fixtureと試験の2ファイル、辞書順を戻したcatalog 2ファイル。App処理は不変。catalogはJSONの意味と元の試験時byte列を再構成したSHA-256を照合 |
 
 UIの初回失敗は、大きな文字のFormで説明欄が長くなり、従来の固定回数swipeで操作対象へ届かなかったためである。設定画面へ入る処理と対象までスクロールする処理を分け、対象のframeとviewportで方向を決めた。その再実行ではAdaptive sheetの未生成Saveのframe参照と、装飾headerへ`isHittable`を要求する誤りを検出して修正した。最後に説明文にも同じ可視範囲判定を適用し、RecoveryWorkflowと破損復旧を成功させた。失敗のxcresult・画面・探索結果を保持し、Appの設定項目を減らしてテストを通していない。
 
-UI buildの一部では、AppIntentsを使わないtest／Watch targetに対するXcodeの`Metadata extraction skipped, no AppIntents.framework dependency found`警告が残る。これをruntime warningやAppのコンパイル警告と混同せず、無警告の全工程成功とは記録しない。通常UIの未成功ケースは残っていない。
+UI buildの一部では、AppIntentsを使わないtest／Watch targetに対するXcodeの警告が残る。原文は`Metadata extraction skipped, no AppIntents.framework dependency found`。これをruntime warningやAppのコンパイル警告と混同せず、無警告の全工程成功とは記録しない。通常UIの未成功ケースは残っていない。
 
 ## 共通基盤のheadless回帰
 

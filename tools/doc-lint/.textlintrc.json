@@ -6,7 +6,7 @@
         "preferInList": ""
       },
       "no-exclamation-question-mark": {
-        "allow": ["？」", "?」", "?”", "?\""]
+        "allow": ["？」", "?」", "？』", "?』", "?”", "?\""]
       },
       "ja-no-weak-phrase": {
         "severity": "warning"

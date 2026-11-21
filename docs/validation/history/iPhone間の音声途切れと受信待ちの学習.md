@@ -2,13 +2,17 @@
 
 ## 依頼と引継ぎの位置
 
-2026-11-03、利用者から「iPhone実機同士で試すと音声が完全にブツブツに切れるので、理由を調べて直して」と依頼された。条件は両端末が同じWi-Fiに接続した状態。利用者は、過去に原因を一つずつ自動テスト付きで直し、iPhone同士の自動テストは全codecで通り、実機も問題なかったと指摘した。本書は作業の区切りの引継ぎであり、実機での受入は済んでいない。続きは[実機確認待ち](../実機確認待ち.md)の「iPhone同士で報告された音声の途切れ」行と、[バックログ](../../backlog/未実装課題.md#送信側で欠けるpcm16-16khz)から再開する。
+2026-11-03、両端末を同じWi-Fiに接続した利用者から、次の依頼があった。
+
+> iPhone実機同士で試すと音声が完全にブツブツに切れるので、理由を調べて直して
+
+利用者は、過去に原因を1つずつ自動テスト付きで直し、iPhone同士の自動テストは全codecで通り、実機も問題なかったと指摘した。本書は作業の区切りの引継ぎであり、実機での受入は済んでいない。続きは[実機確認待ち](../実機確認待ち.md)の「iPhone同士で報告された音声の途切れ」行と、[バックログ](../../backlog/未実装課題.md#送信側で欠けるpcm16-16khz)から再開する。
 
 ## iPhone音声E2Eが止まっていた原因
 
 2026-11-01以降、iPhone Simulatorのnative入力が0Hzとなり、音声E2Eは測定前に失敗していた。利用者の言う全codec合格はこれより前の結果で、11/1〜11/2のWatch対応で入った音声変更はiPhone音声E2Eを通っていなかった。
 
-原因はMacの機器構成だった。既定入力（Elgato Wave:3、48kHz）と既定出力（Studio Displayのスピーカー、96kHz・8ch）が別機器のとき、systemDefaultに従う専用Simulatorの入力が0Hzとなる。`AudioDuplexIO.prepare`をテストへ加えても解消しなかった。`scripts/audio_e2e.py`がロック取得後に、入出力を持つ48kHzのhost機器（既定入力を優先）へ専用Simulatorを固定し、終了時に元へ戻すようにした（`9384c86e`）。該当機器が一意に決まらなければ測定前に失敗する。
+原因はMacの機器構成だった。既定入力はElgato Wave:3（48kHz）、既定出力はStudio Displayのスピーカー（96kHz・8ch）だった。このように既定の入出力が別機器だと、systemDefaultに従う専用Simulatorの入力が0Hzになる。`AudioDuplexIO.prepare`をテストへ加えても解消しなかった。`scripts/audio_e2e.py`がロック取得後に、入出力を持つ48kHzのhost機器（既定入力を優先）へ専用Simulatorを固定し、終了時に元へ戻すようにした（`9384c86e`）。該当機器が一意に決まらなければ測定前に失敗する。
 
 ## 実機の途切れの原因と修正
 
@@ -46,18 +50,18 @@
 | 最終E2E | `python3 scripts/audio_e2e.py --matrix quick`を再実行し、受信段（mixed）の欠落0と既定の遅延を確認する |
 | Opusの遅延 | Mac側の約12msの到着揺れを学習した分だけ基準を超える。承認済みの方針どおりの増加として扱うか、学習量・基準を見直すかは未決定 |
 | PCM16 16kHz・出力復帰後の送信側欠落 | 復号直後から0.3〜1.8%欠ける。受信の学習とは独立。[バックログ](../../backlog/未実装課題.md#送信側で欠けるpcm16-16khz) |
-| 約59msを超える無線停止 | 受信窓0.12秒では吸収できない。広げる場合は出力時計開始前の滞留処理を先に直す |
+| 約59msを超える無線停止 | 受信窓0.12秒では吸収できない。広げる場合は出力時計が動き始める前の滞留処理を先に直す |
 
 ## 作業上の注意
 
 - 音声E2EのロックとSimulatorは他sessionと共有する。`exclusive-run: failed`は待つだけにし、他sessionの実行中にSimulatorの音声設定を変えない。
 - XcodeはschemeとString Catalogを書き直し、ビルドのたびにビルド番号を進める。[開発方針](../../policies/開発方針.md#ビルドが更新する追跡ファイル)どおり別commitで取り込む。
-- 古いcommitを別worktreeでビルドすると、ローカルpackageが「Folder」として開かれ`Missing package product`で失敗した。二分探索は今回は行っていない。
+- 古いcommitを別worktreeでビルドすると、ローカルpackageが「Folder」として開かれ`Missing package product`で失敗した。今回は二分探索をしていない。
 - 2026-11-04の区切りで本作業のworktree（二分探索用）は削除済み、作成したbranchはない。他sessionの`design/tabbar-tests`と関連worktreeは稼働中のため残した。
 
 ## 残したworktreeとbranchの引継ぎ
 
-2026-11-04 08:06時点。本作業で作ったworktree（`43e7b7c5`の二分探索用）は削除済みで、作ったbranchはない。以下は別session（scratchpad `c8f99b3e-…`）のもので、同sessionのxcodebuildが07:16から実行中、`wt9`のファイルも07:45に更新されていたため削除していない。中身は変更せず、時点の差分だけを`.validation/worktree-handoff-20261104/`（Git管理外）へ写した。稼働中のため、引き継ぐ時点で差分を取り直す。
+2026-11-04 08:06時点。本作業で作ったworktree（`43e7b7c5`の二分探索用）は削除済みで、作ったbranchはない。以下の作業は別session（scratchpad `c8f99b3e-…`）が担当していた。そのsessionのxcodebuildが07:16から稼働し、`wt9`のファイルも07:45に更新されたため、削除を見送った。中身は変更せず、時点の差分だけを`.validation/worktree-handoff-20261104/`（Git管理外）へ写した。稼働中のため、引き継ぐ時点で差分を取り直す。
 
 | 対象 | HEAD | 未コミット（08:06） | 保全ファイル | 引継ぎ |
 |---|---|---|---|---|
@@ -65,4 +69,4 @@
 | worktree `wt9`／branch `design/tabbar-tests` | `9b1c1668`（main祖先、branch固有のcommitなし） | `SignedInContentView.swift`からiOSの`tabBarMinimizeBehavior(.onScrollDown)`を外し、[Call仕様](../../spec/App/UI/Call.md)の該当記述を削る作業中 | `wt9.patch`（SHA-256 `92f63c77…86f9`）、`wt9.status.txt` | 未検証の作業途中。採否は同sessionの結論、または利用者の判断を待つ。採用する場合はmainへ統合後にbranchとworktreeを削除する |
 | branch `preview`（ローカルとorigin） | `b6423d00` | なし | なし | 開発用Cloudflare設定の固定preview用。mainへ統合済み（`main..preview`は0件）。[Cloudflare試用手順](../../development/Cloudflare試用手順.md#固定プレビューの継続運用)の運用branchのため残す |
 
-2026-11-04、`wt8`・`wt9`の持ち主のsessionが、`wt9`の作業（`tabBarMinimizeBehavior`を外す）をmainへ統合したうえで両worktreeとbranch `design/tabbar-tests`を削除した（[2026-11-04の区切りと引継ぎ](画面デザインと録音操作の整理.md#2026-11-04の区切りと引継ぎ)）。未追跡ファイルは両worktreeとも0件。削除するときは`git worktree list`で稼働を確認し、未コミット差分があれば先に保全ファイルと照合する。
+2026-11-04、`wt8`・`wt9`の持ち主のsessionが、`wt9`の作業（`tabBarMinimizeBehavior`を外す）をmainへ統合した。その後、両worktreeとbranch `design/tabbar-tests`を削除した。経緯は[2026-11-04の区切りと引継ぎ](画面デザインと録音操作の整理.md#2026-11-04の区切りと引継ぎ)に記録した。未追跡ファイルは両worktreeとも0件。削除するときは`git worktree list`で稼働を確認し、未コミット差分があれば先に保全ファイルと照合する。

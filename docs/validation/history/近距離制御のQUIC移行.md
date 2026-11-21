@@ -2,7 +2,7 @@
 
 ## 通信方式の選定
 
-2026-11-02の追加依頼。Xcode 27 SDKでMultipeerConnectivity全体が非推奨となった（[TN3213](https://developer.apple.com/documentation/technotes/tn3213-moving-from-multipeer-connectivity-to-network-framework)。各APIは「Deprecated in iOS 27.0」、移行先はNetwork.framework）。同日に代替手段を調査し、利用者の回答で移行方針を決めた。
+2026-11-02の追加依頼。Xcode 27 SDKでMultipeerConnectivity全体が非推奨となった。[TN3213](https://developer.apple.com/documentation/technotes/tn3213-moving-from-multipeer-connectivity-to-network-framework)によると、各APIは「Deprecated in iOS 27.0」で、移行先はNetwork.frameworkである。同日に代替手段を調査し、利用者の回答で移行方針を決めた。
 
 移行前にMCSessionが担っていたのは、探索・招待、暗号化必須のsession、handshake・presence・操作のreliable配送だけだった。Local音声は当時からNetwork.frameworkのUDP（`includePeerToPeer = true`）で送っていた（[RTC仕様](../../spec/packages/RTC.md)）。TN3213は、Apple peer-to-peer Wi-FiがMultipeer専用ではなく、Network.frameworkからも使えることを明記している。移行後も、AP・セルラーがない屋外の近距離通話（[製品要求](../../requirements/製品要求.md)）を同じ無線で成立させる。実装はNetwork.frameworkの `NWListener`、`NWBrowser`、`NWConnection` を使う。
 
@@ -17,7 +17,7 @@
 |---|---|
 | 制御protocol | QUICを使う。handshake・presence・操作をQUICのreliable streamへ移し、message境界はframingで保つ。64 KiBの受信上限など現行のLocal制約を引き継ぐ |
 | 暗号化と認証 | TLS-PKIを基本路線とする。端末ごとに一時的な自己署名identityを生成してmutual TLSを張る。相手証明書はTLS層の信頼評価では受け入れ、既存のgroup共有鍵によるhandshake MACへ証明書fingerprint等を含めて通信路へ束縛し、そこで認証する。Apple OSにidentityの生成APIがないため、生成は最小の自前実装とした（外部依存を増やさない。2026-11-17）。束縛は、handshakeのMACへ送信側・受信側の両方の証明書のfingerprintを含める方式とした（2026-11-17）。TLS-PSKは旧APIだけの機能で、TLS 1.3とQUICに対応しないため使わない |
-| 接続の形 | 届く相手とはすべて直接接続する部分メッシュとし、全員が直接届くことを前提にしない。隊列で先頭と最後尾が直接届かない場合も、既存の[重複破棄付き転送（最大8hop）](../../spec/packages/RTC.md#混在通話と経路)で中間の端末が中継する。特定の端末をserverにするclient-server構成は、その端末の離脱や隊列内の位置で全体が切れるため採らない。同じ相手との重複接続は広告名の比較で小さい側だけが発信し、既存の[招待競合の回避](../../spec/packages/RTC.md#近距離接続試行の競合回避)の辞書順を引き継ぐ |
+| 接続の形 | 届く相手とはすべて直接接続する部分メッシュとし、全員が直接届くことを前提にしない。隊列で先頭と最後尾が直接届かない場合も、既存の[重複破棄付き転送（最大8hop）](../../spec/packages/RTC.md#混在通話と経路)で中間の端末が中継する。特定の端末をserverにするclient-server構成は、その端末の離脱や隊列内の位置で全体が切れるため採らない。同じ相手との重複接続は広告名の比較で小さい側だけが発信し、既存の[招待競合の回避](../../spec/packages/RTC.md#近距離の接続試行が競合する場合)の辞書順を引き継ぐ |
 | 探索とプライバシー | 最低限とする。`NWListener`でBonjour serviceを広告し、TXTには現行と同じgroupHashを載せる。自動接続のため、service名には端末名を使わず通話世代ごとの識別子を使う。識別子のrotation等の追加対策は、利用規模・利用場所から現時点では行わない |
 | 音声 | 第1段階は既存の`_ride-audio._udp`のUDP媒体を維持し、UDP媒体用のnonceを新しい制御経路のhandshakeから渡す。QUIC datagramへの統合は[改善候補](../../backlog/改善候補.md#近距離通信の追加経路と統合)とする |
 | 旧版との互換 | 維持しない。Multipeer版と新版の混在通話は不可とし、同じ版同士で使う。利用者の操作・表示（Settingsの近距離ON/OFF、接続・切断、経路の表示）は変えない。設定・診断の経路識別子は`RouteKind.multipeer`を使用する |
@@ -34,7 +34,7 @@ AP・セルラーなしの屋外での相互通話、隊列の中継距離・移
 
 - RTC単独でRTCTests 129件、RTCNativeWebRTCTests 4件が成功した。macOS上の実QUIC・UDPで同時探索、認証拒否、制御切断後の媒体資格の保持、別世代への切替、再認証、音声の双方向配送を確認した。80 byteの送信元IDでUDPを通す境界試験も成功した。
 - 仮想4端末の直線隊列では、全方向の音声が1回ずつ届き、中間端末の離脱で分断し、復帰後に自動で合流した。RTC単独でiOS Simulator・watchOS Simulator向けのビルドも成功した。
-- AppのLocal音声E2Eは、Macに入出力を兼ねる48 kHz機器が0台のため測定前に終了した。専用Simulatorを停止し、音声選択の復元工程は成功した。証跡は `.validation/audio-e2e-20261117-181332-723774/results.json`。その後、利用者が48 kHzの仮想入出力機器Loopback Audioを用意した。後続の測定では異なる発話を両端から送り、相手の波形との相関が自分の発話との相関を0.10超上回る条件で折り返しを除外する。
+- AppのLocal音声E2Eは、Macに入出力を兼ねる48 kHz機器が0台のため測定前に終了した。専用Simulatorを停止し、音声選択の復元工程は成功した。証跡は `.validation/audio-e2e-20261117-181332-723774/results.json`。その後、利用者が48 kHzの仮想の入出力機器Loopback Audioを用意した。後続の測定では異なる発話を両端から送り、相手の波形との相関が自分の発話との相関を0.10超上回る条件で折り返しを除外する。
 
 ### Appの招待・回帰と音声E2E
 
@@ -61,7 +61,7 @@ Macの標準配置でも同一署名・同一bundle IDの検証用Appを試し�
 
 Release-Validationを既定のDerivedDataでビルドした。Mac側では署名済みApp、PackageFrameworksと音声E2E用xctestrunを `/Applications` の検証専用ディレクトリに同じ製品構成で配置した。起動前に署名、xctestrunの参照先と検証用の保存先を照合した。iPhone Simulatorの入出力を48 kHzのLoopback Audioに固定し、役割ごとに異なる発話を送った。判定は通常のLocal quickと同じである。結果は `.validation/audio-e2e-20261117-190501-776563/measurements.json` と同ディレクトリの `results.tsv` にある。
 
-| 条件 | Mac受話の有声区間欠落率 | iPhone Simulator受話の有声区間欠落率 |
+| 条件 | Mac受話の有声区間の欠落率 | iPhone Simulator受話の有声区間の欠落率 |
 |---|---:|---:|
 | 既定AAC | 0% | 0% |
 | Opus 24 kHz・エフェクトあり | 0% | 0% |
@@ -79,7 +79,7 @@ Release-Validationを既定のDerivedDataでビルドした。Mac側では署名
 
 ### 既定AACとPCM16 16kHzの現行再測定（2026-11-19）
 
-基準は `73b74018`。同じRelease-Validationと英語の合成発話を用い、標準配置の署名済みMacとiOS 27.2 SimulatorでLocal quickの既定AACとPCM16 16kHz・voiceChat（受信相手別音声分離あり）を8秒ずつ測った。両端の接続・認証、実UDP配送と実出力を通した。
+基準は `73b74018`。同じRelease-Validationと英語の合成発話で、標準配置の署名済みMacとiOS 27.2 Simulatorを使った。Local quickの既定AACとPCM16 16kHz・voiceChat（相手ごとの受信音声の分離あり）を8秒ずつ測った。両端の接続・認証、実UDP配送と実出力を通した。
 
 | 条件 | 音声の向き | 復号後の欠落 | 実出力の欠落 | 収録から実描画 | 10msの判定余裕込み |
 |---|---|---:|---:|---:|---:|
@@ -94,20 +94,22 @@ Release-Validationを既定のDerivedDataでビルドした。Mac側では署名
 
 ### PCM16 16kHzの欠落をiPhone Simulator 2台で再確認する
 
-2026-11-21。`01e8fcb4` のRelease-Validation Build 1703をiOS 27.2 Simulator 2台で使った。標準のquickから `pcm16-16k-voicechat` をそのまま選び、保存済みグループの近距離通話で英語の合成発話を両方向へ8秒流した。PCM16・16kHz・Voice Chat、送信分離ON、相手別受信分離ON、VADはNoisy。実UDPの送受信と最終出力を通常の試験で確認した。両端で同じPCM16・mono16kを適用し、fallbackはなかった。
+2026-11-21。`01e8fcb4` のRelease-Validation Build 1703をiOS 27.2 Simulator 2台で使った。標準のquickから `pcm16-16k-voicechat` をそのまま選び、保存済みグループの近距離通話で英語の合成発話を両方向へ8秒流した。PCM16・16kHz・Voice Chat、送信分離ON、相手ごとの受信音声の分離ON、VADはNoisy。実UDPの送受信と最終出力を通常の試験で確認した。両端で同じPCM16・mono16kを適用し、fallbackはなかった。
 
 | 受信側 | 復号／Mixer／最終出力の有声欠落 | 復号波形の時間位置 | Mixerと最終出力の時間位置 | 実出力＋計測余裕10ms |
 |---|---:|---:|---:|---:|
 | A | 0／0／0% | 63.12ms | 210.46ms | 220.46ms |
 | B | 0／0／0% | 63.04ms | 204.04ms | 214.04ms |
 
-時間位置は同じ参照発話から換算した。復号側は復号波形の収録時刻を使い、復号処理の完了時刻とは区別する。両端で収録・配送・描画・送信の内部破棄0と出力リセット0。旧報告の有声欠落は、この8秒の条件では再現しなかった。受信分離を重ねた状態で復号波形から実出力までの位置差は約141〜147ms。次に差を分ける場合は、同じ送信条件で相手別受信分離だけを変え、復号と実出力の両方を比較する。125msは既定条件の製品目標で、今回の相手別分離を有効にした構成でも汎用検証の125ms判定は両方向とも未達だった。
+時間位置は同じ参照発話から換算した。復号側は復号波形の収録時刻を使い、復号処理の完了時刻とは区別する。両端で収録・配送・描画・送信の内部破棄0と出力リセット0。旧報告の有声欠落は、この8秒の条件では再現しなかった。受信分離を重ねた状態で復号波形から実出力までの位置差は約141〜147ms。次に差を分ける場合は、同じ送信条件で相手ごとの受信音声の分離だけを変え、復号と実出力の両方を比較する。125msは既定条件の製品目標で、今回の相手別分離を有効にした構成でも汎用検証の125ms判定は両方向とも未達だった。
 
 事前5件、両側の試験各1件、ソース照合、入出力設定の復元と専用Simulatorの回収を確認した。証跡は `.validation/pcm16-16k-current-1703/nearby/`、選択入口は同じ親フォルダの `run_pcm16.py`。他OSとの組合せや実機の異なる機器・長時間での再現性は引き続き確認対象。
 
-### PCM16 16kHzで相手別受信分離だけを切り替える
+<a id="pcm16-16khzで相手別受信分離だけを切り替える"></a>
 
-2026-11-21。`a083336f` のRelease-Validation Build 1704をiOS 27.2 Simulator 2台で使った。保存済みグループの同じ近距離通話で、PCM16・16kHz・Voice Chat・送信分離ON・VAD Noisyを保ち、相手別受信分離をON、OFF、OFF、ONの順で各8秒比較した。両側とも指定したAudio Unitの稼働状態と実UDP送受信を照合した。表は共通の合成発話から換算した実出力の位置と有声欠落。遅延値は計測余裕を加える前の値で、有声欠落がある区間は遅延合否に使わない。
+### PCM16 16kHzで相手ごとの受信音声の分離だけを切り替える
+
+2026-11-21。`a083336f` のRelease-Validation Build 1704をiOS 27.2 Simulator 2台で使った。保存済みグループの同じ近距離通話で、PCM16・16kHz・Voice Chat・送信分離ON・VAD Noisyを保ち、相手ごとの受信音声の分離をON、OFF、OFF、ONの順で各8秒比較した。両側とも指定したAudio Unitの稼働状態と実UDP送受信を照合した。表は共通の合成発話から換算した実出力の位置と有声欠落。遅延値は計測余裕を加える前の値で、有声欠落がある区間は遅延合否に使わない。
 
 | 区間 | 実出力 A／B | 最終出力の有声欠落 A／B |
 |---|---:|---:|
@@ -122,7 +124,7 @@ BのON 1回目では、packet 590が直前の受信から15.54ms後に届き、�
 
 予約を10ms早める案の確認には、同じ区間のpacket 590以降の459件を使える。記録上は全件で `startSample - 480` が `writableSample` 以上だった。これは保存済みの位置に対する計算で、次の試験では同じ到着を与えて実描画上の語頭・連続性と予約の戻りを確認する。
 
-事前5件とAの試験が成功。Bの試験は有声欠落の2検査で失敗し、125msの汎用判定も未達だった。ソース照合、入出力設定復元と専用Simulator回収を確認した。証跡は `.validation/pcm16-peer-isolation-1704/paired/` と、同じ親フォルダの `comparison.json`、`summarize.py`、`run_comparison.py`。物理端末やほかの経路での再現は別に確認する。
+事前5件とAの試験が成功。Bの試験は有声欠落の2検査で失敗し、125msの汎用判定も未達だった。ソース照合、入出力設定の復元と専用Simulator回収を確認した。証跡は `.validation/pcm16-peer-isolation-1704/paired/` と、同じ親フォルダの `comparison.json`、`summarize.py`、`run_comparison.py`。物理端末やほかの経路での再現は別に確認する。
 
 ### PCM16の遅着後の予約を早めると次の空白が増える条件を確認する
 
@@ -135,11 +137,11 @@ BのON 1回目では、packet 590が直前の受信から15.54ms後に届き、�
 | なし、10.67ms、21.33ms | 26.69ms | 21.69ms | 16.69ms |
 | 32ms | 26.69ms | 21.69ms | 16.69msと17.33ms |
 
-Macでは保存時の残り余裕が小さかったpacket 687を含む699まで範囲を延ばした。そのpacketに21.33msの到着遅れを加えると、現行はpacket 590の26.69msのみで、5msと10msの両短縮案には22msの空白が追加された。すべての試験入力は順に一度ずつ描画した。固定で待ちを減らす案では、短い空白を一つ減らす効果と後続の空白を増やす条件が同時にあったため、製品の再予約の待ちを維持する。
+Macでは保存時の残り余裕が小さかったpacket 687を含む699まで範囲を延ばした。そのpacketに21.33msの到着遅れを加えると、現行はpacket 590の26.69msのみで、5msと10msの両短縮案には22msの空白が追加された。すべての試験入力は順に一度ずつ描画した。固定で待ちを減らす案では、短い空白を1つ減らす効果と後続の空白を増やす条件が同時にあったため、製品の再予約の待ちを維持する。
 
 Build 1704の実通話では、packet 590の送信記録から相手の受信まで約5.53ms、直前のpacketでは約0.42msかかった。同じ送信と受信の時刻を局所のUDP処理に照合し、再予約が必要になる前の遅れを特定する。今回の描画比較は履歴の再生位置と遅着を注入したAudioMixerの試験で、無線、受信分離の信号処理、物理iPhoneの動作は別に検証する。
 
-Macの2試験とiOS Simulatorの1試験を実行し、iOSではソース照合、音声機器設定の復元、専用Simulatorの回収も確認した。証跡は `.validation/pcm16-expired-replay-1705/` の試作、`mac-summary.json`、`ios-summary.json`、`mac-expanded-summary.json` と各実行ログ。
+Macで2件、iOS Simulatorで1件を試験し、iOSではソース照合、音声機器設定の復元、専用Simulatorの回収も確認した。証跡は `.validation/pcm16-expired-replay-1705/` の試作、`mac-summary.json`、`ios-summary.json`、`mac-expanded-summary.json` と各実行ログ。
 
 ### 標準のケース選択でPCM16の実通話を測る
 
@@ -147,13 +149,19 @@ Macの2試験とiOS Simulatorの1試験を実行し、iOSではソース照合�
 
 Aで再予約を観測したpacket 488は、送信の記録から受信まで約3.07ms、直前の487は約0.35ms。受信から予約完了は0.03ms前後だった。今回も受信処理を始める前に増えた時間を、送信と受信に近い観測点で調べる。選択試験の証跡は `.validation/audio-scenario-selection-1705/pcm16/`、スクリプト回帰171件は `.validation/20261121-040817-876090/`。事前5件、ソース照合、入出力の復元と検証端末の回収を確認した。
 
-Build 1707で `--scenario output-mute` の1件を同じ近距離構成で選び、両端で音声packetを受信したまま、2秒間の実出力が無音（ピーク0、基準0.001未満）になることを確認した。両端のケース照合・波形判定、試験端末の回収まで成功した。証跡は `.validation/audio-scenario-selection-1705/mute-verified/`。手順から導いた選択順、指定省略時の全件実行、不正な指定時の準備前終了をスクリプト試験で、選択したケースだけの実行と既存判定の適用を2つの実通話試験で照合した。
+Build 1707で `--scenario output-mute` の1件を同じ近距離構成で選んだ。両端で音声packetを受信したまま、2秒間の実出力が無音（ピーク0、基準0.001未満）になることを確認した。両端のケース照合・波形判定、試験端末の回収まで成功した。証跡は `.validation/audio-scenario-selection-1705/mute-verified/`。手順から導いた選択順、指定省略時の全件実行、不正な指定時の準備前終了をスクリプト試験で、選択したケースだけの実行と既存判定の適用を2つの実通話試験で照合した。
 
 ### PCM16の待ちをUDP受信とRTC処理開始で分ける
 
-2026-11-21。Build 1704と1705で遅着の直前後の波形は得られていたが、送信・UDP・RTCのどこが伸びたかは不明だった。両方とも受話のコア課題（重み8）。PCM16の配送の切り分けは調査箇所を絞る効果を0.25、見込み0.65、10〜15分と見積もった（5.2〜7.8/時）。既定AACの書込位置と語頭の再計測は短縮案の採否を進める効果を0.40、見込み0.45、30〜45分と見積もった（1.9〜2.9/時）。一回の実通信で次の調査箇所を選べるPCM16を先に測る。欠落が再現しない場合は、実測した待ちと予約の余裕の関係までを判定する。[再利用したAACの測定方法](音声同一性と途切れの再現.md#現行の近距離通話で送信からudp受信までを照合する)
+2026-11-21。Build 1704と1705で遅着の直前後の波形は得られていたが、送信・UDP・RTCのどこが伸びたかは不明だった。両方とも受話のコア課題（重み8）。PCM16の配送の切り分けは調査箇所を絞る効果を0.25、見込み0.65、10〜15分と見積もった（5.2〜7.8/時）。既定AACの書込位置と語頭の再計測は短縮案の採否を進める効果を0.40、見込み0.45、30〜45分と見積もった（1.9〜2.9/時）。1回の実通信で次の調査箇所を選べるPCM16を先に測る。欠落が再現しない場合は、実測した待ちと予約の余裕の関係までを判定する。[再利用したAACの測定方法](音声同一性と途切れの再現.md#現行の近距離通話で送信からudp受信までを照合する)
 
-基準 `aae96848` に調査用の時刻計測だけを足したRelease-Validation Build 1708をiOS 27.2 Simulator 2台で使用した。`--configuration Release --transport local --matrix quick --scenario pcm16-16k-voicechat --seconds 20 --saved-group-start --two-simulators --ephemeral`。送信分離と相手別受信分離を有効にした16kHzの合成発話。送信queueの取出し、RTCでの封入、native UDPの送信開始・受信コールバック、RTCの受信処理開始・配送、Appの受信と予約を同じ単調時計で測った。暗号化済みパケットの短いハッシュと方向別のsequenceで結び、鍵・音声データを時刻記録に入れず、測定対象4,002件すべてで一つずつ照合できた。
+基準 `aae96848` に調査用の時刻計測だけを足したRelease-Validation Build 1708をiOS 27.2 Simulator 2台で使用した。検証の引数を示す。
+
+```text
+--configuration Release --transport local --matrix quick --scenario pcm16-16k-voicechat --seconds 20 --saved-group-start --two-simulators --ephemeral
+```
+
+送信分離と相手ごとの受信音声の分離を有効にした16kHzの合成発話。送信queueの取出し、RTCでの封入、native UDPの送信開始・受信コールバック、RTCの受信処理開始・配送、Appの受信と予約を同じ単調時計で測った。暗号化済みパケットの短いハッシュと方向別のsequenceで結び、鍵・音声データを時刻記録に入れず、測定対象4,002件すべてで1つずつ照合できた。
 
 | 測定区間 | A→B 中央値 / 最大 | B→A 中央値 / 最大 |
 |---|---:|---:|
@@ -180,11 +188,11 @@ B→Aの最長は送信seq 328、受信seq 326。UDPは0.176ms、コールバッ
 
 両端の記録時間が重なる範囲で3,003件ずつ、計6,006件を一件ずつ照合した。記録の端に重ならない送受信記録が計16件あった。受領確認はA→B 60件、B→A 59件で、作成からnative送信呼出まで最大0.074ms。最長の受信待ちはB→Aの受信seq 436で、受領確認は発生せず、0.968msのうち0.931msがRTCのイベント読取後だった。当該パケットは書込可能位置ちょうどに予約され、再予約はなかった。前回の5.39msと発話欠落を伴う遅着は再現せず、同じ区間が遅れたかは未確認。
 
-復号・混合・実出力の有声欠落と内部破棄は両方向とも0。相手別受信分離を有効にした今回のPCM16は、計測余裕込み179.65／191.42ms（A／B）でE2Eの遅延判定は未達。事前5件、ソース照合、音声設定の復元と端末回収を確認した。一時計測を作業ソースから外した。証跡は `.validation/pcm16-rtc-handoff-1709/` の `probe.patch`、`analyze.py`、`pair/joined-timing.json` と `pair/results.tsv`。記録した境界、方向別sequence、添付の波形判定から測定結果を照合した。PCM16の次の自然発生の欠落時にこの境界を採取し、通常の配送だけを繰り返す試行はここで閉じる。
+復号・混合・実出力の有声欠落と内部破棄は両方向とも0。相手ごとの受信音声の分離を有効にした今回のPCM16は、計測余裕込み179.65／191.42ms（A／B）でE2Eの遅延判定は未達。事前5件、ソース照合、音声設定の復元と端末回収を確認した。一時計測を作業ソースから外した。証跡は `.validation/pcm16-rtc-handoff-1709/` の `probe.patch`、`analyze.py`、`pair/joined-timing.json` と `pair/results.tsv`。記録した境界、方向別sequence、添付の波形判定から測定結果を照合した。PCM16の次の自然発生の欠落時にこの境界を採取し、通常の配送だけを繰り返す試行はここで閉じる。
 
 ## 間欠的に失敗する実Multipeerの招待テスト
 
-2026-11-15〜16、iPhone 17 Pro Simulator（iOS 27.2）で`ContactInvitationPersistenceTests.nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload`が間欠的に60秒の制限時間を超えた。同一プロセス内の2つのViewModelを実Multipeer（Bonjour）でつなぐテストで、成功時は1.5〜2.5秒で終わる。
+2026-11-15〜16、iPhone 17 Pro Simulator（iOS 27.2）で`ContactInvitationPersistenceTests.nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload`が間欠的に60秒の制限時間を超えた。同一プロセス内の2つのViewModelを実Multipeer（Bonjour）でつなぐテストは、成功時なら1.5〜2.5秒で終わる。
 
 | 条件 | 結果 |
 |---|---|
@@ -197,7 +205,7 @@ B→Aの最長は送信seq 328、受信seq 326。UDPは0.176ms、コールバッ
 | 項目 | macOSでの失敗（2026-11-17） |
 |---|---|
 | 失敗の形 | 時間制限には達せず、テスト内の10秒の待ちが切れて10.137秒で終了した。受け取った側の保存までは成功し、送った側への通知が届かなかった |
-| ログ | テストの実行中の約6秒間に`[GCKSession] Failed to send a DTLS packet … sendmsg error: No route to host (65)`が105行出た。成功した実行には1行もない |
+| ログ | テスト実行中の約6秒間に105行のエラーが出た。内容は`[GCKSession] Failed to send a DTLS packet … sendmsg error: No route to host (65)`だった。成功した実行には1行もない |
 | 変更との関係 | 失敗時の作業差分は、通話の接続先を求める処理の共通化（直近の通話とWidget）だけで、招待・Multipeerの経路には差分がない |
 | 読み取れること | この失敗では、Multipeerの接続がホストのネットワークでパケットを送れていない。iOS Simulatorでの時間切れ（main actorが戻らない）と同じ原因かは分からない |
 
@@ -222,7 +230,7 @@ QUIC移行後に同じ招待テストは標準配置のMacとiOS Simulatorでそ
 
 ## 通話から独立したデータの往復と再接続
 
-2026-11-20。保存済み招待を通話の設定と寿命に依存させず届けるため、RTC packageで近距離の実経路を確認した。追加した試験は開始時にAPIがないためコンパイルに失敗した。`RTCLocalDataChannel`の実装後、同じ資格を持つ二者の間で実Bonjour探索・QUIC認証・データの往復が成立した。同じ元の資格で並行起動した通話の制御側には、相手の認証もデータも届かなかった。片側を止めて他方が離脱を検出し、再開後に同じ相手を認証した。共通制御のリンク通知は弱参照にし、閉じたリンクと通知の循環保持を解消した。[RTCの契約](../../spec/packages/RTC.md#通話を開始しない近距離データ交換)
+2026-11-20。保存済み招待を通話の設定と寿命に依存させず届けるため、RTC packageで近距離の実経路を確認した。追加した試験は開始時にAPIがないためコンパイルに失敗した。`RTCLocalDataChannel`の実装後、同じ資格を持つ二者の間で実Bonjour探索・QUIC認証・データの往復が成立した。同じ元の資格で並行起動した通話の制御側には、相手の認証とデータはどちらも届かなかった。片側を止めて他方が離脱を検出し、再開後に同じ相手を認証した。共通制御のリンク通知は弱参照にし、閉じたリンクと通知の循環保持を解消した。[RTCの契約](../../spec/packages/RTC.md#通話を開始しない近距離データ交換)
 
 最終ソースでmacOSの近距離制御・framing・通話回帰18件と、iOS 27.2 Simulatorの標準`RTC-Package`スキームによる近距離制御・通話・混在経路の35件が成功した。Simulatorは専用端末を回収した。証跡は `.validation/local-control-data/macos-final.log` と `.validation/local-control-data/ios-final/`。次はAppの署名付き返信・受領確認と保存をこの経路につなぐ。端末ロック中の配送、実機同士の圏外受取、登録済み相手への暗号化したグループ招待は[近距離の配送仕様](../../spec/App/通信仕様.md#近距離配送の保存と確認)で追う。
 

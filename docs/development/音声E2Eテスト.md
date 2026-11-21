@@ -1,6 +1,6 @@
 # 音声E2Eテスト
 
-MacとiPhone Simulator、またはiPhone Simulator 2台で別々のアプリプロセスを動かし、音声ファイルの発話が通信先の実AVAudioEngineのrender tapまで到達したことを波形で判定する。実装は専用の`RideIntercomAudioE2ETests`ターゲットと`RideIntercomAudioE2E` schemeに置き、通常の単体・結合テストとは独立させる。テストの起動・判定・証跡保存・終了処理にAIや画面操作は必要ない。
+MacとiPhone Simulator、またはiPhone Simulator 2台で別々のアプリプロセスを動かす。音声ファイルの発話が通信先の実AVAudioEngineのrender tapまで到達したかを波形で判定する。実装は専用の`RideIntercomAudioE2ETests`ターゲットと`RideIntercomAudioE2E` schemeに置き、通常の単体・結合テストとは独立させる。テストの起動・判定・証跡保存・終了処理にAIや画面操作は必要ない。
 
 ## 実行
 
@@ -13,9 +13,9 @@ python3 scripts/audio_e2e.py --matrix full
 
 MacのBonjour探索が`NoAuth`になる環境では、ネットワーク音声試験に`--two-simulators`を指定できる。iOS用のビルドを1回行い、端末ごとに別の役割と実行結果を割り当てる。コマンドは試験専用の2台を起動し、終了時に追加した端末を削除する。実出力の波形、継続性、遅延の判定は通常と同じ。単一端末で行う音声処理の試験ではこの指定を使わない。
 
-生成されたxctestrunが参照するAppのInfo.plistを起動前に読み、保存先がXcodeの検証構成から取得した`RideIntercom.Validation.Xcode`と一致し、開発用接続資格を含まないことを確認する。build引数だけを証拠にせず、通常のApp／StoreKit検証と[同じhost検査](自動検証.md#xcodeテストの起動前検査)を使う。不一致の場合は音声hostを起動しない。
+生成されたxctestrunが参照するAppのInfo.plistを起動前に読み、保存先がXcodeの検証構成から取得した`RideIntercom.Validation.Xcode`と一致し、開発用の接続資格を含まないことを確認する。build引数だけを証拠にせず、通常のApp／StoreKit検証と[同じhost検査](自動検証.md#xcodeテストの起動前検査)を使う。不一致の場合は音声hostを起動しない。
 
-通常は両通信経路の`quick`を実行する。`--transport local`はBonjourで探索しQUICで認証・制御する近距離経路と、その相手とのUDP音声、`--transport webrtc`はローカルのサーバーモックと実WebRTCに絞る。切り分け用の`--matrix smoke`は既定設定だけを測る。`--codec pcm16` / `--codec opus`と`--isolation off`は診断用の上書きであり、全設定を検証した実績にはしない。`--seconds`は各発話区間の秒数で、既定8秒。無音を測る区間は2秒。
+通常は両通信経路の`quick`を実行する。`--transport local`は、Bonjourによる探索、QUICによる認証・制御、見つかった相手とのUDP音声に絞る。`--transport webrtc`はローカルのサーバーモックと実WebRTCに絞る。切り分け用の`--matrix smoke`は既定設定だけを測る。`--codec pcm16` / `--codec opus`と`--isolation off`は診断用の上書きであり、全設定を検証した実績にはしない。`--seconds`は各発話区間の秒数で、既定8秒。無音を測る区間は2秒。
 
 ### 保存済みグループから近距離通話を始める
 
@@ -33,9 +33,9 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-start --unanswered-internet --seconds 6
 ```
 
-近距離とInternetの両方を有効にし、通話用の接続資格にはローカルの試験用Workerを与える。Workerは端末を識別できる最初のICE設定要求を受け取るが、応答を返さない。両端の要求を観測してから測定区間へ進む。測定の前後に両端の要求が待機中で、利用できる経路が近距離だけであることを確認する。各端末で相手の発話がQUIC認証済みのUDP経路から実出力に届くことを既存の波形判定にかける。`smoke`の単一条件、6〜10秒で実行し、Internet側の要求が時間切れになる前に測定する。
+近距離とInternetの両方を有効にし、通話用の接続資格にはローカルの試験用Workerを与える。Workerは端末を識別できる最初のICE設定要求を受け取るが、応答を返さない。両端の要求を観測してから測定区間へ進む。測定の前後に両端の要求が待機中で、利用できる経路が近距離だけであることを確認する。各端末で相手の発話がQUIC認証済みのUDP経路から実出力に届くことを既存の波形判定にかける。`smoke`の単一条件、6〜10秒で実行し、Internet側の要求が時間切れとなる前に測定する。
 
-各端末で、復号・Mixer出力・native出力のWAVと`packet-timing`を成功時にも保存する。`received`の各`playoutReservation`が描画時計を取得した行では、`renderAnchorHostTime + (startSample - renderAnchorSample) / sampleRate`が予約した先頭の予測描画時刻になる。復号WAVの対応位置をその前後のMixer・native出力の波形と照合する。録音は試験用発話を使い、判定値は従来どおり最終出力で求める。
+各端末で、復号・Mixer出力・native出力のWAVと`packet-timing`を成功時にも保存する。`received`の各`playoutReservation`が描画時計を取得した行を確認する。その行では、`renderAnchorHostTime + (startSample - renderAnchorSample) / sampleRate`が予約した先頭の予測描画時刻になる。復号WAVの対応位置をその前後のMixer・native出力の波形と照合する。録音は試験用発話を使い、判定値は従来どおり最終出力で求める。
 
 接続直後から定常区間の開始までを、`startupReceived`、`startup-decoded.wav`、`startup-speech.wav`に保存する。呼び出し直後に既存の受信処理を観測し、最初の予約と再調整を残す。復号WAVの先頭は`startupFirstDecodedCaptureTime`。native出力のWAVでは、`startupRenderClock`の各ブロックが`startSample`（WAV内の先頭）、`frameCount`、`hostTime`（その先頭の単調時計時刻）を対応付ける。照合したサンプルの時刻は、そのブロックの`hostTime`にブロック内の位置を秒に換算して加える。音声エンジン起動時などの時計の飛びはWAVの連続したサンプル位置に現れないため、ファイル全体を先頭の時刻で換算しない。
 
@@ -51,8 +51,8 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 
 | 範囲 | 測定する設定 |
 |---|---|
-| quick | 実AAC-ELDの符号化・復号、Opus、PCM16、48/24/16kHz、送信・受信master・受信peerのSoundIsolation、DynamicsProcessor、PeakLimiter、VADの3 preset、ducking、音量、出力muteとStream mode + speakerへの復帰 |
-| full | quickに加え、3 codec指定×3 rate、AAC/Opusのbit rate下限・上限×3 rate、mode・speaker・明示echo cancellationの6通り、master/peer音量ゼロ、送信muteと復帰 |
+| quick | 実AAC-ELDの符号化・復号、Opus、PCM16、48/24/16kHzを試す。送信・受信master・受信peerでのSoundIsolation、DynamicsProcessor、PeakLimiterも試す。さらにVADの3種類のpreset、ducking、音量、出力muteとStream mode + speakerへの復帰を試す |
+| full | quickに加え、3種類のcodec指定と3種類のrateの組み合わせを試す。AAC/Opusのbit rateの下限と上限も各rateで試す。mode・speaker・明示echo cancellationの6通り、master/peer音量ゼロ、送信muteと復帰を試す |
 | identity | 20秒以上の全文照合。既定設定、PCM16で送信Isolation無効、Opusで送信Isolation無効を比較。英語・日本語・間と相槌を含む会話を別runで実行する |
 
 マトリクスの正本はリポジトリの`scripts/audio_e2e_matrix.py`にある。通信試験の両端に渡す設定を`scenarios.json`へ保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
@@ -68,13 +68,19 @@ python3 scripts/audio_e2e.py --configuration Release --transport local --matrix 
   --scenario pcm16-16k-voicechat --saved-group-start --two-simulators --ephemeral
 ```
 
-複数のIDは`--scenario`を繰り返す。選んだケースはマトリクスの順に実行する。未知のIDや重複ID、専用mode・`--transport mixed`・`--cleanup-only`との組合せは、Simulatorの準備前にエラーになる。指定を省くと従来どおりマトリクス全体を実行する。例えば出力ミュートからの復帰を検証するときは`output-mute`と`output-recovery`を両方選ぶ。
+複数のIDは`--scenario`を繰り返す。選んだケースはマトリクスの順に実行する。未知のIDや重複ID、専用mode・`--transport mixed`・`--cleanup-only`との組合せは、Simulatorを準備する前に組み合わせをエラーとして報告する。指定を省くと従来どおりマトリクス全体を実行する。例えば出力ミュートからの復帰を検証するときは`output-mute`と`output-recovery`を両方選ぶ。
 
 `scenarios.json`に実行対象の設定を保存し、両端の測定が選んだ全ケースのIDと一致することを照合する。波形、連続性、遅延の基準は共通。Xcodeから同じ組合せを実行する場合は、そのJSONを両端の`AUDIO_E2E_SCENARIOS`に設定する。結果の範囲は選択したケースと経路に限定する。
 
 ## 通る経路と判定
 
-合成発話WAV → iOSの実capture clockとhardware format → AudioCore → VADGate → AudioMixerの実AudioUnit chain → Codec → RTC認証・暗号化・UDP datagramまたは再送なしWebRTC DataChannel → 相手のCodec → peer/master/output mixer → SessionManagerの実出力engine → render tapを通す。
+合成発話WAVを次の経路に通す。
+
+1. iOSの実capture clockとhardware formatで入力し、AudioCore、VADGateの順に通す。
+2. AudioMixerの実AudioUnit chainを通して、Codecで符号化する。
+3. RTCで認証・暗号化し、UDP datagramまたは再送なしのWebRTC DataChannelで送る。
+4. 相手のCodecで復号し、peer、master、outputの順にmixerを通す。
+5. SessionManagerの実出力engineを通してrender tapで受け取る。
 
 iOS側は実`SystemAudioInputStreamBackend`でcaptureを起動し、音声処理・OS形式・callbackの時間間隔を使う。callbackのマイクsampleは直ちに破棄し、同じ形式と長さのfixture発話へ置き換える。Mac側は10msのfixture入力をuserInteractiveのstrict timerで供給する。capture時刻は各区間の開始を表し、区間の全sampleを取得し終えてから渡す。未来のsampleを先送りして遅延を小さく測らないことをMacの事前試験で確認する。人の発話やマイクに入った環境音を保存・送信しない。実機のマイク音響品質、スピーカーの空気振動、Bluetoothや無線干渉の試験は別に必要である。
 
@@ -92,7 +98,7 @@ VoiceProcessingIOについて、このE2Eが保証するのは有効化・無効
 | 連続した低出力 | 上記の低出力が60msを超えて続かない |
 | 測定不足 | 有効な発話が2秒未満、評価窓なし、実renderの長さ不足、非有限sampleは合格にしない |
 
-この閾値はリポジトリの回帰検出基準であり、知覚品質の標準スコアや発話内容の文字認識率ではない。元音声の自然な間は低出力比率から除外する。無音・別話者・雑音に加え、100ms周期欠落、途中500msの無音、1秒の繰り返し、順序入れ替えを拒否し、固定遅延・音量変化・フィルター・非線形変形を許容する事前試験を実行する。mute区間は実renderの無音、その後は発話と連続性の復帰を確認する。
+この閾値はリポジトリの回帰検出基準であり、知覚品質の標準スコアや発話内容の文字認識率ではない。元音声の自然な間は低出力比率から除外する。無音・別話者・雑音に加え、100ms周期欠落、途中500msの無音、1秒の繰り返し、順序入れ替えを拒否し、固定遅延・音量変化・フィルター・非線形変形を許容できるか事前に試験する。mute区間は実renderの無音、その後は発話と連続性の復帰を確認する。
 
 1ms RMS区間の境界は実sample rateから毎回求める。44.1kHzを毎区間44sampleへ切り捨てると20秒で約45msの解析時計誤差になるため、44/45sampleの区間で本来の時計を保つ。既知の固定offsetを持つ44.1kHz出力の正例と、欠落・重複の負例を同じ閾値で事前検査する。
 
@@ -111,13 +117,22 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair japanese
 python3 scripts/audio_e2e.py --pipeline-only
 ```
 
-`--pipeline-only`はRTC・VAD・送信Isolationを外し、日本語発話を20ms／100ms周期でAppAudioPipelineへ渡す。入力の収録時刻はサンプル数から求め、受信には製品通話と同じ開始待機2ms、予約上限120ms、相手別の適応再生を使う。各条件で2秒の安定待ちと20秒の測定を行い、有声区間の欠落0を要求する。実出力WAV・処理エラーと、相手別の再生予約調整・リセット、最終出力側のリセットを記録する。通信を外した経路の連続性を確かめる試験。
+`--pipeline-only`はRTC・VAD・送信Isolationを外し、日本語発話を20ms／100ms周期でAppAudioPipelineへ渡す。入力の収録時刻はサンプル数から求め、受信には製品通話と同じ開始待機2ms、予約上限120ms、相手別の適応再生を使う。各条件で安定するまで2秒待ってから20秒測定し、有声区間の欠落0を要求する。実出力WAV・処理エラーと、相手別の再生予約調整・リセット、最終出力側のリセットを記録する。通信を外した経路の連続性を確かめる試験。
 
 コーデックの要求と実選択は別に記録する。現行AACはnative AAC-ELD monoであり、AAC条件では実選択がAAC-ELDかつfallback=falseを要求する。旧AAC-ELD v2の非対応時にPCMへ代替した結果はAAC成功として数えない。
 
 ### マイクOFFで待ち、後参加と経路復旧を続けて検証する
 
-2台のiOS Simulatorで `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端の試験構成に、同じ実行IDと試験Worker URL、異なるrole、`AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT=1`、`AUDIO_E2E_BACKGROUND_AFTER_START=1`、`AUDIO_E2E_BACKGROUND_MIC_OFF=1`、`AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS=300` を指定する。近距離は `AUDIO_E2E_TRANSPORT=local` と `AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY=1`、Internetは `AUDIO_E2E_TRANSPORT=webrtc` と `AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY=1` で実行する。近距離のUDP受信口の中断にはDebug-Validationを使う。
+2台のiOS Simulatorで `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端で同じ実行IDと試験Worker URLを指定し、それぞれ異なるroleを使う。両端の試験構成を次の表に合わせる。
+
+| 条件 | 環境変数と設定値 |
+|---|---|
+| 共通 | `AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT=1`、`AUDIO_E2E_BACKGROUND_AFTER_START=1` |
+| 共通 | `AUDIO_E2E_BACKGROUND_MIC_OFF=1`、`AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS=300` |
+| 近距離の場合 | `AUDIO_E2E_TRANSPORT=local`、`AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY=1` |
+| Internetの場合 | `AUDIO_E2E_TRANSPORT=webrtc`、`AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY=1` |
+
+近距離のUDP受信口の中断にはDebug-Validationを使う。
 
 先に入った側をマイクOFFのまま別アプリへ移し、受信音声0のまま同じ通話で待つ。後から入る側が発話を送り、先に入った側の実出力と照合する。続いて双方が約60秒マイクOFFのまま送受信0を確認し、同じ通話中の経路を一時中断する。試験の段階を揃える合図には試験WorkerへのHTTPを使う。音声と相手の認証は製品の通話経路を通す。経路の復旧後に話す側だけ送話を許可し、聞く側の実出力に再び相手の発話が現れること、反対向きの受信は0であること、最初の通話参照と終了期限が保たれることを確認する。Simulatorの別アプリ移行を使うため、実機の画面ロックと実ネットワークは[未確認事項](../validation/未確認事項.md)で管理する。
 
@@ -125,7 +140,7 @@ python3 scripts/audio_e2e.py --pipeline-only
 
 通常実行では通常検証（`validate.py`）と共通の専用Simulatorを1台だけ再利用し、終了時に停止する。`--two-simulators`の2台目は所有記録を残して作り、終了時に削除する。中断で残った場合も、次回の同じ実行ロックの下で所有する端末だけを回収する。mainの通常作業フォルダのprojectを使い、build cacheはXcode既定のDerivedDataを再利用する。projectコピーや`/tmp`専用build、`--build-root`による別cacheは使用しない。生成先はXcodeの`-showBuildSettings -json`から必要なpathだけを取得する。MacとiOS Simulatorは同じBuild/Productsを使うため、生成xctestrun名にはplatformを含める。2台構成では役割も含める。
 
-正常終了時のtest host終了はXcodeに任せる。timeout・SIGINT・SIGTERMでは、起動時に取得したprocess identityと所有子孫だけを回収し、専用Simulatorを停止する。同じ既定DerivedDataを使うGUI hostをpath一致で終了しない。旧journalに実行ファイルpathだけが残り、そのhostが動いている場合は所有を証明できないため失敗を記録し、signalを送らない。名前だけの`pkill`や`simctl shutdown all`は使用しない。二重実行はlockで拒否する。SIGKILLや電源断で終了処理自体が実行できなかった場合は、次回起動で全端末の一覧を証跡へ保存する。管理記録が失われても専用名から停止済み端末を再発見し、互換端末を再利用する。起動中の専用端末がある場合は作成・削除を行わず失敗するため、所有する作業を確認して終了してから再実行する。
+正常終了時のtest host終了はXcodeに任せる。timeout・SIGINT・SIGTERMでは、起動時に取得したprocess identityと所有子孫だけを回収し、専用Simulatorを停止する。同じ既定DerivedDataを使うGUI hostをpath一致で終了しない。旧journalに実行ファイルpathだけが残り、そのhostが動いている場合は所有を証明できないため失敗を記録し、signalを送らない。名前だけの`pkill`や`simctl shutdown all`は使用しない。二重実行はlockで拒否する。SIGKILLや電源断で終了処理自体が実行できなかった場合は、次回起動で全端末の一覧を証跡へ保存する。管理記録が失われても専用名から停止済み端末を再発見し、互換端末を再利用する。起動中の専用端末がある場合は、端末を作成・削除せずに失敗するため、所有する作業を確認して終了してから再実行する。
 
 ```sh
 # CI等で今回作った端末を終了時に削除する
@@ -151,20 +166,20 @@ python3 scripts/audio_e2e.py --cleanup-only
 | scenarios.json | 通信試験の両端に渡す設定。通常の通信試験では選択したマトリクス、`--transport mixed`では通話を始めるための初期設定。専用modeと`--cleanup-only`では作成しない |
 | source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含め、buildから受入までにsourceが変わると失敗扱い |
 | local-mac.xcresult / local-ios.xcresult / webrtc-mac.xcresult / webrtc-ios.xcresult | 通信経路・端末別の独立したXCTest結果 |
-| attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性不合格時の復号・ミキサーWAV、終了時の状態 |
+| attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性の検査に合格しなかった場合の復号・ミキサーWAV、終了時の状態 |
 | simulator-id.txt | 実行に使用した端末の識別子 |
 
 背景通話の後参加と受話再開では、各端末の `packet-timing` に符号化済みpacketの収録時刻、受信側で処理を始めた時刻と予約後の待ち量・調整回数を記録する。相手音声を受ける測定では復号直後のWAVとnative出力WAVを保存し、それぞれの固定時刻での連続性を測定する。両端のpacketは収録時刻を基準に照合し、記録区間の前後は重なる範囲を使う。音声は試験fixtureの内容を専用の検証成果物に保存する。
 
 `receiveProcessing` は観測を明示した受信処理でのみ記録する。同じ端末の単調時計の秒で、`lockRequestedAt`（Appの受信時刻で、AudioMixerへ渡す `arrivedAt` と同じ）、`lockAcquiredAt`、`decodedAt`（decoderの取得と復号後）、`reservedAt`（再生予約と必要なplayer開始の後）を並べる。復号結果にPCMがなければ `reservedAt` を省く。`handled` は予約量の診断取得とlock解放後の時刻なので、`reservedAt` との差から予約後の観測に費やした時間も分けられる。各差は経過時間であり、各段のCPU実行時間とOSやフレームワーク内部で待った時間を区別する測定ではない。[Appの到着時刻の契約](../spec/App/音声処理仕様.md#出力クロックの共有)
 
-再生位置を調整した受信packetの行には `playoutAdjustment` が付く。送受信の境界で `sequence` が異なる場合があるため、送受信は外側の `capture` と `duration` で照合する。内側の `capturedAt` と三つのsample位置は、復号後に予約した音声との照合に使う。sample位置の単位と `reason` の意味は[AudioMixerの現行仕様](../spec/packages/Audio/AudioMixer.md)に従う。次のpacketに同じ調整を繰り返し記録しない。通常の双方向試験でも同じ観測を使う。
+再生位置を調整した受信packetの行には `playoutAdjustment` が付く。送受信の境界で `sequence` は一致するとは限らない。そのため、送受信は外側の `capture` と `duration` で照合する。内側の `capturedAt` と3つのsample位置は、復号後に予約した音声との照合に使う。sample位置の単位と `reason` の意味は[AudioMixerの現行仕様](../spec/packages/Audio/AudioMixer.md)に従う。次のpacketに同じ調整を繰り返し記録しない。通常の双方向試験でも同じ観測を使う。
 
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。
 
 ## 音声トラブルの比較記録
 
-音が途切れる、遅れる、切替後だけ声が変わるなどの調査は、[音声の検証履歴](../validation/README.md)から同じ症状と操作を探し、該当する履歴の見出しへ追記する。次に読む人が「前と同じ壊れ方か」「どの変更だけ戻せるか」を判断できるよう、成功・失敗・修復・不採用の観測を残す。次の調査ではそこに記録した入力・観測段・判定式を先に照合する。
+音の途切れや遅れ、切替後だけ声が変わる症状を調べるときは、[音声の検証履歴](../validation/README.md)から同じ症状と操作を探し、該当する履歴の見出しへ追記する。次に読む人が「前と同じ壊れ方か」「どの変更だけ戻せるか」を判断できるよう、成功・失敗・修復・不採用の観測を残す。次の調査ではそこに記録した入力・観測段・判定式を先に照合する。
 
 | 比較に残すもの | 他の担当が読み取れる具体性 |
 |---|---|
@@ -172,7 +187,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 | 比較できる版と条件 | 各観測のBuild・ソース識別子、環境、fixture・入力区間、実際の経路・codec・設定のうち結果を左右するもの。同じだった条件と意図して変えた条件を示す。他にも差があれば比較の限界を添える。正常版が特定できなければその旨と、基準に使える同一run内の正常区間を示す |
 | 壊した変更と最初に差が見えた段 | 変更した処理、状態の所有元、壊れた前提、前後段の観測を結ぶ。収録・送信処理・通信・復号・再生予約・実出力のうち最後に正常だった段と最初に異常を観測した段を記す。間に未計測の段があれば範囲として残す。最初に失敗を測った版と、不具合を導入したと確認できた版は区別する |
 | 正常・失敗・修復の値 | 側・方向・観測点・単位・区間・判定方法をそろえて値を横に並べる。run、ログ・波形・測定JSONの場所を添え、ローカル成果物を開けない担当にも判断できる要点を本文に残す。試験用fixtureを使い、利用者の会話や秘密は記録しない |
-| 原因の根拠と戻せる範囲 | 一つの差を除く・戻す・再適用するなど、どの比較が原因を支持するかを書く。改善しなかった試案、悪化した別の指標、変更を残したか撤回したかも該当時に残す。次に同じ兆候が出たとき、最初に比較する処理と、維持する隣の経路を示す |
+| 原因の根拠と戻せる範囲 | 1つの差を除く・戻す・再適用するなど、どの比較が原因を支持するかを書く。改善しなかった試案、悪化した別の指標、変更を残したか撤回したかも該当時に残す。次に同じ兆候が出たとき、最初に比較する処理と、維持する隣の経路を示す |
 
 **記録の監査**では、今回の履歴と既存の差分・測定の対応をたどる。比較条件をそろえた結論か、修復で戻った性質と残った失敗を分けたか、同じ症状を別の原因でも説明できるかを確認する。不足の指摘には「どの判断ができないか」「どの証跡・値をどの段で照合すれば埋まるか」を含める。既存記録で分かる箇所は補い、その結果を読み直す。未観測・再現せず・原証跡なしの場合は、その境界と次の一手を残す。
 
@@ -189,7 +204,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 | speech-ja.wav | Kyoko、日本語、`say -r 180` | 約13.70秒 |
 | reply-ja.wav | Reed（日本語）、別の日本語文、`say -r 210` | 約13.90秒 |
 
-日本語入力は2026-10-29に`/usr/bin/say -v <voice> -r <rate> -o <file.aiff> <text>`で生成し、`afconvert -f WAVE -d LEI16@48000 -c 1`で変換した。原文は以下の通り。
+日本語入力は2026-10-29に`/usr/bin/say -v <voice> -r <rate> -o <file.aiff> <text>`で生成した。変換には`afconvert -f WAVE -d LEI16@48000 -c 1`を使った。原文は以下の通り。
 
 > 次の信号を右に曲がってください。橋を渡ったら、広い駐車場で待ち合わせましょう。後ろの二人も聞こえていますか。ゆっくり進むので、安全なところで返事をしてください。
 
@@ -201,7 +216,7 @@ Mac側のテストターゲットが`127.0.0.1`だけでWorker API / WebSocket m
 
 | 境界 | 実際に通るもの |
 |---|---|
-| アプリ | App-owned adapter、RTC RouteManager、CloudflareRealtimeSignalingClient、URLSession HTTP / WebSocket、WebRTCNativeEngine |
+| アプリ | アプリ側のアダプターとRTC RouteManagerを使う。通信にはCloudflareRealtimeSignalingClient、URLSession HTTP / WebSocket、WebRTCNativeEngineを使う |
 | 媒体 | 両端末と模擬SFUの間の実ICE / DTLS / SCTP。信頼性あり制御channelと信頼性なし音声channel |
 | 模擬SFU | 同梱WebRTCエンジンで受信した暗号化済みgroup envelopeを相手の接続へ転送。発話の生成・復号・decodeをしない |
 | 模擬Worker | join / publish / pull / renew / deleteとmembership通知。実Cloudflareの運用認証・quota・TURN・請求の検証は含めない |
@@ -231,7 +246,7 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair conversation --seco
 | realtime-only | 3音声×PCM16/Opus/AAC。共通host clockと単一offsetでcapture→最終renderを測り、10msの計測余裕を加えて125ms以下。capture・actor配送・renderの破棄0、処理失敗0、全文同一性、会話の相槌一致 |
 | codec-only / native | 4音声×22 codec/rate/bitrate条件。既存の全文判定に加えmissingActiveRatio=0、会話は各相槌も一致。fallbackを認めない |
 | codec-only / transmit | 2声×入力quantum 256/960sample×isolation ON/OFF×3codecの24条件。実App送信VAD/DSP/codecを通して2周再生し、欠落0と相槌を検査 |
-| group-only | 8人の独立時計、PCM/Opus/AACと異なるbitrate/rate、Localのみ・Internetのみ・両方の参加者。仮想経路の遅延・jitter・複製を実認証/暗号化/中継へ与え、全話者の順序・欠落・重複・codec境界と7話者同時mixを検査。1/2/3秒後の100ms相槌も残ること |
+| group-only | 8人の独立時計、PCM/Opus/AACと異なるbitrate/rate、Localだけを使う参加者、Internetに限る参加者、両方を使う参加者。仮想経路の遅延・jitter・複製を実認証/暗号化/中継へ与え、全話者の順序・欠落・重複・codec境界と7話者同時mixを検査。1/2/3秒後の100ms相槌も残ること |
 | switches-only | 14区間で送受信isolationとPCM/Opus/AAC・16/24/48kHzを変更。送信はPCM16で初回のON、AACで再ONと解除を試す。通常区間は微小不連続oracle、切替区間はsample段差0.04未満・無音120ms以下、内部破棄0・エラー0。全体を実render WAVで保存。別テストで共有I/Oを4回切替し、各操作500ms未満・復帰後の定常toneを検証。600Hzと1,100HzのPCM16を同時に再生し、600Hzの相手だけを20回切り替える。受信を拒否せず、最終出力の段差が0.04未満、1,100Hz成分が切替前の振幅の70%を超えることを切替付近の10ms窓で確認する。定常時の分離効果と最終出力WAVも照合する |
 | 微小不連続の負例 | 全体の0.1%に当たる1ms欠落・1ms重複、単発clickを必ず拒否。単一正弦波fit後の最大2ms残差RMS≤0.006・sample段差≤0.10。平均誤差で薄めない |
 | 相槌の負例 | 「うん」「ふん」を個別に消した音声を拒否。whole recordingで決めた同じoffsetの位置で相関≥0.65を要求し、別の良い断片へ探し直さない |
@@ -246,17 +261,17 @@ conversation-ja.wav（Kyoko、約16.38秒）とconversation-reply-ja.wav（Reed�
 
 既存のbuild productsに問題がある場合は`--clean-build`を指定し、Xcode既定のDerivedData内で標準のcleanを行ってから再構築する。別のcacheやprojectコピーへ切り替える復旧策は使わない。bundle identifierや署名方式を実行ごとに変更せず、OSの許可リストを増やす方法を復旧策にしない。local networkの拒否とbuild／hostの不整合は結果を分けて記録し、確認していない原因を権限不足と決めつけない。
 
-録音probeのsample領域は開始前に確保・初期化し、音声callback内で配列の拡張やcopy-on-writeの大きなコピーを行わない。snapshotは記録済みprefixをrender用lockの外で複製し、設定区間の境界はsample数だけを読む。snapshotとresetは同じ試験ownerが順に行い、解析中の領域を書き換えない。iOS captureの時刻不連続も測定JSONへ残し、内部ringのdrop counterとは別に検出する。
+録音probeのsample領域は開始前に確保・初期化し、音声callback内で配列の拡張やcopy-on-writeによる大量のデータのコピーを避ける。snapshotは記録済みprefixをrender用lockの外で複製し、設定区間の境界はsample数だけを読む。snapshotとresetは同じ試験ownerが順に行い、解析中の領域を書き換えない。iOS captureの時刻不連続も測定JSONへ残し、内部ringのdrop counterとは別に検出する。
 
 fixtureの再生位置は最初のcapture時刻と現在のcapture時刻の差から求める。native I/Oが中断した場合、その区間のsource sampleを省略し、その後の発話全部を後ろへずらさない。10msの欠落で正確に10ms分のsource sampleを省略し、以後の時計を保つ正例を事前検査する。欠落・繰り返しの拒否閾値は変更しない。
 
 性能測定では`--configuration Release`を明示し、通常Releaseと同じ最適化を持つ標準構成`Release-Validation`を使う。DEBUGマクロは追加せず、内部API参照に必要な`ENABLE_TESTABILITY=YES`と検証namespaceをprojectの標準設定へ置く。既定のDebugは通常検証と同じ`Debug-Validation`を使い、schemeのTestActionで明示したsigned-out fixtureから起動する。通常Debug／Release／Archiveの設定は変更しない。コンパイラ条件・namespace・署名設定をCLIから上書きしない。`configuration.json`に測定構成、`build-settings-<platform>.json`にXcodeで解決した構成と生成先を記録する。資格を含み得るbuild settings全体は保存しない。音声同一性・欠落ゼロ・125msの判定は構成によらず同じものを適用し、Releaseの成功で既存のDebug失敗を成功へ書き換えない。
 
-MacとSimulatorは同じMacのCoreAudio serviceを共有する。二つのhostのnative graph初期化を同時に開始せず、最初のhostが初期化完了を通知してから次を起動する。初期化は30秒を上限とし、失敗時は後続hostを起動せず所有processを回収する。通話開始後の双方向送受信・capture/render時計・判定閾値は変えない。
+MacとSimulatorは同じMacのCoreAudio serviceを共有する。2つのhostのnative graph初期化を同時に開始せず、最初のhostが初期化完了を通知してから次を起動する。初期化は30秒を上限とし、失敗時は後続hostを起動せず所有processを回収する。通話開始後の双方向送受信・capture/render時計・判定閾値は変えない。
 
 ## 検証用の送話側から通常の通話を始めた端末へ発話する
 
-受話端末を一度準備してマイクOFFでロックする試験には、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を送話側だけに使う。通常の音声E2Eと同じ隔離済みホストを用意し、`AUDIO_E2E_ROLE=b`、`AUDIO_E2E_TRANSPORT=local`、`AUDIO_E2E_STANDALONE_RECEIVER=1`、新しいUUIDの`AUDIO_E2E_RUN`と発話6〜20秒のsmokeシナリオ1件を設定する。受話端末は既存の[実機用検証App](自動検証.md#ios実機の準備とロック中の検証を分ける)を使う。
+受話端末を一度準備してマイクOFFでロックする試験には、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を送話側だけに使う。通常の音声E2Eと同じ隔離済みホストを用意する。送話側で`AUDIO_E2E_ROLE=b`、`AUDIO_E2E_TRANSPORT=local`、`AUDIO_E2E_STANDALONE_RECEIVER=1`を指定する。`AUDIO_E2E_RUN`には新しいUUIDを設定し、発話6〜20秒のsmokeシナリオを1件選ぶ。受話端末は既存の[実機用検証App](自動検証.md#ios実機の準備とロック中の検証を分ける)を使う。
 
 送話側のログで`AUDIO_E2E_STANDALONE_INVITE_READY`が出たら、送話側のAppのdata containerで`tmp/RideIntercom.AudioE2E.<実行ID>.b/receiver-invitation.url`を読み、受話側で通常の招待として開く。試験用の招待リンクは操作時だけ渡し、ログ・結果の添付・Gitに残さない。利用者は必要なOS許可とリンクを開く確認を済ませ、通話画面でマイクOFFにしてロックする。
 

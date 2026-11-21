@@ -11,7 +11,7 @@ WebRTC本体とChromium依存ソースは巨大なため、`RideIntercom` reposi
 | スクリプト | 用途 | 通常実行 |
 |---|---|---|
 | `scripts/BuildWebRTC/update-webrtc-binary.sh` | branch解決、fetch/sync/build、隔離したRTC packageで検証・テスト、成功後の取り込みを一括実行する | 通常はこれだけを使う |
-| `scripts/BuildWebRTC/doctor-webrtc-binary.sh` | 現在のWebRTC build/import状態を診断し、次に実行する具体コマンドを表示する | 失敗時に最初に使う |
+| `scripts/BuildWebRTC/doctor-webrtc-binary.sh` | 現在のWebRTC build/import状態を診断し、次に実行する具体コマンドを表示する | 失敗したら最初に使う |
 | `scripts/BuildWebRTC/resolve-webrtc-branch.sh` | Chromium Dashboardからstable milestoneのWebRTC branch-headを取得する | 直接実行またはbuild scriptから自動実行する |
 | `scripts/BuildWebRTC/build-current-webrtc-xcframework.sh` | 現在stableのWebRTC branchを自動取得して `WebRTC.xcframework` をビルドする | 上位スクリプトが内部で使う。buildだけを確認したい場合に使う |
 | `scripts/BuildWebRTC/build-webrtc-xcframework.sh` | 指定されたbranch、platform、deployment targetでビルドする | 上位スクリプトが内部で使う。branchやplatformを固定したい場合に使う |
@@ -57,7 +57,7 @@ scripts/BuildWebRTC/update-webrtc-binary.sh
 
 音声通話用SDKに不要なカメラAPIを含めないため、`disable-camera-capture.patch`をsync後の`sdk/BUILD.gn`へ適用してから全sliceをビルドする。対象は`RTCCameraVideoCapturer`、`RTCCameraPreviewView`、`AVCaptureSession+DevicePosition`の実装と公開header。上流のソース本文や音声・DataChannel実装は変更しない。patchが適用できない更新では停止し、成功・失敗どちらでも終了時にpatchを戻す。
 
-増分ビルドで残る対象headerは組み立て時に除去する。検証では全sliceの実バイナリの外部シンボルに`AVCapture`・`RTCCamera`がないこと、対象headerがないこと、umbrella headerの全参照先が存在することを確認する。`ASSEMBLE_ONLY`でも同じ検査を行い、カメラAPIを含む旧出力の取り込みを拒否する。これはApple側の検証通過を保証するものではなく、最終Archiveの埋め込みframeworkとApp Store Connectで別途確認する。
+増分ビルドで残る対象headerは組み立て時に除去する。検証では全sliceの実バイナリの外部シンボルに`AVCapture`・`RTCCamera`がないこと、対象headerがないこと、umbrella headerの全参照先が存在することを確認する。`ASSEMBLE_ONLY`でも同じ項目を検査し、カメラAPIを含む旧出力の取り込みを拒否する。これはApple側の検証通過を保証するものではなく、最終Archiveの埋め込みframeworkとApp Store Connectで別途確認する。
 
 
 固定branchで再現する場合も、上位スクリプトに `WEBRTC_BRANCH` を渡す。
@@ -135,12 +135,12 @@ scripts/BuildWebRTC/import-webrtc-xcframework.sh
 
 | 条件 | 動作 |
 |---|---|
-| 既存成果物の更新 | macOSの`renamex_np(RENAME_SWAP)`でdirectoryを1回交換する。固定pathに旧zipと新metadataだけが残る二相更新を行わない |
+| 既存成果物の更新 | macOSの`renamex_np(RENAME_SWAP)`でdirectoryを1回交換する。固定pathに旧zipと新metadataだけが残るような2段階の更新は避ける |
 | 初回取り込み | `RENAME_EXCL`でdirectoryごと配置する。同時に別の取り込みが成立していれば上書きせず失敗する |
 | filesystemが交換非対応・容量不足・コピー／検証失敗 | delete／moveによる代替更新を行わず停止する。採用済みzip・metadataを保持する |
 | コピー元が後から変更された場合 | 取り込み用にコピーしたbytesを検証・hash化する。検証後にコピー元を読み直して採用しない |
 | プロセスが交換前後に強制終了 | 固定の採用先には旧pairまたは新pairが残る。残った`.WebRTC.import-*`は候補として自動採用せず、次の取り込みを妨げない |
-| 採用directoryがsymlink・無関係fileがある | 事前と採用直前に検査し、既存内容を保持して停止する。検査直後の変更が交換後に旧directory側へ移った場合も、未知fileは再帰削除せず保存場所を表示する |
+| 採用先がsymlink、または採用先に無関係なファイルがある | 事前と採用直前に検査し、既存内容を保持して停止する。検査直後の変更が交換後に旧directory側へ移った場合も、未知fileは再帰削除せず保存場所を表示する |
 | 残留一時directory | 通常終了時は既知のzip／metadataと空directoryだけを回収する。強制終了後の残留物は実行中の取り込みがないことと内容を確認してから整理する |
 
 これはプロセス中断と公開操作の整合性であり、電源断・媒体障害の耐久性や、別processが交換をまたいで2ファイルを個別に開く一連の読取りまでtransactionにする保証ではない。常設の履歴・復旧台帳・採用先symlinkは追加しない。upstream完全commit、depot版、GN、SDKを成果物へ紐付ける再現情報は[改善候補](../../backlog/改善候補.md#全体監査からの追加候補)に残す。
@@ -210,7 +210,7 @@ scripts/BuildWebRTC/build-webrtc-xcframework.sh
 | iOS simulator | `framework_objc` | `WebRTC.framework/Headers` | x86_64とarm64を `lipo` で統合する |
 | macOS | `mac_framework_objc` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
 
-macOS sliceでは、配布済みbinaryと同様にpublic headersが不足する場合がある。`scripts/BuildWebRTC/build-webrtc-xcframework.sh` はmacOSの `gen/sdk/WebRTC.framework/Headers` を優先してpublic headersを補完し、`gen/sdk` が存在しない場合のみiOS device sliceをfallbackとして使う。その後 `scripts/BuildWebRTC/verify-webrtc-xcframework.sh` で必須headerと `WebRTC.h` がimportするheaderの存在を検証する。
+macOS sliceでは、配布済みbinaryと同様にpublic headersを欠く場合がある。`scripts/BuildWebRTC/build-webrtc-xcframework.sh` はmacOSの `gen/sdk/WebRTC.framework/Headers` を優先してpublic headersを補完し、`gen/sdk` が存在しない場合のみiOS device sliceをfallbackとして使う。その後 `scripts/BuildWebRTC/verify-webrtc-xcframework.sh` で必須headerと `WebRTC.h` がimportするheaderの存在を検証する。
 
 ## iOS配布用デバッグシンボル
 
@@ -228,7 +228,7 @@ iOS実機sliceは `enable_dsyms=true` でビルドする。生成された `WebR
 | 自動修復しない状態 | manifest重複、欠損、壊れたplist、既知fieldの型違い、外部・循環・壊れたsymlink、resource sealを持つMac frameworkはエラーにする。未知の配置を推測して修復しない |
 | 検証・取り込み | `verify-webrtc-xcframework.sh`が`webrtc_privacy.py`で配置を検査する。importは同じ検査に成功してからZIPとmetadataを更新し、失敗時はインストール済みartifactを保持する。verify/import自身は修復しない |
 
-plist検査はリソースの形式確認であり、Appleの理由コード審査や最終Archiveのprivacy reportの代わりにはならない。Macの既知誤配置修正は再コンパイル・再署名を伴わず、元の署名状態を保持する。[修正と検証の記録](../../validation/history/WebRTCマニフェスト配置の修正.md)を参照する。
+plist検査はリソースの形式確認であり、Appleの理由コード審査や最終Archiveのprivacy reportの代わりにはならない。Macで既知の配置ミスを直す際は再コンパイル・再署名を伴わず、元の署名状態を保持する。[修正と検証の記録](../../validation/history/WebRTCマニフェスト配置の修正.md)を参照する。
 
 ## 成果物検証
 
@@ -355,6 +355,6 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 
 ## 掃除対象の検証
 
-`clean-webrtc-build-resources.sh`はDRY_RUNの値を`true`/`false`だけに限定する。checkoutの`.gclient`、`src/.git`、`src/BUILD.gn`、またはRTCのPackage.swiftを確認し、root/home/repository/その祖先や、symlinkで外へ出る生成先を拒否する。dry runも同じ確認を行う。source checkoutを既に削除済みの場合は確認に失敗するため、そのrunのcleanupを繰り返して成功扱いにしない。
+`clean-webrtc-build-resources.sh`はDRY_RUNの値を`true`/`false`だけに限定する。checkoutの`.gclient`、`src/.git`、`src/BUILD.gn`、またはRTCのPackage.swiftを確認し、削除対象がルート、ホーム、リポジトリ、またはリポジトリの祖先なら拒否する。生成先がシンボリックリンクで対象の外へ出る場合も拒否する。dry runでも同じ項目を確認する。source checkoutを既に削除済みの場合は確認に失敗するため、そのrunのcleanupを繰り返して成功扱いにしない。
 
 回帰試験は任意directoryのsentinel保持、symlinkによる逸脱拒否、DRY_RUNの綴り誤り拒否、検証済みcheckoutのoutだけ削除を確認する。利用者の既存checkoutはテストで削除しない。

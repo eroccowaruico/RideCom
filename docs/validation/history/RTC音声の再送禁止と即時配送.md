@@ -6,7 +6,7 @@
 
 | 対象 | 変更・確認内容 |
 |---|---|
-| Local音声 | 認証済みGroupRelay envelopeをNetwork.framework UDPで配送。未準備・送信上限では保持や再送を行わず、MCSession音声へのfallbackを禁止 |
+| Local音声 | 認証済みGroupRelay envelopeをNetwork.framework UDPで配送。未準備・送信上限では保持や再送をせず、MCSession音声へのfallbackを禁止 |
 | Internet音声 | unordered、maxRetransmits=0に加えてTCP ICE候補とTURN/TCP・TURN/TLSを禁止。既存のreliable channelを音声用に再利用しない |
 | 制御との分離 | presence等はreliable。UDP送受信はMainActorを経由しない。MainActorを30ms占有しても音声配送が完了する回帰テストを追加 |
 | 受信待ち | 音声専用sequenceを使い、連続packetと途中参加の先頭packetは即時配送。実際の欠番だけ有限の並べ替え猶予を使う |

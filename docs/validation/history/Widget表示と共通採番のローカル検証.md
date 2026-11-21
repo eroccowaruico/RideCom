@@ -4,12 +4,12 @@
 
 | 対象 | 条件と結果 |
 |---|---|
-| TDD | 実装前の新規testのcompile失敗を`system-surfaces-red`へ保存。表示ON/OFF・前面制約・同値抑止・消去後再生成防止・失敗・遅延開始・古い終了・設定保存・サインアウトを新規8件で確認 |
+| TDD | 実装前の新規testのcompile失敗を`system-surfaces-red`へ保存。表示ON/OFF・前面制約・同値抑止・消去後の再生成の防止・失敗・遅延開始・古い終了・設定保存・サインアウトを新規8件で確認 |
 | App全体 | macOS343件成功、失敗・skip・runtime/compiler warningなし。`.validation/system-surfaces-final`。元の335件に8件を追加した構成で、後続統合HEADの件数ではない |
 | ソースと資源 | 最終macOS試験の入力before/after一致。専用DerivedData、隔離保存先、所有test host回収。Simulatorは起動せず、実機・Apple・実通知には接続していない |
 | SDKをまたぐ採番 | 初回はiOS/Watch SDKごとのaggregate評価で同一出力競合となり失敗。採番targetをmacOS host専用へ固定して解消。PROJECT_TEMP_DIRの予約を3productから共有 |
 | 実buildと増分 | generic iOS Simulator App build成功。App／埋込Widget／埋込WatchのCFBundleVersionはすべて24、次の増分buildですべて25。projectの増分は各1、予約ログも各1。`.validation/system-surfaces-ios`のversions-first.json・versions-incremental.jsonと各build log |
-| script | 採番18件成功。別予約との並行、消費時の巻戻し禁止、欠落・未来予約の拒否、extensionへの開発資格不混入、失敗後の番号継続を含む |
+| script | 採番18件成功。別予約との並行、消費時の巻戻し禁止、欠落・未来予約の拒否、extensionへの開発用の資格が混入しないこと、失敗後の番号継続を含む |
 | 工具warning | generic buildのAppIntentsを持たないWatch targetでmetadata extraction skippedの工具warningを記録。Widget/AppのIntent metadataは生成済み |
 
 端末認証・OS経由のWidget/Control/App手渡し、実Live Activityのロック画面・Dynamic Island・8時間終了、配布署名・portal設定は確認していない。OS認証で初期化前に停止した既知のIPC試験を反復せず、unitの成功で代用しない。package・server・独立音声E2Eはこの工程で変更／再実行していない。
@@ -42,7 +42,7 @@
 | ホーム画面からミュート（約3秒） | 0／4 |
 | ホーム画面からミュート解除（約10秒） | 9／9 |
 
-約131秒間、Appを前面に戻さずに同じ通話と切断期限を維持した。CFBundleVersion 1220で画面試験1件成功、失敗・skip・XCTestの実行時警告は0。初回試行も背景のまま両方向へ切り替わったが、App復帰後の英語ラベルの期待値に操作名「Mute」と読み上げ値「Unmuted」の取り違えがあり試験は失敗した。期待値を修正し、操作中の画面記録を加えて再実行した。両試行ともSimulatorのSpringBoardのアニメーション完了待ちが各2回60秒で打ち切られた後に操作できた。所要時間は利用者の操作に必要な待ち時間とは扱わない。
+約131秒間、Appを前面へ戻さず、同じ通話と切断期限を維持した。CFBundleVersion 1220で画面試験1件成功、失敗・skip・XCTestの実行時警告は0。初回試行も背景のまま両方向へ切り替わったが、App復帰後の英語ラベルの期待値に操作名「Mute」と読み上げ値「Unmuted」の取り違えがあり試験は失敗した。期待値を修正し、操作中の画面記録を加えて再実行した。両試行ともSimulatorのSpringBoardのアニメーション完了待ちが各2回60秒で打ち切られた後に操作できた。所要時間は利用者の操作に必要な待ち時間とは扱わない。
 
 共有先と表示の試験差分を外したmacOSの製品コードで、背景Intent・通話投影・宛先・描画の回帰25件が成功した。失敗・skip・実行時警告は0。[システム表示仕様](../../spec/App/システム表示と通話操作.md)と[デザイン定義](../../design/一般向け/画面構成とレイアウト.md#widget)、HTML、使い方を実装とOSの操作条件に揃えた。証跡は `.validation/widget-os-microphone-probe-final-20261119`、初回は `.validation/widget-os-microphone-probe-20261119`、製品コードの回帰は `.validation/widget-os-microphone-clean-20261119`（ビルド後採番1222）。
 

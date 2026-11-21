@@ -2,7 +2,7 @@
 
 ## 対象と目的
 
-2026-11-01、利用者の「実機Apple Watchで動くように」「Xcodeからも実行できるように」という依頼に対し、Apple Watch Ultra 2（watchOS 27.2）と接続済みiPhoneを使って導入・起動を確認した。Xcodeは27.2（27B52）、Watch OS buildは24S118。通話処理をiPhoneに置く[既存のWatch契約](../../spec/App/Watch操作.md)を変更していない。
+2026-11-01、利用者の「実機Apple Watchで動くように」「Xcodeからも実行できるように」という依頼を受けた。Apple Watch Ultra 2（watchOS 27.2）と接続済みiPhoneを使って導入・起動を確認した。Xcodeは27.2（27B52）、Watch OS buildは24S118。通話処理をiPhoneに置く[既存のWatch契約](../../spec/App/Watch操作.md)を変更していない。
 
 基準は`31713383`と着手時の未コミット差分。StoreKit検証構成の整理、Watch翻訳などの既存差分を保持したまま、通常作業フォルダとXcode標準DerivedDataでビルドした。既存差分は今回のコミットへ含めない。バージョンは1.0.0、Buildは315のまま。
 
@@ -15,9 +15,15 @@
 | Watch導入・起動 | `devicectl device install app`と`device process launch`が成功。実機スクリーンショットでRideCom画面を確認。初回の画面はiPhone未接続表示であり、通話成立ではない |
 | iPhone更新 | 共有`RideIntercom` scheme・Debug・接続済み実機の署名付きbuildと更新installが成功。Watch埋込productの署名検証も成功 |
 | iPhone起動の境界 | 更新後の起動要求は`Locked`で拒否された。パスコードを必要とする端末ロックを観測し、解除を利用者へ依頼。認証やロックを回避していない |
-| Xcodeからの前回Run | 19:56:30開始のWatch Run記録に「Copying OS library symbols … (0%)」「Waiting for device unavailability condition to be resolved」を確認。実機導入前に端末準備を待った記録であり、build/actionの`status=succeeded`だけを起動成功とは扱わない。19:41作成のDeviceSupportには`.copying_lock`と途中データがあった。コピー待ちが起動しなかった原因として有力だが、GUIでの再現・解消は確認できていない |
-| 利用者による再Run | 利用者から「もう一回自分でやる」、続いて「動いたかも」と報告。追加の実機操作は停止した。起動成功の確定、実音声・背景継続の受入には置き換えない |
+| Xcodeからの前回Run | 19:56:30開始のWatch Runに次の記録があった。最初は「Copying OS library symbols … (0%)」だった。次に「Waiting for device unavailability condition to be resolved」と記録された。実機導入前に端末準備を待った記録であり、build/actionの`status=succeeded`だけを起動成功とは扱わない。19:41作成のDeviceSupportには`.copying_lock`と途中データがあった。コピー待ちが起動しなかった原因として有力だが、GUIでの再現・解消は確認できていない |
+| 利用者による再Run | 利用者が再試行し、起動した可能性を報告した。原文は表の直後に示す。追加の実機操作は停止した。起動成功の確定、実音声・背景継続の受入には置き換えない |
 | GUI操作 | Computer UseでXcode操作が許可されず、GUIのRunボタン操作・実行先選択は未検証。CLIの標準Xcodeビルドと実機起動を、GUI操作の実証とは区別する |
+
+再試行に関する利用者の発言を報告順に残す。
+
+> もう一回自分でやる
+
+> 動いたかも
 
 既存の共有`RideIntercomWatch` scheme・通常Debug・自動署名を使用した。[開発手順](../../development/開発環境.md#xcodeだけで実行テスト配布する)に、iPhoneを先に通常Runし、Watch schemeと実機Watchを選ぶ操作、端末準備とロック時の切り分けを追記した。デバッガ無効化、別のビルド構成、専用の実行スクリプトは追加していない。
 
@@ -39,7 +45,7 @@
 
 2026-11-21。Standardの通常設定からWatchの設定を外した。Advancedは既存のWatch用の自動切断Pickerを残して無効化し、項目名と保存値を表示する。利用者の訂正に合わせ、「無効」の状態ラベルや配布見送りの文言は追加しない。Watchの時間を変更できるのは開発・検証用iOSビルドの開発者向け設定のみ。画面、MarkdownとHTMLの見本、設定仕様、利用者向けマニュアルを照合した。[設定仕様](../../spec/App/UI/Settings.md#自動切断)、[Advanced見本](../../design/詳細画面/詳細画面見本.html#settings)
 
-Build 1638のiPhone Simulatorで、Standardの通常設定の非表示と開発者向け設定での保存、AdvancedでWatchのPickerが見えて操作できないこと、通常の自動切断が再起動後も保存されることを3件の画面テストで確認した。Advancedに理由の文言が増えていないことを画面添付で照合した。Macにも同じコントロール無効化を適用し、Build 1640でMacビルドと自動切断のApp回帰15件を確認した。Macでの画面操作は未確認。Build 1641のiPhone Simulatorで最終構成の表示と操作可否を再確認し、画面テスト2件が通った。
+Build 1638のiPhone Simulatorで、Standardの通常設定の非表示と開発者向け設定での保存を確かめた。AdvancedでWatchのPickerが見えて操作できないことと、通常の自動切断が再起動後も保存されることを3件の画面テストで確認した。Advancedに理由の文言が増えていないことを画面添付で照合した。Macにも同じコントロール無効化を適用し、Build 1640でMacビルドと自動切断のApp回帰15件を確認した。Macでの画面操作は未確認。Build 1641のiPhone Simulatorで最終構成の表示と操作可否を再確認し、画面テスト2件が通った。
 
 Build 1639のiOS Release Archiveでは、本体とWidgetがともに1639、Watch Appの非同梱と署名検証の成功を確認した。証跡は`.validation/watch-release-hold/`の`verification-final.txt`、`settings-verified/`、`settings-macos/`、`settings-cross-platform/`。ロック中に実Watchから操作できることの受入は引き続き[未確認](../未確認事項.md#iphone依存watchの実機操作と音声)。
 

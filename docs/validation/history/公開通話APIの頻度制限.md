@@ -14,6 +14,6 @@
 | 入力同一性 | 文書を除く448 source/configuration入力が試験前後で一致。うちApp・package・Xcode・App testsの350入力は基準commitと一致 |
 | 証跡 | 隔離worktree `/private/tmp/RideIntercom-api-abuse/.validation/api-abuse` の`full-worker.log`、`type-check.log`、`source-before.json`、`source-after.json`、`summary.json`。mainへ同じserver入力を照合して`.validation/api-abuse-delivery`へ集約。いずれもGit管理外のローカル証跡 |
 
-追加したbindingはCloudflare location単位の近似制限であり、分散した全世界の要求数や請求金額を厳密に止める仕組みではない。実配置、分散locationでの効果、実egress、請求通知、障害時停止運用は未確認・未実装として維持する。RTC側の429に対する自動待機は追加していない。App／package・既存認証方式・同時参加枠・音声経路を変更せず、Simulatorや実機も使用していない。
+追加したbindingはCloudflare location単位の近似制限であり、分散した全世界の要求数や請求金額を厳密に止める仕組みではない。実配置、分散locationでの効果、実egress、請求通知、障害時に停止する運用は未確認・未実装として維持する。RTC側の429に対する自動待機は追加していない。App／package・既存認証方式・同時参加枠・音声経路を変更せず、Simulatorや実機も使用していない。
 
-統合レビューでは公開最新版workers-types `5.20261031.1`のRateLimit形状と公式APIを確認し、lockfile版`5.20261019.1`と今回利用する契約が一致することを照合した。リポジトリの依存更新はしていない。
+統合レビューでは公開最新版workers-types `5.20261031.1`のRateLimit形状と公式APIを確認した。lockfile版`5.20261019.1`と今回利用する契約が一致することを照合した。リポジトリの依存更新はしていない。

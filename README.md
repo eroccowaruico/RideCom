@@ -13,7 +13,7 @@
 | Xcode | `RideIntercom.xcodeproj` | 共有scheme `RideIntercom`、My MacまたはiOS Simulator |
 | VS Code | `RideIntercom.code-workspace` | `Tasks: Run Task` → `RideIntercom: …` |
 
-[Xcode / VS Codeの開発環境](docs/development/開発環境.md)に確認方法を記載するが、全ての開発はXcodeのGUIを利用したビルドやテストも自動化も実行することを必須とし、コマンドラインとGUIの両方で操作可能であることを前提とする。
+すべての開発で、自動化による検証と、XcodeのGUIを使ったビルド・テストを実行する。コマンドラインとGUIのどちらからも操作できることを必須とする。確認方法は[Xcode / VS Codeの開発環境](docs/development/開発環境.md)に記載する。
 
 ## 要求と作り方を分けて読む
 

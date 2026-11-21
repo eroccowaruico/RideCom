@@ -43,7 +43,7 @@ Appleの[StoreKit 2紹介](https://developer.apple.com/videos/play/wwdc2021/1011
 
 ## 配布由来の表示と再確認の接続
 
-同日、一般向けUIを統合した`4a4e97b6882111f6501cf1c16421dd08f104f20f`へ配布作業worktreeをfast-forwardし、配布差分と自動build番号を含む未コミット6ファイルのSHA一致を確認してからStoreAccessSectionを接続した。
+同日、一般向けUIを統合した`4a4e97b6882111f6501cf1c16421dd08f104f20f`へ配布作業worktreeをfast-forwardした。配布差分と自動build番号を含む未コミット6ファイルのSHA一致を確認してからStoreAccessSectionを接続した。
 
 | 対象 | 条件と結果 |
 |---|---|
@@ -82,8 +82,8 @@ Appleの[StoreKit 2紹介](https://developer.apple.com/videos/play/wwdc2021/1011
 |---|---|
 | 共通UIのビルド | `.validation/purchase-ios-build`のgeneric iOS Simulator build成功。Simulator起動なしで実行し、入力不変を確認 |
 | UI受入 | `.validation/purchase-ui-recovery`。専用StoreKit UI schemeの1件成功、失敗・skip・runtime warningなし。既存の専用Simulatorをshared run.lockとSimulatorLeaseで再利用し、終了時にshutdown。新規作成・他のSimulator操作なし |
-| 実操作 | SettingsからView Purchasesへ進み、取得不能の表示、Try Againによる再取得、Doneで設定へ戻る操作、購入とRestoreの両ボタンが再びenabledかつhittableであることを確認。スクリーンショット2枚をxcresultへ保持。15秒の期限到達自体のUI実測ではなく、初回読取後の再操作を確認した |
+| 実操作 | SettingsからView Purchasesへ進み、取得不能の表示、Try Againによる再取得、Doneで設定へ戻る操作まで確認した。戻った後、購入とRestoreの両ボタンは再びenabledかつhittableだった。スクリーンショット2枚をxcresultへ保持。15秒の期限到達自体のUI実測ではなく、初回読取後の再操作を確認した |
 | 発見したUI差分 | Section全体のaccessibility containerが行ボタンの親frameをラベル幅にして操作できなかった。識別子をAccess見出しへ置き、sheetを購入ボタンへ付けてnativeな行のhit testingを維持するよう修正 |
-| 失敗実験 | 成功購入を試みる専用試験のSKTestSession操作でSKInternalErrorDomain Code=3（設定保存・override・disableDialogs・clearTransactions）が発生。`.validation/purchase-ui-red`、`purchase-ui-green`、`purchase-ui-products`のxcresultと成功試験の実験ソースを保全。成功へ読み替えず、通常suiteへ失敗試験を含めない |
+| 失敗実験 | 成功購入を試みる専用試験でSKTestSessionを操作した。設定保存・override・disableDialogs・clearTransactionsでSKInternalErrorDomain Code=3が発生した。`.validation/purchase-ui-red`、`purchase-ui-green`、`purchase-ui-products`のxcresultと成功試験の実験ソースを保全。成功へ読み替えず、通常suiteへ失敗試験を含めない |
 | 環境差の根拠 | [Apple DTSの既知問題の説明](https://developer.apple.com/forums/thread/826971)にCLIからのStoreKit設定同期と同じCode=3の報告がある。ただし当該説明は異なるOS版の履歴であり、今回の原因を同一バグと断定しない。標準のSimulator署名で再現し、StoreKit内部ファイルや署名の迂回は行っていない |
 | 独立した未確認ゲート | 有効なfixture商品を標準StoreViewへ表示し、購入ボタンから購入して利用可能・期限まで到達するiOS UIの成功は未確認。macOSの実Product.purchase成功と、取得不能を使ったUI復旧成功から代用しない |

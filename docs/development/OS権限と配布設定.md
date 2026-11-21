@@ -15,7 +15,7 @@
 | Watch | iPhone依存の単一Watch App、対応bundle ID、専用AppIcon。音声やPushの権限は持たない | Watch App ID/profile、iPhoneとの実ペアリングとWCSession手渡し。Watch音声は未実装 |
 | CarPlay Widget | 27.0以降のWidget背景IntentとApp本体の共通操作を使用。CallKit・専用CarPlay entitlement・VoIP Pushは追加しない | タッチ対応車での実操作、iPhoneロック・cold launch・新規マイク開始・Widget更新。非タッチ車はボタン非対応 |
 | 状態表示 | iPhone/iPadの任意Live Activity、Mac Widgetを実装。対応端末のDynamic Islandとロック画面を使用 | OSによる表示・消去・ロック解除・手渡しを受入。Mac自身からのLive Activityは提供しない。iPhone由来のMac表示とMac native上部表示を混同しない |
-| 購入 | 公開`StoreProductCatalog.production`は未設定。商品未設定時の商用条件非適用を維持 | 商品・価格・契約・Family Sharing・審査・販売許可。ローカルStoreKit fixtureは販売設定ではない |
+| 購入 | 公開`StoreProductCatalog.production`は未設定。商品が未設定の間は引き続き商用条件を適用しない | 商品・価格・契約・Family Sharing・審査・販売許可。ローカルStoreKit fixtureは販売設定ではない |
 
 ## IdentifierとApple Developerでの設定
 
@@ -29,9 +29,9 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 | Identifiers → App Groups | `group.com.yowamushi-inc.RideIntercom.CallWidgets` | AppとWidgetの両IDへ割り当てる。macOSでも`group.`形式は使用できるが、そのgroupを含むprofileが必要 |
 | Profiles | 上記のApp/Widget/Watch IDと実際の配布先 | capability変更後に再生成／ダウンロードし、XcodeのSigning & Capabilitiesで正しいteamとprofileを選択。自動管理の場合も取得結果を検証 |
 | Keys → Apple Push Notifications service | 通知provider用のkey | 対象topicと環境への送信権限を確認する。p8はWorker secret `APNS_PRIVATE_KEY`へ、Key IDは通常Variable `APNS_KEY_ID`へ設定する。Team IDは共通の`APPLE_TEAM_ID`を使い、p8をApp・Git・ログへ置かない |
-| Keys → Sign in with Apple | AppのApple認可取消用のkey | 対象App IDに対応する`.p8`をWorker secret `APPLE_SIGN_IN_PRIVATE_KEY`へ、Key IDを通常Variable `APPLE_SIGN_IN_KEY_ID`へ一度登録する。Team IDは共通の`APPLE_TEAM_ID`を使う。Workerが短期client-secret JWTを生成・更新し、APNs鍵と取り違えない |
+| Keys → Sign in with Apple | AppのApple認可取消用のkey | 初回に、対象App IDの`.p8`をWorkerのSecret `APPLE_SIGN_IN_PRIVATE_KEY`へ登録する。同時にKey IDを通常の変数 `APPLE_SIGN_IN_KEY_ID`へ登録する。Team IDは共通の`APPLE_TEAM_ID`を使う。Workerが短期client-secret JWTを生成・更新し、APNs鍵と取り違えない |
 
-2026-10-31の読取監査では、既存profileファイル6件のうち現App IDに一致する4件（iOS用3、macOS用1）は期限内だったが、いずれもSign in with Appleと今回のApp Groupを含まなかった。Widget/Watchの上記IDに一致するprofileはローカル一覧に見つからなかった。これは**インストール済みprofileの不足**であり、Developer portalに登録がないと断定しない。portalは未照会である。Apple Development／Apple Distribution／Developer ID Applicationのidentityは読取で確認できたが、鍵のunlock、Apple ID再認証、profile取得・署名は実行していない。
+2026-10-31の読取監査では、既存profileファイル6件のうち現App IDに一致する4件（iOS用3、macOS用1）は期限内だった。この4件はいずれもSign in with Appleと今回のApp Groupを含まなかった。Widget/Watchの上記IDに一致するprofileはローカル一覧に見つからなかった。これは**インストール済みprofileの不足**であり、Developer portalに登録がないと断定しない。portalは未照会である。Apple Development／Apple Distribution／Developer ID Applicationのidentityは読み取りで確認した。鍵のunlock、Apple ID再認証、profile取得・署名は実行していない。
 
 ## APNs環境を一つの設定から渡す
 
@@ -51,13 +51,13 @@ APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`�
 
 ## 商品と配布の残設定
 
-[利用権仕様](../spec/App/利用権仕様.md)に従い、App Store Connect → 対象App → In-App Purchasesで個人用の1週間非更新型商品、Subscriptionsで月額自動更新商品と購読groupを設定する。月額のFamily Sharingは商品側で有効にする方針で、週券は対象外。商品ID・価格・試用日数・地域・契約／税務／銀行情報・審査用説明の設定と受入を完了し、販売開始の明示許可があるまで公開catalogへIDを入れない。今回の商品設定・販売開始は未実施であり、未設定を購入済みに見せない。
+[利用権仕様](../spec/App/利用権仕様.md)に従い、App Store Connectで対象のアプリを開く。In-App Purchasesで個人向けの1週間の商品（自動更新なし）を設定する。Subscriptionsで月額の自動更新商品と購読グループを設定する。月額のFamily Sharingは商品側で有効にする方針で、週券は対象外。商品ID・価格・試用日数・地域・契約／税務／銀行情報・審査用説明の設定と受入を完了し、販売開始の明示許可があるまで公開catalogへIDを入れない。今回の商品設定・販売開始は未実施であり、未設定を購入済みに見せない。
 
 App Privacy、プライバシーポリシーURL、年齢区分、審査連絡先、配布地域、TestFlightの配布先もApp Store Connect側の設定である。端末内の名前・group情報、serverが保持するアカウント／端末識別子・通知先・通知grant、短時間の通話中継、診断の実運用を確認して回答する。既存PrivacyInfo.xcprivacyのRequired Reason API宣言や、ローカル設定試験を「収集なし」の証拠にしない。
 
 ## 生成物での確認
 
-`python3 scripts/check_platform_configuration.py`は、OS別entitlement、App Group、APNs環境の接続、日英権限説明、Watchアイコン、埋込product、近距離設定を読み取り検査する。CLIの開発設定検査（`scripts/check_development_setup.py`）からも実行する。Xcodeの通常build phaseには組み込まない。portalやOS許可は変更しない。
+`python3 scripts/check_platform_configuration.py`は設定を読み取って検査する。対象はOS別entitlement、App Group、APNs環境の接続、日本語・英語の権限説明、Watchのアイコン、埋め込んだproduct、近距離設定。CLIの開発設定検査（`scripts/check_development_setup.py`）からも実行する。Xcodeの通常build phaseには組み込まない。portalやOS許可は変更しない。
 
 Watchの埋込製品と依存ターゲットの除外は、Xcodeプロジェクト内で空白区切りの文字列または配列として保存される。構造検査は両形式から値を読み取り、通常配布用の `Release` だけで除外する条件を確認する。
 
@@ -70,11 +70,21 @@ codesign -d --entitlements :- /path/to/RideIntercom.app/PlugIns/RideIntercomWidg
 plutil -extract RideIntercomAPNsEnvironment raw /path/to/RideIntercom.app/Info.plist
 ```
 
-macOSではWidgetが`Contents/PlugIns`、Infoが`Contents/Info.plist`にある。AppとWidgetのentitlementに同じApp Groupがあり、AppだけにAppleログイン・APNs・音声権限があること、APNsのdevelopment/productionがApp Infoと対応することを確かめる。raw profile、証明書、device token、鍵を検証記録へ貼らない。
+macOSではWidgetが`Contents/PlugIns`、Infoが`Contents/Info.plist`にある。AppとWidgetのentitlementに同じApp Groupがあることを確かめる。Appleログイン・APNs・音声権限がAppだけにあることを確認する。APNsのdevelopment/productionがApp Infoと対応することも確かめる。raw profile、証明書、device token、鍵を検証記録へ貼らない。
 
-Watchの配布は保留中。通常のiOS ReleaseはWatchの依存と埋め込みを除外し、Watchの共有schemeはRun・Testを残す。iOS ReleaseのArchiveとexport後のPayloadで、App・Widgetの`CFBundleVersion`が一致し、`Watch/RideIntercomWatch.app`が含まれないことを確かめる。開発・検証構成のiOS Appでは引き続きWatchを組み込み、組み込んだ場合はその`CFBundleVersion`とAppIconを確認する。[Watchの公開条件](../requirements/製品要求.md#利用者に提供すること)
+Watchの配布は保留中。通常のiOS ReleaseはWatchの依存と埋め込みを除外し、Watchの共有schemeはRun・Testを残す。iOS ReleaseのArchiveとexport後のPayloadで、AppとWidgetの`CFBundleVersion`を照合する。どちらの生成物でも番号が一致し、`Watch/RideIntercomWatch.app`を含まないことを確かめる。開発・検証構成のiOS Appでは引き続きWatchを組み込み、組み込んだ場合はその`CFBundleVersion`とAppIconを確認する。[Watchの公開条件](../requirements/製品要求.md#利用者に提供すること)
 
-profile更新後の端末受入は、Appleログイン、OSのマイク／ローカルネットワーク／通知許可、App Group候補表示、削除・サインアウト後の古いWidget操作拒否、実APNs受信と取消、Watch操作、ロック中継続の順で個別に記録する。Mac nativeの任意MenuBarExtraは後続のApp工程で[実装](../spec/App/システム表示と通話操作.md#macメニューバー)した。実メニュー・VoiceOverの受入は別に記録する。
+profile更新後は、端末で次の順に確認し、結果を1項目ずつ記録する。
+
+1. Appleログイン
+2. OSのマイク、ローカルネットワーク、通知の許可
+3. App Groupの候補表示
+4. 削除・サインアウト後に古いWidget操作を拒否すること
+5. 実APNsの受信と取消
+6. Watchの操作
+7. ロック中の継続
+
+Mac nativeの任意MenuBarExtraは後続のApp工程で[実装](../spec/App/システム表示と通話操作.md#macメニューバー)した。実メニュー・VoiceOverの受入は別に記録する。
 
 根拠：Appleの[ローカルネットワーク](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)、[Mac App Group](https://developer.apple.com/documentation/xcode/accessing-app-group-containers)、[APNs登録](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns)、[APNs環境](https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment)、[アイコンasset](https://developer.apple.com/documentation/xcode/configuring-your-app-icon)。
 

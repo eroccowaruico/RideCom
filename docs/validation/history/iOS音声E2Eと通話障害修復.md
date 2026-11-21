@@ -62,7 +62,7 @@ package側の修正・回帰を先に完了してから、App側の利用経路�
 
 初回full実行後にLocal routeの静的codec能力表示、測定結果の追加項目・assertion、runnerのsource照合と測定回収を追加した。この時点ではquickと対象回帰で確認し、その後、以下の設定組み合わせも追加して最新fullを実行した。
 
-設定画面との再照合では、旧speakerDefault profileの試験だけではStream mode + speakerと、明示echo希望なしのBurst mode + speakerを証明できないことが分かった。マトリクス検査を先に失敗させ、Settingsと同じ操作関数と6通りのsession組み合わせをE2Eへ追加した。
+設定画面と旧speakerDefault profileの試験を照合した。この試験だけでは、Stream mode + speakerと、明示echo希望なしのBurst mode + speakerを証明できない。マトリクス検査を先に失敗させ、Settingsと同じ操作関数と6通りのsession組み合わせをE2Eへ追加した。
 
 追加後の`full-ui-settings`は、MacにもiOSのbuilt-in-speakerを要求する誤ったテスト条件で失敗した。Mac側がassertionで先に終了し、その後iOS側で受信ゼロを検出したもので、iOS側の入力・送信は継続していた。誤判定を実機の音声停止修復とは扱わず、6通りのスピーカー経路はiOSで検証し、Mac側は実system default出力を使うよう修正した。WebRTC側の続行はSIGTERMで止め、専用ホストとSimulatorのcleanupまで完了した。
 

@@ -21,7 +21,7 @@
 
 **作業の着手前と区切りには、[小さく動く単位での検証・コミットと未コミットの滞留管理](docs/policies/開発方針.md#小さく動く単位で検証・コミットする)を必ず適用する。**
 
-**着手前と作業途中にこまめにoriginとローカルmainを同期し、小さな検証済み単位ごとに、[ブランチ運用](docs/policies/開発方針.md#ブランチ運用)を必ず適用し、ローカルとクラウドの同時稼働を前提に、担当範囲・作業領域と統合順を調整し、originを基準にしたmainへの同期・push・previewのmain同期と、不要なbranch／worktreeの削除まで確認する。未コミット・main未統合・未pushを積み上げず、次の単位へ進む前に同期を閉じる。**
+**着手前と作業中は、originとローカルmainをこまめに同期する。** ローカルとクラウドで同時に作業できるよう、担当範囲・作業場所・統合順を調整する。検証を終えた小さな単位ごとに[ブランチ運用](docs/policies/開発方針.md#ブランチ運用)を必ず適用する。次の単位へ進む前にコミットし、originを基準にmainへ統合してpushする。previewもmainに合わせ、不要になったブランチとworktreeを削除したことまで確認する。
 
 GUIの実装・変更・点検では、[UI Stackを含むUI・UX方針](docs/policies/開発方針.md#uiux方針)を必ず適用する。Standard（一般向け）とAdvanced（詳細表示）の画面は、[StandardとAdvancedの設計の絶対ルール](docs/policies/開発方針.md#standardとadvancedの設計の絶対ルール)に例外なく従う。
 

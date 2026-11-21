@@ -71,9 +71,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 | 実機 | Mac/iPhoneの双方向音声、画面ロック、Bluetooth/有線切替、一時ネットワーク断の復帰 |
 | 公開前 | identity自動発行/失効、edge abuse制限、TURN、peer入替時のSDP再利用、実料金監視と停止運用 |
 
-自動テスト成功を「実機通話復旧完了」「公開準備完了」「月額上限保証」と記載しない。
+自動テストが成功したとき、次の表現で報告することを禁じた。
 
-最終UI実行コマンド（既存専用Simulatorを再利用、データeraseなし）:
+> 「実機通話復旧完了」「公開準備完了」「月額上限保証」
+
+最終UI試験には次のコマンドを使った。既存の専用Simulatorを再利用し、データを消去しなかった。
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
@@ -90,7 +92,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 |---|---|
 | `89b7abe` | RTCの実SFU publish/subscribe・lease契約 |
 | `71314a9` | Worker認証・利用枠・費用試算・試用スクリプト |
-| `5e9ff9a` | Appの資格保存・音声所有権切替 |
+| `5e9ff9a` | Appの資格保存・音声の所有権の切替 |
 | `c1f8646` | RTCの一時更新失敗と遅延切断応答の回帰修復 |
 | 本記録を含む最終コミット | 資格編集sheet、UI回帰、要求・仕様・検証記録 |
 
@@ -110,7 +112,7 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 | 実メトリクス | 2026-10-30 19:22 JST取得。直前24時間のWorkers集計はrequests=3、errors=0、subrequests=0。errorsは実行時例外等の指標でありHTTP 401/503やSFU音声の成否とは別 |
 | Previews Base | 初回読取時、SFU App ID、SFU App Secret、CLIENT_TOKENS_JSONの3項目が存在。secretの内容は取得・出力していない。実プレビューは0件 |
 | 設定の修正 | Worker名を実設定と同期。`previews.vars`へ有効化と利用枠、`previews.durable_objects.bindings`へ2つの独立bindingを定義。`npm run preview`を追加しbranch単位で配置 |
-| ローカル検証 | Wrangler 4.151.3による設定読込み・bundle dry-run、TypeScript型検査、Worker 20 tests、Cloudflareスクリプト4 tests、文書検査、diff checkが成功 |
+| ローカル検証 | Wrangler 4.151.3で設定読込みとbundle dry-runに成功した。TypeScript型検査、Worker 20 tests、Cloudflareスクリプト4 tests、文書検査、diff checkが成功 |
 | 外部配置の制約 | プラグインのPreview作成APIはHTTP 403。ローカルWranglerは未ログイン。既存main用CIをPreview向けに置換する操作は、自動承認レビューが本番配置への影響を理由に拒否し、変更されていない |
 | 採用した配置経路 | mainのProduction用CIを保持し、利用者がGitHub連携のPreview buildsと`npx wrangler preview`を設定。修正を含む専用branchをpushして配置する |
 | 配置前の未確認 | 実Preview URLでの資格照合・DO動作、実SFUの接続・双方向音声、利用枠更新、TURN、請求。ローカルの20 testsは外部SFUを代替しており、これらを証明しない |
@@ -173,7 +175,7 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 
 変更前の対照スクリプトは両topicの空欄とProductionの環境不一致でexit 1。修正後はAppのRelease設定を直接読んだ照合に成功。Worker82件・型検査、OS／配布設定15件とplatform checker、文書・diff検査が成功した。Wranglerの型生成も同じinclude-runtime=false／strict-vars=falseで実行し、生成物は既存と同値だった。証跡と入力hashは`.validation/notification-deployment-settings-20261118`へ保存した。型生成の初回だけ作業directoryを誤り、実行前に127で止まったため、正しいserver directoryでやり直した。
 
-[Cloudflare試用手順](../../development/Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)へ変数・secret・5 DOとv1/v2/v3 migration・環境別の有効化・2端末受入をまとめ、[Appleの権限と配布設定](../../development/OS権限と配布設定.md)へAPNs鍵・Sign in with Appleのclient-secret・profileとの対応を揃えた。古い「自動登録は未実装」「DO bindingは2つ」を現行の実装へ修正した。TestFlight Internal OnlyもAPNsはproductionであり、Previewへ接続する場合もその環境を合わせる。通常APNsだけを使い、group専用secretは不要である。実Apple・APNs・配置後の実SFUの受入は未確認事項に維持する。
+[Cloudflare試用手順](../../development/Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)へ変数・secret・5 DOとv1/v2/v3 migration・環境別の有効化・2端末での受入をまとめた。[Appleの権限と配布設定](../../development/OS権限と配布設定.md)へAPNs鍵・Sign in with Appleのclient-secret・profileとの対応を揃えた。古い「自動登録は未実装」「DO bindingは2つ」を現行の実装へ修正した。TestFlight Internal OnlyもAPNsはproductionであり、Previewへ接続する場合もその環境を合わせる。通常APNsだけを使い、group専用secretは不要である。実Apple・APNs・配置後の実SFUの受入は未確認事項に維持する。
 
 ## Productionの実設定の読取（2026-11-18）
 
@@ -192,12 +194,12 @@ Cloudflare APIのWorker一覧・settings・secret名一覧をGETし、対象ride
 
 Cloudflare APIのGETで、Productionと固定`preview`を含む現存3 Previewの公開設定・binding名を照合した。Productionはsecret名0件、3 Previewはいずれも`TURN_ENABLED=false`で、全対象に`CLOUDFLARE_TURN_KEY_ID`と`CLOUDFLARE_TURN_API_TOKEN`のbindingがなかった。リポジトリにも対象ID・名前の参照はなかった。
 
-Accountingアカウントに存在したTURN key `lively-bar-4bf6`（ID `17dfb79b3f05d349aa02155b021a49f5`）を未参照と判断し、対象の名前とIDを再照合して削除した。削除後のGETは404を返した。秘密値は取得・表示・記録していない。新しいkeyは作成しておらず、[Cloudflare試用手順](../../development/Cloudflare試用手順.md#turn有効化)へPreview=`rideintercom-turn-preview`、Production=`rideintercom-turn-production`の分離と、作成時にKey ID・API tokenを先に秘密管理先へ保存してからWorkerへ登録する順序を記録した。
+Accountingアカウントに存在したTURN key `lively-bar-4bf6`（ID `17dfb79b3f05d349aa02155b021a49f5`）は参照されていないと判断した。対象の名前とIDを再照合してから削除した。削除後のGETは404を返した。秘密値は取得・表示・記録していない。新しいkeyは作成していない。[Cloudflare試用手順](../../development/Cloudflare試用手順.md#turn有効化)へPreview=`rideintercom-turn-preview`、Production=`rideintercom-turn-production`を分けて記載した。作成時はKey ID・API tokenを先に秘密管理先へ保存し、その後でWorkerへ登録する。
 
 ## 期限付き外部資格の自動生成（2026-11-21）
 
-Apple認可取消用の署名済み`APPLE_CLIENT_SECRET`を手動登録・更新する構成を廃止した。WorkerはSign in with Apple専用の`.p8` secret・Key ID Variable・Team ID Variableと既存のClient IDから、有効期間5分のclient-secret JWTを必要時に生成する。有効中は同じisolate内で再利用し、残り1分から自動生成し直す。コード交換と取消の両方が同じ生成責務を通り、3項目のどれかが欠ける場合はAppleへ要求せず503にする。
+Apple認可取消用の署名済み`APPLE_CLIENT_SECRET`を手動登録・更新する構成を廃止した。Workerは必要に応じて、有効期間5分のclient-secret JWTを生成する。入力にはSign in with Apple専用の`.p8` secret・Key ID Variable・Team ID Variableと既存のClient IDを使う。有効中は同じisolate内で再利用し、残り1分から自動生成し直す。コード交換と取消の両方が同じ生成責務を通り、3項目のどれかが欠ける場合はAppleへ要求せず503にする。
 
-Appleコード交換・取消の署名、issuer・subject・audience・Key ID・5分期限、isolate内再利用、設定不足のfail-closedに加え、テスト時計を301秒進め、期限切れのJWTを再利用せず新しいJWTでコード交換と取消を継続することを確認した。最新mainの追加試験を含むWorker全107件、TypeScript型検査、Wrangler dry-run、文書検査とその単体12件、diff checkが成功した。APNsのprovider JWTは既存実装が`.p8`から50分未満で自動更新し、TURN短期資格は既存実装が通話leaseに合わせてAPI発行・更新・失効することをコードと既存テストで再確認した。製品の安全性に必要な端末資格・招待・通話leaseの期限は変更していない。
+Appleコード交換・取消の署名、issuer・subject・audience・Key ID・5分期限、isolate内再利用、設定不足のfail-closedを確認した。さらにテスト時計を301秒進め、期限切れのJWTを再利用せず新しいJWTでコード交換と取消を継続することを確認した。最新mainの追加試験を含むWorker全107件、TypeScript型検査、Wrangler dry-run、文書検査とその単体12件、diff checkが成功した。APNsのprovider JWTは既存実装が`.p8`から50分未満で自動更新し、TURN短期資格は既存実装が通話leaseに合わせてAPI発行・更新・失効することをコードと既存テストで再確認した。製品の安全性に必要な端末資格・招待・通話leaseの期限は変更していない。
 
-実Appleのコード交換・取消、Cloudflare設定登録、Production／Preview配置はこの検証では行っていない。本番を止めない移行順は、新しい`.p8` secretとKey ID／Team ID Variableの先行登録、Worker配置、実Apple受入、旧secret削除とし、[Cloudflare試用手順](../../development/Cloudflare試用手順.md#apple登録入口の保護)へ記録した。
+実Appleのコード交換・取消、Cloudflare設定登録、Production／Preview配置はこの検証では行っていない。本番を止めない移行順は、新しい`.p8` secretとKey ID／Team ID Variableの先行登録、Worker配置、実Apple受入、旧secret削除の順とした。手順は[Cloudflare試用手順](../../development/Cloudflare試用手順.md#apple登録入口の保護)へ記録した。

@@ -62,7 +62,7 @@ RealtimeKit は完成した会議機能を含む別製品であり、SFUを自�
 
 全peerへSFUがfanoutする保守的モデル。実際にSFUへ接続しないLocal-onlyの人数やLocal優先で抑制できる配信分を割り引いていない。一方、再送・制御payloadの増加・複数gatewayなどはこの既定値を超え得る。最大payload制約をwire帯域のハードキャップとは扱わない。
 
-2026-10-30に[SFU料金](https://developers.cloudflare.com/realtime/sfu/platform/pricing/)と[DO Hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)を再確認。無音時はnative末尾の排出後に符号化・音声送信を休止し、通常会話fixtureでpacket数を約39〜51%削減、1〜3秒の無音を挟む短い応答fixtureでcodec payloadを約82〜87%削減した。短いkeyによる削減と無音休止の削減は別に測定する。詳細・現行ソースの検証状態は[無音通信と電力負荷の削減](../validation/history/無音通信と電力負荷の削減.md)を参照する。音声は再送しない。制御の信頼あり通信による増分は別に残る。
+2026-10-30に[SFU料金](https://developers.cloudflare.com/realtime/sfu/platform/pricing/)と[DO Hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)を再確認。無音時はnative末尾の排出後に符号化と音声送信を休止する。通常の会話を使った試験では、パケット数が約39〜51%減った。1〜3秒の無音を挟む短い応答の試験では、コーデックのペイロードが約82〜87%減った。短いkeyによる削減と無音休止の削減は別に測定する。詳細・現行ソースの検証状態は[無音通信と電力負荷の削減](../validation/history/無音通信と電力負荷の削減.md)を参照する。音声は再送しない。制御の信頼あり通信による増分は別に残る。
 
 これらはfixtureと実装層のbyte測定で、無線・DTLS/SCTP/IP・実際の発話率を含む請求値ではない。512kbpsの容量計画と参加者秒の保守的予約は変更せず、実配信量と請求を確認してから見直す。既存SignalingRoomのHibernationと300秒ごとのlease更新を維持し、音声や無音通知をWorkerへ流さない。
 
@@ -112,7 +112,7 @@ RealtimeKit は完成した会議機能を含む別製品であり、SFUを自�
 | WS受信上限600/分、32KiB | 異常送信の接続を終了。正常想定の4回/秒には余裕を持つ |
 | SERVICE_ENABLED=false | 新規HTTP操作を停止。既存媒体は次のlease alarmまで残り得る |
 
-参加者秒は実GB計測でもCloudflareアカウントの金額ハードキャップでもない。改変クライアントのDataChannel帯域、再送、他アプリによる無料枠消費、upstream障害で閉鎖が遅れる場合を完全には制限できない。公開前に端末認証/失効、edge rate limit、実egress計測、請求通知、障害時停止運用の検証が必要。予算到達後も無制限に通話を続けることと厳密な上限は両立しないため、通常は自動更新、利用枠を使い切った場合のみ停止する。
+参加者秒は実GB計測でもCloudflareアカウントの金額ハードキャップでもない。改変クライアントのDataChannel帯域、再送、他アプリによる無料枠消費、upstream障害で閉鎖が遅れる場合を完全には制限できない。公開前に端末認証/失効、edge rate limit、実egress計測、請求通知、障害時に停止する手順の検証が必要。予算到達後も無制限に通話を続けることと厳密な上限は両立しないため、通常は自動更新、利用枠を使い切った場合のみ停止する。
 
 ## 再計算
 

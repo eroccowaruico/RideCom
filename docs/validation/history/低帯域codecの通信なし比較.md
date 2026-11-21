@@ -2,7 +2,7 @@
 
 証跡内のprobe manifestは`Package.swift.evidence`として元bytesを保持し、`source-evidence-paths.json`で元名とhashへ対応付ける。XcodeのRepository表示が証跡コピーを別packageとして探索することを避けるためで、再実行時はリポジトリ外へコピーして元名へ戻す。測定時の入力hashは変更しない。
 
-2026-10-31、`de94ebef`と同じCodec・AudioCore sourceを使い、AVAudioEngine・実マイク・スピーカーを起動せず、AVAudioConverterによる周波数変換と公開StreamingCodecEncoder／Decoderを往復した。App・packageの既定値と品質判定を変更しない評価である。
+2026-10-31、`de94ebef`と同じCodec・AudioCore sourceを使った。AVAudioEngine・実マイク・スピーカーは起動せず、AVAudioConverterによる周波数変換と公開StreamingCodecEncoder／Decoderを往復した。App・packageの既定値と品質判定を変更しない評価である。
 
 ## 比較条件
 
@@ -12,7 +12,7 @@
 
 ## 結果
 
-68条件で変換でき、16条件はnative変換に失敗した。失敗を除外して全条件合格とは扱わない。下表の「既存品質判定」は従来の波形連続性判定であり、値は4音声中の合格数。
+68条件で変換でき、16条件はnative変換に失敗した。失敗を除外して全条件合格とは扱わない。下表の「既存品質判定」は従来の波形の連続性の判定であり、値は4音声中の合格数。
 
 | codec・周波数 | 12kbps | 16kbps | 24kbps | 32kbps | 48kbps |
 |---|---|---|---|---|---|
@@ -42,7 +42,7 @@ AAC 48kHz／48kbpsの日本語音声では、符号化本体は約49.35kbps、�
 |---|---|
 | 音声入力 | 前節と同じ4音声・10ms投入・16／24／48kHz。Opus8／12／16／24／32／48kbpsの72条件とPCM16対照12条件、計84条件 |
 | 入力同一性 | 先行比較の26入力が一致。相槌照合helperを含む27入力、実験ごとのprobe sourceは実行前後一致 |
-| native実適用 | 別converterを作って推測せず、実際のStreamingCodecEncoderが持つAVAudioConverterからbitRate・入出力sampleRate・5ms packet・bitRateStrategyを符号化前後に読み戻した。Opus72条件すべて要求値と一致 |
+| native実適用 | 別converterを使った推測は避けた。実際のStreamingCodecEncoderが持つAVAudioConverterを調べた。符号化の前後でbitRate・入出力sampleRate・5ms packet・bitRateStrategyを読み戻した。Opus72条件すべて要求値と一致 |
 | 変換 | 84／84条件成功、encode／decode失敗0、timeout0。実AVAudioEngine・マイク・スピーカー・Simulator・ネットワークを使用していない |
 | 時刻・sample | 復号timestampの最大gap約3.6×10⁻¹⁵秒。末尾の入力に対する出力不足は約1.958〜2.688msで、codecの最終packet／priming境界。ネットワークの欠落ではない |
 | 相槌 | すべてのOpus候補の2会話音声で「うん」「ふん」の独立照合成功。元音声を受理し各相槌を除いた2負例を拒否するoracleも再buildして成功 |
@@ -70,7 +70,7 @@ AAC 48kHz／48kbpsの日本語音声では、符号化本体は約49.35kbps、�
 | 32 | 72／72 | 54／72 | 0.008757 |
 | 48 | 72／72 | 72／72 | 0.004540 |
 
-全432条件で復号sample数の下限を満たした。8kbpsの一部では復元振幅も既存下限を下回った。波形誤差による不合格は、変換不可や連続packet欠落とは別の事実である。24／32kbpsはこの音質差を許容する手動候補として提供し、48kbpsの既定・品質推奨・既存回帰の閾値は維持する。AACの手動低帯域候補とも同じ区別で扱う。
+全432条件で復号sample数の下限を満たした。8kbpsの一部では復元振幅も既存下限を下回った。波形誤差による不合格は、変換不可や連続packet欠落とは別の事実である。24／32kbpsはこの音質差を許容する手動候補として提供し、48kbpsの既定・品質推奨・既存回帰の閾値は維持する。AACの手動で選ぶ低帯域の候補とも同じ区別で扱う。
 
 ### 符号化量とenvelope量
 
@@ -85,7 +85,7 @@ AAC 48kHz／48kbpsの日本語音声では、符号化本体は約49.35kbps、�
 | 32 | 24.66／171.91 | 24.67／171.96 | 24.67／171.92 |
 | 48 | 35.71／187.18 | 35.71／187.18 | 35.72／187.20 |
 
-最大envelopeは目標24kbpsで232／234／234bytes、32kbpsで248／249／251bytes、48kbpsで282／285／286bytes（16／24／48kHz）。48kHzでは48→24kbpsでdataは約46%、envelopeは約12%減った。目標値の半減を実通信量の半減とは扱わない。
+最大envelopeは目標24kbpsで232／234／234bytes、32kbpsで248／249／251bytes、48kbpsで282／285／286bytes（16／24／48kHz）。48kHzのまま48→24kbpsに変えると、dataの減少は約46%、envelopeの減少は約12%だった。目標値の半減を実通信量の半減とは扱わない。
 
 ### 製品差分・回帰・証跡
 
@@ -108,13 +108,13 @@ packageコミット`95636f0`から独立したApp工程で、既存Stepper・設
 | 検証 | 結果・境界 |
 |---|---|
 | TDD | 追加の不正低値復旧と日本語説明の2試験が変更前に31件の期待違反。構文／不足importの初回build失敗も別logへ保持し、実行時REDと混同しない |
-| Mac App | App453試験・51suite成功。Stepper上下限をnil closureで標準disabledへ揃えた最終小修正後は、Opus＋AACの関連10試験を再実行して成功。24／32×16／24／48kHzのUserDefaults保存復元、codec／周波数切替、成立した通話中の送信設定とRTC policy更新、受信側再起動なし、対象外低値を48へ戻すこと、既定不変を確認 |
-| native実適用 | 新App試験`OpusLowBandwidthAppTests.manualChoiceConfigurationCreatesNativeEncoder`で、Appが解決した設定から実StreamingCodecEncoderを生成し、そのAVAudioConverterのbitrate・sample rateを読み戻して符号化・復号した。Appの実送信中encoderそのものの読み戻しではない。24／32×3周波数はMacで成功 |
+| Mac App | App453試験・51suite成功。Stepper上下限をnil closureで標準disabledへ揃えた最終小修正後は、Opus＋AACの関連10試験を再実行して成功。24／32×16／24／48kHzのUserDefaults保存復元、codec／周波数切替、成立した通話中の送信設定とRTC policyの更新を確認した。受信側を再起動しないこと、対象外低値を48へ戻すこと、既定不変を確認 |
+| native実適用 | 新App試験`OpusLowBandwidthAppTests.manualChoiceConfigurationCreatesNativeEncoder`で、Appが解決した設定から実StreamingCodecEncoderを生成した。そのAVAudioConverterのbitrate・sample rateを読み戻して符号化・復号した。Appの実送信中encoderそのものの読み戻しではない。24／32×3周波数はMacで成功 |
 | iOS／Widget build | generic iOS署名なしbuild成功。App・Widget・Watchが同じbuild番号で埋め込まれた。Simulator起動・iOS native converterの実行・実署名は行っていない |
 | 英日 | 追加説明の日本語unitと、生成済みen／jaのLocalizable.strings値を照合。24／32の低品質表記は既存の翻訳を再利用 |
 | UI操作 | 既存UI suiteへ`testOpusManualLowBandwidthChoicesSurviveFormatAndCodecChanges`を追加。24→32→48の操作、各周波数とcodec切替、低品質表示を検査する。コンパイル成功、操作実行は統合先で行うため未確認 |
-| 入力と回収 | 各検証のApp／test／package／Widget／Watchの315入力がMac試験・iOS buildの前後一致。453試験時点から最終境界小修正までの差分も別hashとして保持。専用namespaceとDerivedDataを使用し、所有App hostの残留0。package差分0 |
+| 入力と回収 | 各検証のApp／test／package／Widget／Watchの315入力がMac試験・iOS buildの前後一致。453試験時点から最後の境界の小さな修正までの差分も別hashとして保持。専用namespaceとDerivedDataを使用し、所有App hostの残留0。package差分0 |
 | warning | Swift compile warningなし。AppIntentsを持たないUITest bundle／Watchのmetadata extraction skippedという既知の工具warningは記録し、0件と報告しない |
 | 証跡 | `/private/tmp/RideIntercom-opus-app/.validation/opus-app`へRED／GREEN xcresult、generic iOS build、前後hash、生成resource、host回収を保管 |
 
-iOS native実適用の次の受入は、既存iOS App単体試験のdestinationで上記native試験を実行すること。AVAudioEngine・実マイク・スピーカーは不要だが、Mac実測やiOSコンパイル成功では代替しない。実機聴感と実通信量・電池の未確認も引き続き維持する。
+iOS native実適用の次の受入は、既存iOS App単体試験のdestinationを使い、上記の条件でnativeの動作を試験すること。AVAudioEngine・実マイク・スピーカーは不要だが、Mac実測やiOSコンパイル成功では代替しない。実機聴感と実通信量・電池の未確認も引き続き維持する。

@@ -29,17 +29,26 @@ Cloudflareの[資格生成・失効・更新](https://developers.cloudflare.com/
 |---|---|
 | RTCの先行失敗 | /private/tmp/rtc-diagnostics-red.log、rtc-turn-red.log、rtc-reconnect-red.log |
 | RTC本体 | /private/tmp/rtc-network-final.log：初回51件成功、native2件成功。競合修正後は /private/tmp/rtc-network-regression.log でRTC52件・native2件の全体回帰成功 |
-| Worker | 型検査 /private/tmp/turn-cleanup-types.log。並行回収追加後16件成功 /private/tmp/turn-cleanup-green.log。先行失敗 /private/tmp/turn-cleanup-red.log |
+| Worker | 型検査 /private/tmp/turn-cleanup-types.log。並行回収の追加後16件成功 /private/tmp/turn-cleanup-green.log。先行失敗 /private/tmp/turn-cleanup-red.log |
 | Swift–Workerペア | /private/tmp/turn-pair.log：HTTP/WS・lease継続・再参加が成功。外部SFUはmock |
 | Appの先行失敗 | /private/tmp/rtc-app-red.xcresult |
 | macOS App単体 | /private/tmp/rtc-app-green.xcresult：63テスト成功（パラメータ展開後66回）。失敗・skipなし |
 | iOS Simulator UI | /private/tmp/rtc-network-ios-ui/ios-tests.xcresult：4件成功、失敗・skipなし。iPhone 17 Pro / iOS 26.4.1。文字拡大・ダーク表示のNetwork到達、設定・接続操作、起動を確認 |
 | 文書・検証基盤 | /private/tmp/rtc-network-scripts/results.tsv。全段階exit 0。リンク・到達性・空階層・設定とスクリプト回帰17件成功 |
 
-再実行は `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path RideIntercom/packages/RTC`、`npm --prefix server run type-check`、`npm --prefix server test`、`npm --prefix server run test:pair`。App/UIと文書・開発設定は` scripts/validate.sh `の対応modeを使う。
+次のコマンドで再実行できる。
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path RideIntercom/packages/RTC
+npm --prefix server run type-check
+npm --prefix server test
+npm --prefix server run test:pair
+```
+
+App/UIと文書・開発設定は` scripts/validate.sh `の対応modeを使う。
 
 
-Appの再実行例:
+次の例のとおりAppを再実行できる。
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
@@ -57,13 +66,18 @@ VALIDATION_DIR=/private/tmp/rtc-network-scripts-rerun scripts/validate.sh script
 
 ## 自端末の音声を渡した経路
 
-2026-11-20のRTCパッケージ検証。3台の代替transportでRouteManagerと認証・中継を実行した。近距離で全員をカバーするとLocalだけ、1台を別の近距離網へ移すとLocalとInternetの両方へ最後の音声を渡した。両方の場面で受信側2台に音声packetが届いた。受信・中継と制御では自端末の送信記録を作らず、切断後は消去された。追加前は経路の記録が得られず同じテストが失敗した。
+2026-11-20のRTCパッケージ検証。3台の代替transportでRouteManagerを使って認証と中継を試した。近距離で全員をカバーするとLocalだけ、1台を別の近距離網へ移すとLocalとInternetの両方へ最後の音声を渡した。両方の場面で受信側2台に音声packetが届いた。受信・中継と制御では自端末の送信記録を作らず、切断後は消去された。追加前は経路の記録を取得できず、同じテストに失敗した。
 
-- 回帰は `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` でRTCTests 140件、RTCNativeWebRTCTests 5件が合格。Workerペアは別工程。
+- 回帰には次のコマンドを使った。RTCTests 140件、RTCNativeWebRTCTests 5件が合格。Workerペアは別工程。
+
+  ```sh
+  swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests
+  ```
+
 - ローカル証跡は `.validation/tx-dispatch-1402/` の `red.log`・`green-focused.log`・`rtc.log`。
 - この記録が示すのはRTCから各経路に渡した時点。backendの受付、実サービス・実機の相手への到着と実出力、Appの表示は別の確認を要する。
 
-Build 1404のApp検証では、DiagnosticsのTXからRTCを展開して、通話前のLocal／Internet分岐が現れることをiOS Simulatorで確認した。通話の診断snapshotを渡すApp試験では、近距離でカバーしたときにInternetがIdleとなること、混在で2経路へ渡した記録、期限を過ぎた記録と別グループの観測を有効表示しないことを確認した。混在入力を描画し、通常文字と最大文字で経路名・状態・送信待ちを読めることを確認した。証跡は `.validation/tx-dispatch-1402/app-green/app.xcresult` と `tx-dispatch-standard.png`・`tx-dispatch-accessibility.png`。物理端末と実サービスを使った通話中の表示確認は残る。
+Build 1404のApp検証では、DiagnosticsのTXからRTCを展開して、通話前のLocal／Internet分岐が現れることをiOS Simulatorで確認した。通話の診断snapshotを渡すApp試験では、近距離でカバーしたときにInternetがIdleとなることを確認した。混在で2経路へ渡した記録と、期限を過ぎた記録と別グループの観測を有効表示しないことを確認した。混在入力を描画し、通常文字と最大文字で経路名・状態・送信待ちを読めることを確認した。証跡は `.validation/tx-dispatch-1402/app-green/app.xcresult` と `tx-dispatch-standard.png`・`tx-dispatch-accessibility.png`。物理端末と実サービスを使った通話中の表示確認は残る。
 
 Appの回帰はiOS Simulatorで23件、macOSで21件が合格した。
 
@@ -73,7 +87,18 @@ Appの回帰はiOS Simulatorで23件、macOSで21件が合格した。
 
 - 既存実装ではRTCのreportとnative WebRTC送信から受付結果が得られず、追加した両テストが失敗した。変更後は閉じたDataChannelの不受付と、開いた両端での受付・packet受信を確認した。
 - 実QUIC・UDPとローカルのnative WebRTCを使い、UDPを経路の途中で遮断した場合もLocalの送信受付を観測した。同じ区間の新しい音声はInternet経由で相手に届き、近距離復旧後はLocalだけに渡した。実機・本番SFUでの観測は残る。
-- `swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests` で140件、native WebRTC 5件が合格。Workerペアは別工程。証跡は `.validation/tx-accept-1405/red.log`・`green-focused.log`・`rtc.log`。
+- 以下のコマンドで140件とnative WebRTC 5件が合格した。
+
+  ```sh
+  swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests
+  ```
+
+  Workerペアは別工程。
+
+  ```sh
+  swift test --package-path RideIntercom/packages/RTC --no-parallel --skip WorkerPairTests
+  ```
+証跡は `.validation/tx-accept-1405/red.log`・`green-focused.log`・`rtc.log`。
 
 AppはBuild 1407のiOS Simulatorで23件、Build 1408のmacOSで22件が合格。受け付けた経路と不受付の経路を同時に表示でき、受付情報のないreportは未計測として扱う。Simulatorで通話前のRTCを展開し、受付結果を与えた描画で通常文字と最大文字の読みやすさを照合した。macOSではRTCからAppへ認証済み音声を渡す既存試験も実行した。証跡は `.validation/tx-accept-1405/app-red/`・`app-green/`・`mac-green/`。
 
@@ -89,7 +114,7 @@ Appの描画には既存RTC契約と同じ観測値を入力した。RTC側で�
 
 ## 狭い画面でNetworkの計測値を読む（2026-11-20）
 
-Build 1468のiOS 27.2 Simulatorで、320pt幅のNetworkに、Localの未計測、InternetのRTT 42ms、Loss 0.4%、Jitter 6ms、送信待ち12345 B、overflow 7・expired 12、20秒前のレポートを用意した。文字を最大にすると経路名、値、更新時刻が文字の途中で分かれた。260pt幅の「Send queue」行は高さ175ptになり、項目名の下に値を置いた場合の122ptを超えて変更前テストが失敗した。証跡は `.validation/isolation-labels-1460/metrics-before`。
+Build 1468のiOS 27.2 Simulatorで、320pt幅のNetworkに20秒前のレポートを用意した。Localは未計測。InternetのRTTは42ms、Lossは0.4%、Jitterは6msとした。送信待ちは12345 B、overflowは7、expiredは12とした。文字を最大にすると経路名、値、更新時刻が文字の途中で分かれた。260pt幅の「Send queue」行は高さ175ptになり、項目名の下に値を置いた場合の122ptを超えて変更前テストが失敗した。証跡は `.validation/isolation-labels-1460/metrics-before`。
 
 NetworkではLossとJitterを別の行にした。NetworkとAppliedが使う共通行では、横に収まるときは項目名と値を左右に置き、収まらないときは値を下へ移す。経路名と更新時刻も同じ幅の条件で並べる。計測のない値は `Not measured`、生成から15秒を超えたレポートは `Stale` と表示する。レポートの経過時間から個別の測定値の時刻は推定しない。[SwiftUIの幅に応じた表示](https://developer.apple.com/documentation/swiftui/viewthatfits)、[画面仕様](../../spec/App/UI/Diagnostics.md#network診断)、[デザイン見本](../../design/詳細画面/詳細画面見本.html)。
 

@@ -37,12 +37,12 @@
 
 ## 受入範囲
 
-実機・Appleログイン・通知・課金・署名・提出の受入ではない。既知のCoreAudio待機、独立音声E2E、Watch自身の音声と押下中送話、無線・電池・背景動作の確認は残す。古いDerivedDataを別worktreeから再利用した際のstale path warningと、AppIntents未使用targetのmetadata省略warningはログへ保持し、warningゼロとは扱わない。
+実機・Appleログイン・通知・課金・署名・提出の受入ではない。既知のCoreAudio待機、独立音声E2E、Watch自身の音声と押下中送話、無線・電池・背景動作の確認は残す。古いDerivedDataを別worktreeから再利用した際のstale path warningと、AppIntents未使用targetのmetadata省略warningはログに残した。warningゼロとは扱わない。
 
 
 ## 期限切れ招待の置換と呼び名の一括保存
 
-2026-11-17、期限切れの「新しい招待を送る」が、新規発行・呼び名の引継ぎ・旧記録の除去を別々に保存し、途中の失敗を無視していた。2回目の保存だけを失敗させると、呼び名のない新規招待へ移り、旧記録も残ることを再現した。`stageContactInvitation(_:now:replacingExpiredInvitation:)`で新規招待・Keychain参照・元のnickname・旧記録除去を1回のmanifest置換へまとめ、成功後だけ新しい詳細を開くようにした。期限内・存在しない置換対象も無書込で拒否する。App側だけの変更でpackage／serverは変更していない。
+2026-11-17、期限切れの「新しい招待を送る」が、新規発行・呼び名の引継ぎ・旧記録の除去を別々に保存し、途中の失敗を無視していた。2回目の保存だけを失敗させると、呼び名のない新規招待へ移り、旧記録も残ることを再現した。招待の差替えには`stageContactInvitation(_:now:replacingExpiredInvitation:)`を使った。新規招待・Keychain参照・元のnickname・旧記録除去をまとめて1回のmanifest置換で反映する。成功後だけ新しい詳細を開くようにした。期限内・存在しない置換対象も無書込で拒否する。App側だけの変更でpackage／serverは変更していない。
 
 | 検証 | 結果と証跡 |
 |---|---|

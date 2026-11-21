@@ -28,10 +28,10 @@
 
 ## 初回失敗と修正の区別
 
-Macの最初の実行は、先行のcodec評価から証跡へコピーした`Package.swift`をXcodeが二つのtop-level packageとして発見し、依存解決で終了した。製品の依存定義は変更せず、証跡側だけ`Package.swift.evidence`へ改名し、原文hashと再現用の対応表を保持した。失敗ログは`notification-menu-final-macos`に残す。
+Macの最初の実行は、先行のcodec評価から証跡へコピーした`Package.swift`をXcodeが2つのtop-level packageとして発見し、依存解決で終了した。製品の依存定義は変更せず、証跡側だけ`Package.swift.evidence`へ改名し、原文hashと再現用の対応表を保持した。失敗ログは`notification-menu-final-macos`に残す。
 
 iPhone UIの初回は日本語横画面でミュート表示が変わらなかった。識別されたSwiftUI行の右端から座標を推測して押していたため、テストを行内のnative Switchに向け、値がONになったことと表示の両方を検査するよう修正した。アプリ本体は変更していない。失敗を含む`notification-menu-final-ios`を保持し、最終UIは`notification-menu-final-ui`へ分ける。Mac単体・iOS単体・Mac Releaseの検証後に変更した入力はこのUIテスト1ファイルだけであり、集約時に本体・設定・artifactの同一性を別途照合する。
 
 ## 未確認の境界
 
-実OSの通知許可とAPNs登録、実配送・cold launch、MacメニューとVoiceOverの実操作、Watchの背景連携、署名済みApp Group、Apple portalのprofile更新は[未確認事項](../未確認事項.md)に残す。Mac WebRTCのprivacy manifest配置は独立したpackage/artifact工程で修正する。ローカルfixtureの成功を、これらの受入結果へ置き換えない。
+実OSの通知許可とAPNs登録、実配送・cold launch、MacメニューとVoiceOverの実操作は未確認。Watchの背景連携、署名済みApp Group、Apple portalのprofile更新も[未確認事項](../未確認事項.md)に残す。Mac WebRTCのprivacy manifest配置は独立したpackage/artifact工程で修正する。ローカルfixtureの成功を、これらの受入結果へ置き換えない。

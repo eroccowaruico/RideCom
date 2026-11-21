@@ -1,28 +1,28 @@
 # 検証状況と証跡
 
-[近距離制御のQUIC移行](history/近距離制御のQUIC移行.md)に、近距離制御方式の選定理由と移行後の検証範囲を記録する。
+[近距離制御のQUIC移行](history/近距離制御のQUIC移行.md)に、近距離での制御方式の選定理由と移行後の検証範囲を記録する。
 
 残確認は[未確認事項](未確認事項.md#確認待ちの振り分け)で自動テスト・OS操作・実サービス・署名／配布を区別し、物理端末等の確認だけが残る範囲は[実機確認待ち](実機確認待ち.md)に分ける。未着手・未解決は[バックログ](../backlog/README.md)に維持する。
 
-[テストの待ちとmain threadの占有](history/テストの待ちとmain threadの占有.md)に、全体実行で1回だけ失敗したコマンドキュー試験の原因（main threadの占有でテスト共通の待ちだけが時間切れになる）の再現と、待ちを回数で数える修正を記録する。
+[テストの待ちとmain threadの占有](history/テストの待ちとmain threadの占有.md)では、全体実行で1回だけ失敗したコマンドキュー試験の原因を再現した。main threadを占有するとテスト共通の待ちだけが時間切れになる。待ちを回数で数える修正も記録した。
 
 [個人の削除とダイレクトグループ](history/個人の削除とダイレクトグループ.md)に、個人の削除でダイレクトグループと鍵を同時に消し、接続中なら確認して切断する修正と、Mac単体・iOS UIの検証を記録する。
 
 [iPhone間の音声途切れと受信待ちの学習](history/iPhone間の音声途切れと受信待ちの学習.md)に、Simulator入力0Hzの原因と音声E2Eの復旧、受信待ちの学習による途切れ対策、最終E2Eと実機受入が未実施の境界を記録する。
 
-[画面デザインと録音操作の整理](history/画面デザインと録音操作の整理.md)に、Standard／Advancedの録音ボタン・画面改修、Users新規招待のApp 99件と実Multipeer保存・日英UI、Widget等の表示検証と未確認境界を記録する。
+[画面デザインと録音操作の整理](history/画面デザインと録音操作の整理.md)には、Standard／Advancedの録音ボタンと画面の改修を記録する。Users新規招待のApp試験99件、実Multipeerでの保存と日英UI、Widgetなどの表示検証と未確認の範囲も示す。
 
 [Apple Watch実機への導入とXcode起動](history/AppleWatch実機への導入とXcode起動.md)に、Watch Ultra 2の開発署名・導入・画面起動と、Xcodeの端末準備待機、iPhoneロックによる未確認の境界を記録する。
 
 [Watch音声のApp接続とデバイス分離](history/Watch音声のApp接続とデバイス分離.md)に、ローカル媒体往復・Mac全体の基準検証と、音声デバイスへの分離／Watch Simulatorの後続工程を記録する。
 
-[Xcode標準設定への復帰と一時領域の整理](history/Xcode標準設定への復帰と一時領域の整理.md)に、標準DerivedDataでのMac526件／iOS単体512件とRelease検証構成の成功、設定UIの実行時警告・StoreKit週券fixtureの同期課題、/tmpの照合後削除を記録する。
+[Xcode標準設定への復帰と一時領域の整理](history/Xcode標準設定への復帰と一時領域の整理.md)には、標準DerivedDataでのMac526件／iOS単体512件とRelease検証構成の成功を記録する。設定UIの実行時警告・StoreKit週券fixtureの同期課題、/tmpの照合後削除を記録する。
 
 [Watch音声の下位基盤検証](history/Watch音声の下位基盤検証.md)に、AAC・媒体pairの単独検証とMac／iOS App回帰、実Watch未接続の境界を記録する。
 
 [作業領域の引継ぎと整理](history/作業領域の引継ぎと整理.md)に、登録済み32件の点検・復元用保全とmainへの作業集約を記録する。
 
-[正式アイコンとLiquid Glassの検証](history/正式アイコンとLiquid Glassの検証.md)に、指定SVGのレイヤー分離、全画像の統一、各外観の描画とApp・Watchへの組み込みを記録する。インストール後のOS表示と配布受理は別に確認する。
+[正式アイコンとLiquid Glassの検証](history/正式アイコンとLiquid Glassの検証.md)では、指定SVGのレイヤーを分離して全画像を統一した。各外観の描画とApp・Watchへの組み込みも記録した。インストール後のOS表示と配布受理は別に確認する。
 
 [WebRTC取り込みの中断保全](history/WebRTC取り込みの中断保全.md)で、更新中断時の旧／新pair保持と無関係fileの保全を確認した。統合後のPython119件成功。採用済みbinaryは不変、電源断の耐久性とbuild再現情報は別課題。
 
@@ -40,27 +40,27 @@
 
 ## Watchからの呼出しとiPhoneでの通知応答
 
-2026-10-31、`6c8ea8c8527285c42825971e72923ce66b1a4877`から隔離したApp工程で、Watchの保存ユーザーへの用途別通知可否投影・明示呼出し・現在requestIDだけの取消と、iOSの固定category／「iPhoneで応答」背景actionを共通通知検証へ接続した。[現行契約](../spec/App/Watch操作.md)に通常tapとの違いとiPhone音声の範囲を記載した。
+2026-10-31、`6c8ea8c8527285c42825971e72923ce66b1a4877`から隔離したApp工程で、Watchの保存ユーザーについて、用途ごとに通知できるかどうかの反映、明示呼出し、現在のrequestIDだけの取消を共通通知検証へ接続した。iOSの固定categoryと「iPhoneで応答」の背景actionも同じ検証へ接続した。[現行契約](../spec/App/Watch操作.md)に通常tapとの違いとiPhone音声の範囲を記載した。
 
 | ローカル検証 | 結果 |
 |---|---|
 | 関連App単体 | Watch・通知・AppCallOwner経由のCallActions／AppIntentsの6 suite、63件成功。失敗・skip・runtime warningなし。`.validation/watch-notifications-final/macos.xcresult` |
-| 追加契約 | 5テストで背景actionのoptions・未知/dismiss/別category拒否・別通話維持、Watch呼出しが音声を始めないこと、旧取消ID・group・許可取消・削除・期限・旧ログインの拒否を確認。default tapと遅延背景actionも既存試験へ接続 |
+| 追加契約 | 5件のテストで背景actionのoptions・未知/dismiss/別category拒否・別通話維持を確かめた。Watch呼出しが音声を始めないことと、旧取消ID・group・許可取消・削除・期限・旧ログインの拒否を確認。default tapと遅延背景actionも既存試験へ接続 |
 | SDK build | generic iOS Simulator向けAppとgeneric watchOS Simulator向けWatchが成功。Watch targetの既知のAppIntents未使用metadata省略warningを保持。Simulatorを起動せず、実OS許可・実APNs・実マイクを使っていない |
-| 翻訳・入力・資源 | App追加1key／Watch追加9keyのcompiled英日、既存catalog不変、386 source/configurationとserver 26入力の前後一致、所有Mac host残存なしを確認。project-owned build番号以外は不変 |
+| 翻訳・入力・資源 | App追加1key／Watch追加9keyのcompiled英日、既存catalogに変更がないことを確認した。386 source/configurationとserver 26入力の前後一致、所有Mac host残存なしを確認。project-owned build番号以外は不変 |
 
 最初は未実装APIのcompile REDを確認した。その後の新規試験は、保存相手の削除Taskがunowned fixtureより長く残って1回クラッシュしたため証跡を保持し、試験だけを保存先削除と同期的な投影更新へ修正した。active call中のreloadが拒否される期待の誤りも試験側で修正した。製品側へ寿命回避のqueue・新しい状態層を追加していない。
 
 server/packageを変更・再試験せず、対応する固定APNs categoryは独立server工程から取り込む。実Watch転送・背景actionのiPhoneへの実配送・ロック／終了状態・iPhone音声成立は[未確認事項](未確認事項.md#iphone依存watchの実機操作と音声)に残す。Watch自身の音声は未実装で、通常通知の受付を配送成功や通話成立の証明としていない。
 
 
-[通常グループの代表端末検証](history/通常グループの代表端末検証.md)に、本人単位の保存・待機/交換・共通参加者判定とApp回帰の証跡を記録する。複数実端末の同時切替は別受入。
+[通常グループの代表端末検証](history/通常グループの代表端末検証.md)に、本人単位の保存・待機/交換・共通の参加者かどうかの判定とApp回帰の証跡を記録する。複数実端末の同時切替は別受入。
 
 ## CarPlayのWidget背景操作
 
-OS 27以降の小サイズWidgetを通常の背景App Intentから既存App所有者へ接続し、現在通話の終了・明示muteを追加した。[局所検証](history/CarPlay Widget背景操作のローカル検証.md)にMac専用Intent契約を含む32件、generic iOS/Watch build、英日幅描画と入力一致を記録する。2026-11-02に最低対応OSを27.0へ統一した。従来の26.4 Simulatorでの前面UI確認は当時の履歴であり、現行targetの検証やiOS 27のOS経由実行を代替しない。実車・ロック・マイク開始・長時間の背景継続は未受入。CallKit、PTT、Widget側の音声engineを追加していない。
+OS 27以降の小サイズWidgetを通常の背景App Intentから既存App所有者へ接続し、現在通話の終了・明示muteを追加した。[局所検証](history/CarPlay Widget背景操作のローカル検証.md)では、Mac専用Intent契約を含む32件を確認した。generic iOS/Watch build、英日幅描画と入力一致も記録した。2026-11-02に最低対応OSを27.0へ統一した。従来の26.4 Simulatorでの前面UI確認は当時の履歴であり、現行targetの検証やiOS 27のOS経由実行を代替しない。実車・ロック・マイク開始・長時間の背景継続は未受入。CallKit、PTT、Widget側の音声engineを追加していない。
 
-[背景ログインと保存の統合](history/CarPlay Widget背景操作のローカル検証.md#背景ログインと保存の統合)で、Mac 474件、iPhoneの単体460＋通常UI20件、破損復旧1件、iPad英日2件、Mac/iOSのRelease buildを確認した。396入力の前後一致と専用namespace・所有資源の回収を確認し、既知のSDK metadata省略メッセージと初期host隔離漏れの境界も記録する。Watchの追加要求はWatch自身の音声と押下中だけの送話であり、現在のiPhone音声の遠隔操作をその完成とは扱わない。
+[背景ログインと保存の統合](history/CarPlay Widget背景操作のローカル検証.md#背景ログインと保存の統合)を参照。Macでは474件を確認した。iPhoneの単体460件と通常UI20件、破損復旧1件、iPadの英語・日本語2件も確認した。Mac/iOSのRelease buildも確認した。396入力の前後一致と専用namespace・所有資源の回収を確認し、既知のSDK metadata省略メッセージと初期host隔離漏れの境界も記録する。Watchの追加要求はWatch自身の音声と押下中だけの送話であり、現在のiPhone音声の遠隔操作をその完成とは扱わない。
 
 ## Mac WebRTCのプライバシー情報の配置
 
@@ -97,7 +97,7 @@ Apple標準の購入画面と提供後の取引完了を追加し、現在ログ
 | 検証 | 結果 |
 |---|---|
 | App統合 | macOS・iOS各360件成功、失敗・skip・runtime warningなし。`.validation/purchase-call-access-final-macos`・`purchase-call-access-final-ios` |
-| 共通通話条件 | 新規22件。Local代替backendの2 VMで無権利待機→権利反映→成立、未準備の購入者、途中参加、継続中の失効、全相手消失、24時間境界、機器停止、時計差、署名改ざん、旧参加・旧ログイン、保存失敗、schema 7を検証 |
+| 共通通話条件 | 新規22件。Local代替backendの2 VMで無権利待機→権利反映→成立、未準備の購入者、途中参加、継続中の失効を検証した。全相手消失、24時間境界、機器停止、時計差、署名改ざん、旧参加・旧ログイン、保存失敗、schema 7を検証 |
 | StoreKit | 専用39件成功。実Product.purchase、承認・取消、復元、提供後finish、月額照会が止まった際の週券提供、旧要求の遅延応答、過去の未完了更新を確認。統合版のStoreKit入力が先行最終試験と一致 |
 | 既存画面 | Standard英日4件、個別通話1件、保存ユーザーのgroup削除後の再利用1件成功。商品未設定の試用を維持し、同じ通話状態・一覧を使うことを確認 |
 | 購入復旧UI | 統合版の専用schemeで1件成功。取得不能→再試行→Done→購入と復元の再操作へ戻る。`.validation/purchase-call-access-recovery-ui`。有効商品の購入成功UIとは区別 |
@@ -126,7 +126,7 @@ Standardの英日画面、Advancedとの同一状態の共有、認証と音声�
 | 検証 | 結果 |
 |---|---|
 | App回帰 | macOS・iOS各320件成功、失敗・skip・runtime warningなし。`.validation/standard-recent-intents-final-macos`・`standard-recent-intents-final-ios`。Mac完了後のApp差分は日本語の設定ボタン名1件だけで、最終iOS側で一致を確認 |
-| 一般UI | Standardの英語・日本語、タブ・mute・表示modeの保持、購入状態表示、一般/詳細Internet設定、音量label、日本語の再試行案内を4件で確認。既存Advancedの英語再試行案内も1件確認 |
+| 一般UI | Standardの英語・日本語、タブ・mute・表示modeの保持、購入状態表示、一般/詳細Internet設定、音量label、日本語の再試行案内を4件で確認。既存Advancedの英語の再試行案内も1件確認 |
 | 既存UI | 先行統合版で個別通話・名前編集/復元・再登録後の端末内整理を各1件成功。`.validation/standard-recent-intents-ios`。その後のApp変更は再試行文言の翻訳と音量labelで、対象経路を最終UIで再確認 |
 | 履歴・共通状態 | 直近1件、音声準備と認証の順序、削除・読取失敗・アカウント切替、表示modeと履歴の同時保存・音声設定resetをApp試験で確認 |
 | App Intents | perform/queryの5件とApp metadata生成を確認。実OS経由のIPCはMacのシステム認証でrunner開始前に失敗し、実行対象へ到達していない。分離した試験案を保持し、通常テストへ未検証の入口を混ぜない |
@@ -168,7 +168,7 @@ package・Workerは変更せず、独立音声E2E・実機・実サービスは�
 
 | 検証 | 結果 |
 |---|---|
-| TDD | 現在資格・サインアウト後・手動資格置換後の新公開ID上書きと旧通話継続、手動資格の失効による確認済み登録の消失、再設定時の端末枠変更を先に再現。`development/` |
+| TDD | 現在資格・サインアウト後・資格を手動で置き換えた後の新公開ID上書きと旧通話継続、手動資格の失効による確認済み登録の消失、再設定時の端末枠変更を先に再現。`development/` |
 | App全体 | 最終ソースのmacOS・iOS各278件成功。失敗・skip・runtime warningなし。lock失敗、端末ID書戻し失敗、再起動後のローカル再試行、実ディスクのgroup/user消去、署名鍵の更新、端末枠の維持、旧ログインからの操作拒否を確認。`macos/`・`ios/` |
 | 復旧UI | 確認の取消→再起動→消去→ログイン画面→再設定→通話開始が成功。最初の標準確認popoverではCancelが表示されず外側タップも成立しなかったため、削除とCancelを明示する標準alertへ修正。失敗証跡は`previous-ios/`・`development/ui-popover/`、最終成功は`ios/` |
 | 既存UI | 既存のアカウント削除・サインアウト各1件成功。これらの確認後のApp変更は専用復旧画面の確認表示だけ。`previous-ios/` |
@@ -250,9 +250,9 @@ Settingsの削除確認、Apple再認証、server削除、端末内消去、再�
 |---|---|
 | TDD・失敗からの修正 | 未実装APIのcompile失敗を先に確認。全体回帰でKeychain読出不能時の状態表示の差を検出・修正。削除済みUserDefaultsが空dictionaryを返すOS挙動へテストを合わせた。途中結果は`development/`に保持 |
 | App全体 | macOS・iOS各263件成功。失敗・skip・runtime warningなし。Macのsandbox無効化は検証hostだけ。`macos/`・`ios/` |
-| 削除境界 | 401・矛盾／不足した成功応答で消去しない、Apple取消待ちの永続化・再起動、proof保持と受理後の除去、同一本人とstate・ログイン世代、記録保存失敗でログインを維持、保存lock・symlink拒否、別アカウント保持、退避ファイル除去、旧repository書戻し拒否を確認 |
+| 削除境界 | 401応答や、矛盾・不足のある成功応答では消去しないことを確認した。Appleの取消待ちを永続化し、再起動した場合も確認した。proofの保持と受理後の除去、同一本人とstate・ログイン世代の対応、記録の保存に失敗したときのログインの維持も確認した。保存lock・symlink拒否、別アカウント保持、退避ファイル除去、旧repository書戻し拒否を確認 |
 | iOS UI | 専用Simulatorの1件成功。確認取消、Local削除の確定、通話画面の閉鎖、Apple手動解除の明示、ログインへの復帰、同じfixture本人で再起動してもgroup行が戻らないことを操作。最終のgroup行ID検査を厳密化した後、このUI試験だけ再実行。保存画面に欠けがないことも確認。`ui/` |
-| 検証基盤 | scripts全73件、文書・開発設定・diff検査成功。iOS全体／最終UI各実行前後の288ファイルはsource/configuration一致。二つの実行間はUIテストの行ID修正と自動build番号だけで、App・unitソースに差はない。専用Simulatorをshutdown済み |
+| 検証基盤 | scripts全73件、文書・開発設定・diff検査成功。iOS全体／最終UI各実行前後の288ファイルはsource/configuration一致。2つの実行間はUIテストの行ID修正と自動build番号だけで、App・unitソースに差はない。専用Simulatorをshutdown済み |
 
 実Apple認証・実Cloudflareには接続していない。Apple側認可取消の実確認、失効Bearer／期限切れreceiptからの復旧、他端末で稼働中の媒体回収は未完了。macOSや全画面サイズの新しいUI操作確認、独立duplex音声E2Eもこの結果に含めない。既知のAppIntents未使用metadata省略warningは継続。全体の最終受入やアカウント削除全機能の完成とは扱わない。
 
@@ -269,7 +269,7 @@ Settingsの削除確認、Apple再認証、server削除、端末内消去、再�
 | Worker | 型検査と全52件成功、失敗・skipなし。実Cloudflare・Apple資格は使わず、workerd・SQLite DOと固定originの代替providerを使用 |
 | 削除・再試行 | 正常取消、別人のBearer/subject、外部redirect、過大応答、並行する削除と登録、失敗後の再起動、24時間経過、再試行上限と最低間隔、完了した古い削除の再送を確認 |
 | 結合 | 実Swift client→HTTP/WS→Worker/DOの1件成功。既存join・renew・peer交換・再参加を確認。SFU媒体providerは代替であり、音声実測ではない |
-| 整合 | 検証前後のsource/configuration指紋一致。文書・開発設定検査成功。App・packageの実装は変更していない |
+| 整合 | 検証前後のsource/configuration指紋一致。文書・開発設定の検査に成功。App・packageの実装は変更していない |
 
 Appの削除UI・端末データと鍵の消去、稼働中の媒体回収、実Appleでの取消確認・secret設定は残る。serverの成功だけでアカウント削除全体の完成とは扱わない。
 
@@ -320,7 +320,7 @@ RTCの参加参照をAppへ保持し、接続ごとの端末署名確認が済�
 | Appへの影響 | App実装を変更せずmacOS・iOS各243件成功、失敗・skip・runtime warningなし。既定のgroup参加者方式で既存API利用を維持。Mac sandbox無効化は検証ホスト限定。専用Simulator終了済み。`macos/`、`ios/` |
 | 静的・ソース | 文書・開発設定・diff検査成功。App・package・tests・server・scriptsの検証前後hash一致。`source-manifest.json`。App buildは既知のAppIntents未使用metadata省略warningのみ |
 
-Appから本人確認結果を音声許可へ渡す処理は次の別工程である。個人署名付き音声、送信先別暗号化、通知認可・購入判定の完成を意味しない。実機・実サービスと全package/Worker/音声E2Eを含む最終受入は未完である。
+Appから本人確認結果を音声許可へ渡す処理は次の別工程である。個人署名付き音声、送信先ごとの暗号化、通知認可・購入判定の完成を意味しない。実機・実サービスと全package/Worker/音声E2Eを含む最終受入は未完である。
 
 ## 接続中の本人名と端末署名の照合（2026-10-31）
 
@@ -472,7 +472,7 @@ group参加者による直接招待の自己申告を拒否するため、発行
 
 RTC packageが既知の409 codeを解釈し、HTTP再送・route再接続を繰り返さず手動復帰を通知する。Local経路は維持し、明示的なprepareで再試行を許す。serverやAppに文字列判定を重複させない。[契約](../spec/packages/RTC.md#ユーザー操作を必要とする接続拒否)を参照する。
 
-証跡は`.validation/account-connection-rtc/`。409の本文をそのまま表示しないこと、不明code・不正JSON・過大本文・異なるHTTP statusを専用案内にしないこと、ICE/joinの両方の失敗回収、単独routeとLocal併用、明示再開を検証する。
+証跡は`.validation/account-connection-rtc/`。409の本文をそのまま表示しないこと、不明code・不正JSON・過大本文・異なるHTTP statusを専用案内にしないことを検証する。ICE/joinの両方の失敗回収、単独routeとLocal併用、明示再開を検証する。
 
 | 検証 | 結果 |
 |---|---|
@@ -563,7 +563,7 @@ Settingsからserver nonce取得、同じAppleユーザーのnative認証、端�
 |---|---|
 | iOS App・UI | 最終コードでApp 192件＋設定・サインアウトUI 2件、計194件成功。失敗・skip・runtime warningなし。`apple-app-ios-verified/ios-tests.xcresult` |
 | macOS App | 最終コードで192件成功。失敗・skip・runtime warningなし。`apple-app-macos-verified/macos-tests.xcresult`。隔離hostのみsandboxを無効化し、製品設定は変更していない |
-| 認証・保存境界 | 新規8件でserver nonce、scopeなし、アカウント違い・再送・不正URLの拒否、保存失敗・中断後の発行資格失効、Keychain読出／削除失敗後の復元拒否、古い失効による新資格削除の防止を確認 |
+| 認証・保存境界 | 新規8件でserver nonce、scopeなし、アカウント違い・再送・不正URLの拒否、保存失敗・中断後の発行資格失効を確認した。Keychain読出／削除失敗後の復元拒否、古い失効による新資格削除の防止を確認 |
 | 音声検証の独立性 | 一部Appテストが実機I/Oを初期化してSimulatorのAudio Unit RPC timeoutで停止した。既存の`OfflineAudioDriver`を注入し、nativeエフェクト・PCM処理・UI占有中の送受信などの検証条件を保持したまま全件成功。App製品コード・packageの音声動作は変更していない |
 | Release | Simulator向けRelease build成功。Info.plistに開発資格がなく、実行binaryに認証fixtureの選択文字列・識別子がないことを確認。`apple-app-release-isolation.json`。公開version設定は変更していない |
 | UI目視 | `apple-app-ui-view/`の設定エラー画面で、説明と操作が切れず表示されることを確認。これはnative Apple認証成功画面の証拠ではない |
@@ -616,7 +616,7 @@ RTCのjoinとWorkerの永続member・peer一覧から表示名を除去した。
 | 保存データ復旧 | 最終コードのUI 1件と、元の破損bytesの退避・空manifestの確認が成功。`account-ios-shared-final/ios-recovery.xcresult`、`recovery-verify.log`。復旧対象を検証アカウントの保存先へ追従 |
 | macOS App | 最終コードで184件成功、失敗・skipなし。`account-macos-shared-final/macos-tests.xcresult`。今回の隔離hostだけsandboxを無効にして実行し、製品設定は変更していない。通常sandboxの起動は未確認 |
 | 認証境界 | scopeなし・state照合・再送拒否・中断・取消・保存失敗・読出失敗時の保持・古い非同期結果の排除・削除失敗後の圏外復元拒否・削除再試行・未ログイン／別アカウントの接続拒否・通話停止を確認 |
-| Releaseと音声E2E | ReleaseのSimulator buildが成功し、認証fixture選択文字列・fixture識別子・開発用接続情報の不在を確認。音声E2E targetはMac/iOS双方のcompile成功。今回は独立音声E2Eの測定を再実行していない |
+| Releaseと音声E2E | ReleaseのSimulator buildが成功し、認証fixture選択文字列・fixture識別子・開発用の接続情報の不在を確認。音声E2E targetはMac/iOS双方のcompile成功。今回は独立音声E2Eの測定を再実行していない |
 | スクリプト・文書 | 復旧fixture 5件、validation runner 11件が成功。文書参照・Settings網羅・空白検査が成功 |
 | 画面 | `apple-sign-in.png`にサインアウト後の画面を保存。標準Appleボタン、目的・プライバシー・圏外利用の説明を目視確認。実機VoiceOver・iPad複数windowの実操作は後続 |
 | ソース・資源 | 最終検証中のApp・テスト220 Swiftファイルのhash一致を保存。検証後の変更は末尾の空行1行の削除のみで、`account-final-formatting.json`に差分を記録。管理Simulatorを再利用しShutdown、所有Mac host終了を確認。全体入口の`unchanged-inputs`は通常buildの採番で失敗し、projectの差分はビルド番号だけと別途比較した |
@@ -674,7 +674,7 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 | scripts | 65件成功。記録消失時の再発見、一般端末の保持、起動中端末の保護、削除失敗時の作成禁止、作成前の棚卸し・記録、旧モードのhost回収を回帰試験で確認 |
 | 端末の整理 | 停止済みの旧`RideIntercom Audio E2E 65438c7c`と`RideIntercom Recovery Tests`を削除。simctlが報告したdataPathSizeの合計は2,197,897,216 bytes。空き容量の実測値ではない。一般用途の端末は保持 |
 | 再利用・排他 | `RideIntercom Audio E2E 844ea91b`（`7D7F5941-E066-4869-B7DD-B1E5140010A1`）を継続使用。共通lockが音声E2E実行中の別所有者を拒否。新規端末の作成なし。通常検証入口も同じprepare・journal・lockを使う |
-| 音声の追加測定 | 最初のpipeline-only測定は100ms条件でmissingActiveRatio=0.0047489824となり失敗。並行ビルド終了後の隔離再測定と、旧モードhost回収の共通化後の最終測定は20ms/100ms両条件が合格。各測定中のsource hash一致、同一端末再利用、終了時のShutdown・host不在を確認。初回不合格は消さず保持し、並行負荷が原因と断定しない |
+| 音声の追加測定 | 最初のpipeline-only測定は100ms条件でmissingActiveRatio=0.0047489824となり失敗。並行ビルド終了後の隔離再測定と、旧モードhost回収の共通化後の最終測定は20ms/100ms両条件が合格。各測定中のsource hash一致、同じ端末の再利用、終了時のShutdown・host不在を確認。初回不合格は消さず保持し、並行負荷が原因と断定しない |
 | 検証範囲 | 今回は全package・Worker・全UI suiteの再実行ではない。実iPhone、Bluetooth、実無線、VoiceOverの実操作は未確認。AppIntents未使用によるmetadata抽出省略warningは残る |
 | 証跡 | UIは`/tmp/RideIntercom-AAC-green.xcresult`と`/tmp/ride-aac-green-images`、macOSは`/tmp/RideIntercom-AAC-Mac.xcresult`。棚卸し・削除は`/tmp/RideIntercom-Simulator-Reconcile`、初回音声失敗は`/tmp/RideIntercom-AAC-resource-smoke`、隔離再測定は`/tmp/RideIntercom-AAC-resource-isolated`、最終測定は`/tmp/RideIntercom-AAC-resource-final`。一時領域のため永続保存ではない |
 
@@ -723,8 +723,14 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 | 修正前の切り分け | `xcodebuild -list`で9 local packageを解決。CLIのmacOS buildも成功しており、利用者のXcode画面のエラーはCLIでは再現しなかった |
 | 自己参照 | Xcode起動中に除去した自己参照が再生成された。利用者がXcodeを終了後、`explicitFileTypes`のfolder指定を保持して残った自己参照を除去 |
 | 回帰 | `python3 -m unittest scripts.tests.test_development_setup`の6件成功。開発設定・文書検査も成功 |
-| 最終build | `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -project RideIntercom.xcodeproj -scheme RideIntercom -destination 'platform=macOS,arch=arm64' -derivedDataPath /tmp/RideIntercom-XcodeRepair CODE_SIGNING_ALLOWED=NO`成功。ログは`/tmp/rideintercom-xcode-build-final.log`。error / warning / package読み込みエラーなし。実行前後のprojectファイルSHA-1は`ab96e3e1f1a10e977c9fe8fc77cd42d892fd6462`で一致 |
-| 残る確認 | Xcode再起動後のエラー消失・自己参照非再生成・navigator表示は画面操作権限がなく未確認。署名・アプリ起動・iOS buildは今回未実行 |
+| 最終build | macOSビルドに成功した。ログは`/tmp/rideintercom-xcode-build-final.log`。error / warning / package読み込みエラーなし。実行前後のprojectファイルSHA-1は`ab96e3e1f1a10e977c9fe8fc77cd42d892fd6462`で一致 |
+| 残る確認 | Xcode再起動後のエラー消失・自己参照が再生成されないこと・navigator表示は画面操作権限がなく未確認。署名・アプリ起動・iOS buildは今回未実行 |
+
+macOSビルドで実行したコマンド。
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -project RideIntercom.xcodeproj -scheme RideIntercom -destination 'platform=macOS,arch=arm64' -derivedDataPath /tmp/RideIntercom-XcodeRepair CODE_SIGNING_ALLOWED=NO
+```
 
 ### 再起動後の検査修正と推奨設定反映（同日）
 
@@ -733,7 +739,7 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 | 確認 | 結果・境界 |
 |---|---|
 | 再発回帰 | Xcode保存後のfolder参照と、明示種別が推定種別より優先されるケースを追加。設定検査の7件成功 |
-| 推奨設定 | 利用者の画像の提案に従い、projectと3 targetのDebug・Releaseで`DEAD_CODE_STRIPPING = YES`、projectで`STRING_CATALOG_GENERATE_SYMBOLS = YES`を反映。Xcode 27.1で確認し`LastUpgradeCheck = 2710`へ更新 |
+| 推奨設定 | 利用者の画像の提案に従い、projectと3つのtargetのDebug・Releaseに`DEAD_CODE_STRIPPING = YES`を設定した。projectには`STRING_CATALOG_GENERATE_SYMBOLS = YES`を設定した。Xcode 27.1で確認し`LastUpgradeCheck = 2710`へ更新 |
 | Appテストの追随 | 既存のInfo.plist編集で説明文がビルド設定から生成される構成になっていた。`appInfoPlistEnablesBackgroundAudioMode`が元ファイルの説明文を要求して失敗したため、生成済みApp bundleの値を検証するよう修正。Info.plistの既存編集は維持 |
 | 最終検証 | 上記buildコマンドを`test -only-testing:RideIntercomTests`として実行し`TEST SUCCEEDED`。ログは`/tmp/rideintercom-xcode-settings-final-test.log`、xcresultは`/tmp/RideIntercom-XcodeRepair/Logs/Test/Test-RideIntercom-2026.10.21_21-57-19-+0900.xcresult`。文書検査も成功 |
 | 境界 | AppIntents依存がないためmetadata抽出を省略するXcode toolのwarningは残る。Xcode画面の推奨通知の消失・iOS build・署名は未確認 |
@@ -747,10 +753,16 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 | 元の失敗 | 利用者の22:21:49のxcdistributionlogsでApp Store Connectエラー90046を確認。iCloud環境の値が空と判定され、Productionが必要とされた。元のArchiveと配布ログには空のコンテナ一覧とCloudKit権限があった |
 | 原因と修正 | App・packageのSwiftコードにCloudKit利用がなく、保存先は端末内ファイルとKeychain。未使用の`com.apple.developer.icloud-container-identifiers`と`com.apple.developer.icloud-services`をentitlementsから除去。APNs・マイク権限は保持 |
 | 回帰 | `appDoesNotRequestUnusedICloudServices`が修正前に失敗し、修正後のAppテスト全体で`TEST SUCCEEDED`。ログは`/tmp/rideintercom-icloud-before-test.log`と`/tmp/rideintercom-icloud-after-test.log`。最初の個別filter実行は対象を選択できず、検証実績に含めない |
-| iOS Archive | `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild archive -project RideIntercom.xcodeproj -scheme RideIntercom -destination 'generic/platform=iOS' -archivePath /tmp/RideIntercom-DistributionRepair.xcarchive -derivedDataPath /tmp/RideIntercom-DistributionRepair`で`ARCHIVE SUCCEEDED`。署名済みAppにiCloud権限がないことを確認 |
-| 配布書き出し | `xcodebuild -exportArchive`を`method=app-store-connect`、`destination=export`、`signingStyle=automatic`、`manageAppVersionAndBuildNumber=false`、`uploadSymbols=false`で実行し`EXPORT SUCCEEDED`。IPAは`/tmp/RideIntercom-DistributionExport/RideIntercom.ipa`。展開したAppでiCloud権限なし・APNs productionを確認し、`codesign --verify --deep --strict`成功 |
+| iOS Archive | iOS Archiveの結果は`ARCHIVE SUCCEEDED`。署名済みAppにiCloud権限がないことを確認 |
+| 配布書き出し | `xcodebuild -exportArchive`は`EXPORT SUCCEEDED`。方式は`method=app-store-connect`、出力先は`destination=export`。署名は`signingStyle=automatic`。残りの設定は`manageAppVersionAndBuildNumber=false`と`uploadSymbols=false`。IPAは`/tmp/RideIntercom-DistributionExport/RideIntercom.ipa`。展開したAppでiCloud権限なし・APNs productionを確認し、`codesign --verify --deep --strict`成功 |
 | 証跡 | Archiveログは`/tmp/rideintercom-distribution-archive.log`、exportログは`/tmp/rideintercom-distribution-export.log`。開発設定・文書・plist・差分検査成功。AppIntents未使用によるmetadata抽出省略warningは残る |
 | 未確認 | App Store Connectへの再アップロード・サーバー側検証は未実行。ローカル書き出し成功はApple側の受理を保証しない。旧Archiveは変更されないため、新Archiveを使って再送する |
+
+iOS Archiveで実行したコマンド。
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild archive -project RideIntercom.xcodeproj -scheme RideIntercom -destination 'generic/platform=iOS' -archivePath /tmp/RideIntercom-DistributionRepair.xcarchive -derivedDataPath /tmp/RideIntercom-DistributionRepair
+```
 
 ## iOS配布のアイコン・WebRTCシンボル修復（2026-10-21）
 
@@ -768,7 +780,7 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 | 配布書き出し | `method=app-store-connect`、`destination=export`、`uploadSymbols=true`で`EXPORT SUCCEEDED`。IPAは`/tmp/RideIntercom-DistributionReadyExport/RideIntercom.ipa`。IPA内のアイコン名・サイズ、iCloud権限なし・APNs production、`codesign --verify --deep --strict`成功を確認 |
 | 証跡 | `/tmp/rideintercom-distribution-ready-archive.log`、`/tmp/rideintercom-distribution-ready-export.log`、`/tmp/rideintercom-distribution-ready-app-tests.log`、`/tmp/rideintercom-distribution-script-tests.log`、`/tmp/rideintercom-webrtc-symbol-update.log`。一時領域のため永続保存ではない |
 | 残るwarning | WebRTC vendor sourceの`tracksWithMediaType:`非推奨、AppIntents未使用によるXcode metadata抽出省略。今回の配布エラーとは別に残る |
-| 未確認 | App Store ConnectへのアップロードとApple側の受理は未実行。macOS/SimulatorのdSYM同梱は今回のiOS配布修復対象外。旧Archiveを再送せず、上記の新Archiveまたは修正後に作成したArchiveを使う |
+| 未確認 | App Store ConnectへのアップロードとApple側の受理は未実行。macOS/SimulatorのdSYM同梱は今回のiOS配布の修復対象外。旧Archiveを再送せず、上記の新Archiveまたは修正後に作成したArchiveを使う |
 
 ## カメラ不要の配布バイナリ修復（2026-10-22）
 
@@ -803,7 +815,9 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 
 [統合記録](history/外部通話操作と低帯域設定の統合.md)に最終ソースのApp・UI・設定検証と、実署名／実機／通知／Mac artifactの残件を区別して記録する。
 
-## Opus手動低帯域設定のApp接続
+<a id="opus手動低帯域設定のapp接続"></a>
+
+## Opusの低帯域設定を手動で選ぶ場合のApp接続
 
 [低帯域比較記録](history/低帯域codecの通信なし比較.md#opus手動候補のapp接続)に24／32kbpsの保存・復元・通話中適用、Mac App453試験、generic iOS／Widget／Watch build、英日生成resourceの確認を記録した。この先行工程ではUI操作とiOS native変換を未確認としていた。後続の統合工程でUI操作と、Appが解決したconfigurationから試験内で作るiOS native converterを確認した。稼働中Appの送信encoder計測、実機の聞き取り・実通信量は別受入として残す。
 
