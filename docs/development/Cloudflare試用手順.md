@@ -8,7 +8,7 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 
 | 配置先 | 配置方法 | 設定と接続先 |
 |---|---|---|
-| Production | `npm --prefix server run deploy`。GitHub連携のdeploy commandは`npx wrangler deploy` | 通常のWorker URL。現行の`vars.SERVICE_ENABLED`はfalse |
+| Production | `npm --prefix server run deploy`。GitHub連携のdeploy commandは`npx wrangler deploy` | 通常のWorker URL。現行の`vars.SERVICE_ENABLED`はtrue |
 | 試用プレビュー | `npm --prefix server run preview`。作業branchごとに作成・更新 | Preview URL。`previews.vars`と`previews.durable_objects.bindings`を使用。各プレビューのSQLite DOはProductionと別namespace |
 
 表はWorkerの実行時設定。新しいPreviewへの継承は **Previews Base**、稼働中の試用先は対象の **Preview**、本番は **Production** を選ぶ。下記の用途に必要な項目をSettings → Runtime variables and secretsで設定する。repoで定義済みの通常変数は対象の構成と照合する。
@@ -206,10 +206,10 @@ Debug端末で届きTestFlightで届かない場合は、署名済みAppのentit
 |---|---|---|
 | APNsとAppleの公開値 | APNS_ENVIRONMENTはproduction。APNS_TOPICとAPPLE_CLIENT_IDはApp IDと一致 | APNS_ENVIRONMENTはsandbox。APNS_TOPICとAPPLE_CLIENT_IDは同じApp ID |
 | Durable Objects | 5 binding、migration v3 | 5 binding、migration v3 |
-| 現在の設定 | secret名一覧は空。SFU App IDのbindingも未登録 | SFU App IDと`CLOUDFLARE_SFU_APP_SECRET`、旧手動試用の`CLIENT_TOKENS_JSON`を確認 |
-| Apple・通知で残る設定 | `DEVICE_IDENTITY_SIGNING_KEY`、Sign in with Appleの3項目、APNsの3項目を登録。期限付きclient-secret JWTは登録しない | 同じ項目を対象Preview用に登録。既存の固定Previewを対象にする |
-| SFUで残る設定 | `CLOUDFLARE_SFU_APP_ID`と`CLOUDFLARE_SFU_APP_SECRET`を登録し、SERVICE_ENABLEDを有効にする | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
-| 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはfalse | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。SERVICE_ENABLEDはtrue |
+| 現在の設定 | Apple登録、SFU、TURNのProduction用ID Variableと認証Secretを登録済み。APNsは未設定 | SFU App IDと`CLOUDFLARE_SFU_APP_SECRET`、旧手動試用の`CLIENT_TOKENS_JSON`を確認 |
+| Apple・通知で残る設定 | Apple登録は設定済み。APNsの3項目を登録し、通知を受け入れる。期限付きclient-secret JWTは登録しない | 同じ項目を対象Preview用に登録。既存の固定Previewを対象にする |
+| SFUで残る設定 | SERVICE_ENABLEDとTURN_ENABLEDはtrue。実SFUとrelay経路の双方向音声を受け入れる | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
+| 現在の有効化フラグ | APPLE_AUTH_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはtrue。NOTIFICATIONS_ENABLED・DEVICE_ATTESTATION_ENABLEDはfalse | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・TURN_ENABLEDはfalse。SERVICE_ENABLEDはtrue |
 
 Apple登録と通知は鍵・プロフィール・APNsの環境を揃えてから、対象環境でAPPLE_AUTH_ENABLEDとNOTIFICATIONS_ENABLEDを有効にする。TestFlightで固定Previewを使う場合は、production APNsに対応する設定と署名を同じPreviewへ揃える。
 
