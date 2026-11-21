@@ -206,6 +206,9 @@ final class WatchAudioController {
         }
     }
 
+}
+
+extension WatchAudioController {
     func setPressed(_ pressed: Bool) {
         if pressed && microphoneIntent.scene != .active { return }
         microphoneIntent.request(pressed)
@@ -295,35 +298,7 @@ final class WatchAudioController {
         }
         guard let id = sessionID else { return }
         if checkingAudio {
-            guard state.0 else { stop(); return }
-            guard let check = state.1?.audioCheck, check.sessionID == id else {
-                if boundReference != nil { stop(notifyAudioCheck: false) }
-                return
-            }
-            switch check.phase {
-            case .recording: setPressed(true)
-            case .playing: setPressed(false)
-            case .completed, .failed, .idle:
-                stop()
-                if check.phase == .failed { problem = "Audio check failed" }
-            case .preparing:
-                if check.recordedFrames > 0 {
-                    setPressed(false)
-                    #if DEBUG
-                    if !audioCheckPlaybackRequested {
-                        audioCheckPlaybackRequested = true
-                        #if RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
-                        WatchRecordingCLI.log("watch-play-request", ["watchMicOpen": isTalking])
-                        #endif
-                        Task { [weak self, client] in
-                            let reply = await client.perform(.playAudioCheck(id))
-                            guard let self, sessionID == id else { return }
-                            if reply?.problem != nil { fail(id, message: "Audio check failed") }
-                        }
-                    }
-                    #endif
-                }
-            }
+            observeAudioCheck(reachable: state.0, snapshot: state.1, id: id)
             return
         }
         if !state.0
@@ -332,6 +307,42 @@ final class WatchAudioController {
         } else if state.1?.state == .audioPaused || state.1?.state == .audioUnavailable {
             setPressed(false)
         }
+    }
+
+    private func observeAudioCheck(reachable: Bool, snapshot: WatchCallSnapshot?, id: UUID) {
+        guard reachable else { stop(); return }
+        guard let check = snapshot?.audioCheck, check.sessionID == id else {
+            if boundReference != nil { stop(notifyAudioCheck: false) }
+            return
+        }
+        switch check.phase {
+        case .recording: setPressed(true)
+        case .playing: setPressed(false)
+        case .completed, .failed, .idle:
+            stop()
+            if check.phase == .failed { problem = "Audio check failed" }
+        case .preparing:
+            if check.recordedFrames > 0 {
+                setPressed(false)
+                requestAudioCheckPlayback(id)
+            }
+        }
+    }
+
+    private func requestAudioCheckPlayback(_ id: UUID) {
+        #if DEBUG
+        if !audioCheckPlaybackRequested {
+            audioCheckPlaybackRequested = true
+            #if RIDEINTERCOM_VALIDATION && targetEnvironment(simulator)
+            WatchRecordingCLI.log("watch-play-request", ["watchMicOpen": isTalking])
+            #endif
+            Task { [weak self, client] in
+                let reply = await client.perform(.playAudioCheck(id))
+                guard let self, sessionID == id else { return }
+                if reply?.problem != nil { fail(id, message: "Audio check failed") }
+            }
+        }
+        #endif
     }
 
     private static func continuable(_ result: AudioSessionOperationResult) -> Bool {
