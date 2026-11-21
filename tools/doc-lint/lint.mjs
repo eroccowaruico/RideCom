@@ -64,7 +64,7 @@ async function findings(linter, text, name) {
     const lines = text.split('\n');
     const {messages} = await linter.lintText(text, name);
     return messages.map(m => ({
-        line: m.line, column: m.column, rule: m.ruleId,
+        line: m.line, column: m.column, rule: m.ruleId, severity: m.severity,
         key: JSON.stringify([m.ruleId, m.column, lines[m.line - 1]])
     }));
 }
@@ -94,7 +94,8 @@ async function run(args) {
            ...names('ls-files', '-z', '--others', '--exclude-standard')];
     const original = all ? new Set() : new Set(git('ls-tree', '-r', '-z', '--name-only', adoption, '--', 'docs', '.agents/skills', 'README.md', 'AGENTS.md').split('\0'));
     const linter = await markdownLinter();
-    let total = 0;
+    let errors = 0;
+    let warnings = 0;
     for (const name of [...new Set(files)].sort()) {
         const file = path.join(root, name);
         const stat = await lstat(file).catch(e => { if (e.code !== 'ENOENT') throw e; });
@@ -102,15 +103,17 @@ async function run(args) {
         if (!stat.isFile() || await realpath(file) !== file) throw new Error('Unsupported document type');
         const previous = original.has(name) ? git('show', adoption + ':' + name) : undefined;
         const issues = await addedFindings(linter, name, await readFile(file, 'utf8'), previous);
-        for (const {line, column, rule} of issues) {
-            total++;
+        for (const {line, column, rule, severity} of issues) {
+            const warning = severity === 1;
+            if (warning) warnings++;
+            else errors++;
             // Keep text and free-form diagnostics out of validation logs.
             const label = process.stdout.isTTY ? JSON.stringify(name) : 'Markdown';
-            console.log(label + ':' + line + ':' + column + ' ' + rule);
+            console.log(label + ':' + line + ':' + column + (warning ? ' 要確認 ' : ' 要修正 ') + rule);
         }
     }
-    console.log('日本語技術文書の指摘件数 ' + total);
-    return total ? 1 : 0;
+    console.log('日本語技術文書の検査結果　要修正 ' + errors + '件、要確認 ' + warnings + '件');
+    return errors ? 1 : 0;
 }
 
 if (process.argv[1] && await realpath(process.argv[1]) === fileURLToPath(import.meta.url)) {

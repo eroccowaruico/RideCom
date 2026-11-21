@@ -1,5 +1,16 @@
 {
   "rules": {
-    "preset-ja-technical-writing": true
+    "preset-ja-technical-writing": {
+      "no-mix-dearu-desumasu": {
+        "preferInBody": "",
+        "preferInList": ""
+      },
+      "no-exclamation-question-mark": {
+        "allow": ["？」", "?」", "?”", "?\""]
+      },
+      "ja-no-weak-phrase": {
+        "severity": "warning"
+      }
+    }
   }
 }
