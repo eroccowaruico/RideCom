@@ -105,9 +105,9 @@ extension IntercomViewModel {
 private extension SessionManager.AudioStreamOperationResult {
     var isContinuable: Bool {
         switch self {
-        case .applied, .ignored(_):
+        case .applied, .ignored:
             true
-        case .failed(_):
+        case .failed:
             false
         }
     }

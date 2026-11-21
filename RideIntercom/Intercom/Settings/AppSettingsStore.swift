@@ -88,7 +88,6 @@ protocol AppSettingsStoring: AnyObject {
     func save(_ settings: AppSettings)
 }
 
-
 final class UserDefaultsAppSettingsStore: AppSettingsStoring {
     private let defaults: UserDefaults
     private let menuBarKey = "RideIntercom.settings.menuBarEnabled"

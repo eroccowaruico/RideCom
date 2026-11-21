@@ -10,8 +10,7 @@ import Testing
             requested = true; await gate.wait(); return true
         }), vm = h.viewModel
         defer { vm.cancelAudioCheck(); vm.disconnect() }
-        if recording { #expect(vm.startAudioCheck()) }
-        else { vm.selectGroup(try #require(vm.groups.first)) }
+        if recording { #expect(vm.startAudioCheck()) } else { vm.selectGroup(try #require(vm.groups.first)) }
         await AppTestSupport.waitUntil { requested }
         #expect(requested)
         #expect(!h.audioSessionBackend.activeValues.contains(true))
@@ -26,8 +25,7 @@ import Testing
     func denialReportsFailureWithoutOpeningMicrophone(recording: Bool) async throws {
         let h = AppTestSupport.makeHarness(enforceCallAccess: false, requestMicrophoneAccess: { false }), vm = h.viewModel
         defer { vm.cancelAudioCheck(); vm.disconnect() }
-        if recording { #expect(vm.startAudioCheck()) }
-        else { vm.selectGroup(try #require(vm.groups.first)) }
+        if recording { #expect(vm.startAudioCheck()) } else { vm.selectGroup(try #require(vm.groups.first)) }
         await AppTestSupport.waitUntil { recording ? vm.audioCheckPhase == .failed : vm.audioErrorMessage != nil }
         #expect((recording ? vm.audioCheckStatusMessage : vm.audioErrorMessage) == IntercomViewModel.microphoneAccessRequiredMessage)
         #expect(recording ? vm.audioCheckPhase == .failed : vm.standardCallStatus == .audioUnavailable)
@@ -43,8 +41,7 @@ import Testing
             requested = true; await gate.wait(); completed = true; return true
         }), vm = h.viewModel
         defer { vm.cancelAudioCheck(); vm.disconnect() }
-        if recording { #expect(vm.startAudioCheck()) }
-        else { vm.selectGroup(try #require(vm.groups.first)) }
+        if recording { #expect(vm.startAudioCheck()) } else { vm.selectGroup(try #require(vm.groups.first)) }
         await AppTestSupport.waitUntil { requested }
         #expect(requested)
         let pending = recording ? vm.audioCheckTask : vm.audioStartTask

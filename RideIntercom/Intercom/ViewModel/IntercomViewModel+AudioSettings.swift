@@ -308,8 +308,7 @@ extension IntercomViewModel {
     }
 
     func setCallDisconnectInterval(_ interval: CallDisconnectInterval, usingWatch: Bool = false) {
-        if usingWatch { watchCallDisconnectInterval = interval }
-        else { callDisconnectInterval = interval }
+        if usingWatch { watchCallDisconnectInterval = interval } else { callDisconnectInterval = interval }
         saveAppSettings()
     }
 

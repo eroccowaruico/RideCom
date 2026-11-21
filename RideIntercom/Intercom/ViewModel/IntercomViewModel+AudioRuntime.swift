@@ -41,7 +41,7 @@ extension IntercomViewModel {
             handleMicrophoneFrame(frame)
         case .operation(let report):
             recordAudioStreamReport(report)
-        case .outputFrameScheduled(_):
+        case .outputFrameScheduled:
             break
         }
     }

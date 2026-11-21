@@ -13,7 +13,7 @@ struct CallDisconnectTimerSection: View {
     let viewModel: IntercomViewModel
     /// Advanced marks the implementation's default; the mode's screen says which it is.
     var marksDefault = false
-    var disabledWatchInterval: CallDisconnectInterval? = nil
+    var disabledWatchInterval: CallDisconnectInterval?
 
     var body: some View {
         Section {

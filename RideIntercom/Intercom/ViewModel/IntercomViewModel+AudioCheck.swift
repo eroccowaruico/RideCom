@@ -17,7 +17,7 @@ extension IntercomViewModel {
     func startAudioCheck(recordDuration: Duration = .seconds(5), playbackDuration: Duration = .seconds(5), watchSessionID: UUID? = nil) -> Bool {
         let preparedWatch = watchSessionID != nil && watchSessionID == audioCheckWatchSessionID
             && audioCheckPhase == .preparing && watchAudioLink?.sessionID == watchSessionID
-        guard canPrepareAudioCheck, (watchSessionID == nil ? canStartAudioCheck : preparedWatch) else { return false }
+        guard canPrepareAudioCheck, watchSessionID == nil ? canStartAudioCheck : preparedWatch else { return false }
 
         if !preparedWatch { cancelAudioCheck() }
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
