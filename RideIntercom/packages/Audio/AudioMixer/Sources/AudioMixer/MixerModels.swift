@@ -261,7 +261,10 @@ public struct MixerGraphNodeSnapshot: Codable, Equatable, Sendable {
 	public var index: Int?
 	public var typeName: String?
 
-	public init(id: String, kind: MixerGraphNodeKind, label: String, busID: String? = nil, index: Int? = nil, typeName: String? = nil) {
+    public init(
+        id: String, kind: MixerGraphNodeKind, label: String, busID: String? = nil, index: Int? = nil,
+        typeName: String? = nil
+    ) {
 		self.id = id
 		self.kind = kind
 		self.label = label

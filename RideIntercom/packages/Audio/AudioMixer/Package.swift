@@ -6,16 +6,16 @@ let package = Package(
     name: "AudioMixer",
     platforms: [
         .iOS("27.0"),
-        .macOS("27.0"),
+        .macOS("27.0")
     ],
     products: [
         .library(
             name: "AudioMixer",
             targets: ["AudioMixer"]
-        ),
+        )
     ],
     dependencies: [
-        .package(path: "../AudioCore"),
+        .package(path: "../AudioCore")
     ],
     targets: [
         .target(
@@ -26,9 +26,9 @@ let package = Package(
             name: "AudioMixerTests",
             dependencies: [
                 "AudioMixer",
-                "AudioCore",
+                "AudioCore"
             ]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )
