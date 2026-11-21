@@ -5,6 +5,35 @@ import Testing
 
 @MainActor
 struct DirectCallTests {
+    @Test func removingTheSourceGroupReleasesBothKindsOfOrdinaryReplyWindowImmediately() throws {
+        let group = try IntercomGroup(name: "Riders", members: [.init(id: "alice", displayName: "Alice")],
+                                      accessSecret: "reply-window-fixture")
+        let author = AppTestSupport.makeHarness(groups: [group], localMemberID: "alice")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        defer {
+            author.viewModel.stopOrdinaryGroupReplyExchanges(); recipient.viewModel.stopOrdinaryGroupReplyExchanges()
+            author.viewModel.disconnect(); recipient.viewModel.disconnect()
+        }
+        author.viewModel.allowsNearbyGroupDelivery = true
+        recipient.viewModel.allowsNearbyGroupDelivery = true
+        var authorReleases = 0, recipientReleases = 0
+        author.viewModel.beginOrdinaryGroupReplyBackgroundTime = { _ in { authorReleases += 1 } }
+        recipient.viewModel.beginOrdinaryGroupReplyBackgroundTime = { _ in { recipientReleases += 1 } }
+        let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
+        try recipient.viewModel.acceptInviteURL(url)
+        try #require(author.viewModel.ordinaryGroupReplyExchanges[.inviter] != nil)
+        try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee] != nil)
+
+        #expect(author.viewModel.renameGroup(group.id, to: "New name"))
+        #expect(authorReleases == 0)
+        #expect(author.viewModel.deleteGroup(group.id))
+        #expect(recipient.viewModel.deleteGroup(group.id))
+        #expect(author.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+        #expect(authorReleases == 1)
+        #expect(recipientReleases == 1)
+    }
+
     @Test func issuedOrdinaryGroupInvitationSurvivesReloadOnlyWithItsOriginalGroupKey() throws {
         let storage = try GroupStorageFixture()
         defer { storage.remove() }

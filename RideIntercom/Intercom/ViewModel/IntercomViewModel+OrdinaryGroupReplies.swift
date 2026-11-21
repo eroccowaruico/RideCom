@@ -8,14 +8,17 @@ final class OrdinaryGroupReplyExchange {
     let id: UUID
     let invitation: DirectInvitationContext
     let credential: GroupAccessCredential
+    let credentialReference: UUID
     let channel: RTCLocalDataChannel
     var timeout: Task<Void, Never>?
     var endBackgroundTime: (() -> Void)?
 
-    init(id: UUID, invitation: DirectInvitationContext, credential: GroupAccessCredential, channel: RTCLocalDataChannel) {
+    init(id: UUID, invitation: DirectInvitationContext, credential: GroupAccessCredential,
+         credentialReference: UUID, channel: RTCLocalDataChannel) {
         self.id = id
         self.invitation = invitation
         self.credential = credential
+        self.credentialReference = credentialReference
         self.channel = channel
     }
 }
@@ -52,13 +55,12 @@ extension IntercomViewModel {
 
     func startOrdinaryGroupReplyExchange(_ invitation: DirectInvitationContext, credential: GroupAccessCredential,
                                          role: OrdinaryGroupReplyExchange.Role) {
+        let now = Date().timeIntervalSince1970
         guard canExchangeOrdinaryGroupReplies, invitation.groupID == credential.groupID,
-              invitation.isOrdinaryGroupInvitation,
+              let reference = groupRepository.ordinaryGroupReplyCredentialReference(for: invitation, now: now),
               (role == .inviter) == (invitation.inviterMemberID == localMemberIdentity.memberID) else { return }
-        let remaining = invitation.expiresAt - Date().timeIntervalSince1970
-        guard remaining > 0 else { return }
         if let current = ordinaryGroupReplyExchanges[role],
-           current.invitation == invitation, current.credential == credential { return }
+           current.invitation == invitation, current.credentialReference == reference, current.credential == credential { return }
         stopOrdinaryGroupReplyExchange(role)
 
         let id = UUID()
@@ -67,10 +69,11 @@ extension IntercomViewModel {
         let channel = RTCLocalDataChannel(localID: .init(rawValue: localMemberIdentity.memberID), credential: access) { [weak self] event in
             DispatchQueue.main.async { self?.receiveOrdinaryGroupReplyEvent(event, role: role, id: id) }
         }
-        let exchange = OrdinaryGroupReplyExchange(id: id, invitation: invitation, credential: credential, channel: channel)
+        let exchange = OrdinaryGroupReplyExchange(id: id, invitation: invitation, credential: credential,
+                                                   credentialReference: reference, channel: channel)
         ordinaryGroupReplyExchanges[role] = exchange
         exchange.timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(min(60, remaining)))
+            try? await Task.sleep(for: .seconds(min(60, invitation.expiresAt - now)))
             guard !Task.isCancelled else { return }
             self?.stopOrdinaryGroupReplyExchange(role, id: id)
         }
@@ -82,6 +85,19 @@ extension IntercomViewModel {
 
     func stopOrdinaryGroupReplyExchanges() {
         for role in Array(ordinaryGroupReplyExchanges.keys) { stopOrdinaryGroupReplyExchange(role) }
+    }
+
+    func reconcileOrdinaryGroupReplyExchanges() {
+        guard !ordinaryGroupReplyExchanges.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        for (role, exchange) in ordinaryGroupReplyExchanges where !isCurrentOrdinaryGroupReply(exchange, now: now) {
+            stopOrdinaryGroupReplyExchange(role, id: exchange.id)
+        }
+    }
+
+    private func isCurrentOrdinaryGroupReply(_ exchange: OrdinaryGroupReplyExchange, now: TimeInterval) -> Bool {
+        canExchangeOrdinaryGroupReplies
+            && groupRepository.ordinaryGroupReplyCredentialReference(for: exchange.invitation, now: now) == exchange.credentialReference
     }
 
     func finishOrdinaryGroupReply(_ invitationID: UUID) {
@@ -100,9 +116,7 @@ extension IntercomViewModel {
     private func receiveOrdinaryGroupReplyEvent(_ event: RTCLocalDataChannel.Event, role: OrdinaryGroupReplyExchange.Role, id: UUID) {
         guard let exchange = ordinaryGroupReplyExchanges[role], exchange.id == id else { return }
         let invitation = exchange.invitation
-        let now = Date().timeIntervalSince1970
-        guard canExchangeOrdinaryGroupReplies, invitation.expiresAt > now,
-              role != .inviter || groupRepository.issuedOrdinaryGroupInvitation(now: now) == invitation,
+        guard isCurrentOrdinaryGroupReply(exchange, now: Date().timeIntervalSince1970),
               (try? groupRepository.credential(for: invitation.groupID)) == exchange.credential else {
             stopOrdinaryGroupReplyExchange(role, id: id)
             return

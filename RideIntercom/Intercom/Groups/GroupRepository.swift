@@ -582,6 +582,19 @@ final class GroupRepository {
         return invitation
     }
 
+    func ordinaryGroupReplyCredentialReference(for invitation: DirectInvitationContext, now: TimeInterval) -> UUID? {
+        guard isWritable, let localMemberID, let snapshot, invitation.isOrdinaryGroupInvitation, invitation.expiresAt > now,
+              !missingCredentialGroupIDs.contains(invitation.groupID),
+              let group = snapshot.groups.first(where: { $0.id == invitation.groupID && $0.kind == .group }) else { return nil }
+        if invitation.inviterMemberID == localMemberID {
+            guard snapshot.lastIssuedOrdinaryGroupInvitation?.invitation == invitation else { return nil }
+        } else {
+            guard let pending = group.pendingInvitation, pending.inviteeMemberID == localMemberID,
+                  pending.invitation == invitation else { return nil }
+        }
+        return group.credentialReference
+    }
+
     func allowsNearbyOrdinaryReply(for groupID: UUID, from peer: VerifiedDeviceProof) -> Bool {
         guard let record = snapshot?.groups.first(where: { $0.id == groupID && $0.kind == .group }) else { return false }
         return record.members.contains { $0.id == localMemberID }

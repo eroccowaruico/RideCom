@@ -30,6 +30,7 @@ extension IntercomViewModel {
         return nil
     }
     func refreshGroupStorageStatus() {
+        reconcileOrdinaryGroupReplyExchanges()
         if let id = contactInvitationID,
            groupRepository.contactInvitations.contains(where: { $0.id == id && $0.state == .cancelled }) {
             stopContactInvitationSession()
