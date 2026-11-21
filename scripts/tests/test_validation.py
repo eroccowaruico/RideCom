@@ -1,4 +1,6 @@
 """Exercise the real local runner without Xcode, devices, or network access."""
+from __future__ import annotations
+
 import importlib.util
 import json
 import os
@@ -10,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from collections.abc import Generator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -116,7 +119,7 @@ class ValidationTests(unittest.TestCase):
         missing = 'RideIntercomTests/ContactTests/missing'
         case = {'nodeType': 'Test Case', 'nodeIdentifier': 'ContactTests/accept()', 'result': 'Passed'}
         result = {'testNodes': [{'nodeType': 'Unit test bundle', 'name': 'RideIntercomTests', 'children': [case]}]}
-        def list_tests(stage, command, **kwargs):
+        def list_tests(stage: str, command: list[str], **kwargs: object) -> bool:
             self.assertEqual(kwargs['needs'], ['macos-tests'])
             (self.runner.out / f'{stage}.log').write_text(json.dumps(result))
             return self.runner.record(stage, command, 'passed', 0, time.monotonic())
@@ -265,10 +268,11 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(saved['bad']['status'], 'failed')
         self.assertIn('command', saved['bad'])
 
-    def xcode_fixture(self, name, destination, *, fault=None, reuse_build=None,
-                      scheme='RideIntercom', only_tests=None, stale_platform=False):
+    def xcode_fixture(self, name: str, destination: str, *, fault: str | None = None,
+                      reuse_build: str | None = None, scheme: str = 'RideIntercom',
+                      only_tests: list[str] | None = None, stale_platform: bool = False) -> tuple[dict[str, list[str]], Path]:
         """Mock Xcode's standard output while exercising the real host gate."""
-        commands = {}
+        commands: dict[str, list[str]] = {}
         original_run = self.runner.run
         marker = self.runner.out / (name + '-host-started')
         configuration = 'Debug-Validation'
@@ -281,7 +285,7 @@ class ValidationTests(unittest.TestCase):
         settings = {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(target_dir),
                         'FULL_PRODUCT_NAME': product, 'CONFIGURATION': configuration,
                         'PLATFORM_NAME': platform, 'RIDEINTERCOM_STORAGE_NAMESPACE': namespace}
-        def run(stage, command, **kwargs):
+        def run(stage: str, command: list[str], **kwargs: object) -> bool:
             commands[stage] = command
             code = 'pass'
             if 'build-for-testing' in command:
@@ -487,9 +491,9 @@ class ValidationTests(unittest.TestCase):
 
     def test_clean_uses_standard_package_outputs_and_reuses_rtc_for_pair(self) -> None:
         commands = []
-        def command(stage, argv, **kwargs):
+        def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
             commands.append((stage, argv))
-            blocked = [need for need in kwargs.get('needs', []) if self.runner.results.get(need, {}).get('status') != 'passed']
+            blocked = [need for need in needs if self.runner.results.get(need, {}).get('status') != 'passed']
             return self.runner.record(stage, argv, 'blocked' if blocked else 'passed', None if blocked else 0, time.monotonic())
         def snapshot(out: Path) -> None:
             (out / 'inputs.json').write_text('{}')
@@ -512,8 +516,8 @@ class ValidationTests(unittest.TestCase):
         self.assertIn('swift-worker-pair', self.runner.results)
 
     def test_pair_only_clean_failure_blocks_pair_without_custom_scratch(self) -> None:
-        def command(stage, argv, **kwargs):
-            blocked = any(self.runner.results.get(need, {}).get('status') != 'passed' for need in kwargs.get('needs', []))
+        def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
+            blocked = any(self.runner.results.get(need, {}).get('status') != 'passed' for need in needs)
             status = 'blocked' if blocked else 'failed' if stage == 'package-RTC-clean' else 'passed'
             return self.runner.record(stage, argv, status, 1 if status == 'failed' else None if blocked else 0, time.monotonic())
         with patch.object(sys, 'argv', ['validate.py', 'pair', '--clean']), \
@@ -546,7 +550,7 @@ class ValidationTests(unittest.TestCase):
         from scripts import validate_storekit
         cases = [{'nodeType': 'Test Case', 'nodeIdentifier': suite + '/fixture()', 'result': 'Passed'}
                  for suite in validate_storekit.SUITES]
-        def tree(stage, argv, **kwargs):
+        def tree(stage: str, argv: list[str], **kwargs: object) -> None:
             (self.runner.out / (stage + '.log')).write_text(json.dumps(cases))
         with patch.object(self.runner, 'run', side_effect=tree):
             validate_storekit.record_selection_coverage(self.runner, self.runner.out / 'fixture.xcresult')
@@ -559,13 +563,13 @@ class ValidationTests(unittest.TestCase):
         from contextlib import contextmanager
         entered = []
         @contextmanager
-        def lease(path: Path):
+        def lease(path: Path) -> Generator[None, None, None]:
             entered.append(path)
             yield
             entered.pop()
-        def command(stage, argv, **kwargs):
+        def command(stage: str, argv: list[str], **kwargs: object) -> bool:
             return self.runner.record(stage, argv, 'passed', 0, time.monotonic())
-        def xcode(*args, **kwargs):
+        def xcode(*args: object, **kwargs: object) -> None:
             self.assertEqual(entered, [Path(self.temporary.name) / 'resources/run.lock'])
         with patch.object(sys, 'argv', ['validate.py', 'macos']), \
              patch.object(self.module, 'Runner', return_value=self.runner), \
