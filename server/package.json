@@ -6,6 +6,7 @@
         "dev": "wrangler dev",
         "deploy": "wrangler deploy",
         "preview": "wrangler preview",
+        "lint": "python3 ../scripts/lint.py --web",
         "type-check": "tsc --noEmit",
         "test": "wrangler deploy --dry-run --outdir dist && node --test test/*.test.mjs",
         "test:pair": "wrangler deploy --dry-run --outdir dist && node test/pair-runner.mjs"

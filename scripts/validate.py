@@ -613,6 +613,10 @@ def main():
         runner.run('worker-install', ['npm', '--prefix', 'server', 'ci'], needs=['node-toolchain'])
         runner.run('worker-types', ['npm', '--prefix', 'server', 'run', 'type-check'], needs=['worker-install'])
         runner.run('worker-test', ['npm', '--prefix', 'server', 'test'], needs=['worker-install'], tests=True)
+    if mode in ('all', 'headless', 'worker', 'pair', 'scripts'):
+        lint_args = ['--web'] if mode in ('worker', 'pair') else []
+        runner.run('language-lint', [python, 'scripts/lint.py', '--base', 'HEAD^', *lint_args],
+                   needs=['worker-install'] if mode != 'scripts' else [])
     if mode in ('all', 'headless', 'pair'):
         pair_needs = ['worker-install', 'swift-toolchain', 'webrtc-artifact']
         if args.clean:
