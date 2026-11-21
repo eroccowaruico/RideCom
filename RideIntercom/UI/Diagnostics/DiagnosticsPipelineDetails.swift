@@ -25,7 +25,6 @@ struct DiagnosticsTransmitRoutes: View {
 }
 
 struct DiagnosticsReceiveDetails: View {
-    @Bindable var viewModel: IntercomViewModel
     let presentation: ReceivePipelinePresentation
     @Binding var expandedStage: String?
 
@@ -101,27 +100,25 @@ struct DiagnosticsReceiveDetails: View {
     }
 
     private func peer(_ member: GroupMember) -> some View {
-        let status = viewModel.remoteRuntimeStatuses[member.id]
-        let paths = viewModel.networkDiagnostics?.peers.filter { $0.peerID.rawValue == member.id } ?? []
-        let codecReport = status?.packageReports.first { $0.package == "Codec" }.flatMap { try? $0.decodeJSON(CodecRuntimeReport.self) }
-        let vad = status?.packageReports.first { $0.package == "VADGate" }.flatMap { try? $0.decodeJSON(VADGateRuntimeSnapshot.self) }
-        let effects = viewModel.receivePeerEffectChainSnapshot(peerID: member.id)
-        let isolation = status?.packageReports.first { $0.package == "SoundIsolation" && $0.kind == "transmitRuntimeSnapshot" }.flatMap { try? $0.decodeJSON(VoiceIsolationRuntimeSnapshot.self) }
+        let detail = presentation.peerDetail(for: member.id)
+        let status = detail.status
+        let codecReport = detail.codec
+        let vad = detail.vad
+        let isolation = detail.isolation
         return VStack(alignment: .leading, spacing: AppSpacing.xs) {
             if member.connectionState != .offline {
                 if status?.localMute == true {
                     Label { Text("Muted") } icon: { Image(systemName: "mic.slash.fill").foregroundStyle(AppColorPalette.danger) }
                 }
                 Text("Sender: \(status.map { $0.localMute ? "Muted" : "Unmuted" } ?? "Not measured") / codec \(codecReport.map { $0.activeConfiguration.codec.rawValue } ?? "Not measured") / bitrate \(codecReport?.activeConfiguration.activeBitRate.map { "\($0) bps" } ?? "Not measured") / VAD \(vad?.lastAnalysis.map { String(describing: $0.state) } ?? "Not measured") / Isolation \(isolation.map { String(describing: $0.state) } ?? "Not measured")")
-                if let status {
-                    let age = max(0, Date().timeIntervalSince1970 - status.generatedAt)
-                    Text("Sender updated \(Int(age))s ago\(age > 15 ? " / Stale" : "")")
+                if let age = detail.age {
+                    Text("Sender updated \(age)s ago\(detail.isStale ? " / Stale" : "")")
                 }
-                Text("RTC RX: \(member.connectionState.rawValue) / \(member.authenticationState.rawValue) / \(paths.isEmpty ? "Path not measured" : paths.map { $0.route == .webRTC ? "Internet" : ($0.path.count > 2 ? "Local relayed" : "Local direct") }.joined(separator: ", "))")
+                Text("RTC RX: \(member.connectionState.rawValue) / \(member.authenticationState.rawValue) / \(detail.paths)")
                 Text("Decode: \(member.activeCodec?.rawValue ?? "Not measured") / packets/s: Not measured")
                 Text(presentation.playoutDetail(for: member.id))
                     .accessibilityIdentifier("receive-peer-playout")
-                Text("Peer Bus: volume \(Int(viewModel.remoteOutputVolume(for: member.id) * 100))% / FX \(effects.summary)")
+                Text("Peer Bus: volume \(Int(detail.volume * 100))% / FX \(detail.effectSummary)")
             } else { Text("Offline").foregroundStyle(.secondary) }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }

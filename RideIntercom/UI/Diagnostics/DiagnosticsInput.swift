@@ -44,6 +44,9 @@ struct DiagnosticsInput {
     var lastReceivedAudioAt: TimeInterval?
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
+    var receivePeerRuntimeStatuses: [String: RTCRuntimeStatus]
+    var receiveNetworkDiagnostics: RTCNetworkDiagnostics?
+    var receivePeerVolumes: [String: Float]
 
     init(_ viewModel: IntercomViewModel, now: TimeInterval = Date().timeIntervalSince1970) {
         capturedAt = now
@@ -90,6 +93,13 @@ struct DiagnosticsInput {
         lastReceivedAudioAt = viewModel.lastReceivedAudioAt
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount
         selectedGroup = viewModel.selectedGroup
+        receivePeerRuntimeStatuses = viewModel.remoteRuntimeStatuses
+        receiveNetworkDiagnostics = viewModel.networkDiagnostics
+        receivePeerVolumes = viewModel.remoteOutputVolumes
+    }
+    func receivePeerEffectChainSnapshot(peerID: String) -> AudioEffectChainSnapshot {
+        let id = "rx-peer-" + peerID
+        return AudioEffectChainSnapshot(id: id, effects: mixerBusSnapshot(id: id)?.effectChain ?? [])
     }
     func mixerBusSnapshot(id: String) -> MixerBusSnapshot? { audioMixerSnapshot.buses.first { $0.id == id } }
 }

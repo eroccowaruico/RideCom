@@ -1,3 +1,4 @@
+import AudioMixer
 import Foundation
 import RTC
 import Testing
@@ -187,6 +188,30 @@ struct DiagnosticsPresentationTests {
 
         input.isMuted = true
         #expect(TransmitPipelinePresentation(input: input).voiceActivityAnalysis == nil)
+    }
+
+    @Test func receivePeerDetailsUseCapturedValuesAndKeepPeerEffectsSeparate() {
+        let model = AppTestSupport.makeHarness().viewModel
+        model.remoteOutputVolumes = ["first": 0.4, "second": 0.8]
+        var input = DiagnosticsInput(model, now: 100)
+        input.audioMixerSnapshot.buses = [
+            .init(id: "rx-peer-first", volume: 1, sourceCount: 0, effectCount: 1,
+                effectChain: [.init(id: "first-effect", typeName: "Test", index: 0, state: .active,
+                    parameters: [.init(id: "shortLabel", value: "First"), .init(id: "detail", value: "Ready")])]),
+            .init(id: "rx-peer-second", volume: 1, sourceCount: 0, effectCount: 0)
+        ]
+        let presentation = ReceivePipelinePresentation(input: input)
+        model.remoteOutputVolumes["first"] = 0.9
+        input.audioMixerSnapshot.buses.removeAll()
+        let first = presentation.peerDetail(for: "first")
+        let second = presentation.peerDetail(for: "second")
+        #expect(first.volume == 0.4)
+        #expect(second.volume == 0.8)
+        #expect(first.effectSummary == "1 stages / First Ready")
+        #expect(second.effectSummary == "No effects")
+        #expect(first.paths == "Path not measured")
+        #expect(first.age == nil)
+        #expect(ReceivePipelinePresentation(input: input).peerDetail(for: "first").effectSummary == "No effects")
     }
 
     @Test func receiveProjectionPreservesUnknownCodecAndFallbackPeerDetails() {

@@ -794,7 +794,7 @@ struct AudioPipelineTests {
         #if os(iOS)
         for size: DynamicTypeSize in [.large, .accessibility5] {
             let expandedStage = size == .large ? "receive-peers" : "a"
-            let view = DiagnosticsReceiveDetails(viewModel: model, presentation: presentation,
+            let view = DiagnosticsReceiveDetails(presentation: presentation,
                 expandedStage: .constant(expandedStage))
                 .frame(width: 320)
                 .padding()

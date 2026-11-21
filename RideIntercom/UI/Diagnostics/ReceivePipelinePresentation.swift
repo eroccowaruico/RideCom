@@ -1,6 +1,9 @@
 import AudioCore
 import AudioMixer
 import RTC
+import Codec
+import VADGate
+import SoundIsolation
 import Foundation
 
 /// Pure projection of one captured input; owns no live state.
@@ -62,6 +65,39 @@ struct ReceivePipelinePresentation {
                 authenticationState: authenticated.contains(id) ? .authenticated : .open,
                 connectionState: authenticated.contains(id) ? .connected : .offline)
         }
+    }
+
+    struct PeerDetail {
+        let status: RTCRuntimeStatus?
+        let codec: CodecRuntimeReport?
+        let vad: VADGateRuntimeSnapshot?
+        let isolation: VoiceIsolationRuntimeSnapshot?
+        let paths: String
+        let effectSummary: String
+        let volume: Float
+        let age: Int?
+        let isStale: Bool
+    }
+
+    func peerDetail(for peerID: String) -> PeerDetail {
+        let status = input.receivePeerRuntimeStatuses[peerID]
+        let paths = input.receiveNetworkDiagnostics?.peers.filter { $0.peerID.rawValue == peerID } ?? []
+        let age = status.map { max(0, input.capturedAt - $0.generatedAt) }
+        return PeerDetail(
+            status: status,
+            codec: status?.packageReports.first { $0.package == "Codec" }
+                .flatMap { try? $0.decodeJSON(CodecRuntimeReport.self) },
+            vad: status?.packageReports.first { $0.package == "VADGate" }
+                .flatMap { try? $0.decodeJSON(VADGateRuntimeSnapshot.self) },
+            isolation: status?.packageReports.first { $0.package == "SoundIsolation" && $0.kind == "transmitRuntimeSnapshot" }
+                .flatMap { try? $0.decodeJSON(VoiceIsolationRuntimeSnapshot.self) },
+            paths: paths.isEmpty ? "Path not measured" : paths.map {
+                $0.route == .webRTC ? "Internet" : ($0.path.count > 2 ? "Local relayed" : "Local direct")
+            }.joined(separator: ", "),
+            effectSummary: input.receivePeerEffectChainSnapshot(peerID: peerID).summary,
+            volume: input.receivePeerVolumes[peerID] ?? IntercomViewModel.defaultRemoteOutputVolume,
+            age: age.map(Int.init), isStale: (age ?? 0) > 15
+        )
     }
 
     var rtcReceiveStep: PipelineStep {
