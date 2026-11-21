@@ -6,100 +6,125 @@ import Testing
 @MainActor
 struct StoreDistributionAccessTests {
     @Test func verifiedSandboxIsADistributionGrantAndOtherEnvironmentsAreNot() {
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .sandbox) == .testDistribution)
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .production) == .standard)
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .xcode) == .standard)
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .init(rawValue: "future")) == .unknown)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .sandbox)
+                == .testDistribution)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .production) == .standard)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .xcode) == .standard)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .init(rawValue: "future"))
+                == .unknown)
         #expect(!StoreDistributionAccess.automaticCheckEnabled)
     }
     @Test func unverifiedWrongAppAndRevokedAppDoNotGrant() {
-        #expect(StoreDistributionAccess.evaluate(isVerified: false, bundleID: "app", expectedBundleID: "app", environment: .sandbox) == .unknown)
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "other", expectedBundleID: "app", environment: .sandbox) == .unknown)
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "", expectedBundleID: "", environment: .sandbox) == .unknown)
-        #expect(StoreDistributionAccess.evaluate(isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .sandbox, revocationDate: Date()) == .standard)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: false, bundleID: "app", expectedBundleID: "app", environment: .sandbox) == .unknown)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "other", expectedBundleID: "app", environment: .sandbox) == .unknown)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "", expectedBundleID: "", environment: .sandbox) == .unknown)
+        #expect(
+            StoreDistributionAccess.evaluate(
+                isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .sandbox,
+                revocationDate: Date()) == .standard)
     }
     @Test func unconfiguredCatalogCanUseDistributionGrantWithoutPurchaseRequests() async {
-        let f = DistributionFixture()
-        let access = StoreKitAccess(catalog: .unconfigured, source: f,
-                                    distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        let access = StoreKitAccess(catalog: .unconfigured, source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         await access.start()
         let state = access.evaluation(at: Date())
         #expect(state.status == .active && state.origin == .testDistribution && state.activeUntil == nil)
-        #expect(f.distributionCount == 1 && f.readCount == 0 && f.syncCount == 0 && f.listenCount == 0)
+        #expect(
+            fixture.distributionCount == 1 && fixture.readCount == 0 && fixture.syncCount == 0
+                && fixture.listenCount == 0)
         access.stop()
         #expect(access.evaluation(at: Date()).status != .active)
     }
     @Test func transientFailureKeepsOnlyTheCurrentProcessGrantAndProductionClearsIt() async {
-        let f = DistributionFixture()
-        let access = StoreKitAccess(catalog: .unconfigured, source: f,
-                                    distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        let access = StoreKitAccess(catalog: .unconfigured, source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         await access.start()
-        f.fails = true
+        fixture.fails = true
         await access.refresh()
         #expect(access.evaluation(at: Date()).origin == .testDistribution)
-        f.fails = false
-        f.result = .unknown
+        fixture.fails = false
+        fixture.result = .unknown
         await access.refresh()
         #expect(access.evaluation(at: Date()).status == .unknown)
-        f.result = .testDistribution
+        fixture.result = .testDistribution
         await access.refresh()
         #expect(access.evaluation(at: Date()).origin == .testDistribution)
-        f.result = .standard
+        fixture.result = .standard
         await access.refresh()
         #expect(access.evaluation(at: Date()).status == .unconfigured)
         #expect(access.distributionAccess == .standard)
-        f.result = .unknown
+        fixture.result = .unknown
         await access.refresh()
         #expect(access.evaluation(at: Date()).status == .unknown)
         access.stop()
-        let nextProcess = StoreKitAccess(catalog: .unconfigured, source: f,
-                                         distributionReader: { try await f.distribution() })
+        let nextProcess = StoreKitAccess(catalog: .unconfigured, source: fixture,
+                                         distributionReader: { try await fixture.distribution() })
         #expect(nextProcess.evaluation(at: Date()).status == .unknown)
     }
     @Test func productionWithoutPurchasesRemainsNotPurchased() async {
-        let f = DistributionFixture()
-        f.hasPurchase = false
-        f.result = StoreDistributionAccess.evaluate(isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .production)
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: f,
-                                    distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        fixture.hasPurchase = false
+        fixture.result = StoreDistributionAccess.evaluate(
+            isVerified: true, bundleID: "app", expectedBundleID: "app", environment: .production)
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         await access.start()
-        #expect(access.evaluation(at: f.bought).status == .notPurchased)
-        #expect(access.evaluation(at: f.bought).origin == nil)
-        #expect(f.syncCount == 0 && f.readCount == 1 && f.distributionCount == 1)
-        f.result = .unknown
+        #expect(access.evaluation(at: fixture.bought).status == .notPurchased)
+        #expect(access.evaluation(at: fixture.bought).origin == nil)
+        #expect(fixture.syncCount == 0 && fixture.readCount == 1 && fixture.distributionCount == 1)
+        fixture.result = .unknown
         await access.refresh()
-        #expect(access.evaluation(at: f.bought).status == .unknown)
-        f.result = .standard
+        #expect(access.evaluation(at: fixture.bought).status == .unknown)
+        fixture.result = .standard
         await access.refresh()
-        #expect(access.evaluation(at: f.bought).status == .notPurchased)
+        #expect(access.evaluation(at: fixture.bought).status == .notPurchased)
         access.stop()
     }
     @Test func unknownDistributionCanBeCheckedAgainWithoutRestoringPurchases() async {
-        let f = DistributionFixture()
-        f.fails = true
-        let access = StoreKitAccess(catalog: .unconfigured, source: f,
-                                    distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        fixture.fails = true
+        let access = StoreKitAccess(catalog: .unconfigured, source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         await access.start()
         #expect(access.evaluation(at: Date()).status == .unknown && !access.isCheckingAccess)
-        f.fails = false
+        fixture.fails = false
         let gate = ManualAsyncGate()
-        f.gate = gate
+        fixture.gate = gate
         let checking = Task { await access.refresh() }
         await gate.waitForEntry()
         #expect(access.isCheckingAccess)
         await gate.release()
         await checking.value
         #expect(access.evaluation(at: Date()).origin == .testDistribution && !access.isCheckingAccess)
-        #expect(f.distributionCount == 2 && f.syncCount == 0 && f.readCount == 0 && f.listenCount == 0)
+        #expect(
+            fixture.distributionCount == 2 && fixture.syncCount == 0 && fixture.readCount == 0
+                && fixture.listenCount == 0)
         access.stop()
     }
     @Test func stopDiscardsDelayedDistributionResultAndRestartCanReadAgain() async {
-        let f = DistributionFixture()
+        let fixture = DistributionFixture()
         let gate = ManualAsyncGate()
-        f.gate = gate
+        fixture.gate = gate
         let owner = DistributionOwner()
-        let access = StoreKitAccess(catalog: .unconfigured, source: f,
-                                    isCurrentUser: { owner.current }, distributionReader: { try await f.distribution() })
+        let access = StoreKitAccess(catalog: .unconfigured, source: fixture,
+            isCurrentUser: { owner.current }, distributionReader: { try await fixture.distribution() })
         let old = Task { await access.start() }
         await gate.waitForEntry()
         owner.current = false
@@ -107,63 +132,67 @@ struct StoreDistributionAccessTests {
         await old.value
         #expect(access.evaluation(at: Date()).status == .unknown)
         owner.current = true
-        f.gate = nil; f.result = .standard
+        fixture.gate = nil; fixture.result = .standard
         await access.start()
         await gate.release()
         for _ in 0..<10 { await Task.yield() }
-        #expect(access.distributionAccess == .standard && f.distributionCount == 2)
+        #expect(access.distributionAccess == .standard && fixture.distributionCount == 2)
         access.stop()
     }
     @Test func stopDuringRestoreCannotStartANewDistributionCheck() async {
-        let f = DistributionFixture()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: f,
-                                    distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         await access.start()
         let gate = ManualAsyncGate()
-        f.syncGate = gate
+        fixture.syncGate = gate
         let restoring = Task { await access.restore() }
         await gate.waitForEntry()
         access.stop()
         await restoring.value
-        #expect(f.distributionCount == 1)
+        #expect(fixture.distributionCount == 1)
         #expect(access.distributionAccess == .unknown)
         await gate.release()
     }
     @Test func distributionGrantDoesNotWaitForThePurchaseStatusRequest() async {
-        let f = DistributionFixture()
+        let fixture = DistributionFixture()
         let gate = ManualAsyncGate()
-        f.purchaseGate = gate
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: f,
-                                    distributionReader: { try await f.distribution() })
+        fixture.purchaseGate = gate
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         let loading = Task { await access.start() }
         await gate.waitForEntry()
         for _ in 0..<100 where access.distributionAccess != .testDistribution { await Task.yield() }
-        #expect(access.evaluation(at: f.bought).origin == .testDistribution)
+        #expect(access.evaluation(at: fixture.bought).origin == .testDistribution)
         access.stop()
         await loading.value
         await gate.release()
     }
     @Test func purchaseUpdatesDoNotRepeatTheDistributionCheck() async {
-        let f = DistributionFixture()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: f,
-                                    distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: fixture,
+                                    distributionReader: { try await fixture.distribution() })
         await access.start()
-        f.continuation?.yield(())
-        for _ in 0..<100 where f.readCount < 2 { await Task.yield() }
-        #expect(f.readCount == 2 && f.distributionCount == 1)
+        fixture.continuation?.yield(())
+        for _ in 0..<100 where fixture.readCount < 2 { await Task.yield() }
+        #expect(fixture.readCount == 2 && fixture.distributionCount == 1)
         access.stop()
     }
     @Test func hangingDistributionReadTimesOutWithoutLosingPurchaseRights() async {
-        let f = DistributionFixture()
-        f.gate = ManualAsyncGate()
-        let access = StoreKitAccess(catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: f,
-                                    readTimeout: .milliseconds(30), distributionReader: { try await f.distribution() })
+        let fixture = DistributionFixture()
+        fixture.gate = ManualAsyncGate()
+        let access = StoreKitAccess(
+            catalog: .init(weeklyProductID: "fixture.week", monthlyProductID: nil), source: fixture,
+            readTimeout: .milliseconds(30), distributionReader: { try await fixture.distribution() })
         await access.start()
         #expect(!access.isRefreshing)
-        #expect(access.evaluation(at: f.bought).status == .active)
-        #expect(access.evaluation(at: f.bought).origin == .purchase)
+        #expect(access.evaluation(at: fixture.bought).status == .active)
+        #expect(access.evaluation(at: fixture.bought).origin == .purchase)
         #expect(access.distributionAccess == .unknown)
-        await f.gate?.release()
+        await fixture.gate?.release()
         access.stop()
     }
 }
@@ -193,10 +222,16 @@ private final class DistributionFixture: StoreKitAccessSource {
         if fails { throw Failure.offline }
         return value
     }
-    func read(catalog: StoreProductCatalog, onVerifiedTransactions: @MainActor (StoreEntitlementSnapshot) -> Bool) async throws -> StoreEntitlementSnapshot {
+    func read(catalog: StoreProductCatalog, onVerifiedTransactions: @MainActor (StoreEntitlementSnapshot) -> Bool)
+        async throws -> StoreEntitlementSnapshot {
         readCount += 1
-        let snapshot = StoreEntitlementSnapshot(entitlements: [.init(transactionID: 1, productID: "fixture.week", kind: .week,
-            purchaseDate: bought, expirationDate: nil, revocationDate: nil, isUpgraded: false, isFreeTrial: false, graceExpirationDate: nil)].filter { _ in hasPurchase }, hasUnverifiedTransactions: false)
+        let snapshot = StoreEntitlementSnapshot(
+            entitlements: [
+                .init(
+                    transactionID: 1, productID: "fixture.week", kind: .week,
+                    purchaseDate: bought, expirationDate: nil, revocationDate: nil, isUpgraded: false,
+                    isFreeTrial: false, graceExpirationDate: nil)
+            ].filter { _ in hasPurchase }, hasUnverifiedTransactions: false)
         _ = onVerifiedTransactions(snapshot)
         if let purchaseGate { await purchaseGate.wait() }
         return snapshot

@@ -8,7 +8,9 @@ import Testing
 /// This suite uses only the local StoreKit configuration; it never uses an Apple account.
 @MainActor @Suite(.serialized)
 struct LocalStoreKitTests {
-    let catalog = StoreProductCatalog(weeklyProductID: "test.rideintercom.week", monthlyProductID: "test.rideintercom.month")
+    private static let weeklyID = "test.rideintercom.week"
+    private static let monthlyID = "test.rideintercom.month"
+    let catalog = StoreProductCatalog(weeklyProductID: Self.weeklyID, monthlyProductID: Self.monthlyID)
 
     @Test func productPurchaseIsAdoptedBeforeFinishAndUnrelatedProductsRemainUnfinished() async throws {
         let updates = await observeWithoutDelivering()
@@ -20,11 +22,13 @@ struct LocalStoreKitTests {
         #expect(products.allSatisfy { catalog.accepts(productID: $0.id, type: $0.type) })
         let product = try #require(products.first { $0.id == catalog.weeklyProductID })
         let result = try await product.purchase()
-        guard case .success(.verified(let transaction)) = result else { Issue.record("Local purchase was not verified"); return }
+        guard case .success(.verified(let transaction)) = result else {
+            Issue.record("Local purchase was not verified"); return
+        }
         let source = SystemStoreKitAccessSource()
         _ = try await source.read(catalog: catalog) { _ in false }
         #expect(await unfinishedIDs().contains(transaction.id))
-        let unrelated = try await session.buyProduct(identifier: catalog.monthlyProductID!)
+        let unrelated = try await session.buyProduct(identifier: Self.monthlyID)
         let weeklyOnly = StoreProductCatalog(weeklyProductID: catalog.weeklyProductID, monthlyProductID: nil)
         let access = StoreKitAccess(catalog: weeklyOnly, source: source)
         defer { access.stop() }
@@ -38,7 +42,7 @@ struct LocalStoreKitTests {
     @Test func actualCancellationAndPendingApprovalUseUpdatesWithoutPretendingToPurchase() async throws {
         let session = try makeSession()
         defer { session.clearTransactions() }
-        let product = try #require(try await Product.products(for: [catalog.weeklyProductID!]).first)
+        let product = try #require(try await Product.products(for: [Self.weeklyID]).first)
         let access = StoreKitAccess(catalog: catalog)
         await access.start()
         defer { access.stop() }
@@ -69,9 +73,11 @@ struct LocalStoreKitTests {
         defer { updates.cancel() }
         let session = try makeSession()
         defer { session.clearTransactions() }
-        let product = try #require(try await Product.products(for: [catalog.weeklyProductID!]).first)
+        let product = try #require(try await Product.products(for: [Self.weeklyID]).first)
         let result = try await product.purchase()
-        guard case .success(.verified(let transaction)) = result else { Issue.record("Local purchase was not verified"); return }
+        guard case .success(.verified(let transaction)) = result else {
+            Issue.record("Local purchase was not verified"); return
+        }
         let old = StoreKitAccess(catalog: catalog, isCurrentUser: { false })
         await old.purchaseCompleted(productID: product.id, result: .success(result))
         #expect(old.snapshot == nil)
@@ -83,7 +89,9 @@ struct LocalStoreKitTests {
         #expect(!(await unfinishedIDs()).contains(transaction.id))
         fresh.stop()
         let second = try await product.purchase()
-        guard case .success(.verified(let restoredTransaction)) = second else { Issue.record("Second purchase was not verified"); return }
+        guard case .success(.verified(let restoredTransaction)) = second else {
+            Issue.record("Second purchase was not verified"); return
+        }
         let restored = StoreKitAccess(catalog: catalog)
         defer { restored.stop() }
         await restored.restore()
@@ -98,14 +106,14 @@ struct LocalStoreKitTests {
         defer { session.clearTransactions() }
         // Use the same purchase entry as the product core. SKTestSession's
         // backdated insertion can precede StoreKit 2 history visibility.
-        let weeklyProduct = try #require(try await Product.products(for: [catalog.weeklyProductID!]).first)
-        let monthlyProduct = try #require(try await Product.products(for: [catalog.monthlyProductID!]).first)
+        let weeklyProduct = try #require(try await Product.products(for: [Self.weeklyID]).first)
+        let monthlyProduct = try #require(try await Product.products(for: [Self.monthlyID]).first)
         guard case .success(.verified(let week)) = try await weeklyProduct.purchase(),
               case .success(.verified(let transaction)) = try await monthlyProduct.purchase() else {
             Issue.record("The local fixture purchases were not verified"); return
         }
         var fixtureWeekIsVisible = false
-        for await result in Transaction.all(for: catalog.weeklyProductID!) {
+        for await result in Transaction.all(for: Self.weeklyID) {
             if case .verified(let value) = result, value.id == week.id { fixtureWeekIsVisible = true }
         }
         try #require(fixtureWeekIsVisible, "The verified purchase must be visible before the read deadline starts")
@@ -136,13 +144,11 @@ struct LocalStoreKitTests {
         #expect(access.lastRefreshFailed && access.evaluation(at: .now).status == .active)
         // A second weekly purchase must not wait for the unrelated status API.
         let nextPurchase = try await weeklyProduct.purchase()
-        guard case .success(.verified(let nextWeek)) = nextPurchase else { Issue.record("Next ticket could not be purchased"); return }
-        try session.forceRenewalOfSubscription(productIdentifier: catalog.monthlyProductID!)
-        var waiting = await unfinishedIDs()
-        for _ in 0..<150 where waiting.count < 2 {
-            try await Task.sleep(for: .milliseconds(20))
-            waiting = await unfinishedIDs()
+        guard case .success(.verified(let nextWeek)) = nextPurchase else {
+            Issue.record("Next ticket could not be purchased"); return
         }
+        try session.forceRenewalOfSubscription(productIdentifier: Self.monthlyID)
+        let waiting = try await waitForUnfinishedIDs(minimumCount: 2)
         #expect(waiting.contains(nextWeek.id) && waiting.count >= 2)
         await gate.release()
         for _ in 0..<150 where !statusCompleted { try await Task.sleep(for: .milliseconds(20)) }
@@ -150,8 +156,14 @@ struct LocalStoreKitTests {
         #expect(await unfinishedIDs() == waiting)
         access.stop()
 
+        try await verifyStoppedAccessLeavesRenewalUnfinished(in: session)
+    }
+
+    private func verifyStoppedAccessLeavesRenewalUnfinished(in session: SKTestSession) async throws {
         let retiredGate = ManualAsyncGate()
-        let retired = StoreKitAccess(catalog: catalog, source: SystemStoreKitAccessSource(subscriptionStatuses: { group in
+        let retired = StoreKitAccess(
+            catalog: catalog,
+            source: SystemStoreKitAccessSource(subscriptionStatuses: { group in
             await retiredGate.wait()
             return try await Product.SubscriptionInfo.status(for: group)
         }))
@@ -159,12 +171,8 @@ struct LocalStoreKitTests {
         await retiredGate.waitForEntry()
         retired.stop()
         await reading.value
-        try session.forceRenewalOfSubscription(productIdentifier: catalog.monthlyProductID!)
-        var afterStop = await unfinishedIDs()
-        for _ in 0..<150 where afterStop.isEmpty {
-            try await Task.sleep(for: .milliseconds(20))
-            afterStop = await unfinishedIDs()
-        }
+        try session.forceRenewalOfSubscription(productIdentifier: Self.monthlyID)
+        let afterStop = try await waitForUnfinishedIDs(minimumCount: 1)
         #expect(!afterStop.isEmpty)
         await retiredGate.release()
         try await Task.sleep(for: .milliseconds(50))
@@ -175,7 +183,7 @@ struct LocalStoreKitTests {
     @Test func wrongProductTypeAndUnverifiedCompletionNeverFinish() async throws {
         let session = try makeSession()
         defer { session.clearTransactions() }
-        let transaction = try await session.buyProduct(identifier: catalog.weeklyProductID!)
+        let transaction = try await session.buyProduct(identifier: Self.weeklyID)
         let source = SystemStoreKitAccessSource()
         let wrongType = StoreProductCatalog(weeklyProductID: nil, monthlyProductID: catalog.weeklyProductID)
         let wrong = try await source.read(catalog: wrongType) { _ in true }
@@ -195,7 +203,7 @@ struct LocalStoreKitTests {
         defer { updates.cancel() }
         let session = try makeSession()
         defer { session.clearTransactions() }
-        let product = try #require(try await Product.products(for: [catalog.weeklyProductID!]).first)
+        let product = try #require(try await Product.products(for: [Self.weeklyID]).first)
         let result = try await product.purchase()
         guard case .success(.verified) = result else { Issue.record("Local purchase was not verified"); return }
         session.clearTransactions()
@@ -208,13 +216,9 @@ struct LocalStoreKitTests {
     @Test func unfinishedHistoricalSubscriptionUpdatesAreFinishedEvenWhenOnlyLatestIsDisplayed() async throws {
         let session = try makeSession()
         defer { session.clearTransactions() }
-        let first = try await session.buyProduct(identifier: catalog.monthlyProductID!)
-        try session.forceRenewalOfSubscription(productIdentifier: catalog.monthlyProductID!)
-        var all = await unfinishedIDs()
-        for _ in 0..<150 where all.count < 2 {
-            try await Task.sleep(for: .milliseconds(20))
-            all = await unfinishedIDs()
-        }
+        let first = try await session.buyProduct(identifier: Self.monthlyID)
+        try session.forceRenewalOfSubscription(productIdentifier: Self.monthlyID)
+        let all = try await waitForUnfinishedIDs(minimumCount: 2)
         #expect(all.count >= 2 && all.contains(first.id))
         let access = StoreKitAccess(catalog: catalog)
         await access.start()
@@ -228,8 +232,8 @@ struct LocalStoreKitTests {
     // observer required before calling the real Product.purchase API.
     private func observeWithoutDelivering() async -> Task<Void, Never> {
         let task = Task {
-            for await _ in Transaction.updates {
-                if Task.isCancelled { break }
+            for await _ in Transaction.updates where Task.isCancelled {
+                break
             }
         }
         await Task.yield()
@@ -239,6 +243,14 @@ struct LocalStoreKitTests {
     private func purchaseResult(_ product: Product) async -> Result<Product.PurchaseResult, any Error> {
         do { return .success(try await product.purchase()) } catch { return .failure(error) }
     }
+    private func waitForUnfinishedIDs(minimumCount: Int) async throws -> Set<UInt64> {
+        var ids = await unfinishedIDs()
+        for _ in 0..<150 where ids.count < minimumCount {
+            try await Task.sleep(for: .milliseconds(20))
+            ids = await unfinishedIDs()
+        }
+        return ids
+    }
     private func unfinishedIDs() async -> Set<UInt64> {
         var ids: Set<UInt64> = []
         for await result in Transaction.unfinished {
@@ -247,26 +259,35 @@ struct LocalStoreKitTests {
         return ids
     }
 
+}
+
+// Signed transaction history, subscription expiry and refunds.
+extension LocalStoreKitTests {
     @Test func realStoreKitReadsPastDatesAllOverlappingTicketsAndRefunds() async throws {
         let session = try makeSession()
         defer { session.clearTransactions() }
         let now = Date()
         let source = SystemStoreKitAccessSource()
-        let expired = try await session.buyProduct(identifier: catalog.weeklyProductID!, options: [.purchaseDate(now.addingTimeInterval(-604_801))])
+        let expired = try await session.buyProduct(
+            identifier: Self.weeklyID, options: [.purchaseDate(now.addingTimeInterval(-604_801))])
         await expired.finish() // The test has consumed this synthetic product.
         var snapshot = try await source.read(catalog: catalog)
         #expect(!snapshot.hasUnverifiedTransactions)
         #expect(snapshot.entitlements.contains { $0.transactionID == expired.id })
         #expect(snapshot.evaluate(at: now).status == .expired)
-        let valid = try await session.buyProduct(identifier: catalog.weeklyProductID!, options: [.purchaseDate(now.addingTimeInterval(-100))])
+        let valid = try await session.buyProduct(
+            identifier: Self.weeklyID, options: [.purchaseDate(now.addingTimeInterval(-100))])
         await valid.finish()
-        let refunded = try await session.buyProduct(identifier: catalog.weeklyProductID!)
+        let refunded = try await session.buyProduct(identifier: Self.weeklyID)
         await refunded.finish()
         try session.refundTransaction(identifier: UInt(refunded.id))
-        snapshot = try await waitForSnapshot(source) { $0.entitlements.contains { $0.transactionID == refunded.id && $0.revocationDate != nil } }
+        snapshot = try await waitForSnapshot(source) {
+            $0.entitlements.contains { $0.transactionID == refunded.id && $0.revocationDate != nil }
+        }
         #expect(snapshot.entitlements.contains { $0.transactionID == refunded.id && $0.revocationDate != nil })
         #expect(snapshot.evaluate(at: now).status == .active)
-        let originalEnd = try #require(snapshot.entitlements.first { $0.transactionID == valid.id }?.effectiveExpirationDate)
+        let originalEnd = try #require(
+            snapshot.entitlements.first { $0.transactionID == valid.id }?.effectiveExpirationDate)
         try await source.sync() // Explicit local restore must preserve purchase-based expiry.
         let again = try await source.read(catalog: catalog)
         #expect(again.entitlements.first { $0.transactionID == valid.id }?.effectiveExpirationDate == originalEnd)
@@ -276,17 +297,23 @@ struct LocalStoreKitTests {
         defer { access.stop() }
         try session.refundTransaction(identifier: UInt(valid.id))
         for _ in 0..<100 {
-            if access.snapshot?.entitlements.contains(where: { $0.transactionID == valid.id && $0.revocationDate != nil }) == true { break }
+            if access.snapshot?.entitlements.contains(where: {
+                $0.transactionID == valid.id && $0.revocationDate != nil
+            }) == true {
+                break
+            }
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(access.snapshot?.entitlements.contains { $0.transactionID == valid.id && $0.revocationDate != nil } == true)
+        #expect(
+            access.snapshot?.entitlements.contains { $0.transactionID == valid.id && $0.revocationDate != nil }
+                == true)
         #expect(access.evaluation(at: Date()).status != .active)
     }
 
     @Test func realStoreKitSubscriptionExpiryUsesItsSignedDate() async throws {
         let session = try makeSession()
         defer { session.clearTransactions() }
-        let transaction = try await session.buyProduct(identifier: catalog.monthlyProductID!)
+        let transaction = try await session.buyProduct(identifier: Self.monthlyID)
         let source = SystemStoreKitAccessSource()
         let snapshot = try await source.read(catalog: catalog)
         let value = try #require(snapshot.entitlements.first { $0.transactionID == transaction.id })
@@ -295,7 +322,7 @@ struct LocalStoreKitTests {
         #expect(!value.isActive(at: try #require(transaction.expirationDate)))
         await transaction.finish()
         session.clearTransactions()
-        let historical = try await session.buyProduct(identifier: catalog.monthlyProductID!,
+        let historical = try await session.buyProduct(identifier: Self.monthlyID,
             options: [.purchaseDate(Date().addingTimeInterval(-90 * 86_400), renewalBehavior: .cancelImmediately)])
         await historical.finish()
         let expired = try await waitForSnapshot(source) {
@@ -310,7 +337,7 @@ struct LocalStoreKitTests {
         session.billingGracePeriodIsEnabled = true
         session.shouldEnterBillingRetryOnRenewal = true
         session.timeRate = .oneRenewalEveryTenSeconds
-        let transaction = try await session.buyProduct(identifier: catalog.monthlyProductID!)
+        let transaction = try await session.buyProduct(identifier: Self.monthlyID)
         await transaction.finish()
         let source = SystemStoreKitAccessSource()
         let grace = try await waitForSnapshot(source) { $0.entitlements.contains { $0.graceExpirationDate != nil } }
@@ -328,8 +355,10 @@ struct LocalStoreKitTests {
         #expect(!value.isActive(at: end))
     }
 
-    private func waitForSnapshot(_ source: SystemStoreKitAccessSource,
-                                 matching predicate: (StoreEntitlementSnapshot) -> Bool) async throws -> StoreEntitlementSnapshot {
+    private func waitForSnapshot(
+        _ source: SystemStoreKitAccessSource,
+        matching predicate: (StoreEntitlementSnapshot) -> Bool
+    ) async throws -> StoreEntitlementSnapshot {
         var snapshot = try await source.read(catalog: catalog)
         for _ in 0..<600 {
             if predicate(snapshot) { break }
@@ -340,7 +369,8 @@ struct LocalStoreKitTests {
     }
 
     private func makeSession() throws -> SKTestSession {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/LocalPurchases.storekit")
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(
+            "Fixtures/LocalPurchases.storekit")
         let session = try SKTestSession(contentsOf: url)
         session.resetToDefaultState()
         session.disableDialogs = true
