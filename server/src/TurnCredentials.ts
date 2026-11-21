@@ -1,4 +1,4 @@
-import { Env } from './types'
+import type { Env } from './types'
 export interface IceServer { urls: string[]; username?: string; credential?: string }
 interface Issued { username: string; keyID: string; expiresAt: number }
 export interface IceLease {
@@ -7,32 +7,46 @@ export interface IceLease {
 }
 export const stun: IceServer[] = [{ urls: ['stun:stun.cloudflare.com:3478'] }]
 
+function isIceServer(value: unknown): value is IceServer {
+    if (!value || typeof value !== 'object' || !('urls' in value)) return false
+    const urls: unknown = value.urls
+    if (!Array.isArray(urls) || !urls.length || urls.length > 16
+        || !urls.every((url: unknown): url is string => typeof url === 'string' && /^(stun|turn|turns):[^\s]+$/.test(url))) return false
+    if ('username' in value && typeof value.username !== 'string') return false
+    if ('credential' in value && typeof value.credential !== 'string') return false
+    return !urls.some(url => url.startsWith('turn'))
+        || ('username' in value && !!value.username && 'credential' in value && !!value.credential)
+}
+
 /** Owns short-lived credentials; SFU/group lifecycle stays in SignalingRoom. */
 export class TurnCredentials {
     constructor(private storage: DurableObjectStorage, private env: Env) {}
     get enabled() { return this.env.TURN_ENABLED === 'true' }
-    get configured() { return !!this.env.CLOUDFLARE_TURN_KEY_ID && !!this.env.CLOUDFLARE_TURN_API_TOKEN }
+    private get keyID() { return this.env.CLOUDFLARE_TURN_API_TOKEN ? this.env.CLOUDFLARE_TURN_KEY_ID : undefined }
+    get configured() { return !!this.keyID }
     async get(peer: string) { return this.storage.get<IceLease>(`ice:${peer}`) }
     async all() { return [...(await this.storage.list<IceLease>({ prefix: 'ice:' })).values()] }
     async issue(peer: string, owner: string, leaseID: string, expiresAt: number): Promise<IceServer[]> {
         if (!this.enabled) return stun
-        if (!this.configured) throw new Error('turn-configuration')
+        const keyID = this.keyID
+        if (!keyID) throw new Error('turn-configuration')
         const old = await this.get(peer)
         if (old && (old.owner !== owner || old.leaseID !== leaseID)) throw new Error('ice-conflict')
         if (old && old.expiresAt >= expiresAt && old.servers.length) return old.servers
         const ttl = Math.max(1, Math.min(7200, Math.ceil((expiresAt - Date.now()) / 1000)))
-        const keyID = this.env.CLOUDFLARE_TURN_KEY_ID!
         // Persist the bounded lifetime before an external request, including its failure path.
         const lease: IceLease = old ?? { peer, owner, leaseID, expiresAt, servers: [], issued: [] }
         await this.storage.put(`ice:${peer}`, lease)
         const response = await this.provider(keyID, 'credentials/generate-ice-servers', { ttl })
         if (!response.ok) throw new Error('turn-upstream')
-        const body = await response.json() as { iceServers?: IceServer[] }
+        const body: unknown = await response.json()
+        if (!body || typeof body !== 'object' || !('iceServers' in body)) throw new Error('turn-response')
         const servers = body.iceServers
-        if (!Array.isArray(servers) || !servers.length || servers.length > 8 || servers.some(s =>
-            !Array.isArray(s.urls) || !s.urls.length || s.urls.length > 16 || s.urls.some(u => typeof u !== 'string' || !/^(stun|turn|turns):[^\s]+$/.test(u)) ||
-            (s.urls.some(u => u.startsWith('turn')) && (typeof s.username !== 'string' || !s.username || typeof s.credential !== 'string' || !s.credential)))) throw new Error('turn-response')
-        const usernames = [...new Set(servers.filter(s => s.urls.some(u => u.startsWith('turn'))).map(s => s.username!))]
+        if (!Array.isArray(servers) || !servers.length || servers.length > 8 || !servers.every(isIceServer)) {
+            throw new Error('turn-response')
+        }
+        const usernames = [...new Set(servers.flatMap(server =>
+            server.username && server.urls.some(url => url.startsWith('turn')) ? [server.username] : []))]
         if (!usernames.length) throw new Error('turn-response')
         // Keep prior credentials until their expiry, so a response/configuration race cannot cut live media.
         lease.issued = lease.issued.filter(c => c.expiresAt > Date.now())

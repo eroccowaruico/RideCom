@@ -28,6 +28,18 @@ test('TURN preflight is quota guarded, owned, idempotent and revoked on disconne
     } finally { await runtime.dispose(); }
 });
 
+test('TURN preflight rejects malformed provider credentials without returning or caching them', async () => {
+    const runtime = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' });
+    try {
+        provider.turnServers = [{ urls: ['turn:relay.example.invalid'], username: 'fixture', credential: { invalid: true } }];
+        const failure = await call(runtime, 'ice/alice', { leaseID });
+        assert.equal(failure.status, 502);
+        assert.deepEqual(await failure.json(), { error: 'SFU operation failed' });
+        delete provider.turnServers;
+        assert.equal((await call(runtime, 'ice/alice', { leaseID })).status, 200);
+    } finally { delete provider.turnServers; await runtime.dispose(); }
+});
+
 test('TURN preflight cannot exceed quota or silently fall back when misconfigured', async () => {
     const runtime = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret', MONTHLY_PARTICIPANT_SECONDS: '600' });
     try {

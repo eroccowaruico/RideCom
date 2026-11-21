@@ -104,7 +104,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
                 await afterInboxSnapshot();
                 return new Response(null, { status: 204 });
             }
-            if (onInvitationStore && request.url.startsWith(invitationStoreURL + '/')) {
+            if (onInvitationStore && request.url.startsWith(`${invitationStoreURL}/`)) {
                 await onInvitationStore(request.url.slice(invitationStoreURL.length + 1));
                 return new Response(null, { status: 204 });
             }
@@ -126,7 +126,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             assert.equal(url.hostname, 'rtc.live.cloudflare.com');
             if (provider.upstreamGone) return Response.json({}, { status: 410 });
             if (provider.upstreamFails) return Response.json({ errorCode: 'failure' }, { status: 503 });
-            if (url.pathname.endsWith('/generate-ice-servers')) return Response.json({ iceServers: [
+            if (url.pathname.endsWith('/generate-ice-servers')) return Response.json({ iceServers: provider.turnServers ?? [
                 { urls: ['stun:stun.cloudflare.com:3478'] },
                 { urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:443?transport=tcp'], username: `turn-user-${++provider.serial}`, credential: 'ephemeral-credential' }
             ] }, { status: 201 });
