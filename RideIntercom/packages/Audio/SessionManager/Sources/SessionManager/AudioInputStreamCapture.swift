@@ -56,7 +56,9 @@ public final class AudioInputStreamCapture {
         let processing = applyVoiceProcessing(configuration.voiceProcessing)
         if case .failed = processing.result {
             stateLock.withLock { self.generation = UUID() }
-            do { try backend.stopCapture() } catch { _ = emitReport(.stopInputCapture, Self.operationResult(for: error)) }
+            do { try backend.stopCapture() } catch {
+                _ = emitReport(.stopInputCapture, AudioStreamOperationResult(error: error))
+            }
             return emitReport(.startInputCapture, processing.result)
         }
         do {
@@ -71,9 +73,9 @@ public final class AudioInputStreamCapture {
         } catch {
             stateLock.withLock { self.generation = UUID(); isRunning = false }
             do { try backend.stopCapture() } catch {
-                _ = emitReport(.stopInputCapture, Self.operationResult(for: error))
+                _ = emitReport(.stopInputCapture, AudioStreamOperationResult(error: error))
             }
-            return emitReport(.startInputCapture, Self.operationResult(for: error))
+            return emitReport(.startInputCapture, AudioStreamOperationResult(error: error))
         }
     }
 
@@ -88,7 +90,7 @@ public final class AudioInputStreamCapture {
             stateLock.withLock { isRunning = false }
             return emitReport(.stopInputCapture, .applied)
         } catch {
-            return emitReport(.stopInputCapture, Self.operationResult(for: error))
+            return emitReport(.stopInputCapture, AudioStreamOperationResult(error: error))
         }
     }
 
@@ -134,7 +136,7 @@ public final class AudioInputStreamCapture {
             stateLock.withLock { inputMuted = voiceProcessing.inputMuted }
             return emitReport(.updateInputVoiceProcessing(voiceProcessing), .applied)
         } catch {
-            let result = Self.operationResult(for: error)
+            let result = AudioStreamOperationResult(error: error)
             // The software boundary still implements mute when the backend has
             // no voice processing. Real native errors must not reopen input.
             if case .ignored(.unsupportedOnCurrentPlatform) = result {
@@ -182,38 +184,5 @@ public final class AudioInputStreamCapture {
         let handler = stateLock.withLock { runtimeEventHandler }
         handler?(.operation(report))
         return report
-    }
-}
-
-extension AudioInputStreamCapture {
-    static func operationResult(for error: Error) -> AudioStreamOperationResult {
-        if let error = error as? AudioStreamError {
-            switch error {
-            case .unsupportedOnCurrentPlatform:
-                return .ignored(.unsupportedOnCurrentPlatform)
-            case .invalidFrame(let message):
-                return .failed(.invalidFrame(message))
-            case .hardwareFormatMismatch(let expected, let actual):
-                return .failed(.hardwareFormatMismatch(expected: expected, actual: actual))
-            case .engineOperationFailed(let message):
-                return .failed(.engineOperationFailed(message))
-            }
-        }
-        if let error = error as? AudioProcessingFailure {
-            return .failed(.invalidFrame(error.reason))
-        }
-        if let error = error as? AudioSessionManagerError {
-            switch error {
-            case .operationUnsupportedOnCurrentPlatform:
-                return .ignored(.unsupportedOnCurrentPlatform)
-            case .coreAudioOperationFailed(let message):
-                return .failed(.engineOperationFailed(message))
-            case .echoCancelledInputRequiresDefaultMode:
-                return .failed(.invalidFrame("echo cancelled input requires default mode"))
-            case .inputSelectionUnsupported, .outputSelectionUnsupported, .deviceNotFound:
-                return .failed(.unexpected(String(describing: error)))
-            }
-        }
-        return .failed(.unexpected(String(describing: error)))
     }
 }

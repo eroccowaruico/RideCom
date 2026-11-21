@@ -22,12 +22,15 @@ public final class SystemAudioOutputStreamBackend: AudioOutputStreamBackend {
     private var renderedSample: AVAudioFramePosition {
         playerNode.lastRenderTime.flatMap { time in
                 guard time.isSampleTimeValid || time.isHostTimeValid,
-                      let played = playerNode.playerTime(forNodeTime: time), played.isSampleTimeValid else { return nil }
+                    let played = playerNode.playerTime(forNodeTime: time), played.isSampleTimeValid
+                else { return nil }
                 // lastRenderTime is a snapshot from the previous render quantum.
                 // In realtime mode the device clock has advanced since then; counting
                 // those already elapsed samples as queued audio can interrupt a
                 // healthy 100 ms tap batch. Offline rendering advances only explicitly.
-                let elapsed = !engine.isInManualRenderingMode && engine.isRunning && playerNode.isPlaying && time.isHostTimeValid
+                let elapsed =
+                    !engine.isInManualRenderingMode && engine.isRunning && playerNode.isPlaying
+                        && time.isHostTimeValid
                     ? max(0, ProcessInfo.processInfo.systemUptime - AVAudioTime.seconds(forHostTime: time.hostTime)) : 0
                 return played.sampleTime + AVAudioFramePosition(elapsed * played.sampleRate)
             } ?? 0
@@ -53,7 +56,8 @@ public final class SystemAudioOutputStreamBackend: AudioOutputStreamBackend {
         // The output node's input is a provisional graph format before start
         // (often 44.1 kHz). Its output describes the actual device clock.
         let hardwareFormat = AudioFormat(
-            avAudioFormat: engine.isInManualRenderingMode ? engine.manualRenderingFormat : engine.outputNode.outputFormat(forBus: 0),
+                avAudioFormat: engine.isInManualRenderingMode
+                    ? engine.manualRenderingFormat : engine.outputNode.outputFormat(forBus: 0),
             fallback: configuration.preferredFormat
         )
         do {
@@ -113,7 +117,8 @@ public final class SystemAudioOutputStreamBackend: AudioOutputStreamBackend {
                 // already be rendering; reserve one incoming quantum of safety.
                 options = .interrupts
                 usesExplicitTimeline = true
-                scheduledEndSample = rendered + (engine.isInManualRenderingMode ? 0 : AVAudioFramePosition(buffer.frameLength))
+                    scheduledEndSample =
+                        rendered + (engine.isInManualRenderingMode ? 0 : AVAudioFramePosition(buffer.frameLength))
                 resetCount += 1
             } else if queued >= limit {
                 options = .interrupts

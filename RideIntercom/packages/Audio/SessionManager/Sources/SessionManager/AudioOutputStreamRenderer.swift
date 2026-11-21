@@ -34,9 +34,13 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
     }
 
     #if canImport(AVFAudio)
-    public convenience init(configuration: AudioOutputStreamConfiguration = AudioOutputStreamConfiguration(),
-                            engine: AVAudioEngine = AVAudioEngine(), playerNode: AVAudioPlayerNode = AVAudioPlayerNode()) {
-        self.init(configuration: configuration, backend: SystemAudioOutputStreamBackend(engine: engine, playerNode: playerNode))
+    public convenience init(
+        configuration: AudioOutputStreamConfiguration = AudioOutputStreamConfiguration(),
+        engine: AVAudioEngine = AVAudioEngine(),
+        playerNode: AVAudioPlayerNode = AVAudioPlayerNode()
+    ) {
+        self.init(configuration: configuration,
+                  backend: SystemAudioOutputStreamBackend(engine: engine, playerNode: playerNode))
     }
     #endif
 
@@ -45,7 +49,8 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
     }
 
     @discardableResult
-    public func start(configuration requestedConfiguration: AudioOutputStreamConfiguration? = nil) -> AudioStreamOperationReport {
+    public func start(configuration requestedConfiguration: AudioOutputStreamConfiguration? = nil)
+        -> AudioStreamOperationReport {
         var cleanupFailure: AudioStreamOperationResult?
         let result: AudioStreamOperationResult = lifecycleLock.withLock {
             let configuration: AudioOutputStreamConfiguration? = stateLock.withLock {
@@ -61,7 +66,7 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
                 do {
                     try backend.stopRendering()
                     stateLock.withLock { nativeStopPending = false; updateBackendMetrics() }
-                } catch { return AudioInputStreamCapture.operationResult(for: error) }
+                } catch { return AudioStreamOperationResult(error: error) }
             }
             do {
                 stateLock.withLock { nativeStopPending = true }
@@ -72,11 +77,11 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
                 }
                 return .applied
             } catch {
-                let failure = AudioInputStreamCapture.operationResult(for: error)
+                let failure = AudioStreamOperationResult(error: error)
                 do {
                     try backend.stopRendering()
                     stateLock.withLock { nativeStopPending = false }
-                } catch { cleanupFailure = AudioInputStreamCapture.operationResult(for: error) }
+                } catch { cleanupFailure = AudioStreamOperationResult(error: error) }
                 stateLock.withLock { updateBackendMetrics() }
                 return failure
             }
@@ -103,15 +108,18 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
                 try backend.stopRendering()
                 stateLock.withLock { nativeStopPending = false; updateBackendMetrics() }
                 return .applied
-            } catch { return AudioInputStreamCapture.operationResult(for: error) }
+            } catch { return AudioStreamOperationResult(error: error) }
         }
         return emitReport(.stopOutputRenderer, result)
     }
 
     @discardableResult
     public func schedule(_ input: PCMFrame) -> AudioStreamOperationReport {
-        let delivery: (AudioStreamOperationReport, PCMFrame?, ((AudioStreamRuntimeEvent) -> Void)?) = stateLock.withLock {
-            guard isRunning else { return (report(.scheduleOutputFrame, .ignored(.alreadyStopped)), nil, runtimeEventHandler) }
+        var scheduledFrame: PCMFrame?
+        let (operation, handler) = stateLock.withLock {
+            guard isRunning else {
+                return (report(.scheduleOutputFrame, .ignored(.alreadyStopped)), runtimeEventHandler)
+            }
             do {
                 _ = try input.validated()
                 if let limit = currentConfiguration.maximumBufferedDuration,
@@ -126,19 +134,22 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
                 }
                 let frame = input
                 #endif
-                guard !frame.samples.isEmpty else { return (report(.scheduleOutputFrame, .applied), nil, runtimeEventHandler) }
+                guard !frame.samples.isEmpty else {
+                    return (report(.scheduleOutputFrame, .applied), runtimeEventHandler)
+                }
                 try backend.schedule(frame)
                 scheduledFrameCount += 1
                 updateBackendMetrics()
-                return (report(.scheduleOutputFrame, .applied), frame, runtimeEventHandler)
+                scheduledFrame = frame
+                return (report(.scheduleOutputFrame, .applied), runtimeEventHandler)
             } catch {
                 updateBackendMetrics()
-                return (report(.scheduleOutputFrame, AudioInputStreamCapture.operationResult(for: error)), nil, runtimeEventHandler)
+                return (report(.scheduleOutputFrame, AudioStreamOperationResult(error: error)), runtimeEventHandler)
             }
         }
-        delivery.2?(.operation(delivery.0))
-        if let frame = delivery.1 { delivery.2?(.outputFrameScheduled(frame)) }
-        return delivery.0
+        handler?(.operation(operation))
+        if let scheduledFrame { handler?(.outputFrameScheduled(scheduledFrame)) }
+        return operation
     }
 
     // Called only while state is locked and backend start/stop is not in flight.
@@ -147,13 +158,15 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
         bufferedDuration = backend.bufferedOutputDuration
         playbackResets = backend.playbackResetCount
     }
-    private func report(_ operation: AudioStreamOperation, _ result: AudioStreamOperationResult) -> AudioStreamOperationReport {
+    private func report(_ operation: AudioStreamOperation, _ result: AudioStreamOperationResult)
+        -> AudioStreamOperationReport {
         .init(operation: operation, result: result, snapshot: .init(direction: .output,
             isRunning: isRunning, preferredFormat: currentConfiguration.preferredFormat,
             actualHardwareFormat: actualHardwareFormat, processedFrameCount: scheduledFrameCount,
             bufferedOutputDuration: bufferedDuration, playbackResetCount: playbackResets))
     }
-    private func emitReport(_ operation: AudioStreamOperation, _ result: AudioStreamOperationResult) -> AudioStreamOperationReport {
+    private func emitReport(_ operation: AudioStreamOperation, _ result: AudioStreamOperationResult)
+        -> AudioStreamOperationReport {
         let delivery = stateLock.withLock { (report(operation, result), runtimeEventHandler) }
         delivery.1?(.operation(delivery.0))
         return delivery.0
@@ -165,38 +178,45 @@ public final class AudioOutputStreamRenderer: @unchecked Sendable {
 /// block boundary: the converter retains fractional phase and filter history.
 private final class OutputPCMConversion {
     private var converter: AVAudioConverter?
-    private var source: AudioFormat?
-    private var target: AudioFormat?
     private var inputEnd: TimeInterval?
     private var epoch: TimeInterval = 0
     private var outputFrames = 0
 
+    private func nativeConverter(from source: AudioFormat, to target: AudioFormat) throws -> AVAudioConverter {
+        if let converter, AudioFormat(avAudioFormat: converter.inputFormat) == source,
+           AudioFormat(avAudioFormat: converter.outputFormat) == target {
+            return converter
+        }
+        guard let input = AVAudioFormat(audioFormat: source), let output = AVAudioFormat(audioFormat: target),
+              let native = AVAudioConverter(from: input, to: output) else {
+            throw AudioStreamError.invalidFrame("Cannot create native output conversion")
+        }
+        native.primeMethod = .none
+        converter = native
+        inputEnd = nil
+        return native
+    }
+
     func convert(_ frame: PCMFrame, to hardware: AudioFormat) throws -> PCMFrame {
         guard frame.format != hardware else {
-            converter = nil; source = nil; target = nil; inputEnd = nil
+            converter = nil
+            inputEnd = nil
             return frame
         }
         guard !frame.samples.isEmpty else { return frame }
         guard hardware.isValid else { throw AudioStreamError.invalidFrame("Invalid output hardware format") }
         let discontinuous = inputEnd.map { abs(frame.capturedAt - $0) > 2 / frame.format.sampleRate } ?? false
-        if converter == nil || source != frame.format || target != hardware {
-            guard let input = AVAudioFormat(audioFormat: frame.format),
-                  let output = AVAudioFormat(audioFormat: hardware),
-                  let native = AVAudioConverter(from: input, to: output) else {
-                throw AudioStreamError.invalidFrame("Cannot create native output conversion")
-            }
-            native.primeMethod = .none
-            converter = native; source = frame.format; target = hardware
-            inputEnd = nil
-        }
+        let converter = try nativeConverter(from: frame.format, to: hardware)
         if inputEnd == nil || discontinuous {
-            converter?.reset()
+            converter.reset()
             epoch = frame.capturedAt; outputFrames = 0
         }
         let input = try frame.makePCMBuffer()
         let required = ceil(Double(frame.frameCount) * hardware.sampleRate / frame.format.sampleRate) + 256
-        guard required < Double(UInt32.max), let converter,
-              let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: AVAudioFrameCount(required)) else {
+        guard required < Double(UInt32.max),
+                let output = AVAudioPCMBuffer(
+                    pcmFormat: converter.outputFormat, frameCapacity: AVAudioFrameCount(required))
+            else {
             throw AudioStreamError.invalidFrame("Cannot allocate output conversion buffer")
         }
         var offset: AVAudioFrameCount = 0
@@ -204,12 +224,13 @@ private final class OutputPCMConversion {
         let status = converter.convert(to: output, error: &nativeError) { requested, state in
             guard offset < input.frameLength, requested > 0 else { state.pointee = .noDataNow; return nil }
             let count = min(requested, input.frameLength - offset)
-            guard let part = AVAudioPCMBuffer(pcmFormat: input.format, frameCapacity: count) else {
+            guard let part = AVAudioPCMBuffer(pcmFormat: input.format, frameCapacity: count),
+                  let source = input.floatChannelData, let destination = part.floatChannelData else {
                 state.pointee = .noDataNow; return nil
             }
             part.frameLength = count
             for channel in 0..<frame.format.channelCount {
-                part.floatChannelData![channel].update(from: input.floatChannelData![channel].advanced(by: Int(offset)), count: Int(count))
+                destination[channel].update(from: source[channel].advanced(by: Int(offset)), count: Int(count))
             }
             offset += count
             state.pointee = .haveData

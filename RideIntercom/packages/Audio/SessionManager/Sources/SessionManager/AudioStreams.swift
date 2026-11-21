@@ -99,6 +99,27 @@ public enum AudioStreamOperationResult: Codable, Equatable, Sendable {
     case applied
     case ignored(AudioStreamIgnoredReason)
     case failed(AudioStreamOperationFailure)
+
+    init(error: Error) {
+        switch error {
+        case AudioStreamError.unsupportedOnCurrentPlatform,
+            AudioSessionManagerError.operationUnsupportedOnCurrentPlatform:
+            self = .ignored(.unsupportedOnCurrentPlatform)
+        case AudioStreamError.invalidFrame(let message):
+            self = .failed(.invalidFrame(message))
+        case AudioStreamError.hardwareFormatMismatch(let expected, let actual):
+            self = .failed(.hardwareFormatMismatch(expected: expected, actual: actual))
+        case AudioStreamError.engineOperationFailed(let message),
+            AudioSessionManagerError.coreAudioOperationFailed(let message):
+            self = .failed(.engineOperationFailed(message))
+        case let failure as AudioProcessingFailure:
+            self = .failed(.invalidFrame(failure.reason))
+        case AudioSessionManagerError.echoCancelledInputRequiresDefaultMode:
+            self = .failed(.invalidFrame("echo cancelled input requires default mode"))
+        default:
+            self = .failed(.unexpected(String(describing: error)))
+        }
+    }
 }
 
 public struct AudioStreamOperationReport: Codable, Equatable, Sendable {

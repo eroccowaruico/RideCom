@@ -286,7 +286,7 @@ private final class ObservedInputEngine: AVAudioEngine, @unchecked Sendable {
     }
 }
 
-@Test(arguments: 0..<20) func outputBackendDropsStalledPlaybackAndRetainsNewestAudio(_ iteration: Int) throws {
+@Test(arguments: 0..<20) func outputBackendDropsStalledPlaybackAndRetainsNewestAudio(_ iteration: Int) async throws {
     let engine = AVAudioEngine()
     let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
     try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
@@ -302,12 +302,17 @@ private final class ObservedInputEngine: AVAudioEngine, @unchecked Sendable {
                 samples: Array(repeating: sequence == 5 ? Float(0.8) : Float(0.1), count: 960)))
     }
     let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
-    let samples = try #require(buffer.floatChannelData)[0]
     // AVAudioPlayerNode applies interrupts asynchronously at a render boundary.
     // Require fresh audio within 64 ms, and no old backlog after it arrives.
+    // Offline rendering can consume all three blocks before the player has run its
+    // scheduling callback. Advance at the device rate while measuring the same 3072 samples.
+    let clock = ContinuousClock()
+    let start = clock.now
     var rendered: [Float] = []
-    for _ in 0..<3 {
+    for block in 0..<3 {
+        try await clock.sleep(until: start + .seconds(Double(block * 1024) / actual.sampleRate))
         #expect(try engine.renderOffline(1024, to: buffer) == .success)
+        let samples = try #require(buffer.floatChannelData)[0]
         rendered += (0..<Int(buffer.frameLength)).map { abs(samples[$0]) }
     }
     let fresh = try #require(
@@ -329,6 +334,7 @@ private final class ObservedInputEngine: AVAudioEngine, @unchecked Sendable {
     #expect(backend.bufferedOutputDuration == 0)
     _ = try backend.startRendering(configuration: .init(preferredFormat: actual, maximumBufferedDuration: 0.1))
     #expect(try engine.renderOffline(1024, to: buffer) == .success)
+    let samples = try #require(buffer.floatChannelData)[0]
     #expect((0..<Int(buffer.frameLength)).allSatisfy { abs(samples[$0]) < 0.001 })
 }
 
