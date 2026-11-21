@@ -113,7 +113,8 @@ public final class DynamicsProcessorEffect {
 		DynamicsProcessorRuntimeSnapshot(configuration: configuration)
 	}
 
-	public static func make(configuration: DynamicsProcessorConfiguration = DynamicsProcessorConfiguration()) throws -> DynamicsProcessorEffect {
+    public static func make(configuration: DynamicsProcessorConfiguration = DynamicsProcessorConfiguration())
+        throws -> DynamicsProcessorEffect {
 		guard DynamicsProcessorSupport.isAvailable else {
 			throw DynamicsProcessorError.audioUnitUnavailable
 		}
@@ -129,18 +130,39 @@ public final class DynamicsProcessorEffect {
 	}
 
 	public func apply(_ configuration: DynamicsProcessorConfiguration) throws {
-		let configuration = DynamicsProcessorConfiguration(threshold: configuration.threshold, headRoom: configuration.headRoom, expansionRatio: configuration.expansionRatio, expansionThreshold: configuration.expansionThreshold, attackTime: configuration.attackTime, releaseTime: configuration.releaseTime, overallGain: configuration.overallGain)
-		try setValue(AUValue(configuration.threshold), for: AUParameterAddress(kDynamicsProcessorParam_Threshold), missingParameter: .threshold)
-		try setValue(AUValue(configuration.headRoom), for: AUParameterAddress(kDynamicsProcessorParam_HeadRoom), missingParameter: .headRoom)
-		try setValue(AUValue(configuration.expansionRatio), for: AUParameterAddress(kDynamicsProcessorParam_ExpansionRatio), missingParameter: .expansionRatio)
-		try setValue(AUValue(configuration.expansionThreshold), for: AUParameterAddress(kDynamicsProcessorParam_ExpansionThreshold), missingParameter: .expansionThreshold)
-		try setValue(AUValue(configuration.attackTime), for: AUParameterAddress(kDynamicsProcessorParam_AttackTime), missingParameter: .attackTime)
-		try setValue(AUValue(configuration.releaseTime), for: AUParameterAddress(kDynamicsProcessorParam_ReleaseTime), missingParameter: .releaseTime)
-		try setValue(AUValue(configuration.overallGain), for: AUParameterAddress(kDynamicsProcessorParam_OverallGain), missingParameter: .overallGain)
+        let configuration = DynamicsProcessorConfiguration(
+            threshold: configuration.threshold, headRoom: configuration.headRoom,
+            expansionRatio: configuration.expansionRatio, expansionThreshold: configuration.expansionThreshold,
+            attackTime: configuration.attackTime, releaseTime: configuration.releaseTime,
+            overallGain: configuration.overallGain)
+        try setValue(
+            AUValue(configuration.threshold), for: AUParameterAddress(kDynamicsProcessorParam_Threshold),
+            missingParameter: .threshold)
+        try setValue(
+            AUValue(configuration.headRoom), for: AUParameterAddress(kDynamicsProcessorParam_HeadRoom),
+            missingParameter: .headRoom)
+        try setValue(
+            AUValue(configuration.expansionRatio), for: AUParameterAddress(kDynamicsProcessorParam_ExpansionRatio),
+            missingParameter: .expansionRatio)
+        try setValue(
+            AUValue(configuration.expansionThreshold),
+            for: AUParameterAddress(kDynamicsProcessorParam_ExpansionThreshold),
+            missingParameter: .expansionThreshold)
+        try setValue(
+            AUValue(configuration.attackTime), for: AUParameterAddress(kDynamicsProcessorParam_AttackTime),
+            missingParameter: .attackTime)
+        try setValue(
+            AUValue(configuration.releaseTime), for: AUParameterAddress(kDynamicsProcessorParam_ReleaseTime),
+            missingParameter: .releaseTime)
+        try setValue(
+            AUValue(configuration.overallGain), for: AUParameterAddress(kDynamicsProcessorParam_OverallGain),
+            missingParameter: .overallGain)
 		self.configuration = configuration
 	}
 
-	private func setValue(_ value: AUValue, for address: AUParameterAddress, missingParameter: DynamicsProcessorParameter) throws {
+    private func setValue(
+        _ value: AUValue, for address: AUParameterAddress, missingParameter: DynamicsProcessorParameter
+    ) throws {
 		guard let parameter = effect.withAUAudioUnit({ $0.parameterTree?.parameter(withAddress: address) }) else {
 			throw DynamicsProcessorError.missingParameter(missingParameter)
 		}

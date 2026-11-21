@@ -31,12 +31,15 @@ import Foundation
 
 @Test func highQualityVoiceUsesTheSupportedAudioUnitValue() {
     #expect(VoiceIsolationSupport.snapshot.supportedSoundTypes.contains(.highQualityVoice))
-    #expect(VoiceIsolationSoundType.highQualityVoice.parameterValue == AUValue(kAUSoundIsolationSoundType_HighQualityVoice))
+    #expect(
+        VoiceIsolationSoundType.highQualityVoice.parameterValue
+            == AUValue(kAUSoundIsolationSoundType_HighQualityVoice))
 }
 
 @Test func runtimeSnapshotIsCodableAndIndependentFromMixer() throws {
     let configuration = VoiceIsolationConfiguration(soundType: .voice, mix: 0.75)
-    let support = VoiceIsolationSupportSnapshot(isAvailable: true, supportedSoundTypes: [.voice], unsupportedSoundTypes: [.highQualityVoice])
+    let support = VoiceIsolationSupportSnapshot(
+        isAvailable: true, supportedSoundTypes: [.voice], unsupportedSoundTypes: [.highQualityVoice])
     let snapshot = VoiceIsolationRuntimeSnapshot(configuration: configuration, support: support, state: .active)
 
     let data = try JSONEncoder().encode(snapshot)

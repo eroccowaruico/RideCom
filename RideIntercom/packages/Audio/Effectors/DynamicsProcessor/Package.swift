@@ -6,13 +6,13 @@ let package = Package(
     name: "DynamicsProcessor",
     platforms: [
         .iOS("27.0"),
-        .macOS("27.0"),
+        .macOS("27.0")
     ],
     products: [
         .library(
             name: "DynamicsProcessor",
             targets: ["DynamicsProcessor"]
-        ),
+        )
     ],
     targets: [
         .target(
@@ -21,7 +21,7 @@ let package = Package(
         .testTarget(
             name: "DynamicsProcessorTests",
             dependencies: ["DynamicsProcessor"]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )

@@ -69,7 +69,10 @@ public struct VoiceIsolationSupportSnapshot: Codable, Equatable, Sendable {
 	public var supportedSoundTypes: [VoiceIsolationSoundType]
 	public var unsupportedSoundTypes: [VoiceIsolationSoundType]
 
-	public init(isAvailable: Bool, supportedSoundTypes: [VoiceIsolationSoundType], unsupportedSoundTypes: [VoiceIsolationSoundType]) {
+    public init(
+        isAvailable: Bool, supportedSoundTypes: [VoiceIsolationSoundType],
+        unsupportedSoundTypes: [VoiceIsolationSoundType]
+    ) {
 		self.isAvailable = isAvailable
 		self.supportedSoundTypes = supportedSoundTypes
 		self.unsupportedSoundTypes = unsupportedSoundTypes
@@ -115,7 +118,8 @@ public final class VoiceIsolationEffect {
 		VoiceIsolationRuntimeSnapshot(configuration: configuration, state: effect.bypass ? .bypassed : .active)
 	}
 
-	public static func make(configuration: VoiceIsolationConfiguration = VoiceIsolationConfiguration()) throws -> VoiceIsolationEffect {
+    public static func make(configuration: VoiceIsolationConfiguration = VoiceIsolationConfiguration()) throws
+        -> VoiceIsolationEffect {
 		guard VoiceIsolationSupport.isAvailable else {
 			throw VoiceIsolationError.audioUnitUnavailable
 		}
@@ -149,7 +153,9 @@ public final class VoiceIsolationEffect {
 		self.configuration = configuration
 	}
 
-	private func setValue(_ value: AUValue, for address: AUParameterAddress, missingParameter: VoiceIsolationParameter) throws {
+    private func setValue(
+        _ value: AUValue, for address: AUParameterAddress, missingParameter: VoiceIsolationParameter
+    ) throws {
 		guard let parameter = effect.withAUAudioUnit({ $0.parameterTree?.parameter(withAddress: address) }) else {
 			throw VoiceIsolationError.missingParameter(missingParameter)
 		}
