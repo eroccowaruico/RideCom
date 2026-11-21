@@ -34,19 +34,28 @@ final class WatchPhoneBridge: NSObject, WCSessionDelegate {
         publish(value)
         #if DEBUG && RIDEINTERCOM_VALIDATION
         if SystemSurfaceScope.permitsCompanionAccess, let check = value.audioCheck {
-            let observations: [String: Any] = ["uptime": ProcessInfo.processInfo.systemUptime, "sessionID": check.sessionID.uuidString, "phase": check.phase.rawValue,
+            let observations: [String: Any] = [
+                "uptime": ProcessInfo.processInfo.systemUptime, "sessionID": check.sessionID.uuidString,
+                "phase": check.phase.rawValue,
                 "recordedFrames": check.recordedFrames, "nonzeroSamples": check.nonzeroSamples,
                 "hasCall": value.hasCall, "usingWatch": owner.viewModel?.isUsingWatchAudio == true,
-                "backendsRestored": owner.viewModel.map { $0.audioInputCapture === $0.nativeAudioInputCapture && $0.audioOutputRenderer === $0.nativeAudioOutputRenderer } ?? false]
+                "backendsRestored": owner.viewModel.map {
+                    $0.audioInputCapture === $0.nativeAudioInputCapture
+                        && $0.audioOutputRenderer === $0.nativeAudioOutputRenderer
+                } ?? false
+            ]
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("watch-audio-check-phone.json")
             recordingObservations.append(observations)
             if recordingObservations.count > 24 { recordingObservations.removeFirst() }
-            if let data = try? JSONSerialization.data(withJSONObject: recordingObservations, options: .sortedKeys) { try? data.write(to: file, options: .atomic) }
+            if let data = try? JSONSerialization.data(withJSONObject: recordingObservations, options: .sortedKeys) {
+                try? data.write(to: file, options: .atomic)
+            }
         }
         #endif
     }
     private func publish(_ value: WatchCallSnapshot, force: Bool = false) {
-        guard SystemSurfaceScope.permitsCompanionAccess, session.activationState == .activated, session.isPaired, session.isWatchAppInstalled,
+        guard SystemSurfaceScope.permitsCompanionAccess, session.activationState == .activated, session.isPaired,
+            session.isWatchAppInstalled,
               force || value.needsPublication(after: lastPublishedSnapshot),
               let data = try? JSONEncoder().encode(value) else { return }
         do {
@@ -57,7 +66,10 @@ final class WatchPhoneBridge: NSObject, WCSessionDelegate {
             // retry. Explicit Watch refreshes also return a fresh snapshot.
         }
     }
-    nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: (any Error)?) {
+    nonisolated func session(
+        _ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
+        error: (any Error)?
+    ) {
         Task { @MainActor [weak self] in
             guard let self, let owner else { return }
             publish(owner.watchSnapshot(), force: true)
@@ -74,7 +86,9 @@ final class WatchPhoneBridge: NSObject, WCSessionDelegate {
         guard SystemSurfaceScope.permitsCompanionAccess else { return }
         session.activate()
     }
-    nonisolated func session(_ session: WCSession, didReceiveMessageData messageData: Data, replyHandler: @escaping (Data) -> Void) {
+    nonisolated func session(
+        _ session: WCSession, didReceiveMessageData messageData: Data, replyHandler: @escaping (Data) -> Void
+    ) {
         let response = Reply(send: replyHandler)
         Task { @MainActor [weak self] in
             guard SystemSurfaceScope.permitsCompanionAccess, let self, let owner, messageData.count <= 32_768,

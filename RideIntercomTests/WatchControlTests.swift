@@ -4,21 +4,22 @@ import Testing
 
 @MainActor
 struct WatchControlTests {
-    private func savePerson(in vm: IntercomViewModel) throws {
-        defer { vm.disconnect() }
-        let group = vm.groups[0]
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+    private func savePerson(in model: IntercomViewModel) throws {
+        defer { model.disconnect() }
+        let group = model.groups[0]
+        let token = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
             groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
-        try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
     }
 
     @Test func watchDirectoryOffersOnlySavedPeopleAndRejectsOrdinaryGroupStarts() async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        defer { vm.disconnect() }
-        let group = vm.groups[0]
-        try savePerson(in: vm)
-        let user = try #require(vm.savedRemoteUsers.first)
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let rig = AppTestSupport.makeHarness(), model = rig.viewModel
+        defer { model.disconnect() }
+        let group = model.groups[0]
+        try savePerson(in: model)
+        let user = try #require(model.savedRemoteUsers.first)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let userTarget = try #require(owner.callTargets.first { $0.destination == .user(user.id) })
         let groupTarget = try #require(owner.callTargets.first { $0.destination == .group(group.id) })
         let initial = owner.watchSnapshot()
@@ -28,48 +29,48 @@ struct WatchControlTests {
         #expect(owner.callTargets.contains { $0.destination == .group(group.id) })
         let reply = await owner.handleWatchRequest(.init(.start(groupTarget.entity.id), snapshot: initial))
         #expect(reply.problem == .missingDestination)
-        #expect(!vm.hasAnyActiveGroupConnection, "A forged ordinary-group target must not start a Watch call")
-        vm.disconnect()
+        #expect(!model.hasAnyActiveGroupConnection, "A forged ordinary-group target must not start a Watch call")
+        model.disconnect()
 
         let current = owner.watchSnapshot()
         #expect(await owner.handleWatchRequest(.init(.start(userTarget.entity.id), snapshot: current)).problem == nil)
-        #expect(vm.hasAnyActiveGroupConnection && vm.isUsingWatchAudio,
+        #expect(model.hasAnyActiveGroupConnection && model.isUsingWatchAudio,
                 "The supported saved-person start path remains available")
     }
 
     @Test func audioMeterChangesDoNotPublishControlStateButCallChangesDo() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let now = Date()
         let idle = owner.watchSnapshot(now: now)
         #expect(idle.needsPublication(after: nil))
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID))
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
+        #expect(model.startCall(to: .group(model.groups[0].id), accountAccessID: model.accountAccessID))
+        rig.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { model.isAudioReady }
         let talking = owner.watchSnapshot(now: now)
         #expect(talking.needsPublication(after: idle))
-        for i in 1...20 {
-            vm.setLocalVoiceLevel(Float(i) / 20)
-            vm.setVoiceActive(i.isMultiple(of: 2))
-            let updated = owner.watchSnapshot(now: now.addingTimeInterval(Double(i)))
+        for index in 1...20 {
+            model.setLocalVoiceLevel(Float(index) / 20)
+            model.setVoiceActive(index.isMultiple(of: 2))
+            let updated = owner.watchSnapshot(now: now.addingTimeInterval(Double(index)))
             #expect(!updated.needsPublication(after: talking))
             #expect(updated != talking, "The wire snapshot must still retain fresh request expiry and reply ordering")
         }
-        vm.applyLocalMute(true)
+        model.applyLocalMute(true)
         let muted = owner.watchSnapshot(now: now.addingTimeInterval(21))
         #expect(muted.needsPublication(after: talking))
-        vm.disconnect()
+        model.disconnect()
         #expect(owner.watchSnapshot().needsPublication(after: muted))
     }
 
     @Test func watchRemoteStartsWithPhoneAudioAndKeepsTheWatchDeadline() async throws {
         let now = Date()
-        let h = try AppTestSupport.makeHarnessWithSavedUser(callAccessNow: { now })
-        let vm = h.viewModel
-        defer { vm.disconnect() }
-        vm.setCallDisconnectInterval(.oneMinute, usingWatch: true)
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let rig = try AppTestSupport.makeHarnessWithSavedUser(callAccessNow: { now })
+        let model = rig.viewModel
+        defer { model.disconnect() }
+        model.setCallDisconnectInterval(.oneMinute, usingWatch: true)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let initial = owner.watchSnapshot(now: now)
         let target = try #require(initial.targets.first)
 
@@ -77,155 +78,169 @@ struct WatchControlTests {
         try #require(start.problem == nil)
         #expect(start.snapshot.supportsRemoteStart == true)
         #expect(start.snapshot.hasCall && start.audioEndpoint == nil)
-        #expect(!vm.isUsingWatchAudio && vm.watchAudioLink == nil)
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(h.inputBackend.startCount == 1)
-        let reference = vm.currentCallReference
-        #expect(vm.callDisconnectDeadline == now.addingTimeInterval(60))
+        #expect(!model.isUsingWatchAudio && model.watchAudioLink == nil)
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        #expect(rig.inputBackend.startCount == 1)
+        let reference = model.currentCallReference
+        #expect(model.callDisconnectDeadline == now.addingTimeInterval(60))
 
         let muted = await owner.handleWatchRequest(.init(.setMuted(true), snapshot: start.snapshot), now: now)
         #expect(muted.problem == nil && muted.snapshot.isMuted)
-        #expect(vm.currentCallReference == reference && vm.callDisconnectDeadline == now.addingTimeInterval(60))
+        #expect(
+            model.currentCallReference == reference
+                && model.callDisconnectDeadline == now.addingTimeInterval(60))
 
         let end = await owner.handleWatchRequest(.init(.end, snapshot: muted.snapshot), now: now)
         #expect(end.problem == nil && !end.snapshot.hasCall)
-        #expect(h.inputBackend.stopCount > 0)
+        #expect(rig.inputBackend.stopCount > 0)
     }
 
     @Test func watchStartDoesNotOpenThePhoneMicrophoneBeforeItsAudioDeviceConnects() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID, source: .watchAudio))
-        let deadline = vm.callDisconnectDeadline
-        h.callSession.authenticate(["member-108"])
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        #expect(
+            model.startCall(
+                to: .group(model.groups[0].id), accountAccessID: model.accountAccessID, source: .watchAudio
+            ))
+        let deadline = model.callDisconnectDeadline
+        rig.callSession.authenticate(["member-108"])
         for _ in 0..<20 { await Task.yield() }
-        #expect(vm.isUsingWatchAudio)
-        #expect(!vm.isAudioReady)
-        #expect(h.inputBackend.startCount == 0)
-        #expect(vm.callDisconnectDeadline == deadline)
-        vm.disconnect()
-        #expect(!vm.isUsingWatchAudio)
-        #expect(vm.watchAudioLink == nil)
+        #expect(model.isUsingWatchAudio)
+        #expect(!model.isAudioReady)
+        #expect(rig.inputBackend.startCount == 0)
+        #expect(model.callDisconnectDeadline == deadline)
+        model.disconnect()
+        #expect(!model.isUsingWatchAudio)
+        #expect(model.watchAudioLink == nil)
     }
 
     @Test func switchingToWatchStopsPhoneCaptureAndRetainsTheCallDeadline() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        #expect(vm.startCall(to: .group(vm.groups[0].id), accountAccessID: vm.accountAccessID))
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(h.inputBackend.startCount == 1)
-        let deadline = vm.callDisconnectDeadline
-        vm.selectWatchAudioRoute()
-        #expect(vm.isUsingWatchAudio && !vm.isAudioReady)
-        #expect(h.inputBackend.stopCount > 0)
-        #expect(vm.callDisconnectDeadline == deadline)
-        vm.startAudioPipelineIfNeeded()
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        #expect(model.startCall(to: .group(model.groups[0].id), accountAccessID: model.accountAccessID))
+        rig.callSession.authenticate(["member-108"])
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        #expect(rig.inputBackend.startCount == 1)
+        let deadline = model.callDisconnectDeadline
+        model.selectWatchAudioRoute()
+        #expect(model.isUsingWatchAudio && !model.isAudioReady)
+        #expect(rig.inputBackend.stopCount > 0)
+        #expect(model.callDisconnectDeadline == deadline)
+        model.startAudioPipelineIfNeeded()
         for _ in 0..<20 { await Task.yield() }
-        #expect(h.inputBackend.startCount == 1)
+        #expect(rig.inputBackend.startCount == 1)
     }
 
     @Test func startsAndEndsAreSafeToRepeatButWatchInputRejectsPhoneMute() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        try savePerson(in: vm)
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        try savePerson(in: model)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let now = Date(); let initial = owner.watchSnapshot(now: now)
         let target = try #require(initial.targets.first)
-        let muteWriteBaseline = h.callSession.localMuteValues.count
+        let muteWriteBaseline = rig.callSession.localMuteValues.count
         let start = WatchControlRequest(.start(target.id), snapshot: initial)
         #expect(await owner.handleWatchRequest(start, now: now).problem == nil)
-        #expect(vm.hasAnyActiveGroupConnection)
-        let reference = vm.currentCallReference
+        #expect(model.hasAnyActiveGroupConnection)
+        let reference = model.currentCallReference
         _ = await owner.handleWatchRequest(start, now: now)
-        #expect(vm.currentCallReference == reference)
+        #expect(model.currentCallReference == reference)
         let running = owner.watchSnapshot(now: now)
         let mute = WatchControlRequest(.setMuted(true), snapshot: running)
         #expect(await owner.handleWatchRequest(mute, now: now).problem == .denied)
         #expect(await owner.handleWatchRequest(mute, now: now).problem == .denied)
-        #expect(!vm.isMuted && Array(h.callSession.localMuteValues.dropFirst(muteWriteBaseline)) == [false])
+        #expect(
+            !model.isMuted
+                && Array(rig.callSession.localMuteValues.dropFirst(muteWriteBaseline)) == [false])
         let end = WatchControlRequest(.end, snapshot: running)
         #expect(await owner.handleWatchRequest(end, now: now).problem == nil)
         _ = await owner.handleWatchRequest(end, now: now)
-        #expect(!vm.hasAnyActiveGroupConnection)
+        #expect(!model.hasAnyActiveGroupConnection)
     }
 
     @Test func expiredAndPreviousCallCommandsCannotStartOrUnmuteAnotherCall() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        try savePerson(in: vm)
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        try savePerson(in: model)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let now = Date(); let initial = owner.watchSnapshot(now: now)
-        let groupIDs = vm.regularGroups.map(\.id)
+        let groupIDs = model.regularGroups.map(\.id)
         let target = try #require(initial.targets.first)
-        #expect(await owner.handleWatchRequest(.init(.start(target.id), snapshot: initial), now: now.addingTimeInterval(121)).problem == .stale)
-        #expect(vm.activeGroupID == nil)
-        #expect(vm.startCall(to: .group(groupIDs[0]), accountAccessID: vm.accountAccessID))
+        #expect(
+            await owner.handleWatchRequest(
+                .init(.start(target.id), snapshot: initial), now: now.addingTimeInterval(121)
+            ).problem == .stale)
+        #expect(model.activeGroupID == nil)
+        #expect(model.startCall(to: .group(groupIDs[0]), accountAccessID: model.accountAccessID))
         let old = owner.watchSnapshot(now: now)
-        #expect(vm.startCall(to: .group(groupIDs[1]), accountAccessID: vm.accountAccessID))
-        vm.applyLocalMute(true)
+        #expect(model.startCall(to: .group(groupIDs[1]), accountAccessID: model.accountAccessID))
+        model.applyLocalMute(true)
         #expect(await owner.handleWatchRequest(.init(.setMuted(false), snapshot: old), now: now).problem == .stale)
         #expect(await owner.handleWatchRequest(.init(.end, snapshot: old), now: now).problem == .stale)
-        #expect(vm.isMuted && vm.activeGroupID == groupIDs[1])
+        #expect(model.isMuted && model.activeGroupID == groupIDs[1])
     }
 
     @Test func removedSavedUserCannotStart() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let group = vm.groups[0]
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        let group = model.groups[0]
+        let token = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
             groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
-        try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
-        let user = try #require(vm.savedRemoteUsers.first)
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        let user = try #require(model.savedRemoteUsers.first)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let snapshot = owner.watchSnapshot()
         let target = try #require(snapshot.targets.first { $0.id.contains(user.id.uuidString) })
-        #expect(vm.removeSavedUser(user.id))
-        #expect(await owner.handleWatchRequest(.init(.start(target.id), snapshot: snapshot)).problem == .missingDestination)
+        #expect(model.removeSavedUser(user.id))
+        #expect(
+            await owner.handleWatchRequest(.init(.start(target.id), snapshot: snapshot)).problem
+                == .missingDestination)
         #expect(owner.watchSnapshot().targets.isEmpty)
     }
 
     @Test func signOutAndNewLoginCannotReuseAnOldWatchSnapshot() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
-        let h = AppTestSupport.makeHarness(accountSession: f.session); let vm = h.viewModel
-        defer { vm.disconnect() }
-        try savePerson(in: vm)
-        let owner = AppCallOwner(account: f.session, viewModel: vm)
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
+        let rig = AppTestSupport.makeHarness(accountSession: fixture.session); let model = rig.viewModel
+        defer { model.disconnect() }
+        try savePerson(in: model)
+        let owner = AppCallOwner(account: fixture.session, viewModel: model)
         let old = owner.watchSnapshot(); let target = try #require(old.targets.first)
-        f.session.signOut(); f.signIn()
+        fixture.session.signOut(); fixture.signIn()
         #expect(await owner.handleWatchRequest(.init(.start(target.id), snapshot: old)).problem == .noAccount)
         #expect(owner.watchSnapshot().reference == nil)
         #expect(owner.watchSnapshot().targets.isEmpty)
-        #expect(vm.activeGroupID == nil)
+        #expect(model.activeGroupID == nil)
     }
 
     @Test func anotherActiveCallCannotBeReplacedAndReplyDescribesActualState() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        try savePerson(in: vm)
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
-        let activeGroupID = try #require(vm.regularGroups.first?.id)
-        #expect(vm.startCall(to: .group(activeGroupID), accountAccessID: vm.accountAccessID))
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        try savePerson(in: model)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        let activeGroupID = try #require(model.regularGroups.first?.id)
+        #expect(model.startCall(to: .group(activeGroupID), accountAccessID: model.accountAccessID))
         let current = owner.watchSnapshot(); let target = try #require(current.targets.last)
         let reply = await owner.handleWatchRequest(.init(.start(target.id), snapshot: current))
         #expect(reply.problem == .denied && reply.snapshot.hasCall)
-        #expect(vm.activeGroupID == activeGroupID)
+        #expect(model.activeGroupID == activeGroupID)
         #expect(reply.snapshot.reference == current.reference)
         #expect(try JSONDecoder().decode(WatchControlReply.self, from: JSONEncoder().encode(reply)) == reply)
     }
     @Test func deletingACurrentContactEndsTheCallTheWatchShows() async throws {
-        let h = AppTestSupport.makeHarness(); let vm = h.viewModel
-        defer { vm.disconnect() }
-        let group = vm.groups[0]
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
+        let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
+        defer { model.disconnect() }
+        let group = model.groups[0]
+        let token = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("friend"),
             groupID: group.id, groupName: group.name, groupSecret: "group-key", inviterMemberID: "friend")
-        try vm.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
-        let user = try #require(vm.savedRemoteUsers.first)
-        #expect(vm.startCall(to: .user(user.id), accountAccessID: vm.accountAccessID))
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        let user = try #require(model.savedRemoteUsers.first)
+        #expect(model.startCall(to: .user(user.id), accountAccessID: model.accountAccessID))
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let current = owner.watchSnapshot()
-        #expect(vm.removeSavedUser(user.id))
-        #expect(vm.activeGroupID == nil)
+        #expect(model.removeSavedUser(user.id))
+        #expect(model.activeGroupID == nil)
         #expect(owner.watchSnapshot().reference != current.reference)
     }
 
