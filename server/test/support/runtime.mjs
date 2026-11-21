@@ -8,7 +8,7 @@ export const hash = createHash('sha256').update(token).digest('hex');
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
@@ -22,11 +22,33 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             if (verified && ${Boolean(onAttestationVerified)}) await fetch('${attestationVerifiedURL}');
             return verified;
         }` : '';
-    const source = afterInboxSnapshot || onInvitationStore || attestationRoot ? { modules: [
+    const storageObservation = trackReplyStorage ? `
+        function observeStorage(Type) {
+            return class extends Type {
+                writes = { put: 0, setAlarm: 0 };
+                constructor(ctx, env) {
+                    super(ctx, env);
+                    for (const [target, method] of [[ctx.storage.kv, 'put'], [ctx.storage, 'setAlarm']]) {
+                        const original = target[method].bind(target);
+                        Object.defineProperty(target, method, { value: (...args) => {
+                            this.writes[method]++;
+                            return original(...args);
+                        }});
+                    }
+                }
+                async replyStorageState() {
+                    return JSON.stringify({ ...this.writes, alarm: await this.ctx.storage.getAlarm() });
+                }
+                async clearReplyAlarm() { await this.ctx.storage.deleteAlarm(); }
+            };
+        }` : '';
+    const source = afterInboxSnapshot || onInvitationStore || attestationRoot || trackReplyStorage ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
-            export { default, AppleAuthAttempt, AppAttestKeyIndex, NotificationIndex, SignalingRoom, UsageGuard } from './index.js';
-            import { UserAccount as ProductionAccount, createAppAttestEnrollmentVerifier } from './index.js';
-            export class UserAccount extends ProductionAccount {
+            export { default, AppleAuthAttempt, AppAttestKeyIndex, SignalingRoom, UsageGuard } from './index.js';
+            import { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex, createAppAttestEnrollmentVerifier } from './index.js';
+            ${storageObservation}
+            export const NotificationIndex = ${trackReplyStorage ? 'observeStorage(ProductionIndex)' : 'ProductionIndex'};
+            export class UserAccount extends ${trackReplyStorage ? 'observeStorage(ProductionAccount)' : 'ProductionAccount'} {
                 async groupInvitationPending(...args) {
                     const candidates = super.groupInvitationPending(...args);
                     if (${Boolean(afterInboxSnapshot)} && candidates.length) await fetch('${inboxSnapshotURL}');

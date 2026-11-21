@@ -14,6 +14,12 @@ export class NotificationIndex extends DurableObject<Env> {
         // Token bindings retain latest-owner semantics, even with an earlier expiry.
         if (current && current.registrationID === undefined && value.registrationID === undefined
             && current.accountID === value.accountID && current.userID === value.userID) {
+            if (current.deviceID === value.deviceID && current.expiresAt >= value.expiresAt) {
+                if (await this.ctx.storage.getAlarm() !== current.expiresAt) {
+                    await this.ctx.storage.setAlarm(current.expiresAt)
+                }
+                return
+            }
             value = { ...value, expiresAt: Math.max(current.expiresAt, value.expiresAt) }
         }
         this.ctx.storage.kv.put('binding', value)

@@ -325,6 +325,46 @@ const replyPath = '/api/ordinary-group-replies';
 const replySlot = () => randomBytes(32).toString('hex');
 const replyPacket = () => randomBytes(64).toString('base64');
 
+test('opening the same ordinary reply mailbox avoids writes and repairs missing expiry alarms', async () => {
+    const r = await makeRuntime(options, { appleKeys: [publicKey], trackReplyStorage: true });
+    try {
+        const a = await enrolled(r, 'reopened-mailbox-author');
+        const accountID = a.accessToken.split('.')[1];
+        const accounts = await r.getDurableObjectNamespace('USER_ACCOUNT');
+        const account = accounts.get(accounts.idFromString(accountID));
+        const indexes = await r.getDurableObjectNamespace('NOTIFICATION_INDEX');
+        const route = indexes.get(indexes.idFromName('user:' + a.userID));
+        const first = { slot: replySlot(), expiresAt: Date.now() + 60_000 };
+        const later = { slot: replySlot(), expiresAt: first.expiresAt + 30_000 };
+        const open = async item => assert.equal((await call(r, replyPath + '/open', item, a.accessToken, 'PUT')).status, 200);
+        const state = async stub => JSON.parse(await stub.replyStorageState());
+        await open(first);
+        const accountFirst = await state(account);
+        const routeFirst = await state(route);
+        assert.equal(accountFirst.alarm, first.expiresAt);
+        assert.ok(routeFirst.alarm >= first.expiresAt);
+
+        await open(first);
+        assert.deepEqual(await state(account), accountFirst);
+        assert.deepEqual(await state(route), routeFirst);
+
+        const laterRouteExpiry = Math.max(routeFirst.alarm, later.expiresAt) + 1_000;
+        // Extend the public route through its owner. The account already has an earlier alarm.
+        await route.bind({ accountID, userID: a.userID, expiresAt: laterRouteExpiry });
+        const extendedRoute = await state(route);
+        assert.deepEqual(extendedRoute, { put: routeFirst.put + 1, setAlarm: routeFirst.setAlarm + 1, alarm: laterRouteExpiry });
+        await open(later);
+        const accountLater = await state(account);
+        assert.deepEqual(accountLater, { ...accountFirst, put: accountFirst.put + 1 });
+        assert.deepEqual(await state(route), extendedRoute);
+
+        await Promise.all([account.clearReplyAlarm(), route.clearReplyAlarm()]);
+        await open(later);
+        assert.deepEqual(await state(account), { ...accountLater, setAlarm: accountLater.setAlarm + 1 });
+        assert.deepEqual(await state(route), { ...extendedRoute, setAlarm: extendedRoute.setAlarm + 1 });
+    } finally { await r.dispose(); }
+});
+
 test('ordinary group replies persist while peers take turns online and leave the active call alone', async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-replies-'));
     const local = () => makeRuntime({ ...options, NOTIFICATIONS_ENABLED: 'false' }, { appleKeys: [publicKey], storageDirectory });

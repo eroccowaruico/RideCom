@@ -88,7 +88,11 @@ export class UserAccount extends DurableObject<Env> {
     async ordinaryGroupReplyOpen(auth: NotificationAuth, slot: string, expiresAt: number) {
         if (!this.notifications.authorized(auth)) return 'unauthorized'
         const result = this.ordinaryGroupReplies.open(auth.deviceID, slot, expiresAt)
-        if (result === 'ok') await this.scheduleExpiry()
+        if (result === 'ok') {
+            const scheduled = await this.ctx.storage.getAlarm()
+            // An earlier account alarm will check this mailbox and schedule the next expiry.
+            if (scheduled === null || scheduled > expiresAt) await this.scheduleExpiry()
+        }
         return result
     }
     ordinaryGroupReplyInbox(auth: NotificationAuth, slot: string) {
