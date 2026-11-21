@@ -3,17 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from review_wording import candidates
+from scripts.review_wording import candidates
 
 
 class WordingReviewTests(unittest.TestCase):
-    def test_reviews_only_added_or_edited_passages_including_new_files(self):
+    def test_reviews_only_added_or_edited_passages_including_new_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            def git(*args):
+            def git(*args: str) -> None:
                 subprocess.run(['git', *args], cwd=root, check=True, capture_output=True)
 
             git('init')

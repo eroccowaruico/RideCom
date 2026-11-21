@@ -1,9 +1,9 @@
 """List changed wording that needs a reader to check its meaning in context."""
 import argparse
-from pathlib import Path
 import re
 import subprocess
-
+from collections.abc import Iterator
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PATHS = [
@@ -14,27 +14,27 @@ PATHS = [
 ]
 # These expressions identify passages to read. They do not prescribe replacements.
 QUESTIONS = [
-    (re.compile(r'再?試行|(?<![a-z])(?:retry|attempt)(?![a-z])', re.I),
+    (re.compile(r'再?試行|(?<![a-z])(?:retry|attempt)(?![a-z])', re.IGNORECASE),
      '何を始める、またはやり直す操作ですか。相手や結果は読み取れますか。'),
-    (re.compile(r'適宜|必要に応じて|よしなに|差分を閉じる|\bas (?:needed|appropriate)\b', re.I),
+    (re.compile(r'適宜|必要に応じて|よしなに|差分を閉じる|\bas (?:needed|appropriate)\b', re.IGNORECASE),
      '誰が、どの条件で、何をするか分かりますか。'),
-    (re.compile(r'対応済み?|確認済み?|検証済み?|改善済み?|\b(?:handled|verified|resolved)\b', re.I),
+    (re.compile(r'対応済み?|確認済み?|検証済み?|改善済み?|\b(?:handled|verified|resolved)\b', re.IGNORECASE),
      'どの条件で何を観測しましたか。どこまで確認できましたか。'),
     (re.compile(r'(?<![A-Za-z0-9_])(?:TX|RX|JIT|E2E|SLO)(?![A-Za-z0-9_])'),
      'この読者に略語は通じますか。誰のどの動作か説明が必要ですか。'),
 ]
-HUNK = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', re.M)
+HUNK = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', re.MULTILINE)
 
 
-def git(root, *args):
+def git(root: Path, *args: str) -> str:
     return subprocess.check_output(['git', *args], cwd=root).decode('utf-8')
 
 
-def paths(root, *args):
+def paths(root: Path, *args: str) -> set[str]:
     return set(git(root, *args, '--', *PATHS).rstrip('\0').split('\0')) - {''}
 
 
-def candidates(root, base):
+def candidates(root: Path, base: str) -> Iterator[str]:
     changed = paths(root, 'diff', '--name-only', '-z', base)
     new = paths(root, 'ls-files', '--others', '--exclude-standard', '-z')
     for name in sorted(changed | new):

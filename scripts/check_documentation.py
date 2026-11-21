@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Check local links, discoverability, backlog coverage, and Settings UI coverage."""
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
 from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
-import re
-import sys
-import subprocess
 from urllib.parse import unquote, urlsplit
 
 LINK = re.compile(r'\[[^\]\n]*\]\((<[^>]+>|[^\n)]+)\)')
@@ -13,15 +15,15 @@ UI_ID = re.compile(r'accessibilityIdentifier\s*[:(]\s*"([^"\\]+)"')
 
 
 class DesignHTMLIDs(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.ids = []
+        self.ids: list[str] = []
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.ids.extend(value for key, value in attrs if key == 'id' and value is not None)
 
 
-def without_fences(text):
+def without_fences(text: str) -> str:
     visible, fence = [], None
     for line in text.splitlines(keepends=True):
         marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
@@ -35,11 +37,11 @@ def without_fences(text):
     return ''.join(visible)
 
 
-def heading_anchor(title):
+def heading_anchor(title: str) -> str:
     return re.sub(r'[^\w -]', '', title.strip().lower()).replace(' ', '-')
 
 
-def check_backlog(backlog):
+def check_backlog(backlog: Path) -> list[str]:
     issues = '未実装課題.md'
     design = '画面実装とデザイン見本の差分.md'
     if not (backlog / issues).exists():
@@ -52,9 +54,9 @@ def check_backlog(backlog):
     for name, level in ((issues, 2), (design, 3)):
         document = backlog / name
         if document.exists():
-            headings = re.findall(rf'^{level * "#"} (.+)$', without_fences(document.read_text()), re.M)
+            headings = re.findall(rf'^{level * "#"} (.+)$', without_fences(document.read_text()), re.MULTILINE)
             anchors.update((name, heading_anchor(title)) for title in headings)
-    parts = re.split(r'^## (.+)\n', without_fences(index.read_text()), flags=re.M)
+    parts = re.split(r'^## (.+)\n', without_fences(index.read_text()), flags=re.MULTILINE)
     sections = dict(zip(parts[1::2], parts[2::2]))
     errors, indexed = [], Counter()
     for section in ('着手順', '判断や再開を待つもの'):
@@ -95,7 +97,7 @@ def check_backlog(backlog):
     return errors
 
 
-def check(root):
+def check(root: Path) -> list[str]:
     root = root.resolve()
     backlog = root / 'docs/backlog'
     documents = set((root / 'docs').rglob('*.md'))
@@ -106,7 +108,7 @@ def check(root):
     backlog_anchors = {
         document: {
             heading_anchor(title)
-            for title in re.findall(r'^#{1,6} (.+)$', without_fences(document.read_text()), re.M)
+            for title in re.findall(r'^#{1,6} (.+)$', without_fences(document.read_text()), re.MULTILINE)
         }
         for document in documents if document.parent == backlog
     }
@@ -175,7 +177,7 @@ if __name__ == '__main__':
     if not (root / 'tools/doc-lint/node_modules/textlint/package.json').is_file():
         sys.exit('文書検査の依存が未導入です。npm ci --prefix tools/doc-lint --ignore-scripts --no-audit --no-fund を実行してください。')
     try:
-        lint = subprocess.run(['node', 'lint.mjs'], cwd=root / 'tools/doc-lint')
+        lint = subprocess.run(['node', 'lint.mjs'], cwd=root / 'tools/doc-lint', check=False)
     except OSError:
         sys.exit('日本語の文書検査にはNode.jsが必要です。')
     if lint.returncode:
