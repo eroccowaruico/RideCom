@@ -34,7 +34,9 @@ struct CallIntentLocalizationTests {
              "前回の接続先はありません。RideComでユーザーかグループを選んでください。"),
             (CallIntentError.unavailable("End the current call before starting a different call."),
              "別の接続先に接続する前に、今の接続を切断してください。"),
-            (CallIntentError.unavailable("Remove the previous account data on this device to set up your account again."),
+            (
+                CallIntentError.unavailable(
+                    "Remove the previous account data on this device to set up your account again."),
              "この端末の以前のアカウントデータを削除して、アカウントを設定し直してください。")
         ]
         for (error, expected) in errors {
@@ -51,9 +53,13 @@ struct CallIntentLocalizationTests {
 
     @Test func shortcutPhrasesHaveJapaneseWithoutReplacingTheApplicationPlaceholder() throws {
         let japanese = try languageBundle("ja")
-        #expect(japanese.localizedString(forKey: "Start a call with ${applicationName}", value: nil, table: "AppShortcuts")
+        #expect(
+            japanese.localizedString(
+                forKey: "Start a call with ${applicationName}", value: nil, table: "AppShortcuts")
             == "${applicationName}で接続")
-        #expect(japanese.localizedString(forKey: "Resume my call in ${applicationName}", value: nil, table: "AppShortcuts")
+        #expect(
+            japanese.localizedString(
+                forKey: "Resume my call in ${applicationName}", value: nil, table: "AppShortcuts")
             == "${applicationName}で前回の接続先に接続")
         #expect(japanese.localizedString(forKey: "End my call in ${applicationName}", value: nil, table: "AppShortcuts")
             == "${applicationName}で切断")
