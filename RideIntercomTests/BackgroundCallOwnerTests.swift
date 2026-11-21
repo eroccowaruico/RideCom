@@ -6,11 +6,11 @@ import Testing
 @MainActor
 struct BackgroundCallOwnerTests {
     @Test func signedOutAccountRecoversFromUnavailableStorageWithoutLosingSignInEntry() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn(); f.session.signOut()
-        f.keychain.fails = true
-        let account = f.restart { _ in .authorized }
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn(); fixture.session.signOut()
+        fixture.keychain.fails = true
+        let account = fixture.restart { _ in .authorized }
         #expect(account.storageUnavailable && account.userID == nil)
-        f.keychain.fails = false
+        fixture.keychain.fails = false
         await account.reload()
         #expect(!account.storageUnavailable && account.userID == nil)
         let request = ASAuthorizationAppleIDProvider().createRequest(); account.prepare(request)
@@ -19,35 +19,35 @@ struct BackgroundCallOwnerTests {
     }
 
     @Test func endingCallDuringBackgroundPreparationDoesNotAllowDelayedStart() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
         var pending: CheckedContinuation<AppleCredentialState, Never>?
-        let account = f.restart { _ in await withCheckedContinuation { pending = $0 } }
-        let h = AppTestSupport.makeHarness(accountSession: account)
-        let vm = h.viewModel
-        let owner = AppCallOwner(account: account, viewModel: vm)
-        let group = try #require(vm.groups.first)
-        #expect(vm.startCall(to: .group(group.id), accountAccessID: account.accessID))
-        let reference = vm.currentCallReference
+        let account = fixture.restart { _ in await withCheckedContinuation { pending = $0 } }
+        let harness = AppTestSupport.makeHarness(accountSession: account)
+        let viewModel = harness.viewModel
+        let owner = AppCallOwner(account: account, viewModel: viewModel)
+        let group = try #require(viewModel.groups.first)
+        #expect(viewModel.startCall(to: .group(group.id), accountAccessID: account.accessID))
+        let reference = viewModel.currentCallReference
         let preparation = Task { try await owner.prepareForBackgroundCallAction() }
         await AppTestSupport.waitUntil { pending != nil }
-        #expect(vm.endCall(reference))
+        #expect(viewModel.endCall(reference))
         pending?.resume(returning: .authorized)
         await #expect(throws: CallIntentError.self) { try await preparation.value }
-        #expect(vm.activeGroupID == nil)
+        #expect(viewModel.activeGroupID == nil)
     }
 
     @Test func ownerReplacesRetiredModelWithoutAViewAndDoesNotReconnect() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
-        let first = AppTestSupport.makeHarness(accountSession: f.session)
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
+        let first = AppTestSupport.makeHarness(accountSession: fixture.session)
         var made = 0
-        let owner = AppCallOwner(account: f.session, viewModel: first.viewModel, makeViewModel: { account in
+        let owner = AppCallOwner(account: fixture.session, viewModel: first.viewModel, makeViewModel: { account in
             made += 1
             return AppTestSupport.makeHarness(accountSession: account).viewModel
         })
         first.viewModel.selectGroup(try #require(first.viewModel.groups.first))
-        f.session.signOut()
+        fixture.session.signOut()
         #expect(first.viewModel.activeGroupID == nil)
-        f.signIn("replacement")
+        fixture.signIn("replacement")
         await AppTestSupport.waitUntil { owner.viewModel?.accountUserID == "replacement" }
         #expect(made == 1)
         #expect(owner.viewModel !== first.viewModel)
@@ -56,16 +56,16 @@ struct BackgroundCallOwnerTests {
     }
 
     @Test func unavailableSavedLoginDoesNotCreateModelOrOverwriteAndRecoversOnRetry() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
-        f.keychain.fails = true
-        let account = f.restart { _ in .authorized }
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
+        fixture.keychain.fails = true
+        let account = fixture.restart { _ in .authorized }
         var made = 0
         let owner = AppCallOwner(account: account, viewModel: nil, makeViewModel: { account in
             made += 1; return AppTestSupport.makeHarness(accountSession: account).viewModel
         })
         await #expect(throws: CallIntentError.self) { try await owner.prepareForBackgroundCallAction() }
-        #expect(made == 0 && f.keychain.value == "apple-user")
-        f.keychain.fails = false
+        #expect(made == 0 && fixture.keychain.value == "apple-user")
+        fixture.keychain.fails = false
         try await owner.prepareForBackgroundCallAction()
         #expect(made == 1 && owner.viewModel?.canStartCalls == true)
         let model = owner.viewModel
@@ -75,11 +75,11 @@ struct BackgroundCallOwnerTests {
 
     @Test(arguments: ["apple-user", "another-user"])
     func refreshCannotPassOldActionToANewLogin(nextUser: String) async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
         var pending: CheckedContinuation<AppleCredentialState, Never>?
-        let account = f.restart { _ in await withCheckedContinuation { pending = $0 } }
-        let h = AppTestSupport.makeHarness(accountSession: account)
-        let owner = AppCallOwner(account: account, viewModel: h.viewModel, makeViewModel: { account in
+        let account = fixture.restart { _ in await withCheckedContinuation { pending = $0 } }
+        let harness = AppTestSupport.makeHarness(accountSession: account)
+        let owner = AppCallOwner(account: account, viewModel: harness.viewModel, makeViewModel: { account in
             AppTestSupport.makeHarness(accountSession: account).viewModel
         })
         let preparation = Task { try await owner.prepareForBackgroundCallAction() }
@@ -89,16 +89,16 @@ struct BackgroundCallOwnerTests {
         #expect(account.completeSignIn(userID: nextUser, state: request.state))
         pending?.resume(returning: .authorized)
         await #expect(throws: CallIntentError.self) { try await preparation.value }
-        #expect(h.viewModel.activeGroupID == nil)
+        #expect(harness.viewModel.activeGroupID == nil)
     }
 
     @Test func concurrentPreparationWaitsForTheSameCredentialCheck() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
         var pending: CheckedContinuation<AppleCredentialState, Never>?
         var checks = 0
-        let account = f.restart { _ in checks += 1; return await withCheckedContinuation { pending = $0 } }
-        let h = AppTestSupport.makeHarness(accountSession: account)
-        let owner = AppCallOwner(account: account, viewModel: h.viewModel)
+        let account = fixture.restart { _ in checks += 1; return await withCheckedContinuation { pending = $0 } }
+        let harness = AppTestSupport.makeHarness(accountSession: account)
+        let owner = AppCallOwner(account: account, viewModel: harness.viewModel)
         let first = Task { try await owner.prepareForBackgroundCallAction() }
         await AppTestSupport.waitUntil { pending != nil }
         var secondFinished = false
@@ -108,62 +108,62 @@ struct BackgroundCallOwnerTests {
         pending?.resume(returning: .revoked)
         await #expect(throws: CallIntentError.self) { try await first.value }
         await #expect(throws: CallIntentError.self) { try await second.value }
-        #expect(account.userID == nil && h.viewModel.activeGroupID == nil)
+        #expect(account.userID == nil && harness.viewModel.activeGroupID == nil)
     }
 
     @Test func anotherSessionSignOutInvalidatesCachedAccessBeforeBackgroundPreparation() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
-        let account = f.restart { _ in .authorized }
-        let h = AppTestSupport.makeHarness(accountSession: account)
-        let owner = AppCallOwner(account: account, viewModel: h.viewModel)
-        h.viewModel.selectGroup(try #require(h.viewModel.groups.first))
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
+        let account = fixture.restart { _ in .authorized }
+        let harness = AppTestSupport.makeHarness(accountSession: account)
+        let owner = AppCallOwner(account: account, viewModel: harness.viewModel)
+        harness.viewModel.selectGroup(try #require(harness.viewModel.groups.first))
         let oldAccess = account.accessID
-        f.session.signOut()
+        fixture.session.signOut()
         await #expect(throws: CallIntentError.self) { try await owner.prepareForBackgroundCallAction() }
         #expect(account.userID == nil && account.accessID != oldAccess)
-        #expect(h.viewModel.activeGroupID == nil && !h.viewModel.canStartCalls)
+        #expect(harness.viewModel.activeGroupID == nil && !harness.viewModel.canStartCalls)
         await account.reload()
         #expect(account.userID == nil)
     }
 
     @Test func anotherSessionPendingDeletionBlocksBackgroundPreparation() async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
-        let account = f.restart { _ in .authorized }
-        let h = AppTestSupport.makeHarness(accountSession: account)
-        let owner = AppCallOwner(account: account, viewModel: h.viewModel)
-        try f.session.deletion.begin(userID: "apple-user", access: nil, proof: nil)
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
+        let account = fixture.restart { _ in .authorized }
+        let harness = AppTestSupport.makeHarness(accountSession: account)
+        let owner = AppCallOwner(account: account, viewModel: harness.viewModel)
+        try fixture.session.deletion.begin(userID: "apple-user", access: nil, proof: nil)
         await #expect(throws: CallIntentError.self) { try await owner.prepareForBackgroundCallAction() }
         #expect(account.userID == nil && account.deletion.blocksSignIn)
-        #expect(!h.viewModel.canStartCalls)
+        #expect(!harness.viewModel.canStartCalls)
     }
 
     @Test(arguments: [false, true])
     func persistedDenialDuringNativeCheckCannotBeUndone(deleting: Bool) async throws {
-        let f = AccountFixture(); defer { f.remove() }; f.signIn()
+        let fixture = AccountFixture(); defer { fixture.remove() }; fixture.signIn()
         var pending: CheckedContinuation<AppleCredentialState, Never>?
-        let account = f.restart { _ in await withCheckedContinuation { pending = $0 } }
-        let h = AppTestSupport.makeHarness(accountSession: account)
-        let owner = AppCallOwner(account: account, viewModel: h.viewModel)
+        let account = fixture.restart { _ in await withCheckedContinuation { pending = $0 } }
+        let harness = AppTestSupport.makeHarness(accountSession: account)
+        let owner = AppCallOwner(account: account, viewModel: harness.viewModel)
         let preparation = Task { try await owner.prepareForBackgroundCallAction() }
         await AppTestSupport.waitUntil { pending != nil }
         if deleting {
-            try f.session.deletion.begin(userID: "apple-user", access: nil, proof: nil)
+            try fixture.session.deletion.begin(userID: "apple-user", access: nil, proof: nil)
         } else {
-            f.session.signOut()
+            fixture.session.signOut()
         }
         pending?.resume(returning: .authorized)
         await #expect(throws: CallIntentError.self) { try await preparation.value }
-        #expect(account.userID == nil && !h.viewModel.canStartCalls)
+        #expect(account.userID == nil && !harness.viewModel.canStartCalls)
     }
 
     @Test func transientGroupReadFailureRetriesWithoutResettingTheSnapshot() async throws {
-        let h = AppTestSupport.makeHarness()
-        let vm = h.viewModel
-        let saved = h.groupStore.snapshot
-        vm.groupStorageIssue = .unavailable
-        let owner = AppCallOwner(account: vm.accountSession, viewModel: vm)
+        let harness = AppTestSupport.makeHarness()
+        let viewModel = harness.viewModel
+        let saved = harness.groupStore.snapshot
+        viewModel.groupStorageIssue = .unavailable
+        let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
         try await owner.prepareForBackgroundCallAction()
-        #expect(vm.groupStorageIssue == nil && h.groupStore.snapshot == saved)
+        #expect(viewModel.groupStorageIssue == nil && harness.groupStore.snapshot == saved)
         #expect(!owner.callTargets.isEmpty)
     }
 }
