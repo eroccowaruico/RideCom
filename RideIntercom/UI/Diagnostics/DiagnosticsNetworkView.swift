@@ -9,17 +9,26 @@ struct DiagnosticsNetworkView: View {
     var body: some View {
         let report = viewModel.networkDiagnostics
         VStack(alignment: .leading, spacing: AppSpacing.l) {
-            Text(report == nil ? "Not measured. Connect to a group to collect network diagnostics." : "Network diagnostics")
+            Text(
+                report == nil
+                    ? "Not measured. Connect to a group to collect network diagnostics." : "Network diagnostics"
+            )
                 .accessibilityIdentifier("networkDiagnosticsSummary")
             if let report {
-                DiagnosticsValueRow("Session event drops", value: drops(report.eventDrops.overflow, report.eventDrops.expired),
+                DiagnosticsValueRow(
+                    "Session event drops", value: drops(report.eventDrops.overflow, report.eventDrops.expired),
                                     warns: report.eventDrops.expired > 0 || report.eventDrops.overflow > 0)
             }
             ForEach(RouteKind.allCases, id: \.rawValue) { kind in
                 routeCard(kind, report: report)
             }
             pathsCard(report)
-            Text("RTT measures this device's ICE connection, not audio delay. Event drops occur inside this device. Paths show the last authenticated reception, not guaranteed reachability.")
+            Text(
+                """
+                RTT measures this device's ICE connection, not audio delay. Event drops occur inside this \
+                device. Paths show the last authenticated reception, not guaranteed reachability.
+                """
+            )
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }
@@ -35,21 +44,28 @@ struct DiagnosticsNetworkView: View {
     private func routeCard(_ kind: RouteKind, report: RTCNetworkDiagnostics?) -> some View {
         let route = report?.routes.first { $0.route == kind }
         let metrics = viewModel.lastRouteMetrics.flatMap { $0.route == kind ? $0 : nil }
-        let loss = (metrics?.packetLoss ?? route?.statistics.packetLoss).map { String(format: "%.1f%%", $0 * 100) } ?? "Not measured"
+        let loss =
+            (metrics?.packetLoss ?? route?.statistics.packetLoss).map { String(format: "%.1f%%", $0 * 100) }
+            ?? "Not measured"
         let jitter = metrics?.jitter.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured"
         return GroupBox {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
-                DiagnosticsValueRow("RTT", value: route?.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured")
+                DiagnosticsValueRow(
+                    "RTT",
+                    value: route?.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) }
+                        ?? "Not measured")
                 DiagnosticsValueRow("Loss", value: loss)
                 DiagnosticsValueRow("Jitter", value: jitter)
-                DiagnosticsValueRow("Send queue", value: route?.statistics.bufferedBytes.map { "\($0) B" } ?? "Not measured")
+                DiagnosticsValueRow(
+                    "Send queue", value: route?.statistics.bufferedBytes.map { "\($0) B" } ?? "Not measured")
                 if let route {
                     let names = route.eventDrops.keys.sorted()
                     if names.isEmpty { DiagnosticsValueRow("Event drops", value: "Not measured") }
                     ForEach(names, id: \.self) { name in
                         if let value = route.eventDrops[name] {
                             DiagnosticsValueRow(names.count == 1 ? "Event drops" : "Event drops (\(name))",
-                                                value: drops(value.overflow, value.expired), warns: value.expired > 0 || value.overflow > 0)
+                                value: drops(value.overflow, value.expired),
+                                warns: value.expired > 0 || value.overflow > 0)
                         }
                     }
                     if route.statistics.roundTripTime == nil && route.statistics.bufferedBytes == nil {
@@ -74,7 +90,9 @@ struct DiagnosticsNetworkView: View {
                 if peers.isEmpty { Text("Not measured").foregroundStyle(.secondary) }
                 ForEach(peers, id: \.peerID) { peer in
                     let age = max(0, Date().timeIntervalSince1970 - peer.observedAt)
-                    let name = members.first { $0.id == peer.peerID.rawValue }?.resolvedDisplayName ?? String(peer.peerID.rawValue.prefix(8))
+                    let name =
+                        members.first { $0.id == peer.peerID.rawValue }?.resolvedDisplayName
+                        ?? String(peer.peerID.rawValue.prefix(8))
                     let route = peer.route == .webRTC ? "Internet" : "Local"
                     let topology = peer.path.count > 2 ? "Relayed" : "Direct group path"
                     let arrow = dynamicTypeSize.isAccessibilitySize ? "\n↓\n" : " → "

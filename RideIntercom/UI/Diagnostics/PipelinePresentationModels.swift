@@ -92,7 +92,8 @@ struct PipelineVerdict: Equatable {
             self.init(state: step.state, text: "\(step.state.statusText) at \(step.title)", reason: step.detail)
         } else if !steps.isEmpty && steps.allSatisfy({ $0.state == .passing }) {
             self.init(state: .passing, text: PipelineStepState.passing.statusText, reason: nil)
-        } else if let step = steps.first(where: { $0.state == .idle }), steps.contains(where: { $0.state == .passing }) {
+        } else if let step = steps.first(where: { $0.state == .idle }),
+            steps.contains(where: { $0.state == .passing }) {
             self.init(state: .idle, text: "Idle at \(step.title)", reason: step.detail)
         } else {
             self.init(state: .idle, text: PipelineStepState.idle.statusText, reason: nil)

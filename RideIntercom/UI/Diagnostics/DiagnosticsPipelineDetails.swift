@@ -108,13 +108,30 @@ struct DiagnosticsReceiveDetails: View {
         return VStack(alignment: .leading, spacing: AppSpacing.xs) {
             if member.connectionState != .offline {
                 if status?.localMute == true {
-                    Label { Text("Muted") } icon: { Image(systemName: "mic.slash.fill").foregroundStyle(AppColorPalette.danger) }
+                    Label {
+                        Text("Muted")
+                    } icon: {
+                        Image(systemName: "mic.slash.fill").foregroundStyle(AppColorPalette.danger)
+                    }
                 }
-                Text("Sender: \(status.map { $0.localMute ? "Muted" : "Unmuted" } ?? "Not measured") / codec \(codecReport.map { $0.activeConfiguration.codec.rawValue } ?? "Not measured") / bitrate \(codecReport?.activeConfiguration.activeBitRate.map { "\($0) bps" } ?? "Not measured") / VAD \(vad?.lastAnalysis.map { String(describing: $0.state) } ?? "Not measured") / Isolation \(isolation.map { String(describing: $0.state) } ?? "Not measured")")
+                Text(
+                    """
+                    Sender: \(status.map { $0.localMute ? "Muted" : "Unmuted" } ?? "Not measured") / codec \
+                    \(codecReport.map { $0.activeConfiguration.codec.rawValue } ?? "Not measured") / bitrate \
+                    \(codecReport?.activeConfiguration.activeBitRate.map { "\($0) bps" } ?? "Not measured") / \
+                    VAD \(vad?.lastAnalysis.map { String(describing: $0.state) } ?? "Not measured") / \
+                    Isolation \(isolation.map { String(describing: $0.state) } ?? "Not measured")
+                    """
+                )
                 if let age = detail.age {
                     Text("Sender updated \(age)s ago\(detail.isStale ? " / Stale" : "")")
                 }
-                Text("RTC RX: \(member.connectionState.rawValue) / \(member.authenticationState.rawValue) / \(detail.paths)")
+                Text(
+                    """
+                    RTC RX: \(member.connectionState.rawValue) / \(member.authenticationState.rawValue) / \
+                    \(detail.paths)
+                    """
+                )
                 Text("Decode: \(member.activeCodec?.rawValue ?? "Not measured") / packets/s: Not measured")
                 Text(presentation.playoutDetail(for: member.id))
                     .accessibilityIdentifier("receive-peer-playout")
