@@ -50,7 +50,8 @@ struct GroupSettingsTests {
     }
 
     private func harness() throws -> AppTestSupport.Harness {
-        let first = try IntercomGroup(name: "First", members: [.init(id: "local", displayName: "You")], accessSecret: "group-key")
+        let first = try IntercomGroup(
+            name: "First", members: [.init(id: "local", displayName: "You")], accessSecret: "group-key")
         return AppTestSupport.makeHarness(groups: [first])
     }
 }

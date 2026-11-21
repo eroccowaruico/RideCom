@@ -33,7 +33,8 @@ struct ContactInvitationPurposeTests {
         }
         let ordinary = try token()
         #expect(throws: GroupInviteTokenError.invalidTokenEncoding) {
-            try ordinary.accept(signer: testIdentitySigner("purpose-friend"), displayName: "Friend", contactBootstrap: true)
+            try ordinary.accept(
+                signer: testIdentitySigner("purpose-friend"), displayName: "Friend", contactBootstrap: true)
         }
         var rewritten = URLComponents(url: contactURL, resolvingAgainstBaseURL: false)!
         rewritten.host = "join"
@@ -49,7 +50,8 @@ struct ContactInvitationPurposeTests {
         var context = try #require(grant["context"] as? [String: Any])
         context.removeValue(forKey: "contactBootstrap")
         grant["context"] = context; object["directInvitation"] = grant
-        let changed = try JSONDecoder().decode(GroupInviteToken.self, from: JSONSerialization.data(withJSONObject: object))
+        let changed = try JSONDecoder().decode(
+            GroupInviteToken.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(throws: GroupInviteTokenError.invalidSignature) {
             try changed.accept(signer: testIdentitySigner("purpose-friend"), displayName: "Friend")
         }
@@ -58,7 +60,9 @@ struct ContactInvitationPurposeTests {
     @Test func expiredContactCannotBeAcceptedAndDefaultLifetimeMatchesGroupInvitations() throws {
         let expired = try token(contact: true, issuedAt: 0, expiresAt: 10)
         #expect(throws: GroupInviteTokenError.expired) {
-            try expired.accept(signer: testIdentitySigner("purpose-friend"), displayName: "Friend", now: 10, contactBootstrap: true)
+            try expired.accept(
+                signer: testIdentitySigner("purpose-friend"), displayName: "Friend", now: 10,
+                contactBootstrap: true)
         }
         let ordinary = try token(issuedAt: 100)
         let contact = try token(contact: true, issuedAt: 100)

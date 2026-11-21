@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 struct InvitationSharingTests {
     @Test func diagnosticsNeverReadsOrCreatesInvitationKeys() throws {
         let keychain = DictionaryKeychain()
-        let h = AppTestSupport.makeHarness(internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: "lazy-share"),
+        let h = AppTestSupport.makeHarness(
+            internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: "lazy-share"),
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: "lazy-share"))
         defer { h.viewModel.disconnect() }
         let group = try #require(h.viewModel.groups.first)
@@ -23,7 +24,8 @@ struct InvitationSharingTests {
     }
     @Test func shareExportsNativeURLOnlyOnDemandAndUsesCurrentName() async throws {
         let keychain = DictionaryKeychain()
-        let h = AppTestSupport.makeHarness(internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: "share-export"),
+        let h = AppTestSupport.makeHarness(
+            internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: "share-export"),
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: "share-export"))
         let vm = h.viewModel; defer { vm.disconnect() }
         let group = try #require(vm.groups.first); vm.selectedGroup = group
@@ -63,7 +65,8 @@ struct InvitationSharingTests {
 
     @Test func storageChangedAfterPresentationCannotIssueKeysOrShare() async throws {
         let keychain = DictionaryKeychain()
-        let h = AppTestSupport.makeHarness(internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: "stale-share"),
+        let h = AppTestSupport.makeHarness(
+            internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: "stale-share"),
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: "stale-share"))
         let vm = h.viewModel; defer { vm.disconnect() }
         let group = try #require(vm.groups.first); vm.selectedGroup = group

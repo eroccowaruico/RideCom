@@ -45,7 +45,8 @@ struct GroupRecoveryTests {
         let settingsStore = InMemoryAppSettingsStore(settings: settings)
         let keychain = InternetTestKeychain()
         let internetStore = InternetConnectionSettingsStore(keychain: keychain)
-        let internet = RTC.CloudflareRealtimeConfiguration(workerURL: URL(string: "https://fixture.invalid")!, accessToken: "fixture")
+        let internet = RTC.CloudflareRealtimeConfiguration(
+            workerURL: URL(string: "https://fixture.invalid")!, accessToken: "fixture")
         try internetStore.save(url: internet.workerURL.absoluteString, token: internet.accessToken)
         let h = AppTestSupport.makeHarness(appSettingsStore: settingsStore, internetSettingsStore: internetStore)
         let vm = h.viewModel

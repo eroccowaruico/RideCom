@@ -42,22 +42,32 @@ struct ContactInvitationSessionTests {
         #expect(friend.isAcknowledged)
         let source = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "a", count: 64))
         let destination = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "b", count: 64))
-        let grant = try testCallNotificationGrant(owner: source, allowedSender: destination, audience: "rideintercom-group-invitation")
-        let permission = try CallNotificationPermissionMessage.make(owner: source, allowedSender: destination, revision: 1,
+        let grant = try testCallNotificationGrant(
+            owner: source, allowedSender: destination, audience: "rideintercom-group-invitation")
+        let permission = try CallNotificationPermissionMessage.make(
+            owner: source, allowedSender: destination, revision: 1,
             grant: nil, signer: authorSigner, groupGrant: grant, groupInvitationsSupported: true)
-        let savedAuthor = SavedUser(displayName: "Author", memberIDs: [authorID], deviceKeys: [authorID: authorSigner.publicKey], principal: source)
+        let savedAuthor = SavedUser(
+            displayName: "Author", memberIDs: [authorID], deviceKeys: [authorID: authorSigner.publicKey],
+            principal: source)
         var receivedGroupPermission = false
         friend.onNotificationPermission = { peerID, message in
             guard message.namespace == CallNotificationPermissionMessage.groupNamespace,
-                  let value = try? JSONDecoder().decode(CallNotificationPermissionMessage.self, from: message.payload) else { return }
+                let value = try? JSONDecoder().decode(
+                    CallNotificationPermissionMessage.self, from: message.payload)
+            else { return }
             do {
                 _ = try value.verifiedGrant(peerID: peerID, savedUser: savedAuthor, local: destination)
                 receivedGroupPermission = value.groupGrant == grant
             } catch { Issue.record("The group permission must verify against the registered device") }
         }
-        #expect(author.sendNotificationPermission(try JSONEncoder().encode(permission), namespace: CallNotificationPermissionMessage.groupNamespace))
+        #expect(
+            author.sendNotificationPermission(
+                try JSONEncoder().encode(permission), namespace: CallNotificationPermissionMessage.groupNamespace))
         let permissionDeadline = ContinuousClock.now + .seconds(5)
-        while !receivedGroupPermission, ContinuousClock.now < permissionDeadline { try await Task.sleep(for: .milliseconds(25)) }
+        while !receivedGroupPermission, ContinuousClock.now < permissionDeadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
         #expect(receivedGroupPermission, "The separate group permission crosses the real QUIC exchange")
     }
 }

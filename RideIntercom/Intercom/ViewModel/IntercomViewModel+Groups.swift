@@ -103,7 +103,9 @@ extension IntercomViewModel {
         var group = group
         for index in group.members.indices {
             group.members[index].leaveCall()
-            if group.members[index].id == localMemberIdentity.memberID { group.members[index].authenticationState = .open }
+            if group.members[index].id == localMemberIdentity.memberID {
+                group.members[index].authenticationState = .open
+            }
         }
         return group
     }
@@ -160,7 +162,8 @@ extension IntercomViewModel {
               let groupIndex = groups.firstIndex(where: { $0.id == groupID && $0.kind == .group }),
               groups[groupIndex].members.contains(where: { $0.id == memberID }) else { return false }
         guard canManageRegularGroups else {
-            groupErrorMessage = groupStorageNotice ?? "An active pass is required to remove a member. Check Access in Settings."
+            groupErrorMessage =
+                groupStorageNotice ?? "An active pass is required to remove a member. Check Access in Settings."
             return false
         }
         return applyGroupMemberRemoval(memberID, from: groupID)
@@ -168,7 +171,9 @@ extension IntercomViewModel {
 
     /// The caller authorizes the removal. Applying it requires writable saved groups,
     /// regardless of the local recipient's pass.
-    func applyGroupMemberRemoval(_ memberID: String, from groupID: UUID, receipt: GroupSnapshot.GroupRemovalReceipt? = nil) -> Bool {
+    func applyGroupMemberRemoval(
+        _ memberID: String, from groupID: UUID, receipt: GroupSnapshot.GroupRemovalReceipt? = nil
+    ) -> Bool {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         if memberID == localMemberIdentity.memberID {
             guard groups.contains(where: { $0.id == groupID && $0.kind == .group }) else { return false }
@@ -206,7 +211,9 @@ extension IntercomViewModel {
         guard canEditSavedGroups else { groupErrorMessage = groupStorageNotice; return false }
         guard requireGroupAccess() else { return false }
         guard let remoteMembers = membersForSavedUsers(userIDs) else { return false }
-        guard remoteMembers.count < IntercomGroup.maximumMemberCount, IntercomGroup.isValidName(name), !name.contains("|") else {
+        guard remoteMembers.count < IntercomGroup.maximumMemberCount, IntercomGroup.isValidName(name),
+            !name.contains("|")
+        else {
             groupErrorMessage = "Enter a group name without | and choose up to 7 other members."
             return false
         }
@@ -218,7 +225,9 @@ extension IntercomViewModel {
             requestGroupDeliverySync(.localChange)
             return true
         }
-        let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)] + remoteMembers
+        let members =
+            [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
+            + remoteMembers
         let newGroup = try? IntercomGroup(
             id: groupID,
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -226,7 +235,8 @@ extension IntercomViewModel {
         )
 
         guard let newGroup else {
-            groupErrorMessage = "Could not create the group because the saved rider identity is invalid. Saved groups have not been changed."
+            groupErrorMessage =
+                "Could not create the group because the saved rider identity is invalid. Saved groups have not been changed."
             return false
         }
         let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
@@ -262,9 +272,13 @@ extension IntercomViewModel {
                 resumeOrdinaryGroupReply(for: accepted)
                 requestInvitationInternetReply(restart: true)
             }
-            AppLoggers.app.info("app.deeplink.invite.accepted", metadata: InviteDeepLinkLog.accepted(groupID: accepted.id, kind: accepted.kind))
+            AppLoggers.app.info(
+                "app.deeplink.invite.accepted",
+                metadata: InviteDeepLinkLog.accepted(groupID: accepted.id, kind: accepted.kind))
         } else {
-            AppLoggers.app.warning("app.deeplink.invite.rejected", metadata: InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation"))
+            AppLoggers.app.warning(
+                "app.deeplink.invite.rejected",
+                metadata: InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation"))
         }
     }
 
@@ -296,9 +310,13 @@ extension IntercomViewModel {
             throw GroupInviteTokenError.incompatibleCall
         }
 
-        let accepted = try token.accept(signer: internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
-                                        displayName: localMemberIdentity.displayName, trust: try internetSettingsStore.identityTrust(), now: now)
-        guard kind != .group || !groupRepository.hasRetiredGroupLink(accepted) else { throw GroupInviteTokenError.retiredGroupLink }
+        let accepted = try token.accept(
+            signer: internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
+            displayName: localMemberIdentity.displayName, trust: try internetSettingsStore.identityTrust(),
+            now: now)
+        guard kind != .group || !groupRepository.hasRetiredGroupLink(accepted) else {
+            throw GroupInviteTokenError.retiredGroupLink
+        }
         let previous: GroupAccessCredential?
         do { previous = try groupRepository.credential(for: token.groupID) } catch {
             reportGroupStorageError(error); throw error
