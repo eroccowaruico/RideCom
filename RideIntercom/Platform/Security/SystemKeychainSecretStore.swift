@@ -24,7 +24,9 @@ final class SystemKeychainSecretStore: KeychainSecretStoring {
     private func accessibility(service: String) -> [String: Any] {
         // Only this app's account-scoped call data needs background access.
         // No Keychain access group or extension sharing is introduced.
-        let services = [".AppleAccount", ".AccountDeletion", ".GroupCredential.v2", ".InternetConnection", ".DirectInvitations"]
+        let services = [
+            ".AppleAccount", ".AccountDeletion", ".GroupCredential.v2", ".InternetConnection", ".DirectInvitations"
+        ]
         guard isIOS, services.contains(where: { service.hasSuffix($0) }) else { return [:] }
         return [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
     }
@@ -39,7 +41,9 @@ final class SystemKeychainSecretStore: KeychainSecretStoring {
         guard status == errSecSuccess else { throw KeychainSecretStoreError.unexpectedStatus(status) }
         guard let rows = result as? [[String: Any]] else { throw KeychainSecretStoreError.invalidData }
         return try rows.map {
-            guard let account = $0[kSecAttrAccount as String] as? String else { throw KeychainSecretStoreError.invalidData }
+            guard let account = $0[kSecAttrAccount as String] as? String else {
+                throw KeychainSecretStoreError.invalidData
+            }
             return account
         }
     }

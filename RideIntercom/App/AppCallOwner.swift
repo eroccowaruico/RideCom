@@ -23,8 +23,13 @@ final class AppCallOwner: CallSurfaceActions {
     var watchBridge: WatchPhoneBridge?
     #endif
 
-    init(account: AppleAccountSession, viewModel: IntercomViewModel?, liveActivityDriver: (any CallLiveActivityDriving)? = nil, widgetDestinationStore: WidgetDestinationStore = .system,
-         makeViewModel: @escaping @MainActor (AppleAccountSession) -> IntercomViewModel? = IntercomViewModel.makeForCurrentProcess) {
+    init(
+        account: AppleAccountSession, viewModel: IntercomViewModel?,
+        liveActivityDriver: (any CallLiveActivityDriving)? = nil,
+        widgetDestinationStore: WidgetDestinationStore = .system,
+        makeViewModel: @escaping @MainActor (AppleAccountSession) -> IntercomViewModel? = IntercomViewModel
+            .makeForCurrentProcess
+    ) {
         widgetDestinations = WidgetDestinationPublisher(store: widgetDestinationStore)
         liveActivities = CallLiveActivityPresenter(driver: liveActivityDriver ?? SystemCallLiveActivityDriver())
         self.makeViewModel = makeViewModel
@@ -109,7 +114,8 @@ final class AppCallOwner: CallSurfaceActions {
             throw CallIntentError.unavailable("This sign-in has ended. Open your current account to continue.")
         }
         guard viewModel === model, model.currentCallReference == reference else {
-            throw CallIntentError.unavailable("The displayed call has ended or changed. Open RideCom to check your current call.")
+            throw CallIntentError.unavailable(
+                "The displayed call has ended or changed. Open RideCom to check your current call.")
         }
         guard model.canStartCalls else {
             throw CallIntentError.unavailable(model.groupStorageNotice ?? "Sign in with Apple in RideCom first.")

@@ -43,13 +43,18 @@ extension InternetAccountClient {
         let state: ContactDeletionWorkerState?
     }
 
-    func writeContactDeletion(_ record: ContactDeletionPublication, access: CallNotificationServiceAccess) async throws -> ContactDeletionWorkerState {
+    func writeContactDeletion(_ record: ContactDeletionPublication, access: CallNotificationServiceAccess)
+        async throws -> ContactDeletionWorkerState {
         guard record.sender == access.principal else { throw Failure.rejected }
         let body = DeletionWrite(slot: record.slot, id: record.id.uuidString.lowercased(), expiresAt: record.expiresAt,
-            recipient: record.payload?.recipient.userID, recipientKey: record.payload?.recipientKey, packet: record.payload?.packet)
+            recipient: record.payload?.recipient.userID, recipientKey: record.payload?.recipientKey,
+            packet: record.payload?.packet)
         let response: DeletionResponse = try await sendJSON(origin: access.origin, path: "api/contact-deletions",
-            method: record.payload == nil ? "DELETE" : "PUT", body: JSONEncoder().encode(body), token: access.accessToken)
-        guard let state = response.state, record.payload != nil || state == .retired else { throw Failure.invalidResponse }
+            method: record.payload == nil ? "DELETE" : "PUT", body: JSONEncoder().encode(body),
+            token: access.accessToken)
+        guard let state = response.state, record.payload != nil || state == .retired else {
+            throw Failure.invalidResponse
+        }
         return state
     }
 
@@ -70,8 +75,10 @@ extension InternetAccountClient {
         let id = record.id.uuidString.lowercased()
         let proof = try signer.sign(Self.deletionProofPayload([record.owner.userID, record.slot, id, record.packet]),
                                     purpose: .acknowledgeContactDeletionRelay)
-        let body = DeletionAcknowledgement(owner: record.owner.userID, slot: record.slot, id: id, packet: record.packet, proof: proof)
-        let response: DeletionResponse = try await sendJSON(origin: access.origin, path: "api/contact-deletions/receipt",
+        let body = DeletionAcknowledgement(
+            owner: record.owner.userID, slot: record.slot, id: id, packet: record.packet, proof: proof)
+        let response: DeletionResponse = try await sendJSON(
+            origin: access.origin, path: "api/contact-deletions/receipt",
             method: "PUT", body: JSONEncoder().encode(body), token: access.accessToken, acceptsMissing: true)
         return response.state == .received
     }

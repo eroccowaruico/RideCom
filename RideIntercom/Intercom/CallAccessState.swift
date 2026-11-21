@@ -19,7 +19,8 @@ struct CallAccessState {
     mutating func endConversation() { isEstablished = false }
     /// Called only after both the local pipeline and another verified participant
     /// are ready. Late joiners inherit the existing start rather than renewing it.
-    mutating func establish(now: TimeInterval, sponsored: Bool, remoteEstablished: Bool, mediaReady: Bool) -> TimeInterval? {
+    mutating func establish(now: TimeInterval, sponsored: Bool, remoteEstablished: Bool, mediaReady: Bool)
+        -> TimeInterval? {
         guard !isEstablished, mediaReady else { return nil }
         isEstablished = true
         guard sponsored, !remoteEstablished, Self.validStart(now, now: now) else { return nil }

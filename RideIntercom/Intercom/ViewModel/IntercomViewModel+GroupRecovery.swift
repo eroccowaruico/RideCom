@@ -6,15 +6,24 @@ enum GroupStorageIssue: Equatable {
         if error as? GroupStorageError == .unsupportedVersion { return .unsupportedVersion }
         if error as? GroupStorageError == .invalidUpdate { return .invalidChange }
         if error is DecodingError || error as? IntercomGroupError == .invalidStoredGroups { return .corrupted }
-        if error as? IntercomGroupError == .invalidIdentity || error as? IntercomGroupError == .invalidMemberCount { return .invalidChange }
+        if error as? IntercomGroupError == .invalidIdentity
+            || error as? IntercomGroupError == .invalidMemberCount {
+            return .invalidChange
+        }
         return .unavailable
     }
     var message: String {
         switch self {
-        case .unavailable: "Saved groups could not be accessed. Unlock this device or close another running copy, then reload."
-        case .corrupted: "Saved groups could not be read. Reload to retry, or reset saved groups after preserving the unreadable data."
+        case .unavailable:
+            "Saved groups could not be accessed. Unlock this device or close another running copy, then reload."
+        case .corrupted:
+            """
+            Saved groups could not be read. Reload to retry, or reset saved groups after preserving the \
+            unreadable data.
+            """
         case .unsupportedVersion: "Saved groups were created by a newer app. Open them with that version."
-        case .invalidChange: "The group changes were invalid. Saved groups have been preserved. Reload before trying again."
+        case .invalidChange:
+            "The group changes were invalid. Saved groups have been preserved. Reload before trying again."
         }
     }
 }
@@ -22,11 +31,15 @@ enum GroupStorageIssue: Equatable {
 extension IntercomViewModel {
     var canEditSavedGroups: Bool { canStartCalls && groupStorageIssue == nil }
     var groupStorageNotice: String? {
-        if hasCurrentAccountAccess && requiresAccountDataReset { return "Remove the previous account data on this device to set up your account again." }
+        if hasCurrentAccountAccess && requiresAccountDataReset {
+            return "Remove the previous account data on this device to set up your account again."
+        }
         if !canStartCalls { return "This sign-in has ended. Open your current account to continue." }
         if let groupStorageIssue { return groupStorageIssue.message }
         if groupKeyCleanupPending { return "Groups were saved. Unused group keys will be removed on the next reload." }
-        if !groupsMissingKeys.isEmpty { return "Some groups have no saved key. Ask a member for a new invitation to those groups." }
+        if !groupsMissingKeys.isEmpty {
+            return "Some groups have no saved key. Ask a member for a new invitation to those groups."
+        }
         return nil
     }
     func refreshGroupStorageStatus() {
@@ -49,7 +62,12 @@ extension IntercomViewModel {
     }
     func reportGroupStorageError(_ error: Error) {
         if error as? GroupStorageError == .identityConflict {
-            groupErrorMessage = "This invitation conflicts with a saved rider's identity or nickname. Check the rider before removing the old entry or changing its nickname. Existing groups and calls are unchanged."
+            groupErrorMessage =
+                """
+                This invitation conflicts with a saved rider's identity or nickname. Check the rider \
+                before removing the old entry or changing its nickname. Existing groups and calls are \
+                unchanged.
+                """
             return
         }
         groupStorageIssue = .classify(error)

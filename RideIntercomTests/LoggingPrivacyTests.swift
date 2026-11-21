@@ -43,7 +43,9 @@ struct LoggingPrivacyTests {
             #expect(metadata["event"] == "app.deeplink.invite.rejected")
             #expect(metadata.count == 2)
         }
-        #expect(InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation")["reason"] == "conflicting_direct_invitation")
+        #expect(
+            InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation")["reason"]
+                == "conflicting_direct_invitation")
     }
 
     @Test func inviteDeepLinkAcceptanceHashesTheGroupID() throws {
@@ -66,7 +68,9 @@ struct LoggingPrivacyTests {
 
     @Test func receivedAudioFailuresSeparateCodecDecodeErrorsForTheirOwnLogEvent() {
         #expect(AudioPacketReception.failure(CodecError.malformedPayload(.opus)) == .decodeFailed("CodecError"))
-        #expect(AudioPacketReception.failure(AppAudioCodecBridge.DecodingError.invalidFormat) == .decodeFailed("DecodingError"))
+        #expect(
+            AudioPacketReception.failure(AppAudioCodecBridge.DecodingError.invalidFormat)
+                == .decodeFailed("DecodingError"))
         #expect(AudioPacketReception.failure(AppAudioPipelineError.notConfigured) == .unavailable)
         struct PlaybackFailure: Error {}
         #expect(AudioPacketReception.failure(PlaybackFailure()) == .failed("PlaybackFailure"))
@@ -80,7 +84,7 @@ struct LoggingPrivacyTests {
         #expect(malformed.decodedPayload(Probe.self, from: "rider-private-123") == nil)
 
         let metadata = ApplicationDataLog.decodeFailed(namespace: "test.probe", peerID: "rider-private-123",
-                                                       error: DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "")))
+            error: DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "")))
         #expect(metadata["event"] == "rtc.application_data.decode_failed")
         #expect(metadata["namespace"] == "test.probe")
         #expect(metadata["errorType"] == "DecodingError")
