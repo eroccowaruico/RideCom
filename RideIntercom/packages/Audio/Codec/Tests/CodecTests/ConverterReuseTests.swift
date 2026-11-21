@@ -5,7 +5,7 @@ import Testing
 
 @Test func converterReuseIsExclusiveBoundedAndResetsPacketState() throws {
     let pool = AudioConverterPool(capacity: 2)
-    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
     let key = AudioConverterPool.Key(encoding: true, codec: .opus, format: .init(), bitRate: 32000, cookie: nil)
     var created = 0
     func make() -> AVAudioConverter? { created += 1; return AVAudioConverter(from: format, to: format) }
@@ -31,13 +31,17 @@ import Testing
     let decoder = CodecDecoder()
     for index in 0..<30 {
         let silent = index.isMultiple(of: 2)
-        let samples = (0..<960).map { i in silent ? Float(0) : Float(sin(Double(i) * 2 * .pi * 440 / 48000) * 0.4) }
+        let samples = (0..<960).map { sampleIndex in
+            silent ? Float(0) : Float(sin(Double(sampleIndex) * 2 * .pi * 440 / 48000) * 0.4)
+        }
         let frame = PCMFrame(sequenceNumber: UInt64(index), format: .init(), samples: samples)
         let output = try decoder.decode(encoder.encode(frame))
         #expect(output.samples.count == samples.count)
         #expect(output.sequenceNumber == frame.sequenceNumber)
-        if silent { #expect(output.samples.allSatisfy { abs($0) < 0.0001 }, "Previous speech must not leak into a new packet") }
-        else { #expect(output.samples.contains { abs($0) > 0.1 }) }
+        if silent {
+            #expect(
+                output.samples.allSatisfy { abs($0) < 0.0001 }, "Previous speech must not leak into a new packet")
+        } else { #expect(output.samples.contains { abs($0) > 0.1 }) }
     }
 }
 

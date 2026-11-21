@@ -64,7 +64,7 @@ func opusBitRateChangesEncodedAudioRatherThanOnlyPacketMetadata(rate: Double) th
         0x00, 0xc0,
         0x00, 0x00,
         0x00, 0x40,
-        0xff, 0x7f,
+        0xff, 0x7f
     ])
 
     let decoded = try PCM16Codec.decode(data)
@@ -117,7 +117,8 @@ func opusBitRateChangesEncodedAudioRatherThanOnlyPacketMetadata(rate: Double) th
 }
 
 @Test func encoderRejectsMismatchedFormatInsteadOfResampling() {
-    let encoder = CodecEncoder(configuration: CodecEncodingConfiguration(format: AudioFormat(sampleRate: 48_000, channelCount: 1)))
+    let encoder = CodecEncoder(
+        configuration: CodecEncodingConfiguration(format: AudioFormat(sampleRate: 48_000, channelCount: 1)))
     let frame = PCMFrame(
         sequenceNumber: 1,
         format: AudioFormat(sampleRate: 24_000, channelCount: 2),
@@ -177,7 +178,9 @@ func opusBitRateChangesEncodedAudioRatherThanOnlyPacketMetadata(rate: Double) th
         "m": 8, "n": 1,
         "p": [[0, 960, 8]],
         "d": Data(repeating: 0, count: 8).base64EncodedString()]
-    #expect(try CompressedPayloadEnvelope.decode(JSONSerialization.data(withJSONObject: valid), expectedCodec: .opus).sourceFrameCount == 960)
+    #expect(
+        try CompressedPayloadEnvelope.decode(JSONSerialization.data(withJSONObject: valid), expectedCodec: .opus)
+            .sourceFrameCount == 960)
     let mutations: [[String: Any]] = [
         ["m": 0], ["m": Int.max], ["n": 0],
         ["n": UInt32.max], ["f": UInt32.max], ["s": -1],
@@ -189,7 +192,9 @@ func opusBitRateChangesEncodedAudioRatherThanOnlyPacketMetadata(rate: Double) th
     ]
     for mutation in mutations {
         let payload = try JSONSerialization.data(withJSONObject: valid.merging(mutation) { _, new in new })
-        let frame = EncodedCodecFrame(sequenceNumber: 1, codec: .opus, format: AudioFormat(), capturedAt: 0, sampleCount: 960, payload: payload)
+        let frame = EncodedCodecFrame(
+            sequenceNumber: 1, codec: .opus, format: AudioFormat(), capturedAt: 0, sampleCount: 960,
+            payload: payload)
         #expect(throws: CodecError.malformedPayload(.opus)) { try CodecDecoder().decode(frame) }
     }
 }

@@ -16,8 +16,8 @@ import Testing
     let encoder = try StreamingCodecEncoder(configuration: .init(codec: .mpeg4AACELD, format: format))
     let decoder = StreamingCodecDecoder()
     var packets = 0
-    for i in 0..<20 {
-        let frame = PCMFrame(sequenceNumber: UInt64(i), format: format, capturedAt: Double(i) * 0.02,
+    for index in 0..<20 {
+        let frame = PCMFrame(sequenceNumber: UInt64(index), format: format, capturedAt: Double(index) * 0.02,
             samples: Array(repeating: 0.1, count: 320))
         if let packet = try encoder.encode(frame) {
             _ = try decoder.decode(packet)
@@ -32,8 +32,8 @@ import Testing
     let encoder = try StreamingCodecEncoder(configuration: .init(codec: .mpeg4AACELD))
     let decoder = StreamingCodecDecoder()
     var checked = false
-    for i in 0..<8 {
-        guard var packet = try encoder.encode(.init(sequenceNumber: UInt64(i), capturedAt: Double(i) * 0.01,
+    for index in 0..<8 {
+        guard var packet = try encoder.encode(.init(sequenceNumber: UInt64(index), capturedAt: Double(index) * 0.01,
             samples: Array(repeating: 0.1, count: 480))) else { continue }
         var envelope = try CompressedPayloadEnvelope.decode(packet.payload, expectedCodec: .mpeg4AACELD)
         #expect(envelope.packetizationJitterFrames == nil)

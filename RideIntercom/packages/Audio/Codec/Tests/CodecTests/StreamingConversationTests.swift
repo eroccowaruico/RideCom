@@ -30,9 +30,9 @@ func silenceSuspensionPreservesQuietRepliesAndStopsSending(setting: (CodecIdenti
     var input = output
     for (utterance, start) in starts.enumerated() {
         for sample in 0..<Int(rate * 0.1) {
-            let t = Double(sample) / rate
-            let fade = min(1, min(t / 0.005, (0.1 - t) / 0.005))
-            input[Int(start * rate) + sample] = Float(fade * 0.03 * sin(t * 2 * .pi * Double(300 + 110 * utterance)))
+            let time = Double(sample) / rate
+            let fade = min(1, min(time / 0.005, (0.1 - time) / 0.005))
+            input[Int(start * rate) + sample] = Float(fade * 0.03 * sin(time * 2 * .pi * Double(300 + 110 * utterance)))
         }
     }
     var bytes = 0, continuousBytes = 0, packets = 0
@@ -51,7 +51,8 @@ func silenceSuspensionPreservesQuietRepliesAndStopsSending(setting: (CodecIdenti
             if let previousEnd, decoded.capturedAt > previousEnd + 1 / rate {
                 for start in starts {
                     #expect(decoded.capturedAt <= start + 1 / rate || previousEnd >= start + 0.1 - 1 / rate,
-                        "Native priming may not remove voiced samples after silence: \(previousEnd)..<\(decoded.capturedAt), reply \(start)")
+                        "Priming dropped speech at \(previousEnd)..<\(decoded.capturedAt), reply \(start)"
+                    )
                 }
             }
             previousEnd = decoded.capturedAt + Double(decoded.frameCount) / rate
@@ -63,30 +64,33 @@ func silenceSuspensionPreservesQuietRepliesAndStopsSending(setting: (CodecIdenti
     }
     #expect(bytes < continuousBytes / 4, "Seven seconds with four brief replies should save over 75% of payload bytes")
     #expect(packets < 140)
+    checkQuietReplies(starts: starts, rate: rate, input: input, output: output)
+    print("silence budget \(codec) \(rate): \(bytes)/\(continuousBytes) bytes, \(packets) packets")
+}
+
+private func checkQuietReplies(starts: [Double], rate: Double, input: [Float], output: [Float]) {
     for (utterance, start) in starts.enumerated() {
         // Native codecs have their own priming delay, bounded to 30 ms at 16 kHz AAC.
         // Compare the complete quiet acknowledgement, not just its loudest peak.
         let first = Int(start * rate), length = Int(0.1 * rate)
         var best = 0.0
         for shift in 0...Int(rate * 0.03) {
-            var dot = 0.0, a = 0.0, b = 0.0
-            for i in 0..<length {
-                let x = Double(input[first + i]), y = Double(output[first + shift + i])
-                dot += x * y; a += x * x; b += y * y
+            var dot = 0.0, inputEnergy = 0.0, outputEnergy = 0.0
+            for offset in 0..<length {
+                let source = Double(input[first + offset]), decoded = Double(output[first + shift + offset])
+                dot += source * decoded; inputEnergy += source * source; outputEnergy += decoded * decoded
             }
-            best = max(best, dot / max(1e-20, sqrt(a * b)))
+            best = max(best, dot / max(1e-20, sqrt(inputEnergy * outputEnergy)))
         }
         #expect(best > 0.95, "Quiet reply \(utterance) lost identity after suspension: \(best)")
         #expect(output[Int((start + 0.25) * rate)..<Int((start + 0.4) * rate)].allSatisfy { abs($0) < 0.001 })
     }
-    print("silence budget \(codec) \(rate): \(bytes)/\(continuousBytes) bytes, \(packets) packets")
 }
 
 @Test(arguments: [(CodecIdentifier.pcm16, 48000.0, 32000), (.opus, 48000, 48000),
     (.opus, 24000, 64000), (.opus, 16000, 128000), (.mpeg4AACELD, 48000, 32000),
     (.mpeg4AACELD, 48000, 64000), (.mpeg4AACELD, 24000, 32000), (.mpeg4AACELD, 16000, 32000)])
-func conversationKeepsBriefRepliesAndOneToThreeSecondPauses(setting: (CodecIdentifier, Double, Int)) throws {
-    let (codec, rate, bitRate) = setting
+func conversationKeepsBriefRepliesAndOneToThreeSecondPauses(codec: CodecIdentifier, rate: Double, bitRate: Int) throws {
     let format = AudioFormat(sampleRate: rate, channelCount: 1)
     let encoder = try StreamingCodecEncoder(configuration: .init(codec: codec, format: format,
         aacELDv2Options: .init(bitRate: bitRate), opusOptions: .init(bitRate: bitRate)))
@@ -99,7 +103,8 @@ func conversationKeepsBriefRepliesAndOneToThreeSecondPauses(setting: (CodecIdent
         for sample in 0..<Int(rate * 0.1) {
             let time = Double(sample) / rate
             let envelope = min(1, min(time / 0.005, (0.1 - time) / 0.005))
-            signal[Int(start * rate) + sample] = Float(envelope * 0.3 * sin(time * 2 * .pi * Double(300 + utterance * 110)))
+            signal[Int(start * rate) + sample] = Float(
+                envelope * 0.3 * sin(time * 2 * .pi * Double(300 + utterance * 110)))
         }
     }
     let count = Int(rate * 0.02)

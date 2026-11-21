@@ -12,11 +12,13 @@ import Testing
 func nativeELDv2ExposesCookieBeforeItsFirstAudio(rate: Double) throws {
     let format = AudioFormat(sampleRate: rate, channelCount: 2)
     let pcm = try #require(AudioConverterBridge.makePCMFormat(format))
-    let compressed = try #require(AudioConverterBridge.makeCompressedFormat(codec: .mpeg4AACELDv2, format: format, bitRate: 64000))
+    let compressed = try #require(
+        AudioConverterBridge.makeCompressedFormat(codec: .mpeg4AACELDv2, format: format, bitRate: 64000))
     let converter = try #require(AVAudioConverter(from: pcm, to: compressed))
     converter.bitRate = 64000
     let cookie = try #require(converter.magicCookie)
-    let native = try #require(AudioConverterBridge.makeDecodeFormat(codec: .mpeg4AACELDv2, format: format, cookie: cookie))
+    let native = try #require(
+        AudioConverterBridge.makeDecodeFormat(codec: .mpeg4AACELDv2, format: format, cookie: cookie))
     let description = withExtendedLifetime(native) { native.streamDescription.pointee }
     #expect(description.mFramesPerPacket > 0)
 }
@@ -99,12 +101,14 @@ private func decodeAACRaw(_ packet: EncodedCodecFrame, parseFormat: Bool) throws
         description.mFormatID = packet.codec.audioFormatID
         var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         let status = cookie.withUnsafeBytes {
-            AudioFormatGetProperty(kAudioFormatProperty_FormatInfo, UInt32(cookie.count), $0.baseAddress, &size, &description)
+                AudioFormatGetProperty(
+                    kAudioFormatProperty_FormatInfo, UInt32(cookie.count), $0.baseAddress, &size, &description)
         }
         #expect(status == noErr)
         compressed = try #require(AVAudioFormat(streamDescription: &description))
     } else {
-        compressed = try #require(AudioConverterBridge.makeDecodeFormat(codec: packet.codec, format: packet.format, cookie: cookie))
+            compressed = try #require(
+                AudioConverterBridge.makeDecodeFormat(codec: packet.codec, format: packet.format, cookie: cookie))
     }
     compressed.magicCookie = cookie
     let pcm = try #require(AudioConverterBridge.makePCMFormat(packet.format))
@@ -115,7 +119,10 @@ private func decodeAACRaw(_ packet: EncodedCodecFrame, parseFormat: Bool) throws
         maximumPacketSize: envelope.maximumPacketSize)
     input.packetCount = envelope.packetCount
     input.byteLength = UInt32(envelope.data.count)
-    envelope.data.withUnsafeBytes { input.data.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+    try envelope.data.withUnsafeBytes { bytes in
+        let source = try #require(bytes.baseAddress)
+        input.data.copyMemory(from: source, byteCount: bytes.count)
+    }
     for (index, description) in envelope.packetDescriptions.enumerated() {
         input.packetDescriptions?[index] = description.audioStreamPacketDescription
     }
@@ -125,6 +132,7 @@ private func decodeAACRaw(_ packet: EncodedCodecFrame, parseFormat: Bool) throws
     var error: NSError?
     let status = converter.convert(to: output, error: &error) { count, state in provider.provide(count, state) }
     #expect(status != .error, "\(error?.localizedDescription ?? "")")
-    return try AudioConverterBridge.samples(from: output, format: packet.format, sampleLimit: Int(output.frameLength) * packet.format.channelCount)
+        return try AudioConverterBridge.samples(
+            from: output, format: packet.format, sampleLimit: Int(output.frameLength) * packet.format.channelCount)
 }
 #endif

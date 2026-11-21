@@ -6,7 +6,10 @@ import Testing
 @Test(arguments: [CodecIdentifier.mpeg4AACELD, .mpeg4AACELDv2, .opus], [16_000.0, 24_000.0, 48_000.0])
 func finiteAACStreamPreservesAllFiveSecondsIncludingTheFinalChunk(codec: CodecIdentifier, rate: Double) throws {
     let format = AudioFormat(sampleRate: rate, channelCount: codec == .mpeg4AACELDv2 ? 2 : 1)
-    let encoder = try StreamingCodecEncoder(configuration: .init(codec: codec, format: format, aacELDv2Options: .init(bitRate: codec == .mpeg4AACELDv2 ? 64_000 : 32_000)))
+    let encoder = try StreamingCodecEncoder(
+        configuration: .init(
+            codec: codec, format: format,
+            aacELDv2Options: .init(bitRate: codec == .mpeg4AACELDv2 ? 64_000 : 32_000)))
     let decoder = StreamingCodecDecoder()
     let total = Int(rate * 5)
     var rendered: [Float] = []
@@ -36,8 +39,11 @@ func finiteAACStreamPreservesAllFiveSecondsIncludingTheFinalChunk(codec: CodecId
         packets += 1
     }
     #expect(try encoder.finish().isEmpty)
-    print("finite codec=\(codec) rate=\(rate) inputFrames=\(total) decodedFrames=\(decodedFrames) decodedEnd=\(decodedEnd) packets=\(packets)")
-    #expect(decodedFrames == total, "A finite recording must not leave its final native packet inside the stream encoder")
+    print("finite codec=\(codec) rate=\(rate) inputFrames=\(total)"
+            + " decodedFrames=\(decodedFrames) decodedEnd=\(decodedEnd) packets=\(packets)")
+    #expect(
+        decodedFrames == total,
+        "A finite recording must not leave its final native packet inside the stream encoder")
     #expect(abs(decodedEnd - 5) <= 1 / format.sampleRate)
     // The final 100 ms is a 997 Hz tone: count alone cannot detect silence.
     let tail = Array(rendered.suffix(Int(rate * 0.1) * format.channelCount))
