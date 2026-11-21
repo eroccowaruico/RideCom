@@ -377,7 +377,7 @@ struct DirectCallTests {
     }
 
     #if os(iOS)
-    fileprivate static func assertLocalCall(aliceGroup: IntercomGroup, bobGroup: IntercomGroup) async throws {
+    static func assertLocalCall(aliceGroup: IntercomGroup, bobGroup: IntercomGroup) async throws {
         let aliceRTC = RouteManager(routes: [LocalCallRoute()])
         let bobRTC = RouteManager(routes: [LocalCallRoute()])
         let alice = RideIntercomCallSessionAdapter(memberID: "alice", rtcSession: aliceRTC)

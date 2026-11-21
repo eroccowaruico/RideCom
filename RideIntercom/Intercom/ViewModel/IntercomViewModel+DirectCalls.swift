@@ -54,10 +54,13 @@ extension IntercomViewModel {
             selectGroup(existing, connectIfIdle: connectIfIdle)
             return true
         }
-        let remoteIDs = user.memberIDs.sorted().prefix(IntercomGroup.maximumMemberCount - 1)
-        let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
-            + remoteIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
         do {
+            let deviceCall = try groupRepository.singleDeviceCall(for: user)
+            let preferred = deviceCall.map { [$0.peerID] } ?? []
+            let orderedIDs = preferred + user.memberIDs.filter { $0 != deviceCall?.peerID }.sorted()
+            let remoteIDs = orderedIDs.prefix(IntercomGroup.maximumMemberCount - 1)
+            let members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
+                + remoteIDs.map { GroupMember(id: $0, displayName: user.displayName, localName: user.localName) }
             var devices: [String: AccountDeviceBinding] = [:]
             var accountSigner: DeviceIdentitySigner?
             if let pair, let local = localAccountPrincipal, let remote = pair.other(than: local) {
@@ -71,7 +74,7 @@ extension IntercomViewModel {
             }
             let group = try IntercomGroup(id: id, name: "Direct Call", members: members, kind: .direct,
                                          accountPair: pair, accountDevices: devices)
-            let secret = try initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner)
+            let secret = try deviceCall?.secret ?? initialDirectCallSecret(for: group, user: user, accountSigner: accountSigner)
             try groupRepository.save([group] + groups, credential: .init(groupID: id, secret: secret))
             refreshGroupStorageStatus()
             groups.insert(group, at: 0)
@@ -82,15 +85,9 @@ extension IntercomViewModel {
 
     private func initialDirectCallSecret(for group: IntercomGroup, user: SavedUser,
                                          accountSigner: DeviceIdentitySigner?) throws -> String {
-        if user.memberIDs.count == 1, let peer = user.memberIDs.first {
-            let deviceCallID = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, peer])
-            if let deviceCall = groupRepository.storedGroup(deviceCallID), deviceCall.kind == .direct, deviceCall.accountPair == nil,
-               let credential = try groupRepository.credential(for: deviceCallID) {
-                return credential.secret
-            }
-            if let accountSigner, let binding = group.accountDevices[peer] {
-                return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
-            }
+        if user.memberIDs.count == 1, let peer = user.memberIDs.first,
+           let accountSigner, let binding = group.accountDevices[peer] {
+            return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
         }
         return try pendingOrdinaryGroupDirectCallSecret(for: user)
             ?? SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }

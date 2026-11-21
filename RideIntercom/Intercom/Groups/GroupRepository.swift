@@ -332,6 +332,20 @@ final class GroupRepository {
         snapshot?.groups.first { $0.id == groupID }.flatMap { try? $0.group() }
     }
 
+    /// Reuse a saved device call only when the person's registration identifies one such call.
+    func singleDeviceCall(for user: SavedUser) throws -> (peerID: String, secret: String)? {
+        guard let snapshot, let localMemberID else { return nil }
+        let peers = Set(user.memberIDs)
+        var match: (peerID: String, groupID: UUID)?
+        for group in snapshot.groups where group.kind == .direct && group.accountPair == nil {
+            guard let peer = group.members.first(where: { $0.id != localMemberID && peers.contains($0.id) }) else { continue }
+            guard match == nil else { return nil }
+            match = (peer.id, group.id)
+        }
+        guard let match, let credential = try credential(for: match.groupID) else { return nil }
+        return (match.peerID, credential.secret)
+    }
+
     /// A saved person and their direct group are one thing. Removing the person removes
     /// that group and its key in the same commit; regular groups keep the member.
     /// Returns the removed direct groups so a live call to one of them can end.

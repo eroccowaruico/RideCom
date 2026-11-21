@@ -136,12 +136,72 @@ struct AccountDirectCallTests {
         #expect(try b.viewModel.groupRepository.credential(for: id) == winner)
     }
 
+    @Test(arguments: [1, 7]) func groupContactRegistrationKeepsItsCallKeyWhenOnlyOneSideKnowsMoreDevices(otherDevices: Int) async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("alice", account: "a")
+        let recipient = try fixture.peer("bob", account: "b")
+        let otherIDs = (0..<otherDevices).map { "another-bob-device-\($0)" }
+        for id in otherIDs { try fixture.introduce(fixture.peer(id, account: "b"), to: author) }
+        let groupID = try fixture.completeGroupContactRegistration(from: author, to: recipient)
+
+        // Start at the regular Users entry point, after reloading both saved directories.
+        let a = try fixture.restart(author), b = try fixture.restart(recipient)
+        let authorContact = try #require(a.viewModel.savedRemoteUsers.first)
+        let recipientContact = try #require(b.viewModel.savedRemoteUsers.first)
+        try #require(Set(authorContact.memberIDs) == Set(otherIDs + ["bob"]))
+        try #require(recipientContact.memberIDs == ["alice"])
+        let deviceID = IntercomGroup.directCallID(memberIDs: ["alice", "bob"])
+        let deviceKey = try #require(try a.viewModel.groupRepository.credential(for: deviceID)).secret
+        try #require(try b.viewModel.groupRepository.credential(for: deviceID)?.secret == deviceKey)
+        for (peer, person) in [(a, authorContact), (b, recipientContact)] {
+            #expect(peer.viewModel.existingDirectCall(for: person.id) == nil)
+            peer.viewModel.setRTCTransportRoutes([.multipeer])
+            try #require(peer.viewModel.startCall(to: .user(person.id), accountAccessID: peer.viewModel.accountAccessID))
+        }
+        let callID = try #require(a.viewModel.activeGroupID)
+        let accountCall = try #require(a.viewModel.activeDirectCall)
+        #expect(accountCall.accountPair != nil)
+        #expect(accountCall.accountDevices["bob"] != nil)
+        #expect(accountCall.members.count == min(otherDevices + 2, IntercomGroup.maximumMemberCount))
+        #expect(b.viewModel.activeGroupID == callID)
+        let matchesDeviceKey = try a.viewModel.groupRepository.credential(for: callID)?.secret == deviceKey
+            && b.viewModel.groupRepository.credential(for: callID)?.secret == deviceKey
+        try #require(matchesDeviceKey)
+        let matchesGroupKey = try a.viewModel.groupRepository.credential(for: groupID)?.secret == deviceKey
+        #expect(!matchesGroupKey)
+        #if os(iOS)
+        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(a.callSession.connectedGroup),
+                                                   bobGroup: try #require(b.callSession.connectedGroup))
+        #endif
+    }
+
+    @Test func twoSavedDeviceCallKeysAreNotChosenByDirectoryOrder() throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("alice", account: "a")
+        let phone = try fixture.peer("bob-phone", account: "b")
+        let tablet = try fixture.peer("bob-tablet", account: "b")
+        _ = try fixture.completeGroupContactRegistration(from: author, to: phone)
+        _ = try fixture.completeGroupContactRegistration(from: author, to: tablet)
+        let vm = try fixture.restart(author).viewModel
+        let contact = try #require(vm.savedRemoteUsers.first)
+        try #require(Set(contact.memberIDs) == ["bob-phone", "bob-tablet"])
+        let deviceKeys = try contact.memberIDs.map { peerID in
+            try #require(try vm.groupRepository.credential(for: IntercomGroup.directCallID(memberIDs: ["alice", peerID]))).secret
+        }
+        let hasDistinctKeys = Set(deviceKeys).count == 2
+        try #require(hasDistinctKeys)
+
+        try #require(vm.selectUser(contact.id, connectIfIdle: false))
+        let callID = try #require(vm.selectedGroup?.id)
+        let accountKey = try #require(try vm.groupRepository.credential(for: callID)).secret
+        let copiedADeviceKey = deviceKeys.contains(accountKey)
+        #expect(!copiedADeviceKey)
+    }
+
     @Test(arguments: [false, true]) func groupContactRegistrationUsesTheAccountCallForStartingAndResharing(existingCalls: Bool) throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
         let author = try fixture.peer("author-phone", account: "a")
         let recipient = try fixture.peer("recipient-phone", account: "b")
-        author.viewModel.contactSessionFactory = { RecordingCallSession() }
-        recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
         if existingCalls {
             try fixture.introduce(recipient, to: author)
             try fixture.introduce(author, to: recipient)
@@ -156,16 +216,7 @@ struct AccountDirectCallTests {
                 credential: .init(groupID: oldID, secret: "prior-account-call-fixture"))
             #expect(try author.viewModel.groupRepository.credential(for: oldID) != recipient.viewModel.groupRepository.credential(for: oldID))
         }
-        let groupID = UUID()
-        let draft = GroupInvitationDraft(name: "Other rider", suggestedName: "New person")
-        try #require(author.viewModel.saveGroupInvitations(groupID: groupID, creating: true, name: "Mountain riders", selected: [], newPeople: [draft]) == groupID)
-        author.viewModel.disconnect()
-        let share = try author.viewModel.prepareContactPersonShare(draft.id, expectedAccountAccessID: author.viewModel.accountAccessID)
-        try recipient.viewModel.acceptContactInviteURL(share.url)
-        let reply = try recipient.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: recipient.viewModel.accountAccessID)
-        try author.viewModel.receiveContactReplyURL(reply)
-        let ack = try author.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: author.viewModel.accountAccessID)
-        try recipient.viewModel.receiveContactReplyURL(ack)
+        let groupID = try fixture.completeGroupContactRegistration(from: author, to: recipient)
 
         let authorPerson = try #require(author.viewModel.savedRemoteUsers.first)
         let recipientPerson = try #require(recipient.viewModel.savedRemoteUsers.first)
@@ -382,6 +433,21 @@ struct AccountDirectCallTests {
     func introduce(_ sender: AppTestSupport.Harness, to receiver: AppTestSupport.Harness) throws {
         #expect(sender.viewModel.createTalkGroup(name: "Friends"))
         try receiver.viewModel.acceptInviteURL(#require(sender.viewModel.makeSelectedGroupInviteURL()))
+    }
+    func completeGroupContactRegistration(from author: AppTestSupport.Harness, to recipient: AppTestSupport.Harness) throws -> UUID {
+        author.viewModel.contactSessionFactory = { RecordingCallSession() }
+        recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
+        let groupID = UUID()
+        let draft = GroupInvitationDraft(name: "Other rider", suggestedName: "New person")
+        try #require(author.viewModel.saveGroupInvitations(groupID: groupID, creating: true, name: "Mountain riders", selected: [], newPeople: [draft]) == groupID)
+        author.viewModel.disconnect()
+        let share = try author.viewModel.prepareContactPersonShare(draft.id, expectedAccountAccessID: author.viewModel.accountAccessID)
+        try recipient.viewModel.acceptContactInviteURL(share.url)
+        let reply = try recipient.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: recipient.viewModel.accountAccessID)
+        try author.viewModel.receiveContactReplyURL(reply)
+        let acknowledgement = try author.viewModel.contactReplyURLForSharing(share.id, expectedAccountAccessID: author.viewModel.accountAccessID)
+        try recipient.viewModel.receiveContactReplyURL(acknowledgement)
+        return groupID
     }
     func deliverProfile(from sender: AppTestSupport.Harness, to receiver: AppTestSupport.Harness, certified: Bool = true) throws {
         let memberID = sender.viewModel.localMemberIdentity.memberID
