@@ -28,7 +28,8 @@ struct AudioEffectChainSnapshot: Equatable, Identifiable, Sendable {
     }
 
     var summary: String {
-        guard let focus = stages.first(where: { $0.state == .unavailable || $0.state == .waiting }) ?? stages.last else {
+        guard let focus = stages.first(where: { $0.state == .unavailable || $0.state == .waiting }) ?? stages.last
+        else {
             return "No effects"
         }
         return "\(stages.count) stages / \(focus.shortLabel) \(focus.detail)"

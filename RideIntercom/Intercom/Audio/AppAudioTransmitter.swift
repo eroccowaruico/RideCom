@@ -62,18 +62,22 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
             observation.level = 0; observation.voiceActive = false
         }
     }
-    func applyVADSensitivity(_ value: VoiceActivitySensitivity) { lock.withLock { controller.applyVADSensitivity(value) } }
+    func applyVADSensitivity(_ value: VoiceActivitySensitivity) {
+        lock.withLock { controller.applyVADSensitivity(value) }
+    }
 
     func rebuild(configuration: AppAudioPipelineConfiguration, encoding: CodecEncodingConfiguration) throws {
         lock.lock(); defer { lock.unlock() }
         stop()
         self.encoding = encoding
         let processor = try AudioFrameProcessor(format: configuration.mixerFormat,
-            outputFormat: configuration.rtcSendFormat, busID: "tx-bus", suspendsDuringSilence: true) { [weak self] frame, _ in
+            outputFormat: configuration.rtcSendFormat, busID: "tx-bus", suspendsDuringSilence: true
+        ) { [weak self] frame, _ in
                 self?.encodeAndCollect(frame)
             }
         self.processor = processor
-        isolation = try AppAudioPipeline.makeIsolation(on: processor.bus, enabled: configuration.transmitSoundIsolationEnabled,
+        isolation = try AppAudioPipeline.makeIsolation(
+            on: processor.bus, enabled: configuration.transmitSoundIsolationEnabled,
             configuration: AppAudioPipeline.transmitIsolationConfiguration)
         let dynamics = try DynamicsProcessorEffect.make()
         try processor.bus.addEffect(dynamics.node, id: "dynamics-processor", state: .active,
@@ -129,7 +133,9 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
         try processor?.process(frame)
         guard let change = encodingTransition, let end = change.drainThrough else { return }
         let sentThrough = pendingPackets.last.flatMap { packet in
-            packet.sampleCount.map { packet.capturedAt + Double($0 / packet.format.channelCount) / packet.format.sampleRate }
+            packet.sampleCount.map {
+                packet.capturedAt + Double($0 / packet.format.channelCount) / packet.format.sampleRate
+            }
         }
         let silentAndDrained = frame.samples.allSatisfy { $0 == 0 }
             && frame.capturedAt + Double(frame.frameCount) / frame.format.sampleRate >= end + 0.01

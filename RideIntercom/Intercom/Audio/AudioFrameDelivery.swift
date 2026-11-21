@@ -19,8 +19,10 @@ final class AudioFrameDelivery {
         precondition(finiteRecordingDuration == nil || !coalescesObservations)
         metrics = AudioDeliveryMetrics(initiallyActive: initiallyActive, coalescesObservations: coalescesObservations,
                                        finiteRecordingDuration: finiteRecordingDuration)
-        // The finite producer's sample budget, not the stream default, bounds retained audio to the recording or playback budget.
-        let policy: AsyncStream<(PCMFrame, ContinuousClock.Instant)>.Continuation.BufferingPolicy = finiteRecordingDuration == nil
+        // The finite producer's sample budget, not the stream default, bounds retained audio
+        // to the recording or playback budget.
+        let policy: AsyncStream<(PCMFrame, ContinuousClock.Instant)>.Continuation.BufferingPolicy =
+            finiteRecordingDuration == nil
             ? .bufferingNewest(coalescesObservations ? 1 : 32) : .unbounded
         let stream = AsyncStream<(PCMFrame, ContinuousClock.Instant)>.makeStream(bufferingPolicy: policy)
         continuation = stream.continuation
@@ -76,7 +78,9 @@ private nonisolated final class AudioDeliveryMetrics: Sendable {
         finite = Mutex(FiniteBudget(duration: finiteRecordingDuration ?? 0))
     }
 
-    func yieldFinite(_ frame: PCMFrame, to continuation: AsyncStream<(PCMFrame, ContinuousClock.Instant)>.Continuation) {
+    func yieldFinite(
+        _ frame: PCMFrame, to continuation: AsyncStream<(PCMFrame, ContinuousClock.Instant)>.Continuation
+    ) {
         finite.withLock { budget in
             guard frame.format.isValid, frame.capturedAt.isFinite,
                   frame.samples.count.isMultiple(of: frame.format.channelCount), frame.frameCount > 0 else {
@@ -93,7 +97,9 @@ private nonisolated final class AudioDeliveryMetrics: Sendable {
             budget.remaining -= accepted
             guard accepted > 0 else { return }
             var value = frame
-            if accepted < frame.frameCount { value.samples = Array(frame.samples.prefix(accepted * frame.format.channelCount)) }
+            if accepted < frame.frameCount {
+                value.samples = Array(frame.samples.prefix(accepted * frame.format.channelCount))
+            }
             if case .dropped(let previous) = continuation.yield((value, .now)) {
                 dropped.wrappingAdd(previous.0.frameCount, ordering: .relaxed)
             }

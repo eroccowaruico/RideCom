@@ -55,7 +55,9 @@ extension IntercomViewModel {
     func refreshNativeOutputObservation(now: TimeInterval) {
         guard isAudioReady, audioCheckPhase == .idle, audioPipeline.rendersToHardware else { return }
         let observation = audioPipeline.takeNativeOutputObservation()
-        let fresh = audioPipeline.lastNativeRenderAt.map { now - $0 <= AppAudioPipeline.nativeOutputObservationLifetime } ?? false
+        let fresh =
+            audioPipeline.lastNativeRenderAt.map { now - $0 <= AppAudioPipeline.nativeOutputObservationLifetime }
+            ?? false
         if isOutputMuted || masterOutputVolume <= 0 || !fresh {
             lastScheduledOutputRMS = 0
             lastScheduledOutputPeakRMS = 0

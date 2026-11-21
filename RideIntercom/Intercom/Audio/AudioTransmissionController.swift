@@ -31,7 +31,8 @@ nonisolated struct AudioTransmissionController {
 
     mutating func process(frame: PCMFrame, level: Float) -> [OutboundAudioPacket] {
         if frame.frameCount > 0, frame.format.isValid, frame.capturedAt.isFinite {
-            if let inputEnd, inputFormat != frame.format || abs(frame.capturedAt - inputEnd) > 2 / frame.format.sampleRate {
+            if let inputEnd,
+                inputFormat != frame.format || abs(frame.capturedAt - inputEnd) > 2 / frame.format.sampleRate {
                 // A new source interval cannot confirm or release speech held
                 // before it. Keep the same sample-continuity contract as DSP.
                 reset()
@@ -113,7 +114,8 @@ nonisolated struct AudioTransmissionController {
             let rmsDBFS = 20 * log10(max(rms, 0.000_001))
             analysis = vadGate.process(rmsDBFS: rmsDBFS)
         } else {
-            analysis = vadGate.process(samples: frame.samples, duration: Double(frame.frameCount) / frame.format.sampleRate)
+            analysis = vadGate.process(
+                samples: frame.samples, duration: Double(frame.frameCount) / frame.format.sampleRate)
         }
         lastAnalysis = analysis
         return analysis

@@ -86,7 +86,8 @@ extension IntercomViewModel {
     func currentAudioPipelineConfiguration() -> AppAudioPipelineConfiguration {
         AppAudioPipelineConfiguration(
             rtcSendFormat: rtcAudioFormatPreset.audioFormat,
-            outputHardwareFormat: lastOutputStreamOperationReport?.snapshot.actualHardwareFormat ?? .intercomHardwarePreferred,
+            outputHardwareFormat: lastOutputStreamOperationReport?.snapshot.actualHardwareFormat
+                ?? .intercomHardwarePreferred,
             preferredCodec: preferredTransmitCodec,
             aacELDv2BitRate: aacELDv2BitRate,
             opusBitRate: opusBitRate,

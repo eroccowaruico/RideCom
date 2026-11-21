@@ -242,7 +242,9 @@ enum AppAudioCodecBridge {
         )
     }
 
-    nonisolated static func decode(_ packet: RTC.RTCAudioPacket, using decoder: Codec.StreamingCodecDecoder = .init()) throws -> PCMFrame {
+    nonisolated static func decode(
+        _ packet: RTC.RTCAudioPacket, using decoder: Codec.StreamingCodecDecoder = .init()
+    ) throws -> PCMFrame {
         guard let codec = Codec.CodecIdentifier(rawValue: packet.codec.rawValue) else {
             throw DecodingError.unsupportedCodec
         }

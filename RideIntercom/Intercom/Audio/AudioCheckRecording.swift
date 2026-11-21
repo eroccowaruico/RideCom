@@ -31,7 +31,9 @@ nonisolated final class AudioCheckRecording: @unchecked Sendable {
         lock.withLock {
             guard frame.format.isValid, frame.frameCount > 0, frame.capturedAt.isFinite,
                   frame.samples.count.isMultiple(of: frame.format.channelCount) else { return nil }
-            if let inputFormat, inputFormat != frame.format { failure = AppAudioPipelineError.invalidFormat; return nil }
+            if let inputFormat, inputFormat != frame.format {
+                failure = AppAudioPipelineError.invalidFormat; return nil
+            }
             if inputFormat == nil { inputFormat = frame.format; origin = frame.capturedAt }
             let count = min(frame.frameCount, max(0, Int(frame.format.sampleRate * 5) - inputFrames))
             guard count > 0 else { return nil }
@@ -48,7 +50,8 @@ nonisolated final class AudioCheckRecording: @unchecked Sendable {
                 let frame = try AppAudioCodecBridge.decode(packet, using: decoder)
                 guard frame.format == format, let origin else { throw AppAudioPipelineError.invalidFormat }
                 let beginning = Int(((frame.capturedAt - origin - latency) * format.sampleRate).rounded())
-                let lower = max(0, beginning), upper = min(samples.count / format.channelCount, beginning + frame.frameCount)
+                let lower = max(0, beginning),
+                    upper = min(samples.count / format.channelCount, beginning + frame.frameCount)
                 guard lower < upper else { return }
                 let source = (lower - beginning) * format.channelCount
                 samples.replaceSubrange((lower * format.channelCount)..<(upper * format.channelCount),
