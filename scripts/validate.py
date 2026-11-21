@@ -17,11 +17,13 @@ from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.crash_reports import CrashReports
 from scripts.test_lifecycle import (
+    ProcessIdentity,
     SimulatorLease,
     exclusive_run,
     process_snapshot,
@@ -179,24 +181,37 @@ def test_host_metadata(test_run: str | os.PathLike[str] | None, expected_namespa
     return {'testRun': str(test_run), 'namespace': expected_namespace, 'hostInfoPaths': sorted(hosts)}
 
 
+class StageDetails(TypedDict, total=False):
+    command: list[str]
+    exit_code: int | None
+    duration_seconds: float
+    reason: str
+
+
+class StageResult(StageDetails):
+    status: str
+
+
 class Runner:
-    def __init__(self, out, timeout=1800, crash_reports=None):
+    def __init__(self, out: str | os.PathLike[str], timeout: float = 1800,
+                 crash_reports: CrashReports | None = None) -> None:
         self.out = Path(out).resolve()
         self.out.mkdir(parents=True, exist_ok=True)
         # Exclusive creation protects old evidence, including interrupted runs.
         with (self.out / 'results.tsv').open('x') as f:
             f.write('stage\tstatus\texit_code\tduration_seconds\n')
-        self.results = {}
+        self.results: dict[str, StageResult] = {}
         self.timeout = timeout
         self.crash_reports = crash_reports
 
     @property
-    def exit_code(self):
+    def exit_code(self) -> int:
         return int(any(r['status'] != 'passed' for r in self.results.values()))
 
-    def record(self, name, command, status, code, started, reason=''):
-        result = dict(command=command, status=status, exit_code=code,
-                      duration_seconds=round(time.monotonic() - started, 3), reason=reason)
+    def record(self, name: str, command: list[str], status: str, code: int | None,
+               started: float, reason: str = '') -> bool:
+        result: StageResult = {'command': command, 'status': status, 'exit_code': code,
+                               'duration_seconds': round(time.monotonic() - started, 3), 'reason': reason}
         self.results[name] = result
         with (self.out / 'results.tsv').open('a') as f:
             f.write(f'{name}\t{status}\t{code}\t{result["duration_seconds"]}\n')
@@ -205,7 +220,7 @@ class Runner:
         return status == 'passed'
 
     @staticmethod
-    def stop(process, original):
+    def stop(process: subprocess.Popen[bytes], original: ProcessIdentity | None) -> str:
         try:
             if original is None and process.returncode is None:
                 original = process_snapshot().get(process.pid)
@@ -221,7 +236,7 @@ class Runner:
                 return f'process cleanup failed: {error}; direct child cleanup failed: {fallback}'
             return f'process cleanup failed: {error}'
 
-    def wait_for_stage(self, process, timeout):
+    def wait_for_stage(self, process: subprocess.Popen[bytes], timeout: float) -> int:
         if self.crash_reports is None:
             return process.wait(timeout=timeout)
         deadline = time.monotonic() + timeout
@@ -234,7 +249,8 @@ class Runner:
                     raise
                 self.crash_reports.sample()
 
-    def run(self, name, command, needs=(), tests=False, timeout=None, reason=''):
+    def run(self, name: str, command: list[str], needs: Sequence[str] = (), tests: bool = False,
+            timeout: float | None = None, reason: str = '') -> bool:
         started = time.monotonic()
         if name in self.results:
             raise ValueError(f'Duplicate stage: {name}')
@@ -277,7 +293,8 @@ class Runner:
             print('\n'.join(path.read_text(errors='replace').splitlines()[-12:]), flush=True)
         return passed
 
-    def check_test_host(self, name, test_run, namespace, needs=(), expected_product='RideIntercom.app'):
+    def check_test_host(self, name: str, test_run: str | os.PathLike[str] | None, namespace: str,
+                        needs: Sequence[str] = (), expected_product: str = 'RideIntercom.app') -> bool:
         started = time.monotonic()
         blocked = [n for n in needs if self.results.get(n, {}).get('status') != 'passed']
         if blocked:
@@ -289,8 +306,9 @@ class Runner:
         (self.out / (name + '.json')).write_text(json.dumps(metadata, indent=2) + '\n')
         return self.record(name, [], 'passed', 0, started, 'Generated host isolation verified before launch')
 
-    def xcode(self, name, destination, only=None, needs=(), skip=None, reuse_build=None,
-              scheme='RideIntercom', timeout=None, verify_selection=False):
+    def xcode(self, name: str, destination: str, only: str | Sequence[str] | None = None,
+              needs: Sequence[str] = (), skip: str | Sequence[str] | None = None, reuse_build: str | None = None,
+              scheme: str = 'RideIntercom', timeout: float | None = None, verify_selection: bool = False) -> None:
         bundle = self.out / f'{name}.xcresult'
         settings_stage = name + '-build-settings'
         started = time.monotonic()
@@ -357,7 +375,7 @@ class Runner:
         if verify_selection:
             self.check_test_selection(name, bundle, selectors)
 
-    def check_test_selection(self, name, bundle, selectors):
+    def check_test_selection(self, name: str, bundle: Path, selectors: list[str]) -> None:
         listing = name + '-tests'
         self.run(listing, ['xcrun', 'xcresulttool', 'get', 'test-results', 'tests',
                            '--path', str(bundle), '--compact'], needs=[name], timeout=60)
