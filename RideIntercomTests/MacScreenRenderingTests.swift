@@ -79,7 +79,8 @@ struct MacScreenRenderingTests {
         let harness = try AppTestSupport.makeHarnessWithSavedUser(), viewModel = harness.viewModel
         defer { viewModel.disconnect() }
         let group = try #require(viewModel.regularGroups.first), user = try #require(viewModel.savedRemoteUsers.first)
-        try await record(GroupSettingsView(viewModel: viewModel, groupID: group.id), size: .init(width: 480, height: 620),
+        try await record(GroupSettingsView(viewModel: viewModel, groupID: group.id),
+                         size: .init(width: 480, height: 620),
                          language: language, named: "group-settings")
         try await record(UserSettingsView(viewModel: viewModel, user: user), size: .init(width: 480, height: 560),
                          language: language, named: "user-settings")

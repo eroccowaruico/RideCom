@@ -46,12 +46,14 @@ struct ReceivePipelinePresentation {
             ?? "\(receivePeerBusCount) in / OUT \(Int(input.outputVolume * 100))%"
     }
 
-    private func receiveMixerStep(id: String, title: String, icon: String,
+    private func receiveMixerStep(identity: (id: String, icon: String), title: String,
                                   detail: @autoclosure () -> String, state: @autoclosure () -> PipelineStepState,
                                   accessibilityIdentifier: String) -> PipelineStep {
         PipelineStep(
-            id: id, package: "AudioMixer", title: title, detail: input.isAudioReady ? detail() : "Not available",
-            icon: icon, state: input.isAudioReady ? state() : .idle, accessibilityIdentifier: accessibilityIdentifier
+            id: identity.id, package: "AudioMixer", title: title,
+            detail: input.isAudioReady ? detail() : "Not available",
+            icon: identity.icon, state: input.isAudioReady ? state() : .idle,
+            accessibilityIdentifier: accessibilityIdentifier
         )
     }
 
@@ -89,7 +91,9 @@ struct ReceivePipelinePresentation {
                 .flatMap { try? $0.decodeJSON(CodecRuntimeReport.self) },
             vad: status?.packageReports.first { $0.package == "VADGate" }
                 .flatMap { try? $0.decodeJSON(VADGateRuntimeSnapshot.self) },
-            isolation: status?.packageReports.first { $0.package == "SoundIsolation" && $0.kind == "transmitRuntimeSnapshot" }
+            isolation: status?.packageReports.first {
+                $0.package == "SoundIsolation" && $0.kind == "transmitRuntimeSnapshot"
+            }
                 .flatMap { try? $0.decodeJSON(VoiceIsolationRuntimeSnapshot.self) },
             paths: paths.isEmpty ? "Path not measured" : paths.map {
                 $0.route == .webRTC ? "Internet" : ($0.path.count > 2 ? "Local relayed" : "Local direct")
@@ -104,7 +108,8 @@ struct ReceivePipelinePresentation {
         let value: (detail: String, state: PipelineStepState)
         if !input.isAudioReady {
             value = ("Media Idle", .idle)
-        } else if input.selectedGroupConnectionState != .localConnected && input.selectedGroupConnectionState != .internetConnected {
+        } else if input.selectedGroupConnectionState != .localConnected
+                    && input.selectedGroupConnectionState != .internetConnected {
             value = ("Control Waiting", .waiting)
         } else {
             let received = input.receivedVoicePacketCount
@@ -147,48 +152,57 @@ struct ReceivePipelinePresentation {
     }
 
     var peerBusStep: PipelineStep {
-        receiveMixerStep(id: "peer-bus", title: "Peer Buses", icon: "person.2.wave.2",
+        receiveMixerStep(identity: ("peer-bus", "person.2.wave.2"), title: "Peer Buses",
             detail: "\(receivePeerBusCount) peer buses", state: mixState,
             accessibilityIdentifier: "receive-pipeline-peer-bus-step")
     }
 
     var receiveMixStep: PipelineStep {
         let routeLabel = receivePeerBusCount == 1 ? "route" : "routes"
-        return receiveMixerStep(id: "receive-mix", title: "Mix Down", icon: "arrow.triangle.merge",
+        return receiveMixerStep(identity: ("receive-mix", "arrow.triangle.merge"), title: "Mix Down",
             detail: "\(receivePeerBusCount) \(routeLabel) → rx-master", state: mixState,
             accessibilityIdentifier: "receive-pipeline-mix-step")
     }
 
     var outputBusStep: PipelineStep {
-        receiveMixerStep(id: "master-bus", title: "RX Master", icon: "waveform.path.ecg",
+        receiveMixerStep(identity: ("master-bus", "waveform.path.ecg"), title: "RX Master",
             detail: outputBusDetail, state: mixState, accessibilityIdentifier: "receive-pipeline-master-bus-step")
     }
 
     var outputEffectChainStep: PipelineStep {
-        receiveMixerStep(id: "master-effects", title: "Master FX", icon: "wand.and.sparkles",
-            detail: input.receiveOutputEffectChainSnapshot.summary, state: aggregateState(outputEffectStages.map(\.state)),
+        receiveMixerStep(identity: ("master-effects", "wand.and.sparkles"), title: "Master FX",
+            detail: input.receiveOutputEffectChainSnapshot.summary,
+            state: aggregateState(outputEffectStages.map(\.state)),
             accessibilityIdentifier: "receive-pipeline-master-effects-step")
     }
 
+    private struct OutputDescription {
+        let detail: String
+        let icon: String
+        let state: PipelineStepState
+    }
+
     var outputStep: PipelineStep {
-        let value: (detail: String, icon: String, state: PipelineStepState)
+        let value: OutputDescription
         if input.isOutputMuted {
-            value = ("Muted", "speaker.slash.fill", .muted)
+            value = OutputDescription(detail: "Muted", icon: "speaker.slash.fill", state: .muted)
         } else if input.outputVolume == 0 {
-            value = ("Volume 0%", "speaker.slash.fill", .waiting)
+            value = OutputDescription(detail: "Volume 0%", icon: "speaker.slash.fill", state: .waiting)
         } else if !input.isAudioReady {
-            value = ("Not available", "speaker", .idle)
+            value = OutputDescription(detail: "Not available", icon: "speaker", state: .idle)
         } else if input.usesNativeOutput {
             let lifetime = AppAudioPipeline.nativeOutputObservationLifetime
             let output = observation(input.lastNativeAudibleOutputAt, maximumAge: lifetime)
             let audible = output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed"
             let rendered = observation(input.lastNativeRenderAt, maximumAge: lifetime)
             let render = rendered.elapsed.map { " / Last render · \($0)" } ?? ""
-            value = (audible + render, "speaker.wave.2.fill", output.state)
+            value = OutputDescription(detail: audible + render, icon: "speaker.wave.2.fill", state: output.state)
         } else if let elapsed = observation(input.lastPlaybackScheduledAt).elapsed {
-            value = ("Playback scheduled · \(elapsed) / Render not measured", "speaker.wave.2.fill", .waiting)
+            value = OutputDescription(detail: "Playback scheduled · \(elapsed) / Render not measured",
+                                      icon: "speaker.wave.2.fill", state: .waiting)
         } else {
-            value = ("No playback scheduled / Render not measured", "speaker.wave.2.fill", .waiting)
+            value = OutputDescription(detail: "No playback scheduled / Render not measured",
+                                      icon: "speaker.wave.2.fill", state: .waiting)
         }
         return PipelineStep(
             id: "output", package: "SessionManager", title: "Output", detail: value.detail,
@@ -213,7 +227,8 @@ struct ReceivePipelinePresentation {
         )
     }
 
-    private func observation(_ timestamp: TimeInterval?, maximumAge: TimeInterval = 2) -> (state: PipelineStepState, elapsed: String?) {
+    private func observation(_ timestamp: TimeInterval?, maximumAge: TimeInterval = 2)
+        -> (state: PipelineStepState, elapsed: String?) {
         Self.observation(timestamp, now: input.capturedAt, maximumAge: maximumAge)
     }
 

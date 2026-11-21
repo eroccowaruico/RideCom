@@ -90,7 +90,8 @@ struct TransmitPipelinePresentation {
                 accessibilityIdentifier: "pipeline-input-step"
             )
         }
-        let snapshot = input.lastInputStreamOperationReport?.snapshot ?? input.lastVoiceProcessingOperationReport?.snapshot
+        let snapshot = input.lastInputStreamOperationReport?.snapshot
+            ?? input.lastVoiceProcessingOperationReport?.snapshot
         let isRunning = snapshot?.isRunning ?? input.isMicrophoneCaptureRunning
         return PipelineStep(
             id: "input",
@@ -135,7 +136,9 @@ struct TransmitPipelinePresentation {
         var detail = bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting"
         if waitingOnEffect {
             detail = effectChainPipelineDetail
-        } else if let isolation = input.transmitEffectChainSnapshot.stages.first(where: { $0.id == "sound-isolation" }) {
+        } else if let isolation = input.transmitEffectChainSnapshot.stages.first(
+            where: { $0.id == "sound-isolation" }
+        ) {
             detail += " · \(isolation.name) \(isolation.state.rawValue)"
         }
         return PipelineStep(
@@ -198,7 +201,8 @@ struct TransmitPipelinePresentation {
     }
 
     var rtcStep: PipelineStep {
-        if input.selectedGroupConnectionState == .localConnected || input.selectedGroupConnectionState == .internetConnected {
+        if input.selectedGroupConnectionState == .localConnected
+            || input.selectedGroupConnectionState == .internetConnected {
             return PipelineStep(
                 id: "rtc",
                 package: "RTC",
@@ -231,6 +235,9 @@ struct TransmitPipelinePresentation {
         )
     }
 
+}
+
+extension TransmitPipelinePresentation {
     var effectChainState: PipelineStepState {
         aggregateState(transmitEffectStages.map(\.state))
     }
@@ -292,7 +299,8 @@ struct TransmitPipelinePresentation {
     }
 
     private func inputStreamDetail(_ prefix: String) -> String {
-        let snapshot = input.lastInputStreamOperationReport?.snapshot ?? input.lastVoiceProcessingOperationReport?.snapshot
+        let snapshot = input.lastInputStreamOperationReport?.snapshot
+            ?? input.lastVoiceProcessingOperationReport?.snapshot
         guard let snapshot else { return prefix }
         return "\(prefix) / \(streamFormatSummary(snapshot.actualHardwareFormat)) / F \(snapshot.processedFrameCount)"
     }
