@@ -31,7 +31,8 @@ import Foundation
     func savedUser() throws -> SavedUser {
         .init(id: personID, displayName: memberID, memberIDs: [memberID], deviceKeys: [memberID: try signer.publicKey], principal: try principal)
     }
-    func harness(knowing people: [GroupDeliveryTestIdentity], onDisk: Bool = false) throws -> AppTestSupport.Harness {
+    func harness(knowing people: [GroupDeliveryTestIdentity], onDisk: Bool = false,
+                 callAccessNow: @escaping @MainActor () -> Date = Date.init) throws -> AppTestSupport.Harness {
         if onDisk {
             let file = FileGroupStore(directory: groupDirectory)
             do {
@@ -40,12 +41,13 @@ import Foundation
             }
             return AppTestSupport.makeHarness(groups: [], groupRepository: GroupRepository(store: file, credentials: groupKeys),
                 credentialStore: groupKeys, internetSettingsStore: store,
-                invitationAuthority: testInvitationAuthority(keychain: keychain), localMemberID: memberID)
+                invitationAuthority: testInvitationAuthority(keychain: keychain), localMemberID: memberID, callAccessNow: callAccessNow)
         }
         if memoryGroups == nil {
             let groups = InMemoryGroupStore(groups: []); groups.snapshot.users = try people.map { try $0.savedUser() }; memoryGroups = groups
         }
-        return AppTestSupport.makeHarness(groups: [], groupStore: memoryGroups, credentialStore: groupKeys, internetSettingsStore: store, localMemberID: memberID)
+        return AppTestSupport.makeHarness(groups: [], groupStore: memoryGroups, credentialStore: groupKeys, internetSettingsStore: store,
+            localMemberID: memberID, callAccessNow: callAccessNow)
     }
     func remove() {
         UserDefaults(suiteName: namespace)?.removePersistentDomain(forName: namespace)

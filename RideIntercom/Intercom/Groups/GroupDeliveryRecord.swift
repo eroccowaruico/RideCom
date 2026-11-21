@@ -7,9 +7,12 @@ nonisolated struct GroupInvitationAddress: Decodable, Sendable {
 
 /// The manifest stores delivery state only. The encrypted packet, when prepared, has an immutable Keychain slot.
 nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendable {
+    static let invitationLifetime: TimeInterval = 7 * 86_400
+    private static let outcomeWindow: TimeInterval = 28 * 86_400 - invitationLifetime
     enum Direction: String, Codable, Sendable { case outgoing, incoming }
     enum State: String, Codable, Sendable { case pending, queued, received, cancelled }
-    enum InternetAction: Equatable { case send, cancel }
+    enum ExpiredOutcome: String, Codable, Sendable { case awaiting, confirmed }
+    enum InternetAction: Equatable { case send, cancel, checkOutcome }
     enum NearbyWork: Hashable { case invitation(UUID), cancellation(UUID) }
 
     struct NearbyHandoff: Codable, Equatable, Sendable {
@@ -32,9 +35,13 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     var sourceRequestID: UUID?
     var acceptedEnvelopeDigest: Data?
     var nearbyHandoff: NearbyHandoff?
+    var expiredOutcome: ExpiredOutcome?
+
+    var outcomeDeadline: TimeInterval { expiresAt + Self.outcomeWindow }
 
     var internetAction: InternetAction? {
         guard direction == .outgoing else { return nil }
+        if let expiredOutcome { return expiredOutcome == .awaiting ? .checkOutcome : nil }
         switch state {
         case .pending, .queued: return .send
         case .cancelled: return nearbyHandoff?.internetCancellationConfirmed == true ? nil : .cancel
@@ -43,7 +50,7 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
     }
 
     var nearbyWork: NearbyWork? {
-        guard direction == .outgoing, sourceRequestID == nil else { return nil }
+        guard direction == .outgoing, sourceRequestID == nil, expiredOutcome == nil else { return nil }
         switch state {
         case .pending, .queued: return .invitation(id)
         case .cancelled:
@@ -59,6 +66,22 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
         if state == .received { nearbyHandoff = nil }
     }
 
+    func visibleInvitation(at now: TimeInterval) -> Bool {
+        expiredOutcome == .confirmed ? now < outcomeDeadline : expiredOutcome == nil && now < expiresAt
+    }
+
+    func retainingOutcome(at now: TimeInterval) -> Self? {
+        if expiredOutcome != nil { return now < outcomeDeadline ? self : nil }
+        if now < expiresAt { return self }
+        guard direction == .outgoing, now < outcomeDeadline,
+              state == .received || state == .cancelled || credentialReference != nil else { return nil }
+        var record = self
+        record.expiredOutcome = state == .received || nearbyHandoff?.internetCancellationConfirmed == true ? .confirmed : .awaiting
+        record.credentialReference = nil
+        record.nearbyHandoff = nil
+        return record
+    }
+
     var isValid: Bool {
         sourceRequestID != id && recipient.isValid && IntercomGroup.isValidMemberID(recipientMemberID)
             && !recipientMemberID.hasPrefix(GroupMember.pendingInvitePrefix)
@@ -68,9 +91,11 @@ nonisolated struct GroupDeliveryRecord: Codable, Equatable, Identifiable, Sendab
             && (direction == .incoming && state == .pending
                 ? senderMemberID.map(IntercomGroup.isValidMemberID) == true
                 : senderMemberID == nil)
-            && (state != .queued || credentialReference != nil)
+            && (state != .queued || credentialReference != nil || expiredOutcome == .awaiting)
             && (state != .received && state != .cancelled || credentialReference == nil)
             && (acceptedEnvelopeDigest == nil || (direction == .incoming && state == .received && acceptedEnvelopeDigest?.count == 32))
+            && (expiredOutcome == nil || (direction == .outgoing && credentialReference == nil && nearbyHandoff == nil))
+            && (expiredOutcome != .confirmed || state == .received || state == .cancelled)
             && hasValidNearbyHandoff
     }
 

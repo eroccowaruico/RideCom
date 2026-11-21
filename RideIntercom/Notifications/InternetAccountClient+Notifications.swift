@@ -96,6 +96,10 @@ nonisolated struct GroupDeliveryReply: Decodable, Sendable {
     let requestID: UUID
     let expiresAt: Double
     let status: GroupDeliveryRecord.State
+
+    func matches(id: UUID, expiresAt: TimeInterval) -> Bool {
+        requestID == id && self.expiresAt.isFinite && abs(self.expiresAt - expiresAt * 1000) < 1
+    }
 }
 nonisolated struct GroupDeliveryItem: Decodable, Sendable {
     let requestID: UUID
@@ -126,9 +130,22 @@ extension InternetAccountClient {
             expiresAt: envelope.expiresAt * 1000, recipientKey: envelope.recipientKey, envelope: data.base64EncodedString(),
             sourceRequestID: envelope.sourceRequestID?.uuidString.lowercased())
         let reply: GroupDeliveryReply = try await sendJSON(origin: access.origin, path: "api/notifications/group-invitations", body: JSONEncoder().encode(body), token: access.accessToken)
-        guard reply.requestID == envelope.id, reply.expiresAt.isFinite, abs(reply.expiresAt - envelope.expiresAt * 1000) < 1,
+        guard reply.matches(id: envelope.id, expiresAt: envelope.expiresAt),
               [.queued, .received, .cancelled].contains(reply.status) else { throw Failure.invalidResponse }
         return reply
+    }
+
+    func expiredGroupInvitationOutcome(for record: GroupDeliveryRecord,
+                                       access: CallNotificationServiceAccess) async throws -> GroupDeliveryRecord.State? {
+        try validateNotificationAccess(access.origin, token: access.accessToken)
+        guard record.recipient.isValid, record.recipient.issuer == access.principal.issuer else { throw Failure.invalidResponse }
+        do {
+            let path = "api/notifications/group-invitations/\(record.recipient.userID)/\(record.id.uuidString.lowercased())"
+            let reply: GroupDeliveryReply = try await sendJSON(origin: access.origin, path: path, method: "GET", token: access.accessToken)
+            guard reply.matches(id: record.id, expiresAt: record.expiresAt), [.received, .cancelled].contains(reply.status)
+            else { throw Failure.invalidResponse }
+            return reply.status
+        } catch Failure.notFound { return nil }
     }
     func nextGroupInvitation(recipientKey: String, access: CallNotificationServiceAccess) async throws -> GroupDeliveryItem? {
         try validateNotificationAccess(access.origin, token: access.accessToken)

@@ -8,7 +8,7 @@ extension IntercomViewModel {
     }
 
     func groupDeliveryRecords(for selected: Set<UUID>, groupID: UUID) -> [GroupDeliveryRecord] {
-        let expiry = callAccessNow().addingTimeInterval(7 * 86400).timeIntervalSince1970
+        let expiry = callAccessNow().addingTimeInterval(GroupDeliveryRecord.invitationLifetime).timeIntervalSince1970
         return savedRemoteUsers.filter { selected.contains($0.id) }.flatMap { user -> [GroupDeliveryRecord] in
             guard let recipient = user.principal, recipient.isValid else { return [] }
             let notice = UUID()
@@ -25,7 +25,8 @@ extension IntercomViewModel {
     }
     func groupInvitationDeliveries(in groupID: UUID) -> [GroupDeliveryRecord] {
         _ = contactInvitationRevision
-        return groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.groupID == groupID }
+        let now = callAccessNow().timeIntervalSince1970
+        return groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.groupID == groupID && $0.visibleInvitation(at: now) }
             .sorted { $0.id.uuidString < $1.id.uuidString }
     }
     func groupInvitationDeliveryState(forMember memberID: String, in groupID: UUID) -> GroupDeliveryRecord.State? {
@@ -33,9 +34,8 @@ extension IntercomViewModel {
         return groupInvitationDeliveryState(for: person, in: groupID)
     }
     func groupInvitationDeliveryState(for person: SavedUser, in groupID: UUID) -> GroupDeliveryRecord.State? {
-        _ = contactInvitationRevision
         guard let account = person.principal else { return nil }
-        let records = groupRepository.groupDeliveries.filter { $0.direction == .outgoing && $0.groupID == groupID && $0.recipient == account }
+        let records = groupInvitationDeliveries(in: groupID).filter { $0.recipient == account }
         if records.contains(where: { $0.state == .received }) { return .received }
         if records.contains(where: { $0.state == .pending || $0.state == .queued }) { return .pending }
         return records.isEmpty ? nil : .cancelled
@@ -119,12 +119,30 @@ extension IntercomViewModel {
         // One finite pass. Offline work remains in the manifest until the next explicit lifecycle event.
         let outgoing = groupRepository.groupDeliveries
         // The inbox accepts cancellations even when the Worker rejects new submissions.
-        let outgoingIDs = (outgoing.filter { $0.internetAction == .cancel } + outgoing.filter { $0.internetAction == .send }).map(\.id)
+        let outgoingIDs = (outgoing.filter { $0.internetAction == .cancel }
+            + outgoing.filter { $0.internetAction == .send }
+            + outgoing.filter { $0.internetAction == .checkOutcome }).map(\.id)
         for id in outgoingIDs {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
             // A member may have been removed while awaiting another delivery.
             guard let record = groupRepository.groupDeliveries.first(where: { $0.id == id }),
                   let action = record.internetAction, record.recipient.issuer == access.principal.issuer else { continue }
+            let now = callAccessNow().timeIntervalSince1970
+            if action == .checkOutcome {
+                guard now < record.outcomeDeadline else { continue }
+                let outcome: GroupDeliveryRecord.State?
+                do { outcome = try await client.expiredGroupInvitationOutcome(for: record, access: access) }
+                catch InternetAccountClient.Failure.forbidden { continue }
+                catch { break }
+                guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return }
+                do {
+                    try groupRepository.confirmExpiredGroupDeliveryOutcome(id, state: outcome, now: callAccessNow().timeIntervalSince1970)
+                    refreshGroupStorageStatus()
+                }
+                catch { reportGroupStorageError(error); return }
+                continue
+            }
+            guard now < record.expiresAt else { continue }
             if action == .cancel {
                 do { try await client.finishGroupInvitation(recipient: record.recipient, id: record.id, access: access) }
                 catch { continue }

@@ -1003,7 +1003,7 @@ extension GroupRepository {
     }
 
     private func canRedeliver(_ record: GroupDeliveryRecord, latestNotice: UUID?, now: TimeInterval, in snapshot: GroupSnapshot) -> Bool {
-        record.direction == .outgoing && record.sourceRequestID == nil && record.expiresAt > now
+        record.direction == .outgoing && record.sourceRequestID == nil && record.expiredOutcome == nil && record.expiresAt > now
             && (record.state == .queued || record.state == .received) && latestNotice == record.noticeID
             && isSelectedGroupDelivery(record, in: snapshot)
     }
@@ -1060,7 +1060,7 @@ extension GroupRepository {
 
     func saveGroupDeliveryEnvelope(_ envelope: GroupInvitationEnvelope) throws {
         guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == envelope.id }),
-              old.direction == .outgoing, old.state == .pending, old.credentialReference == nil,
+              old.direction == .outgoing, old.expiredOutcome == nil, old.state == .pending, old.credentialReference == nil,
               old.recipient == envelope.recipient, old.recipientMemberID == envelope.recipientMemberID,
               old.recipientKey == envelope.recipientKey, old.expiresAt == envelope.expiresAt, old.sourceRequestID == envelope.sourceRequestID,
               envelope.senderMemberID == localMemberID else { throw GroupStorageError.invalidUpdate }
@@ -1098,7 +1098,7 @@ extension GroupRepository {
 
     func setGroupDeliveryState(_ id: UUID, state: GroupDeliveryRecord.State) throws {
         guard let snapshot, let old = snapshot.groupDeliveries.first(where: { $0.id == id }), old.direction == .outgoing,
-              (old.state == .pending || old.state == .queued), state != .pending,
+              old.expiredOutcome == nil, (old.state == .pending || old.state == .queued), state != .pending,
               state != .queued || old.credentialReference != nil else { throw GroupStorageError.invalidUpdate }
         try amend(snapshot) { next in
             guard let index = next.groupDeliveries.firstIndex(where: { $0.id == id }) else { throw GroupStorageError.invalidUpdate }
@@ -1125,20 +1125,32 @@ extension GroupRepository {
 
     func removeFinishedGroupDeliveries(now: TimeInterval, internetCancelledID: UUID? = nil) throws {
         guard let snapshot else { throw IntercomGroupError.storageUnavailable }
-        let confirmed = snapshot.groupDeliveries.firstIndex {
+        var deliveries = snapshot.groupDeliveries
+        if let confirmed = deliveries.firstIndex(where: {
             $0.id == internetCancelledID && $0.internetAction == .cancel
-        }
-        guard confirmed != nil || snapshot.groupDeliveries.contains(where: { $0.expiresAt <= now })
-                || snapshot.nearbyGroupCancellations.contains(where: { $0.expiresAt <= now }) else { return }
-        try amend(snapshot, now: now) { next in
-            if let confirmed {
-                if next.groupDeliveries[confirmed].nearbyHandoff != nil {
-                    next.groupDeliveries[confirmed].nearbyHandoff?.internetCancellationConfirmed = true
-                } else {
-                    next.groupDeliveries.remove(at: confirmed)
-                }
+        }) {
+            if deliveries[confirmed].nearbyHandoff != nil {
+                deliveries[confirmed].nearbyHandoff?.internetCancellationConfirmed = true
+            } else {
+                deliveries.remove(at: confirmed)
             }
-            next.groupDeliveries.removeAll { $0.expiresAt <= now }
+        }
+        deliveries = deliveries.compactMap { $0.retainingOutcome(at: now) }
+        guard deliveries != snapshot.groupDeliveries
+                || snapshot.nearbyGroupCancellations.contains(where: { $0.expiresAt <= now }) else { return }
+        try amend(snapshot, now: now) { $0.groupDeliveries = deliveries }
+    }
+
+    func confirmExpiredGroupDeliveryOutcome(_ id: UUID, state: GroupDeliveryRecord.State?, now: TimeInterval) throws {
+        guard let snapshot, let index = snapshot.groupDeliveries.firstIndex(where: { $0.id == id }),
+              snapshot.groupDeliveries[index].expiredOutcome == .awaiting else { return }
+        try amend(snapshot, now: now) { next in
+            if let state, state == .received || state == .cancelled, next.groupDeliveries[index].outcomeDeadline > now {
+                next.groupDeliveries[index].moveOutgoing(to: state)
+                next.groupDeliveries[index].expiredOutcome = .confirmed
+            } else {
+                next.groupDeliveries.remove(at: index)
+            }
         }
     }
 
@@ -1452,7 +1464,8 @@ extension GroupRepository {
         }
         for index in next.groupDeliveries.indices {
             let record = next.groupDeliveries[index]
-            guard record.direction == .outgoing, record.state == .pending || record.state == .queued else { continue }
+            guard record.direction == .outgoing, record.expiredOutcome == nil,
+                  record.state == .pending || record.state == .queued else { continue }
             let supersededRedelivery = record.sourceRequestID != nil && latestNotices[record.groupID]?[record.recipient] != record.noticeID
             if supersededRedelivery || !isSelectedGroupDelivery(record, in: next) {
                 next.groupDeliveries[index].moveOutgoing(to: .cancelled)

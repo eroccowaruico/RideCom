@@ -970,6 +970,63 @@ import UserNotifications
         #expect(owner.groupsPresentationID != nil && owner.callPresentationID == nil && !receiver.hasAnyActiveGroupConnection)
     }
 
+    @Test(arguments: [false, true])
+    func foregroundAfterExpiryRecoversTheConfirmedInvitationOutcome(cancelled: Bool) async throws {
+        let a = GroupDeliveryTestIdentity("expiry-author"), b = GroupDeliveryTestIdentity("expiry-recipient")
+        defer { a.remove(); b.remove() }
+        let issued = Date()
+        var now = issued
+        try a.authorizeFixture(userID: String(repeating: "a", count: 64)); try b.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try a.harness(knowing: [b], onDisk: true, callAccessNow: { now }).viewModel
+        let receiver = try b.harness(knowing: [a]).viewModel
+        sender.allowsNearbyGroupDelivery = false; receiver.allowsNearbyGroupDelivery = false
+        defer { sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync(); sender.disconnect(); receiver.disconnect() }
+        GroupDeliveryHTTPStub.reset()
+        let senderAccess = try #require(try a.store.notificationAccess(memberID: a.memberID))
+        let receiverAccess = try #require(try b.store.notificationAccess(memberID: b.memberID))
+        GroupDeliveryHTTPStub.users = [senderAccess.accessToken: try a.principal.userID, receiverAccess.accessToken: try b.principal.userID]
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [GroupDeliveryHTTPStub.self]
+        let client = InternetAccountClient(session: URLSession(configuration: configuration))
+        sender.groupDeliveryClient = nil; receiver.groupDeliveryClient = client
+        let permission = try CallNotificationPermissionMessage.make(owner: b.principal, allowedSender: a.principal, revision: 1,
+            grant: nil, signer: b.signer, groupGrant: testCallNotificationGrant(owner: b.principal, allowedSender: a.principal, audience: "rideintercom-group-invitation"), groupInvitationsSupported: true)
+        try sender.notifications.receivePermission(permission, peerID: b.memberID)
+        let groupID = UUID()
+        try #require(sender.createTalkGroup(name: "Trip group", userIDs: [b.personID], id: groupID))
+        sender.groupDeliveryClient = client
+        await sender.synchronizeGroupDeliveries()
+        let delivery = try #require(sender.groupRepository.groupDeliveries.first)
+        try #require(delivery.state == .queued)
+        let keyReference = try #require(delivery.credentialReference)
+        let expected: GroupDeliveryRecord.State = cancelled ? .cancelled : .received
+        if cancelled { _ = try await client.finishGroupInvitation(recipient: b.principal, id: delivery.id, access: senderAccess) }
+        else { await receiver.synchronizeGroupDeliveries() }
+        let writes = GroupDeliveryHTTPStub.submitted.count + GroupDeliveryHTTPStub.deletions.count
+
+        now = issued.addingTimeInterval(8 * 86_400)
+        GroupDeliveryHTTPStub.failNextStatus = true
+        await sender.synchronizeGroupDeliveries()
+        let recoveredEnvelopeSlot = a.groupKeys.values[keyReference] == nil
+        #expect(recoveredEnvelopeSlot)
+        #expect(sender.groupInvitationDeliveryState(for: try b.savedUser(), in: groupID) == nil)
+        try #require(GroupDeliveryHTTPStub.statusLookups == [delivery.id.uuidString.lowercased()])
+        sender.stopGroupDeliverySync(); sender.disconnect()
+
+        let reopened = try a.harness(knowing: [b], onDisk: true, callAccessNow: { now }).viewModel
+        reopened.allowsNearbyGroupDelivery = false
+        defer { reopened.stopGroupDeliverySync(); reopened.disconnect(); GroupDeliveryHTTPStub.reset() }
+        reopened.groupDeliveryClient = client
+        await reopened.synchronizeGroupDeliveries()
+        #expect(reopened.groupInvitationDeliveryState(for: try b.savedUser(), in: groupID) == expected)
+        #expect(reopened.groupRepository.groupDeliveries.first?.credentialReference == nil)
+        #expect(receiver.groups.contains { $0.id == groupID } == !cancelled)
+        now = Date(timeIntervalSince1970: delivery.expiresAt + 21 * 86_400)
+        await reopened.synchronizeGroupDeliveries()
+        #expect(reopened.groupRepository.groupDeliveries.isEmpty)
+        #expect(GroupDeliveryHTTPStub.statusLookups.count == 2)
+        #expect(GroupDeliveryHTTPStub.submitted.count + GroupDeliveryHTTPStub.deletions.count == writes)
+    }
+
     @Test func oneForegroundPassReceivesMoreThanEightDifferentGroupInvitations() async throws {
         let a = GroupDeliveryTestIdentity("batch-author"), b = GroupDeliveryTestIdentity("batch-recipient")
         defer { a.remove(); b.remove() }
@@ -1542,6 +1599,8 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var items: [String: [String: Any]] = [:]
     nonisolated(unsafe) static var submitted: [String] = []
     @MainActor static var deletions: [String] = []
+    @MainActor static var statusLookups: [String] = []
+    @MainActor static var failNextStatus = false
     nonisolated(unsafe) static var onQueued: (@MainActor () -> Void)?
     nonisolated(unsafe) static var onAcknowledged: (@MainActor () -> Void)?
     @MainActor static var beforeReturningInbox: (@MainActor () async -> Void)?
@@ -1550,7 +1609,7 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
-    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil; onContactDeletion = nil }
+    @MainActor static func reset() { requestCount = 0; users = [:]; items = [:]; submitted = []; deletions = []; statusLookups = []; failNextStatus = false; rejectedRecipientID = nil; submitRejectionStatus = 403; failNextSubmit = false; failNextAcknowledgement = false; onQueued = nil; onAcknowledged = nil; beforeReturningInbox = nil; onContactDeletion = nil }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "delivery.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -1599,6 +1658,14 @@ private final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
             let key = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
             let item = items.values.first { $0["recipientID"] as? String == caller && $0["recipientKey"] as? String == key && $0["status"] as? String == "queued" }
             return (200, ["delivery": item.map { $0 as Any } ?? NSNull()])
+        }
+        if request.httpMethod == "GET", url.pathComponents.count == 6,
+           url.path.hasPrefix("/api/notifications/group-invitations/") {
+            let id = url.lastPathComponent
+            statusLookups.append(id)
+            if failNextStatus { failNextStatus = false; return (503, [:]) }
+            guard let item = items[id], item["senderUserID"] as? String == caller else { return (404, [:]) }
+            return (200, ["requestID": id, "expiresAt": item["expiresAt"]!, "status": item["status"]!])
         }
         if request.httpMethod == "DELETE" {
             deletions.append(url.lastPathComponent)
