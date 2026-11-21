@@ -95,17 +95,20 @@ class DevelopmentSetupTests(unittest.TestCase):
                                      if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercomTests')
                         other['fileSystemSynchronizedGroups'].append(group_id)
                     with patch.object(self.setup, 'load_project', return_value=project):
-                        self.assertIn(f'{folder} must be synchronized only by the {folder} target.', self.setup.check(ROOT))
+                        group_path = Path(objects[group_id]['path']).name
+                        expected = (f'{group_path} must be visible and synchronized only by the {folder} target.'
+                                    if folder == 'RideIntercom' else
+                                    f'{folder} must be synchronized only by the {folder} target.')
+                        self.assertIn(expected, self.setup.check(ROOT))
 
     def test_package_folder_override_is_rejected(self):
-        for scope, path in [('RideIntercom', 'packages')]:
-            with self.subTest(scope=scope):
-                project = copy.deepcopy(self.project)
-                group = next(obj for obj in project['objects'].values()
-                             if obj.get('isa') == 'PBXFileSystemSynchronizedRootGroup' and obj.get('path') == scope)
-                group.setdefault('explicitFolders', []).append(path)
-                with patch.object(self.setup, 'load_project', return_value=project):
-                    self.assertTrue(any('force' in error and 'package' in error for error in self.setup.check(ROOT)))
+        project = copy.deepcopy(self.project)
+        group = next(obj for obj in project['objects'].values()
+                     if obj.get('isa') == 'PBXFileSystemSynchronizedRootGroup'
+                     and obj.get('path') == 'RideIntercom/packages')
+        group['explicitFolders'] = ['CallControl']
+        with patch.object(self.setup, 'load_project', return_value=project):
+            self.assertTrue(any('force' in error and 'package' in error for error in self.setup.check(ROOT)))
 
     def test_self_project_reference_is_rejected(self):
         project = copy.deepcopy(self.project)
@@ -120,43 +123,41 @@ class DevelopmentSetupTests(unittest.TestCase):
             self.assertTrue(any('itself' in error for error in self.setup.check(ROOT)))
 
 
-    def test_package_roots_are_valid_without_parent_exception(self):
+    def test_app_build_root_rejects_a_package_ancestor_even_with_membership_exceptions(self):
         project = copy.deepcopy(self.project)
-        app_id = next(key for key, obj in project['objects'].items()
+        objects = project['objects']
+        app_id = next(key for key, obj in objects.items()
                       if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
-        exception = next(obj for obj in project['objects'].values()
-                         if obj.get('isa') == 'PBXFileSystemSynchronizedBuildFileExceptionSet' and obj.get('target') == app_id)
-        exception['membershipExceptions'] = [path for path in exception['membershipExceptions'] if path != 'packages']
+        objects['APP_PARENT'] = {'isa': 'PBXFileSystemSynchronizedRootGroup', 'path': 'RideIntercom',
+                                 'sourceTree': 'SOURCE_ROOT', 'exceptions': ['APP_EXCEPTIONS']}
+        objects['APP_EXCEPTIONS'] = {'isa': 'PBXFileSystemSynchronizedBuildFileExceptionSet', 'target': app_id,
+                                     'membershipExceptions': ['packages/CallControl']}
+        objects[app_id]['fileSystemSynchronizedGroups'].append('APP_PARENT')
         with patch.object(self.setup, 'load_project', return_value=project):
-            self.assertEqual(self.setup.check(ROOT), [])
+            self.assertIn('App synchronized groups must not overlap the local Swift package root RideIntercom/packages/CallControl.',
+                          self.setup.check(ROOT))
 
-    def test_parent_exception_does_not_hide_missing_package_roots(self):
-        roots = [obj['relativePath'].removeprefix('RideIntercom/') for obj in self.project['objects'].values()
-                 if obj.get('isa') == 'XCLocalSwiftPackageReference']
-        for root in roots:
-            with self.subTest(root=root):
-                project = copy.deepcopy(self.project)
-                app_id = next(key for key, obj in project['objects'].items()
-                              if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
-                exception = next(obj for obj in project['objects'].values()
-                                 if obj.get('isa') == 'PBXFileSystemSynchronizedBuildFileExceptionSet' and obj.get('target') == app_id)
-                exception['membershipExceptions'].remove(root)
-                with patch.object(self.setup, 'load_project', return_value=project):
-                    self.assertTrue(any(root in error for error in self.setup.check(ROOT)))
+    def test_package_editing_group_cannot_become_an_app_build_input(self):
+        project = copy.deepcopy(self.project)
+        objects = project['objects']
+        package_group = next(k for k, v in objects.items() if v.get('path') == 'RideIntercom/packages')
+        app = next(obj for obj in objects.values()
+                   if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
+        app['fileSystemSynchronizedGroups'].append(package_group)
+        with patch.object(self.setup, 'load_project', return_value=project):
+            self.assertIn('Keep RideIntercom/packages visible for editing only.', self.setup.check(ROOT))
 
-    def test_only_attached_app_exceptions_exclude_package_roots(self):
-        for failure in ('detached', 'other-target'):
-            with self.subTest(failure=failure):
-                project = copy.deepcopy(self.project)
-                app = next(obj for obj in project['objects'].values()
-                           if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
-                group = project['objects'][app['fileSystemSynchronizedGroups'][0]]
-                if failure == 'detached':
-                    group['exceptions'] = []
-                else:
-                    project['objects'][group['exceptions'][0]]['target'] = 'another-target'
-                with patch.object(self.setup, 'load_project', return_value=project):
-                    self.assertTrue(any('local Swift package root' in error for error in self.setup.check(ROOT)))
+    def test_app_build_root_rejects_a_folder_inside_a_package(self):
+        project = copy.deepcopy(self.project)
+        objects = project['objects']
+        app = next(obj for obj in objects.values()
+                   if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
+        objects['GENERATED'] = {'isa': 'PBXFileSystemSynchronizedRootGroup', 'sourceTree': 'SOURCE_ROOT',
+                                'path': 'RideIntercom/packages/CallControl/.build'}
+        app['fileSystemSynchronizedGroups'].append('GENERATED')
+        with patch.object(self.setup, 'load_project', return_value=project):
+            self.assertIn('App synchronized groups must not overlap the local Swift package root RideIntercom/packages/CallControl.',
+                          self.setup.check(ROOT))
 
     def test_synchronized_ancestor_is_rejected_even_with_folder_type_override(self):
         for path in ['.', '..', str(ROOT.resolve())]:

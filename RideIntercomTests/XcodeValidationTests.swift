@@ -90,25 +90,21 @@ struct XcodeValidationTests {
         #expect(paths.contains("RideIntercom/SystemSurfaces/Shared/SystemSurfaceScope.swift"))
     }
 
-    @Test func localSwiftPackageRootsAreExcludedFromTheAppsSynchronizedResources() throws {
+    @Test func appSynchronizationCannotReachLocalSwiftPackageFiles() throws {
         let data = try Data(contentsOf: AppTestSupport.workspaceRoot().appending(path: "RideIntercom.xcodeproj/project.pbxproj"))
         let project = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
         let objects = try #require(project["objects"] as? [String: [String: Any]])
-        let app = try #require(objects.first { $0.value["isa"] as? String == "PBXNativeTarget" && $0.value["name"] as? String == "RideIntercom" })
-        let groupIDs = try #require(app.value["fileSystemSynchronizedGroups"] as? [String])
+        let app = try #require(objects.values.first { $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercom" })
+        let groupIDs = try #require(app["fileSystemSynchronizedGroups"] as? [String])
         let packages = objects.values.filter { $0["isa"] as? String == "XCLocalSwiftPackageReference" }
             .compactMap { $0["relativePath"] as? String }
         #expect(!packages.isEmpty)
         for groupID in groupIDs {
             let group = try #require(objects[groupID])
-            let path = try #require(group["path"] as? String)
-            let exceptions = (group["exceptions"] as? [String] ?? []).compactMap { objects[$0] }
-                .filter { $0["target"] as? String == app.key }
-            let excluded = Set(exceptions.flatMap { $0["membershipExceptions"] as? [String] ?? [] })
-            for package in packages where package.hasPrefix(path + "/") {
-                // Each package is an opaque container to Xcode. Excluding only
-                // its parent folder doesn't exclude that resource container.
-                #expect(excluded.contains(String(package.dropFirst(path.count + 1))))
+            let configuredPath = try #require(group["path"] as? String)
+            let path = group["sourceTree"] as? String == "SOURCE_ROOT" ? configuredPath : "RideIntercom/\(configuredPath)"
+            for package in packages {
+                #expect(path != package && !package.hasPrefix(path + "/") && !path.hasPrefix(package + "/"))
             }
         }
     }

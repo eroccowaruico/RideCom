@@ -98,7 +98,7 @@ def check(root):
                 build_groups.setdefault(key, []).append(target['name'])
 
     editing_folders = ['docs', 'scripts', 'Configuration', '.vscode', '.codex', '.github', '.claude', '.agents']
-    source_folders = ['RideIntercom', 'RideIntercomTests', 'RideIntercomUITests', 'RideIntercomAudioE2ETests',
+    source_folders = ['RideIntercomTests', 'RideIntercomUITests', 'RideIntercomAudioE2ETests',
                       'RideIntercomWidgets', 'RideIntercomWatch', 'RideIntercomWatchUITests']
     for folder in source_folders + editing_folders:
         key = visible.get(folder)
@@ -116,18 +116,33 @@ def check(root):
             errors.append(f'{folder} is editing-only and must not be a build input.')
     errors.extend(check_worker_editing_references(root, objects, visible.get('server'), build_files | set(build_groups)))
     app_id = next(key for key,obj in objects.items() if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == 'RideIntercom')
+    app = objects.get(visible.get('RideIntercom'), {})
+    if app.get('isa') != 'PBXGroup':
+        errors.append('Keep RideIntercom as an Xcode group so package build outputs are outside target synchronization.')
+    app_directory = repository / 'RideIntercom'
+    package_directory = app_directory / 'packages'
+    synchronized_paths = {}
+    for group_id in app.get('children', []):
+        group = objects[group_id]
+        if group.get('isa') != 'PBXFileSystemSynchronizedRootGroup':
+            continue
+        path = repository if group.get('sourceTree') == 'SOURCE_ROOT' else app_directory
+        synchronized_paths[(path / group['path']).resolve()] = group_id
+    for directory in sorted(p for p in app_directory.iterdir() if p.is_dir() and not p.name.startswith('.')
+                            and p.suffix not in ('.icon', '.lproj') and p != package_directory):
+        if build_groups.get(synchronized_paths.get(directory)) != ['RideIntercom']:
+            errors.append(f'{directory.name} must be visible and synchronized only by the RideIntercom target.')
+    package_group_id = synchronized_paths.get(package_directory)
+    if package_group_id is None or package_group_id in build_groups or package_group_id in build_files:
+        errors.append('Keep RideIntercom/packages visible for editing only.')
     for group_id in objects[app_id].get('fileSystemSynchronizedGroups', []):
         group = objects[group_id]
-        directory = (root / group.get('path', '')).resolve()
-        exceptions = [objects[key] for key in group.get('exceptions', [])
-                      if objects[key].get('target') == app_id]
-        excluded = {path for obj in exceptions for path in obj.get('membershipExceptions', [])}
+        path = repository if group.get('sourceTree') == 'SOURCE_ROOT' else app_directory
+        directory = (path / group['path']).resolve()
         for package in sorted(package_paths):
-            package_directory = (root / package).resolve()
-            if package_directory.is_relative_to(directory):
-                relative = package_directory.relative_to(directory).as_posix()
-                if relative not in excluded:
-                    errors.append(f'App must exclude local Swift package root {relative} from synchronized target membership (SwiftPM owns it).')
+            package_root = (repository / package).resolve()
+            if package_root.is_relative_to(directory) or directory.is_relative_to(package_root):
+                errors.append(f'App synchronized groups must not overlap the local Swift package root {package}.')
     settings = json.loads((root / '.vscode/settings.json').read_text())
     if settings.get('explorer.excludeGitIgnore') is not False or settings.get('explorer.fileNesting.enabled') is not False:
         errors.append('VS Code must show ignored files and disable file nesting.')

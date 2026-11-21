@@ -46,6 +46,11 @@
 		E1FA6A96A55CF6A201DD62BC /* RideIntercom/Shared/WatchControlMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF1CEF8CC38869E15C83735 /* RideIntercom/Shared/WatchControlMessage.swift */; };
 		E2E00000000000000000000C /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E00000000000000000000D /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift */; };
 		FA53F9AE53A8243587C739B6 /* Codec in Frameworks */ = {isa = PBXBuildFile; productRef = 2F9C992A138EE52EE1027EC2 /* Codec */; };
+		AB5100000000000000000030 /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AB5100000000000000000020 /* AppShortcuts.xcstrings */; };
+		AB5100000000000000000031 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 24CAD00D525C7DAC722B6173 /* Localizable.xcstrings */; };
+		AB5100000000000000000032 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AB5100000000000000000021 /* PrivacyInfo.xcprivacy */; };
+		AB5100000000000000000033 /* RideComAppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0DE1C010000000000000002 /* RideComAppIcon.icon */; };
+		AB5100000000000000000034 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = AB5100000000000000000027 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -149,6 +154,13 @@
 		D76000000000000000000005 /* wrangler.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = wrangler.toml; sourceTree = "<group>"; };
 		E2E000000000000000000002 /* RideIntercomAudioE2ETests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomAudioE2ETests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2E00000000000000000000D /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000020 /* AppShortcuts.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = RideIntercom/AppShortcuts.xcstrings; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000021 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = RideIntercom/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000022 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = RideIntercom/Info.plist; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000023 /* RideIntercom.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RideIntercom/RideIntercom.entitlements; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000024 /* RideIntercom-macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RideIntercom/RideIntercom-macOS.entitlements; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000025 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = RideIntercom/en.lproj/InfoPlist.strings; sourceTree = SOURCE_ROOT; };
+		AB5100000000000000000026 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = RideIntercom/ja.lproj/InfoPlist.strings; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -165,24 +177,6 @@
 				Info.plist,
 			);
 			target = 0CCFFDBF2F4415059F932F5F /* RideIntercomWatch */;
-		};
-		93F300EB2F93829D0046716D /* Exceptions for "RideIntercom" folder in "RideIntercom" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-				packages/Audio/AudioCore,
-				packages/Audio/AudioDevice,
-				packages/Audio/AudioMixer,
-				packages/Audio/Codec,
-				packages/Audio/Effectors/DynamicsProcessor,
-				packages/Audio/Effectors/PeakLimiter,
-				packages/Audio/Effectors/SoundIsolation,
-				packages/Audio/Effectors/VADGate,
-				packages/Audio/SessionManager,
-				packages/CallControl,
-				packages/RTC,
-			);
-			target = 93F300C72F93829C0046716D /* RideIntercom */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -221,14 +215,6 @@
 		93BD7A6E2FACCD5C00CBA553 /* scripts */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = scripts;
-			sourceTree = "<group>";
-		};
-		93F300CA2F93829C0046716D /* RideIntercom */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				93F300EB2F93829D0046716D /* Exceptions for "RideIntercom" folder in "RideIntercom" target */,
-			);
-			path = RideIntercom;
 			sourceTree = "<group>";
 		};
 		93F300DC2F93829D0046716D /* RideIntercomTests */ = {
@@ -285,6 +271,84 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = RideIntercom/SystemSurfaces/Shared;
 			sourceTree = "<group>";
+		};
+		AB5100000000000000000001 /* Account */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Account;
+			path = RideIntercom/Account;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000002 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = App;
+			path = RideIntercom/App;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000003 /* Intents */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Intents;
+			path = RideIntercom/Intents;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000004 /* Intercom */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Intercom;
+			path = RideIntercom/Intercom;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000005 /* Notifications */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Notifications;
+			path = RideIntercom/Notifications;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000006 /* Platform */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Platform;
+			path = RideIntercom/Platform;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000007 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Shared;
+			path = RideIntercom/Shared;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000008 /* StoreKit */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = StoreKit;
+			path = RideIntercom/StoreKit;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB5100000000000000000009 /* SystemSurfaces */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = SystemSurfaces;
+			path = RideIntercom/SystemSurfaces;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB510000000000000000000A /* TestSupport */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = TestSupport;
+			path = RideIntercom/TestSupport;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB510000000000000000000B /* UI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = UI;
+			path = RideIntercom/UI;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB510000000000000000000C /* Watch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Watch;
+			path = RideIntercom/Watch;
+			sourceTree = SOURCE_ROOT;
+		};
+		AB510000000000000000000D /* packages */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = packages;
+			path = RideIntercom/packages;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -371,7 +435,6 @@
 			children = (
 				D35100000000000000000001 /* RideIntercom/Shared/Appearance.xcassets */,
 				D35100000000000000000002 /* RideIntercom/Shared/RideComColors.swift */,
-				24CAD00D525C7DAC722B6173 /* RideIntercom/Localizable.xcstrings */,
 				A9F382A78A734E6BAC3AFB82 /* RideIntercom/Shared/WatchMicrophoneIntent.swift */,
 				7FF1CEF8CC38869E15C83735 /* RideIntercom/Shared/WatchControlMessage.swift */,
 				8EC36A73C65578D5E215505E /* RideIntercom/Shared/WatchControlClient.swift */,
@@ -416,7 +479,6 @@
 				93F300CA2F93829C0046716D /* RideIntercom */,
 				1C0A209D1EDC02B2C3B6C9AD /* RideIntercom.code-workspace */,
 				E2E00000000000000000000D /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift */,
-				C0DE1C010000000000000002 /* RideIntercom/RideComAppIcon.icon */,
 				F2FF24FCC7CD717AC0CF70D8 /* RideIntercom/SystemSurfaces/Shared */,
 				E2E000000000000000000003 /* RideIntercomAudioE2ETests */,
 				93F300DC2F93829D0046716D /* RideIntercomTests */,
@@ -441,6 +503,34 @@
 				93F300E32F93829D0046716D /* RideIntercomUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		93F300CA2F93829C0046716D /* RideIntercom */ = {
+			isa = PBXGroup;
+			children = (
+				AB5100000000000000000001 /* Account */,
+				AB5100000000000000000002 /* App */,
+				AB5100000000000000000003 /* Intents */,
+				AB5100000000000000000004 /* Intercom */,
+				AB5100000000000000000005 /* Notifications */,
+				AB5100000000000000000006 /* Platform */,
+				AB5100000000000000000007 /* Shared */,
+				AB5100000000000000000008 /* StoreKit */,
+				AB5100000000000000000009 /* SystemSurfaces */,
+				AB510000000000000000000A /* TestSupport */,
+				AB510000000000000000000B /* UI */,
+				AB510000000000000000000C /* Watch */,
+				AB510000000000000000000D /* packages */,
+				AB5100000000000000000020 /* AppShortcuts.xcstrings */,
+				24CAD00D525C7DAC722B6173 /* Localizable.xcstrings */,
+				AB5100000000000000000021 /* PrivacyInfo.xcprivacy */,
+				C0DE1C010000000000000002 /* RideComAppIcon.icon */,
+				AB5100000000000000000022 /* Info.plist */,
+				AB5100000000000000000023 /* RideIntercom.entitlements */,
+				AB5100000000000000000024 /* RideIntercom-macOS.entitlements */,
+				AB5100000000000000000027 /* InfoPlist.strings */,
+			);
+			path = RideIntercom;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -511,7 +601,18 @@
 				332651C1A76F704BAD4BFCF7 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				93F300CA2F93829C0046716D /* RideIntercom */,
+				AB5100000000000000000001 /* Account */,
+				AB5100000000000000000002 /* App */,
+				AB5100000000000000000003 /* Intents */,
+				AB5100000000000000000004 /* Intercom */,
+				AB5100000000000000000005 /* Notifications */,
+				AB5100000000000000000006 /* Platform */,
+				AB5100000000000000000007 /* Shared */,
+				AB5100000000000000000008 /* StoreKit */,
+				AB5100000000000000000009 /* SystemSurfaces */,
+				AB510000000000000000000A /* TestSupport */,
+				AB510000000000000000000B /* UI */,
+				AB510000000000000000000C /* Watch */,
 			);
 			name = RideIntercom;
 			packageProductDependencies = (
@@ -701,6 +802,11 @@
 		93F300C62F93829C0046716D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				AB5100000000000000000030 /* AppShortcuts.xcstrings in Resources */,
+				AB5100000000000000000031 /* Localizable.xcstrings in Resources */,
+				AB5100000000000000000032 /* PrivacyInfo.xcprivacy in Resources */,
+				AB5100000000000000000033 /* RideComAppIcon.icon in Resources */,
+				AB5100000000000000000034 /* InfoPlist.strings in Resources */,
 			);
 		};
 		93F300D72F93829D0046716D /* Resources */ = {
@@ -831,6 +937,18 @@
 			targetProxy = E2E000000000000000000008 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		AB5100000000000000000027 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AB5100000000000000000025 /* en */,
+				AB5100000000000000000026 /* ja */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		0C1B5AAACE6C9DC7D84AC9EA /* Debug-Validation configuration for PBXNativeTarget "RideIntercomWidgets" */ = {
@@ -1059,7 +1177,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1824;
+				CURRENT_PROJECT_VERSION = 1827;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1226,7 +1344,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1824;
+				CURRENT_PROJECT_VERSION = 1827;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1512,7 +1630,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1824;
+				CURRENT_PROJECT_VERSION = 1827;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1582,7 +1700,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1824;
+				CURRENT_PROJECT_VERSION = 1827;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
