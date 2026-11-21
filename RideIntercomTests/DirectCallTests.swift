@@ -34,6 +34,35 @@ struct DirectCallTests {
         #expect(recipientReleases == 1)
     }
 
+    @Test func deletingAnInviterCancelsTheirPendingReplyWhileKeepingTheGroupCall() throws {
+        let group = try IntercomGroup(name: "Riders", members: [.init(id: "alice", displayName: "Alice")],
+                                      accessSecret: "recipient-reply-fixture")
+        let author = AppTestSupport.makeHarness(groups: [group], localMemberID: "alice")
+        let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
+        defer { recipient.viewModel.stopOrdinaryGroupReplyExchanges(); recipient.viewModel.disconnect() }
+        recipient.viewModel.allowsNearbyGroupDelivery = true
+        var releases = 0
+        recipient.viewModel.beginOrdinaryGroupReplyBackgroundTime = { _ in { releases += 1 } }
+        let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
+        try recipient.viewModel.acceptInviteURL(url)
+        let alice = try #require(recipient.viewModel.savedRemoteUsers.first)
+        try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee] != nil)
+
+        try #require(recipient.viewModel.removeSavedUser(alice.id))
+        #expect(recipient.viewModel.activeGroupID == group.id)
+        #expect(recipient.viewModel.regularGroups.map(\.id) == [group.id])
+        let remainsPending = recipient.groupStore.snapshot.groups.first?.pendingInvitation != nil
+        #expect(!remainsPending)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+        #expect(releases == 1)
+
+        try recipient.viewModel.acceptInviteURL(url)
+        #expect(recipient.viewModel.savedRemoteUsers.isEmpty)
+        let pendingAfterReopening = recipient.viewModel.groupRepository.pendingInvitation(for: group.id) != nil
+        #expect(!pendingAfterReopening)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+    }
+
     @Test func issuedOrdinaryGroupInvitationSurvivesReloadOnlyWithItsOriginalGroupKey() throws {
         let storage = try GroupStorageFixture()
         defer { storage.remove() }

@@ -115,11 +115,9 @@ extension IntercomViewModel {
                 let signer = receipt.inviteeDeviceKey.flatMap {
                     try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: $0)
                 }
-                try groupRepository.acknowledgeInvitation(receipt, signer: signer)
+                guard try groupRepository.acknowledgeInvitation(receipt, signer: signer) else { return nil }
                 adoptStoredDeviceCall(with: peerID)
-                if let invitation = receipt.invitation, groupRepository.pendingInvitation(for: receipt.groupID) == nil {
-                    finishOrdinaryGroupReply(invitation.id)
-                }
+                refreshGroupStorageStatus()
             }
         } catch { reportGroupStorageError(error) }
         return nil

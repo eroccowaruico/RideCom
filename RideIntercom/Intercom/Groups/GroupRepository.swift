@@ -638,7 +638,8 @@ final class GroupRepository {
         }
     }
 
-    func acknowledgeInvitation(_ receipt: DirectInvitationReceipt, signer: DeviceIdentitySigner? = nil) throws {
+    @discardableResult
+    func acknowledgeInvitation(_ receipt: DirectInvitationReceipt, signer: DeviceIdentitySigner? = nil) throws -> Bool {
         guard receipt.kind == .acknowledged, let snapshot,
               let index = snapshot.groups.firstIndex(where: { $0.id == receipt.groupID }),
               let pending = snapshot.groups[index].pendingInvitation,
@@ -646,9 +647,9 @@ final class GroupRepository {
               pending.inviteeMemberID == receipt.inviteeMemberID,
               pending.invitation == receipt.invitation, pending.proof == receipt.proof,
               let proof = receipt.acknowledgementProof,
-              proof.publicKey == pending.invitation?.inviterDeviceKey else { return }
+              proof.publicKey == pending.invitation?.inviterDeviceKey else { return false }
         guard let peer = try? proof.verify(receipt.acknowledgementMessage(), purpose: .acknowledgeInvitation,
-                                           memberID: receipt.inviterMemberID) else { return }
+                                           memberID: receipt.inviterMemberID) else { return false }
         let person = snapshot.users.first {
             $0.memberIDs == [peer.memberID] && $0.principal == nil && $0.deviceKeys?[peer.memberID] == peer.publicKey
         }
@@ -661,6 +662,7 @@ final class GroupRepository {
                                        name: isDeviceAcknowledgement ? person?.displayName : nil, signer: signer) { next in
             next.groups[index].pendingInvitation = nil
         }
+        return true
     }
 
     private func updateAfterInvitationReply(_ snapshot: GroupSnapshot, receipt: DirectInvitationReceipt,
@@ -1398,6 +1400,9 @@ extension GroupRepository {
         }
         for index in next.groups.indices {
             let groupID = next.groups[index].id
+            if let inviter = next.groups[index].pendingInvitation?.inviterMemberID, !members.contains(inviter) {
+                next.groups[index].pendingInvitation = nil
+            }
             next.groups[index].discardRemovalHistory(withPendingInvitations: pendingByGroup[groupID] ?? [])
         }
     }

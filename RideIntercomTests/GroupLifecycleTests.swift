@@ -30,7 +30,9 @@ struct GroupLifecycleTests {
         let oldLinks = try [link(secret: "first-key"), link(secret: "first-key")]
         for url in oldLinks { try vm.acceptInviteURL(url, now: now) }
         let receipt = try #require(vm.groupRepository.pendingInvitation(for: groupID))
-        try vm.groupRepository.acknowledgeInvitation(receipt.acknowledged(by: signer))
+        let acknowledgement = try receipt.acknowledged(by: signer)
+        #expect(try vm.groupRepository.acknowledgeInvitation(acknowledgement))
+        #expect(try !vm.groupRepository.acknowledgeInvitation(acknowledgement))
         #expect(vm.groupRepository.pendingInvitation(for: groupID) == nil)
         let contact = try #require(vm.savedRemoteUsers.first)
         if legacySnapshot {

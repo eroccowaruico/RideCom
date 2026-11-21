@@ -100,11 +100,6 @@ extension IntercomViewModel {
             && groupRepository.ordinaryGroupReplyCredentialReference(for: exchange.invitation, now: now) == exchange.credentialReference
     }
 
-    func finishOrdinaryGroupReply(_ invitationID: UUID) {
-        guard ordinaryGroupReplyExchanges[.invitee]?.invitation.id == invitationID else { return }
-        stopOrdinaryGroupReplyExchange(.invitee)
-    }
-
     private func stopOrdinaryGroupReplyExchange(_ role: OrdinaryGroupReplyExchange.Role, id: UUID? = nil) {
         guard let exchange = ordinaryGroupReplyExchanges[role], id == nil || exchange.id == id else { return }
         ordinaryGroupReplyExchanges.removeValue(forKey: role)
