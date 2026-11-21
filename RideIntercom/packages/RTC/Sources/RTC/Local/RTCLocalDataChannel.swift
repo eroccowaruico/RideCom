@@ -35,7 +35,9 @@ public final class RTCLocalDataChannel: Sendable {
                               secret: credential.sharedSecret.base64EncodedString())
     }
 
-    private static func events(_ onEvent: @escaping @Sendable (Event) -> Void) -> @Sendable (LocalControlEvent) -> Void {
+    private static func events(
+        _ onEvent: @escaping @Sendable (Event) -> Void
+    ) -> @Sendable (LocalControlEvent) -> Void {
         { event in
             switch event {
             case .members(let peers): onEvent(.members(peers))

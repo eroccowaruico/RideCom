@@ -67,8 +67,9 @@ private final class Session: @unchecked Sendable {
     private var controlPeers: Set<PeerID> = []
     private var mediaPeers: Set<PeerID> = []
     private var control: LocalControlTransport?
-        private(set) lazy var datagrams = LocalDatagramTransport(peerID: peer, credential: credential) {
-            [weak self] peer, bytes in
+    private(set) lazy var datagrams = LocalDatagramTransport(
+        peerID: peer, credential: credential
+    ) { [weak self] peer, bytes in
         guard let self, self.active, self.mediaPeers.contains(peer) else { return }
         self.deliver(.init(namespace: GroupRelay.namespace, payload: bytes, delivery: .unreliable), from: peer)
     }

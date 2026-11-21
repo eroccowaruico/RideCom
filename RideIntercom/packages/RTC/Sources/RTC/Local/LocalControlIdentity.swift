@@ -32,10 +32,13 @@ struct LocalControlIdentity: @unchecked Sendable {
         var items: CFArray?
         let status = SecPKCS12Import(container as CFData, options as CFDictionary, &items)
         guard status == errSecSuccess else { throw Failure.importFailed(status) }
-        guard let first = (items as? [[CFString: Any]])?.first, let value = first[kSecImportItemIdentity] else {
+        guard let first = (items as? [[CFString: Any]])?.first, let value = first[kSecImportItemIdentity],
+              CFGetTypeID(value as CFTypeRef) == SecIdentityGetTypeID() else {
             throw Failure.invalidCertificate
         }
-        return .init(identity: value as! SecIdentity, certificateDER: certificateDER)
+        // Security provides a CF type ID for SecIdentity, so the downcast follows the type check above.
+        let identity = unsafeDowncast(value as CFTypeRef, to: SecIdentity.self)
+        return .init(identity: identity, certificateDER: certificateDER)
     }
 }
 
@@ -73,7 +76,7 @@ enum PKCS12Container {
     /// PKCS#8 EncryptedPrivateKeyInfo: PBES2 with PBKDF2-HMAC-SHA256 and AES-256-CBC.
     private static func encrypted(_ privateKeyInfo: Data, password: String) -> Data {
         func random(_ count: Int) -> Data { Data((0..<count).map { _ in UInt8.random(in: 0...255) }) }
-        let salt = random(16), iv = random(kCCBlockSizeAES128), iterations = 2048
+        let salt = random(16), initializationVector = random(kCCBlockSizeAES128), iterations = 2048
         var key = Data(count: kCCKeySizeAES256)
         let passwordBytes = Array(password.utf8)
         _ = key.withUnsafeMutableBytes { keyBytes in
@@ -94,22 +97,24 @@ enum PKCS12Container {
         _ = cipher.withUnsafeMutableBytes { output in
             privateKeyInfo.withUnsafeBytes { input in
                 key.withUnsafeBytes { keyBytes in
-                    iv.withUnsafeBytes { ivBytes in
+                    initializationVector.withUnsafeBytes { vectorBytes in
                         CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
-                                keyBytes.baseAddress, kCCKeySizeAES256, ivBytes.baseAddress,
+                                keyBytes.baseAddress, kCCKeySizeAES256, vectorBytes.baseAddress,
                                 input.baseAddress, privateKeyInfo.count, output.baseAddress, capacity, &length)
                     }
                 }
             }
         }
         cipher.count = length
+        let hmacWithSHA256 = DER.sequence(
+            DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x09]) + Data([0x05, 0x00]))
         let derivation = DER.sequence(
             DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x05, 0x0C]) // PBKDF2
             + DER.sequence(DER.octetString(salt) + DER.integer([UInt8(iterations >> 8), UInt8(iterations & 0xFF)])
-                            + DER.sequence(
-                                DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x09]) + Data([0x05, 0x00]))))  // hmacWithSHA256
-            let scheme = DER.sequence(
-                DER.oid([0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2A]) + DER.octetString(iv))  // aes256-CBC
+                + hmacWithSHA256))
+        let scheme = DER.sequence(
+            DER.oid([0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2A]) // AES-256-CBC
+            + DER.octetString(initializationVector))
             return DER.sequence(
                 DER.sequence(
                     DER.oid([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x05, 0x0D])

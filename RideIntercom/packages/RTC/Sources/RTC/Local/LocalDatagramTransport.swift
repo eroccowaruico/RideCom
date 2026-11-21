@@ -7,14 +7,6 @@ import Network
 /// stream ordering, batching or backlog while an endpoint is unavailable.
 final class LocalDatagramTransport: @unchecked Sendable {
     static let serviceType = "_ride-audio._udp"
-    static func parameters() -> NWParameters {
-        let parameters = NWParameters.udp
-        parameters.includePeerToPeer = true
-        // Nearby voice must work without an AP and never use a cellular path.
-        // Do not require a specific interface: that disables peer-to-peer opt-in.
-        parameters.prohibitedInterfaceTypes = [.cellular]
-        return parameters
-    }
     private let queue = DispatchQueue(label: "rtc.local.datagrams", qos: .userInteractive)
     private let queueKey = DispatchSpecificKey<Bool>()
     struct SendResult {
@@ -40,8 +32,7 @@ final class LocalDatagramTransport: @unchecked Sendable {
     private var replacements: [String: NWConnection] = [:]
     private var retryAfter: [String: ConnectionRetry] = [:]
     private var ready: Set<String> = []
-    private var incoming:
-        [UUID: (connection: NWConnection, lastActivity: TimeInterval, lastReceiptAt: TimeInterval)] = [:]
+    private let incoming = LocalDatagramReceiver()
     private var endpoints: [String: NWEndpoint] = [:]
     private var sent: UInt64 = 0
     private var received: UInt64 = 0
@@ -87,10 +78,11 @@ final class LocalDatagramTransport: @unchecked Sendable {
 
     var statistics: RTCNetworkStatistics {
         synchronized {
+            let recentReceipts = outgoing.keys.filter { hasRecentReceipt($0) }.count
+            let unavailableReason = "Sampled media receipts do not provide per-packet RTT or network loss estimates; "
+                + "registered endpoints: \(endpoints.count), recent media receipts: \(recentReceipts)"
             var result = RTCNetworkStatistics(bufferedBytes: UInt64(inFlight.values.reduce(0, +)),
-                unavailableReason:
-                    "Sampled media receipts do not provide per-packet RTT or network loss estimates; registered endpoints: \(endpoints.count), recent media receipts: \(outgoing.keys.filter { hasRecentReceipt($0) }.count)"
-            )
+                unavailableReason: unavailableReason)
             result.sentMediaDatagrams = sent; result.receivedMediaDatagrams = received
             return result
         }
@@ -117,25 +109,16 @@ final class LocalDatagramTransport: @unchecked Sendable {
             }
             listener.newConnectionHandler = { [weak self] connection in
                 guard let self, self.generation == token else { connection.cancel(); return }
-                // UDP flows have no disconnect handshake. Evict the oldest flow
-                // at the resource bound so repeated peer restarts cannot fill it.
-                if self.incoming.count >= 16,
-                   let oldest = self.incoming.min(by: { $0.value.lastActivity < $1.value.lastActivity })?.key {
-                    self.incoming.removeValue(forKey: oldest)?.connection.cancel()
+                self.incoming.accept(connection, on: self.queue) { [weak self] sender, data in
+                    self?.makeReceipt(to: sender, data: data, generation: token)
+                } onReceive: { [weak self] sender, payload in
+                    guard let self else { return }
+                    self.received += 1
+                    self.onReceive(sender, payload)
                 }
-                let id = UUID()
-                self.incoming[id] = (connection, ProcessInfo.processInfo.systemUptime, -.infinity)
-                connection.stateUpdateHandler = { [weak self, weak connection] state in
-                    guard let self, let connection, self.generation == token else { return }
-                    if case .failed = state { connection.cancel(); self.incoming[id] = nil }
-                    if case .cancelled = state { self.incoming[id] = nil }
-                }
-                connection.start(queue: self.queue)
-                self.receive(connection, id: id, generation: token)
             }
             self.listener = listener
             listener.start(queue: queue)
-
         }
     }
 
@@ -206,34 +189,8 @@ final class LocalDatagramTransport: @unchecked Sendable {
             sender: peerID, receiver: peer, senderNonce: generation.uuidString, receiverNonce: nonce))
         let token = generation
         connection.stateUpdateHandler = { [weak self, weak connection] state in
-            guard let self, let connection, self.generation == token,
-                self.outgoing[serviceName] === connection || self.replacements[serviceName] === connection
-            else { return }
-            defer { self.onAvailabilityChange?() }
-            switch state {
-            case .ready:
-                if self.replacements[serviceName] === connection {
-                    if !self.hasRecentReceipt(serviceName) { self.promote(connection, name: serviceName) }
-                }
-                self.retryAfter[serviceName] = nil
-                if self.outgoing[serviceName] === connection { self.ready.insert(serviceName) }
-            case .failed, .cancelled:
-                self.paths[ObjectIdentifier(connection)] = nil
-                if self.replacements[serviceName] === connection {
-                    self.replacements[serviceName] = nil
-                } else {
-                    self.ready.remove(serviceName); self.inFlight[serviceName] = nil
-                    self.outgoing[serviceName] = nil
-                }
-                connection.cancel()
-                self.retryAfter[serviceName] = ConnectionRetry(after: self.retryAfter[serviceName],
-                    at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
-            default:
-                if self.outgoing[serviceName] === connection {
-                    self.ready.remove(serviceName)
-                    self.paths[ObjectIdentifier(connection)]?.window = .init()
-                }
-            }
+            guard let self, let connection else { return }
+            self.updateState(state, connection: connection, serviceName: serviceName, generation: token)
         }
         connection.betterPathUpdateHandler = { [weak self, weak connection] better in
             guard better, let self, let connection, self.generation == token,
@@ -247,15 +204,87 @@ final class LocalDatagramTransport: @unchecked Sendable {
                   self.outgoing[serviceName] === connection else { return }
             defer { self.onAvailabilityChange?() }
             if viable {
-                if case .ready = connection.state { self.ready.insert(serviceName) }
+                self.markReady(connection, name: serviceName)
             } else {
-                self.ready.remove(serviceName)
-                self.paths[ObjectIdentifier(connection)]?.window = .init()
+                self.invalidateReceipt(connection, name: serviceName)
                 self.connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint, replacing: true)
             }
         }
         connection.start(queue: queue)
         receiveReceipt(connection, name: serviceName, generation: token)
+    }
+
+    private func makeReceipt(to sender: PeerID, data: Data, generation token: UUID) -> Data? {
+        guard let senderNonce = peerNonces[sender] else { return nil }
+        let authenticator = LocalMediaReceiptAuthenticator(credential: credential, sender: sender, receiver: peerID,
+            senderNonce: senderNonce, receiverNonce: token.uuidString)
+        return authenticator.make(digest: Data(SHA256.hash(data: data)))
+    }
+
+    private func removeOutgoing(_ name: String) {
+        ready.remove(name); inFlight[name] = nil
+        if let connection = outgoing.removeValue(forKey: name) {
+            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
+        }
+        if let connection = replacements.removeValue(forKey: name) {
+            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
+        }
+        retryAfter[name] = nil
+    }
+
+    func stop() { synchronized { stopOnQueue() } }
+    private func stopOnQueue() {
+        generation = UUID()
+        listener?.cancel(); listener = nil
+        for connection in outgoing.values { connection.cancel() }
+        for connection in replacements.values { connection.cancel() }
+        incoming.stop()
+        outgoing.removeAll(); ready.removeAll(); inFlight.removeAll(); endpoints.removeAll()
+        replacements.removeAll(); retryAfter.removeAll(); peerServiceNames.removeAll(); peerNonces.removeAll()
+        paths.removeAll()
+        sent = 0; received = 0
+        onAvailabilityChange?()
+    }
+}
+
+extension LocalDatagramTransport {
+    private func markReady(_ connection: NWConnection, name: String) {
+        if case .ready = connection.state { ready.insert(name) }
+    }
+
+    private func invalidateReceipt(_ connection: NWConnection, name: String) {
+        ready.remove(name)
+        paths[ObjectIdentifier(connection)]?.window = .init()
+    }
+
+    private func updateState(
+        _ state: NWConnection.State, connection: NWConnection, serviceName: String, generation token: UUID
+    ) {
+        guard generation == token,
+            outgoing[serviceName] === connection || replacements[serviceName] === connection
+        else { return }
+        defer { onAvailabilityChange?() }
+        switch state {
+        case .ready:
+            if replacements[serviceName] === connection, !hasRecentReceipt(serviceName) {
+                promote(connection, name: serviceName)
+            }
+            retryAfter[serviceName] = nil
+            if outgoing[serviceName] === connection { ready.insert(serviceName) }
+        case .failed, .cancelled:
+            paths[ObjectIdentifier(connection)] = nil
+            if replacements[serviceName] === connection {
+                replacements[serviceName] = nil
+            } else {
+                ready.remove(serviceName); inFlight[serviceName] = nil
+                outgoing[serviceName] = nil
+            }
+            connection.cancel()
+            retryAfter[serviceName] = ConnectionRetry(after: retryAfter[serviceName],
+                at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
+        default:
+            if outgoing[serviceName] === connection { invalidateReceipt(connection, name: serviceName) }
+        }
     }
 
     /// Audio is sent immediately, even without proof. Only verified recipients
@@ -269,21 +298,11 @@ final class LocalDatagramTransport: @unchecked Sendable {
             var digest: Data?
             var candidate: (bytes: Data, digest: Data)?
             for peer in peers {
-                let name = peerServiceNames[peer] ?? serviceName(for: peer)
-                if peerServiceNames[peer] == nil {
-                    if peerServiceNames.count >= 7 { peerServiceNames.removeAll(keepingCapacity: true) }
-                    peerServiceNames[peer] = name
-                }
-                if let endpoint = endpoints[name], let nonce = peerNonces[peer] {
-                    if outgoing[name] == nil {
-                        connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint)
-                    } else if !ready.contains(name), case .ready = outgoing[name]?.state {
-                        connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint, replacing: true)
-                    }
-                }
+                let name = prepareToSend(to: peer)
                 if ready.contains(name), let connection = outgoing[name] {
-                    if digest == nil { digest = Data(SHA256.hash(data: bytes)) }
-                    if send(bytes, digest: digest!, connection: connection, name: name, at: now) {
+                    let packetDigest = digest ?? Data(SHA256.hash(data: bytes))
+                    digest = packetDigest
+                    if send(bytes, digest: packetDigest, connection: connection, name: name, at: now) {
                         result.accepted.insert(peer)
                         if paths[ObjectIdentifier(connection)]?.window.isRecent(at: now) == true {
                             result.verified.insert(peer)
@@ -309,6 +328,22 @@ final class LocalDatagramTransport: @unchecked Sendable {
         }
     }
 
+    private func prepareToSend(to peer: PeerID) -> String {
+        let name = peerServiceNames[peer] ?? serviceName(for: peer)
+        if peerServiceNames[peer] == nil {
+            if peerServiceNames.count >= 7 { peerServiceNames.removeAll(keepingCapacity: true) }
+            peerServiceNames[peer] = name
+        }
+        if let endpoint = endpoints[name], let nonce = peerNonces[peer] {
+            if outgoing[name] == nil {
+                connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint)
+            } else if !ready.contains(name), case .ready = outgoing[name]?.state {
+                connectOnQueue(peer: peer, nonce: nonce, endpoint: endpoint, replacing: true)
+            }
+        }
+        return name
+    }
+
     private func send(_ bytes: Data, digest: Data, connection: NWConnection, name: String, at now: TimeInterval)
         -> Bool {
         // The native state may change before its queued callback updates ready.
@@ -324,9 +359,9 @@ final class LocalDatagramTransport: @unchecked Sendable {
                   self.outgoing[name] === connection || self.replacements[name] === connection else { return }
             self.inFlight[name] = max(0, self.inFlight[name, default: 0] - bytes.count)
             if error != nil {
-                    let retry = ConnectionRetry(
-                        after: self.retryAfter[name], at: ProcessInfo.processInfo.systemUptime,
-                        policy: .connectionRecovery)
+                let retry = ConnectionRetry(
+                    after: self.retryAfter[name], at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery
+                )
                 if self.replacements[name] === connection {
                     self.replacements[name] = nil; self.paths[ObjectIdentifier(connection)] = nil; connection.cancel()
                 } else { self.removeOutgoing(name) }
@@ -360,60 +395,5 @@ final class LocalDatagramTransport: @unchecked Sendable {
             }
             if error == nil { self.receiveReceipt(connection, name: name, generation: token) }
         }
-    }
-
-    private func receive(_ connection: NWConnection, id: UUID, generation token: UUID) {
-        connection.receiveMessage { [weak self] data, _, _, error in
-            guard let self, self.generation == token, self.incoming[id] != nil else { return }
-            self.incoming[id]?.lastActivity = ProcessInfo.processInfo.systemUptime
-            if let data, let packet = LocalMediaFraming.decode(data) {
-                let now = ProcessInfo.processInfo.systemUptime
-                // Do not amplify small/unknown datagrams. The production
-                // GroupRelay envelopes are larger than this fixed receipt.
-                if data.count >= LocalMediaReceiptAuthenticator.byteCount,
-                   let senderNonce = self.peerNonces[packet.sender],
-                   now - (self.incoming[id]?.lastReceiptAt ?? now) >= LocalMediaReceiptWindow.interval {
-                    let authenticator = LocalMediaReceiptAuthenticator(credential: self.credential,
-                        sender: packet.sender, receiver: self.peerID,
-                        senderNonce: senderNonce, receiverNonce: token.uuidString)
-                    if let receipt = authenticator.make(digest: Data(SHA256.hash(data: data))) {
-                        self.incoming[id]?.lastReceiptAt = now
-                        connection.send(content: receipt, completion: .contentProcessed { _ in })
-                    }
-                }
-                self.received += 1
-                self.onReceive(packet.sender, packet.payload)
-            }
-            if error == nil {
-                self.receive(connection, id: id, generation: token)
-            } else {
-                connection.cancel(); self.incoming[id] = nil
-            }
-        }
-    }
-
-    private func removeOutgoing(_ name: String) {
-        ready.remove(name); inFlight[name] = nil
-        if let connection = outgoing.removeValue(forKey: name) {
-            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
-        }
-        if let connection = replacements.removeValue(forKey: name) {
-            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
-        }
-        retryAfter[name] = nil
-    }
-
-    func stop() { synchronized { stopOnQueue() } }
-    private func stopOnQueue() {
-        generation = UUID()
-        listener?.cancel(); listener = nil
-        for connection in outgoing.values { connection.cancel() }
-        for connection in replacements.values { connection.cancel() }
-        for value in incoming.values { value.connection.cancel() }
-        outgoing.removeAll(); incoming.removeAll(); ready.removeAll(); inFlight.removeAll(); endpoints.removeAll()
-        replacements.removeAll(); retryAfter.removeAll(); peerServiceNames.removeAll(); peerNonces.removeAll()
-        paths.removeAll()
-        sent = 0; received = 0
-        onAvailabilityChange?()
     }
 }

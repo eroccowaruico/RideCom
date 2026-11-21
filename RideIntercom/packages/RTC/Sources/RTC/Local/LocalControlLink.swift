@@ -102,14 +102,18 @@ final class LocalControlLink: @unchecked Sendable {
     private func sendHandshake(credential: RTCCredential, peer: Data) {
         let handshake = LocalControlHandshake.make(credential: credential, senderID: localID, nonce: nonce,
                                                    senderFingerprint: localFingerprint, receiverFingerprint: peer)
-        guard let payload = try? JSONEncoder().encode(handshake), let frame = try? LocalControlFraming.frame(payload) else { finish(); return }
+        guard let payload = try? JSONEncoder().encode(handshake),
+              let frame = try? LocalControlFraming.frame(payload)
+        else { finish(); return }
         connection.send(content: frame, completion: .contentProcessed { [weak self] error in
             if error != nil { self?.finish() }
         })
     }
 
     private func receive() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+        connection.receive(
+            minimumIncompleteLength: 1, maximumLength: 65_536
+        ) { [weak self] data, _, isComplete, error in
             guard let self, !self.isClosed else { return }
             if let data, !data.isEmpty {
                 guard let messages = try? self.framing.receive(data) else { self.finish(); return }
@@ -131,7 +135,10 @@ final class LocalControlLink: @unchecked Sendable {
         guard let peer = Self.peerFingerprint(of: connection),
               let handshake = try? JSONDecoder().decode(LocalControlHandshake.self, from: message),
               let credential = authentication.credential(for: handshake.senderID, fingerprint: peer),
-              handshake.verify(credential: credential, localID: localID, senderFingerprint: peer, receiverFingerprint: localFingerprint) else { return false }
+              handshake.verify(
+                  credential: credential, localID: localID, senderFingerprint: peer,
+                  receiverFingerprint: localFingerprint)
+        else { return false }
         if case .accepting = authentication { sendHandshake(credential: credential, peer: peer) }
         guard !isClosed else { return false }
         isAuthenticated = true
@@ -149,10 +156,13 @@ final class LocalControlLink: @unchecked Sendable {
 
     /// The certificate the peer presented on this connection, as TLS saw it.
     static func peerFingerprint(of connection: NWConnection) -> Data? {
-        guard let metadata = connection.metadata(definition: NWProtocolQUIC.definition) as? NWProtocolQUIC.Metadata else { return nil }
+        guard let metadata = connection.metadata(definition: NWProtocolQUIC.definition) as? NWProtocolQUIC.Metadata
+        else { return nil }
         var leaf: Data?
         _ = sec_protocol_metadata_access_peer_certificate_chain(metadata.securityProtocolMetadata) { certificate in
-            if leaf == nil { leaf = SecCertificateCopyData(sec_certificate_copy_ref(certificate).takeRetainedValue()) as Data }
+            if leaf == nil {
+                leaf = SecCertificateCopyData(sec_certificate_copy_ref(certificate).takeRetainedValue()) as Data
+            }
         }
         return leaf.map { Data(SHA256.hash(data: $0)) }
     }

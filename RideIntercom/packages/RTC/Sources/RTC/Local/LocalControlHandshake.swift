@@ -17,39 +17,41 @@ struct LocalControlHandshake: Codable, Equatable, Sendable {
     ///   - receiverFingerprint: the certificate this end saw from the peer.
     static func make(credential: RTCCredential, senderID: PeerID, nonce: String = UUID().uuidString,
                      senderFingerprint: Data, receiverFingerprint: Data) -> LocalControlHandshake {
-        .init(groupHash: credential.groupHash, senderID: senderID, nonce: nonce,
-              mac: mac(groupHash: credential.groupHash, senderID: senderID, nonce: nonce,
-                       senderFingerprint: senderFingerprint, receiverFingerprint: receiverFingerprint, secret: credential.sharedSecret))
+        var handshake = Self(groupHash: credential.groupHash, senderID: senderID, nonce: nonce, mac: "")
+        let message = handshake.authenticationMessage(senderFingerprint: senderFingerprint,
+                                                        receiverFingerprint: receiverFingerprint)
+        let key = SymmetricKey(data: credential.sharedSecret)
+        handshake.mac = HMAC<SHA256>.authenticationCode(for: message, using: key).map {
+            String(format: "%02x", $0)
+        }.joined()
+        return handshake
     }
 
     /// - Parameters:
     ///   - localID: a handshake that claims to come from this end is its own, sent back.
     ///   - senderFingerprint: the certificate the peer presented on this connection.
     ///   - receiverFingerprint: the certificate this end presents.
-    func verify(credential: RTCCredential, localID: PeerID, senderFingerprint: Data, receiverFingerprint: Data) -> Bool {
+    func verify(credential: RTCCredential, localID: PeerID, senderFingerprint: Data, receiverFingerprint: Data)
+        -> Bool {
         guard groupHash == credential.groupHash, senderID.isValidRelayID, senderID != localID, !nonce.isEmpty,
               let claimed = Data(hexadecimal: mac) else { return false }
-        let expected = Self.code(groupHash: groupHash, senderID: senderID, nonce: nonce,
-                                 senderFingerprint: senderFingerprint, receiverFingerprint: receiverFingerprint, secret: credential.sharedSecret)
-        return HMAC<SHA256>.isValidAuthenticationCode(claimed, authenticating: expected.message, using: expected.key)
-    }
-
-    private static func mac(groupHash: String, senderID: PeerID, nonce: String,
-                            senderFingerprint: Data, receiverFingerprint: Data, secret: Data) -> String {
-        let input = code(groupHash: groupHash, senderID: senderID, nonce: nonce,
-                         senderFingerprint: senderFingerprint, receiverFingerprint: receiverFingerprint, secret: secret)
-        return HMAC<SHA256>.authenticationCode(for: input.message, using: input.key).map { String(format: "%02x", $0) }.joined()
+        let message = authenticationMessage(senderFingerprint: senderFingerprint,
+                                            receiverFingerprint: receiverFingerprint)
+        let key = SymmetricKey(data: credential.sharedSecret)
+        return HMAC<SHA256>.isValidAuthenticationCode(claimed, authenticating: message, using: key)
     }
 
     /// Every field is length-prefixed, so no choice of identifier or nonce can imitate another field.
-    private static func code(groupHash: String, senderID: PeerID, nonce: String,
-                             senderFingerprint: Data, receiverFingerprint: Data, secret: Data) -> (message: Data, key: SymmetricKey) {
+    private func authenticationMessage(senderFingerprint: Data, receiverFingerprint: Data) -> Data {
         var message = Data("rideintercom.local-control.v1".utf8)
-        for field in [Data(groupHash.utf8), Data(senderID.rawValue.utf8), Data(nonce.utf8), senderFingerprint, receiverFingerprint] {
+        for field in [
+            Data(groupHash.utf8), Data(senderID.rawValue.utf8), Data(nonce.utf8), senderFingerprint,
+            receiverFingerprint
+        ] {
             withUnsafeBytes(of: UInt32(field.count).bigEndian) { message.append(contentsOf: $0) }
             message.append(field)
         }
-        return (message, SymmetricKey(data: secret))
+        return message
     }
 }
 

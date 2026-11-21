@@ -53,7 +53,10 @@ final class LocalControlTransport: @unchecked Sendable {
     private var hadMembers = false
 
     /// - Parameter nonce: names this end's UDP audio listener; peers receive it in the handshake.
-    init(localID: PeerID, credential: RTCCredential, nonce: String, onEvent: @escaping @Sendable (LocalControlEvent) -> Void) {
+    init(
+        localID: PeerID, credential: RTCCredential, nonce: String,
+        onEvent: @escaping @Sendable (LocalControlEvent) -> Void
+    ) {
         self.localID = localID; self.discovery = .shared(credential); self.nonce = nonce; self.onEvent = onEvent
     }
 
@@ -78,8 +81,10 @@ final class LocalControlTransport: @unchecked Sendable {
                 self.identity = identity
                 switch discovery {
                 case .shared(let credential):
-                    try startListener(identity: identity, advertisement: NWTXTRecord([Self.groupHashKey: credential.groupHash]),
-                                      authentication: .shared(credential), token: token)
+                    try startListener(
+                        identity: identity, advertisement: NWTXTRecord([Self.groupHashKey: credential.groupHash]),
+                        authentication: .shared(credential), token: token
+                    )
                 case .addressed(let known, let offered):
                     guard localID.isValidRelayID, offered.count <= Self.maximumPeers else {
                         onEvent(.failed("Invalid local data offers"))
@@ -87,8 +92,9 @@ final class LocalControlTransport: @unchecked Sendable {
                     }
                     guard !known.isEmpty else { return }
                     if !offered.isEmpty {
-                        let advertisement = LocalAddressedAdvertisement(name: serviceName, fingerprint: identity.fingerprint,
-                                                                        credentials: offered.values)
+                        let advertisement = LocalAddressedAdvertisement(
+                            name: serviceName, fingerprint: identity.fingerprint, credentials: offered.values
+                        )
                         try startListener(identity: identity, advertisement: advertisement.record,
                                           authentication: .accepting(offered), token: token)
                     }
@@ -96,7 +102,9 @@ final class LocalControlTransport: @unchecked Sendable {
 
                 let parameters = NWParameters()
                 parameters.includePeerToPeer = true
-                let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters)
+                let browser = NWBrowser(
+                    for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters
+                )
                 browser.browseResultsChangedHandler = { [weak self] results, _ in
                     guard let self, self.generation == token else { return }
                     self.visible = self.destinations(in: results)
@@ -180,7 +188,9 @@ final class LocalControlTransport: @unchecked Sendable {
                 guard serviceName < name, record[Self.groupHashKey] == credential.groupHash else { continue }
                 authentication = .shared(credential)
             case .addressed(let known, let offered):
-                guard let advertisement = LocalAddressedAdvertisement(name: name, record: record, maximumOffers: Self.maximumPeers),
+                guard let advertisement = LocalAddressedAdvertisement(
+                    name: name, record: record, maximumOffers: Self.maximumPeers
+                ),
                       let (peer, credential) = known.first(where: { advertisement.offers($0.value) }),
                       offered[peer] == nil || serviceName < name
                 else { continue }
@@ -207,8 +217,10 @@ final class LocalControlTransport: @unchecked Sendable {
         if case .addressed = discovery, pending.count >= 2 * Self.maximumPeers { connection.cancel(); return }
         // The link reports on this queue; it is identified by itself, since a name is not an identity.
         let box = LinkBox()
-        let link = LocalControlLink(connection: connection, identity: identity, authentication: authentication, localID: localID,
-                                    nonce: nonce, queue: queue) { [weak self] event in
+        let link = LocalControlLink(
+            connection: connection, identity: identity, authentication: authentication, localID: localID,
+            nonce: nonce, queue: queue
+        ) { [weak self] event in
             guard let self, self.generation == token, let link = box.link else { return }
             self.handle(event, from: link, dialedName: dialedName, token: token)
         }
@@ -218,7 +230,9 @@ final class LocalControlTransport: @unchecked Sendable {
         link.start()
     }
 
-    private func handle(_ event: LocalControlLink.Event, from link: LocalControlLink, dialedName: String?, token: UUID) {
+    private func handle(
+        _ event: LocalControlLink.Event, from link: LocalControlLink, dialedName: String?, token: UUID
+    ) {
         switch event {
         case .authenticated(let peer, let nonce):
             pending[ObjectIdentifier(link)] = nil

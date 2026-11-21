@@ -49,11 +49,12 @@ final class EventSource<Event: Sendable>: @unchecked Sendable {
         var report = RTCEventDropReport()
     }
 
+    private struct Entry {
+        var event: Event
+        var expiresAt: ContinuousClock.Instant?
+    }
+
     private final class Subscription: @unchecked Sendable {
-        private struct Entry {
-            var event: Event
-            var expiresAt: ContinuousClock.Instant?
-        }
         private let lock = NSLock()
         private let isTransient: @Sendable (Event) -> Bool
         private let counters: Counters

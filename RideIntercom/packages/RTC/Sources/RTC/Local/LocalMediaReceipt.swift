@@ -26,7 +26,8 @@ struct LocalMediaReceiptAuthenticator {
     }
     func decode(_ bytes: Data) -> Data? {
         guard bytes.count == Self.byteCount, bytes.prefix(3) == Data([0, 1, 2]),
-              HMAC<SHA256>.isValidAuthenticationCode(bytes.suffix(32), authenticating: bytes.prefix(35), using: key) else { return nil }
+            HMAC<SHA256>.isValidAuthenticationCode(bytes.suffix(32), authenticating: bytes.prefix(35), using: key)
+        else { return nil }
         return Data(bytes.dropFirst(3).prefix(32))
     }
 }
@@ -59,7 +60,7 @@ struct LocalMediaReceiptWindow {
     static let lifetime: TimeInterval = 1.5
     static let interval: TimeInterval = 0.5
     static let capacity = 128
-    private struct Sent { let at: TimeInterval; var acknowledged = false }
+    private struct Sent { let sentAt: TimeInterval; var acknowledged = false }
     private var sent: [Data: Sent] = [:]
     private var order = [Data?](repeating: nil, count: Self.capacity)
     private var nextSlot = 0
@@ -70,15 +71,15 @@ struct LocalMediaReceiptWindow {
             if let expired = order[nextSlot] { sent[expired] = nil }
             order[nextSlot] = digest
             nextSlot = (nextSlot + 1) % Self.capacity
-            sent[digest] = .init(at: now)
+            sent[digest] = .init(sentAt: now)
         }
         lastSentAt = now
     }
     mutating func accept(digest: Data, at now: TimeInterval) -> Bool {
         guard var packet = sent[digest], !packet.acknowledged,
-              now >= packet.at, now - packet.at < Self.lifetime else { return false }
+              now >= packet.sentAt, now - packet.sentAt < Self.lifetime else { return false }
         packet.acknowledged = true; sent[digest] = packet
-        verifiedAt = max(verifiedAt ?? packet.at, packet.at)
+        verifiedAt = max(verifiedAt ?? packet.sentAt, packet.sentAt)
         return true
     }
     func isRecent(at now: TimeInterval) -> Bool {
