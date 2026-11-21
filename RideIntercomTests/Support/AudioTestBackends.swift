@@ -144,8 +144,14 @@ final class OfflineAudioDriver {
     func makeEngine() -> AVAudioEngine {
         createdEngineCount += 1
         let engine = AVAudioEngine()
-        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
-        try! engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1) else {
+            preconditionFailure("Could not create the offline test audio format.")
+        }
+        do {
+            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+        } catch {
+            preconditionFailure("Could not configure the test audio engine for offline rendering.")
+        }
         engines.removeAll { !$0.isRunning }
         engines.append(engine)
         if task == nil {
@@ -161,8 +167,12 @@ final class OfflineAudioDriver {
 
     private func render() {
         for engine in engines where engine.isRunning {
-            let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1024)!
-            do { _ = try engine.renderOffline(1024, to: buffer) } catch {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1024) else {
+                preconditionFailure("Could not allocate the offline test audio buffer.")
+            }
+            do {
+                _ = try engine.renderOffline(1024, to: buffer)
+            } catch {
                 Issue.record("Offline rendering failed: \(error)")
             }
         }

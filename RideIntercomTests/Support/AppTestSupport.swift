@@ -26,16 +26,26 @@ enum AppTestSupport {
 
     /// One regular group plus one saved person. The Watch offers individuals only, so its
     /// tests need a saved user as well as a group.
-    static func makeHarnessWithSavedUser(remote: String = "friend",
-                                         callAccessNow: @escaping @MainActor () -> Date = Date.init) throws -> Harness {
-        let group = try IntercomGroup(name: "Riders", members: [.init(id: "member-local", displayName: "You")], accessSecret: "original-key")
-        let h = makeHarness(groups: [group], callAccessNow: callAccessNow)
-        let token = try GroupInviteToken.make(authority: testInvitationAuthority(), signer: testIdentitySigner(remote),
-            credential: .init(groupID: group.id, secret: "original-key"), groupName: group.name,
-            inviterMemberID: remote)
-        try h.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
-        h.viewModel.disconnect()
-        return h
+    static func makeHarnessWithSavedUser(
+        remote: String = "friend",
+        callAccessNow: @escaping @MainActor () -> Date = Date.init
+    ) throws -> Harness {
+        let group = try IntercomGroup(
+            name: "Riders",
+            members: [.init(id: "member-local", displayName: "You")],
+            accessSecret: "original-key"
+        )
+        let harness = makeHarness(groups: [group], callAccessNow: callAccessNow)
+        let token = try GroupInviteToken.make(
+            authority: testInvitationAuthority(),
+            signer: testIdentitySigner(remote),
+            credential: .init(groupID: group.id, secret: "original-key"),
+            groupName: group.name,
+            inviterMemberID: remote
+        )
+        try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        harness.viewModel.disconnect()
+        return harness
     }
 
     static func makeHarness(
@@ -60,33 +70,27 @@ enum AppTestSupport {
         let credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
         let callSession = RecordingCallSession()
         let groupStore = suppliedGroupStore ?? InMemoryGroupStore(groups: groups)
-        for index in groups.indices where suppliedGroupStore == nil {
-            if let secret = groups[index].accessSecret {
-                let reference = UUID()
-                try! credentialStore.saveSecret(secret, reference: reference)
-                groupStore.snapshot.groups[index].credentialReference = reference
-            }
+        if suppliedGroupStore == nil {
+            seedGroupCredentials(for: groups, in: groupStore, using: credentialStore)
         }
+        let groupRepository = suppliedGroupRepository
+            ?? GroupRepository(store: groupStore, credentials: credentialStore)
         let audioSessionBackend = FakeAudioSessionBackend()
         let inputBackend = FakeInputStreamBackend()
         let outputBackend = FakeOutputStreamBackend(renderingEngine: outputEngine)
         let audioDriver = OfflineAudioDriver()
-        let identityStore = InMemoryLocalMemberIdentityStore(
-            identity: LocalMemberIdentity(memberID: localMemberID ?? groups.first?.members.first?.id ?? "member-local", displayName: "You")
-        )
-        let identityNamespace = "RideIntercom.Tests." + UUID().uuidString
-        let identityKeychain = DictionaryKeychain()
-        try! identityKeychain.saveSecret(TestDeviceIdentities.key(localMemberID ?? groups.first?.members.first?.id ?? "member-local").rawRepresentation.base64EncodedString(),
-                                        service: identityNamespace + ".InternetConnection", account: "identity-key")
+        let memberID = localMemberID ?? groups.first?.members.first?.id ?? "member-local"
+        let identityStore = InMemoryLocalMemberIdentityStore(identity: .init(memberID: memberID, displayName: "You"))
+        let internetSettingsStore = internetSettingsStore ?? fixtureInternetSettingsStore(memberID: memberID)
         let viewModel = IntercomViewModel(
             accountSession: accountSession ?? signedInAccount(),
             enforceCallAccess: enforceCallAccess,
             callAccessEvaluation: callAccessEvaluation,
             callAccessNow: callAccessNow,
             callSession: callSession,
-            groupRepository: suppliedGroupRepository ?? GroupRepository(store: groupStore, credentials: credentialStore),
+            groupRepository: groupRepository,
             appSettingsStore: appSettingsStore ?? InMemoryAppSettingsStore(),
-            internetSettingsStore: internetSettingsStore ?? InternetConnectionSettingsStore(keychain: identityKeychain, namespace: identityNamespace),
+            internetSettingsStore: internetSettingsStore,
             localMemberIdentityStore: identityStore,
             invitationAuthority: invitationAuthority ?? testInvitationAuthority(),
             requestMicrophoneAccess: requestMicrophoneAccess,
@@ -108,6 +112,35 @@ enum AppTestSupport {
             outputBackend: outputBackend,
             audioDriver: audioDriver
         )
+    }
+
+    private static func seedGroupCredentials(
+        for groups: [IntercomGroup],
+        in groupStore: InMemoryGroupStore,
+        using credentialStore: GroupCredentialStoring
+    ) {
+        for (index, group) in groups.enumerated() {
+            guard let secret = group.accessSecret else { continue }
+            let reference = UUID()
+            do {
+                try credentialStore.saveSecret(secret, reference: reference)
+            } catch {
+                preconditionFailure("Could not seed the test group credential store.")
+            }
+            groupStore.snapshot.groups[index].credentialReference = reference
+        }
+    }
+
+    private static func fixtureInternetSettingsStore(memberID: String) -> InternetConnectionSettingsStore {
+        let namespace = "RideIntercom.Tests." + UUID().uuidString
+        let keychain = DictionaryKeychain()
+        let key = TestDeviceIdentities.key(memberID).rawRepresentation.base64EncodedString()
+        do {
+            try keychain.saveSecret(key, service: namespace + ".InternetConnection", account: "identity-key")
+        } catch {
+            preconditionFailure("Could not seed the test device identity.")
+        }
+        return InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
     }
 
     static func signedInAccount() -> AppleAccountSession {
