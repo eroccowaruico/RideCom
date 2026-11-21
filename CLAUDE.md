@@ -9,6 +9,8 @@
 | 記録の仕方 | [文書作成規約](docs/policies/文書作成規約.md) | 計画、見出しによる識別、情報保持、文書更新・命名・要求管理 |
 | ログの実装 | [ログ記録規約](docs/policies/ログ記録規約.md) | レベル、構造、機密情報の保護 |
 
+すべての作業で最初に[常設セキュリティ監査](.agents/skills/security-audit/SKILL.md)を適用し、出力先を決めてから調査し、変更の受入・外部送信前に最新の Astra で判定する。
+
 すべての作業で[責務分離スキル](.agents/skills/architecture-refinement/SKILL.md#常時適用)の入口を適用し、変更に関係する節だけを読む。
 
 すべての作業で[再実装のためのスキル](.agents/skills/rebuild-from-spec/SKILL.md)を適用し、用途・要求・仕様と検証結果を区切りごとに照合する。

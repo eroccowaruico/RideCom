@@ -9,6 +9,8 @@
 | 記録の仕方 | [文書作成規約](docs/policies/文書作成規約.md) | 計画、見出しによる識別、情報保持、文書更新・命名・要求管理 |
 | ログの実装 | [ログ記録規約](docs/policies/ログ記録規約.md) | レベル、構造、機密情報の保護 |
 
+すべての作業で最初に[常設セキュリティ監査](.agents/skills/security-audit/SKILL.md)を適用し、出力先を決めてから調査し、変更の受入・外部送信前に最新の Astra で判定する。
+
 すべての作業で[efficient-work](.agents/skills/efficient-work/SKILL.md)を必ず適用する。まずスキルの入口だけを読み、参照先は今回の作業・担当に必要な節だけを読む。
 
 作業の選択・計画・着手と追加依頼の優先判断、実装・検証・完了報告では[core-story-first](.agents/skills/core-story-first/SKILL.md)を必ず適用する。まず入口を読み、理由・判断・実装/E2E・完了判定の詳細は必要な節だけを読む。
