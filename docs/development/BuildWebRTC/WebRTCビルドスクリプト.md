@@ -349,7 +349,7 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 | GN設定 | WebRTC本体だけ `treat_warnings_as_errors=false`。警告はログに保存し、compiler/linker errorは失敗のまま扱う。App/自作packageのwarning設定は変更しない |
 | 成果物 | iOS arm64、iOS Simulator arm64/x86_64、macOS arm64/x86_64 |
 | 採用ゲート | slice/header検証、隔離packageのRTCNativeWebRTC buildとRTC全28テスト成功 |
-| checksum | binary隣接の `WebRTC.xcframework.metadata` を正本とする |
+| checksum | binary隣接の `WebRTC.xcframework.metadata` に従う |
 
 ビルドで生じたvendor警告をゼロとは記録しない。生成済みの同じbranchの全sliceを `ASSEMBLE_ONLY=true` で取り込む場合も、更新スクリプトによる隔離検証を省略しない。
 

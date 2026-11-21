@@ -18,7 +18,7 @@
 | Apple toolchain | Xcode27.1 / Swift6.4。各コマンドに `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` |
 | macOS | 27.0.1、arm64 |
 | iOS | 専用 iPhone17 Pro Simulator、iOS26.4.1、`5DDF37BD-AAC5-4930-AB0D-FA16412C9E18` |
-| サーバー | Node26.12.0。依存版はWorker.md |
+| サーバー | Node26.12.0。依存パッケージのバージョンはWorker.mdを参照 |
 | 既存作業 | 元の `codex/restore-local-calls` の未コミット変更を保持。main `295f54b` / dev `efb50cf` は更新しない |
 
 ## 自動検証と限界
@@ -148,7 +148,7 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 | スクリプトと文書 | Python 71件成功。metadata 14件はその内数。文書・開発環境検査、diff check成功 |
 | 試行中の失敗 | 初回の資格JSONの直接読取りはXcode sandboxに拒否され、最終構成は通常のxcconfig経由に変更。初回iOS単体は`AURemoteIO::Initialize` / `_ReportRPCTimeout`のSIGABRT。共有Simulatorの再利用が他作業のlockと衝突したため、その作業を止めず一時Simulatorで単体全件を再検証。音声処理や試験の基準は変更していない |
 | 後片付けと秘密 | 所有Mac test hostが残っていないことと、一時Simulatorの停止・削除を確認。tokenは差分・検証logへ出ていない。private fileはGitへ含めない |
-| 実サービスと全体受入れ | この変更の検証では実CloudflareのHTTP/SFU/TURNを呼び出さず、再デプロイもしない。`validate.sh all --clean`や独立音声E2Eの全体受入れとは別の確認であり、実サービスの次の検証前には正本の費用制約を満たすこと |
+| 実サービスと全体受入れ | この変更の検証では実CloudflareのHTTP/SFU/TURNを呼び出さず、再デプロイもしない。`validate.sh all --clean`や独立音声E2Eの全体受入れとは別の確認であり、実サービスの次の検証前には基準となる資料の費用制約を満たすこと |
 
 主な証跡は`.validation/dev-internet-build-proof.json`、`.validation/dev-internet-scripts-final.log`、各xcresult。ビルド番号は既定の自動採番に従って増加し、公開バージョンは1.0.0を維持した。他のApp作業と衝突するmainへの統合と、不要なCloudflare buildを起動するpushは行っていない。
 
@@ -171,7 +171,7 @@ main/devへのマージ、push、Cloudflareデプロイは行っていない。
 
 ## 通知の公開値と外部設定の照合（2026-11-18）
 
-利用者の指示により、Appとserverで設定できる公開値を揃え、Apple／Cloudflareで行う設定を正本へ集約した。APNS_TOPICを両環境でAppのbundle IDへ設定し、ProductionのAPNS_ENVIRONMENTをRelease／TestFlightのproductionへ合わせた。PreviewはDebug向けsandboxを保持。NOTIFICATIONS_ENABLEDとAPPLE_AUTH_ENABLEDはfalseのままで、有効化・secret登録・配置は行っていない。
+利用者の指示により、Appとserverで設定できる公開値を揃え、Apple／Cloudflareで行う設定を該当する文書にまとめた。APNS_TOPICを両環境でAppのbundle IDへ設定し、ProductionのAPNS_ENVIRONMENTをRelease／TestFlightのproductionへ合わせた。PreviewはDebug向けsandboxを保持。NOTIFICATIONS_ENABLEDとAPPLE_AUTH_ENABLEDはfalseのままで、有効化・secret登録・配置は行っていない。
 
 変更前の対照スクリプトは両topicの空欄とProductionの環境不一致でexit 1。修正後はAppのRelease設定を直接読んだ照合に成功。Worker82件・型検査、OS／配布設定15件とplatform checker、文書・diff検査が成功した。Wranglerの型生成も同じinclude-runtime=false／strict-vars=falseで実行し、生成物は既存と同値だった。証跡と入力hashは`.validation/notification-deployment-settings-20261118`へ保存した。型生成の初回だけ作業directoryを誤り、実行前に127で止まったため、正しいserver directoryでやり直した。
 

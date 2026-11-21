@@ -13,7 +13,7 @@
 
 証跡は`.validation/audio-device-package-20261101/final/`。`input-boundary.json`と`watch-summary.json`、nativeログ、cleanup結果を保持した。元のHEADは`adea0a73`、終了時HEADは`0013462e`。HEADだけの相違をsource一致の結果へ書き換えていない。
 
-初回点検ではcodecと端末媒体の差し替え境界を整理し、再点検ではrendererのschedule／stopの競合と停止失敗後の再試行を修正した。二重のmix・VAD・通話sessionを追加していない。Appへの接続、WatchConnectivityの実配送、実Watchの背景・ロック中の開始・無線・電池はこのpackage試験の保証範囲に含めない。
+初回点検ではcodecと端末媒体の差し替え境界を整理し、再点検ではrendererのschedule／stopの競合と停止失敗後の再試行を修正した。二重のmix・VAD・通話sessionを追加していない。Appへの接続、WatchConnectivityの実環境での送受信、実Watchの背景・ロック中の開始・無線・電池はこのpackage試験の保証範囲に含めない。
 
 ## 入力が途切れた後の音声履歴
 

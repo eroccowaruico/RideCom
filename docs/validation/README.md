@@ -51,7 +51,7 @@
 
 最初は未実装APIのcompile REDを確認した。その後の新規試験は、保存相手の削除Taskがunowned fixtureより長く残って1回クラッシュしたため証跡を保持し、試験だけを保存先削除と同期的な投影更新へ修正した。active call中のreloadが拒否される期待の誤りも試験側で修正した。製品側へ寿命回避のqueue・新しい状態層を追加していない。
 
-server/packageを変更・再試験せず、対応する固定APNs categoryは独立server工程から取り込む。実Watch転送・背景actionのiPhoneへの実配送・ロック／終了状態・iPhone音声成立は[未確認事項](未確認事項.md#iphone依存watchの実機操作と音声)に残す。Watch自身の音声は未実装で、通常通知の受付を配送成功や通話成立の証明としていない。
+server/packageを変更・再試験せず、対応する固定APNs categoryは独立server工程から取り込む。実Watch転送・背景actionのiPhoneへの実環境での送受信・ロック／終了状態・iPhone音声成立は[未確認事項](未確認事項.md#iphone依存watchの実機操作と音声)に残す。Watch自身の音声は未実装で、通常通知の受付を相手への到達や通話成立の証明としていない。
 
 
 [通常グループの代表端末検証](history/通常グループの代表端末検証.md)に、本人単位の保存・待機/交換・共通の参加者かどうかの判定とApp回帰の証跡を記録する。複数実端末の同時切替は別受入。
@@ -74,21 +74,21 @@ OS 27以降の小サイズWidgetを通常の背景App Intentから既存App所�
 
 OS許可・端末登録/取消、直接相手への用途別同意、内部1対1接続での資格交換、通知tapから共通通話操作への接続を実装した。通知到着だけでは通話を始めない。前面ではOFF・ログイン終了・別recipient宛を表示せず、通常groupに個人用capabilityを流さない。
 
-隔離App工程の`.validation/notification-final`で、通知30件を含む関連96件、generic iOS build、英日追加29key、330入力不変と所有host回収が成功した。失敗・skip・runtime warningなし。実OS通知・APNs鍵設定・配送・cold launch等は未確認のまま残す。[検証履歴](history/通知Appの接続と認可の検証.md)と[受入条件](未確認事項.md#通常通知の受入)を参照する。
+隔離App工程の`.validation/notification-final`で、通知30件を含む関連96件、generic iOS build、英日追加29key、330入力不変と所有host回収が成功した。失敗・skip・runtime warningなし。実OS通知・APNs鍵設定・転送・cold launch等は未確認のまま残す。[検証履歴](history/通知Appの接続と認可の検証.md)と[受入条件](未確認事項.md#通常通知の受入)を参照する。
 
 [Macメニューバーの局所検証](history/Macメニューバーの通話操作.md)に、任意表示・共通操作・保存境界の証跡を記録する。OS実操作の受入は別管理。
 
 ## 通知server基盤のローカル検証
 
-2026-10-31、7152748を基準とした独立server工程で、通知追加15件を含むWorker全74件、TypeScript、文書参照検査が成功した。失敗・skip・cancelledなし。`.validation/notification-route-expiry-final/`に最終ログとserver入力26ファイルのSHA-256のbefore/afterを保存し、一致を確認した。UUID大小文字による重複配送とprovider JWT毎回生成、古い端末による公開ID索引の期限短縮も負例を先に再現し修正した。token所有索引は期限延長の対象にせず最新所有者・世代を維持する。外部宛先はMiniflare outbound adapterで代替し、実APNsへの送信・配置・実鍵生成はしていない。App/packageの変更・試験はこの工程に含めず、通知機能全体の完了ではない。APIは[通知仕様](../spec/server/通知.md)、残りの受入は[未確認事項](未確認事項.md#通知serverの実配送とapp接続)を参照する。
+2026-10-31、7152748を基準とした独立server工程で、通知追加15件を含むWorker全74件、TypeScript、文書参照検査が成功した。失敗・skip・cancelledなし。`.validation/notification-route-expiry-final/`に最終ログとserver入力26ファイルのSHA-256のbefore/afterを保存し、一致を確認した。UUID大小文字による重複した転送とprovider JWT毎回生成、古い端末による公開ID索引の期限短縮も負例を先に再現し修正した。token所有索引は期限延長の対象にせず最新所有者・世代を維持する。外部宛先はMiniflare outbound adapterで代替し、実APNsへの送信・配置・実鍵生成はしていない。App/packageの変更・試験はこの工程に含めず、通知機能全体の完了ではない。APIは[通知仕様](../spec/server/通知.md)、残りの受入は[未確認事項](未確認事項.md#通知serverの実配送とapp接続)を参照する。
 
 その後、購入・通話権利を統合した`fbaaeaac`へ同じserver入力を取り込み、Worker全74件と型検査を再度成功させた。集約は`.validation/notification-server-delivery`、server26入力の前後一致とApp入力が`fbaaeaac`から不変であることを確認。集計helperの初回はNodeのspec reporterをTAP形式と誤認したため、成功済みのtestログを正しく解析し直した。test自体を失敗から成功へ書き換えず、初回集計ログも保持している。
 
 ## 通知応答categoryのserver契約
 
-2026-10-31、`62b93965339588d6749079ef6d1c71c518e7fce1`から隔離したserver工程で、固定payloadへ`aps.category=RIDEINTERCOM_CALL_REQUEST`だけを追加した。既存payload契約試験を全fieldのdeepEqualへ変更し、category欠落の失敗を先に再現した。通知本文・grant・認可・保存・配送条件とmain/previewの通知既定OFFは変更しない。App/package、実APNs鍵、配置は操作しない。固定categoryと後続App接続の責務は[通知仕様](../spec/server/通知.md#保存する情報と配送)を参照する。
+2026-10-31、`62b93965339588d6749079ef6d1c71c518e7fce1`から隔離したserver工程で、固定payloadへ`aps.category=RIDEINTERCOM_CALL_REQUEST`だけを追加した。既存payload契約試験を全fieldのdeepEqualへ変更し、category欠落の失敗を先に再現した。通知本文・grant・認可・保存・データを送る条件とmain/previewの通知既定OFFは変更しない。App/package、実APNs鍵、配置は操作しない。固定categoryと後続App接続の責務は[通知仕様](../spec/server/通知.md#保存する情報と配送)を参照する。
 
-最終の型検査・Worker全74件・文書検査が成功し、失敗・skip・cancelled・todo・warningはない。`.validation/notification-category-final`へログと357のsource/configuration入力（server 26を含む）の前後一致を保存した。証跡helperの初回は日本語pathのGit引用表現を比較して停止したが、NUL区切りへ修正し、成功済み試験を再実行せず入力不変と変更範囲を確認した。初回helperの理由とcategory欠落のREDログも保持している。実配送・Watch転送・「iPhoneで応答」actionとOS背景起動は未確認で、serverのpayload契約成功だけでは代替しない。
+最終の型検査・Worker全74件・文書検査が成功し、失敗・skip・cancelled・todo・warningはない。`.validation/notification-category-final`へログと357のsource/configuration入力（server 26を含む）の前後一致を保存した。証跡helperの初回は日本語pathのGit引用表現を比較して停止したが、NUL区切りへ修正し、成功済み試験を再実行せず入力不変と変更範囲を確認した。初回helperの理由とcategory欠落のREDログも保持している。実環境での送受信・Watch転送・「iPhoneで応答」actionとOS背景起動は未確認で、serverのpayload契約成功だけでは代替しない。
 
 ## 購入・復元と通話利用権の統合（2026-10-31）
 
@@ -466,7 +466,7 @@ group参加者による直接招待の自己申告を拒否するため、発行
 | Release | iOS Simulator向けRelease build成功。Swift warningなし。AppIntents未導入によるmetadata抽出省略warningのみ |
 | ソース・文書 | iOS実行前後のApp・テスト116ファイル一致。文書・diff検査成功 |
 
-型追加後のApp未追従によるcompile失敗を赤テストとして保持した。package工程とApp工程のコミットを分け、App検証が完了した状態でmain・previewへ統合する。これは実Apple・実Cloudflare・実機の受入完了を意味しない。
+型追加後のApp未追従に伴うコンパイル失敗を修正前の試験結果として残した。package工程とApp工程のコミットを分け、App検証が完了した状態でmain・previewへ統合する。これは実Apple・実Cloudflare・実機の受入完了を意味しない。
 
 ## WebRTC競合の手動復帰契約（2026-10-31）
 
@@ -480,7 +480,7 @@ RTC packageが既知の409 codeを解釈し、HTTP再送・route再接続を繰�
 | Swift–Worker | 分離したローカルDOとのHTTP/WS契約1件成功。`pair-typed.log` |
 | 文書・差分 | package仕様のリンク・diff検査成功。`documentation.log` |
 
-続く点検で、全routeが手動復帰待ちでも定期処理のタイマーが残る点を修正した。`.validation/blocked-route-idle/`に赤テストと成功した4件を保持する。全route待機時の停止、Local併用時の継続、明示再開、通常再試行・診断処理を確認した。packageだけの変更で、AppのAPI・表示は変えていない。
+続く点検で、全routeが手動復帰待ちでも定期処理のタイマーが残る点を修正した。`.validation/blocked-route-idle/`には修正前の失敗と、成功したテスト4件の記録がある。全route待機時の停止、Local併用時の継続、明示再開、通常再試行・診断処理を確認した。packageだけの変更で、AppのAPI・表示は変えていない。
 
 初回の専用案内テストは未実装のHTTP文言で失敗した。route試験の初回compileでは新しいeventの未定義に加えてtest内の選択mode名の誤りがあり、正しい既存modeに直した。通常のpackage実行では別工程用WorkerPairがskipとなるため、その実行は最終合格の根拠にせず、規定の対象分離で検証する。
 
@@ -528,7 +528,7 @@ challenge作成とApple token検証の前に、送信元別・location全体の�
 | Worker / DO | 36件成功、失敗・skipなし。新規5件で送信元と全体の制限、偽装forwarding header・device変更、設定不備時の拒否、並行・再起動後の試行回数、制限中の資格失効と既存API継続を確認。`final.log` |
 | Swift–Worker | 実HTTP/WSとローカルDOを通る1件成功。SFUはmock。Xcode本体を指定した最終実行にwarningなし。`pair-xcode.log` |
 | 型・設定・文書 | Wrangler型再生成、TypeScript検査、dry-run bundle、文書とdiff検査が成功。公開登録の既定はfalseのまま |
-| 失敗履歴 | 未実装の赤テストを保存。Miniflareは空の送信元headerを自動補完するため、その試験を不正な長さのedge値へ補正。初回pairのCommandLineTools由来リンクwarningはDEVELOPER_DIRを明示して解消 |
+| 失敗履歴 | 未実装の修正前に失敗したテストを保存。Miniflareは空の送信元headerを自動補完するため、その試験を不正な長さのedge値へ補正。初回pairのCommandLineTools由来リンクwarningはDEVELOPER_DIRを明示して解消 |
 
 これはローカルの登録入口の検証であり、実Apple認証・実Cloudflare配置・分散攻撃や請求額の上限の証明ではない。アプリ側の待機・端末上限の案内は続く工程で接続する。packageとAppの製品コードはこの工程では変更していない。
 
@@ -549,7 +549,7 @@ challenge作成とApple token検証の前に、送信元別・location全体の�
 | 保存復旧fixture | schema 4へ追従した検証補助の5件成功。`names-recovery-fixture.log`。本実行では復旧画面UIの再実行は含めない |
 | 文書 | リンク・Settings網羅・差分検査が成功。`names-documentation.log` |
 
-未実装による赤テスト、追加した招待versionに対する旧期待値の失敗、UIのラベル集約と複数ユーザー時の対象選択による失敗も保持する。UIは元の名前が存在することと対象IDを検証する形へ修正し、最終201件で確認した。
+未実装による修正前に失敗したテスト、追加した招待versionに対する旧期待値の失敗、UIのラベル集約と複数ユーザー時の対象選択による失敗も保持する。UIは元の名前が存在することと対象IDを検証する形へ修正し、最終201件で確認した。
 
 保存形式はschema 4、Appが発行する招待は本人名を含むversion 3へ更新した。旧版へ戻す場合にこれらの新形式を開けるとは扱わない。新しいサーバー保存は追加せず、packageとserverコードは変更していない。実端末、実Apple認証、実Cloudflare、独立音声E2Eの再測定は今回の対象外。AppIntents未使用のmetadata抽出省略warningは既存のまま。全体`all --clean`の完了記録ではない。
 
@@ -569,7 +569,7 @@ Settingsからserver nonce取得、同じAppleユーザーのnative認証、端�
 | UI目視 | `apple-app-ui-view/`の設定エラー画面で、説明と操作が切れず表示されることを確認。これはnative Apple認証成功画面の証拠ではない |
 | ソース・資源 | 最終検証中のApp・テストのhash一致を確認。管理Simulatorを再利用してShutdown、所有Mac host終了を確認。projectの自動採番差分は機能差分から分離 |
 
-未実装APIによる赤テスト、途中のcompile失敗、音声I/OのRPC timeoutと調査のため中断した再実行も保持する。音声fixture修正前に成功したMac 192件と、修正後の最終192件は別記録。Swiftソースの新規warningはなく、AppIntents未使用のmetadata抽出省略warningは残る。独立音声E2E・実機・Bluetooth・実Cloudflare・Apple実認証は今回再実行していない。リポジトリ全体の`all --clean`受入ではない。
+未実装APIによる修正前に失敗したテスト、途中のcompile失敗、音声I/OのRPC timeoutと調査のため中断した再実行も保持する。音声fixture修正前に成功したMac 192件と、修正後の最終192件は別記録。Swiftソースの新規warningはなく、AppIntents未使用のmetadata抽出省略warningは残る。独立音声E2E・実機・Bluetooth・実Cloudflare・Apple実認証は今回再実行していない。リポジトリ全体の`all --clean`受入ではない。
 
 ## Apple認証serverと端末資格（2026-10-30）
 
@@ -683,7 +683,7 @@ Appleログイン、課金判定、ID宛て通知、1対1の内部グループ�
 | 区分 | 意味 |
 |---|---|
 | 実装済み | sourceと現行仕様に存在する。成功・実機確認を意味しない |
-| 自動検証済み | 指定された版・条件・コマンドで成功。現行HEADでの再実行と過去記録を区別 |
+| 自動検証済み | 対象ビルド、条件、コマンドを指定した検証が成功。現行HEADでの再実行と過去記録を区別 |
 | 実サービス未確認 | 実Cloudflare SFU / TURN / 請求をローカルfixtureで保証しない |
 | 実機未確認 | Mac/iPhoneの音響、無線、10分、ロック、Bluetooth/有線は別途 |
 | 未対応 | 必要なAPI・UI・運用がまだない。マニュアルに操作可能と書かない |
@@ -773,7 +773,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild archive -pro
 | アイコン | 紺・白・ターコイズで道路と音声波形を表した仮素材を登録。iOS用1024pxとmacOS用16〜1024px。生成条件は[開発環境](../development/開発環境.md)に記録 |
 | WebRTC再ビルド | 同じsource revision `2a990ce0cc`のiOS arm64を`enable_dsyms=true`で再ビルド。Simulator・macOS binaryは既存出力を維持。`DebugSymbolsPath`付きでiOS実機dSYMを同梱 |
 | 継続防止 | build scriptでiOS実機dSYM生成を有効化。検証スクリプトで宣言・DWARF欠落・binaryとのUUID不一致を拒否。欠落を拒否するテストが修正前に失敗し、修正後に成功 |
-| 成果物採用 | `ASSEMBLE_ONLY=true WEBRTC_BRANCH=branch-heads/8078 scripts/BuildWebRTC/update-webrtc-binary.sh`成功。隔離したRTCNativeWebRTC build、RTC test run 51件とnative test run 2件成功後に取り込み。zipは97,147,343 bytes。SHA-256は隣接metadataが正本 |
+| 成果物採用 | `ASSEMBLE_ONLY=true WEBRTC_BRANCH=branch-heads/8078 scripts/BuildWebRTC/update-webrtc-binary.sh`成功。隔離したRTCNativeWebRTC build、RTC test run 51件とnative test run 2件成功後に取り込み。zipは97,147,343 bytes。SHA-256は隣接metadataに従う |
 | 回帰テスト | `python3 -m unittest discover -s scripts/tests -v`の36件成功。Appは`xcodebuild test -only-testing:RideIntercomTests`で`TEST SUCCEEDED`。開発設定・文書・差分検査も成功 |
 | Archive | `/tmp/RideIntercom-DistributionReady.xcarchive`で`ARCHIVE SUCCEEDED`。`CFBundleIcons`と`CFBundleIcons~ipad`のprimary icon名が`AppIcon`。`AppIcon60x60@2x.png`が120×120、`AppIcon76x76@2x~ipad.png`が152×152 |
 | シンボル | Archive内WebRTC.frameworkと`dSYMs/WebRTC.framework.dSYM`のarm64 UUIDが`4C4C4470-5555-3144-A11C-BA59995DD9EB`で一致。旧ArchiveのUUIDとは異なるため旧Archiveへの流用不可 |
@@ -794,7 +794,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild archive -pro
 | Appテスト | macOSの`RideIntercomTests`全109件成功（パラメータ展開後112件）。失敗・skip 0件。専用storage namespace `CameraFreeValidation`を使用 |
 | ArchiveとIPA | Version 1.0 / Build 2でArchive・App Store向けIPA書き出し成功。アプリ本体とWebRTCの外部シンボルに`AVCapture`・`RTCCamera`なし。`NSCameraUsageDescription`なし。IPAの`codesign --verify --deep --strict`成功 |
 | dSYM | Archive内WebRTCとdSYMのarm64 UUIDが`4C4C445B-5555-3144-A1A3-0ADBD6A1CAA0`で一致 |
-| 成果物 | `/tmp/RideIntercom-CameraFree-Build2.xcarchive`、`/tmp/RideIntercom-CameraFree-Build2-Export/RideIntercom.ipa`。採用zipのSHA-256は隣接metadataが正本 |
+| 成果物 | `/tmp/RideIntercom-CameraFree-Build2.xcarchive`、`/tmp/RideIntercom-CameraFree-Build2-Export/RideIntercom.ipa`。採用zipのSHA-256は隣接metadataに従う |
 | 証跡 | `/tmp/rideintercom-camera-red.log`、`/tmp/rideintercom-camera-free-rebuild.log`、`/tmp/rideintercom-camera-free-import.log`、`/tmp/rideintercom-camera-script-tests.log`、`/tmp/rideintercom-camera-free-app-tests.log`、`/tmp/rideintercom-camera-free-archive.log`、`/tmp/rideintercom-camera-free-export.log`、`/tmp/rideintercom-camera-free-upload.log`。一時領域のため永続保存ではない |
 | 検証境界 | 最初のsandbox内実行はXcode cacheへの書き込み・既存テストのprocess確認が拒否され、必要なアクセスを許可して再実行。AppIntents未使用によるmetadata抽出省略warningは残る。実機通話品質・Apple側の処理完了はローカル成功から判断しない |
 | App Store Connect | 2026-10-22 00:04 JSTに`Upload succeeded`・`EXPORT SUCCEEDED`を確認。Version 1.0 / Build 2は`Uploaded package is processing`。アップロード成功であり、Apple側の処理完了・審査承認を意味しない |
@@ -827,7 +827,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild archive -pro
 
 既存の前面実行・端末認証を維持し、必須Boolのmute設定を同じApp所有者と共通操作へ接続した。[局所検証](history/ショートカットの明示ミュート検証.md)に、実行前の専用namespace確認、Mac関連21件、generic iOS/Widget build、英日resourceとmetadataの証跡を記録する。Siri発話・OSの値の質問・実機・音声は別受入であり、CallKitや背景マイク開始を追加していない。
 
-[音声開始の完了待ちと中断処理](history/音声開始の完了待ちと中断処理.md)に、Watch音声session基盤・Appの非同期開始と中断の修正、非実機検証の範囲を記録した。Watchとの媒体配送の完成を示すものではない。
+[音声開始の完了待ちと中断処理](history/音声開始の完了待ちと中断処理.md)に、Watch音声session基盤・Appの非同期開始と中断の修正、非実機検証の範囲を記録した。Watchとの媒体転送の完成を示すものではない。
 
 ## 名前だけ保存してから招待する流れ
 

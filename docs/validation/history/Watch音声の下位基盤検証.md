@@ -14,4 +14,4 @@
 
 初回App buildは旧worktree保全データ内のproject／package再検出で失敗した。元データを検査済みtarへ保全して再実行した上記結果と区別し、初回ログも保持する。詳細は[作業領域の引継ぎ](作業領域の引継ぎと整理.md#保全データとxcodeの再検出)を参照する。
 
-既定codec・bitrateは変更していない。Watch音声の背景開始・実媒体配送・マイク／スピーカー・電池消費・遅延を成功と扱わない。現行package契約は[Codec](../../spec/packages/Audio/Codec.md)と[RTC](../../spec/packages/RTC.md)、App接続の残作業は[Watch設計](../../backlog/機能拡張の実装前整理.md#watch音声の確定範囲と接続設計)を参照する。
+既定codec・bitrateは変更していない。Watch音声の背景開始・実媒体転送・マイク／スピーカー・電池消費・遅延を成功と扱わない。現行package契約は[Codec](../../spec/packages/Audio/Codec.md)と[RTC](../../spec/packages/RTC.md)、App接続の残作業は[Watch設計](../../backlog/機能拡張の実装前整理.md#watch音声の確定範囲と接続設計)を参照する。

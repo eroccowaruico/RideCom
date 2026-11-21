@@ -18,7 +18,7 @@
 
 受信のadaptive再生は2msの開始待機から始め、遅れたpacketが来ると待ちを伸ばすが、無音中・省略無音からの復帰ごとに2msへ戻していた。既存試験もそれを要求していた。iPhone間のWi-Fiでは同じ相手のpacketが数十ms保持され、まとめて届くことが繰り返される。そのため発話を再開するたびに、次の停止で音が欠ける。自動化の揺れは最大4ms程度で、この条件を試していなかった。
 
-利用者の承認（揺れの分を覚えておく）を受け、AudioMixerの`MixerPCMSource`を次のように変更した。契約の正本は[AudioMixer仕様](../../spec/packages/Audio/AudioMixer.md)と[App設定](../../spec/App/Configuration/Bindings/Audio/AudioMixer.md)。
+利用者の承認（揺れの分を覚えておく）を受け、AudioMixerの`MixerPCMSource`を次のように変更した。契約は[AudioMixer仕様](../../spec/packages/Audio/AudioMixer.md)と[App設定](../../spec/App/Configuration/Bindings/Audio/AudioMixer.md)。
 
 | 変更 | commit | 理由・観測 |
 |---|---|---|

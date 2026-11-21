@@ -6,7 +6,7 @@
 <title>RideCom 詳細画面見本</title>
 <!--
   RideCom の詳細表示（Advanced）の診断・通話・設定画面の見本。実装前。iPhone が主な端末。
-  定義の正本: 診断と詳細画面の構成.md（同じディレクトリ）
+  設計を決めている文書: 診断と詳細画面の構成.md（同じディレクトリ）
   一般向け画面の見本は ../一般向け/デザイン見本.html。こちらとは混ぜない。
   画面内の文字は英語のみ。数値は説明用の例で、実装では package の runtime snapshot と report の値をそのまま表示する。
 -->
@@ -245,7 +245,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 
 <main class="wrap">
   <h1>相手ごとの条件が、1つのミックスへ合流するまで</h1>
-  <p class="lead">詳細表示（Advanced）の見本。主な端末はiPhone。画面内は英語のみで、語は現行コードの表示語（<code>Live TX Pipeline</code>、<code>TX Bus</code>、<code>Peer Buses</code>、<code>Mix Down</code>、<code>RX Master</code>、<code>Connect</code>、<code>Participants</code>など）に合わせ、説明は現行の注記程度に留める。定義の正本は <a href="診断と詳細画面の構成.md">診断と詳細画面の構成</a>。数値は説明用の例。</p>
+  <p class="lead">詳細表示（Advanced）の見本。主な端末はiPhone。画面内は英語のみで、語は現行コードの表示語（<code>Live TX Pipeline</code>、<code>TX Bus</code>、<code>Peer Buses</code>、<code>Mix Down</code>、<code>RX Master</code>、<code>Connect</code>、<code>Participants</code>など）に合わせ、説明は現行の注記程度に留める。この画面の設計は <a href="診断と詳細画面の構成.md">診断と詳細画面の構成</a>。数値は説明用の例。</p>
   <p class="note" style="margin-top:10px">状態の語と記号・色・寸法・部品（Pipelineの流れ・段の行・合流する木）は <a href="../デザインシステム見本.html">デザインシステム見本</a> を参照する。ここでは詳細表示（Advanced）の画面の組み合わせだけを示す。</p>
 
   <h2 id="diag">診断（Diagnostics）</h2>
@@ -612,7 +612,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div style="position:absolute;left:14px;right:14px;bottom:76px;height:38px;border-radius:20px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:11px"><span class="d ok"></span><b>Weekend Touring</b><span style="color:var(--label2)">Connected</span><span style="margin-left:auto;color:var(--label2)">Unmuted</span><span style="font-size:14px"><svg class="i"><use href="#mic-slash"/></svg></span><span style="font-size:14px;color:var(--err)"><svg class="i"><use href="#phone-down"/></svg></span></div><div class="tabbar"><span class="tab on"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。通話中も近距離または本人確認済みのInternet経路で Retry Notification を使える。どちらも使えないときは Retry Notification を無効にする。Share Accepted Receipt は使用できる。iOSではRetry Notificationから、条件が揃ったInternetの受諾をOSに預ける。受諾の受付を保存した後は、アプリを開き直しても到着確認の待機から再開する。署名付きの到着確認までは返信待ちを保つ。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。行のスワイプは共通の User Settings と、canEditSavedGroups が真のときの Delete。名前の編集と Share Call Invite は User Settings から行う。行の短縮IDと Share Call Invite は、行から開始する個別通話と同じ通話を指す。アカウント証明を使わない新規の二端末では、互いの招待や同じ相手からの複数の通常グループ招待でも、相手の行と個別通話は一つ。招待者が受諾を確認すれば、受諾者は到着確認を待つ間もその行から通話できる。各グループの返信待ちはそれぞれの到着確認で消える。通常グループの招待で相互登録したアカウント確認済みの二人も、記録された相手端末がそれぞれ一台なら、初回から同じ個別通話をこの行で開ける。個人登録を兼ねるグループ招待で、双方の端末宛て個別通話が同じ一件に特定できる場合は、既知の相手端末が複数あってもその鍵を引き継いで個別通話を開く。通話先が未保存なら No direct group yet を表示し、共有は表示しない。並びと値は実装と対（未登録も含む<code>directoryUsers</code>のSavedUser。配送記録は同じ人の詳細に内包し、旧未紐付け招待だけInvitationsへ置く。再試行は詳細の操作）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。 旧形式の送信招待のDetailsでは、<code>ContactInvitationRecord</code>の<code>sent</code>をfalse・true・nilで表示する。Share Invitationを開くだけ、または取り消すと同じ値を保つ。共有操作やコピーの完了でfalseからtrueへ更新し、同じ詳細でShare Againを使える。Closeで同じ行のあるUsersに戻る。</figcaption>
+      <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。通話中も近距離または本人確認済みのInternet経路で Retry Notification を使える。どちらも使えないときは Retry Notification を無効にする。Share Accepted Receipt は使用できる。iOSではRetry Notificationから、条件が揃ったInternetの受諾をOSに預ける。受諾の受付を保存した後は、アプリを開き直しても到着確認の待機から再開する。署名付きの到着確認までは返信待ちを保つ。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。行のスワイプは共通の User Settings と、canEditSavedGroups が真のときの Delete。名前の編集と Share Call Invite は User Settings から行う。行の短縮IDと Share Call Invite は、行から開始する個別通話と同じ通話を指す。アカウント証明を使わない新規の二端末では、互いの招待や同じ相手からの複数の通常グループ招待でも、相手の行と個別通話は一つ。招待者が受諾を確認すれば、受諾者は到着確認を待つ間もその行から通話できる。各グループの返信待ちはそれぞれの到着確認で消える。通常グループの招待で相互登録したアカウント確認済みの二人も、記録された相手端末がそれぞれ一台なら、初回から同じ個別通話をこの行で開ける。個人登録を兼ねるグループ招待で、双方の端末宛て個別通話が同じ一件に特定できる場合は、既知の相手端末が複数あってもその鍵を引き継いで個別通話を開く。通話先が未保存なら No direct group yet を表示し、共有は表示しない。並びと値は実装と対（未登録も含む<code>directoryUsers</code>のSavedUser。招待の送信状況と受け取り状況は同じ人の詳細に表示し、旧未紐付け招待だけInvitationsへ置く。再試行は詳細の操作）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。 旧形式の送信招待のDetailsでは、<code>ContactInvitationRecord</code>の<code>sent</code>をfalse・true・nilで表示する。Share Invitationを開くだけ、または取り消すと同じ値を保つ。共有操作やコピーの完了でfalseからtrueへ更新し、同じ詳細でShare Againを使える。Closeで同じ行のあるUsersに戻る。</figcaption>
     </figure>
 
     <figure id="registered-group-delivery">
@@ -642,7 +642,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
         </div>
       </div></div>
-      <figcaption><b>登録済みの相手への自動配送</b>配送記録の前にInviteを置く。AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued。Appが実行中に回線が復帰したら、保留した同じ配送IDで同期を続ける。近距離の署名付き受領または受信箱の受領が確定するとreceived。受取側の一覧は確定後に更新する。鍵が食い違う招待や、そのグループで外した相手から届いた招待は破棄し、次の受信箱の項目へ進む。iOSは条件を満たす未送信の招待と未確認のInternet取消をWorker宛てに暗号化してOSへ預ける。引き渡した時点ではpendingまたは取消未確認を保ち、操作と配送IDを照合できた結果で更新する。App内の同期の時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。近距離に送出した招待を取り消すと暗号文参照を外し、照合に必要な記録を保持する。保存済みの取消を相手が受け取れるときに自動で届ける。受け手は先に取消を確認した招待を一覧に追加しない。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。Internetの受信箱は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
+      <figcaption><b>登録済みの相手に招待を自動で送る</b>招待の送信状況と受け取り状況の前にInviteを置く。AdvancedRegisteredGroupInvitationsの実フィールドと対応。項目名と値が同じ行に収まらない場合は値を次の行に置き、IDの全体を読めるように折り返す。保存でpending、暗号文のserver受付でqueued。Appが実行中に回線が復帰したら、保留していた招待を同じ送信IDで識別し、同期を続ける。近距離の署名付き受領または受信箱の受領が確定するとreceived。受取側の一覧は確定後に更新する。鍵が食い違う招待や、そのグループで外した相手から届いた招待は破棄し、次の受信箱の項目へ進む。iOSは条件を満たす未送信の招待と未確認のInternet取消をWorker宛てに暗号化してOSへ預ける。引き渡した時点ではpendingまたは取消未確認を保ち、結果が対象の操作と送信IDに対応すると確認できたら状態を更新する。App内の同期の時間切れでは保存済みのidとstateを保つ。受領後のcredentialReferenceはnil。近距離に送出した招待を取り消すと暗号文参照を外し、照合に必要な記録を保持する。保存済みの取消を相手が受け取れるときに自動で届ける。受け手は先に取消を確認した招待を一覧に追加しない。共有は任意、OS共有を自動では開かずDoneで閉じる。受信だけで通話は始めない。Internetの受信箱は空または失敗まで最大64件。送信の403は当該記録だけpendingに残し、他の相手へ進む。</figcaption>
     </figure>
 
     <figure id="group-settings">
@@ -666,7 +666,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="row" style="color:var(--err)">Delete Group</div></div>
         </div>
       </div></div>
-      <figcaption><b>Group Settingsの招待と配送記録</b>アプリを開き直すか通話中に経路が復旧すると、有効な各通常リンクの返信をグループごとに再開する。発行上限に達した場合は、既存リンクの期限後に新しいリンクを発行できることをエラー欄に表示する。同じグループへ同じ人を招待し直すと、前回のreceivedは配送欄から消え、新しい配送がpendingから進む。受諾期限後は照会中の記録を配送欄から外し、確定したreceived／cancelledを発行から28日まで表示する。Add Membersは利用権があるときに出す。メンバーの行のEdit Nameは使える。Removeは有効な利用権があるときに出る。確認中に利用権が切れたらメンバーを保ち、利用権の確認を案内する。保存できたら受信箱に残る招待の取消が始まり、設定を閉じてよい。次の同期では、待っている招待の送信より先に取消を試みる。受取確定より先に取り消した招待は、相手が取得を始めていても一覧に追加されない。送信が遅れても、先に反映された取消を保つ。この端末では外した人の音声を停止し、再接続で一覧に戻さない。追加し直しても外す前の招待への返信では現在の通話を変更しない。他端末への除外反映は削除同期の対象。退出前に使った通常グループURLを開くと、新しい招待を依頼するよう案内する。Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの配送はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。<a href="../招待と登録の設計.md#宛先を持たないグループ招待の返信">近距離・Internetの経路復旧と招待返信</a></figcaption>
+      <figcaption><b>Group Settingsの招待と送受信の記録</b>アプリを開き直すか通話中に経路が復旧すると、有効な各通常リンクの返信をグループごとに再開する。発行上限に達した場合は、既存リンクの期限後に新しいリンクを発行できることをエラー欄に表示する。同じグループへ同じ人を招待し直すと、前回のreceivedは送受信の記録から消え、新しい招待はpendingから始まる。受諾期限後は照会中の記録を送受信の欄から外し、確定したreceived／cancelledを発行から28日まで表示する。Add Membersは利用権があるときに出す。メンバーの行のEdit Nameは使える。Removeは有効な利用権があるときに出る。確認中に利用権が切れたらメンバーを保ち、利用権の確認を案内する。保存できたら受信箱に残る招待の取消が始まり、設定を閉じてよい。次の同期では、待っている招待の送信より先に取消を試みる。受取確定より先に取り消した招待は、相手が取得を始めていても一覧に追加されない。送信が遅れても、先に反映された取消を保つ。この端末では外した人の音声を停止し、再接続で一覧に戻さない。追加し直しても外す前の招待への返信では現在の通話を変更しない。他端末への除外反映は削除同期の対象。退出前に使った通常グループURLを開くと、新しい招待を依頼するよう案内する。Soraの行は、新しい相手の名前と同じグループのContactInvitationRecordの値。行から人物詳細を開く。共有取消でsent false、共有完了でsent true。署名付き返信で通常のメンバー行に変わる。Makiへの招待の送信状況と受け取り状況はGroupDeliveryRecord欄で確認できる。Inviteを押すとグループのOS共有画面を開く。<a href="../招待と登録の設計.md#宛先を持たないグループ招待の返信">近距離・Internetの経路復旧と招待返信</a></figcaption>
     </figure>
     <figure id="group-contact-invitation-detail">
       <div class="phone tall"><div class="screen">

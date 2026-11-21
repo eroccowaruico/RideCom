@@ -86,7 +86,7 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 | 拡張ルール | 仕様 |
 |---|---|
 | stage 追加 | AudioMixer package の `tx-bus.effectChain` に stage が追加されれば Diagnostics の表示順へ反映する |
-| 文字列の固定を禁止 | `SoundIsolation -> VADGate -> DynamicsProcessor -> PeakLimiter` のような固定文言や default 値を UI の正本にしない |
+| 文字列の固定を禁止 | `SoundIsolation -> VADGate -> DynamicsProcessor -> PeakLimiter` のような固定文言や default 値を UI の判断基準にしない |
 | 一覧性 | stage が増えた場合は FX Chain 行の内側で折り返し、ログを読まなくても各 stage の現在状態を読めるようにする |
 
 ## 送信RTCの経路分岐
@@ -135,7 +135,7 @@ native出力は無音の間も `Last render` を更新する。描画が2秒を�
 |---|---|
 | stage 追加 | AudioMixer package の peer bus または master bus の `effectChain` に stage が追加されれば Diagnostics の表示順へ反映する |
 | RX master limiter | 実グラフのrx-outputに存在するPeakLimiterを、master volume後の最終stageとして表示する |
-| 文字列の固定を禁止 | 受信側も固定の effect 名列挙や default 値を UI の正本にしない |
+| 文字列の固定を禁止 | 受信側も固定の effect 名列挙や default 値を UI の判断基準にしない |
 | 一覧性 | peer chain は peer row 内、master chain は RX master row 内で別々に表示し、どちらで処理が止まっているかをログなしで読めるようにする |
 | 表示順検証 | Diagnostics の effect chip は `AudioEffectChainSnapshot.stages` の登録順をそのまま使う。任意 stage を追加した順序が UI 表示用 model へ保持されることをテストする |
 

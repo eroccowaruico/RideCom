@@ -12,7 +12,7 @@ Watch音声のpairが失われ、Watchでの再準備が必要な場合は、こ
 
 通話はタブにせず、接続先を選んだときに開く（compact幅のiPhoneは`sheet`、iPad・Macは`inspector`の右の列、`closeCallButton`で閉じる）。iPhoneでは`inspector`のcompact表示（OSのシート）を使わない。ツールバーに…メニューがあるその表示を一覧から開き直すと、SwiftUIのガラス描画が停止した。[2026-11-03の検証記録](../../../validation/history/画面デザインと録音操作の整理.md#通話のメニューと一覧の行から設定を開く)。通話中に通話を閉じている間は、iOSはタブバー上の`tabViewBottomAccessory`（`callAccessory`。状態の記号、名前と状態の語の2行の`callAccessoryOpenButton`、`callAccessoryMuteButton`、`callAccessoryEndButton`。切断は標準の`confirmationDialog`で「{接続先}との接続を切断しますか？」と確認（`callAccessoryConfirmEndButton`）。長押しのメニューは置かない）、macOSはツールバーの`callAccessoryOpenButton`（状態の記号と「{接続先} · {状態の語}」）から開き直す。切断すると通話を閉じて一覧へ戻り、未選択・未接続だけの画面は置かない。以下の詳細画面はSettingsのApp LayoutでAdvancedへ切り替えて使用する。Users / Groupsと参加者は人物と通常グループを共通の青いアバターとし、`person.fill`／`person.3.fill`の記号で区別する。アイコン画像の変更機能は持たず、名前と種別を併記する。Users / Groupsの一覧はSettingsと同じ`readableScrollWidth()`で、行を最大640ptで見えている領域の中央に置き、背景とスクロールバーは端まで広げる。中央に寄せる余りがシステムの余白（regular 20pt）以下なら、システムの余白を使う。iPhoneなどでは、左右に余白のある角丸のまとまりとして行が並ぶ。macOSのListは左右の`contentMargins`を使わないため、`safeAreaPadding`で行を寄せる。
 
-Users / Groupsの画面構成はモード別とする。Advancedでは一般向けの行を使わず、`AdvancedRecordRow`で実装の値を表示する。Usersの行には呼び名と通話中の状態を出す。個別通話については`Direct {短縮id} · N devices`または`No direct group yet`を表示する。本人の名前は`Name shared by this person: {displayName}`で示す。Groupsでは`Saved Groups {件数}`の行に`N members · key ready`と等幅の短縮`id`を出す。保存した通話の鍵がないグループ（`groupsMissingKeys`）は`key missing`、通話中は`active`を表示する。`Direct Groups {件数}`には内部のdirectグループを出す。保存状態・共通操作と同じ意味の表示部品を共用する。Callはモードに応じた画面を使用する。接続先の選択とグループ作成はUsers / Groupsタブへ集約する。画面だけを切り替え、接続・選択・ミュート・一覧の正本は同じIntercomViewModelに保つ。
+Users / Groupsの画面構成はモード別とする。Advancedでは一般向けの行を使わず、`AdvancedRecordRow`で実装の値を表示する。Usersの行には呼び名と通話中の状態を出す。個別通話については`Direct {短縮id} · N devices`または`No direct group yet`を表示する。本人の名前は`Name shared by this person: {displayName}`で示す。Groupsでは`Saved Groups {件数}`の行に`N members · key ready`と等幅の短縮`id`を出す。保存した通話の鍵がないグループ（`groupsMissingKeys`）は`key missing`、通話中は`active`を表示する。`Direct Groups {件数}`には内部のdirectグループを出す。保存状態・共通操作と同じ意味の表示部品を共用する。Callはモードに応じた画面を使用する。接続先の選択とグループ作成はUsers / Groupsタブへ集約する。画面だけを切り替え、接続・選択・ミュート・一覧は同じIntercomViewModelで管理する。
 
 | 画面・項目ID | 表示と操作 |
 |---|---|
@@ -38,7 +38,7 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 
 ## 新しい相手への直接招待
 
-設計は[招待と登録](../../../design/招待と登録の設計.md#招待の作成)と[HTML見本](../../../design/一般向け/デザイン見本.html)。ユーザーの＋から、名前の明示保存、招待共有、相手の登録確認を別々に行う。共有先への到着は推測しない。データの正本は`SavedUser`、配送は`ContactInvitationRecord.personID`で紐づける。
+設計は[招待と登録](../../../design/招待と登録の設計.md#招待の作成)と[HTML見本](../../../design/一般向け/デザイン見本.html)。ユーザーの＋から、名前の明示保存、招待共有、相手の登録確認を別々に行う。共有先への到着は推測しない。データを管理する場所は`SavedUser`、転送は`ContactInvitationRecord.personID`で紐づける。
 
 | UI・共通操作 | 保存・状態・画面の動作 |
 |---|---|
@@ -49,8 +49,8 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 | `contactInvitationSheet` / `closeContactInvitationButton` | `.person(UUID)`の識別を保存・共有・登録で維持する。OS共有は子の画面であり、取消・コピー・復帰後も同じ人の詳細を保つ。保存前の「Cancel」は無書込、保存後は「Done」（完了）で一覧へ。意図しない親シートの終了を防ぐためinteractive dismissを無効にする。完了で閉じてもUsers所有の有限な返信試行は続ける |
 | `standardUser-{id}` | 一覧は`directoryUsers`で未登録を含む同じ人を1行表示。未登録は破線の人物と「Not registered」、タップで詳細（通話を始めない）。識別済みは通常の行で、従来どおりタップで個別通話を開始する。名前の編集・削除は両モード共通の行操作から可能。未登録の人の設定に「本人の名前」を捏造しない |
 | `editContactPersonNameButton` | Standardの保存済み詳細から名前の設定を開く。編集は保存ボタンで確定し、取消は保持。完了後は同じ相手の詳細へ戻る |
-| Advancedの人の詳細 | `SavedUser`の`id`・`displayName`・`localName`・`memberIDs`・`principal`と、対応する配送記録を同じ詳細に内包する。`ContactInvitationRecord`の`id`・`personID`・`direction`・`state`・`canResume`・`expiresAt`・`peerMemberID`・`nickname`・通知の`session`（running/stopped）をその値で表示する。`Retry Notification`と`Cancel Pending Invitation`／`Stop Retrying Notification`は実装の条件どおり。取消はその端末の再試行を止め、保存した人の詳細を維持する |
-| 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、未配送の返信はその人の詳細・設定内で扱う。利用可能な近距離の経路では返信と到着確認を自動で届ける。通常通話中も近距離で返信できる。近距離を無効にしている通話中だけ「Waiting for the current call to end.」を表示し、再試行を出さない。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
+| Advancedの人の詳細 | `SavedUser`の`id`・`displayName`・`localName`・`memberIDs`・`principal`と、対応する送受信の記録を同じ詳細に内包する。`ContactInvitationRecord`の`id`・`personID`・`direction`・`state`・`canResume`・`expiresAt`・`peerMemberID`・`nickname`・通知の`session`（running/stopped）をその値で表示する。`Retry Notification`と`Cancel Pending Invitation`／`Stop Retrying Notification`は実装の条件どおり。取消はその端末の再試行を止め、保存した人の詳細を維持する |
+| 受諾・返信の表示 | 作者は署名付き受諾で同じ人を識別済みに更新する。受け手は登録時に相手を保存し、まだ届いていない返信はその人の詳細・設定内で扱う。利用可能な近距離の経路では返信と到着確認を自動で届ける。通常通話中も近距離で返信できる。近距離を無効にしている通話中だけ「Waiting for the current call to end.」を表示し、再試行を出さない。`pendingContactInvitations`は内部の未完了一覧を維持するが、人と紐づく記録をUsersへ別行表示しない。旧形式の未紐付け記録だけは互換用詳細へ残す |
 | `contactInvitationPreview` | URLの署名・期限・宛先を検証し、本人名と登録・拒否の効果を表示する。URLを開くだけではユーザー／pending／署名鍵を保存しない |
 | `acceptContactInvitationButton` / `cancelContactInvitationButton` | 「Register」（登録）で初めて相手を保存し、同じacceptingのシートIDを保って保存済み詳細へ更新する。「Done」（完了）でUsersへ戻る。通常通話・ミュートを維持して返信を開始する。「Decline」（拒否）は保存せず閉じ、拒否通知や拒否記録を作らない。元のリンクは有効期限内なら再び開いて登録できる |
 
@@ -60,7 +60,7 @@ Connect・Disconnect・ローカルマイクの操作は[通話先と操作対�
 
 [通信を使わずに返信する](../../../design/招待と登録の設計.md#通信を使わずに返信する)の状態と復帰を適用する。URL入口は`rideintercom://contact-reply`。保留中のログインには既存のpendingInviteURLを使い、現アカウントで検証してから共通receiveContactReplyURLへ接続する。URLの検証だけで通常通話やミュートを変更しない。
 
-iOSで「登録」または返信の再試行を押した直後に完了・画面ロック・他のアプリへ移っても、OSが与えた時間内は同じ返信を届ける。人物詳細と相手の設定は両モードで同じ相手ID・招待IDを`retryContactPersonInvitation`へ渡す。時間切れで返信が未配送なら同じ相手の詳細に表示し、既存の共有や再試行を使える。[背景処理の契約](../通信仕様.md#個人の招待と登録)。
+iOSで「登録」または返信の再試行を押した直後に完了・画面ロック・他のアプリへ移っても、OSが与えた時間内は同じ返信を届ける。人物詳細と相手の設定は両モードで同じ相手ID・招待IDを`retryContactPersonInvitation`へ渡す。時間切れで返信が未着なら同じ相手の詳細に表示し、既存の共有や再試行を使える。[背景処理の契約](../通信仕様.md#個人の招待と登録)。
 
 | UI・実装 | 動作 |
 |---|---|
@@ -93,7 +93,7 @@ iOSで「登録」または返信の再試行を押した直後に完了・画�
 |---|---|---|
 | Ideal | 識別済み相手。登録済みの同じ人の行・開いている詳細を更新 | 詳細は完了まで維持。未完了の返信だけを内包し、登録済みの人を招待待ちへ戻さない |
 | Empty | 未保存の名前、またはUsersが0件 | ＋→入力→保存。Cancelは無書込。空欄の候補は明示保存時にだけ採用 |
-| Partial | 名前だけ保存済み、または登録済みで返信未配送 | 未登録は共有せず完了できる。共有取消・コピー・再表示・再起動で同じ名前と人のIDを保つ。返信は有限な再試行 |
+| Partial | 名前だけ保存済み、または登録済みで返信が未着 | 未登録は共有せず完了できる。共有取消・コピー・再表示・再起動で同じ名前と人のIDを保つ。返信は有限な再試行 |
 | Error | 名前の保存・リンク準備・検証失敗 | 入力／保存した人と通常通話を保ち、その場で再試行。保存の成否不明では既存の再読込による復旧を使う |
 | Loading | 実際の有限な返信試行中 | 現在の通信状態から進捗を出す。ローカル保存に独立したLoading画面・UI用timerを作らず、未登録の人を無期限に待機表示しない |
 
@@ -121,7 +121,7 @@ Appがbackgroundへ移ると、OSから有限の実行時間を得ている返�
 
 ## 保存済みユーザーの操作
 
-Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見出しは「New Group」（既存groupへの追加は「Invite Members」）。新規作成の名前入力（`savedUsersGroupNameField`）は、共通の`MemberSelection`が生成した編集可能な名前で開く。空欄時のprompt・保存名、選択しても変えない条件は[新しいグループの初期名](#新しいグループの初期名)を正本とする。既存groupへの追加では名前欄を出さない。
+Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見出しは「New Group」（既存groupへの追加は「Invite Members」）。新規作成の名前入力（`savedUsersGroupNameField`）は、共通の`MemberSelection`が生成した編集可能な名前で開く。空欄時のprompt・保存名、選択しても変えない条件は[新しいグループの初期名](#新しいグループの初期名)に従う。既存groupへの追加では名前欄を出さない。
 
 | 項目 | Standard（`StandardMemberSelection`） | Advanced（`AdvancedSavedUsersSelection`） |
 |---|---|---|
@@ -131,13 +131,13 @@ Groupsの`New Group`（`standardCreateGroupButton`）からFormを開く。見�
 | 確定操作 | `safeAreaBar`に主要操作1つ（`saveUserSelectionButton`）。作成は`Create and Connect`（作成して接続）、別の通話中は`Create Group`、既存groupへの追加は`Save Invitations`（招待を保存） | ツールバーの`saveUserSelectionButton`。新規作成は同じ`Create and Connect`／`Create Group`、既存groupへの追加は`Add Users` |
 | 取消 | ツールバーの`Cancel`（`closeSavedUsersButton`）。変更せず閉じる | 同左 |
 
-選択の値・名前の生成・検証・保存は両モード共通の`MemberSelection`。保存済みの相手を使うグループを作成し、待機中ならそのまま接続する。既知のアカウントと確認済み端末鍵を持つ登録済みの相手には、保存と同時に配送待ちを作り、自動配送する。未交換の許可は次の接続で交換し、手動共有も任意に使える。新しい人には下記の名前付き共有段階を出す。
+選択の値・名前の生成・検証・保存は両モード共通の`MemberSelection`。保存済みの相手を使うグループを作成し、待機中ならそのまま接続する。既知のアカウントと確認済み端末鍵を持つ登録済みの相手には、保存と同時に送信待ちを作り、自動送信する。未交換の許可は次の接続で交換し、手動共有も任意に使える。新しい人には下記の名前付き共有段階を出す。
 
 Usersの行の`User Settings`（`userSettingsView`）は相手の設定を開く。モードごとに別のView（`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`UserSettingsView`が選ぶ。Standardは、見本の項目だけを置く。「Name on This Device」（この端末での名前、`savedUserNameField`）は今の呼び名で開く。空なら本人の名前をプレースホルダーに出す。「Their Own Name」（本人の名前、`savedUserOriginalName`）は別のSectionに副次色で出し、編集できない。最後に赤の`Delete User`（ユーザーを削除、`deleteUserButton`）を置く。確認のタイトルは「{呼び名}を削除しますか？」、選択肢は「削除」（`confirmDeleteUserButton`）と「キャンセル」。削除の同期が未実装のため、通常は本文を出さない。その相手と接続中なら、本文「今の接続は切断されます。」を出し、確定を「切断して削除」にする。`Save`（`saveUserNameButton`）では、空欄か本人の名前と同じなら呼び名を解除して本人名に従い、それ以外は端末内の呼び名として保存する。招待の共有、`Use Shared Name`、通知の切替、説明のfooterは置かない（通知はOSの設定だけで、個人で登録した相手は全員通知を送ってよい）。Standardの相手の設定には呼び出しの送信を置かない。1対1の接続を始めると呼び出しの通知を1回だけ送る（下の[1対1の呼び出しの通知](#1対1の呼び出しの通知)）。AdvancedもUsersの行のスワイプ（Macは右クリック）の「User Settings」から開く。Advancedの相手の設定は端末での呼び名、本人名、`Use Shared Name`（`resetUserNameButton`）、Usersの行から解決した個別通話を保存済みで共有できるなら招待（`userSettingsInviteButton`）、`Delete User`を置く。手動の呼び出し・受信の切替は両モードとも置かず、`closeUserSettingsButton`で閉じる。同じ名前の別IDは統合しない。行のDeleteは相手とその個別通話group（Advancedの`advancedDirectGroup-{UUID}`）を消し、その相手との進行中の通話は切断する。通常グループのメンバーは保持する。表示名変更は既存グループにも反映する。
 
-保存ユーザーの追加に使う入口はモードごとに異なる。StandardではCallのメンバー一覧の先頭の`Invite Members`（メンバーを招待、`addSavedUsersButton`）を使う。Advancedは通話の…メニュー（`callAddMembersButton`）を使う。両モードでGroup Settings（`groupSettingsAddMembersButton`）から保存ユーザーを追加する。現在のgroup IDを操作対象として固定し、直接招待関係のある保存ユーザーのうち、まだ含まれない相手を選択して追加する。自分を含め8memberまでで、重複・古い操作対象・保存失敗は確定しない。`savedUsersErrorLabel`で失敗を示す。選択中は通知しない。保存時に確認済みの相手への自動配送待ちを作り、許可未交換の相手は次の接続を待つ。旧形式の相手は手動共有する（下の登録済みの相手へのグループ招待）。
+保存ユーザーの追加に使う入口はモードごとに異なる。StandardではCallのメンバー一覧の先頭の`Invite Members`（メンバーを招待、`addSavedUsersButton`）を使う。Advancedは通話の…メニュー（`callAddMembersButton`）を使う。両モードでGroup Settings（`groupSettingsAddMembersButton`）から保存ユーザーを追加する。現在のgroup IDを操作対象として固定し、直接招待関係のある保存ユーザーのうち、まだ含まれない相手を選択して追加する。自分を含め8memberまでで、重複・古い操作対象・保存失敗は確定しない。`savedUsersErrorLabel`で失敗を示す。選択中は通知しない。保存時に確認済みの相手への自動送信待ちを作り、許可未交換の相手は次の接続を待つ。旧形式の相手は手動共有する（下の登録済みの相手へのグループ招待）。
 
-確認済みの登録相手には暗号化した招待を自動配送する。相手の端末が受取を確定するまでは「招待中」。受取側では、確定するまで一覧やグループタブの案内に出さない。手動共有では署名付きURLを相手が開いたときにgroupを保存する。新しい人は個人登録とgroup参加を兼ねる専用招待を使う。保存ユーザーを選ぶか新しい人を1人以上入力した作成・追加が成功したら、sheetを閉じずに同じsheetを招待の段階へ切り替える。
+確認済みの登録相手には暗号化した招待を自動送信する。相手の端末が受取を確定するまでは「招待中」。受取側では、確定するまで一覧やグループタブの案内に出さない。手動共有では署名付きURLを相手が開いたときにgroupを保存する。新しい人は個人登録とgroup参加を兼ねる専用招待を使う。保存ユーザーを選ぶか新しい人を1人以上入力した作成・追加が成功したら、sheetを閉じずに同じsheetを招待の段階へ切り替える。
 
 | 状態 | 成立条件 | 表示 | 可能な操作 | 復帰先 |
 |---|---|---|---|---|
@@ -147,7 +147,7 @@ Usersの行の`User Settings`（`userSettingsView`）は相手の設定を開く
 | Empty | 保存ユーザーと新しい人のどちらも含めずgroupを作成した | 招待の段階を出さずにsheetを閉じる | 通常どおり | 新groupの通話画面 |
 | Loading | 該当しない | 保存は同期処理で、共有URLはOS共有画面の要求時に作るため待ち表示を持たない | — | — |
 
-Standardの通常グループでは、通話とGroup Settingsのメンバー一覧の先頭に「メンバーを招待」を置く。新しい相手の枠は破線のアバターと名前、「まだ送っていません」「受け取り待ち」「期限切れ」など、保存した招待の状態で示す。接続の有無にかかわらず、行から同じ人物詳細を開く（通話では `standardCallInvitee-{id}`）。共有を閉じても詳細に留まる。返信を確認できたら同じ枠が通常のメンバーになり、招待状態と招待詳細への入口が消える。登録済みの相手への配送記録も、未完了は両画面で同じ語にする。保存確認後の「受け取り済み」はグループ設定で確認できる。
+Standardの通常グループでは、通話とGroup Settingsのメンバー一覧の先頭に「メンバーを招待」を置く。新しい相手の枠は破線のアバターと名前、「まだ送っていません」「受け取り待ち」「期限切れ」など、保存した招待の状態で示す。接続の有無にかかわらず、行から同じ人物詳細を開く（通話では `standardCallInvitee-{id}`）。共有を閉じても詳細に留まる。返信を確認できたら同じ枠が通常のメンバーになり、招待状態と招待詳細への入口が消える。登録済みの相手への送受信の記録も、未完了は両画面で同じ語にする。保存確認後の「受け取り済み」はグループ設定で確認できる。
 
 招待の段階の表示中に対象groupが削除された場合はsheetを閉じる。共有URLは既存のInviteと同じく共有時に対象group・権利を再検証する。
 
@@ -175,7 +175,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 
 グループの設定の最後の削除／抜けるとその確認は、両モードで同じ`Common/GroupRemovalSection.swift`を使う。`groupRepository.ownsGroup(group.id)`でオーナーは`Delete Group`、それ以外は`Leave Group`を出し分け、`canEditSavedGroups`が偽なら無効にする。記号を付けない赤い文字のボタン、グループ名を含む確認、接続中だけの切断の案内、取消・確定の結果を共有する。設定の名前・メンバー・招待の構成はモードごとに維持する。 新しい相手への招待で保存したgroupから抜けると、そのgroupに結合した未完了の返信を保存と同時に取消し、対応する試行を停止する。登録済みの相手と個人通話は残る。古い招待の再登録は既存の新しい招待を求める表示にし、削除したgroupを戻さない。
 
-[操作の流れ](../../../design/操作の流れ.md)の「設定は名前の付いた入口から」に従う。画面はモードごとに別のView（Group Settingsは`StandardGroupSettingsView`・`AdvancedGroupSettingsView`、User Settingsは`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`GroupSettingsView`・`UserSettingsView`が選ぶ。Users / Groupsの一覧の行のswipeは両モードで完全に同一のため、`Common`の修飾子`destinationRowActions`を共用する。使用済みの通常グループURLを退出後に再び開くと、新しい招待を依頼するよう案内し、現在の画面・通話を保つ。メンバーの行のswipeは項目が違う（Advancedだけ名前の編集がある）ため、モードごとの修飾子（`standardMemberRowActions`・`advancedMemberRowActions`）に分ける。削除・外すの確認（`destinationDeleteConfirmation`・`memberRemoveConfirmation`）は安全規則として共通にする。グループ設定でメンバーを外す確定は共通の `removeMember` へ渡す。確定時に有効な利用権・保存可否・対象の所属を照合する。確認中に利用権が切れた場合は、開いていた画面とメンバーを保ち、その画面で設定の「利用権」への案内を出す。保存成功後に行を消し、その相手への未受領の自動配送を取り消す。この端末では相手の音声を停止し、再接続しても行を戻さない。残った相手との通話は同じ通話を続ける。ほかの端末への除外反映は削除同期の対象。Standardのメンバー詳細は保存成功時に閉じる。同期は画面を閉じた後もアプリが続ける。長押しのメニュー（`contextMenu`）は両モードとも置かず、マウスでスワイプできないMacだけ同じ項目を右クリックのメニュー（`macRightClickMenu`）に出す。入口を限定する。Standardは通話のツールバーの設定のボタン、Advancedは通話の…メニューと、Users / Groupsの行のswipeだけで、行のタップは接続の1つの意味に保つ。開いても選択中の通話・表示中の通話を切り替えない。
+[操作の流れ](../../../design/操作の流れ.md)の「設定は名前の付いた入口から」に従う。画面はモードごとに別のView（Group Settingsは`StandardGroupSettingsView`・`AdvancedGroupSettingsView`、User Settingsは`StandardUserSettingsView`・`AdvancedUserSettingsView`）で、`GroupSettingsView`・`UserSettingsView`が選ぶ。Users / Groupsの一覧の行のswipeは両モードで完全に同一のため、`Common`の修飾子`destinationRowActions`を共用する。使用済みの通常グループURLを退出後に再び開くと、新しい招待を依頼するよう案内し、現在の画面・通話を保つ。メンバーの行のswipeは項目が違う（Advancedだけ名前の編集がある）ため、モードごとの修飾子（`standardMemberRowActions`・`advancedMemberRowActions`）に分ける。削除・外すの確認（`destinationDeleteConfirmation`・`memberRemoveConfirmation`）は安全規則として共通にする。グループ設定でメンバーを外す確定は共通の `removeMember` へ渡す。確定時に有効な利用権・保存可否・対象の所属を照合する。確認中に利用権が切れた場合は、開いていた画面とメンバーを保ち、その画面で設定の「利用権」への案内を出す。保存成功後に行を消し、その相手への未受領の自動送信を取り消す。この端末では相手の音声を停止し、再接続しても行を戻さない。残った相手との通話は同じ通話を続ける。ほかの端末への除外反映は削除同期の対象。Standardのメンバー詳細は保存成功時に閉じる。同期は画面を閉じた後もアプリが続ける。長押しのメニュー（`contextMenu`）は両モードとも置かず、マウスでスワイプできないMacだけ同じ項目を右クリックのメニュー（`macRightClickMenu`）に出す。入口を限定する。Standardは通話のツールバーの設定のボタン、Advancedは通話の…メニューと、Users / Groupsの行のswipeだけで、行のタップは接続の1つの意味に保つ。開いても選択中の通話・表示中の通話を切り替えない。
 
 | 画面 | 項目 | 操作 |
 |---|---|---|
@@ -196,7 +196,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 | 削除と退出 | オーナーには`Delete Group`（`deleteGroupButton`）を出す。他の人には`Leave Group`（グループから抜ける、`leaveGroupButton`）を出す。退出するとこの端末から外れる。ほかのメンバーへの反映は削除の同期で行う |
 | 確認 | タイトルは「{グループ}を削除しますか？」／「{グループ}から抜けますか？」。接続中なら本文は「今の接続は切断されます。」。確定は「切断して削除」／「切断して抜ける」（`confirmDeleteGroupButton`／`confirmLeaveGroupButton`） |
 
-Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）に表示する記録を特定する。`outgoingGroupInvitation(forPendingMember:in:)` で対象のグループと予約枠に一致する `ContactInvitationRecord` を読む。メンバー名に `direction · state · sent {true|false|nil}` とISO 8601の `expiresAt` を添える。人物IDが一致する詳細を開き、OS共有取消で状態を維持し、共有完了で同じ行の `sent` を更新する。署名付き返信が保存されるとその枠を通常メンバーとして表示する。登録済み相手への配送は同じgroupの `GroupDeliveryRecord` を別Sectionで確認する。
+Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）に表示する記録を特定する。`outgoingGroupInvitation(forPendingMember:in:)` で対象のグループと予約枠に一致する `ContactInvitationRecord` を読む。メンバー名に `direction · state · sent {true|false|nil}` とISO 8601の `expiresAt` を添える。人物IDが一致する詳細を開き、OS共有取消で状態を維持し、共有完了で同じ行の `sent` を更新する。署名付き返信が保存されるとその枠を通常メンバーとして表示する。登録済み相手への転送は同じgroupの `GroupDeliveryRecord` を別Sectionで確認する。
 
 対象groupの消失・種別不一致では設定の内容を表示しない。設定の招待は対象group IDに固定した共有（`InvitationShare(settingsGroupID:)`）を使う。表示中の通話が別のgroupでも、共有時に対象groupの存在・鍵・権限を再検証する。通話画面の招待は従来どおり表示中の通話に固定し、選択が変われば共有しない。Advancedの通話の参加者は状態と音声操作だけを表示する。Standardで新しい相手の招待枠をタップすると人物詳細を開く。名前の編集と通常groupから外す操作はGroup Settingsで行う。相手を追加し直した後も、外す前に保存した名前付き招待への遅れた返信では、その相手の行や現在の通話を更新しない。
 
@@ -344,7 +344,7 @@ StandardとAdvancedの接続・音声再開には標準`glassProminent`、補助
 | AdvancedContactInvitationContent | invitedGroupIDとsentを他の保存値に併記。秘密の添付やgroup鍵を表示のために読み出さない |
 | reloadGroupInvitationStorageButton | 保存失敗時は同じ入力を保ち、既存のReload Saved Groupsから回復。曖昧な保存完了後の再試行も同じIDで重複を防ぐ |
 
-UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/招待と登録の設計.md#新しい相手のグループ招待の状態遷移)と[通信契約](../通信仕様.md#個人登録を兼ねるグループ招待)に従う。登録済みの選択相手への自動配送は、下記の状態を同じ保存後の段階に表示する。新しい人への宛先なしリンクで代用しない。
+UI Stackと期限・取消・失敗の復帰は[状態遷移](../../../design/招待と登録の設計.md#新しい相手のグループ招待の状態遷移)と[通信契約](../通信仕様.md#個人登録を兼ねるグループ招待)に従う。登録済みの選択相手への自動送信は、下記の状態を同じ保存後の段階に表示する。新しい人への宛先なしリンクで代用しない。
 
 Standardの保存済み人物詳細は、未登録 AND 共有対象の送信招待ありの場合に、登録状態の下へ一覧と同じ招待状態（`contactPersonOutgoingInvitationState`）を追加する。`contactPersonInvitationForSharing`は共有操作と表示に同じ送信記録（`state == pending OR state == expired`）を渡す。`contactInvitationStateWord`は下表に従う。既存リンクの共有可否は両モードと実際の共有時に `ContactInvitationRecord.canShareOutgoing(at:)` で判定する。期限と現在時刻はUnix秒で評価する。Advancedの人物詳細は同じ記録の保存値を表示する。
 
@@ -358,11 +358,11 @@ Standardの保存済み人物詳細は、未登録 AND 共有対象の送信招�
 
 ## 登録済みの相手へのグループ招待の表示
 
-保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。`StandardRegisteredGroupInvitations`は次の案内を表示する。「招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。」名前ごとの状態と、任意の「招待を共有」を表示する。pending／queuedは「招待中」、同じ相手のどれか1台がreceivedなら「受け取り済み」。同期で追加端末へ届ける場合も、表示は「受け取り済み」を保ち、Advancedでは追加端末の配送を同じ欄で確認できる。全件cancelledは「招待を停止しました」。外した相手を同じグループに招待し直すと「招待中」から始まり、新しい配送の受領で「受け取り済み」になる。Advancedの配送欄にも新しい配送が出て、前回の受領済み記録は消える。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。旧形式の相手だけでも同じ保存済み画面で名前ごとに「招待の共有が必要です」と任意の共有を表示する。
+保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。`StandardRegisteredGroupInvitations`は次の案内を表示する。「招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。」名前ごとの状態と、任意の「招待を共有」を表示する。pending／queuedは「招待中」、同じ相手のどれか1台がreceivedなら「受け取り済み」。同期で追加端末へ届ける場合も、表示は「受け取り済み」を保ち、Advancedでは追加端末の転送を同じ欄で確認できる。全件cancelledは「招待を停止しました」。外した相手を同じグループに招待し直すと「招待中」から始まり、新しい転送の受領で「受け取り済み」になる。Advancedの送受信状況の欄にも新しい転送が出て、前回の受領済み記録は消える。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。旧形式の相手だけでも同じ保存済み画面で名前ごとに「招待の共有が必要です」と任意の共有を表示する。
 
-`AdvancedRegisteredGroupInvitations`は`GroupDeliveryRecord`の`id`・`recipientMemberID`・`state`・`expiresAt`・`credentialReference`を表示する。項目名と値が同じ行に収まらないときは値を次の行へ送り、長いIDを折り返す。保存後の`Invite`は配送記録の前に置き、相手の受取を待っている間も共有できる。OS共有を開く・閉じる・コピーする操作で配送状態を進めない。両モードで保存・送受信・判定は同じ処理を使い、文言と配置はモード所有の画面に分ける。新しい相手もいる場合、その人の名前付き詳細と登録済みの相手の配送状態を同じ保存後の画面で続けられる。
+`AdvancedRegisteredGroupInvitations`は`GroupDeliveryRecord`の`id`・`recipientMemberID`・`state`・`expiresAt`・`credentialReference`を表示する。項目名と値が同じ行に収まらないときは値を次の行へ送り、長いIDを折り返す。保存後の`Invite`は送受信の記録の前に置き、相手の受取を待っている間も共有できる。OS共有を開く・閉じる・コピーする操作で送受信の状況を進めない。両モードで保存・送受信・判定は同じ処理を使い、文言と配置はモード所有の画面に分ける。新しい相手もいる場合、その人の名前付き詳細と登録済みの相手の送受信の状況を同じ保存後の画面で続けられる。
 
-iOSの保存直後に背景へ移ると、送信処理はOSが与えた有限の実行時間で進む。時間切れでは保存済みの同じ行と状態を保つ。近距離の署名付き受領またはInternetの受信箱で受取が確定したときに同じ行の状態を更新する。「受け取り済み」は招待の状態を示す。受取側は通信断などで中断した処理を次の同期で続ける。保存済みグループと鍵が食い違う自動招待や、そのグループで外した相手から届いた自動招待は、今のグループ・画面・通話を保って処理を終え、次の招待を受け取る。[グループ自動配送の実行契約](../通信仕様.md#グループ自動配送の実行契約)。
+iOSの保存直後に背景へ移ると、送信処理はOSが与えた有限の実行時間で進む。時間切れでは保存済みの同じ行と状態を保つ。近距離の署名付き受領またはInternetの受信箱で受取が確定したときに同じ行の状態を更新する。「受け取り済み」は招待の状態を示す。受取側は通信断などで中断した処理を次の同期で続ける。保存済みグループと鍵が食い違う自動招待や、そのグループで外した相手から届いた自動招待は、今のグループ・画面・通話を保って処理を終え、次の招待を受け取る。[グループ招待の自動送信の実行契約](../通信仕様.md#グループ自動配送の実行契約)。
 
 ## 非表示のグループタブへの受取案内
 
@@ -376,13 +376,13 @@ StandardUsersViewだけがStandardGroupInvitationOfferを持つ。StandardのUse
 
 SavedUsersViewは選択から保存済みへの遷移・対象ID・sheetの終了を所有する。StandardGroupInvitationSavedViewとAdvancedGroupInvitationSavedViewが表示を分け、Doneは親から渡す同じ終了操作を呼ぶ。両方で見出しInvitation（招待）、対象group名（savedInvitationGroupName）、任意共有、明示的な完了を維持する。共有の完了を保存の条件にしない。
 
-Standardは新しい人の名前にRegistered／Not registered（登録済み／未登録）を添え、未登録の人が残るときだけ各人の共有案内を出す。内部IDや鍵・配送方式の説明は出さない。AdvancedはIntercomGroup.id／name、SavedUserのid／isRegisteredを表示し、人を開くと既存の詳細へ進む。登録済みの配送記録はAdvancedRegisteredGroupInvitationsがそのまま表示する。未保存の選択値と保存処理はMemberSelectionで共通に保ち、見た目の都合で状態を複製しない。
+Standardは新しい人の名前にRegistered／Not registered（登録済み／未登録）を添え、未登録の人が残るときだけ各人の共有案内を出す。内部IDや鍵・データを渡す方法の説明は出さない。AdvancedはIntercomGroup.id／name、SavedUserのid／isRegisteredを表示し、人を開くと既存の詳細へ進む。登録済みの送受信の記録はAdvancedRegisteredGroupInvitationsがそのまま表示する。未保存の選択値と保存処理はMemberSelectionで共通に保ち、見た目の都合で状態を複製しない。
 
 ## 完了後のグループ設定で確認する招待状態
 
-StandardGroupSettingsViewのMembersは新しい相手の予約枠に「招待中」を添える。登録済み相手の配送記録が残る間は、同じ人の複数端末をまとめた状態を名前の下に出す。StandardGroupInvitationStatusが保存画面と同じ語（招待中／受け取り済み／招待を停止しました）を使う。記録がない旧形式や保持期限後のメンバーに受領済みを推測して付けない。状態の識別子はgroupSettingsInvitationState-{member.id}。既存のタップ・外す・名前変更はそのまま使う。
+StandardGroupSettingsViewのMembersは新しい相手の予約枠に「招待中」を添える。登録済み相手の送受信の記録が残る間は、同じ人の複数端末をまとめた状態を名前の下に出す。StandardGroupInvitationStatusが保存画面と同じ語（招待中／受け取り済み／招待を停止しました）を使う。記録がない旧形式や保持期限後のメンバーに受領済みを推測して付けない。状態の識別子はgroupSettingsInvitationState-{member.id}。既存のタップ・外す・名前変更はそのまま使う。
 
-AdvancedGroupSettingsViewは共有できる場合に`Invite`を配送記録の前に置く。対象groupのoutgoing記録はAdvancedGroupDeliveryRecordsで表示する。id・recipientMemberID・state・expiresAt・credentialReferenceとその識別子は保存画面と同じ。受諾期限を過ぎた結果の照会中は、Standardの「招待中」とAdvancedの配送記録を表示対象から外す。確定結果が届いたら従来と同じ状態を表示し、発行から28日で対象から外す。回線復帰やiOSに預けた送信でも同じ表示条件を使う。iOSへの引き渡しだけではpendingを保つ。入力中の名前、今の通話、共有操作を状態更新で切り替えない。`groupInvitationDeliveries(in:)`が対象groupの記録を照会する。`groupInvitationDeliveryState(forMember:in:)`は保存済み人物のアカウントを解決して既存の端末集約判定を使う。画面用の別の配送状態・通信・timerは持たない。
+AdvancedGroupSettingsViewは共有できる場合に`Invite`を送受信の記録の前に置く。対象groupのoutgoing記録はAdvancedGroupDeliveryRecordsで表示する。id・recipientMemberID・state・expiresAt・credentialReferenceとその識別子は保存画面と同じ。受諾期限を過ぎた結果の照会中は、Standardの「招待中」とAdvancedの送受信の記録を表示対象から外す。確定結果が届いたら従来と同じ状態を表示し、発行から28日で対象から外す。回線復帰やiOSに預けた送信でも同じ表示条件を使う。iOSへの引き渡しだけではpendingを保つ。入力中の名前、今の通話、共有操作を状態更新で切り替えない。`groupInvitationDeliveries(in:)`が対象groupの記録を照会する。`groupInvitationDeliveryState(forMember:in:)`は保存済み人物のアカウントを解決して既存の端末集約判定を使う。画面用の別の送受信の状況・通信・timerは持たない。
 
 ### 操作直後のロックと相手待ち
 

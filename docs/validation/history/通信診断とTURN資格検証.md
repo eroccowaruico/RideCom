@@ -60,9 +60,9 @@ VALIDATION_DIR=/private/tmp/rtc-network-ui-rerun scripts/validate.sh ios-ui
 VALIDATION_DIR=/private/tmp/rtc-network-scripts-rerun scripts/validate.sh scripts
 ```
 
-結果ディレクトリは毎回新しい名前を使う。ツールチェーン・依存版・Simulator IDは各validationディレクトリのenvironment.txt / simulator-id.txt、UI操作の添付はxcresultへ保存する。`/private/tmp`の証跡は一時保存であり、必要なら別途保存する。この変更で全9パッケージを再実行したとは扱わない。音声系の既存結果は各履歴を参照する。
+結果ディレクトリは毎回新しい名前を使う。ツールチェーン、依存先のバージョン、Simulator IDは各validationディレクトリのenvironment.txt / simulator-id.txtに保存する。UI操作の添付はxcresultに残す。`/private/tmp`の証跡は一時保存であり、必要なら別途保存する。この変更で全9パッケージを再実行したとは扱わない。音声系の既存結果は各履歴を参照する。
 
-ツールチェーンはXcode 27.1 (27A9275)、Swift 6.4、macOS 27.0.1、Node 26.12.0 / npm 11.20.0。今回依存版の更新はない。XcodeのAppIntents metadata extraction skipped警告とSimulatorのSDK build記録診断が残るが、コンパイル・テストは成功。警告ゼロとは記録しない。UI添付画面でNetworkの折返し・スクロール到達を確認した。実機VoiceOver操作や全サイズの表示確認を代替しない。
+ツールチェーンはXcode 27.1 (27A9275)、Swift 6.4、macOS 27.0.1、Node 26.12.0 / npm 11.20.0。今回依存先のバージョンの更新はない。XcodeのAppIntents metadata extraction skipped警告とSimulatorのSDK build記録診断が残るが、コンパイル・テストは成功。警告ゼロとは記録しない。UI添付画面でNetworkの折返し・スクロール到達を確認した。実機VoiceOver操作や全サイズの表示確認を代替しない。
 
 ## 自端末の音声を渡した経路
 

@@ -416,9 +416,11 @@ Graphの作成・変更・schedule・snapshotは単一の直列ownerから呼ぶ
 
 100 msのtapをそのまま48 kHz PCM16として送ると9,600 byteになり、RTCの音声payload上限を超える。低遅延の送信側は20 msなどの上限を明示する。OSのtapサイズ指定だけを通信packetサイズの保証として扱わない。
 
-## 通常配送の重なりと過負荷の区別
+<a id="通常配送の重なりと過負荷の区別"></a>
 
-100 msのcaptureまたはtap配送は、OSのrender境界と同時にはならない。前の音声が数ms残った状態で次のbatchが届く。新frameの長さまで加えた合計を待ち時間上限と比較すると、この正常な重なりで旧音声を破棄する。20 msへ分割したbatchでも、最後の片の投入で約80 msをまとめて破棄し得る。
+## 通常の受け渡しの重なりと過負荷の区別
+
+100 msのcaptureまたはtap転送は、OSのrender境界と同時にはならない。前の音声が数ms残った状態で次のbatchが届く。新frameの長さまで加えた合計を待ち時間上限と比較すると、この正常な重なりで旧音声を破棄する。20 msへ分割したbatchでも、最後の片の投入で約80 msをまとめて破棄し得る。
 
 上限の判定は新frameの投入前に行う。投入前の待ち時間が上限未満であり、かつ新frame自身も上限以下なら連続予約する。したがって予約末尾までの長さは「待ち時間上限＋今回のframe長」未満、最悪でも上限の2倍未満に収まる。`bufferedDuration`は今回のframeを含む実際の予約量であり、上限値で丸めない。100 ms設定へ20 msのframeを入れる場合は120 ms未満、100 msのcaptureなら200 ms未満となる。無制限のqueueは設けない。
 
@@ -448,14 +450,14 @@ capture時刻を持つ予約は、連続frameを含めて`AVAudioPlayerNode.sche
 | suspendsDuringSilence | 既定false。trueでは入力が完全な0で、active effectのlatency＋tailTime以上を流し、さらに出力の完全な0が250ms続いた場合にnative描画とbuffer生成を休止する。閾値で小声を削らない。次の非無音入力を同じprocess呼出しで処理し、音声時刻の間隔を保持する。休止しても観測した入力末尾を進め、連続無音を毎回gapとして起こさない |
 | processingTailTime | active native effectのtailTime合計。無効effectはlatency・tailTime・render resource allocationの対象外。休止前にはCodecの100ms排出より長い250msの無音出力を渡す |
 | installPCMSink(packetDuration:) | 指定時間までだけ蓄積して送る。入力formatで先にpacket化してから変換し、任意hardware quantumごとの丸めでsample数を増減させない |
-| installPCMSink(maximumFrameDuration:) | 蓄積を待たず即時配送し、長過ぎるframeだけ分割する |
+| installPCMSink(maximumFrameDuration:) | 蓄積を待たずPCMの受け手へ渡し、長過ぎるframeだけ分割する |
 | RenderCaptureNode | unity EQのpost-render notifyからAudioRenderCaptureへコピーする。installTapによる約100ms集約を使わない。notify登録失敗はthrow |
 | MixerPCMStreamNormalizer | 変換位相と前sampleをframe間で保持し、境界のplateauと累積時計ずれを防ぐ |
 | updateOutputFormat / updatePCMSinkFormat | sink targetだけ更新。effect履歴・未完の入力packet・受信graphを維持 |
 | prepareEffect | 有効化要求時だけ未接続のAudio Unitをbus formatで準備する。重いnative初期化中も既存経路を継続できる。graph変更と同じ直列ownerから呼ぶ。無効のまま常時準備・描画しない |
 | setEffectBypassed | 無効effectを経路から外し、native graphの不要なlatency補償を避ける |
 | beginSinkTransition | native処理遅延だけフェード付き無音へ切替。queue・繰り返し・伸縮を追加しない |
-| droppedCaptureFrameCount | render配送ringのoverflowを累計。診断値であり通常のframeごとのログにはしない |
+| droppedCaptureFrameCount | render転送ringのoverflowを累計。診断値であり通常のframeごとのログにはしない |
 
 adaptivePlayoutは相手ごとのcapture clockとsample clockを対応付け、連続frame（2sample以内）は末尾へ正確につなぐ。遅れた到着は未再生発話を切らず再基準化し、250msを超える省略無音からの復帰でも健全なcapture時計を保ち、過剰に蓄積した待ちだけを削る。省略無音から戻るときの短縮判定は、予約希望位置と許容する待ちを、それぞれ実際の予約と同じ整数sampleに丸めて比較する。境界と一致する予約は現在の時計を保つ。既に発話を出力し終えた無音区間だけ、余分な予約を短縮できる。無音はRMSが0.0001未満かつpeakが0.001未満で判断し、圧縮codecの小さな尾で遅延を固定しない。通常の発話は置換しない。
 
@@ -484,7 +486,7 @@ adaptivePlayoutは、無線が同じ相手のpacketを数十ms保持してまと
 
 ## 設定切替の実出力
 
-個別のbus出力を保護するときは、busを組み立てる際に`prepareOutputTransition()`を呼ぶ。同じbusへの再呼び出しでnodeは増えない。PCM sinkを後から有効にすると同じ出力nodeに計測を追加する。sinkがない間は、音声をコピーせず、配送用のメモリ確保や配送キューの起動も省く。
+個別のbus出力を保護するときは、busを組み立てる際に`prepareOutputTransition()`を呼ぶ。同じbusへの再呼び出しでnodeは増えない。PCM sinkを後から有効にすると同じ出力nodeに計測を追加する。sinkがない間は、音声をコピーせず、転送用のメモリ確保や転送キューの起動も省く。
 
 出力保護を用意したbusとrender captureを持つbusの`beginSinkTransition`は、そのbusのpost-renderの実PCMに2msのfade-out、指定した整定時間、2msのfade-inを適用する。別のbusはそのまま合流し、hardware outputと全sinkが同じ変更後のPCMを観測する。render threadは事前確保したchannel別状態とatomicな切替要求を使う。同期processorのbusはsinkで同じ境界処理を行う。定常時のPCM・frame数・時刻は変更しない。
 

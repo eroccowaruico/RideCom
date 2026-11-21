@@ -1,6 +1,6 @@
 # 配布ビルド採番とOrganizer認証調査
 
-確認日は2026-10-29。利用者の指示は、公開バージョンを勝手に変更せず、App Store Connect／TestFlight用のビルドだけを採番し、内部のRun・Buildでは増やさないこと。手順は[開発環境](../../development/開発環境.md#app-storetestflight用の採番とarchive)、版の判断基準は[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)を正本とする。
+確認日は2026-10-29。利用者の指示は、公開バージョンを勝手に変更せず、App Store Connect／TestFlight用のビルドだけを採番し、内部のRun・Buildでは増やさないこと。手順は[開発環境](../../development/開発環境.md#app-storetestflight用の採番とarchive)、公開バージョンの決め方は[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)に従う。
 
 ## Organizerの認証エラー
 
@@ -51,7 +51,7 @@ schemeのArchive Pre-actionで`agvtool`を実行すると、project上は新番�
 | 共通xcconfig | 既存の手元のApp設定7を`Configuration/BuildNumber.xcconfig`へ移し、projectのDebug・Releaseから全targetへ継承。ナビゲータ直下で見える。手元の公開バージョン1.0.0は変更せず、今回のコミットへ既存の公開バージョン差分を混ぜない |
 | Xcode内の採番 | AppのBuild Phaseから`prepare_archive_info.py`を呼び、Archiveのinstall actionでだけ採番。通常のbuild actionは読み取るだけ。CLIの専用入口と旧テストは削除 |
 | 読み込み済み設定への対策 | xcconfig更新だけでは当該Archiveのbuild settingsは古いため、ビルド専用の入力Info.plistへ予約番号を入れる。`GENERATE_INFOPLIST_FILE=NO`で旧番号の再上書きを避け、署名前の通常のplist処理へ渡す |
-| 古い版情報の生成を除去 | agvtoolを使わなくなったため`VERSIONING_SYSTEM=apple-generic`を除去。読み込み済みの旧番号を持つ`*_vers.c`を生成しない |
+| 従来のバージョン情報を生成する設定を削除 | agvtoolを使わなくなったため`VERSIONING_SYSTEM=apple-generic`を除去。読み込み済みの旧番号を持つ`*_vers.c`を生成しない |
 | 並行実行と復旧 | file lock、atomic replace、各ビルド固有の生成先により番号と成果物を固定。破損・欠落は自動初期化せず停止。採番後の失敗は欠番として維持 |
 | 周辺処理の保護 | 実行中のXcode、アプリ、他のビルドを停止せず、既存DerivedDataも削除しなかった。検証は専用の一時コピー・DerivedDataと低優先度・2ジョブで実行 |
 
@@ -73,7 +73,7 @@ schemeのArchive Pre-actionで`agvtool`を実行すると、project上は新番�
 
 ## project設定への集約（2026-10-30）
 
-利用者から、Xcodeで管理できればよく、Configuration内のロックなど余分なファイルは不要と指摘があった。これらはOrganizerの生成物ではなく、前節の採番スクリプトが作った補助ファイルである。最新の採番値9を保持して、番号の正本をXcode projectの`CURRENT_PROJECT_VERSION`へ戻した。さらに利用者から、構成別の番号を持たず、Debugが100回連続してもRelease／Archiveが続いても、すべて共通の連番を進めるよう指示があった。Archive限定の採番を撤回し、全ビルドを同じ規則に統一した。
+利用者から、Xcodeで管理できればよく、Configuration内のロックなど余分なファイルは不要と指摘があった。これらはOrganizerの生成物ではなく、前節の採番スクリプトが作った補助ファイルである。最新の採番値9を保持して、番号を管理する場所をXcode projectの`CURRENT_PROJECT_VERSION`へ戻した。さらに利用者から、構成別の番号を持たず、Debugが100回連続してもRelease／Archiveが続いても、すべて共通の連番を進めるよう指示があった。Archive限定の採番を撤回し、全ビルドを同じ規則に統一した。
 
 | 変更・確認 | 結果 |
 |---|---|

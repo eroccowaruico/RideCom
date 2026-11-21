@@ -34,4 +34,4 @@ iPhone UIの初回は日本語横画面でミュート表示が変わらなか�
 
 ## 未確認の境界
 
-実OSの通知許可とAPNs登録、実配送・cold launch、MacメニューとVoiceOverの実操作は未確認。Watchの背景連携、署名済みApp Group、Apple portalのprofile更新も[未確認事項](../未確認事項.md)に残す。Mac WebRTCのprivacy manifest配置は独立したpackage/artifact工程で修正する。ローカルfixtureの成功を、これらの受入結果へ置き換えない。
+実OSの通知許可とAPNs登録、実環境での送受信・cold launch、MacメニューとVoiceOverの実操作は未確認。Watchの背景連携、署名済みApp Group、Apple portalのprofile更新も[未確認事項](../未確認事項.md)に残す。Mac WebRTCのprivacy manifest配置は独立したpackage/artifact工程で修正する。ローカルfixtureの成功を、これらの受入結果へ置き換えない。

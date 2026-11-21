@@ -133,7 +133,9 @@ caller input
 
 `PCMFrame.validated()`は公開可変プロパティやDecodable経由の値も再検証する。sample rateは有限の8–96 kHz、channelは1–2、timestampと全sampleは有限値でなければ拒否する。ゼロchannelのframeCountは0を返して除算例外を避ける。RMSはDoubleで累積し、有限の大きなFloat入力で中間値がoverflowしない。
 
-## Render配送と不連続の処理
+<a id="render配送と不連続の処理"></a>
+
+## 音声の出力処理への受け渡しと不連続の処理
 
 | 型 | 契約 |
 |---|---|

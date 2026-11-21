@@ -30,7 +30,7 @@ PCM16とOpus48kbpsは各周波数で4/4。Opusの48kbps未満は現packageが48k
 
 AAC 48kHz／48kbpsの日本語音声では、符号化本体は約49.35kbps、現在のcodec envelopeは約214.2kbpsだった。EncodedCodecFrameをJSON化した場合の大きさも記録したが、これは実RTC／ネットワークのwire bytesではない。暗号化・transport・制御・再送込みの通信量は別工程で測定する。処理wall timeも電力・電池消費へ換算しない。
 
-既存のCoreAudio E2EはこのMacのnative音声準備で停止する問題があり、今回の通信なし評価をその成功に置き換えない。App画面からの実適用、通信経路ごとの配送・再生、実機の雑音下明瞭度・短い相槌・Bluetooth・負荷・電力は[未確認事項](../未確認事項.md)と[低帯域の課題](../../backlog/未実装課題.md#低帯域の推奨を決める)へ引き継ぐ。
+既存のCoreAudio E2EはこのMacのnative音声準備で停止する問題があり、今回の通信なし評価をその成功に置き換えない。App画面からの実適用、通信経路ごとの転送・再生、実機の雑音下明瞭度・短い相槌・Bluetooth・負荷・電力は[未確認事項](../未確認事項.md)と[低帯域の課題](../../backlog/未実装課題.md#低帯域の推奨を決める)へ引き継ぐ。
 
 ## Opusの低帯域比較とpackage手動候補の追加
 
@@ -94,7 +94,7 @@ AAC 48kHz／48kbpsの日本語音声では、符号化本体は約49.35kbps、�
 | 公開範囲 | `OpusOptions`を24〜128kbpsへ変更。24kbpsは検証して提供する製品上の下限で、OSの技術下限ではない。初期化／Codable／property変更は同じclampを使う |
 | TDD | 元の48kbps下限で追加3試験が41件の期待違反を報告。製品変更後、既存normalizationの旧48期待を24／32へ揃え、既存35＋追加3の全38試験が成功。既定48kbpsのRealtime波形72条件も変更なしで成功 |
 | 追加回帰 | 24／32kbps×16／24／48kHzで実native値・実復号・短い音声と無音の連続性。8〜256kbps入力のinit／decode／mutation正規化。実圧縮payloadの24＜32＜48を検査 |
-| RTCへの影響 | RTCはCodec packageに依存せずbitrateをmetadataとして運ぶ。変更した公開clampを呼ばず、packet形式・暗号・配送処理・既定値も不変。既存relay契約には32kbpsのmetadata保持がある。本工程でRTC実装変更や無関係な全経路試験は追加していない |
+| RTCへの影響 | RTCはCodec packageに依存せずbitrateをmetadataとして運ぶ。変更した公開clampを呼ばず、packet形式・暗号・転送処理・既定値も不変。既存relay契約には32kbpsのmetadata保持がある。本工程でRTC実装変更や無関係な全経路試験は追加していない |
 | 実験の保全 | `.validation/opus-lowbandwidth`へ84音声JSON／WAV／log、432波形JSON／log、oracle、前後hash、実験floor8 patchと入力、製品RED／GREENを保持。独立probeは`/private/tmp/RideIntercom-OpusProbe`、製品worktreeは`/private/tmp/RideIntercom-opus-lowbandwidth` |
 | 実行OS | 実験84＋432条件と製品38試験のnative実測はmacOSのみ。iOSでは同じsourceを使うが、この工程ではSimulatorを起動しておらず、iOS native bitrateの実適用は未確認。Mac結果で代替しない |
 | 境界 | 8／12／16kbpsも実験では変換可能。品質差のある追加候補として残し、恒久非対応とはしない。Appの24／32kbps選択は次のApp工程。実機聴感、雑音下の明瞭度、通信経路全体の量・遅延、電池は未受入 |

@@ -148,7 +148,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | GET `/api/status` | Bearer | 月の予約参加者秒・上限・active数。試用資格を持つ人に公開 |
 | POST `R/join` | participantId、iceLeaseID、offer {type,sdp} | sessionId、expiresAt (Unix ms)、renewAfterSeconds、answer |
 | POST `R/sessions/{id}/publish` | `{}` | audio/control channel ID。ICE接続後、同じsessionで1回確保 |
-| POST `R/sessions/{id}/pull` | peerIds | peerID・channel ID・配送方針。部屋外peerは拒否 |
+| POST `R/sessions/{id}/pull` | peerIds | peerID・channel ID・転送方針。部屋外peerは拒否 |
 | POST `R/sessions/{id}/renew` | `{}` | 同じsessionIdのlease。前半の重複更新は予約追加しない |
 | DELETE `R/sessions/{id}` | なし | 全channelをclose。利用枠のactive slotを解放 |
 | GET `R/sessions/{id}/signal` Upgrade | Bearer | Hibernation WebSocket。1 sessionにつき1接続 |
@@ -166,7 +166,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | 音声形式 | joinはSCTP application m-line 1本。RTP audio/video trackを受け付けない |
 | WS | 最大32KiB、600 messages/UTC分。senderを信用せず所有sessionから決定 |
 
-公開招待URLは維持。中継用wire contractは変更し、全参加者を同じ版へ更新する。これはWebRTC SFU用のWorker APIであり、旧 `/api/sessions`・部屋全体のoffer/ICE中継は廃止する。
+公開招待URLは維持。中継用wire contractは変更し、全参加者のアプリをこの通信形式に対応するバージョンへ更新する。これはWebRTC SFU用のWorker APIであり、旧 `/api/sessions`・部屋全体のoffer/ICE中継は廃止する。
 
 ### 通話APIの頻度制限
 
@@ -316,15 +316,15 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 
 送信アカウント1件につき有効なslotを最大64件保持する。要求頻度は既存 `CALL_API_LIMIT` の個人削除用キーで制限する。送出の完全一致は重ねず、異なる内容への差替えは409。期限は既存のアカウントalarmで回収し、送信アカウントを削除した場合も同じ処理で回収する。受取アカウントの削除後は新しい公開IDから旧宛先の内容へアクセスできなくなり、送信側に残る暗号文は期限で回収される。[Durable Objectsのアラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
 
-Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appは保存済みの暗号文を送信・取得し、受取確認を照合して回収する。[Appの配送と再開](../App/通信仕様.md#個人削除の送信待ち)、[Internetの実環境受入](../../validation/未確認事項.md#internetの個人削除の実環境受入)
+Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appは保存済みの暗号文を送信・取得し、受取確認を照合して回収する。[Appの転送と再開](../App/通信仕様.md#個人削除の送信待ち)、[Internetの実環境受入](../../validation/未確認事項.md#internetの個人削除の実環境受入)
 
 ## 通常グループの受諾と到着確認の暗号文中継
 
-通常グループのリンクを発行した端末が、招待ごとの受け渡し先を先に開く。受諾した端末は発行端末がオフラインの間も受諾の暗号文を保存できる。発行端末は受諾端末がオフラインの間も到着確認を保存できる。Workerは暗号文と配送状態を保持し、Appが招待条件・署名・内容を照合して相手登録や保留解消を確定する。各HTTP要求は既存のApple端末Bearerで認証し、`CALL_API_LIMIT` をアカウント単位の招待返信用キーに適用する。既存の `USER_ACCOUNT` と `NOTIFICATION_INDEX` を使い、通話予約や通知の配送設定から独立して処理する。
+通常グループのリンクを発行した端末が、招待ごとの受け渡し先を先に開く。受諾した端末は発行端末がオフラインの間も受諾の暗号文を保存できる。発行端末は受諾端末がオフラインの間も到着確認を保存できる。Workerは暗号文と送受信の状況を保持し、Appが招待条件・署名・内容を照合して相手登録や保留解消を確定する。各HTTP要求は既存のApple端末Bearerで認証し、`CALL_API_LIMIT` をアカウント単位の招待返信用キーに適用する。既存の `USER_ACCOUNT` と `NOTIFICATION_INDEX` を使い、通話予約や通知の転送設定から独立して処理する。
 
 [個人招待と個人登録付きグループ招待の暗号文](../App/通信仕様.md#個人招待の受諾を中継する暗号文)も同じ中継へ送れる。Appは種類に応じてslotを導出する。Workerの操作、受け渡し先の上限と回収処理は共用する。発行端末がまだ受け渡し先を開いていない場合は[発行端末の署名を添えた受諾](#発行端末が圏外の間に個人招待の受諾を預ける)を使う。
 
-共通のパスは `/api/ordinary-group-replies/`。JSONの `slot` は招待ごとの推測困難な64桁小文字hexとし、保存キーには文字列のSHA-256を使う。 `owner` は発行者の公開アカウントID、`id` は受諾IDの小文字UUIDとする。`packet` は暗号文の標準base64（40〜12,288文字、4の倍数）、`expiresAt` はUnix msの整数（現在より後、7日と5分以内）。受諾側の紐付けには認証した公開IDと端末IDを `:` で結んだ文字列のSHA-256を使う。中継は一時保管の応答を返し、端末での配送完了はAppが判定する。
+共通のパスは `/api/ordinary-group-replies/`。JSONの `slot` は招待ごとの推測困難な64桁小文字hexとし、保存キーには文字列のSHA-256を使う。 `owner` は発行者の公開アカウントID、`id` は受諾IDの小文字UUIDとする。`packet` は暗号文の標準base64（40〜12,288文字、4の倍数）、`expiresAt` はUnix msの整数（現在より後、7日と5分以内）。受諾側の紐付けには認証した公開IDと端末IDを `:` で結んだ文字列のSHA-256を使う。中継は一時保管の応答を返し、端末での転送完了はAppが判定する。
 
 | 操作 | 本文 | 成功時の応答と状態 |
 |---|---|---|

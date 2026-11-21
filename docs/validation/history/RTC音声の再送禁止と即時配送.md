@@ -1,15 +1,17 @@
-# RTC音声の再送禁止と即時配送
+<a id="rtc音声の再送禁止と即時配送"></a>
 
-2026-10-30のローカル検証記録。要求の正本は[パッケージ要求](../../requirements/パッケージ要求.md)、配送の仕様は[RTC](../../spec/packages/RTC.md)を参照する。
+# RTC音声を再送せずにすぐ次の処理へ渡す仕組み
+
+2026-10-30のローカル検証記録。要求は[パッケージ要求](../../requirements/パッケージ要求.md)、転送の仕様は[RTC](../../spec/packages/RTC.md)を参照する。
 
 ## 変更と確認
 
 | 対象 | 変更・確認内容 |
 |---|---|
-| Local音声 | 認証済みGroupRelay envelopeをNetwork.framework UDPで配送。未準備・送信上限では保持や再送をせず、MCSession音声へのfallbackを禁止 |
+| Local音声 | 認証済みGroupRelay envelopeをNetwork.framework UDPで転送。未準備・送信上限では保持や再送をせず、MCSession音声へのfallbackを禁止 |
 | Internet音声 | unordered、maxRetransmits=0に加えてTCP ICE候補とTURN/TCP・TURN/TLSを禁止。既存のreliable channelを音声用に再利用しない |
-| 制御との分離 | presence等はreliable。UDP送受信はMainActorを経由しない。MainActorを30ms占有しても音声配送が完了する回帰テストを追加 |
-| 受信待ち | 音声専用sequenceを使い、連続packetと途中参加の先頭packetは即時配送。実際の欠番だけ有限の並べ替え猶予を使う |
+| 制御との分離 | presence等はreliable。UDP送受信はMainActorを経由しない。MainActorを30ms占有しても音声の伝送が完了する回帰テストを追加 |
+| 受信待ち | 音声専用sequenceを使い、連続packetと途中参加の先頭packetは待たずに次の処理へ渡す。実際の欠番だけ有限の並べ替え猶予を使う |
 | 複数経路 | 利用できる各経路へ即時送信し、認証済みの先着だけを採用。接続一覧だけでInternet音声を抑止しない |
 | membership | 参加済みの認証済み音声は制御再接続中も活動期限を更新。失効済み資格は音声や遅延application制御で復活させない |
 

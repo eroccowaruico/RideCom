@@ -167,29 +167,29 @@ npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
 
 | 依存 | 採用 / 理由 |
 |---|---|
-| Miniflare | 安定版4.20260730.0を維持。npm latestはこの版、5系列はbeta |
+| Miniflare | 安定版4.20260730.0を維持。npmのlatestタグも4.20260730.0、5系列はbeta |
 | undici | Miniflare 4配下を7.30.1へoverride。7系列の修正版。HTTP/WSのaudit指摘を解消 |
 | sharp | Miniflare 4配下を0.35.5へoverride。libheif/librsvgのaudit指摘を解消 |
-| 根拠 / 検証 | 2026-10-21 npm registryの版・依存、npm audit。lockfile同期、ci、型検査、Worker9件、Swiftペア成功 |
+| 根拠 / 検証 | 2026-10-21 npm registryのパッケージバージョンと依存関係、npm audit。lockfile同期、ci、型検査、Worker9件、Swiftペア成功 |
 | override除去条件 | 安定版Miniflareが修正版を宣言したら通常依存へ戻し、同じWorker/ペア試験を通す |
 
 例: [undici advisory](https://github.com/advisories/GHSA-w293-vg96-wgc3)、[sharp advisory](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)。これらはローカル開発・検証ツールの依存であり、Worker bundleへそのまま配布するものではない。
 
 ## 利用者が行うApple・Cloudflareの設定と受入順
 
-Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、TURNは中継を受け入れる場合に設定する。App・serverのコードと公開値はrepoへ置き、アカウント固有の鍵・profile・商品を外部で設定する。Apple側の正本は[OS権限と配布設定](OS権限と配布設定.md#identifierとapple-developerでの設定)。本節は実施順を示し、portalや実配置が設定済みであるとは扱わない。
+Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、TURNは中継を受け入れる場合に設定する。App・serverのコードと公開値はrepoへ置き、アカウント固有の鍵・profile・商品を外部で設定する。Apple側の設定については[OS権限と配布設定](OS権限と配布設定.md#identifierとapple-developerでの設定)。本節は実施順を示し、portalや実配置が設定済みであるとは扱わない。
 
 開始前に対象のApple Team、AppのBundle ID、署名済みAppのAPNs環境を照合する。CloudflareのAccount ID、Worker名、対象のPreview名またはProduction、両端末の接続先URLも照合する。APNs鍵を作る担当にはApple DeveloperのAccount HolderかAdminの権限が必要。Apple側の設定とCloudflare側の配置を別の人が担当する場合もこの組を共有し、秘密値は承認された保管先から登録する。[Appleの鍵作成権限](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)・[CloudflareのPreviewの分離](https://developers.cloudflare.com/workers/previews/)
 
 | 順 | 設定する場所 | 行うこと・確認する出力 |
 |---|---|---|
-| 1 | Apple Developer | App IDへSign in with Apple・Push Notifications・App Groupsを設定し、App／Widget／Watchのprofileを揃える。APNs鍵を取得し、Apple認可取消用client-secretも用意する。詳細はApple側正本を参照 |
+| 1 | Apple Developer | App IDへSign in with Apple・Push Notifications・App Groupsを設定し、App／Widget／Watchのprofileを揃える。APNs鍵を取得し、Apple認可取消用client-secretも用意する。詳細は上記のApple Developerでの設定手順を参照 |
 | 2 | Cloudflareの対象WorkerのProduction／Previews Base | 上表の環境別secretを登録し、公開値をwrangler.tomlへ合わせる。Baseの変更は既存Previewへ遡及しないので、既存Previewにも必要なsecretを設定する |
 | 3 | Worker配置 | repoの6 bindingを配置する。SQLiteのmigrationは、v1がSIGNALING_ROOMとUSAGE_GUARD、v2がAPPLE_AUTH_ATTEMPTとUSER_ACCOUNT。v3はNOTIFICATION_INDEX、v4はAPP_ATTEST_KEY_INDEX。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
 | 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
 | 6 | 新しい相手へのグループ招待 | 未登録の相手への招待を名前付きで保存し、OS共有で相手に渡す。相手の登録とグループ保存、署名付き返信と、送り手の返信待ちが消えるところまで確認する。[実環境受入](../validation/未確認事項.md#新規相手招待の実環境受入) |
-| 7 | 登録済み相手へのグループ自動配送 | 登録済みの相手と認証済み個別接続で用途別許可を交換し、招待を保存する。送信側のpending→queued、相手の保存後のreceivedを確認する。前面・背景で音やバナーを出さず通知センターに届くこと、通知を開いても現在の通話を維持すること、通知許可がない場合の前面復帰での受取を確認する。同じアカウントの追加端末への配送も試す。[実環境受入](../validation/未確認事項.md#登録済み相手へのグループ自動配送の実環境受入) |
+| 7 | 登録済み相手へのグループ招待の自動送信 | 登録済みの相手と認証済み個別接続で用途別許可を交換し、招待を保存する。送信側のpending→queued、相手の保存後のreceivedを確認する。前面・背景で音やバナーを出さず通知センターに届くこと、通知を開いても現在の通話を維持すること、通知許可がない場合の前面復帰での受取を確認する。同じアカウントの追加端末への転送も試す。[実環境受入](../validation/未確認事項.md#登録済み相手へのグループ自動配送の実環境受入) |
 | 8 | 1対1の呼び出し | 呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する。[通常通知の受入](../validation/未確認事項.md#通常通知の受入) |
 | 9 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
 
@@ -199,9 +199,9 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 
 背景転送の初回設定では、環境ごとに別の値を安全な実行環境で生成し、既存のシークレット保管先と対象環境のSecretへ登録する。その後、端末証明にサービスの公開鍵が含まれ、その接続先で背景要求を受け付けることを試験用端末で確認する。未設定時は通常の認証付き同期を利用できる。区間ごとの鍵の更新は同じ設定値からWorkerが行う。期間をまたいでも、鍵の定期更新を人が操作する必要はない。
 
-登録済み相手への配送は、ローカルWorkerとAppの送受信・ファイル保存・ACKまで[検証済み](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)。同じアカウントの追加端末では、個人招待の交換なしで、元の招待と同じグループを保存できることも[ローカルで検証済み](../validation/history/招待返信の手動共有.md#新端末で個人招待を交換せずグループを保存する)。配置後は表の実APNs・実機・実SFUの受入へ進む。
+登録済み相手への転送は、ローカルWorkerとAppの送受信・ファイル保存・ACKまで[検証済み](../validation/history/招待返信の手動共有.md#登録済みの相手への自動配送をappへ接続2026-11-18)。同じアカウントの追加端末では、個人招待の交換なしで、元の招待と同じグループを保存できることも[ローカルで検証済み](../validation/history/招待返信の手動共有.md#新端末で個人招待を交換せずグループを保存する)。配置後は表の実APNs・実機・実SFUの受入へ進む。
 
-固定Previewを更新する前に、稼働版のSFU App IDと対応するSecret、Apple登録・通知・招待の鍵を配置単位で照合する。2026-11-21の固定PreviewのSFU App IDは、Previews Baseと本番のどちらとも異なる。固定Previewで使う組を承認済みの設定から確認し、配置前後に照合する。稼働版はWorkers Buildsの対象コミット・結果と、固定Previewの配置の表示を照合する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)
+固定Previewを更新する前に、稼働中のバージョンのSFU App IDと対応するSecret、Apple登録・通知・招待の鍵を配置単位で照合する。2026-11-21の固定PreviewのSFU App IDは、Previews Baseと本番のどちらとも異なる。固定Previewで使う組を承認済みの設定から確認し、配置前後に照合する。稼働中のバージョンはWorkers Buildsの対象コミット・結果と、固定Previewの配置の表示を照合する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)
 
 ### 設定が合わないときの戻し方
 
@@ -224,7 +224,7 @@ Debug端末に届き、TestFlightで届かない場合は、署名済みAppのen
 | APNsとAppleの公開値 | APNS_ENVIRONMENTはproduction。APNS_TOPICとAPPLE_CLIENT_IDはApp IDと一致 | APNS_ENVIRONMENTはsandbox。APNS_TOPICとAPPLE_CLIENT_IDは同じApp ID |
 | Durable Objects | 5 binding、migration v3 | 5 binding、migration v3 |
 | 現在の設定 | Apple登録、SFU、TURN、APNsのProduction用ID Variableと認証Secretを登録済み | APNsのKey ID・共通Team IDを`previews.vars`、`APNS_PRIVATE_KEY`を固定PreviewのSecretへ登録済み。環境はsandbox |
-| Apple・通知で残る設定 | Apple登録と通知は有効。実Apple登録と実APNs配送を受け入れる。期限付きclient-secret JWTは登録しない | 再配置後のSecret bindingと実APNs配送を受け入れる |
+| Apple・通知で残る設定 | Apple登録と通知は有効。実Apple登録とAPNsを通じた通知の送受信を受け入れる。期限付きclient-secret JWTは登録しない | 再配置後のSecret bindingとAPNsを通じた通知の送受信を受け入れる |
 | SFUで残る設定 | SERVICE_ENABLEDとTURN_ENABLEDはtrue。実SFUとrelay経路の双方向音声を受け入れる | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
 | 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはtrue。DEVICE_ATTESTATION_ENABLEDはfalse | NOTIFICATIONS_ENABLED・SERVICE_ENABLEDはtrue。APPLE_AUTH_ENABLED・TURN_ENABLED・DEVICE_ATTESTATION_ENABLEDはfalse |
 

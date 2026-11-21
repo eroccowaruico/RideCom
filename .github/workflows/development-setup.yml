@@ -20,6 +20,6 @@ jobs:
       - name: Check documentation links and Settings coverage
         run: python3 scripts/check_documentation.py
       - name: Check Japanese prose in paragraphs and tables
-        run: node --test tools/doc-lint/lint.test.mjs
+        run: node --test tools/doc-lint/*.test.mjs
       - name: Protect documentation validation
         run: python3 -m unittest discover -s scripts/tests -p test_documentation.py

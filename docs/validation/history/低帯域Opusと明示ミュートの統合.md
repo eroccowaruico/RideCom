@@ -27,7 +27,7 @@
 | iPad Simulator初回 | build 264の英語・日本語の回転／シート／通話UI 2件は成功。新Opus UIはcodec欄が画面最下部に見えた時点で止まり、下のStepperがlazy Formで未生成のため存在確認に失敗。画像・AXを保持し、既存`revealSettingsControl`で対象欄までスクロールする1行を新Opus試験内へ追加した。製品sourceと既存試験は不変 |
 | 最終UI sourceの確認 | スクロール処理を追加した同一sourceで、iPad build 265・iPhone build 266の新Opus UI各1件が成功。失敗・skip・runtime warning 0、各399入力が前後一致。新Opusメソッド以外は不変のため、既存iPad英日2件・iPhone UI 20件・破損回復1件・単体471件の結果を保持する。両専用SimulatorはShutdown、共通lease再取得／解放と所有process残存0を確認 |
 | 起動前の隔離確認 | 検証用の一時helperでbuild-for-testingとtest-without-buildingを分ける。生成Infoの`RideIntercom.Validation.*`と開発用の接続資格の不在を確認してから起動する。製品sourceや標準検証scriptの仕様変更ではない |
-| Release成果物 | 署名なしMac build 262（App／Widget）とiOS Simulator build 263（App／Widget／Watch）が成功。両方warning・error 0、399入力一致。内包物の版番号、device family、APNs production、開発資格がないことを確認した。英日権限文言、Watch icon、Mac WebRTC privacy manifestとbinary hashも確認 |
+| Release成果物 | 署名なしMac build 262（App／Widget）とiOS Simulator build 263（App／Widget／Watch）が成功。両方warning・error 0、399入力一致。同梱した成果物のバージョン番号、device family、APNs production、開発資格がないことを確認した。英日権限文言、Watch icon、Mac WebRTC privacy manifestとbinary hashも確認 |
 | Intentと翻訳の成果物 | ReleaseのApp／WidgetにOS 27以降・main process・背景実行の既存Intentが保持されることを確認。Appの明示ミュートは必須Bool、前面実行・端末認証として抽出され、英日response／Siri phraseがcompiled resourceへ含まれることを確認。実Siri発話の受入とは区別 |
 | native bitrateの意味 | Appが解決したconfigurationから試験内で実StreamingCodecEncoderを作り、保持するAVAudioConverterのbitrateを変換前後に読み戻す。稼働中Appの送信encoderそのものや実ネットワークの測定とは区別する |
 

@@ -18,7 +18,7 @@
 
 `vadSensitivity` は App 画面から選ぶが、package の細かい VAD parameter を画面へ直接出さない。
 
-判定前の語頭保持は、上記attackから現在frameの収録済み時間を引いた最小の全frame列とする。現在frameだけでattackを満たす場合は即時配送する。発話中と無音中で保持時間を変えず、確定した語頭・語尾を欠落させない。
+判定前の語頭保持は、上記attackから現在frameの収録済み時間を引いた最小の全frame列とする。現在frameだけでattackを満たす場合はすぐに渡す。発話中と無音中で保持時間を変えず、確定した語頭・語尾を欠落させない。
 
 ## App preset
 

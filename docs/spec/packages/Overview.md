@@ -189,7 +189,7 @@ flowchart TB
 | peer音量 | Mixer source fader | origin peer IDに対する設定をcompositionから渡す | route/gateway IDではなく同じ話者に追従 |
 | TX / RX master音量とmute | Mixer bus fader / input gate | ユーザー設定で更新 | 同じ設定を維持 |
 | codec識別・format変換境界 | Codec / Mixer | Codecはencode/decode、Mixerはsample rate/channel変換 | RTCはpayloadを解釈・再符号化しない |
-| 認証・重複・経路・中継・ネットワーク待ち | RTC | session/peer lifecycleに従い初期化。配送特性は音声と制御で分ける | 残った経路を維持 |
+| 認証・重複・経路・中継・ネットワーク待ち | RTC | session/peer lifecycleに従い初期化。転送特性は音声と制御で分ける | 残った経路を維持 |
 | 選択設定・graphの組み合わせ・callback寿命 | App composition | package生成・接続・停止。DSP計算や経路選択は持たない | 音声所有者を切り替えない |
 
 EffectorはMixerそのものや通信routeとは別である。Mixerは注入されたAVAudioNodeを順序どおり実行し、各Effectorの種類を知る必要がない。同じnode instanceを複数peerのbusへ共有しない。Appは標準effectの組み合わせを一箇所で決め、DiagnosticsにはMixerの実snapshotを渡す。外部plugin探索・追加のregistry・中間packageは設けない。
@@ -198,7 +198,7 @@ EffectorはMixerそのものや通信routeとは別である。Mixerは注入さ
 
 | 差し替え先 | 必須の振る舞い | 接続前に確認する試験 |
 |---|---|---|
-| RTC route factory | group envelopeをapplication dataとして配送。reliable制御とunreliable音声を分け、認証済みhop ID・members・接続状態を通知。Mixer/captureを所有しない | 既存のLocal/Internet/relay混在グラフ、切断・再認証・遅延通知・重複拒否 |
+| RTC route factory | group envelopeをapplication dataとして転送。reliable制御とunreliable音声を分け、認証済みhop ID・members・接続状態を通知。Mixer/captureを所有しない | 既存のLocal/Internet/relay混在グラフ、切断・再認証・遅延通知・重複拒否 |
 | Effector node | 対象bus formatで処理し、busごとに独立node。parameter/bypass変更を同じinstanceへ適用。設定とruntime状態を報告 | 実AVAudioUnitのPCM変化、連続frame、複数話者、bypassと停止 |
 | SessionManager backend | 希望formatを入力しactual hardware formatを返す。途中起動失敗・stop反復・古いcallbackを扱う。音量/mixを実装しない | 無実機backendのlifecycleと実offline出力、OS実機試験を分離 |
 | Codec実装 | Codec packageでencode/decode、availability/fallback、formatとsample数を検証する。App/RTCへcodecの中身を持ち込まない | 同一PCMの往復、利用不可時fallback、各RTC format境界 |

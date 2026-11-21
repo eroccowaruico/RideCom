@@ -40,3 +40,17 @@ class WordingReviewTests(unittest.TestCase):
                 'RideIntercom/UI/Example.swift:2', 'docs/design/画面.html:1',
                 'docs/操作 手順.md:2', 'docs/操作 手順.md:3',
             ])
+
+    def test_unregistered_japanese_is_included_in_the_readers_review(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(['git','init','-q'], cwd=root, check=True)
+            (root / 'README.md').write_text('通話の音量を上げる。\n')
+            subprocess.run(['git','add','README.md'], cwd=root, check=True)
+            subprocess.run(['git','-c','user.name=Test','-c','user.email=test@example.invalid',
+                            'commit','-qm','base'], cwd=root, check=True)
+            (root / 'README.md').write_text('通話の音量を上げる。\nその判断は水に流す。\n')
+            self.assertEqual(list(candidates(root, 'HEAD')), [])
+            review = list(candidates(root, 'HEAD', all_passages=True))
+            self.assertEqual(len(review), 1)
+            self.assertTrue(review[0].startswith('README.md:2 '))

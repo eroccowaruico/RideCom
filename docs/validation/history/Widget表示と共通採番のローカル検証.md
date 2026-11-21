@@ -34,7 +34,7 @@
 
 アプリを開き直さずにマイクを切り替える用途について、最初にライブアクティビティと選択通話Widgetの入口を照合した。ライブアクティビティとDynamic Islandは状態を表示し、本体タップで通話を開く。マイクの操作は選択通話Widgetが既に持つ。施錠時のWidgetKitボタン／ToggleにはOSによる解除が必要で、Intentの`.alwaysAllowed`は追加の認証要求に関する指定。根拠は[AppleのWidgetKit資料](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities)。
 
-次に、ホーム画面のWidgetをiOS 27.2 Simulatorへ追加して、ToggleからApp Intent、現在の通話参照の照合、既存のミュート処理、音声入出力までたどった。Widgetは設定先と表示中の通話参照を使い、状態を設定するのはAppの通話モデル。再読み込みでその結果を表示する。試験では専用ファイルをApp Groupで共有し、音声が動作中の通話を操作可能な表示にした。App Intentの配送、通話モデル、マイクおよび再生の処理は製品経路を使用した。
+次に、ホーム画面のWidgetをiOS 27.2 Simulatorへ追加して、ToggleからApp Intent、現在の通話参照の照合、既存のミュート処理、音声入出力までたどった。Widgetは設定先と表示中の通話参照を使い、状態を設定するのはAppの通話モデル。再読み込みでその結果を表示する。試験では専用ファイルをApp Groupで共有し、音声が動作中の通話を操作可能な表示にした。App Intentの転送、通話モデル、マイクおよび再生の処理は製品経路を使用した。
 
 | Appが背景にいる間の状態 | 観測したコールバック数（入力／出力） |
 |---|---|

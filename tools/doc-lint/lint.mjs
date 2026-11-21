@@ -3,11 +3,13 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLinter, loadTextlintrc } from 'textlint';
+import { checkUIUsage } from './ui-usage.mjs';
+import { japaneseUsageRule, usageRuleIds } from './japanese-usage.mjs';
 import japaneseWriting from 'textlint-rule-preset-ja-technical-writing';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-const targets = ['docs/*.md', '.agents/skills/*.md', 'README.md', 'AGENTS.md'];
+const targets = ['docs/*.md', '.agents/skills/*.md', 'README.md', 'AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md'];
 const git = (...args) => execFileSync('git', args, {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024
 });
@@ -131,7 +133,8 @@ export async function markdownLinter() {
         }
     }
     const descriptor = config.shallowMerge({
-        rules: rules.map(useRenderedSentence).map(useNarrativeRegister),
+        rules: [...rules.map(useRenderedSentence).map(useNarrativeRegister),
+            {ruleId: 'ridecom-wording', rule: japaneseUsageRule, options: {}}],
         plugins: [{...markdown, plugin: {Processor: TableMarkdown}}]
     });
     return createLinter({descriptor, cwd: here});
@@ -139,9 +142,11 @@ export async function markdownLinter() {
 
 export async function findings(linter, text, name) {
     const {messages} = await linter.lintText(text, name);
-    return messages.map(m => ({
-        line: m.line, column: m.column, rule: m.ruleId, severity: m.severity
-    }));
+    return messages.map(m => {
+        const rule = m.ruleId === 'ridecom-wording' ? m.message.split(' ')[0] : m.ruleId;
+        const advice = usageRuleIds.includes(rule) ? m.message.slice(rule.length + 1) : undefined;
+        return {line: m.line, column: m.column, rule, severity: m.severity, advice};
+    });
 }
 
 async function run(args) {
@@ -159,15 +164,19 @@ async function run(args) {
         if (!stat) continue;
         if (!stat.isFile() || await realpath(file) !== file) throw new Error('Unsupported document type');
         const issues = await findings(linter, await readFile(file, 'utf8'), name);
-        for (const {line, column, rule, severity} of issues) {
+        for (const {line, column, rule, severity, advice} of issues) {
             const warning = severity === 1;
             if (warning) warnings++;
             else errors++;
             // Keep text and free-form diagnostics out of validation logs.
             const label = process.stdout.isTTY ? JSON.stringify(name) : 'Markdown';
-            console.log(`${label}:${line}:${column}${warning ? ' 要確認 ' : ' 要修正 '}${rule}`);
+            const help = process.stdout.isTTY && advice ? `　${advice}` : '';
+            console.log(`${label}:${line}:${column}${warning ? ' 要確認 ' : ' 要修正 '}${rule}${help}`);
         }
     }
+    const ui = await checkUIUsage(root);
+    errors += ui.errors;
+    warnings += ui.warnings;
     console.log(`日本語技術文書の検査結果　要修正 ${errors}件、要確認 ${warnings}件`);
     return errors ? 1 : 0;
 }

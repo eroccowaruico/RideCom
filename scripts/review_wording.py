@@ -7,10 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PATHS = [
-    'docs/*.md', 'docs/design/*.html', '.agents/skills/*.md', '*.xcstrings',
+    'docs/*.md', 'docs/design/*.html', '.agents/skills/*.md', '*.xcstrings', '*/ja*.lproj/*.strings',
     'RideIntercom/*.swift', 'RideIntercomWatch/*.swift', 'RideIntercomWidgets/*.swift',
     'AGENTS.md', 'CLAUDE.md', 'README.md', '.github/copilot-instructions.md',
-    ':(exclude)RideIntercom/packages/**',
 ]
 # These expressions identify passages to read. They do not prescribe replacements.
 QUESTIONS = [
@@ -30,19 +29,22 @@ def git(root: Path, *args: str) -> str:
     return subprocess.check_output(['git', *args], cwd=root).decode('utf-8')
 
 
-def paths(root: Path, *args: str) -> set[str]:
-    return set(git(root, *args, '--', *PATHS).rstrip('\0').split('\0')) - {''}
+def paths(root: Path, *args: str, all_passages: bool) -> set[str]:
+    selected = PATHS if all_passages else [*PATHS, ':(exclude)RideIntercom/packages/**']
+    return set(git(root, *args, '--', *selected).rstrip('\0').split('\0')) - {''}
 
 
-def candidates(root: Path, base: str) -> Iterator[str]:
-    changed = paths(root, 'diff', '--name-only', '-z', base)
-    new = paths(root, 'ls-files', '--others', '--exclude-standard', '-z')
+def candidates(root: Path, base: str, *, all_passages: bool = False) -> Iterator[str]:
+    changed = paths(root, 'diff', '--name-only', '-z', base, all_passages=all_passages)
+    new = paths(root, 'ls-files', '--others', '--exclude-standard', '-z', all_passages=all_passages)
     for name in sorted(changed | new):
         path = root / name
         if path.is_symlink() or not path.is_file():
             continue
-        lines = path.read_text(encoding='utf-8').split('\n')
-        if name in new:
+        data = path.read_bytes()
+        encoding = 'utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8'
+        lines = data.decode(encoding).split('\n')
+        if name in new or encoding == 'utf-16':
             spans = [(1, len(lines))]
         else:
             patch = git(root, 'diff', '--no-ext-diff', '--no-color', '-U0', base, '--', name)
@@ -50,6 +52,12 @@ def candidates(root: Path, base: str) -> Iterator[str]:
         for start, count in spans:
             for number in range(start, start + count):
                 line = lines[number - 1]
+                if all_passages:
+                    # Include every edited line with Japanese script, even when no
+                    # registered expression (or opening Swift quote) is on this line.
+                    if re.search(r'[ぁ-ヿ一-龯々]', line):
+                        yield f'{name}:{number}  読み手に具体的な操作と結果が伝わるかを読む。'
+                    continue
                 if path.suffix == '.swift' and '"' not in line:
                     continue
                 for pattern, question in QUESTIONS:
@@ -61,7 +69,9 @@ def candidates(root: Path, base: str) -> Iterator[str]:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', default='HEAD', help='commit to compare with the working tree')
+    parser.add_argument('--all-passages', action='store_true',
+                        help='list all changed Japanese passages, including unregistered expressions')
     args = parser.parse_args()
-    for finding in candidates(ROOT, args.base):
+    for finding in candidates(ROOT, args.base, all_passages=args.all_passages):
         print(finding)
     print('候補の抽出が終わりました。変更した文章は元の指示・操作と照合してください。')

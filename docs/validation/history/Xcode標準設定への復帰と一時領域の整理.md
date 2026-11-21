@@ -31,7 +31,7 @@
 | Release-Validation | Mac／iOS双方の音声test target buildとhost隔離が成功、入力一致も成功。音声測定自体は未実行。`.validation/xcode-standard-release-hosts-final-20261101` |
 | 静的検査 | 開発設定、文書参照、project構文、差分検査成功 |
 
-既定のDerivedDataで実行し、ビルド番号を含めて入力一致を確認した。Xcodeで解決されたswift-logは1.16.2であり、この依存版を証跡へ記録した。Xcode生成の文字列カタログには抽出キー／状態の更新があるが、既存の翻訳本文は変更していない。利用者によるIcon Composerの編集は別差分として保全する。
+既定のDerivedDataで実行し、ビルド番号を含めて入力一致を確認した。Xcodeで解決されたswift-logは1.16.2であり、この依存先のバージョンを証跡へ記録した。Xcode生成の文字列カタログには抽出キー／状態の更新があるが、既存の翻訳本文は変更していない。利用者によるIcon Composerの編集は別差分として保全する。
 
 前段のMac526件成功は製品名変更前の入力に対する結果である。iOS全体536件のうち535件成功・設定UI1件失敗のrunでは、別作業の製品名変更が検証途中に入り入力一致も失敗した。これらを最終入力での全件成功へ読み替えない。製品名変更後の破損group復旧UIは個別runで成功した。
 
@@ -63,7 +63,7 @@ Xcode GUIでの実操作、WatchのRun／Profile、実端末の音声・Widget�
 
 ## 自動インクリメントの維持と設定増設禁止
 
-2026-11-01、ビルド番号の保存先の見直しを自動採番の廃止へ広げた解釈を訂正した。要求は全ビルド・全対象の番号を進めることであり、開始時への即時反映や厳密な連番は不要で、次回用設定の更新でよい。現行の正本は[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)と[開発環境](../../development/開発環境.md#xcode標準のバージョン管理とarchive)に反映した。設定ディレクトリ・設定ファイル・Build Configuration・採番用target・別カウンタの増設は行っていない。
+2026-11-01、ビルド番号の保存先の見直しを自動採番の廃止へ広げた解釈を訂正した。要求は全ビルド・全対象の番号を進めることであり、開始時への即時反映や厳密な連番は不要で、次回用設定の更新でよい。現在の手順は[開発方針](../../policies/開発方針.md#公開バージョンとビルド番号)と[開発環境](../../development/開発環境.md#xcode標準のバージョン管理とarchive)に反映した。設定ディレクトリ・設定ファイル・Build Configuration・採番用target・別カウンタの増設は行っていない。
 
 既存の5shared schemeのBuild後処理から、macOS host SDKを明示したApple標準の`agvtool next-version`を呼ぶ。App・Widget・Watch・テスト対象は既存projectの`CURRENT_PROJECT_VERSION`を継承し、公開バージョンは自動変更しない。通常buildとArchiveの生成Info.plistはXcode標準のままとし、署名後のbundleを書き換えない。
 

@@ -55,7 +55,7 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 | full | quickに加え、3種類のcodec指定と3種類のrateの組み合わせを試す。AAC/Opusのbit rateの下限と上限も各rateで試す。mode・speaker・明示echo cancellationの6通り、master/peer音量ゼロ、送信muteと復帰を試す |
 | identity | 20秒以上の全文照合。既定設定、PCM16で送信Isolation無効、Opusで送信Isolation無効を比較。英語・日本語・間と相槌を含む会話を別runで実行する |
 
-マトリクスの正本はリポジトリの`scripts/audio_e2e_matrix.py`にある。通信試験の両端に渡す設定を`scenarios.json`へ保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
+マトリクスの基準となる資料はリポジトリの`scripts/audio_e2e_matrix.py`にある。通信試験の両端に渡す設定を`scenarios.json`へ保存する。短い検証では既存のbuild productsを使い、設定区間ごとにアプリを再ビルドしない。
 
 音声sessionはSettingsと同じMode・Use Speaker・Echo Cancellationの操作関数を使う。iOS側でBurst modeはspeakerと明示echo希望の4通り、Stream modeはspeaker ON/OFFの2通りを通す。MacはCoreAudio固有のデバイスIDを持ち、iOSのbuilt-in-speaker指定を持たないため、相手側として実system default出力を使う。表示用の値だけでなく、SessionManagerへ渡されたmode・speaker・echo希望と、OS操作が失敗していないことも検査する。物理機器が必要なBluetooth・有線デバイス選択はSimulatorの設定網羅に含めない。
 
@@ -184,8 +184,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 | 比較に残すもの | 他の担当が読み取れる具体性 |
 |---|---|
 | 症状と引き金 | 誰の声がどちら向きでどう変わったか。開始状態、操作順、発生区間・頻度。既知の正常操作と、初めて差が出た操作を並べる。利用者報告と測定で再現した現象は区別する |
-| 比較できる版と条件 | 各観測のBuild・ソース識別子、環境、fixture・入力区間、実際の経路・codec・設定のうち結果を左右するもの。同じだった条件と意図して変えた条件を示す。他にも差があれば比較の限界を添える。正常版が特定できなければその旨と、基準に使える同一run内の正常区間を示す |
-| 壊した変更と最初に差が見えた段 | 変更した処理、状態の所有元、壊れた前提、前後段の観測を結ぶ。収録・送信処理・通信・復号・再生予約・実出力のうち最後に正常だった段と最初に異常を観測した段を記す。間に未計測の段があれば範囲として残す。最初に失敗を測った版と、不具合を導入したと確認できた版は区別する |
+| 比較するビルドと実行条件 | 各観測のBuild・ソース識別子、環境、fixture・入力区間、実際の経路・codec・設定のうち結果を左右するもの。同じだった条件と意図して変えた条件を示す。他にも差があれば比較の限界を添える。正常に動いたビルドを特定できない場合はその旨と、基準に使える同一run内の正常区間を示す |
+| 壊した変更と最初に差が見えた段 | 変更した処理、状態の所有元、壊れた前提、前後段の観測を結ぶ。収録・送信処理・通信・復号・再生予約・実出力のうち最後に正常だった段と最初に異常を観測した段を記す。間に未計測の段があれば範囲として残す。最初に失敗を観測したビルドと、不具合が入ったことを特定できた変更は区別する |
 | 正常・失敗・修復の値 | 側・方向・観測点・単位・区間・判定方法をそろえて値を横に並べる。run、ログ・波形・測定JSONの場所を添え、ローカル成果物を開けない担当にも判断できる要点を本文に残す。試験用fixtureを使い、利用者の会話や秘密は記録しない |
 | 原因の根拠と戻せる範囲 | 1つの差を除く・戻す・再適用するなど、どの比較が原因を支持するかを書く。改善しなかった試案、悪化した別の指標、変更を残したか撤回したかも該当時に残す。次に同じ兆候が出たとき、最初に比較する処理と、維持する隣の経路を示す |
 
@@ -243,7 +243,7 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair conversation --seco
 
 | 試験 | 追加した厳密な条件 |
 |---|---|
-| realtime-only | 3音声×PCM16/Opus/AAC。共通host clockと単一offsetでcapture→最終renderを測り、10msの計測余裕を加えて125ms以下。capture・actor配送・renderの破棄0、処理失敗0、全文同一性、会話の相槌一致 |
+| realtime-only | 3音声×PCM16/Opus/AAC。共通host clockと単一offsetでcapture→最終renderを測り、10msの計測余裕を加えて125ms以下。capture・actorへの受け渡し・renderの破棄0、処理失敗0、全文同一性、会話の相槌一致 |
 | codec-only / native | 4音声×22 codec/rate/bitrate条件。既存の全文判定に加えmissingActiveRatio=0、会話は各相槌も一致。fallbackを認めない |
 | codec-only / transmit | 2声×入力quantum 256/960sample×isolation ON/OFF×3codecの24条件。実App送信VAD/DSP/codecを通して2周再生し、欠落0と相槌を検査 |
 | group-only | 8人の独立時計、PCM/Opus/AACと異なるbitrate/rate、Localだけを使う参加者、Internetに限る参加者、両方を使う参加者。仮想経路の遅延・jitter・複製を実認証/暗号化/中継へ与え、全話者の順序・欠落・重複・codec境界と7話者同時mixを検査。1/2/3秒後の100ms相槌も残ること |
@@ -251,11 +251,11 @@ python3 scripts/audio_e2e.py --matrix identity --speech-pair conversation --seco
 | 微小不連続の負例 | 全体の0.1%に当たる1ms欠落・1ms重複、単発clickを必ず拒否。単一正弦波fit後の最大2ms残差RMS≤0.006・sample段差≤0.10。平均誤差で薄めない |
 | 相槌の負例 | 「うん」「ふん」を個別に消した音声を拒否。whole recordingで決めた同じoffsetの位置で相関≥0.65を要求し、別の良い断片へ探し直さない |
 
-8人試験の配送は決定的な仮想経路であり、8台の物理無線機器・実Cloudflare SFUの測定ではない。ネットワーク2端末試験とは独立して必要とする。realtime-onlyも空気伝搬・Bluetooth・物理iPhoneの口から耳を測った結果ではない。native SoundIsolationのalgorithmic latencyは有効な段数に応じて加算されるため、任意に重ねた設定や全ネットワークで125msを保証するものではない。
+8人試験の転送は決定的な仮想経路であり、8台の物理無線機器・実Cloudflare SFUの測定ではない。ネットワーク2端末試験とは独立して必要とする。realtime-onlyも空気伝搬・Bluetooth・物理iPhoneの口から耳を測った結果ではない。native SoundIsolationのalgorithmic latencyは有効な段数に応じて加算されるため、任意に重ねた設定や全ネットワークで125msを保証するものではない。
 
 各専用modeで選ぶXCTest、必要な測定ID、追加の事前試験と実行時間の上限は `scripts/audio_e2e_matrix.py` の同じ定義を使う。選択したXCTest数と実行数が一致し、回収した測定IDが必要なIDと一致するときに受け入れる。測定JSONは `pipeline-measurements.json` に集約する。たとえば `--switches-only` は共有I/Oと連続切替のXCTest 2件を実行し、`input-mode-recovery` と `live-settings` の測定をそれぞれ1件要求する。preflightはiOSの負例・micro gap・相槌負例・native sessionの計5件と、Macのfixture時刻検査2件を必須にし、skipは認めない。switches-onlyのiOS事前試験は送信分離の再ONと二人の受信分離切替も実行する。packet到着・capture・OS制御の時刻traceはE2E専用attachmentへ保存し、本番のframeごとのログには追加しない。
 
-conversation-ja.wav（Kyoko、約16.38秒）とconversation-reply-ja.wav（Reed、約14.89秒）は1/2/3秒の休止と「うん」「ふん」を含む。原文・各発話の正確な開始終了はFixtures/conversation-manifest.json、再生成はscripts/build_conversation_fixtures.pyが正本。毎回のテストでは同梱WAVを使う。
+conversation-ja.wav（Kyoko、約16.38秒）とconversation-reply-ja.wav（Reed、約14.89秒）は1/2/3秒の休止と「うん」「ふん」を含む。原文・各発話の正確な開始終了はFixtures/conversation-manifest.json、再生成はscripts/build_conversation_fixtures.pyに従う。毎回のテストでは同梱WAVを使う。
 
 ## ビルド成果物の再作成
 

@@ -17,7 +17,7 @@
 | `SystemAudioInputStreamBackend.swift` / `SystemAudioOutputStreamBackend.swift` | AVAudioEngineの入出力所有 |
 | `AudioStreamPCM.swift` | PCMとOS bufferの境界 |
 
-`AudioOutputStreamBackend.rendersToHardware`は、そのbackendの実出力先を表す。`renderingEngine`が存在するだけではローカル再生と判断しない。遠隔デバイスbackendは既存のengine時計を共有してもfalseを返せる。rendererはscheduleと停止を直列化し、停止が始まった後のframeを渡さない。native停止に失敗した場合も配送を閉じたまま停止の再試行を許し、清掃未完のまま再開しない。
+`AudioOutputStreamBackend.rendersToHardware`は、そのbackendの実出力先を表す。`renderingEngine`が存在するだけではローカル再生と判断しない。遠隔デバイスbackendは既存のengine時計を共有してもfalseを返せる。rendererはscheduleと停止を直列化し、停止が始まった後のframeを渡さない。native停止に失敗した場合も転送を閉じたまま停止の再試行を許し、清掃未完のまま再開しない。
 
 ## Package Profile
 
@@ -35,7 +35,7 @@
 
 ## watchOS の音声基盤と非同期 activation
 
-watchOSでも既存のconfigure、入力capture、出力renderer、PCM型を使う。Watch専用の通話・通信エンジンを本packageへ持たせず、CallKitを導入しない。対応するSDKでcompileできることと、Watchの内蔵マイク・スピーカー、背景動作、端末間の音声配送が成立することを区別する。本packageのactivation成功は低レベル通信の利用許可や通話成立を保証しない。
+watchOSでも既存のconfigure、入力capture、出力renderer、PCM型を使う。Watch専用の通話・通信エンジンを本packageへ持たせず、CallKitを導入しない。対応するSDKでcompileできることと、Watchの内蔵マイク・スピーカー、背景動作、端末間の音声の伝送が成立することを区別する。本packageのactivation成功は低レベル通信の利用許可や通話成立を保証しない。
 
 | 項目 | watchOSの扱い |
 |---|---|
@@ -47,7 +47,7 @@ watchOSでも既存のconfigure、入力capture、出力renderer、PCM型を使�
 | 入出力選択 | systemDefaultはOSのroute選択に従う。個別device IDや明示builtInSpeaker / builtInReceiverはignored。`overrideOutputAudioPort`メソッドは存在するが、speakerのenum値はwatchOS非対応のためspeaker固定には使えない |
 | route情報 | 現在の入力・出力routeを報告する。watchOSに選択可能なdevice一覧があるように表示せず、入力snapshotのroute記述と選択APIの可否を分ける |
 | voice processing | enabled / bypass / input muteは既存native入力経路へ接続する。advanced duckingは未対応としてreportし、その設定だけでvoice-processing I/Oを有効化・再起動しない |
-| PCMミュート | `AudioInputStreamCapture`自身も配送を遮断する。native voice processingがOFF／非対応でもinputMuted中はframeを外へ渡さない。解除のnative操作が失敗した場合は配送ミュートを維持する |
+| PCMミュート | `AudioInputStreamCapture`自身も転送を遮断する。native voice processingがOFF／非対応でもinputMuted中はframeを外へ渡さない。解除のnative操作が失敗した場合は転送ミュートを維持する |
 | 中断と再起動 | interruptionBegan、interruptionEnded(shouldResume:)、mediaServicesResetをsnapshot changeとして通知する。begin/resetでinactiveへ戻し、それ以前の未完了activationを有効化成功にしない。古いnative activationが成功して戻った場合は、後続要求の前にdeactivateして実作用も解除し、解除失敗はfailed reportで返す。snapshot上のinactiveは実OS停止が成功した証拠とはしない。endのshouldResumeは再試行判断用であり自動再開ではない |
 
 OS 27ではnative graph接続を`connectNode`、再生開始を`playAudio`で行い、throwを開始失敗として扱って所有nodeを回収する。音声中断は`didBecomeInactiveNotification`、再開の推奨は`resumptionRecommendationNotification`で受ける。アプリ自身の明示deactivateを外部中断として再処理せず、再開推奨だけでマイクを開かない。
@@ -56,7 +56,7 @@ OS 27ではnative graph接続を`connectNode`、再生開始を`playAudio`で行
 
 この順序保証は同じAudioSessionManagerの要求に対するもの。同一のnative sessionを複数のmanagerから同時に操作する場合は保証対象外とし、通話・アカウントの切替でもnative sessionの所有者はmanagerを共有する。configureやstreamのlifecycleはこのTaskに自動登録しない。再設定する呼出し側は必要なdeactivation完了を待ち、古い通話の非同期完了が新しい通話のPCMを開始しないよう既存の通話世代も確認する。
 
-ミュートと停止は以後のPCM配送を止める。既に呼出し先で実行中のcallbackを巻き戻す保証はなく、送信先も通話世代と送話条件を確認する。押下UI、Watch Connectivity、codec／端末間媒体、マイク権限要求、AppのBackground Modes設定はこのpackageの責務に含めない。
+ミュートと停止は以後のPCMデータの受け渡しを止める。既に呼出し先で実行中のcallbackを巻き戻す保証はなく、送信先も通話世代と送話条件を確認する。押下UI、Watch Connectivity、codec／端末間媒体、マイク権限要求、AppのBackground Modes設定はこのpackageの責務に含めない。
 
 Appleの[非同期activation](https://developer.apple.com/documentation/avfaudio/avaudiosession/activate(options:completionhandler:))と[低レベル通信の制約](https://developer.apple.com/documentation/technotes/tn3135-low-level-networking-on-watchos)を別の条件として扱う。後者は実機確認が必要であり、このpackageのcompileやfake試験で満たした扱いにしない。
 
@@ -551,7 +551,7 @@ flowchart LR
 | `AudioStreamOperationReport` | `snapshot.actualHardwareFormat` | OS / device / route が実際に返した format |
 | `AudioStreamOperationReport` | `snapshot.processedFrameCount` | capture / schedule 済み frame 数 |
 | `AudioStreamOperationReport` | `snapshot.inputVoiceProcessing` | input stream の現在 voice processing 希望 |
-| `AudioStreamOperationReport` | `snapshot.inputDeliveryMuted` | PCM配送境界の実ミュート。native解除失敗ではtrueを維持する |
+| `AudioStreamOperationReport` | `snapshot.inputDeliveryMuted` | PCMデータの受け渡し境界の実ミュート。native解除失敗ではtrueを維持する |
 | `AudioStreamOperationReport` | `snapshot.unsupportedInputVoiceProcessingSettings` | 要求したがOS非対応だったvoice processing設定 |
 
 ## 改修者向け判断表
@@ -649,11 +649,11 @@ SessionManagerは受け取ったhardware formatのPCMを予約するだけで、
 
 既定の`AudioSessionManager(backend:)`は既知の有効な設定で初期化する。明示設定を渡す`init(configuration:backend:)`はthrowsである。voiceChatとecho cancelled inputの不整合を初期化失敗として通知し、backendへ適用しない。
 
-入力voice processingの結果がfailedならcaptureを開始せずbackendを停止する。unsupportedのignoredは従来通りcaptureを継続する。hardware PCMは有限の8–96 kHz・1–2 channelを要求し、対応外channelを丸めて偽ったmetadataで配送しない。interleaved/noninterleaved Float bufferを同じPCM sample順へ読み出す。利用者callbackは内部状態lockの外で呼び、開始・停止は単一の直列ownerが管理する。
+入力voice processingの結果がfailedならcaptureを開始せずbackendを停止する。unsupportedのignoredは従来通りcaptureを継続する。hardware PCMは有限の8–96 kHz・1–2 channelを要求し、対応外channelを丸めて偽ったmetadataで送りない。interleaved/noninterleaved Float bufferを同じPCM sample順へ読み出す。利用者callbackは内部状態lockの外で呼び、開始・停止は単一の直列ownerが管理する。
 
-新frameの再生開始までの待ち時間が上限以上なら`.interrupts`で新bufferを予約する。stop/playを繰り返すとplayer時計がリセットされ、実I/Oの遅延照会が入力配送を長く待たせるため、予約置換では停止しない。停止中のsourceはscheduleだけで自動再生しない。offline fixtureで置換後の最新音声と、再生時計の継続を確認し、実I/Oの安定性はAudio E2Eで検証する。
+新frameの再生開始までの待ち時間が上限以上なら`.interrupts`で新bufferを予約する。stop/playを繰り返すとplayer時計がリセットされ、実I/Oの遅延照会が入力データの受け渡しを長く待たせるため、予約置換では停止しない。停止中のsourceはscheduleだけで自動再生しない。offline fixtureで置換後の最新音声と、再生時計の継続を確認し、実I/Oの安定性はAudio E2Eで検証する。
 
-通常の100 ms配送では数msの未再生tailが残り得るため、新frame自身の長さを加えて過負荷と判定しない。投入前の待ち時間と単一frame長をそれぞれ制限する。予約全体は「上限＋新frame長」未満（最悪でも上限の2倍未満）に収まり、`bufferedOutputDuration`は丸めずに実予約量を返す。待ち時間が上限以上の停滞では既存どおり旧予約を破棄する。5 msのtail保持と停止時の20 ms×6個の置換を別々に回帰試験する。
+通常の100 ms転送では数msの未再生tailが残り得るため、新frame自身の長さを加えて過負荷と判定しない。投入前の待ち時間と単一frame長をそれぞれ制限する。予約全体は「上限＋新frame長」未満（最悪でも上限の2倍未満）に収まり、`bufferedOutputDuration`は丸めずに実予約量を返す。待ち時間が上限以上の停滞では既存どおり旧予約を破棄する。5 msのtail保持と停止時の20 ms×6個の置換を別々に回帰試験する。
 
 実時間再生の予約量は、playerの`lastRenderTime`が示す過去のrender境界から現在のhost時刻までを補正して見積もる。既に経過したquantumを未再生として数え、通常のbatchを誤って破棄しない。停止中・manual rendering中はhost時刻で進めず、明示されたplayer sample時計を用いる。
 
