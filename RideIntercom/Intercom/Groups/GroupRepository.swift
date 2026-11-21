@@ -509,9 +509,16 @@ final class GroupRepository {
     }
 
     func acceptInvitation(_ accepted: AcceptedDirectInvitation, inviterName: String, retainingMemberIDs: Set<String> = [],
+                          replacementAccountCallKey: String? = nil,
                           now: TimeInterval = Date().timeIntervalSince1970) throws {
         guard let snapshot else { throw GroupStorageError.invalidUpdate }
-        try amend(snapshot, now: now) { next in
+        let credential = replacementAccountCallKey.map { GroupAccessCredential(groupID: accepted.receipt.groupID, secret: $0) }
+        if credential != nil {
+            guard snapshot.groups.contains(where: { $0.id == accepted.receipt.groupID && $0.accountPair != nil }) else {
+                throw GroupStorageError.invalidUpdate
+            }
+        }
+        try amend(snapshot, credential: credential, now: now) { next in
             try self.storeAcceptedInvitation(accepted, inviterName: inviterName, retainingMemberIDs: retainingMemberIDs, in: &next)
         }
     }
@@ -840,9 +847,9 @@ final class GroupRepository {
     }
 
     /// An edit that leaves the groups themselves as they are stored.
-    private func amend(_ snapshot: GroupSnapshot, now: TimeInterval = Date().timeIntervalSince1970,
+    private func amend(_ snapshot: GroupSnapshot, credential: GroupAccessCredential? = nil, now: TimeInterval = Date().timeIntervalSince1970,
                        _ modify: (inout GroupSnapshot) throws -> Void) throws {
-        try update(snapshot.groups.map { try $0.group() }, credential: nil, now: now, modify: modify)
+        try update(snapshot.groups.map { try $0.group() }, credential: credential, now: now, modify: modify)
     }
 
     private func cleanup(_ current: GroupSnapshot) {

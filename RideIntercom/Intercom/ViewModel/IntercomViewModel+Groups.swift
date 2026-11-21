@@ -298,26 +298,30 @@ extension IntercomViewModel {
         // Do not replace a call that has already connected; reconnect explicitly.
         let keepsLocalKey = token.accountPair.map { $0.first == localAccountPrincipal }
             ?? (localMemberIdentity.memberID < token.inviterMemberID)
-        if kind == .direct, let previous, previous.secret != token.groupSecret, let existing, keepsLocalKey {
+        let changesKey = previous?.secret != token.groupSecret
+        if kind == .direct, previous != nil, changesKey, let existing, keepsLocalKey {
             selectGroup(existing)
             groupCallIssue = .crossedDirectInvitation(groupID: existing.id)
             return nil
         }
+        guard !changesKey || activeGroupID != token.groupID else {
+            groupErrorMessage = "This invitation changes the active group key. Disconnect before opening it again."
+            throw GroupInviteTokenError.activeGroupKeyChanged
+        }
         let inviterName = groupRepository.inviterName(for: token)
-        if let existing, previous?.secret == token.groupSecret {
+        if let existing, !changesKey || token.accountPair != nil {
             do {
-                try groupRepository.acceptInvitation(accepted, inviterName: inviterName, retainingMemberIDs: Set(currentRepresentativeProfiles.keys), now: now)
+                try groupRepository.acceptInvitation(accepted, inviterName: inviterName,
+                    retainingMemberIDs: Set(currentRepresentativeProfiles.keys),
+                    replacementAccountCallKey: changesKey ? token.groupSecret : nil, now: now)
                 refreshStoredAccountCall(token.groupID)
                 refreshGroupStorageStatus()
             } catch { reportGroupStorageError(error); throw error }
             let joined = groups.first { $0.id == existing.id } ?? existing
+            if changesKey, selectedGroup?.id == joined.id { selectedGroup = nil }
             selectGroup(joined)
             inviteStatusMessage = "JOINED \(existing.name)"
             return joined
-        }
-        guard activeGroupID != token.groupID else {
-            groupErrorMessage = "This invitation changes the active group key. Disconnect before opening it again."
-            throw GroupInviteTokenError.activeGroupKeyChanged
         }
         var members = [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
         let ownOtherDevice = accepted.inviter.principal != nil && accepted.inviter.principal == localAccountPrincipal

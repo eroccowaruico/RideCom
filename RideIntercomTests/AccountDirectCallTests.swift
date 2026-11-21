@@ -136,6 +136,51 @@ struct AccountDirectCallTests {
         #expect(try b.viewModel.groupRepository.credential(for: id) == winner)
     }
 
+    @Test func sharingThePreferredAccountCallKeyKeepsVerifiedDevicesFromOrdinaryInvitations() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let author = try fixture.peer("alice", account: "a")
+        let recipient = try fixture.peer("bob", account: "b")
+        let authorTablet = try fixture.peer("alice-tablet", account: "a")
+        let recipientTablet = try fixture.peer("bob-tablet", account: "b")
+        for peer in [author, recipient, authorTablet, recipientTablet] { peer.viewModel.allowsNearbyGroupDelivery = false }
+        try fixture.introduce(authorTablet, to: recipient)
+        try fixture.introduce(author, to: recipient)
+        try fixture.introduce(recipientTablet, to: author)
+        try fixture.introduce(recipient, to: author)
+        let a = author.viewModel, b = recipient.viewModel
+        for vm in [a, b] {
+            vm.disconnect()
+            vm.setRTCTransportRoutes([.multipeer])
+            let person = try #require(vm.savedRemoteUsers.first)
+            try #require(vm.startCall(to: .user(person.id), accountAccessID: vm.accountAccessID))
+        }
+        let callID = try #require(a.activeGroupID)
+        let recipientCall = try #require(b.activeDirectCall)
+        try #require(recipientCall.id == callID)
+        try #require(Set(recipientCall.accountDevices.keys) == ["alice", "alice-tablet", "bob"])
+        let authorKey = try #require(try a.groupRepository.credential(for: callID))
+        let recipientKey = try #require(try b.groupRepository.credential(for: callID))
+        let conflictingKeys = authorKey != recipientKey
+        try #require(conflictingKeys)
+        let link = try #require(a.makeGroupInviteURL(for: callID))
+        #expect(throws: GroupInviteTokenError.activeGroupKeyChanged) { try b.acceptInviteURL(link) }
+        let preservesActiveKey = try b.groupRepository.credential(for: callID) == recipientKey
+        #expect(preservesActiveKey)
+
+        b.disconnect()
+        try b.acceptInviteURL(link)
+        let repaired = try #require(b.groupRepository.storedGroup(callID))
+        let matchesSharedKey = try b.groupRepository.credential(for: callID) == authorKey
+        try #require(matchesSharedKey)
+        let keepsVerifiedDevices = repaired.accountDevices == recipientCall.accountDevices
+        try #require(keepsVerifiedDevices)
+        #expect(Set(repaired.members.map(\.id)) == Set(recipientCall.members.map(\.id)))
+        #if os(iOS)
+        try await DirectCallTests.assertLocalCall(aliceGroup: try #require(author.callSession.connectedGroup),
+                                                   bobGroup: try #require(recipient.callSession.connectedGroup))
+        #endif
+    }
+
     @Test(arguments: [1, 7]) func groupContactRegistrationKeepsItsCallKeyWhenOnlyOneSideKnowsMoreDevices(otherDevices: Int) async throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
         let author = try fixture.peer("alice", account: "a")
