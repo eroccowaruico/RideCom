@@ -13,7 +13,7 @@
 
 | 項目 | 値 |
 |---|---|
-| workspace | `/Users/naohito/.codex/worktrees/restore-dev-calls/RideIntercom` |
+| workspace | `~/.codex/worktrees/restore-dev-calls/RideIntercom` |
 | 証跡directory | `/private/tmp/rideintercom-cloudflare-validation`。一時領域なので必要なら利用者側で保管する |
 | Apple toolchain | Xcode27.1 / Swift6.4。各コマンドに `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` |
 | macOS | 27.0.1、arm64 |

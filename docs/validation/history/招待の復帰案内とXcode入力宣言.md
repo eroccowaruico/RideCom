@@ -1,6 +1,6 @@
 # 招待の復帰案内とXcode入力宣言
 
-2026-11-01、`ff306083`を基準に実施したApp工程。Xcodeの保存形式・設定を受け入れたまま、通常の作業フォルダ`/Users/naohito/source/RideIntercom`で標準TestActionとRelease Archiveを検証する。package／serverの製品処理と配布binaryは変更しない。
+2026-11-01、`ff306083`を基準に実施したApp工程。Xcodeの保存形式・設定を受け入れたまま、通常の作業フォルダ`~/source/RideIntercom`で標準TestActionとRelease Archiveを検証する。package／serverの製品処理と配布binaryは変更しない。
 
 ## 変更と境界
 
