@@ -387,7 +387,10 @@ import Testing
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func workerCarriesEncryptedOrdinaryGroupAcceptanceAndAcknowledgement() async throws {
+    enum RelayedInvitation: CaseIterable { case group, contact, contactWithGroup }
+
+    @Test(.timeLimit(.minutes(1)), arguments: RelayedInvitation.allCases)
+    func workerCarriesEncryptedAcceptanceAndAcknowledgement(invitation: RelayedInvitation) async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("ordinary-reply-author")
             let recipient = GroupDeliveryTestIdentity("ordinary-reply-recipient")
@@ -400,29 +403,48 @@ import Testing
             let client = InternetAccountClient(session: URLSession(configuration: configuration))
             let authority = testInvitationAuthority()
             let key = GroupAccessCredential(groupID: UUID(), secret: "worker-ordinary-reply-fixture")
-            let token = try GroupInviteToken.make(authority: authority, signer: author.signer, groupID: key.groupID,
-                groupName: "Test group", groupSecret: key.secret, inviterMemberID: author.memberID)
+            let token: GroupInviteToken
+            if invitation == .group {
+                token = try GroupInviteToken.make(authority: authority, signer: author.signer, groupID: key.groupID,
+                    groupName: "Test group", groupSecret: key.secret, inviterMemberID: author.memberID)
+            } else {
+                let group = invitation == .contactWithGroup ? ContactGroupInvitation(id: key.groupID, name: "Test group", secret: key.secret) : nil
+                token = try ContactInvitationSession.makeToken(authority: authority, signer: author.signer, displayName: "Sender",
+                    now: Date().timeIntervalSince1970, invitedGroup: group)
+            }
             let invite = try #require(token.directInvitation?.context)
-            let accepted = try token.accept(signer: recipient.signer, displayName: "Recipient", trust: recipient.store.identityTrust())
+            let accepted = try token.accept(signer: recipient.signer, displayName: "Recipient",
+                trust: recipient.store.identityTrust(), contactBootstrap: invitation == .group ? nil : true)
             #expect(accepted.inviter.principal == left.principal)
-            let address = try OrdinaryGroupReplyAddress(invitation: invite, credential: key)
-            let packet = try OrdinaryGroupReplyPacket.seal(accepted.receipt, address: address, invitation: invite)
-            let absent = try await client.ordinaryGroupReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
+            let address = try invitation == .group
+                ? InvitationReplyAddress(invitation: invite, credential: key)
+                : InvitationReplyAddress(contactToken: token)
+            if invitation != .group {
+                var otherContext = invite
+                otherContext.contactBootstrap = nil
+                otherContext.invitedGroupID = nil
+                otherContext.invitedGroupDigest = nil
+                let ordinarySlot = try InvitationReplyAddress(invitation: otherContext,
+                    credential: .init(groupID: token.groupID, secret: token.groupSecret))
+                #expect(ordinarySlot.slot != address.slot)
+            }
+            let packet = try InvitationReplyPacket.seal(accepted.receipt, address: address, invitation: invite)
+            let absent = try await client.invitationReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
             #expect(absent == nil)
-            try await client.openOrdinaryGroupReply(address, access: left)
-            try await client.submitOrdinaryGroupAcceptance(packet, address: address, owner: left.principal, access: right)
-            let inbox = try await client.ordinaryGroupReplyInbox(address, access: left)
+            try await client.openInvitationReplyMailbox(address, access: left)
+            try await client.submitInvitationAcceptance(packet, address: address, owner: left.principal, access: right)
+            let inbox = try await client.invitationReplyInbox(address, access: left)
             #expect(inbox.count == 1)
             let first = try #require(inbox.first)
             let received = try first.open(address: address, invitation: invite, kind: .accepted, signer: author.signer)
             let verified = try authority.verify(received, trust: author.store.identityTrust())
             #expect(verified?.identity.principal == right.principal)
-            let reply = try OrdinaryGroupReplyPacket.seal(received.acknowledged(by: author.signer), address: address, invitation: invite)
-            try await client.acknowledgeOrdinaryGroupReply(reply, address: address, access: left)
-            let delivered = try await client.ordinaryGroupReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
+            let reply = try InvitationReplyPacket.seal(received.acknowledged(by: author.signer), address: address, invitation: invite)
+            try await client.acknowledgeInvitationReply(reply, address: address, access: left)
+            let delivered = try await client.invitationReplyReceipt(id: packet.id, address: address, owner: left.principal, access: right)
             let acknowledgement = try #require(delivered).open(address: address, invitation: invite, kind: .acknowledged, signer: recipient.signer)
             try acknowledgement.verifyAcknowledgement(of: accepted.receipt, trust: recipient.store.identityTrust(), now: Date().timeIntervalSince1970)
-            #expect(try await client.ordinaryGroupReplyInbox(address, access: left).isEmpty)
+            #expect(try await client.invitationReplyInbox(address, access: left).isEmpty)
         }
     }
 
@@ -439,18 +461,18 @@ import Testing
             let key = GroupAccessCredential(groupID: UUID(), secret: "worker-ordinary-reply-limit")
             let invitation = DirectInvitationContext(groupID: key.groupID, inviterMemberID: author.memberID,
                 inviterDeviceKey: try author.signer.publicKey, expiresAt: Date().timeIntervalSince1970 + 60)
-            let address = try OrdinaryGroupReplyAddress(invitation: invitation, credential: key)
-            try await client.openOrdinaryGroupReply(address, access: access)
+            let address = try InvitationReplyAddress(invitation: invitation, credential: key)
+            try await client.openInvitationReplyMailbox(address, access: access)
             let data = String(repeating: "A", count: 12 * 1024)
             var ids = Set<UUID>()
             for participant in participants {
                 try await register(participant)
                 let recipient = try #require(try participant.store.notificationAccess(memberID: participant.memberID))
-                let packet = OrdinaryGroupReplyPacket(id: UUID(), packet: data)
+                let packet = InvitationReplyPacket(id: UUID(), packet: data)
                 ids.insert(packet.id)
-                try await client.submitOrdinaryGroupAcceptance(packet, address: address, owner: access.principal, access: recipient)
+                try await client.submitInvitationAcceptance(packet, address: address, owner: access.principal, access: recipient)
             }
-            let results = try await client.ordinaryGroupReplyInbox(address, access: access)
+            let results = try await client.invitationReplyInbox(address, access: access)
             #expect(Set(results.map(\.id)) == ids)
             let sizesMatch = results.allSatisfy { $0.packet.utf8.count == 12 * 1024 }
             #expect(sizesMatch)

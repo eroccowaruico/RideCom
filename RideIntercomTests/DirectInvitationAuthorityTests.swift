@@ -14,16 +14,16 @@ struct DirectInvitationAuthorityTests {
         let credential = GroupAccessCredential(groupID: group, secret: "ordinary-internet-packet-test")
         let grant = try authority.issue(.init(groupID: group, inviterMemberID: author.memberID,
                                               inviterDeviceKey: author.publicKey, expiresAt: expiresAt))
-        let address = try OrdinaryGroupReplyAddress(invitation: grant.context, credential: credential)
+        let address = try InvitationReplyAddress(invitation: grant.context, credential: credential)
         #expect(address.expiresAt == 2_000_125)
         #expect(address.slot.utf8.count == 64)
         var anotherInvite = grant.context; anotherInvite.id = UUID()
-        let otherAddress = try OrdinaryGroupReplyAddress(invitation: anotherInvite, credential: credential)
+        let otherAddress = try InvitationReplyAddress(invitation: anotherInvite, credential: credential)
         let different = address.slot != otherAddress.slot
         #expect(different)
         let accepted = try DirectInvitationReceipt.make(grant: grant, signer: recipient,
                                                          inviteeMemberID: recipient.memberID, displayName: "Recipient")
-        let sent = try OrdinaryGroupReplyPacket.seal(accepted, address: address, invitation: grant.context, now: 1_000)
+        let sent = try InvitationReplyPacket.seal(accepted, address: address, invitation: grant.context, now: 1_000)
         let received = try sent.open(address: address, invitation: grant.context, kind: .accepted, signer: author, now: 1_000)
         let matches = received == accepted
         #expect(matches)
@@ -37,13 +37,13 @@ struct DirectInvitationAuthorityTests {
         #expect(throws: (any Error).self) {
             try sent.open(address: address, invitation: grant.context, kind: .acknowledged, signer: author, now: 1_000)
         }
-        let newID = OrdinaryGroupReplyPacket(id: UUID(), packet: sent.packet)
+        let newID = InvitationReplyPacket(id: UUID(), packet: sent.packet)
         #expect(throws: (any Error).self) {
             try newID.open(address: address, invitation: grant.context, kind: .accepted, signer: author, now: 1_000)
         }
         var altered = try #require(Data(base64Encoded: sent.packet))
         altered[altered.index(before: altered.endIndex)] ^= 1
-        let tampered = OrdinaryGroupReplyPacket(id: sent.id, packet: altered.base64EncodedString())
+        let tampered = InvitationReplyPacket(id: sent.id, packet: altered.base64EncodedString())
         #expect(throws: (any Error).self) {
             try tampered.open(address: address, invitation: grant.context, kind: .accepted, signer: author, now: 1_000)
         }
@@ -52,7 +52,7 @@ struct DirectInvitationAuthorityTests {
         }
 
         let acknowledgement = try received.acknowledged(by: author)
-        let reply = try OrdinaryGroupReplyPacket.seal(acknowledgement, address: address, invitation: grant.context, now: 1_000)
+        let reply = try InvitationReplyPacket.seal(acknowledgement, address: address, invitation: grant.context, now: 1_000)
         let opened = try reply.open(address: address, invitation: grant.context, kind: .acknowledged, signer: recipient, now: 1_000)
         try opened.verifyAcknowledgement(of: accepted, trust: nil, now: 1_000)
     }

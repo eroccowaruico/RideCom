@@ -23,7 +23,7 @@ extension IntercomViewModel {
     private struct InternetReplyTarget {
         let invitation: DirectInvitationContext
         let savedCredential: GroupRepository.OrdinaryGroupReplyCredential
-        let address: OrdinaryGroupReplyAddress
+        let address: InvitationReplyAddress
     }
 
     private var allowsInternetOrdinaryReplies: Bool {
@@ -114,7 +114,7 @@ extension IntercomViewModel {
 
     private func internetReplyTarget(_ invitation: DirectInvitationContext) -> InternetReplyTarget? {
         guard let saved = groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970),
-              let address = try? OrdinaryGroupReplyAddress(invitation: invitation, credential: saved.credential) else { return nil }
+              let address = try? InvitationReplyAddress(invitation: invitation, credential: saved.credential) else { return nil }
         return .init(invitation: invitation, savedCredential: saved, address: address)
     }
 
@@ -132,17 +132,17 @@ extension IntercomViewModel {
         let invitation = target.invitation, address = target.address
         guard let signer = ordinaryGroupInviterSigner(for: invitation) else { return }
         if !window.openedInvitationIDs.contains(invitation.id) {
-            try await window.client.openOrdinaryGroupReply(address, access: window.access)
+            try await window.client.openInvitationReplyMailbox(address, access: window.access)
             window.openedInvitationIDs.insert(invitation.id)
         }
         guard internetReplyIsCurrent(target, window: window) else { return }
-        let inbox = try await window.client.ordinaryGroupReplyInbox(address, access: window.access)
+        let inbox = try await window.client.invitationReplyInbox(address, access: window.access)
         for packet in inbox {
             guard internetReplyIsCurrent(target, window: window) else { return }
             guard let receipt = try? packet.open(address: address, invitation: invitation, kind: .accepted, signer: signer),
                   let confirmation = applyInvitationReceipt(receipt, from: receipt.inviteeMemberID, standalone: true),
-                  let response = try? OrdinaryGroupReplyPacket.seal(confirmation, address: address, invitation: invitation) else { continue }
-            try await window.client.acknowledgeOrdinaryGroupReply(response, address: address, access: window.access)
+                  let response = try? InvitationReplyPacket.seal(confirmation, address: address, invitation: invitation) else { continue }
+            try await window.client.acknowledgeInvitationReply(response, address: address, access: window.access)
         }
     }
 
@@ -153,12 +153,12 @@ extension IntercomViewModel {
               let expectedKey = pending.inviteeDeviceKey,
               let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID, expectedPublicKey: expectedKey) else { return }
         if !window.submittedReceiptIDs.contains(pending.id) {
-            let packet = try OrdinaryGroupReplyPacket.seal(pending, address: address, invitation: invitation)
-            try await window.client.submitOrdinaryGroupAcceptance(packet, address: address, owner: owner, access: window.access)
+            let packet = try InvitationReplyPacket.seal(pending, address: address, invitation: invitation)
+            try await window.client.submitInvitationAcceptance(packet, address: address, owner: owner, access: window.access)
             window.submittedReceiptIDs.insert(pending.id)
         }
         guard internetReplyIsCurrent(target, window: window),
-              let reply = try await window.client.ordinaryGroupReplyReceipt(id: pending.id, address: address, owner: owner, access: window.access),
+              let reply = try await window.client.invitationReplyReceipt(id: pending.id, address: address, owner: owner, access: window.access),
               internetReplyIsCurrent(target, window: window),
               let confirmation = try? reply.open(address: address, invitation: invitation, kind: .acknowledged, signer: signer),
               (try? confirmation.verifyAcknowledgement(of: pending, trust: internetSettingsStore.identityTrust(), now: Date().timeIntervalSince1970)) != nil
