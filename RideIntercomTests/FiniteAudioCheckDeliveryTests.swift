@@ -31,97 +31,103 @@ struct FiniteAudioCheckDeliveryTests {
     }
 
     @Test func viewModelRecordsAllFiveSecondsAndCanRestartAfterPlayback() async {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
         for cycle in 0..<2 {
-            vm.startAudioCheck()
-            await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
+            viewModel.startAudioCheck()
+            await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
             let format = AudioFormat(sampleRate: 48_000, channelCount: 1)
             for index in 0..<236 {
-                h.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: format,
+                harness.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: format,
                     capturedAt: Double(cycle * 10) + Double(index * 1024) / 48_000,
                     samples: [Float](repeating: 0.2, count: 1024)))
             }
             blockActorBeyondLiveDeadline()
-            await AppTestSupport.waitUntil { vm.audioCheckPhase == .playing }
-            #expect(vm.audioCheckRecordedFrameCount == 240_000)
-            #expect(vm.inputFrameDelivery?.droppedFrameCount == 0)
-            vm.completeAudioCheckPlayback()
-            #expect(vm.audioCheckPhase == .completed && vm.canStartAudioCheck)
+            await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .playing }
+            #expect(viewModel.audioCheckRecordedFrameCount == 240_000)
+            #expect(viewModel.inputFrameDelivery?.droppedFrameCount == 0)
+            viewModel.completeAudioCheckPlayback()
+            #expect(viewModel.audioCheckPhase == .completed && viewModel.canStartAudioCheck)
         }
     }
 
     @Test func delayedFirstInputGetsItsOwnBoundedWindowForAllFiveSeconds() async throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        defer { vm.cancelAudioCheck() }
-        #expect(vm.startAudioCheck(recordDuration: .milliseconds(200)))
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        try #require(vm.audioCheckPhase == .recording)
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        defer { viewModel.cancelAudioCheck() }
+        #expect(viewModel.startAudioCheck(recordDuration: .milliseconds(200)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+        try #require(viewModel.audioCheckPhase == .recording)
         try await Task.sleep(for: .milliseconds(650))
         let format = AudioFormat(sampleRate: 48_000, channelCount: 1)
-        h.inputBackend.emit(.init(sequenceNumber: 0, format: format, capturedAt: 0,
+        harness.inputBackend.emit(.init(sequenceNumber: 0, format: format, capturedAt: 0,
                                   samples: Array(repeating: 0.2, count: 1024)))
-        await AppTestSupport.waitUntil { vm.audioCheckRecordedFrameCount > 0 }
-        try #require(vm.audioCheckRecordedFrameCount > 0)
+        await AppTestSupport.waitUntil { viewModel.audioCheckRecordedFrameCount > 0 }
+        try #require(viewModel.audioCheckRecordedFrameCount > 0)
         // The old preparation-relative 1.2 s deadline expires before these
         // remaining samples; the new first-input-relative deadline has not.
         try await Task.sleep(for: .milliseconds(650))
-        try #require(vm.audioCheckPhase == .recording)
+        try #require(viewModel.audioCheckPhase == .recording)
         for index in 1..<236 {
-            h.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: format,
+            harness.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: format,
                 capturedAt: Double(index * 1024) / 48_000, samples: Array(repeating: 0.2, count: 1024)))
         }
-        await AppTestSupport.waitUntil(timeout: .seconds(3)) { vm.audioCheckPhase == .playing || vm.audioCheckPhase == .failed }
-        #expect(vm.audioCheckPhase == .playing)
-        #expect(vm.audioCheckRecordedFrameCount == 240_000, "The shortened watchdog never shortens the five-second sample budget")
+        await AppTestSupport.waitUntil(timeout: .seconds(3)) {
+            viewModel.audioCheckPhase == .playing || viewModel.audioCheckPhase == .failed
+        }
+        #expect(viewModel.audioCheckPhase == .playing)
+        #expect(
+            viewModel.audioCheckRecordedFrameCount == 240_000,
+            "The shortened watchdog never shortens the five-second sample budget")
     }
 
     @Test func noInputAndInvalidInputStillFailWithinTheInitialDeadline() async throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        defer { vm.cancelAudioCheck() }
-        #expect(vm.startAudioCheck(recordDuration: .milliseconds(200)))
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        try #require(vm.audioCheckPhase == .recording)
-        vm.processAudioCheckInput(level: 0, frame: .init(sequenceNumber: 1, samples: []))
-        vm.processAudioCheckInput(level: 0, frame: .init(sequenceNumber: 2, samples: [.nan]))
-        #expect(vm.audioCheckRecordedFrameCount == 0, "Empty and invalid PCM cannot start recording")
-        await AppTestSupport.waitUntil(timeout: .seconds(2)) { vm.audioCheckPhase == .failed }
-        #expect(vm.audioCheckPhase == .failed)
-        #expect(vm.audioCheckStatusMessage == "Incomplete microphone recording")
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        defer { viewModel.cancelAudioCheck() }
+        #expect(viewModel.startAudioCheck(recordDuration: .milliseconds(200)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+        try #require(viewModel.audioCheckPhase == .recording)
+        viewModel.processAudioCheckInput(level: 0, frame: .init(sequenceNumber: 1, samples: []))
+        viewModel.processAudioCheckInput(level: 0, frame: .init(sequenceNumber: 2, samples: [.nan]))
+        #expect(viewModel.audioCheckRecordedFrameCount == 0, "Empty and invalid PCM cannot start recording")
+        await AppTestSupport.waitUntil(timeout: .seconds(2)) { viewModel.audioCheckPhase == .failed }
+        #expect(viewModel.audioCheckPhase == .failed)
+        #expect(viewModel.audioCheckStatusMessage == "Incomplete microphone recording")
     }
 
     @Test func laterFramesDoNotExtendTheFirstInputDeadline() async throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        defer { vm.cancelAudioCheck() }
-        #expect(vm.startAudioCheck(recordDuration: .milliseconds(200)))
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        try #require(vm.audioCheckPhase == .recording)
-        h.inputBackend.emit(.init(sequenceNumber: 0, capturedAt: 0, samples: Array(repeating: 0.2, count: 1024)))
-        await AppTestSupport.waitUntil { vm.audioCheckRecordedFrameCount > 0 }
-        try #require(vm.audioCheckRecordedFrameCount > 0)
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        defer { viewModel.cancelAudioCheck() }
+        #expect(viewModel.startAudioCheck(recordDuration: .milliseconds(200)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+        try #require(viewModel.audioCheckPhase == .recording)
+        harness.inputBackend.emit(.init(sequenceNumber: 0, capturedAt: 0, samples: Array(repeating: 0.2, count: 1024)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckRecordedFrameCount > 0 }
+        try #require(viewModel.audioCheckRecordedFrameCount > 0)
         try await Task.sleep(for: .milliseconds(700))
-        h.inputBackend.emit(.init(sequenceNumber: 1, capturedAt: 1024.0 / 48_000, samples: Array(repeating: 0.2, count: 1024)))
+        harness.inputBackend.emit(
+            .init(sequenceNumber: 1, capturedAt: 1024.0 / 48_000, samples: Array(repeating: 0.2, count: 1024)))
         try await Task.sleep(for: .milliseconds(650))
-        #expect(vm.audioCheckPhase == .failed, "A later frame must not restart the first-input watchdog")
+        #expect(viewModel.audioCheckPhase == .failed, "A later frame must not restart the first-input watchdog")
     }
 
     @Test func cancelledWatchdogCannotStopTheNextRecordingGeneration() async throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        defer { vm.cancelAudioCheck() }
-        #expect(vm.startAudioCheck(recordDuration: .milliseconds(200)))
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        try #require(vm.audioCheckPhase == .recording)
-        h.inputBackend.emit(.init(sequenceNumber: 0, capturedAt: 0, samples: Array(repeating: 0.2, count: 1024)))
-        await AppTestSupport.waitUntil { vm.audioCheckRecordedFrameCount > 0 }
-        try #require(vm.audioCheckRecordedFrameCount > 0)
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        defer { viewModel.cancelAudioCheck() }
+        #expect(viewModel.startAudioCheck(recordDuration: .milliseconds(200)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+        try #require(viewModel.audioCheckPhase == .recording)
+        harness.inputBackend.emit(.init(sequenceNumber: 0, capturedAt: 0, samples: Array(repeating: 0.2, count: 1024)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckRecordedFrameCount > 0 }
+        try #require(viewModel.audioCheckRecordedFrameCount > 0)
         try await Task.sleep(for: .milliseconds(650))
-        vm.cancelAudioCheck()
-        #expect(vm.startAudioCheck(recordDuration: .milliseconds(200)))
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        try #require(vm.audioCheckPhase == .recording)
-        let newGeneration = vm.audioCheckGeneration
+        viewModel.cancelAudioCheck()
+        #expect(viewModel.startAudioCheck(recordDuration: .milliseconds(200)))
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+        try #require(viewModel.audioCheckPhase == .recording)
+        let newGeneration = viewModel.audioCheckGeneration
         try await Task.sleep(for: .milliseconds(700))
-        #expect(vm.audioCheckGeneration == newGeneration)
-        #expect(vm.audioCheckPhase == .recording, "The cancelled generation's deadline must not stop its successor")
+        #expect(viewModel.audioCheckGeneration == newGeneration)
+        #expect(viewModel.audioCheckPhase == .recording,
+            "The cancelled generation's deadline must not stop its successor")
     }
 
     @Test func finitePlaybackRetainsItsBoundedStartupAndDrainObservations() async {
@@ -141,7 +147,8 @@ struct FiniteAudioCheckDeliveryTests {
 
     #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
     @Test func recordingObservationComparesNativeStereoOutputAfterRouteNegotiation() {
-        let input = PCMFrame(sequenceNumber: 0, format: .intercomMixer, samples: [Float](repeating: 0.2, count: 240_000))
+        let input = PCMFrame(
+            sequenceNumber: 0, format: .intercomMixer, samples: [Float](repeating: 0.2, count: 240_000))
         var observation = AudioCheckValidationObservation(generation: UUID())
         observation.setInput([input])
         observation.appendOutput(.init(sequenceNumber: 0, format: .init(sampleRate: 48_000, channelCount: 2),
@@ -155,17 +162,17 @@ struct FiniteAudioCheckDeliveryTests {
     #endif
 
     @Test func recordingCheckUsesTheActualTransmitCodecAndDynamicsForAllFiveSeconds() async throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        vm.setSoundIsolationEnabled(false)
-        vm.setRTCAudioFormatPreset(.mono16k)
-        vm.setPreferredTransmitCodec(.mpeg4AACELD)
-        vm.setVADSensitivity(.lowNoise)
-        defer { vm.cancelAudioCheck() }
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        viewModel.setSoundIsolationEnabled(false)
+        viewModel.setRTCAudioFormatPreset(.mono16k)
+        viewModel.setPreferredTransmitCodec(.mpeg4AACELD)
+        viewModel.setVADSensitivity(.lowNoise)
+        defer { viewModel.cancelAudioCheck() }
         for cycle in 0..<2 {
-            vm.startAudioCheck()
-            await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-            #expect(vm.audioPipeline.codecRuntimeReport.activeConfiguration.codec == .mpeg4AACELD)
-            #expect(vm.audioPipeline.dynamicsRuntimeSnapshot != nil)
+            viewModel.startAudioCheck()
+            await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+            #expect(viewModel.audioPipeline.codecRuntimeReport.activeConfiguration.codec == .mpeg4AACELD)
+            #expect(viewModel.audioPipeline.dynamicsRuntimeSnapshot != nil)
             let format = AudioFormat(sampleRate: 48_000, channelCount: 1)
             for index in 0..<236 {
                 let beginning = index * 1024
@@ -175,15 +182,15 @@ struct FiniteAudioCheckDeliveryTests {
                     let frequency = sample >= 235_200 ? 997.0 : 440.0
                     return Float(0.8 * sin(Double(sample) * 2 * .pi * frequency / 48_000))
                 }
-                h.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: format,
+                harness.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: format,
                     capturedAt: Double(cycle * 10) + Double(beginning) / 48_000, samples: samples))
             }
-            await AppTestSupport.waitUntil(timeout: .seconds(3)) { vm.audioCheckPhase == .playing }
-            #expect(vm.audioCheckPhase == .playing)
-            #expect(vm.audioCheckRecordedFrameCount == 80_000)
-            #expect(vm.audioCheckOutputLevel > 0.02 && vm.audioCheckOutputLevel < 0.5,
+            await AppTestSupport.waitUntil(timeout: .seconds(3)) { viewModel.audioCheckPhase == .playing }
+            #expect(viewModel.audioCheckPhase == .playing)
+            #expect(viewModel.audioCheckRecordedFrameCount == 80_000)
+            #expect(viewModel.audioCheckOutputLevel > 0.02 && viewModel.audioCheckOutputLevel < 0.5,
                 "The real transmit Dynamics unit must change the 0.566 RMS input before recording")
-            let recorded = try #require(vm.audioCheckRecording).recordedFrames().flatMap(\.samples)
+            let recorded = try #require(viewModel.audioCheckRecording).recordedFrames().flatMap(\.samples)
             let gap = Array(recorded[44_800..<46_400])
             #expect(AudioLevelMeter.rmsLevel(samples: gap) < 0.001,
                 "VAD-suppressed time must remain at its original position as silence")
@@ -194,47 +201,69 @@ struct FiniteAudioCheckDeliveryTests {
             }
             #expect(hypot(projection.0, projection.1) / 1600 > 0.01,
                 "The final 997Hz marker must survive both native DSP and codec drain")
-            #expect(h.callSession.startMediaCallCount == 0)
-            vm.completeAudioCheckPlayback()
+            #expect(harness.callSession.startMediaCallCount == 0)
+            viewModel.completeAudioCheckPlayback()
         }
     }
 
+}
+
+extension FiniteAudioCheckDeliveryTests {
     #if os(iOS) || os(macOS)
     @Test func nativeRecordingCheckUsesThePreparedGraphForTwoCycles() async throws {
-        let h = AppTestSupport.makeHarness(groups: [])
-        let vm = makeNativeViewModel(h)
-        defer { vm.cancelAudioCheck(); vm.audioPipeline.onOutputFrame = nil }
+        let harness = AppTestSupport.makeHarness(groups: [])
+        let viewModel = makeNativeViewModel(harness)
+        defer { viewModel.cancelAudioCheck(); viewModel.audioPipeline.onOutputFrame = nil }
         for _ in 0..<2 {
             var renderedFramesByRate: [Double: Int] = [:]
-            #expect(vm.startAudioCheck())
-            let output = vm.audioPipeline.onOutputFrame
-            vm.audioPipeline.onOutputFrame = { frame in
+            #expect(viewModel.startAudioCheck())
+            let output = viewModel.audioPipeline.onOutputFrame
+            viewModel.audioPipeline.onOutputFrame = { frame in
                 output?(frame)
-                if vm.audioCheckPhase == .playing {
+                if viewModel.audioCheckPhase == .playing {
                     renderedFramesByRate[frame.format.sampleRate, default: 0] += frame.frameCount
                 }
             }
             // Native device preparation and the five-second sample budget are
             // separate deadlines, as in the production first-input watchdog.
             await AppTestSupport.waitUntil(timeout: .seconds(8)) {
-                vm.audioCheckRecordedFrameCount > 0 || vm.audioCheckPhase == .failed
+                viewModel.audioCheckRecordedFrameCount > 0 || viewModel.audioCheckPhase == .failed
             }
-            await AppTestSupport.waitUntil(timeout: .seconds(7)) { vm.audioCheckPhase == .playing || vm.audioCheckPhase == .failed }
-            #expect(vm.audioCheckPhase == .playing, "Native capture must reach five seconds: \(vm.audioCheckStatusMessage), input=\(String(describing: vm.lastInputStreamOperationReport?.result)), voice=\(String(describing: vm.lastVoiceProcessingOperationReport?.result))")
-            #expect(vm.audioCheckRecordedFrameCount == 240_000)
-            await AppTestSupport.waitUntil(timeout: .seconds(7)) { vm.audioCheckPhase == .completed || vm.audioCheckPhase == .failed }
-            #expect(vm.audioCheckPhase == .completed)
+            await AppTestSupport.waitUntil(timeout: .seconds(7)) {
+                viewModel.audioCheckPhase == .playing || viewModel.audioCheckPhase == .failed
+            }
+            #expect(
+                viewModel.audioCheckPhase == .playing,
+                """
+                Native capture must reach five seconds: \(viewModel.audioCheckStatusMessage), \
+                input=\(String(describing: viewModel.lastInputStreamOperationReport?.result)), \
+                voice=\(String(describing: viewModel.lastVoiceProcessingOperationReport?.result))
+                """
+            )
+            #expect(viewModel.audioCheckRecordedFrameCount == 240_000)
+            await AppTestSupport.waitUntil(timeout: .seconds(7)) {
+                viewModel.audioCheckPhase == .completed || viewModel.audioCheckPhase == .failed
+            }
+            #expect(viewModel.audioCheckPhase == .completed)
             let renderedDuration = renderedFramesByRate.reduce(0.0) { $0 + Double($1.value) / $1.key }
-            #expect(renderedDuration >= 5, "Native output must render the complete five-second timeline; frames=\(renderedFramesByRate), output=\(String(describing: vm.lastOutputStreamOperationReport))")
-            #expect(h.callSession.startMediaCallCount == 0)
+            #expect(
+                renderedDuration >= 5,
+                """
+                Native output must render the complete five-second timeline; frames=\(renderedFramesByRate), \
+                output=\(String(describing: viewModel.lastOutputStreamOperationReport))
+                """
+            )
+            #expect(harness.callSession.startMediaCallCount == 0)
         }
     }
-    private func makeNativeViewModel(_ h: AppTestSupport.Harness) -> IntercomViewModel {
-        IntercomViewModel(accountSession: h.viewModel.accountSession, enforceCallAccess: false,
-            callSession: h.callSession, groupRepository: h.viewModel.groupRepository,
-            appSettingsStore: InMemoryAppSettingsStore(), internetSettingsStore: h.viewModel.internetSettingsStore,
-            localMemberIdentityStore: h.viewModel.localMemberIdentityStore,
-            invitationAuthority: h.viewModel.invitationAuthority, requestMicrophoneAccess: { true }, callTicker: NoOpCallTicker())
+    private func makeNativeViewModel(_ harness: AppTestSupport.Harness) -> IntercomViewModel {
+        IntercomViewModel(accountSession: harness.viewModel.accountSession, enforceCallAccess: false,
+            callSession: harness.callSession, groupRepository: harness.viewModel.groupRepository,
+            appSettingsStore: InMemoryAppSettingsStore(),
+            internetSettingsStore: harness.viewModel.internetSettingsStore,
+            localMemberIdentityStore: harness.viewModel.localMemberIdentityStore,
+            invitationAuthority: harness.viewModel.invitationAuthority, requestMicrophoneAccess: { true },
+            callTicker: NoOpCallTicker())
     }
     #endif
 
@@ -242,55 +271,63 @@ struct FiniteAudioCheckDeliveryTests {
     @Test func nativeCallCaptureContinuesAfterPipelinePreparationAndRestart() async throws {
         // Account/control/transport and permission use fixtures. Native capture, DSP and
         // the shared hardware engine follow the ordinary call lifecycle.
-        let h = AppTestSupport.makeHarness(), vm = makeNativeViewModel(h)
-        defer { vm.disconnect() }
+        let harness = AppTestSupport.makeHarness(), viewModel = makeNativeViewModel(harness)
+        defer { viewModel.disconnect() }
         for _ in 0..<2 {
-            vm.selectGroup(try #require(vm.groups.first))
-            vm.connectLocal()
-            h.callSession.authenticate(["member-108"])
-            await AppTestSupport.waitUntil(timeout: .seconds(3)) { vm.isAudioReady }
-            #expect(vm.isAudioReady == true)
-            await AppTestSupport.waitUntil(timeout: .seconds(2)) { vm.localInputObservedAt != nil }
-            #expect(vm.localInputObservedAt != nil, "The real native capture callback must survive call graph startup")
-            if let first = vm.localInputObservedAt {
+            viewModel.selectGroup(try #require(viewModel.groups.first))
+            viewModel.connectLocal()
+            harness.callSession.authenticate(["member-108"])
+            await AppTestSupport.waitUntil(timeout: .seconds(3)) { viewModel.isAudioReady }
+            #expect(viewModel.isAudioReady == true)
+            await AppTestSupport.waitUntil(timeout: .seconds(2)) { viewModel.localInputObservedAt != nil }
+            #expect(viewModel.localInputObservedAt != nil,
+                "The real native capture callback must survive call graph startup")
+            if let first = viewModel.localInputObservedAt {
                 try await Task.sleep(for: .milliseconds(200))
-                #expect((vm.localInputObservedAt ?? 0) > first)
+                #expect((viewModel.localInputObservedAt ?? 0) > first)
             }
-            #expect(vm.audioPipeline.transmitEncodingFailureCount == 0)
-            vm.disconnect()
-            _ = await vm.audioSessionManager.requestActive(false).value
+            #expect(viewModel.audioPipeline.transmitEncodingFailureCount == 0)
+            viewModel.disconnect()
+            _ = await viewModel.audioSessionManager.requestActive(false).value
         }
     }
     #endif
 
     @Test func transmitFailureCannotBecomeSuccessfulSilenceAndMutedRecordingCanRestart() async {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        vm.setSoundIsolationEnabled(false)
-        defer { vm.cancelAudioCheck() }
+        let harness = AppTestSupport.makeHarness(groups: []), viewModel = harness.viewModel
+        viewModel.setSoundIsolationEnabled(false)
+        defer { viewModel.cancelAudioCheck() }
         func emitFiveSeconds(start: Double) {
             for index in 0..<250 {
-                h.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: .intercomMixer,
+                harness.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: .intercomMixer,
                     capturedAt: start + Double(index) * 0.02, samples: [Float](repeating: 0.2, count: 960)))
             }
         }
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        let before = vm.audioPipeline.transmitEncodingFailureCount
-        vm.audioPipeline.processMicrophoneFrame(.init(sequenceNumber: 0, format: .init(sampleRate: 48_000, channelCount: 2),
+        viewModel.startAudioCheck()
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+        let before = viewModel.audioPipeline.transmitEncodingFailureCount
+        viewModel.audioPipeline.processMicrophoneFrame(
+            .init(
+                sequenceNumber: 0, format: .init(sampleRate: 48_000, channelCount: 2),
             capturedAt: 0, samples: [Float](repeating: 0.8, count: 9601)), level: 1)
-        #expect(vm.audioPipeline.transmitEncodingFailureCount > before)
+        #expect(viewModel.audioPipeline.transmitEncodingFailureCount > before)
         emitFiveSeconds(start: 10)
-        await AppTestSupport.waitUntil(timeout: .seconds(3)) { vm.audioCheckPhase == .playing || vm.audioCheckPhase == .failed }
-        #expect(vm.audioCheckPhase == .failed, "A swallowed transmit processing failure must invalidate this recording")
-        vm.cancelAudioCheck()
-        vm.applyLocalMute(true)
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
+        await AppTestSupport.waitUntil(timeout: .seconds(3)) {
+            viewModel.audioCheckPhase == .playing || viewModel.audioCheckPhase == .failed
+        }
+        #expect(viewModel.audioCheckPhase == .failed,
+            "A swallowed transmit processing failure must invalidate this recording")
+        viewModel.cancelAudioCheck()
+        viewModel.applyLocalMute(true)
+        viewModel.startAudioCheck()
+        await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
         emitFiveSeconds(start: 20)
-        await AppTestSupport.waitUntil(timeout: .seconds(3)) { vm.audioCheckPhase == .playing || vm.audioCheckPhase == .failed }
-        #expect(vm.audioCheckPhase == .playing, "An intentional transmit mute is a valid silent recording")
-        #expect(vm.audioCheckRecordedFrameCount == 240_000)
-        #expect(vm.audioCheckOutputLevel == 0)
+        await AppTestSupport.waitUntil(timeout: .seconds(3)) {
+            viewModel.audioCheckPhase == .playing || viewModel.audioCheckPhase == .failed
+        }
+        #expect(viewModel.audioCheckPhase == .playing, "An intentional transmit mute is a valid silent recording")
+        #expect(viewModel.audioCheckRecordedFrameCount == 240_000)
+        #expect(viewModel.audioCheckOutputLevel == 0)
     }
 
     #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
