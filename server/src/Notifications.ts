@@ -43,8 +43,10 @@ async function publishRoute(env: Env, auth: NotificationAuth, expiresAt: number)
 }
 const callReply = (call: NotificationCall) => ({ requestID: call.requestID, expiresAt: call.expiresAt, status: call.status })
 
-async function submitBackgroundGroupInvitation(request: Request, origin: string, env: Env): Promise<Response> {
-    if (!notificationsConfigured(env)) return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
+async function handleBackgroundGroupInvitation(request: Request, origin: string, env: Env, cancelling: boolean): Promise<Response> {
+    if (!cancelling && !notificationsConfigured(env)) {
+        return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
+    }
     const body: Record<string, unknown> = await readJSON(request)
     fields(body, ['senderUserID', 'deviceID', 'sessionBinding', 'submission', 'proof'])
     const { senderUserID, deviceID, sessionBinding, submission, proof } = body
@@ -58,7 +60,8 @@ async function submitBackgroundGroupInvitation(request: Request, origin: string,
     // Prove the entire submission and its origin before resolving an account object.
     const identity = { userID: senderUserID, deviceID, sessionBinding }
     const payload = JSON.stringify([origin, sessionBinding, submission])
-    if (!await verifyDeviceProof(identity, origin, 'submitBackgroundGroupInvitation', payload, proof as Record<string, unknown>, env)) {
+    const purpose = cancelling ? 'cancelBackgroundGroupInvitation' : 'submitBackgroundGroupInvitation'
+    if (!await verifyDeviceProof(identity, origin, purpose, payload, proof as Record<string, unknown>, env)) {
         return unauthorized()
     }
     let invitation: Record<string, unknown>
@@ -69,7 +72,36 @@ async function submitBackgroundGroupInvitation(request: Request, origin: string,
     if (!invitation || typeof invitation !== 'object' || Array.isArray(invitation)) throw new Error('body')
     const owner = await target(env, senderUserID)
     const auth = await owner?.authenticateGroupInvitationSession(senderUserID, deviceID, sessionBinding)
-    return owner && auth ? await submitGroupInvitation(invitation, origin, auth, owner, env, true) : unauthorized()
+    if (!owner || !auth) return unauthorized()
+    return cancelling ? await cancelBackgroundGroupInvitation(invitation, auth, owner, env)
+        : await submitGroupInvitation(invitation, origin, auth, owner, env, true)
+}
+
+async function cancelBackgroundGroupInvitation(body: Record<string, unknown>, auth: NotificationAuth,
+                                               owner: ReturnType<typeof account>, env: Env): Promise<Response> {
+    fields(body, ['recipientUserID', 'requestID', 'expiresAt'])
+    const { recipientUserID: recipient, requestID, expiresAt } = body
+    if (typeof recipient !== 'string' || !publicIDPattern.test(recipient)
+        || typeof requestID !== 'string' || !uuidPattern.test(requestID)
+        || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt) || expiresAt <= 0
+        || expiresAt > Date.now() + groupInvitationLifetime) throw new Error('body')
+    const notFound = () => json({ error: 'Not found' }, 404)
+    if (auth.userID === recipient) return notFound()
+    const id = requestID.toLowerCase()
+    const receiver = await target(env, recipient)
+    const value = await receiver?.groupInvitationStatus(recipient, id)
+    if (value) {
+        if (value.senderUserID !== auth.userID || value.expiresAt !== expiresAt || !await owner.notificationAuthorized(auth)) return notFound()
+        const status = await receiver!.groupInvitationFinish(recipient, id, auth.userID, false, undefined, expiresAt)
+        return status ? json({ requestID: id, expiresAt, status }) : notFound()
+    }
+    if (expiresAt <= Date.now()) return notFound()
+    const result = await owner.groupInvitationCancelUnstored(auth, recipient, id)
+    if (result === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
+    if (result !== 'cancelled') return json({ error: 'Unauthorized' }, 401)
+    // A submission may have entered the inbox while the sender's tombstone was recorded.
+    const status = await receiver?.groupInvitationFinish(recipient, id, auth.userID, false, undefined, expiresAt)
+    return json({ requestID: id, expiresAt, status: status ?? 'cancelled' })
 }
 
 async function submitGroupInvitation(body: Record<string, unknown>, origin: string, auth: NotificationAuth,
@@ -100,8 +132,8 @@ async function submitGroupInvitation(body: Record<string, unknown>, origin: stri
     if (started === 'limited') return json({ error: 'Too many invitations' }, 429)
     if (started === 'expired') return json({ error: 'Invitation expired' }, 400)
     if (await owner.groupInvitationSenderState(auth, grant.recipient, id) === 'cancelled') {
-        await receiver.groupInvitationFinish(grant.recipient, id, auth.userID)
-        return cancelled()
+        const status = await receiver.groupInvitationFinish(grant.recipient, id, auth.userID)
+        return status === 'received' ? json({ requestID: id, expiresAt: body.expiresAt, status }) : cancelled()
     }
     if (started === 'notify') {
         const candidates = await receiver.groupInvitationCandidates(grant.recipient, id)
@@ -124,8 +156,9 @@ async function submitGroupInvitation(body: Record<string, unknown>, origin: stri
 export async function notificationRequest(request: Request, env: Env): Promise<Response> {
     try {
         const url = new URL(request.url), path = url.pathname, method = request.method
-        if (path === '/api/notifications/group-invitations/background' && method === 'POST') {
-            return await submitBackgroundGroupInvitation(request, url.origin, env)
+        const cancelling = path === '/api/notifications/group-invitations/background-cancellation'
+        if ((cancelling || path === '/api/notifications/group-invitations/background') && method === 'POST') {
+            return await handleBackgroundGroupInvitation(request, url.origin, env, cancelling)
         }
         const bearer = request.headers.get('Authorization') ?? ''
         const auth = bearer.startsWith('Bearer ') && bearer.length <= 512 ? await notificationAuth(bearer.slice(7), env) : null

@@ -309,17 +309,19 @@ export class AccountNotifications {
             sourceRequestID: value.sourceRequestID }
     }
     finishInvitation(userID: string, requestID: string, actorID: string, discard = false,
-                     recipientAuth?: NotificationAuth): 'received' | 'cancelled' | null {
+                     recipientAuth?: NotificationAuth, expectedExpiry?: number): 'received' | 'cancelled' | null {
         const value = this.invitation(userID, requestID)
         if (!value) {
             const result = this.invitationResult(userID, requestID)
             if (!result || (actorID !== userID && actorID !== result.senderUserID)) return null
+            if (expectedExpiry !== undefined && expectedExpiry !== result.expiresAt) return null
             if (actorID === userID && result.recipientDeviceID !== undefined
                 && (!recipientAuth || !this.authorized(recipientAuth) || recipientAuth.userID !== userID
                     || recipientAuth.deviceID !== result.recipientDeviceID)) return null
             return result.status
         }
         if (actorID !== userID && actorID !== value.sender.userID) return null
+        if (expectedExpiry !== undefined && expectedExpiry !== value.expiresAt) return null
         const withdrawing = actorID === value.sender.userID
         if (!withdrawing && value.sourceRequestID && (!recipientAuth || !this.authorized(recipientAuth)
             || recipientAuth.userID !== userID || recipientAuth.deviceID !== value.recipientDeviceID)) return null

@@ -405,11 +405,11 @@ test('a background submission authorizes exactly the signed group invitation wit
         const body = { capability: permission.capability, requestID: randomUUID(), expiresAt: Date.now() + 60_000,
             recipientKey: 'k'.repeat(87), envelope: Buffer.from('fixture background envelope').toString('base64') };
         const hash = text => createHash('sha256').update(text).digest('hex');
-        const packet = async (value, user = a, identity = certificate, origin = 'https://worker.test') => {
+        const packet = async (value, user = a, identity = certificate, origin = 'https://worker.test', purpose = 'submitBackgroundGroupInvitation') => {
             const sessionBinding = hash(hash(user.accessToken.split('.')[3]));
             const submission = Buffer.from(JSON.stringify(value)).toString('base64');
             const payload = JSON.stringify([origin, sessionBinding, submission]);
-            const fields = ['submitBackgroundGroupInvitation', memberID, publicKey, identity.certificate, identity.issuerKey, payload];
+            const fields = [purpose, memberID, publicKey, identity.certificate, identity.issuerKey, payload];
             const parts = [Buffer.from('rideintercom.device-proof.v1\0')];
             for (const field of fields) {
                 const bytes = Buffer.from(field), size = Buffer.alloc(4);
@@ -421,6 +421,11 @@ test('a background submission authorizes exactly the signed group invitation wit
                 proof: { publicKey, certificate: identity, signature: Buffer.from(signature).toString('base64url') } };
         };
         const submit = value => call(r, groupPath + '/background', value);
+        const cancel = value => call(r, groupPath + '/background-cancellation', value);
+        const cancellation = (invitation, user = a, identity = certificate) => packet(
+            { recipientUserID: b.userID, requestID: invitation.requestID, expiresAt: invitation.expiresAt },
+            user, identity, 'https://worker.test', 'cancelBackgroundGroupInvitation'
+        );
         const original = await packet(body);
         const changed = data => ({ ...original, submission: Buffer.from(JSON.stringify({ ...body, ...data })).toString('base64') });
         for (const data of [{ requestID: randomUUID() }, { expiresAt: body.expiresAt + 1 }, { recipientKey: 'z'.repeat(87) },
@@ -439,15 +444,47 @@ test('a background submission authorizes exactly the signed group invitation wit
         assert.equal(deliveries, 1);
         const inbox = await call(r, groupPath + '?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
         assert.equal((await inbox.json()).delivery.requestID, body.requestID);
+        const receivedPath = groupPath + '/' + b.userID + '/' + body.requestID;
+        const receipt = await call(r, receivedPath, undefined, b.accessToken, 'DELETE');
+        assert.deepEqual(await receipt.json(), { status: 'received' });
+        const exactCancellation = await cancellation(body);
+        assert.equal((await submit(exactCancellation)).status, 401);
+        assert.equal((await cancel(original)).status, 401);
+        const tampered = { ...exactCancellation, submission: Buffer.from(JSON.stringify({
+            recipientUserID: b.userID, requestID: randomUUID(), expiresAt: body.expiresAt
+        })).toString('base64') };
+        assert.equal((await cancel(tampered)).status, 401);
+        assert.equal((await cancel(await cancellation(body, b, await issueIdentity(b)))).status, 404);
+        assert.equal((await cancel(await cancellation({ ...body, expiresAt: body.expiresAt + 1 }))).status, 404);
+        for (let repeat = 0; repeat < 2; repeat++) {
+            const result = await cancel(exactCancellation);
+            assert.equal(result.status, 200);
+            assert.deepEqual(await result.json(), { requestID: body.requestID, expiresAt: body.expiresAt, status: 'received' });
+        }
+        const queued = { ...body, requestID: randomUUID(), noticeID: body.requestID };
+        assert.equal((await submit(await packet(queued))).status, 200);
+        const withdrawal = await cancel(await cancellation(queued));
+        assert.equal(withdrawal.status, 200);
+        assert.deepEqual(await withdrawal.json(), { requestID: queued.requestID, expiresAt: queued.expiresAt, status: 'cancelled' });
+        const racing = { ...queued, requestID: randomUUID() };
+        const racingSubmission = await packet(racing), racingCancellation = await cancellation(racing);
+        const [racingSend, racingCancel] = await Promise.all([submit(racingSubmission), cancel(racingCancellation)]);
+        assert.equal(racingSend.status, 200);
+        assert.deepEqual(await racingCancel.json(), { requestID: racing.requestID, expiresAt: racing.expiresAt, status: 'cancelled' });
+        assert.equal((await (await submit(racingSubmission)).json()).status, 'cancelled');
+        const empty = await call(r, groupPath + '?recipientKey=' + body.recipientKey, undefined, b.accessToken, 'GET');
+        assert.deepEqual(await empty.json(), { delivery: null });
         const pending = { ...body, requestID: randomUUID() };
         const stale = await packet(pending);
         const renewed = await login(r, 'background-author', a.deviceID);
+        assert.equal((await cancel(exactCancellation)).status, 401);
         assert.equal((await submit(stale)).status, 401);
         assert.equal((await submit(await packet(pending, renewed, certificate))).status, 401);
         const renewedCertificate = await issueIdentity(renewed);
         const cancellable = await packet(pending, renewed, renewedCertificate);
-        const cancelledPath = groupPath + '/' + b.userID + '/' + pending.requestID;
-        assert.equal((await call(r, cancelledPath, undefined, renewed.accessToken, 'DELETE')).status, 404);
+        const unsubmitted = await cancel(await cancellation(pending, renewed, renewedCertificate));
+        assert.equal(unsubmitted.status, 200);
+        assert.deepEqual(await unsubmitted.json(), { requestID: pending.requestID, expiresAt: pending.expiresAt, status: 'cancelled' });
         const cancelled = await submit(cancellable);
         assert.equal(cancelled.status, 200);
         assert.equal((await cancelled.json()).status, 'cancelled');

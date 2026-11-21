@@ -169,8 +169,9 @@ export class UserAccount extends DurableObject<Env> {
         if (result === 'cancelled') await this.scheduleExpiry()
         return result
     }
-    groupInvitationFinish(userID: string, requestID: string, actorID: string, discard = false, recipientAuth?: NotificationAuth) {
-        return this.notifications.finishInvitation(userID, requestID, actorID, discard, recipientAuth)
+    groupInvitationFinish(userID: string, requestID: string, actorID: string, discard = false,
+                          recipientAuth?: NotificationAuth, expectedExpiry?: number) {
+        return this.notifications.finishInvitation(userID, requestID, actorID, discard, recipientAuth, expectedExpiry)
     }
     groupInvitationCandidates(userID: string, requestID: string) { return this.notifications.invitationCandidates(userID, requestID) }
     notificationAuthorized(auth: NotificationAuth) { return this.notifications.authorized(auth) }
