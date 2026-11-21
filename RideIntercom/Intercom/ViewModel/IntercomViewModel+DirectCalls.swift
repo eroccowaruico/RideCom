@@ -91,22 +91,20 @@ extension IntercomViewModel {
     private func initialDirectCallSecret(for group: IntercomGroup, user: SavedUser,
                                          accountSigner: DeviceIdentitySigner?,
                                          pending: GroupRepository.OrdinaryGroupDeviceCallKeys?) throws -> String {
-        if let pending {
-            if let accountSigner, accountSigner.publicKey == pending.localPublicKey,
-               accountSigner.principal == localAccountPrincipal {
-                return try accountSigner.accountDirectCallSecret(peerMemberID: pending.peerMemberID,
-                    peerPublicKey: pending.peerPublicKey, callID: group.id)
+        if let accountSigner {
+            let pendingPeer = pending.flatMap { keys in
+                accountSigner.publicKey == keys.localPublicKey && accountSigner.principal == localAccountPrincipal
+                    ? keys.peerMemberID : nil
             }
-            if localAccountPrincipal == nil,
-               let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
-                                                                        expectedPublicKey: pending.localPublicKey),
-               signer.principal == nil {
-                return try signer.ordinaryGroupDirectCallSecret(peerMemberID: pending.peerMemberID, peerPublicKey: pending.peerPublicKey)
+            let onlyKnownPeer = user.memberIDs.count == 1 ? user.memberIDs.first : nil
+            if let peer = pendingPeer ?? onlyKnownPeer, let binding = group.accountDevices[peer] {
+                return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
             }
-        }
-        if user.memberIDs.count == 1, let peer = user.memberIDs.first,
-           let accountSigner, let binding = group.accountDevices[peer] {
-            return try accountSigner.accountDirectCallSecret(peerMemberID: peer, peerPublicKey: binding.publicKey, callID: group.id)
+        } else if let pending, localAccountPrincipal == nil,
+                  let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID,
+                                                                           expectedPublicKey: pending.localPublicKey),
+                  signer.principal == nil {
+            return try signer.ordinaryGroupDirectCallSecret(peerMemberID: pending.peerMemberID, peerPublicKey: pending.peerPublicKey)
         }
         return SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
     }
