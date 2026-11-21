@@ -15,17 +15,24 @@ struct ConversationIdentity: Codable, Sendable {
     }
 
     private struct Manifest: Decodable {
-        struct Fixture: Decodable {
-            struct Utterance: Decodable { let text: String; let startSeconds: Double; let endSeconds: Double }
-            let name: String
-            let utterances: [Utterance]
-        }
         let fixtures: [Fixture]
+    }
+
+    private struct Fixture: Decodable {
+        let name: String
+        let utterances: [Utterance]
+    }
+
+    private struct Utterance: Decodable {
+        let text: String
+        let startSeconds: Double
+        let endSeconds: Double
     }
 
     static func measure(fixture: String, reference: [Float], output: [Float], outputRate: Double,
                         referenceOffset: Double) throws -> Self {
-        let url = try XCTUnwrap(Bundle(for: AudioE2ETests.self).url(forResource: "conversation-manifest", withExtension: "json"))
+        let bundle = Bundle(for: AudioE2ETests.self)
+        let url = try XCTUnwrap(bundle.url(forResource: "conversation-manifest", withExtension: "json"))
         let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url))
         let utterances = try XCTUnwrap(manifest.fixtures.first { $0.name == fixture }).utterances
         let period = Double(reference.count) / 48000
@@ -33,17 +40,23 @@ struct ConversationIdentity: Codable, Sendable {
         var replies: [Reply] = []
         for utterance in utterances where ["うん", "ふん"].contains(utterance.text) {
             let start = utterance.startSeconds - 0.04, end = utterance.endSeconds + 0.04
-            let expected = RenderedAudioProbe.features(Array(reference[Int(start * 48000)..<Int(end * 48000)]), rate: 48000)
+            let referenceRange = Int(start * 48000)..<Int(end * 48000)
+            let expected = RenderedAudioProbe.features(Array(reference[referenceRange]), rate: 48000)
             for cycle in -1...Int(ceil(duration / period) + 2) {
                 let time = start - referenceOffset + Double(cycle) * period
                 guard time >= 0, time + end - start <= duration else { continue }
-                let actual = RenderedAudioProbe.features(Array(output[Int(time * outputRate)..<Int((time + end - start) * outputRate)]), rate: outputRate)
-                var dot: Float = 0, a: Float = 0, b: Float = 0
+                let outputRange = Int(time * outputRate)..<Int((time + end - start) * outputRate)
+                let actual = RenderedAudioProbe.features(Array(output[outputRange]), rate: outputRate)
+                var dot: Float = 0, referencePower: Float = 0, outputPower: Float = 0
                 for (left, right) in zip(expected, actual) {
-                    for (x, y) in zip(left, right) { dot += x * y; a += x * x; b += y * y }
+                    for (referenceValue, outputValue) in zip(left, right) {
+                        dot += referenceValue * outputValue
+                        referencePower += referenceValue * referenceValue
+                        outputPower += outputValue * outputValue
+                    }
                 }
                 replies.append(.init(text: utterance.text, outputSeconds: time + 0.04,
-                    correlation: a * b > 1e-8 ? dot / sqrt(a * b) : 0))
+                    correlation: referencePower * outputPower > 1e-8 ? dot / sqrt(referencePower * outputPower) : 0))
             }
         }
         return Self(replies: replies)

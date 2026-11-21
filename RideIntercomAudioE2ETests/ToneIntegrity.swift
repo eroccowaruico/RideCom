@@ -18,7 +18,10 @@ struct ToneIntegrity {
         let signal = Swift.stride(from: 0, to: samples.count, by: stride).map { Double(samples[$0]) }
         let sampleRate = rate / Double(stride)
         let basis = frequencies.map { frequency in
-            signal.indices.map { index in (sin(Double(index) * 2 * .pi * frequency / sampleRate), cos(Double(index) * 2 * .pi * frequency / sampleRate)) }
+            signal.indices.map { index in
+                let phase = Double(index) * 2 * .pi * frequency / sampleRate
+                return (sin(phase), cos(phase))
+            }
         }
         let coefficients = basis.map { wave in
             let sine = zip(signal, wave).reduce(0.0) { $0 + $1.0 * $1.1.0 } * 2 / Double(signal.count)
