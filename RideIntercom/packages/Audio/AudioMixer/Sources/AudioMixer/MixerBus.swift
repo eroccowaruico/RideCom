@@ -10,7 +10,7 @@ public final class MixerBus {
 	private unowned let engine: AVAudioEngine
 	private let format: AVAudioFormat
 	private let audioFormat: AudioFormat
-    private let prepareForGraphChange: () -> Void
+    private let effectChain: MixerEffectChain
     private let renderClock: MixerRenderClock
 	private var sourceNodeIDs: Set<ObjectIdentifier> = []
 	private var sourceNodeOrder: [ObjectIdentifier] = []
@@ -20,15 +20,11 @@ public final class MixerBus {
 	private var sinkOrder: [String] = []
 	private var sinksByID: [String: MixerPCMSink] = [:]
 	private var sinkMetadataByID: [String: MixerSinkMetadata] = [:]
-	private var effectNodeIDs: Set<ObjectIdentifier> = []
-	private var bypassedEffectNodeIDs: Set<ObjectIdentifier> = []
-	private var effectMetadataByNodeID: [ObjectIdentifier: MixerEffectMetadata] = [:]
 	private var nextSourceSequence = 0
 	private var nextSinkSequence = 0
-	private var nextEffectSequence = 0
 	private var renderCapture: RenderCaptureNode?
 
-	public private(set) var effects: [AVAudioNode] = []
+	public var effects: [AVAudioNode] { effectChain.effects }
 
 	internal func detach() {
 		stopPCMSources()
@@ -41,7 +37,7 @@ public final class MixerBus {
 		let sourceFaders = Set(pcmSourceByNodeID.values.map { ObjectIdentifier($0.faderNode) })
 		let owned = engine.attachedNodes.filter { node in
 			let nodeID = ObjectIdentifier(node)
-			return sourceNodeIDs.contains(nodeID) || sourceFaders.contains(nodeID) || effectNodeIDs.contains(nodeID)
+			return sourceNodeIDs.contains(nodeID) || sourceFaders.contains(nodeID) || effectChain.contains(nodeID)
 				|| node === inputMixer || node === faderMixer
 		}
 		for node in owned { engine.disconnectNodeInput(node); engine.disconnectNodeOutput(node); engine.detach(node) }
@@ -68,10 +64,11 @@ public final class MixerBus {
 		self.engine = engine
 		self.format = format
 		self.audioFormat = audioFormat
-        self.prepareForGraphChange = prepareForGraphChange
         self.renderClock = renderClock
 		self.inputMixer = AVAudioMixerNode()
 		self.faderMixer = AVAudioMixerNode()
+        self.effectChain = MixerEffectChain(id: id, engine: engine, format: format, inputMixer: inputMixer,
+            faderMixer: faderMixer, prepareForGraphChange: prepareForGraphChange)
 	}
 
 	public func addSource(_ node: AVAudioNode, id sourceID: String? = nil) throws {
@@ -82,7 +79,7 @@ public final class MixerBus {
 		guard !isEngineInternalNode(node) else {
 			throw AudioMixerError.incompatibleEffectNode
 		}
-		let resolvedID = try resolveNodeID(
+		let resolvedID = try resolveMixerNodeID(
 			sourceID,
 			generatedPrefix: "source",
 			existingIDs: Set(sourceMetadataByNodeID.values.map(\.id)),
@@ -122,7 +119,7 @@ public final class MixerBus {
 		let player = AVAudioPlayerNode()
 		let fader = AVAudioMixerNode()
 		let nodeID = ObjectIdentifier(player)
-		let resolvedID = try resolveNodeID(
+		let resolvedID = try resolveMixerNodeID(
 			sourceID,
 			generatedPrefix: "pcm-source",
 			existingIDs: Set(sourceMetadataByNodeID.values.map(\.id)),
@@ -197,7 +194,7 @@ public final class MixerBus {
 		}
 		metadataLock.lock()
 		defer { metadataLock.unlock() }
-		let resolvedID = try resolveNodeID(
+		let resolvedID = try resolveMixerNodeID(
 			sinkID,
 			generatedPrefix: "pcm-sink",
 			existingIDs: Set(sinkMetadataByID.keys),
@@ -235,14 +232,14 @@ public final class MixerBus {
 
     public var processingLatency: TimeInterval {
         metadataLock.withLock {
-            effects.filter { !bypassedEffectNodeIDs.contains(ObjectIdentifier($0)) }.reduce(0) { $0 + $1.latency }
+            effectChain.activeEffects.reduce(0) { $0 + $1.latency }
         }
     }
 
     /// Tail from active native effects only; bypassed nodes are disconnected.
     public var processingTailTime: TimeInterval {
         metadataLock.withLock {
-            effects.filter { !bypassedEffectNodeIDs.contains(ObjectIdentifier($0)) }.reduce(0) {
+            effectChain.activeEffects.reduce(0) {
                 $0 + (($1 as? AVAudioUnit)?.withAUAudioUnit { $0.tailTime } ?? 0)
             }
         }
@@ -289,17 +286,7 @@ public final class MixerBus {
 			sinkCount: sinkSnapshots.count,
 			sources: sourceSnapshots,
 			sinks: sinkSnapshots,
-			effectChain: effects.enumerated().map { index, effect in
-				let typeName = String(describing: type(of: effect))
-				let metadata = effectMetadataByNodeID[ObjectIdentifier(effect)]
-				return MixerEffectSnapshot(
-					id: metadata?.id ?? typeName,
-					typeName: typeName,
-					index: index,
-					state: metadata?.state ?? .unknown,
-					parameters: metadata?.parameters ?? []
-				)
-			}
+			effectChain: effectChain.snapshots()
 		)
 	}
 
@@ -343,115 +330,27 @@ public final class MixerBus {
 		}
 	}
 
-	public func addEffect(
-		_ node: AVAudioNode,
-		id effectID: String? = nil,
-		bypassed: Bool = false,
-		state: MixerEffectState = .unknown,
-		parameters: [MixerEffectParameterSnapshot] = []
-	) throws {
-		let nodeID = ObjectIdentifier(node)
-		guard !effectNodeIDs.contains(nodeID) else {
-			throw AudioMixerError.invalidRoute(id)
-		}
-		guard !isEngineInternalNode(node) else {
-			throw AudioMixerError.incompatibleEffectNode
-		}
-		guard node.numberOfOutputs > 0 else {
-			throw AudioMixerError.incompatibleEffectNode
-		}
-
-		if let auNode = node as? AVAudioUnit, !(node is AVAudioUnitEffect),
-		   let nodeFmt = auNode.withAUAudioUnit({ $0.outputBusses.count > 0 ? $0.outputBusses[0].format : nil }) {
-			if nodeFmt.sampleRate > 0,
-			   nodeFmt.sampleRate != format.sampleRate || nodeFmt.channelCount != format.channelCount {
-				throw AudioMixerError.incompatibleEffectNode
-			}
-		}
-
-		let resolvedID = try resolveNodeID(
-			effectID,
-			generatedPrefix: "effect",
-			existingIDs: Set(effectMetadataByNodeID.values.map(\.id)),
-			nextSequence: &nextEffectSequence
-		)
-
-		engine.attach(node)
-		effects.append(node)
-		effectNodeIDs.insert(nodeID)
-		if bypassed { bypassedEffectNodeIDs.insert(nodeID) }
-		effectMetadataByNodeID[nodeID] = MixerEffectMetadata(
-			id: resolvedID,
-			state: state,
-			parameters: parameters
-		)
-		try rebuildChain()
-	}
-
-	/// Route around disabled effects. An Audio Unit's own bypass can retain
-	/// its algorithmic latency and make the engine delay the remaining paths.
-	public func setEffectBypassed(id effectID: String, bypassed: Bool) throws {
-		guard let nodeID = effectMetadataByNodeID.first(where: { $0.value.id == effectID })?.key else {
-			throw AudioMixerError.unknownEffect(effectID)
-		}
-		guard bypassedEffectNodeIDs.contains(nodeID) != bypassed else { return }
-		if bypassed { bypassedEffectNodeIDs.insert(nodeID) } else { bypassedEffectNodeIDs.remove(nodeID) }
-		try rebuildChain()
-	}
-
-    /// Prepare a requested enable while the effect is still disconnected.
-    /// Native model allocation can be slow; it need not interrupt the current
-    /// audio path. The graph owner must serialize this with topology changes.
-    public func prepareEffect(id effectID: String) throws {
-        guard let nodeID = effectMetadataByNodeID.first(where: { $0.value.id == effectID })?.key else {
-            throw AudioMixerError.unknownEffect(effectID)
-        }
-        guard bypassedEffectNodeIDs.contains(nodeID),
-              let node = effects.first(where: { ObjectIdentifier($0) == nodeID }) as? AVAudioUnit else { return }
-        try node.withAUAudioUnit { unit throws in
-            guard !unit.renderResourcesAllocated else { return }
-            for index in 0..<unit.inputBusses.count { try unit.inputBusses[index].setFormat(format) }
-            for index in 0..<unit.outputBusses.count { try unit.outputBusses[index].setFormat(format) }
-            try unit.allocateRenderResources()
-        }
+    public func addEffect(
+        _ node: AVAudioNode, id effectID: String? = nil, bypassed: Bool = false,
+        state: MixerEffectState = .unknown, parameters: [MixerEffectParameterSnapshot] = []
+    ) throws {
+        try effectChain.addEffect(node, id: effectID, bypassed: bypassed, state: state, parameters: parameters)
     }
 
-	public func updateEffectSnapshot(
-		id effectID: String,
-		state: MixerEffectState? = nil,
-		parameters: [MixerEffectParameterSnapshot]? = nil
-	) throws {
-		guard !effectID.isEmpty else {
-			throw AudioMixerError.invalidNodeID(effectID)
-		}
-		guard let entry = effectMetadataByNodeID.first(where: { $0.value.id == effectID }) else {
-			throw AudioMixerError.unknownEffect(effectID)
-		}
+    /// Route around disabled effects so their native latency does not delay other paths.
+    public func setEffectBypassed(id effectID: String, bypassed: Bool) throws {
+        try effectChain.setEffectBypassed(id: effectID, bypassed: bypassed)
+    }
 
-		var metadata = entry.value
-		if let state {
-			metadata.state = state
-		}
-		if let parameters {
-			metadata.parameters = parameters
-		}
-		effectMetadataByNodeID[entry.key] = metadata
-	}
+    /// Prepare a disconnected effect without interrupting the current audio path.
+    /// The graph owner must serialize this with topology changes.
+    public func prepareEffect(id effectID: String) throws { try effectChain.prepareEffect(id: effectID) }
 
-	public func removeEffect(at index: Int) throws {
-		guard effects.indices.contains(index) else {
-			throw AudioMixerError.invalidEffectIndex(index)
-		}
+    public func updateEffectSnapshot(
+        id effectID: String, state: MixerEffectState? = nil, parameters: [MixerEffectParameterSnapshot]? = nil
+    ) throws { try effectChain.updateEffectSnapshot(id: effectID, state: state, parameters: parameters) }
 
-		let removed = effects.remove(at: index)
-		effectNodeIDs.remove(ObjectIdentifier(removed))
-		bypassedEffectNodeIDs.remove(ObjectIdentifier(removed))
-		effectMetadataByNodeID.removeValue(forKey: ObjectIdentifier(removed))
-		engine.disconnectNodeOutput(removed)
-		engine.disconnectNodeInput(removed)
-		engine.detach(removed)
-		try rebuildChain()
-	}
+    public func removeEffect(at index: Int) throws { try effectChain.removeEffect(at: index) }
 
     /// Reset the caller-driven processor's owned state without reconnecting
     /// the graph, reallocating units or restarting the native sample clock.
@@ -468,22 +367,7 @@ public final class MixerBus {
         for source in pcmSourceByNodeID.values { source.invalidatePlayout() }
     }
 
-	func rebuildChain() throws {
-        if engine.isRunning { prepareForGraphChange() }
-
-		engine.disconnectNodeOutput(inputMixer)
-		for effect in effects {
-			engine.disconnectNodeOutput(effect)
-		}
-
-		var previous: AVAudioNode = inputMixer
-		for effect in effects where !bypassedEffectNodeIDs.contains(ObjectIdentifier(effect)) {
-			try engine.connectNode(previous, to: effect, format: format)
-			previous = effect
-		}
-
-		try engine.connectNode(previous, to: faderMixer, format: format)
-	}
+	func rebuildChain() throws { try effectChain.rebuildChain() }
 
 	func deliverToSinks(_ frame: PCMFrame) throws {
 		metadataLock.lock()
@@ -554,29 +438,6 @@ public final class MixerBus {
 		sinkMetadataByID[id] = metadata
 	}
 
-	private func resolveNodeID(
-		_ proposedID: String?,
-		generatedPrefix: String,
-		existingIDs: Set<String>,
-		nextSequence: inout Int
-	) throws -> String {
-		if let proposedID {
-			guard !proposedID.isEmpty else {
-				throw AudioMixerError.invalidNodeID(proposedID)
-			}
-			guard !existingIDs.contains(proposedID) else {
-				throw AudioMixerError.duplicateNodeID(proposedID)
-			}
-			return proposedID
-		}
-
-		var generatedID: String
-		repeat {
-			generatedID = "\(generatedPrefix)-\(nextSequence)"
-			nextSequence += 1
-		} while existingIDs.contains(generatedID)
-		return generatedID
-	}
 }
 
 private struct MixerSourceMetadata {
@@ -598,10 +459,4 @@ private struct MixerSinkMetadata {
 	var emittedFrameCount = 0
 	var normalizationReport: AudioProcessingReport?
 	var lastFailure: String?
-}
-
-private struct MixerEffectMetadata {
-	var id: String
-	var state: MixerEffectState
-	var parameters: [MixerEffectParameterSnapshot]
 }
