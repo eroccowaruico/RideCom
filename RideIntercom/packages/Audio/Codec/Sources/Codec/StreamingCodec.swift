@@ -12,9 +12,9 @@ struct CodecPacketizationTiming {
     init(nativeFrames: Int) { self.nativeFrames = max(1, nativeFrames); divisor = max(1, nativeFrames) }
     mutating func observe(quantumFrames: Int) {
         maximumQuantum = max(maximumQuantum, quantumFrames)
-        var a = divisor, b = quantumFrames
-        while b > 0 { (a, b) = (b, a % b) }
-        divisor = a
+        var factor = divisor, remainder = quantumFrames
+        while remainder > 0 { (factor, remainder) = (remainder, factor % remainder) }
+        divisor = factor
     }
     var jitterFrames: Int { max(0, min(maximumQuantum, nativeFrames) - divisor) }
 }
@@ -60,30 +60,14 @@ public final class StreamingCodecEncoder {
                 format: configuration.format, bitRate: configuration.activeBitRate) else {
             throw CodecError.invalidFormat(configuration.format)
         }
-        var compressed = initial
-        if configuration.codec == .opus || configuration.codec == .mpeg4AACELD {
-            var description = withExtendedLifetime(initial) { initial.streamDescription.pointee }
-            // 5 ms Opus selects CELT-only, avoiding the short artifacts measured
-            // in native 10 ms mode. Both codec frames leave in the same 10 ms
-            // capture packet; network wakeups do not double.
-            // AAC-ELD supports 480-sample frames
-            // (10 ms at 48 kHz); its default is 512. Request the native frame
-            // size explicitly instead of waiting for the 20 ms Opus default.
-            description.mFramesPerPacket = configuration.codec == .opus
-                ? UInt32(configuration.format.sampleRate / 200) : 480
-            guard let format = AVAudioFormat(streamDescription: &description) else {
-                throw CodecError.audioFormatCreationFailed(configuration.codec)
-            }
-            compressed = format
-        }
+        let compressed = try Self.streamingFormat(initial, configuration: configuration)
         pcmFormat = pcm
         compressedFormat = compressed
         if configuration.codec == .pcm16 {
             converter = nil
             nativePacketFrames = 1
             nativeToPCMRate = 1
-        }
-        else {
+        } else {
             guard let native = AVAudioConverter(from: pcm, to: compressed) else {
                 throw CodecError.encoderUnavailable(configuration.codec)
             }
@@ -122,20 +106,38 @@ public final class StreamingCodecEncoder {
         packetizationTiming = .init(nativeFrames: Int(nativePacketFrames))
     }
 
+    private static func streamingFormat(
+        _ initial: AVAudioFormat, configuration: CodecEncodingConfiguration
+    ) throws -> AVAudioFormat {
+        if configuration.codec == .opus || configuration.codec == .mpeg4AACELD {
+            var description = withExtendedLifetime(initial) { initial.streamDescription.pointee }
+            // 5 ms Opus selects CELT-only, avoiding the short artifacts measured
+            // in native 10 ms mode. Both codec frames leave in the same 10 ms
+            // capture packet; network wakeups do not double.
+            // AAC-ELD supports 480-sample frames
+            // (10 ms at 48 kHz); its default is 512. Request the native frame
+            // size explicitly instead of waiting for the 20 ms Opus default.
+            description.mFramesPerPacket = configuration.codec == .opus
+                ? UInt32(configuration.format.sampleRate / 200) : 480
+            guard let format = AVAudioFormat(streamDescription: &description) else {
+                throw CodecError.audioFormatCreationFailed(configuration.codec)
+            }
+            return format
+        }
+        return initial
+    }
+
     public func encode(_ frame: PCMFrame) throws -> EncodedCodecFrame? {
         _ = try frame.validated()
         guard frame.format == configuration.format else {
             throw CodecError.formatMismatch(expected: configuration.format, actual: frame.format)
         }
         guard frame.frameCount > 0 else { return nil }
-        guard frame.frameCount <= Int(frame.format.sampleRate) else { throw CodecError.malformedPayload(configuration.codec) }
-        packetizationTiming.observe(quantumFrames: frame.frameCount)
-        if suppressesSilence {
-            if frame.samples.allSatisfy({ $0 == 0 }) {
-                if silentDuration >= 0.1 { return nil }
-                silentDuration += Double(frame.frameCount) / frame.format.sampleRate
-            } else { silentDuration = 0 }
+        guard frame.frameCount <= Int(frame.format.sampleRate) else {
+            throw CodecError.malformedPayload(configuration.codec)
         }
+        packetizationTiming.observe(quantumFrames: frame.frameCount)
+        if shouldSuppress(frame) { return nil }
         lastSequenceNumber = frame.sequenceNumber
         var inputFrame = frame
         if let end = inputEnd, abs(frame.capturedAt - end) > 2 / frame.format.sampleRate {
@@ -166,9 +168,18 @@ public final class StreamingCodecEncoder {
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { count, state in provider.provide(count, state) }
         guard status != .error else {
-            throw CodecError.conversionFailed(configuration.codec, error?.localizedDescription ?? "Streaming encode failed")
+            throw CodecError.conversionFailed(
+                configuration.codec, error?.localizedDescription ?? "Streaming encode failed")
         }
         return try makePacket(output, sequenceNumber: frame.sequenceNumber, validThrough: nil)
+    }
+
+    private func shouldSuppress(_ frame: PCMFrame) -> Bool {
+        guard suppressesSilence else { return false }
+        guard frame.samples.allSatisfy({ $0 == 0 }) else { silentDuration = 0; return false }
+        if silentDuration >= 0.1 { return true }
+        silentDuration += Double(frame.frameCount) / frame.format.sampleRate
+        return false
     }
 
     /// Ends a finite stream. Repeated calls return no packets; a later encode
@@ -197,9 +208,12 @@ public final class StreamingCodecEncoder {
                 return nil
             }
             guard status != .error else {
-                throw CodecError.conversionFailed(configuration.codec, error?.localizedDescription ?? "Streaming finish failed")
+                throw CodecError.conversionFailed(
+                    configuration.codec, error?.localizedDescription ?? "Streaming finish failed")
             }
-            if let packet = try makePacket(output, sequenceNumber: lastSequenceNumber &+ UInt64(packets.count) &+ 1, validThrough: validThrough) {
+            if let packet = try makePacket(
+                output, sequenceNumber: lastSequenceNumber &+ UInt64(packets.count) &+ 1,
+                validThrough: validThrough) {
                 packets.append(packet)
             }
             if status == .endOfStream || output.packetCount == 0 { break }
@@ -225,7 +239,8 @@ public final class StreamingCodecEncoder {
             maximumPacketSize: output.maximumPacketSize, packetCount: output.packetCount,
             packetDescriptions: packetDescriptions, magicCookie: converter.magicCookie,
             primingFrameCount: UInt32(primed),
-            packetizationJitterFrames: packetizationTiming.jitterFrames > 0 ? UInt32(packetizationTiming.jitterFrames) : nil,
+            packetizationJitterFrames: packetizationTiming.jitterFrames > 0
+                ? UInt32(packetizationTiming.jitterFrames) : nil,
             data: Data(bytes: output.data, count: Int(output.byteLength)))
         return EncodedCodecFrame(sequenceNumber: sequenceNumber, codec: configuration.codec,
             format: configuration.format, capturedAt: timestamp + Double(primed) / configuration.format.sampleRate,
@@ -242,8 +257,6 @@ public final class StreamingCodecDecoder {
     public private(set) var packetizationJitterDuration: TimeInterval = 0
     private var streamID: UUID?
     private var converter: AVAudioConverter?
-    private var compressedFormat: AVAudioFormat?
-    private var pcmFormat: AVAudioFormat?
     private var format: AudioFormat?
     private var codec: CodecIdentifier?
     private var magicCookie: Data?
@@ -260,63 +273,71 @@ public final class StreamingCodecDecoder {
             return finish(try CodecDecoder().decode(frame), streamChanged: changed)
         }
         guard frame.format.isValid, frame.capturedAt.isFinite,
-              frame.payload.count <= CodecDecoder.maximumPayloadBytes else { throw CodecError.malformedPayload(frame.codec) }
+            frame.payload.count <= CodecDecoder.maximumPayloadBytes
+        else { throw CodecError.malformedPayload(frame.codec) }
         let envelope = try CompressedPayloadEnvelope.decode(frame.payload, expectedCodec: frame.codec)
         packetizationJitterDuration = Double(envelope.packetizationJitterFrames ?? 0) / frame.format.sampleRate
         guard let identity = envelope.streamID else { return try CodecDecoder().decode(frame) }
         guard envelope.primingFrameCount <= envelope.sourceFrameCount,
               frame.sampleCount >= 0, frame.sampleCount % frame.format.channelCount == 0,
-              frame.sampleCount <= envelope.sourceSampleCount - Int(envelope.primingFrameCount) * frame.format.channelCount,
+            frame.sampleCount <= envelope.sourceSampleCount - Int(envelope.primingFrameCount)
+                * frame.format.channelCount,
               envelope.sourceSampleCount == Int(envelope.sourceFrameCount) * frame.format.channelCount else {
             throw CodecError.malformedPayload(frame.codec)
         }
         let changed = streamID != identity || format != frame.format || codec != frame.codec
-        if changed {
-            if converter != nil, format == frame.format, codec == frame.codec, magicCookie == envelope.magicCookie {
-                // A silent pause changes stream identity, not native format.
-                // Reset history in place instead of reallocating on the first syllable.
-                converter?.reset()
-            } else {
-                guard let pcm = AudioConverterBridge.makePCMFormat(frame.format),
-                      let compressed = AudioConverterBridge.makeDecodeFormat(codec: frame.codec, format: frame.format, cookie: envelope.magicCookie) else {
-                    throw CodecError.audioFormatCreationFailed(frame.codec)
-                }
-                compressed.magicCookie = envelope.magicCookie
-                guard let native = AVAudioConverter(from: compressed, to: pcm) else { throw CodecError.decoderUnavailable(frame.codec) }
-                native.magicCookie = envelope.magicCookie
-                converter = native
-                pcmFormat = pcm
-                compressedFormat = compressed
-                magicCookie = envelope.magicCookie
-            }
-            streamID = identity
-            format = frame.format
-            codec = frame.codec
-        }
-        let input = AVAudioCompressedBuffer(format: compressedFormat!, packetCapacity: envelope.packetCount,
-            maximumPacketSize: envelope.maximumPacketSize)
-        input.packetCount = envelope.packetCount
-        input.byteLength = UInt32(envelope.data.count)
-        envelope.data.withUnsafeBytes { bytes in
-            if let base = bytes.baseAddress { input.data.copyMemory(from: base, byteCount: bytes.count) }
-        }
-        for (index, description) in envelope.packetDescriptions.enumerated() {
-            input.packetDescriptions?[index] = description.audioStreamPacketDescription
-        }
-        guard let output = AVAudioPCMBuffer(pcmFormat: pcmFormat!, frameCapacity: envelope.sourceFrameCount + 8192) else {
+        let decoder = try decoder(for: frame, cookie: envelope.magicCookie, streamChanged: changed)
+        streamID = identity
+        format = frame.format
+        codec = frame.codec
+        let input = AudioConverterBridge.compressedInput(envelope, format: decoder.inputFormat)
+        guard
+            let output = AVAudioPCMBuffer(
+                pcmFormat: decoder.outputFormat, frameCapacity: envelope.sourceFrameCount + 8192)
+        else {
             throw CodecError.audioFormatCreationFailed(frame.codec)
         }
         let provider = AudioBufferProvider(input, exhausted: .noDataNow)
         var error: NSError?
-        let status = converter!.convert(to: output, error: &error) { count, state in provider.provide(count, state) }
-        guard status != .error else { throw CodecError.conversionFailed(frame.codec, error?.localizedDescription ?? "Streaming decode failed") }
+        let status = decoder.convert(to: output, error: &error) { count, state in provider.provide(count, state) }
+        guard status != .error else {
+            throw CodecError.conversionFailed(
+                frame.codec, error?.localizedDescription ?? "Streaming decode failed")
+        }
         let samples = try AudioConverterBridge.samples(from: output, format: frame.format,
             sampleLimit: Int(output.frameLength) * frame.format.channelCount)
         let skipped = max(0, Int(envelope.sourceFrameCount) - Int(output.frameLength))
         let primed = min(Int(output.frameLength), max(0, Int(envelope.primingFrameCount) - skipped))
         return finish(PCMFrame(sequenceNumber: frame.sequenceNumber, format: frame.format,
-            capturedAt: frame.capturedAt + Double(max(0, skipped - Int(envelope.primingFrameCount))) / frame.format.sampleRate,
-            samples: Array(samples.dropFirst(primed * frame.format.channelCount).prefix(frame.sampleCount))), streamChanged: changed)
+                capturedAt: frame.capturedAt + Double(max(0, skipped - Int(envelope.primingFrameCount)))
+                    / frame.format.sampleRate,
+                samples: Array(samples.dropFirst(primed * frame.format.channelCount).prefix(frame.sampleCount))),
+            streamChanged: changed)
+    }
+
+    private func decoder(for frame: EncodedCodecFrame, cookie: Data?, streamChanged: Bool) throws -> AVAudioConverter {
+        if let converter {
+            if !streamChanged { return converter }
+            if format == frame.format, codec == frame.codec, magicCookie == cookie {
+                // A pause starts new history in the same native format.
+                converter.reset()
+                return converter
+            }
+        }
+        guard let pcm = AudioConverterBridge.makePCMFormat(frame.format),
+            let compressed = AudioConverterBridge.makeDecodeFormat(
+                codec: frame.codec, format: frame.format, cookie: cookie)
+        else {
+            throw CodecError.audioFormatCreationFailed(frame.codec)
+        }
+        compressed.magicCookie = cookie
+        guard let native = AVAudioConverter(from: compressed, to: pcm) else {
+            throw CodecError.decoderUnavailable(frame.codec)
+        }
+        native.magicCookie = cookie
+        converter = native
+        magicCookie = cookie
+        return native
     }
 
     private func finish(_ frame: PCMFrame, streamChanged: Bool) -> PCMFrame {
