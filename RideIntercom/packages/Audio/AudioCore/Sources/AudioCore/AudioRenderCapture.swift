@@ -92,11 +92,12 @@ public final class AudioRenderCapture: @unchecked Sendable {
             return host ?? 0
         }
         let sample = timestamp.mSampleTime
-        if clockAnchor == nil || previousSampleTime.map({ sample <= $0 }) == true {
-            clockAnchor = (sample, host ?? sample / format.sampleRate)
+        defer { previousSampleTime = sample }
+        guard let anchor = clockAnchor, previousSampleTime.map({ sample <= $0 }) != true else {
+            let time = host ?? sample / format.sampleRate
+            clockAnchor = (sample, time)
+            return time
         }
-        previousSampleTime = sample
-        let anchor = clockAnchor!
         // Timestamp observation jitter is not a gap in captured PCM. Preserve
         // the device's sample clock; forward gaps remain gaps and a reset
         // establishes a new host anchor instead of replaying an old epoch.
@@ -108,7 +109,8 @@ public final class AudioRenderCapture: @unchecked Sendable {
         while active.load(ordering: .acquiring), tail < written.load(ordering: .acquiring) {
             let slot = slots[tail % slots.count]
             let frame = PCMFrame(sequenceNumber: slot.sequence, format: format,
-                capturedAt: slot.capturedAt, samples: Array(UnsafeBufferPointer(start: slot.samples, count: slot.count)))
+                capturedAt: slot.capturedAt,
+                samples: Array(UnsafeBufferPointer(start: slot.samples, count: slot.count)))
             tail += 1
             consumed.store(tail, ordering: .releasing)
             onFrame(frame)

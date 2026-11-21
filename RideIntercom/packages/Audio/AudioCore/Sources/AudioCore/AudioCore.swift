@@ -15,8 +15,10 @@ public struct AudioFormat: Codable, Equatable, Sendable {
 
     public init(sampleRate: Double = Self.defaultSampleRate, channelCount: Int = 1) {
         let finiteSampleRate = sampleRate.isFinite ? sampleRate : Self.defaultSampleRate
-        self.sampleRate = min(Self.allowedSampleRateRange.upperBound, max(Self.allowedSampleRateRange.lowerBound, finiteSampleRate))
-        self.channelCount = min(Self.allowedChannelCountRange.upperBound, max(Self.allowedChannelCountRange.lowerBound, channelCount))
+        self.sampleRate = min(
+            Self.allowedSampleRateRange.upperBound, max(Self.allowedSampleRateRange.lowerBound, finiteSampleRate))
+        self.channelCount = min(
+            Self.allowedChannelCountRange.upperBound, max(Self.allowedChannelCountRange.lowerBound, channelCount))
     }
 }
 

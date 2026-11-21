@@ -39,26 +39,30 @@ public struct PCMStreamTransition: Sendable {
                     // Native graph reconfiguration may return silence beyond
                     // its advertised DSP latency. Fade the first returning
                     // sample, without holding or shifting any input sample.
-                    guard (0..<channels).contains(where: { frame.samples[index * channels + $0] != 0 }) else { continue }
+                    guard (0..<channels).contains(where: { frame.samples[index * channels + $0] != 0 }) else {
+                        continue
+                    }
                     hasResumed = true
                     elapsed = settling
                 }
                 if elapsed >= settling + 0.002 { isTransitioning = false; break }
                 for channel in 0..<channels {
                     let position = index * channels + channel
-                    if elapsed < 0.002 {
-                        result.samples[position] = (channel < beginning.count ? beginning[channel] : 0)
-                            * Float(1 - elapsed / 0.002)
-                    } else if elapsed < settling {
-                        result.samples[position] = 0
-                    } else {
-                        result.samples[position] *= Float(min(1, (elapsed - settling) / 0.002))
-                    }
+                    result.samples[position] = transitionSample(result.samples[position], channel: channel)
                 }
                 elapsed += 1 / frame.format.sampleRate
             }
         }
         last = Array(result.samples.suffix(channels))
         return result
+    }
+
+    private func transitionSample(_ input: Float, channel: Int) -> Float {
+        if elapsed < 0.002 {
+            let previous = channel < beginning.count ? beginning[channel] : 0
+            return previous * Float(1 - elapsed / 0.002)
+        }
+        if elapsed < settling { return 0 }
+        return input * Float(min(1, (elapsed - settling) / 0.002))
     }
 }

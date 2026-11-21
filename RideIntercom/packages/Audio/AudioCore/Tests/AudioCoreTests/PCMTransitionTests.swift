@@ -26,7 +26,8 @@ import Testing
 @Test func normalStreamingIsBitExactAcrossArbitraryQuanta() {
     var transition = PCMStreamTransition()
     for number in 0..<100 {
-        let frame = PCMFrame(sequenceNumber: UInt64(number), samples: (0..<257).map { Float(sin(Double(number * 257 + $0))) })
+        let frame = PCMFrame(
+            sequenceNumber: UInt64(number), samples: (0..<257).map { Float(sin(Double(number * 257 + $0))) })
         #expect(transition.process(frame) == frame)
     }
 }
@@ -36,7 +37,8 @@ import Testing
     _ = transition.process(.init(sequenceNumber: 0, samples: Array(repeating: 0.4, count: 480)))
     transition.begin(settlingDuration: 0, holding: true)
     for number in 1...5 {
-        let held = transition.process(.init(sequenceNumber: UInt64(number), samples: Array(repeating: -0.4, count: 480)))
+        let held = transition.process(
+            .init(sequenceNumber: UInt64(number), samples: Array(repeating: -0.4, count: 480)))
         #expect(held.samples.dropFirst(number == 1 ? 97 : 0).allSatisfy { $0 == 0 })
     }
     transition.begin(settlingDuration: 0.01)

@@ -14,6 +14,13 @@ private func waitForEntry(_ semaphore: DispatchSemaphore) -> Bool {
     semaphore.wait(timeout: .now() + 1) == .success
 }
 
+private func monoBuffer(frames: AVAudioFrameCount) throws -> AVAudioPCMBuffer {
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+    buffer.frameLength = frames
+    return buffer
+}
+
 @Test func finishingCaptureDiscardsQueuedAudioWithoutWaitingForTheCurrentCallback() async throws {
     let received = CapturedFrames()
     let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
@@ -21,10 +28,9 @@ private func waitForEntry(_ semaphore: DispatchSemaphore) -> Bool {
         if frame.sequenceNumber == 0 { entered.signal(); release.wait() }
         received.append(frame)
     }
-    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
-    buffer.frameLength = 480
-    buffer.floatChannelData![0].update(repeating: 0.2, count: 480)
+    let buffer = try monoBuffer(frames: 480)
+    let channel = try #require(buffer.floatChannelData)[0]
+    channel.update(repeating: 0.2, count: 480)
     var time = AudioTimeStamp()
     time.mFlags = .sampleTimeValid
     capture.receive(timestamp: time, frameCount: 480, data: buffer.audioBufferList)
@@ -48,10 +54,9 @@ private func waitForEntry(_ semaphore: DispatchSemaphore) -> Bool {
 @Test func captureTimeFollowsTheSampleClockWhilePreservingRealGapsAndRestarts() async throws {
     let received = CapturedFrames()
     let capture = AudioRenderCapture(format: .init(), onFrame: received.append)
-    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
-    buffer.frameLength = 480
-    buffer.floatChannelData![0].update(repeating: 0.2, count: 480)
+    let buffer = try monoBuffer(frames: 480)
+    let channel = try #require(buffer.floatChannelData)[0]
+    channel.update(repeating: 0.2, count: 480)
     for (sample, host): (Double, Double) in [(0, 10), (480, 10.012), (1440, 10.032), (0, 15)] {
         var time = AudioTimeStamp()
         time.mFlags = [.sampleTimeValid, .hostTimeValid]
@@ -76,11 +81,10 @@ private func waitForEntry(_ semaphore: DispatchSemaphore) -> Bool {
         if frame.sequenceNumber == 0 { entered.signal(); release.wait() }
         received.append(frame)
     }
-    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512)!
-    buffer.frameLength = 512
+    let buffer = try monoBuffer(frames: 512)
+    let channel = try #require(buffer.floatChannelData)[0]
     func render(_ number: Int) {
-        for sample in 0..<512 { buffer.floatChannelData![0][sample] = Float(number) / 10 }
+        for sample in 0..<512 { channel[sample] = Float(number) / 10 }
         var time = AudioTimeStamp()
         time.mFlags = .sampleTimeValid
         time.mSampleTime = Double(number * 512)
