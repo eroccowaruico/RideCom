@@ -32,56 +32,65 @@ extension IntercomViewModel {
             if let snapshot = report.snapshot, audioCheckPhase != .recording, audioCheckPhase != .playing {
                 // Once recording starts, only route notifications may advance
                 // its baseline; a configuration report must not hide a switch.
-                applyAudioSessionSnapshot(audioCheckPhase.isInProgress ? (try? audioSessionManager.snapshot()) ?? snapshot : snapshot)
+                let current = audioCheckPhase.isInProgress
+                    ? (try? audioSessionManager.snapshot()) ?? snapshot : snapshot
+                applyAudioSessionSnapshot(current)
             }
         case .snapshotChanged(let change):
-            let previous = audioSessionSnapshot
-            switch change.reason {
-            case .interruptionBegan, .mediaServicesReset:
-                applyAudioSessionSnapshot(change.snapshot)
-                pauseAudioForSessionChange(
-                    callNotice: "Audio was interrupted. Your microphone and playback are paused. Resume audio when you are ready.",
-                    checkNotice: "Audio Check was interrupted. Run Audio Check again.")
-                return
-            case .interruptionEnded:
-                applyAudioSessionSnapshot(change.snapshot)
-                // OS permission to resume is not a user's request to transmit.
-                return
-            default: break
-            }
-            let snapshot = change.snapshot
-            if audioCheckPhase.isInProgress, let actual = try? audioSessionManager.snapshot(),
-               !actual.hasSameActiveDevices(as: snapshot) {
-                // Delivery may be delayed past stop and the next check. Do not
-                // apply an old route or advance the current check's baseline.
-                return
-            }
-            applyAudioSessionSnapshot(snapshot)
-            let lostInput = previous.availableInputs.contains { $0.id == previous.currentInput.id }
-                && !snapshot.availableInputs.contains { $0.id == previous.currentInput.id }
-            let lostOutput = previous.availableOutputs.contains { $0.id == previous.currentOutput.id }
-                && !snapshot.availableOutputs.contains { $0.id == previous.currentOutput.id }
-            let lostDevice = change.reason == .routeChanged(.oldDeviceUnavailable)
-                || change.reason == .routeChanged(.noSuitableRouteForCategory) || lostInput || lostOutput
-            if lostDevice {
-                pauseAudioForSessionChange(
-                    callNotice: "Audio device disconnected. Your microphone and playback are paused; the group connection and relay continue. Check your audio device, then resume.",
-                    checkNotice: "Audio device disconnected. Choose a device and run Audio Check again.")
-            } else if !previous.hasSameActiveDevices(as: snapshot) {
-                let preparingOwnRoute = audioCheckPhase == .preparing
-                    && (change.reason == .routeChanged(.categoryChanged) || change.reason == .routeChanged(.routeConfigurationChanged))
-                // Configuration/activation resolves Auto into actual ports.
-                // User/default-port switches and lost-device events still stop.
-                if !preparingOwnRoute { refreshAudioDevicesIfNeeded() }
-            }
-            AppLoggers.audio.notice(
-                "audio.session.route_changed",
-                metadata: .event("audio.session.route_changed")
-            )
+            applyAudioSessionRouteChange(change)
         case .operation(let report):
             guard report.result != .ignored(.superseded) else { return }
             lastAudioSessionActivationReport = report
         }
+    }
+
+    private func applyAudioSessionRouteChange(_ change: AudioSessionSnapshotChange) {
+        let previous = audioSessionSnapshot
+        switch change.reason {
+        case .interruptionBegan, .mediaServicesReset:
+            applyAudioSessionSnapshot(change.snapshot)
+            pauseAudioForSessionChange(
+                callNotice: "Audio was interrupted. Your microphone and playback are paused. "
+                    + "Resume audio when you are ready.",
+                checkNotice: "Audio Check was interrupted. Run Audio Check again.")
+            return
+        case .interruptionEnded:
+            applyAudioSessionSnapshot(change.snapshot)
+            // OS permission to resume is not a user's request to transmit.
+            return
+        default: break
+        }
+        let snapshot = change.snapshot
+        if audioCheckPhase.isInProgress, let actual = try? audioSessionManager.snapshot(),
+           !actual.hasSameActiveDevices(as: snapshot) {
+            // Delivery may be delayed past stop and the next check. Do not
+            // apply an old route or advance the current check's baseline.
+            return
+        }
+        applyAudioSessionSnapshot(snapshot)
+        let lostInput = previous.availableInputs.contains { $0.id == previous.currentInput.id }
+            && !snapshot.availableInputs.contains { $0.id == previous.currentInput.id }
+        let lostOutput = previous.availableOutputs.contains { $0.id == previous.currentOutput.id }
+            && !snapshot.availableOutputs.contains { $0.id == previous.currentOutput.id }
+        let lostDevice = change.reason == .routeChanged(.oldDeviceUnavailable)
+            || change.reason == .routeChanged(.noSuitableRouteForCategory) || lostInput || lostOutput
+        if lostDevice {
+            pauseAudioForSessionChange(
+                callNotice: "Audio device disconnected. Your microphone and playback are paused; "
+                    + "the group connection and relay continue. Check your audio device, then resume.",
+                checkNotice: "Audio device disconnected. Choose a device and run Audio Check again.")
+        } else if !previous.hasSameActiveDevices(as: snapshot) {
+            let preparingOwnRoute = audioCheckPhase == .preparing
+                && (change.reason == .routeChanged(.categoryChanged)
+                    || change.reason == .routeChanged(.routeConfigurationChanged))
+            // Configuration/activation resolves Auto into actual ports.
+            // User/default-port switches and lost-device events still stop.
+            if !preparingOwnRoute { refreshAudioDevicesIfNeeded() }
+        }
+        AppLoggers.audio.notice(
+            "audio.session.route_changed",
+            metadata: .event("audio.session.route_changed")
+        )
     }
 
     private func pauseAudioForSessionChange(callNotice: String, checkNotice: String) {
@@ -144,7 +153,8 @@ extension IntercomViewModel {
             audioErrorMessage = reason
             audioRouteNotice = nil
         } else {
-            audioRouteNotice = "Audio could not restart on the selected device. The group connection and relay continue. Check your device, then resume."
+            audioRouteNotice = "Audio could not restart on the selected device. "
+                + "The group connection and relay continue. Check your device, then resume."
         }
     }
 

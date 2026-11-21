@@ -14,16 +14,18 @@ extension IntercomViewModel {
     }
 
     @discardableResult
-    func startAudioCheck(recordDuration: Duration = .seconds(5), playbackDuration: Duration = .seconds(5), watchSessionID: UUID? = nil) -> Bool {
+    func startAudioCheck(
+        recordDuration: Duration = .seconds(5),
+        playbackDuration: Duration = .seconds(5),
+        watchSessionID: UUID? = nil
+    ) -> Bool {
         let preparedWatch = watchSessionID != nil && watchSessionID == audioCheckWatchSessionID
             && audioCheckPhase == .preparing && watchAudioLink?.sessionID == watchSessionID
         guard canPrepareAudioCheck, watchSessionID == nil ? canStartAudioCheck : preparedWatch else { return false }
 
         if !preparedWatch { cancelAudioCheck() }
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
-        if watchSessionID == nil && ProcessInfo.processInfo.environment["RIDEINTERCOM_LOCAL_TESTING"] == "1" {
-            audioCheckObservation = AudioCheckValidationObservation(generation: audioCheckGeneration)
-        }
+        prepareAudioCheckObservation(watchSessionID: watchSessionID)
         #endif
         audioCheckWatchSessionID = watchSessionID
         audioCheckRecordDuration = recordDuration
@@ -54,21 +56,9 @@ extension IntercomViewModel {
             let activation = self.audioSessionManager.requestActive(true)
             let report = await activation.value
             guard !Task.isCancelled, self.audioCheckGeneration == generation else { return }
-            guard self.audioGeneration == audio, self.canPrepareAudioCheck, self.audioCheckPhase == .preparing else {
-                self.cancelAudioCheck(); return
-            }
-            guard report.result != .ignored(.superseded) else { self.cancelAudioCheck(); return }
-            guard self.applyAudioSessionActivationReport(report), self.prepareAudioCheckPipeline(),
-                  self.applyCurrentVoiceProcessingConfiguration(), self.startInputCapture(), self.startPreparedAudioOutput() else {
-                self.failAudioCheck(self.audioErrorMessage ?? "Audio setup failed")
+            guard self.beginAudioCheckRecording(report, audioGeneration: audio, watchSessionID: watchSessionID) else {
                 return
             }
-            // Native stream setup may resolve the selected Auto route after
-            // activation. Freeze the actual route before accepting samples.
-            if let actual = try? self.audioSessionManager.snapshot() { self.applyAudioSessionSnapshot(actual) }
-            self.audioCheckPhase = .recording
-            self.audioCheckStatusMessage = watchSessionID == nil ? "Recording microphone for 5 seconds" : "Recording Watch microphone for 5 seconds"
-            self.inputFrameDelivery?.activate()
             // Count captured samples rather than completing a short recording when
             // activation or delivery takes part of the wall-clock interval.
             try? await Task.sleep(for: recordDuration + .seconds(1))
@@ -76,6 +66,31 @@ extension IntercomViewModel {
             guard self.audioCheckPhase == .recording else { return }
             self.failAudioCheck("Incomplete microphone recording")
         }
+        return true
+    }
+
+    private func beginAudioCheckRecording(
+        _ report: AudioSessionOperationReport,
+        audioGeneration: UUID,
+        watchSessionID: UUID?
+    ) -> Bool {
+        guard self.audioGeneration == audioGeneration, canPrepareAudioCheck, audioCheckPhase == .preparing,
+              report.result != .ignored(.superseded) else {
+            cancelAudioCheck()
+            return false
+        }
+        guard applyAudioSessionActivationReport(report), prepareAudioCheckPipeline(),
+              applyCurrentVoiceProcessingConfiguration(), startInputCapture(), startPreparedAudioOutput() else {
+            failAudioCheck(audioErrorMessage ?? "Audio setup failed")
+            return false
+        }
+        // Native stream setup may resolve the selected Auto route after
+        // activation. Freeze the actual route before accepting samples.
+        if let actual = try? audioSessionManager.snapshot() { applyAudioSessionSnapshot(actual) }
+        audioCheckPhase = .recording
+        audioCheckStatusMessage = watchSessionID == nil
+            ? "Recording microphone for 5 seconds" : "Recording Watch microphone for 5 seconds"
+        inputFrameDelivery?.activate()
         return true
     }
 
@@ -124,7 +139,9 @@ extension IntercomViewModel {
         audioCheckObservation?.setInput(recordedFrames)
         #endif
         audioCheckRecordedFrameCount = recordedFrames.reduce(0) { $0 + $1.frameCount }
-        audioCheckRecordedNonzeroSamples = recordedFrames.reduce(0) { $0 + $1.samples.filter { abs($0) > 0.00001 }.count }
+        audioCheckRecordedNonzeroSamples = recordedFrames.reduce(0) { count, frame in
+            count + frame.samples.filter { abs($0) > 0.00001 }.count
+        }
         guard !recordedFrames.isEmpty else {
             failAudioCheck("No microphone samples captured")
             return
@@ -162,7 +179,8 @@ extension IntercomViewModel {
         audioCheckOutputLevel = min(1, max(0, outputLevel))
         audioCheckOutputPeakLevel = audioCheckOutputPeakWindow.record(audioCheckOutputLevel)
         audioCheckPhase = .playing
-        audioCheckStatusMessage = audioCheckWatchSessionID == nil ? "Playing recorded audio for 5 seconds" : "Playing recorded audio on Watch"
+        audioCheckStatusMessage = audioCheckWatchSessionID == nil
+            ? "Playing recorded audio for 5 seconds" : "Playing recorded audio on Watch"
         do {
             audioPipeline.setHardwareOutputEnabled(audioCheckWatchSessionID == nil)
             watchAudioLink?.setSendingAllowed(audioCheckWatchSessionID != nil)
@@ -265,20 +283,50 @@ extension IntercomViewModel {
             applyEffectiveInputMute()
         }
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
-        if let observation = audioCheckObservation {
-            let phase = audioCheckPhase.isInProgress ? "Cancelled" : audioCheckPhase.rawValue
-            let record = observation.record(phase: phase, drops: observationDrops, inputDrops: observationInputDrops,
-                inputStopped: !inputStop.snapshot.isRunning, outputStopped: !outputStop.snapshot.isRunning,
-                nativeBackends: audioInputCapture === nativeAudioInputCapture && audioOutputRenderer === nativeAudioOutputRenderer,
-                watchRoute: isUsingWatchAudio, engineRunning: audioOutputRenderer.renderingEngine?.isRunning)
-            audioCheckObservationRecords.append(record)
-            if let data = try? JSONSerialization.data(withJSONObject: audioCheckObservationRecords, options: [.sortedKeys]) {
-                try? data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("phone-audio-check-observation.json"), options: .atomic)
-            }
-            audioCheckObservation = nil
-        }
+        recordAudioCheckObservation(
+            droppedRenderFrames: observationDrops, droppedInputFrames: observationInputDrops,
+            inputStop: inputStop, outputStop: outputStop
+        )
         #endif
     }
+
+    #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+    private func prepareAudioCheckObservation(watchSessionID: UUID?) {
+        if watchSessionID == nil && ProcessInfo.processInfo.environment["RIDEINTERCOM_LOCAL_TESTING"] == "1" {
+            audioCheckObservation = AudioCheckValidationObservation(generation: audioCheckGeneration)
+        }
+    }
+
+    private func recordAudioCheckObservation(
+        droppedRenderFrames: Int,
+        droppedInputFrames: Int,
+        inputStop: AudioStreamOperationReport,
+        outputStop: AudioStreamOperationReport
+    ) {
+        guard let observation = audioCheckObservation else { return }
+        let phase = audioCheckPhase.isInProgress ? "Cancelled" : audioCheckPhase.rawValue
+        let status = AudioCheckValidationObservation.PlaybackStatus(
+            droppedRenderFrames: droppedRenderFrames,
+            droppedInputFrames: droppedInputFrames,
+            inputStopped: !inputStop.snapshot.isRunning,
+            outputStopped: !outputStop.snapshot.isRunning,
+            nativeBackends: audioInputCapture === nativeAudioInputCapture
+                && audioOutputRenderer === nativeAudioOutputRenderer,
+            watchRoute: isUsingWatchAudio,
+            engineRunning: audioOutputRenderer.renderingEngine?.isRunning
+        )
+        audioCheckObservationRecords.append(observation.record(phase: phase, status: status))
+        if let data = try? JSONSerialization.data(
+            withJSONObject: audioCheckObservationRecords,
+            options: [.sortedKeys]
+        ) {
+            let location = FileManager.default.temporaryDirectory
+                .appendingPathComponent("phone-audio-check-observation.json")
+            try? data.write(to: location, options: .atomic)
+        }
+        audioCheckObservation = nil
+    }
+    #endif
 
     func resetAudioCheckMeters() {
         audioCheckInputLevel = 0

@@ -153,8 +153,9 @@ struct FiniteAudioCheckDeliveryTests {
         observation.setInput([input])
         observation.appendOutput(.init(sequenceNumber: 0, format: .init(sampleRate: 48_000, channelCount: 2),
             samples: (0..<480_000).map { $0.isMultiple(of: 2) ? Float(0.3) : Float(0.1) }))
-        let report = observation.record(phase: "Audio Check Complete", drops: 0, inputDrops: 0,
-            inputStopped: true, outputStopped: true, nativeBackends: true, watchRoute: false, engineRunning: false)
+        let report = observation.record(phase: "Audio Check Complete", status: .init(
+            droppedRenderFrames: 0, droppedInputFrames: 0, inputStopped: true, outputStopped: true,
+            nativeBackends: true, watchRoute: false, engineRunning: false))
         #expect(report["comparison"] as? String == "measured")
         #expect(report["fullCoverage"] as? Bool == true)
         #expect(report["outputFrames"] as? Int == 240_000)
@@ -336,8 +337,9 @@ extension FiniteAudioCheckDeliveryTests {
             var observation = AudioCheckValidationObservation(generation: UUID())
             observation.setInput([.init(sequenceNumber: 0, format: .intercomMixer, capturedAt: 0, samples: input)])
             observation.appendOutput(.init(sequenceNumber: 0, format: .intercomMixer, capturedAt: 0, samples: output))
-            return observation.record(phase: "Audio Check Complete", drops: 0, inputDrops: 0,
-                inputStopped: true, outputStopped: true, nativeBackends: true, watchRoute: false, engineRunning: false)
+            return observation.record(phase: "Audio Check Complete", status: .init(
+                droppedRenderFrames: 0, droppedInputFrames: 0, inputStopped: true, outputStopped: true,
+                nativeBackends: true, watchRoute: false, engineRunning: false))
         }
         let input = (0..<240_000).map { sample -> Float in
             guard (48_000..<96_000).contains(sample) || (192_000..<201_600).contains(sample) else { return 0 }
