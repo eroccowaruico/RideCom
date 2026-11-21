@@ -1,446 +1,333 @@
 import AVFAudio
+import AudioMixer
 import CallControl
 import Foundation
-import AudioMixer
 import SessionManager
 import Testing
+
 @testable import RideIntercom
 
 @MainActor
 struct AudioActivationTests {
-    @Test func audioCheckLeavesOtherAudioAloneAndPreservesCallDuckingPreference() async throws {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        vm.setDuckOthersEnabled(true)
-        for _ in 0..<2 {
-            #expect(vm.startAudioCheck())
-            await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-            #expect(vm.audioCheckPhase == .recording)
-            #expect(!vm.audioInputCapture.configuration.voiceProcessing.otherAudioDuckingEnabled)
-            #expect(!vm.audioInputCapture.configuration.voiceProcessing.voiceProcessingEnabled)
-            #expect(vm.isDuckOthersEnabled)
-            vm.cancelAudioCheck()
-        }
-        vm.selectGroup(try #require(vm.groups.first))
-        vm.connectLocal()
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.isAudioReady)
-        #expect(vm.audioInputCapture.configuration.voiceProcessing.otherAudioDuckingEnabled)
-        vm.disconnect()
+  @Test func audioCheckLeavesOtherAudioAloneAndPreservesCallDuckingPreference() async throws {
+    let harness = AppTestSupport.makeHarness()
+    let viewModel = harness.viewModel
+    viewModel.setDuckOthersEnabled(true)
+    for _ in 0..<2 {
+      #expect(viewModel.startAudioCheck())
+      await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+      #expect(viewModel.audioCheckPhase == .recording)
+      #expect(!viewModel.audioInputCapture.configuration.voiceProcessing.otherAudioDuckingEnabled)
+      #expect(!viewModel.audioInputCapture.configuration.voiceProcessing.voiceProcessingEnabled)
+      #expect(viewModel.isDuckOthersEnabled)
+      viewModel.cancelAudioCheck()
     }
+    viewModel.selectGroup(try #require(viewModel.groups.first))
+    viewModel.connectLocal()
+    harness.callSession.authenticate(["member-108"])
+    await AppTestSupport.waitUntil { viewModel.isAudioReady }
+    #expect(viewModel.isAudioReady)
+    #expect(viewModel.audioInputCapture.configuration.voiceProcessing.otherAudioDuckingEnabled)
+    viewModel.disconnect()
+  }
 
-    @Test func audioCheckInitialRouteResolutionDoesNotCancelPreparation() async {
-        let h = AppTestSupport.makeHarness(groups: []), gate = ManualAsyncGate()
-        let vm = h.viewModel
-        h.audioSessionBackend.activationGate = gate
-        vm.startAudioCheck()
-        await gate.waitForEntry()
-        var resolved = h.audioSessionBackend.current
-        resolved.currentInput = resolved.availableInputs[1]
-        h.audioSessionBackend.current = resolved
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .routeChanged(.categoryChanged), snapshot: resolved)))
-        #expect(vm.audioCheckPhase == .preparing && vm.audioCheckOwnsAudioPipeline)
-        await gate.release()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording || vm.audioCheckPhase == .idle }
-        #expect(vm.audioCheckPhase == .recording)
-        vm.cancelAudioCheck()
+  @Test func audioCheckInitialRouteResolutionDoesNotCancelPreparation() async {
+    let harness = AppTestSupport.makeHarness(groups: [])
+    let gate = ManualAsyncGate()
+    let viewModel = harness.viewModel
+    harness.audioSessionBackend.activationGate = gate
+    viewModel.startAudioCheck()
+    await gate.waitForEntry()
+    var resolved = harness.audioSessionBackend.current
+    resolved.currentInput = resolved.availableInputs[1]
+    harness.audioSessionBackend.current = resolved
+    viewModel.handleAudioSessionRuntimeEvent(
+      .snapshotChanged(.init(reason: .routeChanged(.categoryChanged), snapshot: resolved)))
+    #expect(viewModel.audioCheckPhase == .preparing && viewModel.audioCheckOwnsAudioPipeline)
+    await gate.release()
+    await AppTestSupport.waitUntil {
+      viewModel.audioCheckPhase == .recording || viewModel.audioCheckPhase == .idle
     }
+    #expect(viewModel.audioCheckPhase == .recording)
+    viewModel.cancelAudioCheck()
+  }
 
-    @Test func audioCheckUsesActualStartedRouteBeforeDelayedSetupNotification() async {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        let backend = h.audioSessionBackend
-        var resolved = backend.current
-        resolved.currentInput = resolved.availableInputs[1]
-        resolved.isActive = true
-        h.inputBackend.onStart = { [weak backend] in backend?.current = resolved }
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .routeChanged(.routeConfigurationChanged), snapshot: backend.current)))
-        #expect(vm.audioCheckPhase == .recording && vm.audioCheckOwnsAudioPipeline)
-        vm.cancelAudioCheck()
+  @Test func audioCheckUsesActualStartedRouteBeforeDelayedSetupNotification() async {
+    let harness = AppTestSupport.makeHarness(groups: [])
+    let viewModel = harness.viewModel
+    let backend = harness.audioSessionBackend
+    var resolved = backend.current
+    resolved.currentInput = resolved.availableInputs[1]
+    resolved.isActive = true
+    harness.inputBackend.onStart = { [weak backend] in backend?.current = resolved }
+    viewModel.startAudioCheck()
+    await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+    viewModel.handleAudioSessionRuntimeEvent(
+      .snapshotChanged(
+        .init(reason: .routeChanged(.routeConfigurationChanged), snapshot: backend.current)))
+    #expect(viewModel.audioCheckPhase == .recording && viewModel.audioCheckOwnsAudioPipeline)
+    viewModel.cancelAudioCheck()
+  }
+
+  @Test func staleRouteAfterStopCannotCancelTheNextAudioCheck() async {
+    let harness = AppTestSupport.makeHarness(groups: [])
+    let viewModel = harness.viewModel
+    let backend = harness.audioSessionBackend
+    var old = backend.current
+    old.currentInput = old.availableInputs[1]
+    var current = backend.current
+    current.currentOutput = .builtInSpeaker
+    current.isActive = true
+    harness.inputBackend.onStart = { [weak backend] in backend?.current = current }
+    viewModel.startAudioCheck()
+    await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+    viewModel.cancelAudioCheck()
+    viewModel.startAudioCheck()
+    await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+    viewModel.handleAudioSessionRuntimeEvent(
+      .snapshotChanged(.init(reason: .routeChanged(.categoryChanged), snapshot: old)))
+    #expect(viewModel.audioCheckPhase == .recording)
+    #expect(viewModel.audioSessionSnapshot.currentInput.id == backend.current.currentInput.id)
+    #expect(viewModel.audioSessionSnapshot.currentOutput.id == backend.current.currentOutput.id)
+    viewModel.cancelAudioCheck()
+  }
+
+  @Test func ordinaryAudioCheckCannotStartThroughAWatchOwnedRoute() {
+    let harness = AppTestSupport.makeHarness(groups: [])
+    let viewModel = harness.viewModel
+    viewModel.selectWatchAudioRoute()
+    #expect(!viewModel.canStartAudioCheck)
+    viewModel.startAudioCheck()
+    #expect(viewModel.audioCheckPhase == .idle && !viewModel.audioCheckOwnsAudioPipeline)
+    #expect(harness.inputBackend.startCount == 0 && harness.outputBackend.startCount == 0)
+    #expect(
+      viewModel.isUsingWatchAudio, "A normal start cannot silently replace another route owner")
+    viewModel.disconnect()
+  }
+
+  @Test func actualPortSwitchDuringRecordingStillStopsAudioCheck() async {
+    let harness = AppTestSupport.makeHarness(groups: [])
+    let viewModel = harness.viewModel
+    viewModel.startAudioCheck()
+    await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+    var changed = harness.audioSessionBackend.current
+    changed.currentInput = changed.availableInputs[1]
+    harness.audioSessionBackend.current = changed
+    viewModel.handleAudioSessionRuntimeEvent(
+      .snapshotChanged(.init(reason: .defaultInputChanged, snapshot: changed)))
+    #expect(viewModel.audioCheckPhase == .idle && !viewModel.audioCheckOwnsAudioPipeline)
+  }
+
+  @Test func configurationReportCannotHideActualPortSwitchDuringRecording() async throws {
+    let harness = AppTestSupport.makeHarness(groups: [])
+    let viewModel = harness.viewModel
+    viewModel.startAudioCheck()
+    await AppTestSupport.waitUntil { viewModel.audioCheckPhase == .recording }
+    var changed = harness.audioSessionBackend.current
+    changed.currentInput = changed.availableInputs[1]
+    harness.audioSessionBackend.current = changed
+    var report = try #require(viewModel.lastAudioSessionConfigurationReport)
+    report.snapshot = changed
+    viewModel.handleAudioSessionRuntimeEvent(.configuration(report))
+    viewModel.handleAudioSessionRuntimeEvent(
+      .snapshotChanged(.init(reason: .defaultInputChanged, snapshot: changed)))
+    #expect(viewModel.audioCheckPhase == .idle && !viewModel.audioCheckOwnsAudioPipeline)
+    viewModel.cancelAudioCheck()
+  }
+
+  @Test func callWaitsForActivationBeforeOpeningMedia() async {
+    let harness = AppTestSupport.makeHarness()
+    let gate = ManualAsyncGate()
+    harness.audioSessionBackend.activationGate = gate
+    harness.viewModel.setSoundIsolationEnabled(false)
+    harness.viewModel.selectGroup(harness.viewModel.groups[0])
+    harness.callSession.authenticate(["member-108"])
+    await gate.waitForEntry()
+    #expect(!harness.viewModel.isAudioReady)
+    #expect(harness.inputBackend.startCount == 0)
+    #expect(harness.outputBackend.startCount == 0)
+    #expect(harness.callSession.startMediaCallCount == 0)
+    await gate.release()
+    await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+    #expect(harness.viewModel.isAudioReady)
+    harness.viewModel.disconnect()
+    _ = await harness.viewModel.audioSessionManager.requestActive(false).value
+  }
+
+  @Test func audioCheckWaitsForActivationAndCanCancelBeforeRecording() async {
+    let harness = AppTestSupport.makeHarness()
+    let gate = ManualAsyncGate()
+    harness.audioSessionBackend.activationGate = gate
+    harness.viewModel.startAudioCheck()
+    await gate.waitForEntry()
+    #expect(harness.viewModel.audioCheckPhase != .recording)
+    #expect(harness.inputBackend.startCount == 0)
+    #expect(harness.outputBackend.startCount == 0)
+    #expect(!harness.viewModel.canStartAudioCheck)
+    harness.viewModel.cancelAudioCheck()
+    await gate.release()
+    _ = await harness.viewModel.audioSessionManager.requestActive(false).value
+    #expect(harness.viewModel.audioCheckPhase == .idle)
+    #expect(harness.inputBackend.startCount == 0)
+  }
+
+  @Test(arguments: ["disconnect", "signout", "deadline"])
+  func endedOrUnauthorizedCallCannotStartAfterLateActivation(ending: String) async {
+    var now = Date(timeIntervalSince1970: 2_000_000_000)
+    let harness = AppTestSupport.makeHarness(callAccessNow: { now })
+    let gate = ManualAsyncGate()
+    harness.audioSessionBackend.activationGate = gate
+    harness.viewModel.setCallDisconnectInterval(.oneMinute)
+    harness.viewModel.selectGroup(harness.viewModel.groups[0])
+    harness.callSession.authenticate(["member-108"])
+    await gate.waitForEntry()
+    switch ending {
+    case "signout": harness.viewModel.accountSession.signOut()
+    case "deadline": now = now.addingTimeInterval(60)  // completion must check before the next tick
+    default: harness.viewModel.disconnect()
     }
-
-    @Test func staleRouteAfterStopCannotCancelTheNextAudioCheck() async {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel, backend = h.audioSessionBackend
-        var old = backend.current
-        old.currentInput = old.availableInputs[1]
-        var current = backend.current
-        current.currentOutput = .builtInSpeaker
-        current.isActive = true
-        h.inputBackend.onStart = { [weak backend] in backend?.current = current }
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        vm.cancelAudioCheck()
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .routeChanged(.categoryChanged), snapshot: old)))
-        #expect(vm.audioCheckPhase == .recording)
-        #expect(vm.audioSessionSnapshot.currentInput.id == backend.current.currentInput.id)
-        #expect(vm.audioSessionSnapshot.currentOutput.id == backend.current.currentOutput.id)
-        vm.cancelAudioCheck()
+    await gate.release()
+    await AppTestSupport.waitUntil { harness.viewModel.audioStartTask == nil }
+    _ = await harness.viewModel.audioSessionManager.requestActive(false).value
+    #expect(!harness.viewModel.isAudioReady)
+    #expect(harness.inputBackend.startCount == 0 && harness.outputBackend.startCount == 0)
+    #expect(harness.callSession.startMediaCallCount == 0)
+    #expect(!harness.audioSessionBackend.current.isActive)
+    if ending == "deadline" {
+      #expect(harness.viewModel.groupErrorMessage?.contains("timer") == true)
     }
+    harness.viewModel.disconnect()
+  }
 
-    @Test func ordinaryAudioCheckCannotStartThroughAWatchOwnedRoute() {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        vm.selectWatchAudioRoute()
-        #expect(!vm.canStartAudioCheck)
-        vm.startAudioCheck()
-        #expect(vm.audioCheckPhase == .idle && !vm.audioCheckOwnsAudioPipeline)
-        #expect(h.inputBackend.startCount == 0 && h.outputBackend.startCount == 0)
-        #expect(vm.isUsingWatchAudio, "A normal start cannot silently replace another route owner")
-        vm.disconnect()
+}
+
+extension AudioActivationTests {
+  @Test func oldCallFailureCannotReplaceNewCallAndDuplicateRequestsShareOneStart() async {
+    let harness = AppTestSupport.makeHarness()
+    let gate = ManualAsyncGate()
+    let viewModel = harness.viewModel
+    viewModel.setSoundIsolationEnabled(false)
+    harness.audioSessionBackend.activationGate = gate
+    harness.audioSessionBackend.activationError = NSError(domain: "OldActivation", code: 1)
+    viewModel.selectGroup(viewModel.groups[0])
+    harness.callSession.authenticate(["member-108"])
+    await gate.waitForEntry()
+    viewModel.selectGroup(viewModel.groups[1])
+    viewModel.connectLocal()
+    harness.audioSessionBackend.activationError = nil
+    harness.callSession.authenticate(["member-215"])
+    let deadline = viewModel.callDisconnectDeadline
+    harness.callSession.authenticate(["member-215"])
+    viewModel.startAudioPipelineIfNeeded()
+    viewModel.setSpeakerOutputEnabled(true)
+    await gate.release()
+    await AppTestSupport.waitUntil { viewModel.isAudioReady }
+    #expect(viewModel.isAudioReady && viewModel.audioErrorMessage == nil)
+    #expect(
+      viewModel.activeGroupID == viewModel.groups[1].id
+        && viewModel.callDisconnectDeadline == deadline)
+    #expect(harness.inputBackend.startCount == 1 && harness.outputBackend.startCount == 1)
+    #expect(harness.callSession.startMediaCallCount == 1)
+    #expect(
+      harness.audioSessionBackend.appliedConfigurations.last?.options.contains(.defaultToSpeaker)
+        == true)
+    let requests = harness.audioSessionBackend.activeValues
+    viewModel.setAudioSessionProfile(.voiceChat)
+    await Task.yield()
+    #expect(harness.audioSessionBackend.activeValues == requests)
+    viewModel.disconnect()
+    _ = await viewModel.audioSessionManager.requestActive(false).value
+  }
+
+  @Test func cancellingPreparingCheckCannotStopTheFollowingCall() async {
+    let harness = AppTestSupport.makeHarness()
+    let gate = ManualAsyncGate()
+    let viewModel = harness.viewModel
+    viewModel.setSoundIsolationEnabled(false)
+    harness.audioSessionBackend.activationGate = gate
+    viewModel.startAudioCheck(recordDuration: .milliseconds(1))
+    await gate.waitForEntry()
+    #expect(viewModel.audioCheckPhase == .preparing)
+    viewModel.selectGroup(viewModel.groups[0])
+    harness.callSession.authenticate(["member-108"])
+    await gate.release()
+    await AppTestSupport.waitUntil { viewModel.isAudioReady }
+    #expect(viewModel.audioCheckPhase == .idle && !viewModel.audioCheckOwnsAudioPipeline)
+    #expect(harness.inputBackend.startCount == 1 && harness.outputBackend.startCount == 1)
+    #expect(harness.audioSessionBackend.current.isActive)
+    viewModel.disconnect()
+    _ = await viewModel.audioSessionManager.requestActive(false).value
+  }
+
+  @Test func deviceLossCancelsPreparingCheckAndPendingCall() async {
+    for checking in [true, false] {
+      let harness = AppTestSupport.makeHarness()
+      let gate = ManualAsyncGate()
+      let viewModel = harness.viewModel
+      harness.audioSessionBackend.activationGate = gate
+      if checking {
+        viewModel.startAudioCheck()
+      } else {
+        viewModel.selectGroup(viewModel.groups[0])
+        harness.callSession.authenticate(["member-108"])
+      }
+      await gate.waitForEntry()
+      viewModel.handleAudioSessionRuntimeEvent(
+        .snapshotChanged(
+          .init(
+            reason: .routeChanged(.oldDeviceUnavailable),
+            snapshot: harness.audioSessionBackend.current)))
+      await gate.release()
+      _ = await viewModel.audioSessionManager.requestActive(false).value
+      #expect(harness.inputBackend.startCount == 0 && harness.outputBackend.startCount == 0)
+      #expect(viewModel.audioCheckPhase == .idle && !viewModel.isAudioReady)
+      if !checking { #expect(viewModel.isAudioPausedForDeviceChange) }
+      viewModel.disconnect()
     }
+  }
 
-    @Test func actualPortSwitchDuringRecordingStillStopsAudioCheck() async {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        var changed = h.audioSessionBackend.current
-        changed.currentInput = changed.availableInputs[1]
-        h.audioSessionBackend.current = changed
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .defaultInputChanged, snapshot: changed)))
-        #expect(vm.audioCheckPhase == .idle && !vm.audioCheckOwnsAudioPipeline)
-    }
+  @Test func accountModelsShareNativeActivationOrderingWithoutSharingCallState() async {
+    let old = AppTestSupport.makeHarness()
+    let gate = ManualAsyncGate()
+    old.audioSessionBackend.activationGate = gate
+    old.viewModel.selectGroup(old.viewModel.groups[0])
+    old.callSession.authenticate(["member-108"])
+    await gate.waitForEntry()
+    old.viewModel.endAccountAccess()
+    let current = AppTestSupport.makeHarness(audioSessionManager: old.viewModel.audioSessionManager)
+    current.viewModel.setSoundIsolationEnabled(false)
+    current.viewModel.selectGroup(current.viewModel.groups[0])
+    current.callSession.authenticate(["member-108"])
+    await gate.release()
+    await AppTestSupport.waitUntil { current.viewModel.isAudioReady }
+    #expect(old.inputBackend.startCount == 0 && old.callSession.startMediaCallCount == 0)
+    #expect(current.viewModel.isAudioReady && old.audioSessionBackend.current.isActive)
+    current.viewModel.disconnect()
+    _ = await current.viewModel.audioSessionManager.requestActive(false).value
+    #expect(!old.audioSessionBackend.current.isActive)
+  }
 
-    @Test func configurationReportCannotHideActualPortSwitchDuringRecording() async throws {
-        let h = AppTestSupport.makeHarness(groups: []), vm = h.viewModel
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        var changed = h.audioSessionBackend.current
-        changed.currentInput = changed.availableInputs[1]
-        h.audioSessionBackend.current = changed
-        var report = try #require(vm.lastAudioSessionConfigurationReport)
-        report.snapshot = changed
-        vm.handleAudioSessionRuntimeEvent(.configuration(report))
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .defaultInputChanged, snapshot: changed)))
-        #expect(vm.audioCheckPhase == .idle && !vm.audioCheckOwnsAudioPipeline)
-        vm.cancelAudioCheck()
-    }
+  @Test func supersededActivationDoesNotOpenMediaButUnsupportedPlatformCan() async {
+    let harness = AppTestSupport.makeHarness()
+    let gate = ManualAsyncGate()
+    let viewModel = harness.viewModel
+    harness.audioSessionBackend.activationGate = gate
+    viewModel.selectGroup(viewModel.groups[0])
+    harness.callSession.authenticate(["member-108"])
+    await gate.waitForEntry()
+    let stopped = viewModel.audioSessionManager.requestActive(false)
+    await gate.release()
+    _ = await stopped.value
+    await AppTestSupport.waitUntil { viewModel.audioStartTask == nil }
+    #expect(harness.inputBackend.startCount == 0 && !viewModel.isAudioReady)
+    harness.audioSessionBackend.activationError =
+      AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
+    viewModel.setSoundIsolationEnabled(false)
+    viewModel.startAudioPipelineIfNeeded()
+    await AppTestSupport.waitUntil { viewModel.isAudioReady }
+    #expect(viewModel.isAudioReady)
+    viewModel.disconnect()
+    _ = await viewModel.audioSessionManager.requestActive(false).value
+  }
 
-    @Test func callWaitsForActivationBeforeOpeningMedia() async {
-        let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate()
-        h.audioSessionBackend.activationGate = gate
-        h.viewModel.setSoundIsolationEnabled(false)
-        h.viewModel.selectGroup(h.viewModel.groups[0])
-        h.callSession.authenticate(["member-108"])
-        await gate.waitForEntry()
-        #expect(!h.viewModel.isAudioReady)
-        #expect(h.inputBackend.startCount == 0)
-        #expect(h.outputBackend.startCount == 0)
-        #expect(h.callSession.startMediaCallCount == 0)
-        await gate.release()
-        await AppTestSupport.waitUntil { h.viewModel.isAudioReady }
-        #expect(h.viewModel.isAudioReady)
-        h.viewModel.disconnect()
-        _ = await h.viewModel.audioSessionManager.requestActive(false).value
-    }
-
-    @Test func audioCheckWaitsForActivationAndCanCancelBeforeRecording() async {
-        let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate()
-        h.audioSessionBackend.activationGate = gate
-        h.viewModel.startAudioCheck()
-        await gate.waitForEntry()
-        #expect(h.viewModel.audioCheckPhase != .recording)
-        #expect(h.inputBackend.startCount == 0)
-        #expect(h.outputBackend.startCount == 0)
-        #expect(!h.viewModel.canStartAudioCheck)
-        h.viewModel.cancelAudioCheck()
-        await gate.release()
-        _ = await h.viewModel.audioSessionManager.requestActive(false).value
-        #expect(h.viewModel.audioCheckPhase == .idle)
-        #expect(h.inputBackend.startCount == 0)
-    }
-
-    @Test(arguments: ["disconnect", "signout", "deadline"])
-    func endedOrUnauthorizedCallCannotStartAfterLateActivation(ending: String) async {
-        var now = Date(timeIntervalSince1970: 2_000_000_000)
-        let h = AppTestSupport.makeHarness(callAccessNow: { now }), gate = ManualAsyncGate()
-        h.audioSessionBackend.activationGate = gate
-        h.viewModel.setCallDisconnectInterval(.oneMinute)
-        h.viewModel.selectGroup(h.viewModel.groups[0])
-        h.callSession.authenticate(["member-108"])
-        await gate.waitForEntry()
-        switch ending {
-        case "signout": h.viewModel.accountSession.signOut()
-        case "deadline": now = now.addingTimeInterval(60) // completion must check before the next tick
-        default: h.viewModel.disconnect()
-        }
-        await gate.release()
-        await AppTestSupport.waitUntil { h.viewModel.audioStartTask == nil }
-        _ = await h.viewModel.audioSessionManager.requestActive(false).value
-        #expect(!h.viewModel.isAudioReady)
-        #expect(h.inputBackend.startCount == 0 && h.outputBackend.startCount == 0)
-        #expect(h.callSession.startMediaCallCount == 0)
-        #expect(!h.audioSessionBackend.current.isActive)
-        if ending == "deadline" { #expect(h.viewModel.groupErrorMessage?.contains("timer") == true) }
-        h.viewModel.disconnect()
-    }
-
-    @Test func oldCallFailureCannotReplaceNewCallAndDuplicateRequestsShareOneStart() async {
-        let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate(), vm = h.viewModel
-        vm.setSoundIsolationEnabled(false)
-        h.audioSessionBackend.activationGate = gate
-        h.audioSessionBackend.activationError = NSError(domain: "OldActivation", code: 1)
-        vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-        await gate.waitForEntry()
-        vm.selectGroup(vm.groups[1]); vm.connectLocal()
-        h.audioSessionBackend.activationError = nil
-        h.callSession.authenticate(["member-215"])
-        let deadline = vm.callDisconnectDeadline
-        h.callSession.authenticate(["member-215"])
-        vm.startAudioPipelineIfNeeded()
-        vm.setSpeakerOutputEnabled(true)
-        await gate.release()
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.isAudioReady && vm.audioErrorMessage == nil)
-        #expect(vm.activeGroupID == vm.groups[1].id && vm.callDisconnectDeadline == deadline)
-        #expect(h.inputBackend.startCount == 1 && h.outputBackend.startCount == 1)
-        #expect(h.callSession.startMediaCallCount == 1)
-        #expect(h.audioSessionBackend.appliedConfigurations.last?.options.contains(.defaultToSpeaker) == true)
-        let requests = h.audioSessionBackend.activeValues
-        vm.setAudioSessionProfile(.voiceChat)
-        await Task.yield()
-        #expect(h.audioSessionBackend.activeValues == requests)
-        vm.disconnect()
-        _ = await vm.audioSessionManager.requestActive(false).value
-    }
-
-    @Test func cancellingPreparingCheckCannotStopTheFollowingCall() async {
-        let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate(), vm = h.viewModel
-        vm.setSoundIsolationEnabled(false)
-        h.audioSessionBackend.activationGate = gate
-        vm.startAudioCheck(recordDuration: .milliseconds(1))
-        await gate.waitForEntry()
-        #expect(vm.audioCheckPhase == .preparing)
-        vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-        await gate.release()
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.audioCheckPhase == .idle && !vm.audioCheckOwnsAudioPipeline)
-        #expect(h.inputBackend.startCount == 1 && h.outputBackend.startCount == 1)
-        #expect(h.audioSessionBackend.current.isActive)
-        vm.disconnect()
-        _ = await vm.audioSessionManager.requestActive(false).value
-    }
-
-    @Test func deviceLossCancelsPreparingCheckAndPendingCall() async {
-        for checking in [true, false] {
-            let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate(), vm = h.viewModel
-            h.audioSessionBackend.activationGate = gate
-            if checking {
-                vm.startAudioCheck()
-            } else {
-                vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-            }
-            await gate.waitForEntry()
-            vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
-                reason: .routeChanged(.oldDeviceUnavailable), snapshot: h.audioSessionBackend.current)))
-            await gate.release()
-            _ = await vm.audioSessionManager.requestActive(false).value
-            #expect(h.inputBackend.startCount == 0 && h.outputBackend.startCount == 0)
-            #expect(vm.audioCheckPhase == .idle && !vm.isAudioReady)
-            if !checking { #expect(vm.isAudioPausedForDeviceChange) }
-            vm.disconnect()
-        }
-    }
-
-    @Test func accountModelsShareNativeActivationOrderingWithoutSharingCallState() async {
-        let old = AppTestSupport.makeHarness(), gate = ManualAsyncGate()
-        old.audioSessionBackend.activationGate = gate
-        old.viewModel.selectGroup(old.viewModel.groups[0]); old.callSession.authenticate(["member-108"])
-        await gate.waitForEntry()
-        old.viewModel.endAccountAccess()
-        let current = AppTestSupport.makeHarness(audioSessionManager: old.viewModel.audioSessionManager)
-        current.viewModel.setSoundIsolationEnabled(false)
-        current.viewModel.selectGroup(current.viewModel.groups[0]); current.callSession.authenticate(["member-108"])
-        await gate.release()
-        await AppTestSupport.waitUntil { current.viewModel.isAudioReady }
-        #expect(old.inputBackend.startCount == 0 && old.callSession.startMediaCallCount == 0)
-        #expect(current.viewModel.isAudioReady && old.audioSessionBackend.current.isActive)
-        current.viewModel.disconnect()
-        _ = await current.viewModel.audioSessionManager.requestActive(false).value
-        #expect(!old.audioSessionBackend.current.isActive)
-    }
-
-    @Test func supersededActivationDoesNotOpenMediaButUnsupportedPlatformCan() async {
-        let h = AppTestSupport.makeHarness(), gate = ManualAsyncGate(), vm = h.viewModel
-        h.audioSessionBackend.activationGate = gate
-        vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-        await gate.waitForEntry()
-        let stopped = vm.audioSessionManager.requestActive(false)
-        await gate.release()
-        _ = await stopped.value
-        await AppTestSupport.waitUntil { vm.audioStartTask == nil }
-        #expect(h.inputBackend.startCount == 0 && !vm.isAudioReady)
-        h.audioSessionBackend.activationError = AudioSessionManagerError.operationUnsupportedOnCurrentPlatform
-        vm.setSoundIsolationEnabled(false)
-        vm.startAudioPipelineIfNeeded()
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.isAudioReady)
-        vm.disconnect()
-        _ = await vm.audioSessionManager.requestActive(false).value
-    }
-
-    #if os(iOS)
-    @Test func nativeConfigurationChangeRestartsAnActiveCallOnTheSameDevices() async throws {
-        let engine = AVAudioEngine()
-        let h = AppTestSupport.makeHarness(outputEngine: engine)
-        let vm = h.viewModel
-        defer { vm.disconnect() }
-        vm.setSoundIsolationEnabled(false)
-        vm.selectGroup(try #require(vm.groups.first))
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        try #require(vm.isAudioReady)
-        let call = vm.currentCallReference, deadline = vm.callDisconnectDeadline
-        try #require(vm.setCallMuted(true, for: call))
-        let originalOutput = h.audioSessionBackend.current.currentOutput
-        let starts = h.outputBackend.startCount
-
-        func postConfigurationChange(for engine: AVAudioEngine) async {
-            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
-            await withCheckedContinuation { (finished: CheckedContinuation<Void, Never>) in
-                DispatchQueue.main.async { finished.resume() }
-            }
-        }
-
-        await postConfigurationChange(for: AVAudioEngine())
-        #expect(h.outputBackend.startCount == starts && vm.isAudioReady)
-        h.audioSessionBackend.current.currentOutput = .builtInSpeaker
-        await postConfigurationChange(for: engine)
-        #expect(h.outputBackend.startCount == starts && vm.isAudioReady)
-        h.audioSessionBackend.current.currentOutput = originalOutput
-
-        await postConfigurationChange(for: engine)
-        await AppTestSupport.waitUntil { h.outputBackend.startCount > starts && vm.isAudioReady }
-        #expect(h.outputBackend.startCount == starts + 1 && vm.isAudioReady)
-        #expect(vm.currentCallReference == call && vm.callDisconnectDeadline == deadline)
-        #expect(vm.effectiveInputMuted)
-
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionBegan, snapshot: h.audioSessionBackend.current)))
-        await postConfigurationChange(for: engine)
-        #expect(h.outputBackend.startCount == starts + 1)
-        #expect(vm.isAudioPausedForDeviceChange && !vm.isAudioReady)
-    }
-
-    @Test func deniedPermissionDuringNativeReconfigurationLeavesTheCallReadyForExplicitResume() async throws {
-        let engine = AVAudioEngine()
-        var microphoneAllowed = true
-        let h = AppTestSupport.makeHarness(outputEngine: engine, requestMicrophoneAccess: { microphoneAllowed })
-        let vm = h.viewModel
-        defer { vm.disconnect() }
-        vm.setSoundIsolationEnabled(false)
-        vm.selectGroup(try #require(vm.groups.first))
-        h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        try #require(vm.isAudioReady)
-        let call = vm.currentCallReference, deadline = vm.callDisconnectDeadline
-        let starts = h.inputBackend.startCount
-
-        microphoneAllowed = false
-        NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
-        await AppTestSupport.waitUntil { vm.audioErrorMessage == IntercomViewModel.microphoneAccessRequiredMessage }
-        #expect(vm.audioPauseError == IntercomViewModel.microphoneAccessRequiredMessage)
-        #expect(vm.callStatus(for: call.groupID) == .audioPaused)
-        #expect(vm.currentCallReference == call && vm.callDisconnectDeadline == deadline)
-        #expect(h.inputBackend.startCount == starts && !vm.isAudioReady)
-
-        microphoneAllowed = true
-        vm.resumeAudioAfterDeviceChange()
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(h.inputBackend.startCount == starts + 1 && vm.isAudioReady)
-        #expect(vm.audioErrorMessage == nil && vm.audioRouteNotice == nil)
-        #expect(vm.currentCallReference == call && vm.callDisconnectDeadline == deadline)
-    }
-    #endif
-
-    @Test(arguments: [AudioSessionSnapshotChangeReason.interruptionBegan, .mediaServicesReset])
-    func nativeInterruptionPausesActiveCallUntilExplicitResume(reason: AudioSessionSnapshotChangeReason) async {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        vm.setSoundIsolationEnabled(false)
-        vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        let deadline = vm.callDisconnectDeadline, group = vm.activeGroupID
-        let starts = h.inputBackend.startCount
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: reason, snapshot: h.audioSessionBackend.current)))
-        #expect(!vm.isAudioReady && vm.isAudioPausedForDeviceChange)
-        #expect(vm.audioRouteNotice?.contains("interrupted") == true)
-        #expect(vm.activeGroupID == group && vm.callDisconnectDeadline == deadline)
-        #expect(h.inputBackend.stopCount > 0 && h.outputBackend.stopCount > 0)
-        #expect(vm.audioPipeline.snapshot.busIDs.isEmpty)
-        var restored = h.audioSessionBackend.current
-        restored.currentOutput = .builtInSpeaker
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionEnded(shouldResume: true), snapshot: restored)))
-        h.callSession.authenticate(["member-108"])
-        await Task.yield()
-        #expect(!vm.isAudioReady && vm.audioStartTask == nil)
-        #expect(h.inputBackend.startCount == starts)
-        vm.resumeAudioAfterDeviceChange()
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.isAudioReady && !vm.isAudioPausedForDeviceChange && vm.audioRouteNotice == nil)
-        #expect(vm.callDisconnectDeadline == deadline)
-        vm.disconnect()
-        _ = await vm.audioSessionManager.requestActive(false).value
-    }
-
-    @Test(arguments: [AudioSessionSnapshotChangeReason.interruptionBegan, .mediaServicesReset], [true, false])
-    func nativeInterruptionCancelsPendingActivation(reason: AudioSessionSnapshotChangeReason, checking: Bool) async {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel, gate = ManualAsyncGate()
-        vm.setSoundIsolationEnabled(false)
-        h.audioSessionBackend.activationGate = gate
-        if checking {
-            vm.startAudioCheck()
-        } else {
-            vm.selectGroup(vm.groups[0]); h.callSession.authenticate(["member-108"])
-        }
-        await gate.waitForEntry()
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: reason, snapshot: h.audioSessionBackend.current)))
-        #expect(vm.audioCheckPhase == .idle && vm.audioStartTask == nil)
-        if checking {
-            #expect(vm.audioCheckStatusMessage.contains("interrupted"))
-        } else {
-            #expect(vm.isAudioPausedForDeviceChange && vm.audioRouteNotice?.contains("interrupted") == true)
-        }
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionEnded(shouldResume: true), snapshot: h.audioSessionBackend.current)))
-        await gate.release()
-        await AppTestSupport.waitUntil { vm.audioStartTask == nil }
-        _ = await vm.audioSessionManager.requestActive(false).value
-        #expect(h.inputBackend.startCount == 0 && h.outputBackend.startCount == 0)
-        #expect(h.callSession.startMediaCallCount == 0 && !vm.isAudioReady)
-        #expect(vm.audioCheckPhase == .idle && !vm.audioCheckOwnsAudioPipeline)
-        vm.disconnect()
-    }
-
-    @Test(arguments: [AudioSessionSnapshotChangeReason.interruptionBegan, .mediaServicesReset])
-    func nativeInterruptionStopsRecordingCheckWithoutAutomaticRestart(reason: AudioSessionSnapshotChangeReason) async {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        vm.startAudioCheck()
-        await AppTestSupport.waitUntil { vm.audioCheckPhase == .recording }
-        #expect(h.inputBackend.startCount == 1 && h.outputBackend.startCount == 1)
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: reason, snapshot: h.audioSessionBackend.current)))
-        #expect(vm.audioCheckPhase == .idle && !vm.audioCheckOwnsAudioPipeline)
-        #expect(h.inputBackend.stopCount == 1 && h.outputBackend.stopCount == 1)
-        #expect(vm.audioCheckStatusMessage.contains("interrupted"))
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionEnded(shouldResume: true), snapshot: h.audioSessionBackend.current)))
-        _ = await vm.audioSessionManager.requestActive(false).value
-        #expect(vm.audioCheckPhase == .idle)
-        #expect(h.inputBackend.startCount == 1 && h.outputBackend.startCount == 1)
-        vm.cancelAudioCheck()
-    }
-
-    @Test func interruptionBeforePeerAuthenticationRequiresExplicitResume() async {
-        let h = AppTestSupport.makeHarness(), vm = h.viewModel
-        vm.setSoundIsolationEnabled(false)
-        vm.selectGroup(vm.groups[0])
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionBegan, snapshot: h.audioSessionBackend.current)))
-        vm.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(reason: .interruptionEnded(shouldResume: true), snapshot: h.audioSessionBackend.current)))
-        h.callSession.authenticate(["member-108"])
-        await Task.yield()
-        #expect(vm.isAudioPausedForDeviceChange && !vm.isAudioReady && vm.audioStartTask == nil)
-        #expect(h.inputBackend.startCount == 0 && h.callSession.startMediaCallCount == 0)
-        vm.resumeAudioAfterDeviceChange()
-        await AppTestSupport.waitUntil { vm.isAudioReady }
-        #expect(vm.isAudioReady)
-        vm.disconnect()
-        _ = await vm.audioSessionManager.requestActive(false).value
-    }
 }
