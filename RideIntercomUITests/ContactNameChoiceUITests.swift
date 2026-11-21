@@ -1,15 +1,28 @@
 import XCTest
 
 final class ContactNameChoiceUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private var launchedApp: XCUIApplication?
+
+    private var app: XCUIApplication {
+        guard let launchedApp else { preconditionFailure("The app must be launched before interacting with it") }
+        return launchedApp
+    }
+
     override func setUpWithError() throws { continueAfterFailure = false }
-    override func tearDownWithError() throws { app?.terminate(); app = nil }
+    override func tearDownWithError() throws { launchedApp?.terminate(); launchedApp = nil }
 
     @MainActor private func launch(_ id: UUID, japanese: Bool = false, advanced: Bool = false) {
-        app = XCUIApplication()
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
-            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard", "RIDEINTERCOM_CONTACT_NAME_FIXTURE": id.uuidString]
-        app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
+        let app = XCUIApplication()
+        launchedApp = app
+        app.launchEnvironment = [
+            "RIDEINTERCOM_LOCAL_TESTING": "1",
+            "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard",
+            "RIDEINTERCOM_CONTACT_NAME_FIXTURE": id.uuidString
+        ]
+        app.launchArguments = [
+            "-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"
+        ]
         app.launch(); app.activate()
     }
     @MainActor private func row(_ id: UUID) -> XCUIElement { app.buttons["standardUser-" + id.uuidString].firstMatch }
@@ -32,7 +45,10 @@ final class ContactNameChoiceUITests: XCTestCase {
         app.launch(); app.activate()
     }
     @MainActor private func screenshot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
     @MainActor func testUseTheirNameStaysSavedAfterSaveAndRestart() {
         let id = UUID(), peer = "Maki " + id.uuidString.prefix(6)
@@ -83,7 +99,8 @@ final class ContactNameChoiceUITests: XCTestCase {
         XCTAssertTrue(use.waitForExistence(timeout: 3))
         let name = app.textFields["savedUserNameField"]
         let old = name.value as? String ?? ""
-        name.tap(); name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + "My edited name")
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + "My edited name")
         XCTAssertFalse(use.exists, "Review does not overwrite an unsaved edit")
         app.buttons["closeUserSettingsButton"].tap(); settings(id)
         XCTAssertTrue(use.waitForExistence(timeout: 3))
@@ -93,7 +110,8 @@ final class ContactNameChoiceUITests: XCTestCase {
         XCTAssertFalse(app.buttons["resetUserNameButton"].exists, "Following the shared name needs no second reset")
         XCTAssertEqual(app.buttons["closeUserSettingsButton"].label, "Done")
         XCTAssertFalse(app.buttons["saveUserNameButton"].exists)
-        name.tap(); name.typeText(peer)
+        name.tap()
+        name.typeText(peer)
         app.buttons["saveUserNameButton"].tap()
         restart(); settings(id)
         XCTAssertFalse(use.exists)

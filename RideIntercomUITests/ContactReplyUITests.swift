@@ -3,14 +3,27 @@ import CryptoKit
 import XCTest
 
 final class ContactReplyUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private var launchedApp: XCUIApplication?
+
+    private var app: XCUIApplication {
+        guard let launchedApp else { preconditionFailure("The app must be launched before interacting with it") }
+        return launchedApp
+    }
+
     override func setUpWithError() throws { continueAfterFailure = false }
-    override func tearDownWithError() throws { app?.terminate(); app = nil }
+    override func tearDownWithError() throws { launchedApp?.terminate(); launchedApp = nil }
 
     @MainActor private func launch(advanced: Bool = false, japanese: Bool = false) {
-        app = XCUIApplication()
-        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in", "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard"]
-        app.launchArguments = ["-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"]
+        let app = XCUIApplication()
+        launchedApp = app
+        app.launchEnvironment = [
+            "RIDEINTERCOM_LOCAL_TESTING": "1",
+            "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard"
+        ]
+        app.launchArguments = [
+            "-AppleLanguages", japanese ? "(ja)" : "(en)", "-AppleLocale", japanese ? "ja_JP" : "en_US"
+        ]
         app.launch(); app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))
     }
@@ -22,7 +35,9 @@ final class ContactReplyUITests: XCTestCase {
             let old = search.value as? String ?? ""
             search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + name + "\n")
         }
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardUser-", name)).firstMatch
+        let row = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "standardUser-", name)
+        ).firstMatch
         for _ in 0..<16 {
             if row.exists && row.isHittable && row.frame.maxY < list.frame.maxY - 80 { break }
             list.swipeUp()
@@ -71,7 +86,10 @@ final class ContactReplyUITests: XCTestCase {
         return try XCTUnwrap(URL(string: String(value[match])))
     }
     @MainActor private func screenshot(_ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
     @MainActor func testStandardCanShareItsDirectCallAfterACrossedInvitation() throws {
         launch()
@@ -138,24 +156,31 @@ final class ContactReplyUITests: XCTestCase {
     @MainActor func testAdvancedGroupReplyCanRetryInSettingsAndConfirmationClearsPending() throws {
         try incoming(advanced: true, includesGroup: true)
     }
-    @MainActor private func incoming(advanced: Bool = false, japanese: Bool = false, includesGroup: Bool = false) throws {
+    @MainActor private func incoming(
+        advanced: Bool = false,
+        japanese: Bool = false,
+        includesGroup: Bool = false
+    ) throws {
         launch(advanced: advanced, japanese: japanese)
         let suffix = String(UUID().uuidString.prefix(6)), name = "Reply Author " + suffix
         let key = P256.Signing.PrivateKey()
         let groupName = includesGroup ? "Reply Group " + suffix : nil
-        let invitation = try InvitationURLFixture.make(inviter: "reply-author-" + suffix, sharedName: name, contact: true,
-                                                       signingKey: key, invitedGroupName: groupName)
+        let invitation = try InvitationURLFixture.make(
+            inviter: "reply-author-" + suffix,
+            sharedName: name,
+            contact: true,
+            signingKey: key,
+            invitedGroupName: groupName
+        )
         app.open(invitation)
         let register = app.buttons["acceptContactInvitationButton"]
         XCTAssertTrue(register.waitForExistence(timeout: 5)); register.tap()
-        XCTAssertTrue(app.staticTexts["contactPersonSavedName"].waitForExistence(timeout: 4), "Registration keeps the same sheet open")
+        XCTAssertTrue(
+            app.staticTexts["contactPersonSavedName"].waitForExistence(timeout: 4),
+            "Registration keeps the same sheet open"
+        )
         if let groupName {
-            if advanced {
-                let group = try XCTUnwrap(InvitationURLFixture.fields(from: invitation)["invitedGroup"] as? [String: String])
-                let target = app.staticTexts["contactInvitationField-invitedGroupID"]
-                reveal(target)
-                XCTAssertEqual(target.label, try XCTUnwrap(group["id"]).lowercased())
-            } else { XCTAssertTrue(app.staticTexts["Group saved: \(groupName)"].exists) }
+            try verifyAcceptedGroup(named: groupName, invitation: invitation, advanced: advanced)
         }
         let share = app.buttons["shareContactReplyButton"].firstMatch
         if advanced { reveal(share) }
@@ -173,20 +198,45 @@ final class ContactReplyUITests: XCTestCase {
         app.terminate(); app.launch(); app.activate(); settings(name)
         if advanced { reveal(share) }
         XCTAssertTrue(share.waitForExistence(timeout: 4))
-        if includesGroup {
-            let retry = app.buttons["retryContactInvitationButton"].firstMatch
-            reveal(retry); retry.tap()
-            let stateID = advanced ? "contactInvitationField-session" : "contactInvitationState"
-            let state = app.descendants(matching: .any)[stateID].firstMatch
-            if advanced { reveal(state, down: true) }
-            let sending = advanced ? "running" : "Sending a reply"
-            let started = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", sending), object: state)
-            XCTAssertEqual(XCTWaiter.wait(for: [started], timeout: 5), .completed)
-            if advanced { reveal(share) }
-            XCTAssertTrue(share.exists, "Manual sharing stays available while retrying")
-            screenshot("Sharing stays available during an explicit retry")
-        }
+        if includesGroup { verifyPendingReplyCanRetry(advanced: advanced, share: share) }
         let confirmation = try InvitationURLFixture.acknowledgement(reply, signingKey: key)
+        verifyConfirmationClearsPending(confirmation, name: name, advanced: advanced, share: share)
+    }
+
+    @MainActor private func verifyAcceptedGroup(named groupName: String, invitation: URL, advanced: Bool) throws {
+        if advanced {
+            let group = try XCTUnwrap(
+                InvitationURLFixture.fields(from: invitation)["invitedGroup"] as? [String: String]
+            )
+            let target = app.staticTexts["contactInvitationField-invitedGroupID"]
+            reveal(target)
+            XCTAssertEqual(target.label, try XCTUnwrap(group["id"]).lowercased())
+        } else { XCTAssertTrue(app.staticTexts["Group saved: \(groupName)"].exists) }
+    }
+
+    @MainActor private func verifyPendingReplyCanRetry(advanced: Bool, share: XCUIElement) {
+        let retry = app.buttons["retryContactInvitationButton"].firstMatch
+        reveal(retry); retry.tap()
+        let stateID = advanced ? "contactInvitationField-session" : "contactInvitationState"
+        let state = app.descendants(matching: .any)[stateID].firstMatch
+        if advanced { reveal(state, down: true) }
+        let sending = advanced ? "running" : "Sending a reply"
+        let started = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", sending),
+            object: state
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [started], timeout: 5), .completed)
+        if advanced { reveal(share) }
+        XCTAssertTrue(share.exists, "Manual sharing stays available while retrying")
+        screenshot("Sharing stays available during an explicit retry")
+    }
+
+    @MainActor private func verifyConfirmationClearsPending(
+        _ confirmation: URL,
+        name: String,
+        advanced: Bool,
+        share: XCUIElement
+    ) {
         app.open(confirmation)
         XCTAssertTrue(share.waitForNonExistence(timeout: 5))
         // URL activation may rebuild the test scene. Verify durable state and avoid opening a second settings sheet.
@@ -205,9 +255,14 @@ final class ContactReplyUITests: XCTestCase {
         if !settingsView.waitForExistence(timeout: 3) { settings(name) }
         XCTAssertFalse(share.exists)
     }
+}
+
+extension ContactReplyUITests {
+    @objc
     @MainActor func testSharedReplyRegistersTheSameSenderDetailAndOffersConfirmation() throws {
         try outgoing()
     }
+    @objc
     @MainActor func testAdvancedSharedReplyRegistersTheSameSenderDetailAndOffersConfirmation() throws {
         try outgoing(advanced: true)
     }
@@ -223,7 +278,11 @@ final class ContactReplyUITests: XCTestCase {
         XCTAssertTrue(copy().waitForExistence(timeout: 5)); copy().tap()
         XCTAssertTrue(copy().waitForNonExistence(timeout: 5))
         let invitation = try copiedURL()
-        let reply = try InvitationURLFixture.acceptance(invitation, invitee: "shared-peer-" + suffix, sharedName: "Their Name " + suffix)
+        let reply = try InvitationURLFixture.acceptance(
+            invitation,
+            invitee: "shared-peer-" + suffix,
+            sharedName: "Their Name " + suffix
+        )
         app.open(reply)
         XCTAssertTrue(app.descendants(matching: .any)["standardUsersList"].firstMatch.waitForExistence(timeout: 5))
         settings(alias)
@@ -243,9 +302,11 @@ final class ContactReplyUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 4), "The manual receipt origin survives restart")
     }
 
+    @objc
     @MainActor func testJapaneseExpiredReplyExplainsRecoveryAfterRestart() async throws {
         try await expiredReply(japanese: true)
     }
+    @objc
     @MainActor func testAdvancedExpiredReplyShowsTheDeadlineWithoutRetry() async throws {
         try await expiredReply(advanced: true)
     }
@@ -253,7 +314,12 @@ final class ContactReplyUITests: XCTestCase {
         launch(advanced: advanced, japanese: japanese)
         let suffix = String(UUID().uuidString.prefix(6)), name = "Expiry Author " + suffix
         let started = Date()
-        let url = try InvitationURLFixture.make(inviter: "expired-reply-" + suffix, sharedName: name, contact: true, expiresAfter: 45)
+        let url = try InvitationURLFixture.make(
+            inviter: "expired-reply-" + suffix,
+            sharedName: name,
+            contact: true,
+            expiresAfter: 45
+        )
         app.open(url)
         let register = app.buttons["acceptContactInvitationButton"]
         XCTAssertTrue(register.waitForExistence(timeout: 5)); register.tap()
@@ -281,10 +347,12 @@ final class ContactReplyUITests: XCTestCase {
         screenshot("Expired checkpoint keeps the person and offers a valid next step")
     }
 
+    @objc
     @MainActor func testAdvancedReplyCanStopWithoutClosingTheRegisteredPerson() throws {
         try stopReply()
     }
 
+    @objc
     @MainActor func testJapaneseAdvancedReplyCanStopFromSettings() throws {
         try stopReply(japanese: true, fromSettings: true)
     }
