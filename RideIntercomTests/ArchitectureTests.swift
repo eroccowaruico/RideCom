@@ -17,7 +17,9 @@ struct ArchitectureTests {
     @Test func appDoesNotRequestUnusedICloudServices() throws {
         let url = AppTestSupport.workspaceRoot().appendingPathComponent("RideIntercom/RideIntercom.entitlements")
         let entitlements = try #require(
-            PropertyListSerialization.propertyList(from: Data(contentsOf: url), options: [], format: nil) as? [String: Any]
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: url), options: [], format: nil
+            ) as? [String: Any]
         )
         #expect(entitlements.keys.contains { $0.hasPrefix("com.apple.developer.icloud-") } == false)
     }
@@ -58,29 +60,18 @@ struct ArchitectureTests {
     }
 
     @Test func uiSourcesAreSplitByScreenResponsibility() throws {
+        try checkScreenSources()
+        try checkDiagnosticsPipelineSources()
+        try checkEffectChainSource()
+        try checkCallSessionAdapterSources()
+    }
+
+    private func checkScreenSources() throws {
         let contentView = try AppTestSupport.source("RideIntercom/UI/ContentView.swift")
         let callView = try AppTestSupport.source("RideIntercom/UI/Call/Advanced/CallView.swift")
         let settingsView = try AppTestSupport.source("RideIntercom/UI/Settings/Common/SettingsView.swift")
         let settingsPanels = try AppTestSupport.source("RideIntercom/UI/Settings/Common/SettingsPanels.swift")
         let diagnosticsView = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsView.swift")
-        let transmitPipelineView = try ["LiveTransmitPipelineView", "TransmitPipelinePresentation", "PipelineComponents"].map {
-            try AppTestSupport.source("RideIntercom/UI/Diagnostics/" + $0 + ".swift")
-        }.joined(separator: "\n")
-        let receivePipelineView = try ["LiveReceivePipelineView", "ReceivePipelinePresentation", "ReceiveMixViews", "DiagnosticsPipelineDetails"].map {
-            try AppTestSupport.source("RideIntercom/UI/Diagnostics/" + $0 + ".swift")
-        }.joined(separator: "\n")
-        let receiveDetails = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsPipelineDetails.swift")
-        let receivePresentation = try AppTestSupport.source("RideIntercom/UI/Diagnostics/ReceivePipelinePresentation.swift")
-        let diagnosticsInput = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsInput.swift")
-        let effectChainSource = try AppTestSupport.source("RideIntercom/Intercom/ViewModel/IntercomViewModel+EffectChains.swift")
-        let transportSources = [
-            "CallSessionAdapter", "CallSessionAdapter+EventMapping", "CallSessionAdapter+RTCSetup", "CallSessionContracts"
-        ]
-        let callSessionAdapter = try transportSources.map {
-            try AppTestSupport.source("RideIntercom/Intercom/Transport/" + $0 + ".swift")
-        }.joined(separator: "\n")
-        let diagnosticsSpec = try AppTestSupport.source("docs/spec/App/UI/Diagnostics.md")
-
         #expect(contentView.contains("struct ContentView"))
         #expect(contentView.components(separatedBy: .newlines).count < 80)
         #expect(callView.contains("struct CallView"))
@@ -95,10 +86,33 @@ struct ArchitectureTests {
         let participantViews = try AppTestSupport.source("RideIntercom/UI/Call/Advanced/ParticipantViews.swift")
         #expect(participantViews.contains("participantOutputSlider"))
         #expect(participantViews.contains("participantVoiceIsolationToggle"))
+
+    }
+
+    private func checkDiagnosticsPipelineSources() throws {
+        let transmitPipelineView = try [
+            "LiveTransmitPipelineView", "TransmitPipelinePresentation", "PipelineComponents"
+        ].map {
+            try AppTestSupport.source("RideIntercom/UI/Diagnostics/" + $0 + ".swift")
+        }.joined(separator: "\n")
+        let receivePipelineView = try [
+            "LiveReceivePipelineView", "ReceivePipelinePresentation", "ReceiveMixViews", "DiagnosticsPipelineDetails"
+        ].map {
+            try AppTestSupport.source("RideIntercom/UI/Diagnostics/" + $0 + ".swift")
+        }.joined(separator: "\n")
+        let receiveDetails = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsPipelineDetails.swift")
+        let receivePresentation = try AppTestSupport.source(
+            "RideIntercom/UI/Diagnostics/ReceivePipelinePresentation.swift"
+        )
+        let diagnosticsInput = try AppTestSupport.source("RideIntercom/UI/Diagnostics/DiagnosticsInput.swift")
+        let diagnosticsSpec = try AppTestSupport.source("docs/spec/App/UI/Diagnostics.md")
+
         #expect(transmitPipelineView.contains("CompactEffectChainGroup"))
         #expect(transmitPipelineView.contains("ViewThatFits(in: .horizontal)"))
         #expect(transmitPipelineView.contains("minHeight: 104") == false)
-        #expect(receivePipelineView.contains("DiagnosticsReceiveDetails(presentation: presentation, expandedStage: $expandedStage)"))
+        #expect(receivePipelineView.contains(
+            "DiagnosticsReceiveDetails(presentation: presentation, expandedStage: $expandedStage)"
+        ))
         let outputGroupPattern = #"ReceiveOutputMixGroup\(\s*step:\s*presentation\.outputBusStep\b"#
         #expect(receivePipelineView.range(of: outputGroupPattern, options: .regularExpression) != nil)
         #expect(receivePipelineView.contains("ReceivePeerBusCard") == false)
@@ -120,12 +134,33 @@ struct ArchitectureTests {
         #expect(receivePipelineView.contains("RTC \\(peerBus.connectionLabel)") == false)
         #expect(receivePipelineView.contains("DEC \\(codecLabel(peerBus.activeCodec))") == false)
         #expect(receivePipelineView.contains("defaultReceiveSoundIsolationEnabled") == false)
+
+        #expect(diagnosticsSpec.contains("receive-master-effect-stage-peak-limiter"))
+    }
+
+    private func checkEffectChainSource() throws {
+        let effectChainSource = try AppTestSupport.source(
+            "RideIntercom/Intercom/ViewModel/IntercomViewModel+EffectChains.swift"
+        )
         #expect(effectChainSource.contains("var transmitEffectChainSnapshot"))
         #expect(effectChainSource.contains("func receivePeerEffectChainSnapshot"))
         #expect(effectChainSource.contains("var receiveMixEffectChainSnapshot"))
         #expect(effectChainSource.contains("effects: mixerBusSnapshot(id: \"tx-bus\")?.effectChain ?? []"))
         #expect(effectChainSource.contains("peakLimiterStageSnapshot") == false)
-        #expect(callSessionAdapter.contains("case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)"))
+
+    }
+
+    private func checkCallSessionAdapterSources() throws {
+        let transportSources = [
+            "CallSessionAdapter", "CallSessionAdapter+EventMapping",
+            "CallSessionAdapter+RTCSetup", "CallSessionContracts"
+        ]
+        let callSessionAdapter = try transportSources.map {
+            try AppTestSupport.source("RideIntercom/Intercom/Transport/" + $0 + ".swift")
+        }.joined(separator: "\n")
+        #expect(callSessionAdapter.contains(
+            "case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)"
+        ))
         #expect(callSessionAdapter.contains("case remoteRuntimeStatus(peerID: String, status: RTCRuntimeStatus)"))
         #expect(callSessionAdapter.contains("updateRuntimePackageReports"))
         #expect(callSessionAdapter.contains("setEnabledRoutes"))
@@ -140,8 +175,10 @@ struct ArchitectureTests {
         #expect(callSessionAdapter.contains("RTCRuntimeStatusTransport.decode(message)"))
         #expect(callSessionAdapter.contains("makeKeepaliveMessage(activeCodec: activeAudioCodec())"))
         #expect(callSessionAdapter.contains("PeerMetadataApplicationPayload(activeCodec: activeCodec)"))
-        #expect(callSessionAdapter.contains("return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)"))
-        #expect(diagnosticsSpec.contains("receive-master-effect-stage-peak-limiter"))
+        #expect(callSessionAdapter.contains(
+            "return .remotePeerMetadata(peerID: peerID, activeCodec: payload.activeCodec)"
+        ))
+
     }
 
     @Test func appRootKeepsPlatformSpecificWindowPolicyAtMacBoundary() throws {
@@ -166,11 +203,17 @@ struct ArchitectureTests {
         let backgroundModes = try #require(plist["UIBackgroundModes"] as? [String])
         let bonjourServices = try #require(plist["NSBonjourServices"] as? [String])
         // Xcode generates this value from INFOPLIST_KEY_NSLocalNetworkUsageDescription.
-        let localNetworkUsage = try #require(Bundle.main.object(forInfoDictionaryKey: "NSLocalNetworkUsageDescription") as? String)
+        let localNetworkUsage = try #require(
+            Bundle.main.object(forInfoDictionaryKey: "NSLocalNetworkUsageDescription") as? String
+        )
 
         #expect(backgroundModes.contains("audio"))
-        let control = try Self.serviceType(in: "RideIntercom/packages/RTC/Sources/RTC/Local/LocalControlTransport.swift")
-        let datagram = try Self.serviceType(in: "RideIntercom/packages/RTC/Sources/RTC/Local/LocalDatagramTransport.swift")
+        let control = try Self.serviceType(
+            in: "RideIntercom/packages/RTC/Sources/RTC/Local/LocalControlTransport.swift"
+        )
+        let datagram = try Self.serviceType(
+            in: "RideIntercom/packages/RTC/Sources/RTC/Local/LocalDatagramTransport.swift"
+        )
         #expect(Set(bonjourServices) == [control, datagram])
         #expect(!localNetworkUsage.isEmpty)
     }
