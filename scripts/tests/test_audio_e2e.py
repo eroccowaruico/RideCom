@@ -50,6 +50,30 @@ class Measurement(MeasurementResult):
     continuity: Continuity
 
 
+class BackgroundAudioObservationTests(unittest.TestCase):
+    def test_missing_permission_rejects_the_observation_without_stopping_the_report(self) -> None:
+        from scripts.background_call_e2e import observation_report
+
+        # Native input was active for 29 seconds while the same call was waiting.
+        rows = [{
+            'background': True, 'inputCallback': True, 'uptime': second, 'deadline': 60,
+            'processInstance': 'test', 'processID': 1, 'platform': 'simulator', 'recordedAt': second,
+            'protectedDataAvailable': True, 'testRunnerPresent': True, 'microphonePermission': 'granted',
+            'connectionInstance': 'call', 'usesNativeOutput': True, 'receivedVoicePackets': 0,
+            'availableRoutes': [], 'lastAudibleOutputAt': None, 'audioReady': True, 'inputRunning': True,
+            'outputRunning': True, 'mediaStarted': False, 'authenticatedPeers': 0, 'muted': False,
+        } for second in range(30)]
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'observation.json'
+            source.write_text(json.dumps(rows))
+            self.assertIs(observation_report(source, 'standard-open', False)['passed'], True)
+            del rows[-1]['microphonePermission']
+            source.write_text(json.dumps(rows))
+            result = observation_report(source, 'standard-open', False)
+            self.assertIs(result['passed'], False)
+            self.assertIs(result['runtimeContextValid'], False)
+
+
 class AudioE2ELifecycleTests(unittest.TestCase):
     def test_network_audio_selects_requested_cases_in_matrix_order(self) -> None:
         argv = ['audio_e2e.py', '--output', str(self.root / 'selection'), '--matrix', 'quick',
