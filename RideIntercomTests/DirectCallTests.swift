@@ -30,7 +30,7 @@ struct DirectCallTests {
 
         let owner = AppCallOwner(account: recipient.viewModel.accountSession, viewModel: recipient.viewModel)
         owner.systemSurfaceIsForeground = true
-        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee]?.invitation.groupID == group.id)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee(group.id)] != nil)
         #expect(recipient.viewModel.activeGroupID == activeGroupID)
         #expect(recipient.callSession.disconnectCallCount == disconnects)
         #expect(recipient.callSession.startMediaCallCount == mediaStarts)
@@ -39,7 +39,7 @@ struct DirectCallTests {
         #expect(windows == 2)
     }
 
-    @Test func foregroundDoesNotChooseBetweenTwoPendingReplies() throws {
+    @Test func foregroundRestoresBothPendingRepliesIndependently() throws {
         let members = [GroupMember(id: "alice", displayName: "Alice")]
         let first = try IntercomGroup(name: "First", members: members, accessSecret: "foreground-first-reply")
         let second = try IntercomGroup(name: "Second", members: members, accessSecret: "foreground-second-reply")
@@ -57,12 +57,15 @@ struct DirectCallTests {
         let owner = AppCallOwner(account: recipient.viewModel.accountSession, viewModel: recipient.viewModel)
         recipient.viewModel.allowsNearbyGroupDelivery = true
         owner.systemSurfaceIsForeground = true
-        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.isEmpty)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.count == 2)
+        let active = try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee(first.id)])
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee(second.id)] != nil)
 
         try #require(recipient.viewModel.deleteGroup(second.id))
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges.count == 1)
         owner.systemSurfaceIsForeground = false
         owner.systemSurfaceIsForeground = true
-        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee]?.invitation.groupID == first.id)
+        #expect(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee(first.id)] === active)
     }
 
     @Test func removingTheSourceGroupReleasesBothKindsOfOrdinaryReplyWindowImmediately() throws {
@@ -82,7 +85,7 @@ struct DirectCallTests {
         let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
         try recipient.viewModel.acceptInviteURL(url)
         try #require(!author.viewModel.ordinaryGroupReplyExchanges.isEmpty)
-        try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee] != nil)
+        try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee(group.id)] != nil)
 
         #expect(author.viewModel.renameGroup(group.id, to: "New name"))
         #expect(authorReleases == 0)
@@ -106,7 +109,7 @@ struct DirectCallTests {
         let url = try #require(author.viewModel.makeGroupInviteURL(for: group.id))
         try recipient.viewModel.acceptInviteURL(url)
         let alice = try #require(recipient.viewModel.savedRemoteUsers.first)
-        try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee] != nil)
+        try #require(recipient.viewModel.ordinaryGroupReplyExchanges[.invitee(group.id)] != nil)
 
         try #require(recipient.viewModel.removeSavedUser(alice.id))
         #expect(recipient.viewModel.activeGroupID == group.id)
@@ -641,7 +644,12 @@ struct DirectCallTests {
 
 @MainActor
 struct OrdinaryGroupReplyTransportTests {
-    @Test func aRestoredLocalCallRouteResumesExpiredOrdinaryReplyAttempts() async throws {
+    // Browsing several invitations can take over 12 seconds on the simulator.
+    // Allow discovery to finish within the application's 60-second attempt.
+    private let replyTimeout: Duration = .seconds(30)
+
+    @Test(arguments: [1, 2])
+    func aRestoredLocalCallRouteResumesExpiredOrdinaryReplyAttempts(invitationCount: Int) async throws {
         let author = AppTestSupport.makeHarness(groups: [], localMemberID: "alice")
         let recipient = AppTestSupport.makeHarness(groups: [], localMemberID: "bob")
         let left = author.viewModel, right = recipient.viewModel
@@ -653,13 +661,17 @@ struct OrdinaryGroupReplyTransportTests {
             model.setRTCTransportRoutes([.multipeer, .webRTC])
             model.allowsNearbyGroupDelivery = true
         }
-        let group = UUID(), authorCall = UUID(), recipientCall = UUID()
-        try #require(left.createTalkGroup(name: "Invitation group", id: group))
+        let invitationGroups = (1...invitationCount).map { _ in UUID() }
+        let authorCall = UUID(), recipientCall = UUID()
+        for (index, group) in invitationGroups.enumerated() {
+            try #require(left.createTalkGroup(name: "Invitation group \(index + 1)", id: group))
+        }
         try #require(left.createTalkGroup(name: "Author's call", id: authorCall))
         try #require(left.startCall(to: .group(authorCall), accountAccessID: left.accountAccessID))
         try #require(right.createTalkGroup(name: "Recipient's call", id: recipientCall))
         try #require(right.startCall(to: .group(recipientCall), accountAccessID: right.accountAccessID))
         let authorReference = left.currentCallReference, recipientReference = right.currentCallReference
+        try #require(right.setCallMuted(true, for: recipientReference))
         let deliverToAuthor = try #require(author.callSession.onEvent)
         let deliverToRecipient = try #require(recipient.callSession.onEvent)
         let internet = TransportEvent.routesChanged(.init(activeRoute: .webRTC, mediaRoute: .webRTC,
@@ -673,30 +685,34 @@ struct OrdinaryGroupReplyTransportTests {
         var expireAuthor: (@MainActor () -> Void)?, expireRecipient: (@MainActor () -> Void)?
         left.beginOrdinaryGroupReplyBackgroundTime = { expire in authorRequests += 1; expireAuthor = expire; return nil }
         right.beginOrdinaryGroupReplyBackgroundTime = { expire in recipientRequests += 1; expireRecipient = expire; return nil }
-        let url = try #require(left.makeGroupInviteURL(for: group))
-        try right.acceptInviteURL(url)
+        for group in invitationGroups {
+            let url = try #require(left.makeGroupInviteURL(for: group))
+            try right.acceptInviteURL(url)
+        }
         let authorTimeout = try #require(expireAuthor), recipientTimeout = try #require(expireRecipient)
         authorTimeout(); recipientTimeout()
         deliverToAuthor(internet)
         deliverToRecipient(internet)
         #expect(left.ordinaryGroupReplyExchanges.isEmpty && right.ordinaryGroupReplyExchanges.isEmpty)
         #expect(left.savedRemoteUsers.isEmpty)
-        let pending = right.groupRepository.pendingInvitation(for: group) != nil
-        #expect(pending)
+        let pending = invitationGroups.filter { right.groupRepository.pendingInvitation(for: $0) != nil }
+        #expect(pending.count == invitationCount)
 
         deliverToAuthor(mixed); deliverToRecipient(mixed)
-        try #require(!left.ordinaryGroupReplyExchanges.isEmpty)
-        try #require(right.ordinaryGroupReplyExchanges[.invitee] != nil)
+        try #require(left.ordinaryGroupReplyExchanges.count == invitationCount)
+        try #require(right.ordinaryGroupReplyExchanges.count == invitationCount)
         deliverToAuthor(mixed); deliverToRecipient(mixed)
         #expect(authorRequests == 2 && recipientRequests == 2)
-        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
-            right.groupRepository.pendingInvitation(for: group) == nil
+        await AppTestSupport.waitUntil(timeout: replyTimeout) {
+            invitationGroups.allSatisfy { right.groupRepository.pendingInvitation(for: $0) == nil }
         }
-        let delivered = right.groupRepository.pendingInvitation(for: group) == nil
+        let delivered = invitationGroups.allSatisfy { right.groupRepository.pendingInvitation(for: $0) == nil }
         #expect(delivered)
+        #expect(right.ordinaryGroupReplyExchanges.isEmpty)
         #expect(left.savedRemoteUsers.first?.memberIDs == ["bob"])
         #expect(left.currentCallReference == authorReference && right.currentCallReference == recipientReference)
         #expect(left.activeGroupID == authorCall && right.activeGroupID == recipientCall)
+        #expect(right.effectiveInputMuted)
     }
 
     @Test func reopenedInviterReceivesAcceptancesForBothIssuedLinks() async throws {
@@ -741,13 +757,13 @@ struct OrdinaryGroupReplyTransportTests {
         let receiverOwner = AppCallOwner(account: recipient.viewModel.accountSession, viewModel: recipient.viewModel)
         recipient.viewModel.allowsNearbyGroupDelivery = true
         receiverOwner.systemSurfaceIsForeground = true
-        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+        await AppTestSupport.waitUntil(timeout: replyTimeout) {
             recipient.viewModel.groupRepository.pendingInvitation(for: other.id) == nil
         }
         let newerAcknowledged = recipient.viewModel.groupRepository.pendingInvitation(for: other.id) == nil
         try #require(newerAcknowledged)
         try recipient.viewModel.acceptInviteURL(url)
-        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
+        await AppTestSupport.waitUntil(timeout: replyTimeout) {
             recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil
         }
         let acknowledged = recipient.viewModel.groupRepository.pendingInvitation(for: group.id) == nil

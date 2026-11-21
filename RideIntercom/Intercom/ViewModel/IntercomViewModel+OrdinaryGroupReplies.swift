@@ -3,7 +3,7 @@ import RTC
 
 @MainActor
 final class OrdinaryGroupReplyExchange {
-    enum Role: Hashable, Sendable { case inviter(UUID), invitee }
+    enum Role: Hashable, Sendable { case inviter(UUID), invitee(UUID) }
 
     let id: UUID
     let invitation: DirectInvitationContext
@@ -33,9 +33,9 @@ extension IntercomViewModel {
     func resumeSavedNearbyOrdinaryGroupReplies() {
         guard canExchangeOrdinaryGroupReplies else { return }
         resumeIssuedOrdinaryGroupReplies()
-        guard ordinaryGroupReplyExchanges[.invitee] == nil else { return }
-        let invitation = groupRepository.resumableOrdinaryGroupReply(now: Date().timeIntervalSince1970)
-        resumeReceivedOrdinaryGroupReply(invitation)
+        for invitation in groupRepository.pendingOrdinaryGroupReplies(now: Date().timeIntervalSince1970) {
+            startOrdinaryGroupReplyExchange(invitation)
+        }
     }
 
     private func resumeIssuedOrdinaryGroupReplies() {
@@ -58,19 +58,15 @@ extension IntercomViewModel {
         } else {
             pending = nil
         }
-        resumeReceivedOrdinaryGroupReply(pending?.invitation)
-    }
-
-    private func resumeReceivedOrdinaryGroupReply(_ invitation: DirectInvitationContext?) {
-        guard let invitation else { return }
-        startOrdinaryGroupReplyExchange(invitation)
+        if let invitation = pending?.invitation { startOrdinaryGroupReplyExchange(invitation) }
     }
 
     func startOrdinaryGroupReplyExchange(_ invitation: DirectInvitationContext) {
         let now = Date().timeIntervalSince1970
         guard canExchangeOrdinaryGroupReplies,
               let saved = groupRepository.ordinaryGroupReplyCredential(for: invitation, now: now) else { return }
-        let role: OrdinaryGroupReplyExchange.Role = invitation.inviterMemberID == localMemberIdentity.memberID ? .inviter(invitation.id) : .invitee
+        let role: OrdinaryGroupReplyExchange.Role = invitation.inviterMemberID == localMemberIdentity.memberID
+            ? .inviter(invitation.id) : .invitee(invitation.groupID)
         if let current = ordinaryGroupReplyExchanges[role],
            current.invitation == invitation, current.savedCredential == saved { return }
         stopOrdinaryGroupReplyExchange(role)
@@ -137,6 +133,7 @@ extension IntercomViewModel {
     private func receiveOrdinaryGroupReplyEvent(_ event: RTCLocalDataChannel.Event, role: OrdinaryGroupReplyExchange.Role, id: UUID) {
         guard let exchange = ordinaryGroupReplyExchanges[role], exchange.id == id else { return }
         let invitation = exchange.invitation
+        let isInvitee = role == .invitee(invitation.groupID)
         guard canExchangeOrdinaryGroupReplies,
               groupRepository.ordinaryGroupReplyCredential(for: invitation, now: Date().timeIntervalSince1970) == exchange.savedCredential
         else {
@@ -146,12 +143,12 @@ extension IntercomViewModel {
         switch event {
         case .members(let members):
             let author = PeerID(rawValue: invitation.inviterMemberID)
-            guard role == .invitee, members.contains(author),
+            guard isInvitee, members.contains(author),
                   let receipt = signedPendingInvitationReceipt(for: invitation.groupID), receipt.invitation == invitation,
                   let data = try? JSONEncoder().encode(receipt) else { return }
             exchange.channel.send(data, to: author)
         case .message(let data, let peer):
-            let expectedKind: DirectInvitationReceipt.Kind = role == .invitee ? .acknowledged : .accepted
+            let expectedKind: DirectInvitationReceipt.Kind = isInvitee ? .acknowledged : .accepted
             guard data.count <= 8192, let receipt = try? JSONDecoder().decode(DirectInvitationReceipt.self, from: data),
                   receipt.isValid, receipt.invitation == invitation, receipt.kind == expectedKind else { return }
             if let acknowledgement = applyInvitationReceipt(receipt, from: peer.rawValue, standalone: true),
