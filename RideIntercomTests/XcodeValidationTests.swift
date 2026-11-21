@@ -5,10 +5,19 @@ import Testing
 @MainActor @Suite(.serialized)
 struct XcodeValidationTests {
     @Test func sharedSchemesSeparateTestFromNormalRunAndArchive() throws {
-        for (name, configuration) in [("RideIntercom", "Debug-Validation"), ("RideIntercomAudioE2E", "Debug-Validation"), ("RideIntercom-StoreKitTests", "Debug-Validation"), ("RideIntercom-StoreKitUITests", "Debug-Validation")] {
+        for (name, configuration) in [
+            ("RideIntercom", "Debug-Validation"), ("RideIntercomAudioE2E", "Debug-Validation"),
+            ("RideIntercom-StoreKitTests", "Debug-Validation"),
+            ("RideIntercom-StoreKitUITests", "Debug-Validation")
+        ] {
             let scheme = try AppTestSupport.source("RideIntercom.xcodeproj/xcshareddata/xcschemes/\(name).xcscheme")
-            for (action, value) in [("TestAction", configuration), ("LaunchAction", "Debug"), ("ArchiveAction", "Release")] {
-                #expect(scheme.range(of: "<\(action)\\b[^>]*buildConfiguration\\s*=\\s*\"\(value)\"", options: .regularExpression) != nil)
+            for (action, value) in [
+                ("TestAction", configuration), ("LaunchAction", "Debug"), ("ArchiveAction", "Release")
+            ] {
+                #expect(
+                    scheme.range(
+                        of: "<\(action)\\b[^>]*buildConfiguration\\s*=\\s*\"\(value)\"",
+                        options: .regularExpression) != nil)
             }
             let fixtureSettings: String
             if name == "RideIntercom-StoreKitTests" {
@@ -23,9 +32,7 @@ struct XcodeValidationTests {
     }
 
     @Test func nativeTargetsAndProjectHaveTheirExplicitValidationConfigurations() throws {
-        let data = try Data(contentsOf: AppTestSupport.workspaceRoot().appending(path: "RideIntercom.xcodeproj/project.pbxproj"))
-        let project = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        let objects = try #require(project["objects"] as? [String: [String: Any]])
+        let (project, objects) = try readProject()
         let rootID = try #require(project["rootObject"] as? String)
         let projectObject = try #require(objects[rootID])
         let targetIDs = try #require(projectObject["targets"] as? [String])
@@ -43,11 +50,28 @@ struct XcodeValidationTests {
             let ids = try #require(list["buildConfigurations"] as? [String])
             let names = Set(ids.compactMap { objects[$0]?["name"] as? String })
             #expect(requiredConfigurations == names)
-            let releaseValidation = try #require(ids.compactMap { objects[$0] }.first { $0["name"] as? String == "Release-Validation" })
+            let releaseValidation = try #require(
+                ids.compactMap { objects[$0] }.first { $0["name"] as? String == "Release-Validation" })
             let settings = try #require(releaseValidation["buildSettings"] as? [String: Any])
-            let conditions = (settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] as? String ?? "").split { $0.isWhitespace }
+            let conditions = (settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] as? String ?? "").split {
+                $0.isWhitespace
+            }
             #expect(!conditions.contains("DEBUG"))
         }
+        try verifyReleaseConfigurations(of: projectObject, objects: objects)
+    }
+
+    private typealias ProjectObject = [String: Any]
+
+    private func readProject() throws -> (ProjectObject, [String: ProjectObject]) {
+        let data = try Data(
+            contentsOf: AppTestSupport.workspaceRoot().appending(path: "RideIntercom.xcodeproj/project.pbxproj"))
+        let project = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        let objects = try #require(project["objects"] as? [String: [String: Any]])
+        return (project, objects)
+    }
+
+    private func verifyReleaseConfigurations(of projectObject: ProjectObject, objects: [String: ProjectObject]) throws {
         let projectList = try #require(projectObject["buildConfigurationList"] as? String)
         let configIDs = try #require(objects[projectList]?["buildConfigurations"] as? [String])
         let release = try #require(configIDs.compactMap { objects[$0] }.first { $0["name"] as? String == "Release" })
@@ -55,33 +79,50 @@ struct XcodeValidationTests {
         #expect(releaseSettings["RIDEINTERCOM_STORAGE_NAMESPACE"] as? String == "RideIntercom")
         #expect(release["baseConfigurationReference"] == nil)
         #expect(releaseSettings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] == nil)
-        let releaseValidation = try #require(configIDs.compactMap { objects[$0] }.first { $0["name"] as? String == "Release-Validation" })
+        let releaseValidation = try #require(
+            configIDs.compactMap { objects[$0] }.first { $0["name"] as? String == "Release-Validation" })
         let releaseValidationSettings = try #require(releaseValidation["buildSettings"] as? [String: Any])
-        #expect(releaseValidationSettings["RIDEINTERCOM_STORAGE_NAMESPACE"] as? String == "RideIntercom.Validation.Xcode")
+        #expect(
+            releaseValidationSettings["RIDEINTERCOM_STORAGE_NAMESPACE"] as? String
+                == "RideIntercom.Validation.Xcode")
         #expect(releaseValidationSettings["ENABLE_TESTABILITY"] as? String == "YES")
         #expect(releaseValidation["baseConfigurationReference"] == nil)
-        #expect((releaseValidationSettings["SWIFT_OPTIMIZATION_LEVEL"] as? String ?? "-O") == (releaseSettings["SWIFT_OPTIMIZATION_LEVEL"] as? String ?? "-O"))
-        #expect(releaseValidationSettings["SWIFT_COMPILATION_MODE"] as? String == releaseSettings["SWIFT_COMPILATION_MODE"] as? String)
-        let app = try #require(objects.values.first { $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercom" })
+        #expect(
+            (releaseValidationSettings["SWIFT_OPTIMIZATION_LEVEL"] as? String ?? "-O")
+                == (releaseSettings["SWIFT_OPTIMIZATION_LEVEL"] as? String ?? "-O"))
+        #expect(
+            releaseValidationSettings["SWIFT_COMPILATION_MODE"] as? String == releaseSettings[
+                "SWIFT_COMPILATION_MODE"] as? String)
+        let app = try #require(
+            objects.values.first {
+                $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercom"
+            })
         let appListID = try #require(app["buildConfigurationList"] as? String)
         let appConfigIDs = try #require(objects[appListID]?["buildConfigurations"] as? [String])
-        let appRelease = try #require(appConfigIDs.compactMap { objects[$0] }.first { $0["name"] as? String == "Release" })
+        let appRelease = try #require(
+            appConfigIDs.compactMap { objects[$0] }.first { $0["name"] as? String == "Release" })
         let appReleaseSettings = try #require(appRelease["buildSettings"] as? [String: Any])
-        #expect(appReleaseSettings["PRODUCT_BUNDLE_IDENTIFIER"] as? String == "com.yowamushi-inc.RideIntercom.RideIntercom")
+        #expect(
+            appReleaseSettings["PRODUCT_BUNDLE_IDENTIFIER"] as? String
+                == "com.yowamushi-inc.RideIntercom.RideIntercom")
         #expect(appReleaseSettings["RIDEINTERCOM_STORAGE_NAMESPACE"] as? String == "RideIntercom")
         #expect(appRelease["baseConfigurationReference"] == nil)
         let validation = try AppTestSupport.source("Configuration/Validation.xcconfig")
         #expect(validation.contains("RIDEINTERCOM_VALIDATION"))
         #expect(validation.contains("RideIntercom.Validation.Xcode"))
         #expect(!validation.contains("#include"))
-        #expect(!FileManager.default.fileExists(atPath: AppTestSupport.workspaceRoot().appending(path: "Configuration/StoreKitValidation.xcconfig").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: AppTestSupport.workspaceRoot().appending(path: "Configuration/StoreKitValidation.xcconfig")
+                    .path))
     }
 
     @Test func watchTargetCompilesTheSharedSystemScope() throws {
-        let data = try Data(contentsOf: AppTestSupport.workspaceRoot().appending(path: "RideIntercom.xcodeproj/project.pbxproj"))
-        let project = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        let objects = try #require(project["objects"] as? [String: [String: Any]])
-        let watch = try #require(objects.values.first { $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercomWatch" })
+        let (_, objects) = try readProject()
+        let watch = try #require(
+            objects.values.first {
+                $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercomWatch"
+            })
         let phaseIDs = try #require(watch["buildPhases"] as? [String])
         let sources = phaseIDs.compactMap { objects[$0] }.filter { $0["isa"] as? String == "PBXSourcesBuildPhase" }
         let files = sources.flatMap { $0["files"] as? [String] ?? [] }
@@ -91,10 +132,11 @@ struct XcodeValidationTests {
     }
 
     @Test func appSynchronizationCannotReachLocalSwiftPackageFiles() throws {
-        let data = try Data(contentsOf: AppTestSupport.workspaceRoot().appending(path: "RideIntercom.xcodeproj/project.pbxproj"))
-        let project = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        let objects = try #require(project["objects"] as? [String: [String: Any]])
-        let app = try #require(objects.values.first { $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercom" })
+        let (_, objects) = try readProject()
+        let app = try #require(
+            objects.values.first {
+                $0["isa"] as? String == "PBXNativeTarget" && $0["name"] as? String == "RideIntercom"
+            })
         let groupIDs = try #require(app["fileSystemSynchronizedGroups"] as? [String])
         let packages = objects.values.filter { $0["isa"] as? String == "XCLocalSwiftPackageReference" }
             .compactMap { $0["relativePath"] as? String }
@@ -102,7 +144,8 @@ struct XcodeValidationTests {
         for groupID in groupIDs {
             let group = try #require(objects[groupID])
             let configuredPath = try #require(group["path"] as? String)
-            let path = group["sourceTree"] as? String == "SOURCE_ROOT" ? configuredPath : "RideIntercom/\(configuredPath)"
+            let path =
+                group["sourceTree"] as? String == "SOURCE_ROOT" ? configuredPath : "RideIntercom/\(configuredPath)"
             for package in packages {
                 #expect(path != package && !package.hasPrefix(path + "/") && !path.hasPrefix(package + "/"))
             }
@@ -121,7 +164,11 @@ struct XcodeValidationTests {
         #expect(!NotificationSystem.permitsSystemAccess)
     }
 
-    @Test(arguments: [nil, "", "$(RIDEINTERCOM_STORAGE_NAMESPACE)", "RideIntercom.Validation.Xcode", "RideIntercom.AudioE2E.Host", "RideIntercom.Validation.run.ios-tests", "RideIntercom.other"] as [String?])
+    @Test(
+        arguments: [
+            nil, "", "$(RIDEINTERCOM_STORAGE_NAMESPACE)", "RideIntercom.Validation.Xcode",
+            "RideIntercom.AudioE2E.Host", "RideIntercom.Validation.run.ios-tests", "RideIntercom.other"
+        ] as [String?])
     func isolatedScopesNeverResolveTheProductionAppGroupOrReloadWidgets(namespace: String?) {
         var resolutions = 0, reloads = 0
         let store = WidgetDestinationStore.system(storageNamespace: namespace) {
@@ -160,46 +207,61 @@ struct XcodeValidationTests {
     }
 
     @Test func recoveryFixtureUsesRealRepositoryAndChecksBothEmptyManifestAndArchivedBytes() throws {
-        let support = FileManager.default.temporaryDirectory.appending(path: "RecoveryValidation-\(UUID())", directoryHint: .isDirectory)
+        let support = FileManager.default.temporaryDirectory.appending(
+            path: "RecoveryValidation-\(UUID())", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: support) }
         let namespace = "RideIntercom.Validation.unit", fixtureID = UUID()
-        try AppleAccountFixture.processGroupRecovery("prepare:\(fixtureID)", namespace: namespace, applicationSupport: support)
-        let directory = support.appending(path: AppleAccountSession.storageNamespace(base: namespace, userID: AppleAccountFixture.userID)).appending(path: "Groups")
+        try AppleAccountFixture.processGroupRecovery(
+            "prepare:\(fixtureID)", namespace: namespace, applicationSupport: support)
+        let directory = support.appending(
+            path: AppleAccountSession.storageNamespace(base: namespace, userID: AppleAccountFixture.userID)
+        ).appending(path: "Groups")
         let file = FileGroupStore(directory: directory)
         let repository = GroupRepository(store: file, credentials: InMemoryGroupCredentialStore())
         #expect(throws: (any Error).self) { _ = try repository.load(localMemberID: "fixture") }
         #expect(throws: (any Error).self) {
-            try AppleAccountFixture.processGroupRecovery("verify:\(fixtureID)", namespace: namespace, applicationSupport: support)
+            try AppleAccountFixture.processGroupRecovery(
+                "verify:\(fixtureID)", namespace: namespace, applicationSupport: support)
         }
         try repository.reset()
-        try AppleAccountFixture.processGroupRecovery("verify:\(fixtureID)", namespace: namespace, applicationSupport: support)
+        try AppleAccountFixture.processGroupRecovery(
+            "verify:\(fixtureID)", namespace: namespace, applicationSupport: support)
         #expect(throws: (any Error).self) {
-            try AppleAccountFixture.processGroupRecovery("verify:\(UUID())", namespace: namespace, applicationSupport: support)
+            try AppleAccountFixture.processGroupRecovery(
+                "verify:\(UUID())", namespace: namespace, applicationSupport: support)
         }
-        let archive = try #require(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.lastPathComponent.hasPrefix("groups-corrupt-") })
+        let archive = try #require(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first {
+                $0.lastPathComponent.hasPrefix("groups-corrupt-")
+            })
         try Data("different bytes".utf8).write(to: archive)
         #expect(throws: (any Error).self) {
-            try AppleAccountFixture.processGroupRecovery("verify:\(fixtureID)", namespace: namespace, applicationSupport: support)
+            try AppleAccountFixture.processGroupRecovery(
+                "verify:\(fixtureID)", namespace: namespace, applicationSupport: support)
         }
     }
 
     @Test func recoveryFixtureRejectsOrdinaryScopeAndSymlinkWithoutTouchingOtherData() throws {
         let fixtureID = UUID()
-        let support = FileManager.default.temporaryDirectory.appending(path: "RecoveryBoundary-\(UUID())", directoryHint: .isDirectory)
+        let support = FileManager.default.temporaryDirectory.appending(
+            path: "RecoveryBoundary-\(UUID())", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: support) }
         #expect(throws: (any Error).self) {
-            try AppleAccountFixture.processGroupRecovery("prepare:\(fixtureID)", namespace: "RideIntercom", applicationSupport: support)
+            try AppleAccountFixture.processGroupRecovery(
+                "prepare:\(fixtureID)", namespace: "RideIntercom", applicationSupport: support)
         }
         #expect(!FileManager.default.fileExists(atPath: support.path))
         let namespace = "RideIntercom.Validation.unit"
-        let scoped = support.appending(path: AppleAccountSession.storageNamespace(base: namespace, userID: AppleAccountFixture.userID))
+        let scoped = support.appending(
+            path: AppleAccountSession.storageNamespace(base: namespace, userID: AppleAccountFixture.userID))
         let foreign = support.appending(path: "ordinary")
         try FileManager.default.createDirectory(at: foreign, withIntermediateDirectories: true)
         let sentinel = foreign.appending(path: "groups.json")
         try Data("keep".utf8).write(to: sentinel)
         try FileManager.default.createSymbolicLink(at: scoped, withDestinationURL: foreign)
         #expect(throws: (any Error).self) {
-            try AppleAccountFixture.processGroupRecovery("prepare:\(fixtureID)", namespace: namespace, applicationSupport: support)
+            try AppleAccountFixture.processGroupRecovery(
+                "prepare:\(fixtureID)", namespace: namespace, applicationSupport: support)
         }
         #expect(try Data(contentsOf: sentinel) == Data("keep".utf8))
     }
