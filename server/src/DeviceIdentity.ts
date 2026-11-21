@@ -1,5 +1,5 @@
 import { base64url, importJWK, jwtVerify, SignJWT } from 'jose'
-import { Env } from './types'
+import { type Env, isRecord } from './types'
 import type { DeviceIdentity } from './AppleAccount'
 import { currentInvitationRelayKey } from './InvitationRelayKey'
 
@@ -14,11 +14,16 @@ export async function importP256VerificationKey(value: unknown) {
     return crypto.subtle.importKey('raw', bytes, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])
 }
 
-function issuerKeys(env: Env) {
+export function deviceSigningKey(env: Env) {
     if (!env.DEVICE_IDENTITY_SIGNING_KEY) throw new Error('configuration')
-    const stored = JSON.parse(env.DEVICE_IDENTITY_SIGNING_KEY)
-    if (stored.kty !== 'EC' || stored.crv !== 'P-256' || typeof stored.d !== 'string'
+    const stored: unknown = JSON.parse(env.DEVICE_IDENTITY_SIGNING_KEY)
+    if (!isRecord(stored) || stored.kty !== 'EC' || stored.crv !== 'P-256' || typeof stored.d !== 'string'
         || typeof stored.x !== 'string' || typeof stored.y !== 'string') throw new Error('configuration')
+    return { ...stored, kty: stored.kty, crv: stored.crv, x: stored.x, y: stored.y, d: stored.d }
+}
+
+function issuerKeys(env: Env) {
+    const stored = deviceSigningKey(env)
     const x = base64url.decode(stored.x), y = base64url.decode(stored.y)
     if (x.length !== 32 || y.length !== 32) throw new Error('configuration')
     const key = { kty: 'EC', crv: 'P-256', x: stored.x, y: stored.y }

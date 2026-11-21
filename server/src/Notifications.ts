@@ -1,7 +1,7 @@
 import { importJWK, jwtVerify, SignJWT } from 'jose'
 import { notificationAuth } from './AppleAccount'
 import { callLifetime, dedupeLifetime, groupInvitationLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
-import { verifyDeviceProof } from './DeviceIdentity'
+import { deviceSigningKey, verifyDeviceProof } from './DeviceIdentity'
 import { allowSealedInvitationSource, authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
@@ -18,8 +18,7 @@ function fields(body: Record<string, unknown>, allowed: string[]) {
     if (Object.keys(body).some(key => !allowed.includes(key))) throw new Error('body')
 }
 async function capabilityKey(env: Env, signing: boolean) {
-    const jwk = JSON.parse(env.DEVICE_IDENTITY_SIGNING_KEY!)
-    if (jwk.kty !== 'EC' || jwk.crv !== 'P-256' || !jwk.d) throw new Error('configuration')
+    const jwk = deviceSigningKey(env)
     return importJWK(signing ? jwk : { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, 'ES256')
 }
 async function readCapability(value: unknown, env: Env, issuer: string, senderID: string, requiredAudience = audience) {
@@ -73,9 +72,9 @@ async function cancelBackgroundGroupInvitation(body: Record<string, unknown>, au
     const id = requestID.toLowerCase()
     const receiver = await target(env, recipient)
     const value = await receiver?.groupInvitationStatus(recipient, id)
-    if (value) {
+    if (receiver && value) {
         if (value.senderUserID !== auth.userID || value.expiresAt !== expiresAt || !await owner.notificationAuthorized(auth)) return notFound()
-        const status = await receiver!.groupInvitationFinish(recipient, id, auth.userID, false, undefined, expiresAt)
+        const status = await receiver.groupInvitationFinish(recipient, id, auth.userID, false, undefined, expiresAt)
         return status ? json({ requestID: id, expiresAt, status }) : notFound()
     }
     if (expiresAt <= Date.now()) return notFound()
@@ -213,7 +212,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         if (groupRoute && uuidPattern.test(groupRoute[2]) && ['GET', 'DELETE'].includes(method)) {
             const recipient = groupRoute[1].toLowerCase(), id = groupRoute[2].toLowerCase(), receiver = await target(env, recipient)
             const value = await receiver?.groupInvitationStatus(recipient, id)
-            if (!value) {
+            if (!receiver || !value) {
                 if (method !== 'DELETE' || auth.userID === recipient) return json({ error: 'Not found' }, 404)
                 const status = await cancelUnstoredGroupInvitation(owner, receiver, auth, recipient, id)
                 if (status === 'limited') return json({ error: 'Too many pending cancellations' }, 429)
@@ -225,7 +224,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 return json({ error: 'Not found' }, 404)
             }
             if (method === 'DELETE') {
-                const status = await receiver!.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1', auth)
+                const status = await receiver.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1', auth)
                 return status ? json({ status }) : json({ error: 'Not found' }, 404)
             }
             return json({ requestID: id, expiresAt: value.expiresAt, status: value.status })
@@ -253,10 +252,10 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!session || session.userID !== auth.userID) return json({ error: 'Unauthorized' }, 401)
             if (!await owner.notificationMutationBudget(auth)) return json({ error: 'Too many notification changes' }, 429)
             const registrationID = crypto.randomUUID()
-            const tokenIndex = 'token:' + await notificationHash(`${body.environment}|${body.topic}|${body.token.toLowerCase()}`)
+            const tokenIndex = `token:${await notificationHash(`${body.environment}|${body.topic}|${body.token.toLowerCase()}`)}`
             // Index first. A later ownership transfer invalidates this registration even if its response is delayed.
             await index(env, tokenIndex).bind({ accountID: auth.accountID, userID: auth.userID, deviceID: auth.deviceID, registrationID, expiresAt: session.expiresAt })
-            const device: NotificationDevice = { token: body.token.toLowerCase(), environment: body.environment, topic: body.topic,
+            const device: NotificationDevice = { token: body.token.toLowerCase(), environment: env.APNS_ENVIRONMENT, topic: body.topic,
                 registrationID, tokenIndex, deviceID: auth.deviceID, tokenHash: auth.tokenHash, expiresAt: session.expiresAt }
             const registered = await owner.notificationRegister(auth, device)
             if (!registered) {

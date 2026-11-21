@@ -1,6 +1,6 @@
 import { SignalingRoom } from './SignalingRoom'
 import { UsageGuard } from './UsageGuard'
-import { Env, json } from './types'
+import { type Env, isRecord, json, sha256Hex } from './types'
 import { accountRequest, authenticateDevice } from './AppleAccount'
 import { notificationRequest } from './Notifications'
 import { contactDeletionRequest } from './ContactDeletions'
@@ -25,15 +25,19 @@ export default {
         // Every billable operation is behind a per-device credential. No shared application secret in clients.
         const authorization = request.headers.get('Authorization') ?? ''
         if (!authorization.startsWith('Bearer ') || authorization.length > 512) return json({ error: 'Unauthorized' }, 401)
-        let device
-        try { device = await authenticateDevice(authorization.slice(7), env) }
+        const credential = authorization.slice(7)
+        let device: Awaited<ReturnType<typeof authenticateDevice>>
+        try { device = await authenticateDevice(credential, env) }
         catch { return json({ error: 'Account service unavailable' }, 503) }
-        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(authorization.slice(7)))
-        const hash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
         let owner: string | undefined
         if (device) owner = `${device.userID}:${device.deviceID}`
-        else if (!authorization.slice(7).startsWith('ri1.')) {
-            try { owner = JSON.parse(env.CLIENT_TOKENS_JSON || '{}')[hash] } catch { /* fail closed */ }
+        else if (!credential.startsWith('ri1.')) {
+            const hash = await sha256Hex(credential)
+            try {
+                const tokens: unknown = JSON.parse(env.CLIENT_TOKENS_JSON || '{}')
+                const value = isRecord(tokens) ? tokens[hash] : undefined
+                if (typeof value === 'string') owner = value
+            } catch { /* fail closed */ }
         }
         if (typeof owner !== 'string' || !owner) return json({ error: 'Unauthorized' }, 401)
         if (env.SERVICE_ENABLED !== 'true') return json({ error: 'Service paused' }, 503)

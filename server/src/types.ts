@@ -33,7 +33,10 @@ export function limit(value: string | undefined, fallback: number, max: number):
     const n = Number(value)
     return Number.isSafeInteger(n) && n > 0 ? Math.min(n, max) : fallback
 }
-export async function readJSON(request: Request): Promise<any> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+export async function readJSON(request: Request): Promise<Record<string, unknown>> {
     const reader = request.body?.getReader()
     if (!reader) throw new Error('body')
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -56,24 +59,26 @@ export async function readJSON(request: Request): Promise<any> {
     } finally { clearTimeout(timer); reader.releaseLock() }
     const bytes = new Uint8Array(size); let offset = 0
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-    let result: any
+    let result: unknown
     try { result = JSON.parse(new TextDecoder().decode(bytes)) } catch { throw new Error('body') }
-    if (!result || Array.isArray(result) || typeof result !== 'object') throw new Error('body')
+    if (!isRecord(result)) throw new Error('body')
     return result
 }
-export function dataDescription(value: any, type: 'offer' | 'answer'): value is Description {
-    if (value?.type !== type || typeof value.sdp !== 'string' || value.sdp.length > 48 * 1024) return false
+export function dataDescription(value: unknown, type: 'offer' | 'answer'): value is Description {
+    if (!isRecord(value) || value.type !== type || typeof value.sdp !== 'string' || value.sdp.length > 48 * 1024) return false
     const media = value.sdp.split(/\r?\n/).filter((line: string) => line.startsWith('m='))
     return media.length === 1 && media[0].startsWith('m=application ') && value.sdp.split(/\r?\n/).includes('a=sctp-port:5000')
 }
-export async function sfu(env: Env, path: string, body?: unknown, method = 'POST'): Promise<any> {
+export async function sfu(env: Env, path: string, body?: unknown, method = 'POST'): Promise<Record<string, unknown>> {
     const response = await fetch(`https://rtc.live.cloudflare.com/v1/apps/${encodeURIComponent(env.CLOUDFLARE_SFU_APP_ID)}${path}`, {
         method, headers: { Authorization: `Bearer ${env.CLOUDFLARE_SFU_APP_SECRET}`, 'Content-Type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(8000)
     })
     if (response.status === 404 || response.status === 410) throw new Error('session-gone')
     if (!response.ok) throw new Error('upstream')
-    const data = await response.json() as any
-    if (data.errorCode || data.tracks?.some((t: any) => t.errorCode)) throw new Error('upstream')
+    const data: unknown = await response.json()
+    if (!isRecord(data) || data.errorCode) throw new Error('upstream')
+    if (data.tracks != null && (!Array.isArray(data.tracks)
+        || !data.tracks.every((track: unknown) => isRecord(track) && !track.errorCode))) throw new Error('upstream')
     return data
 }

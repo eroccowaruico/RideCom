@@ -1,5 +1,32 @@
 import { TurnCredentials, stun } from './TurnCredentials'
-import { Env, Member, dataDescription, json, limit, readJSON, sfu } from './types'
+import { type Env, type Member, dataDescription, isRecord, json, limit, readJSON, sfu } from './types'
+interface RequestedChannel {
+    location: 'local' | 'remote'
+    dataChannelName: string
+    sessionId?: string
+    ordered: boolean
+    maxRetransmits?: number
+}
+
+function responseChannels(response: Record<string, unknown>): Record<string, unknown>[] {
+    const channels = response.dataChannels
+    if (channels == null) return []
+    if (!Array.isArray(channels) || !channels.every(isRecord)) throw new Error('upstream')
+    return channels
+}
+
+function hasChannelID(channel: Record<string, unknown>): channel is Record<string, unknown> & { id: number } {
+    return typeof channel.id === 'number' && Number.isInteger(channel.id)
+}
+
+async function reservationExpiry(response: Response): Promise<number> {
+    const data: unknown = await response.json()
+    if (!isRecord(data) || typeof data.expiresAt !== 'number' || !Number.isFinite(data.expiresAt)) {
+        throw new Error('Invalid reservation response')
+    }
+    return data.expiresAt
+}
+
 export class SignalingRoom {
     private turn: TurnCredentials
     constructor(private state: DurableObjectState, private env: Env) { this.turn = new TurnCredentials(state.storage, env) }
@@ -25,14 +52,15 @@ export class SignalingRoom {
         })
     }
     private async detachIfEmpty(publicUserID: string, accountID: string) {
-        const prefix = publicUserID + ':'
+        const prefix = `${publicUserID}:`
         if ((await this.members()).some(m => m.owner.startsWith(prefix)) || (await this.turn.all()).some(ice => ice.owner.startsWith(prefix))) return
         await this.env.USER_ACCOUNT.get(this.env.USER_ACCOUNT.idFromString(accountID)).detachRoom(publicUserID, this.state.id.toString())
         await this.state.storage.delete(`account:${publicUserID}`)
     }
-    private async retireAccount(body: { publicUserID: string; accountID: string }): Promise<Response> {
-        if (!/^[a-f0-9]{64}$/.test(body.publicUserID) || !/^[a-f0-9]{64}$/.test(body.accountID)) return json({ error: 'Invalid account' }, 400)
-        const prefix = body.publicUserID + ':'
+    private async retireAccount(body: Record<string, unknown>): Promise<Response> {
+        if (typeof body.publicUserID !== 'string' || typeof body.accountID !== 'string'
+            || !/^[a-f0-9]{64}$/.test(body.publicUserID) || !/^[a-f0-9]{64}$/.test(body.accountID)) return json({ error: 'Invalid account' }, 400)
+        const prefix = `${body.publicUserID}:`
         const members = (await this.members()).filter(m => m.owner.startsWith(prefix))
         const owned = new Set(members.map(m => m.id))
         const orphans = (await this.turn.all()).filter(ice => ice.owner.startsWith(prefix) && !owned.has(ice.peer))
@@ -58,7 +86,8 @@ export class SignalingRoom {
         return json({})
     }
     private async handle(request: Request): Promise<Response> {
-        const url = new URL(request.url), owner = request.headers.get('X-Owner')!
+        const url = new URL(request.url), owner = request.headers.get('X-Owner')
+        if (!owner) return json({ error: 'Unauthorized' }, 401)
         const userID = request.headers.get('X-User') ?? undefined
         const members = await this.members()
         const iceMatch = url.pathname.match(/\/ice\/([a-zA-Z0-9_-]{1,80})$/)
@@ -84,7 +113,7 @@ export class SignalingRoom {
             if (!current && new Set([...members.map(m => m.id), ...pending.map(m => m.peer)]).size >= limit(this.env.MAX_ROOM_PARTICIPANTS, 8, 8)) return json({ error: 'Room is full' }, 429)
             const reservation = await this.usage('reserve', { id: `${this.state.id}:${peer}`, owner, userID })
             if (!reservation.ok) return reservation
-            const { expiresAt } = await reservation.json() as { expiresAt: number }
+            const expiresAt = await reservationExpiry(reservation)
             try { return json({ iceServers: await this.turn.issue(peer, owner, b.leaseID, expiresAt) }) }
             finally { await this.scheduleExpiry() }
         }
@@ -101,7 +130,7 @@ export class SignalingRoom {
             const leaseID = `${this.state.id}:${b.participantId}`
             const reservation = await this.usage('reserve', { id: leaseID, owner, userID })
             if (!reservation.ok) return reservation
-            const { expiresAt } = await reservation.json() as { expiresAt: number }
+            const expiresAt = await reservationExpiry(reservation)
             let member: Member | undefined
             try {
                 const created = await sfu(this.env, '/sessions/new')
@@ -113,7 +142,9 @@ export class SignalingRoom {
                 const result = await sfu(this.env, `/sessions/${member.sessionId}/datachannels/establish`, {
                     sessionDescription: b.offer, dataChannel: { location: 'remote', dataChannelName: 'server-events' }
                 })
-                if (result.sessionDescription?.type !== 'answer' || !Number.isInteger(result.dataChannel?.id)) throw new Error('upstream')
+                if (!isRecord(result.sessionDescription) || result.sessionDescription.type !== 'answer'
+                    || typeof result.sessionDescription.sdp !== 'string' || !isRecord(result.dataChannel)
+                    || !hasChannelID(result.dataChannel)) throw new Error('upstream')
                 member.channels = [result.dataChannel.id]
                 await this.state.storage.put(`member:${member.sessionId}`, member)
                 return json({ ...this.lease(member), sessionDescription: result.sessionDescription,
@@ -146,7 +177,7 @@ export class SignalingRoom {
         if (action === 'renew' && request.method === 'POST') {
             const r = await this.usage('reserve', { id: `${this.state.id}:${member.id}`, owner, userID })
             if (!r.ok) return r
-            member.expiresAt = (await r.json() as { expiresAt: number }).expiresAt
+            member.expiresAt = await reservationExpiry(r)
             await this.state.storage.put(`member:${member.sessionId}`, member); await this.scheduleExpiry()
             const ice = await this.turn.get(member.id)
             const iceServers = ice ? await this.turn.issue(member.id, owner, ice.leaseID, member.expiresAt) : undefined
@@ -154,12 +185,12 @@ export class SignalingRoom {
         }
         if (action === 'publish' && request.method === 'POST') {
             if (!member.publishers) {
-                const result = await this.allocate(member, {
+                const channels = await this.allocate(member, {
                     dataChannels: [{ location: 'local', dataChannelName: 'group-audio-v1', ordered: false, maxRetransmits: 0 }, { location: 'local', dataChannelName: 'group-control-v1', ordered: true }]
                 })
                 member.publishers = ['group-audio-v1', 'group-control-v1'].map(name => {
-                    const channel = result.dataChannels?.find((c: any) => c.dataChannelName === name)
-                    if (!Number.isInteger(channel?.id)) throw new Error('upstream')
+                    const channel = channels.find(c => c.dataChannelName === name)
+                    if (!channel) throw new Error('upstream')
                     return { id: channel.id, delivery: name === 'group-audio-v1' ? 'unreliable' : 'reliable' }
                 })
                 await this.state.storage.put(`member:${member.sessionId}`, member)
@@ -168,10 +199,10 @@ export class SignalingRoom {
             return json({ channels: member.publishers.map(c => ({ ...c, isPublisher: true })) })
         }
         if (action === 'pull' && request.method === 'POST') {
-            const b = await readJSON(request)
-            if (!Array.isArray(b.peerIds) || b.peerIds.length > 7 || b.peerIds.some((id: unknown) => typeof id !== 'string')) return json({ error: 'Invalid peers' }, 400)
-            const peers = members.filter(m => m.id !== member.id && b.peerIds.includes(m.id) && m.publishers !== undefined && m.expiresAt > Date.now())
-            if (new Set(b.peerIds).size !== peers.length) return json({ error: 'Peer not in room' }, 403)
+            const { peerIds } = await readJSON(request)
+            if (!Array.isArray(peerIds) || peerIds.length > 7 || peerIds.some((id: unknown) => typeof id !== 'string')) return json({ error: 'Invalid peers' }, 400)
+            const peers = members.filter(m => m.id !== member.id && peerIds.includes(m.id) && m.publishers !== undefined && m.expiresAt > Date.now())
+            if (new Set(peerIds).size !== peers.length) return json({ error: 'Peer not in room' }, 403)
             const live = new Set(members.filter(m => m.expiresAt > Date.now()).map(m => m.sessionId))
             const stale = member.subscriptions.filter(s => !live.has(s.sessionId))
             if (stale.length) {
@@ -182,13 +213,13 @@ export class SignalingRoom {
             }
             const fresh = peers.filter(p => !member.subscriptions.some(s => s.sessionId === p.sessionId))
             if (fresh.length) {
-                const result = await this.allocate(member, {
+                const channels = await this.allocate(member, {
                     dataChannels: fresh.flatMap(p => [{ location: 'remote', sessionId: p.sessionId, dataChannelName: 'group-audio-v1', ordered: false, maxRetransmits: 0 }, { location: 'remote', sessionId: p.sessionId, dataChannelName: 'group-control-v1', ordered: true }])
                 })
                 for (const peer of fresh) {
                     for (const name of ['group-audio-v1', 'group-control-v1']) {
-                        const channel = result.dataChannels?.find((c: any) => c.sessionId === peer.sessionId && c.dataChannelName === name)
-                        if (!Number.isInteger(channel?.id)) throw new Error('upstream')
+                        const channel = channels.find(c => c.sessionId === peer.sessionId && c.dataChannelName === name)
+                        if (!channel) throw new Error('upstream')
                         member.subscriptions.push({ sessionId: peer.sessionId, id: channel.id, peerId: peer.id, delivery: name === 'group-audio-v1' ? 'unreliable' : 'reliable' })
                     }
                 }
@@ -201,13 +232,17 @@ export class SignalingRoom {
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
         const [id] = this.state.getTags(ws), member = await this.state.storage.get<Member>(`member:${id}`)
         if (!member || member.expiresAt <= Date.now() || this.env.SERVICE_ENABLED !== 'true') { ws.close(1008, 'Session expired'); return }
-        const rate = ws.deserializeAttachment() as { minute: number; count: number }, minute = Math.floor(Date.now() / 60000)
-        if (rate.minute !== minute) { rate.minute = minute; rate.count = 0 }
-        rate.count++; ws.serializeAttachment(rate)
-        if (typeof message !== 'string' || new TextEncoder().encode(message).length > 32768 || rate.count > 600) { ws.close(1008, 'Message limit'); return }
-        let d: any
+        const previous: unknown = ws.deserializeAttachment()
+        if (!isRecord(previous) || typeof previous.minute !== 'number' || typeof previous.count !== 'number') {
+            ws.close(1008, 'Invalid session state'); return
+        }
+        const minute = Math.floor(Date.now() / 60000)
+        const count = (previous.minute === minute ? previous.count : 0) + 1
+        ws.serializeAttachment({ minute, count })
+        if (typeof message !== 'string' || new TextEncoder().encode(message).length > 32768 || count > 600) { ws.close(1008, 'Message limit'); return }
+        let d: unknown
         try { d = JSON.parse(message) } catch { ws.close(1008, 'Invalid message'); return }
-        if (!d || Array.isArray(d) || typeof d !== 'object' || d.type !== 'appData' || typeof d.namespace !== 'string' || d.namespace.length > 128 || typeof d.payload !== 'string') { ws.close(1008, 'Invalid message'); return }
+        if (!isRecord(d) || d.type !== 'appData' || typeof d.namespace !== 'string' || d.namespace.length > 128 || typeof d.payload !== 'string') { ws.close(1008, 'Invalid message'); return }
         const result = JSON.stringify({ type: 'appData', from: member.id, namespace: d.namespace, payload: d.payload })
         for (const socket of this.state.getWebSockets()) if (socket !== ws) { try { socket.send(result) } catch { /* closed */ } }
     }
@@ -220,7 +255,7 @@ export class SignalingRoom {
     private async close(member: Member) {
         try {
             const status = await sfu(this.env, `/sessions/${member.sessionId}`, undefined, 'GET')
-            const known = (status.dataChannels ?? []).filter((c: any) => c.status !== 'inactive' && Number.isInteger(c.id)).map((c: any) => c.id)
+            const known = responseChannels(status).filter(hasChannelID).filter(c => c.status !== 'inactive').map(c => c.id)
             await this.closeChannels(member.sessionId, [...new Set([...member.channels, ...known])])
             // A timed-out allocation can complete after a status read. Keep its
             // cleanup record until the provider confirms the session is gone.
@@ -232,17 +267,18 @@ export class SignalingRoom {
         await this.usage('release', { id: `${this.state.id}:${member.id}` })
         for (const ws of this.state.getWebSockets(member.sessionId)) { try { ws.close(1000, 'Session ended') } catch { /* closed */ } }
     }
-    private async allocate(member: Member, body: { dataChannels: any[] }) {
+    private async allocate(member: Member, body: { dataChannels: RequestedChannel[] }) {
         member.allocationPending = true
         await this.state.storage.put(`member:${member.sessionId}`, member)
         try {
             const result = await sfu(this.env, `/sessions/${member.sessionId}/datachannels/new`, body)
-            for (const channel of result.dataChannels ?? []) if (Number.isInteger(channel.id) && !channel.errorCode) member.channels.push(channel.id)
-            member.channels = [...new Set(member.channels)]
+            const received = responseChannels(result)
+            const allocated = received.filter(hasChannelID).filter(channel => !channel.errorCode)
+            member.channels = [...new Set([...member.channels, ...allocated.map(channel => channel.id)])]
             member.allocationPending = false
             await this.state.storage.put(`member:${member.sessionId}`, member)
-            if (result.dataChannels?.length !== body.dataChannels.length || result.dataChannels.some((c: any) => c.errorCode || !Number.isInteger(c.id))) throw new Error('upstream')
-            return result
+            if (received.length !== body.dataChannels.length || allocated.length !== received.length) throw new Error('upstream')
+            return allocated
         } catch (error) {
             member.expiresAt = 0
             await this.state.storage.put(`member:${member.sessionId}`, member)
@@ -254,7 +290,8 @@ export class SignalingRoom {
         if (!ids.length) return
         const result = await sfu(this.env, `/sessions/${sessionID}/datachannels/close`, { dataChannels: ids.map(id => ({ id })) }, 'PUT')
         // A partial/missing response is not evidence of cleanup. Retain the lease for retry.
-        for (const id of ids) if (!result.dataChannels?.some((c: any) => c.id === id && (!c.errorCode || c.errorCode === 'close_track_error'))) throw new Error('upstream')
+        const channels = responseChannels(result)
+        for (const id of ids) if (!channels.some(c => c.id === id && (!c.errorCode || c.errorCode === 'close_track_error'))) throw new Error('upstream')
     }
     private async scheduleExpiry() {
         const members = await this.members()

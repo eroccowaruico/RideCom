@@ -74,7 +74,7 @@ test('unauthenticated and malformed provider.requests never contact the provider
     provider.requests = [];
     assert.equal((await runtime.dispatchFetch('https://worker.test/health')).status, 200);
     assert.equal((await call(`/api/rooms/${room}/join`, {}, 'POST', runtime, 'invalid')).status, 401);
-    assert.equal((await call(`/api/rooms/${room}/join`, { participantId: 'x', offer: { ...offer, sdp: offer.sdp + 'm=video 9 RTP/AVP 96\r\n' } })).status, 400);
+    assert.equal((await call(`/api/rooms/${room}/join`, { participantId: 'x', offer: { ...offer, sdp: `${offer.sdp}m=video 9 RTP/AVP 96\r\n` } })).status, 400);
     assert.equal((await call('/api/rooms/guessable/join', {})).status, 400);
     assert.equal(provider.requests.length, 0);
 });
@@ -85,13 +85,13 @@ test('SFU publishing, authorized subscription, renewal and cleanup use the real 
     assert.ok(a.expiresAt > Date.now()); assert.equal(a.renewAfterSeconds, 300);
     assert.equal('participantToken' in a, false); assert.equal('sfuEndpoint' in a, false);
     const base = `/api/rooms/${room}/sessions/${a.sessionId}`;
-    await call(base + '/publish', {}); await call(`/api/rooms/${room}/sessions/${b.sessionId}/publish`, {});
-    const pull = await (await call(base + '/pull', { peerIds: ['b'] })).json();
+    await call(`${base}/publish`, {}); await call(`/api/rooms/${room}/sessions/${b.sessionId}/publish`, {});
+    const pull = await (await call(`${base}/pull`, { peerIds: ['b'] })).json();
     assert.equal(pull.channels[0].peerID, 'b');
     const before = provider.requests.length;
-    const renewed = await (await call(base + '/renew', {})).json();
+    const renewed = await (await call(`${base}/renew`, {})).json();
     assert.equal(renewed.sessionId, a.sessionId); assert.equal(provider.requests.length, before);
-    assert.equal((await call(base + '/pull', { peerIds: ['not-in-room'] })).status, 403);
+    assert.equal((await call(`${base}/pull`, { peerIds: ['not-in-room'] })).status, 403);
     assert.equal((await call(`/api/rooms/${'b'.repeat(64)}/sessions/${a.sessionId}/renew`, {})).status, 404);
     assert.equal((await call(base, undefined, 'DELETE')).status, 200);
     assert.equal((await call(`/api/rooms/${room}/sessions/${b.sessionId}`, undefined, 'DELETE')).status, 200);
@@ -106,6 +106,21 @@ test('quota reservations survive concurrent provider.requests and prevent provid
         const status = await (await call('/api/status', undefined, 'GET', limited)).json();
         assert.equal(status.reservedParticipantSeconds, 600);
     } finally { await limited.dispose(); }
+});
+
+test('join rejects an SFU answer without SDP and a nonnumeric data channel ID', async () => {
+    const instance = await makeRuntime();
+    try {
+        for (const [index, reply] of [
+            { sessionDescription: { type: 'answer' }, dataChannel: { id: 0 } },
+            { sessionDescription: { type: 'answer', sdp: 'example' }, dataChannel: { id: '0' } },
+        ].entries()) {
+            provider.establishedChannel = reply;
+            const response = await join(`invalid-answer-${index}`, String(index).repeat(64), instance);
+            assert.equal(response.status, 502);
+            assert.deepEqual(await response.json(), { error: 'SFU operation failed' });
+        }
+    } finally { delete provider.establishedChannel; await instance.dispose(); }
 });
 
 test('kill switch fails closed and upstream failure does not publish a participant', async () => {
@@ -134,8 +149,8 @@ test('ownership and WebSocket sender identity are enforced without exposing prov
         const a = await (await join('alice', room, instance)).json();
         const b = await (await join('bob', room, instance)).json();
         const base = `/api/rooms/${room}/sessions/`;
-        assert.equal((await call(base + a.sessionId + '/renew', {}, 'POST', instance, other)).status, 403);
-        const connect = id => instance.dispatchFetch('https://worker.test' + base + id + '/signal', {
+        assert.equal((await call(`${base + a.sessionId}/renew`, {}, 'POST', instance, other)).status, 403);
+        const connect = id => instance.dispatchFetch(`https://worker.test${base}${id}/signal`, {
             headers: { Authorization: `Bearer ${token}`, Upgrade: 'websocket' } });
         const ra = await connect(a.sessionId), rb = await connect(b.sessionId);
         assert.equal(ra.status, 101); assert.equal(rb.status, 101);
@@ -150,7 +165,7 @@ test('ownership and WebSocket sender identity are enforced without exposing prov
         ra.webSocket.send(JSON.stringify({ type: 'appData', from: 'forged', namespace: 'test', payload: 'aGVsbG8=' }));
         assert.deepEqual(await received, { type: 'appData', from: 'alice', namespace: 'test', payload: 'aGVsbG8=' });
         ra.webSocket.close(); rb.webSocket.close();
-        assert.equal((await call(base + a.sessionId + '/renew', {}, 'POST', instance)).status, 200);
+        assert.equal((await call(`${base + a.sessionId}/renew`, {}, 'POST', instance)).status, 200);
     } finally { await instance.dispose(); }
 });
 
@@ -166,10 +181,10 @@ test('expired lease alarm closes media and releases the active-session slot', as
         }
         assert.equal(active, 0);
         // Wait for the asynchronous alarm, not merely the usage index pruning.
-        while (Date.now() < deadline && !provider.requests.some(r => r.url.includes(a.sessionId + '/datachannels/close'))) {
+        while (Date.now() < deadline && !provider.requests.some(r => r.url.includes(`${a.sessionId}/datachannels/close`))) {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
-        assert.ok(provider.requests.some(r => r.url.includes(a.sessionId + '/datachannels/close')));
+        assert.ok(provider.requests.some(r => r.url.includes(`${a.sessionId}/datachannels/close`)));
     } finally { await instance.dispose(); }
 });
 
@@ -189,7 +204,7 @@ test('repeated peer replacement closes old subscriptions without growing channel
             const talker = await (await join('talker', room, instance)).json();
             await call(`/api/rooms/${room}/sessions/${talker.sessionId}/publish`, {}, 'POST', instance);
             const base = `/api/rooms/${room}/sessions/${listener.sessionId}`;
-            const response = await call(base + '/pull', { peerIds: ['talker'] }, 'POST', instance);
+            const response = await call(`${base}/pull`, { peerIds: ['talker'] }, 'POST', instance);
             assert.equal(response.status, 200);
             const result = await response.json();
             assert.equal(result.channels.length, 2);

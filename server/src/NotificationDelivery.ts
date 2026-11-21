@@ -2,7 +2,7 @@ import { importPKCS8, SignJWT } from 'jose'
 import type { Env } from './types'
 import type { NotificationDevice } from './AccountNotifications'
 
-export function notificationsConfigured(env: Env): boolean {
+export function notificationsConfigured(env: Env): env is Env & { APNS_ENVIRONMENT: NotificationDevice['environment'] } {
     return env.NOTIFICATIONS_ENABLED === 'true' && !!env.DEVICE_IDENTITY_SIGNING_KEY && !!env.APNS_PRIVATE_KEY
         && !!env.APNS_KEY_ID && !!env.APPLE_TEAM_ID && !!env.APNS_TOPIC
         && ['sandbox', 'production'].includes(env.APNS_ENVIRONMENT ?? '')

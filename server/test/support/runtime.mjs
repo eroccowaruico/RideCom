@@ -135,7 +135,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             if (url.pathname.endsWith('/sessions/new')) return Response.json({ sessionId: `sfu-${++provider.serial}` }, { status: 201 });
             if (url.pathname.endsWith('/datachannels/establish') && provider.onEstablish) await provider.onEstablish();
             if (url.pathname.endsWith('/datachannels/establish') && provider.establishFails) return Response.json({}, { status: 503 });
-            if (url.pathname.endsWith('/datachannels/establish')) return Response.json({ sessionDescription: { type: 'answer', sdp: 'mock-sfu-sdp' }, dataChannel: { id: 0 } });
+            if (url.pathname.endsWith('/datachannels/establish')) return Response.json(provider.establishedChannel ?? { sessionDescription: { type: 'answer', sdp: 'mock-sfu-sdp' }, dataChannel: { id: 0 } });
             if (url.pathname.endsWith('/datachannels/new')) return Response.json({ dataChannels: provider.requests.at(-1).body.dataChannels.map(c => ({ ...c, id: ++provider.serial })) });
             if (url.pathname.endsWith('/datachannels/close')) return Response.json({ dataChannels: provider.requests.at(-1).body.dataChannels });
             if (url.pathname.endsWith('/tracks/update')) return Response.json({ requiresImmediateRenegotiation: false, tracks: provider.requests.at(-1).body.tracks });
