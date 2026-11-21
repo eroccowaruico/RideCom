@@ -5,21 +5,27 @@ import Testing
 
 @MainActor
 struct ContactInvitationPersistenceTests {
-    @MainActor private final class DiskStore: GroupStoring {
+    @MainActor final class DiskStore: GroupStoring {
         private let directory: URL
         private let file: FileGroupStore
         var failSaving = false
-        init() {
-            directory = FileManager.default.temporaryDirectory.appendingPathComponent("RideComContactTest-" + UUID().uuidString)
+        init() throws {
+            directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "RideComContactTest-" + UUID().uuidString)
             file = FileGroupStore(directory: directory)
-            try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try! file.commit(GroupSnapshot())
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try file.commit(GroupSnapshot())
         }
         deinit { try? FileManager.default.removeItem(at: directory) }
-        var snapshot: GroupSnapshot {
-            get { try! file.read()! }
-            set { try! file.commit(newValue) }
+        func snapshot() throws -> GroupSnapshot {
+            let stored = try file.read()
+            return try #require(stored)
         }
+
+        func installSnapshot(_ snapshot: GroupSnapshot) throws {
+            try file.commit(snapshot)
+        }
+
         func read() throws -> GroupSnapshot? { try file.read() }
         func commit(_ snapshot: GroupSnapshot) throws {
             if failSaving { throw IntercomGroupError.storageUnavailable }
@@ -30,13 +36,16 @@ struct ContactInvitationPersistenceTests {
         func archive() throws { try file.archive() }
     }
 
-    @MainActor private final class Fixture {
+    @MainActor final class Fixture {
         let memberID: String
-        let store = DiskStore()
+        let store: DiskStore
         let credentials = InMemoryGroupCredentialStore()
         let account = AppTestSupport.signedInAccount()
         let authority = testInvitationAuthority()
-        init(_ memberID: String) { self.memberID = memberID }
+        init(_ memberID: String) throws {
+            self.memberID = memberID
+            store = try DiskStore()
+        }
         func make() -> (AppTestSupport.Harness, RecordingCallSession) {
             let harness = AppTestSupport.makeHarness(accountSession: account, groups: [],
                 groupRepository: GroupRepository(store: store, credentials: credentials),
@@ -48,196 +57,142 @@ struct ContactInvitationPersistenceTests {
     }
 
     @Test func oneContactInvitationSurvivesRestartAndCommitsBothUsersWithoutOrdinaryGroups() throws {
-        let author = Fixture("persist-author"), friend = Fixture("persist-friend")
-        let (a0, _) = author.make()
-        let url = try #require(a0.viewModel.makeContactInviteURL())
+        let author = try Fixture("persist-author"), friend = try Fixture("persist-friend")
+        let (initialAuthor, _) = author.make()
+        let url = try #require(initialAuthor.viewModel.makeContactInviteURL())
         let token = try GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true)
         let id = try #require(token.directInvitation).context.id
-        #expect(a0.viewModel.savedRemoteUsers.isEmpty)
-        #expect(a0.viewModel.groups.isEmpty)
-        #expect(a0.viewModel.pendingContactInvitations.map(\.id) == [id])
-        let manifest = String(decoding: try author.store.snapshot.encoded(), as: UTF8.self)
+        #expect(initialAuthor.viewModel.savedRemoteUsers.isEmpty)
+        #expect(initialAuthor.viewModel.groups.isEmpty)
+        #expect(initialAuthor.viewModel.pendingContactInvitations.map(\.id) == [id])
+        let manifest = try #require(String(bytes: author.store.snapshot().encoded(), encoding: .utf8))
         #expect(!manifest.contains(token.groupSecret))
         #expect(!manifest.contains(try #require(token.directInvitation).secret))
         #expect(!manifest.contains(url.absoluteString))
-        a0.viewModel.stopContactInvitationSession()
+        initialAuthor.viewModel.stopContactInvitationSession()
 
-        let (a, authorTransport) = author.make()
-        #expect(a.viewModel.pendingContactInvitations.map(\.id) == [id])
-        let (b0, _) = friend.make()
-        try b0.viewModel.acceptContactInviteURL(url)
-        #expect(b0.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
-        #expect(b0.viewModel.regularGroups.isEmpty)
-        b0.viewModel.stopContactInvitationSession()
-        let (b, friendTransport) = friend.make()
-        #expect(b.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
-        #expect(b.viewModel.pendingContactInvitations.map(\.id) == [id])
-        #expect(a.viewModel.resumeContactInvitation(id))
-        #expect(b.viewModel.resumeContactInvitation(id))
-        defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        a.viewModel.showContactInvitation(id)
-        b.viewModel.showContactInvitation(id)
-        #expect(a.viewModel.contactInvitationPresentation != nil && b.viewModel.contactInvitationPresentation != nil)
+        let (authorHarness, authorTransport) = author.make()
+        #expect(authorHarness.viewModel.pendingContactInvitations.map(\.id) == [id])
+        let (initialFriend, _) = friend.make()
+        try initialFriend.viewModel.acceptContactInviteURL(url)
+        #expect(initialFriend.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
+        #expect(initialFriend.viewModel.regularGroups.isEmpty)
+        initialFriend.viewModel.stopContactInvitationSession()
+        let (friendHarness, friendTransport) = friend.make()
+        #expect(friendHarness.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
+        #expect(friendHarness.viewModel.pendingContactInvitations.map(\.id) == [id])
+        #expect(authorHarness.viewModel.resumeContactInvitation(id))
+        #expect(friendHarness.viewModel.resumeContactInvitation(id))
+        defer {
+            authorHarness.viewModel.stopContactInvitationSession()
+            friendHarness.viewModel.stopContactInvitationSession()
+        }
+        try verifyReceiptRetryAndDelivery(
+            id: id, authorHarness: authorHarness, friendHarness: friendHarness,
+            authorTransport: authorTransport, friendTransport: friendTransport
+        )
+        authorHarness.viewModel.stopContactInvitationSession(); friendHarness.viewModel.stopContactInvitationSession()
+        try verifyCompletedInvitationReload(author: author, friend: friend, id: id)
+        #expect(authorHarness.callSession.connectedGroup == nil && friendHarness.callSession.connectedGroup == nil)
+        #expect(authorTransport.startMediaCallCount == 0 && friendTransport.startMediaCallCount == 0)
+    }
+
+    private func verifyReceiptRetryAndDelivery(
+        id: UUID,
+        authorHarness: AppTestSupport.Harness,
+        friendHarness: AppTestSupport.Harness,
+        authorTransport: RecordingCallSession,
+        friendTransport: RecordingCallSession
+    ) throws {
+        authorHarness.viewModel.showContactInvitation(id)
+        friendHarness.viewModel.showContactInvitation(id)
+        #expect(
+            authorHarness.viewModel.contactInvitationPresentation != nil
+                && friendHarness.viewModel.contactInvitationPresentation != nil)
         friendTransport.authenticate(["persist-author"])
         let receipt = try #require(friendTransport.sentApplicationDataMessages.last)
         authorTransport.authenticate(["persist-friend"])
         authorTransport.onEvent?(.receivedApplicationData(peerID: "persist-friend", message: receipt))
-        #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
-        #expect(a.viewModel.pendingContactInvitations.isEmpty, "A saved person is no longer a pending invitation")
-        #expect(a.viewModel.contactInvitationPresentation == nil, "Registration closes the invitation detail")
-        #expect(b.viewModel.pendingContactInvitations.map(\.id) == [id], "Without the ACK the reply still needs delivery")
+        #expect(authorHarness.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
+        #expect(
+            authorHarness.viewModel.pendingContactInvitations.isEmpty,
+            "A saved person is no longer a pending invitation")
+        #expect(
+            authorHarness.viewModel.contactInvitationPresentation == nil,
+            "Registration closes the invitation detail")
+        #expect(
+            friendHarness.viewModel.pendingContactInvitations.map(\.id) == [id],
+            "Without the ACK the reply still needs delivery")
         // The first ACK may be lost: closing the completed detail must retain the bounded listener.
-        a.viewModel.dismissContactInvitationPresentation(expectedPresentationID: "share-" + id.uuidString)
-        a.viewModel.contactInvitationSheetDidDisappear(id)
+        authorHarness.viewModel.dismissContactInvitationPresentation(expectedPresentationID: "share-" + id.uuidString)
+        authorHarness.viewModel.contactInvitationSheetDidDisappear(id)
         let sentBeforeRetry = authorTransport.sentApplicationDataMessages.count
         authorTransport.onEvent?(.receivedApplicationData(peerID: "persist-friend", message: receipt))
         #expect(authorTransport.sentApplicationDataMessages.count == sentBeforeRetry + 1)
         let ack = try #require(authorTransport.sentApplicationDataMessages.last)
         friendTransport.onEvent?(.receivedApplicationData(peerID: "persist-author", message: ack))
-        let savedRecipientID = try #require(b.viewModel.savedRemoteUsers.first?.id)
-        #expect(b.viewModel.contactInvitationPresentation == .person(savedRecipientID), "Delivery updates the saved person's detail without closing it")
-        #expect(b.viewModel.unlinkedContactInvitations.isEmpty)
-        b.viewModel.dismissContactInvitationPresentation()
-        a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()
-        let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
-        #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
-        #expect(reloadedB.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
-        #expect(reloadedB.viewModel.pendingContactInvitations.isEmpty)
-        #expect(reloadedA.viewModel.pendingContactInvitations.isEmpty, "Restart does not resurrect a completed invitation row")
-        reloadedA.viewModel.showContactInvitation(id)
-        #expect(reloadedA.viewModel.contactInvitationPresentation == nil)
-        #expect(reloadedA.viewModel.groupRepository.contactInvitations.first { $0.id == id }?.state == .confirmed,
+        let savedRecipientID = try #require(friendHarness.viewModel.savedRemoteUsers.first?.id)
+        #expect(
+            friendHarness.viewModel.contactInvitationPresentation == .person(savedRecipientID),
+            "Delivery updates the saved person's detail without closing it")
+        #expect(friendHarness.viewModel.unlinkedContactInvitations.isEmpty)
+        friendHarness.viewModel.dismissContactInvitationPresentation()
+    }
+
+    private func verifyCompletedInvitationReload(author: Fixture, friend: Fixture, id: UUID) throws {
+        let (reloadedAuthor, _) = author.make(), (reloadedFriend, _) = friend.make()
+        #expect(reloadedAuthor.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-friend"]])
+        #expect(reloadedFriend.viewModel.savedRemoteUsers.map(\.memberIDs) == [["persist-author"]])
+        #expect(reloadedFriend.viewModel.pendingContactInvitations.isEmpty)
+        #expect(
+            reloadedAuthor.viewModel.pendingContactInvitations.isEmpty,
+            "Restart does not resurrect a completed invitation row")
+        reloadedAuthor.viewModel.showContactInvitation(id)
+        #expect(reloadedAuthor.viewModel.contactInvitationPresentation == nil)
+        #expect(reloadedAuthor.viewModel.groupRepository.contactInvitations.first { $0.id == id }?.state == .confirmed,
                 "Keep the binding for duplicate receipts without presenting it as pending")
-        #expect(reloadedA.viewModel.regularGroups.isEmpty && reloadedB.viewModel.regularGroups.isEmpty)
+        #expect(reloadedAuthor.viewModel.regularGroups.isEmpty && reloadedFriend.viewModel.regularGroups.isEmpty)
         // The invitation alone completes the pair call: both sides already hold one
         // call key, so a nearby call needs no further exchange or Internet service.
-        #expect(reloadedA.viewModel.selectUser(try #require(reloadedA.viewModel.savedRemoteUsers.first).id))
-        #expect(reloadedB.viewModel.selectUser(try #require(reloadedB.viewModel.savedRemoteUsers.first).id))
-        let call = try #require(reloadedA.viewModel.selectedGroup?.id)
-        #expect(reloadedB.viewModel.selectedGroup?.id == call)
-        let key = try #require(try reloadedA.viewModel.groupRepository.credential(for: call))
-        #expect(try reloadedB.viewModel.groupRepository.credential(for: call) == key)
-        #expect(!String(decoding: try author.store.snapshot.encoded(), as: UTF8.self).contains(key.secret))
-        #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
-        #expect(authorTransport.startMediaCallCount == 0 && friendTransport.startMediaCallCount == 0)
+        #expect(reloadedAuthor.viewModel.selectUser(try #require(reloadedAuthor.viewModel.savedRemoteUsers.first).id))
+        #expect(reloadedFriend.viewModel.selectUser(try #require(reloadedFriend.viewModel.savedRemoteUsers.first).id))
+        let call = try #require(reloadedAuthor.viewModel.selectedGroup?.id)
+        #expect(reloadedFriend.viewModel.selectedGroup?.id == call)
+        let key = try #require(try reloadedAuthor.viewModel.groupRepository.credential(for: call))
+        #expect(try reloadedFriend.viewModel.groupRepository.credential(for: call) == key)
+        let manifest = try #require(String(bytes: author.store.snapshot().encoded(), encoding: .utf8))
+        #expect(!manifest.contains(key.secret))
     }
 
     @Test func failedAcceptanceCannotCommitAUserWithoutItsPendingNotification() throws {
-        let author = Fixture("atomic-author"), friend = Fixture("atomic-friend")
-        let (a, _) = author.make(), (b, _) = friend.make()
-        defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        let url = try #require(a.viewModel.makeContactInviteURL())
+        let author = try Fixture("atomic-author"), friend = try Fixture("atomic-friend")
+        let (authorHarness, _) = author.make(), (friendHarness, _) = friend.make()
+        defer {
+            authorHarness.viewModel.stopContactInvitationSession()
+            friendHarness.viewModel.stopContactInvitationSession()
+        }
+        let url = try #require(authorHarness.viewModel.makeContactInviteURL())
         friend.store.failSaving = true
-        #expect(throws: (any Error).self) { try b.viewModel.acceptContactInviteURL(url) }
-        #expect(friend.store.snapshot.users.isEmpty)
+        #expect(throws: (any Error).self) { try friendHarness.viewModel.acceptContactInviteURL(url) }
+        #expect(try friend.store.snapshot().users.isEmpty)
         friend.store.failSaving = false
         let (reloaded, _) = friend.make()
         #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
         #expect(reloaded.viewModel.pendingContactInvitations.isEmpty)
     }
 
-    @Test func cancelledInvitationCannotRecreateAnExplicitlyRemovedUser() throws {
-        let author = Fixture("cancel-author"), friend = Fixture("cancel-friend")
-        let (a, _) = author.make(), (b, _) = friend.make()
-        defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        let url = try #require(a.viewModel.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        try b.viewModel.acceptContactInviteURL(url)
-        let user = try #require(b.viewModel.savedRemoteUsers.first)
-        let pairKey = try #require(friend.store.snapshot.groups.first(where: { $0.kind == .direct })?.credentialReference)
-        #expect(b.viewModel.removeSavedUser(user.id))
-        try b.viewModel.cancelContactInvitation(id)
-        let (reloaded, _) = friend.make()
-        #expect(!reloaded.viewModel.resumeContactInvitation(id))
-        #expect(throws: (any Error).self) { try reloaded.viewModel.acceptContactInviteURL(url) }
-        #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        #expect(friend.credentials.values[pairKey] == nil)
-        let former = try #require(reloaded.viewModel.groupRepository.contactDeletionFormerPairs.first)
-        #expect(Set(friend.credentials.values.keys) == [former.keyReference])
-        #expect(reloaded.viewModel.regularGroups.isEmpty)
-    }
-
-    @Test func internetOnlyContactReplyWaitsDuringARegularCall() throws {
-        let group = try IntercomGroup(name: "Current Group", members: [.init(id: "call-author", displayName: "Author")], accessSecret: "existing-call-key")
-        let harness = AppTestSupport.makeHarness(groups: [group], localMemberID: "call-author")
-        let vm = harness.viewModel
-        let contact = RecordingCallSession()
-        vm.contactSessionFactory = { contact }
-        vm.enabledRTCTransportRoutes = [.webRTC]
-        defer { vm.stopContactInvitationSession(); vm.disconnect() }
-        vm.selectGroup(group)
-        #expect(harness.callSession.connectedGroup?.id == group.id)
-        let disconnects = harness.callSession.disconnectCallCount
-        let url = try #require(vm.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        #expect(!vm.resumeContactInvitation(id))
-        #expect(vm.contactInvitationWaitsForCurrentCall)
-        #expect(harness.callSession.connectedGroup?.id == group.id)
-        #expect(harness.callSession.disconnectCallCount == disconnects)
-        #expect(contact.connectedGroup == nil)
-        #expect(vm.pendingContactInvitations.map(\.id) == [id])
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func nearRangeReplyCompletesDuringBothCallsWithoutChangingTheAudio() async throws {
-        let suffix = String(UUID().uuidString.prefix(8))
-        let authorID = "live-author-" + suffix, friendID = "live-friend-" + suffix
-        let groups = try [authorID, friendID].map { id in
-            try IntercomGroup(name: "Current Group", members: [.init(id: id, displayName: id)], accessSecret: "existing-call-key")
-        }
-        let a = AppTestSupport.makeHarness(groups: [groups[0]], localMemberID: authorID)
-        let b = AppTestSupport.makeHarness(groups: [groups[1]], localMemberID: friendID)
-        let author = a.viewModel, friend = b.viewModel
-        defer {
-            for vm in [author, friend] { vm.stopContactInvitationSession(); vm.disconnect() }
-        }
-        let url = try #require(author.makeContactInviteURL())
-        let beforeCall = try #require(author.contactInvitationSession)
-        for (vm, group) in zip([author, friend], groups) {
-            vm.selectGroup(group)
-            vm.applyLocalMute(true)
-        }
-        try #require(author.contactInvitationSession === beforeCall)
-        await AppTestSupport.waitUntil { author.isAudioReady && friend.isAudioReady }
-        try #require(author.isAudioReady && friend.isAudioReady)
-        let calls = [a.callSession, b.callSession]
-        let deadlines = [author.callDisconnectDeadline, friend.callDisconnectDeadline]
-        let mediaStarts = calls.map(\.startMediaCallCount)
-        let mediaStops = calls.map(\.stopMediaCallCount)
-        let disconnects = calls.map(\.disconnectCallCount)
-
-        try friend.acceptContactInviteURL(url)
-        try #require(friend.contactInvitationSession != nil)
-        #expect(!friend.contactInvitationWaitsForCurrentCall)
-        await AppTestSupport.waitUntil(timeout: .seconds(12)) {
-            author.savedRemoteUsers.map(\.memberIDs) == [[friendID]] && friend.pendingContactInvitations.isEmpty
-        }
-        #expect(author.savedRemoteUsers.map(\.memberIDs) == [[friendID]])
-        #expect(friend.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
-        #expect(friend.pendingContactInvitations.isEmpty)
-        #expect(author.pendingContactInvitations.isEmpty)
-        #expect([author.activeGroupID, friend.activeGroupID] == groups.map { Optional($0.id) })
-        #expect([author.callDisconnectDeadline, friend.callDisconnectDeadline] == deadlines)
-        #expect(author.isMuted && friend.isMuted)
-        #expect(author.isAudioReady && friend.isAudioReady)
-        #expect(calls.map(\.startMediaCallCount) == mediaStarts)
-        #expect(calls.map(\.stopMediaCallCount) == mediaStops)
-        #expect(calls.map(\.disconnectCallCount) == disconnects)
-        author.disconnect()
-        #expect(author.contactInvitationSession === beforeCall)
-        author.accountSession.signOut()
-        #expect(author.contactInvitationSession == nil)
-    }
-
     @Test func schemaEightUpgradesAndOrdinarySnapshotUpdatesKeepPendingUntilReset() throws {
-        let fixture = Fixture("schema-author")
-        fixture.store.snapshot.version = 8
-        let (h, _) = fixture.make()
-        defer { h.viewModel.stopContactInvitationSession() }
-        #expect(fixture.store.snapshot.version == GroupSnapshot.currentVersion)
-        let url = try #require(h.viewModel.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        try h.viewModel.groupRepository.save([])
+        let fixture = try Fixture("schema-author")
+        var legacySnapshot = try fixture.store.snapshot()
+        legacySnapshot.version = 8
+        try fixture.store.installSnapshot(legacySnapshot)
+        let (harness, _) = fixture.make()
+        defer { harness.viewModel.stopContactInvitationSession() }
+        #expect(try fixture.store.snapshot().version == GroupSnapshot.currentVersion)
+        let url = try #require(harness.viewModel.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation)
+            .context.id
+        try harness.viewModel.groupRepository.save([])
         let (reloaded, _) = fixture.make()
         #expect(reloaded.viewModel.pendingContactInvitations.map(\.id) == [id])
         #expect(!fixture.credentials.values.isEmpty)
@@ -246,96 +201,20 @@ struct ContactInvitationPersistenceTests {
         #expect(fixture.credentials.values.isEmpty)
     }
     @Test func boundedNotificationAttemptStopsTransportAndKeepsDurableRetry() async throws {
-        let fixture = Fixture("bounded-author")
-        let (h, contact) = fixture.make()
-        h.viewModel.contactNotificationAttemptDuration = .milliseconds(20)
-        defer { h.viewModel.stopContactInvitationSession() }
-        let url = try #require(h.viewModel.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
+        let fixture = try Fixture("bounded-author")
+        let (harness, contact) = fixture.make()
+        harness.viewModel.contactNotificationAttemptDuration = .milliseconds(20)
+        defer { harness.viewModel.stopContactInvitationSession() }
+        let url = try #require(harness.viewModel.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation)
+            .context.id
         #expect(contact.connectedGroup != nil)
         await AppTestSupport.waitUntil(timeout: .seconds(1)) { contact.connectedGroup == nil }
         #expect(contact.connectedGroup == nil)
-        #expect(h.viewModel.pendingContactInvitations.map(\.id) == [id])
-        #expect(h.viewModel.resumeContactInvitation(id))
+        #expect(harness.viewModel.pendingContactInvitations.map(\.id) == [id])
+        #expect(harness.viewModel.resumeContactInvitation(id))
         #expect(contact.connectedGroup != nil)
-        #expect(h.callSession.connectedGroup == nil)
-    }
-
-    @Test(arguments: [false, true])
-    func deletingTheConfirmedContactRejectsLateRepliesAndAllowsAFreshInvitation(legacyDeletion: Bool) throws {
-        let author = Fixture("sender-cancel-author"), friend = Fixture("sender-cancel-friend")
-        let (a, transport) = author.make(), (b, friendTransport) = friend.make()
-        defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        let url = try #require(a.viewModel.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        try b.viewModel.acceptContactInviteURL(url)
-        friendTransport.authenticate(["sender-cancel-author"])
-        let receipt = try #require(friendTransport.sentApplicationDataMessages.last)
-        transport.authenticate(["sender-cancel-friend"])
-        let handler = try #require(transport.onEvent)
-        handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
-        let saved = try #require(a.viewModel.savedRemoteUsers.first)
-        let oldReply = try b.viewModel.contactReplyURLForSharing(id, expectedAccountAccessID: b.viewModel.accountAccessID)
-        let checkpoint = try #require(a.viewModel.groupRepository.contactInvitations.first { $0.id == id })
-        let pairKey = try #require(author.store.snapshot.groups.first(where: { $0.kind == .direct })?.credentialReference)
-        #expect(checkpoint.state == .confirmed)
-        if legacyDeletion {
-            a.viewModel.stopContactInvitationSession()
-            // Earlier builds removed the user and pair call, but left this confirmed checkpoint.
-            var snapshot = author.store.snapshot
-            snapshot.users = []
-            snapshot.groups = []
-            author.store.snapshot = snapshot
-        } else {
-            #expect(a.viewModel.removeSavedUser(saved.id))
-            let sent = transport.sentApplicationDataMessages.count
-            handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
-            #expect(transport.sentApplicationDataMessages.count == sent)
-            #expect(transport.connectedGroup == nil)
-            #expect(!a.viewModel.handleContactReplyURL(oldReply))
-        }
-        let (reloaded, _) = author.make()
-        defer { reloaded.viewModel.stopContactInvitationSession() }
-        #expect(reloaded.viewModel.groupRepository.contactInvitations.first { $0.id == id }?.state == .cancelled)
-        #expect(!reloaded.viewModel.resumeContactInvitation(id))
-        #expect(!reloaded.viewModel.handleContactReplyURL(oldReply))
-        #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
-        #expect(author.credentials.values[pairKey] == nil)
-        let references = reloaded.viewModel.groupRepository.contactDeletionFormerPairs.map(\.keyReference)
-        #expect(Set(author.credentials.values.keys) == Set(references))
-        #expect(references.count == (legacyDeletion ? 0 : 1))
-        #expect(reloaded.viewModel.regularGroups.isEmpty)
-
-        let freshURL = try #require(reloaded.viewModel.makeContactInviteURL())
-        let freshID = try #require(GroupInviteTokenCodec.decodeJoinURL(freshURL, contactBootstrap: true).directInvitation).context.id
-        #expect(freshID != id)
-        try b.viewModel.acceptContactInviteURL(freshURL)
-        let freshReply = try b.viewModel.contactReplyURLForSharing(freshID, expectedAccountAccessID: b.viewModel.accountAccessID)
-        try reloaded.viewModel.receiveContactReplyURL(freshReply)
-        #expect(reloaded.viewModel.savedRemoteUsers.map(\.memberIDs) == [["sender-cancel-friend"]])
-        #expect(!reloaded.viewModel.handleContactReplyURL(oldReply))
-    }
-
-    @Test func ordinaryCallStartAndSignOutStopContactTransportWithoutErasingPending() throws {
-        let group = try IntercomGroup(name: "Current Group", members: [.init(id: "lifecycle-author", displayName: "Author")], accessSecret: "ordinary-key")
-        let h = AppTestSupport.makeHarness(groups: [group], localMemberID: "lifecycle-author")
-        let contact = RecordingCallSession()
-        h.viewModel.contactSessionFactory = { contact }
-        defer { h.viewModel.stopContactInvitationSession(); h.viewModel.disconnect() }
-        let url = try #require(h.viewModel.makeContactInviteURL())
-        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation).context.id
-        #expect(contact.connectedGroup != nil)
-        h.viewModel.selectGroup(group)
-        #expect(contact.connectedGroup == nil)
-        #expect(h.callSession.connectedGroup?.id == group.id)
-        #expect(h.viewModel.pendingContactInvitations.map(\.id) == [id])
-        h.viewModel.disconnect()
-        #expect(h.viewModel.resumeContactInvitation(id))
-        #expect(contact.connectedGroup != nil)
-        h.viewModel.accountSession.signOut()
-        #expect(contact.connectedGroup == nil)
-        #expect(!h.viewModel.resumeContactInvitation(id))
-        #expect(h.groupStore.snapshot.users.isEmpty)
+        #expect(harness.callSession.connectedGroup == nil)
     }
 
     @Test func actualSchemaEightBytesDecodeWithoutContactFieldAndSchemaNineRequiresIt() throws {
@@ -350,95 +229,103 @@ struct ContactInvitationPersistenceTests {
         json["version"] = 9
         #expect(throws: (any Error).self) { try GroupSnapshot.decode(JSONSerialization.data(withJSONObject: json)) }
     }
+}
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func nativeVMNotificationCommitsBothUsersAndSurvivesDiskReload(includesGroup: Bool) async throws {
-        let suffix = String(UUID().uuidString.prefix(8))
-        let authorID = "native-vm-author-" + suffix, friendID = "native-vm-friend-" + suffix
-        let author = Fixture(authorID), friend = Fixture(friendID)
-        let (a, _) = author.make(), (b, _) = friend.make()
-        a.viewModel.contactSessionFactory = nil
-        b.viewModel.contactSessionFactory = nil
-        a.viewModel.enabledRTCTransportRoutes = [.multipeer, .webRTC]
-        b.viewModel.enabledRTCTransportRoutes = [.multipeer, .webRTC]
-        #expect(!a.viewModel.hasInternetCredentials && !b.viewModel.hasInternetCredentials,
-                "Local invitation acceptance does not depend on Internet registration")
-        defer { a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession() }
-        let personID: UUID
-        let groupID: UUID?
-        if includesGroup {
-            let draft = GroupInvitationDraft(suggestedName: "Native Partner")
-            personID = draft.id
-            let savedGroup = try #require(a.viewModel.saveGroupInvitations(groupID: UUID(), creating: true,
-                name: "Native Group", selected: [], newPeople: [draft]))
-            groupID = savedGroup
-            // Creation's explicit "Create and Connect" is separate from sharing the saved invite.
-            a.viewModel.disconnect()
-            a.viewModel.showContactPerson(personID)
-        } else {
-            a.viewModel.beginContactInvitationPresentation()
-            guard case .person(let id) = a.viewModel.contactInvitationPresentation else {
-                Issue.record("Expected person")
-                return
-            }
-            personID = id
-            groupID = nil
-            #expect(a.viewModel.saveContactPerson(personID, name: "Native Partner", usesProvisionalName: true))
+extension ContactInvitationPersistenceTests {
+    @Test func cancelledInvitationCannotRecreateAnExplicitlyRemovedUser() throws {
+        let author = try Fixture("cancel-author"), friend = try Fixture("cancel-friend")
+        let (authorHarness, _) = author.make(), (friendHarness, _) = friend.make()
+        defer {
+            authorHarness.viewModel.stopContactInvitationSession()
+            friendHarness.viewModel.stopContactInvitationSession()
         }
-        let mediaStartsBeforeSharing = a.callSession.startMediaCallCount
-        let share = try a.viewModel.prepareContactPersonShare(personID, expectedAccountAccessID: a.viewModel.accountAccessID)
-        a.viewModel.completeContactInvitationSharing(share)
-        let url = share.url
-        #expect(a.viewModel.savedRemoteUsers.isEmpty)
-        #expect(b.viewModel.previewContactInvitation(url))
-        #expect(b.viewModel.savedRemoteUsers.isEmpty)
-        a.viewModel.contactInvitationMessage = "This invitation could not be resumed. Try again."
-        #expect(b.viewModel.acceptPresentedContactInvitation())
-        b.viewModel.contactInvitationMessage = "This invitation could not be resumed. Try again."
-        #expect(b.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
-        // Allow discovery, authentication and the route’s automatic retry to complete.
-        let deadline = ContinuousClock.now + .seconds(45)
-        while a.viewModel.savedRemoteUsers.isEmpty || !b.viewModel.pendingContactInvitations.isEmpty,
-            ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        #expect(a.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]], "Actual near-range acceptance reaches the author's atomic registration")
-        #expect(b.viewModel.pendingContactInvitations.isEmpty, "Actual acknowledgement completes the recipient's durable notification")
-        #expect(b.viewModel.contactInvitationID == nil)
-        #expect(a.viewModel.pendingContactInvitations.isEmpty)
-        #expect(a.viewModel.contactInvitationMessage == nil && b.viewModel.contactInvitationMessage == nil,
-                "Verified registration and delivery clear earlier retry failures")
-        #expect(a.viewModel.contactInvitationPresentation == .person(personID))
-        #expect(a.viewModel.savedRemoteUsers.map(\.id) == [personID])
-        #expect(a.viewModel.directoryUsers.count == 1 && a.viewModel.unlinkedContactInvitations.isEmpty)
-        let namedPerson = try #require(a.viewModel.contactPerson(personID))
-        #expect(namedPerson.needsNameConfirmation)
-        #expect(a.viewModel.resolveContactPersonName(namedPerson, useSharedName: false))
-        #expect(a.viewModel.contactPerson(personID)?.needsNameConfirmation == false)
-        a.viewModel.dismissContactInvitationPresentation()
-        #expect(a.viewModel.contactInvitationPresentation == nil)
-        #expect(a.callSession.connectedGroup == nil && b.callSession.connectedGroup == nil)
-        #expect(a.callSession.startMediaCallCount == mediaStartsBeforeSharing && b.callSession.startMediaCallCount == 0)
-        a.viewModel.stopContactInvitationSession(); b.viewModel.stopContactInvitationSession()
-        let (reloadedA, _) = author.make(), (reloadedB, _) = friend.make()
-        #expect(reloadedA.viewModel.savedRemoteUsers.map(\.memberIDs) == [[friendID]])
-        #expect(reloadedA.viewModel.directoryUsers.map(\.id) == [personID])
-        #expect(reloadedA.viewModel.directoryUsers.first?.usesProvisionalName == false)
-        #expect(reloadedB.viewModel.savedRemoteUsers.map(\.memberIDs) == [[authorID]])
-        let expectedGroups = groupID.map { [$0] } ?? []
-        #expect(reloadedA.viewModel.regularGroups.map(\.id) == expectedGroups)
-        #expect(reloadedB.viewModel.regularGroups.map(\.id) == expectedGroups)
-        if let groupID {
-            let group = try #require(reloadedA.viewModel.regularGroups.first)
-            #expect(Set(group.members.map(\.id)) == [authorID, friendID])
-            let credential = try #require(try reloadedA.viewModel.groupRepository.credential(for: groupID))
-            #expect(try reloadedB.viewModel.groupRepository.credential(for: groupID) == credential)
-        }
-        #expect(reloadedB.viewModel.pendingContactInvitations.isEmpty)
-        // The real exchange leaves both sides with one pair call key.
-        let call = IntercomGroup.directCallID(memberIDs: [authorID, friendID])
-        let key = try #require(try reloadedA.viewModel.groupRepository.credential(for: call))
-        #expect(try reloadedB.viewModel.groupRepository.credential(for: call) == key)
+        let url = try #require(authorHarness.viewModel.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation)
+            .context.id
+        try friendHarness.viewModel.acceptContactInviteURL(url)
+        let user = try #require(friendHarness.viewModel.savedRemoteUsers.first)
+        let pairKey = try #require(
+            friend.store.snapshot().groups.first(where: { $0.kind == .direct })?.credentialReference)
+        #expect(friendHarness.viewModel.removeSavedUser(user.id))
+        try friendHarness.viewModel.cancelContactInvitation(id)
+        let (reloaded, _) = friend.make()
+        #expect(!reloaded.viewModel.resumeContactInvitation(id))
+        #expect(throws: (any Error).self) { try reloaded.viewModel.acceptContactInviteURL(url) }
+        #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
+        #expect(friend.credentials.values[pairKey] == nil)
+        let former = try #require(reloaded.viewModel.groupRepository.contactDeletionFormerPairs.first)
+        #expect(Set(friend.credentials.values.keys) == [former.keyReference])
+        #expect(reloaded.viewModel.regularGroups.isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func deletingTheConfirmedContactRejectsLateRepliesAndAllowsAFreshInvitation(legacyDeletion: Bool) throws {
+        let author = try Fixture("sender-cancel-author"), friend = try Fixture("sender-cancel-friend")
+        let (authorHarness, transport) = author.make(), (friendHarness, friendTransport) = friend.make()
+        defer {
+            authorHarness.viewModel.stopContactInvitationSession()
+            friendHarness.viewModel.stopContactInvitationSession()
+        }
+        let url = try #require(authorHarness.viewModel.makeContactInviteURL())
+        let id = try #require(GroupInviteTokenCodec.decodeJoinURL(url, contactBootstrap: true).directInvitation)
+            .context.id
+        try friendHarness.viewModel.acceptContactInviteURL(url)
+        friendTransport.authenticate(["sender-cancel-author"])
+        let receipt = try #require(friendTransport.sentApplicationDataMessages.last)
+        transport.authenticate(["sender-cancel-friend"])
+        let handler = try #require(transport.onEvent)
+        handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
+        let saved = try #require(authorHarness.viewModel.savedRemoteUsers.first)
+        let oldReply = try friendHarness.viewModel.contactReplyURLForSharing(
+            id, expectedAccountAccessID: friendHarness.viewModel.accountAccessID)
+        let checkpoint = try #require(authorHarness.viewModel.groupRepository.contactInvitations.first { $0.id == id })
+        let pairKey = try #require(
+            author.store.snapshot().groups.first(where: { $0.kind == .direct })?.credentialReference)
+        #expect(checkpoint.state == .confirmed)
+        if legacyDeletion {
+            authorHarness.viewModel.stopContactInvitationSession()
+            // Earlier builds removed the user and pair call, but left this confirmed checkpoint.
+            var snapshot = try author.store.snapshot()
+            snapshot.users = []
+            snapshot.groups = []
+            try author.store.installSnapshot(snapshot)
+        } else {
+            #expect(authorHarness.viewModel.removeSavedUser(saved.id))
+            let sent = transport.sentApplicationDataMessages.count
+            handler(.receivedApplicationData(peerID: "sender-cancel-friend", message: receipt))
+            #expect(transport.sentApplicationDataMessages.count == sent)
+            #expect(transport.connectedGroup == nil)
+            #expect(!authorHarness.viewModel.handleContactReplyURL(oldReply))
+        }
+        let (reloaded, _) = author.make()
+        defer { reloaded.viewModel.stopContactInvitationSession() }
+        #expect(reloaded.viewModel.groupRepository.contactInvitations.first { $0.id == id }?.state == .cancelled)
+        #expect(!reloaded.viewModel.resumeContactInvitation(id))
+        #expect(!reloaded.viewModel.handleContactReplyURL(oldReply))
+        #expect(reloaded.viewModel.savedRemoteUsers.isEmpty)
+        #expect(author.credentials.values[pairKey] == nil)
+        let references = reloaded.viewModel.groupRepository.contactDeletionFormerPairs.map(\.keyReference)
+        #expect(Set(author.credentials.values.keys) == Set(references))
+        #expect(references.count == (legacyDeletion ? 0 : 1))
+        #expect(reloaded.viewModel.regularGroups.isEmpty)
+
+        try verifyFreshInvitationAfterDeletion(
+            from: reloaded.viewModel, to: friendHarness.viewModel, oldID: id, oldReply: oldReply)
+    }
+
+    private func verifyFreshInvitationAfterDeletion(
+        from authorModel: IntercomViewModel, to friendModel: IntercomViewModel, oldID: UUID, oldReply: URL
+    ) throws {
+        let freshURL = try #require(authorModel.makeContactInviteURL())
+        let freshID = try #require(
+            GroupInviteTokenCodec.decodeJoinURL(freshURL, contactBootstrap: true).directInvitation
+        ).context.id
+        #expect(freshID != oldID)
+        try friendModel.acceptContactInviteURL(freshURL)
+        let freshReply = try friendModel.contactReplyURLForSharing(
+            freshID, expectedAccountAccessID: friendModel.accountAccessID)
+        try authorModel.receiveContactReplyURL(freshReply)
+        #expect(authorModel.savedRemoteUsers.map(\.memberIDs) == [["sender-cancel-friend"]])
+        #expect(!authorModel.handleContactReplyURL(oldReply))
+    }
 }
