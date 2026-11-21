@@ -91,7 +91,7 @@ require_file "${DEPOT_TOOLS_DIR}/fetch" "Set DEPOT_TOOLS_DIR to the directory co
 
 if [[ -z "${WEBRTC_BRANCH}" ]]; then
   log_step "Resolving current WebRTC branch"
-  WEBRTC_BRANCH="$(${SCRIPT_DIR}/resolve-webrtc-branch.sh)"
+  WEBRTC_BRANCH="$("${SCRIPT_DIR}/resolve-webrtc-branch.sh")"
 fi
 export WEBRTC_BRANCH
 echo "WEBRTC_BRANCH=${WEBRTC_BRANCH}"

@@ -18,7 +18,7 @@ IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-27.0}"
 MACOS_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-27.0}"
 
 if [[ -z "${WEBRTC_BRANCH}" ]]; then
-  WEBRTC_BRANCH="$(${SCRIPT_DIR}/resolve-webrtc-branch.sh)"
+  WEBRTC_BRANCH="$("${SCRIPT_DIR}/resolve-webrtc-branch.sh")"
 fi
 
 if [[ ! -x "${DEPOT_TOOLS_DIR}/fetch" || ! -x "${DEPOT_TOOLS_DIR}/gclient" ]]; then
@@ -53,7 +53,8 @@ fi
 cd src
 
 if [[ "${ASSEMBLE_ONLY}" != "true" ]]; then
-  if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  checkout_status="$(git status --porcelain --untracked-files=no)"
+  if [[ -n "${checkout_status}" ]]; then
     echo "WebRTC source has local changes; use a clean checkout." >&2
     exit 1
   fi

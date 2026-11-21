@@ -86,7 +86,9 @@ required_headers=(
 
 missing_count=0
 
+framework_dirs="$(find "${XCFRAMEWORK_PATH}" -path '*/WebRTC.framework' -type d | sort)"
 while IFS= read -r framework_dir; do
+  [[ -n "${framework_dir}" ]] || continue
   headers_dir="${framework_dir}/Headers"
   if [[ ! -d "${headers_dir}" && -d "${framework_dir}/Versions/A/Headers" ]]; then
     headers_dir="${framework_dir}/Versions/A/Headers"
@@ -106,14 +108,16 @@ while IFS= read -r framework_dir; do
   done
 
   if [[ -f "${headers_dir}/WebRTC.h" ]]; then
+    imported_headers="$(sed -n 's/^#import <WebRTC\/\([^>]*\.h\)>.*/\1/p' "${headers_dir}/WebRTC.h" | sort -u)"
     while IFS= read -r imported_header; do
+      [[ -n "${imported_header}" ]] || continue
       if [[ ! -f "${headers_dir}/${imported_header}" ]]; then
         echo "Missing ${imported_header} imported by WebRTC.h in ${headers_dir}" >&2
         missing_count=$((missing_count + 1))
       fi
-    done < <(sed -n 's/^#import <WebRTC\/\([^>]*\.h\)>.*/\1/p' "${headers_dir}/WebRTC.h" | sort -u)
+    done <<< "${imported_headers}"
   fi
-done < <(find "${XCFRAMEWORK_PATH}" -path '*/WebRTC.framework' -type d | sort)
+done <<< "${framework_dirs}"
 
 if [[ "${missing_count}" -ne 0 ]]; then
   echo "WebRTC.xcframework header verification failed: ${missing_count} missing item(s)." >&2

@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-WEBRTC_BRANCH="${WEBRTC_BRANCH:-$(${SCRIPT_DIR}/resolve-webrtc-branch.sh)}"
+WEBRTC_BRANCH="${WEBRTC_BRANCH:-$("${SCRIPT_DIR}/resolve-webrtc-branch.sh")}"
 export WEBRTC_BRANCH
 
 echo "Resolved WEBRTC_BRANCH=${WEBRTC_BRANCH}"

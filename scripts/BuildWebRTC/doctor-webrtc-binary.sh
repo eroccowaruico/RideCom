@@ -62,7 +62,7 @@ check_path "${DEPOT_TOOLS_DIR}/gclient" "depot_tools gclient" "DEPOT_TOOLS_DIR=/
 check_path "${DEPOT_TOOLS_DIR}/fetch" "depot_tools fetch" "DEPOT_TOOLS_DIR=/path/to/depot_tools scripts/BuildWebRTC/update-webrtc-binary.sh"
 
 echo
-if branch="$(${SCRIPT_DIR}/resolve-webrtc-branch.sh 2>/dev/null)"; then
+if branch="$("${SCRIPT_DIR}/resolve-webrtc-branch.sh" 2>/dev/null)"; then
   ok "Current stable WebRTC branch resolves to ${branch}"
 else
   warn "Could not resolve current WebRTC branch from Chromium Dashboard"
