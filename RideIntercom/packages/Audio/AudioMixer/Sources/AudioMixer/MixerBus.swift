@@ -129,17 +129,7 @@ public final class MixerBus {
 			nextSequence: &nextSourceSequence
 		)
 
-		engine.attach(player)
-		engine.attach(fader)
-		let inputBus = inputMixer.nextAvailableInputBus
-		do {
-			try engine.connectNode(player, to: fader, format: format)
-			try engine.connectNode(fader, to: inputMixer, fromBus: 0, toBus: inputBus, format: format)
-		} catch {
-			engine.detach(player)
-			engine.detach(fader)
-			throw error
-		}
+		let inputBus = try connectPCMSource(player: player, fader: fader)
 		sourceNodeIDs.insert(nodeID)
 		sourceNodeOrder.append(nodeID)
 		sourceMetadataByNodeID[nodeID] = MixerSourceMetadata(
@@ -170,6 +160,21 @@ public final class MixerBus {
 		)
 		pcmSourceByNodeID[nodeID] = source
 		return source
+	}
+
+	private func connectPCMSource(player: AVAudioPlayerNode, fader: AVAudioMixerNode) throws -> AVAudioNodeBus {
+		engine.attach(player)
+		engine.attach(fader)
+		let inputBus = inputMixer.nextAvailableInputBus
+		do {
+			try engine.connectNode(player, to: fader, format: format)
+			try engine.connectNode(fader, to: inputMixer, fromBus: 0, toBus: inputBus, format: format)
+		} catch {
+			engine.detach(player)
+			engine.detach(fader)
+			throw error
+		}
+		return inputBus
 	}
 
 	@discardableResult
