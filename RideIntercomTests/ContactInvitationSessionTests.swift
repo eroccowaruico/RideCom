@@ -40,6 +40,13 @@ struct ContactInvitationSessionTests {
         #expect(friendsContacts == [authorID])
         #expect(author.isConfirmed)
         #expect(friend.isAcknowledged)
+        try await verifyGroupPermission(author: author, friend: friend, authorID: authorID, authorSigner: authorSigner)
+    }
+
+    private func verifyGroupPermission(
+        author: ContactInvitationSession, friend: ContactInvitationSession, authorID: String,
+        authorSigner: DeviceIdentitySigner
+    ) async throws {
         let source = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "a", count: 64))
         let destination = AccountPrincipal(issuer: "https://notify.test", userID: String(repeating: "b", count: 64))
         let grant = try testCallNotificationGrant(
