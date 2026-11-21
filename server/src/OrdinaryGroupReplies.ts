@@ -115,14 +115,7 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
         if (!await own.notificationAuthorized(auth)) return unauthorized()
         const destination = account(route.accountID)
         if (value) {
-            let result = admission
-                ? await destination.contactInvitationReplyAccept(owner, { ...admission, slotHash }, recipient, value)
-                : await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value, expectedExpiry)
-            if (background && result === 'unauthorized') {
-                // A stale opening permission cannot create a mailbox. A matching existing mailbox is sufficient.
-                const stored = await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value, expectedExpiry)
-                if (stored !== 'missing') result = stored
-            }
+            const result = await destination.ordinaryGroupReplyAccept(owner, slotHash, recipient, value, { expectedExpiry, admission })
             return background && result === 'ok' ? json({ id, expiresAt: expectedExpiry }) : status(result)
         }
         const receipt = await destination.ordinaryGroupReplyReceipt(owner, slotHash, recipient, id)

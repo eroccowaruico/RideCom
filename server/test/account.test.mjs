@@ -424,6 +424,11 @@ test('a background contact acceptance is limited to the originally signed reply 
         const updatedAuthor = await signIn(r, await challenge(r, a.deviceID), { sub: 'background-reply-author' });
         assert.equal(updatedAuthor.status, 200);
         assert.equal((await submit(exact)).status, 200, 'a current receiver can use a matching existing mailbox');
+        const otherExpiry = expiresAt + 1;
+        const mismatched = { ...value, expiresAt: otherExpiry, admission: await signedAdmission(slot, otherExpiry) };
+        assert.equal((await submit(await signed(mismatched))).status, 409, 'old admission cannot alter the saved mailbox expiry');
+        assert.equal((await call(r, replyPath + '/acceptance', value, b.accessToken, 'PUT')).status, 401,
+            'ordinary submission still requires a current opening permission');
         assert.equal((await submit(await signed({ ...value, slot: unopenedSlot, admission: oldAdmission }))).status, 401);
 
         const renewed = await signIn(r, await challenge(r, b.deviceID), { sub: 'background-reply-recipient' });

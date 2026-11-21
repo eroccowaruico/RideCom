@@ -5,7 +5,7 @@ import { Env, json, readJSON } from './types'
 import { certifyDevice } from './DeviceIdentity'
 import { publicAccountIndex } from './NotificationIndex'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
-import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket } from './AccountOrdinaryGroupReplies'
+import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket, type OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { AccountContactDeletions, type ContactDeletionRelayPacket } from './AccountContactDeletions'
 import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type EnrollmentPolicy, type VerifiedAppAttestKey } from './AppAttestEnrollment'
 
@@ -37,6 +37,7 @@ interface Device {
 }
 interface AttestationSubmission { nonce: string; keyID: string; attestation: string }
 export interface DeviceIdentity { userID: string; deviceID: string; expiresAt: number }
+interface ReplyMailboxAdmission { deviceID: string; sessionBinding: string; expiresAt: number }
 
 export class AppleAuthAttempt extends DurableObject<Env> {
     async issue(deviceID: string): Promise<Challenge & { challengeID: string }> {
@@ -98,21 +99,26 @@ export class UserAccount extends DurableObject<Env> {
     ordinaryGroupReplyAcknowledge(auth: NotificationAuth, slot: string, packet: OrdinaryGroupReplyPacket) {
         return this.notifications.authorized(auth) ? this.ordinaryGroupReplies.acknowledge(auth.deviceID, slot, packet) : 'unauthorized'
     }
-    ordinaryGroupReplyAccept(owner: string, slot: string, recipient: string, packet: OrdinaryGroupReplyPacket, expectedExpiry?: number) {
-        return this.notifications.isCurrent(owner) ? this.ordinaryGroupReplies.accept(slot, recipient, packet, expectedExpiry) : 'missing'
-    }
-    async contactInvitationReplyAccept(owner: string, admission: {
-        deviceID: string; sessionBinding: string; expiresAt: number; slotHash: string
-    }, recipient: string, packet: OrdinaryGroupReplyPacket) {
-        const { deviceID, sessionBinding, expiresAt, slotHash } = admission
-        const author = await this.authenticateBoundSession(owner, deviceID, sessionBinding)
-        if (!author || !this.notifications.authorized(author)) return 'unauthorized'
-        const result = this.ctx.storage.transactionSync(() => {
-            const opened = this.ordinaryGroupReplies.open(deviceID, slotHash, expiresAt)
-            return opened === 'ok' ? this.ordinaryGroupReplies.accept(slotHash, recipient, packet) : opened
-        })
-        if (result === 'ok') await this.ensureReplyExpiry(expiresAt)
-        return result
+    async ordinaryGroupReplyAccept(owner: string, slot: string, recipient: string, packet: OrdinaryGroupReplyPacket,
+        { expectedExpiry, admission }: { expectedExpiry?: number; admission?: ReplyMailboxAdmission }
+    ): Promise<OrdinaryGroupReplyStatus> {
+        if (admission) {
+            const { deviceID, sessionBinding, expiresAt } = admission
+            const author = await this.authenticateBoundSession(owner, deviceID, sessionBinding)
+            if (author && this.notifications.authorized(author)) {
+                const result = this.ctx.storage.transactionSync(() => {
+                    const opened = this.ordinaryGroupReplies.open(deviceID, slot, expiresAt)
+                    return opened === 'ok' ? this.ordinaryGroupReplies.accept(slot, recipient, packet) : opened
+                })
+                if (result === 'ok') await this.ensureReplyExpiry(expiresAt)
+                return result
+            }
+            // Only a background submission carries a verified, fixed mailbox expiry.
+            if (expectedExpiry === undefined) return 'unauthorized'
+        }
+        const result = this.notifications.isCurrent(owner)
+            ? this.ordinaryGroupReplies.accept(slot, recipient, packet, expectedExpiry) : 'missing'
+        return admission && result === 'missing' ? 'unauthorized' : result
     }
     private async ensureReplyExpiry(expiresAt: number) {
         const scheduled = await this.ctx.storage.getAlarm()
