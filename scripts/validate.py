@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local validation orchestration. No deployment or access to user test data."""
 import argparse
+from contextlib import nullcontext
 from datetime import datetime
 import hashlib
 import json
@@ -16,6 +17,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from scripts.crash_reports import CrashReports
 from scripts.test_lifecycle import (exclusive_run, SimulatorLease,
                                     simulator_resource_root, process_snapshot, stop_process_tree)
 from scripts.xcode_paths import scheme_configuration, scheme_test_plan, xcode_build_settings, select_test_run
@@ -164,7 +166,7 @@ def test_host_metadata(test_run, expected_namespace, expected_product='RideInter
 
 
 class Runner:
-    def __init__(self, out, timeout=1800):
+    def __init__(self, out, timeout=1800, crash_reports=None):
         self.out = Path(out).resolve()
         self.out.mkdir(parents=True, exist_ok=True)
         # Exclusive creation protects old evidence, including interrupted runs.
@@ -172,6 +174,7 @@ class Runner:
             f.write('stage\tstatus\texit_code\tduration_seconds\n')
         self.results = {}
         self.timeout = timeout
+        self.crash_reports = crash_reports
 
     @property
     def exit_code(self):
@@ -204,6 +207,19 @@ class Runner:
                 return f'process cleanup failed: {error}; direct child cleanup failed: {fallback}'
             return f'process cleanup failed: {error}'
 
+    def wait_for_stage(self, process, timeout):
+        if self.crash_reports is None:
+            return process.wait(timeout=timeout)
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            try:
+                return process.wait(timeout=max(0, min(remaining, self.crash_reports.interval_seconds)))
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    raise
+                self.crash_reports.sample()
+
     def run(self, name, command, needs=(), tests=False, timeout=None, reason=''):
         started = time.monotonic()
         if name in self.results:
@@ -216,13 +232,14 @@ class Runner:
         status, code = 'failed', 1
         process = None
         try:
-            with path.open('w') as output:
+            observation = self.crash_reports.stage(name) if self.crash_reports else nullcontext()
+            with observation, path.open('w') as output:
                 process = subprocess.Popen(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT,
                                            start_new_session=True)
                 original = None
                 try:
                     original = process_snapshot().get(process.pid)
-                    code = process.wait(timeout=timeout if timeout is not None else self.timeout)
+                    code = self.wait_for_stage(process, timeout if timeout is not None else self.timeout)
                     status = 'passed' if code == 0 else 'failed'
                 except subprocess.TimeoutExpired:
                     cleanup = self.stop(process, original)
@@ -424,6 +441,8 @@ def xctestrun_skips(path):
 def boot_simulator(runner, sim, stage, timeout=180):
     id_filename = 'simulator-id.txt' if stage == 'simulator' else f'{stage}-simulator-id.txt'
     (runner.out / id_filename).write_text(sim + '\n')
+    if runner.crash_reports is not None:
+        runner.crash_reports.add_simulator(sim)
     runner.run(f'{stage}-boot', ['xcrun', 'simctl', 'boot', sim], timeout=120)
     runner.run(f'{stage}-ready', ['xcrun', 'simctl', 'bootstatus', sim, '-b'],
                needs=[f'{stage}-boot'], timeout=timeout)
@@ -553,6 +572,8 @@ def main():
     os.environ['CI'] = '1'  # Noninteractive tool output; this still runs locally.
     out = os.environ.get('VALIDATION_DIR', ROOT / '.validation' / datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
     runner = Runner(out, timeout=float(os.environ.get('VALIDATION_TIMEOUT_SECONDS', '1800')))
+    runner.crash_reports = CrashReports(runner.out / 'crash-reports.json')
+    runner.crash_reports.sample()
     snapshot(runner.out)
     runner.run('environment', ['sh', '-c', 'git rev-parse HEAD; git status --short; sw_vers; xcodebuild -version; swift --version; node --version; npm --version'], timeout=60)
     python = sys.executable
@@ -622,6 +643,8 @@ def main():
     (runner.out / 'inputs-before.json').write_text(before)
     runner.record('unchanged-inputs', [], 'passed' if fingerprints_match(json.loads(before), json.loads(after)) else 'failed', 0 if fingerprints_match(json.loads(before), json.loads(after)) else 1,
                   time.monotonic(), 'source/configuration fingerprints must match except for advancing the shared build number')
+    runner.crash_reports.sample()
+    print(f'Crash reports: {runner.out / "crash-reports.json"}')
     print(f'Results: {runner.out / "results.tsv"}')
     return runner.exit_code
 

@@ -495,7 +495,9 @@ class ValidationTests(unittest.TestCase):
              patch.object(self.runner, 'run', side_effect=command), patch.dict(os.environ):
             self.assertEqual(self.module.main(), 0)
         cleans = [(stage, argv) for stage, argv in commands if argv[:2] == ['swift', 'package']]
-        self.assertEqual(len(cleans), 10)
+        folders = json.loads((self.module.ROOT / 'RideIntercom.code-workspace').read_text())['folders']
+        self.assertCountEqual([argv[-2] for _, argv in cleans],
+                              [folder['path'] for folder in folders if folder['path'] != '.'])
         self.assertEqual(sum(stage == 'package-RTC-clean' for stage, _ in cleans), 1)
         self.assertTrue(all(argv[-1] == 'clean' and '--package-path' in argv for _, argv in cleans))
         self.assertFalse(any('--scratch-path' in argv for _, argv in commands))
