@@ -1,488 +1,296 @@
 import AVFAudio
-import Foundation
 import AudioCore
 import AudioMixer
 import Codec
+import Foundation
+import PeakLimiter
 import RTC
 import SessionManager
+import SoundIsolation
 import Testing
 import VADGate
-import SoundIsolation
-import PeakLimiter
+
 @testable import RideIntercom
 
 extension AppTests {
-@MainActor
-struct SettingsTests {
-    @Test func transmitIsolationSurvivesRelaunchAndModeChangesUntilReset() throws {
-        let suite = "RideIntercomTests.transmit-isolation.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = UserDefaultsAppSettingsStore(defaults: defaults)
-        let initial = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+    @MainActor
+    struct SettingsTests {
+        @Test func transmitIsolationSurvivesRelaunchAndModeChangesUntilReset() throws {
+            let suite = "RideIntercomTests.transmit-isolation.\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let store = UserDefaultsAppSettingsStore(defaults: defaults)
+            let initial = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
 
-        #expect(initial.interfaceMode == .standard)
-        #expect(initial.isSoundIsolationEnabled)
-        initial.setSoundIsolationEnabled(false)
+            #expect(initial.interfaceMode == .standard)
+            #expect(initial.isSoundIsolationEnabled)
+            initial.setSoundIsolationEnabled(false)
 
-        let relaunched = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
-        #expect(!relaunched.isSoundIsolationEnabled)
-        #expect(!relaunched.currentAudioPipelineConfiguration().transmitSoundIsolationEnabled)
-        relaunched.setInterfaceMode(.advanced)
-        #expect(!relaunched.isSoundIsolationEnabled)
+            let relaunched = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+            #expect(!relaunched.isSoundIsolationEnabled)
+            #expect(!relaunched.currentAudioPipelineConfiguration().transmitSoundIsolationEnabled)
+            relaunched.setInterfaceMode(.advanced)
+            #expect(!relaunched.isSoundIsolationEnabled)
 
-        let advanced = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
-        #expect(advanced.interfaceMode == .advanced)
-        #expect(!advanced.isSoundIsolationEnabled)
-        advanced.resetAllSettings()
-        #expect(advanced.isSoundIsolationEnabled)
-        #expect(advanced.interfaceMode == .advanced)
+            let advanced = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+            #expect(advanced.interfaceMode == .advanced)
+            #expect(!advanced.isSoundIsolationEnabled)
+            advanced.resetAllSettings()
+            #expect(advanced.isSoundIsolationEnabled)
+            #expect(advanced.interfaceMode == .advanced)
 
-        let afterReset = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
-        #expect(afterReset.isSoundIsolationEnabled)
-        #expect(afterReset.currentAudioPipelineConfiguration().transmitSoundIsolationEnabled)
-        #expect(afterReset.interfaceMode == .advanced)
-    }
-
-    @Test(arguments: [nil, "unrecognized-profile", AudioSessionProfile.voiceChat.rawValue] as [String?])
-    func audioSessionUsesTheStoredModeAndResetsWithoutReapplyingStream(savedMode: String?) async throws {
-        let suite = "RideIntercomTests.initial-audio-mode.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(savedMode, forKey: "RideIntercom.settings.audioSessionProfile")
-        let store = UserDefaultsAppSettingsStore(defaults: defaults)
-        let harness = AppTestSupport.makeHarness(appSettingsStore: store)
-        let viewModel = harness.viewModel
-        defer { viewModel.disconnect() }
-
-        let hasSavedStream = savedMode == AudioSessionProfile.voiceChat.rawValue
-        viewModel.setInterfaceMode(.advanced)
-        viewModel.setInterfaceMode(.standard)
-        #expect(viewModel.audioSessionModeProfile == (hasSavedStream ? .voiceChat : .standard))
-        viewModel.selectGroup(try #require(viewModel.groups.first))
-        harness.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { viewModel.isAudioReady }
-        #expect(viewModel.isAudioReady)
-        let initial = try #require(harness.audioSessionBackend.appliedConfigurations.last)
-        #expect(initial.mode == (hasSavedStream ? .voiceChat : .default))
-        #expect(initial.prefersEchoCancelledInput == (hasSavedStream ? nil : true))
-        #expect(!initial.options.contains(.defaultToSpeaker))
-
-        viewModel.setAudioSessionModeProfile(.voiceChat)
-        viewModel.setSpeakerOutputEnabled(true)
-        let beforeReset = harness.audioSessionBackend.appliedConfigurations.count
-        viewModel.resetAllSettings()
-        let appliedByReset = harness.audioSessionBackend.appliedConfigurations.dropFirst(beforeReset)
-        #expect(!appliedByReset.isEmpty)
-        #expect(appliedByReset.allSatisfy { $0.mode == .default })
-        #expect(appliedByReset.last?.prefersEchoCancelledInput == true)
-        #expect(appliedByReset.last?.options.contains(.defaultToSpeaker) == false)
-        #expect(store.load().audioSessionProfile == .echoCancelledInput)
-    }
-
-    @Test func unchangedEncodingSettingsDoNotRepublishRTCPPolicy() {
-        let h = AppTestSupport.makeHarness()
-        let policies = h.callSession.audioPolicies
-        for _ in 0..<100 {
-            h.viewModel.setPreferredTransmitCodec(h.viewModel.preferredTransmitCodec)
-            h.viewModel.setRTCAudioFormatPreset(h.viewModel.rtcAudioFormatPreset)
-            h.viewModel.setAACELDv2BitRate(h.viewModel.aacELDv2BitRate)
-            h.viewModel.setOpusBitRate(h.viewModel.opusBitRate)
+            let afterReset = AppTestSupport.makeHarness(appSettingsStore: store).viewModel
+            #expect(afterReset.isSoundIsolationEnabled)
+            #expect(afterReset.currentAudioPipelineConfiguration().transmitSoundIsolationEnabled)
+            #expect(afterReset.interfaceMode == .advanced)
         }
-        #expect(h.callSession.audioPolicies == policies)
-    }
 
-    @Test func viewModelAppliesMasterOutputSettingsThroughAudioMixer() async {
-        let harness = AppTestSupport.makeHarness()
+        @Test(arguments: [nil, "unrecognized-profile", AudioSessionProfile.voiceChat.rawValue] as [String?])
+        func audioSessionUsesTheStoredModeAndResetsWithoutReapplyingStream(savedMode: String?) async throws {
+            let suite = "RideIntercomTests.initial-audio-mode.\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(savedMode, forKey: "RideIntercom.settings.audioSessionProfile")
+            let store = UserDefaultsAppSettingsStore(defaults: defaults)
+            let harness = AppTestSupport.makeHarness(appSettingsStore: store)
+            let viewModel = harness.viewModel
+            defer { viewModel.disconnect() }
 
-        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        harness.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
-        harness.viewModel.setMasterOutputVolume(2)
-        let activeMasterBus = harness.viewModel.audioPipeline.snapshot.buses.first { $0.id == "rx-master" }
-        harness.viewModel.toggleOutputMute()
-        let mutedMasterBus = harness.viewModel.audioPipeline.snapshot.buses.first { $0.id == "rx-master" }
+            let hasSavedStream = savedMode == AudioSessionProfile.voiceChat.rawValue
+            viewModel.setInterfaceMode(.advanced)
+            viewModel.setInterfaceMode(.standard)
+            #expect(viewModel.audioSessionModeProfile == (hasSavedStream ? .voiceChat : .standard))
+            viewModel.selectGroup(try #require(viewModel.groups.first))
+            harness.callSession.authenticate(["member-108"])
+            await AppTestSupport.waitUntil { viewModel.isAudioReady }
+            #expect(viewModel.isAudioReady)
+            let initial = try #require(harness.audioSessionBackend.appliedConfigurations.last)
+            #expect(initial.mode == (hasSavedStream ? .voiceChat : .default))
+            #expect(initial.prefersEchoCancelledInput == (hasSavedStream ? nil : true))
+            #expect(!initial.options.contains(.defaultToSpeaker))
 
-        #expect(activeMasterBus?.volume == 2)
-        #expect(mutedMasterBus?.volume == 0)
-    }
+            viewModel.setAudioSessionModeProfile(.voiceChat)
+            viewModel.setSpeakerOutputEnabled(true)
+            let beforeReset = harness.audioSessionBackend.appliedConfigurations.count
+            viewModel.resetAllSettings()
+            let appliedByReset = harness.audioSessionBackend.appliedConfigurations.dropFirst(beforeReset)
+            #expect(!appliedByReset.isEmpty)
+            #expect(appliedByReset.allSatisfy { $0.mode == .default })
+            #expect(appliedByReset.last?.prefersEchoCancelledInput == true)
+            #expect(appliedByReset.last?.options.contains(.defaultToSpeaker) == false)
+            #expect(store.load().audioSessionProfile == .echoCancelledInput)
+        }
 
-    @Test func codecUISelectsAnActualAACBitrateWithoutPCMFallback() {
-        let harness = AppTestSupport.makeHarness()
+        @Test func unchangedEncodingSettingsDoNotRepublishRTCPPolicy() {
+            let harness = AppTestSupport.makeHarness()
+            let policies = harness.callSession.audioPolicies
+            for _ in 0..<100 {
+                harness.viewModel.setPreferredTransmitCodec(harness.viewModel.preferredTransmitCodec)
+                harness.viewModel.setRTCAudioFormatPreset(harness.viewModel.rtcAudioFormatPreset)
+                harness.viewModel.setAACELDv2BitRate(harness.viewModel.aacELDv2BitRate)
+                harness.viewModel.setOpusBitRate(harness.viewModel.opusBitRate)
+            }
+            #expect(harness.callSession.audioPolicies == policies)
+        }
 
-        #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELD)
-        #expect(harness.viewModel.aacELDv2BitRate == 48_000)
-        #expect(harness.viewModel.opusBitRate == 48_000)
-        #expect(harness.callSession.audioPolicies.last?.preferredCodecs.first == AppAudioCodecBridge.selectedRTCCodec(.mpeg4AACELD))
-        #expect(harness.callSession.audioPolicies.last?.preferredSendFormat == RTC.RTCAudioFormat(audioFormat: .intercomPacketAudio))
+        @Test func viewModelAppliesOutputSettingsThroughAudioMixer() async {
+            let harness = AppTestSupport.makeHarness()
 
-        harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELD)
-        harness.viewModel.setAACELDv2BitRate(11_000)
-        harness.viewModel.setOpusBitRate(129_000)
+            harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+            harness.callSession.authenticate(["member-108"])
+            await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+            harness.viewModel.setMasterOutputVolume(2)
+            let activeOutputBus = harness.viewModel.audioPipeline.snapshot.buses.first {
+                $0.id == "rx-master"
+            }
+            harness.viewModel.toggleOutputMute()
+            let mutedOutputBus = harness.viewModel.audioPipeline.snapshot.buses.first { $0.id == "rx-master" }
 
-        #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELD)
-        #expect(harness.viewModel.aacELDv2BitRate == 48_000)
-        #expect(harness.viewModel.opusBitRate == 128_000)
-        #expect(harness.callSession.audioPolicies.last?.preferredCodecs.first == AppAudioCodecBridge.selectedRTCCodec(
-            .mpeg4AACELD,
-            options: AppAudioCodecOptions(aacELDv2BitRate: 48_000, opusBitRate: 128_000)
-        ))
-    }
+            #expect(activeOutputBus?.volume == 2)
+            #expect(mutedOutputBus?.volume == 0)
+        }
 
-    @Test func viewModelAppliesAudioSessionMatrixProfilesThroughSessionManager() {
-        let harness = AppTestSupport.makeHarness()
+        @Test func codecUISelectsAnActualAACBitrateWithoutPCMFallback() {
+            let harness = AppTestSupport.makeHarness()
 
-        #expect(harness.viewModel.audioSessionProfile == .echoCancelledInput)
-        #expect(harness.viewModel.isSessionEchoCancellationEnabled)
-        #expect(harness.viewModel.isDuckOthersEnabled)
-
-        harness.viewModel.setSessionEchoCancellationEnabled(true)
-        var applied = harness.audioSessionBackend.appliedConfigurations.last
-        #expect(applied?.mode == .default)
-        #expect(applied?.prefersEchoCancelledInput == true)
-        #expect(applied?.options.contains(.defaultToSpeaker) == false)
-
-        harness.viewModel.setSessionEchoCancellationEnabled(false)
-        applied = harness.audioSessionBackend.appliedConfigurations.last
-        #expect(applied?.mode == .default)
-        #expect(applied?.prefersEchoCancelledInput == false)
-        #expect(harness.viewModel.audioSessionProfile == .standard)
-
-        harness.viewModel.setSpeakerOutputEnabled(true)
-        applied = harness.audioSessionBackend.appliedConfigurations.last
-        #expect(applied?.mode == .default)
-        #expect(applied?.prefersEchoCancelledInput == true)
-        #expect(applied?.options.contains(.defaultToSpeaker) == true)
-        #expect(harness.viewModel.audioSessionProfile == .standard)
-
-        harness.viewModel.setAudioSessionModeProfile(.voiceChat)
-        harness.viewModel.setSpeakerOutputEnabled(true)
-        applied = harness.audioSessionBackend.appliedConfigurations.last
-        #expect(applied?.mode == .voiceChat)
-        #expect(applied?.prefersEchoCancelledInput == nil)
-        #expect(applied?.options.contains(.defaultToSpeaker) == true)
-    }
-
-    @Test func audioDeviceDefaultsDoNotPinTheStartupRoute() {
-        let backend = FakeAudioSessionBackend()
-        backend.current.currentInput = backend.current.availableInputs[1]
-        backend.current.currentOutput = .builtInSpeaker
-        let model = AppTestSupport.makeHarness(audioSessionManager: AudioSessionManager(backend: backend)).viewModel
-
-        #expect(model.audioSessionSnapshot.currentInput == backend.current.currentInput)
-        #expect(model.audioSessionSnapshot.currentOutput == .builtInSpeaker)
-        #expect(model.selectedInputPort == .systemDefault)
-        #expect(model.selectedOutputPort == .systemDefault)
-        let requested = model.makeAudioSessionConfiguration()
-        #expect(requested.preferredInput == .systemDefault)
-        #expect(requested.preferredOutput == .systemDefault)
-        #expect(!requested.defaultToSpeaker)
-    }
-
-    @Test func audioChoicesKeepAnAvailableDeviceAndFallBackWhenTheOtherIsGone() {
-        let h = AppTestSupport.makeHarness()
-        let input = AudioPortInfo(id: "input-1", name: "Input 1")
-        h.viewModel.setInputPort(input)
-        h.viewModel.setOutputPort(.speaker)
-
-        let renamedInput = AudioSessionDevice(id: .init(rawValue: input.id), name: "Helmet Mic", direction: .input)
-        var snapshot = h.audioSessionBackend.current
-        snapshot.availableInputs = [.systemDefaultInput, renamedInput, renamedInput]
-        snapshot.availableOutputs = []
-        snapshot.currentInput = renamedInput
-        snapshot.currentOutput = .systemDefaultOutput
-        h.viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
-            reason: .routeChanged(.oldDeviceUnavailable), snapshot: snapshot)))
-
-        let renamedPort = AudioPortInfo(device: renamedInput)
-        #expect(h.viewModel.availableInputPorts == [.systemDefault, renamedPort])
-        #expect(h.viewModel.selectedInputPort == renamedPort)
-        #expect(h.viewModel.availableOutputPorts == [.systemDefault])
-        #expect(h.viewModel.selectedOutputPort == .systemDefault)
-        #expect(h.viewModel.audioSessionSnapshot.currentInput == renamedInput)
-        let requested = h.viewModel.makeAudioSessionConfiguration()
-        #expect(requested.preferredInput == .device(renamedInput.id))
-        #expect(requested.preferredOutput == .systemDefault)
-    }
-
-    @Test func selectingAnAudioPortReconfiguresTheSessionAndRestartsActiveMedia() async {
-        let harness = AppTestSupport.makeHarness()
-        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        harness.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
-        let input = AudioPortInfo(id: "input-1", name: "Input 1")
-
-        var configured = harness.audioSessionBackend.appliedConfigurations.count
-        harness.viewModel.setInputPort(input)
-        #expect(harness.viewModel.selectedInputPort == input)
-        #expect(harness.audioSessionBackend.appliedConfigurations.count > configured)
-        #expect(!harness.viewModel.isAudioReady)
-        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
-
-        // The same port again reconfigures the session but keeps the running media.
-        harness.viewModel.setInputPort(input)
-        #expect(harness.viewModel.isAudioReady)
-
-        configured = harness.audioSessionBackend.appliedConfigurations.count
-        harness.viewModel.setOutputPort(.speaker)
-        #expect(harness.viewModel.selectedOutputPort == .speaker)
-        #expect(harness.audioSessionBackend.appliedConfigurations.count > configured)
-        #expect(harness.audioSessionBackend.appliedConfigurations.last?.options.contains(.defaultToSpeaker) == true)
-        #expect(!harness.viewModel.isAudioReady)
-        await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
-        #expect(harness.viewModel.audioErrorMessage == nil)
-    }
-
-    @Test func viewModelLoadsAndPersistsAppAudioSettings() {
-        let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
-            audioSessionProfile: .voiceChat,
-            vadSensitivity: .noisy,
-            preferredTransmitCodec: .opus,
-            rtcAudioFormatPreset: .mono16k,
-            aacELDv2BitRate: 11_000,
-            opusBitRate: 129_000
-        ))
-        let harness = AppTestSupport.makeHarness(appSettingsStore: settingsStore)
-
-        #expect(harness.viewModel.audioSessionProfile == .voiceChat)
-        #expect(harness.viewModel.vadSensitivity == .noisy)
-        #expect(harness.viewModel.preferredTransmitCodec == .opus)
-        #expect(harness.viewModel.rtcAudioFormatPreset == .mono16k)
-        #expect(harness.viewModel.aacELDv2BitRate == 48_000)
-        #expect(harness.viewModel.opusBitRate == 128_000)
-        #expect(harness.callSession.audioPolicies.last?.preferredCodecs.first == AppAudioCodecBridge.selectedRTCCodec(
-            .opus,
-            format: RTCAudioFormatPreset.mono16k.audioFormat,
-            options: AppAudioCodecOptions(aacELDv2BitRate: 48_000, opusBitRate: 128_000)
-        ))
-        #expect(harness.callSession.audioPolicies.last?.preferredSendFormat == RTC.RTCAudioFormat(audioFormat: RTCAudioFormatPreset.mono16k.audioFormat))
-
-        harness.viewModel.setAudioSessionProfile(.echoCancelledInput)
-        harness.viewModel.setVADSensitivity(.lowNoise)
-        harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELD)
-        harness.viewModel.setRTCAudioFormatPreset(.mono24k)
-        harness.viewModel.setAACELDv2BitRate(40_000)
-
-        let saved = settingsStore.load()
-        #expect(saved.audioSessionProfile == .echoCancelledInput)
-        #expect(saved.vadSensitivity == .lowNoise)
-        #expect(saved.preferredTransmitCodec == .mpeg4AACELD)
-        #expect(saved.rtcAudioFormatPreset == .mono24k)
-        #expect(saved.aacELDv2BitRate == 32_000)
-        #expect(saved.opusBitRate == 128_000)
-    }
-
-    @Test func savedOpusManualBitrateRestoresWithoutChangingAACOrFormat() {
-        let suiteName = "RideIntercomTests.legacy-opus.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(32_000, forKey: "RideIntercom.settings.opusBitRate")
-        let store = UserDefaultsAppSettingsStore(defaults: defaults)
-        let harness = AppTestSupport.makeHarness(appSettingsStore: store)
-        #expect(harness.viewModel.opusBitRate == 32_000)
-        #expect(harness.viewModel.aacELDv2BitRate == 48_000)
-        for format in RTCAudioFormatPreset.allCases {
-            harness.viewModel.setRTCAudioFormatPreset(format)
-            harness.viewModel.setOpusBitRate(16_000)
+            #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELD)
+            #expect(harness.viewModel.aacELDv2BitRate == 48_000)
             #expect(harness.viewModel.opusBitRate == 48_000)
-            #expect(store.load().opusBitRate == 48_000)
-            #expect(store.load().rtcAudioFormatPreset == format)
+            #expect(
+                harness.callSession.audioPolicies.last?.preferredCodecs.first
+                    == AppAudioCodecBridge.selectedRTCCodec(.mpeg4AACELD))
+            #expect(
+                harness.callSession.audioPolicies.last?.preferredSendFormat
+                    == RTC.RTCAudioFormat(audioFormat: .intercomPacketAudio))
+
+            harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELD)
+            harness.viewModel.setAACELDv2BitRate(11_000)
+            harness.viewModel.setOpusBitRate(129_000)
+
+            #expect(harness.viewModel.preferredTransmitCodec == .mpeg4AACELD)
+            #expect(harness.viewModel.aacELDv2BitRate == 48_000)
+            #expect(harness.viewModel.opusBitRate == 128_000)
+            #expect(
+                harness.callSession.audioPolicies.last?.preferredCodecs.first
+                    == AppAudioCodecBridge.selectedRTCCodec(
+                        .mpeg4AACELD,
+                        options: AppAudioCodecOptions(aacELDv2BitRate: 48_000, opusBitRate: 128_000)
+                    ))
         }
-    }
 
-    @Test func userDefaultsSettingsStoreMigratesLegacyRTCTransportRouteSettingsToDefault() {
-        let suiteName = "RideIntercomTests.legacy-routes.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        defaults.set(
-            [RTC.RouteKind.webRTC.rawValue],
-            forKey: "RideIntercom.settings.enabledRTCTransportRoutes"
-        )
-        let settingsStore = UserDefaultsAppSettingsStore(defaults: defaults)
+        @Test func viewModelAppliesAudioSessionMatrixProfilesThroughSessionManager() {
+            let harness = AppTestSupport.makeHarness()
 
-        #expect(settingsStore.load().enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
+            #expect(harness.viewModel.audioSessionProfile == .echoCancelledInput)
+            #expect(harness.viewModel.isSessionEchoCancellationEnabled)
+            #expect(harness.viewModel.isDuckOthersEnabled)
 
-        settingsStore.save(AppSettings(enabledRTCTransportRoutes: [.webRTC]))
+            harness.viewModel.setSessionEchoCancellationEnabled(true)
+            var applied = harness.audioSessionBackend.appliedConfigurations.last
+            #expect(applied?.mode == .default)
+            #expect(applied?.prefersEchoCancelledInput == true)
+            #expect(applied?.options.contains(.defaultToSpeaker) == false)
 
-        #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
-        defaults.removePersistentDomain(forName: suiteName)
-    }
+            harness.viewModel.setSessionEchoCancellationEnabled(false)
+            applied = harness.audioSessionBackend.appliedConfigurations.last
+            #expect(applied?.mode == .default)
+            #expect(applied?.prefersEchoCancelledInput == false)
+            #expect(harness.viewModel.audioSessionProfile == .standard)
 
-    @Test func viewModelLoadsPersistsAndAppliesRTCTransportRouteOptOut() {
-        let defaultHarness = AppTestSupport.makeHarness()
-        #expect(defaultHarness.viewModel.enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
-        #expect(defaultHarness.callSession.enabledRouteValues.last == Set(RTC.RouteKind.allCases))
+            harness.viewModel.setSpeakerOutputEnabled(true)
+            applied = harness.audioSessionBackend.appliedConfigurations.last
+            #expect(applied?.mode == .default)
+            #expect(applied?.prefersEchoCancelledInput == true)
+            #expect(applied?.options.contains(.defaultToSpeaker) == true)
+            #expect(harness.viewModel.audioSessionProfile == .standard)
 
-        let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
-            enabledRTCTransportRoutes: [.webRTC]
-        ))
-        let harness = AppTestSupport.makeHarness(appSettingsStore: settingsStore)
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == [.webRTC])
-        #expect(harness.callSession.enabledRouteValues.last == [.webRTC])
-        #expect(!harness.viewModel.isRTCTransportRouteEnabled(.multipeer))
-        #expect(harness.viewModel.canToggleRTCTransportRoute(.multipeer))
-        #expect(!harness.viewModel.canToggleRTCTransportRoute(.webRTC))
-
-        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == [.webRTC])
-        #expect(settingsStore.load().enabledRTCTransportRoutes == [.webRTC])
-        #expect(harness.callSession.enabledRouteValues.last == [.webRTC])
-
-        harness.viewModel.setRTCTransportRoute(.multipeer, enabled: true)
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
-        #expect(settingsStore.load().enabledRTCTransportRoutes == Set(RTC.RouteKind.allCases))
-        #expect(harness.callSession.enabledRouteValues.last == Set(RTC.RouteKind.allCases))
-
-        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer])
-        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer])
-        #expect(harness.callSession.enabledRouteValues.last == [.multipeer])
-
-        harness.viewModel.setRTCTransportRoute(.multipeer, enabled: false)
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == [.multipeer])
-        #expect(settingsStore.load().enabledRTCTransportRoutes == [.multipeer])
-        #expect(harness.callSession.enabledRouteValues.last == [.multipeer])
-    }
-
-    @Test func viewModelRepairsEmptyRTCTransportRoutesBeforeConnecting() {
-        let settingsStore = InMemoryAppSettingsStore(settings: AppSettings(
-            enabledRTCTransportRoutes: []
-        ))
-        let harness = AppTestSupport.makeHarness(appSettingsStore: settingsStore)
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(harness.callSession.enabledRouteValues.last == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-
-        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-
-        #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(settingsStore.load().enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(harness.callSession.enabledRouteValues.last == IntercomViewModel.defaultEnabledRTCTransportRoutes)
-        #expect(harness.callSession.connectedGroup?.id == IntercomSeedData.recentGroups[0].id)
-    }
-
-    @Test func changingRTCTransportRoutesStopsActiveConnectionBeforeApplyingPolicy() {
-        let harness = AppTestSupport.makeHarness()
-
-        harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
-
-        #expect(harness.callSession.disconnectCallCount == 1)
-        #expect(harness.viewModel.connectionState == .idle)
-        #expect(harness.callSession.connectedGroup == nil)
-        #expect(harness.callSession.enabledRouteValues.last == [.multipeer])
-    }
-
-    @Test(arguments: [RTC.RouteKind.multipeer, .webRTC])
-    func actualEffectsFollowSettingsWithoutRestartingMedia(route: RTC.RouteKind) async throws {
-        let harness = AppTestSupport.makeHarness()
-        let model = harness.viewModel
-        model.setRTCTransportRoute(route == .webRTC ? .multipeer : .webRTC, enabled: false)
-        #expect(model.supportsSoundIsolation == VoiceIsolationSupport.isAvailable)
-        model.selectGroup(IntercomSeedData.recentGroups[0])
-        harness.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { model.isAudioReady }
-        #expect(model.isAudioReady)
-        let enginesBefore = harness.audioDriver.createdEngineCount
-        let tx = try #require(model.audioPipeline.snapshot.buses.first { $0.id == "tx-bus" })
-        #expect(tx.effectChain.map(\.id) == ["sound-isolation", "dynamics-processor", "peak-limiter"])
-        #expect(tx.effectChain.allSatisfy { $0.typeName == "AVAudioUnitEffect" })
-        model.setSoundIsolationEnabled(false)
-        model.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: true)
-        model.setReceiveMasterSoundIsolationEnabled(true)
-        #expect(harness.audioDriver.createdEngineCount == enginesBefore)
-        func state(_ bus: String) -> MixerEffectState? {
-            model.audioPipeline.snapshot.buses.first { $0.id == bus }?.effectChain.first { $0.id == "sound-isolation" }?.state
+            harness.viewModel.setAudioSessionModeProfile(.voiceChat)
+            harness.viewModel.setSpeakerOutputEnabled(true)
+            applied = harness.audioSessionBackend.appliedConfigurations.last
+            #expect(applied?.mode == .voiceChat)
+            #expect(applied?.prefersEchoCancelledInput == nil)
+            #expect(applied?.options.contains(.defaultToSpeaker) == true)
         }
-        #expect(state("tx-bus") == .bypassed)
-        #expect(state("rx-peer-member-108") == .active)
-        #expect(state("rx-master") == .active)
-        let report = try #require(model.lastRuntimePackageReports.first { $0.package == "SoundIsolation" && $0.kind == "transmitRuntimeSnapshot" })
-        #expect(try report.decodeJSON(VoiceIsolationRuntimeSnapshot.self).state == .bypassed)
-        model.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: false)
-        #expect(state("rx-peer-member-108") == .bypassed)
-        model.disconnect()
-        #expect(model.audioPipeline.snapshot.busIDs.isEmpty)
-        #expect(!model.lastRuntimePackageReports.contains { $0.package == "PeakLimiter" && $0.kind.contains("RuntimeSnapshot") })
-    }
 
-    @Test func internetConfigurationUsesKeychainAndRejectsUnsecuredEndpoint() throws {
-        let keychain = InternetTestKeychain()
-        let store = InternetConnectionSettingsStore(keychain: keychain)
-        #expect(try store.load() == nil)
-        #expect(throws: (any Error).self) { try store.save(url: "http://example.com", token: "device-token") }
-        try store.save(url: "https://ride.example.com", token: "device-token")
-        #expect(try store.load()?.workerURL.absoluteString == "https://ride.example.com")
-        #expect(try store.load()?.accessToken == "device-token")
-        #expect(!keychain.value!.contains("invitation-secret"))
-    }
+        @Test func audioDeviceDefaultsDoNotPinTheStartupRoute() {
+            let backend = FakeAudioSessionBackend()
+            backend.current.currentInput = backend.current.availableInputs[1]
+            backend.current.currentOutput = .builtInSpeaker
+            let model = AppTestSupport.makeHarness(audioSessionManager: AudioSessionManager(backend: backend))
+                .viewModel
 
-    @Test func developmentInternetDefaultsNeedNoManualSaveAndDoNotPersist() throws {
-        let keychain = InternetTestKeychain()
-        let store = InternetConnectionSettingsStore.makeForCurrentProcess(
-            keychain: keychain, namespace: "fixture",
-            info: ["DevelopmentInternetConnection": ["workerURL": "https://preview.example.com", "accessToken": "synthetic-token"]],
-            environment: [:])
-        #expect(try store.load()?.workerURL.absoluteString == "https://preview.example.com")
-        #expect(try store.load()?.accessToken == "synthetic-token")
-        #expect(keychain.value == nil)
-        let harness = AppTestSupport.makeHarness(internetSettingsStore: store)
-        #expect(harness.viewModel.hasInternetCredentials)
-        #expect(harness.viewModel.internetWorkerURL == "https://preview.example.com")
-    }
-
-    @Test func developmentInternetDefaultsPreserveSavedOverridesAndReadFailures() throws {
-        let keychain = InternetTestKeychain()
-        let store = InternetConnectionSettingsStore.makeForCurrentProcess(
-            keychain: keychain, namespace: "fixture",
-            info: ["DevelopmentInternetConnection": ["workerURL": "https://preview.example.com", "accessToken": "synthetic-token"]],
-            environment: [:])
-        try store.save(url: "https://manual.example.com", token: "manual-token")
-        #expect(try store.load()?.workerURL.absoluteString == "https://manual.example.com")
-        keychain.value = "unreadable-saved-credentials"
-        #expect(throws: (any Error).self) { try store.load() }
-        #expect(keychain.value == "unreadable-saved-credentials")
-    }
-
-    @Test func localTestProcessesCannotLoadOrReplaceLiveInternetCredentials() throws {
-        for environment in [["RIDEINTERCOM_LOCAL_TESTING": "1"],
-                            ["XCTestConfigurationFilePath": "fixture.xctestconfiguration"],
-                            ["XCTestBundlePath": "fixture.xctest"]] {
-            let keychain = InternetTestKeychain()
-            try InternetConnectionSettingsStore(keychain: keychain).save(url: "https://saved.example.com", token: "saved-token")
-            let before = keychain.value
-            let store = InternetConnectionSettingsStore.makeForCurrentProcess(
-                keychain: keychain, namespace: "fixture",
-                info: ["DevelopmentInternetConnection": ["workerURL": "https://preview.example.com", "accessToken": "synthetic-token"]],
-                environment: environment)
-            #expect(try store.load() == nil)
-            #expect(throws: (any Error).self) { try store.save(url: "https://other.example.com", token: "other-token") }
-            #expect(keychain.value == before)
+            #expect(model.audioSessionSnapshot.currentInput == backend.current.currentInput)
+            #expect(model.audioSessionSnapshot.currentOutput == .builtInSpeaker)
+            #expect(model.selectedInputPort == .systemDefault)
+            #expect(model.selectedOutputPort == .systemDefault)
+            let requested = model.makeAudioSessionConfiguration()
+            #expect(requested.preferredInput == .systemDefault)
+            #expect(requested.preferredOutput == .systemDefault)
+            #expect(!requested.defaultToSpeaker)
         }
-    }
 
-    @Test func internetSettingsValidationPreservesCallAndSavedCheckUsesNoMedia() async throws {
-        let keychain = InternetTestKeychain()
-        let store = InternetConnectionSettingsStore(keychain: keychain)
-        let harness = AppTestSupport.makeHarness(internetSettingsStore: store)
-        await harness.viewModel.checkInternetService()
-        #expect(harness.viewModel.internetCheckMessage.contains("Configure"))
-        let stops = harness.callSession.disconnectCallCount
-        #expect(throws: (any Error).self) { try harness.viewModel.saveInternetConnection(url: "http://example.com", token: "wrong") }
-        #expect(harness.callSession.disconnectCallCount == stops)
-        #expect(!harness.viewModel.hasInternetCredentials)
-        try harness.viewModel.saveInternetConnection(url: "https://worker.test", token: "private-token")
-        #expect(harness.callSession.disconnectCallCount == stops + 1)
-        #expect(harness.viewModel.hasInternetCredentials)
-        #expect(harness.viewModel.internetWorkerURL == "https://worker.test")
-        #expect(!harness.viewModel.internetCheckMessage.contains("private-token"))
-        #expect(harness.callSession.startMediaCallCount == 0)
-    }
+        @Test func audioChoicesKeepAnAvailableDeviceAndFallBackWhenTheOtherIsGone() {
+            let harness = AppTestSupport.makeHarness()
+            let input = AudioPortInfo(id: "input-1", name: "Input 1")
+            harness.viewModel.setInputPort(input)
+            harness.viewModel.setOutputPort(.speaker)
 
-}
+            let renamedInput = AudioSessionDevice(
+                id: .init(rawValue: input.id), name: "Helmet Mic", direction: .input)
+            var snapshot = harness.audioSessionBackend.current
+            snapshot.availableInputs = [.systemDefaultInput, renamedInput, renamedInput]
+            snapshot.availableOutputs = []
+            snapshot.currentInput = renamedInput
+            snapshot.currentOutput = .systemDefaultOutput
+            harness.viewModel.handleAudioSessionRuntimeEvent(
+                .snapshotChanged(
+                    .init(
+                        reason: .routeChanged(.oldDeviceUnavailable), snapshot: snapshot)))
+
+            let renamedPort = AudioPortInfo(device: renamedInput)
+            #expect(harness.viewModel.availableInputPorts == [.systemDefault, renamedPort])
+            #expect(harness.viewModel.selectedInputPort == renamedPort)
+            #expect(harness.viewModel.availableOutputPorts == [.systemDefault])
+            #expect(harness.viewModel.selectedOutputPort == .systemDefault)
+            #expect(harness.viewModel.audioSessionSnapshot.currentInput == renamedInput)
+            let requested = harness.viewModel.makeAudioSessionConfiguration()
+            #expect(requested.preferredInput == .device(renamedInput.id))
+            #expect(requested.preferredOutput == .systemDefault)
+        }
+
+        @Test func selectingAnAudioPortReconfiguresTheSessionAndRestartsActiveMedia() async {
+            let harness = AppTestSupport.makeHarness()
+            harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
+            harness.callSession.authenticate(["member-108"])
+            await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+            let input = AudioPortInfo(id: "input-1", name: "Input 1")
+
+            var configured = harness.audioSessionBackend.appliedConfigurations.count
+            harness.viewModel.setInputPort(input)
+            #expect(harness.viewModel.selectedInputPort == input)
+            #expect(harness.audioSessionBackend.appliedConfigurations.count > configured)
+            #expect(!harness.viewModel.isAudioReady)
+            await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+
+            // The same port again reconfigures the session but keeps the running media.
+            harness.viewModel.setInputPort(input)
+            #expect(harness.viewModel.isAudioReady)
+
+            configured = harness.audioSessionBackend.appliedConfigurations.count
+            harness.viewModel.setOutputPort(.speaker)
+            #expect(harness.viewModel.selectedOutputPort == .speaker)
+            #expect(harness.audioSessionBackend.appliedConfigurations.count > configured)
+            #expect(
+                harness.audioSessionBackend.appliedConfigurations.last?.options.contains(.defaultToSpeaker)
+                    == true)
+            #expect(!harness.viewModel.isAudioReady)
+            await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
+            #expect(harness.viewModel.audioErrorMessage == nil)
+        }
+
+        @Test func viewModelLoadsAndPersistsAppAudioSettings() {
+            let settingsStore = InMemoryAppSettingsStore(
+                settings: AppSettings(
+                    audioSessionProfile: .voiceChat,
+                    vadSensitivity: .noisy,
+                    preferredTransmitCodec: .opus,
+                    rtcAudioFormatPreset: .mono16k,
+                    aacELDv2BitRate: 11_000,
+                    opusBitRate: 129_000
+                ))
+            let harness = AppTestSupport.makeHarness(appSettingsStore: settingsStore)
+
+            #expect(harness.viewModel.audioSessionProfile == .voiceChat)
+            #expect(harness.viewModel.vadSensitivity == .noisy)
+            #expect(harness.viewModel.preferredTransmitCodec == .opus)
+            #expect(harness.viewModel.rtcAudioFormatPreset == .mono16k)
+            #expect(harness.viewModel.aacELDv2BitRate == 48_000)
+            #expect(harness.viewModel.opusBitRate == 128_000)
+            #expect(
+                harness.callSession.audioPolicies.last?.preferredCodecs.first
+                    == AppAudioCodecBridge.selectedRTCCodec(
+                        .opus,
+                        format: RTCAudioFormatPreset.mono16k.audioFormat,
+                        options: AppAudioCodecOptions(aacELDv2BitRate: 48_000, opusBitRate: 128_000)
+                    ))
+            #expect(
+                harness.callSession.audioPolicies.last?.preferredSendFormat
+                    == RTC.RTCAudioFormat(audioFormat: RTCAudioFormatPreset.mono16k.audioFormat))
+
+            harness.viewModel.setAudioSessionProfile(.echoCancelledInput)
+            harness.viewModel.setVADSensitivity(.lowNoise)
+            harness.viewModel.setPreferredTransmitCodec(.mpeg4AACELD)
+            harness.viewModel.setRTCAudioFormatPreset(.mono24k)
+            harness.viewModel.setAACELDv2BitRate(40_000)
+
+            let saved = settingsStore.load()
+            #expect(saved.audioSessionProfile == .echoCancelledInput)
+            #expect(saved.vadSensitivity == .lowNoise)
+            #expect(saved.preferredTransmitCodec == .mpeg4AACELD)
+            #expect(saved.rtcAudioFormatPreset == .mono24k)
+            #expect(saved.aacELDv2BitRate == 32_000)
+            #expect(saved.opusBitRate == 128_000)
+        }
+
+    }
 }

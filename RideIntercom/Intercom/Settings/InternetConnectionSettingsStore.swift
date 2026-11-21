@@ -17,7 +17,10 @@ final class InternetConnectionSettingsStore {
         self.keychain = keychain; self.service = namespace + ".InternetConnection"
         self.developmentDefaults = developmentDefaults
         self.permitsServiceAccess = permitsServiceAccess
-        defaults = UserDefaults(suiteName: namespace)!
+        guard let defaults = UserDefaults(suiteName: namespace) else {
+            preconditionFailure("Invalid UserDefaults suite")
+        }
+        self.defaults = defaults
     }
 
     static func makeForCurrentProcess(
@@ -41,8 +44,11 @@ final class InternetConnectionSettingsStore {
     }
     enum ValidationError: Error { case invalidURL, missingToken, disabledDuringLocalTests, accountReplaced }
     private func validated(url: String, token: String) throws -> Saved {
-        guard let url = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme == "https", url.host != nil,
-              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/" else { throw ValidationError.invalidURL }
+        guard let url = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)),
+            url.scheme == "https", url.host != nil,
+            url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+            url.path.isEmpty || url.path == "/"
+        else { throw ValidationError.invalidURL }
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty, token.count <= 256 else { throw ValidationError.missingToken }
         return Saved(workerURL: url, accessToken: token)
@@ -53,7 +59,8 @@ final class InternetConnectionSettingsStore {
         var saved = try validated(url: url, token: token)
         if let identity {
             guard let key = try storedDeviceSigningKey(), identity.issuer == IdentityEncoding.origin(saved.workerURL),
-                  identity.deviceKey == IdentityEncoding.encode(key.publicKey.x963Representation) else { throw ValidationError.missingToken }
+                identity.deviceKey == IdentityEncoding.encode(key.publicKey.x963Representation)
+            else { throw ValidationError.missingToken }
             if let previous = try verifiedRegistration()?.saved.binding?.principal,
                previous.issuer == identity.issuer, previous.userID != identity.userID {
                 // The authenticated service confirmed a new account generation.
@@ -64,7 +71,9 @@ final class InternetConnectionSettingsStore {
             }
             saved.identity = identity.envelope
             saved.memberID = identity.memberID
-            saved.binding = AccountDeviceBinding(principal: .init(issuer: identity.issuer, userID: identity.userID), publicKey: identity.deviceKey)
+            saved.binding = AccountDeviceBinding(
+                principal: .init(issuer: identity.issuer, userID: identity.userID),
+                publicKey: identity.deviceKey)
         }
         if identity == nil, let current = try registration(account: "current"), current.saved.binding != nil {
             try validateBinding(current.saved)
@@ -73,7 +82,8 @@ final class InternetConnectionSettingsStore {
             try keychain.saveSecret(current.raw, service: service, account: "deletion-account")
         }
         let data = try JSONEncoder().encode(saved)
-        try keychain.saveSecret(String(decoding: data, as: UTF8.self), service: service, account: "current")
+        guard let text = String(data: data, encoding: .utf8) else { throw KeychainSecretStoreError.invalidData }
+        try keychain.saveSecret(text, service: service, account: "current")
         defaults.set(false, forKey: deniedKey)
     }
     func load() throws -> RTC.CloudflareRealtimeConfiguration? {
@@ -83,7 +93,8 @@ final class InternetConnectionSettingsStore {
             let decoded = try JSONDecoder().decode(Saved.self, from: Data(value.utf8))
             saved = try validated(url: decoded.workerURL.absoluteString, token: decoded.accessToken)
         } else if let developmentDefaults {
-            saved = try validated(url: developmentDefaults["workerURL"] ?? "", token: developmentDefaults["accessToken"] ?? "")
+            saved = try validated(
+                url: developmentDefaults["workerURL"] ?? "", token: developmentDefaults["accessToken"] ?? "")
         } else {
             return nil
         }
@@ -92,7 +103,9 @@ final class InternetConnectionSettingsStore {
 
     func deviceSigningKey() throws -> P256.Signing.PrivateKey {
         if let key = try storedDeviceSigningKey() { return key }
-        let raw = try keychain.createSecretIfAbsent(P256.Signing.PrivateKey().rawRepresentation.base64EncodedString(), service: service, account: "identity-key")
+        let raw = try keychain.createSecretIfAbsent(
+            P256.Signing.PrivateKey().rawRepresentation.base64EncodedString(), service: service,
+            account: "identity-key")
         return try decodeSigningKey(raw)
     }
     private func storedDeviceSigningKey() throws -> P256.Signing.PrivateKey? {
@@ -109,7 +122,8 @@ final class InternetConnectionSettingsStore {
         guard let envelope = saved.identity else { return nil }
         let identity = try envelope.verify(origin: saved.workerURL, trustedIssuerKey: envelope.issuerKey)
         guard let key = try storedDeviceSigningKey(), identity.memberID == memberID,
-              identity.deviceKey == IdentityEncoding.encode(key.publicKey.x963Representation) else { throw KeychainSecretStoreError.invalidData }
+            identity.deviceKey == IdentityEncoding.encode(key.publicKey.x963Representation)
+        else { throw KeychainSecretStoreError.invalidData }
         return identity
     }
 
@@ -121,7 +135,8 @@ final class InternetConnectionSettingsStore {
         if let binding = saved.binding {
             guard saved.memberID == memberID, binding.principal.isValid,
                   binding.principal.issuer == IdentityEncoding.origin(saved.workerURL),
-                  let key = try storedDeviceSigningKey(), binding.publicKey == IdentityEncoding.encode(key.publicKey.x963Representation)
+                let key = try storedDeviceSigningKey(),
+                binding.publicKey == IdentityEncoding.encode(key.publicKey.x963Representation)
             else { throw KeychainSecretStoreError.invalidData }
             return binding.principal
         }
@@ -131,7 +146,9 @@ final class InternetConnectionSettingsStore {
     func invitationSigner(memberID: String, expectedPublicKey: String? = nil) throws -> DeviceIdentitySigner {
         let key: P256.Signing.PrivateKey
         if let expectedPublicKey {
-            guard let stored = try storedDeviceSigningKey(), IdentityEncoding.encode(stored.publicKey.x963Representation) == expectedPublicKey else {
+            guard let stored = try storedDeviceSigningKey(),
+                IdentityEncoding.encode(stored.publicKey.x963Representation) == expectedPublicKey
+            else {
                 throw KeychainSecretStoreError.invalidData
             }
             key = stored
@@ -193,7 +210,8 @@ final class InternetConnectionSettingsStore {
     }
 
     func existingAccountDeviceID() throws -> String? {
-        guard permitsServiceAccess, let stored = try keychain.secret(service: service, account: "device-id") else { return nil }
+        guard permitsServiceAccess, let stored = try keychain.secret(service: service, account: "device-id")
+        else { return nil }
         guard UUID(uuidString: stored) != nil else { throw KeychainSecretStoreError.invalidData }
         return stored.lowercased()
     }
@@ -207,12 +225,16 @@ final class InternetConnectionSettingsStore {
         let requiresAppleVerification: Bool
         if let verified {
             saved = verified.saved
-            requiresAppleVerification = requiresAccountDataReset || verified.archived || defaults.bool(forKey: deniedKey)
+            requiresAppleVerification =
+                requiresAccountDataReset || verified.archived || defaults.bool(forKey: deniedKey)
         } else {
             // Preserve the existing rejection of unverified ri1 credentials. A
             // missing reset target must never turn into local-only deletion.
             guard !requiresAccountDataReset else { throw KeychainSecretStoreError.invalidData }
-            guard let unverified = try registration(account: "current") ?? registration(account: "deletion-account") else { return nil }
+            guard
+                let unverified = try registration(account: "current")
+                    ?? registration(account: "deletion-account")
+            else { return nil }
             saved = unverified.saved
             requiresAppleVerification = defaults.bool(forKey: deniedKey)
         }
@@ -226,8 +248,11 @@ final class InternetConnectionSettingsStore {
               let device = try keychain.secret(service: service, account: "device-id"), device.lowercased() == parts[2]
         else { throw KeychainSecretStoreError.invalidData }
         guard let principal = saved.binding?.principal, principal.isValid,
-              principal.issuer == IdentityEncoding.origin(value.workerURL) else { throw KeychainSecretStoreError.invalidData }
-        return .init(workerURL: value.workerURL, accessToken: value.accessToken, deviceID: device.lowercased(), userID: principal.userID, requiresAppleVerification: requiresAppleVerification)
+            principal.issuer == IdentityEncoding.origin(value.workerURL)
+        else { throw KeychainSecretStoreError.invalidData }
+        return .init(
+            workerURL: value.workerURL, accessToken: value.accessToken, deviceID: device.lowercased(),
+            userID: principal.userID, requiresAppleVerification: requiresAppleVerification)
     }
 
     func retireAppleCredential() throws -> RTC.CloudflareRealtimeConfiguration? {
@@ -257,6 +282,9 @@ final class InternetConnectionSettingsStore {
         try keychain.deleteSecret(service: service, account: "current")
     }
 
+}
+
+extension InternetConnectionSettingsStore {
     var notificationRegistrationEnabled: Bool {
         get { defaults.bool(forKey: "CallNotifications.enabled") }
         set { defaults.set(newValue, forKey: "CallNotifications.enabled") }
@@ -292,19 +320,24 @@ final class InternetConnectionSettingsStore {
         return .init(origin: configuration.workerURL, accessToken: configuration.accessToken, principal: principal)
     }
     func notificationPermissions() throws -> [CallNotificationPermission] {
-        guard permitsServiceAccess, let raw = try keychain.secret(service: service, account: "notification-permissions") else { return [] }
+        guard permitsServiceAccess,
+            let raw = try keychain.secret(service: service, account: "notification-permissions")
+        else { return [] }
         let records = try JSONDecoder().decode([CallNotificationPermission].self, from: Data(raw.utf8))
         guard records.count <= 256, Set(records.map(\.contactID)).count == records.count,
-              Set(records.map { $0.owner.issuer + "|" + $0.owner.userID + "|" + $0.peer.userID }).count == records.count,
+            Set(records.map { $0.owner.issuer + "|" + $0.owner.userID + "|" + $0.peer.userID }).count
+                == records.count,
               records.allSatisfy(\.isValid) else { throw KeychainSecretStoreError.invalidData }
         return records
     }
     func saveNotificationPermissions(_ records: [CallNotificationPermission]) throws {
         guard permitsServiceAccess, records.count <= 256, Set(records.map(\.contactID)).count == records.count,
-              Set(records.map { $0.owner.issuer + "|" + $0.owner.userID + "|" + $0.peer.userID }).count == records.count,
+            Set(records.map { $0.owner.issuer + "|" + $0.owner.userID + "|" + $0.peer.userID }).count
+                == records.count,
               records.allSatisfy(\.isValid) else { throw KeychainSecretStoreError.invalidData }
         let data = try JSONEncoder().encode(records)
-        try keychain.saveSecret(String(decoding: data, as: UTF8.self), service: service, account: "notification-permissions")
+        guard let text = String(data: data, encoding: .utf8) else { throw KeychainSecretStoreError.invalidData }
+        try keychain.saveSecret(text, service: service, account: "notification-permissions")
     }
 
 }
