@@ -1,4 +1,6 @@
 """Failure and interruption coverage for the AI-independent audio E2E runner."""
+from __future__ import annotations
+
 import io
 import json
 import os
@@ -10,8 +12,10 @@ import sys
 import tempfile
 import time
 import unittest
+from collections.abc import Mapping
 from contextlib import redirect_stderr
 from pathlib import Path
+from typing import ClassVar, TypedDict
 from unittest.mock import patch
 
 import scripts.audio_e2e as audio
@@ -23,7 +27,27 @@ from scripts.audio_e2e import (
 )
 from scripts.audio_e2e_matrix import scenarios
 from scripts.test_lifecycle import SimulatorLease, exclusive_run
-from scripts.validate import Runner, file_fingerprint, fingerprints_match
+from scripts.validate import Fingerprint, Runner, file_fingerprint, fingerprints_match
+
+
+class Continuity(TypedDict):
+    referenceOffsetSeconds: float
+
+
+class MeasurementResult(TypedDict, total=False):
+    captureToRenderLatencySeconds: float
+
+
+class Measurement(MeasurementResult):
+    role: str
+    transport: str
+    scenario: str
+    expectedSilence: bool
+    continuityPassed: bool
+    firstCaptureHostTime: float
+    firstOutputHostTime: float
+    localFixtureDurationSeconds: float
+    continuity: Continuity
 
 
 class AudioE2ELifecycleTests(unittest.TestCase):
@@ -83,7 +107,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
              ['one-way-initial', 'local-before', 'internet-during', 'local-after'], ['default']),
             ('cleanup', ['--cleanup-only'], [], None),
         ]
-        for name, arguments, measurements, scenario_ids in examples:
+        for name, arguments, expected_measurements, scenario_ids in examples:
             out = self.root / name
             argv = ['audio_e2e.py', '--output', str(out), *arguments]
             with self.subTest(mode=name), patch.object(sys, 'argv', argv), patch.dict(os.environ), \
@@ -94,7 +118,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                     patch.object(audio.SimulatorLease, 'cleanup_host', return_value=True):
                 self.assertEqual(audio.main(), 0 if name == 'cleanup' else 1)
                 configuration = json.loads((out / 'configuration.json').read_text())
-                self.assertEqual(configuration['expectedMeasurementIDs'], measurements)
+                self.assertEqual(configuration['expectedMeasurementIDs'], expected_measurements)
                 scenarios_file = out / 'scenarios.json'
                 if scenario_ids is None:
                     self.assertFalse(scenarios_file.exists())
@@ -169,10 +193,10 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             source.write_bytes(plistlib.dumps({'TestConfigurations': [{'TestTargets': [{
                 'BlueprintName': 'RideIntercomAudioE2ETests',
                 'TestHostPath': '__TESTROOT__/' + str(info.parent.relative_to(products))}]}]}))
-            settings = dict(BUILD_DIR=str(products), TARGET_BUILD_DIR=str(target_dir),
-                FULL_PRODUCT_NAME='RideIntercom.app', CONFIGURATION=configuration + '-Validation',
-                PLATFORM_NAME='iphonesimulator', RIDEINTERCOM_STORAGE_NAMESPACE='RideIntercom.Validation.Xcode')
-            def command(stage, argv, **kwargs):
+            settings = {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(target_dir),
+                'FULL_PRODUCT_NAME': 'RideIntercom.app', 'CONFIGURATION': configuration + '-Validation',
+                'PLATFORM_NAME': 'iphonesimulator', 'RIDEINTERCOM_STORAGE_NAMESPACE': 'RideIntercom.Validation.Xcode'}
+            def command(stage: str, argv: list[str], *, runner: Runner = runner, **kwargs: object) -> bool:
                 return runner.record(stage, argv, 'passed', 0, time.monotonic())
             with patch.object(audio, 'xcode_build_settings', return_value=settings, create=True), patch.object(runner, 'run', side_effect=command):
                 actual, run = audio.build_audio_host(runner, 'ios', 'platform=iOS Simulator,id=owned', configuration)
@@ -188,13 +212,13 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         products = self.root / 'shared-products'
         events = []
         endpoints = [('a', 'mac', 'platform=macOS'), ('b', 'ios', 'platform=iOS Simulator,id=owned')]
-        def settings(root, scheme, destination, configuration):
+        def settings(root: Path | None, scheme: str | None, destination: str, configuration: str) -> dict[str, str]:
             platform = 'mac' if destination == 'platform=macOS' else 'ios'
             target = products / (configuration + ('-iphonesimulator' if platform == 'ios' else ''))
-            return dict(BUILD_DIR=str(products), TARGET_BUILD_DIR=str(target), FULL_PRODUCT_NAME='RideIntercom.app',
-                CONFIGURATION=configuration, PLATFORM_NAME='macosx' if platform == 'mac' else 'iphonesimulator',
-                RIDEINTERCOM_STORAGE_NAMESPACE='RideIntercom.Validation.Xcode')
-        def command(stage, argv, **kwargs):
+            return {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(target), 'FULL_PRODUCT_NAME': 'RideIntercom.app',
+                'CONFIGURATION': configuration, 'PLATFORM_NAME': 'macosx' if platform == 'mac' else 'iphonesimulator',
+                'RIDEINTERCOM_STORAGE_NAMESPACE': 'RideIntercom.Validation.Xcode'}
+        def command(stage: str, argv: list[str], **kwargs: object) -> bool:
             destination = argv[argv.index('-destination') + 1]
             platform = 'mac' if destination == 'platform=macOS' else 'ios'
             if 'clean' in argv:
@@ -261,7 +285,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture')
-        def output(command, **kwargs):
+        def output(command: list[str], **kwargs: object) -> str | bytes:
             return ('\0'.join(names) + '\0').encode() if command[1] == 'ls-files' else 'fixture-head\n'
         with patch('scripts.audio_e2e.ROOT', self.root), patch('scripts.audio_e2e.subprocess.check_output', side_effect=output):
             before = source_manifest()
@@ -275,7 +299,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
 
     def test_source_gate_rejects_all_project_changes_including_build_number(self) -> None:
         project = self.root / 'project.pbxproj'
-        def capture(number, setting='Release'):
+        def capture(number: int | str, setting: str = 'Release') -> dict[str, Fingerprint]:
             project.write_text(f'CURRENT_PROJECT_VERSION = {number};\nCONFIGURATION = {setting};\nCURRENT_PROJECT_VERSION = {number};\n')
             return {'project': file_fingerprint(project)}
         before = capture(42)
@@ -298,9 +322,9 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         ready = self.root / 'ready'
         joined = self.root / 'joined'
         first = ['first', [sys.executable, '-u', '-c',
-            'import sys,time; from pathlib import Path; time.sleep(.15); '
-            'Path(sys.argv[1]).touch(); print("AUDIO_E2E_NATIVE_READY", flush=True); '
-            'time.sleep(.3); assert Path(sys.argv[2]).exists()', str(ready), str(joined)]]
+            ('import sys,time; from pathlib import Path; time.sleep(.15); '
+             'Path(sys.argv[1]).touch(); print("AUDIO_E2E_NATIVE_READY", flush=True); '
+             'time.sleep(.3); assert Path(sys.argv[2]).exists()'), str(ready), str(joined)]]
         second = ['second', [sys.executable, '-c',
             'import sys; from pathlib import Path; assert Path(sys.argv[1]).exists(); Path(sys.argv[2]).touch()',
             str(ready), str(joined)]]
@@ -336,12 +360,12 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual([case['transmitIsolation'] for case in cases], [True, False, False])
 
     def test_duplex_latency_pairs_remote_capture_and_uses_one_global_alignment(self) -> None:
-        rows = [dict(role='a', transport='local', scenario='speech', expectedSilence=False, continuityPassed=True,
-                     firstCaptureHostTime=100, firstOutputHostTime=102.1, localFixtureDurationSeconds=8,
-                     continuity=dict(referenceOffsetSeconds=1)),
-                dict(role='b', transport='local', scenario='speech', expectedSilence=False, continuityPassed=True,
-                     firstCaptureHostTime=101, firstOutputHostTime=109.08, localFixtureDurationSeconds=10,
-                     continuity=dict(referenceOffsetSeconds=1))]
+        rows: list[Measurement] = [{'role': 'a', 'transport': 'local', 'scenario': 'speech', 'expectedSilence': False, 'continuityPassed': True,
+                     'firstCaptureHostTime': 100, 'firstOutputHostTime': 102.1, 'localFixtureDurationSeconds': 8,
+                     'continuity': {'referenceOffsetSeconds': 1}},
+                {'role': 'b', 'transport': 'local', 'scenario': 'speech', 'expectedSilence': False, 'continuityPassed': True,
+                     'firstCaptureHostTime': 101, 'firstOutputHostTime': 109.08, 'localFixtureDurationSeconds': 10,
+                     'continuity': {'referenceOffsetSeconds': 1}}]
         values = duplex_latencies(rows)
         self.assertAlmostEqual(values[0], 0.1)
         self.assertAlmostEqual(values[1], 0.08)
@@ -362,12 +386,10 @@ class AudioE2ELifecycleTests(unittest.TestCase):
 
     def test_concurrent_runs_are_rejected_and_lock_releases_on_failure(self) -> None:
         lock = self.root / 'run.lock'
-        with self.assertRaisesRegex(RuntimeError, 'injected'):
-            with exclusive_run(lock):
-                with self.assertRaises(BlockingIOError):
-                    with exclusive_run(lock):
-                        self.fail('Two runs acquired the same lock')
-                raise RuntimeError('injected')
+        with self.assertRaisesRegex(RuntimeError, 'injected'), exclusive_run(lock):
+            with self.assertRaises(BlockingIOError), exclusive_run(lock):
+                self.fail('Two runs acquired the same lock')
+            raise RuntimeError('injected')
         with exclusive_run(lock):
             pass
 
@@ -395,8 +417,8 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertLess(sum(c['seconds'] for c in scenarios('quick', 8)), 40)
 
     def test_acceptance_requires_every_scenario_from_the_expected_endpoint(self) -> None:
-        def write(name, scenario, role='a', transport='local'):
-            (self.root / name).write_text(json.dumps(dict(scenario=scenario, role=role, transport=transport)))
+        def write(name: str, scenario: str, role: str = 'a', transport: str = 'local') -> None:
+            (self.root / name).write_text(json.dumps({'scenario': scenario, 'role': role, 'transport': transport}))
         write('one.json', 'voice')
         with self.assertRaisesRegex(ValueError, 'Missing'):
             measurements(self.root, ['voice', 'mute'], 'a', 'local')
@@ -443,7 +465,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         lease = SimulatorLease(runner, self.root / 'lease.json')
         lease.reserve('owned')
         calls = []
-        def run(name, command, **kw):
+        def run(name: str, command: list[str], **kw: object) -> bool:
             calls.append(command)
             return command[2] == 'delete'
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
@@ -468,8 +490,8 @@ class AudioE2ELifecycleTests(unittest.TestCase):
     def test_missing_journal_adopts_latest_device_and_removes_only_idle_managed_duplicates(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
-        devices = [dict(name=name, udid=uid, state='Shutdown', runtime='ios',
-                        deviceTypeIdentifier='phone', isAvailable=True, lastUsedAt=date)
+        devices = [{'name': name, 'udid': uid, 'state': 'Shutdown', 'runtime': 'ios',
+                        'deviceTypeIdentifier': 'phone', 'isAvailable': True, 'lastUsedAt': date}
                    for name, uid, date in [('RideIntercom Audio E2E 12345678', 'old', '2026-01'),
                                            ('RideIntercom Audio E2E abcdef12', 'new', '2026-10'),
                                            ('iPhone 17', 'personal', '2026-11'),
@@ -486,10 +508,10 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         # The iOS validation leases an iPhone and an iPad; preparing one must not delete the other.
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
-        devices = [dict(name='RideIntercom Audio E2E 12345678', udid='pad', state='Shutdown', runtime='ios',
-                        deviceTypeIdentifier='pad', isAvailable=True, lastUsedAt='2026-10'),
-                   dict(name='RideIntercom Audio E2E abcdef12', udid='phone', state='Shutdown', runtime='ios',
-                        deviceTypeIdentifier='phone', isAvailable=True, lastUsedAt='2026-09')]
+        devices = [{'name': 'RideIntercom Audio E2E 12345678', 'udid': 'pad', 'state': 'Shutdown', 'runtime': 'ios',
+                        'deviceTypeIdentifier': 'pad', 'isAvailable': True, 'lastUsedAt': '2026-10'},
+                   {'name': 'RideIntercom Audio E2E abcdef12', 'udid': 'phone', 'state': 'Shutdown', 'runtime': 'ios',
+                        'deviceTypeIdentifier': 'phone', 'isAvailable': True, 'lastUsedAt': '2026-09'}]
         with patch('scripts.test_lifecycle.simulator_devices', return_value=devices), \
              patch.object(runner, 'run', return_value=True) as run:
             self.assertEqual(lease.prepare('ios', 'phone'), 'phone')
@@ -499,10 +521,9 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
-                dict(name='RideIntercom Audio E2E 12345678', udid='busy', state='Booted')]), \
-             patch.object(runner, 'run') as run:
-            with self.assertRaisesRegex(RuntimeError, 'in use'):
-                lease.prepare('ios', 'phone')
+                {'name': 'RideIntercom Audio E2E 12345678', 'udid': 'busy', 'state': 'Booted'}]), \
+             patch.object(runner, 'run') as run, self.assertRaisesRegex(RuntimeError, 'in use'):
+            lease.prepare('ios', 'phone')
         run.assert_not_called()
         self.assertFalse(lease.acquired)
 
@@ -510,16 +531,15 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
-                dict(name='RideIntercom Audio E2E 12345678', udid='old', state='Shutdown', isAvailable=False)]), \
-             patch.object(runner, 'run', return_value=False) as run:
-            with self.assertRaisesRegex(RuntimeError, 'delete'):
-                lease.prepare('ios', 'phone')
+                {'name': 'RideIntercom Audio E2E 12345678', 'udid': 'old', 'state': 'Shutdown', 'isAvailable': False}]), \
+             patch.object(runner, 'run', return_value=False) as run, self.assertRaisesRegex(RuntimeError, 'delete'):
+            lease.prepare('ios', 'phone')
         self.assertEqual([c.args[1][2] for c in run.call_args_list], ['delete'])
 
     def test_inventory_is_checked_before_creation_and_creation_is_journaled(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
-        def create(name, command, **kwargs):
+        def create(name: str, command: list[str], **kwargs: object) -> bool:
             self.assertTrue((runner.out / 'simulator-inventory.json').exists())
             self.assertEqual(json.loads(lease.journal.read_text())['name'], command[3])
             (runner.out / 'simulator-create.log').write_text('created-uuid\n')
@@ -534,7 +554,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         with patch('scripts.test_lifecycle.simulator_devices', return_value=[
-                dict(name='RideIntercom Validation old-run', udid='old', state='Shutdown')]), \
+                {'name': 'RideIntercom Validation old-run', 'udid': 'old', 'state': 'Shutdown'}]), \
              patch.object(runner, 'run', return_value=True) as run:
             self.assertIsNone(lease.prepare(None, None, delete_all=True))
         self.assertEqual([c.args[1] for c in run.call_args_list], [['xcrun', 'simctl', 'delete', 'old']])
@@ -562,7 +582,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         marker = self.root / 'child.pid'
         cleaned = self.root / 'cleaned'
         child = f'import os,time;open({str(marker)!r},"w").write(str(os.getpid()));time.sleep(60)'
-        code = ('import signal\nfrom scripts.validate import Runner, file_fingerprint, fingerprints_match\n'
+        code = ('import signal\nfrom scripts.validate import Fingerprint, Runner, file_fingerprint, fingerprints_match\n'
                 'def interrupt(*args): raise KeyboardInterrupt\n'
                 'signal.signal(signal.SIGTERM, interrupt)\n'
                 f'r=Runner({str(self.root / "run")!r})\n'
@@ -580,7 +600,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             process.send_signal(signal.SIGTERM)
             self.assertNotEqual(process.wait(timeout=5), 0)
             self.assertTrue(cleaned.exists())
-            state = subprocess.run(['ps', '-o', 'stat=', '-p', marker.read_text()], capture_output=True, text=True).stdout.strip()
+            state = subprocess.run(['ps', '-o', 'stat=', '-p', marker.read_text()], capture_output=True, text=True, check=False).stdout.strip()
             self.assertTrue(not state or state.startswith('Z'), state)
         finally:
             if process.poll() is None:
@@ -590,9 +610,9 @@ class AudioE2ELifecycleTests(unittest.TestCase):
 
 class SimulatorAudioDeviceTests(unittest.TestCase):
     """The Simulator's duplex I/O opens only when input and output share one host device."""
-    DEVICES = {'inputDevices': [{'uid': 'wave', 'name': 'Wave'}, {'uid': 'mic', 'name': 'Display Mic'}],
+    DEVICES: ClassVar[dict[str, list[dict[str, str]]]] = {'inputDevices': [{'uid': 'wave', 'name': 'Wave'}, {'uid': 'mic', 'name': 'Display Mic'}],
                'outputDevices': [{'uid': 'wave', 'name': 'Wave'}, {'uid': 'speaker', 'name': 'Display Speaker'}]}
-    HOST = [{'_name': 'Wave', 'coreaudio_device_input': 1, 'coreaudio_device_output': 2,
+    HOST: ClassVar[list[dict[str, str | int]]] = [{'_name': 'Wave', 'coreaudio_device_input': 1, 'coreaudio_device_output': 2,
              'coreaudio_device_srate': 48000, 'coreaudio_default_audio_input_device': 'spaudio_yes'},
             {'_name': 'Display Mic', 'coreaudio_device_input': 1, 'coreaudio_device_srate': 96000},
             {'_name': 'Display Speaker', 'coreaudio_device_output': 8, 'coreaudio_device_srate': 96000,
@@ -619,7 +639,7 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
         calls = []
         state = {'audioInputDevice': {'systemDefault': {}}, 'audioOutputDevice': {'systemDefault': {}}, 'volume': 60}
 
-        def run(args):
+        def run(args: list[str]) -> Mapping[str, object]:
             calls.append(args)
             if args[:4] == ['xcrun', 'devicectl', 'device', 'info']:
                 return dict(state)
