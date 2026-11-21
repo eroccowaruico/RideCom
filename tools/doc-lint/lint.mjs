@@ -99,7 +99,7 @@ export async function markdownLinter() {
     const config = await loadTextlintrc({configFilePath: path.join(here, '.textlintrc.json')});
     const {rules, plugins} = config.toKernelOptions();
     const enabled = new Set(rules.filter(rule => rule.options !== false).map(rule => rule.ruleId));
-    if (Object.keys(japaneseWriting.rules).some(name => !enabled.has('ja-technical-writing/' + name))) {
+    if (Object.keys(japaneseWriting.rules).some(name => !enabled.has(`ja-technical-writing/${name}`))) {
         throw new Error('Missing Japanese rules');
     }
     const markdown = plugins.find(p => p.pluginId === '@textlint/textlint-plugin-markdown');
@@ -165,10 +165,10 @@ async function run(args) {
             else errors++;
             // Keep text and free-form diagnostics out of validation logs.
             const label = process.stdout.isTTY ? JSON.stringify(name) : 'Markdown';
-            console.log(label + ':' + line + ':' + column + (warning ? ' 要確認 ' : ' 要修正 ') + rule);
+            console.log(`${label}:${line}:${column}${warning ? ' 要確認 ' : ' 要修正 '}${rule}`);
         }
     }
-    console.log('日本語技術文書の検査結果　要修正 ' + errors + '件、要確認 ' + warnings + '件');
+    console.log(`日本語技術文書の検査結果　要修正 ${errors}件、要確認 ${warnings}件`);
     return errors ? 1 : 0;
 }
 
