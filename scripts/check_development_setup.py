@@ -1,20 +1,63 @@
 #!/usr/bin/env python3
 """Read-only check of the shared Xcode / VS Code development contract."""
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 
-def load_project(root):
-    return json.loads(subprocess.check_output([
+class ProjectReference(TypedDict):
+    ProjectRef: str
+
+
+class PBXObject(TypedDict, total=False):
+    isa: str
+    name: str
+    path: str
+    sourceTree: str
+    relativePath: str
+    children: list[str]
+    explicitFolders: list[str]
+    projectReferences: list[ProjectReference]
+    mainGroup: str
+    buildConfigurationList: str
+    buildConfigurations: list[str]
+    fileSystemSynchronizedGroups: list[str]
+    fileRef: str
+    buildPhases: list[str]
+    files: list[str]
+    buildSettings: dict[str, str | list[str]]
+    lastKnownFileType: str
+    explicitFileType: str
+    explicitFileTypes: dict[str, str]
+    exceptions: list[str]
+    target: str
+    membershipExceptions: list[str]
+
+
+class PBXProject(TypedDict):
+    rootObject: str
+    objects: dict[str, PBXObject]
+
+
+def load_project(root: Path) -> PBXProject:
+    project: PBXProject = json.loads(subprocess.check_output([
         '/usr/bin/plutil', '-convert', 'json', '-o', '-',
         str(root / 'RideIntercom.xcodeproj/project.pbxproj'),
     ]))
+    if not isinstance(project, dict) or not isinstance(project.get('rootObject'), str) or not isinstance(project.get('objects'), dict):
+        raise TypeError('Invalid Xcode project structure')
+    if not all(isinstance(key, str) and isinstance(value, dict) for key, value in project['objects'].items()):
+        raise TypeError('Invalid Xcode project objects')
+    return project
 
 
-def check_worker_editing_references(root, objects, worker_key, build_inputs):
-    worker = objects.get(worker_key, {})
+def check_worker_editing_references(root: Path, objects: dict[str, PBXObject], worker_key: str | None,
+                                    build_inputs: set[str | None]) -> list[str]:
+    worker = objects.get(worker_key, {}) if worker_key is not None else {}
     if worker.get('isa') != 'PBXGroup':
         return ['Keep server as an Xcode group so its dependency and build directories are not synchronized.']
 
@@ -53,7 +96,7 @@ def check_worker_editing_references(root, objects, worker_key, build_inputs):
     return errors
 
 
-def check(root):
+def check(root: Path) -> list[str]:
     errors = []
     project = load_project(root)
     objects = project['objects']
@@ -168,7 +211,7 @@ def check(root):
 if __name__ == '__main__':
     try:
         errors = check(Path(__file__).resolve().parents[1])
-    except (OSError, ValueError, KeyError, StopIteration, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, TypeError, KeyError, StopIteration, subprocess.CalledProcessError) as error:
         errors = [str(error)]
     for error in errors:
         print(error, file=sys.stderr)

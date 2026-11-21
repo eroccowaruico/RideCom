@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Check repository-owned OS and embedded-product settings; never contact Apple."""
+from __future__ import annotations
+
 import json
 import plistlib
 import re
@@ -7,6 +9,11 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+if __package__:
+    from .check_development_setup import PBXObject, PBXProject, load_project
+else:
+    from check_development_setup import PBXObject, PBXProject, load_project
 
 APP_GROUP = 'group.com.yowamushi-inc.RideIntercom.CallWidgets'
 APNS_SETTING = '$(RIDEINTERCOM_APNS_ENVIRONMENT)'
@@ -19,18 +26,13 @@ DEPLOYMENT_TARGET_SETTINGS = (
 )
 
 
-def load_project(root):
-    return json.loads(subprocess.check_output(['/usr/bin/plutil', '-convert', 'json', '-o', '-',
-        str(root / 'RideIntercom.xcodeproj/project.pbxproj')]))
-
-
-def target_configurations(project, name):
+def target_configurations(project: PBXProject, name: str) -> list[PBXObject]:
     objects = project['objects']
     target = next(obj for obj in objects.values() if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == name)
     return [objects[key] for key in objects[target['buildConfigurationList']]['buildConfigurations']]
 
 
-def rtc_bonjour_services(root):
+def rtc_bonjour_services(root: Path) -> set[str] | None:
     """Derive the declarations from the service names RTC actually uses."""
     rtc = root / 'RideIntercom/packages/RTC/Sources/RTC/Local'
     services = set()
@@ -42,16 +44,16 @@ def rtc_bonjour_services(root):
     return services
 
 
-def target_settings(project, name):
+def target_settings(project: PBXProject, name: str) -> list[dict[str, str | list[str]]]:
     return [config['buildSettings'] for config in target_configurations(project, name)]
 
 
-def build_setting_items(settings, name):
+def build_setting_items(settings: dict[str, str | list[str]], name: str) -> list[str]:
     value = settings.get(name, '')
     return value if isinstance(value, list) else value.split()
 
 
-def target_resource_paths(project, name):
+def target_resource_paths(project: PBXProject, name: str) -> set[str | None]:
     objects = project['objects']
     target = next(obj for obj in objects.values() if obj.get('isa') == 'PBXNativeTarget' and obj.get('name') == name)
     return {
@@ -63,7 +65,7 @@ def target_resource_paths(project, name):
     }
 
 
-def check_package_platforms(root):
+def check_package_platforms(root: Path) -> list[str]:
     errors = []
     package_root = root / 'RideIntercom/packages'
     for manifest in sorted(package_root.rglob('Package.swift')):
@@ -85,13 +87,13 @@ def check_package_platforms(root):
     return errors
 
 
-def check(root, project=None):
+def check(root: Path, project: PBXProject | None = None) -> list[str]:
     inspect_repository_packages = project is None
     project = project or load_project(root)
     errors = []
-    def require(condition, message):
+    def require(condition: bool, message: str) -> None:
         if not condition: errors.append(message)
-    def plist(path):
+    def plist(path: str) -> dict[str, object]:
         try: return plistlib.loads((root / path).read_bytes())
         except (OSError, plistlib.InvalidFileException):
             errors.append(f'Missing or invalid platform plist: {path}'); return {}
@@ -131,7 +133,10 @@ def check(root, project=None):
     require(info.get('RideIntercomAPNsEnvironment') == APNS_SETTING, 'Info APNs environment must use the same build setting as signing.')
     services = rtc_bonjour_services(root)
     require(services is not None, 'RTC Bonjour service names must stay readable by this check.')
-    require(set(info.get('NSBonjourServices', [])) == services, 'Local discovery and datagram Bonjour service declarations must agree with RTC.')
+    declared_services = info.get('NSBonjourServices', [])
+    if not isinstance(declared_services, list):
+        raise TypeError('Invalid Bonjour service declarations')
+    require(set(declared_services) == services, 'Local discovery and datagram Bonjour service declarations must agree with RTC.')
     require(info.get('UIBackgroundModes') == ['audio'], 'Only continuing call audio needs background mode.')
     for locale in ('en', 'ja'):
         file = root / f'RideIntercom/{locale}.lproj/InfoPlist.strings'
@@ -187,7 +192,7 @@ def check(root, project=None):
 
 if __name__ == '__main__':
     try: errors = check(Path(__file__).resolve().parents[1])
-    except (OSError, ValueError, KeyError, StopIteration, subprocess.CalledProcessError) as error: errors = [str(error)]
+    except (OSError, ValueError, TypeError, KeyError, StopIteration, subprocess.CalledProcessError) as error: errors = [str(error)]
     for error in errors: print(error, file=sys.stderr)
     if errors: sys.exit(1)
     print('OS permissions and embedded-product configuration: OK (external signing/distribution not verified)')
