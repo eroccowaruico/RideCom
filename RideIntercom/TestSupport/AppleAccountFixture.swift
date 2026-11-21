@@ -129,7 +129,7 @@ enum AppleAccountFixture {
         func read() throws -> GroupSnapshot? { try store.read() }
         func lock() throws { try store.lock() }
         func unlock() { store.unlock() }
-        func archive(legacyData: Data?) throws { try store.archive(legacyData: legacyData) }
+        func archive() throws { try store.archive() }
 
         func commit(_ snapshot: GroupSnapshot) throws {
             let remainingIDs = Set(snapshot.groups.map(\.id))

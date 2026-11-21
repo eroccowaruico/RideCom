@@ -27,7 +27,7 @@ struct ContactInvitationPersistenceTests {
         }
         func lock() throws { try file.lock() }
         func unlock() { file.unlock() }
-        func archive(legacyData: Data?) throws { try file.archive(legacyData: legacyData) }
+        func archive() throws { try file.archive() }
     }
 
     @MainActor private final class Fixture {

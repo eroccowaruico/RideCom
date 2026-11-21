@@ -49,7 +49,7 @@ final class InMemoryGroupStore: GroupStoring {
     func loadGroups() -> [IntercomGroup] { snapshot.groups.compactMap { try? $0.group() } }
     func lock() {}
     func unlock() {}
-    func archive(legacyData: Data?) {}
+    func archive() {}
 }
 
 final class InMemoryGroupCredentialStore: GroupCredentialStoring {

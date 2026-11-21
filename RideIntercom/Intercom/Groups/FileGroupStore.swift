@@ -46,11 +46,8 @@ final class FileGroupStore: GroupStoring {
         // This is a process-interruption boundary, not a power-loss durability promise.
         try snapshot.encoded().write(to: url, options: CallStorageProtection.writingOptions)
     }
-    func archive(legacyData: Data?) throws {
+    func archive() throws {
         let directory = url.deletingLastPathComponent()
-        if let legacyData {
-            try legacyData.write(to: directory.appendingPathComponent("groups-corrupt-legacy-\(UUID()).plist"), options: .withoutOverwriting)
-        }
         do {
             let destination = directory.appendingPathComponent("groups-corrupt-\(UUID()).json")
             try FileManager.default.copyItem(at: url, to: destination)

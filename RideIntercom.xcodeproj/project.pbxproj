@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CA1100000000000000000004 /* CallControl in Frameworks */ = {isa = PBXBuildFile; productRef = CA1100000000000000000002 /* CallControl */; };
-		CA1100000000000000000005 /* CallControl in Frameworks */ = {isa = PBXBuildFile; productRef = CA1100000000000000000003 /* CallControl */; };
 		46D1F67273160099EA54F6D1 /* RideIntercomWidgets.appex in Embed Widget Extension */ = {isa = PBXBuildFile; fileRef = 56F6D0BB98E4179BB121F578 /* RideIntercomWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4A70295CC8984182A928FC3A /* AudioDevice in Frameworks */ = {isa = PBXBuildFile; productRef = FD5319A4F84D41EEBD886629 /* AudioDevice */; };
 		60BF422F1B3694AA5E84F16C /* RideIntercom/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 24CAD00D525C7DAC722B6173 /* RideIntercom/Localizable.xcstrings */; };
@@ -38,6 +36,8 @@
 		B89AEF130DA8CECA89175FDB /* RideIntercom/SystemSurfaces/Shared/SystemSurfaceScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0874A31143C7555BB4D5AC15 /* RideIntercom/SystemSurfaces/Shared/SystemSurfaceScope.swift */; };
 		C0DE1C010000000000000001 /* RideIntercom/RideComAppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0DE1C010000000000000002 /* RideIntercom/RideComAppIcon.icon */; };
 		C5B699AE6EBBFF15F54F244A /* SessionManager in Frameworks */ = {isa = PBXBuildFile; productRef = 8B6A6437FC531740EEDEB76E /* SessionManager */; };
+		CA1100000000000000000004 /* CallControl in Frameworks */ = {isa = PBXBuildFile; productRef = CA1100000000000000000002 /* CallControl */; };
+		CA1100000000000000000005 /* CallControl in Frameworks */ = {isa = PBXBuildFile; productRef = CA1100000000000000000003 /* CallControl */; };
 		D35100000000000000000003 /* RideIntercom/Shared/Appearance.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D35100000000000000000001 /* RideIntercom/Shared/Appearance.xcassets */; };
 		D35100000000000000000004 /* RideIntercom/Shared/Appearance.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D35100000000000000000001 /* RideIntercom/Shared/Appearance.xcassets */; };
 		D35100000000000000000005 /* RideIntercom/Shared/RideComColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35100000000000000000002 /* RideIntercom/Shared/RideComColors.swift */; };
@@ -380,6 +380,20 @@
 			name = "Recovered References";
 			sourceTree = "<group>";
 		};
+		93BD7A642FACCD5600CBA553 /* server */ = {
+			isa = PBXGroup;
+			children = (
+				D76000000000000000000006 /* src */,
+				D76000000000000000000007 /* test */,
+				D76000000000000000000001 /* .dev.vars.example */,
+				D76000000000000000000002 /* package-lock.json */,
+				D76000000000000000000003 /* package.json */,
+				D76000000000000000000004 /* tsconfig.json */,
+				D76000000000000000000005 /* wrangler.toml */,
+			);
+			path = server;
+			sourceTree = "<group>";
+		};
 		93F300BF2F93829C0046716D = {
 			isa = PBXGroup;
 			children = (
@@ -401,10 +415,10 @@
 				9391B9533088EDA000FDB74A /* Recovered References */,
 				93F300CA2F93829C0046716D /* RideIntercom */,
 				1C0A209D1EDC02B2C3B6C9AD /* RideIntercom.code-workspace */,
+				E2E00000000000000000000D /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift */,
 				C0DE1C010000000000000002 /* RideIntercom/RideComAppIcon.icon */,
 				F2FF24FCC7CD717AC0CF70D8 /* RideIntercom/SystemSurfaces/Shared */,
 				E2E000000000000000000003 /* RideIntercomAudioE2ETests */,
-				E2E00000000000000000000D /* RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift */,
 				93F300DC2F93829D0046716D /* RideIntercomTests */,
 				93F300E62F93829D0046716D /* RideIntercomUITests */,
 				3170ECB8255D3C020D7A258B /* RideIntercomWatch */,
@@ -427,20 +441,6 @@
 				93F300E32F93829D0046716D /* RideIntercomUITests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		93BD7A642FACCD5600CBA553 /* server */ = {
-			isa = PBXGroup;
-			children = (
-				D76000000000000000000006 /* src */,
-				D76000000000000000000007 /* test */,
-				D76000000000000000000001 /* .dev.vars.example */,
-				D76000000000000000000002 /* package-lock.json */,
-				D76000000000000000000003 /* package.json */,
-				D76000000000000000000004 /* tsconfig.json */,
-				D76000000000000000000005 /* wrangler.toml */,
-			);
-			path = server;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1059,7 +1059,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1818;
+				CURRENT_PROJECT_VERSION = 1824;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1226,7 +1226,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1818;
+				CURRENT_PROJECT_VERSION = 1824;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1512,7 +1512,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1818;
+				CURRENT_PROJECT_VERSION = 1824;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1582,7 +1582,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1818;
+				CURRENT_PROJECT_VERSION = 1824;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -2133,16 +2133,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		CA1100000000000000000002 /* CallControl */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */;
-			productName = CallControl;
-		};
-		CA1100000000000000000003 /* CallControl */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */;
-			productName = CallControl;
-		};
 		2B44E19C9FE402C8B4453651 /* RTC */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 934630862F9C0001001548C3 /* XCLocalSwiftPackageReference "RideIntercom/packages/RTC" */;
@@ -2227,6 +2217,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A10000000000000000000008 /* XCLocalSwiftPackageReference "RideIntercom/packages/Audio/Effectors/VADGate" */;
 			productName = VADGate;
+		};
+		CA1100000000000000000002 /* CallControl */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */;
+			productName = CallControl;
+		};
+		CA1100000000000000000003 /* CallControl */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA1100000000000000000001 /* XCLocalSwiftPackageReference "RideIntercom/packages/CallControl" */;
+			productName = CallControl;
 		};
 		E7E2517FFC0620F82672EA6F /* AudioCore */ = {
 			isa = XCSwiftPackageProductDependency;

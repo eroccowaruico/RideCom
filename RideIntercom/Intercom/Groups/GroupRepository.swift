@@ -6,7 +6,6 @@ import Foundation
 final class GroupRepository {
     private let store: GroupStoring
     private let credentials: GroupCredentialStoring
-    private let legacy: LegacyGroupReader?
     private var snapshot: GroupSnapshot?
     private var isWritable = false
     private var localMemberID: String?
@@ -21,18 +20,21 @@ final class GroupRepository {
     var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] { snapshot?.contactDeletionRelayReceipts ?? [] }
     var contactDeletionFormerPairs: [ContactDeletionFormerPair] { snapshot?.contactDeletionFormerPairs ?? [] }
 
-    init(store: GroupStoring, credentials: GroupCredentialStoring, legacy: LegacyGroupReader? = nil) {
-        self.store = store; self.credentials = credentials; self.legacy = legacy
+    init(store: GroupStoring, credentials: GroupCredentialStoring) {
+        self.store = store; self.credentials = credentials
     }
 
     func load(localMemberID: String) throws -> [IntercomGroup] {
         self.localMemberID = localMemberID
         try store.lock(); defer { store.unlock() }
         do {
-            var current = try store.read() ?? migrate(localMemberID: localMemberID)
+            let saved = try store.read()
+            var current = saved ?? GroupSnapshot()
             _ = try validateIdentity(current, localMemberID: localMemberID)
             if current.version < GroupSnapshot.currentVersion {
                 current = current.upgraded()
+            }
+            if saved?.version != current.version {
                 try store.commit(current)
                 guard try store.read() == current else { throw GroupStorageError.verificationFailed }
             }
@@ -72,20 +74,6 @@ final class GroupRepository {
             group.members.insert(group.members.remove(at: index), at: 0)
             return group
         }
-    }
-
-    private func migrate(localMemberID: String) throws -> GroupSnapshot {
-        let groups = try legacy?.read() ?? []
-        var candidate = GroupSnapshot(groups: groups.map { .init($0) })
-        _ = try validateIdentity(candidate, localMemberID: localMemberID)
-        for index in candidate.groups.indices {
-            if let secret = try legacy?.secret(for: candidate.groups[index].id) {
-                candidate.groups[index].credentialReference = try prepareKey(secret)
-            }
-        }
-        try store.commit(candidate)
-        guard try store.read() == candidate else { throw GroupStorageError.verificationFailed }
-        return candidate
     }
 
     func credential(for id: UUID) throws -> GroupAccessCredential? {
@@ -824,7 +812,6 @@ final class GroupRepository {
         do {
             let live = Set(current.credentialReferences)
             for reference in try credentials.references().subtracting(live) { try credentials.delete(reference: reference) }
-            try legacy?.cleanup()
             needsCleanup = false
         } catch { needsCleanup = true }
     }
@@ -835,7 +822,7 @@ final class GroupRepository {
         do { _ = try store.read() }
         catch GroupStorageError.unsupportedVersion { throw GroupStorageError.unsupportedVersion }
         catch { /* Preserve malformed bytes before replacing them. */ }
-        try store.archive(legacyData: legacy?.archiveData())
+        try store.archive()
         let empty = GroupSnapshot()
         try store.commit(empty)
         guard try store.read() == empty else { isWritable = false; throw GroupStorageError.verificationFailed }

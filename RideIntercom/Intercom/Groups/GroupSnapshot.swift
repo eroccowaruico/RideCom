@@ -477,7 +477,7 @@ protocol GroupStoring: AnyObject {
     func commit(_ snapshot: GroupSnapshot) throws
     func lock() throws
     func unlock()
-    func archive(legacyData: Data?) throws
+    func archive() throws
 }
 
 protocol GroupCredentialStoring: AnyObject {

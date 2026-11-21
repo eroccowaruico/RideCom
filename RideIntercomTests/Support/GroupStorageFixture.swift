@@ -34,8 +34,8 @@ final class FailingFileGroupStore: GroupStoring {
     }
     func lock() throws { try file.lock() }
     func unlock() { file.unlock() }
-    func archive(legacyData: Data?) throws {
+    func archive() throws {
         if failArchive { throw IntercomGroupError.storageUnavailable }
-        try file.archive(legacyData: legacyData)
+        try file.archive()
     }
 }
