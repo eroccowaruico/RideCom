@@ -57,6 +57,6 @@ struct DirectoryGroupLabel: View {
     var body: some View {
         DirectoryRowLabel(title: group.name, isGroup: true,
                           detail: String(localized: "\(group.members.count) people"),
-                          status: viewModel.isInCall(with: .group(group.id)) ? viewModel.callStatus(for: group.id) : nil)
+            status: viewModel.isInCall(with: .group(group.id)) ? viewModel.callStatus(for: group.id) : nil)
     }
 }

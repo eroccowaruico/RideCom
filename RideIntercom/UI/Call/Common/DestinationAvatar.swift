@@ -26,7 +26,10 @@ struct PendingAvatar: View {
             .font(.system(size: diameter * scale * 0.46, weight: .semibold))
             .foregroundStyle(Color.secondary)
             .frame(width: diameter * scale, height: diameter * scale)
-            .overlay(Circle().strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])))
+            .overlay(
+                Circle().strokeBorder(
+                    Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+            )
             .accessibilityHidden(true)
     }
 }

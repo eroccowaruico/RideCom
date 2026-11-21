@@ -25,10 +25,16 @@ struct ContentView: View {
         }
         .onChange(of: owner.callPresentationID) { _, _ in selectedTab = .call }
         .onChange(of: owner.usersPresentationID) { _, _ in selectedTab = .users }
-        .onChange(of: owner.groupsPresentationID) { _, _ in selectedTab = viewModel?.isGroupsTabVisible == true ? .groups : .users }
+        .onChange(of: owner.groupsPresentationID) { _, _ in
+            selectedTab = viewModel?.isGroupsTabVisible == true ? .groups : .users
+        }
         .task { await owner.refreshAccountForForeground() }
         // The OS asks once, at the first launch; afterwards this returns the choice without asking.
-        .task { if (try? await NotificationSystem.requestAuthorization()) == true { await viewModel?.startNotifications() } }
+        .task {
+            if (try? await NotificationSystem.requestAuthorization()) == true {
+                await viewModel?.startNotifications()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await owner.refreshAccountForForeground() } }
             if phase == .background { viewModel?.suspendContactInvitationForBackground() }
@@ -42,7 +48,9 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             if url.scheme == "rideintercom", url.host == "call" { selectedTab = .call; return }
-            guard !account.deletion.blocksSignIn, url.scheme == "rideintercom", url.host == "join" || url.host == "contact" || url.host == "contact-reply" else { return }
+            guard !account.deletion.blocksSignIn, url.scheme == "rideintercom",
+                url.host == "join" || url.host == "contact" || url.host == "contact-reply"
+            else { return }
             if let viewModel, viewModel.canStartCalls {
                 openInvitation(url, in: viewModel)
             } else {

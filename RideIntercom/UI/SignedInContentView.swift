@@ -141,7 +141,10 @@ struct SignedInContentView: View {
         if let id = viewModel.activeGroupID, let group = viewModel.groups.first(where: { $0.id == id }) {
             let status = viewModel.callStatus(for: id)
             Label {
-                Text(verbatim: "\(viewModel.callTitle(for: group)) · \(String(localized: .init(stringLiteral: status.title)))")
+                Text(
+                    verbatim:
+                        "\(viewModel.callTitle(for: group)) · \(String(localized: .init(stringLiteral: status.title)))"
+                )
             } icon: {
                 CallStatusSymbol(status: status)
             }

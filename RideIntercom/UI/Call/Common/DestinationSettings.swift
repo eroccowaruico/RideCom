@@ -15,7 +15,10 @@ extension View {
         alert(pending.wrappedValue.map { Text("Delete \($0.name)?") } ?? Text(verbatim: ""), isPresented: Binding(
             get: { pending.wrappedValue != nil }, set: { if !$0 { pending.wrappedValue = nil } }),
               presenting: pending.wrappedValue) { item in
-            Button(LocalizedStringKey(item.endsCall ? "Disconnect and Delete" : "Delete"), role: .destructive, action: item.perform)
+            Button(
+                LocalizedStringKey(item.endsCall ? "Disconnect and Delete" : "Delete"), role: .destructive,
+                action: item.perform
+            )
                 .accessibilityIdentifier("confirmDeleteDestinationButton")
             Button("Cancel", role: .cancel) { }
         } message: { item in
@@ -23,7 +26,8 @@ extension View {
         }
     }
 
-    func destinationSettingsSheet(_ target: Binding<DestinationSettingsTarget?>, viewModel: IntercomViewModel) -> some View {
+    func destinationSettingsSheet(_ target: Binding<DestinationSettingsTarget?>, viewModel: IntercomViewModel)
+        -> some View {
         sheet(item: target) { target in
             switch target {
             case .group(let id): GroupSettingsView(viewModel: viewModel, groupID: id)
@@ -55,7 +59,8 @@ extension View {
     /// appear once its swipe closes.
     func memberRemoveConfirmation(_ pending: Binding<PendingMemberRemoval?>) -> some View {
         alert(pending.wrappedValue.map { Text("Remove \($0.name) from the group?") } ?? Text(verbatim: ""),
-              isPresented: Binding(get: { pending.wrappedValue != nil }, set: { if !$0 { pending.wrappedValue = nil } }),
+            isPresented: Binding(
+                get: { pending.wrappedValue != nil }, set: { if !$0 { pending.wrappedValue = nil } }),
               presenting: pending.wrappedValue) { item in
             Button("Remove", role: .destructive, action: item.perform)
                 .accessibilityIdentifier("confirmRemoveMemberButton")
