@@ -73,7 +73,6 @@ final class IntercomViewModel {
     }
     var requiresAccountDataReset = false
     var canStartCalls: Bool { hasCurrentAccountAccess && !requiresAccountDataReset }
-    static let pendingInviteMemberPrefix = GroupMember.pendingInvitePrefix
     nonisolated static let defaultSoundIsolationEnabled = true
     nonisolated static let defaultReceiveSoundIsolationEnabled = false
     nonisolated static let defaultAudioSessionProfile = AudioSessionProfile.echoCancelledInput

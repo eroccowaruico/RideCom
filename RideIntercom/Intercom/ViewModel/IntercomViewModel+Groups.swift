@@ -244,7 +244,7 @@ extension IntercomViewModel {
               group.members.count < IntercomGroup.maximumMemberCount else { return }
 
         let nextNumber = group.members.count
-        let memberID = "\(Self.pendingInviteMemberPrefix)\(group.id.uuidString.prefix(8).lowercased())-\(nextNumber)-\(UUID().uuidString.prefix(8).lowercased())"
+        let memberID = "\(GroupMember.pendingInvitePrefix)\(group.id.uuidString.prefix(8).lowercased())-\(nextNumber)-\(UUID().uuidString.prefix(8).lowercased())"
         let name = displayName ?? "Invited Rider \(nextNumber)"
         group.members.append(
             GroupMember(

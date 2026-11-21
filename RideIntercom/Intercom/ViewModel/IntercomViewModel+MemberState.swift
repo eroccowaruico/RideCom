@@ -127,10 +127,6 @@ extension IntercomViewModel {
         if commitGroups(updated) { selectedGroup = groups[index] }
     }
 
-    func persistGroups() {
-        _ = commitGroups(groups)
-    }
-
     @discardableResult
     func commitGroups(_ updated: [IntercomGroup], deliveries: [GroupDeliveryRecord] = []) -> Bool {
         guard canStartCalls else { groupErrorMessage = groupStorageNotice; return false }
@@ -143,10 +139,6 @@ extension IntercomViewModel {
             reportGroupStorageError(error)
             return false
         }
-    }
-
-    func isPendingInviteMemberID(_ memberID: String) -> Bool {
-        memberID.hasPrefix(Self.pendingInviteMemberPrefix)
     }
 
     func credential(for group: IntercomGroup) throws -> GroupAccessCredential? {
