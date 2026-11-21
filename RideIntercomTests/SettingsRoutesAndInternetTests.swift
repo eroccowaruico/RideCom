@@ -151,7 +151,7 @@ extension AppTests.SettingsTests {
         #expect(transmitBus.effectChain.allSatisfy { $0.typeName == "AVAudioUnitEffect" })
         model.setSoundIsolationEnabled(false)
         model.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: true)
-        model.setReceiveMasterSoundIsolationEnabled(true)
+        model.setReceiveMixSoundIsolationEnabled(true)
         #expect(harness.audioDriver.createdEngineCount == enginesBefore)
         func state(_ bus: String) -> MixerEffectState? {
             model.audioPipeline.snapshot.buses.first { $0.id == bus }?.effectChain.first {

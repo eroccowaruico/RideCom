@@ -89,7 +89,7 @@ final class IntercomViewModel {
     nonisolated static let defaultOpusBitRate = Codec.OpusOptions().bitRate
     nonisolated static let supportedRTCTransportRoutes = AppRTCTransportRoutePolicy.supportedRoutes
     nonisolated static let defaultEnabledRTCTransportRoutes: Set<RTC.RouteKind> = supportedRTCTransportRoutes
-    nonisolated static let defaultMasterOutputVolume: Float = 1
+    nonisolated static let defaultOverallOutputVolume: Float = 1
     nonisolated static let defaultRemoteOutputVolume: Float = 1
     nonisolated static let otherAudioDuckingHoldDuration: TimeInterval = 1.0
     nonisolated static let runtimePackageReportPublishInterval: TimeInterval = 0.5
@@ -135,10 +135,10 @@ final class IntercomViewModel {
     var aacELDv2BitRate = IntercomViewModel.defaultAACELDv2BitRate
     var opusBitRate = IntercomViewModel.defaultOpusBitRate
     var enabledRTCTransportRoutes = IntercomViewModel.defaultEnabledRTCTransportRoutes
-    var masterOutputVolume: Float = IntercomViewModel.defaultMasterOutputVolume
+    var overallOutputVolume: Float = IntercomViewModel.defaultOverallOutputVolume
     var isOutputMuted = false
     var remoteOutputVolumes: [String: Float] = [:]
-    var receiveMasterSoundIsolationEnabled = IntercomViewModel.defaultReceiveSoundIsolationEnabled
+    var receiveMixSoundIsolationEnabled = IntercomViewModel.defaultReceiveSoundIsolationEnabled
     var remoteSoundIsolationEnabled: [String: Bool] = [:]
     var isMicrophoneCaptureRunning: Bool {
         isAudioReady

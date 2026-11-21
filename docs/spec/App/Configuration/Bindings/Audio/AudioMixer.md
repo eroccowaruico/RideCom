@@ -16,12 +16,12 @@
 | TX bus effect chain | `AudioMixerSnapshot.buses[id == "tx-bus"].effectChain`。SoundIsolation → DynamicsProcessor → PeakLimiter。VADGateはMixer前段 | adapter 導出 |
 | RX peer bus effect chain | `AudioMixerSnapshot.buses[id == "rx-peer-{peerID}"].effectChain`。SoundIsolationを接続し `remoteSoundIsolationEnabled` で実接続を切替（無効nodeはlatency補償の対象からも外す） | 画面設定から導出 |
 | RX master bus effect chain | `AudioMixerSnapshot.buses[id == "rx-master"].effectChain`。SoundIsolation。master faderの後に `rx-output` busをrouteしPeakLimiterを適用 | 画面設定 + adapter 固定 |
-| master bus volume | `isOutputMuted ? 0 : masterOutputVolume` | 画面設定から導出 |
+| master bus volume | `isOutputMuted ? 0 : overallOutputVolume` | 画面設定から導出 |
 | peer source volume | `remoteOutputVolumes[peerID]`。未設定 peer は `1.0` | 画面設定から導出 |
 
 受信側は peer ごとに RX peer bus を作り、全 RX peer bus を receive master bus へ route して mix down する。相手が複数いる場合は peer bus も複数になり、master bus は mix 後の 1 本だけを表す。
 
-TX bus、RX peer bus、RX master bus の effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正とする。App の `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMasterEffectChainSnapshot` は `AudioMixerSnapshot` から表示用 stage metadata へ写すだけである。effect の default 値や stage 配列を持たない。
+TX bus、RX peer bus、RX master bus の effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正とする。App の `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMixEffectChainSnapshot` は `AudioMixerSnapshot` から表示用 stage metadata へ写すだけである。effect の default 値や stage 配列を持たない。
 
 RX masterの表示用effect chainは、実snapshotの `rx-master.effectChain` と `rx-output.effectChain` を信号順に結合する。speaker-output sinkはrx-outputに置き、最終Limiterの後段に追加gainを置かない。
 

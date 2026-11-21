@@ -14,7 +14,7 @@
 | RX `VoiceIsolationConfiguration` | 標準のvoice、mix 0.5。切替では信号経路とbypassを変更する | AppAudioPipelineの通話用固定値 |
 | TX effect chain 挿入 | 対応時はnodeを保持、`isSoundIsolationEnabled` でbypassを切替 | 端末に保存したSettingsの送信設定とruntime supportから導出。通話とAudio Checkで同じ設定を読む |
 | RX peer bus effect chain 挿入 | 対応時はnodeを保持、`remoteSoundIsolationEnabled[peerID, default: false]` でbypassを切替 | Call の参加者設定と runtime support から導出 |
-| RX master bus effect chain 挿入 | 対応時はnodeを保持、`receiveMasterSoundIsolationEnabled` でbypassを切替 | Call の master 出力設定と runtime support から導出 |
+| RX master bus effect chain 挿入 | 対応時はnodeを保持、`receiveMixSoundIsolationEnabled` でbypassを切替 | Call の master 出力設定と runtime support から導出 |
 | runtime snapshot | `VoiceIsolationRuntimeSnapshot` を chain ごとに `RTCRuntimePackageReport` と AudioMixer effect metadata に載せる | runtime report |
 
 Settings の `Voice Isolation Effect` は送信用 `SoundIsolation` package の effect-level 設定として扱う。Call の参加者行と master 出力行は受信側 peer bus / RX master bus の effect-level 設定として扱う。SessionManager の `AudioInputVoiceProcessingConfiguration.soundIsolationEnabled` へは渡さない。mix などの Audio Unit parameter は画面設定にしない。

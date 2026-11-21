@@ -139,7 +139,7 @@ extension AppTests.AudioPipelineTests {
         await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
         harness.viewModel.setRemoteOutputVolume(peerID: "member-108", volume: 0.25)
         harness.viewModel.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: true)
-        harness.viewModel.setMasterOutputVolume(0.75)
+        harness.viewModel.setOverallOutputVolume(0.75)
         let engines = harness.audioDriver.createdEngineCount
         let before = harness.viewModel.audioPipeline.snapshot
         for routes: Set<RTC.RouteKind> in [[.webRTC], [.webRTC, .multipeer], [.multipeer]] {

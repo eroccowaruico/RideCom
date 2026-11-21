@@ -282,7 +282,7 @@ extension AppTests.DiagnosticsTests {
         defer { harness.viewModel.disconnect() }
         for enabled in [true, false, true] {
             harness.viewModel.setSoundIsolationEnabled(enabled)
-            harness.viewModel.setReceiveMasterSoundIsolationEnabled(enabled)
+            harness.viewModel.setReceiveMixSoundIsolationEnabled(enabled)
             let reports = harness.viewModel.makeRuntimePackageReports(generatedAt: 100)
             for (kind, bus) in [("transmitConfiguration", "tx-bus"), ("receiveMasterConfiguration", "rx-master")] {
                 let report = try #require(reports.first { $0.package == "SoundIsolation" && $0.kind == kind })

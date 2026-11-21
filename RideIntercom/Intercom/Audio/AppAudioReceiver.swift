@@ -8,43 +8,6 @@ import RTC
 import SoundIsolation
 import Synchronization
 
-nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
-    var pcmPackets = 0
-    var failures = 0
-    var lastPCMAt: TimeInterval?
-    var lastFailureAt: TimeInterval?
-}
-
-nonisolated struct ReceiveProcessingTiming: Encodable, Sendable {
-    let lockRequestedAt: TimeInterval
-    var lockAcquiredAt: TimeInterval?
-    var decodedAt: TimeInterval?
-    var reservedAt: TimeInterval?
-}
-
-nonisolated struct ReceivePlayoutDiagnostics: Sendable {
-    let bufferedDuration: Double
-    let adjustments: Int
-    let resets: Int
-    let adjustment: MixerPlayoutAdjustment?
-    let processingTiming: ReceiveProcessingTiming?
-    let reservation: MixerPlayoutReservation?
-
-    init(source: MixerPCMSource, previousAdjustmentCount: Int? = nil, processingTiming: ReceiveProcessingTiming? = nil,
-         reservation: MixerPlayoutReservation? = nil) {
-        bufferedDuration = source.bufferedDuration
-        adjustments = source.playoutAdjustmentCount
-        resets = source.playbackResetCount
-        self.processingTiming = processingTiming
-        self.reservation = reservation
-        if let previousAdjustmentCount, previousAdjustmentCount != adjustments {
-            adjustment = source.lastPlayoutAdjustment
-        } else {
-            adjustment = nil
-        }
-    }
-}
-
 /// The receive graph has one serial owner independent of UI/control. The lock
 /// covers native graph changes as well as packet decoding/scheduling; no await,
 /// UI callback or network operation occurs while holding it.
@@ -62,29 +25,35 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     }
 
     private enum IsolationTarget: Hashable {
-        case master
+        case mix
         case peer(String)
 
         var busID: String {
             switch self {
-            case .master: "rx-master"
+            case .mix: "rx-master"
             case .peer(let id): "rx-peer-\(id)"
             }
         }
 
-        func isEnabled(master: Bool, peers: [String: Bool]) -> Bool {
+        func isEnabled(mix: Bool, peers: [String: Bool]) -> Bool {
             switch self {
-            case .master: master
+            case .mix: mix
             case .peer(let id): peers[id] ?? false
             }
         }
+    }
+
+    private struct IsolationChange {
+        let target: IsolationTarget
+        let effect: VoiceIsolationEffect
+        let enabled: Bool
     }
 
     private let lock = NSRecursiveLock()
     private let graphGeneration = Atomic<UInt64>(0)
     private var mixer: AudioMixer?
     private var configuration = AppAudioPipelineConfiguration()
-    private var master: MixerBus?
+    private var mixBus: MixerBus?
     private var peerPlayback: [String: PeerPlayback] = [:]
     private var effects: [IsolationTarget: VoiceIsolationEffect] = [:]
     private var limiter: PeakLimiterEffect?
@@ -112,17 +81,19 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         // Use the device clock within the configured DSP rate budget. Avoid a
         // second fractional converter on 44.1 kHz outputs, without doubling
         // every receive effect's work for a 96 kHz external device.
-        let receiveFormat = AudioFormat(sampleRate: min(configuration.outputHardwareFormat.sampleRate, configuration.mixerFormat.sampleRate),
-            channelCount: configuration.mixerFormat.channelCount)
+        let receiveFormat = AudioFormat(
+            sampleRate: min(configuration.outputHardwareFormat.sampleRate, configuration.mixerFormat.sampleRate),
+            channelCount: configuration.mixerFormat.channelCount
+        )
         let mixer = try AudioMixer(engine: engine, audioFormat: receiveFormat)
         self.mixer = mixer
-        let master = try mixer.createBus(IsolationTarget.master.busID)
-        self.master = master
-        master.volume = configuration.isOutputMuted ? 0 : configuration.masterOutputVolume
-        try installIsolation(for: .master, on: master)
+        let mixBus = try mixer.createBus(IsolationTarget.mix.busID)
+        self.mixBus = mixBus
+        mixBus.volume = configuration.isOutputMuted ? 0 : configuration.overallOutputVolume
+        try installIsolation(for: .mix, on: mixBus)
         let output = try mixer.createBus("rx-output")
         limiter = try AppAudioPipeline.installLimiter(on: output)
-        try mixer.route(master, to: output)
+        try mixer.route(mixBus, to: output)
         // Hardware playback follows the graph directly. Batch only its meter
         // observer, avoiding one MainActor delivery per native render quantum.
         // The fallback output consumes these frames, so it must never wait.
@@ -161,12 +132,15 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         graphGeneration.wrappingAdd(2, ordering: .releasing)
         mixer?.stop()
         if let mixer { for id in mixer.busIDs { try? mixer.removeBus(id) } }
-        mixer = nil; master = nil; limiter = nil
+        mixer = nil; mixBus = nil; limiter = nil
         peerPlayback.removeAll(); effects.removeAll()
         decodeCounts = .init()
     }
 
-    func receive(_ received: RTC.ReceivedAudioPacket, onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil) throws -> PCMFrame {
+    func receive(
+        _ received: RTC.ReceivedAudioPacket,
+        onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil
+    ) throws -> PCMFrame {
         let generation = graphGeneration.load(ordering: .acquiring)
         guard generation.isMultiple(of: 2) else { throw AppAudioPipelineError.notConfigured }
         var observation: ReceivePlayoutDiagnostics?
@@ -261,12 +235,12 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         }
     }
 
-    func updateOutput(masterVolume: Float, isMuted: Bool, peers: [String: Float]) {
+    func updateOutput(overallVolume: Float, isMuted: Bool, peers: [String: Float]) {
         lock.lock(); defer { lock.unlock() }
-        configuration.masterOutputVolume = min(2, max(0, masterVolume))
+        configuration.overallOutputVolume = min(2, max(0, overallVolume))
         configuration.isOutputMuted = isMuted
         configuration.peerOutputVolumes = peers.mapValues { min(1, max(0, $0)) }
-        master?.volume = isMuted ? 0 : configuration.masterOutputVolume
+        mixBus?.volume = isMuted ? 0 : configuration.overallOutputVolume
         for (id, playback) in peerPlayback { playback.source?.volume = configuration.peerOutputVolumes[id] ?? 1 }
     }
 
@@ -277,74 +251,18 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         graphGeneration.wrappingAdd(1, ordering: .releasing)
         defer { graphGeneration.wrappingAdd(1, ordering: .releasing) }
         let output = mixer?.bus("rx-output")
-        return withOutputProtection(output, settlingDuration: { output?.processingLatency ?? 0 }) {
-            let result = change()
-            for playback in peerPlayback.values {
-                guard let source = playback.source else { continue }
-                source.stop(); source.start()
-            }
-            return result
-        }
-    }
-
-    /// Protect only the output whose native receive connections change.
-    func updateIsolation(master enabled: Bool, peers: [String: Bool]) throws {
-        // Allocate existing disconnected effects while the old graph plays.
-        // Settings and lifecycle serialize changes to these effects. Reception
-        // can add a peer, so select the affected buses again under the lock.
-        let preparation = lock.withLock {
-            isolationChanges(master: enabled, peers: peers).compactMap { change in
-                change.enabled ? mixer?.bus(change.target.busID) : nil
-            }
-        }
-        for bus in preparation { try bus.prepareEffect(id: "sound-isolation") }
-        lock.lock(); defer { lock.unlock() }
-        configuration.receiveMasterSoundIsolationEnabled = enabled
-        configuration.peerSoundIsolationEnabled = peers
-        let changes = isolationChanges(master: enabled, peers: peers)
-        // Only the master mutation invalidates all player reservations. The
-        // lock already serializes a peer's reconnection with packet scheduling.
-        let changesMaster = changes.contains { $0.target == .master }
-        let output = changesMaster ? mixer?.bus("rx-output") : nil
-        let playoutDelay = configuration.receivePlayoutDelay ?? 0
-        if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
-        defer {
-            if changesMaster { graphGeneration.wrappingAdd(1, ordering: .releasing) }
-        }
-        let previousLatency = changes.filter { !$0.enabled }.map { $0.effect.node.latency }.max() ?? 0
-        try withOutputProtection(output, settlingDuration: {
-            let nextLatency = changes.filter { $0.enabled }.map { $0.effect.node.latency }.max() ?? 0
-            return max(previousLatency, nextLatency) + (output?.processingLatency ?? 0) + playoutDelay
-        }) {
-            for (target, effect, value) in changes {
-                guard let bus = mixer?.bus(target.busID) else { throw AppAudioPipelineError.notConfigured }
-                let previousLatency = value ? 0 : effect.node.latency
-                try withOutputProtection(changesMaster ? nil : bus, settlingDuration: {
-                    let nextLatency = value ? effect.node.latency : 0
-                    return max(previousLatency, nextLatency) + playoutDelay
-                }) {
-                    try AppAudioPipeline.setIsolationEnabled(effect, on: bus, enabled: value)
+        return withOutputProtection(
+            output,
+            settlingDuration: { output?.processingLatency ?? 0 },
+            perform: {
+                let result = change()
+                for playback in peerPlayback.values {
+                    guard let source = playback.source else { continue }
+                    source.stop(); source.start()
                 }
+                return result
             }
-        }
-    }
-
-    /// Hold this output through the native change and always release it, using
-    /// the settling time observed after the change. Callers choose the scope.
-    private func withOutputProtection<Result>(_ bus: MixerBus?, settlingDuration: () -> TimeInterval,
-                                              _ change: () throws -> Result) rethrows -> Result {
-        guard let bus else { return try change() }
-        bus.beginSinkTransition(settlingDuration: 0, holding: true)
-        defer { bus.beginSinkTransition(settlingDuration: settlingDuration()) }
-        return try change()
-    }
-
-    private func isolationChanges(master: Bool, peers: [String: Bool])
-        -> [(target: IsolationTarget, effect: VoiceIsolationEffect, enabled: Bool)] {
-        effects.compactMap { target, effect in
-            let enabled = target.isEnabled(master: master, peers: peers)
-            return effect.avAudioUnitEffect.bypass == enabled ? (target, effect, enabled) : nil
-        }
+        )
     }
 
     private func playback(for peer: String) -> PeerPlayback {
@@ -356,7 +274,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
 
     private func source(for peer: String) throws -> MixerPCMSource {
         if let source = peerPlayback[peer]?.source { return source }
-        guard let mixer, let master else { throw AppAudioPipelineError.notConfigured }
+        guard let mixer, let mixBus else { throw AppAudioPipelineError.notConfigured }
         let target = IsolationTarget.peer(peer)
         let bus = try mixer.createBus(target.busID)
         try installIsolation(for: target, on: bus)
@@ -364,18 +282,19 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
             try bus.prepareOutputTransition()
         }
         let source = try bus.addPCMSource(id: "rtc-audio-\(peer)",
-            maximumBufferedDuration: configuration.receiveMaximumBufferedDuration ?? configuration.maximumBufferedDuration,
+            maximumBufferedDuration: configuration.receiveMaximumBufferedDuration
+                ?? configuration.maximumBufferedDuration,
             captureTimePlayoutDelay: configuration.receivePlayoutDelay,
             adaptivePlayout: configuration.receivePlayoutDelay != nil)
         source.volume = configuration.peerOutputVolumes[peer] ?? 1
-        try mixer.route(bus, to: master)
+        try mixer.route(bus, to: mixBus)
         playback(for: peer).source = source
         if mixer.engine.isRunning { source.start() }
         return source
     }
 
     private func installIsolation(for target: IsolationTarget, on bus: MixerBus) throws {
-        let enabled = target.isEnabled(master: configuration.receiveMasterSoundIsolationEnabled,
+        let enabled = target.isEnabled(mix: configuration.receiveMixSoundIsolationEnabled,
                                        peers: configuration.peerSoundIsolationEnabled)
         if let effect = try AppAudioPipeline.makeIsolation(on: bus, enabled: enabled,
             configuration: AppAudioPipeline.receiveIsolationConfiguration) {
@@ -384,4 +303,77 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     }
 
     deinit { mixer?.stop() }
+}
+
+extension AppAudioReceiver {
+    /// Protect only the output whose native receive connections change.
+    nonisolated func updateIsolation(forMix enabled: Bool, peers: [String: Bool]) throws {
+        // Allocate existing disconnected effects while the old graph plays.
+        // Settings and lifecycle serialize changes to these effects. Reception
+        // can add a peer, so select the affected buses again under the lock.
+        let preparation = lock.withLock {
+            isolationChanges(mix: enabled, peers: peers).compactMap { change in
+                change.enabled ? mixer?.bus(change.target.busID) : nil
+            }
+        }
+        for bus in preparation { try bus.prepareEffect(id: "sound-isolation") }
+        lock.lock(); defer { lock.unlock() }
+        configuration.receiveMixSoundIsolationEnabled = enabled
+        configuration.peerSoundIsolationEnabled = peers
+        let changes = isolationChanges(mix: enabled, peers: peers)
+        // Only a change to the receive mix invalidates all player reservations. The
+        // lock already serializes a peer's reconnection with packet scheduling.
+        let changesMix = changes.contains { $0.target == .mix }
+        let output = changesMix ? mixer?.bus("rx-output") : nil
+        let playoutDelay = configuration.receivePlayoutDelay ?? 0
+        if changesMix { graphGeneration.wrappingAdd(1, ordering: .releasing) }
+        defer {
+            if changesMix { graphGeneration.wrappingAdd(1, ordering: .releasing) }
+        }
+        let previousLatency = changes.filter { !$0.enabled }.map { $0.effect.node.latency }.max() ?? 0
+        try withOutputProtection(
+            output,
+            settlingDuration: {
+                let nextLatency = changes.filter { $0.enabled }.map { $0.effect.node.latency }.max() ?? 0
+                return max(previousLatency, nextLatency) + (output?.processingLatency ?? 0) + playoutDelay
+            },
+            perform: {
+                for change in changes {
+                    guard let bus = mixer?.bus(change.target.busID) else { throw AppAudioPipelineError.notConfigured }
+                    let previousLatency = change.enabled ? 0 : change.effect.node.latency
+                    try withOutputProtection(
+                        changesMix ? nil : bus,
+                        settlingDuration: {
+                            let nextLatency = change.enabled ? change.effect.node.latency : 0
+                            return max(previousLatency, nextLatency) + playoutDelay
+                        },
+                        perform: {
+                            try AppAudioPipeline.setIsolationEnabled(change.effect, on: bus, enabled: change.enabled)
+                        }
+                    )
+                }
+            }
+        )
+    }
+
+    /// Hold this output through the native change and always release it, using
+    /// the settling time observed after the change. Callers choose the scope.
+    private nonisolated func withOutputProtection<Result>(
+        _ bus: MixerBus?,
+        settlingDuration: () -> TimeInterval,
+        perform change: () throws -> Result
+    ) rethrows -> Result {
+        guard let bus else { return try change() }
+        bus.beginSinkTransition(settlingDuration: 0, holding: true)
+        defer { bus.beginSinkTransition(settlingDuration: settlingDuration()) }
+        return try change()
+    }
+
+    private nonisolated func isolationChanges(mix: Bool, peers: [String: Bool]) -> [IsolationChange] {
+        effects.compactMap { target, effect in
+            let enabled = target.isEnabled(mix: mix, peers: peers)
+            return effect.avAudioUnitEffect.bypass == enabled
+                ? IsolationChange(target: target, effect: effect, enabled: enabled) : nil
+        }
+    }
 }

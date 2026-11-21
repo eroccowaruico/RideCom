@@ -83,12 +83,12 @@ struct DiagnosticsInput {
         droppedAudioPacketCount = viewModel.droppedAudioPacketCount
         isOutputMuted = viewModel.isOutputMuted
         lastOutputStreamOperationReport = viewModel.lastOutputStreamOperationReport
-        outputVolume = viewModel.masterOutputVolume
+        outputVolume = viewModel.overallOutputVolume
         usesNativeOutput = viewModel.audioPipeline.rendersToHardware
         lastNativeAudibleOutputAt = viewModel.audioPipeline.lastNativeAudibleOutputAt
         lastNativeRenderAt = viewModel.audioPipeline.lastNativeRenderAt
         lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
-        receiveOutputEffectChainSnapshot = viewModel.receiveMasterEffectChainSnapshot
+        receiveOutputEffectChainSnapshot = viewModel.receiveMixEffectChainSnapshot
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
         lastReceivedAudioAt = viewModel.lastReceivedAudioAt
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount

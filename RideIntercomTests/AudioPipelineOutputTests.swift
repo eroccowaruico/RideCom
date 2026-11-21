@@ -77,11 +77,11 @@ extension AppTests.AudioPipelineTests {
         let pipeline = AppAudioPipeline(makeEngine: { engine })
         var rendered: [Float] = []
         pipeline.onOutputFrame = { rendered += $0.samples }
-        try pipeline.rebuild(configuration: AppAudioPipelineConfiguration(masterOutputVolume: 2), peerIDs: ["a", "b"])
+        try pipeline.rebuild(configuration: AppAudioPipelineConfiguration(overallOutputVolume: 2), peerIDs: ["a", "b"])
         defer { pipeline.stop() }
         let model = AppTestSupport.makeHarness().viewModel
         model.isAudioReady = true
-        model.masterOutputVolume = 2
+        model.overallOutputVolume = 2
         model.authenticatedPeerIDs = ["a", "b"]
         try configureMixedGroup(model)
         func presentation() -> ReceivePipelinePresentation {

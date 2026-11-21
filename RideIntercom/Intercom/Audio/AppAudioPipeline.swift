@@ -10,86 +10,6 @@ import RTC
 import Synchronization
 import VADGate
 
-nonisolated struct AppAudioPipelineConfiguration: Equatable, Sendable {
-    /// Receive playout for calls: a 2 ms start on a calm link. The window also
-    /// rebuilds audio queued before the output clock runs, so it stays 120 ms;
-    /// AudioMixer learns Wi-Fi jitter up to half of it.
-    static let callReceivePlayoutDelay: TimeInterval = 0.002
-    static let callReceiveMaximumBufferedDuration: TimeInterval = 0.12
-    var mixerFormat: AudioFormat
-    var rtcSendFormat: AudioFormat
-    var outputHardwareFormat: AudioFormat
-    var preferredCodec: AudioCodecIdentifier
-    var aacELDv2BitRate: Int
-    var opusBitRate: Int
-    var masterOutputVolume: Float
-    var isOutputMuted: Bool
-    var peerOutputVolumes: [String: Float]
-    var transmitSoundIsolationEnabled: Bool
-    var receiveMasterSoundIsolationEnabled: Bool
-    var peerSoundIsolationEnabled: [String: Bool]
-    var maximumBufferedDuration: TimeInterval?
-    var receiveMaximumBufferedDuration: TimeInterval?
-    var receivePlayoutDelay: TimeInterval?
-    var finitePlaybackDuration: TimeInterval?
-
-    init(
-        mixerFormat: AudioFormat = .intercomMixer,
-        rtcSendFormat: AudioFormat = .intercomPacketAudio,
-        outputHardwareFormat: AudioFormat = .intercomHardwarePreferred,
-        preferredCodec: AudioCodecIdentifier = .pcm16,
-        aacELDv2BitRate: Int = 48_000,
-        opusBitRate: Int = Codec.OpusOptions().bitRate,
-        masterOutputVolume: Float = 1,
-        isOutputMuted: Bool = false,
-        peerOutputVolumes: [String: Float] = [:],
-        transmitSoundIsolationEnabled: Bool = true,
-        receiveMasterSoundIsolationEnabled: Bool = false,
-        peerSoundIsolationEnabled: [String: Bool] = [:],
-        maximumBufferedDuration: TimeInterval? = nil,
-        receiveMaximumBufferedDuration: TimeInterval? = nil,
-        receivePlayoutDelay: TimeInterval? = nil,
-        finitePlaybackDuration: TimeInterval? = nil
-    ) {
-        self.mixerFormat = mixerFormat
-        self.rtcSendFormat = rtcSendFormat
-        self.outputHardwareFormat = outputHardwareFormat
-        self.preferredCodec = preferredCodec
-        self.aacELDv2BitRate = Codec.AACELDv2Options(bitRate: aacELDv2BitRate).bitRate
-        self.opusBitRate = Codec.OpusOptions(bitRate: opusBitRate).bitRate
-        self.masterOutputVolume = min(2, max(0, masterOutputVolume))
-        self.isOutputMuted = isOutputMuted
-        self.peerOutputVolumes = peerOutputVolumes.mapValues { min(1, max(0, $0)) }
-        self.transmitSoundIsolationEnabled = transmitSoundIsolationEnabled
-        self.receiveMasterSoundIsolationEnabled = receiveMasterSoundIsolationEnabled
-        self.peerSoundIsolationEnabled = peerSoundIsolationEnabled
-        self.maximumBufferedDuration = maximumBufferedDuration
-        self.receiveMaximumBufferedDuration = receiveMaximumBufferedDuration
-        self.receivePlayoutDelay = receivePlayoutDelay
-        self.finitePlaybackDuration = finitePlaybackDuration
-    }
-
-    @MainActor var codecOptions: AppAudioCodecOptions {
-        AppAudioCodecOptions(aacELDv2BitRate: aacELDv2BitRate, opusBitRate: opusBitRate)
-    }
-
-    @MainActor var audioPolicy: RTC.RTCAudioPolicy {
-        AppAudioCodecBridge.makeRTCAudioPolicy(
-            preferred: preferredCodec,
-            format: rtcSendFormat,
-            options: codecOptions
-        )
-    }
-
-    @MainActor var codecRuntimeReport: CodecRuntimeReport {
-        AppAudioCodecBridge.runtimeReport(
-            for: preferredCodec,
-            format: rtcSendFormat,
-            options: codecOptions
-        )
-    }
-}
-
 enum AppAudioPipelineError: Error, Equatable {
     case notConfigured
     case invalidFormat
@@ -151,7 +71,11 @@ final class AppAudioPipeline {
         hardwareOutputEnabled = enabled
         receiver.setHardwareOutputEnabled(enabled && usesHardwareClock)
     }
-    nonisolated func processMicrophoneFrame(_ frame: PCMFrame, level: Float? = nil, shouldProcess: @Sendable () -> Bool = { true }) {
+    nonisolated func processMicrophoneFrame(
+        _ frame: PCMFrame,
+        level: Float? = nil,
+        shouldProcess: @Sendable () -> Bool = { true }
+    ) {
         transmitter.processMicrophone(frame, level: level, shouldProcess: shouldProcess)
     }
 
@@ -191,7 +115,11 @@ final class AppAudioPipeline {
         configuration.audioPolicy
     }
 
-    func rebuild(configuration: AppAudioPipelineConfiguration, peerIDs: [String], startsOutputClock: Bool = true) throws {
+    func rebuild(
+        configuration: AppAudioPipelineConfiguration,
+        peerIDs: [String],
+        startsOutputClock: Bool = true
+    ) throws {
         stop()
         var completed = false
         defer { if !completed { stop() } }
@@ -205,10 +133,15 @@ final class AppAudioPipeline {
         // Configure the graph before starting its device clock. Ordinary codec,
         // gain and effect updates do not rebuild or stop this engine.
         engine.stop()
-        try transmitter.rebuild(configuration: configuration, encoding: configuration.codecRuntimeReport.activeConfiguration)
+        try transmitter.rebuild(
+            configuration: configuration,
+            encoding: configuration.codecRuntimeReport.activeConfiguration
+        )
 
-        let outputDelivery = AudioFrameDelivery(initiallyActive: configuration.finitePlaybackDuration == nil,
-                                                finiteRecordingDuration: configuration.finitePlaybackDuration) { [weak self] frame in
+        let outputDelivery = AudioFrameDelivery(
+            initiallyActive: configuration.finitePlaybackDuration == nil,
+            finiteRecordingDuration: configuration.finitePlaybackDuration
+        ) { [weak self] frame in
             guard let self, self.generation == generation else { return }
             self.publishOutput(frame)
         }
@@ -216,7 +149,8 @@ final class AppAudioPipeline {
         let activity = rendersToHardware && configuration.finitePlaybackDuration == nil ? NativeOutputActivity() : nil
         nativeOutputActivity = activity
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS)
-        let probe = rendersToHardware && BackgroundCallValidationObservation.isEnabled ? BackgroundCallOutputProbe() : nil
+        let probe = rendersToHardware && BackgroundCallValidationObservation.isEnabled
+            ? BackgroundCallOutputProbe() : nil
         backgroundOutputProbe = probe
         #endif
         try receiver.rebuild(engine: engine, configuration: configuration, peers: peerIDs,
@@ -263,11 +197,11 @@ final class AppAudioPipeline {
             + frameDeliveries.reduce(0) { $0 + $1.droppedFrameCount }
     }
 
-    func updateOutput(masterVolume: Float, isMuted: Bool, peerOutputVolumes: [String: Float]) {
-        configuration.masterOutputVolume = min(2, max(0, masterVolume))
+    func updateOutput(overallVolume: Float, isMuted: Bool, peerOutputVolumes: [String: Float]) {
+        configuration.overallOutputVolume = min(2, max(0, overallVolume))
         configuration.isOutputMuted = isMuted
         configuration.peerOutputVolumes = peerOutputVolumes.mapValues { min(1, max(0, $0)) }
-        receiver.updateOutput(masterVolume: masterVolume, isMuted: isMuted, peers: peerOutputVolumes)
+        receiver.updateOutput(overallVolume: overallVolume, isMuted: isMuted, peers: peerOutputVolumes)
     }
 
     func reconfigureInput<Result>(_ change: () -> Result) -> Result {
@@ -277,8 +211,10 @@ final class AppAudioPipeline {
     nonisolated func processCapturedFrame(_ frame: PCMFrame) throws { try transmitter.process(frame) }
 
     @discardableResult
-    nonisolated func processReceivedAudioPacket(_ received: RTC.ReceivedAudioPacket,
-        onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil) throws -> PCMFrame {
+    nonisolated func processReceivedAudioPacket(
+        _ received: RTC.ReceivedAudioPacket,
+        onPlayout: ((ReceivePlayoutDiagnostics) -> Void)? = nil
+    ) throws -> PCMFrame {
         try receiver.receive(received, onPlayout: onPlayout)
     }
 
@@ -289,12 +225,12 @@ final class AppAudioPipeline {
         receiver.playoutDiagnostics(peer: peerID)
     }
 
-    func updateSoundIsolation(transmit: Bool, receiveMaster: Bool, peers: [String: Bool]) throws {
+    func updateSoundIsolation(transmit: Bool, receiveMix: Bool, peers: [String: Bool]) throws {
         configuration.transmitSoundIsolationEnabled = transmit
-        configuration.receiveMasterSoundIsolationEnabled = receiveMaster
+        configuration.receiveMixSoundIsolationEnabled = receiveMix
         configuration.peerSoundIsolationEnabled = peers
         try transmitter.updateIsolation(enabled: transmit)
-        try receiver.updateIsolation(master: receiveMaster, peers: peers)
+        try receiver.updateIsolation(forMix: receiveMix, peers: peers)
     }
 
     // Preserve quiet syllables when the send and receive classifiers are stacked.
@@ -303,20 +239,30 @@ final class AppAudioPipeline {
     // Keep the mix across bypass so a reconnect uses the same dry signal.
     nonisolated static let receiveIsolationConfiguration = VoiceIsolationConfiguration(mix: 0.5)
 
-    nonisolated static func makeIsolation(on bus: MixerBus, enabled: Bool,
-        configuration: VoiceIsolationConfiguration) throws -> VoiceIsolationEffect? {
+    nonisolated static func makeIsolation(
+        on bus: MixerBus,
+        enabled: Bool,
+        configuration: VoiceIsolationConfiguration
+    ) throws -> VoiceIsolationEffect? {
         guard VoiceIsolationSupport.isAvailable else { return nil }
         let effect = try VoiceIsolationEffect.make(configuration: configuration)
         effect.avAudioUnitEffect.bypass = !enabled
         try bus.addEffect(effect.node, id: "sound-isolation", bypassed: !enabled, state: enabled ? .active : .bypassed,
-            parameters: Self.effectParameters(package: "SoundIsolation", label: "Isolation", detail: effect.configuration.soundType.rawValue))
+            parameters: Self.effectParameters(
+                package: "SoundIsolation", label: "Isolation", detail: effect.configuration.soundType.rawValue
+            )
+        )
         return effect
     }
 
-    /// Settings and diagnostics change together for TX, each peer and RX master.
+    /// Settings and diagnostics change together for TX, each peer and the receive mix.
     /// Their owners retain preparation, locking and measured settling duration:
     /// TX is synchronous DSP; RX also has native render and playout reservations.
-    nonisolated static func setIsolationEnabled(_ effect: VoiceIsolationEffect, on bus: MixerBus, enabled: Bool) throws {
+    nonisolated static func setIsolationEnabled(
+        _ effect: VoiceIsolationEffect,
+        on bus: MixerBus,
+        enabled: Bool
+    ) throws {
         effect.avAudioUnitEffect.bypass = !enabled
         try bus.setEffectBypassed(id: "sound-isolation", bypassed: !enabled)
         try bus.updateEffectSnapshot(id: "sound-isolation", state: enabled ? .active : .bypassed)
@@ -325,11 +271,18 @@ final class AppAudioPipeline {
     nonisolated static func installLimiter(on bus: MixerBus) throws -> PeakLimiterEffect {
         let effect = try PeakLimiterEffect.make(configuration: .init(attackTime: 0.001))
         try bus.addEffect(effect.node, id: "peak-limiter", state: .active,
-            parameters: Self.effectParameters(package: "PeakLimiter", label: "Limiter", detail: "Pre-gain \(effect.configuration.preGain) dB"))
+            parameters: Self.effectParameters(
+                package: "PeakLimiter", label: "Limiter", detail: "Pre-gain \(effect.configuration.preGain) dB"
+            )
+        )
         return effect
     }
 
-    nonisolated static func effectParameters(package: String, label: String, detail: String) -> [MixerEffectParameterSnapshot] {
+    nonisolated static func effectParameters(
+        package: String,
+        label: String,
+        detail: String
+    ) -> [MixerEffectParameterSnapshot] {
         [.init(id: "package", value: package), .init(id: "name", value: label),
          .init(id: "shortLabel", value: label), .init(id: "detail", value: detail)]
     }

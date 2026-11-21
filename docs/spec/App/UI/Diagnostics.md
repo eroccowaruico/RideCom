@@ -25,7 +25,7 @@ Diagnostics は package から得た runtime snapshot / report を正とする�
 | 入力 | 主な参照先 | 描画先 |
 |---|---|---|
 | `AudioMixerSnapshot` | `audioMixerSnapshot` | TX Bus、TX FX、Peer Buses、Mix Down、RX Master、Master FX、mixer graph |
-| `MixerBusSnapshot.effectChain` | `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMasterEffectChainSnapshot` | effect stage chip の順序、状態、detail |
+| `MixerBusSnapshot.effectChain` | `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMixEffectChainSnapshot` | effect stage chip の順序、状態、detail |
 | `CodecRuntimeReport` | `codecRuntimeReport`、`selectedTransmitCodec` | Codec / Decode |
 | `VADGateRuntimeSnapshot` | `vadGateRuntimeSnapshot` | VAD stage、発話状態、判定入力のRMS、noise floor、threshold、gain |
 | `VoiceIsolationRuntimeSnapshot` | SoundIsolation report / AudioMixer effect metadata | SoundIsolation stage |
@@ -102,7 +102,7 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 | peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot.routes` の `rx-peer-*` → `rx-master` と各入力の `MixerSourceSnapshot.lastScheduledAt` | `n peer buses`。peer別の再生予約・音量・FX要約は下の参加者内訳に表示 | 音声未準備はIdle。経路のある入力のいずれかに直近2秒以内のPCM再生予約があればPassing。全入力で未観測か2秒超はWaiting |
 | receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | Peer Busesと同じ経路・再生予約 | `n routes → rx-master`（1本は `1 route → rx-master`）。その経路がある参加者の枝線が左の縦線で合流し、Mix Downで線が終わる | Peer Busesと同じ判定。再生予約後の出力はOutputで確認する |
 | receive master busステップ | `liveReceivePipelineView` | `receive-pipeline-master-bus-step` | RX Master | `AudioMixerSnapshot` の `rx-master`、master volume、経路数と入力のPCM再生予約 | source bus count と OUT volume。mix 後の 1 本の master bus として表示。アクセシビリティ文字サイズではメーターを集計の下に置く | Peer Busesと同じ判定 |
-| master effect chainステップ | `liveReceivePipelineView` | `receive-pipeline-master-effects-step` | Master FX | `AudioMixerSnapshot` の `rx-master.effectChain` + `rx-output.effectChain` から導出した `receiveMasterEffectChainSnapshot.stages` | RX Master 配下に適用される ordered stage chip として inline 表示（Isolation → master fader → 出力Limiter） | stage 単位で unavailable / bypassed を表示 |
+| master effect chainステップ | `liveReceivePipelineView` | `receive-pipeline-master-effects-step` | Master FX | `AudioMixerSnapshot` の `rx-master.effectChain` + `rx-output.effectChain` から導出した `receiveMixEffectChainSnapshot.stages` | RX Master 配下に適用される ordered stage chip として inline 表示（Isolation → master fader → 出力Limiter） | stage 単位で unavailable / bypassed を表示 |
 | outputステップ | `liveReceivePipelineView` | `receive-pipeline-output-step` | Output | native出力を最後に描画した時刻と最後の有声PCMの時刻、別rendererの最後に再生を予約した時刻、mute、volume | nativeは `Last audible PCM` と `Last render` の経過秒。展開時に機器名、取得した実形式・buffer・reset数 | muteはMuted、音量0はWaiting。直近2秒にnativeの有声PCMを観測していればPassing |
 
 OverviewとRXは同じ判定を使い、表示中に経過秒を更新する。RTC RXとDecodeは該当する最新の観測が2秒を超えるとWaitingに戻り、累計と最後の観測を表示する。DecodeがBlockedの間はOverviewにも段名と直近の失敗が出る。別のpacketからPCMが得られればDecodeはPassingに戻る。再生予約と実出力は後の段で独立に観測する。nativeの有声PCMは `Last audible PCM · n s ago`（画面では `3s ago` の形）。2秒を超えると時刻は残したままWaitingになる。未観測は `No audible PCM observed`。別rendererは `Playback scheduled` または `No playback scheduled` に `Render not measured` を併記し、出力段はWaitingとする。音声処理が停止・再構築されると出力の時刻を初期化する。
@@ -123,7 +123,7 @@ native出力は無音の間も `Last render` を更新する。描画が2秒を�
 
 ## 受信 effect chain 表示
 
-受信側は peer bus と receive master bus のそれぞれに ordered stages を持つ。Diagnostics は AudioMixer package snapshot 由来の `receivePeerEffectChainSnapshot(peerID:)` と `receiveMasterEffectChainSnapshot` を描画する。effect の default 値や stage 配列を持たない。peer 側は全体で 1 つの共有 Peer FX 行にまとめず、参加者内訳の各参加者にstageの要約（`effectSummary`）として表示する。stage別のchipと識別子は持たない。TX Bus EffectsとMaster FXの共通表示は、幅に応じてstage名と状態を縦に並べ、アクセシビリティ文字サイズではstageを1列にする。
+受信側は peer bus と receive master bus のそれぞれに ordered stages を持つ。Diagnostics は AudioMixer package snapshot 由来の `receivePeerEffectChainSnapshot(peerID:)` と `receiveMixEffectChainSnapshot` を描画する。effect の default 値や stage 配列を持たない。peer 側は全体で 1 つの共有 Peer FX 行にまとめず、参加者内訳の各参加者にstageの要約（`effectSummary`）として表示する。stage別のchipと識別子は持たない。TX Bus EffectsとMaster FXの共通表示は、幅に応じてstage名と状態を縦に並べ、アクセシビリティ文字サイズではstageを1列にする。
 
 | chain | stage | accessibilityIdentifier | package | 表示する状態 |
 |---|---|---|---|---|

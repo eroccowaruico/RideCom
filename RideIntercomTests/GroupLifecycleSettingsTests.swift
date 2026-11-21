@@ -19,10 +19,10 @@ extension AppTests.GroupLifecycleTests {
         harness.viewModel.setVADSensitivity(.noisy)
         harness.viewModel.setAACELDv2BitRate(128_000)
         harness.viewModel.setOpusBitRate(128_000)
-        harness.viewModel.setMasterOutputVolume(2)
+        harness.viewModel.setOverallOutputVolume(2)
         harness.viewModel.setRemoteOutputVolume(peerID: "member-108", volume: 0.25)
         harness.viewModel.setRemoteSoundIsolationEnabled(peerID: "member-108", enabled: true)
-        harness.viewModel.setReceiveMasterSoundIsolationEnabled(true)
+        harness.viewModel.setReceiveMixSoundIsolationEnabled(true)
         harness.viewModel.setDuckOthersEnabled(false)
         harness.viewModel.setRTCTransportRoute(.multipeer, enabled: false)
         harness.viewModel.setRTCTransportRoute(.webRTC, enabled: false)
@@ -35,11 +35,11 @@ extension AppTests.GroupLifecycleTests {
         #expect(harness.viewModel.preferredTransmitCodec == IntercomViewModel.defaultTransmitCodec)
         #expect(harness.viewModel.aacELDv2BitRate == IntercomViewModel.defaultAACELDv2BitRate)
         #expect(harness.viewModel.opusBitRate == IntercomViewModel.defaultOpusBitRate)
-        #expect(harness.viewModel.masterOutputVolume == IntercomViewModel.defaultMasterOutputVolume)
+        #expect(harness.viewModel.overallOutputVolume == IntercomViewModel.defaultOverallOutputVolume)
         #expect(harness.viewModel.remoteOutputVolumes.isEmpty)
         #expect(harness.viewModel.remoteSoundIsolationEnabled.isEmpty)
             #expect(
-                harness.viewModel.receiveMasterSoundIsolationEnabled
+                harness.viewModel.receiveMixSoundIsolationEnabled
                     == IntercomViewModel.defaultReceiveSoundIsolationEnabled)
         #expect(harness.viewModel.enabledRTCTransportRoutes == IntercomViewModel.defaultEnabledRTCTransportRoutes)
         #expect(!harness.viewModel.isOutputMuted)

@@ -86,7 +86,7 @@ extension AudioE2ETests {
         var peerChanges: [ReceiveSwitchTrace.Switch] = []
         func updateIsolation(peerOnly: Bool, enabled: Bool) throws {
             let start = ProcessInfo.processInfo.systemUptime
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled && !peerOnly,
+            try pipeline.updateSoundIsolation(transmit: false, receiveMix: enabled && !peerOnly,
                 peers: enabled && peerOnly ? ["one": true] : [:])
             let end = ProcessInfo.processInfo.systemUptime
             if peerOnly {

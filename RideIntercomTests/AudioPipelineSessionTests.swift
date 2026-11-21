@@ -80,21 +80,21 @@ extension AppTests.AudioPipelineTests {
         let peerID = "member-108"
 
         #expect(!harness.viewModel.isRemoteSoundIsolationEnabled(peerID: peerID))
-        #expect(!harness.viewModel.receiveMasterSoundIsolationEnabled)
+        #expect(!harness.viewModel.receiveMixSoundIsolationEnabled)
         #expect(harness.viewModel.supportsSoundIsolation == VoiceIsolationSupport.isAvailable)
         #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.isEmpty)
-        #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.isEmpty)
-        #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.isEmpty)
+        #expect(harness.viewModel.receiveMixEffectChainSnapshot.stages.isEmpty)
+        #expect(harness.viewModel.receiveMixEffectChainSnapshot.stages.isEmpty)
 
         harness.viewModel.setRemoteSoundIsolationEnabled(peerID: peerID, enabled: true)
-        harness.viewModel.setReceiveMasterSoundIsolationEnabled(true)
+        harness.viewModel.setReceiveMixSoundIsolationEnabled(true)
 
         #expect(harness.viewModel.isRemoteSoundIsolationEnabled(peerID: peerID))
-        #expect(harness.viewModel.receiveMasterSoundIsolationEnabled)
+        #expect(harness.viewModel.receiveMixSoundIsolationEnabled)
         #expect(harness.viewModel.receivePeerEffectChainSnapshot(peerID: peerID).stages.isEmpty)
-        #expect(harness.viewModel.receiveMasterEffectChainSnapshot.stages.isEmpty)
+        #expect(harness.viewModel.receiveMixEffectChainSnapshot.stages.isEmpty)
         #expect(harness.viewModel.remoteOutputVolume(for: peerID) == IntercomViewModel.defaultRemoteOutputVolume)
-        #expect(harness.viewModel.masterOutputVolume == IntercomViewModel.defaultMasterOutputVolume)
+        #expect(harness.viewModel.overallOutputVolume == IntercomViewModel.defaultOverallOutputVolume)
     }
 
     @Test func viewModelTracksRemoteCodecMetadataPerPeer() throws {
@@ -218,7 +218,7 @@ extension AppTests.AudioPipelineTests {
         defer { harness.viewModel.disconnect() }
         harness.viewModel.setRemoteOutputVolume(peerID: "member-108", volume: 0.25)
         harness.viewModel.setRemoteOutputVolume(peerID: "member-109", volume: 0)
-        harness.viewModel.setMasterOutputVolume(0.5)
+        harness.viewModel.setOverallOutputVolume(0.5)
         let wave = (0..<3840).map { Float(sin(Double($0) * 2 * .pi * 400 / 48000)) * 0.4 }
         let frame = PCMFrame(sequenceNumber: 1, format: .intercomMixer, capturedAt: 0, samples: wave)
         for peer in ["member-108", "member-109"] {
@@ -257,7 +257,7 @@ extension AppTests.AudioPipelineTests {
             .init(volume: 1.5, muted: false, expectedPeak: 0.15)
         ]
         for (index, setting) in settings.enumerated() {
-            pipeline.updateOutput(masterVolume: setting.volume, isMuted: setting.muted, peerOutputVolumes: [:])
+            pipeline.updateOutput(overallVolume: setting.volume, isMuted: setting.muted, peerOutputVolumes: [:])
             let packet = RTCAudioPacket(
                 sequenceNumber: UInt64(index), codec: .pcm16,
                 format: RTCAudioFormat(sampleRate: 48_000, channelCount: 1),

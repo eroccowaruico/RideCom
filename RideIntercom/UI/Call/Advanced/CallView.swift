@@ -230,8 +230,8 @@ extension CallView {
                         .accessibilityIdentifier("outputStateLabel")
 
                     Slider(value: Binding(
-                        get: { Double(viewModel.masterOutputVolume) },
-                        set: { viewModel.setMasterOutputVolume(Float($0)) }
+                        get: { Double(viewModel.overallOutputVolume) },
+                        set: { viewModel.setOverallOutputVolume(Float($0)) }
                     ), in: 0...2) {
                         Text("Output Volume")
                     } minimumValueLabel: {
@@ -245,8 +245,8 @@ extension CallView {
 
                     if viewModel.supportsSoundIsolation {
                         Toggle(isOn: Binding(
-                            get: { viewModel.receiveMasterSoundIsolationEnabled },
-                            set: { viewModel.setReceiveMasterSoundIsolationEnabled($0) }
+                            get: { viewModel.receiveMixSoundIsolationEnabled },
+                            set: { viewModel.setReceiveMixSoundIsolationEnabled($0) }
                         )) {
                             Label {
                                 Text(verbatim: "Isolate All Received Voices")
@@ -255,7 +255,7 @@ extension CallView {
                             }
                             .font(AppTypography.captionStrong)
                         }
-                        .accessibilityValue(viewModel.receiveMasterSoundIsolationEnabled ? "Enabled" : "Bypassed")
+                        .accessibilityValue(viewModel.receiveMixSoundIsolationEnabled ? "Enabled" : "Bypassed")
                         .accessibilityIdentifier("masterVoiceIsolationToggle")
                     }
                 }
@@ -292,7 +292,7 @@ extension CallView {
     }
 
     private var outputStateLabel: String {
-        viewModel.isOutputMuted ? "Output Muted" : "Output \(Int(viewModel.masterOutputVolume * 100))%"
+        viewModel.isOutputMuted ? "Output Muted" : "Output \(Int(viewModel.overallOutputVolume * 100))%"
     }
 
     private var showsDuckingStatusIcon: Bool {

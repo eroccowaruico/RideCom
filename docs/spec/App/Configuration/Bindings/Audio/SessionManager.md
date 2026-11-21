@@ -57,7 +57,7 @@ Voice Isolation Effect の画面設定は `SoundIsolation` effect の有効/無�
 | Audio Check 中ではない |
 | 直近に可聴な受信音声を最終出力へ渡している |
 | `isOutputMuted == false` |
-| `masterOutputVolume > 0` |
+| `overallOutputVolume > 0` |
 | 該当 peer の出力音量が 0 ではない |
 
 ## AudioOutputStreamConfiguration

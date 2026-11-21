@@ -184,7 +184,7 @@ private struct LiveSettingsStage {
             case .unchanged:
                 break
             case .isolation(let transmit, let receiveMix, let peers):
-                try pipeline.updateSoundIsolation(transmit: transmit, receiveMaster: receiveMix, peers: peers)
+                try pipeline.updateSoundIsolation(transmit: transmit, receiveMix: receiveMix, peers: peers)
             case .encoding(let codec, let format, let aacBitRate, let opusBitRate):
                 try pipeline.updateEncoding(preferred: codec, format: format,
                                             aacELDv2BitRate: aacBitRate, opusBitRate: opusBitRate)

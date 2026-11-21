@@ -29,7 +29,7 @@ extension IntercomViewModel {
               isAudioReady,
               audioCheckPhase == .idle,
               !isOutputMuted,
-              masterOutputVolume > 0 else { return false }
+              overallOutputVolume > 0 else { return false }
         return hasRecentReceivedAudio(now: now)
     }
 
@@ -58,7 +58,7 @@ extension IntercomViewModel {
         let fresh =
             audioPipeline.lastNativeRenderAt.map { now - $0 <= AppAudioPipeline.nativeOutputObservationLifetime }
             ?? false
-        if isOutputMuted || masterOutputVolume <= 0 || !fresh {
+        if isOutputMuted || overallOutputVolume <= 0 || !fresh {
             lastScheduledOutputRMS = 0
             lastScheduledOutputPeakRMS = 0
         } else if let observation {
@@ -73,7 +73,7 @@ extension IntercomViewModel {
     }
 
     func scheduleOutputFrame(frame: PCMFrame, receivedAt: TimeInterval) {
-        guard !isOutputMuted, masterOutputVolume > 0 else {
+        guard !isOutputMuted, overallOutputVolume > 0 else {
             lastScheduledOutputRMS = 0
             lastScheduledOutputPeakRMS = playbackOutputPeakWindow.record(0)
             return

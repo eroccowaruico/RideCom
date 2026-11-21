@@ -92,8 +92,8 @@ struct DiagnosticsAppliedView: View {
                         "Transmit isolation", requested: viewModel.isSoundIsolationEnabled,
                         stages: viewModel.transmitEffectChainSnapshot.stages)
                     effectSummary(
-                        "Master isolation", requested: viewModel.receiveMasterSoundIsolationEnabled,
-                        stages: viewModel.receiveMasterEffectChainSnapshot.stages)
+                        "Master isolation", requested: viewModel.receiveMixSoundIsolationEnabled,
+                        stages: viewModel.receiveMixEffectChainSnapshot.stages)
                     ForEach(viewModel.selectedGroup?.members.dropFirst().map { $0 } ?? [], id: \.id) { member in
                         effectSummary(
                             member.resolvedDisplayName,

@@ -91,11 +91,11 @@ extension IntercomViewModel {
             preferredCodec: preferredTransmitCodec,
             aacELDv2BitRate: aacELDv2BitRate,
             opusBitRate: opusBitRate,
-            masterOutputVolume: masterOutputVolume,
+            overallOutputVolume: overallOutputVolume,
             isOutputMuted: isOutputMuted,
             peerOutputVolumes: remoteOutputVolumes,
             transmitSoundIsolationEnabled: isSoundIsolationEnabled,
-            receiveMasterSoundIsolationEnabled: receiveMasterSoundIsolationEnabled,
+            receiveMixSoundIsolationEnabled: receiveMixSoundIsolationEnabled,
             peerSoundIsolationEnabled: remoteSoundIsolationEnabled,
             maximumBufferedDuration: 0.2,
             receiveMaximumBufferedDuration: AppAudioPipelineConfiguration.callReceiveMaximumBufferedDuration,
@@ -156,7 +156,7 @@ extension IntercomViewModel {
 
     func updateAudioPipelineOutputSettings() {
         audioPipeline.updateOutput(
-            masterVolume: masterOutputVolume,
+            overallVolume: overallOutputVolume,
             isMuted: isOutputMuted,
             peerOutputVolumes: remoteOutputVolumes
         )
@@ -165,7 +165,7 @@ extension IntercomViewModel {
     func updateAudioPipelineEffectSettings() {
         do {
             try audioPipeline.updateSoundIsolation(transmit: isSoundIsolationEnabled,
-                receiveMaster: receiveMasterSoundIsolationEnabled, peers: remoteSoundIsolationEnabled)
+                receiveMix: receiveMixSoundIsolationEnabled, peers: remoteSoundIsolationEnabled)
         } catch {
             audioErrorMessage = "Audio effect configuration failed"
             stopAudioPipeline()

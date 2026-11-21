@@ -63,7 +63,7 @@ extension AppTests.RealtimeConversationTests {
             return (received, failed)
         }
         #expect(waitForAudioWhileUIIsOccupied(started))
-        try pipeline.updateSoundIsolation(transmit: true, receiveMaster: false, peers: [:])
+        try pipeline.updateSoundIsolation(transmit: true, receiveMix: false, peers: [:])
         finished.withLock { $0 = true }
         let result = await task.value
         #expect(result.0 > 0)
@@ -104,7 +104,7 @@ extension AppTests.RealtimeConversationTests {
         }
         try #require(effects.count == (VoiceIsolationSupport.isAvailable ? 2 : 0))
         for enabled in [true, false, true] {
-            try pipeline.updateSoundIsolation(transmit: false, receiveMaster: enabled, peers: ["peer": enabled])
+            try pipeline.updateSoundIsolation(transmit: false, receiveMix: enabled, peers: ["peer": enabled])
             for effect in effects {
                 #expect(effect.bypass == !enabled)
                 try effect.withAUAudioUnit { unit in
@@ -129,7 +129,7 @@ extension AppTests.RealtimeConversationTests {
         try pipeline.rebuild(configuration: .init(transmitSoundIsolationEnabled: false), peerIDs: ["one", "rx-master"])
         defer { pipeline.stop() }
 
-        try pipeline.updateSoundIsolation(transmit: false, receiveMaster: false, peers: ["one": true, "late": true])
+        try pipeline.updateSoundIsolation(transmit: false, receiveMix: false, peers: ["one": true, "late": true])
         #expect(pipeline.isolationRuntimeSnapshots["rx-master"]?.state == .bypassed)
         #expect(pipeline.isolationRuntimeSnapshots["rx-peer-rx-master"]?.state == .bypassed)
         #expect(pipeline.isolationRuntimeSnapshots["rx-peer-one"]?.state == .active)
@@ -144,7 +144,7 @@ extension AppTests.RealtimeConversationTests {
             #expect(pipeline.isolationRuntimeSnapshots["rx-peer-\(peer)"]?.state == .active)
         }
 
-        try pipeline.updateSoundIsolation(transmit: false, receiveMaster: true, peers: ["rx-master": true])
+        try pipeline.updateSoundIsolation(transmit: false, receiveMix: true, peers: ["rx-master": true])
         #expect(pipeline.isolationRuntimeSnapshots["rx-master"]?.state == .active)
         #expect(pipeline.isolationRuntimeSnapshots["rx-peer-rx-master"]?.state == .active)
         #expect(pipeline.isolationRuntimeSnapshots["rx-peer-one"]?.state == .bypassed)

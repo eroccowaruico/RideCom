@@ -99,7 +99,7 @@ extension AppTests {
             harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
             harness.callSession.authenticate(["member-108"])
             await AppTestSupport.waitUntil { harness.viewModel.isAudioReady }
-            harness.viewModel.setMasterOutputVolume(2)
+            harness.viewModel.setOverallOutputVolume(2)
             let activeOutputBus = harness.viewModel.audioPipeline.snapshot.buses.first {
                 $0.id == "rx-master"
             }

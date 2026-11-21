@@ -122,7 +122,7 @@ struct ArchitectureTests {
         #expect(receivePipelineView.contains("defaultReceiveSoundIsolationEnabled") == false)
         #expect(effectChainSource.contains("var transmitEffectChainSnapshot"))
         #expect(effectChainSource.contains("func receivePeerEffectChainSnapshot"))
-        #expect(effectChainSource.contains("var receiveMasterEffectChainSnapshot"))
+        #expect(effectChainSource.contains("var receiveMixEffectChainSnapshot"))
         #expect(effectChainSource.contains("effects: mixerBusSnapshot(id: \"tx-bus\")?.effectChain ?? []"))
         #expect(effectChainSource.contains("peakLimiterStageSnapshot") == false)
         #expect(callSessionAdapter.contains("case remotePeerMetadata(peerID: String, activeCodec: AudioCodecIdentifier?)"))

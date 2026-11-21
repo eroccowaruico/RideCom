@@ -210,7 +210,7 @@ extension IntercomViewModel {
     private func prepareAudioCheckPipeline() -> Bool {
         do {
             var configuration = currentAudioPipelineConfiguration()
-            configuration.receiveMasterSoundIsolationEnabled = false
+            configuration.receiveMixSoundIsolationEnabled = false
             configuration.peerSoundIsolationEnabled = [:]
             configuration.receiveMaximumBufferedDuration = 5
             configuration.finitePlaybackDuration = 6

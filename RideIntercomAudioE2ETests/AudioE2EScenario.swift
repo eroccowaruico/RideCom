@@ -82,14 +82,14 @@ struct AudioE2EScenario: Codable {
     @MainActor
     private func applyMixSettings(to model: IntercomViewModel, peerID: String) {
         if model.isSoundIsolationEnabled != transmitIsolation { model.setSoundIsolationEnabled(transmitIsolation) }
-        if model.receiveMasterSoundIsolationEnabled != receiveMixIsolation {
-            model.setReceiveMasterSoundIsolationEnabled(receiveMixIsolation)
+        if model.receiveMixSoundIsolationEnabled != receiveMixIsolation {
+            model.setReceiveMixSoundIsolationEnabled(receiveMixIsolation)
         }
         if model.isRemoteSoundIsolationEnabled(peerID: peerID) != peerIsolation {
             model.setRemoteSoundIsolationEnabled(peerID: peerID, enabled: peerIsolation)
         }
         if model.isDuckOthersEnabled != duck { model.setDuckOthersEnabled(duck) }
-        model.setMasterOutputVolume(receiveMixVolume)
+        model.setOverallOutputVolume(receiveMixVolume)
         model.setRemoteOutputVolume(peerID: peerID, volume: peerVolume)
         if model.isMuted != localMute { model.toggleMute() }
         if model.isOutputMuted != outputMute { model.toggleOutputMute() }

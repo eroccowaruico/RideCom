@@ -159,8 +159,8 @@ extension StandardCallView {
                 Image(systemName: "speaker").foregroundStyle(.secondary).accessibilityHidden(true)
                 Slider(
                     value: Binding(
-                        get: { Double(viewModel.masterOutputVolume) },
-                        set: { viewModel.setMasterOutputVolume(Float($0)) }
+                        get: { Double(viewModel.overallOutputVolume) },
+                        set: { viewModel.setOverallOutputVolume(Float($0)) }
                     ),
                     in: 0...2
                 ) {
@@ -182,8 +182,8 @@ extension StandardCallView {
             }
             .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
             if viewModel.supportsSoundIsolation {
-                Toggle(isOn: Binding(get: { viewModel.receiveMasterSoundIsolationEnabled },
-                                     set: viewModel.setReceiveMasterSoundIsolationEnabled)) {
+                Toggle(isOn: Binding(get: { viewModel.receiveMixSoundIsolationEnabled },
+                                     set: viewModel.setReceiveMixSoundIsolationEnabled)) {
                     let label: LocalizedStringKey = kind == .direct
                         ? "Isolate the Other Person’s Voice" : "Isolate Incoming Voices"
                     Text(label)

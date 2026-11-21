@@ -42,7 +42,7 @@ extension IntercomViewModel {
         receivedVoicePacketCount += 1
         if level >= 0.0001 { remoteVoiceReceivedAt[peerID] = receivedAt }
         applyReceivedVoiceMemberState(peerID: peerID, voiceLevel: level)
-        if !isOutputMuted, masterOutputVolume > 0, remoteOutputVolume(for: peerID) > 0 {
+        if !isOutputMuted, overallOutputVolume > 0, remoteOutputVolume(for: peerID) > 0 {
             markPlayedAudioFrame(peerID: peerID)
         }
         setRemotePeerCodec(peerID, codec: received.packet.codec)

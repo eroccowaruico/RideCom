@@ -223,9 +223,9 @@ Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）に表�
 | ローカル入力状態ラベル | `localMicrophoneHeaderControl` | `localMicrophoneStateLabel` | `Unmuted` / `Muted` | `isMuted` | 状態テキスト | 入力状態 |
 | ローカル入力メーター | `localMicrophoneHeaderControl` | `localMicrophoneMeter` | なし | `voiceLevel`, `voicePeakLevel`, `isMuted` | 値文字列なしのメーター | 入力レベルとピーク |
 | ローカルミュートボタン | `localMicrophoneHeaderControl` | `localMicrophoneMuteButton` | `Mute` | `Bool` | `mic.slash`固定のglassボタン。ミュート中だけdangerのglassProminentとisSelected | 押下でマイクミュート反転。Watch音声選択中は操作を外し、Watchでの操作案内を表示 |
-| マスター出力グループ | `callStatusHeader` | `outputStateLabel` | `Output` | `masterOutputVolume`, `isOutputMuted`, `receiveMasterSoundIsolationEnabled` | 出力ラベル + スライダー + Isolate All Received Voices + ミュート | OS 音量ではなく App 最終出力 |
+| マスター出力グループ | `callStatusHeader` | `outputStateLabel` | `Output` | `overallOutputVolume`, `isOutputMuted`, `receiveMixSoundIsolationEnabled` | 出力ラベル + スライダー + Isolate All Received Voices + ミュート | OS 音量ではなく App 最終出力 |
 | マスター出力スライダー | `callStatusHeader` | `masterOutputSlider` | `Output Volume` | `Float`, `0...2` | `1.0` が通常、`1.0` 超過は boost | マスターgain後のrx-output PeakLimiterで最終ピークを抑制 |
-| マスター出力 Voice Isolation Effect | `callStatusHeader` | `masterVoiceIsolationToggle` | `Isolate All Received Voices`（英語） | `receiveMasterSoundIsolationEnabled`。既定 `false` | `supportsSoundIsolation == true` のとき Toggle | RX master bus の SoundIsolation effect 有効/無効 |
+| マスター出力 Voice Isolation Effect | `callStatusHeader` | `masterVoiceIsolationToggle` | `Isolate All Received Voices`（英語） | `receiveMixSoundIsolationEnabled`。既定 `false` | `supportsSoundIsolation == true` のとき Toggle | RX master bus の SoundIsolation effect 有効/無効 |
 | マスター出力ミュートボタン | `callStatusHeader` | `masterOutputMuteButton` | `Mute Output` / `Unmute Output` | `Bool` | ミュート時はアクセント色のglassProminentとisSelected | 入力や接続は止めない |
 | ダッキング状態アイコン | `callStatusHeader` | `duckingStatusIcon` | なし | `isDuckOthersEnabled`, `isOtherAudioDuckingActive` | 設定 ON 時のみ `waveform` | 設定 ON と実効 ON を分ける |
 

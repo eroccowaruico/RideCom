@@ -31,7 +31,10 @@ extension IntercomViewModel {
     }
 
     func setAudioSessionProfile(_ profile: AudioSessionProfile) {
-        applyAudioSessionSettings(event: "settings.audio_session.changed", metadata: ["profile": "\(profile.rawValue)"]) {
+        applyAudioSessionSettings(
+            event: "settings.audio_session.changed",
+            metadata: ["profile": "\(profile.rawValue)"]
+        ) {
             audioSessionProfile = profile
         }
     }
@@ -229,7 +232,10 @@ extension IntercomViewModel {
         refreshNearbyGroupDelivery()
         if nearbyGroupDeliveryIsForeground { resumeSavedInvitationReplies() }
         saveAppSettings()
-        logSettingChange("settings.rtc_routes.changed", ["enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"])
+        logSettingChange(
+            "settings.rtc_routes.changed",
+            ["enabledRoutes": "\(normalizedRoutes.map(\.rawValue).sorted().joined(separator: ","))"]
+        )
         publishRuntimePackageReports(force: true)
     }
 
@@ -242,8 +248,8 @@ extension IntercomViewModel {
         publishRuntimePackageReports(force: true)
     }
 
-    func setMasterOutputVolume(_ volume: Float) {
-        masterOutputVolume = min(2, max(0, volume))
+    func setOverallOutputVolume(_ volume: Float) {
+        overallOutputVolume = min(2, max(0, volume))
         updateAudioPipelineOutputSettings()
         publishRuntimePackageReports(force: true)
     }
@@ -260,7 +266,10 @@ extension IntercomViewModel {
             remoteOutputVolumes[peerID] = normalizedVolume
         }
         updateAudioPipelineOutputSettings()
-        logSettingChange("settings.remote_output_volume.changed", ["peerID": "\(peerID)", "volume": "\(normalizedVolume)"])
+        logSettingChange(
+            "settings.remote_output_volume.changed",
+            ["peerID": "\(peerID)", "volume": "\(normalizedVolume)"]
+        )
         publishRuntimePackageReports(force: true)
     }
 
@@ -285,8 +294,8 @@ extension IntercomViewModel {
         updateAudioPipelineEffectSettings()
     }
 
-    func setReceiveMasterSoundIsolationEnabled(_ enabled: Bool) {
-        receiveMasterSoundIsolationEnabled = enabled
+    func setReceiveMixSoundIsolationEnabled(_ enabled: Bool) {
+        receiveMixSoundIsolationEnabled = enabled
         logSettingChange("settings.receive_master_sound_isolation.changed", ["enabled": "\(enabled)"])
         updateAudioPipelineEffectSettings()
     }
@@ -329,16 +338,19 @@ extension IntercomViewModel {
         setAACELDv2BitRate(Self.defaultAACELDv2BitRate)
         setOpusBitRate(Self.defaultOpusBitRate)
         setRTCTransportRoutes(Self.defaultEnabledRTCTransportRoutes)
-        setMasterOutputVolume(Self.defaultMasterOutputVolume)
+        setOverallOutputVolume(Self.defaultOverallOutputVolume)
         remoteOutputVolumes.removeAll()
-        receiveMasterSoundIsolationEnabled = Self.defaultReceiveSoundIsolationEnabled
+        receiveMixSoundIsolationEnabled = Self.defaultReceiveSoundIsolationEnabled
         remoteSoundIsolationEnabled.removeAll()
         isOutputMuted = false
         callSession.setOutputMute(false)
         updateAudioPipelineEffectSettings()
         updateAudioPipelineOutputSettings()
         publishRuntimePackageReports(force: true)
-        AppLoggers.settings.notice("settings.reset", metadata: .event("settings.reset", ["operationID": "\(UUID().uuidString)"]))
+        AppLoggers.settings.notice(
+            "settings.reset",
+            metadata: .event("settings.reset", ["operationID": "\(UUID().uuidString)"])
+        )
     }
 
     func saveAppSettings() {
