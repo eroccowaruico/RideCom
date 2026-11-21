@@ -44,7 +44,8 @@ struct MacScreenRenderingTests {
         defer { fixture.remove() }
         for scheme in [ColorScheme.light, .dark] {
             try await record(AppleSignInView(account: fixture.session).environment(\.colorScheme, scheme),
-                             size: .init(width: 480, height: 620), language: "ja", named: "sign-in-\(scheme == .dark ? "dark" : "light")")
+                    size: .init(width: 480, height: 620), language: "ja",
+                    named: "sign-in-\(scheme == .dark ? "dark" : "light")")
         }
     }
     @Test(arguments: ["en", "ja"]) func callColumn(language: String) async throws {
@@ -63,9 +64,13 @@ struct MacScreenRenderingTests {
     @Test func diagnosticsNetworkAndApplied() async throws {
         let h = try AppTestSupport.makeHarnessWithSavedUser(), vm = h.viewModel
         defer { vm.disconnect() }
-        try await record(ScrollView { DiagnosticsNetworkView(viewModel: vm).padding() }, size: .init(width: 520, height: 640),
+            try await record(
+                ScrollView { DiagnosticsNetworkView(viewModel: vm).padding() },
+                size: .init(width: 520, height: 640),
                          language: "en", named: "diagnostics-network")
-        try await record(ScrollView { DiagnosticsAppliedView(viewModel: vm).padding() }, size: .init(width: 520, height: 1100),
+            try await record(
+                ScrollView { DiagnosticsAppliedView(viewModel: vm).padding() },
+                size: .init(width: 520, height: 1100),
                          language: "en", named: "diagnostics-applied")
     }
 

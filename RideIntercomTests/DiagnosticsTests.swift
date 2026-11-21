@@ -100,11 +100,17 @@ struct DiagnosticsTests {
         #expect(stale.codecDecodeStep.state == .waiting)
         let resumed = PCMFrame(sequenceNumber: 1, format: frame.format,
             samples: Array(repeating: -0.2, count: 480))
-        harness.callSession.receive(try AppTestSupport.receivedAudioPacket(peerID: "member-108", frame: resumed, codec: .pcm16))
+            harness.callSession.receive(
+                try AppTestSupport.receivedAudioPacket(peerID: "member-108", frame: resumed, codec: .pcm16))
         await AppTestSupport.waitUntil(timeout: .seconds(3)) {
-            harness.outputBackend.scheduledFrames.dropFirst(beforeFailure).contains { $0.samples.contains { $0 < -0.05 } }
+                harness.outputBackend.scheduledFrames.dropFirst(beforeFailure).contains {
+                    $0.samples.contains { $0 < -0.05 }
+                }
         }
-        #expect(harness.outputBackend.scheduledFrames.dropFirst(beforeFailure).contains { $0.samples.contains { $0 < -0.05 } })
+            #expect(
+                harness.outputBackend.scheduledFrames.dropFirst(beforeFailure).contains {
+                    $0.samples.contains { $0 < -0.05 }
+                })
         #expect(presentation().rtcReceiveStep.state == .passing)
         #expect(presentation().codecDecodeStep.state == .passing)
         model.disconnect()
@@ -134,7 +140,11 @@ struct DiagnosticsTests {
 
         input.audioMixerSnapshot.buses = [
             .init(id: "rx-peer-first", volume: 1, sourceCount: 1, effectCount: 0,
-                sources: [.init(id: "pcm", typeName: "MixerPCMSource", index: 0, inputBusIndex: 0, scheduledFrameCount: 1)])
+                    sources: [
+                        .init(
+                            id: "pcm", typeName: "MixerPCMSource", index: 0, inputBusIndex: 0,
+                            scheduledFrameCount: 1)
+                    ])
         ]
         #expect(presentation().receivePeerStates["first"] == .waiting)
         input.audioMixerSnapshot.buses[0].sources[0].lastScheduledAt = now - 2.01
@@ -308,7 +318,11 @@ struct DiagnosticsTests {
         let mixerSnapshot = try mixerReport.decodeJSON(AudioMixerSnapshot.self)
         #expect(mixerSnapshot == harness.viewModel.audioPipeline.snapshot)
         #expect(mixerSnapshot.buses.isEmpty) // No authenticated media, so no active graph.
-        #expect(!reports.contains { ["SoundIsolation", "DynamicsProcessor", "PeakLimiter"].contains($0.package) && $0.kind.contains("Runtime") })
+            #expect(
+                !reports.contains {
+                    ["SoundIsolation", "DynamicsProcessor", "PeakLimiter"].contains($0.package)
+                        && $0.kind.contains("Runtime")
+                })
 
         let codecReport = try #require(reports.first { $0.package == "Codec" && $0.kind == "runtimeReport" })
         let codecRuntime = try codecReport.decodeJSON(CodecRuntimeReport.self)
@@ -381,13 +395,18 @@ struct DiagnosticsTests {
 
     @Test func effectStagesKeepTheImplementationStateWordThatTheDotMerges() {
         func stage(_ state: AudioEffectStageRuntimeState) -> EffectChainStage {
-            EffectChainStage(snapshot: AudioEffectStageSnapshot(id: "isolation", package: "AudioMixer", name: "SoundIsolation",
+                EffectChainStage(
+                    snapshot: AudioEffectStageSnapshot(
+                        id: "isolation", package: "AudioMixer", name: "SoundIsolation",
                                                                 shortLabel: "ISO", detail: "", state: state))
         }
         // The dot merges waiting with unavailable and bypassed with idle; the word keeps them apart.
         #expect(stage(.waiting).state == stage(.unavailable).state)
         #expect(stage(.bypassed).state == stage(.idle).state)
-        #expect([AudioEffectStageRuntimeState.active, .waiting, .unavailable, .bypassed, .idle].map { stage($0).runtimeState }
+            #expect(
+                [AudioEffectStageRuntimeState.active, .waiting, .unavailable, .bypassed, .idle].map {
+                    stage($0).runtimeState
+                }
                 == ["active", "waiting", "unavailable", "bypassed", "idle"])
     }
 
@@ -441,22 +460,30 @@ struct DiagnosticsTests {
 
     @Test func verdictNamesTheFirstStoppedThenWaitingStageWithItsReason() {
         func step(_ title: String, _ state: PipelineStepState, _ detail: String = "") -> PipelineStep {
-            PipelineStep(id: title, package: "", title: title, detail: detail, icon: "", state: state, accessibilityIdentifier: title)
+                PipelineStep(
+                    id: title, package: "", title: title, detail: detail, icon: "", state: state,
+                    accessibilityIdentifier: title)
         }
         #expect(PipelineVerdict(steps: [step("Session", .passing), step("Input", .passing)])
             == PipelineVerdict(steps: [step("A", .passing)]))
         #expect(PipelineVerdict(steps: [step("Session", .passing)]).text == "Passing")
         #expect(PipelineVerdict(steps: [step("Session", .passing)]).reason == nil)
-        let waiting = PipelineVerdict(steps: [step("Session", .passing), step("VAD", .waiting, "Not speaking"), step("Codec", .idle)])
+            let waiting = PipelineVerdict(steps: [
+                step("Session", .passing), step("VAD", .waiting, "Not speaking"), step("Codec", .idle)
+            ])
         #expect(waiting.state == .waiting)
         #expect(waiting.text == "Waiting at VAD")
         #expect(waiting.reason == "Not speaking")
-        let blocked = PipelineVerdict(steps: [step("Session", .waiting, "Joining"), step("Input", .blocked, "Audio device disconnected.")])
+            let blocked = PipelineVerdict(steps: [
+                step("Session", .waiting, "Joining"), step("Input", .blocked, "Audio device disconnected.")
+            ])
         #expect(blocked.text == "Blocked at Input")
         #expect(blocked.reason == "Audio device disconnected.")
         #expect(PipelineVerdict(steps: [step("Output", .muted, "Muted")]).text == "Muted at Output")
         #expect(PipelineVerdict(steps: [step("Session", .idle), step("Input", .idle)]).text == "Idle")
-        #expect(PipelineVerdict(steps: [step("Session", .passing), step("Codec", .idle, "Media Idle")]).text == "Idle at Codec")
+            #expect(
+                PipelineVerdict(steps: [step("Session", .passing), step("Codec", .idle, "Media Idle")]).text
+                    == "Idle at Codec")
     }
 
 }

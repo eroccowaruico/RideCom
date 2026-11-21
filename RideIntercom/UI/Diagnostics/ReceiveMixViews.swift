@@ -37,7 +37,11 @@ struct ReceiveMasterMixGroup: View {
                             .foregroundStyle(AppColorPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Text(master.isMuted ? "OUT muted" : "VOL \(Int(master.masterVolume * 100))% / FX \(master.effectSummary)")
+                        Text(
+                            master.isMuted
+                                ? "OUT muted"
+                                : "VOL \(Int(master.masterVolume * 100))% / FX \(master.effectSummary)"
+                        )
                             .font(AppTypography.caption2Mono)
                             .foregroundStyle(AppColorPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)

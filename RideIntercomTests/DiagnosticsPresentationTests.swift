@@ -34,9 +34,11 @@ struct DiagnosticsPresentationTests {
         drops.expired = 12
         model.lastRouteMetrics = .init(route: .webRTC, jitter: 0.006)
         model.networkDiagnostics = .init(generatedAt: now - 20,
-                                        routes: [.init(route: .webRTC, statistics: internet, eventDrops: ["transport": drops])],
+                routes: [.init(route: .webRTC, statistics: internet, eventDrops: ["transport": drops])],
                                         peers: [
-            .init(peerID: origin, route: .multipeer, path: [origin, firstRelay, secondRelay, receiver], observedAt: now - 2),
+                    .init(
+                        peerID: origin, route: .multipeer, path: [origin, firstRelay, secondRelay, receiver],
+                        observedAt: now - 2),
             .init(peerID: direct, route: .webRTC, path: [direct, receiver], observedAt: now - 20)
         ])
 
