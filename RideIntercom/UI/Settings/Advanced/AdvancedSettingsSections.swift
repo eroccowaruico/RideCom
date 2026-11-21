@@ -6,7 +6,10 @@ struct AdvancedInterfaceModeSection: View {
 
     var body: some View {
         Section {
-            Picker("App Layout", selection: Binding(get: { viewModel.interfaceMode }, set: viewModel.setInterfaceMode)) {
+            Picker(
+                "App Layout",
+                selection: Binding(get: { viewModel.interfaceMode }, set: viewModel.setInterfaceMode)
+            ) {
                 Text(verbatim: "Standard").tag(InterfaceMode.standard)
                 Text(verbatim: "Advanced").tag(InterfaceMode.advanced)
             }
@@ -16,7 +19,12 @@ struct AdvancedInterfaceModeSection: View {
         } header: {
             Text("App Layout")
         } footer: {
-            Text("Advanced includes detailed call information and diagnostics. Switching layouts keeps your call connected.")
+            Text(
+                """
+                Advanced includes detailed call information and diagnostics. Switching layouts keeps your call \
+                connected.
+                """
+            )
         }
     }
 }
@@ -43,19 +51,23 @@ struct AdvancedAudioCheckPanel: View {
                     .accessibilityIdentifier("audioCheckPhaseLabel")
             }
             LabeledContent("Recording Input") {
-                Text(viewModel.isUsingWatchAudio ? "Watch Microphone" : "This Device: \(viewModel.audioCheckInputPortName)")
+                Text(
+                    viewModel.isUsingWatchAudio
+                        ? "Watch Microphone" : "This Device: \(viewModel.audioCheckInputPortName)")
             }
             .accessibilityIdentifier("audioCheckInputSource")
             LabeledContent("Playback Output") {
-                Text(viewModel.isUsingWatchAudio ? "Watch Speaker" : "This Device: \(viewModel.audioCheckOutputPortName)")
+                Text(
+                    viewModel.isUsingWatchAudio
+                        ? "Watch Speaker" : "This Device: \(viewModel.audioCheckOutputPortName)")
             }
             .accessibilityIdentifier("audioCheckOutputDestination")
             AudioCheckMeterSection(title: "Microphone Input", systemImage: "mic.fill",
-                                   level: viewModel.diagnosticsInputLevel, peakLevel: viewModel.diagnosticsInputPeakLevel,
+                level: viewModel.diagnosticsInputLevel, peakLevel: viewModel.diagnosticsInputPeakLevel,
                                    isMuted: viewModel.isMuted, accessibilityIdentifier: "audioCheckInputMeter")
                 .listRowSeparator(.hidden)
             AudioCheckMeterSection(title: "Speaker Output", systemImage: "speaker.wave.2.fill",
-                                   level: viewModel.diagnosticsOutputLevel, peakLevel: viewModel.diagnosticsOutputPeakLevel,
+                level: viewModel.diagnosticsOutputLevel, peakLevel: viewModel.diagnosticsOutputPeakLevel,
                                    isMuted: false, accessibilityIdentifier: "audioCheckOutputMeter")
                 .listRowSeparator(.hidden)
             Text(viewModel.isMuted ? "Microphone mute: On" : "Microphone mute: Off")
@@ -157,7 +169,12 @@ struct AdvancedInternetConnectionEditor: View {
             } header: {
                 Text("Manual Access Token")
             } footer: {
-                Text("Use your service URL and device token. Saving ends the current call. Cloudflare account secrets stay on the server.")
+                Text(
+                    """
+                    Use your service URL and device token. Saving ends the current call. Cloudflare account \
+                    secrets stay on the server.
+                    """
+                )
             }
         }
         .onAppear {

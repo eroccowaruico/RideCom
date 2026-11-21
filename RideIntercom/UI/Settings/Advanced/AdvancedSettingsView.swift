@@ -11,7 +11,7 @@ struct AdvancedSettingsView: View {
         StoreAccessSection(access: viewModel.storeAccess)
         LocalDisplayNameSection(viewModel: viewModel)
         CallDisconnectTimerSection(viewModel: viewModel, marksDefault: true,
-                                   disabledWatchInterval: showsWatchSettings ? viewModel.watchCallDisconnectInterval : nil)
+            disabledWatchInterval: showsWatchSettings ? viewModel.watchCallDisconnectInterval : nil)
         AdvancedCallNotificationStatusSection(notifications: viewModel.notifications)
         CallStatusDisplaySection(viewModel: viewModel)
         CommunicationPanel(viewModel: viewModel)

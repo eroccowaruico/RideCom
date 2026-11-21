@@ -6,19 +6,30 @@ struct StandardInterfaceModeSection: View {
 
     var body: some View {
         Section {
-            Picker("App Layout", selection: Binding(get: { viewModel.interfaceMode }, set: viewModel.setInterfaceMode)) {
+            Picker(
+                "App Layout",
+                selection: Binding(get: { viewModel.interfaceMode }, set: viewModel.setInterfaceMode)
+            ) {
                 Text("Standard").tag(InterfaceMode.standard)
                 Text("Advanced").tag(InterfaceMode.advanced)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .accessibilityIdentifier("interfaceModePicker")
-            Toggle("Show Groups Tab", isOn: Binding(get: { viewModel.showsGroupsTab }, set: viewModel.setShowsGroupsTab))
+            Toggle(
+                "Show Groups Tab",
+                isOn: Binding(get: { viewModel.showsGroupsTab }, set: viewModel.setShowsGroupsTab)
+            )
                 .accessibilityIdentifier("showsGroupsTabToggle")
         } header: {
             Text("App Layout")
         } footer: {
-            Text("Advanced shows diagnostics and detailed settings (English only). Turn on Show Groups Tab to create and list groups for three or more people. One-to-one connections work with it off.")
+            Text(
+                """
+                Advanced shows diagnostics and detailed settings (English only). Turn on Show Groups Tab to \
+                create and list groups for three or more people. One-to-one connections work with it off.
+                """
+            )
         }
     }
 }
@@ -82,7 +93,9 @@ struct StandardAudioCheckSection: View {
     private var footer: LocalizedStringKey? {
         switch phase {
         case .idle:
-            if viewModel.isUsingWatchAudio { return "Watch is using audio. Stop it before starting a check on this device." }
+            if viewModel.isUsingWatchAudio {
+                return "Watch is using audio. Stop it before starting a check on this device."
+            }
             if viewModel.hasAnyActiveGroupConnection { return "End your call before checking audio." }
             return nil
         case .preparing, .failed: return nil
@@ -157,7 +170,12 @@ struct StandardLocalDisplayNameSection: View {
         } header: {
             Text("Your Display Name")
         } footer: {
-            Text("Choose the name you share with people in your groups. They can keep a different name for you on their own device.")
+            Text(
+                """
+                Choose the name you share with people in your groups. They can keep a different name for you on \
+                their own device.
+                """
+            )
         }
     }
 }

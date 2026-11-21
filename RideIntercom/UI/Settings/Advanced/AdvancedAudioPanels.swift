@@ -13,7 +13,10 @@ struct AdvancedAudioSessionPanel: View {
                 set: { viewModel.setAudioSessionModeProfile($0) }
             )) {
                 ForEach(AudioSessionProfile.settingsModeCases) { profile in
-                    settingsOption(profile.label, isDefault: profile == IntercomViewModel.defaultAudioSessionProfile.settingsModeProfile)
+                    settingsOption(
+                        profile.label,
+                        isDefault: profile == IntercomViewModel.defaultAudioSessionProfile.settingsModeProfile
+                    )
                         .tag(profile)
                 }
             }
@@ -56,7 +59,12 @@ struct AdvancedAudioSessionPanel: View {
             Text("Audio Session")
                 .accessibilityIdentifier("audioSessionPanel")
         } footer: {
-            Text("Burst mode uses the default session for intercom-style audio and explicit echo cancellation. Stream mode uses voice-chat routing for continuous conversation.")
+            Text(
+                """
+                Burst mode uses the default session for intercom-style audio and explicit echo cancellation. \
+                Stream mode uses voice-chat routing for continuous conversation.
+                """
+            )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("audioSessionModeDescription")
@@ -76,7 +84,12 @@ struct AdvancedTransmitCodecPanel: View {
                     get: { viewModel.preferredTransmitCodec },
                     set: { viewModel.setPreferredTransmitCodec($0) }
                 )) {
-                    ForEach([(AudioCodecIdentifier.pcm16, "PCM 16-bit"), (.mpeg4AACELD, "AAC-ELD"), (.opus, "Opus")], id: \.0) { codec, name in
+                    ForEach(
+                        [
+                            (AudioCodecIdentifier.pcm16, "PCM 16-bit"), (.mpeg4AACELD, "AAC-ELD"),
+                            (.opus, "Opus")
+                        ], id: \.0
+                    ) { codec, name in
                         settingsOption(name, isDefault: codec == IntercomViewModel.defaultTransmitCodec).tag(codec)
                     }
                 }
@@ -93,7 +106,9 @@ struct AdvancedTransmitCodecPanel: View {
                     set: { viewModel.setRTCAudioFormatPreset($0) }
                 )) {
                     ForEach(RTCAudioFormatPreset.allCases) { preset in
-                        settingsOption(preset.label, isDefault: preset == IntercomViewModel.defaultRTCAudioFormatPreset).tag(preset)
+                        settingsOption(
+                            preset.label, isDefault: preset == IntercomViewModel.defaultRTCAudioFormatPreset
+                        ).tag(preset)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -107,7 +122,8 @@ struct AdvancedTransmitCodecPanel: View {
                         set: { viewModel.setAACELDv2BitRate($0) }
                     )) {
                     ForEach(viewModel.availableAACBitRates, id: \.self) { bitRate in
-                        let low = AppAudioCodecBridge.isLowBandwidthAACBitRate(bitRate, format: viewModel.rtcAudioFormatPreset.audioFormat)
+                        let low = AppAudioCodecBridge.isLowBandwidthAACBitRate(
+                            bitRate, format: viewModel.rtcAudioFormatPreset.audioFormat)
                         settingsOption("\(bitRate / 1_000) kbps\(low ? " (Lower Quality)" : "")",
                                        isDefault: bitRate == IntercomViewModel.defaultAACELDv2BitRate).tag(bitRate)
                     }
@@ -132,13 +148,31 @@ struct AdvancedTransmitCodecPanel: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if viewModel.preferredTransmitCodec == .opus {
-                    Text("Opus 24 and 32 kbps are lower-quality options. The default remains 48 kbps. Encoding bitrate is not total network usage.")
+                    Text(
+                        """
+                        Opus 24 and 32 kbps are lower-quality options. The default remains 48 kbps. Encoding \
+                        bitrate is not total network usage.
+                        """
+                    )
                         .accessibilityIdentifier("opusLowBandwidthExplanation")
                 }
-                Text("AAC-ELD choices depend on the sample rate. Unsupported values are adjusted to the nearest quality-preserving choice.")
+                Text(
+                    """
+                    AAC-ELD choices depend on the sample rate. Unsupported values are adjusted to the nearest \
+                    quality-preserving choice.
+                    """
+                )
                 if viewModel.preferredTransmitCodec == .mpeg4AACELD,
-                   viewModel.availableAACBitRates.contains(where: { AppAudioCodecBridge.isLowBandwidthAACBitRate($0, format: viewModel.rtcAudioFormatPreset.audioFormat) }) {
-                    Text("48 kHz / 32 kbps and 24 kHz / 16 kbps are lower-quality options. They do not change the default. Encoding bitrate is not total network usage.")
+                    viewModel.availableAACBitRates.contains(where: {
+                        AppAudioCodecBridge.isLowBandwidthAACBitRate(
+                            $0, format: viewModel.rtcAudioFormatPreset.audioFormat)
+                    }) {
+                    Text(
+                        """
+                        48 kHz / 32 kbps and 24 kHz / 16 kbps are lower-quality options. They do not change the \
+                        default. Encoding bitrate is not total network usage.
+                        """
+                    )
                         .accessibilityIdentifier("aacLowBandwidthExplanation")
                 }
             }

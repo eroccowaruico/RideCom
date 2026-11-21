@@ -45,7 +45,12 @@ struct StandardSettingsView: View {
                                 Text("Do not normally change these settings")
                                     .font(.headline)
                                     .accessibilityIdentifier("advancedSettingsWarningTitle")
-                                Text("Changing these settings can affect audio and connections. Combinations other than the defaults have not been tested.")
+                                Text(
+                                    """
+                                    Changing these settings can affect audio and connections. Combinations other \
+                                    than the defaults have not been tested.
+                                    """
+                                )
                                     .accessibilityIdentifier("advancedSettingsWarning")
                             }
                         } icon: {

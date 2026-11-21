@@ -20,7 +20,9 @@ struct CallDisconnectTimerSection: View {
             Picker("Regular Calls", selection: Binding(get: { viewModel.callDisconnectInterval },
                                                        set: { viewModel.setCallDisconnectInterval($0) })) {
                 ForEach(CallDisconnectInterval.allCases) { interval in
-                    settingsOption(interval.title, isDefault: interval == .regularDefault, marks: marksDefault).tag(interval)
+                    settingsOption(
+                        interval.title, isDefault: interval == .regularDefault, marks: marksDefault
+                    ).tag(interval)
                 }
             }
             .pickerStyle(.menu)
@@ -32,7 +34,12 @@ struct CallDisconnectTimerSection: View {
         } header: {
             Text("Automatic Disconnection")
         } footer: {
-            Text("Applies when starting a new call. Waiting and reconnecting count toward this time. You can start another call after the timer ends it.")
+            Text(
+                """
+                Applies when starting a new call. Waiting and reconnecting count toward this time. You can start \
+                another call after the timer ends it.
+                """
+            )
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("callDisconnectTimerSection")
@@ -81,7 +88,13 @@ struct CommunicationPanel: View {
             Text("Communication")
                 .accessibilityIdentifier("communicationPanel")
         } footer: {
-            Text("Internet controls this device’s service connection. Nearby riders can relay calls for riders with Internet off. Relay uses battery and data. Changing these settings ends the current connection; connect again to apply them.")
+            Text(
+                """
+                Internet controls this device’s service connection. Nearby riders can relay calls for riders with \
+                Internet off. Relay uses battery and data. Changing these settings ends the current connection; \
+                connect again to apply them.
+                """
+            )
                 .font(.footnote)
         }
     }
