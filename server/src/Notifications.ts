@@ -41,6 +41,18 @@ async function target(env: Env, userID: string) {
 async function publishRoute(env: Env, auth: NotificationAuth, expiresAt: number) {
     await publicAccountIndex(env, auth.userID).bind({ accountID: auth.accountID, userID: auth.userID, expiresAt })
 }
+async function currentNotificationDestination(env: Env, recipientID: string, device: NotificationDevice) {
+    const tokenIndex = index(env, device.tokenIndex)
+    const binding = await tokenIndex.current()
+    if (binding?.registrationID !== device.registrationID || binding.userID !== recipientID) return null
+    return {
+        async removeInvalid(receiver: ReturnType<typeof account>) {
+            await receiver.notificationInvalidToken(recipientID, device.deviceID, device.registrationID)
+            try { await tokenIndex.remove(binding.accountID, recipientID, device.registrationID) }
+            catch { /* The unused binding expires through its own alarm. */ }
+        },
+    }
+}
 const callReply = (call: NotificationCall) => ({ requestID: call.requestID, expiresAt: call.expiresAt, status: call.status })
 
 async function handleBackgroundGroupInvitation(request: Request, origin: string, env: Env, cancelling: boolean): Promise<Response> {
@@ -128,12 +140,12 @@ async function submitGroupInvitation(body: Record<string, unknown>, origin: stri
         if (candidates.length) {
             const providerToken = await notificationProviderToken(env)
             for (const device of candidates) {
-                const binding = await index(env, device.tokenIndex).current()
-                if (binding?.registrationID !== device.registrationID || binding.userID !== grant.recipient) continue
+                const destination = await currentNotificationDestination(env, grant.recipient, device)
+                if (!destination) continue
                 if (await owner.groupInvitationSenderState(auth, grant.recipient, id) !== 'active') break
                 if (!(await receiver.groupInvitationCandidates(grant.recipient, id)).some(v => v.deviceID === device.deviceID && v.registrationID === device.registrationID)) continue
                 const result = await deliverNotification(device, providerToken, id, grant.recipient, body.expiresAt, 'groupInvitation')
-                if (result === 'invalid_token') await receiver.notificationInvalidToken(grant.recipient, device.deviceID, device.registrationID)
+                if (result === 'invalid_token') await destination.removeInvalid(receiver)
             }
         }
     }
@@ -305,15 +317,12 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (candidates.length) {
                 const providerToken = await notificationProviderToken(env)
                 for (const device of candidates) {
-                    const binding = await index(env, device.tokenIndex).current()
-                    if (binding?.registrationID !== device.registrationID || binding.userID !== grant.recipient) continue
+                    const destination = await currentNotificationDestination(env, grant.recipient, device)
+                    if (!destination) continue
                     if (!await owner.notificationAuthorized(auth)
                         || !await receiver.notificationDeliveryCurrent(grant.recipient, requestID, device.deviceID, device.registrationID)) continue
                     const delivered = await deliverNotification(device, providerToken, requestID, grant.recipient, started.call.expiresAt)
-                    if (delivered === 'invalid_token') {
-                        await receiver.notificationInvalidToken(grant.recipient, device.deviceID, device.registrationID)
-                        await index(env, device.tokenIndex).remove(binding.accountID, binding.userID, device.registrationID)
-                    }
+                    if (delivered === 'invalid_token') await destination.removeInvalid(receiver)
                     if (delivered === 'accepted') status = 'accepted'
                     else if (status !== 'accepted' && delivered === 'retry_later') status = 'retry_later'
                     else if (status === 'no_destinations') status = 'rejected'

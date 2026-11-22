@@ -254,6 +254,47 @@ test('old routing and token indexes are removed on replacement, sign-out and del
     } finally { await r.dispose(); }
 });
 
+test('a group alert removes both records for an invalid destination and preserves a new registration', async () => {
+    const token = 'ef'.repeat(42);
+    let r, recipient, registerDuringPush = false, pushStatus = 410, pushes = 0;
+    r = await setup({}, async () => {
+        pushes++;
+        if (registerDuringPush) assert.equal((await register(r, recipient, token)).status, 200);
+        return Response.json({}, { status: pushStatus });
+    });
+    try {
+        const sender = await login(r, 'invalid-alert-sender');
+        recipient = await login(r, 'invalid-alert-recipient');
+        const { capability } = await (await call(r, `${groupPath}/grants`, { senderUserID: sender.userID }, recipient.accessToken)).json();
+        const notify = () => call(r, groupPath, {
+            capability, requestID: randomUUID(), expiresAt: Date.now() + 60_000, recipientKey: 'k'.repeat(87),
+            envelope: randomBytes(64).toString('base64'),
+        }, sender.accessToken);
+        const indexes = await r.getDurableObjectNamespace('NOTIFICATION_INDEX');
+        const destination = indexes.get(indexes.idFromName(`token:${createHash('sha256').update(`sandbox|fixture-app|${token}`).digest('hex')}`));
+
+        assert.equal((await register(r, recipient, token)).status, 200);
+        assert.ok(await destination.current());
+        assert.equal((await (await notify()).json()).status, 'queued');
+        assert.ok(!await destination.current(), 'An unregistered token must not retain an index binding');
+        assert.equal((await (await notify()).json()).status, 'queued');
+        assert.equal(pushes, 1);
+
+        assert.equal((await register(r, recipient, token)).status, 200);
+        const oldRegistration = (await destination.current()).registrationID;
+        registerDuringPush = true;
+        assert.equal((await (await notify()).json()).status, 'queued');
+        const current = await destination.current();
+        assert.ok(current);
+        assert.notEqual(current.registrationID, oldRegistration);
+
+        registerDuringPush = false;
+        pushStatus = 200;
+        assert.equal((await (await notify()).json()).status, 'queued');
+        assert.equal(pushes, 3);
+    } finally { await r.dispose(); }
+});
+
 test('notification registration and issuance have an account-scoped mutation budget', async () => {
     const r = await setup({}, undefined, { fixedNowMs: Date.now() });
     try {
