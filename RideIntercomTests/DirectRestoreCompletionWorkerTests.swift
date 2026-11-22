@@ -1,4 +1,5 @@
 #if os(macOS)
+import AudioCore
 import Foundation
 import RTC
 import Synchronization
@@ -57,7 +58,7 @@ extension GroupDeliveryWorkerTests {
             #expect(try reopened.groupRepository.credential(for: callID) == originalKey)
             #expect(try await client.directRestoreInbox(access: access).isEmpty)
             try await client.retireDirectRestorePacket(UUID().uuidString.lowercased(), access: access)
-            try assertRestoredCall(
+            try await assertRestoredCall(
                 holderHarness, to: publisherContact, reopenedHarness, to: contact, callID: callID)
         }
     }
@@ -65,7 +66,7 @@ extension GroupDeliveryWorkerTests {
     private func assertRestoredCall(
         _ holder: AppTestSupport.Harness, to holderContact: UUID,
         _ replacement: AppTestSupport.Harness, to replacementContact: UUID, callID: UUID
-    ) throws {
+    ) async throws {
         for (endpoint, contact) in [(holder, holderContact), (replacement, replacementContact)] {
             let model = endpoint.viewModel
             model.allowsNearbyGroupDelivery = false
@@ -85,6 +86,8 @@ extension GroupDeliveryWorkerTests {
         try exchangeCallProfile(verifier: replacement, peer: holder)
         #expect(holder.viewModel.callAccessAdmittedMemberships.keys.map(\.rawValue) == [replacementID])
         #expect(replacement.viewModel.callAccessAdmittedMemberships.keys.map(\.rawValue) == [holderID])
+        try await assertRestoredAudio(from: holder, to: replacement, frequency: 440)
+        try await assertRestoredAudio(from: replacement, to: holder, frequency: 660)
     }
 
     private func exchangeCallProfile(verifier: AppTestSupport.Harness, peer: AppTestSupport.Harness) throws {
@@ -99,6 +102,44 @@ extension GroupDeliveryWorkerTests {
         })
         verifier.viewModel.handleTransportEvent(.receivedApplicationData(
             peerID: peer.viewModel.localMemberIdentity.memberID, message: signedProfile))
+    }
+
+    private func assertRestoredAudio(
+        from sender: AppTestSupport.Harness, to receiver: AppTestSupport.Harness, frequency: Double
+    ) async throws {
+        await AppTestSupport.waitUntil {
+            sender.viewModel.isAudioReady && receiver.viewModel.isAudioReady
+        }
+        try #require(sender.viewModel.isAudioReady && receiver.viewModel.isAudioReady)
+
+        let rate = 48_000.0
+        let frameCount = 960
+        let started = Date().timeIntervalSince1970
+        for index in 0..<12 {
+            let offset = index * frameCount
+            let samples = (0..<frameCount).map { sample in
+                Float(sin(2 * .pi * frequency * Double(offset + sample) / rate)) * 0.5
+            }
+            sender.inputBackend.emit(.init(
+                sequenceNumber: UInt64(index), format: .intercomPacketAudio,
+                capturedAt: started + Double(offset) / rate, samples: samples))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        await AppTestSupport.waitUntil { sender.callSession.sentAudioPackets.count >= 4 }
+        let packets = sender.callSession.sentAudioPackets
+        try #require(packets.count >= 4)
+        let senderID = RTC.PeerID(rawValue: sender.viewModel.localMemberIdentity.memberID)
+        let framesBeforeDelivery = receiver.outputBackend.scheduledFrames.count
+        for packet in packets {
+            receiver.callSession.receive(.init(peerID: senderID, packet: packet))
+        }
+        func receivedSound() -> Bool {
+            receiver.outputBackend.scheduledFrames.dropFirst(framesBeforeDelivery).contains { frame in
+                frame.samples.contains { abs($0) > 0.01 }
+            }
+        }
+        await AppTestSupport.waitUntil { receivedSound() }
+        #expect(receivedSound())
     }
 
     private func answerRestoreOnStartup(on model: IntercomViewModel, as signer: DeviceIdentitySigner,
