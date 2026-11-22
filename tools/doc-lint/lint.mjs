@@ -1,3 +1,4 @@
+import sourcePaths from './targets.json' with {type: 'json'};
 import { execFileSync } from 'node:child_process';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -9,7 +10,7 @@ import japaneseWriting from 'textlint-rule-preset-ja-technical-writing';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-const targets = ['docs/*.md', '.agents/skills/*.md', 'README.md', 'AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md'];
+const targets = sourcePaths.documents;
 const git = (...args) => execFileSync('git', args, {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024
 });

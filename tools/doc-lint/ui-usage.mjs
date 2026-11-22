@@ -1,3 +1,4 @@
+import sourcePaths from './targets.json' with {type: 'json'};
 import { execFileSync } from 'node:child_process';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -5,9 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'parse5';
 import { usageFindings } from './japanese-usage.mjs';
 
-const targets = ['*.xcstrings', '*/ja*.lproj/*.strings', 'docs/design/*.html',
-    'RideIntercom/*.swift', 'RideIntercomWatch/*.swift', 'RideIntercomWidgets/*.swift',
-    ':(exclude)RideIntercom/packages/**/Tests/**', ':(exclude)RideIntercom/packages/**/Package.swift'];
+const targets = sourcePaths.ui;
 
 // Read JSON tokens in source order so identical translations in different locales
 // retain their own diagnostic location. JSON.parse validates the complete input.

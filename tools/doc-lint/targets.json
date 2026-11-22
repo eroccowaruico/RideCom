@@ -1,0 +1,20 @@
+{
+  "documents": [
+    "docs/*.md",
+    ".agents/skills/*.md",
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".github/copilot-instructions.md"
+  ],
+  "ui": [
+    "*.xcstrings",
+    "*/ja*.lproj/*.strings",
+    "docs/design/*.html",
+    "RideIntercom/*.swift",
+    "RideIntercomWatch/*.swift",
+    "RideIntercomWidgets/*.swift",
+    ":(exclude)RideIntercom/packages/**/Tests/**",
+    ":(exclude)RideIntercom/packages/**/Package.swift"
+  ]
+}
