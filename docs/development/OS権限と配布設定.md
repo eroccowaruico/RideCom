@@ -77,6 +77,8 @@ macOSではWidgetが`Contents/PlugIns`、Infoが`Contents/Info.plist`にある�
 
 Watchの配布は保留中。通常のiOS ReleaseはWatchの依存と埋め込みを除外し、Watchの共有schemeはRun・Testを残す。iOS ReleaseのArchiveとexport後のPayloadで、AppとWidgetの`CFBundleVersion`を照合する。どちらの生成物でも番号が一致し、`Watch/RideIntercomWatch.app`を含まないことを確かめる。開発・検証構成のiOS Appでは引き続きWatchを組み込み、組み込んだ場合はその`CFBundleVersion`とAppIconを確認する。[Watchの公開条件](../requirements/製品要求.md#利用者に提供すること)
 
+RideCom はカメラを使わず、カメラの利用目的を追加しない。通常の配布時に App Store Connect で対象ビルドの処理結果を確認する。カメラに関する通知が届いた場合に、その内容と対象の成果物を照合する。[以前の配布結果](../validation/README.md#カメラ不要の配布バイナリ修復2026-10-22)
+
 配布用プロファイルを更新したときは、TestFlightからインストールした端末で次の順に確認し、結果を1項目ずつ記録する。
 
 1. AdvancedのWorker URLで本番接続先を照合し、Appleログインで端末を登録

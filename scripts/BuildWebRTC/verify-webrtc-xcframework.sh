@@ -57,7 +57,7 @@ try:
         symbols = subprocess.check_output(['nm', '-g', str(binary)], text=True)
         headers = (framework / 'Headers').glob('*.h')
         if re.search(r'AVCapture|RTCCamera', symbols) or any(re.search(r'AVCapture|RTCCamera', h.name) for h in headers):
-            print(f'Camera API present in vendor SDK ({platform}); check app usage separately.')
+            print(f'Camera API present in vendor SDK ({platform}).')
     for platform, architectures in expected.items():
         if not architectures <= found.get(platform, set()):
             raise ValueError(f'Missing slice or architectures: {platform} {architectures}')
