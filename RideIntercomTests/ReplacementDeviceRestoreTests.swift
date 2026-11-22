@@ -188,8 +188,10 @@ struct ReplacementDeviceRestoreTests {
             guard call.record.id == scenario.groupID else { return call }
             var group = call.record
             group.accountDevices.removeValue(forKey: batch.previousMemberID)
-            group.invitationDeviceKeys = [batch.previousMemberID: reusesKey ? signer.publicKey : scenario.backupOwner.publicKey,
-                                          peer.memberID: peer.publicKey]
+            group.invitationDeviceKeys = [
+                batch.previousMemberID: reusesKey ? signer.publicKey : scenario.backupOwner.publicKey,
+                peer.memberID: peer.publicKey
+            ]
             return ConfirmedCallRestore.Call(record: group, credential: call.credential)
         }
         let confirmed = ConfirmedCallRestore(
