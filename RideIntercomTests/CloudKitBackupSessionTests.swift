@@ -213,6 +213,8 @@ extension CloudKitBackupSessionTests {
         let scenario = try ReplacementScenario(fixture: .init(origin: "https://delivery.test"))
         defer { scenario.fixture.disconnect() }
         let model = scenario.other.viewModel
+        let person = try #require(model.savedRemoteUsers.first?.id)
+        try #require(model.renameSavedUser(person, displayName: "Responder private alias"))
         defer { model.stopGroupDeliverySync(); GroupDeliveryHTTPStub.reset() }
         try prepareContactDeletionRelay(in: model)
         let signer = try #require(try model.callRelationshipBackupSigner())
@@ -244,7 +246,7 @@ extension CloudKitBackupSessionTests {
         } else {
             let response = try await session.respondToDirectRestore(direct)
             if state == .unchanged || state == .rotatedKey {
-                try verifyDirectResponse(try #require(response), request: direct, as: requester, scenario: scenario)
+                try await verifyDirectResponse(try #require(response), request: direct, scenario: scenario)
             } else {
                 #expect(response == nil)
             }
@@ -260,15 +262,32 @@ extension CloudKitBackupSessionTests {
     }
 
     private func verifyDirectResponse(_ response: DirectCallRestoreResponse, request: CallRelationshipRestoreRequest,
-                                      as requester: DeviceIdentitySigner, scenario: ReplacementScenario) throws {
-        let record = try #require(scenario.backup.groups.first { $0.id == scenario.directID })
-        let context = CallRelationshipRestoreContext(
-            request: request, confirmation: response.confirmation, record: record)
-        let opened = try response.credential.open(for: context, as: requester, trust: scenario.trust, now: Date())
-        let current = try scenario.other.viewModel.groupRepository.credential(for: scenario.directID)
-        let usesCurrentKey = opened.credential == current
+                                      scenario: ReplacementScenario) async throws {
+        let data = try JSONEncoder().encode(response)
+        let delivered = try JSONDecoder().decode(DirectCallRestoreResponse.self, from: data)
+        let now = Date().timeIntervalSince1970
+        let backup = try scenario.old.viewModel.groupRepository.callRelationshipBackup(as: scenario.oldSigner, now: now)
+        let cloud = CloudAccountFixture(account: "requester")
+        _ = try await cloud.store.save(backup, replacing: nil, as: scenario.oldSigner, now: now)
+        let model = scenario.replacement.viewModel
+        let destination = cloud.session()
+        destination.bind(to: model)
+        await destination.task?.value
+        await model.callRelationshipBackupSync?.task?.value
+        #expect(model.groups.isEmpty)
+
+        try await destination.restoreDirect(delivered, to: request, for: scenario.savedPersonID, from: backup)
+
+        let current = try #require(try scenario.other.viewModel.groupRepository.credential(for: scenario.directID))
+        let restored = try model.groupRepository.credential(for: scenario.directID)
+        let usesCurrentKey = restored == current
         #expect(usesCurrentKey)
-        #expect(opened.confirmation.callID == scenario.directID)
+        #expect(model.savedRemoteUsers.map(\.id) == [scenario.savedPersonID])
+        #expect(model.savedRemoteUsers.first?.localName == nil)
+        #expect(model.groups.map(\.id) == [scenario.directID])
+        let members = try #require(model.groups.first?.members.map(\.id))
+        let responderID = scenario.other.viewModel.localMemberIdentity.memberID
+        #expect(Set(members) == [model.localMemberIdentity.memberID, responderID])
     }
 
     private func changeKeyDuringRead(_ state: ResponderState, cloud: CloudAccountFixture,

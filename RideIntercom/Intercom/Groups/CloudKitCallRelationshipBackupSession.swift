@@ -91,6 +91,21 @@ final class CloudKitCallRelationshipBackupSession {
         model.reloadSavedGroups()
     }
 
+    func restoreDirect(
+        _ response: DirectCallRestoreResponse, to request: CallRelationshipRestoreRequest,
+        for contactID: UUID, from original: CallRelationshipBackup
+    ) async throws {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
+              let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust() else {
+            throw Failure.accountUnavailable
+        }
+        _ = try original.validated(for: owner)
+        guard let contact = original.contacts.first(where: { $0.id == contactID }) else { throw Failure.backupChanged }
+        let batch = try response.restoreBatch(for: request, contact: contact,
+            localDisplayName: model.localMemberIdentity.displayName, as: signer, verifying: (trust, Date()))
+        try await restore(batch, from: original)
+    }
+
     func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws -> DirectCallRestoreResponse? {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let trust = try model.internetSettingsStore.identityTrust() else {

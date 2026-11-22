@@ -1,6 +1,6 @@
 import Foundation
 
-struct DirectCallRestoreResponse {
+struct DirectCallRestoreResponse: Codable {
     let confirmation: CallRelationshipRestoreConfirmation
     let credential: CallRelationshipRestoreCredential
 }
