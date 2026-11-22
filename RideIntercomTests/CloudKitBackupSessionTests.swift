@@ -205,6 +205,7 @@ struct CloudKitBackupSessionTests {
 extension CloudKitBackupSessionTests {
     enum ResponderState: CaseIterable, Sendable {
         case unchanged, contactRemoved, accountChanged, relayedDeletion, relayUnavailable, missingRegistration
+        case rotatedKey, missingKey
     }
 
     @Test(arguments: ResponderState.allCases)
@@ -233,18 +234,17 @@ extension CloudKitBackupSessionTests {
         } else if state == .relayUnavailable {
             GroupDeliveryHTTPStub.onContactDeletion = { _, _ in (503, [:]) }
         }
+        try changeKeyDuringRead(state, cloud: cloud, scenario: scenario)
 
         if state == .accountChanged {
             cloud.accountAfterRead = "second"
             await #expect(throws: CloudKitCallRelationshipBackupSession.Failure.accountUnavailable) {
-                try await session.confirmDirectRestore(direct)
+                try await session.respondToDirectRestore(direct)
             }
         } else {
-            let response = try await session.confirmDirectRestore(direct)
-            if state == .unchanged {
-                let confirmation = try #require(response)
-                #expect(try confirmation.verify(for: direct, as: requester, trust: scenario.trust,
-                                                now: Date()).callID == scenario.directID)
+            let response = try await session.respondToDirectRestore(direct)
+            if state == .unchanged || state == .rotatedKey {
+                try verifyDirectResponse(try #require(response), request: direct, as: requester, scenario: scenario)
             } else {
                 #expect(response == nil)
             }
@@ -254,8 +254,39 @@ extension CloudKitBackupSessionTests {
             #expect(model.savedRemoteUsers.isEmpty)
             #expect(try model.groupRepository.credential(for: scenario.directID) == nil)
             #expect(model.groups.contains { $0.id == scenario.groupID })
-        } else {
+        } else if state != .rotatedKey {
             #expect(scenario.other.groupStore.snapshot == before)
+        }
+    }
+
+    private func verifyDirectResponse(_ response: DirectCallRestoreResponse, request: CallRelationshipRestoreRequest,
+                                      as requester: DeviceIdentitySigner, scenario: ReplacementScenario) throws {
+        let record = try #require(scenario.backup.groups.first { $0.id == scenario.directID })
+        let context = CallRelationshipRestoreContext(
+            request: request, confirmation: response.confirmation, record: record)
+        let opened = try response.credential.open(for: context, as: requester, trust: scenario.trust, now: Date())
+        let current = try scenario.other.viewModel.groupRepository.credential(for: scenario.directID)
+        let usesCurrentKey = opened.credential == current
+        #expect(usesCurrentKey)
+        #expect(opened.confirmation.callID == scenario.directID)
+    }
+
+    private func changeKeyDuringRead(_ state: ResponderState, cloud: CloudAccountFixture,
+                                     scenario: ReplacementScenario) throws {
+        let model = scenario.other.viewModel
+        switch state {
+        case .rotatedKey:
+            cloud.afterRead = {
+                let key = GroupAccessCredential(groupID: scenario.directID, secret: "rotated-fixture-key")
+                try model.groupRepository.update(model.groups, credential: key)
+            }
+        case .missingKey:
+            let store = try #require(scenario.fixture.credentialStores["bob"])
+            let direct = try #require(scenario.other.groupStore.snapshot.groups.first { $0.id == scenario.directID })
+            let reference = try #require(direct.credentialReference)
+            cloud.afterRead = { store.values[reference] = nil }
+        default:
+            break
         }
     }
 
@@ -319,52 +350,5 @@ extension CloudKitBackupSessionTests {
                 "id": publication.id.uuidString, "expiresAt": publication.expiresAt, "packet": payload.packet
             ]])
         }
-    }
-}
-
-@MainActor
-final class CloudAccountFixture {
-    let center = NotificationCenter()
-    var account: String?
-    var accountAfterRead: String?
-    var pauseNextLookup = false
-    var pausedLookup: CheckedContinuation<Void, Never>?
-    var records: [String: CKRecord] = [:]
-    var writtenAccounts: [String] = []
-
-    init(account: String?) { self.account = account }
-
-    var store: CloudKitCallRelationshipBackupStore {
-        .init(fetch: { id in
-            guard let active = self.account else { throw CKError(.notAuthenticated) }
-            let record = self.records[active]
-            if let next = self.accountAfterRead {
-                self.account = next
-                self.accountAfterRead = nil
-            }
-            guard let record, record.recordID == id else { throw CKError(.unknownItem) }
-            return record
-        }, write: { record, _ in
-            guard let active = self.account else { throw CKError(.notAuthenticated) }
-            self.records[active] = record
-            self.writtenAccounts.append(active)
-            return record
-        })
-    }
-
-    func session() -> CloudKitCallRelationshipBackupSession {
-        .init(store: store, keychain: DictionaryKeychain(), namespace: "CloudFixture", center: center) {
-            let found = self.account
-            if self.pauseNextLookup {
-                self.pauseNextLookup = false
-                await withCheckedContinuation { self.pausedLookup = $0 }
-            }
-            return found.map { .init(container: "fixture", environment: .development, account: $0) }
-        }
-    }
-
-    func finishPausedLookup() {
-        pausedLookup?.resume()
-        pausedLookup = nil
     }
 }

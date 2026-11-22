@@ -91,8 +91,7 @@ final class CloudKitCallRelationshipBackupSession {
         model.reloadSavedGroups()
     }
 
-    func confirmDirectRestore(_ request: CallRelationshipRestoreRequest) async throws
-        -> CallRelationshipRestoreConfirmation? {
+    func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws -> DirectCallRestoreResponse? {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let trust = try model.internetSettingsStore.identityTrust() else {
             throw Failure.accountUnavailable
@@ -103,8 +102,8 @@ final class CloudKitCallRelationshipBackupSession {
         guard generation == expected else { throw Failure.accountUnavailable }
         let checked = try await readCurrentBackup(for: model, as: signer)
         guard let latest = checked.backup else { return nil }
-        return try model.groupRepository.confirmRestore(
-            request, as: checked.signer, trust: checked.trust, now: Date(), matchingDirectBackup: latest)
+        return try model.groupRepository.sealDirectRestore(
+            request, as: checked.signer, trust: checked.trust, now: Date(), matching: latest)
     }
 
     private func readCurrentBackup(for model: IntercomViewModel, as signer: DeviceIdentitySigner) async throws

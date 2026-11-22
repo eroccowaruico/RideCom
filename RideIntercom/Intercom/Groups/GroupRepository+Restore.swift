@@ -1,5 +1,10 @@
 import Foundation
 
+struct DirectCallRestoreResponse {
+    let confirmation: CallRelationshipRestoreConfirmation
+    let credential: CallRelationshipRestoreCredential
+}
+
 /// In-process input from restore authorization. The caller verifies the backup owner,
 /// current relationships and current credentials before creating this batch.
 /// This is not the cloud format and must not be constructed by decoding a backup.

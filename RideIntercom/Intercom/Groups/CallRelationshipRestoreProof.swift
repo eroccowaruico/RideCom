@@ -315,6 +315,31 @@ extension GroupRepository {
         _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
         now: Date, matchingDirectBackup backup: CallRelationshipBackup? = nil
     ) throws -> CallRelationshipRestoreConfirmation? {
+        try withAuthorizedRestore(
+            request, as: signer, matching: backup, verifying: (trust, now)
+        ) { confirmation, _, _ in confirmation }
+    }
+
+    func sealDirectRestore(
+        _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
+        now: Date, matching backup: CallRelationshipBackup
+    ) throws -> DirectCallRestoreResponse? {
+        try withAuthorizedRestore(
+            request, as: signer, matching: backup, verifying: (trust, now)
+        ) { confirmation, record, credential in
+            let context = CallRelationshipRestoreContext(request: request, confirmation: confirmation, record: record)
+            let packet = try CallRelationshipRestoreCredential(
+                credential, for: context, as: signer, trust: trust, now: now)
+            return .init(confirmation: confirmation, credential: packet)
+        }
+    }
+
+    private func withAuthorizedRestore<T>(
+        _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
+        matching backup: CallRelationshipBackup?, verifying verification: (trust: DeviceIdentityTrust, now: Date),
+        _ build: (CallRelationshipRestoreConfirmation, GroupSnapshot.Record, GroupAccessCredential) throws -> T
+    ) throws -> T? {
+        let (trust, now) = verification
         let challenge = request.challenge
         let requester = try request.verifiedRequester(trust: trust, now: now)
         let owner = requester.principal
@@ -349,7 +374,9 @@ extension GroupRepository {
             }
             guard let reference = record.credentialReference, let secret = try credentialSecret(reference: reference),
                   !secret.isEmpty else { return nil }
-            return try .init(request, previousMemberID: previous, signer: signer)
+            let confirmation = try CallRelationshipRestoreConfirmation(
+                request, previousMemberID: previous, signer: signer)
+            return try build(confirmation, record, .init(groupID: record.id, secret: secret))
         }
     }
 }
