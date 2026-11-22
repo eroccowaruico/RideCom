@@ -37,6 +37,35 @@ class LanguageLintTests(unittest.TestCase):
     def git(self, *args: str) -> None:
         subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
 
+    def test_pre_commit_checks_index_and_preserves_partial_staging(self) -> None:
+        project = Path(lint.__file__).resolve().parents[1]
+        for name in ("scripts/lint.py", "scripts/lint_staged_text.py", ".githooks/pre-commit", "tools/doc-lint/targets.json"):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(project / name, path)
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("add", "tools/doc-lint/targets.json")
+        self.git("commit", "-qm", "wording selectors")
+        self.git("config", "core.hooksPath", ".githooks")
+        sample = self.root / "commit sample.ts"
+        violation = "export function echo(value: any) { return value; }"
+        clean = "export const value = 1;"
+        sample.write_text(violation)
+        self.git("add", sample.name)
+        sample.write_text(clean)
+        with self.assertRaises(subprocess.CalledProcessError) as blocked:
+            self.git("commit", "-qm", "staged violation")
+        self.assertIn(b"noExplicitAny", blocked.exception.stdout + blocked.exception.stderr)
+        self.assertEqual(sample.read_text(), clean)
+        self.git("add", sample.name)
+        sample.write_text(violation)
+        self.git("commit", "-qm", "staged correction")
+        committed = subprocess.check_output(["git", "show", f"HEAD:{sample.name}"], cwd=self.root)
+        self.assertEqual(committed.decode(), clean)
+        self.assertEqual(sample.read_text(), violation)
+
     def test_deleted_config_checks_existing_and_untracked_python(self) -> None:
         (self.root / "pyproject.toml").unlink()
         (self.root / "added.py").touch()

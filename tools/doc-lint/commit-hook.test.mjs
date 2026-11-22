@@ -20,8 +20,7 @@ test('git commit checks staged prose, UI and rule changes; unrelated commits can
     success('config', 'user.name', 'Test');
     success('config', 'user.email', 'test@example.invalid');
     success('config', 'commit.gpgsign', 'false');
-    success('config', 'core.hooksPath', '.githooks');
-    for (const name of ['.githooks', 'scripts/lint_staged_text.py', 'tools/doc-lint']) {
+    for (const name of ['.githooks', 'scripts/lint_staged_text.py', 'scripts/lint.py', 'tools/doc-lint']) {
         await cp(path.join(project, name), path.join(repo, name), {
             recursive: true, filter: source => path.basename(source) !== 'node_modules'
         });
@@ -30,6 +29,7 @@ test('git commit checks staged prose, UI and rule changes; unrelated commits can
     await symlink(path.join(project, 'tools/doc-lint/node_modules'), path.join(repo, 'tools/doc-lint/node_modules'), 'dir');
     success('add', '.');
     success('commit', '-qm', 'initial');
+    success('config', 'core.hooksPath', '.githooks');
     const document = path.join(repo, 'README.md');
     const bad = '設定を変更することができます。\n';
     const good = '設定を変更できます。\n';
@@ -56,8 +56,8 @@ test('git commit checks staged prose, UI and rule changes; unrelated commits can
     assert.match(git('commit', '-qm', 'rule change').stderr, /ja-no-redundant-expression/);
     success('reset', '--quiet', 'HEAD', '--', 'tools/doc-lint/lint.test.mjs');
     await rm(path.join(repo, 'tools/doc-lint/node_modules'));
-    await writeFile(path.join(repo, 'example.py'), 'pass\n');
-    success('add', 'example.py');
+    await writeFile(path.join(repo, 'example.txt'), 'notes\n');
+    success('add', 'example.txt');
     success('commit', '-qm', 'no wording changes');
     await writeFile(document, good);
     success('add', 'README.md');

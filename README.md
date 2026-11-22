@@ -8,6 +8,8 @@
 
 **開発の着手前と区切りには、[小さく動く単位での検証・コミットと未コミットの滞留管理](docs/policies/開発方針.md#小さく動く単位で検証・コミットする)を必ず適用する。**
 
+クローンしたら、[コミット時の自動リント](docs/development/自動検証.md#コミット時の自動リント)を一度設定する。
+
 | 開発環境 | このcheckoutで開くファイル | 実行 |
 |---|---|---|
 | Xcode | `RideIntercom.xcodeproj` | 共有scheme `RideIntercom`、My MacまたはiOS Simulator |

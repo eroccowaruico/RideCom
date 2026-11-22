@@ -1,2 +1,5 @@
 #!/bin/sh
-exec python3 scripts/lint_staged_text.py
+set -e
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+python3 scripts/lint_staged_text.py
+exec python3 scripts/lint.py --staged
