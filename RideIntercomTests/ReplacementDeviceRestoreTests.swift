@@ -256,21 +256,19 @@ struct ReplacementDeviceRestoreTests {
         _ = try repository.load(localMemberID: "alice")
         let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
         let peer = try scenario.other.viewModel.internetSettingsStore.invitationSigner(memberID: "bob")
-        let batch = try scenario.confirmedRestore()
         let original = store.snapshot
-        let calls = batch.calls.map { call in
-            guard call.record.id == scenario.groupID else { return call }
-            var group = call.record
-            group.accountDevices.removeValue(forKey: batch.previousMemberID)
+        let previous = scenario.oldSigner.memberID
+        let records = scenario.backup.groups.map { saved in
+            guard saved.id == scenario.groupID else { return saved }
+            var group = saved
+            group.accountDevices.removeValue(forKey: previous)
             group.invitationDeviceKeys = [
-                batch.previousMemberID: reusesKey ? signer.publicKey : scenario.backupOwner.publicKey,
+                previous: reusesKey ? signer.publicKey : scenario.backupOwner.publicKey,
                 peer.memberID: peer.publicKey
             ]
-            return ConfirmedCallRestore.Call(record: group, transferredCredential: call.transferredCredential,
-                                              request: call.request, confirmation: call.confirmation)
+            return group
         }
-        let confirmed = ConfirmedCallRestore(
-            owner: batch.owner, previousMemberID: batch.previousMemberID, users: batch.users, calls: calls)
+        let confirmed = try scenario.confirmedRestore(records: records)
 
         if reusesKey {
             #expect(throws: GroupStorageError.identityConflict) {
@@ -298,16 +296,14 @@ struct ReplacementDeviceRestoreTests {
         _ = try repository.load(localMemberID: "alice")
         let original = store.snapshot
         let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
-        let batch = try scenario.confirmedRestore()
-        let calls = batch.calls.map { call in
-            guard call.record.id == scenario.groupID else { return call }
-            var group = call.record
-            group.removedMembers = [.init(memberIDs: [batch.previousMemberID], principal: batch.owner, removedAt: 1)]
-            return ConfirmedCallRestore.Call(record: group, transferredCredential: call.transferredCredential,
-                                              request: call.request, confirmation: call.confirmation)
+        let records = scenario.backup.groups.map { saved in
+            guard saved.id == scenario.groupID else { return saved }
+            var group = saved
+            group.removedMembers = [.init(memberIDs: [scenario.oldSigner.memberID],
+                                          principal: scenario.backupOwner.principal, removedAt: 1)]
+            return group
         }
-        let excluded = ConfirmedCallRestore(
-            owner: batch.owner, previousMemberID: batch.previousMemberID, users: batch.users, calls: calls)
+        let excluded = try scenario.confirmedRestore(records: records)
 
         #expect(throws: GroupStorageError.invalidUpdate) {
             try repository.restoreCallRelationships(excluded, as: signer, trust: scenario.trust)

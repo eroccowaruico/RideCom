@@ -172,8 +172,10 @@ struct CloudKitBackupSessionTests {
                                                           recipient: recipient, signer: requester, now: now)
         let response = try #require(try stale.groupRepository.confirmRestore(
             request, as: responder, trust: scenario.trust, now: now))
+        let context = CallRelationshipRestoreCredential.Context(
+            request: request, confirmation: response, record: record)
         let transfer = try CallRelationshipRestoreCredential(
-            credential, request: request, confirmation: response, as: responder, trust: scenario.trust, now: now)
+            credential, for: context, as: responder, trust: scenario.trust, now: now)
         var saved = try #require(scenario.backup.users.first { $0.id == scenario.savedPersonID })
         saved.memberIDs = [responder.memberID]
         saved.deviceKeys = [responder.memberID: responder.publicKey]

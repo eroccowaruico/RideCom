@@ -149,21 +149,24 @@ struct ReplacementScenario {
         return harness
     }
 
-    func confirmedRestore(owner: AccountPrincipal? = nil) throws -> ConfirmedCallRestore {
+    func confirmedRestore(owner: AccountPrincipal? = nil, records: [GroupSnapshot.Record]? = nil) throws
+        -> ConfirmedCallRestore {
         let model = other.viewModel
         let responder = try model.internetSettingsStore.invitationSigner(memberID: "bob")
         let requester = try replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
         let principal = try #require(responder.principal)
         let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
         let now = Date()
-        let entries = try backup.groups.map { record in
+        let entries = try (records ?? backup.groups).map { record in
             let credential = try #require(try model.groupRepository.credential(for: record.id))
             let request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
                                                               recipient: recipient, signer: requester, now: now)
             let confirmation = try #require(try model.groupRepository.confirmRestore(
                 request, as: responder, trust: trust, now: now))
+            let context = CallRelationshipRestoreCredential.Context(
+                request: request, confirmation: confirmation, record: record)
             let transfer = try CallRelationshipRestoreCredential(
-                credential, request: request, confirmation: confirmation, as: responder, trust: trust, now: now)
+                credential, for: context, as: responder, trust: trust, now: now)
             return ConfirmedCallRestore.Call(record: record, transferredCredential: transfer,
                                              request: request, confirmation: confirmation)
         }

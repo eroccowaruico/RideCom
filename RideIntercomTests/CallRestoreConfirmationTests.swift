@@ -217,7 +217,7 @@ struct CallRestoreConfirmationTests {
                 request: first.request, confirmation: first.confirmation)
             let combined = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
                                                 users: batch.users, calls: [first, wrong])
-            #expect(throws: GroupStorageError.invalidUpdate) {
+            #expect(throws: DeviceIdentityProof.Failure.invalid) {
                 try repository.restoreCallRelationships(combined, as: signer, trust: scenario.trust)
             }
         }
@@ -255,13 +255,35 @@ struct CallRestoreConfirmationTests {
 
 @MainActor @Suite(.serialized)
 struct CallRestoreCredentialTests {
+    @Test func restoreRejectsAChangedGroupRoleEvenWithTheOriginalSignedCredential() throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore(), keys = InMemoryGroupCredentialStore()
+        let repository = GroupRepository(store: store, credentials: keys)
+        _ = try repository.load(localMemberID: "alice")
+        let original = store.snapshot
+        let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let batch = try scenario.confirmedRestore()
+        let group = try #require(batch.calls.first { $0.record.kind == .group })
+        var changed = group.record
+        changed.joinedByInvitation = group.record.joinedByInvitation != true
+        let changedCall = ConfirmedCallRestore.Call(record: changed, transferredCredential: group.transferredCredential,
+                                                    request: group.request, confirmation: group.confirmation)
+        let changedBatch = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
+                                                users: [], calls: [changedCall])
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try repository.restoreCallRelationships(changedBatch, as: signer, trust: scenario.trust)
+        }
+        #expect(store.snapshot == original)
+        #expect(keys.values.isEmpty)
+    }
+
     @Test func onlyTheRequestedDeviceCanOpenTheSignedCredential() throws {
         let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
         let fixture = try exchange(scenario)
         let sent = try JSONEncoder().encode(fixture.packet)
         #expect(sent.range(of: Data(fixture.credential.secret.utf8)) == nil)
         let packet = try JSONDecoder().decode(CallRelationshipRestoreCredential.self, from: sent)
-        let opened = try packet.open(for: fixture.request, confirmation: fixture.confirmation, as: fixture.requester,
+        let opened = try packet.open(for: fixture.context, as: fixture.requester,
                                      trust: fixture.trust, now: fixture.now)
         let matches = opened.credential == fixture.credential
         #expect(matches)
@@ -269,11 +291,11 @@ struct CallRestoreCredentialTests {
         let other = try scenario.fixture.peer(fixture.requester.memberID, account: "a").viewModel
         let otherKey = try other.internetSettingsStore.invitationSigner(memberID: fixture.requester.memberID)
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try packet.open(for: fixture.request, confirmation: fixture.confirmation,
+            try packet.open(for: fixture.context,
                             as: otherKey, trust: fixture.trust, now: fixture.now)
         }
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try packet.open(for: fixture.request, confirmation: fixture.confirmation, as: fixture.requester,
+            try packet.open(for: fixture.context, as: fixture.requester,
                             trust: fixture.trust, now: fixture.now.addingTimeInterval(300))
         }
     }
@@ -283,7 +305,7 @@ struct CallRestoreCredentialTests {
         let first = try exchange(scenario)
         let second = try exchange(scenario)
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try first.packet.open(for: second.request, confirmation: second.confirmation,
+            try first.packet.open(for: second.context,
                                   as: second.requester, trust: second.trust, now: second.now)
         }
         var encoded = try #require(JSONSerialization.jsonObject(
@@ -295,14 +317,13 @@ struct CallRestoreCredentialTests {
         let altered = try JSONDecoder().decode(CallRelationshipRestoreCredential.self,
                                                from: JSONSerialization.data(withJSONObject: encoded))
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try altered.open(for: first.request, confirmation: first.confirmation,
+            try altered.open(for: first.context,
                              as: first.requester, trust: first.trust, now: first.now)
         }
     }
 
     private struct Exchange {
-        let request: CallRelationshipRestoreRequest
-        let confirmation: CallRelationshipRestoreConfirmation
+        let context: CallRelationshipRestoreCredential.Context
         let credential: GroupAccessCredential
         let packet: CallRelationshipRestoreCredential
         let requester: DeviceIdentitySigner
@@ -324,9 +345,12 @@ struct CallRestoreCredentialTests {
         let confirmation = try #require(try holder.groupRepository.confirmRestore(
             request, as: responder, trust: trust, now: now))
         let credential = GroupAccessCredential(groupID: scenario.directID, secret: "restore-test-key")
+        let record = try #require(scenario.other.groupStore.snapshot.groups.first { $0.id == scenario.directID })
+        let context = CallRelationshipRestoreCredential.Context(
+            request: request, confirmation: confirmation, record: record)
         let packet = try CallRelationshipRestoreCredential(
-            credential, request: request, confirmation: confirmation, as: responder, trust: trust, now: now)
-        return .init(request: request, confirmation: confirmation, credential: credential, packet: packet,
+            credential, for: context, as: responder, trust: trust, now: now)
+        return .init(context: context, credential: credential, packet: packet,
                      requester: requester, trust: trust, now: now)
     }
 }

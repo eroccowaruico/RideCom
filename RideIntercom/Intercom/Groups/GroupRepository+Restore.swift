@@ -36,7 +36,9 @@ extension GroupRepository {
               }) else { throw GroupStorageError.invalidUpdate }
 
         let restored = try batch.calls.map { call in
-            let received = try call.transferredCredential.open(for: call.request, confirmation: call.confirmation,
+            let context = CallRelationshipRestoreCredential.Context(
+                request: call.request, confirmation: call.confirmation, record: call.record)
+            let received = try call.transferredCredential.open(for: context,
                 as: signer, trust: trust, now: Date(timeIntervalSince1970: now))
             let record = try reboundRestoredRecord(
                 call.record, replacing: batch.previousMemberID, verified: received.confirmation)
