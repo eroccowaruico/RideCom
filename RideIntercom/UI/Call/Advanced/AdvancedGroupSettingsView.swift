@@ -50,13 +50,17 @@ struct AdvancedGroupSettingsView: View {
                                     }
                                 }
                             }
-                            .advancedMemberRowActions(
-                                edit: { editingMember = member },
-                                canRemove: viewModel.canManageRegularGroups,
-                                pending: $pendingRemoval,
-                                name: member.resolvedDisplayName,
-                                remove: { viewModel.removeMember(member.id, from: groupID) }
-                            )
+                            .trailingRowActions {
+                                Button { editingMember = member } label: { Label("Edit Name", systemImage: "pencil") }
+                            } destructive: {
+                                memberRemovalAction(
+                                    canRemove: viewModel.canManageRegularGroups,
+                                    pending: $pendingRemoval,
+                                    name: member.resolvedDisplayName
+                                ) {
+                                    viewModel.removeMember(member.id, from: groupID)
+                                }
+                            }
                         }
                         if viewModel.canManageRegularGroups {
                             Button("Add Members", systemImage: "person.badge.plus") { addingUsers = true }

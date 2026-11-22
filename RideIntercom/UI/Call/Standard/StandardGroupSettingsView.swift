@@ -83,12 +83,16 @@ struct StandardGroupSettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("groupSettingsMember-\(member.id)")
-                            .standardMemberRowActions(
-                                canRemove: viewModel.canManageRegularGroups,
-                                pending: $pendingRemoval,
-                                name: member.resolvedDisplayName
-                            ) {
-                                viewModel.removeMember(member.id, from: groupID)
+                            .trailingRowActions {
+                                EmptyView()
+                            } destructive: {
+                                memberRemovalAction(
+                                    canRemove: viewModel.canManageRegularGroups,
+                                    pending: $pendingRemoval,
+                                    name: member.resolvedDisplayName
+                                ) {
+                                    viewModel.removeMember(member.id, from: groupID)
+                                }
                             }
                         }
                     } header: {

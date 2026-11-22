@@ -3,8 +3,7 @@ import SwiftUI
 /// A Users or Groups row's actions, the same in Standard and Advanced: a swipe, and on a Mac, which cannot
 /// swipe with a mouse, the same items on right-click. No long-press menu (it is hard to find).
 extension View {
-    /// The swipe offers the settings entry, then Delete when the row can be deleted. Delete always
-    /// asks first: it only fills `pending`; the list shows the alert (`destinationDeleteConfirmation`).
+    /// Settings is available for every row. Where permitted, Delete opens the list's confirmation.
     func destinationRowActions(_ target: DestinationSettingsTarget, name: String, viewModel: IntercomViewModel,
                                settings: Binding<DestinationSettingsTarget?>,
                                pending: Binding<PendingDestinationDelete?>) -> some View {
@@ -27,14 +26,9 @@ extension View {
         let endsCall = viewModel.isInCall(with: destination)
         let openSettings = { settings.wrappedValue = target }
         let ask = { pending.wrappedValue = PendingDestinationDelete(name: name, endsCall: endsCall, perform: delete) }
-        return swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if canDelete {
-                Button(role: .destructive, action: ask) { Label("Delete", systemImage: "trash") }
-            }
+        return trailingRowActions {
             Button(action: openSettings) { Label(settingsTitle, systemImage: "gearshape") }
-        }
-        .macRightClickMenu {
-            Button(action: openSettings) { Label(settingsTitle, systemImage: "gearshape") }
+        } destructive: {
             if canDelete {
                 Button(role: .destructive, action: ask) { Label("Delete", systemImage: "trash") }
             }
