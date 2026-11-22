@@ -281,6 +281,19 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 アカウント全体とデータセット別のジョブ一覧はどちらも `Logs Write` が必要。既存の接続では、データセット別の一覧もHTTP 403だった。ジョブの有無、過去の転送先とバックアップの保持は権限内で確認できた範囲に含めず、監査は他の確認項目を進める。証跡は `.validation/security-audit-2100/live-log-readback/` に保存した。[ジョブ一覧の権限](https://developers.cloudflare.com/logs/logpush/permissions/)
 
+#### トランクから配置したWorkerのログ設定を読み戻す
+
+2026-11-22。共有 `main` と固定 `preview` の `e3702d42` で、Workers Buildsの本番と固定Previewが各1件成功した。本番は全トラフィックを処理するバージョンとビルドの対応、固定Previewは最新配置のタグで同じコミットを確認した。Wranglerの配置用データと稼働後の管理APIでは次の差があった。
+
+| 確認項目 | 配置設定 | 本番・固定Previewの読み取り結果 |
+|---|---|---|
+| WorkerのObservabilityとLogpush、ログとトレースの取得 | 無効 | 無効 |
+| ログとトレースの転送先 | 0件 | 0件 |
+| 呼出ログ、ログ保存、トレース保存 | 無効 | 有効 |
+| URLのクエリ除去 | 有効 | 無効 |
+
+固定Previewで上の4項目だけを設定する管理APIの更新はHTTP 403で拒否された。稼働設定の受入は継続中。次は通常の配置で4項目が固定Previewに反映される条件を確かめ、本番にも同じ条件を適用して読み戻す。[Workerの設定項目](https://developers.cloudflare.com/api/resources/workers/)
+
 #### 稼働配置と手元の停止フラグを照合する
 
 2026-11-22。本番Workerの設定と固定Previewの最新配置を管理APIで読み取った。本番のApple登録、通常通知、Internet通話、TURN、端末審査の各フラグは手元の本番設定と一致した。本番のSFUとTURNの参照先は両方とも存在し、通知・端末証明・Apple認可取消の署名鍵も登録済みだった。観測はリソースと鍵の登録の有無に限る。背景転送の鍵は両環境とも未設定だった。[Cloudflareのプレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)
