@@ -275,6 +275,26 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 この集計で確認できる範囲は対象期間内の記録。アカウントのジョブ一覧には `Logs Write` が必要で、既存の読み取り権限での確認は保留中。過去の転送先とバックアップに残るデータも未確認。証跡は `.validation/security-audit-2000/logpush-health/` に保存した。[Logpush APIの権限](https://developers.cloudflare.com/logs/logpush/permissions/)
 
+#### 現在のログ転送を読み取り権限内で照合する
+
+2026-11-22。本番と固定Previewの設定を個別に読み取り、Worker単位のLogpush、Observability、ログ、トレースがすべて無効であることを確認した。ログとトレースの転送先およびTail Workerは両環境で0件だった。Cloudflareでは、Workers Trace Eventsの転送にはWorker側の有効化も必要。アカウント単位の集計では、同日10時から14時40分（JST）までに転送を試みた記録は0件だった。[Worker側の有効化条件](https://developers.cloudflare.com/workers/observability/logs/logpush/#enable-logging-on-your-worker)・[Logpushの転送状況](https://developers.cloudflare.com/logs/logpush/alerts-and-analytics/)
+
+アカウント全体とデータセット別のジョブ一覧はどちらも `Logs Write` が必要。既存の接続では、データセット別の一覧もHTTP 403だった。ジョブの有無、過去の転送先とバックアップの保持は権限内で確認できた範囲に含めず、監査は他の確認項目を進める。証跡は `.validation/security-audit-2100/live-log-readback/` に保存した。[ジョブ一覧の権限](https://developers.cloudflare.com/logs/logpush/permissions/)
+
+#### 稼働配置と手元の停止フラグを照合する
+
+2026-11-22。本番Workerの設定と固定Previewの最新配置を管理APIで読み取った。本番のApple登録、通常通知、Internet通話、TURN、端末審査の各フラグは手元の本番設定と一致した。本番のSFUとTURNの参照先は両方とも存在し、通知・端末証明・Apple認可取消の署名鍵も登録済みだった。観測はリソースと鍵の登録の有無に限る。背景転送の鍵は両環境とも未設定だった。[Cloudflareのプレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)
+
+固定Previewでは、手元で `false` にした `SERVICE_ENABLED` と `NOTIFICATIONS_ENABLED` が、稼働中の配置ではどちらも `true` だった。稼働中のPreviewが指定するSFU Appは見つからず、sandbox APNsと端末証明の鍵は未登録。手元の設定で停止条件を確認済みで、稼働環境では次回の反映後に最新配置の両フラグが `false` であることを読み戻す。証跡は `.validation/security-audit-2100/live-feature-gates-readback/` に保存した。
+
+APNsの環境やトピックを変更する場合は、古い設定で登録した宛先への送信が止まることと、現在の設定で再登録した端末にだけ届くことを確認する。固定Previewの開発署名にはsandbox、本番のTestFlightにはproductionを使う。[APNsの接続先](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)・[送信先を照合する仕様](../spec/server/通知.md#費用悪用を抑える境界)
+
+#### 文書だけのpushがビルドと配置に届くことを確認する
+
+2026-11-22。Workers Buildsのトリガーを読み取った。`main` を対象に含み、ビルドのルートは `server`。変更を監視するパスは `*` の1件で、除外は0件だった。共有 `main` と固定 `preview` の `ab08011f` はバックログの文書2点だけを変更し、前回確認した固定Previewの `1adc77da` から `server` の変更はなかった。このコミットを使う本番向けと固定Previewのビルドは各1件が成功した。[Workers Buildsの監視パス](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)
+
+固定Previewの最新配置が `ab08011f` に一致した。通話と通常通知の稼働フラグはどちらも有効のままだった。本番では単一のバージョンに100%を配分していることまでは確認したが、このビルドとの対応は確認できなかった。文書だけのpushでも固定Previewは配置を更新する。送信前の監査では文書の差分と、送信した履歴で自動配置され得るWorkerを照合する。証跡は `.validation/security-audit-2100/docs-push-build-boundary/` に保存した。[監査で保留する操作](history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)
+
 ### 過去の配置の確認記録
 
 2026-11-19、Cloudflareの読取APIで、Productionの`rideintercom`と固定`preview`の配置番号382を確認した。表はその時点の公開値・binding・secret名を示す。端末鍵索引のv4以降の実配置、Previews Baseの現在値、配置ソースとGitの一致、Appleの実署名・端末許可、実APNsと実SFUは引き続き受入対象。
