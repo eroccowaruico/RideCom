@@ -1,5 +1,13 @@
 
 export interface NotificationAuth { accountID: string; userID: string; deviceID: string; tokenHash: string }
+export interface GroupInvitationSenderCheck {
+    sender: NotificationAuth
+    state: 'active' | 'inactive' | 'cancelled'
+}
+function sameNotificationAuth(left: NotificationAuth, right: NotificationAuth): boolean {
+    return left.accountID === right.accountID && left.userID === right.userID
+        && left.deviceID === right.deviceID && left.tokenHash === right.tokenHash
+}
 export interface NotificationDevice {
     token: string; environment: 'sandbox' | 'production'; topic: string
     registrationID: string; tokenIndex: string; deviceID: string; tokenHash: string; expiresAt: number
@@ -88,7 +96,7 @@ export class AccountNotifications {
     takeSendBudget(auth: NotificationAuth): boolean {
         return this.authorized(auth) && this.takeBudget('sender', 60)
     }
-    groupInvitationSenderState(auth: NotificationAuth, recipient: string, requestID: string): 'active' | 'inactive' | 'cancelled' {
+    groupInvitationSenderState(auth: NotificationAuth, recipient: string, requestID: string): GroupInvitationSenderCheck['state'] {
         if (!this.authorized(auth)) return 'inactive'
         const expiresAt = this.storage.kv.get<number>(`${groupCancellationPrefix + recipient}:${requestID}`)
         return expiresAt !== undefined && expiresAt > Date.now() ? 'cancelled' : 'active'
@@ -201,9 +209,13 @@ export class AccountNotifications {
         const value = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + requestID)
         return value && value.expiresAt > Date.now() ? value : null
     }
-    invitationStatus(userID: string, requestID: string): GroupInvitationStatus | null {
+    invitationStatus(userID: string, requestID: string, includePendingSender: boolean): (GroupInvitationStatus & {
+        pendingSender?: NotificationAuth
+    }) | null {
         const value = this.invitation(userID, requestID)
-        return value ? this.invitationStatusFields(value) : this.invitationResult(userID, requestID)
+        if (!value) return this.invitationResult(userID, requestID)
+        const status = this.invitationStatusFields(value)
+        return includePendingSender && value.status === 'queued' ? { ...status, pendingSender: value.sender } : status
     }
     private invitationStatusFields(value: NotificationGroupInvitation): GroupInvitationStatus {
         return { senderUserID: value.sender.userID, recipientDeviceID: value.recipientDeviceID,
@@ -303,13 +315,13 @@ export class AccountNotifications {
         if (value.sourceRequestID && (auth.deviceID !== value.recipientDeviceID
             || this.addressForRedelivery(value)?.auth.deviceID !== auth.deviceID)) return null
         const sender = value.sender
-        if (sender.accountID !== verifiedSender.accountID || sender.userID !== verifiedSender.userID
-            || sender.deviceID !== verifiedSender.deviceID || sender.tokenHash !== verifiedSender.tokenHash) return null
+        if (!sameNotificationAuth(sender, verifiedSender)) return null
         return { requestID, senderUserID: sender.userID, recipientKey, expiresAt: value.expiresAt, envelope: value.envelope,
             sourceRequestID: value.sourceRequestID }
     }
     finishInvitation(userID: string, requestID: string, actorID: string, discard = false,
-                     recipientAuth?: NotificationAuth, expectedExpiry?: number): 'received' | 'cancelled' | null {
+                     recipientAuth?: NotificationAuth, expectedExpiry?: number,
+                     senderCheck?: GroupInvitationSenderCheck): 'received' | 'cancelled' | 'retry' | null {
         const value = this.invitation(userID, requestID)
         if (!value) {
             const result = this.invitationResult(userID, requestID)
@@ -323,14 +335,17 @@ export class AccountNotifications {
         if (actorID !== userID && actorID !== value.sender.userID) return null
         if (expectedExpiry !== undefined && expectedExpiry !== value.expiresAt) return null
         const withdrawing = actorID === value.sender.userID
-        if (!withdrawing && value.sourceRequestID && (!recipientAuth || !this.authorized(recipientAuth)
-            || recipientAuth.userID !== userID || recipientAuth.deviceID !== value.recipientDeviceID)) return null
+        if (!withdrawing && (!recipientAuth || !this.authorized(recipientAuth) || recipientAuth.userID !== userID
+            || (value.sourceRequestID !== undefined && recipientAuth.deviceID !== value.recipientDeviceID))) return null
         const next = { ...value, envelope: null }
         if (next.status === 'queued') {
             const address = value.sourceRequestID ? this.addressForRedelivery(value) : null
-            const canReceive = this.grantActive(userID, value.grantHash)
+            const canReceive = !withdrawing && !discard && this.grantActive(userID, value.grantHash)
                 && (!value.sourceRequestID || (address !== null && address.auth.deviceID === next.recipientDeviceID))
-            next.status = !withdrawing && !discard && canReceive ? 'received' : 'cancelled'
+            // A resubmission may have changed the stored sender while the Worker checked the old session.
+            if (canReceive && (!senderCheck || !sameNotificationAuth(value.sender, senderCheck.sender)
+                || senderCheck.state === 'inactive')) return 'retry'
+            next.status = canReceive && senderCheck?.state === 'active' ? 'received' : 'cancelled'
         }
         if (next.status === value.status && (!withdrawing || value.additionalDevicesClosed)) return next.status
         // An old receipt remains visible after the sender closes future deliveries.

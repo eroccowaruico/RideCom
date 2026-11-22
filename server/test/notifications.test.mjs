@@ -901,6 +901,40 @@ test('group invitation receipt requires a current resubmission after sender sign
     } finally { await r.dispose(); }
 });
 
+test('a downloaded group invitation waits for the sender to resubmit after sign-out', async () => {
+    const r = await setup();
+    try {
+        const sender = await login(r, 'acknowledgement-sender');
+        const recipient = await login(r, 'acknowledgement-recipient');
+        const grant = await call(r, `${groupPath}/grants`, { senderUserID: sender.userID }, recipient.accessToken);
+        assert.equal(grant.status, 200);
+        const { capability } = await grant.json();
+        const requestID = randomUUID(), recipientKey = 'k'.repeat(87);
+        const body = { capability, requestID, recipientKey, expiresAt: Date.now() + 60_000,
+            envelope: Buffer.from('synthetic invitation ciphertext').toString('base64') };
+        const path = `${groupPath}/${recipient.userID}/${requestID}`;
+        const submit = user => call(r, groupPath, body, user.accessToken);
+        const ack = () => call(r, path, undefined, recipient.accessToken, 'DELETE');
+        const signOut = user => call(r, '/api/auth/session', undefined, user.accessToken, 'DELETE');
+        assert.equal((await submit(sender)).status, 200);
+        const download = await call(r, `${groupPath}?recipientKey=${recipientKey}`, undefined, recipient.accessToken, 'GET');
+        assert.equal((await download.json()).delivery?.requestID, requestID);
+        assert.equal((await signOut(sender)).status, 200);
+        assert.equal((await ack()).status, 409);
+        const queued = await call(r, path, undefined, recipient.accessToken, 'GET');
+        assert.deepEqual(await queued.json(), { requestID, expiresAt: body.expiresAt, status: 'queued' });
+
+        const current = await login(r, 'acknowledgement-sender', sender.deviceID);
+        assert.equal((await ack()).status, 409, 'Signing in alone cannot reactivate the old invitation');
+        assert.equal((await submit(current)).status, 200);
+        const received = await ack();
+        assert.equal(received.status, 200);
+        assert.deepEqual(await received.json(), { status: 'received' });
+        assert.equal((await signOut(current)).status, 200);
+        assert.deepEqual(await (await ack()).json(), { status: 'received' });
+    } finally { await r.dispose(); }
+});
+
 test('group invitation lifetime tolerates a small device clock difference but stays bounded', async () => {
     const r = await setup();
     try {

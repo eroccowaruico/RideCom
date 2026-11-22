@@ -1,4 +1,4 @@
-import type { InvitationDeviceAddress, NotificationGroupInvitation } from './AccountNotifications'
+import type { GroupInvitationSenderCheck, InvitationDeviceAddress, NotificationGroupInvitation } from './AccountNotifications'
 import { DurableObject } from 'cloudflare:workers'
 import { errors, jwtVerify } from 'jose'
 import { type Env, json, readJSON } from './types'
@@ -208,7 +208,9 @@ export class UserAccount extends DurableObject<Env> {
         return result
     }
     groupInvitationGet(userID: string, requestID: string) { return this.notifications.invitation(userID, requestID) }
-    groupInvitationStatus(userID: string, requestID: string) { return this.notifications.invitationStatus(userID, requestID) }
+    groupInvitationStatus(userID: string, requestID: string, includePendingSender = false) {
+        return this.notifications.invitationStatus(userID, requestID, includePendingSender)
+    }
     groupInvitationIDsForAdditionalDevice(auth: NotificationAuth, recipientKey: string) {
         return this.notifications.invitationIDsForAdditionalDevice(auth, recipientKey)
     }
@@ -240,8 +242,8 @@ export class UserAccount extends DurableObject<Env> {
         return result
     }
     groupInvitationFinish(userID: string, requestID: string, actorID: string, discard = false,
-                          recipientAuth?: NotificationAuth, expectedExpiry?: number) {
-        return this.notifications.finishInvitation(userID, requestID, actorID, discard, recipientAuth, expectedExpiry)
+                          recipientAuth?: NotificationAuth, expectedExpiry?: number, senderCheck?: GroupInvitationSenderCheck) {
+        return this.notifications.finishInvitation(userID, requestID, actorID, discard, recipientAuth, expectedExpiry, senderCheck)
     }
     groupInvitationCandidates(userID: string, requestID: string) { return this.notifications.invitationCandidates(userID, requestID) }
     notificationAuthorized(auth: NotificationAuth) { return this.notifications.authorized(auth) }

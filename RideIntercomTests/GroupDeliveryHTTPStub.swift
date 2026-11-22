@@ -18,6 +18,7 @@ final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var submitRejectionStatus = 403
     nonisolated(unsafe) static var failNextSubmit = false
     nonisolated(unsafe) static var failNextAcknowledgement = false
+    @MainActor static var invitationsWaitingForSender: Set<String> = []
 
     static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
@@ -37,6 +38,7 @@ final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
         submitRejectionStatus = 403
         failNextSubmit = false
         failNextAcknowledgement = false
+        invitationsWaitingForSender = []
         onQueued = nil
         onAcknowledged = nil
         beforeReturningInbox = nil
@@ -128,6 +130,7 @@ final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
         let item = items.values.first {
             $0["recipientID"] as? String == caller && $0["recipientKey"] as? String == key
                 && $0["status"] as? String == "queued"
+                && !invitationsWaitingForSender.contains($0["requestID"] as? String ?? "")
         }
         return (200, ["delivery": item.map { $0 as Any } ?? NSNull()])
     }
@@ -158,6 +161,9 @@ final class GroupDeliveryHTTPStub: URLProtocol, @unchecked Sendable {
             let discard =
                 URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(
                     .init(name: "discard", value: "1")) == true
+            if item["recipientID"] as? String == caller && !discard && invitationsWaitingForSender.contains(id) {
+                return (409, [:])
+            }
             item["status"] = item["recipientID"] as? String == caller && !discard ? "received" : "cancelled"
             items[id] = item
             if item["status"] as? String == "received" {

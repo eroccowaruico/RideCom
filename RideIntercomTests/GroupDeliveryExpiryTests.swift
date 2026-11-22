@@ -5,6 +5,52 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryFlowTests {
+    @Test func waitingForOneSenderLetsTheInboxAcceptAnotherInvitation() async throws {
+        let author = GroupDeliveryTestIdentity("waiting-sender")
+        let recipient = GroupDeliveryTestIdentity("waiting-recipient")
+        defer { author.remove(); recipient.remove() }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try author.harness(knowing: [recipient]).viewModel
+        let receiver = try recipient.harness(knowing: [author]).viewModel
+        defer {
+            sender.stopGroupDeliverySync()
+            receiver.stopGroupDeliverySync()
+            sender.disconnect()
+            receiver.disconnect()
+        }
+        GroupDeliveryHTTPStub.reset()
+        let client = InternetAccountClient(session: GroupDeliveryHTTPStub.makeSession())
+        try allowGroupDeliveryRequests(from: author, recipient)
+        sender.groupDeliveryClient = client
+        receiver.groupDeliveryClient = client
+        try grantGroupInvitationPermission(on: sender, recipient: recipient, sender: author)
+
+        let waitingGroup = UUID(), nextGroup = UUID()
+        try #require(sender.createTalkGroup(name: "Waiting group", userIDs: [recipient.personID], id: waitingGroup))
+        await sender.synchronizeGroupDeliveries()
+        let delivery = try #require(sender.groupRepository.groupDeliveries.first { $0.groupID == waitingGroup })
+        GroupDeliveryHTTPStub.beforeReturningInbox = {
+            GroupDeliveryHTTPStub.invitationsWaitingForSender.insert(delivery.id.uuidString.lowercased())
+        }
+        await receiver.synchronizeGroupDeliveries()
+        try #require(receiver.groupRepository.groupDeliveries.first { $0.id == delivery.id }?.state == .pending)
+        #expect(!receiver.groups.contains { $0.id == waitingGroup })
+
+        try #require(sender.createTalkGroup(name: "Next group", userIDs: [recipient.personID], id: nextGroup))
+        await sender.synchronizeGroupDeliveries()
+        GroupDeliveryHTTPStub.deletions = []
+        await receiver.synchronizeGroupDeliveries()
+        #expect(receiver.groups.contains { $0.id == nextGroup })
+        #expect(!receiver.groups.contains { $0.id == waitingGroup })
+        #expect(GroupDeliveryHTTPStub.deletions.filter { $0 == delivery.id.uuidString.lowercased() }.count == 1)
+
+        GroupDeliveryHTTPStub.invitationsWaitingForSender = []
+        await receiver.synchronizeGroupDeliveries()
+        #expect(receiver.groups.filter { $0.id == waitingGroup }.count == 1)
+        #expect(receiver.groups.filter { $0.id == nextGroup }.count == 1)
+    }
+
     @Test(arguments: [false, true])
     func foregroundAfterExpiryRecoversTheConfirmedInvitationOutcome(cancelled: Bool) async throws {
         let authorDevice = GroupDeliveryTestIdentity("expiry-author")

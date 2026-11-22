@@ -42,6 +42,7 @@ nonisolated struct InternetAccountClient: Sendable {
     enum Failure: Error {
         case invalidAddress, rejected, forbidden, notFound, invalidResponse, deviceLimitReached, deletionPending,
             deletionReauthenticationRequired
+        case groupInvitationAwaitingSender
         case rateLimited(retryAfter: Int)
     }
     static func origin(_ text: String) throws -> URL {
@@ -173,6 +174,8 @@ nonisolated struct InternetAccountClient: Sendable {
             let proposed = Int(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 60
             throw Failure.rateLimited(retryAfter: proposed > 0 ? min(proposed, 3600) : 60)
         case (409, "POST", "api/auth/apple/session"): return .enrollmentConflict
+        case (409, "DELETE", _) where path.hasPrefix("api/notifications/group-invitations/"):
+            throw Failure.groupInvitationAwaitingSender
         default: throw Failure.rejected
         }
     }

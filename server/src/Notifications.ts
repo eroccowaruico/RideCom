@@ -223,7 +223,9 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         const groupRoute = path.match(/^\/api\/notifications\/group-invitations\/([a-f0-9]{64})\/([a-f0-9-]{36})$/i)
         if (groupRoute && uuidPattern.test(groupRoute[2]) && ['GET', 'DELETE'].includes(method)) {
             const recipient = groupRoute[1].toLowerCase(), id = groupRoute[2].toLowerCase(), receiver = await target(env, recipient)
-            const value = await receiver?.groupInvitationStatus(recipient, id)
+            const discard = url.searchParams.get('discard') === '1'
+            const acknowledging = method === 'DELETE' && auth.userID === recipient && !discard
+            const value = await receiver?.groupInvitationStatus(recipient, id, acknowledging)
             if (!receiver || !value) {
                 if (method !== 'DELETE' || auth.userID === recipient) return json({ error: 'Not found' }, 404)
                 const status = await cancelUnstoredGroupInvitation(owner, receiver, auth, recipient, id)
@@ -236,7 +238,11 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 return json({ error: 'Not found' }, 404)
             }
             if (method === 'DELETE') {
-                const status = await receiver.groupInvitationFinish(recipient, id, auth.userID, url.searchParams.get('discard') === '1', auth)
+                const sender = value.pendingSender
+                const senderCheck = sender ? { sender, state: await account(env, sender.accountID)
+                    .groupInvitationSenderState(sender, recipient, id) } : undefined
+                const status = await receiver.groupInvitationFinish(recipient, id, auth.userID, discard, auth, undefined, senderCheck)
+                if (status === 'retry') return json({ error: 'Invitation is waiting for the sender' }, 409)
                 return status ? json({ status }) : json({ error: 'Not found' }, 404)
             }
             return json({ requestID: id, expiresAt: value.expiresAt, status: value.status })

@@ -16,6 +16,7 @@ extension IntercomViewModel {
 
     private enum IncomingGroupDeliveryStep {
         case next
+        case waitForSender
         case finishInbox
         case stopInbox
     }
@@ -30,29 +31,30 @@ extension IntercomViewModel {
 
         // Resume locally saved work before reading new mail. An acknowledged packet
         // can disappear from the mailbox even if its response never reached this device.
+        var waitingForSender = Set<UUID>()
         receiving: for _ in 0..<64 {
             guard groupDeliveryInboxIsCurrent(session) else { return }
             let pending = groupRepository.groupDeliveries.first {
                 $0.direction == .incoming && $0.state == .pending && $0.recipient == access.principal
                     && $0.recipientMemberID == signer.memberID && $0.recipientKey == signer.publicKey
+                    && !waitingForSender.contains($0.id)
             }
             let item: GroupDeliveryItem?
-            if pending == nil {
-                do {
-                    item = try await client.nextGroupInvitation(recipientKey: signer.publicKey, access: access)
-                } catch {
-                    break
-                }
-                guard groupDeliveryInboxIsCurrent(session) else { return }
-            } else {
-                item = nil
+            do {
+                item = pending == nil ? try await client.nextGroupInvitation(
+                    recipientKey: signer.publicKey, access: access
+                ) : nil
+            } catch {
+                break
             }
+            guard groupDeliveryInboxIsCurrent(session) else { return }
             guard let id = pending?.id ?? item?.requestID else {
                 await requestInvitationsForAdditionalDevice(session)
                 break
             }
             switch await receiveGroupInvitation(id, pending: pending, item: item, session: session) {
             case .next: continue
+            case .waitForSender: waitingForSender.insert(id)
             case .finishInbox: break receiving
             case .stopInbox: return
             }
@@ -103,6 +105,8 @@ extension IntercomViewModel {
                     return .next
                 }
                 outcome = try await client.acknowledgeGroupInvitation(id, access: access)
+            } catch InternetAccountClient.Failure.groupInvitationAwaitingSender {
+                return .waitForSender
             } catch {
                 // The ciphertext stays committed for the next lifecycle event.
                 return .finishInbox
