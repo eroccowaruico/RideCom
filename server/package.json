@@ -19,18 +19,18 @@
         "ws": "8.21.0"
     },
     "engines": {
-        "node": ">=22.0.0"
+        "node": "^26.13.1"
     },
     "overrides": {
+        "undici": "7.30.2",
         "miniflare@4.20260730.0": {
-            "undici": "7.30.1",
             "sharp": "0.35.5"
         }
     },
     "dependencies": {
         "asn1js": "4.1.0",
         "cborg": "7.0.0",
-        "jose": "6.2.14",
+        "jose": "6.2.18",
         "pkijs": "4.0.1"
     }
 }

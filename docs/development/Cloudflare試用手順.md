@@ -44,6 +44,8 @@ Cloudflareプラグインからは、その接続に許可された範囲で設�
 
 GitHub連携ではSettings → Builds → Branch controlのEnable Preview BuildsをONにする。Preview commandを`npx wrangler preview`にする。通常の試用は共有mainから固定 `preview` ブランチへ反映し、同名のPreviewで行う。Production branchは`main`、既存のdeploy commandは`npx wrangler deploy`のまま維持し、プレビューのために本番の配置経路を置き換えない。root directoryは`server`、build commandは空欄。Productionの資格は本番を有効化するときに本番用の値を登録する。
 
+本番と固定PreviewのWorkers Buildsは、ビルドのルート `server` にある `server/.node-version` からNode.jsのバージョンを選ぶ。ダッシュボードの `NODE_VERSION` に別のバージョンを重ねて指定しない。配置を受け入れる際は、両環境のビルド記録で指定したNode.jsのバージョンが使われたことを確認する。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)
+
 [公式プレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)と[GitHub連携](https://developers.cloudflare.com/workers/ci-cd/builds/)を参照する。
 
 ## 固定プレビューの継続運用

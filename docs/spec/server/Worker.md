@@ -236,6 +236,8 @@ TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固�
 
 固定PreviewのSFU App IDとTURN Key IDは `previews.vars` に記載する。Previews BaseのシークレットはPreview作成時に取り込まれる。既存の固定Previewに追加・更新するシークレットは、そのPreviewを対象に登録する。GitHub連携ではmainの配置コマンドと固定Previewの配置コマンドを分ける。[CloudflareのPreview設定](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 
+本番と固定Previewのビルドに使うNode.jsは、共通の `server/.node-version` で指定する。[配置とビルドの確認手順](../../development/Cloudflare試用手順.md)
+
 リポジトリの `wrangler.toml` は、環境ごとに次の値を明示する。実際に稼働する値と鍵の反映状況は[最新の配置で確認した試用条件](../../development/Cloudflare試用手順.md#最新の配置で確認した試用条件)を参照する。
 
 `wrangler.toml` は、Worker単位のObservabilityとLogpush、ログとトレースの取得・永続化、呼出ログを無効にする。ログとトレースの転送先は空とし、URLのクエリ除去を有効にする。本番と固定Previewは同じ設定を使う。配置後は、各設定と転送先を管理APIで読み戻す。アカウント全体の転送設定と過去の保存データは運用の監査で確認する。[Previewに適用される設定](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block)
