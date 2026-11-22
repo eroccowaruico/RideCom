@@ -38,7 +38,7 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 
 `CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
 
-Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。通常変数と6つのDO bindingは`wrangler.toml`の`previews`に定義する。固定Previewでは配置が参照するSFU App IDと、そのIDに対応するSecretを照合する。
+Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。検証端末ごとに固定Previewへ接続するDebugビルドを入れ、Appleで認証する。通常変数と6つのDO bindingは`wrangler.toml`の`previews`に定義する。固定Previewでは配置が参照するSFU App IDと、そのIDに対応するSecretを照合する。
 
 Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。手動配置でも対象は固定Previewとする。依存を導入して認証した後、リポジトリのルートで `npm --prefix server run preview -- --name preview` を実行する。
 

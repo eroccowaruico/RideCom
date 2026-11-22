@@ -106,7 +106,7 @@ struct StandardAudioCheckSection: View {
     }
 }
 
-/// Whether Internet is set up, and the sheet with the service address and connecting with Apple.
+/// Shows whether Internet calling is set up and opens the Apple registration sheet.
 struct StandardInternetConnectionSection: View {
     let viewModel: IntercomViewModel
     @Binding var isEditing: Bool

@@ -37,7 +37,7 @@ Settings はアカウントのサインアウトと削除、通信経路、Audio
 |---|---|---|---|---|---|
 | 設定画面 | `settingsScrollView` | 通話前後に設定を調整し、状態を確認して自己診断する | `SettingsView` | 常時 | `Form` |
 | 通信設定 | `communicationPanel` | RTC package に渡す有効 route を選択する | `CommunicationPanel` | 常時 | `Communication` section |
-| Internet接続設定 | なし（子IDを使用） | サービスURLと端末資格の保存 | `StandardInternetConnectionSection`／`AdvancedInternetConnectionPanel` | 常時 | `Internet Connection` section |
+| Internet接続設定 | なし（子IDを使用） | ビルドで決まる接続先での本人確認と端末資格の保存 | `StandardInternetConnectionSection`／`AdvancedInternetConnectionPanel` | 常時 | `Internet Connection` section |
 | Audio Session設定 | `audioSessionPanel` | SessionManager の mode、speaker、echo cancellation、Duck Other Audio の組み合わせを選択する | `AdvancedAudioSessionPanel` | 常時 | `Audio Session` section |
 | 音声I/O設定 | `audioIOPanel` | 入出力ポートと effect chain の有効/無効を選択する | `AudioIOPanel` | 常時 | `Audio I/O` section |
 | オーディオチェック設定 | `audioCheckPanel` | 自己録音/再生で経路確認する | `StandardAudioCheckSection`／`AdvancedAudioCheckPanel` | 常時 | `Audio Check` section |
