@@ -8,6 +8,7 @@ import { AccountNotifications, type NotificationAuth, type NotificationDevice, t
 import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket, type OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { AccountContactDeletions, type ContactDeletionAddress, type ContactDeletionRelayPacket } from './AccountContactDeletions'
 import { AccountDirectRestoreRelay, type DirectRestoreRelayCandidate, type DirectRestoreRelayPacket } from './AccountDirectRestoreRelay'
+import { AccountDirectRestoreDevices, type DirectRestoreDevicePublication } from './AccountDirectRestoreDevices'
 import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type EnrollmentPolicy, type VerifiedAppAttestKey } from './AppAttestEnrollment'
 
 import { appleKeys, appleAuthorizationConfigured, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
@@ -87,6 +88,7 @@ export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
     private readonly contactDeletions = new AccountContactDeletions(this.ctx.storage)
     private readonly directRestoreRelay = new AccountDirectRestoreRelay(this.ctx.storage)
+    private readonly directRestoreDevices = new AccountDirectRestoreDevices(this.ctx.storage)
     private readonly ordinaryGroupReplies = new AccountOrdinaryGroupReplies(this.ctx.storage)
     // Keep the replaceable verifier on the instance, outside the RPC prototype.
     protected readonly verifyMacAttestation = verifyMacEnrollment
@@ -172,6 +174,31 @@ export class UserAccount extends DurableObject<Env> {
     }
     directRestoreRelayRetire(auth: NotificationAuth, sessionBinding: string, id: string) {
         return this.notifications.authorized(auth) && this.directRestoreRelay.retire(auth.deviceID, sessionBinding, id)
+    }
+    async directRestoreDevicePublish(auth: NotificationAuth, scope: string, value: DirectRestoreDevicePublication) {
+        if (!this.notifications.authorized(auth) || auth.deviceID !== value.deviceID) return 'unauthorized'
+        const result = this.directRestoreDevices.publish(scope, value)
+        if (result === 'stored') await this.ensureMailboxExpiry(value.expiresAt)
+        return result
+    }
+    async directRestoreDeviceRevoke(auth: NotificationAuth, scope: string) {
+        if (!this.notifications.authorized(auth)) return 'unauthorized'
+        const result = this.directRestoreDevices.revoke(scope, auth.deviceID)
+        if (typeof result === 'string') return result
+        await this.ensureMailboxExpiry(result.expiresAt)
+        return 'revoked'
+    }
+    async directRestoreDeviceRead(owner: string, scope: string) {
+        if (!this.notifications.isCurrent(owner)) return null
+        const initial = this.directRestoreDevices.publication(scope)
+        if (!initial) return null
+        const session = await this.authenticateBoundSession(owner, initial.deviceID, initial.sessionBinding)
+        if (!session || !this.notifications.authorized(session)) return null
+        const current = this.directRestoreDevices.publication(scope)
+        if (!current || current.deviceID !== initial.deviceID || current.sessionBinding !== initial.sessionBinding
+            || current.issuedAt !== initial.issuedAt || current.expiresAt !== initial.expiresAt
+            || current.packet !== initial.packet) return null
+        return { expiresAt: current.expiresAt, packet: current.packet }
     }
     async groupInvitationBegin(value: NotificationGroupInvitation) {
         const result = this.notifications.beginInvitation(value)
@@ -420,6 +447,7 @@ export class UserAccount extends DurableObject<Env> {
                 this.notifications.invalidateAll()
                 this.contactDeletions.clear()
                 this.directRestoreRelay.clear()
+                this.directRestoreDevices.clear()
                 this.ordinaryGroupReplies.clear()
                 for (const prefix of ['device:', 'room:']) for (const [key] of this.ctx.storage.kv.list({ prefix })) this.ctx.storage.kv.delete(key)
                 // The token is held only for deletion retries, never routine login.
@@ -497,6 +525,7 @@ export class UserAccount extends DurableObject<Env> {
         this.notifications.pruneUnstoredGroupCancellations()
         this.contactDeletions.prune()
         this.directRestoreRelay.prune()
+        this.directRestoreDevices.prune()
         this.ordinaryGroupReplies.prune()
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         if (preparation && preparation.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletionPreparation')
@@ -522,7 +551,7 @@ export class UserAccount extends DurableObject<Env> {
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         const pending = !!receipt?.appleToken || !!receipt?.rooms?.length
         const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(), ...this.ordinaryGroupReplies.deadlines(),
-            ...this.directRestoreRelay.deadlines(),
+            ...this.directRestoreRelay.deadlines(), ...this.directRestoreDevices.deadlines(),
             ...devices.map(device => Math.min(device.expiresAt, device.attestationChallenge?.expiresAt ?? Infinity,
                 device.attestation?.expiresAt ?? Infinity)), ...(preparation ? [preparation.expiresAt] : []),
             ...(receipt?.appleToken && receipt.retryAt !== undefined && (receipt.attempts ?? 0) <= retryDelays.length ? [receipt.retryAt] : []),

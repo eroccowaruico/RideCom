@@ -369,6 +369,87 @@ test('direct restore relay is unavailable without explicit test enablement', asy
         const device = await enrolled(runtime);
         assert.equal((await call(runtime, directRestorePath, undefined, device.accessToken, 'GET')).status, 404);
         assert.equal((await call(runtime, directRestorePath, {}, device.accessToken, 'PUT')).status, 404);
+        assert.equal((await call(runtime, '/api/direct-call-restore/device', {}, device.accessToken, 'POST')).status, 404);
+    } finally { await runtime.dispose(); }
+});
+
+test('direct restore device lookup scopes opaque publications to the authorized account and session', async () => {
+    const path = '/api/direct-call-restore/device';
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const runtime = await makeRuntime({ ...options, DIRECT_CALL_RESTORE_RELAY_ENABLED: 'true',
+        DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) },
+    { appleKeys: [publicKey], adjustableClock: true });
+    try {
+        const owner = await enrolled(runtime, 'lookup-owner');
+        const otherOwnerDevice = await enrolled(runtime, 'lookup-owner');
+        const reader = await enrolled(runtime, 'lookup-reader');
+        const replacementReader = await enrolled(runtime, 'lookup-reader');
+        const stranger = await enrolled(runtime, 'lookup-stranger');
+        const identity = await signReplyDevice(runtime, owner, 'lookup-owner');
+        const siblingIdentity = await signReplyDevice(runtime, otherOwnerDevice, 'lookup-owner-sibling');
+        const issuedAt = Date.now();
+        const initial = { slot: replySlot(), reader: reader.userID, issuedAt, expiresAt: issuedAt + 150_000,
+            packet: randomBytes(64).toString('base64') };
+        const signed = async (value, signer = identity) => ({ ...value, proof: await signer.proof('publishDirectRestoreDevice',
+            JSON.stringify([value.slot, value.reader, value.issuedAt, value.expiresAt, value.packet])) });
+        const write = (body, device = owner) => call(runtime, path, body, device.accessToken, 'PUT');
+        const read = (device, slot = initial.slot) => call(runtime, path, { owner: owner.userID, slot }, device.accessToken);
+        const revoke = (slot, device = owner) => call(runtime, path, { slot, reader: reader.userID }, device.accessToken, 'DELETE');
+        const update = async value => assert.deepEqual(await (await write(await signed(value))).json(), { state: 'stored' });
+
+        assert.equal((await read(reader)).status, 404);
+        const first = await signed(initial);
+        assert.equal((await write({ ...first, reader: stranger.userID })).status, 401);
+        assert.equal((await write({ ...first, packet: randomBytes(64).toString('base64') })).status, 401);
+        await update(initial);
+        await update(initial);
+        assert.deepEqual(await (await read(reader)).json(), { expiresAt: initial.expiresAt, packet: initial.packet });
+        assert.deepEqual(await (await read(replacementReader)).json(), { expiresAt: initial.expiresAt, packet: initial.packet });
+        assert.equal((await read(stranger)).status, 404);
+        assert.equal((await read(reader, replySlot())).status, 404);
+        assert.equal((await revoke(initial.slot, otherOwnerDevice)).status, 409);
+        const newer = { ...initial, issuedAt: issuedAt + 1, expiresAt: issuedAt + 180_000,
+            packet: randomBytes(64).toString('base64') };
+        assert.equal((await write(await signed(newer, siblingIdentity), otherOwnerDevice)).status, 409);
+        await update(newer);
+        assert.equal((await write(first)).status, 409);
+        assert.deepEqual(await (await read(reader)).json(), { expiresAt: newer.expiresAt, packet: newer.packet });
+        assert.deepEqual(await (await revoke(initial.slot)).json(), { state: 'revoked' });
+        assert.deepEqual(await (await revoke(initial.slot)).json(), { state: 'revoked' });
+        assert.equal((await read(reader)).status, 404);
+        assert.equal((await write(await signed(newer))).status, 409);
+
+        const overtaken = { ...initial, slot: replySlot() };
+        assert.deepEqual(await (await revoke(overtaken.slot)).json(), { state: 'revoked' });
+        assert.equal((await write(await signed(overtaken))).status, 409);
+        assert.equal((await read(reader, overtaken.slot)).status, 404);
+        const briefly = { ...initial, slot: replySlot(), expiresAt: issuedAt + 30_000 };
+        const longer = { ...initial, slot: replySlot() };
+        await update(briefly);
+        await update(longer);
+        assert.equal((await write(await signed({ ...longer, expiresAt: issuedAt + 86_400_001 }))).status, 400);
+        assert.equal((await write(await signed({ ...longer, issuedAt: issuedAt + 120_000 }))).status, 400);
+        for (let index = 0; index < 60; index += 1) await update({ ...longer, slot: replySlot() });
+        const excess = { ...longer, slot: replySlot() };
+        assert.equal((await write(await signed(excess))).status, 429);
+        assert.equal((await revoke(excess.slot)).status, 429);
+        await runtime.advanceClock(31_000);
+        assert.equal((await read(reader, briefly.slot)).status, 404);
+        await update(excess);
+        assert.equal((await read(reader, longer.slot)).status, 200);
+        const renewedSession = await signIn(runtime, await challenge(runtime, owner.deviceID), { sub: 'lookup-owner' });
+        assert.equal(renewedSession.status, 200);
+        const renewed = await renewedSession.json();
+        assert.equal((await read(reader, longer.slot)).status, 404);
+        assert.equal((await write(await signed(longer), renewed)).status, 401);
+        const renewedIdentity = await signReplyDevice(runtime, renewed, 'lookup-owner');
+        const current = { ...longer, issuedAt: Date.now(), expiresAt: Date.now() + 150_000 };
+        assert.equal((await write(await signed(current, renewedIdentity), renewed)).status, 200);
+        assert.equal((await read(reader, longer.slot)).status, 200);
+        assert.equal((await call(runtime, '/api/auth/session', undefined, renewed.accessToken, 'DELETE')).status, 200);
+        assert.equal((await read(reader, longer.slot)).status, 404);
+        assert.equal((await call(runtime, '/api/auth/account', undefined, otherOwnerDevice.accessToken, 'DELETE')).status, 200);
+        assert.equal((await read(replacementReader, longer.slot)).status, 404);
     } finally { await runtime.dispose(); }
 });
 

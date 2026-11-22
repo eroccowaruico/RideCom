@@ -4,6 +4,7 @@ import { type Env, isRecord, json, sha256Hex } from './types'
 import { accountRequest, authenticateDevice } from './AppleAccount'
 import { notificationRequest } from './Notifications'
 import { contactDeletionRequest } from './ContactDeletions'
+import { directRestoreDevicePath, directRestoreDeviceRequest } from './DirectRestoreDevices'
 import { directRestoreRelayPath, directRestoreRelayRequest } from './DirectRestoreRelay'
 import { ordinaryGroupReplyPrefix, ordinaryGroupReplyRequest } from './OrdinaryGroupReplies'
 export { NotificationIndex } from './NotificationIndex'
@@ -20,6 +21,7 @@ export default {
         if (url.pathname.startsWith('/api/notifications/')) return notificationRequest(request, env)
         if (url.pathname.startsWith(ordinaryGroupReplyPrefix)) return ordinaryGroupReplyRequest(request, env)
         if (url.pathname === directRestoreRelayPath) return directRestoreRelayRequest(request, url, env)
+        if (url.pathname === directRestoreDevicePath) return directRestoreDeviceRequest(request, url, env)
         if (url.pathname === '/api/contact-deletions' || url.pathname.startsWith('/api/contact-deletions/')) {
             return contactDeletionRequest(request, env)
         }
