@@ -41,7 +41,7 @@ struct CallRelationshipBackup: Codable, Equatable {
         return backup
     }
 
-    fileprivate static func verifiedOwner(
+    static func verifiedOwner(
         of signer: DeviceIdentitySigner, now: TimeInterval
     ) throws -> AccountPrincipal {
         guard let identity = signer.identity, identity.expiresAt > now,
