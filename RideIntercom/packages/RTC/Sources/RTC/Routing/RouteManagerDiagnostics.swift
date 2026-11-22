@@ -3,8 +3,8 @@ import Foundation
 extension RouteManager {
     func emitRouteSnapshot() { emit(.routeChanged(routeSnapshot())) }
     private func routeSnapshot() -> ActiveRouteSnapshot {
-        ActiveRouteSnapshot(activeRoute: activeRoute, mediaRoute: mediaRoute, availableRoutes: availableRoutes,
-                            isHandoverInProgress: !retries.isEmpty && availableRoutes.isEmpty)
+        ActiveRouteSnapshot(activeRoute: activeRoute, mediaRoute: activeRoute, availableRoutes: availableRoutes,
+                            isHandoverInProgress: connectionState == .reconnecting)
     }
     func sendRuntimeStatus(reason: RTCRuntimeStatusReason) async {
         guard runtimeStatusPolicy.isAutomaticBroadcastEnabled else { return }
@@ -65,7 +65,7 @@ extension RouteManager {
                         availabilityReason: routeAvailabilities[route.kind]?.reason,
                         capabilities: route.capabilities,
                         isActiveRoute: activeRoute == route.kind,
-                        isMediaRoute: mediaRoute == route.kind,
+                        isMediaRoute: activeRoute == route.kind,
                         selectedAudioCodec: selectedAudioCodec(for: route, request: request)
                     )
                 },

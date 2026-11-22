@@ -202,6 +202,8 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 
 通話全体の状態（`CallConnectionState`）は、相手がいれば`connected`／`mediaReady`、全有効routeが手動復帰待ちなら`failed`とする。どのrouteもつながっていず、再試行を待つrouteがあり、かつ初回の試行中（`connecting`で再試行の予約がない）のrouteが1つもないときだけ`reconnecting`にする。それ以外は`connecting`。1人で待つ間にLocalが探索を続けていれば、Internetの接続失敗と再試行があっても`connecting`のままにする（相手を待つ正常な状態を、接続を失った状態として出さない）。
 
+診断と経路変更イベントの `routeSnapshot.isHandoverInProgress` は、通話全体が `reconnecting` のときに限り真になる。Localの初回探索が続く間は、Internetを再試行していても通話全体は `connecting` で、フラグは偽になる。経路の状態が変わったときと、参加者の変化で通話全体が再接続に入ったり抜けたりしたときは、状態を確定してから経路のスナップショットを通知する。
+
 近距離経路では、制御の認証とUDP音声に共通のpeer ID（UTF-8で1〜80 byte）を使う。Local制御の受信は64 KiB以下、WebSocket signaling messageも64 KiB以下。Local送信失敗はイベントで通知し、生ID・payload・OS error全文を直接ログへ出さない。nativeのmediaReady判定はchannel IDだけでなく現行channelオブジェクトの同一性を確認する。
 
 <a id="近距離接続試行の競合回避"></a>
@@ -230,7 +232,7 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 |---|---|
 | Worker応答 | HTTP 409と32KiB以内のJSONの`code: account_in_use`が一致したときだけ、同じアカウントの既存通話を終了して再操作する案内へ変換する。サーバーの任意のerror本文は表示しない。不明code・不正JSON・別statusは既存のHTTP失敗として扱う |
 | Signaling | `WebRTCSignalingEvent.blocked`で手動復帰を通知。通常の`failed`と区別し、この接続試行が所有するICE/sessionだけを回収する |
-| Route | `RouteEvent.connectionBlocked`を通知して当該媒体を停止。RouteManagerはそのrouteの自動再試行を次のprepareまで止め、共通`CallSessionError.connectionBlocked`で理由と手動復帰の必要性をAppへ渡す。特定serviceの文字列をAppやRouteManagerで判定しない |
+| Route | `RouteEvent.connectionBlocked`を通知して当該媒体を停止する。RouteManagerはbackendの終了を待たず、通知を受けた時点でその経路を `failed` とし、利用可能な経路から外す。共通の `CallSessionError.connectionBlocked` でAppに理由と手動復帰の必要性を渡す。その経路には送信せず、遅れて届く接続成立・参加者・受信データを使わない。次のprepareまで自動再試行を止める。特定serviceの文字列をAppやRouteManagerで判定しない |
 | 他経路 | 利用できるLocal経路は維持する。全有効routeが手動復帰待ちなら全体をfailedとし、reconnectingを繰り返さない。presence・診断・受信整理の定期タイマーも停止し、次の明示prepare/startで再開する |
 | 明示的な再操作 | 新しいprepareで抑止を解除する。既存通話の強制切断・他端末の追い出しは行わない。通信断した端末の予約回収はWorkerのleaseに従う |
 

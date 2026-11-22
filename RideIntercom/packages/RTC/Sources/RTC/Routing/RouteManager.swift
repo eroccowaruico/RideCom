@@ -23,7 +23,6 @@ public actor RouteManager: CallSession {
     private var blocked: Set<RouteKind> = []
     private(set) var retries: [RouteKind: ConnectionRetry] = [:]
     private(set) var activeRoute: RouteKind?
-    var mediaRoute: RouteKind? { activeRoute }
     private(set) var availableRoutes: Set<RouteKind> = []
     private(set) var connectionState: CallConnectionState = .idle
     private(set) var isMediaStarted = false
@@ -197,7 +196,7 @@ public actor RouteManager: CallSession {
         // alone is insufficient: Local must report recent media receipt as well
         // as immediate acceptance on the flow that actually sends this frame.
         for kind in [RouteKind.multipeer, .webRTC] where started.contains(kind) && kind != excluding {
-            guard let route = routes[kind] else { continue }
+            guard !blocked.contains(kind), let route = routes[kind] else { continue }
             // Every direct peer on this path has already handled this audio.
             if case .audio = body, kind == .multipeer, !path.isEmpty,
                routeMembers[kind, default: []].isSubset(of: path) { continue }
@@ -240,7 +239,7 @@ public actor RouteManager: CallSession {
         memberSnapshot = next
         emit(.membersChanged(next)); updateState()
     }
-    private func updateState() {
+    private func updateState(routeStateDidChange: Bool = false) {
         let live = availableRoutes.intersection(started)
         activeRoute =
             live.contains(configuration.preferredRoute)
@@ -254,7 +253,9 @@ public actor RouteManager: CallSession {
             : !memberSnapshot.isEmpty
                 ? (isMediaStarted ? .mediaReady : .connected)
                 : (live.isEmpty && !retries.isEmpty && !searching ? .reconnecting : .connecting)
+        let recoveryChanged = (connectionState == .reconnecting) != (state == .reconnecting)
         if connectionState != state { emitState(state) }
+        if routeStateDidChange || recoveryChanged { emitRouteSnapshot() }
     }
     private func emitState(_ state: CallConnectionState) {
         connectionState = state
@@ -275,6 +276,7 @@ private extension RouteManager {
             routeAvailabilities[availability.route] = availability
             emit(.routeAvailabilityChanged([availability]))
         case .membersChanged(let kind, let members):
+            guard !blocked.contains(kind) else { return }
             routeMembers[kind] = Set(members.filter(\.isConnected).map { $0.peer.id })
             await broadcast(.presence)
         case .receivedApplicationData(let kind, let data):
@@ -283,11 +285,13 @@ private extension RouteManager {
         case .connectionBlocked(let kind, let message):
             blocked.insert(kind); retries[kind] = nil
             emit(.error(.connectionBlocked(kind, message)))
+            await handleStateChange(.failed, for: kind)
         case .error(_, let error): emit(.error(error))
         }
     }
 
     func handleStateChange(_ state: RouteConnectionState, for kind: RouteKind) async {
+        guard !blocked.contains(kind) || state == .failed else { return }
         let previous = routeStates.updateValue(state, forKey: kind)
         if kind == .webRTC { relay?.internetReady = state == .mediaReady }
         if [.connected, .authenticated, .mediaReady].contains(state) {
@@ -303,11 +307,11 @@ private extension RouteManager {
                     at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
             }
         }
-        updateState(); emitRouteSnapshot()
+        updateState(routeStateDidChange: true)
     }
 
     func handleApplicationData(_ data: ReceivedApplicationData, from kind: RouteKind) async {
-        guard started.contains(kind), routeMembers[kind, default: []].contains(data.peerID),
+        guard started.contains(kind), !blocked.contains(kind), routeMembers[kind, default: []].contains(data.peerID),
               data.message.namespace == GroupRelay.namespace,
             let result = relay?.receive(
                 data.message.payload, from: data.peerID, now: ProcessInfo.processInfo.systemUptime)
@@ -337,9 +341,6 @@ private extension RouteManager {
         let excluded = forwardingExclusion(from: kind, body: result.body, sender: result.peer.id)
         await forward(bytes, body: result.body, excluding: excluded, path: result.path)
     }
-}
-
-private extension RouteManager {
     /// Healthy packets leave in handle(). Wake only for an unresolved reorder
     /// gap, presence expiry, retry, or explicitly enabled diagnostics.
     func scheduleMaintenance() {

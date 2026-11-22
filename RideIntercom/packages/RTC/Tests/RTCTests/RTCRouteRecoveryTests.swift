@@ -33,13 +33,26 @@ import Testing
     await manager.prepare(makeRequest(configuration: configuration)); await manager.startConnection()
     for _ in 0..<100 where internet.startConnectionCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
     internet.yield(.stateChanged(.webRTC, .failed))
-    try await Task.sleep(for: .milliseconds(200))
+    for _ in 0..<100 where (await recorded.routeSnapshots).count < 2 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect((await recorded.routeSnapshots).count >= 2)
+    #expect((await recorded.routeSnapshots).last?.isHandoverInProgress == false)
     #expect(!(await recorded.values).contains(.stateChanged(.reconnecting)))
     local.yield(.stateChanged(.multipeer, .failed))
-    for _ in 0..<100 where !(await recorded.values).contains(.stateChanged(.reconnecting)) {
+    for _ in 0..<100 where (await recorded.routeSnapshots).count < 3 {
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect((await recorded.values).contains(.stateChanged(.reconnecting)))
+    #expect((await recorded.routeSnapshots).last?.isHandoverInProgress == true)
+
+    internet.yield(.stateChanged(.webRTC, .mediaReady))
+    for _ in 0..<100 where (await recorded.routeSnapshots).last?.activeRoute != .webRTC {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect((await recorded.routeSnapshots).last?.activeRoute == .webRTC)
+    #expect((await recorded.routeSnapshots).last?.isHandoverInProgress == false)
+    await manager.stopConnection()
 }
 
 @Test(arguments: [false, true])
@@ -55,12 +68,18 @@ func blockedRouteWaitsForExplicitRestartAndPreservesOtherRoutes(localAvailable: 
     let request = makeRequest(configuration: configuration)
     await manager.prepare(request); await manager.startConnection()
     if localAvailable { local.yield(.stateChanged(.multipeer, .mediaReady)) }
+    internet.yield(.stateChanged(.webRTC, .mediaReady))
+    // Transport shutdown may still be in progress. The blocked event itself carries the terminal outcome.
     internet.yield(.connectionBlocked(.webRTC, "End the existing call"))
-    internet.yield(.stateChanged(.webRTC, .failed))
+    internet.yield(.stateChanged(.webRTC, .mediaReady))
     try await Task.sleep(for: .milliseconds(2300))
     #expect(internet.prepareCount == 1 && internet.startConnectionCount == 1)
+    let internetSends = internet.sentApplicationData.count
+    await manager.sendApplicationData(.init(namespace: "test", payload: Data([1])))
+    #expect(internet.sentApplicationData.count == internetSends)
     let values = await recorded.values
     #expect(values.contains(.error(.connectionBlocked(.webRTC, "End the existing call"))))
+    #expect((await recorded.routeSnapshots).last?.availableRoutes.contains(.webRTC) == false)
     if localAvailable {
         #expect(local.startConnectionCount == 1)
         #expect(await manager.maintenanceDeadline != nil)
@@ -85,6 +104,9 @@ func blockedRouteWaitsForExplicitRestartAndPreservesOtherRoutes(localAvailable: 
 
 private actor CallEventRecorder {
     var values: [CallSessionEvent] = []
+    var routeSnapshots: [ActiveRouteSnapshot] {
+        values.compactMap { if case .routeChanged(let snapshot) = $0 { snapshot } else { nil } }
+    }
     func append(_ event: CallSessionEvent) { values.append(event) }
 }
 
