@@ -12,6 +12,20 @@ python3 -m unittest discover -s scripts/tests -p test_validation.py -k full_ios_
 
 共有mainに反映するソースで `python3 -m unittest discover -s scripts/tests` の214件が通過した。既定の段階名で再利用する音声試験の準備も含む。今回の回帰ではApp・UI試験を模擬した。[自動検証の段階と記録](../../development/自動検証.md#環境と出力)
 
+## 招待と復元の結合試験にCLIのNode.jsを引き継ぐ
+
+2026-11-23。CLIで選ぶNode.jsは26.13.1、Homebrewの旧版は26.13.0とした。標準の `RideIntercom` スキームで、テストプロセスへCLIの探索順を渡した。Build 2222では旧版を優先したため、追加した起動前の検査が、保存済みの招待を送信し直す結合試験で `.unsupportedNode` を返した。
+
+修正後は同じ準備で `GroupDeliveryWorkerTests` を実行した。共有mainに反映するソースを対象としたBuild 2225では18件が通過し、失敗・スキップ・実行時警告は0件だった。同じ `PATH` とプロジェクトのルートディレクトリを、CLIとCIで使うバージョン検査とローカルWorkerの起動に使った。そのWorkerで招待・削除・端末復元の結合試験を実行した。
+
+```sh
+TEST_RUNNER_PATH="$PATH:__CURRENT_VALUE__" xcodebuild -project RideIntercom.xcodeproj \
+  -scheme RideIntercom -destination 'platform=macOS,arch=arm64' -parallel-testing-enabled NO \
+  -only-testing:RideIntercomTests/GroupDeliveryWorkerTests test
+```
+
+共有mainに反映するソースで自動化の回帰215件が通過した。CLIからmacOSのテストプロセスに渡す値を模擬プロセスで照合した。次回用のビルド番号は2226。実iCloud・実端末での招待・復元は[実環境の受入](../未確認事項.md#icloudの自動保存から機種変更後の通話までを確認する)で追う。
+
 ## 2026年11月1日時点の検証
 
 以下は当時の記録である。毎buildの自動採番廃止と入力指紋の完全一致は、同日後半の要求訂正により下記「自動インクリメントの維持と設定増設禁止」へ置き換えた。

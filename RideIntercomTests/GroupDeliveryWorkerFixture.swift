@@ -26,11 +26,13 @@ extension GroupDeliveryWorkerTests {
         }
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.currentDirectoryURL = root
         process.arguments = [
             "node", root.appendingPathComponent("server/test/group-delivery-app-bridge.mjs").path, portFile.path
         ] + (directRestore ? ["--direct-restore"] : [])
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
+        environment["PATH"] = (environment["PATH"] ?? "/usr/bin:/bin") + ":/opt/homebrew/bin:/usr/local/bin"
+        try verifyWorkerNode(at: root, environment: environment, log: log)
         process.environment = environment; process.standardOutput = log; process.standardError = log
         try process.run()
         let deadline = ContinuousClock.now + .seconds(15)
@@ -43,6 +45,19 @@ extension GroupDeliveryWorkerTests {
         GroupWorkerHTTPBridge.origin = origin
         defer { GroupWorkerHTTPBridge.origin = nil }
         try await exercise()
+    }
+
+    private func verifyWorkerNode(at root: URL, environment: [String: String], log: FileHandle) throws {
+        let check = Process()
+        check.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        check.arguments = ["python3", "-c", "from scripts.validate import verify_node; verify_node()"]
+        check.currentDirectoryURL = root
+        check.environment = environment
+        check.standardOutput = log
+        check.standardError = log
+        try check.run()
+        check.waitUntilExit()
+        guard check.terminationStatus == 0 else { throw WorkerFixtureFailure.unsupportedNode }
     }
 
     func register(_ peer: GroupDeliveryTestIdentity, appleSubject: String? = nil) async throws {
@@ -65,7 +80,7 @@ extension GroupDeliveryWorkerTests {
     }
 }
 
-private enum WorkerFixtureFailure: Error { case unavailable }
+private enum WorkerFixtureFailure: Error { case unavailable, unsupportedNode }
 
 final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let ordinaryReplyInboxReads = Mutex(0)

@@ -306,7 +306,7 @@ class Runner:
                 self.crash_reports.sample()
 
     def run(self, name: str, command: list[str], needs: Sequence[str] = (), tests: bool = False,
-            timeout: float | None = None, reason: str = '') -> bool:
+            timeout: float | None = None, reason: str = '', env: Mapping[str, str] | None = None) -> bool:
         started = time.monotonic()
         if name in self.results:
             raise ValueError(f'Duplicate stage: {name}')
@@ -321,7 +321,7 @@ class Runner:
             observation = self.crash_reports.stage(name) if self.crash_reports else nullcontext()
             with observation, path.open('w') as output:
                 process = subprocess.Popen(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT,
-                                           start_new_session=True)
+                                           start_new_session=True, env=env)
                 original = None
                 try:
                     original = process_snapshot().get(process.pid)
@@ -417,7 +417,11 @@ class Runner:
             # so restate them; otherwise scheme-excluded suites would run here.
             for identifier in (xctestrun_skips(test_run) if test_run and not plan_name else []) + skips:
                 command.append(f'-skip-testing:{identifier}')
-        self.run(name, command, needs=[preflight], timeout=timeout)
+        test_env = None
+        if settings and settings['PLATFORM_NAME'] == 'macosx':
+            test_env = os.environ.copy()
+            test_env.setdefault('TEST_RUNNER_PATH', test_env.get('PATH', os.defpath) + ':__CURRENT_VALUE__')
+        self.run(name, command, needs=[preflight], timeout=timeout, env=test_env)
         summary_name = name + '-summary'
         self.run(summary_name, ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle)], needs=[name], timeout=60)
         started = time.monotonic()

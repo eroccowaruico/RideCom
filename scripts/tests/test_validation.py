@@ -355,7 +355,8 @@ class ValidationTests(unittest.TestCase):
 
     def xcode_fixture(self, name: str, destination: str, *, fault: str | None = None,
                       reuse_build: str | None = None, scheme: str = 'RideIntercom',
-                      only_tests: list[str] | None = None, stale_platform: bool = False) -> tuple[dict[str, list[str]], Path]:
+                      only_tests: list[str] | None = None, stale_platform: bool = False,
+                      expected_runner_path: str | None = None) -> tuple[dict[str, list[str]], Path]:
         """Mock Xcode's standard output while exercising the real host gate."""
         commands: dict[str, list[str]] = {}
         original_run = self.runner.run
@@ -408,6 +409,9 @@ class ValidationTests(unittest.TestCase):
                 code = 'print(' + repr(json.dumps({'totalTestCount': 1, 'passedTests': 1})) + ')'
             else:
                 code = 'from pathlib import Path; Path(' + repr(str(marker)) + ').touch()'
+                if expected_runner_path is not None:
+                    code = ('import os; assert os.environ["TEST_RUNNER_PATH"] == '
+                            + repr(expected_runner_path) + '; ' + code)
             return original_run(stage, [sys.executable, '-c', code], **kwargs)
         with patch.object(self.runner, 'run', side_effect=run), patch.object(
                 self.module, 'xcode_build_settings', return_value=settings, create=True):
@@ -415,6 +419,15 @@ class ValidationTests(unittest.TestCase):
                               skip=None if reuse_build or only_tests else 'Recovery', reuse_build=reuse_build,
                               scheme=scheme)
         return commands, marker
+
+    def test_macos_test_runner_uses_cli_path_with_xcode_fallback(self) -> None:
+        selected_tools = '/fixture-node/bin:/usr/bin:/bin'
+        with patch.dict(os.environ, {'PATH': selected_tools}, clear=True):
+            _, marker = self.xcode_fixture('macos-tests', 'platform=macOS',
+                                          expected_runner_path=selected_tools + ':__CURRENT_VALUE__')
+            self.assertNotIn('TEST_RUNNER_PATH', os.environ)
+        self.assertTrue(marker.exists())
+        self.assertEqual(self.runner.results['macos-tests-acceptance']['status'], 'passed')
 
     def test_watch_scheme_uses_selected_host_and_watchsimulator_run(self) -> None:
         commands, marker = self.xcode_fixture('watch-tests', 'platform=watchOS Simulator,id=owned',
