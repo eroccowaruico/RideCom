@@ -5,16 +5,18 @@ import Testing
 
 @MainActor
 struct BackgroundCallStorageTests {
-    @Test func backgroundCredentialWritesAndExistingReadsUseDeviceOnlyFirstUnlockProtection() throws {
+    @Test(arguments: [".InternetConnection", ".CallRelationshipBackupCheckpoint.v1"])
+    func backgroundCredentialWritesAndExistingReadsUseDeviceOnlyFirstUnlockProtection(suffix: String) throws {
         let fixture = BackgroundKeychainFixture()
         let store = SystemKeychainSecretStore(isIOS: true, functions: fixture.functions)
-        try store.saveSecret("original", service: "Test.InternetConnection", account: "identity-key")
+        let service = "Test" + suffix
+        try store.saveSecret("original", service: service, account: "identity-key")
         #expect(
             fixture.lastAttributes?[kSecAttrAccessible as String] as? String
                 == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
         let beforeReads = fixture.updateCount
         let retained = try store.createSecretIfAbsent(
-            "replacement", service: "Test.InternetConnection", account: "identity-key")
+            "replacement", service: service, account: "identity-key")
         #expect(retained == "original" && fixture.data == Data("original".utf8))
         #expect(fixture.updateCount == beforeReads)
     }

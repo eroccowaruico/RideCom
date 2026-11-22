@@ -13,18 +13,20 @@ final class CallRelationshipBackupSync {
 
     private let repository: GroupRepository
     private let store: CloudKitCallRelationshipBackupStore
+    private let checkpoints: CallRelationshipBackupCheckpointStore
     private let activeSigner: () throws -> DeviceIdentitySigner?
     private var pending = false
-    private var lastSaved: CallRelationshipBackup?
     private(set) var task: Task<Void, Never>?
     private(set) var status: Status = .idle
 
     init(
         repository: GroupRepository, store: CloudKitCallRelationshipBackupStore,
+        checkpoints: CallRelationshipBackupCheckpointStore,
         activeSigner: @escaping () throws -> DeviceIdentitySigner?
     ) {
         self.repository = repository
         self.store = store
+        self.checkpoints = checkpoints
         self.activeSigner = activeSigner
     }
 
@@ -38,7 +40,6 @@ final class CallRelationshipBackupSync {
     func stop() {
         pending = false
         task?.cancel()
-        lastSaved = nil
         status = .idle
     }
 
@@ -59,11 +60,16 @@ final class CallRelationshipBackupSync {
         let now = Date().timeIntervalSince1970
         let localData = try repository.callRelationshipBackup(as: signer, now: now)
         let local = try CallRelationshipBackup.read(localData, as: signer, now: now)
+        let checkpoint = try checkpoints.load(as: signer)
         guard !local.groups.isEmpty || !local.contacts.isEmpty else {
-            status = lastSaved == nil ? .idle : .requiresReconciliation
+            status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
-        guard local != lastSaved else { status = .saved; return }
+        let localFingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(local)
+        if checkpoint?.saved == localFingerprint && checkpoint?.pending == nil {
+            status = .saved
+            return
+        }
 
         let remote = try await store.load(as: signer, now: now)
         guard !pending, let current = try signerMatching(signer) else { return }
@@ -71,19 +77,25 @@ final class CallRelationshipBackupSync {
         let latest = try repository.callRelationshipBackup(as: current, now: commitTime)
         let candidate = try CallRelationshipBackup.read(latest, as: current, now: commitTime)
         guard !candidate.groups.isEmpty || !candidate.contacts.isEmpty else {
-            status = lastSaved == nil ? .idle : .requiresReconciliation
+            status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
-        if remote?.backup == candidate {
-            lastSaved = candidate
+        let candidateFingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(candidate)
+        let remoteFingerprint = try remote.map { try CallRelationshipBackupCheckpointStore.fingerprint($0.backup) }
+        if remoteFingerprint == candidateFingerprint {
+            try checkpoints.save(.init(saved: candidateFingerprint, pending: nil), as: current)
             status = .saved
             return
         }
-        guard remote?.backup == lastSaved else { status = .requiresReconciliation; return }
+        guard checkpoint?.matches(remoteFingerprint) ?? (remoteFingerprint == nil) else {
+            status = .requiresReconciliation
+            return
+        }
 
-        let result = try await store.save(latest, replacing: remote, as: current, now: commitTime)
+        try checkpoints.save(.init(saved: remoteFingerprint, pending: candidateFingerprint), as: current)
+        _ = try await store.save(latest, replacing: remote, as: current, now: commitTime)
         guard try signerMatching(current) != nil else { return }
-        lastSaved = result.backup
+        try checkpoints.save(.init(saved: candidateFingerprint, pending: nil), as: current)
         if !pending { status = .saved }
     }
 

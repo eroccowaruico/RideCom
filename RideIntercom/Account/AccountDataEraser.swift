@@ -4,7 +4,8 @@ import Foundation
 /// An empty manifest changes its generation so an old repository cannot save stale data.
 struct AccountDataEraser {
     static let keychainSuffixes = [
-        ".GroupCredential.v2", ".GroupCredential", ".InternetConnection", ".DirectInvitations"
+        ".GroupCredential.v2", ".GroupCredential", ".InternetConnection", ".DirectInvitations",
+        CallRelationshipBackupCheckpointStore.serviceSuffix
     ]
     let keychain: KeychainSecretStoring
     let namespace: String

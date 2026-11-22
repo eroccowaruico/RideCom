@@ -2,11 +2,14 @@ import Foundation
 
 extension IntercomViewModel {
     func configureCallRelationshipBackup(
-        store: CloudKitCallRelationshipBackupStore, isCloudAccountCurrent: @escaping () -> Bool
+        store: CloudKitCallRelationshipBackupStore, checkpoints: CallRelationshipBackupCheckpointStore,
+        currentCloudAccount: @escaping () -> CallRelationshipBackupCheckpointStore.CloudAccount?
     ) {
         stopCallRelationshipBackup()
-        let sync = CallRelationshipBackupSync(repository: groupRepository, store: store) { [weak self] in
-            guard let self, self.canStartCalls, isCloudAccountCurrent() else { return nil }
+        let sync = CallRelationshipBackupSync(
+            repository: groupRepository, store: store, checkpoints: checkpoints
+        ) { [weak self] in
+            guard let self, self.canStartCalls, currentCloudAccount() == checkpoints.cloud else { return nil }
             let memberID = self.localMemberIdentity.memberID
             guard let identity = try self.internetSettingsStore.loadIdentity(memberID: memberID) else { return nil }
             return try self.internetSettingsStore.invitationSigner(

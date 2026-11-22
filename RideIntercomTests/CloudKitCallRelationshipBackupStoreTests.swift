@@ -123,7 +123,7 @@ struct CallRelationshipAutomaticBackupTests {
         let model = peer.viewModel
         let id = try addOwnedGroup(to: model)
         let records = MemoryCallBackupRecords()
-        model.configureCallRelationshipBackup(store: records.store, isCloudAccountCurrent: { true })
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints()) { cloudAccount() }
         let sync = try #require(model.callRelationshipBackupSync)
         await sync.task?.value
         #expect(sync.status == .saved)
@@ -147,7 +147,8 @@ struct CallRelationshipAutomaticBackupTests {
         let id = try addOwnedGroup(to: model)
         let records = MemoryCallBackupRecords()
         let store = records.store
-        model.configureCallRelationshipBackup(store: store, isCloudAccountCurrent: { true })
+        let storeForCheckpoints = checkpoints()
+        model.configureCallRelationshipBackup(store: store, checkpoints: storeForCheckpoints) { cloudAccount() }
         let first = try #require(model.callRelationshipBackupSync)
         await first.task?.value
         #expect(first.status == .saved)
@@ -163,13 +164,19 @@ struct CallRelationshipAutomaticBackupTests {
         await first.task?.value
         #expect(first.status == .requiresReconciliation)
 
-        model.configureCallRelationshipBackup(store: store, isCloudAccountCurrent: { true })
+        model.configureCallRelationshipBackup(store: store, checkpoints: storeForCheckpoints) { cloudAccount() }
         let next = try #require(model.callRelationshipBackupSync)
         await next.task?.value
         #expect(next.status == .requiresReconciliation)
         #expect(records.savePolicies.count == 2)
         let saved = try await storedBackup(in: records, for: model)
         #expect(saved?.groups.first?.name == "Cloud edit")
+
+        records.current = nil
+        next.request()
+        await next.task?.value
+        #expect(next.status == .requiresReconciliation)
+        #expect(records.savePolicies.count == 2)
     }
 
     @Test func foregroundRetriesAFailedWriteAndAccountSwitchStopsANewWrite() async throws {
@@ -178,8 +185,10 @@ struct CallRelationshipAutomaticBackupTests {
         let id = try addOwnedGroup(to: model)
         let records = MemoryCallBackupRecords()
         records.readError = CKError(.networkUnavailable)
-        var cloudAccountIsCurrent = true
-        model.configureCallRelationshipBackup(store: records.store) { cloudAccountIsCurrent }
+        var activeCloudAccount = cloudAccount()
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints()) {
+            activeCloudAccount
+        }
         let sync = try #require(model.callRelationshipBackupSync)
         await sync.task?.value
         #expect(sync.status == .retryPending)
@@ -193,7 +202,7 @@ struct CallRelationshipAutomaticBackupTests {
         #expect(sync.status == .saved)
         #expect(records.savePolicies.count == 1)
 
-        records.onRead = { cloudAccountIsCurrent = false }
+        records.onRead = { activeCloudAccount = cloudAccount("other") }
         #expect(model.renameGroup(id, to: "Pending edit"))
         await sync.task?.value
         #expect(sync.status == .idle)
@@ -209,7 +218,7 @@ struct CallRelationshipAutomaticBackupTests {
             records?.onRead = nil
             #expect(model.renameGroup(id, to: "Latest name"))
         }
-        model.configureCallRelationshipBackup(store: records.store, isCloudAccountCurrent: { true })
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints()) { cloudAccount() }
         let sync = try #require(model.callRelationshipBackupSync)
         #expect(sync.status == .pending)
         await sync.task?.value
@@ -221,6 +230,81 @@ struct CallRelationshipAutomaticBackupTests {
         await sync.task?.value
         #expect(sync.status == .requiresReconciliation)
         #expect(records.savePolicies.count == 1)
+    }
+
+    @Test func restartUsesTheLastAcknowledgedBackupAndKeepsAChangedCloudAccountSeparate() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let peer = try fixture.peer("rider", account: "a")
+        let model = peer.viewModel
+        let id = try addOwnedGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        let keychain = DictionaryKeychain()
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints(keychain: keychain)) {
+            cloudAccount()
+        }
+        await model.callRelationshipBackupSync?.task?.value
+        #expect(records.savePolicies.count == 1)
+        model.stopCallRelationshipBackup()
+        #expect(model.renameGroup(id, to: "Edited while offline"))
+
+        let replacement = try fixture.peer("replacement", account: "a").viewModel
+        let differentKey = try replacement.internetSettingsStore.invitationSigner(memberID: "replacement")
+        #expect(try checkpoints(keychain: keychain).load(as: differentKey) == nil)
+
+        let restarted = try fixture.restart(peer).viewModel
+        let wrongAccount = checkpoints(keychain: keychain, cloudAccount: "other")
+        restarted.configureCallRelationshipBackup(store: records.store, checkpoints: wrongAccount) {
+            cloudAccount("other")
+        }
+        await restarted.callRelationshipBackupSync?.task?.value
+        #expect(restarted.callRelationshipBackupSync?.status == .requiresReconciliation)
+        #expect(records.savePolicies.count == 1)
+
+        let sameAccount = checkpoints(keychain: keychain)
+        restarted.configureCallRelationshipBackup(store: records.store, checkpoints: sameAccount) { cloudAccount() }
+        await restarted.callRelationshipBackupSync?.task?.value
+        #expect(restarted.callRelationshipBackupSync?.status == .saved)
+        #expect(records.savePolicies.count == 2)
+        let saved = try await storedBackup(in: records, for: restarted)
+        #expect(saved?.groups.first?.name == "Edited while offline")
+    }
+
+    @Test func completedWriteWithALostResponseCanBeFollowedByANewerEditAfterRestart() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let peer = try fixture.peer("rider", account: "a")
+        let model = peer.viewModel
+        let id = try addOwnedGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        let keychain = DictionaryKeychain()
+        let first = checkpoints(keychain: keychain)
+        records.postWriteError = CKError(.networkFailure)
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: first) { cloudAccount() }
+        await model.callRelationshipBackupSync?.task?.value
+        #expect(model.callRelationshipBackupSync?.status == .retryPending)
+        #expect(records.savePolicies.count == 1)
+        model.stopCallRelationshipBackup()
+        #expect(model.renameGroup(id, to: "Latest change"))
+
+        records.postWriteError = nil
+        let restarted = try fixture.restart(peer).viewModel
+        let checkpointStore = checkpoints(keychain: keychain)
+        restarted.configureCallRelationshipBackup(store: records.store, checkpoints: checkpointStore) { cloudAccount() }
+        await restarted.callRelationshipBackupSync?.task?.value
+        #expect(restarted.callRelationshipBackupSync?.status == .saved)
+        #expect(records.savePolicies.count == 2)
+        let saved = try await storedBackup(in: records, for: restarted)
+        #expect(saved?.groups.first?.name == "Latest change")
+    }
+
+    private func checkpoints(
+        keychain: KeychainSecretStoring = DictionaryKeychain(), cloudAccount: String = "owner"
+    ) -> CallRelationshipBackupCheckpointStore {
+        .init(keychain: keychain, namespace: "fixture",
+              cloud: self.cloudAccount(cloudAccount))
+    }
+
+    private func cloudAccount(_ name: String = "owner") -> CallRelationshipBackupCheckpointStore.CloudAccount {
+        .init(container: "fixture", environment: .development, account: name)
     }
 
     private func addOwnedGroup(to model: IntercomViewModel) throws -> UUID {
@@ -247,6 +331,7 @@ private final class MemoryCallBackupRecords {
     var savePolicies: [CKModifyRecordsOperation.RecordSavePolicy] = []
     var readError: CKError?
     var writeError: CKError?
+    var postWriteError: CKError?
     var onRead: (() -> Void)?
 
     var store: CloudKitCallRelationshipBackupStore {
@@ -259,6 +344,7 @@ private final class MemoryCallBackupRecords {
             self.savePolicies.append(policy)
             if let error = self.writeError { throw error }
             self.current = record
+            if let error = self.postWriteError { throw error }
             return record
         })
     }

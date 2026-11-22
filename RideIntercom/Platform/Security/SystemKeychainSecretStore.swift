@@ -25,7 +25,8 @@ final class SystemKeychainSecretStore: KeychainSecretStoring {
         // Only this app's account-scoped call data needs background access.
         // No Keychain access group or extension sharing is introduced.
         let services = [
-            ".AppleAccount", ".AccountDeletion", ".GroupCredential.v2", ".InternetConnection", ".DirectInvitations"
+            ".AppleAccount", ".AccountDeletion", ".GroupCredential.v2", ".InternetConnection", ".DirectInvitations",
+            CallRelationshipBackupCheckpointStore.serviceSuffix
         ]
         guard isIOS, services.contains(where: { service.hasSuffix($0) }) else { return [:] }
         return [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
