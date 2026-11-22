@@ -1,6 +1,18 @@
 import Foundation
 
 extension CloudKitCallRelationshipBackupSession {
+    func respondToGroupRestore(_ request: CallRelationshipRestoreRequest) async throws
+        -> CallRelationshipRestoreResponse? {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
+              let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
+        guard let groupID = try request.verifiedGroupCallID(addressedTo: signer, trust: trust, now: Date()),
+              model.groupRepository.storedGroup(groupID)?.kind == .group else { return nil }
+        let checked = try await readCurrentBackup(for: model, as: signer)
+        guard let backup = checked.backup else { return nil }
+        return try model.groupRepository.sealGroupRestore(
+            request, as: checked.signer, matching: backup, verifying: (checked.trust, Date()))
+    }
+
     func retryDirectRestoreRelayWork() {
         retrySelectedDirectRestore()
         retryDirectRestoreInbox()

@@ -105,7 +105,7 @@ final class CloudKitCallRelationshipBackupSession {
     }
 
     func restoreDirect(
-        _ response: DirectCallRestoreResponse, to request: CallRelationshipRestoreRequest,
+        _ response: CallRelationshipRestoreResponse, to request: CallRelationshipRestoreRequest,
         for contactID: UUID, from original: CallRelationshipBackup,
         completion: SelectedRestoreCompletion? = nil
     ) async throws {
@@ -120,7 +120,8 @@ final class CloudKitCallRelationshipBackupSession {
         try await restore(batch, from: original, completion: completion)
     }
 
-    func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws -> DirectCallRestoreResponse? {
+    func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws
+        -> CallRelationshipRestoreResponse? {
         guard let checked = try await directRestoreResponderBackup(for: request),
               let model, let latest = checked.backup else { return nil }
         return try model.groupRepository.sealDirectRestore(

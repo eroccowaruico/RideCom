@@ -143,7 +143,14 @@ private struct DirectRestoreMembership: Codable {
     }
 }
 
-extension DirectCallRestoreResponse {
+extension CallRelationshipRestoreResponse {
+    init(sealing key: GroupAccessCredential, for context: CallRelationshipRestoreContext,
+         as signer: DeviceIdentitySigner, verifying verification: (trust: DeviceIdentityTrust, now: Date)) throws {
+        confirmation = context.confirmation
+        credential = try CallRelationshipRestoreCredential(
+            key, for: context, as: signer, trust: verification.trust, now: verification.now)
+    }
+
     func restoreBatch(
         for request: CallRelationshipRestoreRequest, contact: CallRelationshipBackup.Contact,
         localDisplayName: String, as signer: DeviceIdentitySigner, verifying: (trust: DeviceIdentityTrust, now: Date)

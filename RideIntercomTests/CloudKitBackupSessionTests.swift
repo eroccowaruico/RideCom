@@ -261,10 +261,12 @@ extension CloudKitBackupSessionTests {
         }
     }
 
-    private func verifyDirectResponse(_ response: DirectCallRestoreResponse, request: CallRelationshipRestoreRequest,
-                                      scenario: ReplacementScenario) async throws {
+    private func verifyDirectResponse(
+        _ response: CallRelationshipRestoreResponse, request: CallRelationshipRestoreRequest,
+        scenario: ReplacementScenario
+    ) async throws {
         let data = try JSONEncoder().encode(response)
-        let delivered = try JSONDecoder().decode(DirectCallRestoreResponse.self, from: data)
+        let delivered = try JSONDecoder().decode(CallRelationshipRestoreResponse.self, from: data)
         let now = Date().timeIntervalSince1970
         let backup = try scenario.old.viewModel.groupRepository.callRelationshipBackup(as: scenario.oldSigner, now: now)
         let cloud = CloudAccountFixture(account: "requester")

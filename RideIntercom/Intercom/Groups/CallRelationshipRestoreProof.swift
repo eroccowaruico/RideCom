@@ -58,17 +58,28 @@ struct CallRelationshipRestoreRequest: Codable, Equatable {
     func verifiedDirectRequesterIdentity(
         addressedTo signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date
     ) throws -> VerifiedDeviceIdentity? {
-        let requester = try verifiedRequesterIdentity(trust: trust, now: now)
-        let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
-        guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey)
-        else { throw DeviceIdentityProof.Failure.invalid }
+        let (requester, responder) = try verifiedRequester(addressedTo: signer, trust: trust, now: now)
         guard challenge.confirmedRegistrationID != nil,
               AccountCallPair(requester.restoreBinding.principal, responder).id == challenge.callID else { return nil }
         return requester
     }
 
-    fileprivate func verifiedRequester(trust: DeviceIdentityTrust, now: Date) throws -> AccountDeviceBinding {
-        try verifiedRequesterIdentity(trust: trust, now: now).restoreBinding
+    func verifiedGroupCallID(addressedTo signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date)
+        throws -> UUID? {
+        let (requester, responder) = try verifiedRequester(addressedTo: signer, trust: trust, now: now)
+        guard challenge.confirmedRegistrationID == nil,
+              AccountCallPair(requester.restoreBinding.principal, responder).id != challenge.callID
+        else { return nil }
+        return challenge.callID
+    }
+
+    fileprivate func verifiedRequester(addressedTo signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date)
+        throws -> (VerifiedDeviceIdentity, AccountPrincipal) {
+        let requester = try verifiedRequesterIdentity(trust: trust, now: now)
+        let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
+        guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey)
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return (requester, responder)
     }
 
     func verifiedRequesterIdentity(trust: DeviceIdentityTrust, now: Date) throws -> VerifiedDeviceIdentity {
@@ -209,7 +220,7 @@ struct CallRelationshipRestoreConfirmation: Codable {
     func verifiedConfirmation(for request: CallRelationshipRestoreRequest, trust: DeviceIdentityTrust,
                               now: Date) throws -> Verified {
         let challenge = request.challenge
-        let requester = try request.verifiedRequester(trust: trust, now: now)
+        let requester = try request.verifiedRequesterIdentity(trust: trust, now: now).restoreBinding
         guard IntercomGroup.isValidMemberID(previousMemberID),
               !previousMemberID.hasPrefix(GroupMember.pendingInvitePrefix),
               previousMemberID != challenge.requesterMemberID else {
@@ -238,16 +249,34 @@ extension GroupRepository {
     func sealDirectRestore(
         _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
         now: Date, matching backup: CallRelationshipBackup
-    ) throws -> DirectCallRestoreResponse? {
+    ) throws -> CallRelationshipRestoreResponse? {
         try withAuthorizedDirectRestoreResponse(
             request, as: signer, matching: backup, verifying: (trust, now)
         ) { _, makeResponse in try makeResponse() }
     }
 
+    func sealGroupRestore(
+        _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
+        matching backup: CallRelationshipBackup, verifying verification: (trust: DeviceIdentityTrust, now: Date)
+    ) throws -> CallRelationshipRestoreResponse? {
+        guard backup.owner == signer.principal,
+              backup.groups.contains(where: { $0.id == request.challenge.callID }) else { return nil }
+        return try withAuthorizedRestore(
+            request, as: signer, matching: nil, verifying: verification
+        ) { confirmation, record, credential -> CallRelationshipRestoreResponse? in
+            guard record.kind == .group else { return nil }
+            var membership = record
+            membership.joinedByInvitation = nil
+            let context = CallRelationshipRestoreContext(
+                request: request, confirmation: confirmation, record: membership)
+            return try .init(sealing: credential, for: context, as: signer, verifying: verification)
+        }
+    }
+
     func withAuthorizedDirectRestoreResponse<T>(
         _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
         matching backup: CallRelationshipBackup, verifying verification: (trust: DeviceIdentityTrust, now: Date),
-        _ consume: (UUID, () throws -> DirectCallRestoreResponse) throws -> T?
+        _ consume: (UUID, () throws -> CallRelationshipRestoreResponse) throws -> T?
     ) throws -> T? {
         try withAuthorizedRestore(
             request, as: signer, matching: backup, verifying: verification
@@ -255,31 +284,29 @@ extension GroupRepository {
             guard let reference = record.credentialReference else { return nil }
             let context = CallRelationshipRestoreContext(request: request, confirmation: confirmation, record: record)
             return try consume(reference) {
-                let packet = try CallRelationshipRestoreCredential(
-                    credential, for: context, as: signer, trust: verification.trust, now: verification.now)
-                return .init(confirmation: confirmation, credential: packet)
+                try .init(sealing: credential, for: context, as: signer, verifying: verification)
             }
-        } ?? nil
+        }
     }
 
     private func withAuthorizedRestore<T>(
         _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
         matching backup: CallRelationshipBackup?, verifying verification: (trust: DeviceIdentityTrust, now: Date),
-        _ build: (CallRelationshipRestoreConfirmation, GroupSnapshot.Record, GroupAccessCredential) throws -> T
+        _ build: (CallRelationshipRestoreConfirmation, GroupSnapshot.Record, GroupAccessCredential) throws -> T?
     ) throws -> T? {
         let (trust, now) = verification
         let challenge = request.challenge
-        let requester = try request.verifiedRequester(trust: trust, now: now)
+        let (identity, responder) = try request.verifiedRequester(addressedTo: signer, trust: trust, now: now)
+        let requester = identity.restoreBinding
         let owner = requester.principal
-        let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
-        guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey),
-              localMemberID == signer.memberID else { throw DeviceIdentityProof.Failure.invalid }
+        guard localMemberID == signer.memberID else { throw DeviceIdentityProof.Failure.invalid }
         guard let snapshot = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
         return try withCurrentSnapshot(snapshot) {
             guard let record = snapshot.groups.first(where: { $0.id == challenge.callID }),
                   record.pendingInvitation == nil,
                   backup == nil || record.kind == .direct,
                   record.accountDevices[signer.memberID] == .init(principal: responder, publicKey: signer.publicKey),
+                  !record.excludesMember(signer.memberID, principal: responder),
                   !record.excludesMember(challenge.requesterMemberID, principal: owner),
                   !record.members.contains(where: { $0.id == challenge.requesterMemberID }),
                   let previous = record.soleRestorePredecessor(for: owner, replacingKeyWith: requester.publicKey)
@@ -299,6 +326,8 @@ extension GroupRepository {
                                                              registration: registration)
                     else { return nil }
                 }
+            } else if challenge.confirmedRegistrationID != nil {
+                return nil
             }
             guard let reference = record.credentialReference, let secret = try credentialSecret(reference: reference),
                   !secret.isEmpty else { return nil }

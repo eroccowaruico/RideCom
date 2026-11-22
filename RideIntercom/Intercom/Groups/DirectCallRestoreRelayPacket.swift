@@ -27,7 +27,7 @@ enum DirectCallRestoreRelayPacket {
 
     enum Content: Codable {
         case request(value: CallRelationshipRestoreRequest)
-        case response(value: DirectCallRestoreResponse)
+        case response(value: CallRelationshipRestoreResponse)
     }
 
     typealias Submission = DirectCallRestoreRelaySubmission
@@ -50,7 +50,7 @@ enum DirectCallRestoreRelayPacket {
         @MainActor func openResponse(
             for request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
             trust: DeviceIdentityTrust, now: Date
-        ) throws -> DirectCallRestoreResponse {
+        ) throws -> CallRelationshipRestoreResponse {
             guard case let .response(response) = try open(as: signer, now: now),
                   try response.confirmation.verify(for: request, as: signer, trust: trust, now: now)
                     .responder.principal.userID == senderUserID
