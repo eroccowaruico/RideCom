@@ -79,8 +79,8 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 | `WatchControlMessage.swift` | Codableの操作要求／応答／表示snapshot。表示snapshotには音声・秘密・本人の認証資格を含めない。明示開始のofferだけが一時pair資格を持つ |
 | `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、`startCall`・`endCall`・`setCallMuted`へ渡す。Watch音声選択中のphone mute要求は共通入口が拒否する。開始は別通話への切替を許可しない。開始資格・購入・24時間条件は既存処理の所有 |
 | リモコンの開始 | ログイン済みiPhoneはsnapshotの`supportsRemoteStart`をtrueにする。省略された旧snapshotも読める。対応端末への`startRemote`は保存済みの相手をiPhoneの音声入出力で開始し、Watch用の自動切断時間を使う。開始した通話のミュート・終了は既存の操作を使う。`start`・`startAudio`はWatch音声の操作として扱う。Watch画面からのリモコン既定化は[残作業](../../backlog/未実装課題.md#watchはリモコンを既定にし通話を開発者向けオプションにする)で追う |
-| 参照 | [CallControl](../packages/CallControl.md)が既存のaccountAccessID・connectionGeneration・groupIDを1つの形式で符号化する。Watchは待機中を含む不透明な参照を受け取る。要求の参照を現在値と比較してから実行。Watch専用epochを増やさない |
-| 期限 | iPhoneが発行したsnapshotを120秒有効とする。要求が遅延し期限切れなら実行しない。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
+| 参照 | [CallControl](../packages/CallControl.md)が既存のaccountAccessID・connectionGeneration・groupIDを1つの形式で符号化する。Watchは待機中を含む不透明な参照を受け取る。iPhoneは要求と現在値を比較し、照合した参照をそのまま[共通の終了・ミュート操作](通信仕様.md#通話先と操作対象の共通境界)へ渡す。アプリが持つログイン世代と接続世代を使うため、同じ通話先へ接続し直した場合も以前の参照は失効する |
+| 期限 | iPhoneの発行時刻から120秒をsnapshotの期限とする。受信時には同じ120秒の上限を使い、期限が受信時刻より後で、受信時刻から120秒以内の要求を受け付ける。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
 | 重複 | 開始・終了は既存通話世代、ミュートはtoggleではなく指定したBoolで処理する。同じ指定値は既存処理で冪等。専用requestIDや永続重複台帳を追加しない |
 | 削除・切替 | 実行時に保存相手を再解決する。相手削除後の新規開始を拒否する。相手を削除するとその相手との通話は切断されるため、削除前の表示からの終了は古い操作として拒否する。別ログイン・別通話・再接続前の要求を拒否する |
 | `WatchPhoneBridge` | iPhoneで1つ保持しWCSessionをactivate。Observationで状態変更を検出し、通話参照・通話先・表示内容が変わった場合だけ`updateApplicationContext`へ最新snapshotを渡す。音量meter等からの再評価で発行日時だけが変わっても送信しない。activation・Watch切替時は再発行し、送信失敗値は送信済みにしない。明示操作の応答は有効期限を更新する。周期pollingを設けない |

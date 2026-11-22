@@ -2,14 +2,17 @@ import CallControl
 import Foundation
 
 extension AppCallOwner {
+    private static let watchSnapshotLifetime: TimeInterval = 120
+
     /// Watch starts calls to saved people; Widget and Siri keep their broader directory.
     private var watchCallTargets: [(entity: CallTargetEntity, destination: CallDestination)] {
         callTargets.filter { if case .user = $0.destination { true } else { false } }
     }
 
     func watchSnapshot(now: Date = Date()) -> WatchCallSnapshot {
+        let validUntil = now.addingTimeInterval(Self.watchSnapshotLifetime)
         guard let viewModel = try? callModel(), viewModel.hasCurrentAccountAccess else {
-            return .init(reference: nil, generatedAt: now, validUntil: now.addingTimeInterval(120),
+            return .init(reference: nil, generatedAt: now, validUntil: validUntil,
                          targets: [], title: nil, hasCall: false, isMuted: true, state: .signedOut)
         }
         let hasCall = viewModel.hasAnyActiveGroupConnection
@@ -21,7 +24,7 @@ extension AppCallOwner {
         case .audioUnavailable: .audioUnavailable
         }
         return .init(reference: viewModel.currentCallReference.encoded, generatedAt: now,
-                     validUntil: now.addingTimeInterval(120),
+                     validUntil: validUntil,
                      targets: watchCallTargets.map { .init(id: $0.entity.id, name: $0.entity.name) },
                      title: viewModel.groups.first { $0.id == viewModel.activeGroupID }.map(viewModel.callTitle),
                      hasCall: hasCall, isMuted: viewModel.isMuted, state: state,
@@ -42,12 +45,15 @@ extension AppCallOwner {
         }
         if request.action == .refresh { return reply() }
         guard let viewModel = try? callModel(), viewModel.hasCurrentAccountAccess else { return reply(.noAccount) }
-        guard watchRequestIsCurrent(request, viewModel: viewModel, now: now) else { return reply(.stale) }
-        return await performWatchRequest(request, viewModel: viewModel, reply: reply)
+        let reference = viewModel.currentCallReference
+        guard request.reference == reference.encoded, request.validUntil > now,
+              request.validUntil <= now.addingTimeInterval(Self.watchSnapshotLifetime)
+        else { return reply(.stale) }
+        return await performWatchRequest(request, reference: reference, viewModel: viewModel, reply: reply)
     }
 
     private func performWatchRequest(
-        _ request: WatchControlRequest, viewModel: IntercomViewModel,
+        _ request: WatchControlRequest, reference: CallReference, viewModel: IntercomViewModel,
         reply: (WatchControlProblem?) -> WatchControlReply
     ) async -> WatchControlReply {
         let succeeded: Bool
@@ -66,8 +72,8 @@ extension AppCallOwner {
         case .startAudioCheck, .playAudioCheck, .stopAudioCheck:
             return await handleWatchAudioCheck(request.action, viewModel: viewModel, reply: reply)
         #endif
-        case .end: succeeded = viewModel.endCall(viewModel.currentCallReference)
-        case .setMuted(let value): succeeded = viewModel.setCallMuted(value, for: viewModel.currentCallReference)
+        case .end: succeeded = viewModel.endCall(reference)
+        case .setMuted(let value): succeeded = viewModel.setCallMuted(value, for: reference)
         }
         guard watchModelIsCurrent(viewModel) else {
             return reply(.noAccount)
@@ -78,13 +84,6 @@ extension AppCallOwner {
     private func watchModelIsCurrent(_ viewModel: IntercomViewModel) -> Bool {
         guard let current = try? callModel() else { return false }
         return current === viewModel && viewModel.hasCurrentAccountAccess
-    }
-
-    private func watchRequestIsCurrent(
-        _ request: WatchControlRequest, viewModel: IntercomViewModel, now: Date
-    ) -> Bool {
-        request.reference == viewModel.currentCallReference.encoded && request.validUntil > now
-            && request.validUntil <= now.addingTimeInterval(120)
     }
 
     #if DEBUG

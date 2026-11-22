@@ -180,6 +180,33 @@ struct WatchControlTests {
         #expect(model.isMuted && model.activeGroupID == groupIDs[1])
     }
 
+    @Test func reconnectingToTheSameGroupRejectsOldAndOutOfWindowWatchCommands() async throws {
+        let model = AppTestSupport.makeHarness().viewModel
+        defer { model.disconnect() }
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        let now = Date()
+        let groupID = try #require(model.regularGroups.first?.id)
+        try #require(model.startCall(to: .group(groupID), accountAccessID: model.accountAccessID))
+        let previous = owner.watchSnapshot(now: now)
+        model.disconnect()
+
+        try #require(model.startCall(to: .group(groupID), accountAccessID: model.accountAccessID))
+        model.applyLocalMute(true)
+        let current = owner.watchSnapshot(now: now)
+        let outsideWindow = owner.watchSnapshot(now: now.addingTimeInterval(1))
+        try #require(current.reference != previous.reference)
+        #expect(await owner.handleWatchRequest(.init(.end, snapshot: previous), now: now).problem == .stale)
+        #expect(await owner.handleWatchRequest(.init(.setMuted(false), snapshot: previous), now: now).problem == .stale)
+        #expect(await owner.handleWatchRequest(.init(.end, snapshot: outsideWindow), now: now).problem == .stale)
+        let expired = await owner.handleWatchRequest(.init(.end, snapshot: current), now: current.validUntil)
+        #expect(expired.problem == .stale)
+        #expect(model.activeGroupID == groupID && model.isMuted)
+        #expect(await owner.handleWatchRequest(.init(.setMuted(false), snapshot: current), now: now).problem == nil)
+        #expect(!model.isMuted)
+        #expect(await owner.handleWatchRequest(.init(.end, snapshot: current), now: now).problem == nil)
+        #expect(model.activeGroupID == nil)
+    }
+
     @Test func removedSavedUserCannotStart() async throws {
         let rig = AppTestSupport.makeHarness(); let model = rig.viewModel
         defer { model.disconnect() }
