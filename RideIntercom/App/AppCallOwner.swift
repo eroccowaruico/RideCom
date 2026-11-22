@@ -10,7 +10,10 @@ final class AppCallOwner: CallSurfaceActions {
     var systemSurfaceIsForeground = false {
         didSet {
             refreshNearbyDeliveryForegroundState()
-            if systemSurfaceIsForeground { viewModel?.callRelationshipBackupSync?.request() }
+            if systemSurfaceIsForeground {
+                backupSession?.refreshIfUnavailable()
+                viewModel?.callRelationshipBackupSync?.request()
+            }
         }
     }
     let account: AppleAccountSession
@@ -21,6 +24,7 @@ final class AppCallOwner: CallSurfaceActions {
     var usersPresentationID: UUID?
     var groupsPresentationID: UUID?
     @ObservationIgnored private let makeViewModel: @MainActor (AppleAccountSession) -> IntercomViewModel?
+    @ObservationIgnored private let backupSession: CloudKitCallRelationshipBackupSession?
     @ObservationIgnored private var credentialRevocationObserver: NSObjectProtocol?
     #if os(iOS)
     var watchBridge: WatchPhoneBridge?
@@ -30,12 +34,14 @@ final class AppCallOwner: CallSurfaceActions {
         account: AppleAccountSession, viewModel: IntercomViewModel?,
         liveActivityDriver: (any CallLiveActivityDriving)? = nil,
         widgetDestinationStore: WidgetDestinationStore = .system,
+        backupSession: CloudKitCallRelationshipBackupSession? = nil,
         makeViewModel: @escaping @MainActor (AppleAccountSession) -> IntercomViewModel? = IntercomViewModel
             .makeForCurrentProcess
     ) {
         widgetDestinations = WidgetDestinationPublisher(store: widgetDestinationStore)
         liveActivities = CallLiveActivityPresenter(driver: liveActivityDriver ?? SystemCallLiveActivityDriver())
         self.makeViewModel = makeViewModel
+        self.backupSession = backupSession
         self.account = account
         self.viewModel = viewModel
         credentialRevocationObserver = NotificationCenter.default.addObserver(
@@ -46,6 +52,7 @@ final class AppCallOwner: CallSurfaceActions {
         observeAccountAccess()
         observeSystemSurfaces()
         observeWidgetDestinations()
+        backupSession?.bind(to: viewModel)
     }
     deinit {
         if let credentialRevocationObserver { NotificationCenter.default.removeObserver(credentialRevocationObserver) }
@@ -68,6 +75,7 @@ final class AppCallOwner: CallSurfaceActions {
     private func synchronizeAccountModel() {
         guard viewModel?.accountAccessID != account.accessID || viewModel?.accountUserID != account.userID
                 || account.deletion.blocksSignIn else { return }
+        backupSession?.bind(to: nil)
         viewModel?.stopCallRelationshipBackup()
         viewModel?.stopGroupDeliverySync()
         viewModel?.notifications.stop()
@@ -77,6 +85,7 @@ final class AppCallOwner: CallSurfaceActions {
         viewModel = nil
         guard !account.storageUnavailable, !account.deletion.blocksSignIn, account.userID != nil else { return }
         viewModel = makeViewModel(account)
+        backupSession?.bind(to: viewModel)
         refreshNearbyDeliveryForegroundState()
     }
 

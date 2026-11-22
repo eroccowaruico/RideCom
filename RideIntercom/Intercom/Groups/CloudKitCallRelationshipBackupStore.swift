@@ -38,6 +38,16 @@ struct CloudKitCallRelationshipBackupStore {
         self.write = write
     }
 
+    func checkingAccess(_ check: @escaping () async throws -> Void) -> Self {
+        .init(fetch: { id in
+            try await check()
+            return try await fetch(id)
+        }, write: { record, policy in
+            try await check()
+            return try await write(record, policy)
+        })
+    }
+
     func load(as signer: DeviceIdentitySigner, now: TimeInterval) async throws -> Saved? {
         let id = try Self.recordID(as: signer, now: now)
         let record: CKRecord
