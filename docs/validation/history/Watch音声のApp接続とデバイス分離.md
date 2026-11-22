@@ -108,6 +108,8 @@ Simulatorのnative入力確認では、Macの既定入力が48kHz、既定出力
 
 成立した範囲は、制御した入力内容とnative時計の下での実TX5秒timeline→録音→native再生・再開始である。比較基準は送信処理後の復号音であり、元fixtureからTXまでの音質全体をこの比較だけで保証しない。実マイクの内容は置換しているため、実機マイクの音質・音響・Bluetoothは未確認である。Mac／iPad／Watchの各経路も別に確認を続ける。前節の環境マイクが全無音だった測定不能の結果は保持し、この成功へ書き換えない。
 
+2026-11-22。iPhone Simulator向けの音声E2EをDebug構成でビルドすると、録音確認のテストが以前の引数を使っていたためコンパイルで停止した。テストが測った同じ値を現在の `PlaybackStatus` に渡すよう直した。MacとiPhone Simulatorのテスト用ビルド、および両方のテストホストの隔離確認が成功した。今回の検証はビルドの復旧までで、録音の2回連続実行の結果は上記の実測を参照する。証跡は `.validation/audio-rx-current-20261122/` の `run` と `after-build-fix`。
+
 
 ## Watch Simulatorの入出力固定と残るclock開始
 

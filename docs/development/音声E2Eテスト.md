@@ -171,6 +171,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 | attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性の検査に合格しなかった場合の復号・ミキサーWAV、終了時の状態 |
 | simulator-id.txt | 実行に使用した端末の識別子 |
 
+双方向の遅延を計測できた行では、`measurements.json` の `captureToRenderLatencySeconds` に実測値を保存する。`captureToRenderLatencyWithAllowanceSeconds` は、実測値に位置合わせの計測余裕10 msを加えた判定値である。125 msの上限には後者を照合し、上限を超えた行にも両方の値を保存する。
+
 背景通話の後参加と受話再開では、各端末の `packet-timing` に符号化済みpacketの収録時刻、受信側で処理を始めた時刻と予約後の待ち量・調整回数を記録する。相手音声を受ける測定では復号直後のWAVとnative出力WAVを保存し、それぞれの固定時刻での連続性を測定する。両端のpacketは収録時刻を基準に照合し、記録区間の前後は重なる範囲を使う。音声は試験fixtureの内容を専用の検証成果物に保存する。
 
 `receiveProcessing` は観測を明示した受信処理でのみ記録する。同じ端末の単調時計の秒で、`lockRequestedAt`（Appの受信時刻で、AudioMixerへ渡す `arrivedAt` と同じ）、`lockAcquiredAt`、`decodedAt`（decoderの取得と復号後）、`reservedAt`（再生予約と必要なplayer開始の後）を並べる。復号結果にPCMがなければ `reservedAt` を省く。`handled` は予約量の診断取得とlock解放後の時刻なので、`reservedAt` との差から予約後の観測に費やした時間も分けられる。各差は経過時間であり、各段のCPU実行時間とOSやフレームワーク内部で待った時間を区別する測定ではない。[Appの到着時刻の契約](../spec/App/音声処理仕様.md#出力クロックの共有)

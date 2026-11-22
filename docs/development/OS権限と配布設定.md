@@ -12,6 +12,7 @@
 | Mac sandbox | Appはsandboxとnetwork client/serverを有効。UDPの送受信に両方向が必要 | 通常sandboxの実起動と実通信。自動unitでsandboxを無効にした結果とは区別 |
 | Widgetの選択用共有 | AppとWidgetに同じApp Group。Widgetは資格を持たず、Appが投影を書きextensionは読む | 両App IDへのgroup割当と両profileのgroup許可。署名済みの実App/extension間で共有できること |
 | 通知 | AppだけPush entitlement。通常のalert/soundと利用者tapを使用。背景remote-notificationを要求しない | Push capability、APNs環境、server topic、provider鍵、利用者の通知許可を一致させる |
+| 招待・削除の背景更新 | iOS本体のInfoで `fetch` と同期用のタスクIDを1つ宣言する。App起動時に同じIDを登録する | 背景更新が利用できる端末で、iOSが実行を許可した時刻と、通常グループ・個人招待の返信および個人削除の進行を照合する。[通信仕様](../spec/App/通信仕様.md#iosが背景更新を許可したときの招待と個人削除) |
 | Watch | iPhone依存の単一Watch App、対応bundle ID、専用AppIcon。音声やPushの権限は持たない | Watch App ID/profile、iPhoneとの実ペアリングとWCSession手渡し。Watch音声は未実装 |
 | CarPlay Widget | 27.0以降のWidget背景IntentとApp本体の共通操作を使用。CallKit・専用CarPlay entitlement・VoIP Pushは追加しない | タッチ対応車での実操作、iPhoneロック・cold launch・新規マイク開始・Widget更新。非タッチ車はボタン非対応 |
 | 状態表示 | iPhone/iPadの任意Live Activity、Mac Widgetを実装。対応端末のDynamic Islandとロック画面を使用 | OSによる表示・消去・ロック解除・手渡しを受入。Mac自身からのLive Activityは提供しない。iPhone由来のMac表示とMac native上部表示を混同しない |
@@ -47,7 +48,7 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 | 通常Archive | schemeのRelease／productionを使用。Export後の実entitlementも確認する。profileやexportによる再署名がInfoと違う環境に変わったartifactは配布しない |
 | Releaseの開発署名試用 | development profileで試用する場合は、単一Build Settingを`development`へ明示上書きし、App Infoと署名を一緒に合わせる。公開Archiveと混同しない |
 
-APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`、`APNS_ENVIRONMENT`、`APNS_KEY_ID`、共通の`APPLE_TEAM_ID`。secretは`APNS_PRIVATE_KEY`と既存の`DEVICE_IDENTITY_SIGNING_KEY`である。topicはWidget/WatchではなくAppの`com.yowamushi-inc.RideIntercom.RideIntercom`とする。[通知server仕様](../spec/server/通知.md)に従い、topicは両環境へ上記の確定値を設定した。ProductionはRelease／TestFlightに合わせproduction、PreviewはDebug向けsandbox。TestFlight Internal Onlyもproductionであり、Previewへ接続する場合はそのPreviewの環境と鍵を合わせる。環境別のWorker設定、通知用binding/migration、App側登録・取消が揃った後、明示された実サービス受入で確認する。通知の有効化で音声サービス・購入商品を同時に有効化しない。
+APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`、`APNS_ENVIRONMENT`、`APNS_KEY_ID`、共通の`APPLE_TEAM_ID`。secretは`APNS_PRIVATE_KEY`と既存の`DEVICE_IDENTITY_SIGNING_KEY`である。topicはWidget/WatchではなくAppの`com.yowamushi-inc.RideIntercom.RideIntercom`とする。[通知server仕様](../spec/server/通知.md)に従い、topicは両環境へ上記の確定値を設定した。TestFlight Internal Onlyを含むTestFlightは本番Workerとproduction APNsを使う。開発署名で試す固定Previewはsandbox APNsを使う。環境別のWorker設定、通知用binding/migration、App側登録・取消が揃った後、明示された実サービス受入で確認する。通知の有効化で音声サービス・購入商品を同時に有効化しない。
 
 ## 商品と配布の残設定
 
@@ -57,11 +58,13 @@ App Privacy、プライバシーポリシーURL、年齢区分、審査連絡先
 
 ## 生成物での確認
 
-`python3 scripts/check_platform_configuration.py`は設定を読み取って検査する。対象はOS別entitlement、App Group、APNs環境の接続、日本語・英語の権限説明、Watchのアイコン、埋め込んだproduct、近距離設定。CLIの開発設定検査（`scripts/check_development_setup.py`）からも実行する。Xcodeの通常build phaseには組み込まない。portalやOS許可は変更しない。
+`python3 scripts/check_platform_configuration.py`は設定を読み取って検査する。対象はOS別entitlement、App Group、日本語・英語の権限説明、Watchのアイコン、埋め込んだproduct、近距離設定。通常のRideIntercomスキームのArchiveがReleaseを選び、ReleaseでAPNsがproduction、Debugでdevelopmentになることも検査する。CLIの開発設定検査（`scripts/check_development_setup.py`）からも実行する。Xcodeの通常build phaseには組み込まない。portalやOS許可は変更しない。
 
 Watchの埋込製品と依存ターゲットの除外は、Xcodeプロジェクト内で空白区切りの文字列または配列として保存される。構造検査は両形式から値を読み取り、通常配布用の `Release` だけで除外する条件を確認する。
 
 Xcodeで通常のRelease Archiveを生成し、Organizerから実際の配布先へexportした**最終artifact**を確認する。iOSは展開したPayload内、macOSは.app内のInfo.plistを使用する。
+
+TestFlightの内部・外部テストには本番用のRelease Archiveを使う。Appは本番Workerに接続し、Apple Distributionで署名したIPAのAPNs環境はproductionとする。固定Previewの試用には開発署名のDebugを使う。既存Archiveを選ぶ場合は、接続先を本番に固定した変更（`8a0dba79`）を含むコミットから作成したことを検証記録と照合する。Build 1962は接続先の固定前に作ったため、TestFlightの候補から外す。[環境別の試用手順](Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)・[Build 1962の確認記録](history/バックログの優先順位と進捗の記録.md#build-1962で更新したwebrtcと配布署名を照合する)
 
 ```sh
 codesign --verify --deep --strict /path/to/RideIntercom.app
@@ -74,15 +77,16 @@ macOSではWidgetが`Contents/PlugIns`、Infoが`Contents/Info.plist`にある�
 
 Watchの配布は保留中。通常のiOS ReleaseはWatchの依存と埋め込みを除外し、Watchの共有schemeはRun・Testを残す。iOS ReleaseのArchiveとexport後のPayloadで、AppとWidgetの`CFBundleVersion`を照合する。どちらの生成物でも番号が一致し、`Watch/RideIntercomWatch.app`を含まないことを確かめる。開発・検証構成のiOS Appでは引き続きWatchを組み込み、組み込んだ場合はその`CFBundleVersion`とAppIconを確認する。[Watchの公開条件](../requirements/製品要求.md#利用者に提供すること)
 
-profile更新後は、端末で次の順に確認し、結果を1項目ずつ記録する。
+配布用プロファイルを更新したときは、TestFlightからインストールした端末で次の順に確認し、結果を1項目ずつ記録する。
 
-1. Appleログイン
+1. AdvancedのWorker URLで本番接続先を照合し、Appleログインで端末を登録
 2. OSのマイク、ローカルネットワーク、通知の許可
 3. App Groupの候補表示
 4. 削除・サインアウト後に古いWidget操作を拒否すること
 5. 実APNsの受信と取消
-6. Watchの操作
-7. ロック中の継続
+6. ロック中の継続
+
+Watchの操作は、Watchを組み込んだ開発・検証構成で確認する。
 
 Mac nativeの任意MenuBarExtraは後続のApp工程で[実装](../spec/App/システム表示と通話操作.md#macメニューバー)した。実メニュー・VoiceOverの受入は別に記録する。
 
@@ -100,4 +104,8 @@ Mac nativeの任意MenuBarExtraは後続のApp工程で[実装](../spec/App/シ�
 
 Internal Only指定の送信は、Xcodeが「App Store Connect access for UAY8FH5FF8 is required」で拒否し、未送信。通常のAPI key設定も見つからなかった。配布する際はXcode → Settings → Accountsで、このチームと対象AppへApp Store Connectアクセスを持つApple Accountの認証・権限を確認する。開発署名を作れることと、App Store Connectへ送信できることを分けて扱う。認証復旧後に同じArchiveを再使用できる。詳細と保存先は[配布の検証記録](../validation/history/配布ビルド採番とOrganizer認証調査.md)を参照する。
 
-2026-11-21、Build 1897の標準Archiveを共有の `scripts/ExportOptions.plist` でこのMacに書き出した。IPAはApple Distribution署名で、AppのInfoと署名のAPNs環境がproductionで一致した。TestFlightの送信権限と処理状況、テスターへの配布とインストールは引き続き確認する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)
+2026-11-21、Build 1903の標準Archiveを共有の `scripts/ExportOptions.plist` でこのMacに書き出した。IPAのApple Distribution署名、AppのInfoと署名にあるAPNs環境がproductionで一致すること、AppとWidgetのビルド番号を確認した。TestFlightの送信権限と処理状況、テスターへの配布とインストールは引き続き確認する。[確認記録](history/バックログの優先順位と進捗の記録.md#全体監査の候補検査とiphone試用の配布用書き出し)
+
+2026-11-22、本番接続先を固定したソースからiOS Build 1988を作成し、Xcodeの標準保存先に登録した。書き出したIPAでApple Distribution署名、本番Workerの接続先、production APNsを照合した。Organizerの一覧表示は未確認。App Store Connectへの送信と処理、テスターが配布後にインストールできるかの確認が残る。[Build 1988の確認記録](../validation/history/配布ビルド採番とOrganizer認証調査.md#ios-build-1988の本番向けarchiveとipa2026-11-22)
+
+2026-11-22、通算2,070コミットの区切りでiOS Build 2018を作成し、Xcodeの標準保存先に登録した。IPAでApple Distribution署名、本番Workerの接続先とproduction APNsを照合した。Organizerの一覧表示とTestFlightでの配布は確認待ち。[Build 2018の確認記録](../validation/history/配布ビルド採番とOrganizer認証調査.md#archive-2070-build-2018)

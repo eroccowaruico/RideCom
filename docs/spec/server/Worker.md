@@ -69,7 +69,7 @@ sequenceDiagram
 | 期限 | challengeと端末資格を期限時のalarmで整理し、照合時も期限を判定。server再起動後も期限は延びない |
 | 所有者 | 通話sessionのownerはuser IDとdevice IDの組合せ。同一ユーザーでも他端末のsessionを操作できない |
 | エラー | 不正bodyは400、検証失敗・期限切れ・再送は401、登録数上限は409、登録頻度上限は429、Apple鍵取得等の障害は503。tokenやApple応答内容はログ・エラーへ出さない |
-| 有効化 | `APPLE_AUTH_ENABLED=false`がProduction/Previewの既定。実Bundle IDを`APPLE_CLIENT_ID`へ指定する。新規登録を無効にしても発行済み資格の照合・自己失効は残す |
+| 有効化 | `APPLE_AUTH_ENABLED=true` と `APPLE_CLIENT_ID` が揃う環境で新規登録を受け付ける。実Bundle IDを `APPLE_CLIENT_ID` に指定する。新規登録が無効な環境でも、発行済み資格の照合と自己失効は使える |
 
 AppのSettingsからnonce取得・native Apple認証・資格保存と、サインアウト時の自己資格失効を接続した。端末側の失効再試行と保存失敗時の扱いは[App通信仕様](../App/通信仕様.md#appleログインと端末内データ)を参照する。
 
@@ -230,13 +230,29 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 
 `server/wrangler.toml`のWorker名は管理画面で作成済みの`rideintercom`と一致させる。Productionはtop-levelの`vars` / `durable_objects`、プレビューは`previews.vars` / `previews.durable_objects`を使用する。プレビューは通常変数とDO bindingをProductionから継承せず、DO namespaceもプレビューごとに分離される。top-levelの既存`v1` migrationは保持する。
 
-試用プレビューは`npm --prefix server run preview`で作業branchごとに配置する。プレビューの`SERVICE_ENABLED`はtrue、その他の人数・予約秒・lease・TURN設定は下表の既定と同じ。SFU App ID / App Secretと端末registryはCloudflareのPreviews Baseへ保存し、新規プレビューが引き継ぐ。既存プレビューのsecretはBaseの後続変更から自動更新されない。Productionは資格登録・明示的な有効化までfalseを維持する。GitHub連携ではmainのdeploy commandと、他branchのPreview commandを分ける。
+TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固定Previewは開発署名とsandbox APNsによる開発試用に使う。[配布環境の要求](../../requirements/製品要求.md#購入復元共有と公開条件)
+
+試用プレビューは`npm --prefix server run preview`で作業branchごとに配置する。新規プレビューはCloudflareのPreviews BaseからSFU App ID、App Secret、端末registryを引き継ぐ。既存プレビューに使うsecretは対象の配置に反映する。GitHub連携ではmainのdeploy commandと、他branchのPreview commandを分ける。
+
+リポジトリの `wrangler.toml` は、環境ごとに次の値を明示する。実際に稼働する値と鍵の反映状況は[最新の配置で確認した試用条件](../../development/Cloudflare試用手順.md#最新の配置で確認した試用条件)を参照する。
+
+Worker単位のObservabilityとLogpushは、`wrangler.toml` のトップレベルに無効と記載する。本番とPreviewはこの設定を共用する。配置を作った後は、各環境のログ・トレースと転送先を読み取りで照合する。アカウント全体の転送設定や過去の保存データは、運用の監査で別に確認する。[Previewに適用される設定](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block)
+
+| 設定 | 本番の `vars` | `previews.vars` |
+|---|---|---|
+| `SERVICE_ENABLED` | `true` | `true` |
+| `APPLE_AUTH_ENABLED` | `true` | `false` |
+| `TURN_ENABLED` | `true` | `false` |
+| `NOTIFICATIONS_ENABLED` | `true` | `true` |
+| `APNS_ENVIRONMENT` | `production` | `sandbox` |
+
+次の表は設定の既定と有効化の条件を示す。
 
 | 設定 | 既定 | 意図 |
 |---|---|---|
-| SERVICE_ENABLED | false | 無設定で課金対象処理を始めない。資格登録後、wrangler.tomlでtrueへ変更してdeploy |
+| SERVICE_ENABLED | 無効 | 資格を登録し、`true` を指定した配置で課金対象の処理を受け付ける |
 | APPLE_AUTH_ENABLED | false | 新規Apple認証・端末登録を明示的に有効化する。公開前にApp連携とabuse制限を整える |
-| APPLE_CLIENT_ID | com.yowamushi-inc.RideIntercom.RideIntercom | Apple identity tokenのaudience。iOS/macOS AppのBundle IDと一致させる |
+| APPLE_CLIENT_ID | 未設定 | Apple identity tokenのaudience。iOS/macOS AppのBundle IDと一致させる |
 | APPLE_SIGN_IN_PRIVATE_KEY | secret未設定 | Appleコード交換と認可取消用のSign in with Apple `.p8`。Workerが短期client-secret JWTを生成する。APNs鍵と共用せず、端末へ渡さない |
 | APPLE_SIGN_IN_KEY_ID | Variable未設定 | 上記Sign in with Apple鍵のKey ID。画面で対応を確認できる通常Variable |
 | APPLE_TEAM_ID | Variable未設定 | Sign in with Apple鍵とAPNs鍵を所有する共通のApple Developer Team ID |
@@ -303,11 +319,12 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 
 ## 個人削除の暗号文中継
 
-既存の端末Bearerで、署名済み削除と受取確認の暗号文を送信側の `UserAccount` に一時保存する。Workerが扱う `slot` は端末対が持つ推測困難な64桁小文字hexの値で、保存するキーにはそのSHA-256を使う。受取側は公開アカウントID・同じslot・受取端末の署名を提示する。第三者の公開IDだけを指定しても、その人の受信領域に情報を追加できない。暗号文の生成と[個人削除の署名・適用](../App/通信仕様.md#個人削除の送信待ち)はAppが所有する。
+署名済み削除と受取確認の暗号文を送信側の `UserAccount` に一時保存する。通常の操作には端末Bearer、背景での送出には[用途を限定した端末署名](#背景転送から個人削除を預かる)を使う。Workerが扱う `slot` は端末対が持つ推測困難な64桁小文字hexの値で、保存するキーにはそのSHA-256を使う。受取側は公開アカウントID・同じslot・受取端末の署名を提示する。第三者の公開IDだけを指定しても、その人の受信領域に情報を追加できない。暗号文の生成と[個人削除の署名・適用](../App/通信仕様.md#個人削除の送信待ち)はAppが所有する。
 
 | 操作 | 本文と成功応答 |
 |---|---|
 | PUT `/api/contact-deletions` | `{slot,id,expiresAt,recipient,recipientKey,packet}`。送信端末に記録を結び付け、`{state}` を返す。アカウントが同じでも別の送信端末からの置換は409 |
+| POST `/api/contact-deletions/background-publish` | [背景転送用の暗号文](#背景転送から個人削除を預かる)。通常のPUTと同じ記録へ預け、`{state}` を返す |
 | POST `/api/contact-deletions/read` | 受取側は `{owner,slot,proof}` を送り、`{deletion:{id,expiresAt,packet}}` を得る。送信側は自身の公開IDを `owner` に指定して `{owner,slot}` を送り、`{receipt:{id,expiresAt,packet}}` を得る。対象の状態にない場合や対象違いは404 |
 | PUT `/api/contact-deletions/receipt` | `{owner,slot,id,packet,proof}`。受取人と指定の公開鍵を照合し、削除の暗号文を確認の暗号文に置き換えて `{state:"received"}` を返す。同じ確認の再送は同じ応答 |
 | DELETE `/api/contact-deletions` | `{slot,id,expiresAt}`。送出元端末が `{state:"retired"}` にする。元の暗号文と宛先情報を回収し、元の期限までID・期限・送出元端末のみを残す。未登録のslotでも同じ印を残せるため、先に近距離で終了した削除を遅れた送出で復活させない |
@@ -317,6 +334,14 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 送信アカウント1件につき有効なslotを最大64件保持する。要求頻度は既存 `CALL_API_LIMIT` の個人削除用キーで制限する。送出の完全一致は重ねず、異なる内容への差替えは409。期限は既存のアカウントalarmで回収し、送信アカウントを削除した場合も同じ処理で回収する。受取アカウントの削除後は新しい公開IDから旧宛先の内容へアクセスできなくなり、送信側に残る暗号文は期限で回収される。[Durable Objectsのアラーム](https://developers.cloudflare.com/durable-objects/api/alarms/)
 
 Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` および `DEVICE_IDENTITY_SIGNING_KEY` を使う。この中継はAPNsを呼び出さず、通知許可を取り消した後も利用できる。Appは保存済みの暗号文を送信・取得し、受取確認を照合して回収する。[Appの転送と再開](../App/通信仕様.md#個人削除の送信待ち)、[Internetの実環境受入](../../validation/未確認事項.md#internetの個人削除の実環境受入)
+
+### 背景転送から個人削除を預かる
+
+背景のPOSTは[共通の暗号化形式](#招待の背景転送を保護する)の `{sealed}` を受け付ける。復号したUTF-8 JSONは `{senderUserID,deviceID,sessionBinding,submission,proof}`。submissionは通常のPUTと同じ6項目のJSONを標準Base64にした値。署名用途は `publishBackgroundContactDeletion`、署名対象は空白やスラッシュのエスケープを加えない `JSON.stringify([origin,sessionBinding,submission])` のUTF-8。送信元は有効な端末セッションと照合する。署名の権限は指定した削除の送出に限る。
+
+接続元の頻度制限を共通の背景受付と共有し、認証後は個人削除のアカウント別頻度・保管上限を使う。同じ削除の再送は元の期限と処理状態を保つ。通常のDELETEで先に回収した削除は `{state:"retired"}` を返し、復活させない。200はWorkerでの処理結果を表す。相手の端末での適用は受取確認で判定する。
+
+不正な形式や削除期限は400、鍵・端末署名・セッションの不一致は401、使われたslotとの衝突は409、頻度や保存上限の超過は429、背景受付の鍵や接続元情報の設定不備は503。
 
 ## 通常グループの受諾と到着確認の暗号文中継
 
@@ -352,11 +377,13 @@ Workerは受け手の認証・頻度制限に続き、署名と発行者の公�
 
 ### 招待の背景転送を保護する
 
-背景用の個人招待の受諾、グループ招待の送信・取消は、共通の暗号化形式を使う。本文はJSONの `{sealed}` 一項目、全体で64 KiB以下。sealedは[サービスの暗号化公開鍵](#招待を預けるサービスの暗号化公開鍵)宛てのcompact JWE。保護ヘッダーは `{alg:"ECDH-ES",enc:"A256GCM",kid,epk}`。一件ごとに新しく作る `epk` は `{kty:"OKP",crv:"X25519",x}` とし、`x` は32byteの公開座標をpaddingなしbase64urlとしたもの。保護ヘッダーの文字列は512文字以下。Workerが使う鍵は要求先originの現区間または直前の区間の鍵に限る。元の区間の次の区間が終わると、その鍵を使った要求を拒否する。復号前はCloudflareの接続元を日単位でハッシュ化した一時的な頻度枠を、3つの操作で共有する。枠を超えた要求は本文を読む前に429で拒否する。接続元情報を取得できない場合は503を返す。[compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)、[JOSEでのX25519](https://www.rfc-editor.org/rfc/rfc8037.html)
+個人招待の受諾、グループ招待の送信・取消、個人削除の背景受付は、共通の暗号化形式を使う。本文はJSONの `{sealed}` 一項目、全体で64 KiB以下。sealedは[サービスの暗号化公開鍵](#招待を預けるサービスの暗号化公開鍵)宛てのcompact JWE。保護ヘッダーは `{alg:"ECDH-ES",enc:"A256GCM",kid,epk}`。一件ごとに新しく作る `epk` は `{kty:"OKP",crv:"X25519",x}` とし、`x` は32byteの公開座標をpaddingなしbase64urlとしたもの。保護ヘッダーの文字列は512文字以下。Workerが使う鍵は要求先originの現区間または直前の区間の鍵に限る。元の区間の次の区間が終わると、その鍵を使った要求を拒否する。復号前はCloudflareの接続元を日単位でハッシュ化し、背景受付に共通の一時的な頻度枠を使う。枠を超えた要求は本文を読む前に429で拒否する。接続元情報を取得できない場合は503を返す。[compact JWE](https://www.rfc-editor.org/rfc/rfc7516.html)、[JOSEでのX25519](https://www.rfc-editor.org/rfc/rfc8037.html)
 
 暗号文と復号した署名付き要求はWorkerのメモリ内で扱う。認証や復号を通った後は、用途に応じた既存の保管と上限を使う。
 
 ### 背景転送から個人招待の受諾を預かる
+
+背景受付の各操作は、Workerの `BackgroundSubmission` で接続元による頻度制限、復号、用途別の端末署名と有効なセッションの照合をこの順序で実行する。照合の後に各APIが内側の本文と操作固有の権限・頻度枠を扱う。
 
 `POST /api/ordinary-group-replies/background-acceptance` は[招待の背景転送の暗号化形式](#招待の背景転送を保護する)を使う。復号した内容から受諾側の資格を照合し、既存のアカウント別の背景受諾の枠を使う。
 

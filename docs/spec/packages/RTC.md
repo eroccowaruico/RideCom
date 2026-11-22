@@ -106,6 +106,7 @@ flowchart LR
 | audio channel | `group-audio-v1`、unordered、maxRetransmits=0。送信待ちが残ると新しい音声を捨て、蓄積しない |
 | control channel | `group-control-v1`、ordered/reliable。送信待ち上限64KiB |
 | 接続 | 完全SDP offer → Worker `/join` → SFU datachannels/establish → answer。ICE接続後 `/publish` で2種類のchannelを確保 |
+| 受け取ったSDP | native接続に適用できるoffer／answerは、媒体行が1つ以上あり、そのすべてが `m=application` のもの。ほかの媒体行を含むか媒体行がなければ、SDKへ渡す前に拒否する。拒否時はnative接続の交渉状態を保つ。SDPの残りの形式はSDKが検証する |
 | 購読 | roomのpeer IDから `/pull`。SFU allocation IDは端末ごとに異なり、Workerの返却値でnegotiated channelを作る |
 | 表示名 | joinへ送信しない。Workerのpeer一覧はID・session IDのみで、transportの`PeerDescriptor`はIDを代替名にする。人向けの名前はgroup鍵で暗号化したpresenceから復元する |
 | presence / 操作 | 同じgroup envelopeで中継。WorkerのWebSocketはroom情報・従来の小さい制御メッセージのみ。音声は通さない |

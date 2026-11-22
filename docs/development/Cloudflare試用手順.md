@@ -29,12 +29,12 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | APNS_PRIVATE_KEY | Secret | Appleで作成するAPNs用p8（PKCS8 P-256）。対象環境・topicへの送信権限がある鍵 |
 | APNS_KEY_ID | Variable | 上記APNs鍵のKey ID。Productionは`vars`、Previewは`previews.vars`へ設定する |
 | APNS_TOPIC | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。両環境へ設定済み |
-| APNS_ENVIRONMENT | Variable | Productionは`production`、PreviewはDebug向けの`sandbox`。TestFlightからPreviewを使うときはそのPreviewも`production`へ合わせる |
-| APPLE_AUTH_ENABLED | Variable | 両環境の既定false。Apple App ID・profile・証明署名鍵が揃った環境だけtrueにする |
+| APNS_ENVIRONMENT | Variable | TestFlightが接続する本番は `production`。開発署名で使う固定Previewは `sandbox` |
+| APPLE_AUTH_ENABLED | Variable | Apple App ID・profile・証明署名鍵が揃った環境で `true` にする |
 | DEVICE_ATTESTATION_ENABLED | Variable | 両環境の既定false。App連携と対象の署名・配布環境の受入が揃った環境で有効化する |
 | DEVICE_ATTESTATION_MAC_POLICY | Variable | 既定は空。有効化する環境では、App ID（App ID Prefixと `APPLE_CLIENT_ID`）をJSONに指定する。同じJSONにApp Attestの `environment`、Appleの `validationCategory` と `bundleVersion` を含める。キー名は `appID`、 `environment`、 `validationCategory`、 `bundleVersion`。開発署名カテゴリ3でビルド番号なしを照合する場合は `bundleVersion: null`。[Macの端末鍵登録](../spec/server/Worker.md#macの端末鍵登録) |
-| NOTIFICATIONS_ENABLED | Variable | 両環境の既定false。APNs鍵・profile・topic・環境が揃った環境だけtrueにする |
-| SERVICE_ENABLED | Variable | 音声SFUの入口。Productionの既定false、Previewはtrue。通知の有効化とは別にSFU資格と費用上限を確認する |
+| NOTIFICATIONS_ENABLED | Variable | APNs鍵・profile・topic・環境を揃えてから `true` にする |
+| SERVICE_ENABLED | Variable | 音声SFUの入口。SFU資格と費用上限を確認して有効にする。[TOMLの環境別設定](../spec/server/Worker.md#設定値) |
 
 `CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
 
@@ -75,7 +75,7 @@ Cloudflare設定チャットから引き継いだ残件は、実SFU/TURNを通�
 
 Cloudflareへ手動登録する値は、各サービスの長期鍵・ID・API tokenに限る。APNsのprovider JWTは既存実装が`.p8`から生成して50分未満で自動更新し、TURNの短期資格は通話leaseに合わせてTURN APIから生成・更新・失効する。端末資格や招待など製品の安全性に必要な期限は維持するが、期限付きの派生値を運用者が定期交換する手順は設けない。長期鍵の漏えい・担当変更・provider側の失効時は、期限更新ではなく鍵のローテーションとして扱う。
 
-`APPLE_AUTH_ENABLED`はProduction/Previewとも既定でfalseのままにする。AppのInternet登録は端末証明の発行も必要なため、有効化する際は環境専用のP-256 private JWKをsecret `DEVICE_IDENTITY_SIGNING_KEY`へ登録する。未設定では証明発行が503となり、Appは新資格を回収して登録を完了させない。既存のLocal通話はこの設定を待たない。秘密鍵を通常変数・Git・ログへ入れない。証明の契約と鍵変更時の再取得は[Worker仕様](../spec/server/Worker.md#ユーザーと端末の署名付き証明)を参照する。合わせて`APPLE_CLIENT_ID`と、`APPLE_ENROLLMENT_IP_LIMIT`・`APPLE_ENROLLMENT_GLOBAL_LIMIT`の両bindingを配置する。`wrangler.toml`は送信元別30回/60秒、全体300回/60秒を指定し、Productionのnamespace 1001/1002とPreviewの1003/1004を分ける。同じCloudflareアカウントの別Workerでこのnamespaceを共用しない。
+環境専用のP-256 private JWKを端末証明のsecret `DEVICE_IDENTITY_SIGNING_KEY`へ登録してから、Apple登録を有効にする。未設定では証明発行が503となり、Appは新資格を回収して登録を完了させない。既存のLocal通話はこの設定を待たない。秘密鍵を通常変数・Git・ログへ入れない。証明の契約と鍵変更時の再取得は[Worker仕様](../spec/server/Worker.md#ユーザーと端末の署名付き証明)を参照する。合わせて`APPLE_CLIENT_ID`と、`APPLE_ENROLLMENT_IP_LIMIT`・`APPLE_ENROLLMENT_GLOBAL_LIMIT`の両bindingを配置する。`wrangler.toml`は送信元別30回/60秒、全体300回/60秒を指定し、Productionのnamespace 1001/1002とPreviewの1003/1004を分ける。同じCloudflareアカウントの別Workerでこのnamespaceを共用しない。
 
 登録制限の429には60秒待って新たに認証を準備する。409 / `device_limit_reached`は登録8端末の上限であり、単なる待機では解除されない。利用できる他端末でInternet資格をサインアウト・失効するか、その資格の期限を待つ。既存端末の再認証は上限でも可能。`/api/auth/session`のGET/DELETEは登録頻度制限から独立している。保存済み資格の値やApple tokenを診断へ貼らない。
 
@@ -168,30 +168,34 @@ npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
 | 依存 | 採用 / 理由 |
 |---|---|
 | Miniflare | 安定版4.20260730.0を維持。npmのlatestタグも4.20260730.0、5系列はbeta |
-| undici | Miniflare 4配下を7.30.1へoverride。7系列の修正版。HTTP/WSのaudit指摘を解消 |
+| undici | 直接使うMiniflare 4と、Wrangler配下のMiniflare 5 betaの両方を7.30.2へoverride。7.29.1は[応答の処理で起こる停止](https://github.com/nodejs/undici/security/advisories/GHSA-xjj6-f33q-929c)の影響を受け、7.30.1は[キャッシュ設定時の情報の混在](https://github.com/nodejs/undici/security/advisories/GHSA-mqg3-3v4r-cm32)の影響を受ける |
 | sharp | Miniflare 4配下を0.35.5へoverride。libheif/librsvgのaudit指摘を解消 |
-| 根拠 / 検証 | 2026-10-21 npm registryのパッケージバージョンと依存関係、npm audit。lockfile同期、ci、型検査、Worker9件、Swiftペア成功 |
-| override除去条件 | 安定版Miniflareが修正版を宣言したら通常依存へ戻し、同じWorker/ペア試験を通す |
+| 根拠 / 検証 | 2026-11-21に公開アドバイザリーが示す影響範囲・修正バージョンと、lockfileの各階層で選ばれたパッケージのバージョンを照合。Workerの型検査・回帰とSwiftペアで確認する |
+| override除去条件 | 直接・間接のMiniflareで対応する依存がすべて修正版に解決されることを確認する。該当設定を外した状態で同じWorker／ペア試験を通す |
 
-例: [undici advisory](https://github.com/advisories/GHSA-w293-vg96-wgc3)、[sharp advisory](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)。これらはローカル開発・検証ツールの依存であり、Worker bundleへそのまま配布するものではない。
+undiciとsharpはローカル開発・検証や配備に使うNode.js側の依存で、Worker本体に同梱しない。sharpの採用は2026-10-21時点の公開情報、lockfile更新、型検査、Worker9件とSwiftペアで確認した。[sharpの公開アドバイザリー](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)
 
 ## 利用者が行うApple・Cloudflareの設定と受入順
 
 Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、TURNは中継を受け入れる場合に設定する。App・serverのコードと公開値はrepoへ置き、アカウント固有の鍵・profile・商品を外部で設定する。Apple側の設定については[OS権限と配布設定](OS権限と配布設定.md#identifierとapple-developerでの設定)。本節は実施順を示し、portalや実配置が設定済みであるとは扱わない。
 
+TestFlightに配布するAppは本番Workerを使う。固定Previewは開発署名での試用に使う。TestFlightでは同じビルドを2台に入れ、Internet通話と圏外の近距離通話から試す。通話の設定は端末登録・端末証明とSFUを先に揃える。通常通知のAPNsと、招待の背景転送用の鍵は、後続の各工程で照合する。[2端末の試用条件](../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)
+
+TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.workers.dev`。両端末でインターネット接続設定を開き、Appleで端末を登録する。AdvancedのWorker URLで本番のアドレスを確認できる。開発署名のDebugで試す場合は固定Previewのアドレスと、その環境で発行した資格を使う。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
+
 開始前に対象のApple Team、AppのBundle ID、署名済みAppのAPNs環境を照合する。CloudflareのAccount ID、Worker名、対象のPreview名またはProduction、両端末の接続先URLも照合する。APNs鍵を作る担当にはApple DeveloperのAccount HolderかAdminの権限が必要。Apple側の設定とCloudflare側の配置を別の人が担当する場合もこの組を共有し、秘密値は承認された保管先から登録する。[Appleの鍵作成権限](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)・[CloudflareのPreviewの分離](https://developers.cloudflare.com/workers/previews/)
 
 | 順 | 設定する場所 | 行うこと・確認する出力 |
 |---|---|---|
-| 1 | Apple Developer | App IDへSign in with Apple・Push Notifications・App Groupsを設定し、App／Widget／Watchのprofileを揃える。APNs鍵を取得し、Apple認可取消用client-secretも用意する。詳細は上記のApple Developerでの設定手順を参照 |
+| 1 | Apple Developer | App IDへSign in with Apple・Push Notifications・App Groupsを設定し、配布するAppとWidgetのprofileを揃える。APNs用の鍵とApple認可取消用の鍵・IDは各工程の前に管理元で用意する。詳細は上記のApple Developerでの設定手順を参照 |
 | 2 | Cloudflareの対象WorkerのProduction／Previews Base | 上表の環境別secretを登録し、公開値をwrangler.tomlへ合わせる。Baseの変更は既存Previewへ遡及しないので、既存Previewにも必要なsecretを設定する |
 | 3 | Worker配置 | repoの6 bindingを配置する。SQLiteのmigrationは、v1がSIGNALING_ROOMとUSAGE_GUARD、v2がAPPLE_AUTH_ATTEMPTとUSER_ACCOUNT。v3はNOTIFICATION_INDEX、v4はAPP_ATTEST_KEY_INDEX。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
-| 5 | 2端末のApp | 同じWorker URLへApple経由でInternet登録する。署名・Info・serverでAPNs環境を一致させる。Debugはdevelopment→sandbox、Release／TestFlight Internal Onlyはproduction→production。OSの通知許可も確認する |
-| 6 | 新しい相手へのグループ招待 | 未登録の相手への招待を名前付きで保存し、OS共有で相手に渡す。相手の登録とグループ保存、署名付き返信と、送り手の返信待ちが消えるところまで確認する。[実環境受入](../validation/未確認事項.md#新規相手招待の実環境受入) |
-| 7 | 登録済み相手へのグループ招待の自動送信 | 登録済みの相手と認証済み個別接続で用途別許可を交換し、招待を保存する。送信側のpending→queued、相手の保存後のreceivedを確認する。前面・背景で音やバナーを出さず通知センターに届くこと、通知を開いても現在の通話を維持すること、通知許可がない場合の前面復帰での受取を確認する。同じアカウントの追加端末への転送も試す。[実環境受入](../validation/未確認事項.md#登録済み相手へのグループ自動配送の実環境受入) |
-| 8 | 1対1の呼び出し | 呼び出しの到着では通話を始めないこと、未接続で有効な呼び出しの通知本体や「接続」を開くと1対1の通話を始めること、別の通話中には今の通話が開くことを確認する。[通常通知の受入](../validation/未確認事項.md#通常通知の受入) |
-| 9 | Internetの音声 | 同じWorkerで登録した2端末をInternet経路でつなぎ、相手の声の実出力と経路断後の双方向再開を確認する。接続先URLの作成や資格の受付とは別に受け入れる。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
+| 5 | Internet通話 | 同じTestFlightビルドを入れた2端末を、本番WorkerにApple経由で登録する。端末証明の発行後、Internet経路で相手の声を互いに聞く。経路が一時的に切れた後の双方向再開も確認する。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
+| 6 | 圏外の近距離通話 | 通信できる間に相手の登録と鍵の共有を済ませる。セルラーとアクセスポイントを使えない状態で、近距離無線を有効にする。近距離で通話を始め、双方で相手の声を聞く。[圏外通話の条件](../requirements/製品要求.md#利用者に提供すること) |
+| 7 | 1対1の呼び出し | 署名、App Info、WorkerでAPNs環境を揃える。Debugはdevelopment署名とsandbox APNs、TestFlightはproductionを使う。OSで通知を許可し、通常通知が1回届くことを確認する。到着時は通話状態を維持する。未接続で通知本体や「接続」を開くと1対1の通話に入る。別の通話中は今の通話が開く。[通常通知の受入](../validation/未確認事項.md#通常通知の受入) |
+| 8 | 新しい相手へのグループ招待 | 未登録の相手への招待を名前付きで保存し、OS共有で相手に渡す。相手の登録とグループ保存、署名付き返信と、送り手の返信待ちが消えるところまで確認する。[実環境受入](../validation/未確認事項.md#新規相手招待の実環境受入) |
+| 9 | 登録済み相手へのグループ招待の自動送信 | 登録済みの相手と認証済み個別接続で用途別許可を交換し、招待を保存する。送信側のpending→queued、相手の保存後のreceivedを確認する。前面・背景で音やバナーを出さず通知センターに届くこと、通知を開いても現在の通話を維持すること、通知許可がない場合の前面復帰での受取を確認する。同じアカウントの追加端末への転送も試す。[実環境受入](../validation/未確認事項.md#登録済み相手へのグループ自動配送の実環境受入) |
 
 グループ鍵・名前は受取端末の鍵で暗号化する。用途別grantはDEVICE_IDENTITY_SIGNING_KEYで発行する。iOSに預ける送信・取消・受諾の要求全体は、別途、そのWorker宛てに暗号化する。通常のAPNsとUserNotificationsだけを使い、CallKit・VoIP Push・Apple PushToTalk・silent pushの設定を追加しない。
 
@@ -203,6 +207,8 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 
 固定Previewを更新する前に、稼働中のバージョンのSFU App IDと対応するSecret、Apple登録・通知・招待の鍵を配置単位で照合する。2026-11-21の固定PreviewのSFU App IDは、Previews Baseと本番のどちらとも異なる。固定Previewで使う組を承認済みの設定から確認し、配置前後に照合する。稼働中のバージョンはWorkers Buildsの対象コミット・結果と、固定Previewの配置の表示を照合する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)
 
+実環境の受入は[最新の配置で確認した試用条件](#最新の配置で確認した試用条件)を参照する。固定Previewの通話は端末証明の鍵の反映とApple登録の有効化から始める。
+
 ### 設定が合わないときの戻し方
 
 | 確認点 | 次へ進める状態 | 中断した場合の再開位置 |
@@ -211,11 +217,65 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 | Worker配置 | 対象の配置番号とコードが一致し、6つのDO bindingとv4までのmigrationが揃う | 失敗した配置の記録から未適用分を確認する。既存namespaceと適用済みmigrationを保持して同じ環境から再開する |
 | 機能の有効化 | 同じWorkerで端末登録を完了し、通知なら対象端末へ到達、Internet通話なら両端で受話できる | 登録失敗はApple登録の工程、登録成功後の通知失敗はAPNs設定、音声だけの失敗はSFU・必要に応じてTURNから再開する |
 
-Debug端末に届き、TestFlightで届かない場合は、署名済みAppのentitlement、Workerの `APNS_ENVIRONMENT`、topic、鍵が許可する環境をこの順で照合する。固定PreviewをTestFlightで試す場合は、Debug試用の利用状況を確認し、同じ固定Previewで配布署名と対応するproduction APNsへ揃える。対象が一致するまで次の受入へ進めず、鍵を作り直す前に不一致を直す。[署名成果物での確認](OS権限と配布設定.md#生成物での確認)・[AppleのAPNs鍵の環境とtopic](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)
+Debug端末に届き、TestFlightで届かない場合は、TestFlightの接続先が本番Workerかを先に確認する。次に署名済みAppのentitlement、本番Workerの `APNS_ENVIRONMENT`、topic、鍵が許可する環境をこの順で照合する。対象が一致するまで次の受入へ進めず、鍵を作り直す前に不一致を直す。[署名成果物での確認](OS権限と配布設定.md#生成物での確認)・[AppleのAPNs鍵の環境とtopic](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)
 
 設定変更前に対象の配置番号と変更予定の公開値・secret名を控える。有効化直後に失敗した場合は、その環境で変更したフラグを直前の値へ戻して配置し、他の機能が以前どおり使えるか確認する。秘密値の置換はコードの再配置だけで戻ると想定せず、対象環境用の有効な値を管理元から再登録する。DOのmigrationと保存データは保持する。作業記録には環境、配置番号、成功した段階、次に確認する項目を残す。
 
 ## 外部設定の確認状況
+
+### 最新の配置で確認した試用条件
+
+2026-11-21の22時台（JST）に、Cloudflareの読取APIで本番と固定Previewの稼働配置を確認した。設定値は登録の有無・有効状態・環境の一致に変換した。SFU App IDは環境ごとに異なり、対応するSecretが両方の配置にある。
+
+Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働配置では両方の鍵が未反映だった。手元と配備用`preview`ブランチの `wrangler.toml` は、どちらも `previews.vars` でApple登録を無効、APNsをsandboxに設定している。稼働配置の同じ項目も一致した。[CloudflareのPreview設定](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
+
+本番の公開ヘルスチェックはHTTP 200で、プロトコル番号が一致した。資格なしの状態取得はHTTP 401で拒否された。稼働配置のSFU App IDとTURN Key IDは、同じアカウントの実リソースと照合した。端末証明とAPNsは設定を確認済み。Appleログイン、双方向受話、APNsの端末到達は試用端末で確認する。
+
+| 試用の条件 | 本番 | 固定Preview |
+|---|---|---|
+| 端末登録 | Apple登録は有効。端末証明の署名鍵を確認済み | `DEVICE_IDENTITY_SIGNING_KEY` を配置へ反映してから、Apple登録を有効にする |
+| 通常通知 | 通知は有効。APNsの鍵とproduction環境を確認済み | 通知フラグは有効で、APNsはsandbox。開発署名の端末で試す前に `APNS_PRIVATE_KEY` を配置へ反映する |
+| 招待の背景転送 | `INVITATION_RELAY_KEY_SEED` の反映が残る | `INVITATION_RELAY_KEY_SEED` の反映が残る |
+| TURN | 有効化フラグ、資格用ID、Secretを確認済み | 無効。relay経路を試す時点で環境に合う資格を揃える |
+| ログとトレース | Observability、ログ、トレース、Workers Logpushは無効 | Observability、ログ、トレース、Workers Logpushは無効 |
+
+ログ・トレースの永続化と呼出ログの個別フラグは両環境で有効と表示された。親のObservabilityとログ・トレースは無効で、転送先とTail consumerは空だった。クエリの除去設定とアカウント全体の転送は今回の観測で未確認。実Apple登録と両端の受話、APNsの端末到達、招待の到着確認は、配置後に対象端末で試す。[試用の順番と合否](#利用者が行うapplecloudflareの設定と受入順)
+
+設定の照合結果は `.validation/security-audit-1900/current-clearance/live-configuration-20261121.json` に保存した。
+
+#### 稼働中のWorkerをGitのコミットと照合する
+
+2026-11-21。Cloudflareの読取APIで、本番は配置中のバージョン1331が全リクエストを処理する設定であり、同じバージョンに紐付いた成功ビルドは `main` の `ecc925f4` と確認した。固定Previewの配置1135は、配置の記録と固定Previewのビルド履歴が `preview` の同じコミットを指していた。[稼働バージョン](https://developers.cloudflare.com/workers/versions-and-deployments/)・[バージョンからビルドを照会するAPI](https://developers.cloudflare.com/api/resources/workers_builds/methods/get_builds_by_version/)
+
+このコミットと全体監査で固定した `f566e6b3` の `wrangler.toml` は一致した。`f566e6b3` には招待・通知処理の整理と依存の更新が追加されている。稼働中の本番で端末証明とproduction APNsのSecret、固定Previewでsandbox APNsとApple登録の無効化を再確認した。固定Previewの端末証明とAPNsのSecretは未反映だった。両環境とも招待を背景で転送するためのSecretは未反映だった。[全体監査の記録](history/バックログの優先順位と進捗の記録.md#2000コミットの全体監査で本番試用の条件を照合する)
+
+`ecc925f4` のWorkerを取り出し、Node.js 26.13.1で型検査とローカルの回帰116件を通した。英大文字を含む一時パスで型lintの2件が失敗したため、小文字のパスで再実行した。Gitとの照合結果は `.validation/security-audit-2000/live-worker-provenance.json` に保存した。TestFlightは本番Workerを使う。双方向の受話、通常通知と招待の到達は実機で確認する。
+
+#### 2026-11-22の稼働配置と手元の差
+
+本番の全トラフィックを処理するバージョンは、`main` の `291b5bac` に紐付くCloudflareの成功ビルドと一致した。固定Previewは、現在の配置時刻が重なる `preview` の成功ビルドが1件で、同じコミットだった。固定Previewでバージョンからビルドを直接引くAPIは対応する結果を返さなかった。手元の `bf44b1e1` と稼働中のコミットで `wrangler.toml` は一致し、手元には背景転送による個人削除や依存の更新がある。両コミットのWorkerを取り出し、Node.js 26.13.1で型検査と回帰を通した。稼働中のWorkerは116件、ローカルmainのWorkerは117件が合格した。[バージョンとビルドの照会](https://developers.cloudflare.com/api/resources/workers_builds/methods/get_builds_by_version/)
+
+両環境の `/health` は200、資格なしの `/api/status` は401だった。本番ではApple登録が有効で、端末証明の鍵とproduction APNsの鍵がある。固定PreviewはApple登録が無効で、sandbox APNsの設定と端末証明・APNsの鍵の未反映を確認した。SFUは別々の設定を使う。背景転送用の鍵は両環境とも未設定で、ロック中の転送を試す前に対象環境への反映が必要となる。
+
+同日にTestFlightの本番設定を再確認した。Build 1988のIPAで本番Workerの接続先、Apple Distribution署名とproduction APNsを照合した。本番のWorker設定と固定Previewの配置1153を手元の `wrangler.toml` と照合し、両環境でAPNs環境とApple登録の有効状態が一致した。固定PreviewでApple登録と通常通知を試すには、対象のPreviewの配置に端末証明とAPNsの鍵を反映し、Apple登録を有効にする。あとからPreviews Baseへ登録した鍵は、作成済みのPreviewに自動で反映されない。[Previews Baseと各Previewの鍵](https://developers.cloudflare.com/workers/previews/configuration/#secrets)・[Build 1988の配布確認](../validation/history/配布ビルド採番とOrganizer認証調査.md#ios-build-1988の本番向けarchiveとipa2026-11-22)
+
+両環境でObservabilityの親設定、ログ、トレース、WorkerのLogpushは無効。TailとObservabilityの転送先は空だった。永続化と呼出ログの個別フラグは有効だった。アカウント全体のWorker Logpushの照会は権限不足で、クエリ除去の設定と過去のログ・バックアップに残るデータも未確認。読み取った結果は `.validation/security-audit-2000/live-worker-20261122/` に保存した。[Cloudflareのログ設定](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+
+手元の `wrangler.toml` では、稼働中の設定に合わせてWorkerのObservabilityとLogpushを無効と明示した。Previewには本番と同じ値が適用される。次の配置後は両環境の管理画面でこの二項目と、ログ・トレース、転送先の実効設定を照合する。[Workerの配置仕様](../spec/server/Worker.md#設定値)
+
+#### Cloudflareが保持するWorkerログを件数で照合する
+
+2026-11-22の3時50分（JST）までの7日間を、読み取り専用のSQL APIで確認した。`logs.workersLogs` を `scriptName` で絞り、`rideintercom` と `preview-rideintercom` の各完全一致で件数だけを集計した。両方とも0件だった。このデータセットにはPreview IDと環境を識別する列がないため、結果は照会した名前と期間に限る。ログ本文は取得しなかった。[SQLのログデータセット](https://developers.cloudflare.com/analytics/sql-api/datasets/#log-datasets)・[Workers Logsの保持上限](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#limits)
+
+読み取りAPIで、アカウントのOpenTelemetry転送先、メトリクスのエクスポート設定、Workers Issuesの通知設定はいずれも0件だった。アカウントのWorkers Trace Events用Logpushジョブ一覧は、既存の接続で照会できなかった。過去の外部転送先やバックアップ、クエリ除去の設定は確認待ち。証跡は `.validation/security-audit-2000/workers-log-retention/` に保存した。[Logpushの一覧API](https://developers.cloudflare.com/api/resources/logpush/subresources/jobs/methods/list/)
+
+#### Logpushが転送を試みた記録を照合する
+
+2026-10-25の4時から2026-11-22の4時まで（JST）の28日間を、アカウント単位のGraphQL集計で照会した。データセット `logpushHealthAdaptiveGroups` が有効で、参照可能な期間に全範囲が含まれることを確認した。7日ずつ4区間に分け、成功と失敗のどちらも対象にした。どの区間にも転送の試行を示す集計行はなかった。[Logpushの転送状況](https://developers.cloudflare.com/logs/logpush/logpush-health/)・[データセットの参照条件](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/)
+
+この集計で確認できる範囲は対象期間内の記録。アカウントのジョブ一覧には `Logs Write` が必要で、既存の読み取り権限での確認は保留中。過去の転送先とバックアップに残るデータも未確認。証跡は `.validation/security-audit-2000/logpush-health/` に保存した。[Logpush APIの権限](https://developers.cloudflare.com/logs/logpush/permissions/)
+
+### 過去の配置の確認記録
 
 2026-11-19、Cloudflareの読取APIで、Productionの`rideintercom`と固定`preview`の配置番号382を確認した。表はその時点の公開値・binding・secret名を示す。端末鍵索引のv4以降の実配置、Previews Baseの現在値、配置ソースとGitの一致、Appleの実署名・端末許可、実APNsと実SFUは引き続き受入対象。
 
@@ -228,7 +288,7 @@ Debug端末に届き、TestFlightで届かない場合は、署名済みAppのen
 | SFUで残る設定 | SERVICE_ENABLEDとTURN_ENABLEDはtrue。実SFUとrelay経路の双方向音声を受け入れる | SERVICE_ENABLEDはtrue。登録済み設定で実SFUを通る双方向音声を受け入れる |
 | 現在の有効化フラグ | APPLE_AUTH_ENABLED・NOTIFICATIONS_ENABLED・SERVICE_ENABLED・TURN_ENABLEDはtrue。DEVICE_ATTESTATION_ENABLEDはfalse | NOTIFICATIONS_ENABLED・SERVICE_ENABLEDはtrue。APPLE_AUTH_ENABLED・TURN_ENABLED・DEVICE_ATTESTATION_ENABLEDはfalse |
 
-Apple登録と通知は鍵・プロフィール・APNsの環境を揃えてから、対象環境でAPPLE_AUTH_ENABLEDとNOTIFICATIONS_ENABLEDを有効にする。TestFlightで固定Previewを使う場合は、production APNsに対応する設定と署名を同じPreviewへ揃える。
+Apple登録と通知は鍵・プロフィール・APNsの環境を揃えてから、対象環境でAPPLE_AUTH_ENABLEDとNOTIFICATIONS_ENABLEDを有効にする。
 
 2026-11-21、現行のProductionと固定Previewを含む3つのPreviewを読取APIで再確認した。全環境で `TURN_ENABLED=false` だった。`CLOUDFLARE_TURN_KEY_ID` と `CLOUDFLARE_TURN_API_TOKEN` のbindingなしを確認した。用途不明のTURN key `lively-bar-4bf6`（ID `17dfb79b3f05d349aa02155b021a49f5`）は未参照と判断して削除した。新しいPreview／Production用keyは未作成であり、上記の取得・保存順を満たすときに別々に作成する。
 

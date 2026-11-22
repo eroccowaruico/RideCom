@@ -18,6 +18,7 @@ WebRTC本体とChromium依存ソースは巨大なため、`RideIntercom` reposi
 | `scripts/BuildWebRTC/verify-webrtc-xcframework.sh` | Info.plist、実バイナリのarchitecture、必須platform、iOS実機dSYMのUUID、public headersを検証する | 上位スクリプトが内部で使う。成果物だけを検証したい場合に使う |
 | `scripts/BuildWebRTC/import-webrtc-xcframework.sh` | 検証済みzipをRTC package配下のbinary target入力へ取り込む | 上位スクリプトが内部で使う。既存zipだけを取り込み直す場合に使う |
 | `scripts/BuildWebRTC/import_webrtc_artifact.py` | 同一filesystemでzipとmetadataを準備・検証し、directory単位で採用する | import shellから内部呼び出し。利用者の追加操作は不要 |
+| `scripts/BuildWebRTC/webrtc_provenance.py` | 新規ビルドのupstreamのコミットとビルドツールのバージョン、対象別のGN設定とZIPの照合値を記録・検証する | buildとimportから内部呼び出し |
 | `scripts/BuildWebRTC/clean-webrtc-build-resources.sh` | WebRTC build output、SwiftPM artifact、source checkoutを削除する | build後の容量整理に使う |
 
 ## 前提
@@ -28,6 +29,7 @@ WebRTC本体とChromium依存ソースは巨大なため、`RideIntercom` reposi
 | WebRTC build root | `../webrtc-build` | repository親ディレクトリから見た既定位置。WebRTC source checkoutとbuild outputを置く |
 | `RideIntercom` repository | current directory | スクリプトと仕様ドキュメントだけを置く |
 | Xcode | `xcode-select -p` | 必要な場合だけ `DEVELOPER_DIR` で上書きする |
+| Python | macOSの `/usr/bin/python3`（3.9以降） | ビルド情報の記録とZIPの取り込みに使う |
 
 ## 通常運用
 
@@ -143,7 +145,9 @@ scripts/BuildWebRTC/import-webrtc-xcframework.sh
 | 採用先がsymlink、または採用先に無関係なファイルがある | 事前と採用直前に検査し、既存内容を保持して停止する。検査直後の変更が交換後に旧directory側へ移った場合も、未知fileは再帰削除せず保存場所を表示する |
 | 残留一時directory | 通常終了時は既知のzip／metadataと空directoryだけを回収する。強制終了後の残留物は実行中の取り込みがないことと内容を確認してから整理する |
 
-これはプロセス中断と公開操作の整合性であり、電源断・媒体障害の耐久性や、別processが交換をまたいで2ファイルを個別に開く一連の読取りまでtransactionにする保証ではない。常設の履歴・復旧台帳・採用先symlinkは追加しない。upstream完全commit、depot版、GN、SDKを成果物へ紐付ける再現情報は[改善候補](../../backlog/改善候補.md#全体監査からの追加候補)に残す。
+これはプロセス中断と公開操作の整合性であり、電源断・媒体障害の耐久性や、別processが交換をまたいで2ファイルを個別に開く一連の読取りまでtransactionにする保証ではない。常設の履歴・復旧台帳・採用先symlinkは追加しない。
+
+新規ビルドは、upstreamとdepot_toolsの完全なcommit、GN・Xcode・各SDKのバージョンを `.provenance.json` に記録する。同じファイルに、カメラ除外パッチ、各sliceの`args.gn`、生成したZIPのSHA-256も記録する。ビルド中にcheckoutやdepot_toolsのcommitが変わると更新を中止する。取り込みはコピーしたZIPを検証し、SHA-256と一致する記録を `WebRTC.xcframework.metadata` の `build_provenance` に移す。記録の形式やSHA-256が不一致なら、採用済みZIPとmetadataを維持する。`ASSEMBLE_ONLY=true` と既存ZIPの手動取り込みでは新規ビルドの記録を後付けしない。
 
 特定のzipを取り込む場合は `WEBRTC_XCFRAMEWORK_ZIP` を指定する。
 
@@ -170,6 +174,10 @@ scripts/BuildWebRTC/build-webrtc-xcframework.sh
 ## platform指定
 
 Appに採用する成果物はiOS device、iOS Simulator、macOSの全sliceを必須とする。`IOS`、`MACOS` はビルド対象を制御するが、片方だけの成果物は最終検証・取り込みには合格しない。
+
+各構成は共通の手順で `gn gen`、GN設定の記録、`ninja` の順に実行する。OSごとの関数は、CPU・OSバージョン・ビルド対象を渡す。iOSでは実機とSimulatorの区別も渡し、実機向けだけにdSYMの生成を指定する。設定の生成や記録に失敗した構成はビルドを始めず、後続の構成と組み立ても止める。
+
+全構成で `rtc_enable_protobuf=false` を指定し、SDKのイベントログをProtobufで出力する機能を外す。通話の接続と音声パケットの転送は、[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)に従う。カメラの除外は[既存のパッチ](#カメラapiの除外)で行う。
 
 ```bash
 cd <RideIntercom repository>
@@ -341,20 +349,19 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 
 | 項目 | 採用内容 |
 |---|---|
-| 確認日 | 2026-10-21 |
-| stable branch | `branch-heads/8078` (Chromium Dashboardから解決) |
-| source revision | `2a990ce0cc` |
-| Xcode | 27.1 (27A9275) |
-| vendor build警告 | `RTCFileVideoCapturer.m` の `tracksWithMediaType:` にApple SDKの非推奨警告が発生 |
-| GN設定 | WebRTC本体だけ `treat_warnings_as_errors=false`。警告はログに保存し、compiler/linker errorは失敗のまま扱う。App/自作packageのwarning設定は変更しない |
+| 確認日 | 2026-11-21 |
+| WebRTCのコミット | `a9a462f4232b49f63ed3b22b0ff57725c82625ec` |
+| XcodeとSDK | Xcode 27.2（27B52）。iOS実機・iOS Simulator・macOSのSDKはいずれも27.2 |
+| WebRTCのコンパイル警告 | Apple SDKの非推奨APIを使用する箇所で警告18件を記録 |
+| GN設定 | WebRTC本体だけ `treat_warnings_as_errors=false`。警告はログに保存し、compiler/linker errorは失敗のまま扱う。`rtc_enable_protobuf=false` でイベントログのProtobuf出力を外す |
 | 成果物 | iOS arm64、iOS Simulator arm64/x86_64、macOS arm64/x86_64 |
-| 採用ゲート | slice/header検証、隔離packageのRTCNativeWebRTC buildとRTC全28テスト成功 |
-| checksum | binary隣接の `WebRTC.xcframework.metadata` に従う |
+| 採用時の検証 | 全sliceの実行ファイル・公開ヘッダー・プライバシーマニフェストとiOS実機用dSYMを検査。組み立てたZIPでMacのRTC回帰143件、ネイティブWebRTC回帰6件、SwiftとWorkerのローカル通信1件が通った。iOS実機向けRTCのReleaseビルドと、同じarm64バイナリを使ったiPhone Simulatorの経路切替試験4条件も通った |
+| チェックサムとビルド情報 | ZIPと同じディレクトリの `WebRTC.xcframework.metadata` を参照する。WebRTCとdepot_toolsのコミット、GN・Xcode・SDKのバージョン、パッチと5構成の設定、ZIPの照合値を記録する |
 
 ビルドで生じたvendor警告をゼロとは記録しない。生成済みの同じbranchの全sliceを `ASSEMBLE_ONLY=true` で取り込む場合も、更新スクリプトによる隔離検証を省略しない。
 
 ## 掃除対象の検証
 
-`clean-webrtc-build-resources.sh`はDRY_RUNの値を`true`/`false`だけに限定する。checkoutの`.gclient`、`src/.git`、`src/BUILD.gn`、またはRTCのPackage.swiftを確認し、削除対象がルート、ホーム、リポジトリ、またはリポジトリの祖先なら拒否する。生成先がシンボリックリンクで対象の外へ出る場合も拒否する。dry runでも同じ項目を確認する。source checkoutを既に削除済みの場合は確認に失敗するため、そのrunのcleanupを繰り返して成功扱いにしない。
+`clean-webrtc-build-resources.sh`はDRY_RUNの値を`true`/`false`だけに限定する。checkoutの`.gclient`、`src/.git`、`src/BUILD.gn`、またはRTCのPackage.swiftを確認する。ルート、利用者のホーム、リポジトリとその祖先、symlinkで外へ出る生成先は拒否する。dry runでも同じ条件を確認する。source checkoutを既に削除済みの場合は確認に失敗するため、そのrunのcleanupを繰り返して成功扱いにしない。
 
 回帰試験は任意directoryのsentinel保持、symlinkによる逸脱拒否、DRY_RUNの綴り誤り拒否、検証済みcheckoutのoutだけ削除を確認する。利用者の既存checkoutはテストで削除しない。

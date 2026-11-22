@@ -97,3 +97,48 @@ schemeのArchive Pre-actionで`agvtool`を実行すると、project上は新番�
 送信直前の設定を照合した。destination=upload、testFlightInternalTestingOnly=trueであった。manageAppVersionAndBuildNumber=falseとteamID=UAY8FH5FF8を照合した。ソース差分も次回番号以外がないことを確認した。標準のxcodebuild -exportArchiveは失敗した。原文は「Failed to Use Accounts / App Store Connect access for UAY8FH5FF8 is required」。未アップロードであり、内部配信・Apple側処理を成功としない。標準API keyの環境設定・保存先にも利用可能な設定はなかった。認証・権限の復旧は[OS権限と配布設定](../../development/OS権限と配布設定.md#現在の署名配布アクセスの確認)へ記録した。
 
 `.validation/testflight-internal-1000-20261118`は未送信の最初のArchiveである。`testflight-internal-1000-actor-fixed-20261118`には検証オプションの衝突による失敗を記録した。最終フォルダのuploadには実送信試行のlogと使用optionsを保持する。現行の標準Archiveは従来どおりの入口・次回採番を使い、配布用の別カウンタや定期実行は導入していない。
+
+## iOS Build 1988の本番向けArchiveとIPA（2026-11-22）
+
+ローカルmainの `d55aa952` を隔離し、通常の `RideIntercom` スキームのiPhone用Releaseで署名付きArchiveを作った。このソースには本番Workerの接続先を固定した `8a0dba79` が含まれる。保存先は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (1988).xcarchive`。登録後に標準保存先とビルド番号を読み取った。Organizerの一覧での表示は未確認。
+
+同じArchiveを共有の `scripts/ExportOptions.plist` でローカルに書き出した。AppとWidgetは両方とも1.0.0 Build 1988。IPA内のApp・Widget・WebRTCのApple Distribution署名、App Infoと署名のproduction APNs、実行ファイル内の本番接続先を確認した。AppとWebRTCの実行ファイルをArchiveのdSYMと照合した。Watch、開発用の接続設定、試験用のリソースは含まれていなかった。
+
+Archiveの後処理で次回用の番号が1989になった。標準保存先への登録、IPAの書き出しと検証の証跡は `.validation/testflight-production-build-1988/` に保存した。App Store Connectへの送信とテスターの実機受入は、[全体監査と実環境の残条件](../../development/history/バックログの優先順位と進捗の記録.md#2000コミットの全体監査で本番試用の条件を照合する)の確認後に進める。
+
+### Build 1988の同梱WebRTCが診断出力を開始する条件
+
+採用したWebRTCのZIPと、Archive・IPAに含まれるiOS arm64実行ファイルを照合した。データを持つ31セクションがすべて一致した。ZIPの採用記録にあるGN引数のハッシュは、iOS実機・Simulator・macOSの計5構成のビルド資料と一致した。公開ソースは採用記録にあるコミットを取得して確認した。[採用したWebRTCの公開ソース](https://webrtc.googlesource.com/src/+/a9a462f4232b49f63ed3b22b0ff57725c82625ec)
+
+- WebRTCの通常ログは、5構成のReleaseで有効なコンパイル条件により、初期しきい値が `LS_NONE` になる。
+- Perfettoのオブジェクトは5構成のリンク入力に含まれる。WebRTCのトレースをPerfettoに接続する `RTC_USE_PERFETTO` は設定されていない。SDKに残る内部トレースは初期状態で停止しており、ファイルの作成には明示的な開始処理が必要になる。
+- 5構成とも `rtc_enable_protobuf=false` で、通話イベントをシリアライズする実装はリンクされていない。SDKには通話イベントログや音声処理のダンプを開始するためのAPIが残る。ファイルを開く処理を持つAPIもある。
+- IPA内のAppとWidgetの実行ファイルを検査した。対象は内部トレース・通話イベントログ・音声処理のダンプを開始するAPIと、ファイル・コールバックログやログレベルを設定するAPI。対応する未定義シンボルとObjective-Cの呼び出し名はなかった。App・Widgetのソースにも該当する呼び出しはなかった。
+
+証跡は `.validation/security-audit-2000/build1988-tracing/` に保存した。今回の確認は配布物と公開ソースの静的な照合まで。実機で起動・通話・切断した際の保存先とログ、同梱部品の脆弱性と保守状況は、引き続き全体監査で確認する。
+
+### Build 1988でDataChannelが使うSCTP実装を照合する
+
+2026-11-22。採用済みWebRTCのZIPとBuild 1988のIPAから取り出したiOS arm64の実行ファイルを比較し、データを持つ31セクションが一致した。採用記録と一致する5構成のリンク入力では、いずれもdcSCTPのオブジェクト27件とWebRTCの接続部品を確認した。DataChannelを生成するファクトリーでdcSCTPが有効だった。usrsctpはコンパイルとリンクの入力に含まれなかった。[採用したWebRTCの公開ソース](https://webrtc.googlesource.com/src/+/a9a462f4232b49f63ed3b22b0ff57725c82625ec)
+
+10月に公開された再送・終了処理の修正5件は、採用版 `a9a462f423` の履歴に含まれていた。11月21日付の公開main `97e371905` と比較した。dcSCTP本体・WebRTCとの接続部・接続のインターフェイスに関わる後続の2件は、試験用変数と重複した初期値の整理だった。SCTPの確認範囲はこれらのディレクトリと対象ファイルの公開差分に限る。[再送の修正例](https://webrtc.googlesource.com/src/+/8bf6fb4d989e656e366613657b2a95b4b917bf15)・[試験用変数の整理](https://webrtc.googlesource.com/src/+/285eeb8a8362d79a0c09c60e9af4775fdb3a014e)・[初期値の整理](https://webrtc.googlesource.com/src/+/16f8e1215e84e76011e2598064056d92e985c0f9)
+
+macOSで同じSDKを使い、DataChannelで符号化済み音声が双方向に届いた。近距離の音声を止めた4条件でも、WebRTCへ切り替えたあとに音声が届いた。検査対象のRTC packageと検証コードはArchive時点のソースと一致した。証跡は `.validation/security-audit-2000/dcsctp-release/`。本番SFUでの受話とロック中の接続は実機で確認する。[経路切替の試験](../../development/自動検証.md#近距離媒体だけの遮断と代替経路)
+
+### Build 1988のmultiopusとRideComが使う音声経路を照合する
+
+2026-11-22。採用版 `a9a462f423` と公開された `baa2ec6375` をGit履歴で照合した。WebRTCがRTP用のmultiopusの設定値を検査する修正は、採用版より後に入っていた。iOS実機・Simulator・macOSの5構成すべてで、multiopusのエンコーダーとデコーダーはリンク入力にあった。Build 1988に含まれる実行ファイルにもmultiopusの識別子があった。[WebRTCの公開修正](https://webrtc.googlesource.com/src/+/baa2ec637575f2d06bb29902c27857a68119d37a)
+
+RideComは、受信したofferとanswerを同じ入口で検査する。音声や映像の媒体行があれば、SDKの `setRemoteDescription` を呼ぶ前に拒否する。採用版のSDKは、DTLS/SCTPのデータ用媒体とRTPの音声・映像用媒体を区別する。通常通話で受け取った符号化済み音声は、DataChannelからアプリのCodecへ渡り、OpusではOSの `AVAudioConverter` が復号する。この契約では、通話の入力をSDKのRTP用multiopusの設定へ渡さない。[媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)・[採用したSDKのSDP処理](https://webrtc.googlesource.com/src/+/a9a462f4232b49f63ed3b22b0ff57725c82625ec/api/webrtc_sdp.cc)
+
+macOSのネイティブRTC回帰6件が合格した。SDKが生成した通常の音声付きと映像付きのofferを拒否し、そのあと同じ接続でDataChannelだけの交渉が成功した。証跡は `.validation/security-audit-2000/webrtc-codec-boundary/`。次にSDKを更新するときは修正の包含を確認する。本番SFUと実機の確認は引き続き受入対象とする。[SDPの試験](../../development/自動検証.md#webrtcで受け取るsdp)
+
+<a id="archive-2070-build-2018"></a>
+
+## 2,070コミットの区切りでiOS Build 2018をArchiveする
+
+2026-11-22。ローカルmainの第一親で通算2,070件目の `b3a6099a` から、標準の `RideIntercom` スキームでiPhone用Release Archiveを作った。署名、AppとWebRTCのdSYM、Bundle IDとバージョンを照合した。標準保存先の `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2018).xcarchive` に登録した。Organizerの一覧表示は未確認。
+
+共有の書き出し設定で同じArchiveのIPAをこのMacに書き出した。AppとWidgetは1.0.0 Build 2018。App・Widget・WebRTCでApple Distribution署名を確認した。Appの実行ファイルに本番Workerの接続先を確認した。App Infoと署名は、ともにproduction APNsを指定していた。AppとWebRTCの実行ファイルはそれぞれのdSYMと照合した。Watch、開発用の接続設定、試験用リソースの非同梱を含む12項目が合格した。
+
+証跡は `.validation/archive-2070-build-2018/`。次回ビルド番号は2019。App Store Connectへの送信は[全体監査](../../development/history/バックログの優先順位と進捗の記録.md#2000コミットの全体監査で本番試用の条件を照合する)の完了待ち。

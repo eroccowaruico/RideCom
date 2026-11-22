@@ -590,7 +590,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>Call（シート）：1対1</b>Group に「Direct · 2 members」と内部グループのIDを出す。Outputの Isolate All Received Voices は受信全体、参加者行の Isolate This Voice はその相手に適用する。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。共有の項目は共有可能な場合に表示する。</figcaption>
+      <figcaption><b>Call（シート）：1対1</b>Group に「Direct · 2 members」と内部グループのIDを出す。Outputの Isolate All Received Voices は受信全体、参加者行の Isolate This Voice はその相手に適用する。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。アカウント宛ての個別通話では、相手の登録端末が変わっても同じ相手の設定を開く。共有の項目は共有可能な場合に表示する。</figcaption>
     </figure>
 
     <figure id="advanced-users">
@@ -612,7 +612,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div style="position:absolute;left:14px;right:14px;bottom:76px;height:38px;border-radius:20px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:11px"><span class="d ok"></span><b>Weekend Touring</b><span style="color:var(--label2)">Connected</span><span style="margin-left:auto;color:var(--label2)">Unmuted</span><span style="font-size:14px"><svg class="i"><use href="#mic-slash"/></svg></span><span style="font-size:14px;color:var(--err)"><svg class="i"><use href="#phone-down"/></svg></span></div><div class="tabbar"><span class="tab on"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。通話中も近距離または本人確認済みのInternet経路で Retry Notification を使える。どちらも使えないときは Retry Notification を無効にする。Share Accepted Receipt は使用できる。iOSではRetry Notificationから、条件が揃ったInternetの受諾をOSに預ける。受諾の受付を保存した後は、アプリを開き直しても到着確認の待機から再開する。署名付きの到着確認までは返信待ちを保つ。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。行のスワイプは共通の User Settings と、canEditSavedGroups が真のときの Delete。名前の編集と Share Call Invite は User Settings から行う。行の短縮IDと Share Call Invite は、行から開始する個別通話と同じ通話を指す。アカウント証明を使わない新規の二端末では、互いの招待や同じ相手からの複数の通常グループ招待でも、相手の行と個別通話は一つ。招待者が受諾を確認すれば、受諾者は到着確認を待つ間もその行から通話できる。各グループの返信待ちはそれぞれの到着確認で消える。通常グループの招待で相互登録したアカウント確認済みの二人も、記録された相手端末がそれぞれ一台なら、初回から同じ個別通話をこの行で開ける。個人登録を兼ねるグループ招待で、双方の端末宛て個別通話が同じ一件に特定できる場合は、既知の相手端末が複数あってもその鍵を引き継いで個別通話を開く。通話先が未保存なら No direct group yet を表示し、共有は表示しない。並びと値は実装と対（未登録も含む<code>directoryUsers</code>のSavedUser。招待の送信状況と受け取り状況は同じ人の詳細に表示し、旧未紐付け招待だけInvitationsへ置く。再試行は詳細の操作）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。 旧形式の送信招待のDetailsでは、<code>ContactInvitationRecord</code>の<code>sent</code>をfalse・true・nilで表示する。Share Invitationを開くだけ、または取り消すと同じ値を保つ。共有操作やコピーの完了でfalseからtrueへ更新し、同じ詳細でShare Againを使える。Closeで同じ行のあるUsersに戻る。</figcaption>
+      <figcaption><b>Users（最初の画面）</b>完了した招待は行と詳細から外す。ACK再送用の内部記録を返信待ちとして残さない。通話中も近距離または本人確認済みのInternet経路で Retry Notification を使える。どちらも使えないときは Retry Notification を無効にする。Share Accepted Receipt は使用できる。iOSではRetry Notificationから、条件が揃ったInternetの受諾をOSに預ける。受諾の受付を保存した後は、アプリを開き直しても到着確認の待機から再開する。署名付きの到着確認までは返信待ちを保つ。行のタップですぐ接続し、1対1は通知を1回添える（接続中は今の通話を開くだけで切り替えない）。行のスワイプは共通の User Settings と、canEditSavedGroups が真のときの Delete。名前の編集と Share Call Invite は User Settings から行う。行の短縮IDと Share Call Invite は、行から開始する個別通話と同じ通話を指す。アカウント証明を使わない新規の二端末では、互いの招待や同じ相手からの複数の通常グループ招待でも、相手の行と個別通話は一つ。招待者が受諾を確認すれば、受諾者は到着確認を待つ間もその行から通話できる。各グループの返信待ちはそれぞれの到着確認で消える。通常グループの招待で相互登録したアカウント確認済みの二人も、記録された相手端末がそれぞれ一台なら、初回から同じ個別通話をこの行で開ける。個人登録を兼ねるグループ招待で、双方の端末宛て個別通話が同じ一件に特定できる場合は、既知の相手端末が複数あってもその鍵を引き継いで個別通話を開く。通話先が未保存なら No direct group yet を表示し、共有は表示しない。通常グループの返信で個別通話が保存されたら、Usersの短縮IDとGroupsの Direct Groups に反映する。鍵を受け取った側では、鍵を含む受諾または到着確認の保存後に反映する。追加端末を登録しても相手は同じ行に表示する。個別通話の短縮IDを保ち、登録した端末数を表示する。追加端末から通常グループの返信が届き、元の鍵を保った場合も、元の端末は同じ行と短縮IDを使う。開いている画面と通話は維持する。並びと値は実装と対（未登録も含む<code>directoryUsers</code>のSavedUser。招待の送信状況と受け取り状況は同じ人の詳細に表示し、旧未紐付け招待だけInvitationsへ置く。再試行は詳細の操作）。一覧の表示は実装との対応を基に分ける。表示・語・配置・操作が完全に同一の行のスワイプ・削除確認は共通部品を使う。行の選択で Call へ（内部グループを解決）。 旧形式の送信招待のDetailsでは、<code>ContactInvitationRecord</code>の<code>sent</code>をfalse・true・nilで表示する。Share Invitationを開くだけ、または取り消すと同じ値を保つ。共有操作やコピーの完了でfalseからtrueへ更新し、同じ詳細でShare Againを使える。Closeで同じ行のあるUsersに戻る。</figcaption>
     </figure>
 
     <figure id="registered-group-delivery">
@@ -698,7 +698,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card"><div class="row">Retries stopped on this device.</div></div>
         </div>
       </div></div>
-      <figcaption><b>返信の再試行を停止</b>登録直後の同じ詳細・人物詳細・相手の設定は、同じ記録部品と人物別の共通操作を使う。Stop Retrying Notificationの確認で、この端末の再試行を停止し登録済み相手は残ると伝える。確定後は再試行・共有を外し、人・名前・開いている画面を保つ。図は相手の設定で、登録直後の詳細ではDoneを保つ。iOSでは明示登録・再試行から、条件が揃ったInternetの受諾をOSに預ける。到着確認を検証するまで記録はpendingを保つ。保存失敗は同じ画面に理由を出し、停止済みと表示しない（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
+      <figcaption><b>返信の再試行を停止</b>登録直後の同じ詳細・人物詳細・相手の設定は、同じ記録部品と人物別の共通操作を使う。Stop Retrying Notificationの確認で、この端末の再試行を停止し登録済み相手は残ると伝える。確定後は再試行・共有を外し、人・名前・開いている画面を保つ。図は相手の設定で、登録直後の詳細ではDoneを保つ。iOSでは明示登録・再試行から、条件が揃ったInternetの受諾をOSに預ける。iOSの背景更新の途中で受付が保存されたら、同じ更新で到着確認を照会する。到着確認を検証するまで記録はpendingを保つ。保存失敗は同じ画面に理由を出し、停止済みと表示しない（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
     </figure>
 
     <figure>
@@ -791,7 +791,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <li>Call status display <span>Show call status outside the app（macOSはmenu bar）</span></li></ol></div>
       <div class="og g3"><b>接続</b><ol>
         <li>Communication <span>Local Network · Internet</span></li>
-        <li>Internet Connection <span>状態 · Configure Internet Connection（sheet）</span></li></ol></div>
+        <li>Internet Connection <span>状態 · Configure Internet Connection（配布版のシートには読み取り専用のWorker URLとAppleでの接続を表示）</span></li></ol></div>
       <div class="og g4"><b>音声（信号の流れの順）</b><ol>
         <li>Audio Session <span>Mode · Use Speaker · Echo Cancellation · Duck Other Audio</span></li>
         <li>Audio I/O <span>Output · Input · Transmit Voice Isolation Effect</span></li>
