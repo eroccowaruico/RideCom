@@ -37,7 +37,7 @@ extension GroupDeliveryFlowTests {
         await transfer.restore()
         defer { transfer.reconcile(keeping: []) }
         for operation in [InvitationBackgroundUploadID.Operation.send, .cancel] {
-            let key = try #require(model.backgroundGroupInvitationUploadIDs().first)
+            let key = try #require(model.backgroundInvitationUploadIDs().first)
             #expect(key.operation == operation)
             var request = try #require(try model.backgroundGroupInvitationRequest(for: key.deliveryID))
             let reply = try JSONSerialization.data(withJSONObject: [

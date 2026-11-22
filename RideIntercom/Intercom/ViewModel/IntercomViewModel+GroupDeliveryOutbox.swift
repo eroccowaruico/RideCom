@@ -201,11 +201,10 @@ extension IntercomViewModel {
         return .send
     }
 
-    func backgroundGroupInvitationUploadIDs() -> Set<InvitationBackgroundUploadID> {
-        guard canEditSavedGroups, notifications.canUseNotifications,
-              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
-              let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
-        else { return [] }
+    func backgroundGroupInvitationUploadIDs(
+        access: CallNotificationServiceAccess, binding: String
+    ) -> Set<InvitationBackgroundUploadID> {
+        guard canEditSavedGroups, notifications.canUseNotifications else { return [] }
         let now = callAccessNow().timeIntervalSince1970
         return Set(groupRepository.groupDeliveries.compactMap { record in
             guard let operation = backgroundGroupInvitationOperation(for: record, access: access, now: now)
@@ -216,8 +215,8 @@ extension IntercomViewModel {
 
     func scheduleBackgroundGroupInvitations() {
         guard let transfer = invitationBackgroundTransfer, transfer.hasRestored else { return }
-        let keys = backgroundGroupInvitationUploadIDs()
-        transfer.reconcile(keeping: backgroundInvitationUploadIDs())
+        let keys = backgroundInvitationUploadIDs()
+        transfer.reconcile(keeping: keys)
         // The send budget must not delay withdrawals.
         let sends = keys.filter { $0.operation == .send }
         var sendCapacity = 60 - sends.count(where: { transfer.contains($0) })

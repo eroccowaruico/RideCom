@@ -6,6 +6,43 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryFlowTests {
+    @Test func changingAnOutgoingInvitationKeepsThePendingContactAcceptance() throws {
+        let author = GroupDeliveryTestIdentity("parallel-invite-author")
+        let receiver = GroupDeliveryTestIdentity("parallel-invite-receiver")
+        let groupPeer = GroupDeliveryTestIdentity("parallel-group-peer")
+        defer { [author, receiver, groupPeer].forEach { $0.remove() } }
+        let issuer = P256.Signing.PrivateKey()
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
+        try receiver.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer, relayEnabled: true)
+        try groupPeer.authorizeFixture(userID: String(repeating: "c", count: 64), issuer: issuer)
+        let model = try receiver.harness(knowing: [groupPeer]).viewModel
+        let inviter = try author.harness(knowing: []).viewModel
+        defer {
+            model.stopGroupDeliverySync()
+            inviter.stopGroupDeliverySync()
+        }
+        inviter.groupDeliveryClient = nil
+        model.setRTCTransportRoutes([.webRTC])
+        let transfer = RecordingBackgroundInvitationTransfer()
+        _ = try startBackgroundContactAcceptance(on: model, invitedBy: inviter, transfer: transfer)
+        let acceptance = try #require(transfer.active.first)
+        #expect(acceptance.operation == .contactAcceptance)
+
+        try grantGroupInvitationPermission(on: model, recipient: groupPeer, sender: receiver)
+        let groupID = UUID()
+        try #require(model.createTalkGroup(name: "Parallel transfer", userIDs: [groupPeer.personID], id: groupID))
+        let send = try #require(transfer.active.first { $0.operation == .send })
+        #expect(transfer.active == [acceptance, send])
+        model.requestInvitationInternetReply(restart: true)
+        #expect(transfer.active == [acceptance, send])
+
+        try #require(model.removeMember(groupPeer.memberID, from: groupID))
+        let cancellation = try #require(transfer.active.first { $0.operation == .cancel })
+        #expect(cancellation.deliveryID == send.deliveryID)
+        #expect(transfer.active == [acceptance, cancellation])
+        #expect(transfer.enqueued.filter { $0 == acceptance }.count == 1)
+    }
+
     @Test(arguments: [true, false])
     func acceptingContactInvitationLetsIOSOwnTheSavedAcceptance(relayEnabled: Bool) async throws {
         let authorDevice = GroupDeliveryTestIdentity("contact-upload-author")

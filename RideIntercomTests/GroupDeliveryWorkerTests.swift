@@ -158,12 +158,12 @@ import Testing
         let (accepted, response) = try await session.data(for: pendingRequest)
         try #require((response as? HTTPURLResponse)?.statusCode == 200)
         let sendKey = try #require(
-            reopened.backgroundGroupInvitationUploadIDs().first { $0.deliveryID == pending.id })
+            reopened.backgroundInvitationUploadIDs().first { $0.deliveryID == pending.id })
         reopened.applyBackgroundGroupInvitationReply(
             try JSONDecoder().decode(GroupDeliveryReply.self, from: accepted), for: sendKey)
         try #require(reopened.removeMember(recipientDevice.memberID, from: secondGroup))
         let cancelKey = try #require(
-            reopened.backgroundGroupInvitationUploadIDs().first { $0.deliveryID == pending.id })
+            reopened.backgroundInvitationUploadIDs().first { $0.deliveryID == pending.id })
         let cancelRequest = try #require(try reopened.backgroundGroupInvitationRequest(for: pending.id))
         #expect(cancelKey.operation == .cancel)
         #expect(cancelRequest.url?.path == "/api/notifications/group-invitations/background-cancellation")

@@ -7,11 +7,23 @@ extension IntercomViewModel {
     }
 
     func backgroundInvitationUploadIDs() -> Set<InvitationBackgroundUploadID> {
-        let groups = backgroundGroupInvitationUploadIDs()
-        guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,
-            let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
+        guard canEditSavedGroups,
+              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
+        else { return [] }
+        return backgroundInvitationUploadIDs(access: access)
+    }
+
+    private func backgroundInvitationUploadIDs(
+        access: CallNotificationServiceAccess
+    ) -> Set<InvitationBackgroundUploadID> {
+        guard let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
+        else { return [] }
+        let groups = backgroundGroupInvitationUploadIDs(access: access, binding: binding)
+        guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil
         else { return groups }
-        return groups.union(backgroundContactAcceptanceUploadIDs(access: access))
+        return groups.union(internetContactReplyRecords(access: access).compactMap {
+            contactAcceptanceUploadID($0, binding: binding)
+        })
     }
 
     func applyBackgroundInvitationResponse(_ data: Data, for key: InvitationBackgroundUploadID) {
@@ -24,8 +36,9 @@ extension IntercomViewModel {
         case .contactAcceptance:
             guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,
                   let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+                  let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken),
                   let record = contactInvitationRecord(key.deliveryID),
-                  contactAcceptanceUploadID(record, access: access) == key,
+                  contactAcceptanceUploadID(record, binding: binding) == key,
                   contactInternetReplyIsEligible(record, access: access, now: callAccessNow().timeIntervalSince1970),
                 let reply = try? decoder.decode(ContactAcceptanceUploadReply.self, from: data),
                 record.receiptID == reply.id,
@@ -38,24 +51,18 @@ extension IntercomViewModel {
     }
 
     private func contactAcceptanceUploadID(
-        _ record: ContactInvitationRecord, access: CallNotificationServiceAccess
+        _ record: ContactInvitationRecord, binding: String
     ) -> InvitationBackgroundUploadID? {
-        guard record.direction == .incoming, record.state == .pending, record.internetAcceptanceSubmitted != true,
-            let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
+        guard record.direction == .incoming, record.state == .pending, record.internetAcceptanceSubmitted != true
         else { return nil }
         return .init(deliveryID: record.id, sessionBinding: binding, operation: .contactAcceptance)
     }
 
-    private func backgroundContactAcceptanceUploadIDs(access: CallNotificationServiceAccess) -> Set<
-        InvitationBackgroundUploadID
-    > {
-        Set(internetContactReplyRecords(access: access).compactMap { contactAcceptanceUploadID($0, access: access) })
-    }
-
     func scheduleBackgroundContactAcceptances(access: CallNotificationServiceAccess) {
         guard let transfer = invitationBackgroundTransfer, transfer.hasRestored else { return }
-        let contactKeys = backgroundContactAcceptanceUploadIDs(access: access)
-        transfer.reconcile(keeping: backgroundGroupInvitationUploadIDs().union(contactKeys))
+        let keys = backgroundInvitationUploadIDs(access: access)
+        transfer.reconcile(keeping: keys)
+        let contactKeys = keys.filter { $0.operation == .contactAcceptance }
         let capacity = 60 - contactKeys.count(where: { transfer.contains($0) })
         guard capacity > 0 else { return }
         for key in contactKeys.lazy.filter({ !transfer.contains($0) }).prefix(capacity) {
@@ -210,8 +217,9 @@ extension IntercomViewModel {
         let signer = try internetSettingsStore.invitationSigner(
             memberID: localMemberIdentity.memberID, expectedPublicKey: key)
         guard signer.principal == window.access.principal else { return }
-        let uploadInProgress = contactAcceptanceUploadID(record, access: window.access)
-            .map { invitationBackgroundTransfer?.contains($0) == true } ?? false
+        let uploadID = InternetAccountClient.backgroundSubmissionSessionBinding(for: window.access.accessToken)
+            .flatMap { contactAcceptanceUploadID(record, binding: $0) }
+        let uploadInProgress = uploadID.map { invitationBackgroundTransfer?.contains($0) == true } ?? false
         if record.internetAcceptanceSubmitted != true, !uploadInProgress {
             let (packet, admission) = try prepareContactInternetAcceptance(
                 pending, payload: payload, invitation: invitation, address: address)
