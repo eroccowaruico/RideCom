@@ -147,7 +147,7 @@ macOSのネイティブRTC回帰6件が合格した。SDKが生成した通常�
 
 2026-11-22。共有 `main` の第一親の通算2,160件目 `78dddf01` を展開し、標準の `RideIntercom` スキームからiOS 1.0.0 Build 2076の署名付きRelease Archiveを作成した。AppとWidgetの番号、署名、dSYM、production APNsの構成は照合できた。Appの実行ファイルに本番Workerの固定接続先が入っていなかったため、配布版の受入は不合格とし、このArchiveは検証用の出力先に保持した。
 
-固定接続先の修正を共有mainへ取り込む候補から、同じスキームでiOS 1.0.0 Build 2077を作成した。本番Workerのアドレス、AppとWidgetの番号、署名、AppとWebRTCのdSYM、採用済みWebRTCとArchive内のUUID、production APNsの構成を照合した。macOSのアカウント回帰は24件合格。Previewの保存済み資格を拒み、本番に対応する資格だけを登録・復元と通常通知で使う試験を含む。
+固定接続先の修正を共有mainへ取り込む候補から、同じスキームでiOS 1.0.0 Build 2077を作成した。本番Workerのアドレス、AppとWidgetの番号、署名、AppとWebRTCのdSYM、採用済みWebRTCとArchive内のUUIDを照合した。macOSのアカウント回帰は24件合格。Previewの保存済み資格を拒み、本番に対応する資格だけを登録・復元と通常通知で使う試験を含む。
 
 Build 2077をXcodeの標準保存先に登録した。
 
@@ -156,3 +156,5 @@ Build 2077をXcodeの標準保存先に登録した。
 ```
 
 Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサインインと双方向音声は未確認。共有側と手元の採番の差を避けるため、Archiveの作成時にビルド番号を指定した。証跡は `.validation/shared-main-2160-archive/` に保存した。[配布版とDebugの入口](../../spec/App/UI/Settings.md#internet-connection)
+
+2,200コミットの監査で、登録済みのArchiveと検証領域のArchiveの署名を再検証した。いずれも署名は有効で、アプリとプロビジョニングプロファイルの通常通知の環境は `development` だった。以前の記録では本番の通常通知の構成まで確認したと記載していた。Build 2077の本番用IPAの署名は別途確認が必要。再検証の集計は `.validation/security-audit-2200/archive-2077-confirmation.json` に保存した。
