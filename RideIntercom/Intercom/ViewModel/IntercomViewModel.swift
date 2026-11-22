@@ -177,6 +177,7 @@ final class IntercomViewModel {
     var audioOutputRenderer: SessionManager.AudioOutputStreamRenderer
     let callTicker: CallTicking
     let groupRepository: GroupRepository
+    @ObservationIgnored var callRelationshipBackupSync: CallRelationshipBackupSync?
     let appSettingsStore: AppSettingsStoring
     var localMemberIdentity: LocalMemberIdentity
     let localMemberIdentityStore: LocalMemberIdentityStoring

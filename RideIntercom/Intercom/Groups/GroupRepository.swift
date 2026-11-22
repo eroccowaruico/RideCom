@@ -11,6 +11,7 @@ final class GroupRepository {
     private(set) var missingCredentialGroupIDs: Set<UUID> = []
     private(set) var needsCleanup = false
     var writableSnapshot: GroupSnapshot? { isWritable ? snapshot : nil }
+    var onCommittedChange: (() -> Void)?
     var users: [SavedUser] { snapshot?.users ?? [] }
     var contactInvitations: [ContactInvitationRecord] { snapshot?.contactInvitations ?? [] }
     var groupDeliveries: [GroupDeliveryRecord] { snapshot?.groupDeliveries ?? [] }
@@ -152,6 +153,7 @@ final class GroupRepository {
             for credential in allCredentials { missingCredentialGroupIDs.remove(credential.groupID) }
             cleanup(next)
         }
+        onCommittedChange?()
     }
 
     private func makeUpdatedSnapshot(

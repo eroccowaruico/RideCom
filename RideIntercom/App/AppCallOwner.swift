@@ -8,7 +8,10 @@ final class AppCallOwner: CallSurfaceActions {
     let widgetDestinations: WidgetDestinationPublisher
     let liveActivities: CallLiveActivityPresenter
     var systemSurfaceIsForeground = false {
-        didSet { refreshNearbyDeliveryForegroundState() }
+        didSet {
+            refreshNearbyDeliveryForegroundState()
+            if systemSurfaceIsForeground { viewModel?.callRelationshipBackupSync?.request() }
+        }
     }
     let account: AppleAccountSession
     let notificationBridge = AppNotificationBridge()
@@ -65,6 +68,7 @@ final class AppCallOwner: CallSurfaceActions {
     private func synchronizeAccountModel() {
         guard viewModel?.accountAccessID != account.accessID || viewModel?.accountUserID != account.userID
                 || account.deletion.blocksSignIn else { return }
+        viewModel?.stopCallRelationshipBackup()
         viewModel?.stopGroupDeliverySync()
         viewModel?.notifications.stop()
         viewModel?.stopCallAccessObservation()

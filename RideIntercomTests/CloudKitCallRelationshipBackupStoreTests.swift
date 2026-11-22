@@ -115,16 +115,144 @@ struct CloudKitCallRelationshipBackupStoreTests {
     }
 }
 
+@MainActor @Suite(.serialized)
+struct CallRelationshipAutomaticBackupTests {
+    @Test func localCommitAutomaticallyBacksUpAndFailedCommitDoesNotWrite() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let peer = try fixture.peer("rider", account: "a")
+        let model = peer.viewModel
+        let id = try addOwnedGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        model.configureCallRelationshipBackup(store: records.store, isCloudAccountCurrent: { true })
+        let sync = try #require(model.callRelationshipBackupSync)
+        await sync.task?.value
+        #expect(sync.status == .saved)
+        #expect(records.savePolicies.count == 1)
+
+        #expect(model.renameGroup(id, to: "New group name"))
+        await sync.task?.value
+        #expect(records.savePolicies.count == 2)
+        let saved = try await storedBackup(in: records, for: model)
+        #expect(saved?.groups.first?.name == "New group name")
+
+        peer.groupStore.failSaving = true
+        #expect(!model.renameGroup(id, to: "Uncommitted name"))
+        #expect(sync.task == nil)
+        #expect(records.savePolicies.count == 2)
+    }
+
+    @Test func separatelyEditedCloudRecordIsPreservedAcrossAConflictAndRestart() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let model = try fixture.peer("rider", account: "a").viewModel
+        let id = try addOwnedGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        let store = records.store
+        model.configureCallRelationshipBackup(store: store, isCloudAccountCurrent: { true })
+        let first = try #require(model.callRelationshipBackupSync)
+        await first.task?.value
+        #expect(first.status == .saved)
+
+        let signer = try model.internetSettingsStore.invitationSigner(memberID: "rider")
+        let now = Date().timeIntervalSince1970
+        let initial = try #require(try await store.load(as: signer, now: now))
+        let data = try JSONEncoder().encode(initial.backup)
+        let text = try #require(String(data: data, encoding: .utf8))
+        let edit = text.replacingOccurrences(of: "Original name", with: "Cloud edit")
+        _ = try await store.save(Data(edit.utf8), replacing: initial, as: signer, now: now)
+        #expect(model.renameGroup(id, to: "Local edit"))
+        await first.task?.value
+        #expect(first.status == .requiresReconciliation)
+
+        model.configureCallRelationshipBackup(store: store, isCloudAccountCurrent: { true })
+        let next = try #require(model.callRelationshipBackupSync)
+        await next.task?.value
+        #expect(next.status == .requiresReconciliation)
+        #expect(records.savePolicies.count == 2)
+        let saved = try await storedBackup(in: records, for: model)
+        #expect(saved?.groups.first?.name == "Cloud edit")
+    }
+
+    @Test func foregroundRetriesAFailedWriteAndAccountSwitchStopsANewWrite() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let model = try fixture.peer("rider", account: "a").viewModel
+        let id = try addOwnedGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        records.readError = CKError(.networkUnavailable)
+        var cloudAccountIsCurrent = true
+        model.configureCallRelationshipBackup(store: records.store) { cloudAccountIsCurrent }
+        let sync = try #require(model.callRelationshipBackupSync)
+        await sync.task?.value
+        #expect(sync.status == .retryPending)
+        #expect(records.savePolicies.isEmpty)
+
+        records.readError = nil
+        let app = AppCallOwner(account: model.accountSession, viewModel: model,
+                               widgetDestinationStore: .init(fileURL: nil))
+        app.systemSurfaceIsForeground = true
+        await sync.task?.value
+        #expect(sync.status == .saved)
+        #expect(records.savePolicies.count == 1)
+
+        records.onRead = { cloudAccountIsCurrent = false }
+        #expect(model.renameGroup(id, to: "Pending edit"))
+        await sync.task?.value
+        #expect(sync.status == .idle)
+        #expect(records.savePolicies.count == 1)
+    }
+
+    @Test func commitDuringReadQueuesTheLatestSnapshotAndDeletingTheLastGroupDoesNotUploadEmpty() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let model = try fixture.peer("rider", account: "a").viewModel
+        let id = try addOwnedGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        records.onRead = { [weak records] in
+            records?.onRead = nil
+            #expect(model.renameGroup(id, to: "Latest name"))
+        }
+        model.configureCallRelationshipBackup(store: records.store, isCloudAccountCurrent: { true })
+        let sync = try #require(model.callRelationshipBackupSync)
+        #expect(sync.status == .pending)
+        await sync.task?.value
+        #expect(records.savePolicies.count == 1)
+        let saved = try await storedBackup(in: records, for: model)
+        #expect(saved?.groups.first?.name == "Latest name")
+
+        #expect(model.commitGroups([]))
+        await sync.task?.value
+        #expect(sync.status == .requiresReconciliation)
+        #expect(records.savePolicies.count == 1)
+    }
+
+    private func addOwnedGroup(to model: IntercomViewModel) throws -> UUID {
+        let id = UUID()
+        let member = model.localMemberIdentity.memberID
+        let signer = try model.internetSettingsStore.invitationSigner(memberID: member)
+        let binding = AccountDeviceBinding(principal: try #require(signer.principal), publicKey: signer.publicKey)
+        let group = try IntercomGroup(id: id, name: "Original name", members: [.init(id: member, displayName: "Rider")],
+                                      accountDevices: [member: binding])
+        try #require(model.commitGroups([group]))
+        return id
+    }
+
+    private func storedBackup(in records: MemoryCallBackupRecords, for model: IntercomViewModel) async throws
+        -> CallRelationshipBackup? {
+        let signer = try model.internetSettingsStore.invitationSigner(memberID: model.localMemberIdentity.memberID)
+        return try await records.store.load(as: signer, now: Date().timeIntervalSince1970)?.backup
+    }
+}
+
 @MainActor
 private final class MemoryCallBackupRecords {
     var current: CKRecord?
     var savePolicies: [CKModifyRecordsOperation.RecordSavePolicy] = []
     var readError: CKError?
     var writeError: CKError?
+    var onRead: (() -> Void)?
 
     var store: CloudKitCallRelationshipBackupStore {
         .init(fetch: { id in
             if let error = self.readError { throw error }
+            self.onRead?()
             guard let current = self.current, current.recordID == id else { throw CKError(.unknownItem) }
             return current
         }, write: { record, policy in

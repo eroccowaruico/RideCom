@@ -29,6 +29,7 @@ extension IntercomViewModel {
             })
     }
     func endAccountAccess() {
+        stopCallRelationshipBackup()
         notifications.stop()
         stopGroupDeliverySync()
         stopCallAccessObservation()
@@ -90,6 +91,7 @@ extension IntercomViewModel {
         internetWorkerURL = configuration.workerURL.absoluteString
         hasInternetCredentials = true
         internetCheckMessage = "Device token saved. Service not checked."
+        callRelationshipBackupSync?.request()
         Task { await startNotifications() }
     }
 
