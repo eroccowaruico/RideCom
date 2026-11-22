@@ -87,7 +87,10 @@ struct DirectInvitationReceipt: Codable, Equatable {
     }
 
     /// The same acknowledgement validation for the control session and an explicitly shared URL.
-    func verifyAcknowledgement(of accepted: Self, trust: DeviceIdentityTrust?, now: TimeInterval) throws {
+    @discardableResult
+    func verifyAcknowledgement(
+        of accepted: Self, trust: DeviceIdentityTrust?, now: TimeInterval
+    ) throws -> VerifiedDeviceProof {
         guard kind == .acknowledged, isValid, accepted.kind == .accepted,
               let context = invitation, now.isFinite, now < context.expiresAt,
               let proof = acknowledgementProof, proof.publicKey == context.inviterDeviceKey,
@@ -95,10 +98,12 @@ struct DirectInvitationReceipt: Codable, Equatable {
         var expected = accepted; expected.kind = .acknowledged
         var unsigned = self; unsigned.acknowledgementProof = nil
         guard unsigned == expected else { throw DeviceIdentityProof.Failure.invalid }
-        _ = try acceptanceProof.verify(identityMessage(), purpose: .acceptInvitation,
+        let invitee = try acceptanceProof.verify(
+            identityMessage(), purpose: .acceptInvitation,
             memberID: inviteeMemberID, trust: trust, now: Date(timeIntervalSince1970: now))
         _ = try proof.verify(acknowledgementMessage(), purpose: .acknowledgeInvitation,
             memberID: inviterMemberID, trust: trust, now: Date(timeIntervalSince1970: now))
+        return invitee
     }
 
     var isValid: Bool {

@@ -9,6 +9,25 @@ struct GroupRestoreResponderTests {
         case current, excludedDuringRead, responderLeft, noBackup
     }
 
+    @Test func addsANewContactGroupToBackupOnlyAfterAcknowledgement() throws {
+        let fixture = AccountCallFixture()
+        defer { fixture.disconnect() }
+        let author = try fixture.peer("author", account: "a")
+        let recipient = try fixture.peer("recipient", account: "b")
+        let now = Date().timeIntervalSince1970
+        let signer = try #require(try recipient.viewModel.callRelationshipBackupSigner())
+        let groupID = try fixture.completeGroupContactRegistration(from: author, to: recipient) { pendingID in
+            let backup = try recipient.viewModel.groupRepository.callRelationshipBackup(as: signer, now: now)
+            #expect(!backup.groups.contains { $0.id == pendingID })
+        }
+        let person = try #require(recipient.viewModel.savedRemoteUsers.first)
+        try #require(recipient.viewModel.selectUser(person.id, connectIfIdle: false))
+        let reopened = try fixture.restart(recipient).viewModel
+        let backup = try reopened.groupRepository.callRelationshipBackup(as: signer, now: now)
+        #expect(backup.groups.first { $0.id == groupID } ==
+            .init(id: groupID, name: "Mountain riders", joinedByInvitation: true))
+    }
+
     @Test(arguments: MembershipChange.allCases)
     func aGroupRestoreSealsOnlyTheCurrentKeyForAStillEligibleMember(change: MembershipChange) async throws {
         let scenario = try ReplacementScenario()
@@ -183,13 +202,10 @@ struct GroupRestoreResponderTests {
     }
 
     private func setInvitationRole(_ joined: Bool, in model: IntercomViewModel, groupID: UUID) throws {
-        let signer = try #require(try model.callRelationshipBackupSigner())
-        let owner = try #require(signer.principal)
         let repository = model.groupRepository
         let saved = try #require(repository.writableSnapshot)
         let index = try #require(saved.groups.firstIndex { $0.id == groupID })
         try repository.amend(saved) { next in
-            next.groups[index].accountDevices[signer.memberID] = .init(principal: owner, publicKey: signer.publicKey)
             next.groups[index].joinedByInvitation = joined
         }
     }

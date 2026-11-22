@@ -14,7 +14,7 @@ final class ContactInvitationSession {
     private let now: () -> TimeInterval
     private let confirm: (VerifiedDeviceProof, String) throws -> Void
     private let confirmReceipt: ((VerifiedDirectInvitation) throws -> Void)?
-    private let acknowledged: (() throws -> Void)?
+    private let acknowledged: ((VerifiedDeviceProof) throws -> Void)?
     private var issued: GroupInviteToken?
     private var received: (token: GroupInviteToken, accepted: AcceptedDirectInvitation)?
     private var boundReceipt: DirectInvitationReceipt?
@@ -38,7 +38,7 @@ final class ContactInvitationSession {
          internetConfiguration: RTC.CloudflareRealtimeConfiguration? = nil,
          now: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 },
          confirmReceipt: ((VerifiedDirectInvitation) throws -> Void)? = nil,
-         acknowledged: (() throws -> Void)? = nil,
+         acknowledged: ((VerifiedDeviceProof) throws -> Void)? = nil,
          confirm: @escaping (VerifiedDeviceProof, String) throws -> Void) {
         self.transport = ContactInvitationTransport(memberID: signer.memberID, routes: routes,
             internetConfiguration: internetConfiguration, injectedSession: transport)
@@ -203,8 +203,8 @@ final class ContactInvitationSession {
                   peer == pending.token.inviterMemberID, !isAcknowledged,
                   let proof = receipt.acknowledgementProof,
                   proof.publicKey == pending.accepted.inviter.publicKey else { return }
-            try receipt.verifyAcknowledgement(of: pending.accepted.receipt, trust: trust, now: now())
-            try acknowledged?()
+            let invitee = try receipt.verifyAcknowledgement(of: pending.accepted.receipt, trust: trust, now: now())
+            try acknowledged?(invitee)
             isAcknowledged = true
             registeredPeerID = peer
             failure = nil

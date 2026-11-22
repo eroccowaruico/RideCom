@@ -288,7 +288,9 @@ extension GroupRepository {
         }
     }
 
-    func completeContactNotification(_ id: UUID) throws {
+    func completeContactNotification(
+        _ id: UUID, invitee: VerifiedDeviceProof, currentSigner: DeviceIdentitySigner?
+    ) throws {
         guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
               record.direction == .incoming, record.state == .pending,
               let localMemberID, let peerID = record.peerMemberID, let receiptID = record.receiptID
@@ -302,6 +304,9 @@ extension GroupRepository {
             if let pair = next.groups.firstIndex(where: { $0.id == callID }),
                next.groups[pair].contactRegistration?.receiptID == receiptID {
                 next.groups[pair].contactRegistration?.isConfirmed = true
+            }
+            if let groupID = record.invitedGroupID, let index = next.groups.firstIndex(where: { $0.id == groupID }) {
+                next.groups[index].bindConfirmedInvitee(invitee, currentSigner: currentSigner, memberID: localMemberID)
             }
         }
     }
@@ -358,5 +363,21 @@ extension GroupRepository {
             record.state = state
             record.credentialReference = nil
         }
+    }
+}
+
+private extension GroupSnapshot.Record {
+    mutating func bindConfirmedInvitee(
+        _ invitee: VerifiedDeviceProof, currentSigner: DeviceIdentitySigner?, memberID: String
+    ) {
+        guard kind == .group, members.contains(where: { $0.id == memberID }),
+              invitee.memberID == memberID, let principal = invitee.principal,
+              let currentSigner, currentSigner.memberID == memberID,
+              currentSigner.principal == principal, currentSigner.publicKey == invitee.publicKey,
+              accountDevices[memberID] == nil,
+              !accountDevices.values.contains(where: { $0.principal == principal }),
+              matchesInvitationDeviceKey(invitee.publicKey, for: memberID),
+              !excludesMember(memberID, principal: principal) else { return }
+        accountDevices[memberID] = .init(principal: principal, publicKey: invitee.publicKey)
     }
 }

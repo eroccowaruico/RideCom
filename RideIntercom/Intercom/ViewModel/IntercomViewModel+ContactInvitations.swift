@@ -106,9 +106,9 @@ extension IntercomViewModel {
             confirmReceipt: { [weak self] verified in
                 guard let self else { throw ContactInvitationError.unavailable }
                 try self.confirmContactInvitationReceipt(verified, id: id, access: access)
-            }, acknowledged: { [weak self] in
+            }, acknowledged: { [weak self] invitee in
                 guard let self else { throw ContactInvitationError.unavailable }
-                try self.acknowledgeContactInvitationReceipt(id, access: access)
+                try self.acknowledgeContactInvitationReceipt(id, invitee: invitee, access: access)
             }, confirm: { _, _ in
                 // Explicit acceptance is committed atomically before restore.
                 throw ContactInvitationError.unavailable
@@ -150,10 +150,12 @@ extension IntercomViewModel {
         refreshGroupStorageStatus()
     }
 
-    private func acknowledgeContactInvitationReceipt(_ id: UUID, access: UUID) throws {
+    private func acknowledgeContactInvitationReceipt(_ id: UUID, invitee: VerifiedDeviceProof, access: UUID) throws {
         guard canEditSavedGroups, accountAccessID == access, contactInvitationID == id
         else { throw ContactInvitationError.unavailable }
-        try groupRepository.completeContactNotification(id)
+        let signer = try? internetSettingsStore.invitationSigner(
+            memberID: localMemberIdentity.memberID, expectedPublicKey: invitee.publicKey)
+        try saveContactAcknowledgement(id, invitee: invitee, signer: signer)
         contactInvitationMessage = nil
         refreshGroupStorageStatus()
         // Registration is complete. The exchange stays only as long as the two notification

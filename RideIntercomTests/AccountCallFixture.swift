@@ -49,7 +49,8 @@ import Testing
         try receiver.viewModel.acceptInviteURL(#require(sender.viewModel.makeSelectedGroupInviteURL()))
     }
     func completeGroupContactRegistration(
-        from author: AppTestSupport.Harness, to recipient: AppTestSupport.Harness
+        from author: AppTestSupport.Harness, to recipient: AppTestSupport.Harness,
+        beforeAcknowledgement: (UUID) throws -> Void = { _ in }
     ) throws -> UUID {
         author.viewModel.contactSessionFactory = { RecordingCallSession() }
         recipient.viewModel.contactSessionFactory = { RecordingCallSession() }
@@ -68,6 +69,7 @@ import Testing
         try author.viewModel.receiveContactReplyURL(reply)
         let acknowledgement = try author.viewModel.contactReplyURLForSharing(
             share.id, expectedAccountAccessID: author.viewModel.accountAccessID)
+        try beforeAcknowledgement(groupID)
         try recipient.viewModel.receiveContactReplyURL(acknowledgement)
         return groupID
     }

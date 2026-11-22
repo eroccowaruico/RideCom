@@ -94,7 +94,7 @@ extension IntercomViewModel {
               record.peerMemberID == receipt.inviterMemberID, record.peerDeviceKey == context.inviterDeviceKey,
               record.receiptID == receipt.id, record.state == .pending || record.state == .delivered
         else { throw ContactInvitationError.unavailable }
-        _ = try internetSettingsStore.invitationSigner(
+        let signer = try internetSettingsStore.invitationSigner(
             memberID: localMemberIdentity.memberID, expectedPublicKey: receipt.inviteeDeviceKey)
         var expected = receipt
         expected.kind = .accepted
@@ -105,13 +105,21 @@ extension IntercomViewModel {
                 throw GroupStorageError.identityConflict
             }
         }
-        try receipt.verifyAcknowledgement(of: expected, trust: internetSettingsStore.identityTrust(), now: now)
+        let invitee = try receipt.verifyAcknowledgement(
+            of: expected, trust: internetSettingsStore.identityTrust(), now: now)
         if record.state == .pending {
-            do { try groupRepository.completeContactNotification(record.id) } catch {
+            do {
+                try saveContactAcknowledgement(record.id, invitee: invitee, signer: signer)
+            } catch {
                 reportGroupStorageError(error); throw error
             }
         }
         if contactInvitationID == record.id { stopContactInvitationSession() }
+    }
+
+    func saveContactAcknowledgement(_ id: UUID, invitee: VerifiedDeviceProof, signer: DeviceIdentitySigner?) throws {
+        try groupRepository.completeContactNotification(id, invitee: invitee, currentSigner: signer)
+        refreshContactInvitationGroup(id)
     }
 
     /// A checkpoint read failure needs the same reload path as a failed registration write.
