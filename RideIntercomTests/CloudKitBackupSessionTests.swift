@@ -323,7 +323,7 @@ extension CloudKitBackupSessionTests {
 }
 
 @MainActor
-private final class CloudAccountFixture {
+final class CloudAccountFixture {
     let center = NotificationCenter()
     var account: String?
     var accountAfterRead: String?

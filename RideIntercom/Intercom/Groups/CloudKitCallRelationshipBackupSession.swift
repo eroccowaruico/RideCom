@@ -66,6 +66,19 @@ final class CloudKitCallRelationshipBackupSession {
         if current == nil && task == nil { refresh() }
     }
 
+    func prepareDirectRestore(
+        for contactID: UUID, to recipient: VerifiedDeviceIdentity, from original: CallRelationshipBackup
+    ) async throws -> CallRelationshipRestoreRequest? {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
+              let owner = signer.principal else { throw Failure.accountUnavailable }
+        _ = try original.validated(for: owner)
+        let checked = try await readCurrentBackup(for: model, as: signer)
+        guard let latest = checked.backup, original.unchangedContact(contactID, in: latest) != nil else {
+            throw Failure.backupChanged
+        }
+        return try latest.directRestoreRequest(for: contactID, to: recipient, as: checked.signer, now: Date())
+    }
+
     func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup) async throws {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal else { throw Failure.accountUnavailable }
@@ -159,14 +172,21 @@ final class CloudKitCallRelationshipBackupSession {
     }
 }
 
+private extension CallRelationshipBackup {
+    func unchangedContact(_ id: UUID, in latest: Self) -> Contact? {
+        guard owner == latest.owner, let contact = contacts.first(where: { $0.id == id }),
+              latest.contacts.contains(contact) else { return nil }
+        return contact
+    }
+}
+
 private extension ConfirmedCallRestore {
     func hasUnchangedCandidates(from original: CallRelationshipBackup, in latest: CallRelationshipBackup) throws
         -> Bool {
         guard owner == original.owner, owner == latest.owner else { return false }
         guard users.allSatisfy({ user in
-            guard let candidate = original.contacts.first(where: { $0.id == user.id && $0.principal == user.principal })
-            else { return false }
-            return latest.contacts.contains(candidate)
+            guard let candidate = original.unchangedContact(user.id, in: latest) else { return false }
+            return candidate.principal == user.principal
         }) else { return false }
         return try calls.allSatisfy { call in
             let context = call.context
