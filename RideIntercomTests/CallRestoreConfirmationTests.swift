@@ -212,8 +212,9 @@ struct CallRestoreConfirmationTests {
                 try repository.restoreCallRelationships(batch, as: signer, trust: scenario.trust, now: later)
             }
         } else {
-            let wrong = ConfirmedCallRestore.Call(record: second.record, credential: second.credential,
-                                                  request: first.request, confirmation: first.confirmation)
+            let wrong = ConfirmedCallRestore.Call(
+                record: second.record, transferredCredential: first.transferredCredential,
+                request: first.request, confirmation: first.confirmation)
             let combined = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
                                                 users: batch.users, calls: [first, wrong])
             #expect(throws: GroupStorageError.invalidUpdate) {
@@ -249,6 +250,84 @@ struct CallRestoreConfirmationTests {
         let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
         return try .init(callID: callID, recipientMemberID: responder.memberID, recipient: recipient,
                          signer: requester, now: now)
+    }
+}
+
+@MainActor @Suite(.serialized)
+struct CallRestoreCredentialTests {
+    @Test func onlyTheRequestedDeviceCanOpenTheSignedCredential() throws {
+        let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
+        let fixture = try exchange(scenario)
+        let sent = try JSONEncoder().encode(fixture.packet)
+        #expect(sent.range(of: Data(fixture.credential.secret.utf8)) == nil)
+        let packet = try JSONDecoder().decode(CallRelationshipRestoreCredential.self, from: sent)
+        let opened = try packet.open(for: fixture.request, confirmation: fixture.confirmation, as: fixture.requester,
+                                     trust: fixture.trust, now: fixture.now)
+        let matches = opened.credential == fixture.credential
+        #expect(matches)
+
+        let other = try scenario.fixture.peer(fixture.requester.memberID, account: "a").viewModel
+        let otherKey = try other.internetSettingsStore.invitationSigner(memberID: fixture.requester.memberID)
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try packet.open(for: fixture.request, confirmation: fixture.confirmation,
+                            as: otherKey, trust: fixture.trust, now: fixture.now)
+        }
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try packet.open(for: fixture.request, confirmation: fixture.confirmation, as: fixture.requester,
+                            trust: fixture.trust, now: fixture.now.addingTimeInterval(300))
+        }
+    }
+
+    @Test func aCredentialWithAlteredCiphertextOrAnotherSignedRequestIsRejected() throws {
+        let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
+        let first = try exchange(scenario)
+        let second = try exchange(scenario)
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try first.packet.open(for: second.request, confirmation: second.confirmation,
+                                  as: second.requester, trust: second.trust, now: second.now)
+        }
+        var encoded = try #require(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(first.packet)) as? [String: Any])
+        let value = try #require(encoded["packet"] as? String)
+        var bytes = try #require(Data(base64Encoded: value))
+        bytes[bytes.index(before: bytes.endIndex)] ^= 1
+        encoded["packet"] = bytes.base64EncodedString()
+        let altered = try JSONDecoder().decode(CallRelationshipRestoreCredential.self,
+                                               from: JSONSerialization.data(withJSONObject: encoded))
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try altered.open(for: first.request, confirmation: first.confirmation,
+                             as: first.requester, trust: first.trust, now: first.now)
+        }
+    }
+
+    private struct Exchange {
+        let request: CallRelationshipRestoreRequest
+        let confirmation: CallRelationshipRestoreConfirmation
+        let credential: GroupAccessCredential
+        let packet: CallRelationshipRestoreCredential
+        let requester: DeviceIdentitySigner
+        let trust: DeviceIdentityTrust
+        let now: Date
+    }
+
+    private func exchange(_ scenario: RestoreProofFixture) throws -> Exchange {
+        let holder = scenario.other.viewModel
+        let responder = try holder.internetSettingsStore.invitationSigner(memberID: "bob")
+        let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let trust = try #require(try holder.internetSettingsStore.identityTrust())
+        let principal = try #require(responder.principal)
+        let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
+        let now = Date()
+        let request = try CallRelationshipRestoreRequest(
+            callID: scenario.directID, recipientMemberID: responder.memberID, recipient: recipient,
+            signer: requester, now: now)
+        let confirmation = try #require(try holder.groupRepository.confirmRestore(
+            request, as: responder, trust: trust, now: now))
+        let credential = GroupAccessCredential(groupID: scenario.directID, secret: "restore-test-key")
+        let packet = try CallRelationshipRestoreCredential(
+            credential, request: request, confirmation: confirmation, as: responder, trust: trust, now: now)
+        return .init(request: request, confirmation: confirmation, credential: credential, packet: packet,
+                     requester: requester, trust: trust, now: now)
     }
 }
 

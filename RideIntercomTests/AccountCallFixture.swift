@@ -157,13 +157,14 @@ struct ReplacementScenario {
         let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
         let now = Date()
         let entries = try backup.groups.map { record in
-            let reference = try #require(record.credentialReference)
-            let secret = try #require(try restoredCredentials.secret(reference: reference))
+            let credential = try #require(try model.groupRepository.credential(for: record.id))
             let request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
                                                               recipient: recipient, signer: requester, now: now)
             let confirmation = try #require(try model.groupRepository.confirmRestore(
                 request, as: responder, trust: trust, now: now))
-            return ConfirmedCallRestore.Call(record: record, credential: .init(groupID: record.id, secret: secret),
+            let transfer = try CallRelationshipRestoreCredential(
+                credential, request: request, confirmation: confirmation, as: responder, trust: trust, now: now)
+            return ConfirmedCallRestore.Call(record: record, transferredCredential: transfer,
                                              request: request, confirmation: confirmation)
         }
         return .init(owner: owner ?? backupOwner.principal, previousMemberID: "alice-old",

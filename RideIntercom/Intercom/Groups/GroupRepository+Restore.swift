@@ -6,7 +6,7 @@ import Foundation
 struct ConfirmedCallRestore {
     struct Call {
         let record: GroupSnapshot.Record
-        let credential: GroupAccessCredential
+        let transferredCredential: CallRelationshipRestoreCredential
         let request: CallRelationshipRestoreRequest
         let confirmation: CallRelationshipRestoreConfirmation
     }
@@ -35,31 +35,32 @@ extension GroupRepository {
                       && !user.memberIDs.contains(signer.memberID) && !user.memberIDs.contains(batch.previousMemberID)
               }) else { throw GroupStorageError.invalidUpdate }
 
-        let records = try batch.calls.map { call in
-            let verified = try call.confirmation.verify(
-                for: call.request, as: signer, trust: trust, now: Date(timeIntervalSince1970: now))
-            return try reboundRestoredRecord(call, replacing: batch.previousMemberID, verified: verified)
+        let restored = try batch.calls.map { call in
+            let received = try call.transferredCredential.open(for: call.request, confirmation: call.confirmation,
+                as: signer, trust: trust, now: Date(timeIntervalSince1970: now))
+            let record = try reboundRestoredRecord(
+                call.record, replacing: batch.previousMemberID, verified: received.confirmation)
+            return (record: record, credential: received.credential)
         }
+        let records = restored.map(\.record)
         let confirmedPeers = Set(records.compactMap { $0.accountPair?.other(than: batch.owner) })
         guard batch.users.count == confirmedPeers.count,
               Set(batch.users.compactMap(\.principal)) == confirmedPeers else { throw GroupStorageError.invalidUpdate }
         try update(records.map { try $0.group() }, credential: nil,
-                   additionalCredentials: batch.calls.map(\.credential), users: batch.users, now: now) { next in
+                   additionalCredentials: restored.map(\.credential), users: batch.users, now: now) { next in
             next.groups = records
         }
     }
 
     private func reboundRestoredRecord(
-        _ call: ConfirmedCallRestore.Call, replacing expectedPreviousMemberID: String,
+        _ source: GroupSnapshot.Record, replacing expectedPreviousMemberID: String,
         verified: CallRelationshipRestoreConfirmation.Verified
     ) throws -> GroupSnapshot.Record {
-        let source = call.record
         let previous = verified.previousMemberID
         let replacement = verified.requesterMemberID
         let requester = verified.requester
         guard source.id == verified.callID, previous == expectedPreviousMemberID,
               source.accountDevices[verified.responderMemberID] == verified.responder,
-              source.id == call.credential.groupID, !call.credential.secret.isEmpty,
               source.pendingInvitation == nil,
               !source.excludesMember(previous, principal: requester.principal),
               !source.excludesMember(replacement, principal: requester.principal) else {

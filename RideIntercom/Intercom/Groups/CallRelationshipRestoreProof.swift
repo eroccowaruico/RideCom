@@ -131,12 +131,19 @@ struct CallRelationshipRestoreConfirmation: Codable {
 
     func verify(for request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
                 trust: DeviceIdentityTrust, now: Date) throws -> Verified {
+        let verified = try verifiedConfirmation(for: request, trust: trust, now: now)
+        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
+        guard signer.memberID == verified.requesterMemberID,
+              verified.requester == .init(principal: owner, publicKey: signer.publicKey)
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return verified
+    }
+
+    fileprivate func verifiedConfirmation(for request: CallRelationshipRestoreRequest, trust: DeviceIdentityTrust,
+                                          now: Date) throws -> Verified {
         let challenge = request.challenge
         let requester = try request.verifiedRequester(trust: trust, now: now)
-        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
-        guard signer.memberID == challenge.requesterMemberID,
-              requester == .init(principal: owner, publicKey: signer.publicKey),
-              IntercomGroup.isValidMemberID(previousMemberID),
+        guard IntercomGroup.isValidMemberID(previousMemberID),
               !previousMemberID.hasPrefix(GroupMember.pendingInvitePrefix),
               previousMemberID != challenge.requesterMemberID else {
             throw DeviceIdentityProof.Failure.invalid
@@ -147,6 +154,69 @@ struct CallRelationshipRestoreConfirmation: Codable {
         guard challenge.addresses(memberID: responder.memberID, principal: responder.principal,
                                   publicKey: responder.publicKey) else { throw DeviceIdentityProof.Failure.invalid }
         return .init(challenge: challenge, previousMemberID: previousMemberID, requester: requester)
+    }
+}
+
+/// Carries a call key already authorized by the caller for release to the requesting device.
+struct CallRelationshipRestoreCredential: Codable {
+    private static let domain = "rideintercom.call-restore-credential.ecdh.v1"
+    private static let publicKeySize = 65
+    private static let overhead = publicKeySize + 28
+    private static let maximumSecretSize = 256
+    private let packet: Data
+    private let proof: DeviceIdentityProof
+
+    private struct Context: Encodable {
+        let request: CallRelationshipRestoreRequest
+        let confirmation: CallRelationshipRestoreConfirmation
+
+        func header() throws -> Data { try Data(SHA256.hash(data: restoreProofPayload(self))) }
+    }
+
+    private struct Packet: Encodable {
+        let header: Data
+        let packet: Data
+    }
+
+    init(_ credential: GroupAccessCredential, request: CallRelationshipRestoreRequest,
+         confirmation: CallRelationshipRestoreConfirmation, as signer: DeviceIdentitySigner,
+         trust: DeviceIdentityTrust, now: Date) throws {
+        let verified = try confirmation.verifiedConfirmation(for: request, trust: trust, now: now)
+        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
+        let secret = Data(credential.secret.utf8)
+        guard signer.memberID == verified.responderMemberID,
+              verified.responder == .init(principal: owner, publicKey: signer.publicKey),
+              credential.groupID == verified.callID, (1...Self.maximumSecretSize).contains(secret.count),
+              let target = IdentityEncoding.decode(verified.requester.publicKey)
+        else { throw DeviceIdentityProof.Failure.invalid }
+        let header = try Context(request: request, confirmation: confirmation).header()
+        let ephemeral = P256.KeyAgreement.PrivateKey()
+        let recipient = try P256.KeyAgreement.PublicKey(x963Representation: target)
+        let shared = try ephemeral.sharedSecretFromKeyAgreement(with: recipient)
+        let key = DeviceIdentitySigner.sealedPayloadKey(shared, domain: Self.domain, header: header)
+        guard let sealed = try AES.GCM.seal(secret, using: key, authenticating: header).combined
+        else { throw DeviceIdentityProof.Failure.invalid }
+        packet = ephemeral.publicKey.x963Representation + sealed
+        proof = try signer.sign(restoreProofPayload(Packet(header: header, packet: packet)),
+                                purpose: .deliverCallRelationshipRestoreCredential)
+    }
+
+    func open(for request: CallRelationshipRestoreRequest, confirmation: CallRelationshipRestoreConfirmation,
+              as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date) throws
+        -> (confirmation: CallRelationshipRestoreConfirmation.Verified, credential: GroupAccessCredential) {
+        let verified = try confirmation.verify(for: request, as: signer, trust: trust, now: now)
+        guard (Self.overhead + 1...Self.overhead + Self.maximumSecretSize).contains(packet.count)
+        else { throw DeviceIdentityProof.Failure.invalid }
+        let header = try Context(request: request, confirmation: confirmation).header()
+        let sender = try proof.verify(restoreProofPayload(Packet(header: header, packet: packet)),
+            purpose: .deliverCallRelationshipRestoreCredential, memberID: verified.responderMemberID,
+            trust: trust, now: now)
+        guard sender.principal == verified.responder.principal, sender.publicKey == verified.responder.publicKey
+        else { throw DeviceIdentityProof.Failure.invalid }
+        let secret = try signer.openSealedPayload(packet.dropFirst(Self.publicKeySize),
+            ephemeralKey: packet.prefix(Self.publicKeySize), domain: Self.domain, header: header)
+        guard let text = String(data: secret, encoding: .utf8) else { throw DeviceIdentityProof.Failure.invalid }
+        return (verified, .init(groupID: verified.callID, secret: text))
     }
 }
 

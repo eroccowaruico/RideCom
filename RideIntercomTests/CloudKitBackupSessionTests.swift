@@ -172,12 +172,14 @@ struct CloudKitBackupSessionTests {
                                                           recipient: recipient, signer: requester, now: now)
         let response = try #require(try stale.groupRepository.confirmRestore(
             request, as: responder, trust: scenario.trust, now: now))
+        let transfer = try CallRelationshipRestoreCredential(
+            credential, request: request, confirmation: response, as: responder, trust: scenario.trust, now: now)
         var saved = try #require(scenario.backup.users.first { $0.id == scenario.savedPersonID })
         saved.memberIDs = [responder.memberID]
         saved.deviceKeys = [responder.memberID: responder.publicKey]
         let batch = ConfirmedCallRestore(owner: scenario.backupOwner.principal,
             previousMemberID: oldDevice.viewModel.localMemberIdentity.memberID, users: [saved],
-            calls: [.init(record: record, credential: credential, request: request, confirmation: response)])
+            calls: [.init(record: record, transferredCredential: transfer, request: request, confirmation: response)])
 
         let sourceStore = InMemoryGroupStore()
         sourceStore.snapshot = scenario.backup

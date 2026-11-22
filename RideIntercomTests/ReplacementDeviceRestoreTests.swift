@@ -266,7 +266,7 @@ struct ReplacementDeviceRestoreTests {
                 batch.previousMemberID: reusesKey ? signer.publicKey : scenario.backupOwner.publicKey,
                 peer.memberID: peer.publicKey
             ]
-            return ConfirmedCallRestore.Call(record: group, credential: call.credential,
+            return ConfirmedCallRestore.Call(record: group, transferredCredential: call.transferredCredential,
                                               request: call.request, confirmation: call.confirmation)
         }
         let confirmed = ConfirmedCallRestore(
@@ -303,7 +303,7 @@ struct ReplacementDeviceRestoreTests {
             guard call.record.id == scenario.groupID else { return call }
             var group = call.record
             group.removedMembers = [.init(memberIDs: [batch.previousMemberID], principal: batch.owner, removedAt: 1)]
-            return ConfirmedCallRestore.Call(record: group, credential: call.credential,
+            return ConfirmedCallRestore.Call(record: group, transferredCredential: call.transferredCredential,
                                               request: call.request, confirmation: call.confirmation)
         }
         let excluded = ConfirmedCallRestore(
