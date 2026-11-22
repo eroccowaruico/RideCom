@@ -84,3 +84,89 @@ import Testing
         namespaces.forEach { UserDefaults.standard.removePersistentDomain(forName: $0) }
     }
 }
+
+@MainActor
+struct ReplacementScenario {
+    let fixture = AccountCallFixture()
+    let other: AppTestSupport.Harness
+    let replacement: AppTestSupport.Harness
+    let groupID: UUID
+    let directID: UUID
+    let savedPersonID: UUID
+    let backup: GroupSnapshot
+    let backupOwner: AccountDeviceBinding
+    let oldSigner: DeviceIdentitySigner
+    let trust: DeviceIdentityTrust
+    let restoredCredentials = InMemoryGroupCredentialStore()
+
+    init() throws {
+        let old = try fixture.peer("alice-old", account: "a")
+        other = try fixture.peer("bob", account: "b")
+        replacement = try fixture.peer("alice", account: "a")
+        for peer in [old, other, replacement] { peer.viewModel.allowsNearbyGroupDelivery = false }
+        groupID = try fixture.completeGroupContactRegistration(from: other, to: old)
+        for peer in [old, other, replacement] {
+            peer.viewModel.disconnect()
+            peer.viewModel.setRTCTransportRoutes([.multipeer])
+        }
+        let oldModel = old.viewModel, otherModel = other.viewModel
+        trust = try #require(try replacement.viewModel.internetSettingsStore.identityTrust())
+        oldSigner = try oldModel.internetSettingsStore.invitationSigner(memberID: "alice-old")
+        backupOwner = .init(principal: try #require(oldSigner.principal), publicKey: oldSigner.publicKey)
+        savedPersonID = try #require(oldModel.savedRemoteUsers.first?.id)
+        let otherPerson = try #require(otherModel.savedRemoteUsers.first?.id)
+        try #require(oldModel.selectUser(savedPersonID, connectIfIdle: false))
+        try #require(otherModel.selectUser(otherPerson, connectIfIdle: false))
+        directID = try #require(oldModel.selectedGroup?.id)
+        try #require(otherModel.selectedGroup?.id == directID)
+        let callIDs = [groupID, directID]
+        var snapshot = GroupSnapshot()
+        snapshot.groups = old.groupStore.snapshot.groups.filter { callIDs.contains($0.id) }
+        snapshot.users = old.groupStore.snapshot.users
+        try #require(snapshot.groups.count == callIDs.count)
+        for record in snapshot.groups {
+            let reference = try #require(record.credentialReference)
+            let credential = try #require(try oldModel.groupRepository.credential(for: record.id))
+            try restoredCredentials.saveSecret(credential.secret, reference: reference)
+        }
+        backup = snapshot
+    }
+
+    func openReboundSnapshot() throws -> AppTestSupport.Harness {
+        let settings = replacement.viewModel.internetSettingsStore
+        let newSigner = try settings.invitationSigner(memberID: "alice")
+        try #require(backupOwner.publicKey != newSigner.publicKey)
+        let store = InMemoryGroupStore()
+        let destinationKeys = InMemoryGroupCredentialStore()
+        let repository = GroupRepository(store: store, credentials: destinationKeys)
+        _ = try repository.load(localMemberID: "alice")
+        try repository.restoreCallRelationships(confirmedRestore(), as: newSigner, trust: trust)
+        let harness = AppTestSupport.makeHarness(
+            groups: [], groupStore: store, credentialStore: destinationKeys,
+            internetSettingsStore: settings, localMemberID: "alice")
+        harness.viewModel.allowsNearbyGroupDelivery = false
+        harness.viewModel.setRTCTransportRoutes([.multipeer])
+        return harness
+    }
+
+    func confirmedRestore(owner: AccountPrincipal? = nil) throws -> ConfirmedCallRestore {
+        let model = other.viewModel
+        let responder = try model.internetSettingsStore.invitationSigner(memberID: "bob")
+        let requester = try replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let principal = try #require(responder.principal)
+        let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
+        let now = Date()
+        let entries = try backup.groups.map { record in
+            let reference = try #require(record.credentialReference)
+            let secret = try #require(try restoredCredentials.secret(reference: reference))
+            let request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
+                                                              recipient: recipient, signer: requester, now: now)
+            let confirmation = try #require(try model.groupRepository.confirmRestore(
+                request, as: responder, trust: trust, now: now))
+            return ConfirmedCallRestore.Call(record: record, credential: .init(groupID: record.id, secret: secret),
+                                             request: request, confirmation: confirmation)
+        }
+        return .init(owner: owner ?? backupOwner.principal, previousMemberID: "alice-old",
+                     users: backup.users, calls: entries)
+    }
+}

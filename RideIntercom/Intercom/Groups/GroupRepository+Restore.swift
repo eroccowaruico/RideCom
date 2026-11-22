@@ -7,6 +7,8 @@ struct ConfirmedCallRestore {
     struct Call {
         let record: GroupSnapshot.Record
         let credential: GroupAccessCredential
+        let request: CallRelationshipRestoreRequest
+        let confirmation: CallRelationshipRestoreConfirmation
     }
 
     let owner: AccountPrincipal
@@ -17,7 +19,7 @@ struct ConfirmedCallRestore {
 
 extension GroupRepository {
     func restoreCallRelationships(
-        _ batch: ConfirmedCallRestore, as signer: DeviceIdentitySigner,
+        _ batch: ConfirmedCallRestore, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
         now: TimeInterval = Date().timeIntervalSince1970
     ) throws {
         guard let current = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
@@ -33,7 +35,11 @@ extension GroupRepository {
                       && !user.memberIDs.contains(signer.memberID) && !user.memberIDs.contains(batch.previousMemberID)
               }) else { throw GroupStorageError.invalidUpdate }
 
-        let records = try batch.calls.map { try reboundRestoredRecord($0, in: batch, as: signer) }
+        let records = try batch.calls.map { call in
+            let verified = try call.confirmation.verify(
+                for: call.request, as: signer, trust: trust, now: Date(timeIntervalSince1970: now))
+            return try reboundRestoredRecord(call, in: batch, verified: verified)
+        }
         try update(records.map { try $0.group() }, credential: nil,
                    additionalCredentials: batch.calls.map(\.credential), users: batch.users, now: now) { next in
             next.groups = records
@@ -41,34 +47,39 @@ extension GroupRepository {
     }
 
     private func reboundRestoredRecord(
-        _ call: ConfirmedCallRestore.Call, in batch: ConfirmedCallRestore, as signer: DeviceIdentitySigner
+        _ call: ConfirmedCallRestore.Call, in batch: ConfirmedCallRestore,
+        verified: CallRelationshipRestoreConfirmation.Verified
     ) throws -> GroupSnapshot.Record {
         let source = call.record
-        let previous = batch.previousMemberID
-        guard source.id == call.credential.groupID, !call.credential.secret.isEmpty,
+        let previous = verified.previousMemberID
+        let replacement = verified.requesterMemberID
+        let requester = verified.requester
+        guard source.id == verified.callID, previous == batch.previousMemberID,
+              source.accountDevices[verified.responderMemberID] == verified.responder,
+              source.id == call.credential.groupID, !call.credential.secret.isEmpty,
               source.pendingInvitation == nil,
-              !source.excludesMember(previous, principal: batch.owner),
-              !source.excludesMember(signer.memberID, principal: batch.owner) else {
+              !source.excludesMember(previous, principal: requester.principal),
+              !source.excludesMember(replacement, principal: requester.principal) else {
             throw GroupStorageError.invalidUpdate
         }
         var group = try source.group()
         guard let index = group.members.firstIndex(where: { $0.id == previous }),
-              !group.members.contains(where: { $0.id == signer.memberID }),
-              source.invitationDeviceKeys?[previous] != signer.publicKey,
+              !group.members.contains(where: { $0.id == replacement }),
+              source.invitationDeviceKeys?[previous] != requester.publicKey,
               group.accountDevices[previous].map({
-                  $0.principal == batch.owner && $0.publicKey != signer.publicKey
+                  $0.principal == requester.principal && $0.publicKey != requester.publicKey
               }) ?? (group.kind == .group) else { throw GroupStorageError.identityConflict }
         if group.kind == .direct {
-            guard let peer = group.accountPair?.other(than: batch.owner),
+            guard let peer = group.accountPair?.other(than: requester.principal),
                   batch.users.contains(where: { $0.principal == peer }) else { throw GroupStorageError.invalidUpdate }
         }
 
         let storedMember = group.members[index]
-        group.members[index] = .init(id: signer.memberID, displayName: storedMember.displayName,
+        group.members[index] = .init(id: replacement, displayName: storedMember.displayName,
                                      localName: storedMember.localName)
         group.members.removeAll { $0.id.hasPrefix(GroupMember.pendingInvitePrefix) }
         group.accountDevices.removeValue(forKey: previous)
-        group.accountDevices[signer.memberID] = .init(principal: batch.owner, publicKey: signer.publicKey)
+        group.accountDevices[replacement] = requester
         var record = GroupSnapshot.Record(group)
         record.joinedByInvitation = source.joinedByInvitation
         record.groupTabOfferAcknowledged = source.groupTabOfferAcknowledged

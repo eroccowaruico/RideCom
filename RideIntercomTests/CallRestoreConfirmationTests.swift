@@ -194,6 +194,36 @@ struct CallRestoreConfirmationTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func restoreRejectsAConfirmationForAnotherCallOrAnExpiredRequest(expired: Bool) throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore(), credentials = InMemoryGroupCredentialStore()
+        let repository = GroupRepository(store: store, credentials: credentials)
+        _ = try repository.load(localMemberID: "alice")
+        let original = store.snapshot
+        let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let batch = try scenario.confirmedRestore()
+        let first = try #require(batch.calls.first)
+        let second = try #require(batch.calls.last)
+        try #require(first.record.id != second.record.id)
+        if expired {
+            let later = Date().addingTimeInterval(300).timeIntervalSince1970
+            #expect(throws: DeviceIdentityProof.Failure.invalid) {
+                try repository.restoreCallRelationships(batch, as: signer, trust: scenario.trust, now: later)
+            }
+        } else {
+            let wrong = ConfirmedCallRestore.Call(record: second.record, credential: second.credential,
+                                                  request: first.request, confirmation: first.confirmation)
+            let combined = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
+                                                users: batch.users, calls: [first, wrong])
+            #expect(throws: GroupStorageError.invalidUpdate) {
+                try repository.restoreCallRelationships(combined, as: signer, trust: scenario.trust)
+            }
+        }
+        #expect(store.snapshot == original)
+        #expect(credentials.values.isEmpty)
+    }
+
     private func restoreRequest(
         _ callID: UUID, to responder: DeviceIdentitySigner, from requester: DeviceIdentitySigner, now: Date
     ) throws -> CallRelationshipRestoreRequest {
