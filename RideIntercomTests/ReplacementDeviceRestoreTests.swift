@@ -40,7 +40,9 @@ struct CallRelationshipBackupTests {
         let group = try #require((payload["groups"] as? [[String: Any]])?.first)
         #expect(Set(group.keys) == ["id", "name"])
         let contact = try #require((payload["contacts"] as? [[String: Any]])?.first)
-        #expect(Set(contact.keys) == ["id", "principal"])
+        #expect(Set(contact.keys) == ["id", "principal", "restoreRecipientFingerprint"])
+        let fingerprint = try #require(contact["restoreRecipientFingerprint"] as? String)
+        #expect(IdentityEncoding.decode(fingerprint)?.count == 32)
         #expect(throws: GroupStorageError.identityConflict) {
             try CallRelationshipBackup.read(data, as: foreign, now: now)
         }

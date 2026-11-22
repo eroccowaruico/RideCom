@@ -10,6 +10,13 @@ struct CallRelationshipBackup: Codable, Equatable {
     struct Contact: Codable, Equatable {
         let id: UUID
         let principal: AccountPrincipal
+        let restoreRecipientFingerprint: String?
+
+        fileprivate var hasValidRestoreRecipientFingerprint: Bool {
+            guard let fingerprint = restoreRecipientFingerprint else { return true }
+            guard let bytes = IdentityEncoding.decode(fingerprint), bytes.count == 32 else { return false }
+            return IdentityEncoding.encode(bytes) == fingerprint
+        }
     }
 
     private static let currentVersion = 1
@@ -41,7 +48,7 @@ struct CallRelationshipBackup: Codable, Equatable {
               groups.allSatisfy({ IntercomGroup.isValidName($0.name) }),
               contacts.allSatisfy({ contact in
                   contact.principal.isValid && contact.principal.issuer == owner.issuer
-                      && contact.principal != owner
+                      && contact.principal != owner && contact.hasValidRestoreRecipientFingerprint
               }) else { throw GroupStorageError.invalidUpdate }
         return self
     }
@@ -62,16 +69,30 @@ private extension GroupSnapshot {
             record.pendingInvitation == nil && record.accountDevices[memberID] == binding
                 && !record.excludesMember(memberID, principal: owner)
         }
-        let peers = Set(owned.compactMap { $0.accountPair?.other(than: owner) })
-        let contacts = users.compactMap { user -> CallRelationshipBackup.Contact? in
+        let calls = Dictionary(uniqueKeysWithValues: owned.map { ($0.id, $0) })
+        let contacts = try users.compactMap { user -> CallRelationshipBackup.Contact? in
             guard user.isRegistered, let principal = user.principal,
-                  principal.issuer == owner.issuer, peers.contains(principal) else { return nil }
-            return .init(id: user.id, principal: principal)
+                  principal.issuer == owner.issuer, principal != owner else { return nil }
+            let pair = AccountCallPair(owner, principal)
+            guard let call = calls[pair.id], call.accountPair == pair else { return nil }
+            let fingerprint = try restoreRecipientFingerprint(for: user, in: call, principal: principal)
+            return .init(id: user.id, principal: principal, restoreRecipientFingerprint: fingerprint)
         }
         let backupGroups = owned.filter { $0.kind != .direct }.map {
             CallRelationshipBackup.Group(id: $0.id, name: $0.name)
         }
         return try CallRelationshipBackup(owner: owner, groups: backupGroups, contacts: contacts).validated(for: owner)
+    }
+
+    func restoreRecipientFingerprint(for user: SavedUser, in call: Record, principal: AccountPrincipal) throws
+        -> String? {
+        guard user.memberIDs.count == 1, let memberID = user.memberIDs.first,
+              let key = user.deviceKeys?[memberID],
+              call.kind == .direct, call.accountDevices[memberID] == .init(principal: principal, publicKey: key),
+              call.accountDevices.values.filter({ $0.principal == principal }).count == 1,
+              !call.excludesMember(memberID, principal: principal)
+        else { return nil }
+        return try CallRelationshipRestoreRequest.recipientFingerprint(callID: call.id, memberID: memberID, key: key)
     }
 }
 

@@ -88,6 +88,11 @@ struct CallRestoreConfirmationTests {
     @Test func anotherDeviceOfTheResponderCannotSubstituteItsOlderRelationship() throws {
         let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
         let primary = scenario.other.viewModel
+        let oldModel = scenario.old.viewModel
+        let contactID = try #require(oldModel.savedRemoteUsers.first?.id)
+        try #require(oldModel.selectUser(contactID, connectIfIdle: false))
+        let originalBackup = try oldModel.groupRepository.callRelationshipBackup(
+            as: scenario.oldSigner, now: Date().timeIntervalSince1970)
         let unsynced = try scenario.fixture.peer("bob-other", account: "b")
         unsynced.viewModel.allowsNearbyGroupDelivery = false
         _ = try scenario.fixture.completeGroupContactRegistration(from: unsynced, to: scenario.old)
@@ -97,13 +102,29 @@ struct CallRestoreConfirmationTests {
         let addressed = try primary.internetSettingsStore.invitationSigner(memberID: "bob")
         let other = try unsynced.viewModel.internetSettingsStore.invitationSigner(memberID: "bob-other")
         let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let addressedIdentity = try #require(addressed.identity)
+        let otherIdentity = try #require(other.identity)
         let trust = try #require(try primary.internetSettingsStore.identityTrust())
+
+        let now = Date()
+        let backup = try CallRelationshipBackup.read(JSONEncoder().encode(originalBackup), as: requester,
+                                                    now: now.timeIntervalSince1970)
+        let request = try #require(try backup.directRestoreRequest(
+            for: contactID, to: addressedIdentity, as: requester, now: now))
+        let beforeRemoval = try #require(try primary.groupRepository.confirmRestore(
+            request, as: addressed, trust: trust, now: now))
+        #expect(try beforeRemoval.replacedMemberID(for: request, trust: trust, now: now) == "alice-old")
         let person = try #require(primary.savedRemoteUsers.first?.id)
         try primary.groupRepository.removeUser(person)
 
         // There is no delivery record after the retention period. The other device still holds its own older copy.
-        let now = Date()
-        let request = try restoreRequest(scenario.directID, to: addressed, from: requester, now: now)
+        #expect(try backup.directRestoreRequest(for: contactID, to: otherIdentity, as: requester, now: now) == nil)
+        let multipleDevices = try oldModel.groupRepository.callRelationshipBackup(
+            as: scenario.oldSigner, now: now.timeIntervalSince1970)
+        let savedContact = try #require(multipleDevices.contacts.first(where: { $0.id == contactID }))
+        #expect(savedContact.restoreRecipientFingerprint == nil)
+        #expect(try multipleDevices.directRestoreRequest(
+            for: contactID, to: addressedIdentity, as: requester, now: now) == nil)
         #expect(try primary.groupRepository.confirmRestore(request, as: addressed, trust: trust, now: now) == nil)
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
             _ = try unsynced.viewModel.groupRepository.confirmRestore(request, as: other, trust: trust, now: now)
@@ -114,6 +135,33 @@ struct CallRestoreConfirmationTests {
         #expect(try response.replacedMemberID(for: otherRequest, trust: trust, now: now) == "alice-old")
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
             try response.replacedMemberID(for: request, trust: trust, now: now)
+        }
+    }
+
+    @Test func aBackupWithoutARecipientKeepsTheContactButCannotAddressARequest() throws {
+        let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
+        let model = scenario.old.viewModel
+        let contactID = try #require(model.savedRemoteUsers.first?.id)
+        try #require(model.selectUser(contactID, connectIfIdle: false))
+        let now = Date()
+        let time = now.timeIntervalSince1970
+        let backup = try model.groupRepository.callRelationshipBackup(as: scenario.oldSigner, now: time)
+        let original = try JSONEncoder().encode(backup)
+        var payload = try #require(JSONSerialization.jsonObject(with: original) as? [String: Any])
+        var contact = try #require((payload["contacts"] as? [[String: Any]])?.first)
+        contact.removeValue(forKey: "restoreRecipientFingerprint")
+        payload["contacts"] = [contact]
+        let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let responder = try scenario.other.viewModel.internetSettingsStore.invitationSigner(memberID: "bob")
+        let identity = try #require(responder.identity)
+        let previous = try CallRelationshipBackup.read(JSONSerialization.data(withJSONObject: payload),
+                                                      as: requester, now: time)
+        #expect(previous.contacts.map(\.id) == [contactID])
+        #expect(try previous.directRestoreRequest(for: contactID, to: identity, as: requester, now: now) == nil)
+        contact["restoreRecipientFingerprint"] = "not-a-fingerprint"
+        payload["contacts"] = [contact]
+        #expect(throws: GroupStorageError.invalidUpdate) {
+            try CallRelationshipBackup.read(JSONSerialization.data(withJSONObject: payload), as: requester, now: time)
         }
     }
 

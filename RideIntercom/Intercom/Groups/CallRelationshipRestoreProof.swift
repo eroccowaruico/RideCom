@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct CallRelationshipRestoreRequest: Codable {
@@ -38,6 +39,12 @@ struct CallRelationshipRestoreRequest: Codable {
         proof = try signer.sign(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore)
     }
 
+    static func recipientFingerprint(callID: UUID, memberID: String, key: String) throws -> String {
+        let payload = try restoreProofPayload(["rideintercom.call-restore-recipient.v1", callID.uuidString,
+                                               memberID, key])
+        return IdentityEncoding.encode(Data(SHA256.hash(data: payload)))
+    }
+
     fileprivate func verify(trust: DeviceIdentityTrust, now: Date) throws -> VerifiedDeviceProof {
         guard challenge.isCurrent(at: now) else { throw DeviceIdentityProof.Failure.invalid }
         let requester = try proof.verify(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore,
@@ -47,6 +54,26 @@ struct CallRelationshipRestoreRequest: Codable {
             throw DeviceIdentityProof.Failure.invalid
         }
         return requester
+    }
+}
+
+extension CallRelationshipBackup {
+    /// Uses the original device only to address the request. The reply still needs current membership checks.
+    func directRestoreRequest(
+        for contactID: UUID, to identity: VerifiedDeviceIdentity, as signer: DeviceIdentitySigner, now: Date
+    ) throws -> CallRelationshipRestoreRequest? {
+        let time = now.timeIntervalSince1970
+        _ = try validated(for: Self.verifiedOwner(of: signer, now: time))
+        let principal = AccountPrincipal(issuer: identity.issuer, userID: identity.userID)
+        guard identity.expiresAt > time, let contact = contacts.first(where: { $0.id == contactID }),
+              contact.principal == principal, let saved = contact.restoreRecipientFingerprint else { return nil }
+        let callID = AccountCallPair(owner, principal).id
+        let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
+            callID: callID, memberID: identity.memberID, key: identity.deviceKey)
+        guard fingerprint == saved else { return nil }
+        let recipient = AccountDeviceBinding(principal: principal, publicKey: identity.deviceKey)
+        return try .init(callID: callID, recipientMemberID: identity.memberID, recipient: recipient,
+                         signer: signer, now: now)
     }
 }
 
