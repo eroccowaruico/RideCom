@@ -59,6 +59,8 @@ scripts/BuildWebRTC/update-webrtc-binary.sh
 
 次のTestFlightビルドから、内部・外部テストとApp Storeなどの公開配布には、本番用にビルドしたWebRTCだけを同梱する。現行スクリプトではWebRTCのビルドに `DEBUG=false` を指定し、配布に使うすべての構成の `args.gn` で `is_debug=false` を確認する。
 
+自動テスト専用の成果物には、開発用にビルドしたWebRTCも使える。現行スクリプトでは `DEBUG=true` が開発用ビルドに当たる。自動テストの成果物を配布に使う場合は、配布用WebRTCの条件を確認する。
+
 Archiveから書き出した配布物のWebRTCを、取り込み時のZIPとビルド記録に照合する。アプリ本体のRelease設定とは別に、WebRTC自体のビルド設定を確かめる。開発用のWebRTCが入っている場合や、対応するビルド記録を確認できない場合は送信を止め、本番用のWebRTCでArchiveを作り直す。
 
 ### 上流の無改変とカメラの不使用
