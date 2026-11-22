@@ -305,6 +305,8 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 2026-11-22。停止設定の `1fa64f8f` は本番と固定Previewに配置され、通話・通常通知のフラグは本番で有効、固定Previewで無効と読み戻した。指定のSFU AppとTURN KeyはCloudflareに存在し、Previews Baseでは両方のIDと4点のシークレットの登録を確認した。固定Previewの稼働配置には古いSFU Appの参照があり、TURNの参照とシークレット、sandbox APNs・端末証明の鍵がなかった。両IDを共有 `main` の設定に記載し、対応するシークレットが固定Previewの配置に揃ってから有効化する。
 
+2026-11-22。本番と固定Previewの `a6e827b8` で `/health` はHTTP 200。本番のSFUとTURNの参照先が存在し、シークレットの登録の有無と通話・TURNの有効化を管理APIで確認した。架空の端末IDによるApple登録の開始では、本番がHTTP 200と有効期限内のチャレンジを返し、固定PreviewはHTTP 503を返した。固定PreviewのSFUとTURNの参照は指定値と一致した。既存の試用端末資格2件は認証を通り、通話停止を示すHTTP 503を返した。固定PreviewにTURN・sandbox APNs・端末証明のシークレットを反映し、SFUの組を照合してから実媒体を試す。Appleのサインイン完了、実SFUとTURNを通した双方向音声、TestFlightの端末操作は今回の測定に含めていない。
+
 APNsの環境やトピックを変更する場合は、古い設定で登録した宛先への送信が止まることと、現在の設定で再登録した端末にだけ届くことを確認する。固定Previewの開発署名にはsandbox、本番のTestFlightにはproductionを使う。[APNsの接続先](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)・[送信先を照合する仕様](../spec/server/通知.md#費用悪用を抑える境界)
 
 #### 文書だけのpushがビルドと配置に届くことを確認する
