@@ -240,10 +240,10 @@ TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固�
 
 | 設定 | 本番の `vars` | `previews.vars` |
 |---|---|---|
-| `SERVICE_ENABLED` | `true` | `true` |
+| `SERVICE_ENABLED` | `true` | `false` |
 | `APPLE_AUTH_ENABLED` | `true` | `false` |
 | `TURN_ENABLED` | `true` | `false` |
-| `NOTIFICATIONS_ENABLED` | `true` | `true` |
+| `NOTIFICATIONS_ENABLED` | `true` | `false` |
 | `APNS_ENVIRONMENT` | `production` | `sandbox` |
 
 次の表は設定の既定と有効化の条件を示す。

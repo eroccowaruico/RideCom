@@ -25,6 +25,15 @@ test('production and Preview explicitly disable Worker logging and export', () =
     }
 });
 
+test('fixed Preview pauses internet calls and notifications while production remains enabled', () => {
+    const config = unstable_readConfig({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)) });
+    assert.ok(config.previews);
+    for (const flag of ['SERVICE_ENABLED', 'NOTIFICATIONS_ENABLED']) {
+        assert.equal(config.vars[flag], 'true', flag);
+        assert.equal(config.previews.vars[flag], 'false', flag);
+    }
+});
+
 test('join needs no display name', async () => {
     const runtime = await makeRuntime();
     try {

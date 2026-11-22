@@ -298,7 +298,7 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 2026-11-22。本番Workerの設定と固定Previewの最新配置を管理APIで読み取った。本番のApple登録、通常通知、Internet通話、TURN、端末審査の各フラグは手元の本番設定と一致した。本番のSFUとTURNの参照先は両方とも存在し、通知・端末証明・Apple認可取消の署名鍵も登録済みだった。観測はリソースと鍵の登録の有無に限る。背景転送の鍵は両環境とも未設定だった。[Cloudflareのプレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)
 
-固定Previewでは、手元で `false` にした `SERVICE_ENABLED` と `NOTIFICATIONS_ENABLED` が、稼働中の配置ではどちらも `true` だった。稼働中のPreviewが指定するSFU Appは見つからず、sandbox APNsと端末証明の鍵は未登録。手元の設定で停止条件を確認済みで、稼働環境では次回の反映後に最新配置の両フラグが `false` であることを読み戻す。証跡は `.validation/security-audit-2100/live-feature-gates-readback/` に保存した。
+配置前の固定Previewの `41d1019f` では、`SERVICE_ENABLED` と `NOTIFICATIONS_ENABLED` はどちらも `true` だった。指定されたSFU Appは見つからず、sandbox APNsと端末証明の鍵も配置に含まれていなかった。共有 `main` の `previews.vars` で両方を `false` にし、固定PreviewではInternet通話と通常通知を停止する。配置後は最新配置の2項目を読み戻す。再開時は固定Preview用のSFUと対応する資格、sandbox APNsと端末証明の鍵を同じ配置に揃え、端末登録・双方向通話・通常通知の到達を確認する。[環境別の設定値](../spec/server/Worker.md#設定値)
 
 APNsの環境やトピックを変更する場合は、古い設定で登録した宛先への送信が止まることと、現在の設定で再登録した端末にだけ届くことを確認する。固定Previewの開発署名にはsandbox、本番のTestFlightにはproductionを使う。[APNsの接続先](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)・[送信先を照合する仕様](../spec/server/通知.md#費用悪用を抑える境界)
 
