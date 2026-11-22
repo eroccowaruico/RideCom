@@ -6,7 +6,8 @@ import { API, SymbolFlags, TypeFlags } from 'typescript/unstable/sync'
 import { SyntaxKind as K } from 'typescript/unstable/ast'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
-const workerTypes = dirname(fileURLToPath(import.meta.resolve('@cloudflare/workers-types/package.json')))
+const workerTypes = dirname(realpathSync.native(fileURLToPath(
+    import.meta.resolve('@cloudflare/workers-types/package.json'))))
 const selected = new Set(process.argv.slice(2).map(name => resolve(name)))
 const counts = { error: 0, review: 0 }
 
@@ -60,7 +61,7 @@ function durableObjectContract(owner, checker) {
             if (contract?.name !== 'DurableObject') continue
             const declarationKind = clause.token === K.ExtendsKeyword ? K.ClassDeclaration : K.InterfaceDeclaration
             if (contract.declarations.some(declaration => declaration.kind === declarationKind
-                && dirname(realpathSync(declaration.path)) === workerTypes)) {
+                && dirname(realpathSync.native(declaration.path)) === workerTypes)) {
                 return { members: contract.getMembers(), rpc: clause.token === K.ExtendsKeyword, delegations: new Set() }
             }
         }
