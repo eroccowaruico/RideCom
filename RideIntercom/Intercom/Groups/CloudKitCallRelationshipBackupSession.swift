@@ -6,7 +6,7 @@ import Foundation
 final class CloudKitCallRelationshipBackupSession {
     typealias Account = CallRelationshipBackupCheckpointStore.CloudAccount
 
-    enum Failure: Error, Equatable { case accountUnavailable }
+    enum Failure: Error, Equatable { case accountUnavailable, backupChanged }
 
     private let store: CloudKitCallRelationshipBackupStore
     private let keychain: KeychainSecretStoring
@@ -60,6 +60,24 @@ final class CloudKitCallRelationshipBackupSession {
         if current == nil && task == nil { refresh() }
     }
 
+    func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup) async throws {
+        guard let model, let cloud = current, let signer = try model.callRelationshipBackupSigner(),
+              let owner = signer.principal else { throw Failure.accountUnavailable }
+        _ = try original.validated(for: owner)
+        let expected = generation
+        try await verify(cloud, generation: expected)
+        let stored = try await store.load(as: signer, now: Date().timeIntervalSince1970)
+        try await verify(cloud, generation: expected)
+        guard let active = try model.callRelationshipBackupSigner(),
+              active.principal == owner, active.memberID == signer.memberID, active.publicKey == signer.publicKey,
+              let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
+        guard let latest = stored?.backup, batch.hasUnchangedCandidates(from: original, in: latest) else {
+            throw Failure.backupChanged
+        }
+        try model.groupRepository.restoreCallRelationships(batch, as: active, trust: trust)
+        model.reloadSavedGroups()
+    }
+
     private func invalidate() {
         generation = UUID()
         current = nil
@@ -108,6 +126,21 @@ final class CloudKitCallRelationshipBackupSession {
         guard found == expected else {
             invalidate()
             throw Failure.accountUnavailable
+        }
+    }
+}
+
+private extension ConfirmedCallRestore {
+    func hasUnchangedCandidates(from original: CallRelationshipBackup, in latest: CallRelationshipBackup) -> Bool {
+        guard owner == original.owner, owner == latest.owner else { return false }
+        return users.allSatisfy { user in
+            guard let candidate = original.contacts.first(where: { $0.id == user.id && $0.principal == user.principal })
+            else { return false }
+            return latest.contacts.contains(candidate)
+        } && calls.allSatisfy { call in
+            guard call.record.kind != .direct else { return true }
+            guard let candidate = original.groups.first(where: { $0.id == call.record.id }) else { return false }
+            return latest.groups.contains(candidate)
         }
     }
 }

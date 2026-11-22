@@ -80,6 +80,63 @@ struct CloudKitBackupSessionTests {
         #expect(model.groups.map(\.id) == [id])
     }
 
+    enum RestoreChange: CaseIterable, Sendable { case contactRemoved, groupRemoved, otherGroupRenamed, accountChanged }
+
+    @Test(arguments: RestoreChange.allCases)
+    func restorationChecksTheCurrentCloudCandidatesAndAccount(change: RestoreChange) async throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let plan = try scenario.confirmedRestore()
+        let kind: IntercomGroup.Kind = change == .groupRemoved ? .group : .direct
+        let batch = ConfirmedCallRestore(owner: plan.owner, previousMemberID: plan.previousMemberID,
+                                         users: kind == .group ? [] : plan.users,
+                                         calls: plan.calls.filter { $0.record.kind == kind })
+        let sourceStore = InMemoryGroupStore()
+        sourceStore.snapshot = scenario.backup
+        let groupIndex = try #require(sourceStore.snapshot.groups.firstIndex { $0.id == scenario.groupID })
+        sourceStore.snapshot.groups[groupIndex].accountDevices[scenario.oldSigner.memberID] = scenario.backupOwner
+        let source = GroupRepository(store: sourceStore, credentials: scenario.restoredCredentials)
+        var groups = try source.load(localMemberID: scenario.oldSigner.memberID)
+        let now = Date().timeIntervalSince1970
+        let earlier = try source.callRelationshipBackup(as: scenario.oldSigner, now: now)
+        #expect(earlier.contacts.map(\.id) == [scenario.savedPersonID])
+        #expect(earlier.groups.map(\.id) == [scenario.groupID])
+
+        let cloud = CloudAccountFixture(account: "first")
+        let stored = try await cloud.store.save(earlier, replacing: nil, as: scenario.oldSigner, now: now)
+        switch change {
+        case .contactRemoved: try source.removeUser(scenario.savedPersonID)
+        case .groupRemoved: try source.delete(scenario.groupID, remaining: groups.filter { $0.id != scenario.groupID })
+        case .otherGroupRenamed:
+            let editable = try #require(groups.firstIndex { $0.id == scenario.groupID })
+            groups[editable].name = "Renamed group"
+            try source.save(groups)
+        case .accountChanged: break
+        }
+        let latest = try source.callRelationshipBackup(as: scenario.oldSigner, now: now)
+        _ = try await cloud.store.save(latest, replacing: stored, as: scenario.oldSigner, now: now)
+
+        let model = scenario.replacement.viewModel
+        let session = cloud.session()
+        let app = AppCallOwner(account: model.accountSession, viewModel: model,
+                               widgetDestinationStore: .init(fileURL: nil), backupSession: session)
+        await session.task?.value
+        await model.callRelationshipBackupSync?.task?.value
+        let initial = scenario.replacement.groupStore.snapshot
+        if change == .otherGroupRenamed {
+            try await session.restore(batch, from: earlier)
+            #expect(app.viewModel?.groups.map(\.id) == [scenario.directID])
+            #expect(app.viewModel?.savedRemoteUsers.map(\.id) == [scenario.savedPersonID])
+        } else {
+            if change == .accountChanged { cloud.accountAfterRead = "second" }
+            let error: CloudKitCallRelationshipBackupSession.Failure =
+                change == .accountChanged ? .accountUnavailable : .backupChanged
+            await #expect(throws: error) { try await session.restore(batch, from: earlier) }
+            #expect(scenario.replacement.groupStore.snapshot == initial)
+            let keys = try #require(scenario.fixture.credentialStores["alice"])
+            #expect(keys.values.isEmpty)
+        }
+    }
+
     private func addGroup(to model: IntercomViewModel) throws -> UUID {
         let id = UUID()
         let member = model.localMemberIdentity.memberID
@@ -104,8 +161,8 @@ private final class CloudAccountFixture {
 
     init(account: String?) { self.account = account }
 
-    func session() -> CloudKitCallRelationshipBackupSession {
-        let store = CloudKitCallRelationshipBackupStore(fetch: { id in
+    var store: CloudKitCallRelationshipBackupStore {
+        .init(fetch: { id in
             guard let active = self.account else { throw CKError(.notAuthenticated) }
             let record = self.records[active]
             if let next = self.accountAfterRead {
@@ -120,7 +177,10 @@ private final class CloudAccountFixture {
             self.writtenAccounts.append(active)
             return record
         })
-        return .init(store: store, keychain: DictionaryKeychain(), namespace: "CloudFixture", center: center) {
+    }
+
+    func session() -> CloudKitCallRelationshipBackupSession {
+        .init(store: store, keychain: DictionaryKeychain(), namespace: "CloudFixture", center: center) {
             let found = self.account
             if self.pauseNextLookup {
                 self.pauseNextLookup = false
