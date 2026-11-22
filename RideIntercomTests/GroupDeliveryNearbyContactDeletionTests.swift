@@ -62,8 +62,8 @@ extension GroupDeliveryFlowTests {
         recipient receivingModel: IntercomViewModel,
         order: NearbyContactDeletionOrder
     ) async {
-        receivingModel.setNearbyGroupDeliveryForeground(true)
-        restarted.setNearbyGroupDeliveryForeground(true)
+        receivingModel.setGroupDeliveryForeground(true)
+        restarted.setGroupDeliveryForeground(true)
         await AppTestSupport.waitUntil(timeout: .seconds(12)) {
             restarted.groupRepository.contactDeletions.isEmpty
                 && receivingModel.groupRepository.contactDeletions.isEmpty
@@ -117,13 +117,13 @@ extension GroupDeliveryFlowTests {
         }
         defer { interceptor.stop() }
         interceptor.start()
-        restarted.setNearbyGroupDeliveryForeground(true)
+        restarted.setGroupDeliveryForeground(true)
         await AppTestSupport.waitUntil(timeout: .seconds(12)) { captured.withLock { $0 != nil } }
         let delivered = try #require(captured.withLock { $0 })
         _ = try recipient.receiveContactDeletion(delivered, from: authorDevice.memberID)
         #expect(recipient.savedRemoteUsers.isEmpty)
         #expect(restarted.groupRepository.contactDeletions.count == 1, "The saved receipt was not sent back")
-        restarted.setNearbyGroupDeliveryForeground(false)
+        restarted.setGroupDeliveryForeground(false)
         restarted.stopGroupDeliverySync()
 
         let receivingModel = try recipientDevice.harness(knowing: [], onDisk: true).viewModel

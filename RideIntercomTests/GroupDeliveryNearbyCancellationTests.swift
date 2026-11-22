@@ -89,7 +89,7 @@ extension GroupDeliveryFlowTests {
             }
         }
         defer { channel.stop() }
-        receiver.setNearbyGroupDeliveryForeground(true)
+        receiver.setGroupDeliveryForeground(true)
         channel.start()
         await AppTestSupport.waitUntil(timeout: .seconds(12)) { recipients.withLock { $0.contains(recipientID) } }
         try #require(recipients.withLock { $0.contains(recipientID) })
@@ -187,7 +187,7 @@ extension GroupDeliveryFlowTests {
         }
         defer { channel.stop() }
         channel.start()
-        sender.setNearbyGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(true)
         try #require(sender.createTalkGroup(name: "Invite to cancel", userIDs: [recipientDevice.personID]))
         let delivery = try #require(sender.groupRepository.groupDeliveries.first)
         await AppTestSupport.waitUntil(timeout: .seconds(12)) { receivedFrame.withLock { $0 != nil } }
@@ -275,7 +275,7 @@ extension GroupDeliveryFlowTests {
         }
         defer { interceptor.stop() }
         interceptor.start()
-        sender.setNearbyGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(true)
         let first = UUID()
         let second = UUID()
         try #require(
@@ -312,8 +312,8 @@ extension GroupDeliveryFlowTests {
         defer { restarted.stopGroupDeliverySync() }
         restarted.groupDeliveryClient = nil
         restarted.allowsNearbyGroupDelivery = true
-        recipient.setNearbyGroupDeliveryForeground(true)
-        restarted.setNearbyGroupDeliveryForeground(true)
+        recipient.setGroupDeliveryForeground(true)
+        restarted.setGroupDeliveryForeground(true)
 
         try await checkNearbyCancellationOutcomes(
             on: restarted, recipient: recipient, late: (late.envelope.id, late.envelope),

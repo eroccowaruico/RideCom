@@ -157,7 +157,8 @@ extension GroupDeliveryFlowTests {
         #expect(!(await owner.respondToGroupInvitation(unrelated)))
     }
 
-    @Test func oneForegroundPassReceivesMoreThanEightDifferentGroupInvitations() async throws {
+    @Test(arguments: [false, true])
+    func oneForegroundPassReceivesMoreThanEightDifferentGroupInvitations(recoversNetwork: Bool) async throws {
         let authorDevice = GroupDeliveryTestIdentity("batch-author")
         let recipientDevice = GroupDeliveryTestIdentity("batch-recipient")
         defer {
@@ -197,7 +198,7 @@ extension GroupDeliveryFlowTests {
         await left.viewModel.synchronizeGroupDeliveries()
         #expect(GroupDeliveryHTTPStub.items.count == 9)
         let currentCall = right.viewModel.currentCallReference
-        await right.viewModel.synchronizeGroupDeliveries()
+        try await receiveInvitations(on: right.viewModel, afterRecovery: recoversNetwork)
         #expect(
             expected.isSubset(of: Set(right.viewModel.groups.map(\.id))),
             "All queued groups must arrive without a second foreground event")
@@ -208,6 +209,25 @@ extension GroupDeliveryFlowTests {
             }.count == 9)
         await left.viewModel.synchronizeGroupDeliveries()
         #expect(left.viewModel.groupRepository.groupDeliveries.allSatisfy { $0.state == .received })
+    }
+
+    private func receiveInvitations(on recipient: IntercomViewModel, afterRecovery: Bool) async throws {
+        guard afterRecovery else {
+            await recipient.synchronizeGroupDeliveries()
+            return
+        }
+        #expect(recipient.groupRepository.groupDeliveries.isEmpty)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: false)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(recipient.groupDeliveryTask == nil)
+        recipient.setGroupDeliveryForeground(true)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(recipient.groupDeliveryTask == nil)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: false)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let recovered = try #require(recipient.groupDeliveryTask)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
+        await recovered.value
     }
 
     @Test func anInvalidInboxPacketWhoseDiscardFailsWaitsForTheNextLifecycleEvent() async throws {

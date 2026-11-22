@@ -8,6 +8,16 @@ extension IntercomViewModel {
         case networkRecovered
     }
 
+    func setGroupDeliveryForeground(_ foreground: Bool) {
+        guard groupDeliveryIsForeground != foreground else { return }
+        groupDeliveryIsForeground = foreground
+        if foreground {
+            refreshNearbyGroupDelivery()
+        } else if nearbyGroupDeliveryWindow == nil {
+            stopNearbyGroupDelivery()
+        }
+    }
+
     func groupDeliveryNetworkPathChanged(isAvailable: Bool) {
         let wasAvailable = groupDeliveryNetworkWasAvailable
         groupDeliveryNetworkWasAvailable = isAvailable
@@ -22,7 +32,7 @@ extension IntercomViewModel {
         }
         guard notifications.canUseNotifications else { return }
         let now = callAccessNow().timeIntervalSince1970
-        if groupRepository.groupDeliveries.contains(where: { record in
+        if groupDeliveryIsForeground || groupRepository.groupDeliveries.contains(where: { record in
             guard let current = record.retainingOutcome(at: now) else { return false }
             return current.internetAction != nil || (current.direction == .incoming && current.state == .pending)
         }) {

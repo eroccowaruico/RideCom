@@ -26,13 +26,13 @@ extension GroupDeliveryFlowTests {
             requested += 1
             return { ended += 1 }
         }
-        recipient.setNearbyGroupDeliveryForeground(true)
-        sender.setNearbyGroupDeliveryForeground(true)
+        recipient.setGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(true)
         try #require(sender.createTalkGroup(name: "Trail riders", userIDs: [recipientDevice.personID]))
         let delivery = try #require(sender.groupRepository.groupDeliveries.first)
         #expect(requested == 1, "Time is requested before returning from the save")
         let callAfterSave = sender.activeGroupID
-        sender.setNearbyGroupDeliveryForeground(false)
+        sender.setGroupDeliveryForeground(false)
 
         await AppTestSupport.waitUntil(timeout: .seconds(12)) {
             sender.groupRepository.groupDeliveries.first?.state == .received
@@ -70,7 +70,7 @@ extension GroupDeliveryFlowTests {
             requested += 1
             return { ended += 1 }
         }
-        sender.setNearbyGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(true)
         try #require(sender.createTalkGroup(name: "First group", userIDs: [recipientDevice.personID]))
         let earlierTimer = try #require(sender.nearbyGroupDeliveryWindow?.timeout)
         let earlierExchange = try #require(sender.nearbyGroupDeliveryExchange?.id)
@@ -86,8 +86,8 @@ extension GroupDeliveryFlowTests {
 
         let deliveries = sender.groupRepository.groupDeliveries
         try #require(deliveries.count == 2)
-        sender.setNearbyGroupDeliveryForeground(false)
-        recipient.setNearbyGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(false)
+        recipient.setGroupDeliveryForeground(true)
         await AppTestSupport.waitUntil(timeout: .seconds(12)) {
             sender.groupRepository.groupDeliveries.filter { $0.state == .received }.count == deliveries.count
         }
@@ -120,15 +120,15 @@ extension GroupDeliveryFlowTests {
             return {}
         }
 
-        sender.setNearbyGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(true)
         try #require(sender.createTalkGroup(name: "Older group", userIDs: [reachable.personID]))
         let older = try #require(sender.groupRepository.groupDeliveries.first)
         sender.allowsNearbyGroupDelivery = true
         try #require(sender.createTalkGroup(name: "Recent group", userIDs: Set(absent.map(\.personID))))
         #expect(sender.nearbyGroupDeliveryExchange?.offeredPeers == Set(absent.map { PeerID(rawValue: $0.memberID) }))
         #expect(requested == 1)
-        sender.setNearbyGroupDeliveryForeground(false)
-        receiver.setNearbyGroupDeliveryForeground(true)
+        sender.setGroupDeliveryForeground(false)
+        receiver.setGroupDeliveryForeground(true)
 
         await AppTestSupport.waitUntil(timeout: .seconds(14)) {
             sender.groupRepository.groupDeliveries.first(where: { $0.id == older.id })?.state == .received
@@ -157,10 +157,10 @@ extension GroupDeliveryFlowTests {
             expire = expiration
             return { ended += 1 }
         }
-        first.setNearbyGroupDeliveryForeground(true)
+        first.setGroupDeliveryForeground(true)
         try #require(first.createTalkGroup(name: "Delayed invitation", userIDs: [recipientDevice.personID]))
         let pending = try #require(first.groupRepository.groupDeliveries.first)
-        first.setNearbyGroupDeliveryForeground(false)
+        first.setGroupDeliveryForeground(false)
         let expireFirstWindow = try #require(expire)
         expireFirstWindow()
         #expect(first.nearbyGroupDeliveryExchange == nil)
@@ -174,8 +174,8 @@ extension GroupDeliveryFlowTests {
             model.groupDeliveryClient = nil
             model.allowsNearbyGroupDelivery = true
         }
-        recipient.setNearbyGroupDeliveryForeground(true)
-        reopened.setNearbyGroupDeliveryForeground(true)
+        recipient.setGroupDeliveryForeground(true)
+        reopened.setGroupDeliveryForeground(true)
         expireFirstWindow()  // A retired system callback cannot stop the replacement's exchange.
         await AppTestSupport.waitUntil(timeout: .seconds(12)) {
             reopened.groupRepository.groupDeliveries.first?.state == .received

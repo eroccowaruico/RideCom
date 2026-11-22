@@ -9,7 +9,7 @@ final class AppCallOwner: CallSurfaceActions {
     let liveActivities: CallLiveActivityPresenter
     var systemSurfaceIsForeground = false {
         didSet {
-            refreshNearbyDeliveryForegroundState()
+            refreshInvitationDeliveryForegroundState()
             if systemSurfaceIsForeground {
                 backupSession?.refreshIfUnavailable()
                 viewModel?.callRelationshipBackupSync?.request()
@@ -92,7 +92,7 @@ final class AppCallOwner: CallSurfaceActions {
         guard !account.storageUnavailable, !account.deletion.blocksSignIn, account.userID != nil else { return }
         viewModel = makeViewModel(account)
         bindCallRelationshipServices()
-        refreshNearbyDeliveryForegroundState()
+        refreshInvitationDeliveryForegroundState()
     }
 
     private func bindCallRelationshipServices() {
@@ -100,8 +100,8 @@ final class AppCallOwner: CallSurfaceActions {
         if let directRestoreDeviceClient { viewModel?.startDirectRestoreDeviceSync(using: directRestoreDeviceClient) }
     }
 
-    private func refreshNearbyDeliveryForegroundState() {
-        viewModel?.setNearbyGroupDeliveryForeground(systemSurfaceIsForeground)
+    private func refreshInvitationDeliveryForegroundState() {
+        viewModel?.setGroupDeliveryForeground(systemSurfaceIsForeground)
         if systemSurfaceIsForeground { viewModel?.resumeSavedInvitationReplies() }
     }
 

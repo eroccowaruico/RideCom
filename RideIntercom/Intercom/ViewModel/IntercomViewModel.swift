@@ -38,6 +38,7 @@ final class IntercomViewModel {
     @ObservationIgnored var invitationBackgroundTransfer: (any InvitationBackgroundTransferring)?
     @ObservationIgnored var groupDeliveryPathMonitor: NWPathMonitor?
     @ObservationIgnored var groupDeliveryNetworkWasAvailable: Bool?
+    @ObservationIgnored var groupDeliveryIsForeground = false
     @ObservationIgnored var beginGroupDeliveryBackgroundTime: AppBackgroundTime.Request = {
         AppBackgroundTime.begin(name: "Finish Group Invitation Delivery", expiration: $0)
     }
@@ -46,7 +47,6 @@ final class IntercomViewModel {
     @ObservationIgnored var groupDeliveryNeedsSync = false
     @ObservationIgnored var groupDeliveryRunID = UUID()
     @ObservationIgnored var allowsNearbyGroupDelivery = SystemSurfaceScope.permitsSystemAccess
-    @ObservationIgnored var nearbyGroupDeliveryIsForeground = false
     @ObservationIgnored var nearbyGroupDeliveryExchange: NearbyGroupDeliveryExchange?
     @ObservationIgnored var nearbyGroupDeliveryWindow: NearbyGroupDeliveryWindow?
     @ObservationIgnored var nearbyGroupDeliverySchedule = NearbyGroupDeliverySchedule()
@@ -82,7 +82,6 @@ final class IntercomViewModel {
         contacts: { [weak self] in self?.savedRemoteUsers ?? [] }
     )
     var requiresAccountDataReset = false
-    nonisolated static let defaultOverallOutputVolume: Float = 1
 
     var interfaceMode: InterfaceMode = .standard
     var internetWorkerURL = ""

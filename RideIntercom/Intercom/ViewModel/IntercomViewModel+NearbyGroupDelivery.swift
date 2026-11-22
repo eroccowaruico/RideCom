@@ -142,19 +142,9 @@ extension IntercomViewModel {
         })
     }
 
-    func setNearbyGroupDeliveryForeground(_ foreground: Bool) {
-        guard nearbyGroupDeliveryIsForeground != foreground else { return }
-        nearbyGroupDeliveryIsForeground = foreground
-        if foreground {
-            refreshNearbyGroupDelivery()
-        } else if nearbyGroupDeliveryWindow == nil {
-            stopNearbyGroupDelivery()
-        }
-    }
-
     func refreshNearbyGroupDelivery(startOffers: Bool = true, afterSave: Bool = false, advanceBatch: Bool = false) {
         guard canUseNearbyGroupDelivery,
-              nearbyGroupDeliveryIsForeground || afterSave || nearbyGroupDeliveryWindow != nil
+              groupDeliveryIsForeground || afterSave || nearbyGroupDeliveryWindow != nil
         else { stopNearbyGroupDelivery(); return }
         let peers = nearbyDeliveryPeers()
         guard !peers.isEmpty else { stopNearbyGroupDelivery(); return }
@@ -177,7 +167,7 @@ extension IntercomViewModel {
                 scheduleNearbyGroupDeliveryBatch(on: window, hasMore: batch.hasMore, changed: previous != offered)
             }
         }
-        guard nearbyGroupDeliveryIsForeground || !offered.isEmpty else { stopNearbyGroupDelivery(); return }
+        guard groupDeliveryIsForeground || !offered.isEmpty else { stopNearbyGroupDelivery(); return }
         if let exchange = nearbyGroupDeliveryExchange, exchange.offeredPeers == offered, exchange.peers == peers {
             sendNearbyGroupDeliveries(on: exchange)
             return

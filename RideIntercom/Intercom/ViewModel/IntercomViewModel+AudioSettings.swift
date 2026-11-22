@@ -230,7 +230,7 @@ extension IntercomViewModel {
         enabledRTCTransportRoutes = normalizedRoutes
         callSession.setEnabledRoutes(normalizedRoutes)
         refreshNearbyGroupDelivery()
-        if nearbyGroupDeliveryIsForeground { resumeSavedInvitationReplies() }
+        if groupDeliveryIsForeground { resumeSavedInvitationReplies() }
         saveAppSettings()
         logSettingChange(
             "settings.rtc_routes.changed",
