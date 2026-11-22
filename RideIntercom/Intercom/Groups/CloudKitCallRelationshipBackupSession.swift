@@ -80,10 +80,16 @@ final class CloudKitCallRelationshipBackupSession {
         if current == nil && task == nil { refresh() }
     }
 
+    func activeBackupSigner() throws -> (model: IntercomViewModel, signer: DeviceIdentitySigner) {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner()
+        else { throw Failure.accountUnavailable }
+        return (model, signer)
+    }
+
     func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup,
                  completion: SelectedRestoreCompletion? = nil) async throws {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let owner = signer.principal else { throw Failure.accountUnavailable }
+        let (model, signer) = try activeBackupSigner()
+        guard let owner = signer.principal else { throw Failure.accountUnavailable }
         _ = try original.validated(for: owner)
         let checked = try await readCurrentBackup(for: model, as: signer)
         guard let latest = checked.backup, try batch.hasUnchangedCandidates(from: original, in: latest) else {
@@ -109,8 +115,8 @@ final class CloudKitCallRelationshipBackupSession {
         for contactID: UUID, from original: CallRelationshipBackup,
         completion: SelectedRestoreCompletion? = nil
     ) async throws {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust() else {
+        let (model, signer) = try activeBackupSigner()
+        guard let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust() else {
             throw Failure.accountUnavailable
         }
         _ = try original.validated(for: owner)
@@ -129,8 +135,8 @@ final class CloudKitCallRelationshipBackupSession {
     }
 
     func directRestoreResponderBackup(for request: CallRelationshipRestoreRequest) async throws -> CurrentBackup? {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let trust = try model.internetSettingsStore.identityTrust() else {
+        let (model, signer) = try activeBackupSigner()
+        guard let trust = try model.internetSettingsStore.identityTrust() else {
             throw Failure.accountUnavailable
         }
         let expected = generation
@@ -341,8 +347,9 @@ extension CloudKitCallRelationshipBackupSession {
     }
 
     func relayAccount() throws -> RelayAccount {
-        guard !Task.isCancelled, let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let access = try model.internetSettingsStore.notificationAccess(memberID: signer.memberID),
+        guard !Task.isCancelled else { throw Failure.accountUnavailable }
+        let (model, signer) = try activeBackupSigner()
+        guard let access = try model.internetSettingsStore.notificationAccess(memberID: signer.memberID),
               let trust = try model.internetSettingsStore.identityTrust(), signer.principal == access.principal
         else { throw Failure.accountUnavailable }
         return .init(generation: generation, access: access, signer: signer, trust: trust)

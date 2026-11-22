@@ -4,8 +4,7 @@ extension CloudKitCallRelationshipBackupSession {
     func prepareDirectRestore(
         for contactID: UUID, candidates: [DeviceIdentityCertificate], from original: CallRelationshipBackup
     ) async throws -> (recipient: VerifiedDeviceIdentity, request: CallRelationshipRestoreRequest)? {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner()
-        else { throw Failure.accountUnavailable }
+        let (model, signer) = try activeBackupSigner()
         let (latest, checked) = try await checkDirectRestoreContact(contactID, from: original, for: model, as: signer)
         return try directRestoreRequest(for: contactID, in: latest, candidates: candidates, after: checked, now: Date())
     }

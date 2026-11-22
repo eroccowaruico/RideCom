@@ -5,8 +5,8 @@ extension CloudKitCallRelationshipBackupSession {
         _ response: CallRelationshipRestoreResponse, to request: CallRelationshipRestoreRequest,
         for groupID: UUID, from original: CallRelationshipBackup
     ) async throws {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust()
+        let (model, signer) = try activeBackupSigner()
+        guard let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust()
         else { throw Failure.accountUnavailable }
         _ = try original.validated(for: owner)
         guard let candidate = original.groups.first(where: { $0.id == groupID })
@@ -18,8 +18,8 @@ extension CloudKitCallRelationshipBackupSession {
 
     func respondToGroupRestore(_ request: CallRelationshipRestoreRequest) async throws
         -> CallRelationshipRestoreResponse? {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
+        let (model, signer) = try activeBackupSigner()
+        guard let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
         guard let groupID = try request.verifiedGroupCallID(addressedTo: signer, trust: trust, now: Date()),
               model.groupRepository.storedGroup(groupID)?.kind == .group else { return nil }
         let checked = try await readCurrentBackup(for: model, as: signer)
