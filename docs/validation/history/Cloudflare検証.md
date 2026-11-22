@@ -209,3 +209,17 @@ Appleコード交換・取消の署名、issuer・subject・audience・Key ID・
 固定 `preview` ブランチを削除し、Cloudflareの旧Previewが自動削除されたことを確認した。共有 `main` の `99e11103` を同名のブランチへpushし、自動ビルドと新規配置の成功を確認した。新しい配置にはPreviews BaseのSFU、TURN、端末証明、sandbox APNsのシークレットが入った。確認はbindingの型に限った。
 
 固定PreviewでAppleによる端末登録・Internet通話・TURNを試すため、`previews.vars` の3項目を有効にする。受入には両端末で新しい資格を発行し、グループ招待、双方向音声、再接続後の音声を確認する。[固定Previewを作り直せる条件](../../development/Cloudflare試用手順.md#固定previewを作り直せる条件)
+
+### 再作成したPreviewの通話検証はどこまで進んだか
+
+手元のビルドと試験端末の設定を使わず、共有mainとCloudflareのPreviews Baseから試験先を構築した。`feb61376` の新しい配置で端末登録、通話、TURNの3項目が有効で、通知は無効だった。
+
+| 確認箇所 | 観測結果 |
+|---|---|
+| 公開ヘルス | HTTP 200 |
+| 資格なしでの通話状態取得 | HTTP 401 |
+| 架空の端末によるApple登録の準備 | HTTP 200。期限付きチャレンジを発行 |
+| 共有 `main` からの開発署名ビルド | `4c7b1145` を元にiPhoneとMac用をビルド。両機種で接続先は固定Preview。試験用の保存領域を分離し、資格の同梱は0件 |
+| iPhone 12 miniへの導入 | 開発版Build 1992を導入。端末のロックにより起動を確認できなかった |
+
+端末登録の管理領域と通話の管理領域は確認時点でいずれも0件だった。新規登録、双方向音声、TURN経由の通信、再接続は未確認。次は開発版を2台で起動し、Appleで登録してから試験用グループに参加する。試験後の片付けは[固定Previewの試用手順](../../development/Cloudflare試用手順.md#共有mainから固定previewと通話試験を用意する)に従う。
