@@ -65,15 +65,31 @@ extension CallRelationshipBackup {
         let time = now.timeIntervalSince1970
         _ = try validated(for: Self.verifiedOwner(of: signer, now: time))
         let principal = AccountPrincipal(issuer: identity.issuer, userID: identity.userID)
-        guard identity.expiresAt > time, let contact = contacts.first(where: { $0.id == contactID }),
-              contact.principal == principal, let saved = contact.restoreRecipientFingerprint else { return nil }
-        let callID = AccountCallPair(owner, principal).id
-        let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
-            callID: callID, memberID: identity.memberID, key: identity.deviceKey)
-        guard fingerprint == saved else { return nil }
         let recipient = AccountDeviceBinding(principal: principal, publicKey: identity.deviceKey)
+        guard identity.expiresAt > time,
+              let callID = try pinnedDirectCallID(for: contactID, memberID: identity.memberID, recipient: recipient)
+        else { return nil }
         return try .init(callID: callID, recipientMemberID: identity.memberID, recipient: recipient,
                          signer: signer, now: now)
+    }
+
+    func matchesDirectRestoreRequest(_ request: CallRelationshipRestoreRequest, callID: UUID,
+                                     contactID: UUID) throws -> Bool {
+        let address = request.challenge
+        guard address.callID == callID else { return false }
+        return try pinnedDirectCallID(for: contactID, memberID: address.recipientMemberID,
+                                      recipient: address.recipient) == callID
+    }
+
+    private func pinnedDirectCallID(for contactID: UUID, memberID: String, recipient: AccountDeviceBinding) throws
+        -> UUID? {
+        guard let contact = contacts.first(where: { $0.id == contactID }),
+              contact.principal == recipient.principal, let saved = contact.restoreRecipientFingerprint
+        else { return nil }
+        let callID = AccountCallPair(owner, recipient.principal).id
+        let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
+            callID: callID, memberID: memberID, key: recipient.publicKey)
+        return fingerprint == saved ? callID : nil
     }
 }
 

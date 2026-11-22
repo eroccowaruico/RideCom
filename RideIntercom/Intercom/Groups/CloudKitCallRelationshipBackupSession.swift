@@ -71,7 +71,7 @@ final class CloudKitCallRelationshipBackupSession {
         guard let active = try model.callRelationshipBackupSigner(),
               active.principal == owner, active.memberID == signer.memberID, active.publicKey == signer.publicKey,
               let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
-        guard let latest = stored?.backup, batch.hasUnchangedCandidates(from: original, in: latest) else {
+        guard let latest = stored?.backup, try batch.hasUnchangedCandidates(from: original, in: latest) else {
             throw Failure.backupChanged
         }
         try model.groupRepository.restoreCallRelationships(batch, as: active, trust: trust)
@@ -131,14 +131,21 @@ final class CloudKitCallRelationshipBackupSession {
 }
 
 private extension ConfirmedCallRestore {
-    func hasUnchangedCandidates(from original: CallRelationshipBackup, in latest: CallRelationshipBackup) -> Bool {
+    func hasUnchangedCandidates(from original: CallRelationshipBackup, in latest: CallRelationshipBackup) throws
+        -> Bool {
         guard owner == original.owner, owner == latest.owner else { return false }
-        return users.allSatisfy { user in
+        guard users.allSatisfy({ user in
             guard let candidate = original.contacts.first(where: { $0.id == user.id && $0.principal == user.principal })
             else { return false }
             return latest.contacts.contains(candidate)
-        } && calls.allSatisfy { call in
-            guard call.record.kind != .direct else { return true }
+        }) else { return false }
+        return try calls.allSatisfy { call in
+            if call.record.kind == .direct {
+                guard let peer = call.record.accountPair?.other(than: owner),
+                      let contact = users.first(where: { $0.principal == peer }) else { return false }
+                return try latest.matchesDirectRestoreRequest(
+                    call.request, callID: call.record.id, contactID: contact.id)
+            }
             guard let candidate = original.groups.first(where: { $0.id == call.record.id }) else { return false }
             return latest.groups.contains(candidate)
         }

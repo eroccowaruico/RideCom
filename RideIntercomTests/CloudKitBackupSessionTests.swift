@@ -147,6 +147,55 @@ struct CloudKitBackupSessionTests {
         try #require(model.commitGroups([group]))
         return id
     }
+
+    @Test func restoreDoesNotSaveAConfirmationFromAnotherDeviceOfTheSameContact() async throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let fixtures = scenario.fixture
+        let staleDevice = try fixtures.peer("bob-other", account: "b")
+        let oldDevice = try fixtures.peer("alice-old", account: "a")
+        staleDevice.viewModel.allowsNearbyGroupDelivery = false
+        oldDevice.viewModel.allowsNearbyGroupDelivery = false
+        _ = try fixtures.completeGroupContactRegistration(from: staleDevice, to: oldDevice)
+        let stale = staleDevice.viewModel
+        let contact = try #require(stale.savedRemoteUsers.first)
+        try #require(stale.selectUser(contact.id, connectIfIdle: false))
+        let record = try #require(staleDevice.groupStore.snapshot.groups.first { $0.id == scenario.directID })
+        let credential = try #require(try stale.groupRepository.credential(for: record.id))
+
+        let replacement = scenario.replacement.viewModel
+        let requester = try replacement.internetSettingsStore.invitationSigner(memberID: "alice")
+        let responder = try stale.internetSettingsStore.invitationSigner(memberID: "bob-other")
+        let principal = try #require(responder.principal)
+        let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
+        let now = Date()
+        let request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
+                                                          recipient: recipient, signer: requester, now: now)
+        let response = try #require(try stale.groupRepository.confirmRestore(
+            request, as: responder, trust: scenario.trust, now: now))
+        var saved = try #require(scenario.backup.users.first { $0.id == scenario.savedPersonID })
+        saved.memberIDs = [responder.memberID]
+        saved.deviceKeys = [responder.memberID: responder.publicKey]
+        let batch = ConfirmedCallRestore(owner: scenario.backupOwner.principal,
+            previousMemberID: oldDevice.viewModel.localMemberIdentity.memberID, users: [saved],
+            calls: [.init(record: record, credential: credential, request: request, confirmation: response)])
+
+        let sourceStore = InMemoryGroupStore()
+        sourceStore.snapshot = scenario.backup
+        let repository = GroupRepository(store: sourceStore, credentials: scenario.restoredCredentials)
+        _ = try repository.load(localMemberID: scenario.oldSigner.memberID)
+        let candidate = try repository.callRelationshipBackup(as: scenario.oldSigner, now: now.timeIntervalSince1970)
+        _ = try #require(candidate.contacts.first?.restoreRecipientFingerprint)
+        let cloud = CloudAccountFixture(account: "first")
+        _ = try await cloud.store.save(
+            candidate, replacing: nil, as: scenario.oldSigner, now: now.timeIntervalSince1970)
+        let session = cloud.session()
+        session.bind(to: replacement)
+        await session.task?.value
+        await #expect(throws: CloudKitCallRelationshipBackupSession.Failure.backupChanged) {
+            try await session.restore(batch, from: candidate)
+        }
+        #expect(scenario.replacement.groupStore.snapshot.groups.isEmpty)
+    }
 }
 
 @MainActor
