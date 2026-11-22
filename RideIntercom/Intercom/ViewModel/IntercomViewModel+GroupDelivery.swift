@@ -26,8 +26,11 @@ extension IntercomViewModel {
         callRelationshipSync.resumeDirectRestore?()
         guard groupDeliveryClient != nil, canEditSavedGroups else { return }
         requestInvitationInternetReply(restart: true)
-        if hasPendingContactDeletionRelay {
+        if hasPendingContactDeletionRelay || canReceiveRelayedContactDeletions {
             requestGroupDeliverySync(.networkRecovered)
+            if !groupDeliveryIsForeground, hasCurrentAccountAccess {
+                requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
+            }
             return
         }
         guard notifications.canUseNotifications else { return }

@@ -25,6 +25,16 @@ extension IntercomViewModel {
         }
     }
 
+    var canReceiveRelayedContactDeletions: Bool {
+        guard let principal = localAccountPrincipal else { return false }
+        if savedRemoteUsers.contains(where: { contactDeletionRelayPeer($0, local: principal) != nil }) { return true }
+        let formerPairs = groupRepository.contactDeletionFormerPairs
+        guard !formerPairs.isEmpty,
+              let signer = try? internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
+        else { return false }
+        return formerPairs.contains { formerContactDeletionRelayAddress($0, local: principal, signer: signer) != nil }
+    }
+
     func backgroundContactDeletionUploadIDs(
         access: CallNotificationServiceAccess, binding: String
     ) -> Set<InvitationBackgroundUploadID> {
@@ -173,13 +183,22 @@ extension IntercomViewModel {
     private func receiveRelayedContactDeletions(_ session: ContactDeletionRelaySession) async {
         for former in groupRepository.contactDeletionFormerPairs {
             guard contactDeletionRelayIsCurrent(session) else { return }
-            guard let address = former.relay, address.recipient == session.access.principal,
-                  groupRepository.canUseFormerContactDeletionPair(former, signer: session.signer, now: callAccessNow())
-            else { continue }
+            guard let address = formerContactDeletionRelayAddress(
+                former, local: session.access.principal, signer: session.signer
+            ) else { continue }
             guard await receiveRelayedContactDeletion(
                 address, member: former.peerID, key: former.peerKey, session: session) else { return }
         }
         await receiveRelayedDeletionsFromSavedContacts(session)
+    }
+
+    private func formerContactDeletionRelayAddress(
+        _ former: ContactDeletionFormerPair, local: AccountPrincipal, signer: DeviceIdentitySigner
+    ) -> ContactDeletionRelayAddress? {
+        guard let address = former.relay, address.recipient == local,
+              groupRepository.canUseFormerContactDeletionPair(former, signer: signer, now: callAccessNow())
+        else { return nil }
+        return address
     }
 
     private func contactDeletionRelayPeer(_ user: SavedUser, local: AccountPrincipal) -> ContactDeletionRelayPeer? {

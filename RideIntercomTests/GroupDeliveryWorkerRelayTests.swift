@@ -78,7 +78,16 @@ extension GroupDeliveryWorkerTests {
         sender.applyBackgroundInvitationResponse(reply, for: key)
         #expect(!sender.backgroundInvitationUploadIDs().contains(key))
         #expect(sender.groupRepository.contactDeletions.count == (nearbyFirst ? 0 : 1))
-        await receiver.synchronizeGroupDeliveries()
+        if nearbyFirst {
+            await receiver.synchronizeGroupDeliveries()
+        } else {
+            #expect(!receiver.notifications.isEnabled)
+            #expect(!receiver.hasPendingContactDeletionRelay)
+            receiver.setGroupDeliveryForeground(false)
+            receiver.groupDeliveryNetworkPathChanged(isAvailable: false)
+            receiver.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await receiver.groupDeliveryTask?.value
+        }
         #expect(receiver.savedRemoteUsers.isEmpty)
         let reopened = try identities.author.harness(knowing: [], onDisk: true).viewModel
         defer { reopened.stopGroupDeliverySync() }

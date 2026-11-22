@@ -116,7 +116,7 @@ extension GroupDeliveryFlowTests {
             try #require(relay.entry?.state == "pending")
             let reusedPacket = relay.submitted == [packet, packet]
             #expect(reusedPacket)
-            #expect(backgroundStarts == 1)
+            #expect(backgroundStarts == 2)
         }
         sender.stopGroupDeliverySync()
         return packet
@@ -141,7 +141,11 @@ extension GroupDeliveryFlowTests {
         if order != .internetOnPathRecovery { await reopenedSender.synchronizeGroupDeliveries() }
         #expect(relay.entry?.state == "pending")
         #expect(relay.submitted == [packet, packet])
-        await reopenedRecipient.synchronizeGroupDeliveries()
+        if order == .internetOnPathRecovery {
+            await receiveContactDeletionOnBackgroundNetworkRecovery(reopenedRecipient)
+        } else {
+            await reopenedRecipient.synchronizeGroupDeliveries()
+        }
         #expect(reopenedRecipient.savedRemoteUsers.isEmpty)
         #expect(relay.entry?.state == "received")
         if order == .nearbyFirst {
@@ -169,6 +173,24 @@ extension GroupDeliveryFlowTests {
             #expect(reopenedRecipient.groupRepository.contactDeletionFormerPairs.isEmpty)
             #expect(reopenedSender.groupRepository.contactDeletionFormerPairs.isEmpty)
         }
+    }
+
+    private func receiveContactDeletionOnBackgroundNetworkRecovery(_ recipient: IntercomViewModel) async {
+        #expect(!recipient.notifications.canUseNotifications)
+        #expect(!recipient.hasPendingContactDeletionRelay)
+        var backgroundStarts = 0
+        recipient.beginGroupDeliveryBackgroundTime = { _ in
+            backgroundStarts += 1
+            return {}
+        }
+        recipient.setGroupDeliveryForeground(false)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: false)
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(recipient.endGroupDeliveryBackgroundTime != nil)
+        let requestsOnRecovery = backgroundStarts
+        recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(backgroundStarts == requestsOnRecovery)
+        await recipient.groupDeliveryTask?.value
     }
 
     @Test func contactDeletionSealsOneInternetPacketBeforeDiscardingThePairKey() throws {
