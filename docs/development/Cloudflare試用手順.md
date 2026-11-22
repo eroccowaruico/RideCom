@@ -38,11 +38,11 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 
 `CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
 
-Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。`SERVICE_ENABLED = "true"`などの通常変数と6つのDO bindingは`wrangler.toml`の`previews`へ定義済み。SFUの値・資格はファイルやGitへ埋め込まず、Baseから継承する。
+Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。両端末のAppには同じPreview URLを設定する。通常変数と6つのDO bindingは`wrangler.toml`の`previews`に定義する。固定Previewでは配置が参照するSFU App IDと、そのIDに対応するSecretを照合する。
 
-Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。CLIでプレビューを配置する場合は下記の依存導入と`wrangler login`の後、`npm --prefix server run preview`をリポジトリrootで実行する。固定名で手動試用する場合は`npm --prefix server run preview -- --name trial`と指定できる。
+Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。手動配置でも対象は固定Previewとする。依存を導入して認証した後、リポジトリのルートで `npm --prefix server run preview -- --name preview` を実行する。
 
-GitHub連携ではSettings → Builds → Branch controlのEnable Preview BuildsをONにする。Preview commandを`npx wrangler preview`にする。作業branchへのpushでそのbranch専用のプレビューへ配置する。Production branchは`main`、既存のdeploy commandは`npx wrangler deploy`のまま維持し、プレビューのために本番の配置経路を置き換えない。root directoryは`server`、build commandは空欄。Productionの資格は本番を有効化するときに本番用の値を登録する。
+GitHub連携ではSettings → Builds → Branch controlのEnable Preview BuildsをONにする。Preview commandを`npx wrangler preview`にする。通常の試用は共有mainから固定 `preview` ブランチへ反映し、同名のPreviewで行う。Production branchは`main`、既存のdeploy commandは`npx wrangler deploy`のまま維持し、プレビューのために本番の配置経路を置き換えない。root directoryは`server`、build commandは空欄。Productionの資格は本番を有効化するときに本番用の値を登録する。
 
 [公式プレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)と[GitHub連携](https://developers.cloudflare.com/workers/ci-cd/builds/)を参照する。
 
@@ -122,6 +122,20 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 過去の試験グループや招待リンクを前提にせず、手順3から新しく作った状態で比較する。[試験データと判定の再現条件](../policies/開発方針.md#試験データを作り直し同じ条件で判定する)に従い、実行したmainのコミット、手順・入力の変更点、両端での合否を記録する。
 
 固定Previewの再作成では、旧配置専用の端末登録とDurable Objectの保存データを引き継げない。既存のPreviewを削除して再作成する場合は、試験で保持すべきデータの有無を事前に確認する。
+
+#### 固定Previewを作り直せる条件
+
+通常の通話試験は同じ固定Previewで繰り返す。作り直す際に必要な入力は次の3か所からそろえる。
+
+| 入力元 | 再現する内容 |
+|---|---|
+| 共有mainの対象コミット | Worker、依存関係のロックファイル、Previewの通常変数・binding・migration、固定名を指定する配置手順 |
+| 管理されたPreview用の資格 | Previews Baseと発行元の手順から、対象環境の参照先と対応する資格を用意する。旧配置にしかない設定は供給元と手順に反映する。秘密値は記録しない |
+| 新しく用意する試験データ | 空の状態から今回の端末登録・グループ・招待を用意し、試験後に回収する。使用する接続先と合否の条件をそろえる |
+
+構成の変更時は、対象コミットを空の作業場所に展開して依存を復元し、Workerをビルドしてローカル試験を通す。管理側では、作成時に使う設定と固定Previewの実効設定を照合する。設定の有無、既存配置への再デプロイ、既存端末での通話は、それぞれその工程の結果として記録する。
+
+新規作成からの実環境試験は、固定Previewが未作成のとき、または保持すべきデータ・利用中の試験・回収方法を確認して合意した再作成の機会に行う。上の手順1から5までを同じ固定名で実行し、対象コミット、初期状態、両端の通話結果と回収結果を残す。実施記録がない場合や構成変更で以前の結果が使えなくなった場合は、次のサーバー資源点検で、未確認の条件と試用への影響を照合する。担当者は再作成を試す日程を調整して検証待ちに残す。
 
 ### 旧手動トークンによる新規の試用
 
