@@ -3,6 +3,8 @@ import CryptoKit
 import RTC
 
 extension IntercomViewModel {
+    var fixedInternetWorkerOrigin: String? { internetSettingsStore.fixedWorkerOrigin?.absoluteString }
+
     func makeInternetAccountAuthorization() throws -> InternetAccountAuthorization {
         guard canStartCalls, let accountUserID else { throw InternetAccountClient.Failure.rejected }
         #if DEBUG && RIDEINTERCOM_VALIDATION
@@ -13,6 +15,7 @@ extension IntercomViewModel {
             memberID: localMemberIdentity.memberID,
             deviceKey: IdentityEncoding.encode(
                 try internetSettingsStore.deviceSigningKey().publicKey.x963Representation),
+            resolveOrigin: internetSettingsStore.workerOrigin,
             currentUser: { [weak self] in
                 guard let self, self.canStartCalls else { return nil }
                 return self.accountUserID

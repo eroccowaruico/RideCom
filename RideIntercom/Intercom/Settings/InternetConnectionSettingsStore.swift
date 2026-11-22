@@ -8,15 +8,18 @@ final class InternetConnectionSettingsStore {
     private let service: String
     private let developmentDefaults: [String: String]?
     private let permitsServiceAccess: Bool
+    let fixedWorkerOrigin: URL?
     private let defaults: UserDefaults
     private let deniedKey = "InternetAccount.requiresSignIn"
     private let resetKey = "InternetAccount.requiresDataReset"
     var requiresAccountDataReset: Bool { defaults.bool(forKey: resetKey) }
     init(keychain: KeychainSecretStoring = SystemKeychainSecretStore(), namespace: String = "RideIntercom",
-         developmentDefaults: [String: String]? = nil, permitsServiceAccess: Bool = true) {
+         developmentDefaults: [String: String]? = nil, permitsServiceAccess: Bool = true,
+         fixedWorkerOrigin: URL? = nil) {
         self.keychain = keychain; self.service = namespace + ".InternetConnection"
         self.developmentDefaults = developmentDefaults
         self.permitsServiceAccess = permitsServiceAccess
+        self.fixedWorkerOrigin = fixedWorkerOrigin
         guard let defaults = UserDefaults(suiteName: namespace) else {
             preconditionFailure("Invalid UserDefaults suite")
         }
@@ -32,23 +35,31 @@ final class InternetConnectionSettingsStore {
             && environment["XCTestConfigurationFilePath"] == nil && environment["XCTestBundlePath"] == nil
         #if DEBUG
         let developmentDefaults = info["DevelopmentInternetConnection"] as? [String: String]
+        let fixedWorkerOrigin: URL? = nil
         #else
         let developmentDefaults: [String: String]? = nil
+        guard let fixedWorkerOrigin = URL(string: "https://rideintercom.analog.workers.dev") else {
+            preconditionFailure("Invalid production Worker origin")
+        }
         #endif
         return .init(keychain: keychain, namespace: namespace, developmentDefaults: developmentDefaults,
-                     permitsServiceAccess: permitsServiceAccess)
+                     permitsServiceAccess: permitsServiceAccess, fixedWorkerOrigin: fixedWorkerOrigin)
     }
     private struct Saved: Codable {
         let workerURL: URL; let accessToken: String; var identity: DeviceIdentityCertificate?
         var memberID: String?; var binding: AccountDeviceBinding?
     }
     enum ValidationError: Error { case invalidURL, missingToken, disabledDuringLocalTests, accountReplaced }
-    private func validated(url: String, token: String) throws -> Saved {
-        guard let url = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)),
-            url.scheme == "https", url.host != nil,
-            url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-            url.path.isEmpty || url.path == "/"
+    func workerOrigin(_ text: String) throws -> URL {
+        guard let origin = try? InternetAccountClient.origin(text) else { throw ValidationError.invalidURL }
+        guard let fixedWorkerOrigin else { return origin }
+        guard IdentityEncoding.origin(origin) == fixedWorkerOrigin.absoluteString
         else { throw ValidationError.invalidURL }
+        return fixedWorkerOrigin
+    }
+
+    private func validated(url: String, token: String) throws -> Saved {
+        let url = try workerOrigin(url)
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty, token.count <= 256 else { throw ValidationError.missingToken }
         return Saved(workerURL: url, accessToken: token)
@@ -89,10 +100,9 @@ final class InternetConnectionSettingsStore {
     func load() throws -> RTC.CloudflareRealtimeConfiguration? {
         guard permitsServiceAccess, !requiresAccountDataReset, !defaults.bool(forKey: deniedKey) else { return nil }
         let saved: Saved
-        if let value = try keychain.secret(service: service, account: "current") {
-            let decoded = try JSONDecoder().decode(Saved.self, from: Data(value.utf8))
-            saved = try validated(url: decoded.workerURL.absoluteString, token: decoded.accessToken)
-        } else if let developmentDefaults {
+        if let stored = try registration(account: "current")?.saved {
+            saved = try validated(url: stored.workerURL.absoluteString, token: stored.accessToken)
+        } else if fixedWorkerOrigin == nil, let developmentDefaults {
             saved = try validated(
                 url: developmentDefaults["workerURL"] ?? "", token: developmentDefaults["accessToken"] ?? "")
         } else {
@@ -117,8 +127,7 @@ final class InternetConnectionSettingsStore {
     }
     func loadIdentity(memberID: String) throws -> VerifiedDeviceIdentity? {
         guard permitsServiceAccess, !requiresAccountDataReset, !defaults.bool(forKey: deniedKey),
-              let raw = try keychain.secret(service: service, account: "current") else { return nil }
-        let saved = try JSONDecoder().decode(Saved.self, from: Data(raw.utf8))
+              let saved = try registration(account: "current")?.saved else { return nil }
         guard let envelope = saved.identity else { return nil }
         let identity = try envelope.verify(origin: saved.workerURL, trustedIssuerKey: envelope.issuerKey)
         guard let key = try storedDeviceSigningKey(), identity.memberID == memberID,
@@ -170,15 +179,15 @@ final class InternetConnectionSettingsStore {
     /// Identity and issuer verification keys are not Internet credentials. A
     /// replacement current record takes precedence, including one without proof.
     private func retainedRegistration() throws -> Saved? {
-        guard permitsServiceAccess, !requiresAccountDataReset,
-              let raw = try keychain.secret(service: service, account: "current")
-                ?? keychain.secret(service: service, account: "deletion-account") else { return nil }
-        return try JSONDecoder().decode(Saved.self, from: Data(raw.utf8))
+        guard permitsServiceAccess, !requiresAccountDataReset else { return nil }
+        return try registration(account: "current")?.saved ?? registration(account: "deletion-account")?.saved
     }
 
     private func registration(account: String) throws -> (saved: Saved, raw: String)? {
         guard let raw = try keychain.secret(service: service, account: account) else { return nil }
-        return (try JSONDecoder().decode(Saved.self, from: Data(raw.utf8)), raw)
+        let saved = try JSONDecoder().decode(Saved.self, from: Data(raw.utf8))
+        if fixedWorkerOrigin != nil, (try? workerOrigin(saved.workerURL.absoluteString)) == nil { return nil }
+        return (saved, raw)
     }
 
     private func validateBinding(_ saved: Saved) throws {
@@ -262,8 +271,7 @@ final class InternetConnectionSettingsStore {
     }
     func pendingRevocation() throws -> RTC.CloudflareRealtimeConfiguration? {
         guard permitsServiceAccess, !requiresAccountDataReset, defaults.bool(forKey: deniedKey),
-              let raw = try keychain.secret(service: service, account: "current") else { return nil }
-        let saved = try JSONDecoder().decode(Saved.self, from: Data(raw.utf8))
+              let saved = try registration(account: "current")?.saved else { return nil }
         let value = try validated(url: saved.workerURL.absoluteString, token: saved.accessToken)
         guard value.accessToken.hasPrefix("ri1.") else { return nil }
         return .init(workerURL: value.workerURL, accessToken: value.accessToken)

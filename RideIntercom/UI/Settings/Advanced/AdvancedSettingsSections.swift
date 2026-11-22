@@ -122,7 +122,9 @@ struct AdvancedInternetConnectionPanel: View {
         } header: {
             Text("Internet Connection")
         } footer: {
-            Text("Set the service address and connect with Apple, or enter a device token for testing.")
+            if viewModel.fixedInternetWorkerOrigin == nil {
+                Text("Set the service address and connect with Apple, or enter a device token for testing.")
+            }
         }
     }
 }
@@ -137,49 +139,59 @@ struct AdvancedInternetConnectionEditor: View {
     @FocusState private var focusedField: Field?
 
     var body: some View {
+        let fixedOrigin = viewModel.fixedInternetWorkerOrigin
         Form {
             Section {
-                TextField("Worker URL", text: $workerURL, prompt: Text(verbatim: "https://example.workers.dev"))
-                    .focused($focusedField, equals: .url)
-                    .internetAddressInput()
-                    .accessibilityIdentifier("internetWorkerURL")
-            }
-            InternetAppleSignInSection(viewModel: viewModel, workerURL: workerURL)
-            Section {
-                SecureField("Device access token", text: $token, prompt: Text(verbatim: "Paste the token"))
-                    .focused($focusedField, equals: .token)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("internetDeviceToken")
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                Button("Save Internet Connection") {
-                    focusedField = nil
-                    do {
-                        try viewModel.saveInternetConnection(url: workerURL, token: token)
-                        token = ""
-                        status = "Saved. Use Check Internet Service in Diagnostics before connecting."
-                    } catch {
-                        status = "Could not save. Check the HTTPS URL, device token, and Keychain access."
-                    }
+                if let fixedOrigin {
+                    LabeledContent("Worker URL") { Text(verbatim: fixedOrigin).textSelection(.enabled) }
+                        .accessibilityIdentifier("internetWorkerURL")
+                } else {
+                    TextField("Worker URL", text: $workerURL, prompt: Text(verbatim: "https://example.workers.dev"))
+                        .focused($focusedField, equals: .url)
+                        .internetAddressInput()
+                        .accessibilityIdentifier("internetWorkerURL")
                 }
-                .disabled(workerURL.isEmpty || token.isEmpty)
-                .accessibilityIdentifier("saveInternetConnection")
-                if !status.isEmpty { Text(LocalizedStringKey(status)).font(.footnote) }
-            } header: {
-                Text("Manual Access Token")
-            } footer: {
-                Text(
-                    """
-                    Use your service URL and device token. Saving ends the current call. Cloudflare account \
-                    secrets stay on the server.
-                    """
-                )
             }
+            InternetAppleSignInSection(viewModel: viewModel, workerURL: fixedOrigin ?? workerURL)
+            if fixedOrigin == nil { manualAccessToken }
         }
         .onAppear {
             workerURL = viewModel.internetWorkerURL
             if viewModel.hasInternetCredentials { status = "A device token is configured." }
+        }
+    }
+
+    private var manualAccessToken: some View {
+        Section {
+            SecureField("Device access token", text: $token, prompt: Text(verbatim: "Paste the token"))
+                .focused($focusedField, equals: .token)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("internetDeviceToken")
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+            Button("Save Internet Connection") {
+                focusedField = nil
+                do {
+                    try viewModel.saveInternetConnection(url: workerURL, token: token)
+                    token = ""
+                    status = "Saved. Use Check Internet Service in Diagnostics before connecting."
+                } catch {
+                    status = "Could not save. Check the HTTPS URL, device token, and Keychain access."
+                }
+            }
+            .disabled(workerURL.isEmpty || token.isEmpty)
+            .accessibilityIdentifier("saveInternetConnection")
+            if !status.isEmpty { Text(LocalizedStringKey(status)).font(.footnote) }
+        } header: {
+            Text("Manual Access Token")
+        } footer: {
+            Text(
+                """
+                Use your service URL and device token. Saving ends the current call. Cloudflare account \
+                secrets stay on the server.
+                """
+            )
         }
     }
 }

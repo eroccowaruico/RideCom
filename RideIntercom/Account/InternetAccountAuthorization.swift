@@ -199,6 +199,7 @@ final class InternetAccountAuthorization {
     private let memberID: String
     private let deviceKey: String
     private let client: InternetAccountClient
+    private let resolveOrigin: (String) throws -> URL
     private let currentUser: () -> String?
     private let save: (URL, InternetAccountCredential, VerifiedDeviceIdentity) throws -> Void
     private var challenge: InternetAccountChallenge?
@@ -210,14 +211,17 @@ final class InternetAccountAuthorization {
 
     init(
         expectedUserID: String, deviceID: String, memberID: String, deviceKey: String,
-        client: InternetAccountClient = .init(), currentUser: @escaping () -> String?,
+        client: InternetAccountClient = .init(),
+        resolveOrigin: @escaping (String) throws -> URL = InternetAccountClient.origin,
+        currentUser: @escaping () -> String?,
         save: @escaping (URL, InternetAccountCredential, VerifiedDeviceIdentity) throws -> Void) {
         self.expectedUserID = expectedUserID; self.deviceID = deviceID; self.memberID = memberID
         self.deviceKey = deviceKey; self.client = client; self.currentUser = currentUser; self.save = save
+        self.resolveOrigin = resolveOrigin
     }
     func cancel() { generation = UUID(); challenge = nil; origin = nil; state = nil; isBusy = false }
     func prepare(url: String) async {
-        let address = try? InternetAccountClient.origin(url)
+        let address = try? resolveOrigin(url)
         if address == retryOrigin, let deadline = retryNotBefore, deadline > Date() {
             message = retryMessage(seconds: max(1, Int(ceil(deadline.timeIntervalSinceNow))))
             return
@@ -235,9 +239,10 @@ final class InternetAccountAuthorization {
             retryNotBefore = nil; retryOrigin = nil
         } catch {
             guard generation == operation else { return }
-            message = failureMessage(
-                error, origin: address,
-                fallback: "Internet sign-in could not be prepared. Check the service address and try again.")
+            let fallback = address == nil
+                ? "Internet sign-in could not be prepared. Check the service address and try again."
+                : "Internet sign-in could not be prepared. Try again."
+            message = failureMessage(error, origin: address, fallback: fallback)
         }
         if generation == operation { isBusy = false }
     }

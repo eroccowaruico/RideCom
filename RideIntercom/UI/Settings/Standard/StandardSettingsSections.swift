@@ -130,19 +130,21 @@ struct StandardInternetConnectionSection: View {
     }
 }
 
-/// The service address and connecting with Apple; no device token.
+/// Connect with Apple, with an editable service address in development builds.
 struct StandardInternetConnectionEditor: View {
     @Bindable var viewModel: IntercomViewModel
     @State private var address = ""
 
     var body: some View {
         Form {
-            Section {
-                TextField("Service Address", text: $address, prompt: Text("Address starting with https://"))
-                    .internetAddressInput()
-                    .accessibilityIdentifier("internetWorkerURL")
+            if viewModel.fixedInternetWorkerOrigin == nil {
+                Section {
+                    TextField("Service Address", text: $address, prompt: Text("Address starting with https://"))
+                        .internetAddressInput()
+                        .accessibilityIdentifier("internetWorkerURL")
+                }
             }
-            InternetAppleSignInSection(viewModel: viewModel, workerURL: address)
+            InternetAppleSignInSection(viewModel: viewModel, workerURL: viewModel.fixedInternetWorkerOrigin ?? address)
         }
         .onAppear { address = viewModel.internetWorkerURL }
     }

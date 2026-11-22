@@ -27,7 +27,9 @@ final class InternetAccountTestFixture {
             accessToken: "ri1.\(String(repeating: "a", count: 64)).\(deviceID).\(String(repeating: "c", count: 64))"
         )
     }
-    func makeAuthorization() throws -> InternetAccountAuthorization {
+    func makeAuthorization(
+        resolveOrigin: @escaping (String) throws -> URL = InternetAccountClient.origin
+    ) throws -> InternetAccountAuthorization {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AccountHTTPStub.self]
         AccountHTTPStub.reset(deviceID: deviceID)
@@ -36,6 +38,7 @@ final class InternetAccountTestFixture {
             memberID: "member-fixture",
             deviceKey: IdentityEncoding.encode(try signingKey.publicKey.x963Representation),
             client: InternetAccountClient(session: URLSession(configuration: configuration)),
+            resolveOrigin: resolveOrigin,
             currentUser: { [unowned self] in currentUser },
             save: { [unowned self] _, value, identity in
                 if saveFails { throw URLError(.cannotWriteToFile) }

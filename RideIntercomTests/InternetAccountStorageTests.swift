@@ -7,6 +7,46 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test func fixedWorkerRegistrationUsesOnlyItsOwnEnvironment() async throws {
+        let fixture = InternetAccountTestFixture()
+        defer { fixture.remove() }
+        let preview = InternetConnectionSettingsStore(keychain: fixture.keychain, namespace: fixture.namespace)
+        try fixture.saveDeviceID(fixture.deviceID)
+        let previewIdentity = try fixture.identity(origin: "https://preview.test")
+        try preview.save(url: "https://preview.test", token: fixture.credential.accessToken, identity: previewIdentity)
+        let prior = fixture.keychain.values
+        let origin = try #require(URL(string: "https://account.test"))
+        let release = InternetConnectionSettingsStore(
+            keychain: fixture.keychain, namespace: fixture.namespace, fixedWorkerOrigin: origin)
+        let authorization = try fixture.makeAuthorization(resolveOrigin: release.workerOrigin)
+
+        await authorization.prepare(url: "https://preview.test")
+        #expect(AccountHTTPStub.requests.isEmpty)
+        #expect(!authorization.isReady)
+        #expect(try release.load() == nil)
+        #expect(try release.loadIdentity(memberID: "member-fixture") == nil)
+        #expect(try release.loadPrincipal(memberID: "member-fixture") == nil)
+        #expect(try release.identityTrust() == nil)
+        #expect(try release.deletionAccess() == nil)
+        #expect(try release.retireAppleCredential() == nil)
+        #expect(throws: (any Error).self) {
+            try release.save(url: "https://preview.test", token: fixture.credential.accessToken)
+        }
+        #expect(fixture.keychain.values == prior)
+
+        await authorization.prepare(url: "https://account.test:443/")
+        #expect(AccountHTTPStub.requests.first?.url?.absoluteString == "https://account.test/api/auth/apple/challenge")
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        authorization.configure(request)
+        await authorization.exchange(userID: "apple-user", state: request.state, identityToken: Data("proof".utf8))
+        let credential = try #require(fixture.saved)
+        let identity = try #require(fixture.savedIdentity)
+        try release.save(url: origin.absoluteString, token: credential.accessToken, identity: identity)
+        #expect(try release.load()?.workerURL == origin)
+        #expect(try release.notificationAccess(memberID: "member-fixture")?.origin == origin)
+        #expect(try release.deletionAccess()?.workerURL == origin)
+    }
+
     @Test func verifiedIdentityAndPrivateKeySurviveRestartAndAreDisabledOnSignOut() async throws {
         let fixture = InternetAccountTestFixture()
         defer { fixture.remove() }

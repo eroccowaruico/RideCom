@@ -3054,6 +3054,17 @@
         }
       }
     },
+    "Internet sign-in could not be prepared. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続の準備ができませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
     "Internet sign-in could not be saved. Prepare sign-in and try again." : {
       "extractionState" : "manual",
       "localizations" : {
