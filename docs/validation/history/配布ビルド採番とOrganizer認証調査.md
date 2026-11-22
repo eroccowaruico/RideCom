@@ -159,6 +159,12 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 2,200コミットの監査で、登録済みのArchiveと検証領域のArchiveの署名を再検証した。いずれも署名は有効で、アプリとプロビジョニングプロファイルの通常通知の環境は `development` だった。以前の記録では本番の通常通知の構成まで確認したと記載していた。Build 2077の本番用IPAの署名は別途確認が必要。再検証の集計は `.validation/security-audit-2200/archive-2077-confirmation.json` に保存した。
 
+## 2,280コミットの区切りでiOS Build 2213をArchiveする
+
+2026-11-23。手元のmainの第一親で2,280件目の `d0f04ffd` に対応する共有main `b774c08d` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2213。署名とApp・WebRTCのdSYMが一致し、実行ファイルに本番Workerの接続先が入っていた。Watch App、カメラの利用目的、CallKitとPushToTalkの動的リンク、iCloudの権限は含まれなかった。署名時の通常通知の環境は `development`。[標準のArchive手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
+
+登録先は `~/Library/Developer/Xcode/Archives/2026-11-23/RideIntercom iOS 1.0.0 (2213).xcarchive`。登録済み・一覧表示は未確認。App Store Connectへの送信は行っていない。次回用の共通採番は2214へ進んだ。
+
 ## 2,250コミットの区切りでiOS Build 2142をArchiveする
 
 2026-11-23。手元のmainの第一親の2,250件目は `a2995cf4`。対応する共有mainの `9524896a` を展開し、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。[標準のArchive手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
