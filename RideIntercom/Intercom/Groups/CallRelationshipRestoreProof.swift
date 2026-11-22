@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 
-struct CallRelationshipRestoreRequest: Codable {
-    fileprivate struct Challenge: Codable {
+struct CallRelationshipRestoreRequest: Codable, Equatable {
+    fileprivate struct Challenge: Codable, Equatable {
         let id: UUID
         let callID: UUID
         let recipientMemberID: String
@@ -22,6 +22,8 @@ struct CallRelationshipRestoreRequest: Codable {
 
     fileprivate let challenge: Challenge
     fileprivate let proof: DeviceIdentityProof
+
+    var expiresAt: Date { challenge.expiresAt }
 
     init(callID: UUID, recipientMemberID: String, recipient: AccountDeviceBinding,
          signer: DeviceIdentitySigner, now: Date, confirmedRegistrationID: UUID? = nil) throws {
@@ -69,7 +71,7 @@ struct CallRelationshipRestoreRequest: Codable {
         try verifiedRequesterIdentity(trust: trust, now: now).restoreBinding
     }
 
-    private func verifiedRequesterIdentity(trust: DeviceIdentityTrust, now: Date) throws -> VerifiedDeviceIdentity {
+    func verifiedRequesterIdentity(trust: DeviceIdentityTrust, now: Date) throws -> VerifiedDeviceIdentity {
         guard challenge.isCurrent(at: now) else { throw DeviceIdentityProof.Failure.invalid }
         let requester = try proof.verify(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore,
                                          memberID: challenge.requesterMemberID, trust: trust, now: now)
@@ -116,10 +118,13 @@ extension CallRelationshipBackup {
     }
 
     func matchesDirectRestoreRequest(_ context: CallRelationshipRestoreContext, contactID: UUID) throws -> Bool {
-        let address = context.request.challenge
-        guard address.callID == context.record.id, let registration = address.confirmedRegistrationID else {
-            return false
-        }
+        guard context.request.challenge.callID == context.record.id else { return false }
+        return try matchesDirectRestoreRequest(context.request, contactID: contactID)
+    }
+
+    func matchesDirectRestoreRequest(_ request: CallRelationshipRestoreRequest, contactID: UUID) throws -> Bool {
+        let address = request.challenge
+        guard let registration = address.confirmedRegistrationID else { return false }
         let contact = contacts.first { $0.id == contactID }
         return try matchesDirectRestorePeer(contact, memberID: address.recipientMemberID, recipient: address.recipient,
                                             callID: address.callID, registration: registration)

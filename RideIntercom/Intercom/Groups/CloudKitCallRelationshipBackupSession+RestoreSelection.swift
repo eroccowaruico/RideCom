@@ -40,17 +40,16 @@ extension CloudKitCallRelationshipBackupSession {
         in checkpoints: CallRelationshipBackupCheckpointStore, using client: InternetAccountClient
     ) async throws -> SelectedDirectRestorePreparation {
         let account = try relayAccount()
-        guard let selection = try checkpoints.loadRestoreSelection(as: account.signer) else { return .noSelection }
+        guard let progress = try checkpoints.loadRestoreProgress(as: account.signer) else { return .noSelection }
+        let selection = progress.selection
         do {
             let checked = try await readCurrentBackup(scopedTo: account)
             try requireRestoreSelection(selection, as: checked.signer)
-            guard let contact = checked.backup?.contacts.first(where: { $0.id == selection.contactID }),
+            guard let backup = checked.backup,
+                  let contact = backup.contacts.first(where: { $0.id == selection.contactID }),
                   try selection.matches(contact) else { throw Failure.backupChanged }
-            let pending = try await prepareSelectedDirectRestore(selection, checked: checked,
-                                                                 scopedTo: account, using: client)
-            try requireRelayAccount(account)
-            try requireRestoreSelection(selection, as: checked.signer)
-            return pending.map(SelectedDirectRestorePreparation.ready) ?? .waitingForDevice
+            return try await sendSelectedDraft(progress, checked: checked, scopedTo: account,
+                                               in: checkpoints, using: client)
         } catch Failure.backupChanged {
             try requireRelayAccount(account)
             if try checkpoints.loadRestoreSelection(as: account.signer) == selection {
@@ -58,6 +57,57 @@ extension CloudKitCallRelationshipBackupSession {
             }
             return .selectionChanged
         }
+    }
+
+    private func sendSelectedDraft(
+        _ saved: CallRelationshipBackupCheckpointStore.RestoreProgress, checked: CurrentBackup,
+        scopedTo account: RelayAccount, in checkpoints: CallRelationshipBackupCheckpointStore,
+        using client: InternetAccountClient
+    ) async throws -> SelectedDirectRestorePreparation {
+        guard let backup = checked.backup else { throw Failure.backupChanged }
+        let selection = saved.selection
+        var progress = saved
+        if let draft = progress.draft, try !draft.isCurrent(for: selection.contactID, in: backup,
+                                                            as: account.signer, trust: account.trust, now: Date()) {
+            progress.draft = nil
+            try checkpoints.saveRestoreProgress(progress, as: account.signer)
+        }
+        let pending: PendingDirectRestore
+        if let draft = progress.draft {
+            let submission = DirectCallRestoreRelaySubmission(sender: account.access.principal, payload: draft.payload)
+            pending = .init(account: account, contactID: selection.contactID, backup: backup,
+                            request: draft.request, submission: submission, selection: selection)
+        } else {
+            guard let prepared = try await prepareSelectedDirectRestore(selection, checked: checked,
+                                                                        scopedTo: account, using: client)
+            else { return .waitingForDevice }
+            pending = prepared
+            progress.draft = pending.requestDraft
+            try checkpoints.saveRestoreProgress(progress, as: account.signer)
+        }
+        if progress.draft?.needsSubmission(at: Date()) == true {
+            try await sendRelayedDirectRestore(pending, using: client)
+            try requireRelayAccount(account)
+            guard try checkpoints.loadRestoreProgress(as: account.signer) == progress
+            else { throw CancellationError() }
+            progress.draft?.submitted = true
+            try checkpoints.saveRestoreProgress(progress, as: account.signer)
+        }
+        return .ready(pending)
+    }
+
+    private func prepareSelectedDirectRestore(
+        _ selection: CallRelationshipBackupCheckpointStore.RestoreSelection, checked: CurrentBackup,
+        scopedTo account: RelayAccount, using client: InternetAccountClient
+    ) async throws -> PendingDirectRestore? {
+        let id = selection.contactID
+        guard let backup = checked.backup, let prepared = try await prepareDirectRestore(
+            for: id, checked: checked, account: account, using: client) else { return nil }
+        try requireRestoreSelection(selection, as: account.signer)
+        let submission = try DirectCallRestoreRelayPacket.seal(
+            .request(value: prepared.request), to: prepared.recipient, as: account.signer, now: Date())
+        return .init(account: account, contactID: id, backup: backup, request: prepared.request,
+                     submission: submission, selection: selection)
     }
 
     func requireRestoreSelection(_ expected: CallRelationshipBackupCheckpointStore.RestoreSelection?,

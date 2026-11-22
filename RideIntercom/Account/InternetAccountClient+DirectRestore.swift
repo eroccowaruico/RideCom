@@ -15,9 +15,11 @@ extension InternetAccountClient {
     func submitDirectRestorePacket(_ submission: DirectCallRestoreRelayPacket.Submission,
                                    access: CallNotificationServiceAccess) async throws {
         try validateRestoreAccess(access, expected: submission.sender)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let result: RestoreDeviceWrite = try await sendJSON(
             origin: access.origin, path: Self.restoreRelayPath, method: "PUT",
-            body: JSONEncoder().encode(submission), token: access.accessToken)
+            body: encoder.encode(submission.payload), token: access.accessToken)
         guard result.state == "queued" || result.state == "retired" else { throw Failure.invalidResponse }
     }
 

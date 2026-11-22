@@ -75,6 +75,8 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let interruptNextRestoreWithdrawal = Mutex(false)
     nonisolated static let interruptNextRestorePublication = Mutex(false)
     nonisolated static let restoreDevicePublicationAttempts = Mutex(0)
+    nonisolated static let interruptNextRestoreRelayReply = Mutex(false)
+    nonisolated static let restoreRelaySubmissionAttempts = Mutex(0)
     nonisolated(unsafe) static var origin: URL?
     struct Cancellation {
         let id: UUID
@@ -116,6 +118,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
                 try Self.checkRestoreWrite(path: original.path, method: value.httpMethod)
                 let (data, result) = try await URLSession.shared.data(for: value)
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
+                try Self.checkRestoreReply(path: original.path, method: value.httpMethod, status: status)
                 await Self.holdRestoreDeviceReadIfRequested(path: original.path, method: value.httpMethod)
                 if status == 200, value.url?.path == "/api/ordinary-group-replies/inbox" {
                     Self.ordinaryReplyInboxReads.withLock { $0 += 1 }
@@ -133,6 +136,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     }
     private static func checkRestoreWrite(path: String, method: String?) throws {
         switch (path, method) {
+        case ("/api/direct-call-restore/relay", "PUT"): restoreRelaySubmissionAttempts.withLock { $0 += 1 }
         case ("/api/direct-call-restore/relay", "DELETE"): try interruptIfRequested(interruptNextRestoreRetirement)
         case ("/api/direct-call-restore/device", "DELETE"): try interruptIfRequested(interruptNextRestoreWithdrawal)
         case ("/api/direct-call-restore/device", "PUT"):
@@ -141,6 +145,12 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
         default: break
         }
     }
+
+    private static func checkRestoreReply(path: String, method: String?, status: Int) throws {
+        guard path == "/api/direct-call-restore/relay", method == "PUT", status == 200 else { return }
+        try interruptIfRequested(interruptNextRestoreRelayReply)
+    }
+
     private static func interruptIfRequested(_ flag: borrowing Mutex<Bool>) throws {
         let interrupted = flag.withLock { value in
             defer { value = false }

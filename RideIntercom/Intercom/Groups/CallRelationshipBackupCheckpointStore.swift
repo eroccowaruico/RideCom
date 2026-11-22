@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// Keeps only fingerprints of cloud candidates that this device has saved or submitted.
+/// Keeps the device's scoped cloud backup and restoration progress.
 struct CallRelationshipBackupCheckpointStore {
     enum Environment: String, Encodable { case development, production }
 
@@ -34,6 +34,11 @@ struct CallRelationshipBackupCheckpointStore {
             guard contactID == candidate.id else { return false }
             return try CallRelationshipBackupCheckpointStore.fingerprint(candidate) == fingerprint
         }
+    }
+
+    struct RestoreProgress: Codable, Equatable {
+        let selection: RestoreSelection
+        var draft: DirectRestoreRequestDraft?
     }
 
     private struct Scope: Encodable {
@@ -69,24 +74,36 @@ struct CallRelationshipBackupCheckpointStore {
     }
 
     func loadRestoreSelection(as signer: DeviceIdentitySigner) throws -> RestoreSelection? {
+        try loadRestoreProgress(as: signer)?.selection
+    }
+
+    func loadRestoreProgress(as signer: DeviceIdentitySigner) throws -> RestoreProgress? {
         let key = try account(as: signer) + ".restore-selection"
         guard let stored = try keychain.secret(service: service, account: key) else { return nil }
-        let value = try JSONDecoder().decode(RestoreSelection.self, from: Data(stored.utf8))
-        guard Self.isFingerprint(value.fingerprint) else { throw KeychainSecretStoreError.invalidData }
+        guard stored.utf8.count <= 48 * 1_024 else { throw KeychainSecretStoreError.invalidData }
+        let value = try JSONDecoder().decode(RestoreProgress.self, from: Data(stored.utf8))
+        guard Self.isFingerprint(value.selection.fingerprint) else { throw KeychainSecretStoreError.invalidData }
         return value
     }
 
     func saveRestoreSelection(_ value: RestoreSelection?, as signer: DeviceIdentitySigner) throws {
+        try saveRestoreProgress(value.map { RestoreProgress(selection: $0) }, as: signer)
+    }
+
+    func saveRestoreProgress(_ value: RestoreProgress?, as signer: DeviceIdentitySigner) throws {
         let key = try account(as: signer) + ".restore-selection"
         if let value {
-            guard Self.isFingerprint(value.fingerprint),
-                  let encoded = String(bytes: try JSONEncoder().encode(value), encoding: .utf8)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .withoutEscapingSlashes
+            guard Self.isFingerprint(value.selection.fingerprint),
+                  let encoded = String(bytes: try encoder.encode(value), encoding: .utf8),
+                  encoded.utf8.count <= 48 * 1_024
             else { throw KeychainSecretStoreError.invalidData }
             try keychain.saveSecret(encoded, service: service, account: key)
         } else {
             try keychain.deleteSecret(service: service, account: key)
         }
-        guard try loadRestoreSelection(as: signer) == value else { throw KeychainSecretStoreError.invalidData }
+        guard try loadRestoreProgress(as: signer) == value else { throw KeychainSecretStoreError.invalidData }
     }
 
     static func fingerprint(_ backup: CallRelationshipBackup) throws -> String {

@@ -6,7 +6,7 @@ import Foundation
 final class CloudKitCallRelationshipBackupSession {
     typealias Account = CallRelationshipBackupCheckpointStore.CloudAccount
 
-    enum Failure: Error, Equatable { case accountUnavailable, backupChanged }
+    enum Failure: Error, Equatable { case accountUnavailable, backupChanged, requestExpired }
 
     struct CurrentBackup {
         let backup: CallRelationshipBackup?
@@ -218,7 +218,9 @@ extension CloudKitCallRelationshipBackupSession {
         fileprivate let selection: CallRelationshipBackupCheckpointStore.RestoreSelection?
         fileprivate var state = PendingDirectRestoreState.awaitingResponse
 
-        fileprivate init(
+        var requestDraft: DirectRestoreRequestDraft { .init(request: request, payload: submission.payload) }
+
+        init(
             account: RelayAccount, contactID: UUID, backup: CallRelationshipBackup,
             request: CallRelationshipRestoreRequest, submission: DirectCallRestoreRelayPacket.Submission,
             selection: CallRelationshipBackupCheckpointStore.RestoreSelection? = nil
@@ -249,20 +251,6 @@ extension CloudKitCallRelationshipBackupSession {
                      submission: submission)
     }
 
-    func prepareSelectedDirectRestore(
-        _ selection: CallRelationshipBackupCheckpointStore.RestoreSelection, checked: CurrentBackup,
-        scopedTo account: RelayAccount, using client: InternetAccountClient
-    ) async throws -> PendingDirectRestore? {
-        let id = selection.contactID
-        guard let backup = checked.backup, let prepared = try await prepareDirectRestore(
-            for: id, checked: checked, account: account, using: client) else { return nil }
-        try requireRestoreSelection(selection, as: account.signer)
-        let submission = try DirectCallRestoreRelayPacket.seal(
-            .request(value: prepared.request), to: prepared.recipient, as: account.signer, now: Date())
-        return .init(account: account, contactID: id, backup: backup, request: prepared.request,
-                     submission: submission, selection: selection)
-    }
-
     func sendRelayedDirectRestore(_ pending: PendingDirectRestore, using client: InternetAccountClient) async throws {
         try requireRelayAccount(pending.account)
         guard case .awaitingResponse = pending.state, let model else { return }
@@ -270,6 +258,10 @@ extension CloudKitCallRelationshipBackupSession {
             pending.contactID, from: pending.backup, for: model, as: pending.account.signer)
         try requireRelayAccount(pending.account)
         try requireRestoreSelection(pending.selection, as: pending.account.signer)
+        let now = Date()
+        guard pending.request.expiresAt > now,
+              Double(pending.submission.payload.expiresAt) > now.timeIntervalSince1970 * 1_000
+        else { throw Failure.requestExpired }
         try await client.submitDirectRestorePacket(pending.submission, access: pending.account.access)
     }
 

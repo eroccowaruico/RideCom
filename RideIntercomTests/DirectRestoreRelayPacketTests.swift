@@ -4,11 +4,27 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct DirectRestoreRelayPacketTests {
+    @Test func savedRequestRequiresTheSameSessionAndAnUnexpiredChallenge() throws {
+        let scenario = try ReplacementScenario()
+        defer { scenario.fixture.disconnect() }
+        let exchange = try Exchange(scenario)
+        let contact = try #require(exchange.backup.contacts.first?.id)
+        let original = DirectRestoreRequestDraft(request: exchange.request, payload: exchange.submission.payload)
+        let draft = try JSONDecoder().decode(DirectRestoreRequestDraft.self, from: JSONEncoder().encode(original))
+        #expect(try draft.isCurrent(for: contact, in: exchange.backup,
+                                    as: exchange.requester, trust: scenario.trust, now: exchange.now))
+        #expect(try !draft.isCurrent(for: contact, in: exchange.backup,
+                                     as: exchange.requester, trust: scenario.trust, now: exchange.request.expiresAt))
+        let renewed = try Exchange.signer(for: scenario.replacement, in: scenario, binding: "d", now: exchange.now)
+        #expect(try !draft.isCurrent(for: contact, in: exchange.backup,
+                                     as: renewed, trust: scenario.trust, now: exchange.now))
+    }
+
     @Test func exchangesTheRequestAndResponseAndRestoresTheOriginalCallKey() throws {
         let scenario = try ReplacementScenario()
         defer { scenario.fixture.disconnect() }
         let exchange = try Exchange(scenario)
-        let submission = exchange.submission
+        let submission = exchange.submission.payload
         #expect(submission.recipient == exchange.target.userID)
         #expect(submission.id == submission.id.lowercased())
         #expect(submission.sessionBinding == exchange.target.sessionBinding)
@@ -53,10 +69,10 @@ struct DirectRestoreRelayPacketTests {
                 try incoming.openRequest(as: signer, trust: scenario.trust, now: exchange.now)
             }
         }
-        var changed = try #require(Data(base64Encoded: submission.packet))
+        var changed = try #require(Data(base64Encoded: submission.payload.packet))
         changed[changed.index(before: changed.endIndex)] ^= 1
         let alteredFields: [[String: Any]] = [
-            ["id": UUID().uuidString.lowercased()], ["expiresAt": submission.expiresAt - 1],
+            ["id": UUID().uuidString.lowercased()], ["expiresAt": submission.payload.expiresAt - 1],
             ["packet": changed.base64EncodedString()], ["senderUserID": String(repeating: "c", count: 64)]
         ]
         for fields in alteredFields {
@@ -142,8 +158,9 @@ struct DirectRestoreRelayPacketTests {
             of submission: DirectCallRestoreRelayPacket.Submission, from sender: VerifiedDeviceIdentity,
             changes: [String: Any] = [:]
         ) throws -> DirectCallRestoreRelayPacket.Delivery {
-            let fields: [String: Any] = ["id": submission.id, "senderUserID": sender.userID,
-                "expiresAt": submission.expiresAt, "packet": submission.packet]
+            let payload = submission.payload
+            let fields: [String: Any] = ["id": payload.id, "senderUserID": sender.userID,
+                "expiresAt": payload.expiresAt, "packet": payload.packet]
             let data = try JSONSerialization.data(withJSONObject: fields.merging(changes) { _, new in new })
             return try JSONDecoder().decode(DirectCallRestoreRelayPacket.Delivery.self, from: data)
         }

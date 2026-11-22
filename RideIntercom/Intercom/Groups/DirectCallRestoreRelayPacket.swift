@@ -1,18 +1,18 @@
 import CryptoKit
 import Foundation
 
-nonisolated struct DirectCallRestoreRelaySubmission: Encodable, Sendable {
+nonisolated struct DirectCallRestoreRelaySubmission: Sendable {
     let sender: AccountPrincipal
-    let id: String
-    let recipient: String
-    let deviceID: String
-    let sessionBinding: String
-    let expiresAt: Int64
-    let packet: String
-    let proof: DeviceIdentityProof
+    let payload: Payload
 
-    private enum CodingKeys: String, CodingKey {
-        case id, recipient, deviceID, sessionBinding, expiresAt, packet, proof
+    struct Payload: Codable, Equatable, Sendable {
+        let id: String
+        let recipient: String
+        let deviceID: String
+        let sessionBinding: String
+        let expiresAt: Int64
+        let packet: String
+        let proof: DeviceIdentityProof
     }
 }
 
@@ -102,8 +102,9 @@ enum DirectCallRestoreRelayPacket {
         let packet = (ephemeral.publicKey.x963Representation + ciphertext).base64EncodedString()
         let fields: [Any] = [recipient.userID, recipient.deviceID, binding, id, expiresAt, packet]
         let proof = try signer.sign(try fieldsJSON(fields), purpose: .submitDirectCallRestoreRelay)
-        return .init(sender: owner, id: id, recipient: recipient.userID, deviceID: recipient.deviceID,
-                     sessionBinding: binding, expiresAt: expiresAt, packet: packet, proof: proof)
+        return .init(sender: owner, payload: .init(id: id, recipient: recipient.userID, deviceID: recipient.deviceID,
+                                                  sessionBinding: binding, expiresAt: expiresAt, packet: packet,
+                                                  proof: proof))
     }
 
     private static func sessionBinding(of identity: VerifiedDeviceIdentity, now: Date) -> String? {

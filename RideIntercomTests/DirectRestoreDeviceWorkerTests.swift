@@ -53,13 +53,10 @@ extension GroupDeliveryWorkerTests {
             owner.systemSurfaceIsForeground = true
             guard case let .ready(pending)? = try await restarted.directRestorePreparation?.value
             else { Issue.record("Returning to the app should prepare the same selection"); return }
-            #expect(try await client.directRestoreInbox(access: publisherAccess).isEmpty)
-            try await restarted.sendRelayedDirectRestore(pending, using: client)
             #expect(try await client.directRestoreInbox(access: publisherAccess).count == 1)
 
             try await removeAndReselectRestoreContact(contact.id, from: backup, in: source, with: restarted)
-            try await rejectRequestFromPreviousSelection(pending, on: restarted, using: client,
-                                                         access: publisherAccess, cloud: source)
+            try await rejectRequestFromPreviousSelection(pending, on: restarted, using: client, cloud: source)
         }
     }
 
@@ -93,12 +90,11 @@ extension GroupDeliveryWorkerTests {
     private func rejectRequestFromPreviousSelection(
         _ pending: CloudKitCallRelationshipBackupSession.PendingDirectRestore,
         on session: CloudKitCallRelationshipBackupSession, using client: InternetAccountClient,
-        access: CallNotificationServiceAccess, cloud: CloudAccountFixture
+        cloud: CloudAccountFixture
     ) async throws {
         await #expect(throws: CloudKitCallRelationshipBackupSession.Failure.backupChanged) {
             try await session.sendRelayedDirectRestore(pending, using: client)
         }
-        #expect(try await client.directRestoreInbox(access: access).count == 1)
         cloud.account = "different-cloud-account"
         cloud.center.post(name: .CKAccountChanged, object: nil)
         await session.task?.value
@@ -234,8 +230,8 @@ extension GroupDeliveryWorkerTests {
         }
     }
 
-    private func saveRestoreBackup(of model: IntercomViewModel, as signer: DeviceIdentitySigner,
-                                   for cloud: CloudAccountFixture) async throws -> CallRelationshipBackup {
+    func saveRestoreBackup(of model: IntercomViewModel, as signer: DeviceIdentitySigner,
+                           for cloud: CloudAccountFixture) async throws -> CallRelationshipBackup {
         let now = Date().timeIntervalSince1970
         let backup = try model.groupRepository.callRelationshipBackup(as: signer, now: now)
         _ = try await cloud.store.save(backup, replacing: nil, as: signer, now: now)
@@ -348,7 +344,7 @@ extension GroupDeliveryWorkerTests {
         #expect(retry.groupRepository.writableSnapshot?.directRestoreDevices.isEmpty == true)
     }
 
-    private func confirmRestoreContact(from publisher: IntercomViewModel, to old: IntercomViewModel) throws {
+    func confirmRestoreContact(from publisher: IntercomViewModel, to old: IntercomViewModel) throws {
         for model in [publisher, old] {
             model.groupDeliveryClient = nil
             model.allowsNearbyGroupDelivery = false
