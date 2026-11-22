@@ -4,24 +4,35 @@ struct CallRelationshipRestoreRequest: Codable {
     fileprivate struct Challenge: Codable {
         let id: UUID
         let callID: UUID
-        let recipient: AccountPrincipal
+        let recipientMemberID: String
+        let recipient: AccountDeviceBinding
         let requesterMemberID: String
         let expiresAt: Date
 
         func isCurrent(at now: Date) -> Bool {
             expiresAt > now && expiresAt <= now.addingTimeInterval(330)
         }
+
+        func addresses(memberID: String, principal: AccountPrincipal?, publicKey: String) -> Bool {
+            memberID == recipientMemberID && principal == recipient.principal && publicKey == recipient.publicKey
+        }
     }
 
     fileprivate let challenge: Challenge
     fileprivate let proof: DeviceIdentityProof
 
-    init(callID: UUID, recipient: AccountPrincipal, signer: DeviceIdentitySigner, now: Date) throws {
+    init(callID: UUID, recipientMemberID: String, recipient: AccountDeviceBinding,
+         signer: DeviceIdentitySigner, now: Date) throws {
         let requester = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
-        guard recipient.isValid, requester != recipient, requester.issuer == recipient.issuer else {
+        guard recipient.principal.isValid, requester != recipient.principal,
+              requester.issuer == recipient.principal.issuer,
+              IntercomGroup.isValidMemberID(recipientMemberID),
+              !recipientMemberID.hasPrefix(GroupMember.pendingInvitePrefix),
+              DeviceIdentityProof.isValidPublicKey(recipient.publicKey) else {
             throw DeviceIdentityProof.Failure.invalid
         }
-        let challenge = Challenge(id: UUID(), callID: callID, recipient: recipient, requesterMemberID: signer.memberID,
+        let challenge = Challenge(id: UUID(), callID: callID, recipientMemberID: recipientMemberID,
+                                  recipient: recipient, requesterMemberID: signer.memberID,
                                   expiresAt: now.addingTimeInterval(300))
         self.challenge = challenge
         proof = try signer.sign(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore)
@@ -31,8 +42,10 @@ struct CallRelationshipRestoreRequest: Codable {
         guard challenge.isCurrent(at: now) else { throw DeviceIdentityProof.Failure.invalid }
         let requester = try proof.verify(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore,
                                          memberID: challenge.requesterMemberID, trust: trust, now: now)
-        guard let principal = requester.principal, principal.isValid, principal != challenge.recipient,
-              principal.issuer == challenge.recipient.issuer else { throw DeviceIdentityProof.Failure.invalid }
+        guard let principal = requester.principal, principal.isValid, principal != challenge.recipient.principal,
+              principal.issuer == challenge.recipient.principal.issuer else {
+            throw DeviceIdentityProof.Failure.invalid
+        }
         return requester
     }
 }
@@ -43,13 +56,11 @@ struct CallRelationshipRestoreConfirmation: Codable {
         let previousMemberID: String
     }
 
-    let responderMemberID: String
     private let previousMemberID: String
     private let proof: DeviceIdentityProof
 
     fileprivate init(_ request: CallRelationshipRestoreRequest, previousMemberID: String,
                      signer: DeviceIdentitySigner) throws {
-        responderMemberID = signer.memberID
         self.previousMemberID = previousMemberID
         let claim = Claim(request: request, previousMemberID: previousMemberID)
         proof = try signer.sign(restoreProofPayload(claim), purpose: .confirmCallRelationshipRestore)
@@ -57,15 +68,17 @@ struct CallRelationshipRestoreConfirmation: Codable {
 
     func replacedMemberID(for request: CallRelationshipRestoreRequest, trust: DeviceIdentityTrust,
                           now: Date) throws -> String {
-        guard request.challenge.isCurrent(at: now), IntercomGroup.isValidMemberID(previousMemberID),
+        let challenge = request.challenge
+        guard challenge.isCurrent(at: now), IntercomGroup.isValidMemberID(previousMemberID),
               !previousMemberID.hasPrefix(GroupMember.pendingInvitePrefix),
-              previousMemberID != request.challenge.requesterMemberID else {
+              previousMemberID != challenge.requesterMemberID else {
             throw DeviceIdentityProof.Failure.invalid
         }
         let claim = Claim(request: request, previousMemberID: previousMemberID)
         let responder = try proof.verify(restoreProofPayload(claim), purpose: .confirmCallRelationshipRestore,
-                                         memberID: responderMemberID, trust: trust, now: now)
-        guard responder.principal == request.challenge.recipient else { throw DeviceIdentityProof.Failure.invalid }
+                                         memberID: challenge.recipientMemberID, trust: trust, now: now)
+        guard challenge.addresses(memberID: responder.memberID, principal: responder.principal,
+                                  publicKey: responder.publicKey) else { throw DeviceIdentityProof.Failure.invalid }
         return previousMemberID
     }
 }
@@ -77,7 +90,8 @@ extension GroupRepository {
         let challenge = request.challenge
         let requester = try request.verify(trust: trust, now: now)
         let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
-        guard responder == challenge.recipient, localMemberID == signer.memberID,
+        guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey),
+              localMemberID == signer.memberID,
               let owner = requester.principal else { throw DeviceIdentityProof.Failure.invalid }
         guard let snapshot = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
         return try withCurrentSnapshot(snapshot) {

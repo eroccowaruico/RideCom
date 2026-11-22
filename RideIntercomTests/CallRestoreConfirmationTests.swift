@@ -12,11 +12,9 @@ struct CallRestoreConfirmationTests {
         let responder = try holder.internetSettingsStore.invitationSigner(memberID: "bob")
         let requester = try replacement.internetSettingsStore.invitationSigner(memberID: "alice")
         let trust = try #require(try holder.internetSettingsStore.identityTrust())
-        let principal = try #require(responder.principal)
         let now = Date()
         let callID = directCall ? scenario.directID : scenario.groupID
-        let request = try CallRelationshipRestoreRequest(callID: callID, recipient: principal, signer: requester,
-                                                         now: now)
+        let request = try restoreRequest(callID, to: responder, from: requester, now: now)
         let delivered = try JSONDecoder().decode(CallRelationshipRestoreRequest.self,
                                                  from: JSONEncoder().encode(request))
         let repository = holder.groupRepository
@@ -27,8 +25,7 @@ struct CallRestoreConfirmationTests {
         #expect(try reply.replacedMemberID(for: request, trust: trust, now: now) == "alice-old")
         #expect(scenario.other.groupStore.snapshot == before)
 
-        let nextRequest = try CallRelationshipRestoreRequest(callID: callID, recipient: principal, signer: requester,
-                                                             now: now)
+        let nextRequest = try restoreRequest(callID, to: responder, from: requester, now: now)
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
             try confirmation.replacedMemberID(for: nextRequest, trust: trust, now: now)
         }
@@ -57,8 +54,7 @@ struct CallRestoreConfirmationTests {
         let person = try #require(holder.savedRemoteUsers.first?.id)
         try holder.groupRepository.removeUser(person)
         let now = Date()
-        let request = try CallRelationshipRestoreRequest(callID: scenario.directID,
-            recipient: try #require(responder.principal), signer: requester, now: now)
+        let request = try restoreRequest(scenario.directID, to: responder, from: requester, now: now)
 
         #expect(throws: GroupStorageError.changedByAnotherProcess) {
             try stale.confirmRestore(request, as: responder, trust: trust, now: now)
@@ -70,7 +66,6 @@ struct CallRestoreConfirmationTests {
         let holder = scenario.other.viewModel
         let responder = try holder.internetSettingsStore.invitationSigner(memberID: "bob")
         let trust = try #require(try holder.internetSettingsStore.identityTrust())
-        let principal = try #require(responder.principal)
         let now = Date()
         let outsiders = [
             scenario.oldSigner,
@@ -78,24 +73,64 @@ struct CallRestoreConfirmationTests {
                 .viewModel.internetSettingsStore.invitationSigner(memberID: "outsider")
         ]
         for requester in outsiders {
-            let request = try CallRelationshipRestoreRequest(callID: scenario.groupID, recipient: principal,
-                                                             signer: requester, now: now)
+            let request = try restoreRequest(scenario.groupID, to: responder, from: requester, now: now)
             #expect(try holder.groupRepository.confirmRestore(request, as: responder, trust: trust, now: now) == nil)
         }
 
         let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
-        let request = try CallRelationshipRestoreRequest(callID: scenario.groupID, recipient: principal,
-                                                         signer: requester, now: now)
+        let request = try restoreRequest(scenario.groupID, to: responder, from: requester, now: now)
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
             try holder.groupRepository.confirmRestore(request, as: responder, trust: trust,
                                                       now: now.addingTimeInterval(300))
         }
+    }
+
+    @Test func anotherDeviceOfTheResponderCannotSubstituteItsOlderRelationship() throws {
+        let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
+        let primary = scenario.other.viewModel
+        let unsynced = try scenario.fixture.peer("bob-other", account: "b")
+        unsynced.viewModel.allowsNearbyGroupDelivery = false
+        _ = try scenario.fixture.completeGroupContactRegistration(from: unsynced, to: scenario.old)
+        let saved = try #require(unsynced.viewModel.savedRemoteUsers.first?.id)
+        try #require(unsynced.viewModel.selectUser(saved, connectIfIdle: false))
+        try #require(unsynced.viewModel.selectedGroup?.id == scenario.directID)
+        let addressed = try primary.internetSettingsStore.invitationSigner(memberID: "bob")
+        let other = try unsynced.viewModel.internetSettingsStore.invitationSigner(memberID: "bob-other")
+        let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let trust = try #require(try primary.internetSettingsStore.identityTrust())
+        let person = try #require(primary.savedRemoteUsers.first?.id)
+        try primary.groupRepository.removeUser(person)
+
+        // There is no delivery record after the retention period. The other device still holds its own older copy.
+        let now = Date()
+        let request = try restoreRequest(scenario.directID, to: addressed, from: requester, now: now)
+        #expect(try primary.groupRepository.confirmRestore(request, as: addressed, trust: trust, now: now) == nil)
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            _ = try unsynced.viewModel.groupRepository.confirmRestore(request, as: other, trust: trust, now: now)
+        }
+        let otherRequest = try restoreRequest(scenario.directID, to: other, from: requester, now: now)
+        let response = try #require(try unsynced.viewModel.groupRepository.confirmRestore(
+            otherRequest, as: other, trust: trust, now: now))
+        #expect(try response.replacedMemberID(for: otherRequest, trust: trust, now: now) == "alice-old")
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try response.replacedMemberID(for: request, trust: trust, now: now)
+        }
+    }
+
+    private func restoreRequest(
+        _ callID: UUID, to responder: DeviceIdentitySigner, from requester: DeviceIdentitySigner, now: Date
+    ) throws -> CallRelationshipRestoreRequest {
+        let principal = try #require(responder.principal)
+        let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
+        return try .init(callID: callID, recipientMemberID: responder.memberID, recipient: recipient,
+                         signer: requester, now: now)
     }
 }
 
 @MainActor
 private struct RestoreProofFixture {
     let fixture = AccountCallFixture()
+    let old: AppTestSupport.Harness
     let other: AppTestSupport.Harness
     let replacement: AppTestSupport.Harness
     let oldSigner: DeviceIdentitySigner
@@ -103,7 +138,7 @@ private struct RestoreProofFixture {
     let directID: UUID
 
     init() throws {
-        let old = try fixture.peer("alice-old", account: "a")
+        old = try fixture.peer("alice-old", account: "a")
         other = try fixture.peer("bob", account: "b")
         replacement = try fixture.peer("alice", account: "a")
         for peer in [old, other, replacement] { peer.viewModel.allowsNearbyGroupDelivery = false }
