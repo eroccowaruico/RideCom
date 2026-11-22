@@ -354,6 +354,92 @@ async function signReplyDevice(runtime, user, memberID) {
     return { sessionBinding, proof, relayKey: decodeJwt(certificate.certificate).invitationRelayKey };
 }
 
+const directRestorePath = '/api/direct-call-restore/relay';
+
+async function signRestoreRelay(value, identity) {
+    const { recipient, deviceID, sessionBinding, id, expiresAt, packet } = value;
+    const proof = await identity.proof('submitDirectCallRestoreRelay',
+        JSON.stringify([recipient, deviceID, sessionBinding, id, expiresAt, packet]));
+    return { ...value, proof };
+}
+
+test('direct restore relay is unavailable without explicit test enablement', async () => {
+    const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
+    try {
+        const device = await enrolled(runtime);
+        assert.equal((await call(runtime, directRestorePath, undefined, device.accessToken, 'GET')).status, 404);
+        assert.equal((await call(runtime, directRestorePath, {}, device.accessToken, 'PUT')).status, 404);
+    } finally { await runtime.dispose(); }
+});
+
+test('direct restore relay preserves opaque packets only for the addressed current device session', async () => {
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const runtime = await makeRuntime({ ...options, DIRECT_CALL_RESTORE_RELAY_ENABLED: 'true',
+        DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey)) },
+    { appleKeys: [publicKey], adjustableClock: true });
+    try {
+        const sender = await enrolled(runtime, 'restore-source');
+        const recipient = await enrolled(runtime, 'restore-target');
+        const spare = await enrolled(runtime, 'restore-target');
+        const author = await signReplyDevice(runtime, sender, 'restore-source');
+        const target = await signReplyDevice(runtime, recipient, 'restore-target');
+        const destination = { recipient: recipient.userID, deviceID: recipient.deviceID,
+            sessionBinding: target.sessionBinding, expiresAt: Date.now() + 180_000 };
+        const value = { ...destination, id: randomUUID(), packet: randomBytes(64).toString('base64') };
+        const exact = await signRestoreRelay(value, author);
+        const put = body => call(runtime, directRestorePath, body, sender.accessToken, 'PUT');
+        const read = device => call(runtime, directRestorePath, undefined, device.accessToken, 'GET');
+        const retire = device => call(runtime, directRestorePath, { id: value.id }, device.accessToken, 'DELETE');
+
+        assert.equal((await put({ ...exact, packet: randomBytes(64).toString('base64') })).status, 401);
+        const wrongSession = await signRestoreRelay({ ...value, sessionBinding: author.sessionBinding }, author);
+        assert.equal((await put(wrongSession)).status, 404);
+        assert.deepEqual(await (await put(exact)).json(), { state: 'queued' });
+        assert.deepEqual(await (await put(exact)).json(), { state: 'queued' });
+        const changed = await signRestoreRelay({ ...value, packet: randomBytes(64).toString('base64') }, author);
+        assert.equal((await put(changed)).status, 409);
+        assert.deepEqual(await (await read(spare)).json(), { messages: [] });
+        assert.deepEqual(await (await read(sender)).json(), { messages: [] });
+        const envelope = { id: value.id, senderUserID: sender.userID, expiresAt: value.expiresAt, packet: value.packet };
+        assert.deepEqual(await (await read(recipient)).json(), { messages: [envelope] });
+        assert.equal((await retire(spare)).status, 404);
+        assert.deepEqual(await (await retire(recipient)).json(), { state: 'retired' });
+        assert.deepEqual(await (await put(exact)).json(), { state: 'retired' });
+        assert.deepEqual(await (await read(recipient)).json(), { messages: [] });
+
+        const pending = await signRestoreRelay({ ...value, id: randomUUID() }, author);
+        assert.equal((await put(pending)).status, 200);
+        for (let slot = 0; slot < 6; slot += 1) {
+            const another = await signRestoreRelay({ ...value, id: randomUUID() }, author);
+            assert.equal((await put(another)).status, 200);
+        }
+        const overCapacity = await signRestoreRelay({ ...value, id: randomUUID() }, author);
+        assert.equal((await put(overCapacity)).status, 429);
+        assert.equal((await (await read(recipient)).json()).messages.length, 7);
+        await runtime.advanceClock(181_000);
+        assert.deepEqual(await (await read(recipient)).json(), { messages: [] });
+        assert.equal((await put(pending)).status, 400);
+
+        const freshExpiry = Date.now() + 241_000;
+        const waiting = await signRestoreRelay({ ...value, expiresAt: freshExpiry, id: randomUUID() }, author);
+        assert.equal((await put(waiting)).status, 200);
+        const rotated = await signIn(runtime, await challenge(runtime, recipient.deviceID), { sub: 'restore-target' });
+        assert.equal(rotated.status, 200);
+        const current = await rotated.json();
+        assert.equal((await read(recipient)).status, 401);
+        assert.deepEqual(await (await read(current)).json(), { messages: [] });
+        assert.equal((await put(waiting)).status, 404);
+
+        const currentTarget = await signReplyDevice(runtime, current, 'restore-target');
+        const forCurrent = await signRestoreRelay({ ...value, expiresAt: freshExpiry, id: randomUUID(),
+            sessionBinding: currentTarget.sessionBinding }, author);
+        assert.equal((await put(forCurrent)).status, 200);
+        assert.equal((await (await read(current)).json()).messages.length, 1);
+        assert.equal((await call(runtime, '/api/auth/session', undefined, sender.accessToken, 'DELETE')).status, 200);
+        assert.deepEqual(await (await read(current)).json(), { messages: [] });
+    } finally { await runtime.dispose(); }
+});
+
 async function signBackgroundContactAcceptance(body, sender, identity, origin, purpose = 'submitBackgroundContactInvitationAcceptance') {
     const submission = Buffer.from(JSON.stringify(body)).toString('base64');
     const { sessionBinding } = identity;

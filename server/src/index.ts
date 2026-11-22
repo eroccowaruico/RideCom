@@ -4,6 +4,7 @@ import { type Env, isRecord, json, sha256Hex } from './types'
 import { accountRequest, authenticateDevice } from './AppleAccount'
 import { notificationRequest } from './Notifications'
 import { contactDeletionRequest } from './ContactDeletions'
+import { directRestoreRelayPath, directRestoreRelayRequest } from './DirectRestoreRelay'
 import { ordinaryGroupReplyPrefix, ordinaryGroupReplyRequest } from './OrdinaryGroupReplies'
 export { NotificationIndex } from './NotificationIndex'
 export { SignalingRoom, UsageGuard }
@@ -18,6 +19,7 @@ export default {
         if (url.pathname === '/health' && request.method === 'GET') return json({ service: 'RideCom SFU', protocol: 1 })
         if (url.pathname.startsWith('/api/notifications/')) return notificationRequest(request, env)
         if (url.pathname.startsWith(ordinaryGroupReplyPrefix)) return ordinaryGroupReplyRequest(request, env)
+        if (url.pathname === directRestoreRelayPath) return directRestoreRelayRequest(request, url, env)
         if (url.pathname === '/api/contact-deletions' || url.pathname.startsWith('/api/contact-deletions/')) {
             return contactDeletionRequest(request, env)
         }
