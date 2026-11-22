@@ -72,14 +72,30 @@ struct CallRelationshipRestoreRequest: Codable {
 }
 
 extension CallRelationshipBackup {
+    func directRestoreRecipient(
+        for contactID: UUID, from certificates: [DeviceIdentityCertificate], trust: DeviceIdentityTrust, now: Date
+    ) throws -> VerifiedDeviceIdentity? {
+        guard let contact = contacts.first(where: { $0.id == contactID }), contact.confirmedRegistrationID != nil,
+              contact.restoreRecipientFingerprint != nil else { return nil }
+        var matched: VerifiedDeviceIdentity?
+        for certificate in certificates {
+            guard let identity = try? certificate.verify(
+                origin: trust.origin, trustedIssuerKey: trust.issuerKey, now: now),
+                  try pinnedDirectCallID(for: contact, memberID: identity.memberID,
+                                         recipient: identity.restoreBinding) != nil else { continue }
+            if let matched, matched.deviceID != identity.deviceID { return nil }
+            if matched.map({ $0.expiresAt < identity.expiresAt }) ?? true { matched = identity }
+        }
+        return matched
+    }
+
     /// Uses the original device only to address the request. The reply still needs current membership checks.
     func directRestoreRequest(
         for contactID: UUID, to identity: VerifiedDeviceIdentity, as signer: DeviceIdentitySigner, now: Date
     ) throws -> CallRelationshipRestoreRequest? {
         let time = now.timeIntervalSince1970
         _ = try validated(for: Self.verifiedOwner(of: signer, now: time))
-        let principal = AccountPrincipal(issuer: identity.issuer, userID: identity.userID)
-        let recipient = AccountDeviceBinding(principal: principal, publicKey: identity.deviceKey)
+        let recipient = identity.restoreBinding
         let contact = contacts.first { $0.id == contactID }
         guard identity.expiresAt > time, let registration = contact?.confirmedRegistrationID,
               let callID = try pinnedDirectCallID(for: contact, memberID: identity.memberID, recipient: recipient)
@@ -119,6 +135,12 @@ extension CallRelationshipBackup {
         let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
             callID: callID, memberID: memberID, key: recipient.publicKey)
         return fingerprint == saved ? callID : nil
+    }
+}
+
+private extension VerifiedDeviceIdentity {
+    var restoreBinding: AccountDeviceBinding {
+        .init(principal: .init(issuer: issuer, userID: userID), publicKey: deviceKey)
     }
 }
 

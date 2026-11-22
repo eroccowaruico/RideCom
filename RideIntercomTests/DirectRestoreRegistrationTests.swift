@@ -31,20 +31,67 @@ struct DirectRestoreRegistrationTests {
         let writes = cloud.writtenAccounts.count
         switch change {
         case .unchanged, .otherGroupAdded:
-            let request = try #require(try await session.prepareDirectRestore(
-                for: scenario.savedPersonID, to: identity, from: original))
-            #expect(try request.verifiedDirectRequester(addressedTo: responder, trust: scenario.trust, now: Date())
+            let prepared = try #require(try await session.prepareDirectRestore(
+                for: scenario.savedPersonID, candidates: [identity.envelope], from: original))
+            #expect(prepared.recipient.deviceID == identity.deviceID)
+            #expect(try prepared.request.verifiedDirectRequester(addressedTo: responder, trust: scenario.trust,
+                                                                  now: Date())
                 == requester.principal)
         case .contactDeleted, .accountChanged:
             if change == .accountChanged { cloud.accountAfterRead = "other" }
             let expected: CloudKitCallRelationshipBackupSession.Failure =
                 change == .accountChanged ? .accountUnavailable : .backupChanged
             await #expect(throws: expected) {
-                try await session.prepareDirectRestore(for: scenario.savedPersonID, to: identity, from: original)
+                try await session.prepareDirectRestore(
+                    for: scenario.savedPersonID, candidates: [identity.envelope], from: original)
             }
         }
         #expect(cloud.writtenAccounts.count == writes)
         #expect(scenario.replacement.groupStore.snapshot.groups.isEmpty)
+    }
+
+    @Test func onlyATrustedCertificateForTheRecordedDeviceCanAddressARestoreRequest() throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let now = Date()
+        let backup = try scenario.old.viewModel.groupRepository.callRelationshipBackup(
+            as: scenario.oldSigner, now: now.timeIntervalSince1970)
+        let signer = try #require(try scenario.other.viewModel.callRelationshipBackupSigner())
+        let identity = try #require(signer.identity)
+        let oldCertificate = try testIdentityCertificate(signer: scenario.fixture.issuer,
+            userID: identity.userID, deviceID: identity.deviceID, memberID: identity.memberID,
+            deviceKey: identity.deviceKey, origin: identity.issuer, now: now.addingTimeInterval(-700))
+        let foreignCertificate = try testIdentityCertificate(userID: identity.userID,
+            deviceID: identity.deviceID, memberID: identity.memberID, deviceKey: identity.deviceKey,
+            origin: identity.issuer, now: now)
+        let foreignOrigin = try testIdentityCertificate(signer: scenario.fixture.issuer,
+            userID: identity.userID, deviceID: identity.deviceID, memberID: identity.memberID,
+            deviceKey: identity.deviceKey, origin: "https://other.test", now: now)
+        let alternate = try testIdentityCertificate(signer: scenario.fixture.issuer,
+            userID: identity.userID, deviceID: identity.deviceID, memberID: "another-member",
+            deviceKey: identity.deviceKey, origin: identity.issuer, now: now)
+        let otherAccount = try testIdentityCertificate(signer: scenario.fixture.issuer,
+            userID: String(repeating: "c", count: 64), deviceID: identity.deviceID, memberID: identity.memberID,
+            deviceKey: identity.deviceKey, origin: identity.issuer, now: now)
+        let wrongKey = try scenario.fixture.peer(identity.memberID, account: "b").viewModel
+            .internetSettingsStore.invitationSigner(memberID: identity.memberID)
+        let wrongKeyIdentity = try #require(wrongKey.identity)
+        let unrelated = [oldCertificate, foreignCertificate, foreignOrigin, alternate, otherAccount,
+                         wrongKeyIdentity.envelope]
+        let contact = scenario.savedPersonID
+        #expect(try backup.directRestoreRecipient(
+            for: contact, from: unrelated, trust: scenario.trust, now: now) == nil)
+
+        let renewed = try testIdentityCertificate(signer: scenario.fixture.issuer,
+            userID: identity.userID, deviceID: identity.deviceID, memberID: identity.memberID,
+            deviceKey: identity.deviceKey, origin: identity.issuer, now: now.addingTimeInterval(30))
+        let selected = try #require(try backup.directRestoreRecipient(for: contact,
+            from: unrelated + [identity.envelope, renewed, identity.envelope], trust: scenario.trust, now: now))
+        #expect(selected.envelope == renewed)
+        let conflicting = try testIdentityCertificate(signer: scenario.fixture.issuer,
+            userID: identity.userID, deviceID: UUID().uuidString.lowercased(), memberID: identity.memberID,
+            deviceKey: identity.deviceKey, origin: identity.issuer, now: now)
+        #expect(try backup.directRestoreRecipient(for: contact,
+            from: [identity.envelope, conflicting], trust: scenario.trust, now: now) == nil)
     }
 
     private func prepareSourceCloud(_ cloud: CloudAccountFixture, for scenario: ReplacementScenario,

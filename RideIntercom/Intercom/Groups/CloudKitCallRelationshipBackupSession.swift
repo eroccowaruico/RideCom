@@ -67,8 +67,8 @@ final class CloudKitCallRelationshipBackupSession {
     }
 
     func prepareDirectRestore(
-        for contactID: UUID, to recipient: VerifiedDeviceIdentity, from original: CallRelationshipBackup
-    ) async throws -> CallRelationshipRestoreRequest? {
+        for contactID: UUID, candidates: [DeviceIdentityCertificate], from original: CallRelationshipBackup
+    ) async throws -> (recipient: VerifiedDeviceIdentity, request: CallRelationshipRestoreRequest)? {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal else { throw Failure.accountUnavailable }
         _ = try original.validated(for: owner)
@@ -76,7 +76,12 @@ final class CloudKitCallRelationshipBackupSession {
         guard let latest = checked.backup, original.unchangedContact(contactID, in: latest) != nil else {
             throw Failure.backupChanged
         }
-        return try latest.directRestoreRequest(for: contactID, to: recipient, as: checked.signer, now: Date())
+        let now = Date()
+        guard let recipient = try latest.directRestoreRecipient(
+            for: contactID, from: candidates, trust: checked.trust, now: now),
+              let request = try latest.directRestoreRequest(for: contactID, to: recipient, as: checked.signer, now: now)
+        else { return nil }
+        return (recipient, request)
     }
 
     func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup) async throws {
