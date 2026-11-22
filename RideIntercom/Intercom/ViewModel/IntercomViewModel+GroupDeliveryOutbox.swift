@@ -46,8 +46,10 @@ extension IntercomViewModel {
         // One finite pass. Offline work stays in the manifest for the next sync trigger.
         let outgoing = groupRepository.groupDeliveries
         // The inbox accepts cancellations even when the Worker rejects new submissions.
+        // Retrying accepted invitations must not consume the send budget before new ones.
         let outgoingIDs = (outgoing.filter { $0.internetAction == .cancel }
-            + outgoing.filter { $0.internetAction == .send }
+            + outgoing.filter { $0.internetAction == .send && $0.state == .pending }
+            + outgoing.filter { $0.internetAction == .send && $0.state == .queued }
             + outgoing.filter { $0.internetAction == .checkOutcome }).map(\.id)
         sending: for id in outgoingIDs {
             guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return false }

@@ -5,6 +5,57 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryFlowTests {
+    @Test func aRateLimitedRetryDoesNotDelayANewInvitation() async throws {
+        let author = GroupDeliveryTestIdentity("priority-author")
+        let firstRecipient = GroupDeliveryTestIdentity("priority-first")
+        let secondRecipient = GroupDeliveryTestIdentity("priority-second")
+        defer {
+            author.remove()
+            firstRecipient.remove()
+            secondRecipient.remove()
+        }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try firstRecipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        try secondRecipient.authorizeFixture(userID: String(repeating: "c", count: 64))
+        let sender = try author.harness(knowing: [firstRecipient, secondRecipient]).viewModel
+        GroupDeliveryHTTPStub.reset()
+        defer {
+            sender.stopGroupDeliverySync()
+            sender.disconnect()
+            GroupDeliveryHTTPStub.reset()
+        }
+        try allowGroupDeliveryRequests(from: author)
+        for recipient in [firstRecipient, secondRecipient] {
+            try grantGroupInvitationPermission(on: sender, recipient: recipient, sender: author)
+        }
+        let client = InternetAccountClient(session: GroupDeliveryHTTPStub.makeSession())
+        let oldGroup = UUID(), newGroup = UUID()
+        sender.groupDeliveryClient = nil
+        try #require(sender.createTalkGroup(name: "Already queued", userIDs: [firstRecipient.personID], id: oldGroup))
+        sender.groupDeliveryClient = client
+        await sender.synchronizeGroupDeliveries()
+        try #require(sender.groupRepository.groupDeliveries.first?.state == .queued)
+
+        sender.groupDeliveryClient = nil
+        try #require(sender.createTalkGroup(name: "New invitation", userIDs: [secondRecipient.personID], id: newGroup))
+        GroupDeliveryHTTPStub.rejectedRecipientID = try firstRecipient.principal.userID
+        GroupDeliveryHTTPStub.submitRejectionStatus = 429
+        let submissionsBeforeSync = GroupDeliveryHTTPStub.submitted.count
+        sender.groupDeliveryClient = client
+        await sender.synchronizeGroupDeliveries()
+
+        let deliveries = sender.groupRepository.groupDeliveries
+        let newDelivery = try #require(deliveries.first(where: { $0.groupID == newGroup }))
+        let oldDelivery = try #require(deliveries.first(where: { $0.groupID == oldGroup }))
+        #expect(newDelivery.state == .queued)
+        #expect(oldDelivery.state == .queued)
+        let submittedIDs = try GroupDeliveryHTTPStub.submitted.dropFirst(submissionsBeforeSync).map { packet in
+            let data = try #require(Data(base64Encoded: packet))
+            return try JSONDecoder().decode(GroupInvitationEnvelope.self, from: data).id
+        }
+        #expect(submittedIDs == [newDelivery.id, oldDelivery.id])
+    }
+
     @Test(arguments: [403, 401, 429, 503])
     func aRecipientRejectionDoesNotBlockOtherPeopleButASharedFailureStopsThePass(status: Int) async throws {
         let author = GroupDeliveryTestIdentity("rejection-author")
