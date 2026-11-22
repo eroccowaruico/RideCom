@@ -38,7 +38,7 @@ extension IntercomViewModel {
         groupRepository.onCommittedChange = nil
     }
 
-    func applyRestoredDirectCall(_ id: UUID) {
+    func applyRestoredCall(_ id: UUID) {
         guard let call = groupRepository.storedGroup(id) else { return }
         groups.append(call)
         refreshGroupStorageStatus()

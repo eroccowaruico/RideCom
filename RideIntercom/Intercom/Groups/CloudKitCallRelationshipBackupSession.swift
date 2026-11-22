@@ -97,8 +97,8 @@ final class CloudKitCallRelationshipBackupSession {
         }
         try model.groupRepository.restoreCallRelationships(
             batch, as: checked.signer, trust: checked.trust, completion: completion?.receipt)
-        if completion != nil, let call = batch.calls.first {
-            model.applyRestoredDirectCall(call.context.record.id)
+        if let call = batch.calls.first, completion != nil || call.groupCandidate != nil {
+            model.applyRestoredCall(call.context.record.id)
         } else {
             model.reloadSavedGroups()
         }
@@ -384,6 +384,7 @@ private extension ConfirmedCallRestore {
                 return try latest.matchesDirectRestoreRequest(context, contactID: contact.id)
             }
             guard let candidate = original.groups.first(where: { $0.id == record.id }) else { return false }
+            if let restored = call.groupCandidate, restored != candidate { return false }
             return latest.groups.contains(candidate)
         }
     }

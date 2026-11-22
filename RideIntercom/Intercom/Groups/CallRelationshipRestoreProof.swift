@@ -265,11 +265,12 @@ extension GroupRepository {
             request, as: signer, matching: nil, verifying: verification
         ) { confirmation, record, credential -> CallRelationshipRestoreResponse? in
             guard record.kind == .group else { return nil }
-            var membership = record
-            membership.joinedByInvitation = nil
+            let membership = GroupRestoreMembership(record)
+            let transferred = try membership.record(groupID: record.id, name: record.name)
             let context = CallRelationshipRestoreContext(
-                request: request, confirmation: confirmation, record: membership)
-            return try .init(sealing: credential, for: context, as: signer, verifying: verification)
+                request: request, confirmation: confirmation, record: transferred)
+            return try .init(sealing: credential, for: context, as: signer, verifying: verification,
+                             groupMembership: membership)
         }
     }
 

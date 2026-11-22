@@ -43,11 +43,13 @@ struct CallRelationshipRestoreCredential: Codable {
         let fingerprint: Data
         let secret: String
         let directMembership: DirectRestoreMembership?
+        let groupMembership: GroupRestoreMembership?
     }
 
     init(
         _ credential: GroupAccessCredential, for context: CallRelationshipRestoreContext,
-        as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date
+        as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date,
+        groupMembership: GroupRestoreMembership? = nil
     ) throws {
         let verified = try context.confirmation.verifiedConfirmation(for: context.request, trust: trust, now: now)
         let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
@@ -63,8 +65,10 @@ struct CallRelationshipRestoreCredential: Codable {
         let recipient = try P256.KeyAgreement.PublicKey(x963Representation: target)
         let shared = try ephemeral.sharedSecretFromKeyAgreement(with: recipient)
         let key = DeviceIdentitySigner.sealedPayloadKey(shared, domain: Self.domain, header: header)
-        let payload = try restoreProofPayload(Payload(fingerprint: context.membershipFingerprint(),
-            secret: credential.secret, directMembership: DirectRestoreMembership(context.record, verified: verified)))
+        let payload = try restoreProofPayload(Payload(
+            fingerprint: context.membershipFingerprint(), secret: credential.secret,
+            directMembership: DirectRestoreMembership(context.record, verified: verified),
+            groupMembership: groupMembership))
         guard payload.count <= Self.maximumPayloadSize,
               let sealed = try AES.GCM.seal(payload, using: key, authenticating: header).combined
         else { throw DeviceIdentityProof.Failure.invalid }
@@ -145,10 +149,12 @@ private struct DirectRestoreMembership: Codable {
 
 extension CallRelationshipRestoreResponse {
     init(sealing key: GroupAccessCredential, for context: CallRelationshipRestoreContext,
-         as signer: DeviceIdentitySigner, verifying verification: (trust: DeviceIdentityTrust, now: Date)) throws {
+         as signer: DeviceIdentitySigner, verifying verification: (trust: DeviceIdentityTrust, now: Date),
+         groupMembership: GroupRestoreMembership? = nil) throws {
         confirmation = context.confirmation
         credential = try CallRelationshipRestoreCredential(
-            key, for: context, as: signer, trust: verification.trust, now: verification.now)
+            key, for: context, as: signer, trust: verification.trust, now: verification.now,
+            groupMembership: groupMembership)
     }
 
     func restoreBatch(
@@ -157,7 +163,8 @@ extension CallRelationshipRestoreResponse {
     ) throws -> ConfirmedCallRestore {
         let (verified, payload) = try credential.openPayload(for: request, confirmedBy: confirmation,
             as: signer, trust: verifying.trust, now: verifying.now)
-        guard let membership = payload.directMembership else { throw DeviceIdentityProof.Failure.invalid }
+        guard let membership = payload.directMembership, payload.groupMembership == nil
+        else { throw DeviceIdentityProof.Failure.invalid }
         let (record, user) = try membership.rebuild(for: verified, contact: contact, localDisplayName: localDisplayName)
         let context = CallRelationshipRestoreContext(request: request, confirmation: confirmation, record: record)
         guard try payload.fingerprint == context.membershipFingerprint() else {
@@ -165,6 +172,23 @@ extension CallRelationshipRestoreResponse {
         }
         return .init(owner: verified.requester.principal, previousMemberID: verified.previousMemberID,
                      users: [user], calls: [.init(context: context, transferredCredential: credential)])
+    }
+
+    func restoreGroupBatch(
+        for request: CallRelationshipRestoreRequest, candidate: CallRelationshipBackup.Group,
+        as signer: DeviceIdentitySigner, verifying verification: (trust: DeviceIdentityTrust, now: Date)
+    ) throws -> ConfirmedCallRestore {
+        let (verified, payload) = try credential.openPayload(for: request, confirmedBy: confirmation,
+            as: signer, trust: verification.trust, now: verification.now)
+        guard let membership = payload.groupMembership, payload.directMembership == nil,
+              verified.callID == candidate.id, candidate.joinedByInvitation != nil
+        else { throw DeviceIdentityProof.Failure.invalid }
+        let record = try membership.record(groupID: candidate.id, name: candidate.name)
+        let context = CallRelationshipRestoreContext(request: request, confirmation: confirmation, record: record)
+        guard try payload.fingerprint == context.membershipFingerprint()
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return .init(owner: verified.requester.principal, previousMemberID: verified.previousMemberID, users: [],
+                     calls: [.init(context: context, transferredCredential: credential, groupCandidate: candidate)])
     }
 }
 

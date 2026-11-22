@@ -12,6 +12,14 @@ struct ConfirmedCallRestore {
     struct Call {
         let context: CallRelationshipRestoreContext
         let transferredCredential: CallRelationshipRestoreCredential
+        let groupCandidate: CallRelationshipBackup.Group?
+
+        init(context: CallRelationshipRestoreContext, transferredCredential: CallRelationshipRestoreCredential,
+             groupCandidate: CallRelationshipBackup.Group? = nil) {
+            self.context = context
+            self.transferredCredential = transferredCredential
+            self.groupCandidate = groupCandidate
+        }
     }
 
     let owner: AccountPrincipal
@@ -36,6 +44,11 @@ extension GroupRepository {
             && !current.groups.contains { $0.id == callID }
     }
 
+    func canRestoreGroup(_ id: UUID) -> Bool {
+        guard let current = writableSnapshot else { return false }
+        return !current.groupRestoreExclusions.contains(id) && !current.groups.contains { $0.id == id }
+    }
+
     func restoreCallRelationships(
         _ batch: ConfirmedCallRestore, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
         completion: DirectRestoreCompletion? = nil,
@@ -51,22 +64,15 @@ extension GroupRepository {
                   user.isRegistered && user.principal != batch.owner
                       && !user.memberIDs.contains(signer.memberID) && !user.memberIDs.contains(batch.previousMemberID)
               }) else { throw GroupStorageError.invalidUpdate }
-        if let completion {
-            guard completion.isValid, completion.canRetire(in: identity, now: Date(timeIntervalSince1970: now)),
-                  batch.calls.count == 1, batch.calls.first?.context.record.kind == .direct,
-                  batch.users.count == 1, let user = batch.users.first, let peer = user.principal,
-                  canRestoreDirectContact(user.id, peer: peer, owner: batch.owner)
-            else { throw GroupStorageError.invalidUpdate }
-        } else if !canRestoreCallRelationships {
-            throw GroupStorageError.invalidUpdate
-        }
+        try validateRestoreDestination(batch, completion: completion, identity: identity,
+                                       now: Date(timeIntervalSince1970: now))
 
         let restored = try batch.calls.map { call in
             let context = call.context
             let received = try call.transferredCredential.open(for: context,
                 as: signer, trust: trust, now: Date(timeIntervalSince1970: now))
-            let record = try reboundRestoredRecord(
-                context.record, replacing: batch.previousMemberID, verified: received.confirmation)
+            let record = try reboundRestoredRecord(context.record, replacing: batch.previousMemberID,
+                verified: received.confirmation, groupCandidate: call.groupCandidate)
             return (record: record, credential: received.credential)
         }
         let records = restored.map(\.record)
@@ -86,7 +92,26 @@ extension GroupRepository {
                    additionalCredentials: restored.map(\.credential), users: previous.users + batch.users,
                    now: now) { next in
             next.groups = groups
-            next.completedDirectRestore = completion
+            if let completion { next.completedDirectRestore = completion }
+        }
+    }
+
+    private func validateRestoreDestination(
+        _ batch: ConfirmedCallRestore, completion: DirectRestoreCompletion?, identity: VerifiedDeviceIdentity, now: Date
+    ) throws {
+        if let completion {
+            guard completion.isValid, completion.canRetire(in: identity, now: now),
+                  batch.calls.count == 1, let call = batch.calls.first, call.context.record.kind == .direct,
+                  call.groupCandidate == nil, batch.users.count == 1, let user = batch.users.first,
+                  let peer = user.principal, canRestoreDirectContact(user.id, peer: peer, owner: batch.owner)
+            else { throw GroupStorageError.invalidUpdate }
+        } else if let call = batch.calls.first(where: { $0.groupCandidate != nil }),
+                  let candidate = call.groupCandidate {
+            guard batch.calls.count == 1, call.context.record.kind == .group, call.context.record.id == candidate.id,
+                  candidate.joinedByInvitation != nil, canRestoreGroup(candidate.id)
+            else { throw GroupStorageError.invalidUpdate }
+        } else if !canRestoreCallRelationships {
+            throw GroupStorageError.invalidUpdate
         }
     }
 
@@ -98,7 +123,7 @@ extension GroupRepository {
 
     private func reboundRestoredRecord(
         _ source: GroupSnapshot.Record, replacing expectedPreviousMemberID: String,
-        verified: CallRelationshipRestoreConfirmation.Verified
+        verified: CallRelationshipRestoreConfirmation.Verified, groupCandidate: CallRelationshipBackup.Group?
     ) throws -> GroupSnapshot.Record {
         let previous = verified.previousMemberID
         let replacement = verified.requesterMemberID
@@ -106,6 +131,7 @@ extension GroupRepository {
         guard source.id == verified.callID, previous == expectedPreviousMemberID,
               source.accountDevices[verified.responderMemberID] == verified.responder,
               source.pendingInvitation == nil,
+              !source.excludesMember(verified.responderMemberID, principal: verified.responder.principal),
               !source.excludesMember(previous, principal: requester.principal),
               !source.excludesMember(replacement, principal: requester.principal) else {
             throw GroupStorageError.invalidUpdate
@@ -127,7 +153,8 @@ extension GroupRepository {
         group.accountDevices.removeValue(forKey: previous)
         group.accountDevices[replacement] = requester
         var record = GroupSnapshot.Record(group)
-        record.joinedByInvitation = source.joinedByInvitation
+        record.name = groupCandidate?.name ?? source.name
+        record.joinedByInvitation = groupCandidate?.joinedByInvitation ?? source.joinedByInvitation
         record.groupTabOfferAcknowledged = source.groupTabOfferAcknowledged
         record.removedMembers = source.removedMembers
         record.invitationDeviceKeys = source.invitationDeviceKeys

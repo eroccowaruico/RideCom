@@ -5,6 +5,7 @@ struct CallRelationshipBackup: Codable, Equatable {
     struct Group: Codable, Equatable {
         let id: UUID
         let name: String
+        let joinedByInvitation: Bool?
     }
 
     struct Contact: Codable, Equatable {
@@ -103,7 +104,7 @@ private extension GroupSnapshot {
                          confirmedRegistrationID: registration, restoreDiscoverySeed: seed)
         }
         let backupGroups = owned.filter { $0.kind != .direct }.map {
-            CallRelationshipBackup.Group(id: $0.id, name: $0.name)
+            CallRelationshipBackup.Group(id: $0.id, name: $0.name, joinedByInvitation: $0.joinedByInvitation == true)
         }
         return try CallRelationshipBackup(owner: owner, groups: backupGroups, contacts: contacts).validated(for: owner)
     }

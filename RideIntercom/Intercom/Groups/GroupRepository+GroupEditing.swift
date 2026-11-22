@@ -27,10 +27,12 @@ extension GroupRepository {
     }
     func delete(_ id: UUID, remaining: [IntercomGroup], receipt: GroupSnapshot.GroupRemovalReceipt? = nil,
                 now: TimeInterval = Date().timeIntervalSince1970) throws {
+        let removesGroup = snapshot?.groups.contains { $0.id == id && $0.kind == .group } == true
         try update(remaining, credential: nil, now: now) { next in
             try Self.rememberGroupRemoval(receipt, for: id, in: &next, now: now)
             Self.cancelPendingGroupReceipts(in: &next) { $0.groupID == id }
             recordBackupRemoval(id, kind: .group, afterRemovingFrom: &next)
+            if removesGroup { next.groupRestoreExclusions.insert(id) }
         }
     }
 

@@ -4,13 +4,22 @@ enum GroupStorageError: Error, Equatable {
     case busy, unsupportedVersion, changedByAnotherProcess, verificationFailed, invalidUpdate, identityConflict
 }
 
+protocol GroupStoring: AnyObject {
+    func read() throws -> GroupSnapshot?
+    func commit(_ snapshot: GroupSnapshot) throws
+    func lock() throws
+    func unlock()
+    func archive() throws
+}
+
 extension GroupSnapshot {
     func validated() throws -> GroupSnapshot {
         guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
         if let completedDirectRestore, version < 30 || !completedDirectRestore.isValid {
             throw IntercomGroupError.invalidStoredGroups
         }
-        guard version >= 31 || directCallRestoreExclusions.isEmpty else {
+        guard version >= 31 || directCallRestoreExclusions.isEmpty,
+              version >= 32 || groupRestoreExclusions.isEmpty else {
             throw IntercomGroupError.invalidStoredGroups
         }
         if let removal = backupRemovals, version < 27 || !removal.isValid || removal.isPresent(in: self) {

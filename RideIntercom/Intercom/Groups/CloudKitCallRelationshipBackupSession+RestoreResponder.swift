@@ -1,6 +1,21 @@
 import Foundation
 
 extension CloudKitCallRelationshipBackupSession {
+    func restoreGroup(
+        _ response: CallRelationshipRestoreResponse, to request: CallRelationshipRestoreRequest,
+        for groupID: UUID, from original: CallRelationshipBackup
+    ) async throws {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
+              let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust()
+        else { throw Failure.accountUnavailable }
+        _ = try original.validated(for: owner)
+        guard let candidate = original.groups.first(where: { $0.id == groupID })
+        else { throw Failure.backupChanged }
+        let batch = try response.restoreGroupBatch(for: request, candidate: candidate,
+            as: signer, verifying: (trust, Date()))
+        try await restore(batch, from: original)
+    }
+
     func respondToGroupRestore(_ request: CallRelationshipRestoreRequest) async throws
         -> CallRelationshipRestoreResponse? {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),

@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 31
+    static let currentVersion = 32
     static let maximumGroupDeliveries = 512
     static let maximumIssuedOrdinaryGroupInvitations = 32
     var version = Self.currentVersion
@@ -24,6 +24,7 @@ struct GroupSnapshot: Codable, Equatable {
     var directRestoreDevices: [TrackedDirectRestoreDevice] = []
     var completedDirectRestore: DirectRestoreCompletion?
     var directCallRestoreExclusions: Set<UUID> = []
+    var groupRestoreExclusions: Set<UUID> = []
 
     var credentialReferences: [UUID] {
         groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
@@ -60,6 +61,7 @@ struct GroupSnapshot: Codable, Equatable {
         case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
         case issuedOrdinaryGroupInvitations
         case backupRemovals, directRestoreDevices, completedDirectRestore, directCallRestoreExclusions
+        case groupRestoreExclusions
     }
 
     init(from decoder: Decoder) throws {
@@ -99,6 +101,7 @@ struct GroupSnapshot: Codable, Equatable {
             try values.decodeIfPresent(DirectRestoreCompletion.self, forKey: .completedDirectRestore)
         directCallRestoreExclusions = version < 31
             ? [] : try values.decode(Set<UUID>.self, forKey: .directCallRestoreExclusions)
+        groupRestoreExclusions = version < 32 ? [] : try values.decode(Set<UUID>.self, forKey: .groupRestoreExclusions)
     }
 
     func upgraded() -> GroupSnapshot {
@@ -371,14 +374,6 @@ extension GroupSnapshot.Record {
         groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
         removedMembers = try values.decodeIfPresent([GroupSnapshot.RemovedMember].self, forKey: .removedMembers)
     }
-}
-
-protocol GroupStoring: AnyObject {
-    func read() throws -> GroupSnapshot?
-    func commit(_ snapshot: GroupSnapshot) throws
-    func lock() throws
-    func unlock()
-    func archive() throws
 }
 
 protocol GroupCredentialStoring: AnyObject {

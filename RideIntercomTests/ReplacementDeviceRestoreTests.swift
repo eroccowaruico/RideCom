@@ -81,7 +81,7 @@ struct CallRelationshipBackupTests {
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(Set(payload.keys) == ["version", "owner", "groups", "contacts"])
         let group = try #require((payload["groups"] as? [[String: Any]])?.first)
-        #expect(Set(group.keys) == ["id", "name"])
+        #expect(Set(group.keys) == ["id", "name", "joinedByInvitation"])
         let contact = try #require((payload["contacts"] as? [[String: Any]])?.first)
         #expect(Set(contact.keys) == ["id", "principal", "restoreRecipientFingerprint"])
         let fingerprint = try #require(contact["restoreRecipientFingerprint"] as? String)
