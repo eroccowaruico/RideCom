@@ -80,9 +80,14 @@ final class CloudKitCallRelationshipBackupSession {
 
     func confirmDirectRestore(_ request: CallRelationshipRestoreRequest) async throws
         -> CallRelationshipRestoreConfirmation? {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner() else {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
+              let trust = try model.internetSettingsStore.identityTrust() else {
             throw Failure.accountUnavailable
         }
+        let expected = generation
+        guard let requester = try request.verifiedDirectRequester(addressedTo: signer, trust: trust, now: Date()),
+              await model.refreshContactDeletionBeforeRestore(requester, addressedTo: signer) else { return nil }
+        guard generation == expected else { throw Failure.accountUnavailable }
         let checked = try await readCurrentBackup(for: model, as: signer)
         guard let latest = checked.backup else { return nil }
         return try model.groupRepository.confirmRestore(

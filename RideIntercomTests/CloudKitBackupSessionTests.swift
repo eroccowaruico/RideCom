@@ -203,12 +203,17 @@ struct CloudKitBackupSessionTests {
 }
 
 extension CloudKitBackupSessionTests {
-    enum ResponderState: CaseIterable, Sendable { case unchanged, contactRemoved, accountChanged }
+    enum ResponderState: CaseIterable, Sendable {
+        case unchanged, contactRemoved, accountChanged, relayedDeletion, relayUnavailable
+    }
 
     @Test(arguments: ResponderState.allCases)
     func directRestoreChecksTheRespondersLatestCloudContact(state: ResponderState) async throws {
-        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let scenario = try ReplacementScenario(fixture: .init(origin: "https://delivery.test"))
+        defer { scenario.fixture.disconnect() }
         let model = scenario.other.viewModel
+        defer { model.stopGroupDeliverySync(); GroupDeliveryHTTPStub.reset() }
+        try prepareContactDeletionRelay(in: model)
         let signer = try #require(try model.callRelationshipBackupSigner())
         let requester = try #require(try scenario.replacement.viewModel.callRelationshipBackupSigner())
         let principal = try #require(signer.principal)
@@ -219,19 +224,15 @@ extension CloudKitBackupSessionTests {
         session.bind(to: model)
         await session.task?.value
         await model.callRelationshipBackupSync?.task?.value
-        let time = Date().timeIntervalSince1970
-        let stored = try #require(try await cloud.store.load(as: signer, now: time))
         let before = scenario.other.groupStore.snapshot
-        let contact = try #require(stored.backup.contacts.first)
         if state == .contactRemoved {
-            let peerStore = InMemoryGroupStore(), peerKeys = InMemoryGroupCredentialStore()
-            peerStore.snapshot = before
-            peerKeys.values = try #require(scenario.fixture.credentialStores["bob"]).values
-            let peer = GroupRepository(store: peerStore, credentials: peerKeys)
-            _ = try peer.load(localMemberID: signer.memberID)
-            try peer.removeUser(contact.id)
-            let updated = try peer.callRelationshipBackup(as: signer, now: time)
-            _ = try await cloud.store.save(updated, replacing: stored, as: signer, now: time)
+            try await removeContactFromCloud(cloud, scenario: scenario, as: signer)
+        }
+        var relayReadCount = 0
+        if state == .relayedDeletion {
+            try installRestoreDeletion(scenario) { relayReadCount += 1 }
+        } else if state == .relayUnavailable {
+            GroupDeliveryHTTPStub.onContactDeletion = { _, _ in (503, [:]) }
         }
 
         if state == .accountChanged {
@@ -249,7 +250,58 @@ extension CloudKitBackupSessionTests {
                 #expect(response == nil)
             }
         }
-        #expect(scenario.other.groupStore.snapshot == before)
+        if state == .relayedDeletion {
+            #expect(relayReadCount == 1)
+            #expect(model.savedRemoteUsers.isEmpty)
+            #expect(try model.groupRepository.credential(for: scenario.directID) == nil)
+            #expect(model.groups.contains { $0.id == scenario.groupID })
+        } else {
+            #expect(scenario.other.groupStore.snapshot == before)
+        }
+    }
+
+    private func prepareContactDeletionRelay(in model: IntercomViewModel) throws {
+        GroupDeliveryHTTPStub.reset()
+        model.groupDeliveryClient = .init(session: GroupDeliveryHTTPStub.makeSession())
+        let access = try #require(try model.internetSettingsStore.notificationAccess(
+            memberID: model.localMemberIdentity.memberID))
+        GroupDeliveryHTTPStub.users = [access.accessToken: access.principal.userID]
+    }
+
+    private func removeContactFromCloud(
+        _ cloud: CloudAccountFixture, scenario: ReplacementScenario, as signer: DeviceIdentitySigner
+    ) async throws {
+        let time = Date().timeIntervalSince1970
+        let stored = try #require(try await cloud.store.load(as: signer, now: time))
+        let contact = try #require(stored.backup.contacts.first)
+        let peerStore = InMemoryGroupStore(), peerKeys = InMemoryGroupCredentialStore()
+        peerStore.snapshot = scenario.other.groupStore.snapshot
+        peerKeys.values = try #require(scenario.fixture.credentialStores["bob"]).values
+        let peer = GroupRepository(store: peerStore, credentials: peerKeys)
+        _ = try peer.load(localMemberID: signer.memberID)
+        try peer.removeUser(contact.id)
+        let updated = try peer.callRelationshipBackup(as: signer, now: time)
+        _ = try await cloud.store.save(updated, replacing: stored, as: signer, now: time)
+    }
+
+    private func installRestoreDeletion(_ scenario: ReplacementScenario, onRead: @escaping () -> Void) throws {
+        let writer = try #require(scenario.fixture.peers.first {
+            $0.viewModel.localMemberIdentity.memberID == "alice-old"
+        }).viewModel
+        let settings = writer.internetSettingsStore
+        let deletionSigner = try #require(try settings.contactDeletionSigner(memberID: "alice-old"))
+        try writer.groupRepository.removeUser(scenario.savedPersonID, signer: deletionSigner,
+                                             sender: scenario.oldSigner.principal)
+        let publication = try #require(writer.groupRepository.contactDeletionPublications.first)
+        let payload = try #require(publication.payload)
+        GroupDeliveryHTTPStub.onContactDeletion = { request, _ in
+            if request.url?.path == "/api/contact-deletions/receipt" { return (200, ["state": "received"]) }
+            guard request.url?.path == "/api/contact-deletions/read" else { return (404, [:]) }
+            onRead()
+            return (200, ["deletion": [
+                "id": publication.id.uuidString, "expiresAt": publication.expiresAt, "packet": payload.packet
+            ]])
+        }
     }
 }
 

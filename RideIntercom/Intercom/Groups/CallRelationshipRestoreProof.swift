@@ -45,6 +45,16 @@ struct CallRelationshipRestoreRequest: Codable {
         return IdentityEncoding.encode(Data(SHA256.hash(data: payload)))
     }
 
+    func verifiedDirectRequester(
+        addressedTo signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date
+    ) throws -> AccountPrincipal? {
+        let requester = try verifiedRequester(trust: trust, now: now).principal
+        let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
+        guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey)
+        else { throw DeviceIdentityProof.Failure.invalid }
+        return AccountCallPair(requester, responder).id == challenge.callID ? requester : nil
+    }
+
     fileprivate func verifiedRequester(trust: DeviceIdentityTrust, now: Date) throws -> AccountDeviceBinding {
         guard challenge.isCurrent(at: now) else { throw DeviceIdentityProof.Failure.invalid }
         let requester = try proof.verify(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore,

@@ -6,9 +6,13 @@ import Testing
 
 @MainActor final class AccountCallFixture {
     let issuer = P256.Signing.PrivateKey()
+    let origin: String
     var peers: [AppTestSupport.Harness] = []
     var namespaces: [String] = []
     var credentialStores: [String: InMemoryGroupCredentialStore] = [:]
+
+    init(origin: String = "https://account.test") { self.origin = origin }
+
     func peer(_ memberID: String, account: String, at date: Date = Date()) throws -> AppTestSupport.Harness {
         let namespace = "RideIntercom.AccountCallTests." + UUID().uuidString
         namespaces.append(namespace)
@@ -16,11 +20,11 @@ import Testing
         let key = try store.deviceSigningKey()
         let certificate = try testIdentityCertificate(signer: issuer, userID: String(repeating: account, count: 64),
             deviceID: store.accountDeviceID(), memberID: memberID,
-            deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), now: date)
+            deviceKey: IdentityEncoding.encode(key.publicKey.x963Representation), origin: origin, now: date)
         let identity = try certificate.verify(
-            origin: URL(string: "https://account.test")!, trustedIssuerKey: certificate.issuerKey, now: date)
+            origin: try #require(URL(string: origin)), trustedIssuerKey: certificate.issuerKey, now: date)
         try store.save(
-            url: "https://account.test",
+            url: origin,
             token:
                 "ri1.\(String(repeating: "d", count: 64)).\(identity.deviceID).\(String(repeating: "e", count: 64))",
             identity: identity)
@@ -87,7 +91,7 @@ import Testing
 
 @MainActor
 struct ReplacementScenario {
-    let fixture = AccountCallFixture()
+    let fixture: AccountCallFixture
     let other: AppTestSupport.Harness
     let replacement: AppTestSupport.Harness
     let groupID: UUID
@@ -99,7 +103,9 @@ struct ReplacementScenario {
     let trust: DeviceIdentityTrust
     let restoredCredentials = InMemoryGroupCredentialStore()
 
-    init() throws {
+    init(fixture supplied: AccountCallFixture? = nil) throws {
+        let fixture = supplied ?? AccountCallFixture()
+        self.fixture = fixture
         let old = try fixture.peer("alice-old", account: "a")
         other = try fixture.peer("bob", account: "b")
         replacement = try fixture.peer("alice", account: "a")

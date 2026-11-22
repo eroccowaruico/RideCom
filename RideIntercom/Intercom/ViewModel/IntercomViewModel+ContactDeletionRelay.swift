@@ -8,6 +8,13 @@ extension IntercomViewModel {
         let signer: DeviceIdentitySigner
     }
 
+    private struct ContactDeletionRelayPeer {
+        let principal: AccountPrincipal
+        let memberID: String
+        let key: String
+        let groupID: UUID
+    }
+
     var hasPendingContactDeletionRelay: Bool {
         guard let localAccountPrincipal else { return false }
         let now = callAccessNow().timeIntervalSince1970 * 1_000
@@ -106,28 +113,53 @@ extension IntercomViewModel {
         await receiveRelayedDeletionsFromSavedContacts(session)
     }
 
+    private func contactDeletionRelayPeer(_ user: SavedUser, local: AccountPrincipal) -> ContactDeletionRelayPeer? {
+        guard let peer = user.principal, peer.issuer == local.issuer, peer != local,
+              user.memberIDs.count == 1, let member = user.memberIDs.first, let key = user.deviceKeys?[member]
+        else { return nil }
+        let groupID = IntercomGroup.directCallID(memberIDs: [localMemberIdentity.memberID, member])
+        guard let group = groupRepository.storedGroup(groupID), group.kind == .direct, group.accountPair == nil
+        else { return nil }
+        return .init(principal: peer, memberID: member, key: key, groupID: groupID)
+    }
+
+    func refreshContactDeletionBeforeRestore(
+        _ principal: AccountPrincipal, addressedTo signer: DeviceIdentitySigner
+    ) async -> Bool {
+        guard let local = signer.principal,
+              let user = savedRemoteUsers.first(where: { $0.principal == principal }) else { return false }
+        guard let peer = contactDeletionRelayPeer(user, local: local) else { return true }
+        guard let client = groupDeliveryClient,
+              let access = try? internetSettingsStore.notificationAccess(memberID: signer.memberID),
+              access.principal == local else { return false }
+        let session = ContactDeletionRelaySession(
+            client: client, access: access, generation: accountAccessID, signer: signer)
+        return await receiveRelayedDeletion(from: peer, session: session)
+    }
+
     private func receiveRelayedDeletionsFromSavedContacts(_ session: ContactDeletionRelaySession) async {
         for user in savedRemoteUsers {
             guard contactDeletionRelayIsCurrent(session) else { return }
-            guard user.principal?.issuer == session.access.principal.issuer, user.principal != session.access.principal,
-                  user.memberIDs.count == 1, let member = user.memberIDs.first, let key = user.deviceKeys?[member]
-            else { continue }
-            let pairID = IntercomGroup.directCallID(memberIDs: [session.signer.memberID, member])
-            guard let group = groupRepository.storedGroup(pairID), group.kind == .direct, group.accountPair == nil
-            else { continue }
-            let secret: String?
-            do {
-                secret = try groupRepository.credential(for: pairID)?.secret
-            } catch {
-                reportGroupStorageError(error)
-                return
-            }
-            guard let secret, let address = ContactDeletionRelayAddress(
-                owner: user.principal, recipient: session.access.principal,
-                pairSecret: secret, senderID: member, recipientID: session.signer.memberID) else { continue }
-            guard await receiveRelayedContactDeletion(
-                address, member: member, key: key, session: session) else { return }
+            guard let peer = contactDeletionRelayPeer(user, local: session.access.principal) else { continue }
+            guard await receiveRelayedDeletion(from: peer, session: session) else { return }
         }
+    }
+
+    private func receiveRelayedDeletion(from peer: ContactDeletionRelayPeer, session: ContactDeletionRelaySession)
+        async -> Bool {
+        guard contactDeletionRelayIsCurrent(session) else { return false }
+        let secret: String?
+        do {
+            secret = try groupRepository.credential(for: peer.groupID)?.secret
+        } catch {
+            reportGroupStorageError(error)
+            return false
+        }
+        guard let secret, let address = ContactDeletionRelayAddress(
+            owner: peer.principal, recipient: session.access.principal,
+            pairSecret: secret, senderID: peer.memberID, recipientID: session.signer.memberID) else { return true }
+        return await receiveRelayedContactDeletion(
+            address, member: peer.memberID, key: peer.key, session: session)
     }
 
     private func receiveRelayedContactDeletion(
