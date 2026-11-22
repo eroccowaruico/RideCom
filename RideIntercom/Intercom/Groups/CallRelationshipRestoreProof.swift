@@ -50,24 +50,35 @@ struct CallRelationshipRestoreRequest: Codable {
     func verifiedDirectRequester(
         addressedTo signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date
     ) throws -> AccountPrincipal? {
-        let requester = try verifiedRequester(trust: trust, now: now).principal
+        try verifiedDirectRequesterIdentity(addressedTo: signer, trust: trust, now: now)?.restoreBinding.principal
+    }
+
+    func verifiedDirectRequesterIdentity(
+        addressedTo signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date
+    ) throws -> VerifiedDeviceIdentity? {
+        let requester = try verifiedRequesterIdentity(trust: trust, now: now)
         let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
         guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey)
         else { throw DeviceIdentityProof.Failure.invalid }
         guard challenge.confirmedRegistrationID != nil,
-              AccountCallPair(requester, responder).id == challenge.callID else { return nil }
+              AccountCallPair(requester.restoreBinding.principal, responder).id == challenge.callID else { return nil }
         return requester
     }
 
     fileprivate func verifiedRequester(trust: DeviceIdentityTrust, now: Date) throws -> AccountDeviceBinding {
+        try verifiedRequesterIdentity(trust: trust, now: now).restoreBinding
+    }
+
+    private func verifiedRequesterIdentity(trust: DeviceIdentityTrust, now: Date) throws -> VerifiedDeviceIdentity {
         guard challenge.isCurrent(at: now) else { throw DeviceIdentityProof.Failure.invalid }
         let requester = try proof.verify(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore,
                                          memberID: challenge.requesterMemberID, trust: trust, now: now)
-        guard let principal = requester.principal, principal.isValid, principal != challenge.recipient.principal,
-              principal.issuer == challenge.recipient.principal.issuer else {
+        guard let identity = requester.identity, let principal = requester.principal, principal.isValid,
+              principal != challenge.recipient.principal, principal.issuer == challenge.recipient.principal.issuer
+        else {
             throw DeviceIdentityProof.Failure.invalid
         }
-        return .init(principal: principal, publicKey: requester.publicKey)
+        return identity
     }
 }
 

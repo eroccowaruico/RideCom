@@ -31,6 +31,7 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         case readContactDeletion, acknowledgeContactDeletionRelay
         case requestCallRelationshipRestore, confirmCallRelationshipRestore
         case deliverCallRelationshipRestoreCredential
+        case submitDirectCallRestoreRelay
     }
     let publicKey: String
     var certificate: DeviceIdentityCertificate?
@@ -52,15 +53,15 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         guard
             key.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signatureBytes), for: message)
         else { throw Failure.invalid }
-        var principal: AccountPrincipal?
+        var verifiedIdentity: VerifiedDeviceIdentity?
         if let trust, let certificate,
            let identity = try? certificate.verify(origin: trust.origin, trustedIssuerKey: trust.issuerKey, now: now) {
             guard identity.memberID == memberID, identity.deviceKey == publicKey else { throw Failure.invalid }
-            principal = AccountPrincipal(issuer: identity.issuer, userID: identity.userID)
+            verifiedIdentity = identity
         }
         // Missing/expired/foreign certification never asserts an account. The
         // device key can still prove a direct Local invitation offline.
-        return VerifiedDeviceProof(memberID: memberID, publicKey: publicKey, principal: principal)
+        return VerifiedDeviceProof(memberID: memberID, publicKey: publicKey, identity: verifiedIdentity)
     }
 
     fileprivate static func message(_ payload: Data, purpose: Purpose, memberID: String, publicKey: String,
@@ -69,6 +70,8 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         switch purpose {
         case .submitBackgroundGroupInvitation, .submitBackgroundContactAcceptance:
             maximumPayloadSize = 37 * 1024
+        case .submitDirectCallRestoreRelay:
+            maximumPayloadSize = 25 * 1024
         default: maximumPayloadSize = 16_384
         }
         guard payload.count <= maximumPayloadSize, IntercomGroup.isValidMemberID(memberID),
@@ -169,8 +172,9 @@ nonisolated struct DeviceIdentitySigner: Sendable {
 nonisolated struct VerifiedDeviceProof {
     let memberID: String
     let publicKey: String
-    let principal: AccountPrincipal?
-    fileprivate init(memberID: String, publicKey: String, principal: AccountPrincipal?) {
-        self.memberID = memberID; self.publicKey = publicKey; self.principal = principal
+    let identity: VerifiedDeviceIdentity?
+    var principal: AccountPrincipal? { identity.map { .init(issuer: $0.issuer, userID: $0.userID) } }
+    fileprivate init(memberID: String, publicKey: String, identity: VerifiedDeviceIdentity?) {
+        self.memberID = memberID; self.publicKey = publicKey; self.identity = identity
     }
 }
