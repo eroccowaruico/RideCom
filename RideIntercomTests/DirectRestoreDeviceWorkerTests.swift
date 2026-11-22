@@ -115,7 +115,7 @@ extension GroupDeliveryWorkerTests {
             try await register(holder)
             try await register(original)
             try await register(replacement, appleSubject: original.memberID)
-            let publisher = try holder.harness(knowing: []).viewModel
+            let publisher = try holder.harness(knowing: [], onDisk: true).viewModel
             let old = try original.harness(knowing: []).viewModel
             let new = try replacement.harness(knowing: []).viewModel
             defer { publisher.disconnect(); old.disconnect(); new.disconnect() }
@@ -135,10 +135,9 @@ extension GroupDeliveryWorkerTests {
             let client = InternetAccountClient(session: workerSession())
             #expect(try await session.prepareDirectRestore(for: contactID, from: backup, using: client) == nil)
 
-            let publication = try #require(try publisher.groupRepository.directRestoreDevicePublication(
-                for: publisherContact, as: holder.signer, now: Date()))
-            let access = try #require(try holder.store.notificationAccess(memberID: holder.memberID))
-            try await client.publishDirectRestoreDevice(publication, access: access)
+            try #require(try await publisher.publishTrackedDirectRestoreDevice(for: publisherContact, using: client))
+            let tracked = try #require(publisher.groupRepository.writableSnapshot?.directRestoreDevices.first)
+            #expect(!tracked.withdrawalPending)
             let prepared = try #require(try await session.prepareDirectRestore(
                 for: contactID, from: backup, using: client))
             #expect(prepared.recipient.deviceID == (try holder.signer.identity?.deviceID))
@@ -150,9 +149,27 @@ extension GroupDeliveryWorkerTests {
                                                        backup: backup, contactID: contactID)
 
             try #require(publisher.removeSavedUser(publisherContact))
-            try await client.revokeDirectRestoreDevice(publication.withdrawal, access: access)
+            try await retryRestoreWithdrawal(afterRemoving: publisherContact, on: holder, using: client)
             #expect(try await session.prepareDirectRestore(for: contactID, from: backup, using: client) == nil)
         }
+    }
+
+    private func retryRestoreWithdrawal(afterRemoving contactID: UUID, on holder: GroupDeliveryTestIdentity,
+                                        using client: InternetAccountClient) async throws {
+        let reopened = try holder.harness(knowing: [], onDisk: true).viewModel
+        defer { reopened.disconnect() }
+        #expect(reopened.savedRemoteUsers.allSatisfy { $0.id != contactID })
+        #expect(reopened.groupRepository.writableSnapshot?.directRestoreDevices.first?.withdrawalPending == true)
+        GroupWorkerHTTPBridge.interruptNextRestoreWithdrawal.withLock { $0 = true }
+        defer { GroupWorkerHTTPBridge.interruptNextRestoreWithdrawal.withLock { $0 = false } }
+        await #expect(throws: URLError.self) {
+            try await reopened.synchronizeDirectRestoreDeviceWithdrawals(using: client)
+        }
+        let retry = try holder.harness(knowing: [], onDisk: true).viewModel
+        defer { retry.disconnect() }
+        #expect(retry.groupRepository.writableSnapshot?.directRestoreDevices.first?.withdrawalPending == true)
+        try await retry.synchronizeDirectRestoreDeviceWithdrawals(using: client)
+        #expect(retry.groupRepository.writableSnapshot?.directRestoreDevices.isEmpty == true)
     }
 
     private func confirmRestoreContact(from publisher: IntercomViewModel, to old: IntercomViewModel) throws {

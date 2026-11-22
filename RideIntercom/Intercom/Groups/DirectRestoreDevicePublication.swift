@@ -10,6 +10,7 @@ struct DirectRestoreDeviceAddress {
     let publisher: AccountPrincipal
     let reader: AccountPrincipal
     let slot: String
+    fileprivate let registration: UUID
     private let callID: UUID
     private let fingerprint: String
     private let key: SymmetricKey
@@ -30,6 +31,7 @@ struct DirectRestoreDeviceAddress {
         else { throw DeviceIdentityProof.Failure.invalid }
         self.publisher = publisher
         self.reader = reader
+        self.registration = registration
         self.fingerprint = fingerprint
         callID = AccountCallPair(publisher, reader).id
         let fields = [publisher.issuer, publisher.userID, reader.userID, callID.uuidString,
@@ -73,6 +75,7 @@ struct DirectRestoreDeviceAddress {
 
 nonisolated struct DirectRestoreDevicePublication: Encodable, Sendable {
     let publisher: AccountPrincipal
+    let registration: UUID
     let slot: String
     let reader: String
     let issuedAt: Int64
@@ -81,8 +84,6 @@ nonisolated struct DirectRestoreDevicePublication: Encodable, Sendable {
     let proof: DeviceIdentityProof
 
     private enum CodingKeys: String, CodingKey { case slot, reader, issuedAt, expiresAt, packet, proof }
-
-    var withdrawal: DirectRestoreDeviceWithdrawal { .init(publisher: publisher, slot: slot, reader: reader) }
 
     nonisolated struct Delivery: Decodable, Sendable {
         let expiresAt: Int64
@@ -117,6 +118,7 @@ nonisolated struct DirectRestoreDevicePublication: Encodable, Sendable {
         guard (40...DirectRestoreDeviceAddress.maximumPacketCharacters).contains(packet.utf8.count)
         else { throw DeviceIdentityProof.Failure.invalid }
         publisher = address.publisher
+        registration = address.registration
         slot = address.slot
         reader = address.reader.userID
         self.issuedAt = issuedAt

@@ -133,6 +133,7 @@ final class GroupRepository {
             reconcileInvitations(in: &next)
             for index in next.groups.indices { next.groups[index].discardInvitationKeysForDepartedMembers() }
             next.synchronizeUserReferences()
+            next.reconcileDirectRestoreDevices(localMemberID: localMemberID)
             do { _ = try next.encoded() } catch { throw GroupStorageError.invalidUpdate }
             for credential in allCredentials {
                 guard let index = next.groups.firstIndex(where: { $0.id == credential.groupID }) else {
@@ -193,6 +194,7 @@ final class GroupRepository {
            contactDeletionFormerPairs: previous.contactDeletionFormerPairs.filter { $0.expiresAt > now })
         next.issuedOrdinaryGroupInvitations = previous.issuedOrdinaryGroupInvitations
         next.backupRemovals = previous.backupRemovals
+        next.directRestoreDevices = previous.directRestoreDevices.filter { Double($0.expiresAt) > now * 1_000 }
         return next
     }
 

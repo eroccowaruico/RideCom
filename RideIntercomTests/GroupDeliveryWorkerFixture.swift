@@ -72,6 +72,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let contactAcceptanceWrites = Mutex(0)
     nonisolated static let holdNextRestoreDeviceRead = Mutex<ManualAsyncGate?>(nil)
     nonisolated static let interruptNextRestoreRetirement = Mutex(false)
+    nonisolated static let interruptNextRestoreWithdrawal = Mutex(false)
     nonisolated(unsafe) static var origin: URL?
     struct Cancellation {
         let id: UUID
@@ -110,7 +111,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
         let value = forwarded
         requestWork = Task { [self] in
             do {
-                try Self.checkRestoreRetirement(path: original.path, method: value.httpMethod)
+                try Self.checkRestoreDeletion(path: original.path, method: value.httpMethod)
                 let (data, result) = try await URLSession.shared.data(for: value)
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
                 await Self.holdRestoreDeviceReadIfRequested(path: original.path, method: value.httpMethod)
@@ -128,9 +129,16 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
             } catch { client?.urlProtocol(self, didFailWithError: error) }
         }
     }
-    private static func checkRestoreRetirement(path: String, method: String?) throws {
-        guard path == "/api/direct-call-restore/relay", method == "DELETE" else { return }
-        let interrupted = interruptNextRestoreRetirement.withLock { value in
+    private static func checkRestoreDeletion(path: String, method: String?) throws {
+        guard method == "DELETE" else { return }
+        switch path {
+        case "/api/direct-call-restore/relay": try interruptIfRequested(interruptNextRestoreRetirement)
+        case "/api/direct-call-restore/device": try interruptIfRequested(interruptNextRestoreWithdrawal)
+        default: break
+        }
+    }
+    private static func interruptIfRequested(_ flag: borrowing Mutex<Bool>) throws {
+        let interrupted = flag.withLock { value in
             defer { value = false }
             return value
         }

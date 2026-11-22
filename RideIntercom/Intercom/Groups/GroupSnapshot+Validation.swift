@@ -6,6 +6,11 @@ extension GroupSnapshot {
         if let removal = backupRemovals, version < 27 || !removal.isValid || removal.isPresent(in: self) {
             throw IntercomGroupError.invalidStoredGroups
         }
+        guard version >= 29 || directRestoreDevices.isEmpty,
+              directRestoreDevices.count <= 64,
+              Set(directRestoreDevices.map(\.slot)).count == directRestoreDevices.count,
+              directRestoreDevices.allSatisfy(\.isValid)
+        else { throw IntercomGroupError.invalidStoredGroups }
         try validateGroupHeadersAndInvitations()
         try validateGroupRemovalsAndNearbyCancellations()
         try validateContactDeletionRecords()
