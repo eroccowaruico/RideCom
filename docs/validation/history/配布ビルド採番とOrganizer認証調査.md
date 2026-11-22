@@ -158,3 +158,11 @@ Build 2077をXcodeの標準保存先に登録した。
 Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサインインと双方向音声は未確認。共有側と手元の採番の差を避けるため、Archiveの作成時にビルド番号を指定した。証跡は `.validation/shared-main-2160-archive/` に保存した。[配布版とDebugの入口](../../spec/App/UI/Settings.md#internet-connection)
 
 2,200コミットの監査で、登録済みのArchiveと検証領域のArchiveの署名を再検証した。いずれも署名は有効で、アプリとプロビジョニングプロファイルの通常通知の環境は `development` だった。以前の記録では本番の通常通知の構成まで確認したと記載していた。Build 2077の本番用IPAの署名は別途確認が必要。再検証の集計は `.validation/security-audit-2200/archive-2077-confirmation.json` に保存した。
+
+## 2,220コミットの区切りでiOS Build 2086をArchiveする
+
+2026-11-22。手元のmainの第一親で2,220件目の `40ddb010` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2086で一致した。署名とApp・WebRTCのdSYMを検証し、実行ファイルに本番Workerの固定接続先があることを確認した。Watch App、カメラの利用目的、CallKitとPushToTalkの動的リンク、iCloud権限は含まれなかった。
+
+登録先は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2086).xcarchive`。Xcodeで開く要求は成功した。Organizerの一覧での表示は未確認。次回用の共通採番は2087へ進んだ。[Archiveの登録と表示の確認](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
+
+ArchiveのAppに署名された通常通知の環境は `development`。本番用IPAの書き出しと署名確認、App Store Connectへの送信は今回の検証に含めていない。
