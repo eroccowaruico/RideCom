@@ -15,9 +15,9 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 
 | 名前 | 種類 | 値 |
 |---|---|---|
-| CLOUDFLARE_SFU_APP_ID | Variable | SFU App ID。Productionは`vars`、PreviewはPreviews BaseのVariableへ環境別に設定 |
+| CLOUDFLARE_SFU_APP_ID | Variable | SFU App ID。Productionは`vars`、固定Previewは`previews.vars`へ環境別に設定 |
 | CLOUDFLARE_SFU_APP_SECRET | Secret | SFU App Secret |
-| CLOUDFLARE_TURN_KEY_ID | Variable | TURN Key ID。Productionは`vars`、PreviewはPreviews BaseのVariableへ環境別に設定 |
+| CLOUDFLARE_TURN_KEY_ID | Variable | TURN Key ID。Productionは`vars`、固定Previewは`previews.vars`へ環境別に設定 |
 | CLOUDFLARE_TURN_API_TOKEN | Secret | TURN資格発行・失効用のAPI token |
 | CLIENT_TOKENS_JSON | Secret（旧手動試用だけ） | 試用資格の登録用`client-tokens.json`の内容。native Apple登録には不要 |
 | APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
@@ -98,10 +98,13 @@ node --test scripts/Cloudflare/*.test.mjs
 
 以下のCLIはすべて `server/` で実行する。初回は `npx wrangler login` でログインする。続いて `npx wrangler whoami` とダッシュボードでアカウント、Worker名 `rideintercom`、対象Preview名 `preview` を照合する。複数のアカウントが表示される場合は対象のAccount IDを指定してから進める（Wranglerの `CLOUDFLARE_ACCOUNT_ID`）。固定Previewが未作成なら、[管理画面とプレビューの設定](#管理画面とプレビューの設定)でPreviews Baseを準備してから `npx wrangler preview --name preview` で作成する。
 
-既存の固定PreviewのSFU資格を**新規登録または更新するときだけ**、SFU App IDはPreviews BaseのVariableへ設定し、App Secretだけを次の対話入力で登録する。操作は指定Previewの新しい配置を作る。登録済みなら名前と対象を照合し、Appの接続確認へ進む。
+固定PreviewのSFU App IDとTURN Key IDは `server/wrangler.toml` の `previews.vars` で指定する。CloudflareのPreviews BaseにあるシークレットはPreviewを作成する際に取り込まれる。既存の固定Previewに足りないシークレットは、そのPreviewを対象に登録する。標準の対話入力で登録した後、最新配置でシークレットの型を照合する。[CloudflareのPreviewシークレット](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 
 ```sh
 npx wrangler preview secret put CLOUDFLARE_SFU_APP_SECRET --name preview
+npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
+npx wrangler preview secret put APNS_PRIVATE_KEY --name preview
+npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 ```
 
 通常のAppは[Apple経由でInternet登録](#利用者が行うapplecloudflareの設定と受入順)する。下記の端末トークンは旧方式を明示して試用する場合だけ使う。
@@ -161,7 +164,7 @@ Dashboardでkeyを作成するときは、登録より先に、その画面で�
 npx wrangler preview secret put CLOUDFLARE_TURN_API_TOKEN --name preview
 ```
 
-固定PreviewではPreviews BaseのVariableと対象PreviewのSecret、本番では`vars`と本番Secretを使う。keyを作成して秘密管理先に保存し、対象環境にID VariableとAPI token Secretを登録するまで `TURN_ENABLED` はfalseを保つ。最後に対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
+固定Previewでは`previews.vars`と対象PreviewのSecret、本番では`vars`と本番Secretを使う。keyを作成して秘密管理先に保存し、対象環境にID VariableとAPI token Secretを登録するまで `TURN_ENABLED` はfalseを保つ。最後に対象側だけで `TURN_ENABLED = "true"` を設定し、該当する配置方法を使う。診断で短命資格の取得とrelay経路での双方向音声を順に確かめる。資格取得に失敗したら対象環境のIDとtokenの組を確認する。中継の有効化を取り消す場合は同じ環境のフラグを元に戻して再配置する。[TURN資格の契約](../spec/server/Worker.md#turn資格の契約)
 
 ## 検証環境の間接依存
 
@@ -299,6 +302,8 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 2026-11-22。本番Workerの設定と固定Previewの最新配置を管理APIで読み取った。本番のApple登録、通常通知、Internet通話、TURN、端末審査の各フラグは手元の本番設定と一致した。本番のSFUとTURNの参照先は両方とも存在し、通知・端末証明・Apple認可取消の署名鍵も登録済みだった。観測はリソースと鍵の登録の有無に限る。背景転送の鍵は両環境とも未設定だった。[Cloudflareのプレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)
 
 配置前の固定Previewの `41d1019f` では、`SERVICE_ENABLED` と `NOTIFICATIONS_ENABLED` はどちらも `true` だった。指定されたSFU Appは見つからず、sandbox APNsと端末証明の鍵も配置に含まれていなかった。共有 `main` の `previews.vars` で両方を `false` にし、固定PreviewではInternet通話と通常通知を停止する。配置後は最新配置の2項目を読み戻す。再開時は固定Preview用のSFUと対応する資格、sandbox APNsと端末証明の鍵を同じ配置に揃え、端末登録・双方向通話・通常通知の到達を確認する。[環境別の設定値](../spec/server/Worker.md#設定値)
+
+2026-11-22。停止設定の `1fa64f8f` は本番と固定Previewに配置され、通話・通常通知のフラグは本番で有効、固定Previewで無効と読み戻した。指定のSFU AppとTURN KeyはCloudflareに存在し、Previews Baseでは両方のIDと4点のシークレットの登録を確認した。固定Previewの稼働配置には古いSFU Appの参照があり、TURNの参照とシークレット、sandbox APNs・端末証明の鍵がなかった。両IDを共有 `main` の設定に記載し、対応するシークレットが固定Previewの配置に揃ってから有効化する。
 
 APNsの環境やトピックを変更する場合は、古い設定で登録した宛先への送信が止まることと、現在の設定で再登録した端末にだけ届くことを確認する。固定Previewの開発署名にはsandbox、本番のTestFlightにはproductionを使う。[APNsの接続先](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)・[送信先を照合する仕様](../spec/server/通知.md#費用悪用を抑える境界)
 

@@ -232,7 +232,7 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 
 TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固定Previewは開発署名とsandbox APNsによる開発試用に使う。[配布環境の要求](../../requirements/製品要求.md#購入復元共有と公開条件)
 
-試用プレビューは`npm --prefix server run preview`で作業branchごとに配置する。新規プレビューはCloudflareのPreviews BaseからSFU App ID、App Secret、端末registryを引き継ぐ。既存プレビューに使うsecretは対象の配置に反映する。GitHub連携ではmainのdeploy commandと、他branchのPreview commandを分ける。
+固定PreviewのSFU App IDとTURN Key IDは `previews.vars` に記載する。Previews BaseのシークレットはPreview作成時に取り込まれる。既存の固定Previewに追加・更新するシークレットは、そのPreviewを対象に登録する。GitHub連携ではmainの配置コマンドと固定Previewの配置コマンドを分ける。[CloudflareのPreview設定](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 
 リポジトリの `wrangler.toml` は、環境ごとに次の値を明示する。実際に稼働する値と鍵の反映状況は[最新の配置で確認した試用条件](../../development/Cloudflare試用手順.md#最新の配置で確認した試用条件)を参照する。
 

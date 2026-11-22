@@ -34,6 +34,15 @@ test('fixed Preview pauses internet calls and notifications while production rem
     }
 });
 
+test('fixed Preview declares its own SFU and TURN references', () => {
+    const config = unstable_readConfig({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)) });
+    assert.ok(config.previews);
+    for (const variable of ['CLOUDFLARE_SFU_APP_ID', 'CLOUDFLARE_TURN_KEY_ID']) {
+        assert.ok(config.previews.vars[variable], variable);
+        assert.notEqual(config.previews.vars[variable], config.vars[variable], variable);
+    }
+});
+
 test('join needs no display name', async () => {
     const runtime = await makeRuntime();
     try {
