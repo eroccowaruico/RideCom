@@ -45,7 +45,7 @@ struct CallRelationshipRestoreRequest: Codable {
         return IdentityEncoding.encode(Data(SHA256.hash(data: payload)))
     }
 
-    fileprivate func verify(trust: DeviceIdentityTrust, now: Date) throws -> VerifiedDeviceProof {
+    fileprivate func verifiedRequester(trust: DeviceIdentityTrust, now: Date) throws -> AccountDeviceBinding {
         guard challenge.isCurrent(at: now) else { throw DeviceIdentityProof.Failure.invalid }
         let requester = try proof.verify(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore,
                                          memberID: challenge.requesterMemberID, trust: trust, now: now)
@@ -53,7 +53,7 @@ struct CallRelationshipRestoreRequest: Codable {
               principal.issuer == challenge.recipient.principal.issuer else {
             throw DeviceIdentityProof.Failure.invalid
         }
-        return requester
+        return .init(principal: principal, publicKey: requester.publicKey)
     }
 }
 
@@ -78,6 +78,26 @@ extension CallRelationshipBackup {
 }
 
 struct CallRelationshipRestoreConfirmation: Codable {
+    /// The addressed device's local membership check. The caller still verifies current access and the call key.
+    struct Verified {
+        let callID: UUID
+        let previousMemberID: String
+        let requesterMemberID: String
+        let requester: AccountDeviceBinding
+        let responderMemberID: String
+        let responder: AccountDeviceBinding
+
+        fileprivate init(challenge: CallRelationshipRestoreRequest.Challenge, previousMemberID: String,
+                         requester: AccountDeviceBinding) {
+            callID = challenge.callID
+            self.previousMemberID = previousMemberID
+            requesterMemberID = challenge.requesterMemberID
+            self.requester = requester
+            responderMemberID = challenge.recipientMemberID
+            responder = challenge.recipient
+        }
+    }
+
     private struct Claim: Encodable {
         let request: CallRelationshipRestoreRequest
         let previousMemberID: String
@@ -93,10 +113,14 @@ struct CallRelationshipRestoreConfirmation: Codable {
         proof = try signer.sign(restoreProofPayload(claim), purpose: .confirmCallRelationshipRestore)
     }
 
-    func replacedMemberID(for request: CallRelationshipRestoreRequest, trust: DeviceIdentityTrust,
-                          now: Date) throws -> String {
+    func verify(for request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
+                trust: DeviceIdentityTrust, now: Date) throws -> Verified {
         let challenge = request.challenge
-        guard challenge.isCurrent(at: now), IntercomGroup.isValidMemberID(previousMemberID),
+        let requester = try request.verifiedRequester(trust: trust, now: now)
+        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
+        guard signer.memberID == challenge.requesterMemberID,
+              requester == .init(principal: owner, publicKey: signer.publicKey),
+              IntercomGroup.isValidMemberID(previousMemberID),
               !previousMemberID.hasPrefix(GroupMember.pendingInvitePrefix),
               previousMemberID != challenge.requesterMemberID else {
             throw DeviceIdentityProof.Failure.invalid
@@ -106,7 +130,7 @@ struct CallRelationshipRestoreConfirmation: Codable {
                                          memberID: challenge.recipientMemberID, trust: trust, now: now)
         guard challenge.addresses(memberID: responder.memberID, principal: responder.principal,
                                   publicKey: responder.publicKey) else { throw DeviceIdentityProof.Failure.invalid }
-        return previousMemberID
+        return .init(challenge: challenge, previousMemberID: previousMemberID, requester: requester)
     }
 }
 
@@ -115,18 +139,18 @@ extension GroupRepository {
     func confirmRestore(_ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
                         trust: DeviceIdentityTrust, now: Date) throws -> CallRelationshipRestoreConfirmation? {
         let challenge = request.challenge
-        let requester = try request.verify(trust: trust, now: now)
+        let requester = try request.verifiedRequester(trust: trust, now: now)
+        let owner = requester.principal
         let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
         guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey),
-              localMemberID == signer.memberID,
-              let owner = requester.principal else { throw DeviceIdentityProof.Failure.invalid }
+              localMemberID == signer.memberID else { throw DeviceIdentityProof.Failure.invalid }
         guard let snapshot = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
         return try withCurrentSnapshot(snapshot) {
             guard let record = snapshot.groups.first(where: { $0.id == challenge.callID }),
                   record.pendingInvitation == nil,
                   record.accountDevices[signer.memberID] == .init(principal: responder, publicKey: signer.publicKey),
-                  !record.excludesMember(requester.memberID, principal: owner),
-                  !record.members.contains(where: { $0.id == requester.memberID }),
+                  !record.excludesMember(challenge.requesterMemberID, principal: owner),
+                  !record.members.contains(where: { $0.id == challenge.requesterMemberID }),
                   let previous = record.soleRestorePredecessor(for: owner, replacingKeyWith: requester.publicKey)
             else { return nil }
             if record.kind == .direct {

@@ -22,15 +22,23 @@ struct CallRestoreConfirmationTests {
         let confirmation = try #require(try repository.confirmRestore(delivered, as: responder, trust: trust, now: now))
         let reply = try JSONDecoder().decode(CallRelationshipRestoreConfirmation.self,
                                              from: JSONEncoder().encode(confirmation))
-        #expect(try reply.replacedMemberID(for: request, trust: trust, now: now) == "alice-old")
+        let verified = try reply.verify(for: request, as: requester, trust: trust, now: now)
+        let requesterPrincipal = try #require(requester.principal)
+        let responderPrincipal = try #require(responder.principal)
+        #expect(verified.callID == callID)
+        #expect(verified.previousMemberID == "alice-old")
+        #expect(verified.requesterMemberID == requester.memberID)
+        #expect(verified.requester == .init(principal: requesterPrincipal, publicKey: requester.publicKey))
+        #expect(verified.responderMemberID == responder.memberID)
+        #expect(verified.responder == .init(principal: responderPrincipal, publicKey: responder.publicKey))
         #expect(scenario.other.groupStore.snapshot == before)
 
         let nextRequest = try restoreRequest(callID, to: responder, from: requester, now: now)
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try confirmation.replacedMemberID(for: nextRequest, trust: trust, now: now)
+            try confirmation.verify(for: nextRequest, as: requester, trust: trust, now: now)
         }
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try confirmation.replacedMemberID(for: request, trust: trust, now: now.addingTimeInterval(300))
+            try confirmation.verify(for: request, as: requester, trust: trust, now: now.addingTimeInterval(300))
         }
 
         if directCall {
@@ -58,6 +66,25 @@ struct CallRestoreConfirmationTests {
 
         #expect(throws: GroupStorageError.changedByAnotherProcess) {
             try stale.confirmRestore(request, as: responder, trust: trust, now: now)
+        }
+    }
+
+    @Test func aConfirmationCannotBeAcceptedAfterChangingTheRequestersDeviceKey() throws {
+        let scenario = try RestoreProofFixture(); defer { scenario.fixture.disconnect() }
+        let holder = scenario.other.viewModel
+        let responder = try holder.internetSettingsStore.invitationSigner(memberID: "bob")
+        let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let trust = try #require(try holder.internetSettingsStore.identityTrust())
+        let now = Date()
+        let request = try restoreRequest(scenario.directID, to: responder, from: requester, now: now)
+        let confirmation = try #require(try holder.groupRepository.confirmRestore(
+            request, as: responder, trust: trust, now: now))
+        let changed = try scenario.fixture.peer(requester.memberID, account: "a").viewModel.internetSettingsStore
+        let differentKey = try changed.invitationSigner(memberID: requester.memberID)
+        #expect(differentKey.principal == requester.principal)
+        #expect(differentKey.publicKey != requester.publicKey)
+        #expect(throws: DeviceIdentityProof.Failure.invalid) {
+            try confirmation.verify(for: request, as: differentKey, trust: trust, now: now)
         }
     }
 
@@ -113,7 +140,8 @@ struct CallRestoreConfirmationTests {
             for: contactID, to: addressedIdentity, as: requester, now: now))
         let beforeRemoval = try #require(try primary.groupRepository.confirmRestore(
             request, as: addressed, trust: trust, now: now))
-        #expect(try beforeRemoval.replacedMemberID(for: request, trust: trust, now: now) == "alice-old")
+        let verified = try beforeRemoval.verify(for: request, as: requester, trust: trust, now: now)
+        #expect(verified.previousMemberID == "alice-old")
         let person = try #require(primary.savedRemoteUsers.first?.id)
         try primary.groupRepository.removeUser(person)
 
@@ -132,9 +160,10 @@ struct CallRestoreConfirmationTests {
         let otherRequest = try restoreRequest(scenario.directID, to: other, from: requester, now: now)
         let response = try #require(try unsynced.viewModel.groupRepository.confirmRestore(
             otherRequest, as: other, trust: trust, now: now))
-        #expect(try response.replacedMemberID(for: otherRequest, trust: trust, now: now) == "alice-old")
+        let staleConfirmation = try response.verify(for: otherRequest, as: requester, trust: trust, now: now)
+        #expect(staleConfirmation.previousMemberID == "alice-old")
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
-            try response.replacedMemberID(for: request, trust: trust, now: now)
+            try response.verify(for: request, as: requester, trust: trust, now: now)
         }
     }
 
