@@ -4,6 +4,75 @@ import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized)
+struct CallRelationshipBackupTests {
+    @Test func backupRoundTripContainsOnlyTheOwnersCallCandidates() throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore()
+        var snapshot = scenario.backup
+        let oldSigner = scenario.oldSigner
+        let foreign = try scenario.other.viewModel.internetSettingsStore.invitationSigner(memberID: "bob")
+        let groupIndex = try #require(snapshot.groups.firstIndex { $0.id == scenario.groupID })
+        snapshot.groups[groupIndex].accountDevices[oldSigner.memberID] = scenario.backupOwner
+        snapshot.groups.append(.init(try IntercomGroup(name: "Unknown owner", members: [
+            .init(id: oldSigner.memberID, displayName: "Rider")
+        ])))
+        let foreignBinding = AccountDeviceBinding(
+            principal: try #require(foreign.principal), publicKey: foreign.publicKey)
+        snapshot.groups.append(.init(try IntercomGroup(
+            name: "Other owner", members: [.init(id: oldSigner.memberID, displayName: "Rider")],
+            accountDevices: [oldSigner.memberID: foreignBinding])))
+        snapshot.synchronizeUserReferences()
+        store.snapshot = snapshot
+        let repository = GroupRepository(store: store, credentials: scenario.restoredCredentials)
+        _ = try repository.load(localMemberID: oldSigner.memberID)
+        let now = Date().timeIntervalSince1970
+        let data = try repository.callRelationshipBackup(as: oldSigner, now: now)
+        let newSigner = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let restored = try CallRelationshipBackup.read(data, as: newSigner, now: now)
+
+        #expect(restored.owner == scenario.backupOwner.principal)
+        #expect(restored.groups.map(\.id) == [scenario.groupID])
+        #expect(restored.contacts.map(\.id) == [scenario.savedPersonID])
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(payload.keys) == ["version", "owner", "groups", "contacts"])
+        let group = try #require((payload["groups"] as? [[String: Any]])?.first)
+        #expect(Set(group.keys) == ["id", "name"])
+        let contact = try #require((payload["contacts"] as? [[String: Any]])?.first)
+        #expect(Set(contact.keys) == ["id", "principal"])
+        #expect(throws: GroupStorageError.identityConflict) {
+            try CallRelationshipBackup.read(data, as: foreign, now: now)
+        }
+        let expiry = try #require(newSigner.identity?.expiresAt)
+        #expect(throws: GroupStorageError.identityConflict) {
+            try CallRelationshipBackup.read(data, as: newSigner, now: expiry)
+        }
+
+        var unknownVersion = payload
+        unknownVersion["version"] = 2
+        let unknownData = try JSONSerialization.data(withJSONObject: unknownVersion)
+        #expect(throws: GroupStorageError.invalidUpdate) {
+            try CallRelationshipBackup.read(unknownData, as: newSigner, now: now)
+        }
+    }
+
+    @Test func backupRejectsAStaleSnapshotAfterAnotherProcessChangesIt() throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore()
+        store.snapshot = scenario.backup
+        let repository = GroupRepository(store: store, credentials: scenario.restoredCredentials)
+        let signer = scenario.oldSigner
+        _ = try repository.load(localMemberID: signer.memberID)
+        store.snapshot.generation = UUID()
+        let now = Date().timeIntervalSince1970
+
+        #expect(throws: GroupStorageError.changedByAnotherProcess) {
+            try repository.callRelationshipBackup(as: signer, now: now)
+        }
+        #expect(repository.writableSnapshot == nil)
+    }
+}
+
+@MainActor @Suite(.serialized)
 struct ReplacementDeviceRestoreTests {
     @Test func aBackupWithTheOldMemberIDCannotBeOpenedByTheReplacement() throws {
         let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
@@ -251,6 +320,7 @@ private struct ReplacementScenario {
     let savedPersonID: UUID
     let backup: GroupSnapshot
     let backupOwner: AccountDeviceBinding
+    let oldSigner: DeviceIdentitySigner
     let restoredCredentials = InMemoryGroupCredentialStore()
 
     init() throws {
@@ -264,7 +334,7 @@ private struct ReplacementScenario {
             peer.viewModel.setRTCTransportRoutes([.multipeer])
         }
         let oldModel = old.viewModel, otherModel = other.viewModel
-        let oldSigner = try oldModel.internetSettingsStore.invitationSigner(memberID: "alice-old")
+        oldSigner = try oldModel.internetSettingsStore.invitationSigner(memberID: "alice-old")
         backupOwner = .init(principal: try #require(oldSigner.principal), publicKey: oldSigner.publicKey)
         savedPersonID = try #require(oldModel.savedRemoteUsers.first?.id)
         let otherPerson = try #require(otherModel.savedRemoteUsers.first?.id)
