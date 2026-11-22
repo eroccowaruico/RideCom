@@ -10,6 +10,9 @@ extension IntercomViewModel {
         #if DEBUG && RIDEINTERCOM_VALIDATION
         if let fixture = AppleAccountFixture.makeInternetAuthorization(viewModel: self) { return fixture }
         #endif
+        guard internetSettingsStore.permitsServiceAccess else {
+            throw InternetConnectionSettingsStore.ValidationError.disabledDuringLocalTests
+        }
         return InternetAccountAuthorization(
             expectedUserID: accountUserID, deviceID: try internetSettingsStore.accountDeviceID(),
             memberID: localMemberIdentity.memberID,

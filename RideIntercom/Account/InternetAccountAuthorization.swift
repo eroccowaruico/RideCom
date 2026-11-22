@@ -239,10 +239,8 @@ final class InternetAccountAuthorization {
             retryNotBefore = nil; retryOrigin = nil
         } catch {
             guard generation == operation else { return }
-            let fallback = address == nil
-                ? "Internet sign-in could not be prepared. Check the service address and try again."
-                : "Internet sign-in could not be prepared. Try again."
-            message = failureMessage(error, origin: address, fallback: fallback)
+            message = failureMessage(
+                error, origin: address, fallback: "Internet sign-in could not be prepared. Try again.")
         }
         if generation == operation { isBusy = false }
     }

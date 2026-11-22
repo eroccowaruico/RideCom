@@ -130,26 +130,6 @@ struct StandardInternetConnectionSection: View {
     }
 }
 
-/// Connect with Apple, with an editable service address in development builds.
-struct StandardInternetConnectionEditor: View {
-    @Bindable var viewModel: IntercomViewModel
-    @State private var address = ""
-
-    var body: some View {
-        Form {
-            if viewModel.fixedInternetWorkerOrigin == nil {
-                Section {
-                    TextField("Service Address", text: $address, prompt: Text("Address starting with https://"))
-                        .internetAddressInput()
-                        .accessibilityIdentifier("internetWorkerURL")
-                }
-            }
-            InternetAppleSignInSection(viewModel: viewModel, workerURL: viewModel.fixedInternetWorkerOrigin ?? address)
-        }
-        .onAppear { address = viewModel.internetWorkerURL }
-    }
-}
-
 /// The current name and Edit on one row; editing happens in its own sheet, as the design shows.
 struct StandardLocalDisplayNameSection: View {
     let viewModel: IntercomViewModel

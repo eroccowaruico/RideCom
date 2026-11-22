@@ -3,12 +3,12 @@ import SwiftUI
 
 struct InternetAppleSignInSection: View {
     let viewModel: IntercomViewModel
-    let workerURL: String
     @State private var authorization: InternetAccountAuthorization?
     @State private var message: String?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let workerURL = viewModel.fixedInternetWorkerOrigin ?? ""
         Section {
             Button("Set Up Internet Calling") {
                 Task {
@@ -51,7 +51,6 @@ struct InternetAppleSignInSection: View {
                 """
             )
         }
-        .onChange(of: workerURL) { authorization?.cancel(); authorization = nil; message = nil }
         .task { await viewModel.retryInternetAccountRevocation() }
         .onDisappear { authorization?.cancel() }
     }

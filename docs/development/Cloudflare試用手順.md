@@ -170,7 +170,7 @@ npx wrangler preview secret put CLIENT_TOKENS_JSON --name preview < .trial-crede
 node scripts/Cloudflare/check-service.mjs server/.trial-credentials/my-mac.json
 ```
 
-発行ファイルはdirectory0700/file0600で生成しgitignore対象。端末へ渡すのは各device JSONのWorker URLとaccessTokenだけ。JSONはAppへの自動インポート形式ではなく、Settingsへ手入力するための保存形式。registryにはtokenのSHA-256だけを保存する。revoke時は対象hashをregistryから削除しsecretを再登録。稼働中のWSは既存lease終了まで残り得る。ファイルやsecretをログ・チャット・リポジトリへ貼らない。
+発行ファイルはdirectory0700/file0600で生成し、Gitのignore対象とする。旧方式で使う接続先と資格は、開発時の設定に渡す。registryにはtokenのSHA-256だけを保存する。revoke時は対象hashをregistryから削除しsecretを再登録。稼働中のWSは既存lease終了まで残り得る。ファイルやsecretをログ・チャット・リポジトリへ貼らない。
 
 `v1` migrationは未デプロイ開発用namespaceを前提にSQLite DOを作る。既に同名Worker/旧KV DOをデプロイしていた場合は、既存migrationを書き換えて適用せず、新しい試用Worker名とnamespaceで開始する。既存データの移行・削除はこの手順に含めない。
 
@@ -178,13 +178,13 @@ node scripts/Cloudflare/check-service.mjs server/.trial-credentials/my-mac.json
 
 実サービスを使う前に、[開発方針](../policies/開発方針.md#実サービスを使う検証の費用制約)に従い、単体・結合を含むローカル検証をすべて成功させる。以降の手順は明示的な実サービス確認用であり、通常テストや設定マトリクスから大量実行しない。目的・人数・時間・回数を先に決め、短い疎通から進める。
 
-Debugで手動試用する場合は、前述の端末JSONから接続先ホストとプラットフォーム別のトークンを用意する。これらの値を、このcheckoutの[Configuration](../../Configuration/README.md)にある`Debug.local.xcconfig`へ設定する。通常のXcode Run・Buildが対象端末の値を生成Info.plistへ取り込み、AppはKeychain未設定時の既定値として読む。Settingsへの手入力や保存は不要。既定値はKeychainへ自動保存せず、保存済み設定を優先する。Release・Archive・隔離された検証buildへは含めない。秘密ファイルはgitignore対象で、GitHub経由では配布されない。
+Debugは固定Previewが既定。Apple登録はアプリ内の接続シートから行う。旧方式の資格で試す場合は[開発時の設定](../../Configuration/README.md)を使う。
 
 単体テスト、UIテスト、音声E2Eでは、テスト中のプロセスに構成を組み立てる。このときXCTestの環境変数または`RIDEINTERCOM_LOCAL_TESTING=1`でInternet資格を無効にする。UI testはこのflagをlaunch environmentへ渡す。ローカルfixtureを使うテストはstoreを明示注入する。外部費用のない自動試験と、Debugの手動試用を混同しない。
 
 | 操作 | 確認すること |
 |---|---|
-| Settings → Internet Connection → Configure | 同じWorker origin、端末ごとのaccess tokenを保存 |
+| Settings → Internet Connection → Configure | 同じ固定Previewに向く開発署名のAppで、Appleで端末を登録する |
 | Settings → Local Network OFF | Internetを明示選択。近距離経路の成功をSFU成功と誤認しない |
 | groupを作成し既存招待URLを共有 | 両端末が同じgroup secretを持つ |
 | Connect、双方向発話、mute | SFU APIの成功だけで音声成功と判定しない |
@@ -224,7 +224,7 @@ Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、T
 
 TestFlightに配布するAppは本番Workerを使う。固定Previewは開発署名での試用に使う。TestFlightでは同じビルドを2台に入れ、Internet通話と圏外の近距離通話から試す。通話の設定は端末登録・端末証明とSFUを先に揃える。通常通知のAPNsと、招待の背景転送用の鍵は、後続の各工程で照合する。[2端末の試用条件](../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)
 
-TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.workers.dev`。両端末でインターネット接続設定を開き、Appleで端末を登録する。AdvancedのWorker URLで本番のアドレスを確認できる。開発署名のDebugで試す場合は固定Previewのアドレスと、その環境で発行した資格を使う。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
+TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.workers.dev`。開発署名のDebugは固定Previewへ接続する。両端末でインターネット接続設定を開き、Appleで端末を登録する。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
 
 開始前に対象のApple Team、AppのBundle ID、署名済みAppのAPNs環境を照合する。CloudflareのAccount ID、Worker名、対象のPreview名またはProduction、両端末の接続先URLも照合する。APNs鍵を作る担当にはApple DeveloperのAccount HolderかAdminの権限が必要。Apple側の設定とCloudflare側の配置を別の人が担当する場合もこの組を共有し、秘密値は承認された保管先から登録する。[Appleの鍵作成権限](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)・[CloudflareのPreviewの分離](https://developers.cloudflare.com/workers/previews/)
 

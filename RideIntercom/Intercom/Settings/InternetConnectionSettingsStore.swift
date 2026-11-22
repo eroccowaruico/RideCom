@@ -7,7 +7,7 @@ final class InternetConnectionSettingsStore {
     private let keychain: KeychainSecretStoring
     private let service: String
     private let developmentDefaults: [String: String]?
-    private let permitsServiceAccess: Bool
+    let permitsServiceAccess: Bool
     let fixedWorkerOrigin: URL?
     private let defaults: UserDefaults
     private let deniedKey = "InternetAccount.requiresSignIn"
@@ -35,13 +35,16 @@ final class InternetConnectionSettingsStore {
             && environment["XCTestConfigurationFilePath"] == nil && environment["XCTestBundlePath"] == nil
         #if DEBUG
         let developmentDefaults = info["DevelopmentInternetConnection"] as? [String: String]
-        let fixedWorkerOrigin: URL? = nil
+        let defaultOrigin = "https://preview-rideintercom.analog.workers.dev"
         #else
         let developmentDefaults: [String: String]? = nil
-        guard let fixedWorkerOrigin = URL(string: "https://rideintercom.analog.workers.dev") else {
-            preconditionFailure("Invalid production Worker origin")
-        }
+        let defaultOrigin = "https://rideintercom.analog.workers.dev"
         #endif
+        let buildOrigin = developmentDefaults?["workerURL"].flatMap { try? InternetAccountClient.origin($0) }
+            .flatMap(IdentityEncoding.origin)
+        guard let fixedWorkerOrigin = URL(string: buildOrigin ?? defaultOrigin) else {
+            preconditionFailure("Invalid Worker origin")
+        }
         return .init(keychain: keychain, namespace: namespace, developmentDefaults: developmentDefaults,
                      permitsServiceAccess: permitsServiceAccess, fixedWorkerOrigin: fixedWorkerOrigin)
     }
@@ -102,9 +105,8 @@ final class InternetConnectionSettingsStore {
         let saved: Saved
         if let stored = try registration(account: "current")?.saved {
             saved = try validated(url: stored.workerURL.absoluteString, token: stored.accessToken)
-        } else if fixedWorkerOrigin == nil, let developmentDefaults {
-            saved = try validated(
-                url: developmentDefaults["workerURL"] ?? "", token: developmentDefaults["accessToken"] ?? "")
+        } else if let developmentDefaults, let token = developmentDefaults["accessToken"] {
+            saved = try validated(url: developmentDefaults["workerURL"] ?? "", token: token)
         } else {
             return nil
         }

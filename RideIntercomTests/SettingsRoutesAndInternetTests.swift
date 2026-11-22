@@ -207,7 +207,7 @@ extension AppTests.SettingsTests {
         #expect(harness.viewModel.internetWorkerURL == "https://preview.example.com")
     }
 
-    @Test func developmentInternetDefaultsPreserveSavedOverridesAndReadFailures() throws {
+    @Test func developmentInternetDefaultsPreserveSavedCredentialsForTheirOrigin() throws {
         let keychain = InternetTestKeychain()
         let store = InternetConnectionSettingsStore.makeForCurrentProcess(
             keychain: keychain, namespace: "fixture",
@@ -217,11 +217,29 @@ extension AppTests.SettingsTests {
                 ]
             ],
             environment: [:])
-        try store.save(url: "https://manual.example.com", token: "manual-token")
-        #expect(try store.load()?.workerURL.absoluteString == "https://manual.example.com")
+        try store.save(url: "https://preview.example.com", token: "replacement-token")
+        #expect(try store.load()?.accessToken == "replacement-token")
+        #expect(throws: (any Error).self) {
+            try store.save(url: "https://manual.example.com", token: "manual-token")
+        }
+        #expect(try store.load()?.accessToken == "replacement-token")
         keychain.value = "unreadable-saved-credentials"
         #expect(throws: (any Error).self) { try store.load() }
         #expect(keychain.value == "unreadable-saved-credentials")
+    }
+
+    @Test func developmentBuildSelectsFixedPreviewBeforeEnrollment() throws {
+        let keychain = InternetTestKeychain()
+        let store = InternetConnectionSettingsStore.makeForCurrentProcess(
+            keychain: keychain, namespace: "fixture", info: [:], environment: [:])
+        let preview = "https://preview-rideintercom.analog.workers.dev"
+        #expect(store.fixedWorkerOrigin?.absoluteString == preview)
+        #expect(try store.load() == nil)
+        #expect(try store.workerOrigin(preview).absoluteString == preview)
+        #expect(throws: (any Error).self) {
+            try store.workerOrigin("https://rideintercom.analog.workers.dev")
+        }
+        #expect(keychain.value == nil)
     }
 
     @Test func localTestProcessesCannotLoadOrReplaceLiveInternetCredentials() throws {

@@ -8,7 +8,7 @@ extension RideIntercomUITests {
         app.open(URL(string: "rideintercom://join?token=invalid")!)
         XCTAssertTrue(app.descendants(matching: .any)["groupErrorLabel"].firstMatch.waitForExistence(timeout: 5))
         #endif
-        checkInternetSettingsRejectUnsecuredURL()
+        checkInternetSettingsUsesAppleWithoutManualCredentials()
         openGroupsTab()
         openSettingsTab()
         revealSettingsControl(app.buttons["configureInternetConnection"])
@@ -73,7 +73,7 @@ extension RideIntercomUITests {
         let configure = app.buttons["configureInternetConnection"]
         revealSettingsControl(configure)
         configure.tap()
-        XCTAssertTrue(app.textFields["internetWorkerURL"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["prepareInternetAppleSignIn"].waitForExistence(timeout: 3))
         #if os(iOS)
         XCUIDevice.shared.orientation = .landscapeLeft
         let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { [unowned self] _, _ in
@@ -82,13 +82,10 @@ extension RideIntercomUITests {
         XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 5), .completed)
         #endif
         XCTAssertTrue(app.buttons["closeInternetConnection"].waitForExistence(timeout: 3))
-        let save = app.buttons["saveInternetConnection"]
-        let form = app.collectionViews.containing(.textField, identifier: "internetWorkerURL").firstMatch
-        XCTAssertTrue(form.exists)
-        for _ in 0..<20 where !save.exists || save.frame.maxY > app.frame.maxY - 20 { form.swipeUp() }
-        XCTAssertTrue(save.exists)
+        let prepare = app.buttons["prepareInternetAppleSignIn"]
+        XCTAssertTrue(prepare.isHittable)
+        XCTAssertFalse(app.textFields["internetWorkerURL"].exists)
         attachScreen("Internet Settings Landscape Large Text")
-        XCTAssertLessThanOrEqual(save.frame.maxY, app.frame.maxY - 20)
         app.buttons["closeInternetConnection"].tap()
         #if os(iOS)
         XCUIDevice.shared.orientation = .portrait
@@ -105,25 +102,14 @@ extension RideIntercomUITests {
         configure.tap()
     }
 
-    private func checkInternetSettingsRejectUnsecuredURL() {
+    private func checkInternetSettingsUsesAppleWithoutManualCredentials() {
         openInternetSettings()
-        let url = app.textFields["internetWorkerURL"]
-        XCTAssertTrue(url.waitForExistence(timeout: 3))
-        url.tap(); url.typeText("http://example.com")
-        let token = app.secureTextFields["internetDeviceToken"]
-        let fixtureToken = "invalid-test-token"
-        token.tap(); token.typeText(fixtureToken)
-        let save = app.buttons["saveInternetConnection"]
-        save.tap()
-        let message = "Could not save. Check the HTTPS URL, device token, and Keychain access."
-        XCTAssertTrue(app.staticTexts[message].waitForExistence(timeout: 3))
-        #if os(iOS)
-        // The rejected fixture is not a password to offer to the system store.
-        token.tap()
-        token.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: fixtureToken.count))
-        #endif
+        let prepare = app.buttons["prepareInternetAppleSignIn"]
+        XCTAssertTrue(prepare.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["internetWorkerURL"].exists)
+        XCTAssertFalse(app.secureTextFields["internetDeviceToken"].exists)
         app.buttons["closeInternetConnection"].tap()
-        XCTAssertTrue(url.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(prepare.waitForNonExistence(timeout: 5))
     }
 
     func checkSettingsChangesPersistAcrossTabs() {

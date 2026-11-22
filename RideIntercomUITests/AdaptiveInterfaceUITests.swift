@@ -169,7 +169,8 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         revealInSettings(setup)
         assertVisible(setup)
         setup.tap()
-        assertVisible(app.textFields["internetWorkerURL"])
+        assertVisible(app.buttons["prepareInternetAppleSignIn"])
+        XCTAssertFalse(app.textFields["internetWorkerURL"].exists)
         let close = app.buttons["closeInternetConnection"]
         assertVisible(close)
         XCTAssertFalse(app.secureTextFields["internetDeviceToken"].exists)

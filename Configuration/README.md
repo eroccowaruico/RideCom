@@ -2,7 +2,7 @@
 
 `Debug.xcconfig`はAppのDebug構成だけが使う。optional includeする`Debug.local.xcconfig`はこのMacだけの試用設定で、Gitのignore対象とする。資格の文書・ソースへの貼付は禁止する。
 
-ローカル設定の`RIDEINTERCOM_DEVELOPMENT_WORKER_HOST`にHTTPS接続先のhost、`RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN`に試用tokenを設定する。後者は`[sdk=macosx*]`と`[sdk=iphone*]`でmacOS / iOSの値を分ける。発行済みの端末JSONから設定でき、App画面への手入力は不要。
+Debugの既定接続先は固定Preview。ローカル設定を使う開発試用では、`RIDEINTERCOM_DEVELOPMENT_WORKER_HOST`と`RIDEINTERCOM_DEVELOPMENT_ACCESS_TOKEN`で試用先と資格をビルド時に指定する。後者はSDK別に値を分けられる。通常はApp内でAppleによる接続を行う。
 
 Debugの通常ビルドだけが対象platformの値を生成Info.plistへ取り込む。Release・Archive・隔離された検証buildへの実資格の同梱は禁止する。設定ファイルの配布resourceへの同梱は禁止する。設定は開発時の入力として扱う。
 

@@ -12,7 +12,7 @@ Standardの設定トップでは目的ごとにSectionを並べる。目的は�
 
 App Layout（`interfaceModePicker`）は2つを並べた標準の`Picker(.segmented)`（Standardは「標準／詳細」、Advancedは`Standard`／`Advanced`）。StandardのApp Layout（画面表示）には`Toggle`「グループタブを表示」（`showsGroupsTabToggle`）を置く。既定はOFF。値はアカウント別の`RideIntercom.settings.showsGroupsTab`に保存し、再起動後も使う。footerには、3人以上のグループを作成・一覧表示する設定で、オフでも1対1の接続を使えることを書く。初期値Standard、アカウント別端末設定として保持する。切替だけでは通話・選択・ミュートを変更しない。Standardはアカウント・本人の表示名・利用権、通話設定、通信経路への入口、音声入出力・VAD・録音再生チェックの順に表示し、リセットを最下部に置く。通信経路はCommunication（`communicationSettingsLink`）に有効な経路を表示し、別画面で設定する。Advanced Settings for Developers（`moreSettingsLink`）には見出し（`advancedSettingsWarningTitle`）と設定変更の注意（`advancedSettingsWarning`）、App Layout、Internet接続だけを置く。Audio Session・送信codecは[絶対ルール](../../../policies/開発方針.md#standardとadvancedの設計の絶対ルール)によりStandardに置かず、Advancedの設定だけで扱う。Internet接続は自動化が未実装の間もここから設定できる。AdvancedはApp Layoutを先頭、通信経路とInternet接続を主画面に表示する。音声設定をAudio Session・Audio I/O・Voice Activity・Transmit Codec・Audio Checkの順に表示する。録音チェックの接続状態やmeterはAdvancedに限る。Sectionの見出しは両表示とも文字だけで、記号を付けない。App Layout、Internet接続、Audio Checkの各Sectionはモードごとに別の型を持つ。Standardと同じ語や部品をAdvancedで使い回さない。Standardは`StandardSettingsSections.swift`、Advancedは`AdvancedSettingsSections.swift`に置く。
 
-StandardのInternet接続（`StandardInternetConnectionSection`）では、状態の語と設定ボタンだけを置く。状態は設定済みならSet upと緑の印、未設定ならNot set up。ボタンは「Set Up Internet Connection」（インターネット接続を設定）。footerは置かない。シート（`StandardInternetConnectionEditor`）にはAppleで接続する操作を置く。Advanced（`AdvancedInternetConnectionPanel`・`AdvancedInternetConnectionEditor`）は`Device token configured`／`Not configured`とWorker URLを表示する。配布用ReleaseのWorker URLはAdvancedで読み取り専用とする。Debugの入力と検証条件は[接続設定の詳細](#internet-connection)を参照。両表示で同じ設定保存先と音声処理を使う。商品未設定でも配布環境を独立に確認し、テスト配布で利用可能か、判定不能ならCheck Accessを表示する。配布の権利がない場合はNot Available Yetとし、商品未設定のRestore Purchasesは表示しない。
+StandardのInternet接続では、設定済みの語と緑の印、または未設定の語を表示する。操作は「インターネット接続を設定」を置く。Advancedには端末資格の状態と設定の入口を表示する。両方の入口は同じApple接続シートを開く。
 
 
 Settings はアカウントのサインアウトと削除、通信経路、Audio Session、入出力、Audio Check、送信 codec、VAD、設定リセットを扱う。設定値の型、既定値、永続化は `docs/spec/App/Configuration/設定値一覧.md` を正とする。
@@ -176,24 +176,23 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 
 ## Internet Connection
 
-`Configure Internet Connection` (`configureInternetConnection`) から標準sheetを開く。presenterはSettings画面のFormに置き、入力欄を通話設定一覧から分離する。`Close` (`closeInternetConnection`) で入力状態を解放して一覧へ戻る。Macでは内容を操作できる最小サイズを持つsheet、iOSではNavigationStack付きsheetを使用する。
+設定の入口（`configureInternetConnection`）は共通のApple接続シートを開く。準備前は接続の準備ボタンを表示する。準備中は処理状況を表示し、準備完了後にAppleのボタンを有効にする。Close（`closeInternetConnection`）で進行中の認証を取り消し、設定一覧へ戻る。
 
 | 項目 | ID | 入力と動作 |
 |---|---|---|
-| Worker URL | `internetWorkerURL` | 配布用ReleaseのAdvancedは本番の値を表示する。DebugのAdvancedではHTTPS originを入力できる。path・query・fragment・URL内資格を拒否 |
 | Set Up Internet Calling | `prepareInternetAppleSignIn` | serverの使い捨てnonceを取得し、Apple認証を準備。失敗しても現在のLocalログインと通話を維持。同じsheetで再操作しても認証modelを作り直さず、429の待機期限までは再送しない |
 | Continue with Apple | `internetAppleSignInButton` | 準備後に有効。現在のAppleアカウントと一致する認証だけをserverへ送り、端末資格をKeychainに保存して通話を終了・RTC configurationを更新 |
 | Apple認証の状態 | `internetAppleSignInStatus` | 準備・認証・保存の失敗、保存成功を表示。token・メール・本名は表示しない |
-| 端末資格 | `internetDeviceToken` | SecureField。保存先 Keychain。招待 URL / UserDefaults / ログへ含めない |
-| 保存 | `saveInternetConnection` | 入力検証後に保存、通話終了、RTC configuration 更新。保存失敗は画面内テキストで表示 |
 
-資格は入力欄へ再表示しない。設定済みの場合の状態表示は`Device token configured`。Debugの手動試用ではローカル資格を[開発用の既定値](../Configuration/設定値一覧.md#開発用の既定接続値)として自動適用でき、手入力と保存は不要。明示保存した設定はKeychainへ保存し優先する。実サービスでの試用時は同一Workerを使い、Local NetworkをOFFにしてInternetのみで接続を確認できる。自動テストはローカル代替環境を使用する。
+端末資格の保存先はKeychain。設定済みの場合、Advancedは`Device token configured`を表示する。試用はLocal NetworkをOFFにしてInternetだけで確認できる。自動テストはローカル代替環境を使用する。
 
-TestFlightを含む配布用Releaseでは、未設定からAppleで接続するボタンを操作できる。Standardにはアドレスを出さず、Advancedでは本番Workerの値を表示する。DebugではStandardにService Address、AdvancedにWorker URLと`Manual Access Token`を表示する。Debugでアドレスが空なら準備ボタンは無効。準備中は進捗と結果を同じシートで表示し、準備完了後にAppleのボタンを有効にする。設定が失敗したら接続を準備する操作へ戻れる。接続先を制限する判断は[通信仕様](../通信仕様.md#appleログインと端末内データ)に置く。
+接続先はビルドが決める。TestFlightを含むReleaseでは本番、Debugでは固定Previewが既定。ビルド時の設定は[設定値一覧](../Configuration/設定値一覧.md#開発用の既定接続値)を参照する。接続先の照合は[通信仕様](../通信仕様.md#アカウント削除と端末内消去)に従う。
+
+未設定から準備すると処理中になり、準備が済むとAppleで認証できる。認証に成功すると設定済みになる。失敗したときはシート内で理由を案内し、接続準備から再試行できる。
 
 429では`internetAppleSignInStatus`に待機秒数とSet Up Internet Callingでの再試行を表示し、Apple認証は準備ができるまで無効。409では登録端末が8台あることと、別端末でのサインアウトを案内する。エラーは標準Textで表示し、色だけで区別しない。
 
-Apple認証の登録入口は対象のWorkerで有効化しておく。Debugの試用資格は`Manual Access Token`から入力できる。通信不可・Keychain失敗時は既存設定を空に変えない。サインアウト時は端末側のInternet資格を使用禁止にしてserver失効を試み、失敗時は次にこのsheetを開いた際に再試行する。禁止フラグはKeychain読出・削除より先に保存するため、失敗後の再起動でも古い資格を復帰しない。
+Apple認証は対象Workerで有効にする。通信不可・Keychain失敗時は既存の設定を保持する。サインアウトは端末の資格を無効にしてserver失効を試みる。無効化をKeychainの読取りと削除より先に保存する。失敗時は次に接続シートを開いた際に再試行する。
 
 ## 音声経路による操作範囲
 

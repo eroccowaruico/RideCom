@@ -109,13 +109,13 @@ final class DesignSystemSettingsUITests: XCTestCase {
             let configure = app.buttons["configureInternetConnection"].firstMatch
             reveal(configure, in: app)
             configure.tap()
-            let address = app.textFields["internetWorkerURL"].firstMatch
-            XCTAssertTrue(address.waitForExistence(timeout: 5))
-            XCTAssertTrue(app.buttons["prepareInternetAppleSignIn"].exists)
+            let prepare = app.buttons["prepareInternetAppleSignIn"].firstMatch
+            XCTAssertTrue(prepare.waitForExistence(timeout: 5))
+            XCTAssertFalse(app.textFields["internetWorkerURL"].exists)
             app.buttons["closeInternetConnection"].tap()
             XCTAssertTrue(configure.waitForExistence(timeout: 3))
             configure.tap()
-            XCTAssertTrue(address.waitForExistence(timeout: 3))
+            XCTAssertTrue(prepare.waitForExistence(timeout: 3))
             app.buttons["closeInternetConnection"].tap()
             reveal(warning, in: app)
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

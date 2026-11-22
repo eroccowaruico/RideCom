@@ -23,12 +23,8 @@ struct SettingsView: View {
         .accessibilityIdentifier("settingsScrollView")
         .sheet(isPresented: $isEditingInternet) {
             NavigationStack {
-                Group {
-                    if viewModel.interfaceMode == .standard {
-                        StandardInternetConnectionEditor(viewModel: viewModel)
-                    } else {
-                        AdvancedInternetConnectionEditor(viewModel: viewModel)
-                    }
+                Form {
+                    InternetAppleSignInSection(viewModel: viewModel)
                 }
                 .formStyle(.grouped)
                 .screenBackground(AppColorPalette.listScreenBackground)
@@ -52,16 +48,5 @@ struct SettingsView: View {
         #else
         false
         #endif
-    }
-}
-
-extension View {
-    /// A web address: no autocorrection or capitals, and the URL keyboard.
-    func internetAddressInput() -> some View {
-        self.autocorrectionDisabled()
-            #if os(iOS)
-            .keyboardType(.URL)
-            .textInputAutocapitalization(.never)
-            #endif
     }
 }

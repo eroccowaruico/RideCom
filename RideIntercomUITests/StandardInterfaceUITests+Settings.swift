@@ -307,22 +307,22 @@ extension StandardInterfaceUITests {
 
     @MainActor
     @objc
-    func testStandardInternetSetupKeepsManualCredentialsInAdvanced() {
+    func testStandardAndAdvancedInternetSetupUseAppleWithoutManualInputs() {
         launch()
         tab("Settings", id: "settingsTab")
         openInternetSettings()
-        XCTAssertTrue(app.textFields["internetWorkerURL"].waitForExistence(timeout: 3))
-        XCTAssertEqual(app.textFields["internetWorkerURL"].placeholderValue, "Address starting with https://")
-        XCTAssertFalse(app.secureTextFields["internetDeviceToken"].exists)
-        XCTAssertFalse(app.buttons["saveInternetConnection"].exists)
-        XCTAssertTrue(app.buttons["prepareInternetAppleSignIn"].exists)
+        assertAppleSetupWithoutManualInputs()
         app.buttons["closeInternetConnection"].tap()
         selectLayout("Advanced")
         openInternetSettings()
-        XCTAssertTrue(app.secureTextFields["internetDeviceToken"].waitForExistence(timeout: 3))
-        // Advanced shows the form of the value as the field's prompt.
-        XCTAssertEqual(app.textFields["internetWorkerURL"].placeholderValue, "https://example.workers.dev")
-        XCTAssertTrue(app.buttons["saveInternetConnection"].exists)
+        assertAppleSetupWithoutManualInputs()
+    }
+
+    @MainActor private func assertAppleSetupWithoutManualInputs() {
+        XCTAssertTrue(app.buttons["prepareInternetAppleSignIn"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["internetWorkerURL"].exists)
+        XCTAssertFalse(app.secureTextFields["internetDeviceToken"].exists)
+        XCTAssertFalse(app.buttons["saveInternetConnection"].exists)
     }
 
     @MainActor private func openInternetSettings() {
@@ -343,9 +343,6 @@ extension StandardInterfaceUITests {
         launch(japanese: true, throttled: true)
         tab("設定", id: "settingsTab")
         openInternetSettings()
-        let address = app.textFields["internetWorkerURL"]
-        XCTAssertTrue(address.waitForExistence(timeout: 3))
-        address.tap(); address.typeText("https://account.test")
         let prepare = app.buttons["prepareInternetAppleSignIn"]
         XCTAssertEqual(prepare.label, "インターネット通話を設定")
         prepare.tap()

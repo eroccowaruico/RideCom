@@ -108,7 +108,7 @@ struct AdvancedAudioCheckPanel: View {
     }
 }
 
-/// Whether a device token is stored, and the sheet that sets the Worker URL and the token.
+/// Current Internet registration state and the entry point for Apple registration.
 struct AdvancedInternetConnectionPanel: View {
     let viewModel: IntercomViewModel
     @Binding var isEditing: Bool
@@ -121,77 +121,6 @@ struct AdvancedInternetConnectionPanel: View {
                 .accessibilityIdentifier("configureInternetConnection")
         } header: {
             Text("Internet Connection")
-        } footer: {
-            if viewModel.fixedInternetWorkerOrigin == nil {
-                Text("Set the service address and connect with Apple, or enter a device token for testing.")
-            }
-        }
-    }
-}
-
-/// Worker URL, connecting with Apple, and a manual device token for testing.
-struct AdvancedInternetConnectionEditor: View {
-    @Bindable var viewModel: IntercomViewModel
-    @State private var workerURL = ""
-    @State private var token = ""
-    @State private var status = ""
-    private enum Field: Hashable { case url, token }
-    @FocusState private var focusedField: Field?
-
-    var body: some View {
-        let fixedOrigin = viewModel.fixedInternetWorkerOrigin
-        Form {
-            Section {
-                if let fixedOrigin {
-                    LabeledContent("Worker URL") { Text(verbatim: fixedOrigin).textSelection(.enabled) }
-                        .accessibilityIdentifier("internetWorkerURL")
-                } else {
-                    TextField("Worker URL", text: $workerURL, prompt: Text(verbatim: "https://example.workers.dev"))
-                        .focused($focusedField, equals: .url)
-                        .internetAddressInput()
-                        .accessibilityIdentifier("internetWorkerURL")
-                }
-            }
-            InternetAppleSignInSection(viewModel: viewModel, workerURL: fixedOrigin ?? workerURL)
-            if fixedOrigin == nil { manualAccessToken }
-        }
-        .onAppear {
-            workerURL = viewModel.internetWorkerURL
-            if viewModel.hasInternetCredentials { status = "A device token is configured." }
-        }
-    }
-
-    private var manualAccessToken: some View {
-        Section {
-            SecureField("Device access token", text: $token, prompt: Text(verbatim: "Paste the token"))
-                .focused($focusedField, equals: .token)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("internetDeviceToken")
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
-            Button("Save Internet Connection") {
-                focusedField = nil
-                do {
-                    try viewModel.saveInternetConnection(url: workerURL, token: token)
-                    token = ""
-                    status = "Saved. Use Check Internet Service in Diagnostics before connecting."
-                } catch {
-                    status = "Could not save. Check the HTTPS URL, device token, and Keychain access."
-                }
-            }
-            .disabled(workerURL.isEmpty || token.isEmpty)
-            .accessibilityIdentifier("saveInternetConnection")
-            if !status.isEmpty { Text(LocalizedStringKey(status)).font(.footnote) }
-        } header: {
-            Text("Manual Access Token")
-        } footer: {
-            Text(
-                """
-                Use your service URL and device token. Saving ends the current call. Cloudflare account \
-                secrets stay on the server.
-                """
-            )
         }
     }
 }

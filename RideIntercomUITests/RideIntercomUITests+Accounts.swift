@@ -5,9 +5,6 @@ extension RideIntercomUITests {
     @objc
     func testInternetEnrollmentThrottleKeepsAccountAndShowsRetryInstruction() throws {
         openInternetSettings()
-        let url = app.textFields["internetWorkerURL"]
-        XCTAssertTrue(url.waitForExistence(timeout: 3))
-        url.tap(); url.typeText("https://account.test")
         let prepare = app.buttons["prepareInternetAppleSignIn"]
         prepare.tap()
         let status = app.staticTexts["internetAppleSignInStatus"]
@@ -28,9 +25,6 @@ extension RideIntercomUITests {
     @objc
     func testInternetAppleSetupKeepsLocalLoginWhenRegistrationIsUnavailable() throws {
         openInternetSettings()
-        let url = app.textFields["internetWorkerURL"]
-        XCTAssertTrue(url.waitForExistence(timeout: 3))
-        url.tap(); url.typeText("https://account.test")
         app.buttons["prepareInternetAppleSignIn"].tap()
         let status = app.staticTexts["internetAppleSignInStatus"]
         XCTAssertTrue(status.waitForExistence(timeout: 3))
