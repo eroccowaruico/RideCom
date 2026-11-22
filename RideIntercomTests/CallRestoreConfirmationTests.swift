@@ -224,6 +224,24 @@ struct CallRestoreConfirmationTests {
         #expect(credentials.values.isEmpty)
     }
 
+    @Test func restoreCannotSaveAnUnconfirmedContactAlongsideAConfirmedGroup() throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore(), credentials = InMemoryGroupCredentialStore()
+        let repository = GroupRepository(store: store, credentials: credentials)
+        _ = try repository.load(localMemberID: "alice")
+        let original = store.snapshot
+        let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let verified = try scenario.confirmedRestore()
+        let group = try #require(verified.calls.first { $0.record.kind == .group })
+        let incomplete = ConfirmedCallRestore(owner: verified.owner, previousMemberID: verified.previousMemberID,
+                                              users: verified.users, calls: [group])
+        #expect(throws: GroupStorageError.invalidUpdate) {
+            try repository.restoreCallRelationships(incomplete, as: signer, trust: scenario.trust)
+        }
+        #expect(store.snapshot == original)
+        #expect(credentials.values.isEmpty)
+    }
+
     private func restoreRequest(
         _ callID: UUID, to responder: DeviceIdentitySigner, from requester: DeviceIdentitySigner, now: Date
     ) throws -> CallRelationshipRestoreRequest {
