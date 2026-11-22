@@ -203,7 +203,7 @@ RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・�
 | 異常終了 | persisted memberをalarmで回収。SFUの成功応答が失われてもstatusからchannel IDを照会。応答不明のallocationはsession消失まで回収を継続 |
 | providerで既に削除 | 404/410は回収済みと扱う。その他の閉鎖失敗は記録を保持し再試行 |
 | 部屋変更 | 新しいroom capabilityを使い、旧sessionを終了 |
-| SERVICE_ENABLED=false | HTTPを拒否。既存mediaの停止は次のlease alarmまで遅れ得る。即時アカウント停止APIではない |
+| SERVICE_ENABLED=false | 状態取得、新規接続、媒体の追加、lease更新をHTTP 503で止める。既存の通話終了とICE接続準備の取消は、本人の有効な資格、所有権、回収に必要な提供元の資格を確認して受け付ける。接続中のWebSocketは次のメッセージで閉じる。終了要求がなければ、既存媒体の停止は次のlease alarmまで遅れ得る |
 
 ## TURN資格の契約
 

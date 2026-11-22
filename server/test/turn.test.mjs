@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { token, room, offer, provider, makeRuntime } from './support/runtime.mjs';
+import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { token, hash, room, offer, provider, makeRuntime } from './support/runtime.mjs';
 const call = (runtime, path, body, method = 'POST', credential = token) => runtime.dispatchFetch(`https://worker.test/api/rooms/${room}/${path}`, {
     method, headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -26,6 +30,44 @@ test('TURN preflight is quota guarded, owned, idempotent and revoked on disconne
         assert.equal((await call(runtime, `sessions/${lease.sessionId}`, undefined, 'DELETE')).status, 200);
         assert.ok(provider.requests.some(r => r.url.endsWith('/revoke')));
     } finally { await runtime.dispose(); }
+});
+
+test('pausing Internet calls leaves only owned session and preparation cleanup available', async () => {
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-call-pause-'));
+    const other = 'other-fixture-credential-for-pause';
+    const otherHash = createHash('sha256').update(other).digest('hex');
+    const config = {
+        TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret',
+        CLIENT_TOKENS_JSON: JSON.stringify({ [hash]: 'owner-fixture', [otherHash]: 'other-fixture' })
+    };
+    let runtime = await makeRuntime(config, { storageDirectory });
+    try {
+        assert.equal((await call(runtime, 'ice/call', { leaseID })).status, 200);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID })).status, 200);
+        const joined = await call(runtime, 'join', { participantId: 'call', offer, iceLeaseID: leaseID });
+        assert.equal(joined.status, 200);
+        const session = `sessions/${(await joined.json()).sessionId}`;
+        await runtime.dispose();
+        runtime = await makeRuntime({ ...config, SERVICE_ENABLED: 'false', TURN_ENABLED: 'false' }, { storageDirectory });
+
+        const before = provider.requests.length;
+        assert.equal((await call(runtime, 'join', { participantId: 'new', offer })).status, 503);
+        assert.equal((await call(runtime, 'ice/new', { leaseID })).status, 503);
+        assert.equal((await call(runtime, `${session}/renew`, {})).status, 503);
+        assert.equal((await call(runtime, `${session}/renew`, {}, 'DELETE')).status, 503);
+        assert.equal(provider.requests.length, before);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 200);
+        assert.equal((await call(runtime, session, undefined, 'DELETE', 'unregistered')).status, 401);
+        assert.equal((await call(runtime, session, undefined, 'DELETE', other)).status, 403);
+        assert.equal((await call(runtime, session, undefined, 'DELETE')).status, 200);
+        const cleanup = provider.requests.slice(before);
+        assert.equal(cleanup.filter(r => r.url.endsWith('/revoke')).length, 2);
+        assert.equal(cleanup.filter(r => r.url.endsWith('/datachannels/close')).length, 1);
+        assert.ok(cleanup.every(r => r.method === 'GET' || r.url.endsWith('/revoke') || r.url.endsWith('/datachannels/close')));
+    } finally {
+        await runtime.dispose();
+        await rm(storageDirectory, { recursive: true, force: true });
+    }
 });
 
 test('TURN preflight rejects malformed provider credentials without returning or caching them', async () => {

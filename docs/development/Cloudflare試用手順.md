@@ -34,7 +34,7 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | DEVICE_ATTESTATION_ENABLED | Variable | 両環境の既定false。App連携と対象の署名・配布環境の受入が揃った環境で有効化する |
 | DEVICE_ATTESTATION_MAC_POLICY | Variable | 既定は空。有効化する環境では、App ID（App ID Prefixと `APPLE_CLIENT_ID`）をJSONに指定する。同じJSONにApp Attestの `environment`、Appleの `validationCategory` と `bundleVersion` を含める。キー名は `appID`、 `environment`、 `validationCategory`、 `bundleVersion`。開発署名カテゴリ3でビルド番号なしを照合する場合は `bundleVersion: null`。[Macの端末鍵登録](../spec/server/Worker.md#macの端末鍵登録) |
 | NOTIFICATIONS_ENABLED | Variable | APNs鍵・profile・topic・環境を揃えてから `true` にする |
-| SERVICE_ENABLED | Variable | 音声SFUの入口。SFU資格と費用上限を確認して有効にする。[TOMLの環境別設定](../spec/server/Worker.md#設定値) |
+| SERVICE_ENABLED | Variable | 音声SFUの入口。SFU資格と費用上限を確認して有効にする。停止中も既存の通話終了とICE接続準備の取消には、回収に必要なSFU・TURNの資格を使う。[TOMLの環境別設定](../spec/server/Worker.md#設定値) |
 
 `CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
 
