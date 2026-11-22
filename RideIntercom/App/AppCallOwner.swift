@@ -122,7 +122,7 @@ final class AppCallOwner: CallSurfaceActions {
     }
 
     var needsSavedCommunicationBackgroundRefresh: Bool {
-        viewModel?.needsContactDeletionBackgroundRefresh == true
+        viewModel?.needsSavedCommunicationBackgroundRefresh == true
     }
 
     func refreshSavedCommunicationInBackground() async -> Bool {
@@ -131,7 +131,7 @@ final class AppCallOwner: CallSurfaceActions {
         account.reloadSavedSignIn()
         synchronizeAccountModel()
         guard account.accessID == access, let viewModel, viewModel.hasCurrentAccountAccess else { return false }
-        return await viewModel.refreshContactDeletionsInBackground()
+        return await viewModel.refreshSavedCommunicationInBackground()
     }
 
     func prepareForBackgroundCallAction() async throws {

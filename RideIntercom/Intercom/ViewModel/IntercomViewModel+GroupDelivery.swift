@@ -7,6 +7,29 @@ struct GroupDeliverySyncState {
 }
 
 extension IntercomViewModel {
+    private struct SavedCommunicationRefreshWork {
+        let invitationReplies: Bool
+        let contactDeletions: Bool
+
+        var hasWork: Bool { invitationReplies || contactDeletions }
+    }
+
+    private var savedCommunicationRefreshWork: SavedCommunicationRefreshWork {
+        .init(invitationReplies: needsContactInvitationBackgroundRefresh,
+              contactDeletions: needsContactDeletionBackgroundRefresh)
+    }
+
+    var needsSavedCommunicationBackgroundRefresh: Bool { savedCommunicationRefreshWork.hasWork }
+
+    func refreshSavedCommunicationInBackground() async -> Bool {
+        let work = savedCommunicationRefreshWork
+        guard work.hasWork, !Task.isCancelled else { return false }
+        async let replies = work.invitationReplies ? refreshContactInvitationsInBackground() : true
+        let deletions = work.contactDeletions ? await refreshContactDeletionsInBackground() : true
+        let repliesCompleted = await replies
+        return repliesCompleted && deletions && !Task.isCancelled
+    }
+
     enum GroupDeliveryTrigger {
         case refresh
         case localChange

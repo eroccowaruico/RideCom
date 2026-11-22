@@ -37,7 +37,7 @@ extension IntercomViewModel {
         scheduleBackgroundContactAcceptances(access: access)
         let contactIDs = Set(internetContactReplyRecords(access: access).map(\.id))
         if let window = invitationInternetReplyWindow, !restart, window.access == access,
-            window.generation == accountAccessID {
+            window.generation == accountAccessID, window.task != nil || !groupDeliveryIsForeground {
             activeInternetContactReplyIDs = contactIDs
             return
         }
@@ -73,7 +73,8 @@ extension IntercomViewModel {
                     self.internetReplyWindowIsCurrent(window),
                     self.hasInternetInvitationReplies(access: window.access)
                 else { return }
-                if !(await self.synchronizeInternetContactReplies(window)) { return }
+                let records = self.internetContactReplyRecords(access: window.access)
+                if !(await self.synchronizeInternetContactReplies(window, records: records)) { return }
                 if !(await self.synchronizeOrdinaryGroupInternetReplies(window)) { return }
             }
         }
@@ -90,7 +91,8 @@ extension IntercomViewModel {
 
     func reconcileInvitationInternetReply() {
         guard let window = invitationInternetReplyWindow else { return }
-        if !internetReplyWindowIsCurrent(window) || !hasInternetInvitationReplies(access: window.access) {
+        if !internetReplyWindowIsCurrent(window)
+            || (window.task != nil && !hasInternetInvitationReplies(access: window.access)) {
             stopInvitationInternetReply(id: window.id)
         } else {
             activeInternetContactReplyIDs = Set(internetContactReplyRecords(access: window.access).map(\.id))

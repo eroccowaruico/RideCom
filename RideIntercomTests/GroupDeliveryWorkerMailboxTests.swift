@@ -6,7 +6,7 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryWorkerTests {
-    enum ContactMailboxCase: CaseIterable { case group, contact, renewedAuthor, background }
+    enum ContactMailboxCase: CaseIterable { case group, contact, renewedAuthor, background, scheduledRefresh }
 
     @Test(.timeLimit(.minutes(1)), arguments: ContactMailboxCase.allCases)
     func contactInvitationCompletesWhileTheTwoAppsConnectAtDifferentTimes(scenario: ContactMailboxCase) async throws {
@@ -54,9 +54,7 @@ extension GroupDeliveryWorkerTests {
             #expect(left.contactPerson(personID)?.memberIDs == [recipientDevice.memberID])
             left.groupDeliveryClient = nil
 
-            right.groupDeliveryClient = client
-            right.groupDeliveryNetworkPathChanged(isAvailable: true)
-            await right.invitationInternetReplyWindow?.task?.value
+            await receiveMailboxAcknowledgement(on: right, scenario: scenario, client: client)
             #expect(right.contactInvitationRecord(share.id)?.state == .delivered)
             #expect(right.savedRemoteUsers.first?.memberIDs == [authorDevice.memberID])
             if includesGroup {
@@ -176,6 +174,10 @@ extension GroupDeliveryWorkerTests {
         scenario: ContactMailboxCase, client: InternetAccountClient
     ) async {
         left.groupDeliveryClient = client
+        if scenario == .scheduledRefresh {
+            await refreshPersonalInvitationWhileInBackground(left)
+            return
+        }
         left.groupDeliveryNetworkPathChanged(isAvailable: false)
         left.groupDeliveryNetworkPathChanged(isAvailable: true)
         await left.invitationInternetReplyWindow?.task?.value
@@ -191,6 +193,30 @@ extension GroupDeliveryWorkerTests {
             left.groupDeliveryNetworkPathChanged(isAvailable: true)
             await left.invitationInternetReplyWindow?.task?.value
         }
+    }
+
+    private func refreshPersonalInvitationWhileInBackground(_ model: IntercomViewModel) async {
+        model.setGroupDeliveryForeground(false)
+        #expect(!model.notifications.isEnabled)
+        #expect(model.invitationInternetReplyWindow == nil)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        #expect(model.needsContactInvitationBackgroundRefresh)
+        #expect(owner.needsSavedCommunicationBackgroundRefresh)
+        #expect(await owner.refreshSavedCommunicationInBackground())
+        #expect(!model.needsContactInvitationBackgroundRefresh)
+        #expect(model.invitationInternetReplyWindow == nil)
+    }
+
+    private func receiveMailboxAcknowledgement(
+        on model: IntercomViewModel, scenario: ContactMailboxCase, client: InternetAccountClient
+    ) async {
+        model.groupDeliveryClient = client
+        if scenario == .scheduledRefresh {
+            await refreshPersonalInvitationWhileInBackground(model)
+            return
+        }
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        await model.invitationInternetReplyWindow?.task?.value
     }
 }
 #endif
