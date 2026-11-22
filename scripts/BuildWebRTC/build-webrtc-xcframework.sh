@@ -58,18 +58,24 @@ if [[ "${ASSEMBLE_ONLY}" != "true" ]]; then
     echo "WebRTC source has local changes; use a clean checkout." >&2
     exit 1
   fi
-  git fetch --all --tags
-  git checkout "${WEBRTC_BRANCH}"
+  # Resolve the requested revision at the official repository, not a local ref.
+  upstream_ref="${WEBRTC_BRANCH}"
+  case "${upstream_ref}" in branch-heads/*) upstream_ref="refs/${upstream_ref}" ;; esac
+  git fetch --no-tags https://webrtc.googlesource.com/src "${upstream_ref}"
+  upstream_revision="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+  git checkout --detach "${upstream_revision}"
   cd ..
-  gclient sync --with_branch_heads --with_tags
+  gclient sync --with_branch_heads --with_tags --revision "src@${upstream_revision}"
   cd src
-  # The transport SDK must not link camera capture APIs into audio-only apps.
-  # Keep the upstream checkout clean, including when generation/build fails.
-  CAMERA_PATCH="${SCRIPT_DIR}/disable-camera-capture.patch"
-  WEBRTC_SOURCE_DIR="${PWD}"
-  git apply --check "${CAMERA_PATCH}"
-  git apply "${CAMERA_PATCH}"
-  trap 'git -C "${WEBRTC_SOURCE_DIR}" apply --reverse "${CAMERA_PATCH}"' EXIT
+  verify_vendor_sources() {
+    local current_revision
+    current_revision="$(git rev-parse HEAD)" || return 1
+    [[ "${current_revision}" == "${upstream_revision}" ]] &&
+      gclient recurse --scm=git -- git diff --quiet HEAD --
+  }
+  verify_vendor_sources
+  depot_tools_revision="$(git -C "${DEPOT_TOOLS_DIR}" rev-parse HEAD)"
+  export DEPOT_TOOLS_UPDATE=0
 else
   echo "Skipping checkout, gclient sync, gn, and ninja. Existing build outputs will be assembled."
 fi
@@ -78,8 +84,18 @@ OUTPUT_DIR="${PWD}/out"
 XCFRAMEWORK_DIR="${OUTPUT_DIR}/WebRTC.xcframework"
 # Upstream deprecation warnings from newer Apple SDKs remain visible in logs.
 # Do not make vendor warnings fatal; compiler/linker errors still fail the build.
-COMMON_GN_ARGS="treat_warnings_as_errors=false is_debug=${DEBUG} rtc_libvpx_build_vp9=true is_component_build=false rtc_include_tests=false rtc_enable_objc_symbol_export=true enable_stripping=true use_lld=true rtc_ios_use_opengl_rendering=true rtc_system_openh264=true rtc_use_h265=true"
+# RideCom uses DataChannel and does not use WebRTC's serialized event log.
+COMMON_GN_ARGS="treat_warnings_as_errors=false is_debug=${DEBUG} rtc_libvpx_build_vp9=false is_component_build=false rtc_include_tests=false rtc_enable_objc_symbol_export=true enable_stripping=true use_lld=true rtc_ios_use_opengl_rendering=false rtc_use_h264=false rtc_use_h265=false rtc_enable_protobuf=false"
 PLISTBUDDY_EXEC="/usr/libexec/PlistBuddy"
+
+build_slice() {
+  local gen_dir="$1"
+  local target="$2"
+  local platform_args="$3"
+  gn gen "${gen_dir}" --args="${COMMON_GN_ARGS} ${platform_args}"
+  gn args --list "${gen_dir}" > "${gen_dir}/gn-args.txt"
+  ninja -C "${gen_dir}" "${target}"
+}
 
 build_ios() {
   local arch="$1"
@@ -87,20 +103,14 @@ build_ios() {
   # Device symbols must travel with the iOS binary for App Store uploads.
   local enable_dsyms=false
   [[ "${environment}" != "device" ]] || enable_dsyms=true
-  local gen_dir="${OUTPUT_DIR}/ios-${arch}-${environment}"
-  local gen_args="${COMMON_GN_ARGS} enable_dsyms=${enable_dsyms} target_cpu=\"${arch}\" target_os=\"ios\" target_environment=\"${environment}\" ios_deployment_target=\"${IOS_DEPLOYMENT_TARGET}\" ios_enable_code_signing=false"
-  gn gen "${gen_dir}" --args="${gen_args}"
-  gn args --list "${gen_dir}" > "${gen_dir}/gn-args.txt"
-  ninja -C "${gen_dir}" framework_objc
+  build_slice "${OUTPUT_DIR}/ios-${arch}-${environment}" framework_objc \
+    "enable_dsyms=${enable_dsyms} target_cpu=\"${arch}\" target_os=\"ios\" target_environment=\"${environment}\" ios_deployment_target=\"${IOS_DEPLOYMENT_TARGET}\" ios_enable_code_signing=false"
 }
 
 build_macos() {
   local arch="$1"
-  local gen_dir="${OUTPUT_DIR}/macos-${arch}"
-  local gen_args="${COMMON_GN_ARGS} enable_dsyms=false target_cpu=\"${arch}\" target_os=\"mac\" mac_deployment_target=\"${MACOS_DEPLOYMENT_TARGET}\""
-  gn gen "${gen_dir}" --args="${gen_args}"
-  gn args --list "${gen_dir}" > "${gen_dir}/gn-args.txt"
-  ninja -C "${gen_dir}" mac_framework_objc
+  build_slice "${OUTPUT_DIR}/macos-${arch}" mac_framework_objc \
+    "enable_dsyms=false target_cpu=\"${arch}\" target_os=\"mac\" mac_deployment_target=\"${MACOS_DEPLOYMENT_TARGET}\""
 }
 
 plist_add_library() {
@@ -213,10 +223,6 @@ if [[ "${MACOS}" == "true" ]]; then
   lipo -create -output "${XCFRAMEWORK_DIR}/${macos_identifier}/WebRTC.framework/Versions/A/WebRTC" "${OUTPUT_DIR}/macos-x64/WebRTC.framework/WebRTC" "${OUTPUT_DIR}/macos-arm64/WebRTC.framework/WebRTC"
 fi
 
-# Incremental GN builds can retain headers removed from the target manifest.
-# The regenerated umbrella header and binary are checked independently below.
-find "${XCFRAMEWORK_DIR}" -type f \( -name 'RTCCameraVideoCapturer.h' -o -name 'RTCCameraPreviewView.h' -o -name 'AVCaptureSession+DevicePosition.h' \) -delete
-
 # Some upstream GN versions append Versions/A twice for the Mac privacy resource.
 # Normalize only our assembly copy; never alter the vendor checkout or Mach-O.
 python3 "${SCRIPT_DIR}/webrtc_privacy.py" "${XCFRAMEWORK_DIR}" --repair-known-macos-location
@@ -224,8 +230,22 @@ python3 "${SCRIPT_DIR}/webrtc_privacy.py" "${XCFRAMEWORK_DIR}" --repair-known-ma
 
 cd "${OUTPUT_DIR}"
 artifact_zip="WebRTC-${WEBRTC_BRANCH//\//-}.xcframework.zip"
-rm -f "${artifact_zip}"
+rm -f "${artifact_zip}" "${artifact_zip%.zip}.provenance.json"
 zip --symlinks -r "${artifact_zip}" WebRTC.xcframework
+if [[ "${ASSEMBLE_ONLY}" != "true" ]]; then
+  (cd .. && verify_vendor_sources)
+  built_revision="$(git rev-parse HEAD)"
+  built_tools_revision="$(git -C "${DEPOT_TOOLS_DIR}" rev-parse HEAD)"
+  if [[ "${built_revision}" != "${upstream_revision}" || "${built_tools_revision}" != "${depot_tools_revision}" ]]; then
+    echo "WebRTC checkout or depot_tools changed during the build." >&2
+    exit 1
+  fi
+  sdks=()
+  if [[ "${IOS}" == "true" ]]; then sdks+=(iphoneos iphonesimulator); fi
+  if [[ "${MACOS}" == "true" ]]; then sdks+=(macosx); fi
+  python3 "${SCRIPT_DIR}/webrtc_provenance.py" "${artifact_zip}" \
+    "${upstream_revision}" "${depot_tools_revision}" "${sdks[@]}"
+fi
 shasum -a 256 "${artifact_zip}"
 
 echo "Built: ${XCFRAMEWORK_DIR}"

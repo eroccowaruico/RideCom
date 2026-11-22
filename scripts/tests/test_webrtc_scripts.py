@@ -1,4 +1,6 @@
 """Regression checks for artifact validation and failed-update preservation."""
+import hashlib
+import json
 import os
 import plistlib
 import shutil
@@ -18,7 +20,44 @@ class WebRTCScriptTests(unittest.TestCase):
         self.assertIn('IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-27.0}"', script)
         self.assertIn('MACOS_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-27.0}"', script)
 
-    def test_camera_capture_symbol_is_rejected(self) -> None:
+    def test_generation_uses_the_official_revision_and_rejects_a_modified_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            upstream = root / 'upstream'
+            subprocess.run(['git', 'init', '-q', str(upstream)], check=True)
+            (upstream / 'BUILD.gn').write_text('# upstream fixture')
+            subprocess.run(['git', 'add', 'BUILD.gn'], cwd=upstream, check=True)
+            subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=fixture@localhost',
+                            'commit', '-qm', 'fixture'], cwd=upstream, check=True)
+            revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=upstream, text=True).strip()
+            depot = root / 'tools'
+            subprocess.run(['git', 'clone', '-q', str(upstream), str(depot)], check=True)
+            for name, body in {
+                'fetch': 'exit 99',
+                'gclient': 'if [ "$1" = sync ]; then\n'
+                           '  if [ "$DIRTY_SOURCE" = yes ]; then echo changed >> src/BUILD.gn; fi\n'
+                           'else\n  shift 3; "$@" || exit $?\nfi',
+                'gn': 'git diff --exit-code HEAD -- && touch "$GEN_REACHED"; exit 77',
+            }.items():
+                tool = depot / name
+                tool.write_text('#!/bin/sh\n' + body + '\n')
+                tool.chmod(0o755)
+            for dirty in ('no', 'yes'):
+                with self.subTest(dirty=dirty):
+                    build = root / dirty
+                    subprocess.run(['git', 'clone', '-q', str(upstream), str(build / 'src')], check=True)
+                    marker = build / 'generation-started'
+                    environment = dict(os.environ, WEBRTC_BUILD_ROOT=str(build), DEPOT_TOOLS_DIR=str(depot),
+                                       WEBRTC_BRANCH=revision, DIRTY_SOURCE=dirty, GEN_REACHED=str(marker),
+                                       GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0=f'url.{upstream}.insteadOf',
+                                       GIT_CONFIG_VALUE_0='https://webrtc.googlesource.com/src',
+                                       PATH=str(depot) + os.pathsep + os.environ['PATH'])
+                    result = subprocess.run([str(SCRIPTS / 'build-webrtc-xcframework.sh')],
+                                            env=environment, capture_output=True, text=True, check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(marker.exists(), dirty == 'no', result.stderr)
+
+    def test_vendor_camera_symbol_is_reported_without_blocking_import(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
@@ -31,19 +70,8 @@ class WebRTCScriptTests(unittest.TestCase):
                                      str(root / 'WebRTC.xcframework')],
                                     env=dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH']),
                                     capture_output=True, text=True, check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('Camera capture API found', result.stderr)
-
-    def test_packaged_frameworks_do_not_reference_camera_capture(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
-            root = Path(directory) / 'WebRTC.xcframework'
-            manifest = plistlib.loads((root / 'Info.plist').read_bytes())
-            for library in manifest['AvailableLibraries']:
-                binary = root / library['LibraryIdentifier'] / library['LibraryPath'] / 'WebRTC'
-                symbols = subprocess.check_output(['nm', '-g', str(binary)], text=True)
-                with self.subTest(slice=library['LibraryIdentifier']):
-                    self.assertNotRegex(symbols, r'AVCapture|RTCCamera')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Camera API present in vendor SDK', result.stdout)
 
     def test_cleanup_rejects_non_checkout_without_removing_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -153,7 +181,18 @@ class WebRTCScriptTests(unittest.TestCase):
             output = root / 'build/src/out'
             output.mkdir(parents=True)
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', str(output)], check=True)
-            shutil.copy(ARTIFACT, output / 'WebRTC-branch-heads-test.xcframework.zip')
+            candidate = output / 'WebRTC-branch-heads-test.xcframework.zip'
+            shutil.copy(ARTIFACT, candidate)
+            # Synthetic build record for the stub builder in this test.
+            build_record = {
+                'checksum': hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                'source_policy': 'official-unmodified',
+                'upstream_revision': '1' * 40, 'depot_tools_revision': '2' * 40,
+                'gn_version': '1234 (abcdef0)', 'xcode_version': '27.2', 'xcode_build': '27B52',
+                'sdks': {'macosx': '27.2'},
+                'gn_args_sha256': dict.fromkeys(('macos-arm64', 'macos-x64'), '3' * 64),
+            }
+            candidate.with_suffix('.provenance.json').write_text(json.dumps(build_record))
             (scripts / 'build-webrtc-xcframework.sh').write_text('#!/bin/bash\nexit 0\n')
             # A broken candidate package must fail compilation before installation.
             (package / 'Package.swift').write_text('// swift-tools-version: 6.3\ninvalid manifest\n')

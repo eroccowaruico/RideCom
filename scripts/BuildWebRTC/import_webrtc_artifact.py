@@ -1,15 +1,18 @@
 """Publish the fixed WebRTC zip/metadata pair with one macOS directory exchange."""
+
 from __future__ import annotations
 
 import ctypes
 import errno
-import hashlib
+import json
 import os
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+from webrtc_provenance import file_sha256, read_provenance
 
 RENAME_SWAP = 0x00000002
 RENAME_EXCL = 0x00000004
@@ -28,10 +31,11 @@ def _rename_directory(source: Path, destination: Path, flags: int) -> None:
         raise OSError(code, os.strerror(code), str(destination))
 
 
-def _write_metadata(path: Path, source_name: str, checksum: str) -> None:
+def _write_metadata(path: Path, source_name: str, checksum: str, provenance: dict[str, object]) -> None:
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     with path.open('w') as stream:
         stream.write(f'source_zip={source_name}\nchecksum={checksum}\nimported_at={timestamp}\n')
+        stream.write('build_provenance=' + json.dumps(provenance, separators=(',', ':'), sort_keys=True) + '\n')
         stream.flush()
         os.fsync(stream.fileno())
 
@@ -81,12 +85,9 @@ def import_artifact(source: str | Path, destination: str | Path, verifier: str |
         with tempfile.TemporaryDirectory(prefix='WebRTC-verify-') as unpacked:
             subprocess.run(['unzip', '-q', str(staged_zip), '-d', unpacked], check=True)
             subprocess.run([str(verifier), str(Path(unpacked) / 'WebRTC.xcframework')], check=True)
-        digest = hashlib.sha256()
-        with staged_zip.open('rb') as stream:
-            for block in iter(lambda: stream.read(1_048_576), b''):
-                digest.update(block)
-        checksum = digest.hexdigest()
-        _write_metadata(staging / METADATA_NAME, source.name, checksum)
+        checksum = file_sha256(staged_zip)
+        provenance = read_provenance(source, checksum)
+        _write_metadata(staging / METADATA_NAME, source.name, checksum, provenance)
         # No delete/move fallback: unsupported filesystems leave the old pair in
         # place. An initial publication must not replace a concurrent install.
         _validate_destination(destination)

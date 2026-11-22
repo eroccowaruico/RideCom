@@ -55,12 +55,11 @@ scripts/BuildWebRTC/update-webrtc-binary.sh
 
 通常の更新でsource checkoutや`out`全体を削除しない。tracked source変更があるcheckoutでは停止する。手動の `ASSEMBLE_ONLY` は残すが、更新処理の自動fallbackには使わない。異なるbranchの古い成果物を新branchとして採用することを避ける。
 
-### カメラAPIの除外
+### 上流の無改変とカメラの不使用
 
-音声通話用SDKに不要なカメラAPIを含めないため、`disable-camera-capture.patch`をsync後の`sdk/BUILD.gn`へ適用してから全sliceをビルドする。対象は`RTCCameraVideoCapturer`、`RTCCameraPreviewView`、`AVCaptureSession+DevicePosition`の実装と公開header。上流のソース本文や音声・DataChannel実装は変更しない。patchが適用できない更新では停止し、成功・失敗どちらでも終了時にpatchを戻す。
+次回の通常更新では公式 WebRTC のコミットを固定する。上流のソース、ビルド定義、依存部品には独自パッチを当てず、公式の GN 引数とターゲットを使う。各構成で不要な映像オプションを無効にしても、公式の Apple 向け framework に映像 API が含まれることがある。シンボルや公開ヘッダーへの同梱は所見として次回更新で見直す。
 
-増分ビルドで残る対象headerは組み立て時に除去する。検証では全sliceの実バイナリの外部シンボルに`AVCapture`・`RTCCamera`がないこと、対象headerがないこと、umbrella headerの全参照先が存在することを確認する。`ASSEMBLE_ONLY`でも同じ項目を検査し、カメラAPIを含む旧出力の取り込みを拒否する。これはApple側の検証通過を保証するものではなく、最終Archiveの埋め込みframeworkとApp Store Connectで別途確認する。
-
+RideCom の実装ではカメラを起動せず、映像トラックを作らない。配布前にはアプリの呼出元と権限を確認し、RTC のネゴシエーション試験で音声・映像トラックを含む入力の拒否と DataChannel の通過を確認する。現行の採用済み ZIP は撮影機能を外すパッチを使った履歴を持つ。この所見を理由とする臨時の再ビルドは行わず、次の更新で無改変の成果物に切り替える。
 
 固定branchで再現する場合も、上位スクリプトに `WEBRTC_BRANCH` を渡す。
 
@@ -147,7 +146,7 @@ scripts/BuildWebRTC/import-webrtc-xcframework.sh
 
 これはプロセス中断と公開操作の整合性であり、電源断・媒体障害の耐久性や、別processが交換をまたいで2ファイルを個別に開く一連の読取りまでtransactionにする保証ではない。常設の履歴・復旧台帳・採用先symlinkは追加しない。
 
-新規ビルドは、upstreamとdepot_toolsの完全なcommit、GN・Xcode・各SDKのバージョンを `.provenance.json` に記録する。同じファイルに、カメラ除外パッチ、各sliceの`args.gn`、生成したZIPのSHA-256も記録する。ビルド中にcheckoutやdepot_toolsのcommitが変わると更新を中止する。取り込みはコピーしたZIPを検証し、SHA-256と一致する記録を `WebRTC.xcframework.metadata` の `build_provenance` に移す。記録の形式やSHA-256が不一致なら、採用済みZIPとmetadataを維持する。`ASSEMBLE_ONLY=true` と既存ZIPの手動取り込みでは新規ビルドの記録を後付けしない。
+新規ビルドは、upstreamとdepot_toolsの完全なcommit、GN・Xcode・各SDKのバージョンを `.provenance.json` に記録する。同じファイルに、無改変のビルドであることと、各sliceの`args.gn`、生成したZIPのSHA-256も記録する。ビルド中にcheckoutやdepot_toolsのcommitが変わると更新を中止する。取り込みはコピーしたZIPを検証し、SHA-256と一致する記録を `WebRTC.xcframework.metadata` の `build_provenance` に移す。新しく取り込むZIPに無改変のビルド記録がない場合や、SHA-256が一致しない場合は、採用済みZIPとmetadataを維持する。`ASSEMBLE_ONLY=true` と既存ZIPの手動取り込みでは新規ビルドの記録を後付けしない。
 
 特定のzipを取り込む場合は `WEBRTC_XCFRAMEWORK_ZIP` を指定する。
 
@@ -177,7 +176,7 @@ Appに採用する成果物はiOS device、iOS Simulator、macOSの全sliceを�
 
 各構成は共通の手順で `gn gen`、GN設定の記録、`ninja` の順に実行する。OSごとの関数は、CPU・OSバージョン・ビルド対象を渡す。iOSでは実機とSimulatorの区別も渡し、実機向けだけにdSYMの生成を指定する。設定の生成や記録に失敗した構成はビルドを始めず、後続の構成と組み立ても止める。
 
-全構成で `rtc_enable_protobuf=false` を指定し、SDKのイベントログをProtobufで出力する機能を外す。通話の接続と音声パケットの転送は、[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)に従う。カメラの除外は[既存のパッチ](#カメラapiの除外)で行う。
+全構成で `rtc_enable_protobuf=false` を指定し、SDKのイベントログをProtobufで出力する機能を外す。通話の接続と音声パケットの転送は、[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)に従う。映像 API の同梱は[上流の無改変とカメラの不使用](#上流の無改変とカメラの不使用)に従って判断する。
 
 ```bash
 cd <RideIntercom repository>
@@ -358,7 +357,7 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 | 採用時の検証 | 全sliceの実行ファイル・公開ヘッダー・プライバシーマニフェストとiOS実機用dSYMを検査。組み立てたZIPでMacのRTC回帰143件、ネイティブWebRTC回帰6件、SwiftとWorkerのローカル通信1件が通った。iOS実機向けRTCのReleaseビルドと、同じarm64バイナリを使ったiPhone Simulatorの経路切替試験4条件も通った |
 | チェックサムとビルド情報 | ZIPと同じディレクトリの `WebRTC.xcframework.metadata` を参照する。WebRTCとdepot_toolsのコミット、GN・Xcode・SDKのバージョン、パッチと5構成の設定、ZIPの照合値を記録する |
 
-ビルドで生じたvendor警告をゼロとは記録しない。生成済みの同じbranchの全sliceを `ASSEMBLE_ONLY=true` で取り込む場合も、更新スクリプトによる隔離検証を省略しない。
+ビルドで生じたvendor警告をゼロとは記録しない。`ASSEMBLE_ONLY=true` は生成済みの構成を使った組み立ての確認用とする。採用には通常ビルドで生成した ZIP と対応する記録を使う。
 
 ## 掃除対象の検証
 

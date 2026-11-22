@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import importlib.util
+import json
 import os
 import selectors
 import shutil
@@ -37,6 +38,7 @@ class ArtifactPublicationTests(unittest.TestCase):
         self.destination.mkdir(parents=True)
         self.source = self.root / 'candidate.zip'
         self.make_zip(self.source, 'new')
+        self.write_provenance()
         self.make_zip(self.destination / 'WebRTC.xcframework.zip', 'old')
         self.old_zip = (self.destination / 'WebRTC.xcframework.zip').read_bytes()
         self.old_metadata = ('source_zip=old.zip\nchecksum=' + hashlib.sha256(self.old_zip).hexdigest() + '\nimported_at=old\n').encode()
@@ -51,7 +53,8 @@ class ArtifactPublicationTests(unittest.TestCase):
         if spec is None or spec.loader is None:
             raise ImportError('The artifact importer module could not be loaded')
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        with patch.object(sys, 'path', [str(SCRIPTS), *sys.path]):
+            spec.loader.exec_module(module)
         return module
 
     def assert_old(self) -> None:
@@ -70,6 +73,69 @@ class ArtifactPublicationTests(unittest.TestCase):
         env.update(environment or {})
         return subprocess.run([str(self.scripts / 'import-webrtc-xcframework.sh')],
                               check=False, env=env, capture_output=True, text=True)
+
+    def write_provenance(self, **overrides: object) -> dict[str, object]:
+        provenance: dict[str, object] = {
+            'checksum': hashlib.sha256(self.source.read_bytes()).hexdigest(),
+            'upstream_revision': 'a' * 40,
+            'depot_tools_revision': 'b' * 40,
+            'source_policy': 'official-unmodified',
+            'gn_version': '2345 (abcdef012345)',
+            'xcode_version': '27.2',
+            'xcode_build': '27B52',
+            'sdks': {'iphoneos': '27.2', 'iphonesimulator': '27.2', 'macosx': '27.2'},
+            'gn_args_sha256': dict.fromkeys(('ios-x64-simulator', 'ios-arm64-simulator',
+                                             'ios-arm64-device', 'macos-x64', 'macos-arm64'), 'd' * 64),
+        }
+        provenance.update(overrides)
+        self.source.with_suffix('.provenance.json').write_text(json.dumps(provenance))
+        return provenance
+
+    def test_copied_artifact_keeps_its_checked_build_provenance(self) -> None:
+        provenance = self.write_provenance()
+        result = self.run_entry({'PATH': '/usr/bin:/bin'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_new()
+        metadata = dict(line.split('=', 1) for line in (self.destination / 'WebRTC.xcframework.metadata').read_text().splitlines())
+        self.assertEqual(json.loads(metadata['build_provenance']), provenance)
+
+    def test_record_uses_the_zip_and_requested_build_outputs(self) -> None:
+        binary = self.root / 'bin'
+        binary.mkdir()
+        for name, response in {'gn': '2345 (abcdef012345)', 'xcrun': '27.2',
+                               'xcodebuild': 'Xcode 27.2\nBuild version 27B52'}.items():
+            tool = binary / name
+            tool.write_text(f"#!/bin/sh\nprintf '%s\\n' '{response}'\n")
+            tool.chmod(0o755)
+        self.source.with_suffix('.provenance.json').unlink()
+        for output in ('macos-arm64', 'macos-x64'):
+            (self.root / output).mkdir()
+            (self.root / output / 'args.gn').write_text(output)
+        env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'])
+        result = subprocess.run(['/usr/bin/python3', str(self.scripts / 'webrtc_provenance.py'),
+                                 str(self.source), 'a' * 40, 'b' * 40, 'macosx'],
+                                check=False, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        metadata = json.loads(self.source.with_suffix('.provenance.json').read_bytes())
+        self.assertEqual(metadata['checksum'], hashlib.sha256(self.source.read_bytes()).hexdigest())
+        self.assertEqual(metadata['source_policy'], 'official-unmodified')
+        self.assertEqual(metadata['sdks'], {'macosx': '27.2'})
+        self.assertEqual(metadata['gn_args_sha256'], {output: hashlib.sha256(output.encode()).hexdigest()
+                                                     for output in ('macos-arm64', 'macos-x64')})
+
+    def test_provenance_for_a_different_zip_keeps_installed_pair(self) -> None:
+        self.write_provenance(checksum='0' * 64)
+        result = self.run_entry()
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_old()
+
+    def test_provenance_cannot_publish_arbitrary_values(self) -> None:
+        for override in ({'camera_patch_sha256': 'c' * 64}, {'source_policy': 'patched'}, {'unexpected': 'private value'}, {'xcode_build': '27B52\nnew_key=private value'}):
+            with self.subTest(override=override):
+                self.write_provenance(**override)
+                result = self.run_entry()
+                self.assertNotEqual(result.returncode, 0)
+                self.assert_old()
 
     def test_copy_failure_keeps_the_installed_pair(self) -> None:
         binary = self.root / 'bin'
@@ -179,6 +245,7 @@ class ArtifactPublicationTests(unittest.TestCase):
                 (self.destination / 'WebRTC.xcframework.metadata').write_bytes(self.old_metadata)
                 code = '''import importlib.util,sys
 from pathlib import Path
+sys.path.insert(0,str(Path(sys.argv[1]).parent))
 spec=importlib.util.spec_from_file_location('artifact_import',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 original=m._rename_directory
 def pause(source,destination,flags):

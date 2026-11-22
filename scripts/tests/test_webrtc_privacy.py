@@ -253,17 +253,15 @@ fi''')
         result = self.verify()
         self.assertNotEqual(result.returncode, 0)
 
-    def test_valid_import_preserves_archive_and_records_its_checksum(self) -> None:
-        import hashlib
+    def test_valid_archive_without_provenance_is_not_installed(self) -> None:
         archive = self.archive()
         destination = self.base / 'installed'
         result = subprocess.run([str(SCRIPTS / 'import-webrtc-xcframework.sh')],
             env=dict(self.env, WEBRTC_XCFRAMEWORK_ZIP=str(archive),
                      WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((destination / 'WebRTC.xcframework.zip').read_bytes(), archive.read_bytes())
-        self.assertIn('checksum=' + hashlib.sha256(archive.read_bytes()).hexdigest(),
-                      (destination / 'WebRTC.xcframework.metadata').read_text())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing WebRTC build provenance', result.stderr)
+        self.assertFalse(destination.exists())
 
 
 if __name__ == '__main__':
