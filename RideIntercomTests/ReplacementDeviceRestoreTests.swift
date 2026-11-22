@@ -78,6 +78,31 @@ struct CallRelationshipBackupTests {
 
 @MainActor @Suite(.serialized)
 struct ReplacementDeviceRestoreTests {
+    @Test(arguments: [false, true])
+    func restoreRejectsAContactDeviceOutsideTheConfirmedDirectCall(addDevice: Bool) throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore(), credentials = InMemoryGroupCredentialStore()
+        let repository = GroupRepository(store: store, credentials: credentials)
+        _ = try repository.load(localMemberID: "alice")
+        let original = store.snapshot
+        let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let batch = try scenario.confirmedRestore()
+        var contact = try #require(batch.users.first)
+        let originalDeviceID = try #require(contact.memberIDs.first)
+        let extraDevice = try scenario.fixture.peer("bob-extra", account: "b").viewModel
+            .internetSettingsStore.invitationSigner(memberID: "bob-extra")
+        if addDevice { contact.memberIDs.append(extraDevice.memberID) }
+        contact.deviceKeys?[addDevice ? extraDevice.memberID : originalDeviceID] = extraDevice.publicKey
+        let unconfirmed = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
+                                               users: [contact], calls: batch.calls)
+
+        #expect(throws: GroupStorageError.invalidUpdate) {
+            try repository.restoreCallRelationships(unconfirmed, as: signer, trust: scenario.trust)
+        }
+        #expect(store.snapshot == original)
+        #expect(credentials.values.isEmpty)
+    }
+
     @Test func aBackupWithTheOldMemberIDCannotBeOpenedByTheReplacement() throws {
         let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
         let store = InMemoryGroupStore()

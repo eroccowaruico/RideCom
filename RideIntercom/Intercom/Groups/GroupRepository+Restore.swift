@@ -48,6 +48,14 @@ extension GroupRepository {
         let confirmedPeers = Set(records.compactMap { $0.accountPair?.other(than: batch.owner) })
         guard batch.users.count == confirmedPeers.count,
               Set(batch.users.compactMap(\.principal)) == confirmedPeers else { throw GroupStorageError.invalidUpdate }
+        for user in batch.users {
+            guard let principal = user.principal, let deviceKeys = user.deviceKeys,
+                  let call = records.first(where: { $0.accountPair?.other(than: batch.owner) == principal }),
+                  user.memberIDs.allSatisfy({ memberID in
+                      guard let key = deviceKeys[memberID] else { return false }
+                      return call.accountDevices[memberID] == .init(principal: principal, publicKey: key)
+                  }) else { throw GroupStorageError.invalidUpdate }
+        }
         try update(records.map { try $0.group() }, credential: nil,
                    additionalCredentials: restored.map(\.credential), users: batch.users, now: now) { next in
             next.groups = records
