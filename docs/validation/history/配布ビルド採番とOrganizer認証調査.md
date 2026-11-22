@@ -165,4 +165,6 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 登録先は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2086).xcarchive`。Xcodeで開く要求は成功した。Organizerの一覧での表示は未確認。次回用の共通採番は2087へ進んだ。[Archiveの登録と表示の確認](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
 
-ArchiveのAppに署名された通常通知の環境は `development`。本番用IPAの書き出しと署名確認、App Store Connectへの送信は今回の検証に含めていない。
+ArchiveのAppに署名された通常通知の環境は `development`。内部テストへの直接送信ではXcodeが配布用に署名する。今回の記録はArchiveまでで、App Store Connectへの送信結果は未確認。
+
+Build 2086の元のWebRTC ZIPはBuild 2071・2074で公開修正を確認したZIPと同一だった。Build 2086の署名付きArchiveに含まれるWebRTCと、このZIPのiOS実機用バイナリを比較し、arm64でデータを持つ31セクションの内容がすべて一致した。照合済みのWebRTCとBoringSSLの修正については、この結果を内部試用に引き継ぐ。
