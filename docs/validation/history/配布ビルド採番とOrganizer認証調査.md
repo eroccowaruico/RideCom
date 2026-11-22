@@ -149,4 +149,10 @@ macOSのネイティブRTC回帰6件が合格した。SDKが生成した通常�
 
 固定接続先の修正を共有mainへ取り込む候補から、同じスキームでiOS 1.0.0 Build 2077を作成した。本番Workerのアドレス、AppとWidgetの番号、署名、AppとWebRTCのdSYM、採用済みWebRTCとArchive内のUUID、production APNsの構成を照合した。macOSのアカウント回帰は24件合格。Previewの保存済み資格を拒み、本番に対応する資格だけを登録・復元と通常通知で使う試験を含む。
 
-Build 2077は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2077).xcarchive` へ登録し、Xcodeで開く要求が成功した。Organizerの一覧表示、配布後のサインインと双方向音声は未確認。共有側と手元の採番の差を避けるため、Archiveの作成時にビルド番号を指定した。証跡は `.validation/shared-main-2160-archive/` に保存した。[配布版とDebugの入口](../../spec/App/UI/Settings.md#internet-connection)
+Build 2077をXcodeの標準保存先に登録した。
+
+```text
+~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2077).xcarchive
+```
+
+Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサインインと双方向音声は未確認。共有側と手元の採番の差を避けるため、Archiveの作成時にビルド番号を指定した。証跡は `.validation/shared-main-2160-archive/` に保存した。[配布版とDebugの入口](../../spec/App/UI/Settings.md#internet-connection)

@@ -115,8 +115,11 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 1. 検証済みの共有 `main` を固定 `preview` ブランチへ反映する。固定Previewが存在しない場合、GitHubへのpushからWorkers Buildsが同じ名前のPreviewを作成し、Previews Baseのシークレットを取り込む。固定Previewが存在する場合、pushはそのPreviewを更新する。[Cloudflareの自動作成](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#manage-previews)・[シークレットの継承](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 2. 最新配置のコミット、SFUとTURNの参照先、SFU・TURN・端末証明のシークレットの型を管理APIで照合する。資格が揃った配置で、[外部設定の受入順](#利用者が行うapplecloudflareの設定と受入順)に従い固定PreviewのApple登録、通話、TURNを有効にする。
-3. 開発署名のAppを2台とも固定Previewに向け、それぞれ試験用のAppleアカウントで登録する。Aが試験用グループを作り、Bに招待リンクを送り、Bが参加する。試験のたびに同じ操作で登録とグループを用意できる。リンクと共有鍵はAppがその都度生成する。
+3. 登録する前に、今回の試験が所有するデータの範囲と、終了・中断後に回収を確認する方法を決める。確認できるまで登録・グループ作成・招待の発行を保留する。準備が整ったら開発署名のAppを2台とも固定Previewに向け、それぞれ試験用のAppleアカウントで登録する。Aが試験用グループを作り、Bに招待リンクを送り、Bが参加する。試験のたびに同じ操作で登録とグループを用意できる。リンクと共有鍵はAppがその都度生成する。
 4. 両端でInternet経路の受話を確認し、制限回線で試す場合は試験時間帯のPreview用TURNキーの転送量も照合する。実際に相手の発話が両端で聞こえ、再接続後にも新しい発話を互いに受け取れたかを[検証記録](../validation/history/Cloudflare検証.md)に残す。[TURNの計測項目](https://developers.cloudflare.com/realtime/turn/analytics/)
+5. 試験を終えたら両端の通話を終了する。今回作った招待・グループ・端末登録について、試験専用のものと継続利用する前提を区別する。回収した項目と、失効・削除後の状態を何で確認したかを検証記録に残す。途中で止まった場合も同じ範囲を確認する。試験専用データの回収方法や対象を特定できなければ、[固定Previewの残作業](../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)に戻す。
+
+過去の試験グループや招待リンクを前提にせず、手順3から新しく作った状態で比較する。[試験データと判定の再現条件](../policies/開発方針.md#試験データを作り直し同じ条件で判定する)に従い、実行したmainのコミット、手順・入力の変更点、両端での合否を記録する。
 
 固定Previewの再作成では、旧配置専用の端末登録とDurable Objectの保存データを引き継げない。既存のPreviewを削除して再作成する場合は、試験で保持すべきデータの有無を事前に確認する。
 
