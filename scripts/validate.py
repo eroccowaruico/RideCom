@@ -605,7 +605,7 @@ def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> Non
                     if focused:
                         needs.append('ios-tests-selection')
             if ipad_tests:
-                lease = SimulatorLease(runner, simulator_resource_root() / 'reusable-ipad.json')
+                lease = SimulatorLease(runner, simulator_resource_root() / 'reusable-ipad.json', stage='ipad')
                 try:
                     if any(runner.results.get(stage, {}).get('status') != 'passed' for stage in needs):
                         raise RuntimeError('iPad tests require their prerequisites to pass first')
@@ -618,7 +618,7 @@ def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> Non
                     if lease.acquired:
                         lease.cleanup('ipad-final')
             if not focused:
-                lease = SimulatorLease(runner, simulator_resource_root() / 'reusable-watch.json')
+                lease = SimulatorLease(runner, simulator_resource_root() / 'reusable-watch.json', stage='watch')
                 try:
                     if runner.results.get('ios-tests-acceptance', {}).get('status') != 'passed':
                         raise RuntimeError('Watch tests require the iPhone run to pass first')

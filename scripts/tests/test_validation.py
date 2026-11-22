@@ -151,11 +151,69 @@ class ValidationTests(unittest.TestCase):
             lease.return_value.prepare.return_value = 'test-ipad'
             self.module.run_ios_tests(self.runner, 'ios-ui', [ipad])
             iphone.assert_not_called()
-            lease.assert_called_once_with(self.runner, self.runner.out / 'reusable-ipad.json')
+            lease.assert_called_once_with(self.runner, self.runner.out / 'reusable-ipad.json', stage='ipad')
             boot.assert_called_once_with(self.runner, 'test-ipad', 'ipad')
             xcode.assert_called_once_with('ipad-tests', 'platform=iOS Simulator,id=test-ipad', only=[ipad],
                                          needs=['webrtc-artifact', 'ipad-ready'], reuse_build=None,
                                          verify_selection=True)
+
+    def test_full_ios_run_can_create_each_managed_simulator_from_empty_inventory(self) -> None:
+        from scripts import audio_e2e, test_lifecycle
+
+        devices: list[test_lifecycle.SimulatorDevice] = []
+        personal_simulator: test_lifecycle.SimulatorDevice = {
+            'name': 'Unrelated Fixture', 'udid': 'unrelated', 'state': 'Booted',
+        }
+        runtimes = {'runtimes': [
+            {'isAvailable': True, 'name': 'iOS', 'version': '27.2', 'identifier': 'fixture-ios'},
+            {'isAvailable': True, 'name': 'watchOS', 'version': '27.2', 'identifier': 'fixture-watchos'},
+        ]}
+        original_run = self.runner.run
+
+        def run_simctl(stage: str, argv: list[str], *, timeout: int, needs: Sequence[str] = ()) -> bool:
+            operation, *arguments = argv[2:]
+            output = ''
+            if operation == 'list':
+                output = json.dumps(runtimes)
+            elif operation == 'create':
+                name, device_type, runtime = arguments
+                output = f'fixture-{len(devices) + 1}'
+                devices.append({'name': name, 'udid': output, 'state': 'Shutdown', 'isAvailable': True,
+                                'deviceTypeIdentifier': device_type, 'runtime': runtime})
+            elif operation in ('boot', 'shutdown'):
+                device = next(device for device in devices if device['udid'] == arguments[0])
+                device['state'] = 'Booted' if operation == 'boot' else 'Shutdown'
+            return original_run(stage, [sys.executable, '-c', f'print({output!r})'],
+                                needs=needs, timeout=timeout)
+
+        def xcode(stage: str, destination: str, **kwargs: object) -> None:
+            self.runner.record(stage + '-acceptance', [destination], 'passed', 0, time.monotonic())
+
+        self.runner.record('swift-toolchain', [], 'passed', 0, time.monotonic())
+        self.runner.record('webrtc-artifact', [], 'passed', 0, time.monotonic())
+        with (
+            patch.object(self.module, 'simulator_resource_root', return_value=self.runner.out / 'leases'),
+            patch.object(test_lifecycle, 'simulator_devices',
+                         side_effect=lambda: [personal_simulator.copy(), *(device.copy() for device in devices)]),
+            patch.object(self.module, 'process_snapshot', return_value={}),
+            patch.object(self.runner, 'run', side_effect=run_simctl),
+            patch.object(self.runner, 'xcode', side_effect=xcode) as xcode_runner,
+            patch.object(audio_e2e, 'SimulatorAudioPin') as audio,
+            patch.dict(os.environ, {'SIMULATOR_RUNTIME': 'fixture-ios', 'SIMULATOR_DEVICE_TYPE': 'fixture-phone',
+                                    'SIMULATOR_IPAD_DEVICE_TYPE': 'fixture-ipad',
+                                    'SIMULATOR_WATCH_DEVICE_TYPE': 'fixture-watch'}),
+        ):
+            audio.return_value.pin.return_value = 'fixture audio'
+            self.module.run_ios_tests(self.runner, 'ios', [])
+
+        self.assertEqual(self.runner.exit_code, 0, self.runner.results.get('simulator-availability'))
+        self.assertEqual([call.args[0] for call in xcode_runner.call_args_list],
+                         ['ios-tests', 'ios-recovery', 'ipad-tests', 'watch-tests'])
+        self.assertEqual([device['state'] for device in devices], ['Shutdown'] * 3)
+        for index, stage in enumerate(('simulator', 'ipad', 'watch')):
+            self.assertEqual((self.runner.out / f'{stage}-create.log').read_text().strip(), f'fixture-{index + 1}')
+            inventory = json.loads((self.runner.out / f'{stage}-inventory.json').read_text())
+            self.assertEqual(len(inventory), index)
 
     def test_timeout_kills_owned_child_process_group(self) -> None:
         child = Path(self.temporary.name) / 'child.pid'

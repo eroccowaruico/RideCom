@@ -181,9 +181,10 @@ class SimulatorLease:
     A reusable lease retains exactly one powered-off device. Ephemeral leases
     delete it. Only the recorded full name and (when known) UUID are eligible.
     """
-    def __init__(self, runner: LeaseRunner, journal: str | os.PathLike[str]) -> None:
+    def __init__(self, runner: LeaseRunner, journal: str | os.PathLike[str], *, stage: str = 'simulator') -> None:
         self.runner = runner
         self.journal = Path(journal)
+        self.stage = stage
         self.state: LeaseState = json.loads(self.journal.read_text()) if self.journal.exists() else {}
         self.acquired = False
 
@@ -220,14 +221,13 @@ class SimulatorLease:
         """
         if not delete_all and (runtime is None or device_type is None):
             raise ValueError('Creating a simulator requires a runtime and device type')
-        devices = simulator_devices()
-        (self.runner.out / 'simulator-inventory.json').write_text(json.dumps(devices, indent=2) + '\n')
-        managed = [d for d in devices if re.fullmatch(
+        managed = [d for d in simulator_devices() if re.fullmatch(
             r'RideIntercom (?:Audio E2E [0-9a-f]{8}|Validation .+|Recovery Tests)', d['name'])]
+        (self.runner.out / f'{self.stage}-inventory.json').write_text(json.dumps(managed, indent=2) + '\n')
         if any(d['state'] != 'Shutdown' for d in managed):
             raise RuntimeError('Managed simulator is in use; stop its owner before retrying')
         self.acquired = True
-        if not self.cleanup_host('simulator-previous'):
+        if not self.cleanup_host(f'{self.stage}-previous'):
             raise RuntimeError('A previous host requires ownership review before retrying')
         candidates = [d for d in managed if d.get('isAvailable') and d.get('runtime') == runtime
                       and d.get('deviceTypeIdentifier') == device_type] if not delete_all else []
@@ -249,7 +249,7 @@ class SimulatorLease:
                 continue
             if current['state'] != 'Shutdown' or current['name'] != device['name']:
                 raise RuntimeError('Managed simulator changed during cleanup')
-            if not self.runner.run(f'simulator-prune-{index}', ['xcrun', 'simctl', 'delete', device['udid']], timeout=60):
+            if not self.runner.run(f'{self.stage}-prune-{index}', ['xcrun', 'simctl', 'delete', device['udid']], timeout=60):
                 raise RuntimeError('Could not delete unused managed simulator')
         if selected:
             return selected['udid']
@@ -259,9 +259,10 @@ class SimulatorLease:
             return None
         assert runtime is not None and device_type is not None
         self.reserve('RideIntercom Audio E2E ' + uuid.uuid4().hex[:8], reusable=reusable)
-        if not self.runner.run('simulator-create', ['xcrun', 'simctl', 'create', self.state['name'], device_type, runtime], timeout=60):
+        create_stage = f'{self.stage}-create'
+        if not self.runner.run(create_stage, ['xcrun', 'simctl', 'create', self.state['name'], device_type, runtime], timeout=60):
             raise RuntimeError('Could not create managed simulator')
-        device_id = (self.runner.out / 'simulator-create.log').read_text().strip()
+        device_id = (self.runner.out / f'{create_stage}.log').read_text().strip()
         self.identify(device_id)
         return device_id
 

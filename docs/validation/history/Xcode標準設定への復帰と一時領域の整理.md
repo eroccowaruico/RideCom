@@ -1,5 +1,19 @@
 # Xcode標準設定への復帰と一時領域の整理
 
+## 検証用Simulatorを初回に作成する
+
+2026-11-23。検証用Simulatorがない環境を架空の端末一覧で再現した。`validate.py` の実行順、段階の記録、管理端末の割り当て処理を使い、`simctl`、音声機器の指定、Xcode試験の実行だけを置き換えた。起動中の管理外端末を一覧に加えた。
+
+```sh
+python3 -m unittest discover -s scripts/tests -p test_validation.py -k full_ios_run_can_create
+```
+
+修正前はiPhoneの準備後、iPadの作成で `Duplicate stage: simulator-create` を報告して止まった。修正後はiPhoneの通常と復旧、iPad、Apple Watchの順に4つの試験の入口へ到達した。3台の作成結果と準備開始時の一覧は別々に残り、管理外の端末は一覧に含まれなかった。3台とも試験後に停止した。
+
+共有mainに反映するソースで `python3 -m unittest discover -s scripts/tests` の214件が通過した。既定の段階名で再利用する音声試験の準備も含む。今回の回帰ではApp・UI試験を模擬した。[自動検証の段階と記録](../../development/自動検証.md#環境と出力)
+
+## 2026年11月1日時点の検証
+
 以下は当時の記録である。毎buildの自動採番廃止と入力指紋の完全一致は、同日後半の要求訂正により下記「自動インクリメントの維持と設定増設禁止」へ置き換えた。
 
 2026-11-01の「Xcode標準のお作法で使えるようにする」「独自buildの場所をなくす」「不要な/tmpを削除する」という指示に対応した。通常checkoutのmainとXcode既定のDerivedDataを使用する。Xcodeで保存された製品名RideComへの変更を保持した。
