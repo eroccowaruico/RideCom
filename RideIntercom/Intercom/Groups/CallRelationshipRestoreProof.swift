@@ -74,13 +74,12 @@ extension CallRelationshipBackup {
                          signer: signer, now: now)
     }
 
-    func matchesDirectRestoreRequest(_ request: CallRelationshipRestoreRequest, callID: UUID,
-                                     contactID: UUID) throws -> Bool {
-        let address = request.challenge
-        guard address.callID == callID else { return false }
+    func matchesDirectRestoreRequest(_ context: CallRelationshipRestoreContext, contactID: UUID) throws -> Bool {
+        let address = context.request.challenge
+        guard address.callID == context.record.id else { return false }
         let contact = contacts.first { $0.id == contactID }
         return try pinnedDirectCallID(for: contact, memberID: address.recipientMemberID,
-                                      recipient: address.recipient) == callID
+                                      recipient: address.recipient) == context.record.id
     }
 
     fileprivate func containsDirectRestorePeer(_ peer: AccountDeviceBinding, memberID: String, callID: UUID)
@@ -164,6 +163,27 @@ struct CallRelationshipRestoreConfirmation: Codable {
     }
 }
 
+/// The same request, confirmation and membership used for candidate checks, key transfer and local storage.
+struct CallRelationshipRestoreContext {
+    let request: CallRelationshipRestoreRequest
+    let confirmation: CallRelationshipRestoreConfirmation
+    let record: GroupSnapshot.Record
+
+    fileprivate func header() throws -> Data {
+        let authorization = Authorization(request: request, confirmation: confirmation)
+        return try Data(SHA256.hash(data: restoreProofPayload(authorization)))
+    }
+
+    fileprivate func membershipFingerprint() throws -> Data {
+        try Data(SHA256.hash(data: restoreProofPayload(RestoreMembership(record))))
+    }
+
+    private struct Authorization: Encodable {
+        let request: CallRelationshipRestoreRequest
+        let confirmation: CallRelationshipRestoreConfirmation
+    }
+}
+
 /// Carries a call key already authorized by the caller for release to the requesting device.
 struct CallRelationshipRestoreCredential: Codable {
     private static let domain = "rideintercom.call-restore-credential.ecdh.v2"
@@ -174,33 +194,15 @@ struct CallRelationshipRestoreCredential: Codable {
     private let packet: Data
     private let proof: DeviceIdentityProof
 
-    struct Context {
-        let request: CallRelationshipRestoreRequest
-        let confirmation: CallRelationshipRestoreConfirmation
-        let record: GroupSnapshot.Record
-
-        fileprivate func header() throws -> Data {
-            let authorization = Authorization(request: request, confirmation: confirmation)
-            return try Data(SHA256.hash(data: restoreProofPayload(authorization)))
-        }
-
-        fileprivate func membershipFingerprint() throws -> Data {
-            try Data(SHA256.hash(data: restoreProofPayload(RestoreMembership(record))))
-        }
-    }
-
-    private struct Authorization: Encodable {
-        let request: CallRelationshipRestoreRequest
-        let confirmation: CallRelationshipRestoreConfirmation
-    }
-
     private struct Packet: Encodable {
         let header: Data
         let packet: Data
     }
 
-    init(_ credential: GroupAccessCredential, for context: Context, as signer: DeviceIdentitySigner,
-         trust: DeviceIdentityTrust, now: Date) throws {
+    init(
+        _ credential: GroupAccessCredential, for context: CallRelationshipRestoreContext,
+        as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date
+    ) throws {
         let verified = try context.confirmation.verifiedConfirmation(for: context.request, trust: trust, now: now)
         let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
         let secret = Data(credential.secret.utf8)
@@ -223,7 +225,8 @@ struct CallRelationshipRestoreCredential: Codable {
                                 purpose: .deliverCallRelationshipRestoreCredential)
     }
 
-    func open(for context: Context, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date) throws
+    func open(for context: CallRelationshipRestoreContext, as signer: DeviceIdentitySigner,
+              trust: DeviceIdentityTrust, now: Date) throws
         -> (confirmation: CallRelationshipRestoreConfirmation.Verified, credential: GroupAccessCredential) {
         let verified = try context.confirmation.verify(for: context.request, as: signer, trust: trust, now: now)
         guard context.record.id == verified.callID,

@@ -89,7 +89,7 @@ struct CloudKitBackupSessionTests {
         let kind: IntercomGroup.Kind = change == .groupRemoved ? .group : .direct
         let batch = ConfirmedCallRestore(owner: plan.owner, previousMemberID: plan.previousMemberID,
                                          users: kind == .group ? [] : plan.users,
-                                         calls: plan.calls.filter { $0.record.kind == kind })
+                                         calls: plan.calls.filter { $0.context.record.kind == kind })
         let sourceStore = InMemoryGroupStore()
         sourceStore.snapshot = scenario.backup
         let groupIndex = try #require(sourceStore.snapshot.groups.firstIndex { $0.id == scenario.groupID })
@@ -172,7 +172,7 @@ struct CloudKitBackupSessionTests {
                                                           recipient: recipient, signer: requester, now: now)
         let response = try #require(try stale.groupRepository.confirmRestore(
             request, as: responder, trust: scenario.trust, now: now))
-        let context = CallRelationshipRestoreCredential.Context(
+        let context = CallRelationshipRestoreContext(
             request: request, confirmation: response, record: record)
         let transfer = try CallRelationshipRestoreCredential(
             credential, for: context, as: responder, trust: scenario.trust, now: now)
@@ -181,7 +181,7 @@ struct CloudKitBackupSessionTests {
         saved.deviceKeys = [responder.memberID: responder.publicKey]
         let batch = ConfirmedCallRestore(owner: scenario.backupOwner.principal,
             previousMemberID: oldDevice.viewModel.localMemberIdentity.memberID, users: [saved],
-            calls: [.init(record: record, transferredCredential: transfer, request: request, confirmation: response)])
+            calls: [.init(context: context, transferredCredential: transfer)])
 
         let sourceStore = InMemoryGroupStore()
         sourceStore.snapshot = scenario.backup

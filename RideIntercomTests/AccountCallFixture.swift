@@ -163,12 +163,11 @@ struct ReplacementScenario {
                                                               recipient: recipient, signer: requester, now: now)
             let confirmation = try #require(try model.groupRepository.confirmRestore(
                 request, as: responder, trust: trust, now: now))
-            let context = CallRelationshipRestoreCredential.Context(
+            let context = CallRelationshipRestoreContext(
                 request: request, confirmation: confirmation, record: record)
             let transfer = try CallRelationshipRestoreCredential(
                 credential, for: context, as: responder, trust: trust, now: now)
-            return ConfirmedCallRestore.Call(record: record, transferredCredential: transfer,
-                                             request: request, confirmation: confirmation)
+            return ConfirmedCallRestore.Call(context: context, transferredCredential: transfer)
         }
         return .init(owner: owner ?? backupOwner.principal, previousMemberID: "alice-old",
                      users: backup.users, calls: entries)

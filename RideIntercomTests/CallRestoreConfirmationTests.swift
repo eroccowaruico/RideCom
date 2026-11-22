@@ -205,7 +205,7 @@ struct CallRestoreConfirmationTests {
         let batch = try scenario.confirmedRestore()
         let first = try #require(batch.calls.first)
         let second = try #require(batch.calls.last)
-        try #require(first.record.id != second.record.id)
+        try #require(first.context.record.id != second.context.record.id)
         if expired {
             let later = Date().addingTimeInterval(300).timeIntervalSince1970
             #expect(throws: DeviceIdentityProof.Failure.invalid) {
@@ -213,8 +213,9 @@ struct CallRestoreConfirmationTests {
             }
         } else {
             let wrong = ConfirmedCallRestore.Call(
-                record: second.record, transferredCredential: first.transferredCredential,
-                request: first.request, confirmation: first.confirmation)
+                context: .init(request: first.context.request, confirmation: first.context.confirmation,
+                               record: second.context.record),
+                transferredCredential: first.transferredCredential)
             let combined = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
                                                 users: batch.users, calls: [first, wrong])
             #expect(throws: DeviceIdentityProof.Failure.invalid) {
@@ -233,7 +234,7 @@ struct CallRestoreConfirmationTests {
         let original = store.snapshot
         let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
         let verified = try scenario.confirmedRestore()
-        let group = try #require(verified.calls.first { $0.record.kind == .group })
+        let group = try #require(verified.calls.first { $0.context.record.kind == .group })
         let incomplete = ConfirmedCallRestore(owner: verified.owner, previousMemberID: verified.previousMemberID,
                                               users: verified.users, calls: [group])
         #expect(throws: GroupStorageError.invalidUpdate) {
@@ -263,11 +264,13 @@ struct CallRestoreCredentialTests {
         let original = store.snapshot
         let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
         let batch = try scenario.confirmedRestore()
-        let group = try #require(batch.calls.first { $0.record.kind == .group })
-        var changed = group.record
-        changed.joinedByInvitation = group.record.joinedByInvitation != true
-        let changedCall = ConfirmedCallRestore.Call(record: changed, transferredCredential: group.transferredCredential,
-                                                    request: group.request, confirmation: group.confirmation)
+        let group = try #require(batch.calls.first { $0.context.record.kind == .group })
+        let context = group.context
+        var changed = context.record
+        changed.joinedByInvitation = context.record.joinedByInvitation != true
+        let changedCall = ConfirmedCallRestore.Call(
+            context: .init(request: context.request, confirmation: context.confirmation, record: changed),
+            transferredCredential: group.transferredCredential)
         let changedBatch = ConfirmedCallRestore(owner: batch.owner, previousMemberID: batch.previousMemberID,
                                                 users: [], calls: [changedCall])
         #expect(throws: DeviceIdentityProof.Failure.invalid) {
@@ -323,7 +326,7 @@ struct CallRestoreCredentialTests {
     }
 
     private struct Exchange {
-        let context: CallRelationshipRestoreCredential.Context
+        let context: CallRelationshipRestoreContext
         let credential: GroupAccessCredential
         let packet: CallRelationshipRestoreCredential
         let requester: DeviceIdentitySigner
@@ -346,7 +349,7 @@ struct CallRestoreCredentialTests {
             request, as: responder, trust: trust, now: now))
         let credential = GroupAccessCredential(groupID: scenario.directID, secret: "restore-test-key")
         let record = try #require(scenario.other.groupStore.snapshot.groups.first { $0.id == scenario.directID })
-        let context = CallRelationshipRestoreCredential.Context(
+        let context = CallRelationshipRestoreContext(
             request: request, confirmation: confirmation, record: record)
         let packet = try CallRelationshipRestoreCredential(
             credential, for: context, as: responder, trust: trust, now: now)

@@ -164,13 +164,14 @@ private extension ConfirmedCallRestore {
             return latest.contacts.contains(candidate)
         }) else { return false }
         return try calls.allSatisfy { call in
-            if call.record.kind == .direct {
-                guard let peer = call.record.accountPair?.other(than: owner),
+            let context = call.context
+            let record = context.record
+            if record.kind == .direct {
+                guard let peer = record.accountPair?.other(than: owner),
                       let contact = users.first(where: { $0.principal == peer }) else { return false }
-                return try latest.matchesDirectRestoreRequest(
-                    call.request, callID: call.record.id, contactID: contact.id)
+                return try latest.matchesDirectRestoreRequest(context, contactID: contact.id)
             }
-            guard let candidate = original.groups.first(where: { $0.id == call.record.id }) else { return false }
+            guard let candidate = original.groups.first(where: { $0.id == record.id }) else { return false }
             return latest.groups.contains(candidate)
         }
     }

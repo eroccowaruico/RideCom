@@ -5,10 +5,8 @@ import Foundation
 /// This is not the cloud format and must not be constructed by decoding a backup.
 struct ConfirmedCallRestore {
     struct Call {
-        let record: GroupSnapshot.Record
+        let context: CallRelationshipRestoreContext
         let transferredCredential: CallRelationshipRestoreCredential
-        let request: CallRelationshipRestoreRequest
-        let confirmation: CallRelationshipRestoreConfirmation
     }
 
     let owner: AccountPrincipal
@@ -36,12 +34,11 @@ extension GroupRepository {
               }) else { throw GroupStorageError.invalidUpdate }
 
         let restored = try batch.calls.map { call in
-            let context = CallRelationshipRestoreCredential.Context(
-                request: call.request, confirmation: call.confirmation, record: call.record)
+            let context = call.context
             let received = try call.transferredCredential.open(for: context,
                 as: signer, trust: trust, now: Date(timeIntervalSince1970: now))
             let record = try reboundRestoredRecord(
-                call.record, replacing: batch.previousMemberID, verified: received.confirmation)
+                context.record, replacing: batch.previousMemberID, verified: received.confirmation)
             return (record: record, credential: received.credential)
         }
         let records = restored.map(\.record)
