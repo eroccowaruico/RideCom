@@ -3,7 +3,27 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { unstable_readConfig } from 'wrangler';
 import { token, room, offer, makeRuntime } from './support/runtime.mjs';
+
+test('production and Preview explicitly disable Worker logging and export', () => {
+    const config = unstable_readConfig({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)) });
+    assert.ok(config.previews);
+    assert.equal(config.logpush, false);
+    assert.equal(config.previews.logpush ?? config.logpush, false);
+    for (const observability of [config.observability, config.previews.observability ?? config.observability]) {
+        assert.equal(observability?.enabled, false);
+        assert.equal(observability.redact_query_string, true);
+        assert.equal(observability.logs?.enabled, false);
+        assert.equal(observability.logs.invocation_logs, false);
+        assert.equal(observability.logs.persist, false);
+        assert.deepEqual(observability.logs.destinations, []);
+        assert.equal(observability.traces?.enabled, false);
+        assert.equal(observability.traces.persist, false);
+        assert.deepEqual(observability.traces.destinations, []);
+    }
+});
 
 test('join needs no display name', async () => {
     const runtime = await makeRuntime();

@@ -236,7 +236,7 @@ TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固�
 
 リポジトリの `wrangler.toml` は、環境ごとに次の値を明示する。実際に稼働する値と鍵の反映状況は[最新の配置で確認した試用条件](../../development/Cloudflare試用手順.md#最新の配置で確認した試用条件)を参照する。
 
-Worker単位のObservabilityとLogpushは、`wrangler.toml` のトップレベルに無効と記載する。本番とPreviewはこの設定を共用する。配置を作った後は、各環境のログ・トレースと転送先を読み取りで照合する。アカウント全体の転送設定や過去の保存データは、運用の監査で別に確認する。[Previewに適用される設定](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block)
+`wrangler.toml` は、Worker単位のObservabilityとLogpush、ログとトレースの取得・永続化、呼出ログを無効にする。ログとトレースの転送先は空とし、URLのクエリ除去を有効にする。本番と固定Previewは同じ設定を使う。配置後は、各設定と転送先を管理APIで読み戻す。アカウント全体の転送設定と過去の保存データは運用の監査で確認する。[Previewに適用される設定](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block)
 
 | 設定 | 本番の `vars` | `previews.vars` |
 |---|---|---|

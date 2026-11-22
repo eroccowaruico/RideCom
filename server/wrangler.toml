@@ -1,6 +1,23 @@
 name = "rideintercom"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
+logpush = false
+
+# Previews inherit this setting unless they define their own override.
+[observability]
+enabled = false
+redact_query_string = true
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+persist = false
+destinations = []
+
+[observability.traces]
+enabled = false
+persist = false
+destinations = []
 
 [vars]
 APPLE_AUTH_ENABLED = "true"
