@@ -67,8 +67,10 @@ export class TurnCredentials {
         await this.storage.delete(`ice:${lease.peer}`)
     }
     private provider(keyID: string, path: string, body?: unknown) {
+        const token = this.env.CLOUDFLARE_TURN_API_TOKEN
+        if (!token) throw new Error('turn-configuration')
         return fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyID)}/${path}`, {
-            method: 'POST', headers: { Authorization: `Bearer ${this.env.CLOUDFLARE_TURN_API_TOKEN}`, 'Content-Type': 'application/json' },
+            method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(8000)
         })
     }

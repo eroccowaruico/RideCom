@@ -43,10 +43,12 @@ export default {
         const match = url.pathname.match(/^\/api\/rooms\/([a-f0-9]{64})\/(ice\/[a-zA-Z0-9_-]{1,80}|join|sessions\/[^/]+(?:\/(?:pull|publish|renew|signal))?)$/)
         // Only the actual cleanup routes are exempt from the pause and API budget.
         // Authentication above and room ownership checks below remain mandatory.
-        const cleanup = request.method === 'DELETE' && match !== null
-            && /^(?:ice\/[a-zA-Z0-9_-]{1,80}|sessions\/[^/]+)$/.test(match[2])
+        const iceCancellation = request.method === 'DELETE' && match?.[2].startsWith('ice/') === true
+        const cleanup = iceCancellation || (request.method === 'DELETE' && match !== null && /^sessions\/[^/]+$/.test(match[2]))
         if (!cleanup && env.SERVICE_ENABLED !== 'true') return json({ error: 'Service paused' }, 503)
-        if (!env.CLOUDFLARE_SFU_APP_ID || !env.CLOUDFLARE_SFU_APP_SECRET) return json({ error: 'SFU is not configured' }, 503)
+        if (!iceCancellation && (!env.CLOUDFLARE_SFU_APP_ID || !env.CLOUDFLARE_SFU_APP_SECRET)) {
+            return json({ error: 'SFU is not configured' }, 503)
+        }
         const headers = new Headers(request.headers)
         headers.delete('Authorization'); headers.set('X-Owner', owner)
         headers.delete('X-User'); if (device) headers.set('X-User', device.accountID)

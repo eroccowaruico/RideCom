@@ -48,15 +48,28 @@ test('pausing Internet calls leaves only owned session and preparation cleanup a
         assert.equal(joined.status, 200);
         const session = `sessions/${(await joined.json()).sessionId}`;
         await runtime.dispose();
-        runtime = await makeRuntime({ ...config, SERVICE_ENABLED: 'false', TURN_ENABLED: 'false' }, { storageDirectory });
+        const paused = { ...config, SERVICE_ENABLED: 'false', TURN_ENABLED: 'false' };
+        const withoutSfu = { ...paused, CLOUDFLARE_SFU_APP_SECRET: '' };
+        runtime = await makeRuntime(withoutSfu, { storageDirectory });
 
         const before = provider.requests.length;
         assert.equal((await call(runtime, 'join', { participantId: 'new', offer })).status, 503);
         assert.equal((await call(runtime, 'ice/new', { leaseID })).status, 503);
         assert.equal((await call(runtime, `${session}/renew`, {})).status, 503);
         assert.equal((await call(runtime, `${session}/renew`, {}, 'DELETE')).status, 503);
+        assert.equal((await call(runtime, session, undefined, 'DELETE')).status, 503);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE', 'unregistered')).status, 401);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE', other)).status, 403);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID: 'older-attempt' }, 'DELETE')).status, 409);
         assert.equal(provider.requests.length, before);
         assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 200);
+        assert.equal(provider.requests.length, before + 1);
+        assert.ok(provider.requests.at(-1)?.url.endsWith('/revoke'));
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 200);
+        assert.equal(provider.requests.length, before + 1);
+
+        await runtime.dispose();
+        runtime = await makeRuntime(paused, { storageDirectory });
         assert.equal((await call(runtime, session, undefined, 'DELETE', 'unregistered')).status, 401);
         assert.equal((await call(runtime, session, undefined, 'DELETE', other)).status, 403);
         assert.equal((await call(runtime, session, undefined, 'DELETE')).status, 200);
@@ -64,6 +77,31 @@ test('pausing Internet calls leaves only owned session and preparation cleanup a
         assert.equal(cleanup.filter(r => r.url.endsWith('/revoke')).length, 2);
         assert.equal(cleanup.filter(r => r.url.endsWith('/datachannels/close')).length, 1);
         assert.ok(cleanup.every(r => r.method === 'GET' || r.url.endsWith('/revoke') || r.url.endsWith('/datachannels/close')));
+    } finally {
+        await runtime.dispose();
+        await rm(storageDirectory, { recursive: true, force: true });
+    }
+});
+
+test('TURN cancellation keeps its pending lease without sending when the TURN token is missing', async () => {
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-turn-paused-retry-'));
+    const config = { TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' };
+    let runtime = await makeRuntime(config, { storageDirectory });
+    try {
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID })).status, 200);
+        await runtime.dispose();
+        const paused = { ...config, SERVICE_ENABLED: 'false', TURN_ENABLED: 'false', CLOUDFLARE_SFU_APP_SECRET: '' };
+        runtime = await makeRuntime({ ...paused, CLOUDFLARE_TURN_API_TOKEN: '' }, { storageDirectory });
+
+        const before = provider.requests.length;
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 502);
+        assert.equal(provider.requests.length, before);
+
+        await runtime.dispose();
+        runtime = await makeRuntime(paused, { storageDirectory });
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 200);
+        assert.equal(provider.requests.length, before + 1);
+        assert.ok(provider.requests.at(-1)?.url.endsWith('/revoke'));
     } finally {
         await runtime.dispose();
         await rm(storageDirectory, { recursive: true, force: true });
