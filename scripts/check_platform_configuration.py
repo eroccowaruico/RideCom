@@ -137,7 +137,11 @@ def check(root: Path, project: PBXProject | None = None) -> list[str]:
     if not isinstance(declared_services, list):
         raise TypeError('Invalid Bonjour service declarations')
     require(set(declared_services) == services, 'Local discovery and datagram Bonjour service declarations must agree with RTC.')
-    require(info.get('UIBackgroundModes') == ['audio'], 'Only continuing call audio needs background mode.')
+    require(info.get('UIBackgroundModes') == ['audio', 'fetch'], 'Allow call audio and saved communication refresh only.')
+    refresh_source = (root / 'RideIntercom/App/SavedCommunicationBackgroundRefresh.swift').read_text()
+    refresh_identifier = re.search(r'static let identifier = "([^"]+)"', refresh_source)
+    require(refresh_identifier is not None and info.get('BGTaskSchedulerPermittedIdentifiers') == [refresh_identifier[1]],
+            'The only background refresh identifier must match its iOS registration.')
     for locale in ('en', 'ja'):
         file = root / f'RideIntercom/{locale}.lproj/InfoPlist.strings'
         text = file.read_text() if file.is_file() else ''

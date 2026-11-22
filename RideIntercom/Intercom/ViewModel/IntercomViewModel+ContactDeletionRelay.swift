@@ -6,6 +6,7 @@ extension IntercomViewModel {
         let access: CallNotificationServiceAccess
         let generation: UUID
         let signer: DeviceIdentitySigner
+        let schedulesReceiptRetry: Bool
     }
 
     private struct ContactDeletionRelayPeer {
@@ -33,6 +34,24 @@ extension IntercomViewModel {
               let signer = try? internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
         else { return false }
         return formerPairs.contains { formerContactDeletionRelayAddress($0, local: principal, signer: signer) != nil }
+    }
+
+    var needsContactDeletionBackgroundRefresh: Bool {
+        contactDeletionBackgroundRefreshAccess != nil
+    }
+
+    private var contactDeletionBackgroundRefreshAccess: CallNotificationServiceAccess? {
+        guard canEditSavedGroups, groupDeliveryClient != nil,
+              hasPendingContactDeletionRelay || canReceiveRelayedContactDeletions else { return nil }
+        return try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
+    }
+
+    func refreshContactDeletionsInBackground() async -> Bool {
+        guard !Task.isCancelled, let client = groupDeliveryClient,
+              let access = contactDeletionBackgroundRefreshAccess
+        else { return false }
+        return await synchronizeContactDeletionRelay(
+            client: client, access: access, generation: accountAccessID, schedulesReceiptRetry: false)
     }
 
     func backgroundContactDeletionUploadIDs(
@@ -93,48 +112,59 @@ extension IntercomViewModel {
     }
 
     func synchronizeContactDeletionRelay(
-        client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID
-    ) async {
-        guard let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
-              signer.principal == access.principal else { return }
+        client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID,
+        schedulesReceiptRetry: Bool = true
+    ) async -> Bool {
+        guard !groupDeliverySyncState.isSynchronizingContactDeletion,
+              groupDeliveryIsCurrent(access, accountID: generation),
+              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID),
+              signer.principal == access.principal else { return false }
+        groupDeliverySyncState.isSynchronizingContactDeletion = true
+        defer { groupDeliverySyncState.isSynchronizingContactDeletion = false }
         let session = ContactDeletionRelaySession(
-            client: client, access: access, generation: generation, signer: signer)
-        await sendContactDeletions(session)
+            client: client, access: access, generation: generation, signer: signer,
+            schedulesReceiptRetry: schedulesReceiptRetry)
+        let sent = await sendContactDeletions(session)
         for receipt in groupRepository.contactDeletionRelayReceipts {
-            guard contactDeletionRelayIsCurrent(session) else { return }
-            guard await submitContactDeletionReceipt(receipt, session: session) else { return }
+            guard contactDeletionRelayIsCurrent(session),
+                  await submitContactDeletionReceipt(receipt, session: session) else { return false }
         }
-        await receiveRelayedContactDeletions(session)
+        let received = await receiveRelayedContactDeletions(session)
+        return sent && received && contactDeletionRelayIsCurrent(session)
     }
 
     private func contactDeletionRelayIsCurrent(_ session: ContactDeletionRelaySession) -> Bool {
         canEditSavedGroups && groupDeliveryIsCurrent(session.access, accountID: session.generation)
     }
 
-    private func sendContactDeletions(_ session: ContactDeletionRelaySession) async {
+    private func sendContactDeletions(_ session: ContactDeletionRelaySession) async -> Bool {
+        var completed = true
         for id in groupRepository.contactDeletionPublications.map(\.id) {
-            guard contactDeletionRelayIsCurrent(session) else { return }
+            guard contactDeletionRelayIsCurrent(session) else { return false }
             guard let record = groupRepository.contactDeletionPublications.first(where: { $0.id == id }),
                   record.sender == session.access.principal, record.senderKey == session.signer.publicKey,
                   Double(record.expiresAt) > callAccessNow().timeIntervalSince1970 * 1_000
             else { continue }
             if record.payload != nil {
-                guard await synchronizeContactDeletionPublication(record, session: session) else { return }
+                let result = await synchronizeContactDeletionPublication(record, session: session)
+                guard result.canContinue else { return false }
+                completed = completed && result.completed
             }
-            guard contactDeletionRelayIsCurrent(session) else { return }
+            guard contactDeletionRelayIsCurrent(session) else { return false }
             // A nearby receipt can retire a record while the publish or receipt lookup is still outstanding.
             guard let retirement = groupRepository.contactDeletionPublications.first(where: {
                 $0.id == id && $0.payload == nil
             }) else { continue }
             guard (try? await session.client.writeContactDeletion(retirement, access: session.access)) == .retired,
-                  contactDeletionRelayIsCurrent(session) else { return }
+                  contactDeletionRelayIsCurrent(session) else { return false }
             do {
                 try groupRepository.finishContactDeletionRelay(retirement, now: callAccessNow())
             } catch {
                 reportGroupStorageError(error)
-                return
+                return false
             }
         }
+        return completed
     }
 
     private func hasBackgroundContactDeletionUpload(
@@ -148,48 +178,56 @@ extension IntercomViewModel {
 
     private func synchronizeContactDeletionPublication(
         _ record: ContactDeletionPublication, session: ContactDeletionRelaySession
-    ) async -> Bool {
+    ) async -> (canContinue: Bool, completed: Bool) {
         if record.payload?.backgroundPublished == true {
-            await acceptRelayedContactDeletionReceipt(record, session: session)
-            return true
+            return (true, await acceptRelayedContactDeletionReceipt(record, session: session))
         }
-        if hasBackgroundContactDeletionUpload(record, access: session.access) { return true }
+        if hasBackgroundContactDeletionUpload(record, access: session.access) { return (true, true) }
         guard let state = try? await session.client.writeContactDeletion(record, access: session.access),
-              contactDeletionRelayIsCurrent(session) else { return false }
-        if state == .received { await acceptRelayedContactDeletionReceipt(record, session: session) }
-        return true
+              contactDeletionRelayIsCurrent(session) else { return (false, false) }
+        if state == .received { return (true, await acceptRelayedContactDeletionReceipt(record, session: session)) }
+        return (true, true)
     }
 
     private func acceptRelayedContactDeletionReceipt(
         _ record: ContactDeletionPublication, session: ContactDeletionRelaySession
-    ) async {
-        guard let notice = groupRepository.contactDeletions.first(where: { $0.id == record.id }) else { return }
+    ) async -> Bool {
+        guard let notice = groupRepository.contactDeletions.first(where: { $0.id == record.id }) else { return true }
         let target = notice.target
-        guard let message = try? await session.client.readContactDeletion(
-                owner: session.access.principal, slot: record.slot, access: session.access),
-              contactDeletionRelayIsCurrent(session), message.matches(target),
+        let message: ContactDeletionWorkerPacket?
+        do {
+            message = try await session.client.readContactDeletion(
+                owner: session.access.principal, slot: record.slot, access: session.access)
+        } catch { return false }
+        guard contactDeletionRelayIsCurrent(session) else { return false }
+        guard let message, message.matches(target),
               let receipt = try? ContactDeletionRelayReceipt.open(
                 message.packet, slot: record.slot, sender: session.signer,
                 recipientID: target.recipientMemberID, recipientKey: target.recipientKey)
-        else { return }
+        else { return true }
         do {
             try acknowledgeContactDeletion(receipt, from: target.recipientMemberID)
             finishNearbyGroupDeliveryIfComplete()
         } catch is DeviceIdentityProof.Failure {
             // A different signed receipt leaves the publication pending.
-        } catch { reportGroupStorageError(error) }
+        } catch {
+            reportGroupStorageError(error)
+            return false
+        }
+        return true
     }
 
-    private func receiveRelayedContactDeletions(_ session: ContactDeletionRelaySession) async {
+    private func receiveRelayedContactDeletions(_ session: ContactDeletionRelaySession) async -> Bool {
         for former in groupRepository.contactDeletionFormerPairs {
-            guard contactDeletionRelayIsCurrent(session) else { return }
+            guard contactDeletionRelayIsCurrent(session) else { return false }
             guard let address = formerContactDeletionRelayAddress(
                 former, local: session.access.principal, signer: session.signer
-            ) else { continue }
+            )
+            else { continue }
             guard await receiveRelayedContactDeletion(
-                address, member: former.peerID, key: former.peerKey, session: session) else { return }
+                address, member: former.peerID, key: former.peerKey, session: session) else { return false }
         }
-        await receiveRelayedDeletionsFromSavedContacts(session)
+        return await receiveRelayedDeletionsFromSavedContacts(session)
     }
 
     private func formerContactDeletionRelayAddress(
@@ -221,16 +259,17 @@ extension IntercomViewModel {
               let access = try? internetSettingsStore.notificationAccess(memberID: signer.memberID),
               access.principal == local else { return false }
         let session = ContactDeletionRelaySession(
-            client: client, access: access, generation: accountAccessID, signer: signer)
+            client: client, access: access, generation: accountAccessID, signer: signer, schedulesReceiptRetry: true)
         return await receiveRelayedDeletion(from: peer, session: session)
     }
 
-    private func receiveRelayedDeletionsFromSavedContacts(_ session: ContactDeletionRelaySession) async {
+    private func receiveRelayedDeletionsFromSavedContacts(_ session: ContactDeletionRelaySession) async -> Bool {
         for user in savedRemoteUsers {
-            guard contactDeletionRelayIsCurrent(session) else { return }
+            guard contactDeletionRelayIsCurrent(session) else { return false }
             guard let peer = contactDeletionRelayPeer(user, local: session.access.principal) else { continue }
-            guard await receiveRelayedDeletion(from: peer, session: session) else { return }
+            guard await receiveRelayedDeletion(from: peer, session: session) else { return false }
         }
+        return true
     }
 
     private func receiveRelayedDeletion(from peer: ContactDeletionRelayPeer, session: ContactDeletionRelaySession)
@@ -263,7 +302,7 @@ extension IntercomViewModel {
                 message.packet, slot: address.slot, recipient: session.signer, senderID: member, senderKey: key),
               message.matches(notice.target) else { return true }
         do {
-            _ = try receiveContactDeletion(notice, from: member)
+            _ = try receiveContactDeletion(notice, from: member, scheduleRelaySync: session.schedulesReceiptRetry)
         } catch is DeviceIdentityProof.Failure {
             return true
         } catch {

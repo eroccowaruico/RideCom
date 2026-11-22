@@ -34,6 +34,8 @@ struct RideIntercomApp: App {
         owner.notificationBridge.bind(to: owner)
         appDelegate.notificationBridge = owner.notificationBridge
         #if os(iOS)
+        owner.savedCommunicationBackgroundRefresh.owner = owner
+        appDelegate.savedCommunicationBackgroundRefresh = owner.savedCommunicationBackgroundRefresh
         if SystemSurfaceScope.permitsSystemAccess { InvitationBackgroundTransfer.shared.bind(to: owner) }
         #endif
         #if os(iOS) && (DEBUG || RIDEINTERCOM_VALIDATION)
@@ -62,6 +64,9 @@ struct RideIntercomApp: App {
                 .environment(\.callLiveActivityPresenter, callOwner.liveActivities)
                     .onChange(of: scenePhase, initial: true) { _, phase in
                         callOwner.systemSurfaceIsForeground = phase == .active
+                        if phase != .inactive {
+                            callOwner.savedCommunicationBackgroundRefresh.setInBackground(phase == .background)
+                        }
                     }
         }
         #endif

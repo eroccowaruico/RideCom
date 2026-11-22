@@ -44,8 +44,7 @@ final class IntercomViewModel {
     }
     @ObservationIgnored var endGroupDeliveryBackgroundTime: (@MainActor () -> Void)?
     @ObservationIgnored var groupDeliveryTask: Task<Void, Never>?
-    @ObservationIgnored var groupDeliveryNeedsSync = false
-    @ObservationIgnored var groupDeliveryRunID = UUID()
+    @ObservationIgnored var groupDeliverySyncState = GroupDeliverySyncState()
     @ObservationIgnored var allowsNearbyGroupDelivery = SystemSurfaceScope.permitsSystemAccess
     @ObservationIgnored var nearbyGroupDeliveryExchange: NearbyGroupDeliveryExchange?
     @ObservationIgnored var nearbyGroupDeliveryWindow: NearbyGroupDeliveryWindow?

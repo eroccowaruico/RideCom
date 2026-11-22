@@ -30,6 +30,7 @@ final class AppCallOwner: CallSurfaceActions {
     @ObservationIgnored private let directRestoreDeviceClient: InternetAccountClient?
     @ObservationIgnored private var credentialRevocationObserver: NSObjectProtocol?
     #if os(iOS)
+    let savedCommunicationBackgroundRefresh = SavedCommunicationBackgroundRefresh()
     var watchBridge: WatchPhoneBridge?
     #endif
 
@@ -80,6 +81,9 @@ final class AppCallOwner: CallSurfaceActions {
     private func synchronizeAccountModel() {
         guard viewModel?.accountAccessID != account.accessID || viewModel?.accountUserID != account.userID
                 || account.deletion.blocksSignIn else { return }
+        #if os(iOS)
+        defer { savedCommunicationBackgroundRefresh.accountDidChange() }
+        #endif
         backupSession?.bind(to: nil)
         viewModel?.stopCallRelationshipBackup()
         viewModel?.stopDirectRestoreDeviceSync()
@@ -115,6 +119,19 @@ final class AppCallOwner: CallSurfaceActions {
         async let purchases: Void = model.storeAccess.refresh()
         async let notifications: Void = model.startNotifications()
         _ = await (purchases, notifications)
+    }
+
+    var needsSavedCommunicationBackgroundRefresh: Bool {
+        viewModel?.needsContactDeletionBackgroundRefresh == true
+    }
+
+    func refreshSavedCommunicationInBackground() async -> Bool {
+        guard !Task.isCancelled else { return false }
+        let access = account.accessID
+        account.reloadSavedSignIn()
+        synchronizeAccountModel()
+        guard account.accessID == access, let viewModel, viewModel.hasCurrentAccountAccess else { return false }
+        return await viewModel.refreshContactDeletionsInBackground()
     }
 
     func prepareForBackgroundCallAction() async throws {

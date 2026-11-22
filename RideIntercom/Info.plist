@@ -29,6 +29,11 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.yowamushi-inc.RideIntercom.saved-communication-refresh</string>
 	</array>
 	<key>RideIntercomAPNsEnvironment</key>
 	<string>$(RIDEINTERCOM_APNS_ENVIRONMENT)</string>

@@ -91,6 +91,14 @@ extension RideIntercomApplicationDelegate {
 @MainActor
 final class RideIntercomApplicationDelegate: NSObject, UIApplicationDelegate {
     var notificationBridge: AppNotificationBridge?
+    var savedCommunicationBackgroundRefresh: SavedCommunicationBackgroundRefresh?
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        savedCommunicationBackgroundRefresh?.register()
+        return true
+    }
+
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         guard SystemSurfaceScope.permitsSystemAccess, identifier == InvitationBackgroundTransfer.identifier else {

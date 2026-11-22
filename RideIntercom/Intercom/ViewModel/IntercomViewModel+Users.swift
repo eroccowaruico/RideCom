@@ -101,7 +101,9 @@ extension IntercomViewModel {
         return true
     }
 
-    func receiveContactDeletion(_ notice: ContactDeletionNotice, from peerID: String) throws -> ContactDeletionReceipt {
+    func receiveContactDeletion(
+        _ notice: ContactDeletionNotice, from peerID: String, scheduleRelaySync: Bool = true
+    ) throws -> ContactDeletionReceipt {
         guard canEditSavedGroups,
               let recipient = try internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
         else { throw DeviceIdentityProof.Failure.invalid }
@@ -110,7 +112,7 @@ extension IntercomViewModel {
             now: callAccessNow(), beforeRemoving: notifications.suppressContact
         )
         if let removed = result.removedGroups { finishSavedUserRemoval(removed) }
-        if result.saved {
+        if result.saved, scheduleRelaySync {
             // Let the caller return the receipt on the current connection before recomputing offers.
             Task { [weak self] in self?.requestGroupDeliverySync(.localChange) }
         }

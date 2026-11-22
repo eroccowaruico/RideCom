@@ -18,6 +18,53 @@ extension GroupDeliveryFlowTests {
 
     enum ContactDeletionOrder: CaseIterable { case internet, internetOnPathRecovery, nearbyFirst, bothRemoved }
 
+    @Test(arguments: [false, true])
+    func contactDeletionBackgroundRefreshRejectsAReplyAfterExpirationOrSignOut(signOut: Bool) async throws {
+        let author = GroupDeliveryTestIdentity("refresh-delete-author")
+        let recipient = GroupDeliveryTestIdentity("refresh-delete-recipient")
+        defer { author.remove(); recipient.remove(); GroupDeliveryHTTPStub.reset() }
+        let issuer = P256.Signing.PrivateKey()
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer)
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer)
+        let sender = try author.harness(knowing: []).viewModel
+        let receiver = try recipient.harness(knowing: []).viewModel
+        defer { sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync() }
+        for model in [sender, receiver] {
+            model.groupDeliveryClient = nil
+            model.contactSessionFactory = { RecordingCallSession() }
+        }
+        try establishContact(sender: sender, recipient: receiver)
+        try #require(sender.removeSavedUser(try #require(sender.savedRemoteUsers.first).id))
+        let publication = try #require(sender.groupRepository.contactDeletionPublications.first)
+        let payload = try #require(publication.payload)
+        let access = try #require(try recipient.store.notificationAccess(memberID: recipient.memberID))
+        receiver.groupDeliveryClient = .init(session: GroupDeliveryHTTPStub.makeSession())
+        let owner = AppCallOwner(account: receiver.accountSession, viewModel: receiver)
+        GroupDeliveryHTTPStub.reset()
+        GroupDeliveryHTTPStub.users = [access.accessToken: access.principal.userID]
+        var attempt: Task<Bool, Never>?
+        var reads = 0
+        GroupDeliveryHTTPStub.onContactDeletion = { request, _ in
+            guard request.url?.path == "/api/contact-deletions/read" else { return (404, [:]) }
+            reads += 1
+            if signOut {
+                receiver.accountSession.signOut()
+            } else {
+                attempt?.cancel()
+            }
+            return (200, ["deletion": [
+                "id": publication.id.uuidString, "expiresAt": publication.expiresAt, "packet": payload.packet
+            ]])
+        }
+        let work = Task { await owner.refreshSavedCommunicationInBackground() }
+        attempt = work
+        #expect(await work.value == false)
+        #expect(reads == 1)
+        #expect(receiver.savedRemoteUsers.count == 1)
+        #expect(receiver.groupRepository.contactDeletionRelayReceipts.isEmpty)
+        #expect(receiver.needsContactDeletionBackgroundRefresh == !signOut)
+    }
+
     @Test(arguments: ContactDeletionOrder.allCases) func internetContactDeletionCompletesWithoutNotificationPermissions(
         order: ContactDeletionOrder
     ) async throws {

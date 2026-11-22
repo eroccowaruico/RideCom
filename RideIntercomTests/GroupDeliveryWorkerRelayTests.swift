@@ -4,8 +4,10 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryWorkerTests {
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func savedContactDeletionCanBePublishedByTheBackgroundTransfer(nearbyFirst: Bool) async throws {
+    enum ContactDeletionReception: CaseIterable { case nearbyFirst, networkRecovery, backgroundRefresh }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ContactDeletionReception.allCases)
+    func savedContactDeletionCanBePublishedByTheBackgroundTransfer(reception: ContactDeletionReception) async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("background-contact-delete-author")
             let recipient = GroupDeliveryTestIdentity("background-contact-delete-recipient")
@@ -38,7 +40,7 @@ extension GroupDeliveryWorkerTests {
             #expect(receiver.savedRemoteUsers.count == 1, "The regular sync does not also publish the queued upload")
             try await completeBackgroundContactDeletion(
                 models: (sender, receiver), identities: (author, recipient),
-                client: client, upload: .init(key: key, request: request, transfer: transfer), nearbyFirst: nearbyFirst)
+                client: client, upload: .init(key: key, request: request, transfer: transfer), reception: reception)
         }
     }
 
@@ -51,10 +53,11 @@ extension GroupDeliveryWorkerTests {
     private func completeBackgroundContactDeletion(
         models: (sender: IntercomViewModel, receiver: IntercomViewModel),
         identities: (author: GroupDeliveryTestIdentity, recipient: GroupDeliveryTestIdentity),
-        client: InternetAccountClient, upload: BackgroundContactDeletionUpload, nearbyFirst: Bool
+        client: InternetAccountClient, upload: BackgroundContactDeletionUpload, reception: ContactDeletionReception
     ) async throws {
         let (sender, receiver) = models
         let (key, request, transfer) = (upload.key, upload.request, upload.transfer)
+        let nearbyFirst = reception == .nearbyFirst
         if nearbyFirst {
             let notice = try #require(sender.groupRepository.contactDeletions.first)
             let receipt = try receiver.receiveContactDeletion(notice, from: identities.author.memberID)
@@ -78,25 +81,43 @@ extension GroupDeliveryWorkerTests {
         sender.applyBackgroundInvitationResponse(reply, for: key)
         #expect(!sender.backgroundInvitationUploadIDs().contains(key))
         #expect(sender.groupRepository.contactDeletions.count == (nearbyFirst ? 0 : 1))
-        if nearbyFirst {
-            await receiver.synchronizeGroupDeliveries()
-        } else {
-            #expect(!receiver.notifications.isEnabled)
-            #expect(!receiver.hasPendingContactDeletionRelay)
-            receiver.setGroupDeliveryForeground(false)
-            receiver.groupDeliveryNetworkPathChanged(isAvailable: false)
-            receiver.groupDeliveryNetworkPathChanged(isAvailable: true)
-            await receiver.groupDeliveryTask?.value
-        }
+        await receiveBackgroundContactDeletion(on: receiver, reception: reception)
         #expect(receiver.savedRemoteUsers.isEmpty)
         let reopened = try identities.author.harness(knowing: [], onDisk: true).viewModel
         defer { reopened.stopGroupDeliverySync() }
         reopened.groupDeliveryClient = client
         reopened.invitationBackgroundTransfer = RecordingBackgroundInvitationTransfer()
         #expect(!reopened.backgroundInvitationUploadIDs().contains(key))
-        await reopened.synchronizeGroupDeliveries()
+        if reception == .backgroundRefresh {
+            let owner = AppCallOwner(account: reopened.accountSession, viewModel: reopened)
+            #expect(await owner.refreshSavedCommunicationInBackground())
+        } else {
+            await reopened.synchronizeGroupDeliveries()
+        }
         #expect(reopened.groupRepository.contactDeletions.isEmpty)
         #expect(reopened.groupRepository.contactDeletionPublications.isEmpty)
+    }
+
+    private func receiveBackgroundContactDeletion(
+        on receiver: IntercomViewModel, reception: ContactDeletionReception
+    ) async {
+        switch reception {
+        case .nearbyFirst:
+            await receiver.synchronizeGroupDeliveries()
+        case .networkRecovery:
+            #expect(!receiver.notifications.isEnabled)
+            #expect(!receiver.hasPendingContactDeletionRelay)
+            receiver.setGroupDeliveryForeground(false)
+            receiver.groupDeliveryNetworkPathChanged(isAvailable: false)
+            receiver.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await receiver.groupDeliveryTask?.value
+        case .backgroundRefresh:
+            let owner = AppCallOwner(account: receiver.accountSession, viewModel: receiver)
+            #expect(receiver.needsContactDeletionBackgroundRefresh)
+            #expect(!receiver.notifications.isEnabled)
+            #expect(!receiver.hasPendingContactDeletionRelay)
+            #expect(await owner.refreshSavedCommunicationInBackground())
+        }
     }
 
     enum RelayedInvitation: CaseIterable { case group, contact, contactWithGroup }

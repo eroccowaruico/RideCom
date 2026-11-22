@@ -20,7 +20,7 @@ extension IntercomViewModel {
         let uploadBinding = invitationBackgroundTransfer.flatMap { _ in
             InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
         }
-        await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
+        _ = await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
         guard canEditSavedGroups, notifications.canUseNotifications,
               groupDeliveryIsCurrent(access, accountID: generation) else { return }
         do {
@@ -173,7 +173,7 @@ extension IntercomViewModel {
         guard groupDeliveryIsCurrent(access, accountID: generation),
               let current = groupRepository.groupDeliveries.first(where: { $0.id == record.id })
         else { return .stopSync }
-        if current.internetAction == .cancel { groupDeliveryNeedsSync = true }
+        if current.internetAction == .cancel { groupDeliverySyncState.needsSync = true }
         guard current.internetAction == .send else { return .next }
         do {
             if current.state != reply.status {
@@ -309,7 +309,7 @@ extension IntercomViewModel {
                 if try groupRepository.queueAdditionalDeviceDeliveries(
                     sourceID: source.id, devices: devices, now: callAccessNow().timeIntervalSince1970
                 ) {
-                    groupDeliveryNeedsSync = true
+                    groupDeliverySyncState.needsSync = true
                 }
             } catch {
                 reportGroupStorageError(error)

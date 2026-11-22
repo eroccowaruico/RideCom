@@ -1,5 +1,11 @@
 import Foundation
 
+struct GroupDeliverySyncState {
+    var needsSync = false
+    var runID = UUID()
+    var isSynchronizingContactDeletion = false
+}
+
 extension IntercomViewModel {
     enum GroupDeliveryTrigger {
         case refresh
@@ -29,7 +35,7 @@ extension IntercomViewModel {
         if hasPendingContactDeletionRelay || canReceiveRelayedContactDeletions {
             requestGroupDeliverySync(.networkRecovered)
             if !groupDeliveryIsForeground, hasCurrentAccountAccess {
-                requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
+                requestGroupDeliveryBackgroundTime(run: groupDeliverySyncState.runID)
             }
             return
         }
@@ -85,30 +91,30 @@ extension IntercomViewModel {
         if trigger == .localChange { refreshNearbyGroupDelivery(afterSave: true) }
         guard groupDeliveryClient != nil, hasCurrentAccountAccess else { return }
         if groupDeliveryTask == nil {
-            groupDeliveryNeedsSync = true
+            groupDeliverySyncState.needsSync = true
             let run = UUID()
-            groupDeliveryRunID = run
+            groupDeliverySyncState.runID = run
             groupDeliveryTask = Task {
                 defer {
-                    if groupDeliveryRunID == run {
+                    if groupDeliverySyncState.runID == run {
                         groupDeliveryTask = nil
                         finishGroupDeliveryBackgroundTime()
                     }
                 }
-                while groupDeliveryNeedsSync && !Task.isCancelled && hasCurrentAccountAccess {
-                    groupDeliveryNeedsSync = false
+                while groupDeliverySyncState.needsSync && !Task.isCancelled && hasCurrentAccountAccess {
+                    groupDeliverySyncState.needsSync = false
                     await performGroupDeliverySync()
                 }
             }
         } else if trigger != .refresh {
-            groupDeliveryNeedsSync = true
+            groupDeliverySyncState.needsSync = true
         }
         let outgoingInvitation = trigger == .localChange && groupRepository.groupDeliveries.contains {
             $0.internetAction != nil
         }
         let outgoingDeletion = trigger == .localChange && hasPendingContactDeletionRelay
         if outgoingDeletion || ((trigger == .notification || outgoingInvitation) && notifications.canUseNotifications) {
-            requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
+            requestGroupDeliveryBackgroundTime(run: groupDeliverySyncState.runID)
         }
         if trigger == .localChange { scheduleBackgroundGroupDeliveries() }
     }
@@ -118,10 +124,10 @@ extension IntercomViewModel {
         guard endGroupDeliveryBackgroundTime == nil, canEditSavedGroups
         else { return }
         let end = beginGroupDeliveryBackgroundTime { [weak self] in
-            guard let self, self.groupDeliveryRunID == run else { return }
+            guard let self, self.groupDeliverySyncState.runID == run else { return }
             self.stopInternetGroupDeliverySync()
         }
-        guard groupDeliveryRunID == run else {
+        guard groupDeliverySyncState.runID == run else {
             end?()
             return
         }
@@ -146,10 +152,10 @@ extension IntercomViewModel {
         stopInternetGroupDeliverySync()
     }
     private func stopInternetGroupDeliverySync() {
-        groupDeliveryRunID = UUID()
+        groupDeliverySyncState.runID = UUID()
         groupDeliveryTask?.cancel()
         groupDeliveryTask = nil
-        groupDeliveryNeedsSync = false
+        groupDeliverySyncState.needsSync = false
         finishGroupDeliveryBackgroundTime()
     }
     func groupDeliveryIsCurrent(_ access: CallNotificationServiceAccess, accountID: UUID) -> Bool {
