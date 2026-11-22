@@ -29,6 +29,7 @@ nonisolated struct DeviceIdentityProof: Codable, Equatable, Sendable {
         case cancelGroupInvitation, acknowledgeGroupInvitationCancellation
         case deleteContact, acknowledgeContactDeletion
         case readContactDeletion, acknowledgeContactDeletionRelay
+        case requestCallRelationshipRestore, confirmCallRelationshipRestore
     }
     let publicKey: String
     var certificate: DeviceIdentityCertificate?
