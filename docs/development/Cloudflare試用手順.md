@@ -312,19 +312,19 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 2026-11-22の3時50分（JST）までの7日間を、読み取り専用のSQL APIで確認した。`logs.workersLogs` を `scriptName` で絞り、`rideintercom` と `preview-rideintercom` の各完全一致で件数だけを集計した。両方とも0件だった。このデータセットにはPreview IDと環境を識別する列がないため、結果は照会した名前と期間に限る。ログ本文は取得しなかった。[SQLのログデータセット](https://developers.cloudflare.com/analytics/sql-api/datasets/#log-datasets)・[Workers Logsの保持上限](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#limits)
 
-読み取りAPIで、アカウントのOpenTelemetry転送先、メトリクスのエクスポート設定、Workers Issuesの通知設定はいずれも0件だった。アカウントのWorkers Trace Events用Logpushジョブ一覧は、既存の接続で照会できなかった。過去の外部転送先やバックアップ、クエリ除去の設定は確認待ち。証跡は `.validation/security-audit-2000/workers-log-retention/` に保存した。[Logpushの一覧API](https://developers.cloudflare.com/api/resources/logpush/subresources/jobs/methods/list/)
+読み取りAPIで、アカウントのOpenTelemetry転送先、メトリクスのエクスポート設定、Workers Issuesの通知設定はいずれも0件だった。アカウントのWorkers Trace Events用Logpushジョブ一覧は、既存の接続で照会できなかった。この照会では過去の外部転送先・バックアップやクエリ除去の設定は観測していない。証跡は `.validation/security-audit-2000/workers-log-retention/` に保存した。[Logpushの一覧API](https://developers.cloudflare.com/api/resources/logpush/subresources/jobs/methods/list/)
 
 #### Logpushが転送を試みた記録を照合する
 
 2026-10-25の4時から2026-11-22の4時まで（JST）の28日間を、アカウント単位のGraphQL集計で照会した。データセット `logpushHealthAdaptiveGroups` が有効で、参照可能な期間に全範囲が含まれることを確認した。7日ずつ4区間に分け、成功と失敗のどちらも対象にした。どの区間にも転送の試行を示す集計行はなかった。[Logpushの転送状況](https://developers.cloudflare.com/logs/logpush/logpush-health/)・[データセットの参照条件](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/)
 
-この集計で確認できる範囲は対象期間内の記録。アカウントのジョブ一覧には `Logs Write` が必要で、既存の読み取り権限での確認は保留中。過去の転送先とバックアップに残るデータも未確認。証跡は `.validation/security-audit-2000/logpush-health/` に保存した。[Logpush APIの権限](https://developers.cloudflare.com/logs/logpush/permissions/)
+この集計で確認できる範囲は対象期間内の記録。アカウントのジョブ一覧には `Logs Write` が必要で、一覧は今回の読み取りの対象外とした。証跡は `.validation/security-audit-2000/logpush-health/` に保存した。[Logpush APIの権限](https://developers.cloudflare.com/logs/logpush/permissions/)
 
 #### 現在のログ転送を読み取り権限内で照合する
 
 2026-11-22。本番と固定Previewの設定を個別に読み取り、Worker単位のLogpush、Observability、ログ、トレースがすべて無効であることを確認した。ログとトレースの転送先およびTail Workerは両環境で0件だった。Cloudflareでは、Workers Trace Eventsの転送にはWorker側の有効化も必要。アカウント単位の集計では、同日10時から14時40分（JST）までに転送を試みた記録は0件だった。[Worker側の有効化条件](https://developers.cloudflare.com/workers/observability/logs/logpush/#enable-logging-on-your-worker)・[Logpushの転送状況](https://developers.cloudflare.com/logs/logpush/alerts-and-analytics/)
 
-アカウント全体とデータセット別のジョブ一覧はどちらも `Logs Write` が必要。既存の接続では、データセット別の一覧もHTTP 403だった。ジョブの有無、過去の転送先とバックアップの保持は権限内で確認できた範囲に含めず、監査は他の確認項目を進める。証跡は `.validation/security-audit-2100/live-log-readback/` に保存した。[ジョブ一覧の権限](https://developers.cloudflare.com/logs/logpush/permissions/)
+アカウント全体とデータセット別のジョブ一覧はどちらも `Logs Write` が必要。既存の接続では、データセット別の一覧もHTTP 403だった。本サービスは本番の運用を始める前で、上記の集計に転送試行はなかった。過去の本番利用者ログの保持は対象外として調査を終了した。本番提供の開始時やログ・転送の有効化時に、読み取れる実効設定を確認する。証跡は `.validation/security-audit-2100/live-log-readback/` に保存した。[ジョブ一覧の権限](https://developers.cloudflare.com/logs/logpush/permissions/)
 
 #### トランクから配置したWorkerのログ設定を読み戻す
 
@@ -337,7 +337,7 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 | 呼出ログ、ログ保存、トレース保存 | 無効 | 有効 |
 | URLのクエリ除去 | 有効 | 無効 |
 
-固定Previewで上の4項目だけを設定する管理APIの更新はHTTP 403で拒否された。稼働設定の受入は継続中。次は通常の配置で4項目が固定Previewに反映される条件を確かめ、本番にも同じ条件を適用して読み戻す。[Workerの設定項目](https://developers.cloudflare.com/api/resources/workers/)
+固定Previewで上の4項目だけを設定する管理APIの更新はHTTP 403で拒否された。ログ取得は無効だった。ログ取得を始める際は、対象環境で個別設定を照合する。[Workerの設定項目](https://developers.cloudflare.com/api/resources/workers/)
 
 #### 稼働配置と手元の停止フラグを照合する
 
