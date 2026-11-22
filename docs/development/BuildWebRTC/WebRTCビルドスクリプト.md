@@ -55,6 +55,12 @@ scripts/BuildWebRTC/update-webrtc-binary.sh
 
 通常の更新でsource checkoutや`out`全体を削除しない。tracked source変更があるcheckoutでは停止する。手動の `ASSEMBLE_ONLY` は残すが、更新処理の自動fallbackには使わない。異なるbranchの古い成果物を新branchとして採用することを避ける。
 
+### TestFlightと公開版には本番用WebRTCを使う
+
+次のTestFlightビルドから、内部・外部テストとApp Storeなどの公開配布には、本番用にビルドしたWebRTCだけを同梱する。現行スクリプトではWebRTCのビルドに `DEBUG=false` を指定し、配布に使うすべての構成の `args.gn` で `is_debug=false` を確認する。
+
+Archiveから書き出した配布物のWebRTCを、取り込み時のZIPとビルド記録に照合する。アプリ本体のRelease設定とは別に、WebRTC自体のビルド設定を確かめる。開発用のWebRTCが入っている場合や、対応するビルド記録を確認できない場合は送信を止め、本番用のWebRTCでArchiveを作り直す。
+
 ### 上流の無改変とカメラの不使用
 
 次回の通常更新では公式 WebRTC のコミットを固定する。上流のソース、ビルド定義、依存部品には独自パッチを当てず、公式の GN 引数とターゲットを使う。各構成で不要な映像オプションを無効にしても、公式の Apple 向け framework に映像 API が含まれることがある。シンボルや公開ヘッダーに含まれるだけなら、カメラを除くための設定変更や再ビルドは不要とする。

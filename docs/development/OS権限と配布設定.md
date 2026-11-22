@@ -66,6 +66,8 @@ Xcodeで通常のRelease Archiveを生成し、Organizerから実際の配布先
 
 TestFlightの内部・外部テストには本番用のRelease Archiveを使う。Appは本番Workerに接続し、Apple Distributionで署名したIPAのAPNs環境はproductionとする。固定Previewの試用には開発署名のDebugを使う。既存Archiveを選ぶ場合は、接続先を本番に固定した変更（`8a0dba79`）を含むコミットから作成したことを検証記録と照合する。Build 1962は接続先の固定前に作ったため、TestFlightの候補から外す。[環境別の試用手順](Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)・[Build 1962の確認記録](history/バックログの優先順位と進捗の記録.md#build-1962で更新したwebrtcと配布署名を照合する)
 
+TestFlightの内部・外部テストと公開配布では、書き出した成果物に含まれるWebRTCが本番用ビルドであることを確認する。[WebRTCの配布条件と照合手順](BuildWebRTC/WebRTCビルドスクリプト.md#testflightと公開版には本番用webrtcを使う)
+
 ```sh
 codesign --verify --deep --strict /path/to/RideIntercom.app
 codesign -d --entitlements :- /path/to/RideIntercom.app
