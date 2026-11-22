@@ -21,22 +21,33 @@ struct ConfirmedCallRestore {
 }
 
 extension GroupRepository {
+    var canRestoreCallRelationships: Bool {
+        guard let current = writableSnapshot else { return false }
+        var empty = GroupSnapshot()
+        empty.generation = current.generation
+        return current == empty
+    }
+
     func restoreCallRelationships(
         _ batch: ConfirmedCallRestore, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
+        completion: DirectRestoreCompletion? = nil,
         now: TimeInterval = Date().timeIntervalSince1970
     ) throws {
-        guard let current = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
+        guard writableSnapshot != nil else { throw IntercomGroupError.storageUnavailable }
         guard let identity = signer.identity, identity.expiresAt > now,
               signer.principal == batch.owner, signer.memberID == localMemberID,
               signer.memberID != batch.previousMemberID else { throw GroupStorageError.identityConflict }
 
-        var empty = GroupSnapshot()
-        empty.generation = current.generation
-        guard current == empty, !batch.calls.isEmpty,
+        guard canRestoreCallRelationships, !batch.calls.isEmpty,
               batch.users.allSatisfy({ user in
                   user.isRegistered && user.principal != batch.owner
                       && !user.memberIDs.contains(signer.memberID) && !user.memberIDs.contains(batch.previousMemberID)
               }) else { throw GroupStorageError.invalidUpdate }
+        if let completion {
+            guard completion.isValid, completion.canRetire(in: identity, now: Date(timeIntervalSince1970: now)),
+                  batch.calls.count == 1, batch.calls.first?.context.record.kind == .direct
+            else { throw GroupStorageError.invalidUpdate }
+        }
 
         let restored = try batch.calls.map { call in
             let context = call.context
@@ -61,7 +72,14 @@ extension GroupRepository {
         try update(records.map { try $0.group() }, credential: nil,
                    additionalCredentials: restored.map(\.credential), users: batch.users, now: now) { next in
             next.groups = records
+            next.completedDirectRestore = completion
         }
+    }
+
+    func removeDirectRestoreCompletion(_ completed: DirectRestoreCompletion) throws {
+        guard let current = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
+        guard current.completedDirectRestore == completed else { return }
+        try amend(current) { $0.completedDirectRestore = nil }
     }
 
     private func reboundRestoredRecord(

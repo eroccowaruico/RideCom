@@ -6,12 +6,14 @@ extension CloudKitCallRelationshipBackupSession {
         case selectionChanged
         case waitingForDevice
         case ready(PendingDirectRestore)
+        case restored
     }
 
     func selectDirectRestore(_ contactID: UUID, from original: CallRelationshipBackup) async throws {
         let account = try relayAccount()
         guard let checkpoints = restoreSelectionCheckpoints, let owner = account.signer.principal
         else { throw Failure.accountUnavailable }
+        guard model?.groupRepository.canRestoreCallRelationships == true else { throw GroupStorageError.invalidUpdate }
         _ = try original.validated(for: owner)
         guard let contact = original.contacts.first(where: { $0.id == contactID }),
               contact.restoreRecipientFingerprint != nil, contact.confirmedRegistrationID != nil,
@@ -21,6 +23,7 @@ extension CloudKitCallRelationshipBackupSession {
         let current = try await readCurrentBackup(scopedTo: account)
         guard restoreSelectionChange == change, current.backup?.contacts.contains(contact) == true
         else { throw Failure.backupChanged }
+        guard model?.groupRepository.canRestoreCallRelationships == true else { throw GroupStorageError.invalidUpdate }
         let selection = CallRelationshipBackupCheckpointStore.RestoreSelection(
             contactID: contactID, fingerprint: try CallRelationshipBackupCheckpointStore.fingerprint(contact))
         try checkpoints.saveRestoreSelection(selection, as: current.signer)
@@ -40,6 +43,9 @@ extension CloudKitCallRelationshipBackupSession {
         in checkpoints: CallRelationshipBackupCheckpointStore, using client: InternetAccountClient
     ) async throws -> SelectedDirectRestorePreparation {
         let account = try relayAccount()
+        if await resumeCompletedDirectRestore(in: account, using: client) { return .restored }
+        try requireRelayAccount(account)
+        guard model?.groupRepository.canRestoreCallRelationships == true else { return .noSelection }
         guard let progress = try checkpoints.loadRestoreProgress(as: account.signer) else { return .noSelection }
         let selection = progress.selection
         do {
@@ -93,6 +99,7 @@ extension CloudKitCallRelationshipBackupSession {
             progress.draft?.submitted = true
             try checkpoints.saveRestoreProgress(progress, as: account.signer)
         }
+        if try await finishRelayedDirectRestore(pending, using: client) { return .restored }
         return .ready(pending)
     }
 

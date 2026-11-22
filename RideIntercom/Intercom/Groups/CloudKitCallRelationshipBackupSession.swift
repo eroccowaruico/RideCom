@@ -81,7 +81,7 @@ final class CloudKitCallRelationshipBackupSession {
     }
 
     func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup,
-                 selection: CallRelationshipBackupCheckpointStore.RestoreSelection? = nil) async throws {
+                 completion: SelectedRestoreCompletion? = nil) async throws {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal else { throw Failure.accountUnavailable }
         _ = try original.validated(for: owner)
@@ -89,15 +89,16 @@ final class CloudKitCallRelationshipBackupSession {
         guard let latest = checked.backup, try batch.hasUnchangedCandidates(from: original, in: latest) else {
             throw Failure.backupChanged
         }
-        try requireRestoreSelection(selection, as: checked.signer)
-        try model.groupRepository.restoreCallRelationships(batch, as: checked.signer, trust: checked.trust)
+        try requireRestoreSelection(completion?.selection, as: checked.signer)
+        try model.groupRepository.restoreCallRelationships(
+            batch, as: checked.signer, trust: checked.trust, completion: completion?.receipt)
         model.reloadSavedGroups()
     }
 
     func restoreDirect(
         _ response: DirectCallRestoreResponse, to request: CallRelationshipRestoreRequest,
         for contactID: UUID, from original: CallRelationshipBackup,
-        selection: CallRelationshipBackupCheckpointStore.RestoreSelection? = nil
+        completion: SelectedRestoreCompletion? = nil
     ) async throws {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust() else {
@@ -107,7 +108,7 @@ final class CloudKitCallRelationshipBackupSession {
         guard let contact = original.contacts.first(where: { $0.id == contactID }) else { throw Failure.backupChanged }
         let batch = try response.restoreBatch(for: request, contact: contact,
             localDisplayName: model.localMemberIdentity.displayName, as: signer, verifying: (trust, Date()))
-        try await restore(batch, from: original, selection: selection)
+        try await restore(batch, from: original, completion: completion)
     }
 
     func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws -> DirectCallRestoreResponse? {
@@ -283,7 +284,7 @@ extension CloudKitCallRelationshipBackupSession {
         case .applyingResponse:
             return false
         case .restored(let receipt):
-            await retireRestoreReceipt(receipt, for: pending, using: client)
+            await finishRestoreReceipt(receipt, for: pending, using: client)
             return true
         case .awaitingResponse:
             try requireRestoreSelection(pending.selection, as: pending.account.signer)
@@ -296,17 +297,24 @@ extension CloudKitCallRelationshipBackupSession {
         for packet in inbox {
             guard let response = try? packet.openResponse(
                 for: pending.request, as: account.signer, trust: account.trust, now: Date()) else { continue }
+            let completion = try pending.selection.map { selection in
+                try SelectedRestoreCompletion(selection, response: packet, in: account)
+            }
             try await restoreDirect(response, to: pending.request, for: pending.contactID, from: pending.backup,
-                                    selection: pending.selection)
+                                    completion: completion)
             pending.state = .restored(receipt: packet.id)
-            await retireRestoreReceipt(packet.id, for: pending, using: client)
+            await finishRestoreReceipt(packet.id, for: pending, using: client)
             return true
         }
         return false
     }
 
-    private func retireRestoreReceipt(_ id: String?, for pending: PendingDirectRestore,
+    private func finishRestoreReceipt(_ id: String?, for pending: PendingDirectRestore,
                                       using client: InternetAccountClient) async {
+        if pending.selection != nil {
+            _ = await resumeCompletedDirectRestore(in: pending.account, using: client)
+            return
+        }
         guard let id, (try? requireRelayAccount(pending.account)) != nil else { return }
         do {
             try await client.retireDirectRestorePacket(id, access: pending.account.access)

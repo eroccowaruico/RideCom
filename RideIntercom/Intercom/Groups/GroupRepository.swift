@@ -204,6 +204,7 @@ final class GroupRepository {
         next.issuedOrdinaryGroupInvitations = previous.issuedOrdinaryGroupInvitations
         next.backupRemovals = previous.backupRemovals
         next.directRestoreDevices = previous.directRestoreDevices.filter { Double($0.expiresAt) > now * 1_000 }
+        next.completedDirectRestore = previous.completedDirectRestore
         return next
     }
 

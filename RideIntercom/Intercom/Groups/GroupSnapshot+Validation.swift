@@ -3,6 +3,9 @@ import Foundation
 extension GroupSnapshot {
     func validated() throws -> GroupSnapshot {
         guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
+        if let completedDirectRestore, version < 30 || !completedDirectRestore.isValid {
+            throw IntercomGroupError.invalidStoredGroups
+        }
         if let removal = backupRemovals, version < 27 || !removal.isValid || removal.isPresent(in: self) {
             throw IntercomGroupError.invalidStoredGroups
         }
