@@ -102,7 +102,7 @@ extension InternetAccountClient {
               result.senderUserID.map(Self.notificationUserID) == true else { throw Failure.invalidResponse }
         return result
     }
-    private static func validateNotificationAccess(_ origin: URL, token: String) throws {
+    static func validateNotificationAccess(_ origin: URL, token: String) throws {
         _ = try Self.origin(origin.absoluteString)
         let parts = token.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 4, parts[0] == "ri1", Self.notificationUserID(parts[1]), UUID(uuidString: parts[2]) != nil,

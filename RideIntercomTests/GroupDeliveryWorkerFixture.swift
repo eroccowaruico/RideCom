@@ -12,7 +12,7 @@ extension GroupDeliveryWorkerTests {
         return URLSession(configuration: configuration)
     }
 
-    func withWorker(_ exercise: () async throws -> Void) async throws {
+    func withWorker(directRestore: Bool = false, _ exercise: () async throws -> Void) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             "RideIntercom-GroupWorker-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -28,7 +28,7 @@ extension GroupDeliveryWorkerTests {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [
             "node", root.appendingPathComponent("server/test/group-delivery-app-bridge.mjs").path, portFile.path
-        ]
+        ] + (directRestore ? ["--direct-restore"] : [])
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
         process.environment = environment; process.standardOutput = log; process.standardError = log
@@ -70,6 +70,7 @@ private enum WorkerFixtureFailure: Error { case unavailable }
 final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let ordinaryReplyInboxReads = Mutex(0)
     nonisolated static let contactAcceptanceWrites = Mutex(0)
+    nonisolated static let holdNextRestoreDeviceRead = Mutex<ManualAsyncGate?>(nil)
     nonisolated(unsafe) static var origin: URL?
     struct Cancellation {
         let id: UUID
@@ -110,6 +111,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
             do {
                 let (data, result) = try await URLSession.shared.data(for: value)
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
+                await Self.holdRestoreDeviceReadIfRequested(path: original.path, method: value.httpMethod)
                 if status == 200, value.url?.path == "/api/ordinary-group-replies/inbox" {
                     Self.ordinaryReplyInboxReads.withLock { $0 += 1 }
                 }
@@ -123,6 +125,13 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
                 client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
             } catch { client?.urlProtocol(self, didFailWithError: error) }
         }
+    }
+    private static func holdRestoreDeviceReadIfRequested(path: String, method: String?) async {
+        guard path == "/api/direct-call-restore/device", method == "POST" else { return }
+        await holdNextRestoreDeviceRead.withLock { value in
+            defer { value = nil }
+            return value
+        }?.wait()
     }
     private func dropReceiptIfRequested(for value: URLRequest, status: Int, data: Data) -> Bool {
         if value.httpMethod == "DELETE", status == 200,
