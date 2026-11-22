@@ -54,6 +54,7 @@ extension GroupRepository {
         var group = try source.group()
         guard let index = group.members.firstIndex(where: { $0.id == previous }),
               !group.members.contains(where: { $0.id == signer.memberID }),
+              source.invitationDeviceKeys?[previous] != signer.publicKey,
               group.accountDevices[previous].map({
                   $0.principal == batch.owner && $0.publicKey != signer.publicKey
               }) ?? (group.kind == .group) else { throw GroupStorageError.identityConflict }

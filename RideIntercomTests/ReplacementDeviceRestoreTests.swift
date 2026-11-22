@@ -174,6 +174,46 @@ struct ReplacementDeviceRestoreTests {
         #expect(Set(credentials.values.keys) == Set(imported.credentialReferences))
     }
 
+    @Test(arguments: [false, true])
+    func restoreChecksTheOldInvitationKeyWhenTheGroupHasNoAccountBinding(reusesKey: Bool) throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let store = InMemoryGroupStore(), credentials = InMemoryGroupCredentialStore()
+        let repository = GroupRepository(store: store, credentials: credentials)
+        _ = try repository.load(localMemberID: "alice")
+        let signer = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
+        let peer = try scenario.other.viewModel.internetSettingsStore.invitationSigner(memberID: "bob")
+        let batch = try scenario.confirmedRestore()
+        let original = store.snapshot
+        let calls = batch.calls.map { call in
+            guard call.record.id == scenario.groupID else { return call }
+            var group = call.record
+            group.accountDevices.removeValue(forKey: batch.previousMemberID)
+            group.invitationDeviceKeys = [batch.previousMemberID: reusesKey ? signer.publicKey : scenario.backupOwner.publicKey,
+                                          peer.memberID: peer.publicKey]
+            return ConfirmedCallRestore.Call(record: group, credential: call.credential)
+        }
+        let confirmed = ConfirmedCallRestore(
+            owner: batch.owner, previousMemberID: batch.previousMemberID, users: batch.users, calls: calls)
+
+        if reusesKey {
+            #expect(throws: GroupStorageError.identityConflict) {
+                try repository.restoreCallRelationships(confirmed, as: signer)
+            }
+            let snapshotStayedUnchanged = store.snapshot == original
+            let credentialsStayedEmpty = credentials.values.isEmpty
+            #expect(snapshotStayedUnchanged)
+            #expect(credentialsStayedEmpty)
+            return
+        }
+
+        try repository.restoreCallRelationships(confirmed, as: signer)
+        _ = try repository.load(localMemberID: signer.memberID)
+
+        let group = try #require(repository.writableSnapshot?.groups.first { $0.id == scenario.groupID })
+        #expect(group.invitationDeviceKeys == [peer.memberID: peer.publicKey])
+        #expect(group.accountDevices[signer.memberID]?.publicKey == signer.publicKey)
+    }
+
     @Test func restoreRejectsAGroupThatStillExcludesTheOwnerBeforeWritingAnyKeys() throws {
         let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
         let store = InMemoryGroupStore(), credentials = InMemoryGroupCredentialStore()
