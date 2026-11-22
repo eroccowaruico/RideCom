@@ -202,6 +202,57 @@ struct CloudKitBackupSessionTests {
     }
 }
 
+extension CloudKitBackupSessionTests {
+    enum ResponderState: CaseIterable, Sendable { case unchanged, contactRemoved, accountChanged }
+
+    @Test(arguments: ResponderState.allCases)
+    func directRestoreChecksTheRespondersLatestCloudContact(state: ResponderState) async throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let model = scenario.other.viewModel
+        let signer = try #require(try model.callRelationshipBackupSigner())
+        let requester = try #require(try scenario.replacement.viewModel.callRelationshipBackupSigner())
+        let principal = try #require(signer.principal)
+        let direct = try CallRelationshipRestoreRequest(callID: scenario.directID, recipientMemberID: signer.memberID,
+            recipient: .init(principal: principal, publicKey: signer.publicKey), signer: requester, now: Date())
+        let cloud = CloudAccountFixture(account: "first")
+        let session = cloud.session()
+        session.bind(to: model)
+        await session.task?.value
+        await model.callRelationshipBackupSync?.task?.value
+        let time = Date().timeIntervalSince1970
+        let stored = try #require(try await cloud.store.load(as: signer, now: time))
+        let before = scenario.other.groupStore.snapshot
+        let contact = try #require(stored.backup.contacts.first)
+        if state == .contactRemoved {
+            let peerStore = InMemoryGroupStore(), peerKeys = InMemoryGroupCredentialStore()
+            peerStore.snapshot = before
+            peerKeys.values = try #require(scenario.fixture.credentialStores["bob"]).values
+            let peer = GroupRepository(store: peerStore, credentials: peerKeys)
+            _ = try peer.load(localMemberID: signer.memberID)
+            try peer.removeUser(contact.id)
+            let updated = try peer.callRelationshipBackup(as: signer, now: time)
+            _ = try await cloud.store.save(updated, replacing: stored, as: signer, now: time)
+        }
+
+        if state == .accountChanged {
+            cloud.accountAfterRead = "second"
+            await #expect(throws: CloudKitCallRelationshipBackupSession.Failure.accountUnavailable) {
+                try await session.confirmDirectRestore(direct)
+            }
+        } else {
+            let response = try await session.confirmDirectRestore(direct)
+            if state == .unchanged {
+                let confirmation = try #require(response)
+                #expect(try confirmation.verify(for: direct, as: requester, trust: scenario.trust,
+                                                now: Date()).callID == scenario.directID)
+            } else {
+                #expect(response == nil)
+            }
+        }
+        #expect(scenario.other.groupStore.snapshot == before)
+    }
+}
+
 @MainActor
 private final class CloudAccountFixture {
     let center = NotificationCenter()

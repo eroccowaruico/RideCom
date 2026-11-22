@@ -8,6 +8,12 @@ final class CloudKitCallRelationshipBackupSession {
 
     enum Failure: Error, Equatable { case accountUnavailable, backupChanged }
 
+    private struct CurrentBackup {
+        let backup: CallRelationshipBackup?
+        let signer: DeviceIdentitySigner
+        let trust: DeviceIdentityTrust
+    }
+
     private let store: CloudKitCallRelationshipBackupStore
     private let keychain: KeychainSecretStoring
     private let namespace: String
@@ -61,9 +67,31 @@ final class CloudKitCallRelationshipBackupSession {
     }
 
     func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup) async throws {
-        guard let model, let cloud = current, let signer = try model.callRelationshipBackupSigner(),
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal else { throw Failure.accountUnavailable }
         _ = try original.validated(for: owner)
+        let checked = try await readCurrentBackup(for: model, as: signer)
+        guard let latest = checked.backup, try batch.hasUnchangedCandidates(from: original, in: latest) else {
+            throw Failure.backupChanged
+        }
+        try model.groupRepository.restoreCallRelationships(batch, as: checked.signer, trust: checked.trust)
+        model.reloadSavedGroups()
+    }
+
+    func confirmDirectRestore(_ request: CallRelationshipRestoreRequest) async throws
+        -> CallRelationshipRestoreConfirmation? {
+        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner() else {
+            throw Failure.accountUnavailable
+        }
+        let checked = try await readCurrentBackup(for: model, as: signer)
+        guard let latest = checked.backup else { return nil }
+        return try model.groupRepository.confirmRestore(
+            request, as: checked.signer, trust: checked.trust, now: Date(), matchingDirectBackup: latest)
+    }
+
+    private func readCurrentBackup(for model: IntercomViewModel, as signer: DeviceIdentitySigner) async throws
+        -> CurrentBackup {
+        guard let cloud = current, let owner = signer.principal else { throw Failure.accountUnavailable }
         let expected = generation
         try await verify(cloud, generation: expected)
         let stored = try await store.load(as: signer, now: Date().timeIntervalSince1970)
@@ -71,11 +99,7 @@ final class CloudKitCallRelationshipBackupSession {
         guard let active = try model.callRelationshipBackupSigner(),
               active.principal == owner, active.memberID == signer.memberID, active.publicKey == signer.publicKey,
               let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
-        guard let latest = stored?.backup, try batch.hasUnchangedCandidates(from: original, in: latest) else {
-            throw Failure.backupChanged
-        }
-        try model.groupRepository.restoreCallRelationships(batch, as: active, trust: trust)
-        model.reloadSavedGroups()
+        return .init(backup: stored?.backup, signer: active, trust: trust)
     }
 
     private func invalidate() {

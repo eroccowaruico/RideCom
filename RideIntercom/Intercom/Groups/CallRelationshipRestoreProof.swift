@@ -66,8 +66,9 @@ extension CallRelationshipBackup {
         _ = try validated(for: Self.verifiedOwner(of: signer, now: time))
         let principal = AccountPrincipal(issuer: identity.issuer, userID: identity.userID)
         let recipient = AccountDeviceBinding(principal: principal, publicKey: identity.deviceKey)
+        let contact = contacts.first { $0.id == contactID }
         guard identity.expiresAt > time,
-              let callID = try pinnedDirectCallID(for: contactID, memberID: identity.memberID, recipient: recipient)
+              let callID = try pinnedDirectCallID(for: contact, memberID: identity.memberID, recipient: recipient)
         else { return nil }
         return try .init(callID: callID, recipientMemberID: identity.memberID, recipient: recipient,
                          signer: signer, now: now)
@@ -77,14 +78,20 @@ extension CallRelationshipBackup {
                                      contactID: UUID) throws -> Bool {
         let address = request.challenge
         guard address.callID == callID else { return false }
-        return try pinnedDirectCallID(for: contactID, memberID: address.recipientMemberID,
+        let contact = contacts.first { $0.id == contactID }
+        return try pinnedDirectCallID(for: contact, memberID: address.recipientMemberID,
                                       recipient: address.recipient) == callID
     }
 
-    private func pinnedDirectCallID(for contactID: UUID, memberID: String, recipient: AccountDeviceBinding) throws
+    fileprivate func containsDirectRestorePeer(_ peer: AccountDeviceBinding, memberID: String, callID: UUID)
+        throws -> Bool {
+        let contact = contacts.first { $0.principal == peer.principal }
+        return try pinnedDirectCallID(for: contact, memberID: memberID, recipient: peer) == callID
+    }
+
+    private func pinnedDirectCallID(for contact: Contact?, memberID: String, recipient: AccountDeviceBinding) throws
         -> UUID? {
-        guard let contact = contacts.first(where: { $0.id == contactID }),
-              contact.principal == recipient.principal, let saved = contact.restoreRecipientFingerprint
+        guard let contact, contact.principal == recipient.principal, let saved = contact.restoreRecipientFingerprint
         else { return nil }
         let callID = AccountCallPair(owner, recipient.principal).id
         let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
@@ -277,9 +284,11 @@ private struct RestoreMembership: Encodable {
 }
 
 extension GroupRepository {
-    /// Verifies what this device currently holds. It does not reconcile other devices' changes.
-    func confirmRestore(_ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
-                        trust: DeviceIdentityTrust, now: Date) throws -> CallRelationshipRestoreConfirmation? {
+    /// A current backup can constrain a direct call to the same relationship recorded in both stores.
+    func confirmRestore(
+        _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
+        now: Date, matchingDirectBackup backup: CallRelationshipBackup? = nil
+    ) throws -> CallRelationshipRestoreConfirmation? {
         let challenge = request.challenge
         let requester = try request.verifiedRequester(trust: trust, now: now)
         let owner = requester.principal
@@ -290,6 +299,7 @@ extension GroupRepository {
         return try withCurrentSnapshot(snapshot) {
             guard let record = snapshot.groups.first(where: { $0.id == challenge.callID }),
                   record.pendingInvitation == nil,
+                  backup == nil || record.kind == .direct,
                   record.accountDevices[signer.memberID] == .init(principal: responder, publicKey: signer.publicKey),
                   !record.excludesMember(challenge.requesterMemberID, principal: owner),
                   !record.members.contains(where: { $0.id == challenge.requesterMemberID }),
@@ -297,10 +307,16 @@ extension GroupRepository {
             else { return nil }
             if record.kind == .direct {
                 guard record.accountPair == AccountCallPair(responder, owner),
+                      let priorDevice = record.accountDevices[previous],
                       snapshot.users.contains(where: { user in
                           user.principal == owner && user.memberIDs.contains(previous)
-                              && user.deviceKeys?[previous] == record.accountDevices[previous]?.publicKey
+                              && user.deviceKeys?[previous] == priorDevice.publicKey
                       }) else { return nil }
+                if let backup {
+                    guard backup.owner == responder,
+                          try backup.containsDirectRestorePeer(priorDevice, memberID: previous, callID: record.id)
+                    else { return nil }
+                }
             }
             guard let reference = record.credentialReference, let secret = try credentialSecret(reference: reference),
                   !secret.isEmpty else { return nil }
