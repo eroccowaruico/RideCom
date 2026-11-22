@@ -88,6 +88,24 @@ def verify_swift() -> None:
         raise ValueError('Swift 6.3 or newer is required')
 
 
+def verify_node() -> None:
+    worker_engine, docs_engine = (
+        json.loads((ROOT / package / 'package.json').read_text())['engines']['node']
+        for package in ('server', 'tools/doc-lint')
+    )
+    release_pattern = r'([1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+    minimum = re.fullmatch(r'\^' + release_pattern, worker_engine)
+    if minimum is None or worker_engine != docs_engine:
+        raise ValueError('Worker and documentation tooling must declare the same Node.js range as ^major.minor.patch')
+
+    required = tuple(map(int, minimum.groups()))
+    release = subprocess.check_output(['node', '--version'], text=True, timeout=20).strip()
+    version = re.fullmatch('v' + release_pattern, release)
+    if version is None or version[1] != minimum[1] or tuple(map(int, version.groups())) < required:
+        raise ValueError(f'Node.js {worker_engine[1:]} or newer within major {minimum[1]} (stable release) is required')
+    print(release)
+
+
 def verify_artifact() -> None:
     artifact = ROOT / 'RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcframework.zip'
     metadata = dict(line.split('=', 1) for line in artifact.with_suffix('.metadata').read_text().splitlines() if '=' in line)
@@ -649,17 +667,15 @@ def main() -> int:
     runner.run('environment', ['sh', '-c', 'git rev-parse HEAD; git status --short; sw_vers; xcodebuild -version; swift --version; node --version; npm --version'], timeout=60)
     python = sys.executable
     runner.run('development-setup', [python, 'scripts/check_development_setup.py'])
-    runner.run('documentation', [python, 'scripts/check_documentation.py'])
+    runner.run('node-toolchain', [python, '-c', 'from scripts.validate import verify_node; verify_node()'], timeout=30)
+    runner.run('documentation', [python, 'scripts/check_documentation.py'], needs=['node-toolchain'])
     runner.run('wording-review', [python, 'scripts/review_wording.py'])
     runner.run('string-catalogs', [python, 'scripts/check_string_catalogs.py'])
     mode = args.mode
     swift_needed = mode in ('all', 'headless', 'packages', 'pair', 'macos', 'ios', 'ios-ui')
-    node_needed = mode in ('all', 'headless', 'worker', 'pair', 'scripts')
     if swift_needed:
         runner.run('swift-toolchain', [python, '-c', 'from scripts.validate import verify_swift; verify_swift()'], timeout=65)
         runner.run('webrtc-artifact', [python, '-c', 'from scripts.validate import verify_artifact; verify_artifact()'], timeout=180)
-    if node_needed:
-        runner.run('node-toolchain', ['node', '-e', 'if(Number(process.versions.node.split(".")[0])<22)process.exit(1)'], timeout=30)
     if mode in ('all', 'headless', 'packages'):
         packages = ['Audio/' + name for name in ['AudioCore', 'AudioMixer', 'Codec', 'SessionManager', 'AudioDevice']]
         packages += ['Audio/Effectors/' + name for name in ['DynamicsProcessor', 'PeakLimiter', 'SoundIsolation', 'VADGate']]

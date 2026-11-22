@@ -221,6 +221,33 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(self.module.swift_supported('Apple Swift version 6.3 (swiftlang)'))
         self.assertTrue(self.module.swift_supported('Swift version 7.0'))
 
+    def test_node_preflight_requires_the_fixed_node_26_release_or_newer_in_the_series(self) -> None:
+        for version in ['v22.12.0', 'v24.13.0', 'v26.12.9', 'v26.13.0', 'v26.13.1-rc.1', 'v27.0.0']:
+            with (
+                self.subTest(version=version),
+                patch.object(subprocess, 'check_output', return_value=version),
+                self.assertRaisesRegex(ValueError, r'Node.js 26\.13\.1'),
+            ):
+                self.module.verify_node()
+        for version in ['v26.13.1', 'v26.13.2', 'v26.14.0']:
+            with self.subTest(version=version), patch.object(subprocess, 'check_output', return_value=version + '\n'):
+                self.module.verify_node()
+
+    def test_failed_node_preflight_blocks_documentation_and_worker_install(self) -> None:
+        def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
+            blocked = any(self.runner.results.get(need, {}).get('status') != 'passed' for need in needs)
+            status = 'blocked' if blocked else 'failed' if stage == 'node-toolchain' else 'passed'
+            return self.runner.record(stage, argv, status, 1 if status == 'failed' else None if blocked else 0, time.monotonic())
+
+        with patch.object(sys, 'argv', ['validate.py', 'worker']), \
+             patch.object(self.module, 'Runner', return_value=self.runner), \
+             patch.object(self.module, 'snapshot', side_effect=lambda out: (out / 'inputs.json').write_text('{}')), \
+             patch.object(self.runner, 'run', side_effect=command), patch.dict(os.environ):
+            self.assertEqual(self.module.main(), 1)
+        self.assertEqual(self.runner.results['documentation']['status'], 'blocked')
+        self.assertEqual(self.runner.results['worker-install']['status'], 'blocked')
+        self.assertEqual(self.runner.results['string-catalogs']['status'], 'passed')
+
     def test_passing_tests_with_runtime_faults_are_rejected(self) -> None:
         summary = {'totalTestCount': 2, 'passedTests': 2, 'failedTests': 0, 'skippedTests': 0}
         for field in ['runtimeWarnings', 'testFailures']:

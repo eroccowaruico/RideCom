@@ -7,10 +7,18 @@ jobs:
   check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Select the Node.js release series from the documentation package
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: tools/doc-lint/package.json
+          check-latest: true
+          package-manager-cache: false
+      - name: Check the Node.js version used by the local validation
+        run: python3 -c 'from scripts.validate import verify_node; verify_node()'
       - name: Install the locked documentation tools
         run: npm ci --prefix tools/doc-lint --ignore-scripts --no-audit --no-fund
       - name: Check live folders and editor tasks
