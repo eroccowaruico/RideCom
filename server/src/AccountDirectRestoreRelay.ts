@@ -23,11 +23,9 @@ export class AccountDirectRestoreRelay {
         const key = this.key(value.recipient.deviceID, value.id)
         const previous = this.storage.kv.get<Entry>(key)
         if (previous) {
-            const exact = previous.expiresAt === value.expiresAt && previous.packetHash === value.packetHash
-                && previous.sender.userID === value.sender.userID && previous.sender.deviceID === value.sender.deviceID
-                && previous.sender.sessionBinding === value.sender.sessionBinding
-                && previous.recipient.sessionBinding === value.recipient.sessionBinding
-            if (!exact) return 'conflict'
+            if (previous.recipient.sessionBinding !== value.recipient.sessionBinding || !this.samePacket(previous, value)) {
+                return 'conflict'
+            }
             return previous.packet === null ? 'retired' : 'queued'
         }
         if (this.entries().length >= capacity) return 'limited'
@@ -45,9 +43,7 @@ export class AccountDirectRestoreRelay {
 
     read(deviceID: string, sessionBinding: string, expected: DirectRestoreRelayCandidate) {
         const entry = this.current(deviceID, sessionBinding, expected.id)
-        if (!entry || entry.packet === null || entry.expiresAt !== expected.expiresAt || entry.packetHash !== expected.packetHash
-            || entry.sender.userID !== expected.sender.userID || entry.sender.deviceID !== expected.sender.deviceID
-            || entry.sender.sessionBinding !== expected.sender.sessionBinding) return null
+        if (!entry || entry.packet === null || !this.samePacket(entry, expected)) return null
         return { id: entry.id, senderUserID: entry.sender.userID, expiresAt: entry.expiresAt, packet: entry.packet }
     }
 
@@ -61,6 +57,12 @@ export class AccountDirectRestoreRelay {
     private current(deviceID: string, sessionBinding: string, id: string) {
         const entry = this.storage.kv.get<Entry>(this.key(deviceID, id))
         return entry && entry.expiresAt > Date.now() && entry.recipient.sessionBinding === sessionBinding ? entry : null
+    }
+
+    private samePacket(entry: Entry, expected: DirectRestoreRelayCandidate) {
+        return entry.id === expected.id && entry.expiresAt === expected.expiresAt && entry.packetHash === expected.packetHash
+            && entry.sender.userID === expected.sender.userID && entry.sender.deviceID === expected.sender.deviceID
+            && entry.sender.sessionBinding === expected.sender.sessionBinding
     }
 
     private key(deviceID: string, id: string) { return `${prefix}${deviceID}:${id}` }
