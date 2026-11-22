@@ -25,9 +25,7 @@ extension CloudKitCallRelationshipBackupSession {
                 try checkpoints.saveRestoreSelection(nil, as: account.signer)
             }
             if receipt.canRetire(in: identity, now: Date()) {
-                do {
-                    try await client.retireDirectRestorePacket(receipt.responseID, access: account.access)
-                } catch InternetAccountClient.Failure.notFound { /* The response already left this inbox. */ }
+                try await client.retireDirectRestorePacket(receipt.responseID, access: account.access)
             }
             try requireRelayAccount(account)
             try repository.removeDirectRestoreCompletion(receipt)

@@ -38,10 +38,14 @@ extension InternetAccountClient {
     func retireDirectRestorePacket(_ id: String, access: CallNotificationServiceAccess) async throws {
         try validateRestoreAccess(access, expected: access.principal)
         guard UUID(uuidString: id)?.uuidString.lowercased() == id else { throw Failure.rejected }
-        let result: RestoreDeviceWrite = try await send(
-            origin: access.origin, path: Self.restoreRelayPath, method: "DELETE", body: ["id": id],
-            token: access.accessToken)
-        guard result.state == "retired" else { throw Failure.invalidResponse }
+        do {
+            let result: RestoreDeviceWrite = try await send(
+                origin: access.origin, path: Self.restoreRelayPath, method: "DELETE", body: ["id": id],
+                token: access.accessToken)
+            guard result.state == "retired" else { throw Failure.invalidResponse }
+        } catch Failure.notFound {
+            // An absent packet already satisfies the retirement request.
+        }
     }
 
     func publishDirectRestoreDevice(_ publication: DirectRestoreDevicePublication,

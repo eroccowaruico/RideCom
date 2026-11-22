@@ -319,8 +319,6 @@ extension CloudKitCallRelationshipBackupSession {
         do {
             try await client.retireDirectRestorePacket(id, access: pending.account.access)
             pending.state = .restored(receipt: nil)
-        } catch InternetAccountClient.Failure.notFound {
-            pending.state = .restored(receipt: nil)
         } catch {
             // Local restore is already committed. Retry only the receipt cleanup.
         }

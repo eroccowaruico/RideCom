@@ -50,9 +50,7 @@ extension CloudKitCallRelationshipBackupSession {
             guard try await sendRestoreReply(to: packet, account: account, checkpoints: checkpoints,
                                              using: client) else { continue }
             try requireRelayAccount(account)
-            do {
-                try await client.retireDirectRestorePacket(packet.id, access: account.access)
-            } catch InternetAccountClient.Failure.notFound { /* The request already left this inbox. */ }
+            try await client.retireDirectRestorePacket(packet.id, access: account.access)
             try requireRelayAccount(account)
             try checkpoints?.saveRestoreReply(nil, for: packet.id, as: account.signer)
             answered += 1

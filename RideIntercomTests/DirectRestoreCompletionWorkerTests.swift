@@ -56,6 +56,7 @@ extension GroupDeliveryWorkerTests {
             #expect(reopened.savedRemoteUsers.first?.localName == "Retained choice")
             #expect(try reopened.groupRepository.credential(for: callID) == originalKey)
             #expect(try await client.directRestoreInbox(access: access).isEmpty)
+            try await client.retireDirectRestorePacket(UUID().uuidString.lowercased(), access: access)
             try assertRestoredCall(
                 holderHarness, to: publisherContact, reopenedHarness, to: contact, callID: callID)
         }
