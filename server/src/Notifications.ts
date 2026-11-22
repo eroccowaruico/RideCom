@@ -2,7 +2,7 @@ import { importJWK, jwtVerify, SignJWT } from 'jose'
 import { notificationAuth } from './AppleAccount'
 import { callLifetime, dedupeLifetime, groupInvitationLifetime, type NotificationAuth, type NotificationCall, type NotificationDevice, type DeliveryStatus } from './AccountNotifications'
 import { deviceSigningKey, verifyDeviceProof } from './DeviceIdentity'
-import { allowSealedInvitationSource, authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
+import { receiveBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
 import { json, readJSON, sha256Hex as notificationHash, type Env } from './types'
@@ -59,12 +59,10 @@ async function handleBackgroundGroupInvitation(request: Request, origin: string,
     if (!cancelling && !notificationsConfigured(env)) {
         return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
     }
-    if (!await allowSealedInvitationSource(request, env)) return json({ error: 'Too many requests' }, 429)
-    const signed = await openSealedInvitationSubmission(request, origin, env)
-    if (!signed) return json({ error: 'Unauthorized' }, 401)
     const purpose = cancelling ? 'cancelBackgroundGroupInvitation' : 'submitBackgroundGroupInvitation'
-    const submission = await authenticateBackgroundSubmission(signed, origin, purpose, env)
-    if (!submission) return json({ error: 'Unauthorized' }, 401)
+    const submission = await receiveBackgroundSubmission(request, origin, purpose, env)
+    if (submission.status === 'limited') return json({ error: 'Too many requests' }, 429)
+    if (submission.status === 'unauthorized') return json({ error: 'Unauthorized' }, 401)
     const { auth, body: invitation } = submission
     const owner = account(env, auth.accountID)
     return cancelling ? await cancelBackgroundGroupInvitation(invitation, auth, owner, env)

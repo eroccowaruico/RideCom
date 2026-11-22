@@ -521,12 +521,57 @@ test('direct restore relay preserves opaque packets only for the addressed curre
     } finally { await runtime.dispose(); }
 });
 
-async function signBackgroundContactAcceptance(body, sender, identity, origin, purpose = 'submitBackgroundContactInvitationAcceptance') {
+async function signBackgroundSubmission(body, sender, identity, origin, purpose) {
     const submission = Buffer.from(JSON.stringify(body)).toString('base64');
     const { sessionBinding } = identity;
     return { senderUserID: sender.userID, deviceID: sender.deviceID, sessionBinding, submission,
         proof: await identity.proof(purpose, JSON.stringify([origin, sessionBinding, submission])) };
 }
+
+test('background contact deletion publishes to the same mailbox and cannot revive a retired deletion', async () => {
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const r = await makeRuntime({
+        ...options, NOTIFICATIONS_ENABLED: 'false', INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
+        DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey))
+    }, { appleKeys: [publicKey], apns: async () => { throw new Error('Unexpected notification delivery'); } });
+    try {
+        const sender = await enrolled(r, 'background-deletion-sender');
+        const recipient = await enrolled(r, 'background-deletion-recipient');
+        const senderDevice = await signReplyDevice(r, sender, 'background-deletion-sender');
+        const recipientDevice = await signReplyDevice(r, recipient, 'background-deletion-recipient');
+        const slot = replySlot(), id = randomUUID(), expiresAt = Date.now() + 60_000;
+        const readProof = await recipientDevice.proof('readContactDeletion', JSON.stringify([sender.userID, slot]));
+        const packet = Buffer.alloc(64, 17).toString('base64');
+        const notice = { slot, id, expiresAt, recipient: recipient.userID, recipientKey: readProof.publicKey, packet };
+        const read = { owner: sender.userID, slot, proof: readProof };
+        const path = '/api/contact-deletions';
+        const endpoint = `${path}/background-publish`;
+        const signed = (body, purpose = 'publishBackgroundContactDeletion') =>
+            signBackgroundSubmission(body, sender, senderDevice, 'https://worker.test', purpose);
+        const send = async body => call(r, endpoint, { sealed: await sealInvitationSubmission(body, senderDevice.relayKey) });
+        const state = async (response, expected) => {
+            assert.equal(response.status, 200);
+            assert.deepEqual(await response.json(), { state: expected });
+        };
+        const publication = await signed(notice);
+        await state(await send(publication), 'pending');
+        await state(await send(publication), 'pending');
+        assert.deepEqual(await (await call(r, `${path}/read`, read, recipient.accessToken)).json(),
+            { deletion: { id, expiresAt, packet } });
+        assert.equal((await send(await signed(notice, 'submitBackgroundContactInvitationAcceptance'))).status, 401);
+        assert.equal((await send(await signed({ ...notice, unexpected: 'fixture' }))).status, 400);
+        assert.equal((await send(await signed({ ...notice, expiresAt: Date.now() - 1 }))).status, 400);
+        assert.equal((await call(r, endpoint, publication, sender.accessToken)).status, 400);
+
+        await state(await call(r, path, { slot, id, expiresAt }, sender.accessToken, 'DELETE'), 'retired');
+        await state(await send(publication), 'retired');
+        assert.equal((await call(r, `${path}/read`, read, recipient.accessToken)).status, 404);
+
+        const retiredSession = await call(r, '/api/auth/account', undefined, sender.accessToken, 'DELETE');
+        assert.equal(retiredSession.status, 200);
+        assert.equal((await send(publication)).status, 401);
+    } finally { await r.dispose(); }
+});
 
 test('a background contact acceptance is limited to the originally signed reply and current device', async () => {
     const issuer = await generateKeyPair('ES256', { extractable: true });
@@ -545,7 +590,8 @@ test('a background contact acceptance is limited to the originally signed reply 
             proof: await author.proof('openContactInvitationReply', JSON.stringify([origin, author.sessionBinding, mailbox, expiry]))
         });
         const value = { owner: a.userID, slot, expiresAt, id: randomUUID(), packet: replyPacket(), admission: await signedAdmission(slot, expiresAt) };
-        const signed = (body = value, target = origin, purpose) => signBackgroundContactAcceptance(body, b, receiver, target, purpose);
+        const signed = (body = value, target = origin, purpose = 'submitBackgroundContactInvitationAcceptance') =>
+            signBackgroundSubmission(body, b, receiver, target, purpose);
         const endpoint = `${replyPath}/background-acceptance`;
         const submit = async body => call(r, endpoint, { sealed: await sealInvitationSubmission(body, receiver.relayKey) });
         const inbox = () => call(r, `${replyPath}/inbox`, { slot }, a.accessToken);
@@ -642,7 +688,9 @@ test('background contact acceptance can use the previous relay key until the nex
             const slot = replySlot(), id = randomUUID();
             assert.equal((await call(r, `${replyPath}/open`, { slot, expiresAt }, owner.accessToken, 'PUT')).status, 200);
             const body = { owner: owner.userID, slot, id, packet: replyPacket(), expiresAt };
-            return { signed: await signBackgroundContactAcceptance(body, receiver, identity, origin), key: identity.relayKey, id };
+            const signed = await signBackgroundSubmission(body, receiver, identity, origin,
+                'submitBackgroundContactInvitationAcceptance');
+            return { signed, key: identity.relayKey, id };
         };
         const original = await prepare(boundary + 60_000);
         const queued = await sealInvitationSubmission(original.signed, original.key);
@@ -661,7 +709,7 @@ test('background contact acceptance can use the previous relay key until the nex
 });
 
 test('the encrypted contact acceptance limits work before reading caller identity', async () => {
-    const r = await makeRuntime(options, { apiLimit: 1 });
+    const r = await makeRuntime({ ...options, INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url') }, { apiLimit: 1 });
     try {
         const endpoint = `${replyPath}/background-acceptance`;
         assert.equal((await call(r, endpoint, {})).status, 400);

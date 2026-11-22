@@ -2,7 +2,7 @@ import { notificationAuth } from './AppleAccount'
 import { groupInvitationLifetime } from './AccountNotifications'
 import type { OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
 import { verifyDeviceProof } from './DeviceIdentity'
-import { allowSealedInvitationSource, authenticateBackgroundSubmission, openSealedInvitationSubmission } from './BackgroundSubmission'
+import { receiveBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
 import { isRecord, json, readJSON, sha256Hex, type Env } from './types'
 
@@ -70,14 +70,12 @@ export async function ordinaryGroupReplyRequest(request: Request, env: Env): Pro
     const bearer = request.headers.get('Authorization') ?? ''
     const token = bearer.startsWith('Bearer ') && bearer.length <= 512 ? bearer.slice(7) : ''
     try {
-        let submission: Awaited<ReturnType<typeof authenticateBackgroundSubmission>> = null
-        if (background) {
-            if (!await allowSealedInvitationSource(request, env)) return limited()
-            const signed = await openSealedInvitationSubmission(request, url.origin, env)
-            if (!signed) return unauthorized()
-            submission = await authenticateBackgroundSubmission(signed, url.origin, 'submitBackgroundContactInvitationAcceptance', env)
-        }
-        const auth = background ? submission?.auth : await notificationAuth(token, env)
+        const submission = background
+            ? await receiveBackgroundSubmission(request, url.origin, 'submitBackgroundContactInvitationAcceptance', env)
+            : null
+        if (submission?.status === 'limited') return limited()
+        if (submission?.status === 'unauthorized') return unauthorized()
+        const auth = submission ? submission.auth : await notificationAuth(token, env)
         if (!auth) return unauthorized()
         const budget = background ? 'background-contact-reply:' : 'ordinary-group-reply:'
         if (!(await env.CALL_API_LIMIT.limit({ key: budget + auth.accountID })).success) {

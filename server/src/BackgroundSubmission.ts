@@ -1,6 +1,6 @@
 import { base64url, compactDecrypt, decodeProtectedHeader } from 'jose'
 import { verifyDeviceProof } from './DeviceIdentity'
-import { invitationRelayDecryptionKey } from './InvitationRelayKey'
+import { invitationRelayDecryptionKey, invitationRelaySeedBytes } from './InvitationRelayKey'
 import { publicAccountIndex } from './NotificationIndex'
 import { isRecord, readJSON, sha256Hex, type Env } from './types'
 
@@ -11,7 +11,7 @@ const fields = ['senderUserID', 'deviceID', 'sessionBinding', 'submission', 'pro
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 type Purpose = 'submitBackgroundGroupInvitation' | 'cancelBackgroundGroupInvitation'
-    | 'submitBackgroundContactInvitationAcceptance'
+    | 'submitBackgroundContactInvitationAcceptance' | 'publishBackgroundContactDeletion'
 
 function parseSubmission(bytes: Uint8Array): Record<string, unknown> {
     let value: unknown
@@ -20,14 +20,24 @@ function parseSubmission(bytes: Uint8Array): Record<string, unknown> {
     return value
 }
 
-export async function allowSealedInvitationSource(request: Request, env: Env): Promise<boolean> {
+export async function receiveBackgroundSubmission(request: Request, origin: string, purpose: Purpose, env: Env) {
+    const seed = invitationRelaySeedBytes(env.INVITATION_RELAY_KEY_SEED)
+    if (!seed) throw new Error('configuration')
+    if (!await allowSealedInvitationSource(request, env)) return { status: 'limited' } as const
+    const signed = await openSealedInvitationSubmission(request, origin, seed)
+    if (!signed) return { status: 'unauthorized' } as const
+    const submission = await authenticateBackgroundSubmission(signed, origin, purpose, env)
+    return submission ? { status: 'accepted', ...submission } as const : { status: 'unauthorized' } as const
+}
+
+async function allowSealedInvitationSource(request: Request, env: Env): Promise<boolean> {
     const source = request.headers.get('CF-Connecting-IP')
     if (!source || source.length > 64) throw new Error('configuration')
     const sourceKey = await sha256Hex(`${Math.floor(Date.now() / 86400000)}:${source}`)
     return (await env.CALL_API_LIMIT.limit({ key: `sealed-invitation-source:${sourceKey}` })).success
 }
 
-export async function openSealedInvitationSubmission(request: Request, origin: string, env: Env) {
+async function openSealedInvitationSubmission(request: Request, origin: string, seed: Uint8Array) {
     const { sealed, ...extra } = await readJSON(request)
     if (Object.keys(extra).length !== 0 || typeof sealed !== 'string') throw new Error('body')
     if (sealed.split('.', 1)[0].length > 512) throw new Error('body')
@@ -42,7 +52,7 @@ export async function openSealedInvitationSubmission(request: Request, origin: s
         || typeof x !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(x)
         || base64url.encode(base64url.decode(x)) !== x) throw new Error('body')
 
-    const key = await invitationRelayDecryptionKey(env.INVITATION_RELAY_KEY_SEED, origin, kid, Date.now() / 1000)
+    const key = await invitationRelayDecryptionKey(seed, origin, kid, Date.now() / 1000)
     if (!key) return null
     let clear: Uint8Array
     try {
@@ -52,7 +62,7 @@ export async function openSealedInvitationSubmission(request: Request, origin: s
     return parseSubmission(clear)
 }
 
-export async function authenticateBackgroundSubmission(body: Record<string, unknown>, origin: string, purpose: Purpose, env: Env) {
+async function authenticateBackgroundSubmission(body: Record<string, unknown>, origin: string, purpose: Purpose, env: Env) {
     const { senderUserID, deviceID, sessionBinding, submission, proof } = body
     if (Object.keys(body).some(key => !fields.includes(key))
         || typeof senderUserID !== 'string' || !hex.test(senderUserID)

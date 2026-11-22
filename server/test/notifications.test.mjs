@@ -423,12 +423,26 @@ test('an older device cannot shorten the current public route, while token owner
     } finally { await r.dispose(); }
 });
 
-test('background invitation deliveries share a source limit before reading the request body', async () => {
-    const r = await setup({}, undefined, { apiLimit: 1 });
+test('unconfigured background deliveries stop before reading a body or using the source budget', async () => {
+    for (const seed of [undefined, 'invalid', 'a'.repeat(43)]) {
+        const configuration = seed === undefined ? {} : { INVITATION_RELAY_KEY_SEED: seed };
+        const r = await setup(configuration, undefined, { apiLimit: 1 });
+        try {
+            for (const path of [`${groupPath}/background`, `${groupPath}/background-cancellation`,
+                '/api/ordinary-group-replies/background-acceptance', '/api/contact-deletions/background-publish']) {
+                assert.equal((await call(r, path, {})).status, 503);
+            }
+        } finally { await r.dispose(); }
+    }
+});
+
+test('background deliveries share a source limit before reading the request body', async () => {
+    const r = await setup({ INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url') }, undefined, { apiLimit: 1 });
     try {
         assert.equal((await call(r, `${groupPath}/background`, {})).status, 400);
         assert.equal((await call(r, `${groupPath}/background-cancellation`, {})).status, 429);
         assert.equal((await call(r, '/api/ordinary-group-replies/background-acceptance', {})).status, 429);
+        assert.equal((await call(r, '/api/contact-deletions/background-publish', {})).status, 429);
     } finally { await r.dispose(); }
 });
 

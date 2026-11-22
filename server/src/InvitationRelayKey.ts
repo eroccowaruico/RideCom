@@ -7,10 +7,17 @@ const x25519Prefix = Uint8Array.of(0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x0
 const x25519BasePoint = new Uint8Array(32)
 x25519BasePoint[0] = 9
 
+export function invitationRelaySeedBytes(seed: string | undefined) {
+    if (!seed || !/^[A-Za-z0-9_-]{43}$/.test(seed)) return undefined
+    const bytes = base64url.decode(seed)
+    return bytes.length === 32 && base64url.encode(bytes) === seed ? bytes : undefined
+}
+
 export async function currentInvitationRelayKey(seed: string | undefined, origin: string, issuedAt: number) {
+    const seedBytes = invitationRelaySeedBytes(seed)
+    if (!seedBytes) return undefined
     const period = Math.floor(issuedAt / periodSeconds)
-    const key = await deriveInvitationRelayKey(seed, origin, period)
-    if (!key) return undefined
+    const key = await deriveInvitationRelayKey(seedBytes, origin, period)
     const basePoint = await crypto.subtle.importKey('raw', x25519BasePoint, 'X25519', false, [])
     // RFC 7748 derives the public coordinate by multiplying the base point without exporting the private key.
     const agreement = { name: 'X25519', public: basePoint }
@@ -18,20 +25,14 @@ export async function currentInvitationRelayKey(seed: string | undefined, origin
     return { kid: `v1-${period}`, x, expiresAt: (period + 2) * periodSeconds }
 }
 
-export async function invitationRelayDecryptionKey(seed: string | undefined, origin: string, kid: string, now: number) {
+export async function invitationRelayDecryptionKey(seed: Uint8Array, origin: string, kid: string, now: number) {
     const currentPeriod = Math.floor(now / periodSeconds)
     const period = kid === `v1-${currentPeriod}` ? currentPeriod : currentPeriod - 1
     if (kid !== `v1-${period}`) return null
-    const key = await deriveInvitationRelayKey(seed, origin, period)
-    if (!key) throw new Error('configuration')
-    return key
+    return deriveInvitationRelayKey(seed, origin, period)
 }
 
-async function deriveInvitationRelayKey(seed: string | undefined, origin: string, period: number) {
-    if (!seed || !/^[A-Za-z0-9_-]{43}$/.test(seed)) return undefined
-    const seedBytes = base64url.decode(seed)
-    if (seedBytes.length !== 32 || base64url.encode(seedBytes) !== seed) return undefined
-
+async function deriveInvitationRelayKey(seedBytes: Uint8Array, origin: string, period: number) {
     const rootKey = await crypto.subtle.importKey('raw', seedBytes, 'HKDF', false, ['deriveBits'])
     const info = new TextEncoder().encode(JSON.stringify([origin, period]))
     const material = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: domain, info }, rootKey, 256)

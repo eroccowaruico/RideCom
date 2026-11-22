@@ -1,4 +1,5 @@
 import { notificationAuth } from './AppleAccount'
+import { receiveBackgroundSubmission } from './BackgroundSubmission'
 import { verifyDeviceProof } from './DeviceIdentity'
 import { isRecord, json, readJSON, sha256Hex, type Env } from './types'
 
@@ -8,9 +9,11 @@ const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const deviceKey = /^[A-Za-z0-9_-]{87}$/
 const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 const lifetime = 28 * 86_400_000 + 300_000
+const publicationFields = ['slot', 'id', 'expiresAt', 'recipient', 'recipientKey', 'packet']
 const missing = () => json({ error: 'Not found' }, 404)
 const unauthorized = () => json({ error: 'Unauthorized' }, 401)
 const badBody = () => json({ error: 'Invalid deletion request' }, 400)
+const rateLimited = () => json({ error: 'Too many deletion requests' }, 429)
 
 function field(value: unknown, format: RegExp): string {
     if (typeof value !== 'string' || !format.test(value)) throw new Error('body')
@@ -38,7 +41,8 @@ function stateResponse(state: string): Response {
 
 export async function contactDeletionRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url), method = request.method
-    const ownerWrite = url.pathname === path && (method === 'PUT' || method === 'DELETE')
+    const backgroundPublish = url.pathname === `${path}/background-publish` && method === 'POST'
+    const ownerWrite = backgroundPublish || (url.pathname === path && (method === 'PUT' || method === 'DELETE'))
     const read = url.pathname === `${path}/read` && method === 'POST'
     const receipt = url.pathname === `${path}/receipt` && method === 'PUT'
     if (!ownerWrite && !read && !receipt) return missing()
@@ -46,14 +50,20 @@ export async function contactDeletionRequest(request: Request, env: Env): Promis
     const bearer = request.headers.get('Authorization') ?? ''
     const token = bearer.startsWith('Bearer ') && bearer.length <= 512 ? bearer.slice(7) : ''
     try {
-        const auth = await notificationAuth(token, env)
+        const sealed = backgroundPublish
+            ? await receiveBackgroundSubmission(request, url.origin, 'publishBackgroundContactDeletion', env)
+            : null
+        if (sealed?.status === 'limited') return rateLimited()
+        if (sealed?.status === 'unauthorized') return unauthorized()
+        const auth = sealed ? sealed.auth : await notificationAuth(token, env)
         if (!auth) return unauthorized()
         if (!(await env.CALL_API_LIMIT.limit({ key: `contact-deletion:${auth.accountID}` })).success) {
-            return json({ error: 'Too many deletion requests' }, 429)
+            return rateLimited()
         }
         const own = env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(auth.accountID))
         const index = (owner: string) => env.NOTIFICATION_INDEX.get(env.NOTIFICATION_INDEX.idFromName(`user:${owner}`))
-        const body = await readJSON(request)
+        const body = sealed ? sealed.body : await readJSON(request)
+        if (sealed && Object.keys(body).some(key => !publicationFields.includes(key))) return badBody()
         const slot = field(body.slot, hex)
         const slotHash = await sha256Hex(slot)
 
