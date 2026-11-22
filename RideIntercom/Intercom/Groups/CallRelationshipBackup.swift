@@ -11,6 +11,7 @@ struct CallRelationshipBackup: Codable, Equatable {
         let id: UUID
         let principal: AccountPrincipal
         let restoreRecipientFingerprint: String?
+        let confirmedRegistrationID: UUID?
 
         fileprivate var hasValidRestoreRecipientFingerprint: Bool {
             guard let fingerprint = restoreRecipientFingerprint else { return true }
@@ -76,12 +77,23 @@ private extension GroupSnapshot {
             let pair = AccountCallPair(owner, principal)
             guard let call = calls[pair.id], call.accountPair == pair else { return nil }
             let fingerprint = try restoreRecipientFingerprint(for: user, in: call, principal: principal)
-            return .init(id: user.id, principal: principal, restoreRecipientFingerprint: fingerprint)
+            let registration = fingerprint == nil ? nil : contactRegistration(for: user, localMemberID: memberID)
+            return .init(id: user.id, principal: principal, restoreRecipientFingerprint: fingerprint,
+                         confirmedRegistrationID: registration)
         }
         let backupGroups = owned.filter { $0.kind != .direct }.map {
             CallRelationshipBackup.Group(id: $0.id, name: $0.name)
         }
         return try CallRelationshipBackup(owner: owner, groups: backupGroups, contacts: contacts).validated(for: owner)
+    }
+
+    func contactRegistration(for user: SavedUser, localMemberID: String) -> UUID? {
+        guard let peer = user.memberIDs.first else { return nil }
+        let id = IntercomGroup.directCallID(memberIDs: [localMemberID, peer])
+        guard let record = groups.first(where: { $0.id == id }), record.kind == .direct,
+              record.accountPair == nil, let registration = record.contactRegistration,
+              registration.isConfirmed else { return nil }
+        return registration.receiptID
     }
 
     func restoreRecipientFingerprint(for user: SavedUser, in call: Record, principal: AccountPrincipal) throws

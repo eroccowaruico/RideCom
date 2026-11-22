@@ -172,6 +172,7 @@ final class GroupRepository {
             record.lastSponsoredStart = old?.lastSponsoredStart
             record.pendingInvitation = old?.pendingInvitation
             record.receivedInvitationIDs = old?.receivedInvitationIDs ?? []
+            record.contactRegistration = old?.contactRegistration
             record.joinedByInvitation = old?.joinedByInvitation
             record.groupTabOfferAcknowledged = old?.groupTabOfferAcknowledged
             record.removedMembers = old?.removedMembers

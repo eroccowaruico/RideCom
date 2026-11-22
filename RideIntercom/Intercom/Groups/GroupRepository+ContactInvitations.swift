@@ -115,6 +115,8 @@ extension GroupRepository {
             groups: call.groups)
         let keys = token.invitedGroup.map { [GroupAccessCredential(groupID: $0.id, secret: $0.secret)] } ?? []
         try update(joiningGroups, credential: call.credential, additionalCredentials: keys) { next in
+            try Self.setContactRegistration(
+                .init(receiptID: accepted.receipt.id, isConfirmed: false), for: call.credential.groupID, in: &next)
             if let target = token.invitedGroup, let index = next.groups.firstIndex(where: { $0.id == target.id }) {
                 if !snapshot.groups.contains(where: { $0.id == target.id }) {
                     next.groups[index].joinedByInvitation = true
@@ -169,6 +171,8 @@ extension GroupRepository {
                 recipient, identity: verified.identity, old: old, now: now, in: &next
             )
             try Self.applyConfirmedContactToGroup(recipient, identity: verified.identity, old: old, in: &next)
+            try Self.setContactRegistration(
+                .init(receiptID: receipt.id, isConfirmed: true), for: call.credential.groupID, in: &next)
             next.contactInvitations[index].credentialReference = try self.prepareKey(payload.encodedSecret())
             next.contactInvitations[index].state = .confirmed
             next.contactInvitations[index].receivedBySharing = receivedBySharing ? true : nil
@@ -176,6 +180,14 @@ extension GroupRepository {
             next.contactInvitations[index].peerMemberID = verified.identity.memberID
             next.contactInvitations[index].peerDeviceKey = verified.identity.publicKey
         }
+    }
+
+    private static func setContactRegistration(
+        _ registration: GroupSnapshot.ContactRegistration, for id: UUID, in snapshot: inout GroupSnapshot
+    ) throws {
+        guard let index = snapshot.groups.firstIndex(where: { $0.id == id })
+        else { throw GroupStorageError.invalidUpdate }
+        snapshot.groups[index].contactRegistration = registration
     }
 
     private func rememberContactAcceptingInvitation(
@@ -278,8 +290,20 @@ extension GroupRepository {
 
     func completeContactNotification(_ id: UUID) throws {
         guard let snapshot, let record = snapshot.contactInvitations.first(where: { $0.id == id }),
-              record.direction == .incoming, record.state == .pending else { throw GroupStorageError.invalidUpdate }
-        try setContactInvitationState(id, state: .delivered)
+              record.direction == .incoming, record.state == .pending,
+              let localMemberID, let peerID = record.peerMemberID, let receiptID = record.receiptID
+        else { throw GroupStorageError.invalidUpdate }
+        let callID = IntercomGroup.directCallID(memberIDs: [localMemberID, peerID])
+        try amend(snapshot) { next in
+            guard let invitation = next.contactInvitations.firstIndex(where: { $0.id == id })
+            else { throw GroupStorageError.invalidUpdate }
+            next.contactInvitations[invitation].state = .delivered
+            next.contactInvitations[invitation].credentialReference = nil
+            if let pair = next.groups.firstIndex(where: { $0.id == callID }),
+               next.groups[pair].contactRegistration?.receiptID == receiptID {
+                next.groups[pair].contactRegistration?.isConfirmed = true
+            }
+        }
     }
 
     func markContactInternetAcknowledged(_ id: UUID, receiptID: UUID) throws {

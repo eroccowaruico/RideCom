@@ -127,6 +127,7 @@ extension ContactReplyTests {
             for: harness.viewModel.groupRepository.contactInvitationPayload(id).token, contactBootstrap: true)
         var old = harness.groupStore.snapshot
         old.version = 9
+        for group in old.groups.indices { old.groups[group].contactRegistration = nil }
         let index = try #require(old.contactInvitations.firstIndex { $0.id == id })
         old.contactInvitations[index].personID = nil
         if personWasDeleted { old.users = []; old.groups = [] }

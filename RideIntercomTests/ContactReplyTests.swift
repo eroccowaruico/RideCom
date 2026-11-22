@@ -236,10 +236,16 @@ struct ContactReplyTests {
         authorHarness.viewModel.showContactPerson(person)
         let presentation = authorHarness.viewModel.contactInvitationPresentation
         let before = recipientHarness.groupStore.snapshot
+        let pending = try #require(before.groups.first { $0.kind == .direct && $0.accountPair == nil })
+        let registration = try #require(pending.contactRegistration)
+        #expect(!registration.isConfirmed)
         let reply = try recipientHarness.viewModel.contactReplyURLForSharing(
             id, expectedAccountAccessID: recipientHarness.viewModel.accountAccessID)
         #expect(recipientHarness.groupStore.snapshot == before, "Export does not claim delivery")
         try authorHarness.viewModel.receiveContactReplyURL(reply)
+        let registered = try #require(authorHarness.groupStore.snapshot.groups.first { $0.id == pending.id })
+        #expect(registered.contactRegistration?.receiptID == registration.receiptID)
+        #expect(registered.contactRegistration?.isConfirmed == true)
         #expect(authorHarness.viewModel.directoryUsers.map(\.id) == [person])
         #expect(authorHarness.viewModel.contactPerson(person)?.isRegistered == true)
         #expect(authorHarness.viewModel.contactPerson(person)?.localName == "My Friend")
@@ -251,6 +257,8 @@ struct ContactReplyTests {
         let confirmation = try authorHarness.viewModel.contactReplyURLForSharing(
             id, expectedAccountAccessID: authorHarness.viewModel.accountAccessID)
         try recipientHarness.viewModel.receiveContactReplyURL(confirmation)
+        let delivered = try #require(recipientHarness.groupStore.snapshot.groups.first { $0.id == pending.id })
+        #expect(delivered.contactRegistration == registered.contactRegistration)
         #expect(recipientHarness.viewModel.contactInvitationPresentation == receiverPresentation)
         #expect(recipientHarness.viewModel.contactInvitationRecord(id)?.state == .delivered)
         #expect(recipientHarness.viewModel.pendingContactInvitations.isEmpty)
@@ -340,6 +348,7 @@ extension ContactReplyTests {
     private func reopenLegacyRemoval(author: AppTestSupport.Harness, groupID: UUID) throws {
         var previous = author.groupStore.snapshot
         previous.version = 14
+        for group in previous.groups.indices { previous.groups[group].contactRegistration = nil }
         let index = try #require(previous.groups.firstIndex { $0.id == groupID })
         previous.groups[index].removedMembers?[0].priorInvitationIDs = nil
         author.groupStore.snapshot = try GroupSnapshot.decode(previous.encoded())

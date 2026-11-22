@@ -94,6 +94,11 @@ extension GroupSnapshot {
         guard Set(references).count == references.count else { throw IntercomGroupError.invalidStoredGroups }
         for record in groups {
             _ = try record.group()
+            if record.contactRegistration != nil {
+                guard version >= 28, record.kind == .direct, record.accountPair == nil else {
+                    throw IntercomGroupError.invalidStoredGroups
+                }
+            }
             if let keys = record.invitationDeviceKeys {
                 let memberIDs = Set(record.members.map(\.id))
                 guard version >= 14, record.kind == .group, !keys.isEmpty, keys.allSatisfy({ memberID, key in

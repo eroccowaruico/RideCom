@@ -5,6 +5,49 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct CallRelationshipBackupTests {
+    @Test func confirmedRegistrationSurvivesInviteExpiryAndChangesAfterReaddingTheSamePerson() throws {
+        let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let peer = try #require(scenario.fixture.peers.first {
+            $0.viewModel.localMemberIdentity.memberID == "alice-old"
+        })
+        let other = scenario.other
+        for device in [peer, other] { device.viewModel.groupDeliveryClient = nil }
+        let otherSigner = try #require(try other.viewModel.callRelationshipBackupSigner())
+        let now = Date().timeIntervalSince1970
+        let original = try #require(try other.viewModel.groupRepository
+            .callRelationshipBackup(as: otherSigner, now: now).contacts.first?.confirmedRegistrationID)
+        let peerBackup = try peer.viewModel.groupRepository.callRelationshipBackup(as: scenario.oldSigner, now: now)
+        #expect(peerBackup.contacts.first?.confirmedRegistrationID == original)
+
+        for device in [peer, other] {
+            let model = device.viewModel
+            let expiry = try #require(model.groupRepository.contactInvitations.map(\.expiresAt).max())
+            try model.groupRepository.removeExpiredContactInvitations(now: expiry)
+            #expect(model.groupRepository.contactInvitations.isEmpty)
+            device.groupStore.snapshot = try GroupSnapshot.decode(device.groupStore.snapshot.encoded())
+            model.reloadSavedGroups()
+            let signer = try #require(try model.callRelationshipBackupSigner())
+            #expect(try model.groupRepository
+                .callRelationshipBackup(as: signer, now: now).contacts.first?.confirmedRegistrationID == original)
+            let id = try #require(model.savedRemoteUsers.first?.id)
+            try #require(model.removeSavedUser(id))
+            #expect(try model.groupRepository.callRelationshipBackup(as: signer, now: now).contacts.isEmpty)
+        }
+
+        _ = try scenario.fixture.completeGroupContactRegistration(from: other, to: peer)
+        var updated = [UUID]()
+        for device in [peer, other] {
+            let model = device.viewModel, id = try #require(device.viewModel.savedRemoteUsers.first?.id)
+            try #require(model.selectUser(id, connectIfIdle: false))
+            #expect(model.selectedGroup?.id == scenario.directID)
+            let signer = try #require(try model.callRelationshipBackupSigner())
+            let candidate = try model.groupRepository.callRelationshipBackup(as: signer, now: now)
+            updated.append(try #require(candidate.contacts.first?.confirmedRegistrationID))
+        }
+        #expect(updated[0] == updated[1])
+        #expect(updated[0] != original)
+    }
+
     @Test func backupRoundTripContainsOnlyTheOwnersCallCandidates() throws {
         let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
         let store = InMemoryGroupStore()

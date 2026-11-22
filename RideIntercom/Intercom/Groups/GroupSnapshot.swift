@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 27
+    static let currentVersion = 28
     static let maximumGroupDeliveries = 512
     static let maximumIssuedOrdinaryGroupInvitations = 32
     var version = Self.currentVersion
@@ -245,6 +245,11 @@ extension GroupSnapshot {
         var userID: UUID?
         var localName: String?
     }
+    struct ContactRegistration: Codable, Equatable {
+        let receiptID: UUID
+        var isConfirmed: Bool
+    }
+
     struct Record: Codable, Equatable {
         var id: UUID
         var name: String
@@ -256,6 +261,7 @@ extension GroupSnapshot {
         var invitationDeviceKeys: [String: String]?
         var pendingInvitation: DirectInvitationReceipt?
         var receivedInvitationIDs: [UUID] = []
+        var contactRegistration: ContactRegistration?
         var lastSponsoredStart: TimeInterval?
         /// True when this device joined the group through someone's invitation, so someone else owns it.
         /// Nil (groups made here, and groups saved before this was kept) means you own it.
@@ -331,6 +337,7 @@ extension GroupSnapshot {
 
 extension GroupSnapshot.Record {
     private enum CodingKeys: String, CodingKey {
+        case contactRegistration
         case id, name, members, credentialReference, kind, pendingInvitation, receivedInvitationIDs,
             accountPair, accountDevices, invitationDeviceKeys, lastSponsoredStart, joinedByInvitation,
             groupTabOfferAcknowledged, removedMembers
@@ -348,6 +355,8 @@ extension GroupSnapshot.Record {
         invitationDeviceKeys = try values.decodeIfPresent([String: String].self, forKey: .invitationDeviceKeys)
         pendingInvitation = try values.decodeIfPresent(DirectInvitationReceipt.self, forKey: .pendingInvitation)
         receivedInvitationIDs = try values.decodeIfPresent([UUID].self, forKey: .receivedInvitationIDs) ?? []
+        contactRegistration = try values.decodeIfPresent(
+            GroupSnapshot.ContactRegistration.self, forKey: .contactRegistration)
         lastSponsoredStart = try values.decodeIfPresent(TimeInterval.self, forKey: .lastSponsoredStart)
         joinedByInvitation = try values.decodeIfPresent(Bool.self, forKey: .joinedByInvitation)
         groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
