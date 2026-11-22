@@ -97,7 +97,7 @@ new_sqlite_classes = ["AppAttestKeyIndex"]
 # Previews inherit the SFU values and device registry from Previews Base.
 # Ordinary variables and env bindings must be declared separately from production.
 [previews.vars]
-APPLE_AUTH_ENABLED = "false"
+APPLE_AUTH_ENABLED = "true"
 APPLE_CLIENT_ID = "com.yowamushi-inc.RideIntercom.RideIntercom"
 APPLE_TEAM_ID = "UAY8FH5FF8"
 APNS_KEY_ID = "8RUSCT2655"
@@ -105,8 +105,8 @@ CLOUDFLARE_SFU_APP_ID = "c856b32cd64c6063bc5168040c585154"
 CLOUDFLARE_TURN_KEY_ID = "2623615f9c799036b3274471b32a8201"
 DEVICE_ATTESTATION_ENABLED = "false"
 DEVICE_ATTESTATION_MAC_POLICY = ""
-SERVICE_ENABLED = "false"
-TURN_ENABLED = "false"
+SERVICE_ENABLED = "true"
+TURN_ENABLED = "true"
 NOTIFICATIONS_ENABLED = "false"
 APNS_TOPIC = "com.yowamushi-inc.RideIntercom.RideIntercom"
 APNS_ENVIRONMENT = "sandbox"

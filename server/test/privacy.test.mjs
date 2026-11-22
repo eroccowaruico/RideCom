@@ -25,13 +25,16 @@ test('production and Preview explicitly disable Worker logging and export', () =
     }
 });
 
-test('fixed Preview pauses internet calls and notifications while production remains enabled', () => {
+test('fixed Preview enables Internet call enrollment and TURN while notifications remain isolated', () => {
     const config = unstable_readConfig({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)) });
     assert.ok(config.previews);
-    for (const flag of ['SERVICE_ENABLED', 'NOTIFICATIONS_ENABLED']) {
+    for (const flag of ['APPLE_AUTH_ENABLED', 'SERVICE_ENABLED', 'TURN_ENABLED']) {
         assert.equal(config.vars[flag], 'true', flag);
-        assert.equal(config.previews.vars[flag], 'false', flag);
+        assert.equal(config.previews.vars[flag], 'true', flag);
     }
+    assert.equal(config.vars.NOTIFICATIONS_ENABLED, 'true');
+    assert.equal(config.previews.vars.NOTIFICATIONS_ENABLED, 'false');
+    assert.equal(config.previews.vars.APNS_ENVIRONMENT, 'sandbox');
 });
 
 test('fixed Preview declares its own SFU and TURN references', () => {

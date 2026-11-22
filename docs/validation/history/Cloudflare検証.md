@@ -203,3 +203,9 @@ Apple認可取消用の署名済み`APPLE_CLIENT_SECRET`を手動登録・更新
 Appleコード交換・取消の署名、issuer・subject・audience・Key ID・5分期限、isolate内再利用、設定不足のfail-closedを確認した。さらにテスト時計を301秒進め、期限切れのJWTを再利用せず新しいJWTでコード交換と取消を継続することを確認した。最新mainの追加試験を含むWorker全107件、TypeScript型検査、Wrangler dry-run、文書検査とその単体12件、diff checkが成功した。APNsのprovider JWTは既存実装が`.p8`から50分未満で自動更新し、TURN短期資格は既存実装が通話leaseに合わせてAPI発行・更新・失効することをコードと既存テストで再確認した。製品の安全性に必要な端末資格・招待・通話leaseの期限は変更していない。
 
 実Appleのコード交換・取消、Cloudflare設定登録、Production／Preview配置はこの検証では行っていない。本番を止めない移行順は、新しい`.p8` secretとKey ID／Team ID Variableの先行登録、Worker配置、実Apple受入、旧secret削除の順とした。手順は[Cloudflare試用手順](../../development/Cloudflare試用手順.md#apple登録入口の保護)へ記録した。
+
+## 共有mainから固定Previewを再作成する（2026-11-22）
+
+固定 `preview` ブランチを削除し、Cloudflareの旧Previewが自動削除されたことを確認した。共有 `main` の `99e11103` を同名のブランチへpushし、自動ビルドと新規配置の成功を確認した。新しい配置にはPreviews BaseのSFU、TURN、端末証明、sandbox APNsのシークレットが入った。確認はbindingの型に限った。
+
+固定PreviewでAppleによる端末登録・Internet通話・TURNを試すため、`previews.vars` の3項目を有効にする。受入には両端末で新しい資格を発行し、グループ招待、双方向音声、再接続後の音声を確認する。[固定Previewを作り直せる条件](../../development/Cloudflare試用手順.md#固定previewを作り直せる条件)
