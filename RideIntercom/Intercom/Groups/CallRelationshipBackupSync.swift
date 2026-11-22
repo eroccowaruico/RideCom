@@ -60,13 +60,13 @@ final class CallRelationshipBackupSync {
         let now = Date().timeIntervalSince1970
         let local = try repository.callRelationshipBackup(as: signer, now: now)
         let checkpoint = try checkpoints.load(as: signer)
-        guard !local.isEmpty else {
-            status = checkpoint == nil ? .idle : .requiresReconciliation
-            return
-        }
         let localFingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(local)
         if checkpoint?.saved == localFingerprint && checkpoint?.pending == nil {
             status = .saved
+            return
+        }
+        if local.isEmpty, checkpoint == nil || repository.writableSnapshot?.lastBackupRemoval == nil {
+            status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
 
@@ -74,7 +74,8 @@ final class CallRelationshipBackupSync {
         guard !pending, let current = try signerMatching(signer) else { return }
         let commitTime = Date().timeIntervalSince1970
         let candidate = try repository.callRelationshipBackup(as: current, now: commitTime)
-        guard !candidate.isEmpty else {
+        let removal = candidate.isEmpty ? repository.writableSnapshot?.lastBackupRemoval : nil
+        guard !candidate.isEmpty || (checkpoint != nil && removal != nil) else {
             status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
@@ -89,9 +90,13 @@ final class CallRelationshipBackupSync {
             status = .requiresReconciliation
             return
         }
+        guard !candidate.isEmpty || (remote != nil && removal?.fingerprint == remoteFingerprint) else {
+            status = .requiresReconciliation
+            return
+        }
 
         try checkpoints.save(.init(saved: remoteFingerprint, pending: candidateFingerprint), as: current)
-        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime)
+        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime, clearing: removal)
         guard try signerMatching(current) != nil else { return }
         try checkpoints.save(.init(saved: candidateFingerprint, pending: nil), as: current)
         if !pending { status = .saved }

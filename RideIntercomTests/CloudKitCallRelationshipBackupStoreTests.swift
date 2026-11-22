@@ -341,7 +341,7 @@ struct CallRelationshipAutomaticBackupTests {
 }
 
 @MainActor
-private final class MemoryCallBackupRecords {
+final class MemoryCallBackupRecords {
     var current: CKRecord?
     var savePolicies: [CKModifyRecordsOperation.RecordSavePolicy] = []
     var readError: CKError?

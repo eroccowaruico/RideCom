@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 24
+    static let currentVersion = 26
     static let maximumGroupDeliveries = 512
     static let maximumIssuedOrdinaryGroupInvitations = 32
     var version = Self.currentVersion
@@ -20,6 +20,7 @@ struct GroupSnapshot: Codable, Equatable {
     var contactDeletionRelayReceipts: [ContactDeletionRelayReceipt] = []
     var contactDeletionFormerPairs: [ContactDeletionFormerPair] = []
     var issuedOrdinaryGroupInvitations: [IssuedOrdinaryGroupInvitation] = []
+    var lastBackupRemoval: CallRelationshipBackupRemoval?
 
     var credentialReferences: [UUID] {
         groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
@@ -55,6 +56,7 @@ struct GroupSnapshot: Codable, Equatable {
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
         case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
         case issuedOrdinaryGroupInvitations
+        case lastBackupRemoval
     }
 
     init(from decoder: Decoder) throws {
@@ -87,6 +89,7 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([ContactDeletionFormerPair].self, forKey: .contactDeletionFormerPairs)
         issuedOrdinaryGroupInvitations = version < 24 ? []
             : try values.decode([IssuedOrdinaryGroupInvitation].self, forKey: .issuedOrdinaryGroupInvitations)
+        lastBackupRemoval = try values.decodeIfPresent(CallRelationshipBackupRemoval.self, forKey: .lastBackupRemoval)
     }
 
     func upgraded() -> GroupSnapshot {

@@ -122,6 +122,7 @@ final class GroupRepository {
         try withCurrentSnapshot(previous) {
             var next = try makeUpdatedSnapshot(groups, users: users, from: previous, now: now)
             try modify(&next)
+            if next.lastBackupRemoval?.isPresent(in: next) == true { next.lastBackupRemoval = nil }
             let allCredentials = (credential.map { [$0] } ?? []) + additionalCredentials
             next.discardIssuedOrdinaryGroupInvitations(now: now, replacingKeys: Set(allCredentials.map(\.groupID)))
             let retainedGroupIDs = Set(next.groups.map(\.id))
@@ -190,6 +191,7 @@ final class GroupRepository {
             },
            contactDeletionFormerPairs: previous.contactDeletionFormerPairs.filter { $0.expiresAt > now })
         next.issuedOrdinaryGroupInvitations = previous.issuedOrdinaryGroupInvitations
+        next.lastBackupRemoval = previous.lastBackupRemoval
         return next
     }
 

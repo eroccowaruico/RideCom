@@ -30,6 +30,7 @@ extension GroupRepository {
         try update(remaining, credential: nil, now: now) { next in
             try Self.rememberGroupRemoval(receipt, for: id, in: &next, now: now)
             Self.cancelPendingGroupReceipts(in: &next) { $0.groupID == id }
+            rememberLastBackupRemoval(id, kind: .group, afterRemovingFrom: &next)
         }
     }
 

@@ -160,6 +160,7 @@ extension GroupRepository {
                 record.senderMemberID.map(user.memberIDs.contains) == true
             }
             try modify(directCalls, &next)
+            rememberLastBackupRemoval(user.id, kind: .contact, afterRemovingFrom: &next)
         }
         return removed
     }

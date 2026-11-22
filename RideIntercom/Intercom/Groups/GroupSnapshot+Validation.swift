@@ -3,6 +3,9 @@ import Foundation
 extension GroupSnapshot {
     func validated() throws -> GroupSnapshot {
         guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
+        if let removal = lastBackupRemoval, version < 26 || !removal.isValid || removal.isPresent(in: self) {
+            throw IntercomGroupError.invalidStoredGroups
+        }
         try validateGroupHeadersAndInvitations()
         try validateGroupRemovalsAndNearbyCancellations()
         try validateContactDeletionRecords()
