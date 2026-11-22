@@ -74,7 +74,7 @@ final class CallRelationshipBackupSync {
         guard !pending, let current = try signerMatching(signer) else { return }
         let commitTime = Date().timeIntervalSince1970
         let candidate = try repository.callRelationshipBackup(as: current, now: commitTime)
-        let removals = candidate.isEmpty ? repository.writableSnapshot?.backupRemovals : nil
+        let removals = repository.writableSnapshot?.backupRemovals
         guard !candidate.isEmpty || (checkpoint != nil && removals != nil) else {
             status = checkpoint == nil ? .idle : .requiresReconciliation
             return
@@ -87,7 +87,8 @@ final class CallRelationshipBackupSync {
             return
         }
         guard checkpoint?.matches(remoteFingerprint) ?? (remoteFingerprint == nil) else {
-            status = .requiresReconciliation
+            try await applyContactRemovals(removals, to: remote, keeping: candidate, after: checkpoint?.saved,
+                                           as: current)
             return
         }
         if candidate.isEmpty,
@@ -97,9 +98,27 @@ final class CallRelationshipBackupSync {
         }
 
         try checkpoints.save(.init(saved: remoteFingerprint, pending: candidateFingerprint), as: current)
-        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime, clearing: removals)
+        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime,
+                                 clearing: candidate.isEmpty ? removals : nil)
         guard try signerMatching(current) != nil else { return }
         try checkpoints.save(.init(saved: candidateFingerprint, pending: nil), as: current)
+        if !pending { status = .saved }
+    }
+
+    private func applyContactRemovals(_ removals: CallRelationshipBackupRemovals?,
+                                      to remote: CloudKitCallRelationshipBackupStore.Saved?,
+                                      keeping local: CallRelationshipBackup, after lastSaved: String?,
+                                      as signer: DeviceIdentitySigner) async throws {
+        guard !pending, !Task.isCancelled else { return }
+        status = .requiresReconciliation
+        guard let remote, let lastSaved, let removals else { return }
+        let ids = try removals.removableContacts(in: remote.backup, absentFrom: local, after: lastSaved)
+        guard !ids.isEmpty else { return }
+        let updated = try await store.removeContacts(ids, from: remote, as: signer, now: Date().timeIntervalSince1970)
+        // Keep the old checkpoint while other cloud changes have yet to reach this device.
+        guard try signerMatching(signer) != nil, updated.backup == local else { return }
+        let fingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(local)
+        try checkpoints.save(.init(saved: fingerprint, pending: nil), as: signer)
         if !pending { status = .saved }
     }
 

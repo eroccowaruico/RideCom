@@ -63,6 +63,10 @@ struct CallRelationshipBackupCheckpointStore {
         try digest(backup)
     }
 
+    static func fingerprint(_ contact: CallRelationshipBackup.Contact) throws -> String {
+        try digest(contact)
+    }
+
     private func account(as signer: DeviceIdentitySigner) throws -> String {
         guard !cloud.container.isEmpty, !cloud.account.isEmpty, let owner = signer.principal else {
             throw GroupStorageError.identityConflict

@@ -71,7 +71,19 @@ struct CloudKitCallRelationshipBackupStore {
                 throw Failure.nothingToSave
             }
         }
-        let id = Self.recordID(for: owner)
+        return try await writeBackup(backup, replacing: previous, as: signer, now: now)
+    }
+
+    func removeContacts(_ ids: Set<UUID>, from previous: Saved, as signer: DeviceIdentitySigner,
+                        now: TimeInterval) async throws -> Saved {
+        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now)
+        let backup = try previous.backup.removingContacts(ids).validated(for: owner)
+        return try await writeBackup(backup, replacing: previous, as: signer, now: now)
+    }
+
+    private func writeBackup(_ backup: CallRelationshipBackup, replacing previous: Saved?,
+                             as signer: DeviceIdentitySigner, now: TimeInterval) async throws -> Saved {
+        let id = Self.recordID(for: backup.owner)
         let record: CKRecord
         if let previous {
             guard previous.record.recordID == id, let copy = previous.record.copy() as? CKRecord else {

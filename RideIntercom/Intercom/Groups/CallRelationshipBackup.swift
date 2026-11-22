@@ -28,6 +28,10 @@ struct CallRelationshipBackup: Codable, Equatable {
 
     var isEmpty: Bool { groups.isEmpty && contacts.isEmpty }
 
+    func removingContacts(_ ids: Set<UUID>) -> Self {
+        .init(owner: owner, groups: groups, contacts: contacts.filter { !ids.contains($0.id) })
+    }
+
     fileprivate init(owner: AccountPrincipal, groups: [Group], contacts: [Contact]) {
         version = Self.currentVersion
         self.owner = owner
@@ -146,6 +150,7 @@ struct CallRelationshipBackupRemovals: Codable, Equatable {
     private struct Step: Codable, Equatable {
         let item: Item
         let before: String
+        let contactFingerprint: String?
     }
     private let steps: [Step]
     private let result: String
@@ -154,7 +159,8 @@ struct CallRelationshipBackupRemovals: Codable, Equatable {
         let fingerprints = steps.map(\.before) + [result]
         return !steps.isEmpty && Set(steps.map(\.item)).count == steps.count
             && Set(fingerprints).count == fingerprints.count
-            && fingerprints.allSatisfy {
+            && steps.allSatisfy { $0.item.kind == .contact || $0.contactFingerprint == nil }
+            && (fingerprints + steps.compactMap(\.contactFingerprint)).allSatisfy {
                 $0.utf8.count == 64 && $0.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
             }
     }
@@ -168,8 +174,11 @@ struct CallRelationshipBackupRemovals: Codable, Equatable {
             contacts: before.contacts.filter { kind != .contact || $0.id != id })
         guard before != expected, expected == after else { return nil }
         let fingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(before)
+        let contact = before.contacts.first { kind == .contact && $0.id == id && $0.confirmedRegistrationID != nil }
+        let contactFingerprint = try contact.map { try CallRelationshipBackupCheckpointStore.fingerprint($0) }
         let priorSteps = previous.flatMap { $0.result == fingerprint ? $0.steps : nil } ?? []
-        steps = priorSteps + [Step(item: .init(id: id, kind: kind), before: fingerprint)]
+        steps = priorSteps + [Step(item: .init(id: id, kind: kind), before: fingerprint,
+                                  contactFingerprint: contactFingerprint)]
         result = try CallRelationshipBackupCheckpointStore.fingerprint(after)
     }
 
@@ -191,5 +200,21 @@ struct CallRelationshipBackupRemovals: Codable, Equatable {
             case .contact: snapshot.users.contains { $0.id == step.item.id }
             }
         }
+    }
+
+    func removableContacts(in remote: CallRelationshipBackup, absentFrom local: CallRelationshipBackup,
+                           after lastSaved: String) throws -> Set<UUID> {
+        guard remote.owner == local.owner, let start = steps.firstIndex(where: { $0.before == lastSaved })
+        else { return [] }
+        let proofs = Dictionary(uniqueKeysWithValues: steps[start...].compactMap { step in
+            step.contactFingerprint.map { (step.item.id, $0) }
+        })
+        let retained = Set(local.contacts.map(\.principal))
+        return try Set(remote.contacts.compactMap { contact in
+            guard let proof = proofs[contact.id], contact.confirmedRegistrationID != nil,
+                  !retained.contains(contact.principal),
+                  try CallRelationshipBackupCheckpointStore.fingerprint(contact) == proof else { return nil }
+            return contact.id
+        })
     }
 }
