@@ -77,7 +77,9 @@ private extension GroupSnapshot {
             let pair = AccountCallPair(owner, principal)
             guard let call = calls[pair.id], call.accountPair == pair else { return nil }
             let fingerprint = try restoreRecipientFingerprint(for: user, in: call, principal: principal)
-            let registration = fingerprint == nil ? nil : contactRegistration(for: user, localMemberID: memberID)
+            let registration = fingerprint == nil ? nil : user.memberIDs.first.flatMap {
+                confirmedContactRegistration(localMemberID: memberID, peerMemberID: $0)
+            }
             return .init(id: user.id, principal: principal, restoreRecipientFingerprint: fingerprint,
                          confirmedRegistrationID: registration)
         }
@@ -85,15 +87,6 @@ private extension GroupSnapshot {
             CallRelationshipBackup.Group(id: $0.id, name: $0.name)
         }
         return try CallRelationshipBackup(owner: owner, groups: backupGroups, contacts: contacts).validated(for: owner)
-    }
-
-    func contactRegistration(for user: SavedUser, localMemberID: String) -> UUID? {
-        guard let peer = user.memberIDs.first else { return nil }
-        let id = IntercomGroup.directCallID(memberIDs: [localMemberID, peer])
-        guard let record = groups.first(where: { $0.id == id }), record.kind == .direct,
-              record.accountPair == nil, let registration = record.contactRegistration,
-              registration.isConfirmed else { return nil }
-        return registration.receiptID
     }
 
     func restoreRecipientFingerprint(for user: SavedUser, in call: Record, principal: AccountPrincipal) throws
@@ -105,6 +98,16 @@ private extension GroupSnapshot {
               !call.excludesMember(memberID, principal: principal)
         else { return nil }
         return try CallRelationshipRestoreRequest.recipientFingerprint(callID: call.id, memberID: memberID, key: key)
+    }
+}
+
+extension GroupSnapshot {
+    func confirmedContactRegistration(localMemberID: String, peerMemberID: String) -> UUID? {
+        let id = IntercomGroup.directCallID(memberIDs: [localMemberID, peerMemberID])
+        guard let record = groups.first(where: { $0.id == id }), record.kind == .direct,
+              record.accountPair == nil, let registration = record.contactRegistration,
+              registration.isConfirmed else { return nil }
+        return registration.receiptID
     }
 }
 

@@ -92,6 +92,7 @@ import Testing
 @MainActor
 struct ReplacementScenario {
     let fixture: AccountCallFixture
+    let old: AppTestSupport.Harness
     let other: AppTestSupport.Harness
     let replacement: AppTestSupport.Harness
     let groupID: UUID
@@ -106,7 +107,7 @@ struct ReplacementScenario {
     init(fixture supplied: AccountCallFixture? = nil) throws {
         let fixture = supplied ?? AccountCallFixture()
         self.fixture = fixture
-        let old = try fixture.peer("alice-old", account: "a")
+        old = try fixture.peer("alice-old", account: "a")
         other = try fixture.peer("bob", account: "b")
         replacement = try fixture.peer("alice", account: "a")
         for peer in [old, other, replacement] { peer.viewModel.allowsNearbyGroupDelivery = false }
@@ -165,8 +166,17 @@ struct ReplacementScenario {
         let now = Date()
         let entries = try (records ?? backup.groups).map { record in
             let credential = try #require(try model.groupRepository.credential(for: record.id))
-            let request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
-                                                              recipient: recipient, signer: requester, now: now)
+            let request: CallRelationshipRestoreRequest
+            if record.kind == .direct {
+                let candidate = try old.viewModel.groupRepository.callRelationshipBackup(
+                    as: oldSigner, now: now.timeIntervalSince1970)
+                let identity = try #require(responder.identity)
+                request = try #require(try candidate.directRestoreRequest(
+                    for: savedPersonID, to: identity, as: requester, now: now))
+            } else {
+                request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
+                                                             recipient: recipient, signer: requester, now: now)
+            }
             let confirmation = try #require(try model.groupRepository.confirmRestore(
                 request, as: responder, trust: trust, now: now))
             let context = CallRelationshipRestoreContext(

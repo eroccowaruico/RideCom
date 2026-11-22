@@ -91,10 +91,11 @@ struct CloudKitBackupSessionTests {
                                          users: kind == .group ? [] : plan.users,
                                          calls: plan.calls.filter { $0.context.record.kind == kind })
         let sourceStore = InMemoryGroupStore()
-        sourceStore.snapshot = scenario.backup
+        sourceStore.snapshot = scenario.old.groupStore.snapshot
         let groupIndex = try #require(sourceStore.snapshot.groups.firstIndex { $0.id == scenario.groupID })
         sourceStore.snapshot.groups[groupIndex].accountDevices[scenario.oldSigner.memberID] = scenario.backupOwner
-        let source = GroupRepository(store: sourceStore, credentials: scenario.restoredCredentials)
+        let credentials = try #require(scenario.fixture.credentialStores[scenario.oldSigner.memberID])
+        let source = GroupRepository(store: sourceStore, credentials: credentials)
         var groups = try source.load(localMemberID: scenario.oldSigner.memberID)
         let now = Date().timeIntervalSince1970
         let earlier = try source.callRelationshipBackup(as: scenario.oldSigner, now: now)
@@ -150,6 +151,10 @@ struct CloudKitBackupSessionTests {
 
     @Test func restoreDoesNotSaveAConfirmationFromAnotherDeviceOfTheSameContact() async throws {
         let scenario = try ReplacementScenario(); defer { scenario.fixture.disconnect() }
+        let now = Date()
+        let candidate = try scenario.old.viewModel.groupRepository.callRelationshipBackup(
+            as: scenario.oldSigner, now: now.timeIntervalSince1970)
+        let registration = try #require(candidate.contacts.first?.confirmedRegistrationID)
         let fixtures = scenario.fixture
         let staleDevice = try fixtures.peer("bob-other", account: "b")
         let oldDevice = try fixtures.peer("alice-old", account: "a")
@@ -167,9 +172,9 @@ struct CloudKitBackupSessionTests {
         let responder = try stale.internetSettingsStore.invitationSigner(memberID: "bob-other")
         let principal = try #require(responder.principal)
         let recipient = AccountDeviceBinding(principal: principal, publicKey: responder.publicKey)
-        let now = Date()
         let request = try CallRelationshipRestoreRequest(callID: record.id, recipientMemberID: responder.memberID,
-                                                          recipient: recipient, signer: requester, now: now)
+                                                          recipient: recipient, signer: requester, now: now,
+                                                          confirmedRegistrationID: registration)
         let response = try #require(try stale.groupRepository.confirmRestore(
             request, as: responder, trust: scenario.trust, now: now))
         let context = CallRelationshipRestoreContext(
@@ -183,11 +188,6 @@ struct CloudKitBackupSessionTests {
             previousMemberID: oldDevice.viewModel.localMemberIdentity.memberID, users: [saved],
             calls: [.init(context: context, transferredCredential: transfer)])
 
-        let sourceStore = InMemoryGroupStore()
-        sourceStore.snapshot = scenario.backup
-        let repository = GroupRepository(store: sourceStore, credentials: scenario.restoredCredentials)
-        _ = try repository.load(localMemberID: scenario.oldSigner.memberID)
-        let candidate = try repository.callRelationshipBackup(as: scenario.oldSigner, now: now.timeIntervalSince1970)
         _ = try #require(candidate.contacts.first?.restoreRecipientFingerprint)
         let cloud = CloudAccountFixture(account: "first")
         _ = try await cloud.store.save(
@@ -204,7 +204,7 @@ struct CloudKitBackupSessionTests {
 
 extension CloudKitBackupSessionTests {
     enum ResponderState: CaseIterable, Sendable {
-        case unchanged, contactRemoved, accountChanged, relayedDeletion, relayUnavailable
+        case unchanged, contactRemoved, accountChanged, relayedDeletion, relayUnavailable, missingRegistration
     }
 
     @Test(arguments: ResponderState.allCases)
@@ -216,9 +216,8 @@ extension CloudKitBackupSessionTests {
         try prepareContactDeletionRelay(in: model)
         let signer = try #require(try model.callRelationshipBackupSigner())
         let requester = try #require(try scenario.replacement.viewModel.callRelationshipBackupSigner())
-        let principal = try #require(signer.principal)
-        let direct = try CallRelationshipRestoreRequest(callID: scenario.directID, recipientMemberID: signer.memberID,
-            recipient: .init(principal: principal, publicKey: signer.publicKey), signer: requester, now: Date())
+        let direct = try directRequest(scenario, to: signer, from: requester,
+                                       omitRegistration: state == .missingRegistration)
         let cloud = CloudAccountFixture(account: "first")
         let session = cloud.session()
         session.bind(to: model)
@@ -258,6 +257,24 @@ extension CloudKitBackupSessionTests {
         } else {
             #expect(scenario.other.groupStore.snapshot == before)
         }
+    }
+
+    private func directRequest(
+        _ scenario: ReplacementScenario, to signer: DeviceIdentitySigner, from requester: DeviceIdentitySigner,
+        omitRegistration: Bool
+    ) throws -> CallRelationshipRestoreRequest {
+        let now = Date()
+        if omitRegistration {
+            let principal = try #require(signer.principal)
+            return try .init(callID: scenario.directID, recipientMemberID: signer.memberID,
+                             recipient: .init(principal: principal, publicKey: signer.publicKey),
+                             signer: requester, now: now)
+        }
+        let candidate = try scenario.old.viewModel.groupRepository.callRelationshipBackup(
+            as: scenario.oldSigner, now: now.timeIntervalSince1970)
+        let identity = try #require(signer.identity)
+        return try #require(try candidate.directRestoreRequest(
+            for: scenario.savedPersonID, to: identity, as: requester, now: now))
     }
 
     private func prepareContactDeletionRelay(in model: IntercomViewModel) throws {

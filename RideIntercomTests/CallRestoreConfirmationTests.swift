@@ -187,6 +187,12 @@ struct CallRestoreConfirmationTests {
                                                       as: requester, now: time)
         #expect(previous.contacts.map(\.id) == [contactID])
         #expect(try previous.directRestoreRequest(for: contactID, to: identity, as: requester, now: now) == nil)
+        contact["restoreRecipientFingerprint"] = try #require(backup.contacts.first?.restoreRecipientFingerprint)
+        contact.removeValue(forKey: "confirmedRegistrationID")
+        payload["contacts"] = [contact]
+        let unconfirmed = try CallRelationshipBackup.read(JSONSerialization.data(withJSONObject: payload),
+                                                         as: requester, now: time)
+        #expect(try unconfirmed.directRestoreRequest(for: contactID, to: identity, as: requester, now: now) == nil)
         contact["restoreRecipientFingerprint"] = "not-a-fingerprint"
         payload["contacts"] = [contact]
         #expect(throws: GroupStorageError.invalidUpdate) {

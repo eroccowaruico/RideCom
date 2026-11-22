@@ -9,6 +9,7 @@ struct CallRelationshipRestoreRequest: Codable {
         let recipient: AccountDeviceBinding
         let requesterMemberID: String
         let expiresAt: Date
+        let confirmedRegistrationID: UUID?
 
         func isCurrent(at now: Date) -> Bool {
             expiresAt > now && expiresAt <= now.addingTimeInterval(330)
@@ -23,7 +24,7 @@ struct CallRelationshipRestoreRequest: Codable {
     fileprivate let proof: DeviceIdentityProof
 
     init(callID: UUID, recipientMemberID: String, recipient: AccountDeviceBinding,
-         signer: DeviceIdentitySigner, now: Date) throws {
+         signer: DeviceIdentitySigner, now: Date, confirmedRegistrationID: UUID? = nil) throws {
         let requester = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
         guard recipient.principal.isValid, requester != recipient.principal,
               requester.issuer == recipient.principal.issuer,
@@ -34,7 +35,8 @@ struct CallRelationshipRestoreRequest: Codable {
         }
         let challenge = Challenge(id: UUID(), callID: callID, recipientMemberID: recipientMemberID,
                                   recipient: recipient, requesterMemberID: signer.memberID,
-                                  expiresAt: now.addingTimeInterval(300))
+                                  expiresAt: now.addingTimeInterval(300),
+                                  confirmedRegistrationID: confirmedRegistrationID)
         self.challenge = challenge
         proof = try signer.sign(restoreProofPayload(challenge), purpose: .requestCallRelationshipRestore)
     }
@@ -52,7 +54,9 @@ struct CallRelationshipRestoreRequest: Codable {
         let responder = try CallRelationshipBackup.verifiedOwner(of: signer, now: now.timeIntervalSince1970)
         guard challenge.addresses(memberID: signer.memberID, principal: responder, publicKey: signer.publicKey)
         else { throw DeviceIdentityProof.Failure.invalid }
-        return AccountCallPair(requester, responder).id == challenge.callID ? requester : nil
+        guard challenge.confirmedRegistrationID != nil,
+              AccountCallPair(requester, responder).id == challenge.callID else { return nil }
+        return requester
     }
 
     fileprivate func verifiedRequester(trust: DeviceIdentityTrust, now: Date) throws -> AccountDeviceBinding {
@@ -77,25 +81,34 @@ extension CallRelationshipBackup {
         let principal = AccountPrincipal(issuer: identity.issuer, userID: identity.userID)
         let recipient = AccountDeviceBinding(principal: principal, publicKey: identity.deviceKey)
         let contact = contacts.first { $0.id == contactID }
-        guard identity.expiresAt > time,
+        guard identity.expiresAt > time, let registration = contact?.confirmedRegistrationID,
               let callID = try pinnedDirectCallID(for: contact, memberID: identity.memberID, recipient: recipient)
         else { return nil }
         return try .init(callID: callID, recipientMemberID: identity.memberID, recipient: recipient,
-                         signer: signer, now: now)
+                         signer: signer, now: now, confirmedRegistrationID: registration)
     }
 
     func matchesDirectRestoreRequest(_ context: CallRelationshipRestoreContext, contactID: UUID) throws -> Bool {
         let address = context.request.challenge
-        guard address.callID == context.record.id else { return false }
+        guard address.callID == context.record.id, let registration = address.confirmedRegistrationID else {
+            return false
+        }
         let contact = contacts.first { $0.id == contactID }
-        return try pinnedDirectCallID(for: contact, memberID: address.recipientMemberID,
-                                      recipient: address.recipient) == context.record.id
+        return try matchesDirectRestorePeer(contact, memberID: address.recipientMemberID, recipient: address.recipient,
+                                            callID: address.callID, registration: registration)
     }
 
-    fileprivate func containsDirectRestorePeer(_ peer: AccountDeviceBinding, memberID: String, callID: UUID)
-        throws -> Bool {
+    fileprivate func containsDirectRestorePeer(_ peer: AccountDeviceBinding, memberID: String, callID: UUID,
+                                               registration: UUID) throws -> Bool {
         let contact = contacts.first { $0.principal == peer.principal }
-        return try pinnedDirectCallID(for: contact, memberID: memberID, recipient: peer) == callID
+        return try matchesDirectRestorePeer(contact, memberID: memberID, recipient: peer,
+                                            callID: callID, registration: registration)
+    }
+
+    private func matchesDirectRestorePeer(_ contact: Contact?, memberID: String, recipient: AccountDeviceBinding,
+                                          callID: UUID, registration: UUID) throws -> Bool {
+        guard contact?.confirmedRegistrationID == registration else { return false }
+        return try pinnedDirectCallID(for: contact, memberID: memberID, recipient: recipient) == callID
     }
 
     private func pinnedDirectCallID(for contact: Contact?, memberID: String, recipient: AccountDeviceBinding) throws
@@ -326,8 +339,11 @@ extension GroupRepository {
                               && user.deviceKeys?[previous] == priorDevice.publicKey
                       }) else { return nil }
                 if let backup {
-                    guard backup.owner == responder,
-                          try backup.containsDirectRestorePeer(priorDevice, memberID: previous, callID: record.id)
+                    guard let registration = challenge.confirmedRegistrationID, backup.owner == responder,
+                          registration == snapshot.confirmedContactRegistration(
+                            localMemberID: signer.memberID, peerMemberID: previous),
+                          try backup.containsDirectRestorePeer(priorDevice, memberID: previous, callID: record.id,
+                                                             registration: registration)
                     else { return nil }
                 }
             }
