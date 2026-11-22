@@ -2,7 +2,7 @@ import Foundation
 
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
-    static let currentVersion = 30
+    static let currentVersion = 31
     static let maximumGroupDeliveries = 512
     static let maximumIssuedOrdinaryGroupInvitations = 32
     var version = Self.currentVersion
@@ -23,6 +23,7 @@ struct GroupSnapshot: Codable, Equatable {
     var backupRemovals: CallRelationshipBackupRemovals?
     var directRestoreDevices: [TrackedDirectRestoreDevice] = []
     var completedDirectRestore: DirectRestoreCompletion?
+    var directCallRestoreExclusions: Set<UUID> = []
 
     var credentialReferences: [UUID] {
         groups.compactMap(\.credentialReference) + contactInvitations.compactMap(\.credentialReference)
@@ -58,7 +59,7 @@ struct GroupSnapshot: Codable, Equatable {
         case nearbyGroupCancellations, contactDeletions, contactDeletionReceipts
         case contactDeletionPublications, contactDeletionRelayReceipts, contactDeletionFormerPairs
         case issuedOrdinaryGroupInvitations
-        case backupRemovals, directRestoreDevices, completedDirectRestore
+        case backupRemovals, directRestoreDevices, completedDirectRestore, directCallRestoreExclusions
     }
 
     init(from decoder: Decoder) throws {
@@ -96,6 +97,8 @@ struct GroupSnapshot: Codable, Equatable {
             : try values.decode([TrackedDirectRestoreDevice].self, forKey: .directRestoreDevices)
         completedDirectRestore =
             try values.decodeIfPresent(DirectRestoreCompletion.self, forKey: .completedDirectRestore)
+        directCallRestoreExclusions = version < 31
+            ? [] : try values.decode(Set<UUID>.self, forKey: .directCallRestoreExclusions)
     }
 
     func upgraded() -> GroupSnapshot {
@@ -368,10 +371,6 @@ extension GroupSnapshot.Record {
         groupTabOfferAcknowledged = try values.decodeIfPresent(Bool.self, forKey: .groupTabOfferAcknowledged)
         removedMembers = try values.decodeIfPresent([GroupSnapshot.RemovedMember].self, forKey: .removedMembers)
     }
-}
-
-enum GroupStorageError: Error, Equatable {
-    case busy, unsupportedVersion, changedByAnotherProcess, verificationFailed, invalidUpdate, identityConflict
 }
 
 protocol GroupStoring: AnyObject {

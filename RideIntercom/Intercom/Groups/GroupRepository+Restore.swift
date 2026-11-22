@@ -28,25 +28,37 @@ extension GroupRepository {
         return current == empty
     }
 
+    func canRestoreDirectContact(_ id: UUID, peer: AccountPrincipal, owner: AccountPrincipal) -> Bool {
+        guard let current = writableSnapshot, current.completedDirectRestore == nil else { return false }
+        let callID = AccountCallPair(owner, peer).id
+        return !current.directCallRestoreExclusions.contains(callID)
+            && !current.users.contains { $0.id == id || $0.principal == peer }
+            && !current.groups.contains { $0.id == callID }
+    }
+
     func restoreCallRelationships(
         _ batch: ConfirmedCallRestore, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
         completion: DirectRestoreCompletion? = nil,
         now: TimeInterval = Date().timeIntervalSince1970
     ) throws {
-        guard writableSnapshot != nil else { throw IntercomGroupError.storageUnavailable }
+        guard let previous = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
         guard let identity = signer.identity, identity.expiresAt > now,
               signer.principal == batch.owner, signer.memberID == localMemberID,
               signer.memberID != batch.previousMemberID else { throw GroupStorageError.identityConflict }
 
-        guard canRestoreCallRelationships, !batch.calls.isEmpty,
+        guard !batch.calls.isEmpty,
               batch.users.allSatisfy({ user in
                   user.isRegistered && user.principal != batch.owner
                       && !user.memberIDs.contains(signer.memberID) && !user.memberIDs.contains(batch.previousMemberID)
               }) else { throw GroupStorageError.invalidUpdate }
         if let completion {
             guard completion.isValid, completion.canRetire(in: identity, now: Date(timeIntervalSince1970: now)),
-                  batch.calls.count == 1, batch.calls.first?.context.record.kind == .direct
+                  batch.calls.count == 1, batch.calls.first?.context.record.kind == .direct,
+                  batch.users.count == 1, let user = batch.users.first, let peer = user.principal,
+                  canRestoreDirectContact(user.id, peer: peer, owner: batch.owner)
             else { throw GroupStorageError.invalidUpdate }
+        } else if !canRestoreCallRelationships {
+            throw GroupStorageError.invalidUpdate
         }
 
         let restored = try batch.calls.map { call in
@@ -69,9 +81,11 @@ extension GroupRepository {
                       return call.accountDevices[memberID] == .init(principal: principal, publicKey: key)
                   }) else { throw GroupStorageError.invalidUpdate }
         }
-        try update(records.map { try $0.group() }, credential: nil,
-                   additionalCredentials: restored.map(\.credential), users: batch.users, now: now) { next in
-            next.groups = records
+        let groups = previous.groups + records
+        try update(groups.map { try $0.group() }, credential: nil,
+                   additionalCredentials: restored.map(\.credential), users: previous.users + batch.users,
+                   now: now) { next in
+            next.groups = groups
             next.completedDirectRestore = completion
         }
     }

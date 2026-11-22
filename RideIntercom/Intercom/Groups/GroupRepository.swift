@@ -205,6 +205,7 @@ final class GroupRepository {
         next.backupRemovals = previous.backupRemovals
         next.directRestoreDevices = previous.directRestoreDevices.filter { Double($0.expiresAt) > now * 1_000 }
         next.completedDirectRestore = previous.completedDirectRestore
+        next.directCallRestoreExclusions = previous.directCallRestoreExclusions
         return next
     }
 

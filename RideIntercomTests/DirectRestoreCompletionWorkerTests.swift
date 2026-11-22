@@ -8,6 +8,110 @@ import Testing
 
 extension GroupDeliveryWorkerTests {
     @Test(.timeLimit(.minutes(1)))
+    func restoresTwoContactsAndKeepsADeletedContactOutAfterRestart() async throws {
+        try await withWorker(directRestore: true) {
+            let first = GroupDeliveryTestIdentity("multiple-first")
+            let second = GroupDeliveryTestIdentity("multiple-second")
+            let original = GroupDeliveryTestIdentity("multiple-original")
+            let replacement = GroupDeliveryTestIdentity("multiple-replacement")
+            defer { [first, second, original, replacement].forEach { $0.remove() } }
+            for identity in [first, second, original] { try await register(identity) }
+            try await register(replacement, appleSubject: original.memberID)
+            let firstHolder = try first.harness(knowing: []).viewModel
+            let secondHolder = try second.harness(knowing: []).viewModel
+            let old = try original.harness(knowing: []).viewModel
+            let new = try replacement.harness(knowing: [], onDisk: true).viewModel
+            defer { [firstHolder, secondHolder, old, new].forEach { $0.disconnect() } }
+            let client = InternetAccountClient(session: workerSession())
+            let firstID = try await prepareRestorableContact(from: firstHolder, in: old, using: client)
+            let secondID = try await prepareRestorableContact(from: secondHolder, in: old, using: client)
+            let source = CloudAccountFixture(account: "multiple-source")
+            let backup = try await saveRestoreBackup(of: old, as: original.signer, for: source)
+            let keys = DictionaryKeychain()
+            let makeReader = { source.session(keychain: keys, directRestoreClient: client) }
+            let originalKey = try await restoreSavedContact(firstID, from: backup,
+                on: new, with: (firstHolder, first.signer), using: makeReader())
+            try #require(new.renameSavedUser(firstID, displayName: "Retained choice"))
+            try #require(new.createTalkGroup(name: "Existing group"))
+            let groupID = try #require(new.selectedGroup?.id)
+            let groupKey = try #require(try new.groupRepository.credential(for: groupID))
+
+            let reopened = try replacement.harness(knowing: [], onDisk: true).viewModel
+            defer { reopened.disconnect() }
+            try #require(reopened.startCall(to: .group(groupID), accountAccessID: reopened.accountAccessID))
+            let secondKey = try await restoreSavedContact(secondID, from: backup,
+                on: reopened, with: (secondHolder, second.signer), using: makeReader())
+            #expect(reopened.savedRemoteUsers.first { $0.id == firstID }?.localName == "Retained choice")
+            #expect(try reopened.groupRepository.credential(for: originalKey.groupID) == originalKey)
+            #expect(try reopened.groupRepository.credential(for: groupID) == groupKey)
+            await reopened.callRelationshipBackupSync?.task?.value
+            let saved = try await source.store.load(as: replacement.signer, now: Date().timeIntervalSince1970)
+            #expect(saved?.backup == backup)
+
+            try #require(reopened.removeSavedUser(firstID))
+            let afterDeletion = try replacement.harness(knowing: [], onDisk: true).viewModel
+            defer { afterDeletion.disconnect() }
+            await assertCannotRestore([firstID, secondID], from: backup, on: afterDeletion, using: makeReader())
+            #expect(try afterDeletion.groupRepository.credential(for: originalKey.groupID) == nil)
+            #expect(try afterDeletion.groupRepository.credential(for: secondKey.groupID) == secondKey)
+            #expect(try afterDeletion.groupRepository.credential(for: groupID) == groupKey)
+        }
+    }
+
+    private func prepareRestorableContact(
+        from holder: IntercomViewModel, in original: IntercomViewModel, using client: InternetAccountClient
+    ) async throws -> UUID {
+        try confirmRestoreContact(from: holder, to: original)
+        let peer = try #require(holder.localAccountPrincipal)
+        let contact = try #require(original.savedRemoteUsers.first { $0.principal == peer }?.id)
+        try #require(original.selectUser(contact, connectIfIdle: false))
+        let holderContact = try #require(holder.savedRemoteUsers.first?.id)
+        try #require(try await holder.publishTrackedDirectRestoreDevice(for: holderContact, using: client))
+        return contact
+    }
+
+    private func restoreSavedContact(
+        _ id: UUID, from backup: CallRelationshipBackup,
+        on model: IntercomViewModel, with holder: (model: IntercomViewModel, signer: DeviceIdentitySigner),
+        using reader: CloudKitCallRelationshipBackupSession
+    ) async throws -> GroupAccessCredential {
+        let activeBeforeRestore = model.currentCallReference
+        let client = try #require(reader.directRestoreClient)
+        reader.bind(to: model)
+        defer { reader.bind(to: nil) }
+        await reader.task?.value
+        try await reader.selectDirectRestore(id, from: backup)
+        _ = try await reader.directRestorePreparation?.value
+        try await answerRestoreOnStartup(on: holder.model, as: holder.signer, using: client)
+        reader.retrySelectedDirectRestore()
+        _ = try await reader.directRestorePreparation?.value
+        #expect(model.currentCallReference == activeBeforeRestore)
+        try #require(model.startCall(to: .user(id), accountAccessID: model.accountAccessID))
+        let callID = try #require(holder.model.selectedGroup?.id)
+        try #require(model.activeGroupID == callID)
+        model.disconnect()
+        let key = try #require(try holder.model.groupRepository.credential(for: callID))
+        try #require(try model.groupRepository.credential(for: callID) == key)
+        return key
+    }
+
+    private func assertCannotRestore(
+        _ ids: [UUID], from backup: CallRelationshipBackup, on model: IntercomViewModel,
+        using reader: CloudKitCallRelationshipBackupSession
+    ) async {
+        reader.bind(to: model)
+        defer { reader.bind(to: nil) }
+        await reader.task?.value
+        let attempts = GroupWorkerHTTPBridge.restoreRelaySubmissionAttempts.withLock { $0 }
+        for id in ids {
+            await #expect(throws: GroupStorageError.invalidUpdate) {
+                try await reader.selectDirectRestore(id, from: backup)
+            }
+        }
+        #expect(GroupWorkerHTTPBridge.restoreRelaySubmissionAttempts.withLock { $0 } == attempts)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func automaticRestoreFinishesReceiptAfterRestartWithoutRestoringAgain() async throws {
         try await withWorker(directRestore: true) {
             let holder = GroupDeliveryTestIdentity("completion-holder")

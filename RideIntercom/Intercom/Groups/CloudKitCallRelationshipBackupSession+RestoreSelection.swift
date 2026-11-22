@@ -13,17 +13,19 @@ extension CloudKitCallRelationshipBackupSession {
         let account = try relayAccount()
         guard let checkpoints = restoreSelectionCheckpoints, let owner = account.signer.principal
         else { throw Failure.accountUnavailable }
-        guard model?.groupRepository.canRestoreCallRelationships == true else { throw GroupStorageError.invalidUpdate }
         _ = try original.validated(for: owner)
         guard let contact = original.contacts.first(where: { $0.id == contactID }),
               contact.restoreRecipientFingerprint != nil, contact.confirmedRegistrationID != nil,
               contact.restoreDiscoverySeed != nil else { throw Failure.backupChanged }
+        guard model?.groupRepository.canRestoreDirectContact(contactID, peer: contact.principal, owner: owner) == true
+        else { throw GroupStorageError.invalidUpdate }
         let change = UUID()
         restoreSelectionChange = change
         let current = try await readCurrentBackup(scopedTo: account)
         guard restoreSelectionChange == change, current.backup?.contacts.contains(contact) == true
         else { throw Failure.backupChanged }
-        guard model?.groupRepository.canRestoreCallRelationships == true else { throw GroupStorageError.invalidUpdate }
+        guard model?.groupRepository.canRestoreDirectContact(contactID, peer: contact.principal, owner: owner) == true
+        else { throw GroupStorageError.invalidUpdate }
         let selection = CallRelationshipBackupCheckpointStore.RestoreSelection(
             contactID: contactID, fingerprint: try CallRelationshipBackupCheckpointStore.fingerprint(contact))
         try checkpoints.saveRestoreSelection(selection, as: current.signer)
@@ -45,7 +47,6 @@ extension CloudKitCallRelationshipBackupSession {
         let account = try relayAccount()
         if await resumeCompletedDirectRestore(in: account, using: client) { return .restored }
         try requireRelayAccount(account)
-        guard model?.groupRepository.canRestoreCallRelationships == true else { return .noSelection }
         guard let progress = try checkpoints.loadRestoreProgress(as: account.signer) else { return .noSelection }
         let selection = progress.selection
         do {
@@ -53,7 +54,10 @@ extension CloudKitCallRelationshipBackupSession {
             try requireRestoreSelection(selection, as: checked.signer)
             guard let backup = checked.backup,
                   let contact = backup.contacts.first(where: { $0.id == selection.contactID }),
-                  try selection.matches(contact) else { throw Failure.backupChanged }
+                  try selection.matches(contact),
+                  model?.groupRepository.canRestoreDirectContact(contact.id, peer: contact.principal,
+                                                                 owner: backup.owner) == true
+            else { throw Failure.backupChanged }
             return try await sendSelectedDraft(progress, checked: checked, scopedTo: account,
                                                in: checkpoints, using: client)
         } catch Failure.backupChanged {

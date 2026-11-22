@@ -140,7 +140,7 @@ extension GroupRepository {
         guard let snapshot, let user = snapshot.users.first(where: { $0.id == id }) else {
             throw GroupStorageError.invalidUpdate
         }
-        return try removeUser(user, from: snapshot, now: now) { calls, next in
+        return try removeUser(user, from: snapshot, owner: sender, now: now) { calls, next in
             if let signer, signer.memberID == self.localMemberID {
                 try self.stageContactDeletions(
                     for: user, directCalls: calls, sender: (signer, sender), now: now, in: &next
@@ -149,7 +149,7 @@ extension GroupRepository {
         }
     }
 
-    private func removeUser(_ user: SavedUser, from snapshot: GroupSnapshot, now: Date,
+    private func removeUser(_ user: SavedUser, from snapshot: GroupSnapshot, owner: AccountPrincipal?, now: Date,
                             modify: ([GroupSnapshot.Record], inout GroupSnapshot) throws -> Void) throws -> Set<UUID> {
         let directCalls = snapshot.groups.filter { belongs($0, to: user) }
         let removed = Set(directCalls.map(\.id))
@@ -161,6 +161,10 @@ extension GroupRepository {
             }
             try modify(directCalls, &next)
             recordBackupRemoval(user.id, kind: .contact, afterRemovingFrom: &next)
+            next.directCallRestoreExclusions.formUnion(directCalls.compactMap { $0.accountPair?.id })
+            if let owner, let peer = user.principal, owner != peer, owner.issuer == peer.issuer {
+                next.directCallRestoreExclusions.insert(AccountCallPair(owner, peer).id)
+            }
         }
         return removed
     }
@@ -202,7 +206,7 @@ extension GroupRepository {
         let address = ContactDeletionRelayAddress(
             owner: user.principal, recipient: identity.principal, pairSecret: pair.secret,
                                                    senderID: peerID, recipientID: recipient.memberID)
-        let removed = try removeUser(user, from: snapshot, now: now) { _, next in
+        let removed = try removeUser(user, from: snapshot, owner: identity.principal, now: now) { _, next in
             try Self.stageContactDeletionReceipt(receipt, address: address, signer: recipient, in: &next)
             try beforeRemoving(user.id)
         }

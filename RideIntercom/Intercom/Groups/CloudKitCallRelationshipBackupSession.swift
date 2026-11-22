@@ -90,9 +90,18 @@ final class CloudKitCallRelationshipBackupSession {
             throw Failure.backupChanged
         }
         try requireRestoreSelection(completion?.selection, as: checked.signer)
+        if completion != nil {
+            guard let user = batch.users.first, let peer = user.principal,
+                  model.groupRepository.canRestoreDirectContact(user.id, peer: peer, owner: owner)
+            else { throw Failure.backupChanged }
+        }
         try model.groupRepository.restoreCallRelationships(
             batch, as: checked.signer, trust: checked.trust, completion: completion?.receipt)
-        model.reloadSavedGroups()
+        if completion != nil, let call = batch.calls.first {
+            model.applyRestoredDirectCall(call.context.record.id)
+        } else {
+            model.reloadSavedGroups()
+        }
     }
 
     func restoreDirect(
@@ -266,10 +275,16 @@ extension CloudKitCallRelationshipBackupSession {
     func sendRelayedDirectRestore(_ pending: PendingDirectRestore, using client: InternetAccountClient) async throws {
         try requireRelayAccount(pending.account)
         guard case .awaitingResponse = pending.state, let model else { return }
-        _ = try await checkDirectRestoreContact(
+        let (backup, _) = try await checkDirectRestoreContact(
             pending.contactID, from: pending.backup, for: model, as: pending.account.signer)
         try requireRelayAccount(pending.account)
         try requireRestoreSelection(pending.selection, as: pending.account.signer)
+        if pending.selection != nil {
+            guard let contact = backup.contacts.first(where: { $0.id == pending.contactID }),
+                  model.groupRepository.canRestoreDirectContact(
+                      contact.id, peer: contact.principal, owner: backup.owner)
+            else { throw Failure.backupChanged }
+        }
         let now = Date()
         guard pending.request.expiresAt > now,
               Double(pending.submission.payload.expiresAt) > now.timeIntervalSince1970 * 1_000
