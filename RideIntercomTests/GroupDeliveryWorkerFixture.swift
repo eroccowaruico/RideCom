@@ -71,6 +71,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let ordinaryReplyInboxReads = Mutex(0)
     nonisolated static let contactAcceptanceWrites = Mutex(0)
     nonisolated static let holdNextRestoreDeviceRead = Mutex<ManualAsyncGate?>(nil)
+    nonisolated static let interruptNextRestoreRetirement = Mutex(false)
     nonisolated(unsafe) static var origin: URL?
     struct Cancellation {
         let id: UUID
@@ -109,6 +110,7 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
         let value = forwarded
         requestWork = Task { [self] in
             do {
+                try Self.checkRestoreRetirement(path: original.path, method: value.httpMethod)
                 let (data, result) = try await URLSession.shared.data(for: value)
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
                 await Self.holdRestoreDeviceReadIfRequested(path: original.path, method: value.httpMethod)
@@ -125,6 +127,14 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
                 client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
             } catch { client?.urlProtocol(self, didFailWithError: error) }
         }
+    }
+    private static func checkRestoreRetirement(path: String, method: String?) throws {
+        guard path == "/api/direct-call-restore/relay", method == "DELETE" else { return }
+        let interrupted = interruptNextRestoreRetirement.withLock { value in
+            defer { value = false }
+            return value
+        }
+        if interrupted { throw URLError(.networkConnectionLost) }
     }
     private static func holdRestoreDeviceReadIfRequested(path: String, method: String?) async {
         guard path == "/api/direct-call-restore/device", method == "POST" else { return }

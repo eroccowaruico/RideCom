@@ -1,6 +1,21 @@
 import CryptoKit
 import Foundation
 
+nonisolated struct DirectCallRestoreRelaySubmission: Encodable, Sendable {
+    let sender: AccountPrincipal
+    let id: String
+    let recipient: String
+    let deviceID: String
+    let sessionBinding: String
+    let expiresAt: Int64
+    let packet: String
+    let proof: DeviceIdentityProof
+
+    private enum CodingKeys: String, CodingKey {
+        case id, recipient, deviceID, sessionBinding, expiresAt, packet, proof
+    }
+}
+
 /// The Worker receives routing fields and ciphertext. The restoration proofs stay inside the ciphertext.
 enum DirectCallRestoreRelayPacket {
     private static let domain = "rideintercom.direct-restore.relay.ecdh.v1"
@@ -15,23 +30,15 @@ enum DirectCallRestoreRelayPacket {
         case response(value: DirectCallRestoreResponse)
     }
 
-    struct Submission: Encodable {
-        let id: String
-        let recipient: String
-        let deviceID: String
-        let sessionBinding: String
-        let expiresAt: Int64
-        let packet: String
-        let proof: DeviceIdentityProof
-    }
+    typealias Submission = DirectCallRestoreRelaySubmission
 
-    struct Delivery: Decodable {
+    nonisolated struct Delivery: Decodable, Sendable {
         let id: String
         let senderUserID: String
         let expiresAt: Int64
         let packet: String
 
-        func openRequest(as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date) throws
+        @MainActor func openRequest(as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust, now: Date) throws
             -> (request: CallRelationshipRestoreRequest, replyTo: VerifiedDeviceIdentity) {
             guard case let .request(request) = try open(as: signer, now: now),
                   let sender = try request.verifiedDirectRequesterIdentity(addressedTo: signer, trust: trust, now: now),
@@ -40,8 +47,10 @@ enum DirectCallRestoreRelayPacket {
             return (request, sender)
         }
 
-        func openResponse(for request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
-                          trust: DeviceIdentityTrust, now: Date) throws -> DirectCallRestoreResponse {
+        @MainActor func openResponse(
+            for request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
+            trust: DeviceIdentityTrust, now: Date
+        ) throws -> DirectCallRestoreResponse {
             guard case let .response(response) = try open(as: signer, now: now),
                   try response.confirmation.verify(for: request, as: signer, trust: trust, now: now)
                     .responder.principal.userID == senderUserID
@@ -49,7 +58,7 @@ enum DirectCallRestoreRelayPacket {
             return response
         }
 
-        private func open(as signer: DeviceIdentitySigner, now: Date) throws -> Content {
+        @MainActor private func open(as signer: DeviceIdentitySigner, now: Date) throws -> Content {
             let time = now.timeIntervalSince1970
             guard let recipient = signer.identity, let binding = sessionBinding(of: recipient, now: now),
                   senderUserID != recipient.userID, InternetAccountClient.notificationUserID(senderUserID),
@@ -70,7 +79,7 @@ enum DirectCallRestoreRelayPacket {
     static func seal(_ content: Content, to recipient: VerifiedDeviceIdentity, as signer: DeviceIdentitySigner,
                      now: Date) throws -> Submission {
         let time = now.timeIntervalSince1970
-        guard let sender = signer.identity, sessionBinding(of: sender, now: now) != nil,
+        guard let sender = signer.identity, let owner = signer.principal, sessionBinding(of: sender, now: now) != nil,
               let binding = sessionBinding(of: recipient, now: now),
               sender.issuer == recipient.issuer, sender.envelope.issuerKey == recipient.envelope.issuerKey,
               sender.userID != recipient.userID, let recipientKey = IdentityEncoding.decode(recipient.deviceKey)
@@ -93,8 +102,8 @@ enum DirectCallRestoreRelayPacket {
         let packet = (ephemeral.publicKey.x963Representation + ciphertext).base64EncodedString()
         let fields: [Any] = [recipient.userID, recipient.deviceID, binding, id, expiresAt, packet]
         let proof = try signer.sign(try fieldsJSON(fields), purpose: .submitDirectCallRestoreRelay)
-        return .init(id: id, recipient: recipient.userID, deviceID: recipient.deviceID, sessionBinding: binding,
-                     expiresAt: expiresAt, packet: packet, proof: proof)
+        return .init(sender: owner, id: id, recipient: recipient.userID, deviceID: recipient.deviceID,
+                     sessionBinding: binding, expiresAt: expiresAt, packet: packet, proof: proof)
     }
 
     private static func sessionBinding(of identity: VerifiedDeviceIdentity, now: Date) -> String? {

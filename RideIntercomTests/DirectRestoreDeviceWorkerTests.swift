@@ -7,6 +7,105 @@ import Testing
 
 extension GroupDeliveryWorkerTests {
     @Test(.timeLimit(.minutes(1)))
+    func replacementSavesTheOriginalCallKeyThroughTheWorker() async throws {
+        try await withWorker(directRestore: true) {
+            let holder = GroupDeliveryTestIdentity("relay-holder")
+            let original = GroupDeliveryTestIdentity("relay-original")
+            let replacement = GroupDeliveryTestIdentity("relay-replacement")
+            defer { holder.remove(); original.remove(); replacement.remove() }
+            try await register(holder)
+            try await register(original)
+            try await register(replacement, appleSubject: original.memberID)
+            let publisher = try holder.harness(knowing: []).viewModel
+            let old = try original.harness(knowing: []).viewModel
+            let new = try replacement.harness(knowing: []).viewModel
+            defer {
+                publisher.stopGroupDeliverySync()
+                publisher.disconnect(); old.disconnect(); new.disconnect()
+            }
+            try confirmRestoreContact(from: publisher, to: old)
+            let contactID = try #require(old.savedRemoteUsers.first?.id)
+            let publisherContact = try #require(publisher.savedRemoteUsers.first?.id)
+            let callID = try #require(publisher.selectedGroup?.id)
+            let client = InternetAccountClient(session: workerSession())
+            let access = try #require(try holder.store.notificationAccess(memberID: holder.memberID))
+            let publication = try #require(try publisher.groupRepository.directRestoreDevicePublication(
+                for: publisherContact, as: holder.signer, now: Date()))
+            try await client.publishDirectRestoreDevice(publication, access: access)
+
+            let source: CloudAccountFixture = .init(account: "source-fixture")
+            let target: CloudAccountFixture = .init(account: "target-fixture")
+            let reader = source.session(), responder = target.session()
+            let backup = try await saveRestoreBackup(of: old, as: original.signer, for: source)
+            _ = try await saveRestoreBackup(of: publisher, as: holder.signer, for: target)
+            reader.bind(to: new); responder.bind(to: publisher)
+            defer { reader.bind(to: nil); responder.bind(to: nil) }
+            await reader.task?.value
+            await responder.task?.value
+            publisher.groupDeliveryClient = client
+
+            let pending = try #require(try await reader.prepareRelayedDirectRestore(
+                for: contactID, from: backup, using: client))
+            try await verifyRestoreExchange(pending, reader: reader, responder: responder, using: client)
+            try await rejectSaveForChangedBackup(
+                pending, reader: reader, using: client, source: source, removed: backup.removingContacts([contactID]))
+            let readerAccess = try #require(try replacement.store.notificationAccess(memberID: replacement.memberID))
+            try await verifyRestoreSaveWithInterruptedRetirement(
+                pending, reader: reader, using: client, access: readerAccess)
+            #expect(new.savedRemoteUsers.first?.id == contactID)
+            let holderKey = try #require(try publisher.groupRepository.credential(for: callID))
+            #expect(try new.groupRepository.credential(for: callID) == holderKey)
+        }
+    }
+
+    private func saveRestoreBackup(of model: IntercomViewModel, as signer: DeviceIdentitySigner,
+                                   for cloud: CloudAccountFixture) async throws -> CallRelationshipBackup {
+        let now = Date().timeIntervalSince1970
+        let backup = try model.groupRepository.callRelationshipBackup(as: signer, now: now)
+        _ = try await cloud.store.save(backup, replacing: nil, as: signer, now: now)
+        return backup
+    }
+
+    private func verifyRestoreExchange(
+        _ pending: CloudKitCallRelationshipBackupSession.PendingDirectRestore,
+        reader: CloudKitCallRelationshipBackupSession, responder: CloudKitCallRelationshipBackupSession,
+        using client: InternetAccountClient
+    ) async throws {
+        try await reader.sendRelayedDirectRestore(pending, using: client)
+        try await reader.sendRelayedDirectRestore(pending, using: client)
+        #expect(try await reader.finishRelayedDirectRestore(pending, using: client) == false)
+        #expect(try await responder.respondToNextRelayedDirectRestore(using: client))
+        #expect(try await responder.respondToNextRelayedDirectRestore(using: client) == false)
+    }
+
+    private func rejectSaveForChangedBackup(
+        _ pending: CloudKitCallRelationshipBackupSession.PendingDirectRestore,
+        reader: CloudKitCallRelationshipBackupSession, using client: InternetAccountClient,
+        source: CloudAccountFixture, removed: CallRelationshipBackup
+    ) async throws {
+        let record = try #require(source.records.values.first)
+        let previous = try #require(record.encryptedValues["payload"] as? NSData)
+        defer { record.encryptedValues["payload"] = previous }
+        record.encryptedValues["payload"] = try JSONEncoder().encode(removed) as NSData
+        await #expect(throws: CloudKitCallRelationshipBackupSession.Failure.backupChanged) {
+            try await reader.finishRelayedDirectRestore(pending, using: client)
+        }
+    }
+
+    private func verifyRestoreSaveWithInterruptedRetirement(
+        _ pending: CloudKitCallRelationshipBackupSession.PendingDirectRestore,
+        reader: CloudKitCallRelationshipBackupSession, using client: InternetAccountClient,
+        access: CallNotificationServiceAccess
+    ) async throws {
+        GroupWorkerHTTPBridge.interruptNextRestoreRetirement.withLock { $0 = true }
+        defer { GroupWorkerHTTPBridge.interruptNextRestoreRetirement.withLock { $0 = false } }
+        #expect(try await reader.finishRelayedDirectRestore(pending, using: client))
+        #expect(try await client.directRestoreInbox(access: access).count == 1)
+        #expect(try await reader.finishRelayedDirectRestore(pending, using: client))
+        #expect(try await client.directRestoreInbox(access: access).isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func replacementFetchesThePublishedDeviceAndBuildsARequest() async throws {
         try await withWorker(directRestore: true) {
             let holder = GroupDeliveryTestIdentity("restore-holder")

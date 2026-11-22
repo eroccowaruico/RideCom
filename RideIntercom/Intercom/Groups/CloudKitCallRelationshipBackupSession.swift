@@ -23,6 +23,7 @@ final class CloudKitCallRelationshipBackupSession {
     private weak var model: IntercomViewModel?
     private var current: Account?
     private var generation = UUID()
+    private var respondingToRelay = false
     private(set) var task: Task<Void, Never>?
 
     convenience init(
@@ -175,6 +176,7 @@ final class CloudKitCallRelationshipBackupSession {
         try await verify(cloud, generation: expected)
         guard let active = try model.callRelationshipBackupSigner(),
               active.principal == owner, active.memberID == signer.memberID, active.publicKey == signer.publicKey,
+              active.identity?.sessionBinding == signer.identity?.sessionBinding,
               let trust = try model.internetSettingsStore.identityTrust() else { throw Failure.accountUnavailable }
         return .init(backup: stored?.backup, signer: active, trust: trust)
     }
@@ -228,6 +230,139 @@ final class CloudKitCallRelationshipBackupSession {
             invalidate()
             throw Failure.accountUnavailable
         }
+    }
+}
+
+extension CloudKitCallRelationshipBackupSession {
+    fileprivate enum PendingDirectRestoreState {
+        case awaitingResponse
+        case applyingResponse
+        case restored(receipt: String?)
+    }
+
+    final class PendingDirectRestore {
+        fileprivate let account: RelayAccount
+        fileprivate let contactID: UUID
+        fileprivate let backup: CallRelationshipBackup
+        fileprivate let request: CallRelationshipRestoreRequest
+        fileprivate let submission: DirectCallRestoreRelayPacket.Submission
+        fileprivate var state = PendingDirectRestoreState.awaitingResponse
+
+        fileprivate init(
+            account: RelayAccount, contactID: UUID, backup: CallRelationshipBackup,
+            request: CallRelationshipRestoreRequest, submission: DirectCallRestoreRelayPacket.Submission
+        ) {
+            self.account = account; self.contactID = contactID; self.backup = backup
+            self.request = request; self.submission = submission
+        }
+    }
+
+    fileprivate struct RelayAccount {
+        let generation: UUID
+        let access: CallNotificationServiceAccess
+        let signer: DeviceIdentitySigner
+        let trust: DeviceIdentityTrust
+    }
+
+    func prepareRelayedDirectRestore(
+        for contactID: UUID, from backup: CallRelationshipBackup, using client: InternetAccountClient
+    ) async throws -> PendingDirectRestore? {
+        let account = try relayAccount()
+        guard let prepared = try await prepareDirectRestore(for: contactID, from: backup, using: client)
+        else { return nil }
+        try requireRelayAccount(account)
+        let submission = try DirectCallRestoreRelayPacket.seal(
+            .request(value: prepared.request), to: prepared.recipient, as: account.signer, now: Date())
+        return .init(account: account, contactID: contactID, backup: backup, request: prepared.request,
+                     submission: submission)
+    }
+
+    func sendRelayedDirectRestore(_ pending: PendingDirectRestore, using client: InternetAccountClient) async throws {
+        try requireRelayAccount(pending.account)
+        guard case .awaitingResponse = pending.state, let model else { return }
+        _ = try await checkDirectRestoreContact(
+            pending.contactID, from: pending.backup, for: model, as: pending.account.signer)
+        try requireRelayAccount(pending.account)
+        try await client.submitDirectRestorePacket(pending.submission, access: pending.account.access)
+    }
+
+    func respondToNextRelayedDirectRestore(using client: InternetAccountClient) async throws -> Bool {
+        guard !respondingToRelay else { return false }
+        respondingToRelay = true
+        defer { respondingToRelay = false }
+        let account = try relayAccount()
+        let inbox = try await client.directRestoreInbox(access: account.access)
+        try requireRelayAccount(account)
+        for packet in inbox {
+            guard let opened = try? packet.openRequest(as: account.signer, trust: account.trust, now: Date()),
+                  let response = try await respondToDirectRestore(opened.request) else { continue }
+            try requireRelayAccount(account)
+            let submission = try DirectCallRestoreRelayPacket.seal(
+                .response(value: response), to: opened.replyTo, as: account.signer, now: Date())
+            try await client.submitDirectRestorePacket(submission, access: account.access)
+            try requireRelayAccount(account)
+            try await client.retireDirectRestorePacket(packet.id, access: account.access)
+            return true
+        }
+        return false
+    }
+
+    func finishRelayedDirectRestore(_ pending: PendingDirectRestore, using client: InternetAccountClient)
+        async throws -> Bool {
+        try requireRelayAccount(pending.account)
+        switch pending.state {
+        case .applyingResponse:
+            return false
+        case .restored(let receipt):
+            await retireRestoreReceipt(receipt, for: pending, using: client)
+            return true
+        case .awaitingResponse:
+            pending.state = .applyingResponse
+        }
+        defer { if case .applyingResponse = pending.state { pending.state = .awaitingResponse } }
+        let account = pending.account
+        let inbox = try await client.directRestoreInbox(access: account.access)
+        try requireRelayAccount(account)
+        for packet in inbox {
+            guard let response = try? packet.openResponse(
+                for: pending.request, as: account.signer, trust: account.trust, now: Date()) else { continue }
+            try await restoreDirect(response, to: pending.request, for: pending.contactID, from: pending.backup)
+            pending.state = .restored(receipt: packet.id)
+            await retireRestoreReceipt(packet.id, for: pending, using: client)
+            return true
+        }
+        return false
+    }
+
+    private func retireRestoreReceipt(_ id: String?, for pending: PendingDirectRestore,
+                                      using client: InternetAccountClient) async {
+        guard let id, (try? requireRelayAccount(pending.account)) != nil else { return }
+        do {
+            try await client.retireDirectRestorePacket(id, access: pending.account.access)
+            pending.state = .restored(receipt: nil)
+        } catch InternetAccountClient.Failure.notFound {
+            pending.state = .restored(receipt: nil)
+        } catch {
+            // Local restore is already committed. Retry only the receipt cleanup.
+        }
+    }
+
+    private func relayAccount() throws -> RelayAccount {
+        guard !Task.isCancelled, let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
+              let access = try model.internetSettingsStore.notificationAccess(memberID: signer.memberID),
+              let trust = try model.internetSettingsStore.identityTrust(), signer.principal == access.principal
+        else { throw Failure.accountUnavailable }
+        return .init(generation: generation, access: access, signer: signer, trust: trust)
+    }
+
+    private func requireRelayAccount(_ expected: RelayAccount) throws {
+        let current = try relayAccount()
+        guard current.generation == expected.generation, current.access == expected.access,
+              current.signer.publicKey == expected.signer.publicKey,
+              current.signer.memberID == expected.signer.memberID,
+              current.signer.identity?.sessionBinding == expected.signer.identity?.sessionBinding,
+              current.trust.issuerKey == expected.trust.issuerKey
+        else { throw Failure.accountUnavailable }
     }
 }
 
