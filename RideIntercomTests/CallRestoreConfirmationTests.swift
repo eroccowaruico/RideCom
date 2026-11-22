@@ -179,6 +179,7 @@ struct CallRestoreConfirmationTests {
         var payload = try #require(JSONSerialization.jsonObject(with: original) as? [String: Any])
         var contact = try #require((payload["contacts"] as? [[String: Any]])?.first)
         contact.removeValue(forKey: "restoreRecipientFingerprint")
+        contact.removeValue(forKey: "restoreDiscoverySeed")
         payload["contacts"] = [contact]
         let requester = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
         let responder = try scenario.other.viewModel.internetSettingsStore.invitationSigner(memberID: "bob")

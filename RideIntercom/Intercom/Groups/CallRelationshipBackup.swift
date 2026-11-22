@@ -12,11 +12,18 @@ struct CallRelationshipBackup: Codable, Equatable {
         let principal: AccountPrincipal
         let restoreRecipientFingerprint: String?
         let confirmedRegistrationID: UUID?
+        let restoreDiscoverySeed: String?
 
         fileprivate var hasValidRestoreRecipientFingerprint: Bool {
             guard let fingerprint = restoreRecipientFingerprint else { return true }
             guard let bytes = IdentityEncoding.decode(fingerprint), bytes.count == 32 else { return false }
             return IdentityEncoding.encode(bytes) == fingerprint
+        }
+
+        fileprivate var hasValidRestoreDiscoverySeed: Bool {
+            guard let seed = restoreDiscoverySeed else { return true }
+            return restoreRecipientFingerprint != nil && confirmedRegistrationID != nil
+                && IdentityEncoding.decode(seed)?.count == 32
         }
     }
 
@@ -54,6 +61,7 @@ struct CallRelationshipBackup: Codable, Equatable {
               contacts.allSatisfy({ contact in
                   contact.principal.isValid && contact.principal.issuer == owner.issuer
                       && contact.principal != owner && contact.hasValidRestoreRecipientFingerprint
+                      && contact.hasValidRestoreDiscoverySeed
               }) else { throw GroupStorageError.invalidUpdate }
         return self
     }
@@ -68,7 +76,8 @@ struct CallRelationshipBackup: Codable, Equatable {
 }
 
 private extension GroupSnapshot {
-    func backupCandidate(memberID: String, binding: AccountDeviceBinding) throws -> CallRelationshipBackup {
+    func backupCandidate(memberID: String, binding: AccountDeviceBinding,
+                         credential: (UUID) throws -> String?) throws -> CallRelationshipBackup {
         let owner = binding.principal
         let owned = groups.filter { record in
             record.pendingInvitation == nil && record.accountDevices[memberID] == binding
@@ -81,11 +90,17 @@ private extension GroupSnapshot {
             let pair = AccountCallPair(owner, principal)
             guard let call = calls[pair.id], call.accountPair == pair else { return nil }
             let fingerprint = try restoreRecipientFingerprint(for: user, in: call, principal: principal)
-            let registration = fingerprint == nil ? nil : user.memberIDs.first.flatMap {
-                confirmedContactRegistration(localMemberID: memberID, peerMemberID: $0)
+            let confirmed = fingerprint == nil ? nil : user.memberIDs.first.flatMap {
+                confirmedContactRecord(localMemberID: memberID, peerMemberID: $0)
+            }
+            let registration = confirmed?.contactRegistration?.receiptID
+            let seed = try registration.flatMap { registration in
+                try confirmed?.credentialReference.flatMap(credential).flatMap {
+                    DirectRestoreDeviceAddress.seed(from: $0, registration: registration)
+                }
             }
             return .init(id: user.id, principal: principal, restoreRecipientFingerprint: fingerprint,
-                         confirmedRegistrationID: registration)
+                         confirmedRegistrationID: registration, restoreDiscoverySeed: seed)
         }
         let backupGroups = owned.filter { $0.kind != .direct }.map {
             CallRelationshipBackup.Group(id: $0.id, name: $0.name)
@@ -107,11 +122,15 @@ private extension GroupSnapshot {
 
 extension GroupSnapshot {
     func confirmedContactRegistration(localMemberID: String, peerMemberID: String) -> UUID? {
+        confirmedContactRecord(localMemberID: localMemberID, peerMemberID: peerMemberID)?.contactRegistration?.receiptID
+    }
+
+    fileprivate func confirmedContactRecord(localMemberID: String, peerMemberID: String) -> Record? {
         let id = IntercomGroup.directCallID(memberIDs: [localMemberID, peerMemberID])
         guard let record = groups.first(where: { $0.id == id }), record.kind == .direct,
               record.accountPair == nil, let registration = record.contactRegistration,
               registration.isConfirmed else { return nil }
-        return registration.receiptID
+        return record
     }
 }
 
@@ -122,7 +141,7 @@ extension GroupRepository {
         guard localMemberID == signer.memberID else { throw GroupStorageError.identityConflict }
         return try withCurrentSnapshot(current) {
             try current.backupCandidate(memberID: signer.memberID, binding: .init(
-                principal: owner, publicKey: signer.publicKey))
+                principal: owner, publicKey: signer.publicKey), credential: credentialSecret)
         }
     }
 
@@ -131,8 +150,10 @@ extension GroupRepository {
         guard let previous = writableSnapshot, let memberID = localMemberID else { return }
         let bindings = previous.groups.compactMap { $0.accountDevices[memberID] }
         guard let binding = bindings.first, bindings.allSatisfy({ $0 == binding }),
-              let before = try? previous.backupCandidate(memberID: memberID, binding: binding),
-              let after = try? next.backupCandidate(memberID: memberID, binding: binding),
+              let before = try? previous.backupCandidate(memberID: memberID, binding: binding,
+                                                         credential: credentialSecret),
+              let after = try? next.backupCandidate(memberID: memberID, binding: binding,
+                                                   credential: credentialSecret),
               let removals = try? CallRelationshipBackupRemovals(
                   removing: id, kind: kind, from: before, to: after, continuing: previous.backupRemovals)
         else { return }
