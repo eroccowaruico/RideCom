@@ -125,6 +125,18 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 ### 旧手動トークンによる新規の試用
 
+2台だけの試験では、リポジトリのルートで次のコマンドを実行する。試験先のHTTPS originを指定すると、Git管理外の新しいディレクトリに端末ファイル2つと登録一覧を作る。実行ごとに別の資格を発行する。
+
+```sh
+node scripts/Cloudflare/prepare-trial-credentials.mjs https://preview.example
+```
+
+既存の資格を使う場合は、同じコマンドの末尾に端末ファイル2つを指定する。同じ試験先で発行した端末ファイルから登録一覧だけを再生成する。元の端末ファイルと登録一覧は保持する。作成先だけを出力し、資格はファイルに保管する。[2台分の準備処理](../../scripts/Cloudflare/prepare-trial-credentials.mjs)
+
+どちらの操作もCloudflareの配置と保存データを変更しない。既存Previewへ反映する場合は、更新する登録一覧に現在有効な全端末があることを管理用原本で確かめる。照合後、対象Previewのシークレットを更新する。
+
+今回発行した資格を試験先へ追加した場合は、試験後に登録一覧から今回の追加分を取り除き、その資格が拒否されることを確認する。試験用に生成したローカルディレクトリも回収する。
+
 リポジトリrootで、例のURLを実際に試すPreviewのHTTPS originへ置き換える。この手順は新しい試用registryを用意する場合のもの。既存registryに追加する際は、現在有効な全端末を含む、その環境の管理用原本を先に確認する。一部しか含まないJSONで置き換えると、省かれた端末はその資格で次回の認証ができなくなる。
 
 ```sh
