@@ -18,6 +18,8 @@ struct CallRelationshipBackup: Codable, Equatable {
     let groups: [Group]
     let contacts: [Contact]
 
+    var isEmpty: Bool { groups.isEmpty && contacts.isEmpty }
+
     fileprivate init(owner: AccountPrincipal, groups: [Group], contacts: [Contact]) {
         version = Self.currentVersion
         self.owner = owner
@@ -27,18 +29,21 @@ struct CallRelationshipBackup: Codable, Equatable {
 
     static func read(_ data: Data, as signer: DeviceIdentitySigner, now: TimeInterval) throws -> Self {
         let owner = try verifiedOwner(of: signer, now: now)
-        let backup = try JSONDecoder().decode(Self.self, from: data)
-        guard backup.owner == owner else { throw GroupStorageError.identityConflict }
-        guard backup.version == currentVersion,
-              Set(backup.groups.map(\.id)).count == backup.groups.count,
-              Set(backup.contacts.map(\.id)).count == backup.contacts.count,
-              Set(backup.contacts.map(\.principal)).count == backup.contacts.count,
-              backup.groups.allSatisfy({ IntercomGroup.isValidName($0.name) }),
-              backup.contacts.allSatisfy({ contact in
-                  contact.principal.isValid && contact.principal.issuer == backup.owner.issuer
-                      && contact.principal != backup.owner
+        return try JSONDecoder().decode(Self.self, from: data).validated(for: owner)
+    }
+
+    func validated(for verifiedOwner: AccountPrincipal) throws -> Self {
+        guard owner == verifiedOwner else { throw GroupStorageError.identityConflict }
+        guard version == Self.currentVersion,
+              Set(groups.map(\.id)).count == groups.count,
+              Set(contacts.map(\.id)).count == contacts.count,
+              Set(contacts.map(\.principal)).count == contacts.count,
+              groups.allSatisfy({ IntercomGroup.isValidName($0.name) }),
+              contacts.allSatisfy({ contact in
+                  contact.principal.isValid && contact.principal.issuer == owner.issuer
+                      && contact.principal != owner
               }) else { throw GroupStorageError.invalidUpdate }
-        return backup
+        return self
     }
 
     static func verifiedOwner(
@@ -51,7 +56,7 @@ struct CallRelationshipBackup: Codable, Equatable {
 }
 
 extension GroupRepository {
-    func callRelationshipBackup(as signer: DeviceIdentitySigner, now: TimeInterval) throws -> Data {
+    func callRelationshipBackup(as signer: DeviceIdentitySigner, now: TimeInterval) throws -> CallRelationshipBackup {
         guard let current = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
         let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now)
         guard localMemberID == signer.memberID else { throw GroupStorageError.identityConflict }
@@ -71,7 +76,7 @@ extension GroupRepository {
             let groups = owned.filter { $0.kind != .direct }.map {
                 CallRelationshipBackup.Group(id: $0.id, name: $0.name)
             }
-            return try JSONEncoder().encode(CallRelationshipBackup(owner: owner, groups: groups, contacts: contacts))
+            return try CallRelationshipBackup(owner: owner, groups: groups, contacts: contacts).validated(for: owner)
         }
     }
 }

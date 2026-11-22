@@ -49,7 +49,8 @@ struct CloudKitCallRelationshipBackupStore {
     }
 
     func load(as signer: DeviceIdentitySigner, now: TimeInterval) async throws -> Saved? {
-        let id = try Self.recordID(as: signer, now: now)
+        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now)
+        let id = Self.recordID(for: owner)
         let record: CKRecord
         do {
             record = try await fetch(id)
@@ -60,11 +61,12 @@ struct CloudKitCallRelationshipBackupStore {
     }
 
     func save(
-        _ data: Data, replacing previous: Saved?, as signer: DeviceIdentitySigner, now: TimeInterval
+        _ backup: CallRelationshipBackup, replacing previous: Saved?, as signer: DeviceIdentitySigner, now: TimeInterval
     ) async throws -> Saved {
-        let backup = try CallRelationshipBackup.read(data, as: signer, now: now)
-        guard !backup.groups.isEmpty || !backup.contacts.isEmpty else { throw Failure.nothingToSave }
-        let id = try Self.recordID(as: signer, now: now)
+        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now)
+        _ = try backup.validated(for: owner)
+        guard !backup.isEmpty else { throw Failure.nothingToSave }
+        let id = Self.recordID(for: owner)
         let record: CKRecord
         if let previous {
             guard previous.record.recordID == id, let copy = previous.record.copy() as? CKRecord else {
@@ -92,8 +94,7 @@ struct CloudKitCallRelationshipBackupStore {
         return Saved(backup: try CallRelationshipBackup.read(data, as: signer, now: now), record: record)
     }
 
-    private static func recordID(as signer: DeviceIdentitySigner, now: TimeInterval) throws -> CKRecord.ID {
-        let owner = try CallRelationshipBackup.verifiedOwner(of: signer, now: now)
+    private static func recordID(for owner: AccountPrincipal) -> CKRecord.ID {
         let material = Data("ridecom.call-backup.v1|\(owner.orderingKey)".utf8)
         let digest = SHA256.hash(data: material).map { String(format: "%02x", $0) }.joined()
         return CKRecord.ID(recordName: "call-backup-\(digest)")

@@ -58,10 +58,9 @@ final class CallRelationshipBackupSync {
     private func saveCurrentSnapshot() async throws {
         guard let signer = try activeSigner() else { status = .idle; return }
         let now = Date().timeIntervalSince1970
-        let localData = try repository.callRelationshipBackup(as: signer, now: now)
-        let local = try CallRelationshipBackup.read(localData, as: signer, now: now)
+        let local = try repository.callRelationshipBackup(as: signer, now: now)
         let checkpoint = try checkpoints.load(as: signer)
-        guard !local.groups.isEmpty || !local.contacts.isEmpty else {
+        guard !local.isEmpty else {
             status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
@@ -74,9 +73,8 @@ final class CallRelationshipBackupSync {
         let remote = try await store.load(as: signer, now: now)
         guard !pending, let current = try signerMatching(signer) else { return }
         let commitTime = Date().timeIntervalSince1970
-        let latest = try repository.callRelationshipBackup(as: current, now: commitTime)
-        let candidate = try CallRelationshipBackup.read(latest, as: current, now: commitTime)
-        guard !candidate.groups.isEmpty || !candidate.contacts.isEmpty else {
+        let candidate = try repository.callRelationshipBackup(as: current, now: commitTime)
+        guard !candidate.isEmpty else {
             status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
@@ -93,7 +91,7 @@ final class CallRelationshipBackupSync {
         }
 
         try checkpoints.save(.init(saved: remoteFingerprint, pending: candidateFingerprint), as: current)
-        _ = try await store.save(latest, replacing: remote, as: current, now: commitTime)
+        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime)
         guard try signerMatching(current) != nil else { return }
         try checkpoints.save(.init(saved: candidateFingerprint, pending: nil), as: current)
         if !pending { status = .saved }

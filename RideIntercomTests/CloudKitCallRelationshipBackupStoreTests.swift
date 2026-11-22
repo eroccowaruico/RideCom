@@ -15,9 +15,10 @@ struct CloudKitCallRelationshipBackupStoreTests {
         let now = Date().timeIntervalSince1970
         let id = UUID()
         let data = try payload(for: previous, groupID: id, extraField: true)
+        let candidate = try JSONDecoder().decode(CallRelationshipBackup.self, from: data)
 
         #expect(try await store.load(as: previous, now: now) == nil)
-        let saved = try await store.save(data, replacing: nil, as: previous, now: now)
+        let saved = try await store.save(candidate, replacing: nil, as: previous, now: now)
         let restored = try #require(try await store.load(as: replacement, now: now))
         #expect(restored.backup == saved.backup)
         #expect(restored.backup.groups.map(\.id) == [id])
@@ -31,11 +32,18 @@ struct CloudKitCallRelationshipBackupStoreTests {
         #expect(records.savePolicies == [.ifServerRecordUnchanged])
 
         await #expect(throws: GroupStorageError.identityConflict) {
-            try await store.save(data, replacing: nil, as: different, now: now)
+            _ = try await store.save(candidate, replacing: nil, as: different, now: now)
         }
-        let otherData = try payload(for: different, groupID: id)
+        let other = try backup(for: different, groupID: id)
         await #expect(throws: CloudKitCallRelationshipBackupStore.Failure.invalidRecord) {
-            try await store.save(otherData, replacing: saved, as: different, now: now)
+            _ = try await store.save(other, replacing: saved, as: different, now: now)
+        }
+        var invalid = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        invalid["version"] = 2
+        let invalidBackup = try JSONDecoder().decode(CallRelationshipBackup.self,
+            from: JSONSerialization.data(withJSONObject: invalid))
+        await #expect(throws: GroupStorageError.invalidUpdate) {
+            _ = try await store.save(invalidBackup, replacing: saved, as: previous, now: now)
         }
         #expect(records.savePolicies.count == 1)
     }
@@ -47,8 +55,8 @@ struct CloudKitCallRelationshipBackupStoreTests {
         let store = records.store
         let now = Date().timeIntervalSince1970
         let id = UUID()
-        let original = try await store.save(payload(for: owner, groupID: id), replacing: nil, as: owner, now: now)
-        let changed = try payload(for: owner, groupID: id, name: "Second group name")
+        let original = try await store.save(backup(for: owner, groupID: id), replacing: nil, as: owner, now: now)
+        let changed = try backup(for: owner, groupID: id, name: "Second group name")
         records.writeError = CKError(.serverRecordChanged)
         await #expect(throws: CKError.self) {
             try await store.save(changed, replacing: original, as: owner, now: now)
@@ -76,7 +84,8 @@ struct CloudKitCallRelationshipBackupStoreTests {
         let store = records.store
         let now = Date().timeIntervalSince1970
         let data = try payload(for: owner, groupID: UUID())
-        let original = try await store.save(data, replacing: nil, as: owner, now: now)
+        let original = try await store.save(JSONDecoder().decode(CallRelationshipBackup.self, from: data),
+                                            replacing: nil, as: owner, now: now)
         let record = try #require(records.current)
         record["unexpected"] = "Fixture field" as NSString
         await #expect(throws: CloudKitCallRelationshipBackupStore.Failure.invalidRecord) {
@@ -89,7 +98,7 @@ struct CloudKitCallRelationshipBackupStoreTests {
         await #expect(throws: CloudKitCallRelationshipBackupStore.Failure.invalidRecord) {
             try await store.load(as: owner, now: now)
         }
-        let empty = try payload(for: owner, groupID: nil)
+        let empty = try backup(for: owner, groupID: nil)
         await #expect(throws: CloudKitCallRelationshipBackupStore.Failure.nothingToSave) {
             try await store.save(empty, replacing: original, as: owner, now: now)
         }
@@ -99,6 +108,11 @@ struct CloudKitCallRelationshipBackupStoreTests {
     private func signer(from peer: AppTestSupport.Harness) throws -> DeviceIdentitySigner {
         let model = peer.viewModel
         return try model.internetSettingsStore.invitationSigner(memberID: model.localMemberIdentity.memberID)
+    }
+
+    private func backup(for signer: DeviceIdentitySigner, groupID: UUID?, name: String = "Riders") throws
+        -> CallRelationshipBackup {
+        try JSONDecoder().decode(CallRelationshipBackup.self, from: payload(for: signer, groupID: groupID, name: name))
     }
 
     private func payload(
@@ -159,7 +173,8 @@ struct CallRelationshipAutomaticBackupTests {
         let data = try JSONEncoder().encode(initial.backup)
         let text = try #require(String(data: data, encoding: .utf8))
         let edit = text.replacingOccurrences(of: "Original name", with: "Cloud edit")
-        _ = try await store.save(Data(edit.utf8), replacing: initial, as: signer, now: now)
+        let edited = try JSONDecoder().decode(CallRelationshipBackup.self, from: Data(edit.utf8))
+        _ = try await store.save(edited, replacing: initial, as: signer, now: now)
         #expect(model.renameGroup(id, to: "Local edit"))
         await first.task?.value
         #expect(first.status == .requiresReconciliation)

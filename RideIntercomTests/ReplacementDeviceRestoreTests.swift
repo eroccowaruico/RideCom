@@ -26,10 +26,12 @@ struct CallRelationshipBackupTests {
         let repository = GroupRepository(store: store, credentials: scenario.restoredCredentials)
         _ = try repository.load(localMemberID: oldSigner.memberID)
         let now = Date().timeIntervalSince1970
-        let data = try repository.callRelationshipBackup(as: oldSigner, now: now)
+        let candidate = try repository.callRelationshipBackup(as: oldSigner, now: now)
+        let data = try JSONEncoder().encode(candidate)
         let newSigner = try scenario.replacement.viewModel.internetSettingsStore.invitationSigner(memberID: "alice")
         let restored = try CallRelationshipBackup.read(data, as: newSigner, now: now)
 
+        #expect(restored == candidate)
         #expect(restored.owner == scenario.backupOwner.principal)
         #expect(restored.groups.map(\.id) == [scenario.groupID])
         #expect(restored.contacts.map(\.id) == [scenario.savedPersonID])
