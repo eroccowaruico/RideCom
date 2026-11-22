@@ -69,6 +69,54 @@ struct CallRelationshipBackupRemovalTests {
         #expect(try await records.store.load(as: signer, now: now)?.backup == candidate)
     }
 
+    @Test(arguments: [false, true])
+    func consecutiveExplicitRemovalsCanClearTheBackup(intermediateSave: Bool) async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let source = try fixture.peer("rider", account: "a")
+        let model = source.viewModel
+        let first = try addGroup(to: model)
+        let second = try addGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        let checkpoints = checkpoints()
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints) { checkpoints.cloud }
+        await model.callRelationshipBackupSync?.task?.value
+
+        if !intermediateSave { model.stopCallRelationshipBackup() }
+        try #require(model.deleteGroup(first))
+        await model.callRelationshipBackupSync?.task?.value
+        model.stopCallRelationshipBackup()
+        #expect(records.savePolicies.count == (intermediateSave ? 2 : 1))
+        source.groupStore.snapshot = try JSONDecoder().decode(
+            GroupSnapshot.self, from: JSONEncoder().encode(source.groupStore.snapshot))
+
+        let restarted = try fixture.restart(source).viewModel
+        try #require(restarted.deleteGroup(second))
+        restarted.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints) { checkpoints.cloud }
+        await restarted.callRelationshipBackupSync?.task?.value
+        let signer = try restarted.internetSettingsStore.invitationSigner(memberID: "rider")
+        #expect(restarted.callRelationshipBackupSync?.status == .saved)
+        #expect(try await records.store.load(as: signer, now: Date().timeIntervalSince1970)?.backup.isEmpty == true)
+    }
+
+    @Test func aGenericEmptyUpdateCannotFinishAnIncompleteSeriesOfRemovals() async throws {
+        let fixture = AccountCallFixture(); defer { fixture.disconnect() }
+        let model = try fixture.peer("rider", account: "a").viewModel
+        let first = try addGroup(to: model)
+        _ = try addGroup(to: model)
+        let records = MemoryCallBackupRecords()
+        let checkpoints = checkpoints()
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints) { checkpoints.cloud }
+        await model.callRelationshipBackupSync?.task?.value
+        model.stopCallRelationshipBackup()
+
+        try #require(model.deleteGroup(first))
+        try #require(model.commitGroups([]))
+        model.configureCallRelationshipBackup(store: records.store, checkpoints: checkpoints) { checkpoints.cloud }
+        await model.callRelationshipBackupSync?.task?.value
+        #expect(model.callRelationshipBackupSync?.status == .requiresReconciliation)
+        #expect(records.savePolicies.count == 1)
+    }
+
     @Test func removalWithLostResponseIsAcknowledgedAfterRestartWithoutASecondWrite() async throws {
         let fixture = AccountCallFixture(); defer { fixture.disconnect() }
         let source = try fixture.peer("rider", account: "a")
@@ -106,7 +154,7 @@ struct CallRelationshipBackupRemovalTests {
         let binding = AccountDeviceBinding(principal: principal, publicKey: signer.publicKey)
         let group = try IntercomGroup(id: id, name: "Riders", members: [.init(id: "rider", displayName: "Rider")],
                                       accountDevices: ["rider": binding])
-        try #require(model.commitGroups([group]))
+        try #require(model.commitGroups(model.groups + [group]))
         return id
     }
 }

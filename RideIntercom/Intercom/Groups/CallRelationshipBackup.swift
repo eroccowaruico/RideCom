@@ -86,51 +86,74 @@ extension GroupRepository {
         }
     }
 
-    func rememberLastBackupRemoval(_ id: UUID, kind: CallRelationshipBackupRemoval.Kind,
-                                   afterRemovingFrom next: inout GroupSnapshot) {
+    func recordBackupRemoval(_ id: UUID, kind: CallRelationshipBackupRemovals.Kind,
+                             afterRemovingFrom next: inout GroupSnapshot) {
         guard let previous = writableSnapshot, let memberID = localMemberID else { return }
         let bindings = previous.groups.compactMap { $0.accountDevices[memberID] }
         guard let binding = bindings.first, bindings.allSatisfy({ $0 == binding }),
-              let backup = try? previous.backupCandidate(memberID: memberID, binding: binding),
-              let removal = try? CallRelationshipBackupRemoval(last: id, kind: kind, in: backup),
-              !removal.isPresent(in: next) else { return }
-        next.lastBackupRemoval = removal
+              let before = try? previous.backupCandidate(memberID: memberID, binding: binding),
+              let after = try? next.backupCandidate(memberID: memberID, binding: binding),
+              let removals = try? CallRelationshipBackupRemovals(
+                  removing: id, kind: kind, from: before, to: after, continuing: previous.backupRemovals)
+        else { return }
+        next.backupRemovals = removals
     }
 }
 
-/// Evidence for replacing one exact, previously saved nonempty candidate with an empty one.
-struct CallRelationshipBackupRemoval: Codable, Equatable {
+/// Local evidence that consecutive explicit removals produced the current candidate.
+struct CallRelationshipBackupRemovals: Codable, Equatable {
     enum Kind: String, Codable { case group, contact }
-    let id: UUID
-    let kind: Kind
-    let fingerprint: String
+    private struct Item: Codable, Equatable, Hashable {
+        let id: UUID
+        let kind: Kind
+    }
+    private struct Step: Codable, Equatable {
+        let item: Item
+        let before: String
+    }
+    private let steps: [Step]
+    private let result: String
 
     var isValid: Bool {
-        fingerprint.utf8.count == 64
-            && fingerprint.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+        let fingerprints = steps.map(\.before) + [result]
+        return !steps.isEmpty && Set(steps.map(\.item)).count == steps.count
+            && Set(fingerprints).count == fingerprints.count
+            && fingerprints.allSatisfy {
+                $0.utf8.count == 64 && $0.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+            }
     }
 
-    fileprivate init?(last id: UUID, kind: Kind, in backup: CallRelationshipBackup) throws {
-        guard Self.containsOnly(id, kind: kind, in: backup) else { return nil }
-        self.id = id
-        self.kind = kind
-        fingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(backup)
+    fileprivate init?(
+        removing id: UUID, kind: Kind, from before: CallRelationshipBackup, to after: CallRelationshipBackup,
+        continuing previous: Self?
+    ) throws {
+        let expected = CallRelationshipBackup(owner: before.owner,
+            groups: before.groups.filter { kind != .group || $0.id != id },
+            contacts: before.contacts.filter { kind != .contact || $0.id != id })
+        guard before != expected, expected == after else { return nil }
+        let fingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(before)
+        let priorSteps = previous.flatMap { $0.result == fingerprint ? $0.steps : nil } ?? []
+        steps = priorSteps + [Step(item: .init(id: id, kind: kind), before: fingerprint)]
+        result = try CallRelationshipBackupCheckpointStore.fingerprint(after)
     }
 
-    func permitsClearing(_ backup: CallRelationshipBackup) throws -> Bool {
-        guard Self.containsOnly(id, kind: kind, in: backup) else { return false }
-        return try CallRelationshipBackupCheckpointStore.fingerprint(backup) == fingerprint
-    }
-
-    private static func containsOnly(_ id: UUID, kind: Kind, in backup: CallRelationshipBackup) -> Bool {
-        backup.groups.map(\.id) == (kind == .group ? [id] : [])
-            && backup.contacts.map(\.id) == (kind == .contact ? [id] : [])
+    func permitsClearing(_ backup: CallRelationshipBackup, to empty: CallRelationshipBackup) throws -> Bool {
+        guard empty.isEmpty, empty.owner == backup.owner,
+              try result == CallRelationshipBackupCheckpointStore.fingerprint(empty) else { return false }
+        let fingerprint = try CallRelationshipBackupCheckpointStore.fingerprint(backup)
+        guard let start = steps.firstIndex(where: { $0.before == fingerprint }) else { return false }
+        let remaining = steps[start...].map(\.item)
+        let groups = backup.groups.map { Item(id: $0.id, kind: .group) }
+        let contacts = backup.contacts.map { Item(id: $0.id, kind: .contact) }
+        return Set(remaining) == Set(groups + contacts)
     }
 
     func isPresent(in snapshot: GroupSnapshot) -> Bool {
-        switch kind {
-        case .group: snapshot.groups.contains { $0.id == id }
-        case .contact: snapshot.users.contains { $0.id == id }
+        steps.contains { step in
+            switch step.item.kind {
+            case .group: snapshot.groups.contains { $0.id == step.item.id }
+            case .contact: snapshot.users.contains { $0.id == step.item.id }
+            }
         }
     }
 }

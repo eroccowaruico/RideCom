@@ -65,7 +65,7 @@ final class CallRelationshipBackupSync {
             status = .saved
             return
         }
-        if local.isEmpty, checkpoint == nil || repository.writableSnapshot?.lastBackupRemoval == nil {
+        if local.isEmpty, checkpoint == nil || repository.writableSnapshot?.backupRemovals == nil {
             status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
@@ -74,8 +74,8 @@ final class CallRelationshipBackupSync {
         guard !pending, let current = try signerMatching(signer) else { return }
         let commitTime = Date().timeIntervalSince1970
         let candidate = try repository.callRelationshipBackup(as: current, now: commitTime)
-        let removal = candidate.isEmpty ? repository.writableSnapshot?.lastBackupRemoval : nil
-        guard !candidate.isEmpty || (checkpoint != nil && removal != nil) else {
+        let removals = candidate.isEmpty ? repository.writableSnapshot?.backupRemovals : nil
+        guard !candidate.isEmpty || (checkpoint != nil && removals != nil) else {
             status = checkpoint == nil ? .idle : .requiresReconciliation
             return
         }
@@ -90,13 +90,14 @@ final class CallRelationshipBackupSync {
             status = .requiresReconciliation
             return
         }
-        guard !candidate.isEmpty || (remote != nil && removal?.fingerprint == remoteFingerprint) else {
+        if candidate.isEmpty,
+           try remote.flatMap({ try removals?.permitsClearing($0.backup, to: candidate) }) != true {
             status = .requiresReconciliation
             return
         }
 
         try checkpoints.save(.init(saved: remoteFingerprint, pending: candidateFingerprint), as: current)
-        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime, clearing: removal)
+        _ = try await store.save(candidate, replacing: remote, as: current, now: commitTime, clearing: removals)
         guard try signerMatching(current) != nil else { return }
         try checkpoints.save(.init(saved: candidateFingerprint, pending: nil), as: current)
         if !pending { status = .saved }
