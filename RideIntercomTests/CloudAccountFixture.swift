@@ -36,8 +36,10 @@ final class CloudAccountFixture {
         })
     }
 
-    func session() -> CloudKitCallRelationshipBackupSession {
-        .init(store: store, keychain: DictionaryKeychain(), namespace: "CloudFixture", center: center) {
+    func session(keychain: KeychainSecretStoring = DictionaryKeychain(),
+                 directRestoreClient: InternetAccountClient? = nil) -> CloudKitCallRelationshipBackupSession {
+        .init(store: store, keychain: keychain, namespace: "CloudFixture", center: center,
+              directRestoreClient: directRestoreClient) {
             let found = self.account
             if self.pauseNextLookup {
                 self.pauseNextLookup = false

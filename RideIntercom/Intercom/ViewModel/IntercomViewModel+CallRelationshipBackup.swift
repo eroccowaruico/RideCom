@@ -3,6 +3,7 @@ import Foundation
 struct CallRelationshipSyncState {
     var backup: CallRelationshipBackupSync?
     var directRestoreDevice: DirectRestoreDeviceSync?
+    var resumeDirectRestore: (() -> Void)?
 }
 
 extension IntercomViewModel {

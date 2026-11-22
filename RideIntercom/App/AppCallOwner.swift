@@ -14,6 +14,7 @@ final class AppCallOwner: CallSurfaceActions {
                 backupSession?.refreshIfUnavailable()
                 viewModel?.callRelationshipBackupSync?.request()
                 viewModel?.requestDirectRestoreDeviceSync()
+                viewModel?.callRelationshipSync.resumeDirectRestore?()
             }
         }
     }

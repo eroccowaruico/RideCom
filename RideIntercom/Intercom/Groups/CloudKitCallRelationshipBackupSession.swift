@@ -8,7 +8,7 @@ final class CloudKitCallRelationshipBackupSession {
 
     enum Failure: Error, Equatable { case accountUnavailable, backupChanged }
 
-    private struct CurrentBackup {
+    struct CurrentBackup {
         let backup: CallRelationshipBackup?
         let signer: DeviceIdentitySigner
         let trust: DeviceIdentityTrust
@@ -19,9 +19,13 @@ final class CloudKitCallRelationshipBackupSession {
     private let namespace: String
     private let account: () async throws -> Account?
     private let center: NotificationCenter
+    let directRestoreClient: InternetAccountClient?
+    private(set) var restoreSelectionCheckpoints: CallRelationshipBackupCheckpointStore?
+    var directRestorePreparation: Task<SelectedDirectRestorePreparation, Error>?
+    var restoreSelectionChange = UUID()
     private var observer: NSObjectProtocol?
-    private weak var model: IntercomViewModel?
-    private var current: Account?
+    private(set) weak var model: IntercomViewModel?
+    private(set) var current: Account?
     private var generation = UUID()
     private var respondingToRelay = false
     private(set) var task: Task<Void, Never>?
@@ -40,12 +44,14 @@ final class CloudKitCallRelationshipBackupSession {
 
     init(
         store: CloudKitCallRelationshipBackupStore, keychain: KeychainSecretStoring, namespace: String,
-        center: NotificationCenter, account: @escaping () async throws -> Account?
+        center: NotificationCenter, directRestoreClient: InternetAccountClient? = nil,
+        account: @escaping () async throws -> Account?
     ) {
         self.store = store
         self.keychain = keychain
         self.namespace = namespace
         self.center = center
+        self.directRestoreClient = directRestoreClient
         self.account = account
         observer = center.addObserver(forName: .CKAccountChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
@@ -59,7 +65,11 @@ final class CloudKitCallRelationshipBackupSession {
     func bind(to model: IntercomViewModel?) {
         guard self.model !== model else { return }
         self.model?.stopCallRelationshipBackup()
+        self.model?.callRelationshipSync.resumeDirectRestore = nil
         self.model = model
+        if directRestoreClient != nil {
+            model?.callRelationshipSync.resumeDirectRestore = { [weak self] in self?.retrySelectedDirectRestore() }
+        }
         refresh()
     }
 
@@ -67,65 +77,8 @@ final class CloudKitCallRelationshipBackupSession {
         if current == nil && task == nil { refresh() }
     }
 
-    func prepareDirectRestore(
-        for contactID: UUID, candidates: [DeviceIdentityCertificate], from original: CallRelationshipBackup
-    ) async throws -> (recipient: VerifiedDeviceIdentity, request: CallRelationshipRestoreRequest)? {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner()
-        else { throw Failure.accountUnavailable }
-        let (latest, checked) = try await checkDirectRestoreContact(contactID, from: original, for: model, as: signer)
-        return try directRestoreRequest(for: contactID, in: latest, candidates: candidates, after: checked, now: Date())
-    }
-
-    func prepareDirectRestore(
-        for contactID: UUID, from original: CallRelationshipBackup, using client: InternetAccountClient
-    ) async throws -> (recipient: VerifiedDeviceIdentity, request: CallRelationshipRestoreRequest)? {
-        guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
-              let access = try model.internetSettingsStore.notificationAccess(memberID: signer.memberID)
-        else { throw Failure.accountUnavailable }
-        let expected = generation
-        let (latest, checked) = try await checkDirectRestoreContact(contactID, from: original, for: model, as: signer)
-        guard try model.internetSettingsStore.notificationAccess(memberID: signer.memberID) == access,
-              generation == expected else { throw Failure.accountUnavailable }
-        guard let address = try latest.directRestoreDeviceAddress(for: contactID, as: checked.signer, now: Date())
-        else { return nil }
-        let received = try await client.fetchDirectRestoreDevice(at: address, access: access)
-        guard generation == expected else { throw Failure.accountUnavailable }
-        let (current, resolved) = try await checkDirectRestoreContact(
-            contactID, from: original, for: model, as: signer)
-        guard try model.internetSettingsStore.notificationAccess(memberID: signer.memberID) == access,
-              generation == expected else { throw Failure.accountUnavailable }
-        guard let received else { return nil }
-        let now = Date()
-        let certificate = try received.open(at: address, as: resolved.signer, trust: resolved.trust, now: now)
-        return try directRestoreRequest(
-            for: contactID, in: current, candidates: [certificate], after: resolved, now: now)
-    }
-
-    private func directRestoreRequest(
-        for contactID: UUID, in backup: CallRelationshipBackup, candidates: [DeviceIdentityCertificate],
-        after checked: CurrentBackup, now: Date
-    ) throws -> (recipient: VerifiedDeviceIdentity, request: CallRelationshipRestoreRequest)? {
-        guard let recipient = try backup.directRestoreRecipient(
-            for: contactID, from: candidates, trust: checked.trust, now: now),
-              let request = try backup.directRestoreRequest(for: contactID, to: recipient, as: checked.signer, now: now)
-        else { return nil }
-        return (recipient, request)
-    }
-
-    private func checkDirectRestoreContact(
-        _ contactID: UUID, from original: CallRelationshipBackup,
-        for model: IntercomViewModel, as signer: DeviceIdentitySigner
-    ) async throws -> (CallRelationshipBackup, CurrentBackup) {
-        guard let owner = signer.principal else { throw Failure.accountUnavailable }
-        _ = try original.validated(for: owner)
-        let checked = try await readCurrentBackup(for: model, as: signer)
-        guard let latest = checked.backup, original.unchangedContact(contactID, in: latest) != nil else {
-            throw Failure.backupChanged
-        }
-        return (latest, checked)
-    }
-
-    func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup) async throws {
+    func restore(_ batch: ConfirmedCallRestore, from original: CallRelationshipBackup,
+                 selection: CallRelationshipBackupCheckpointStore.RestoreSelection? = nil) async throws {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal else { throw Failure.accountUnavailable }
         _ = try original.validated(for: owner)
@@ -133,13 +86,15 @@ final class CloudKitCallRelationshipBackupSession {
         guard let latest = checked.backup, try batch.hasUnchangedCandidates(from: original, in: latest) else {
             throw Failure.backupChanged
         }
+        try requireRestoreSelection(selection, as: checked.signer)
         try model.groupRepository.restoreCallRelationships(batch, as: checked.signer, trust: checked.trust)
         model.reloadSavedGroups()
     }
 
     func restoreDirect(
         _ response: DirectCallRestoreResponse, to request: CallRelationshipRestoreRequest,
-        for contactID: UUID, from original: CallRelationshipBackup
+        for contactID: UUID, from original: CallRelationshipBackup,
+        selection: CallRelationshipBackupCheckpointStore.RestoreSelection? = nil
     ) async throws {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let owner = signer.principal, let trust = try model.internetSettingsStore.identityTrust() else {
@@ -149,7 +104,7 @@ final class CloudKitCallRelationshipBackupSession {
         guard let contact = original.contacts.first(where: { $0.id == contactID }) else { throw Failure.backupChanged }
         let batch = try response.restoreBatch(for: request, contact: contact,
             localDisplayName: model.localMemberIdentity.displayName, as: signer, verifying: (trust, Date()))
-        try await restore(batch, from: original)
+        try await restore(batch, from: original, selection: selection)
     }
 
     func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws -> DirectCallRestoreResponse? {
@@ -167,7 +122,7 @@ final class CloudKitCallRelationshipBackupSession {
             request, as: checked.signer, trust: checked.trust, now: Date(), matching: latest)
     }
 
-    private func readCurrentBackup(for model: IntercomViewModel, as signer: DeviceIdentitySigner) async throws
+    func readCurrentBackup(for model: IntercomViewModel, as signer: DeviceIdentitySigner) async throws
         -> CurrentBackup {
         guard let cloud = current, let owner = signer.principal else { throw Failure.accountUnavailable }
         let expected = generation
@@ -181,11 +136,21 @@ final class CloudKitCallRelationshipBackupSession {
         return .init(backup: stored?.backup, signer: active, trust: trust)
     }
 
+    func readCurrentBackup(scopedTo account: RelayAccount) async throws -> CurrentBackup {
+        guard let model else { throw Failure.accountUnavailable }
+        let checked = try await readCurrentBackup(for: model, as: account.signer)
+        try requireRelayAccount(account)
+        return checked
+    }
+
     private func invalidate() {
         generation = UUID()
         current = nil
         task?.cancel()
         task = nil
+        directRestorePreparation?.cancel()
+        directRestorePreparation = nil
+        restoreSelectionCheckpoints = nil
         model?.stopCallRelationshipBackup()
     }
 
@@ -215,6 +180,10 @@ final class CloudKitCallRelationshipBackupSession {
         model.configureCallRelationshipBackup(store: guarded, checkpoints: checkpoints) { [weak self] in
             guard let self, self.generation == expected else { return nil }
             return self.current
+        }
+        if directRestoreClient != nil {
+            restoreSelectionCheckpoints = checkpoints
+            retrySelectedDirectRestore()
         }
     }
 
@@ -246,18 +215,21 @@ extension CloudKitCallRelationshipBackupSession {
         fileprivate let backup: CallRelationshipBackup
         fileprivate let request: CallRelationshipRestoreRequest
         fileprivate let submission: DirectCallRestoreRelayPacket.Submission
+        fileprivate let selection: CallRelationshipBackupCheckpointStore.RestoreSelection?
         fileprivate var state = PendingDirectRestoreState.awaitingResponse
 
         fileprivate init(
             account: RelayAccount, contactID: UUID, backup: CallRelationshipBackup,
-            request: CallRelationshipRestoreRequest, submission: DirectCallRestoreRelayPacket.Submission
+            request: CallRelationshipRestoreRequest, submission: DirectCallRestoreRelayPacket.Submission,
+            selection: CallRelationshipBackupCheckpointStore.RestoreSelection? = nil
         ) {
             self.account = account; self.contactID = contactID; self.backup = backup
             self.request = request; self.submission = submission
+            self.selection = selection
         }
     }
 
-    fileprivate struct RelayAccount {
+    struct RelayAccount {
         let generation: UUID
         let access: CallNotificationServiceAccess
         let signer: DeviceIdentitySigner
@@ -277,12 +249,27 @@ extension CloudKitCallRelationshipBackupSession {
                      submission: submission)
     }
 
+    func prepareSelectedDirectRestore(
+        _ selection: CallRelationshipBackupCheckpointStore.RestoreSelection, checked: CurrentBackup,
+        scopedTo account: RelayAccount, using client: InternetAccountClient
+    ) async throws -> PendingDirectRestore? {
+        let id = selection.contactID
+        guard let backup = checked.backup, let prepared = try await prepareDirectRestore(
+            for: id, checked: checked, account: account, using: client) else { return nil }
+        try requireRestoreSelection(selection, as: account.signer)
+        let submission = try DirectCallRestoreRelayPacket.seal(
+            .request(value: prepared.request), to: prepared.recipient, as: account.signer, now: Date())
+        return .init(account: account, contactID: id, backup: backup, request: prepared.request,
+                     submission: submission, selection: selection)
+    }
+
     func sendRelayedDirectRestore(_ pending: PendingDirectRestore, using client: InternetAccountClient) async throws {
         try requireRelayAccount(pending.account)
         guard case .awaitingResponse = pending.state, let model else { return }
         _ = try await checkDirectRestoreContact(
             pending.contactID, from: pending.backup, for: model, as: pending.account.signer)
         try requireRelayAccount(pending.account)
+        try requireRestoreSelection(pending.selection, as: pending.account.signer)
         try await client.submitDirectRestorePacket(pending.submission, access: pending.account.access)
     }
 
@@ -317,6 +304,7 @@ extension CloudKitCallRelationshipBackupSession {
             await retireRestoreReceipt(receipt, for: pending, using: client)
             return true
         case .awaitingResponse:
+            try requireRestoreSelection(pending.selection, as: pending.account.signer)
             pending.state = .applyingResponse
         }
         defer { if case .applyingResponse = pending.state { pending.state = .awaitingResponse } }
@@ -326,7 +314,8 @@ extension CloudKitCallRelationshipBackupSession {
         for packet in inbox {
             guard let response = try? packet.openResponse(
                 for: pending.request, as: account.signer, trust: account.trust, now: Date()) else { continue }
-            try await restoreDirect(response, to: pending.request, for: pending.contactID, from: pending.backup)
+            try await restoreDirect(response, to: pending.request, for: pending.contactID, from: pending.backup,
+                                    selection: pending.selection)
             pending.state = .restored(receipt: packet.id)
             await retireRestoreReceipt(packet.id, for: pending, using: client)
             return true
@@ -347,7 +336,7 @@ extension CloudKitCallRelationshipBackupSession {
         }
     }
 
-    private func relayAccount() throws -> RelayAccount {
+    func relayAccount() throws -> RelayAccount {
         guard !Task.isCancelled, let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let access = try model.internetSettingsStore.notificationAccess(memberID: signer.memberID),
               let trust = try model.internetSettingsStore.identityTrust(), signer.principal == access.principal
@@ -355,7 +344,7 @@ extension CloudKitCallRelationshipBackupSession {
         return .init(generation: generation, access: access, signer: signer, trust: trust)
     }
 
-    private func requireRelayAccount(_ expected: RelayAccount) throws {
+    func requireRelayAccount(_ expected: RelayAccount) throws {
         let current = try relayAccount()
         guard current.generation == expected.generation, current.access == expected.access,
               current.signer.publicKey == expected.signer.publicKey,
@@ -366,7 +355,7 @@ extension CloudKitCallRelationshipBackupSession {
     }
 }
 
-private extension CallRelationshipBackup {
+extension CallRelationshipBackup {
     func unchangedContact(_ id: UUID, in latest: Self) -> Contact? {
         guard owner == latest.owner, let contact = contacts.first(where: { $0.id == id }),
               latest.contacts.contains(contact) else { return nil }

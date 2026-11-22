@@ -94,6 +94,7 @@ extension IntercomViewModel {
         internetCheckMessage = "Device token saved. Service not checked."
         callRelationshipBackupSync?.request()
         requestDirectRestoreDeviceSync()
+        callRelationshipSync.resumeDirectRestore?()
         Task { await startNotifications() }
     }
 

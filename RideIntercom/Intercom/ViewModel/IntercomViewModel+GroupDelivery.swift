@@ -13,6 +13,7 @@ extension IntercomViewModel {
         groupDeliveryNetworkWasAvailable = isAvailable
         guard wasAvailable == false, isAvailable else { return }
         requestDirectRestoreDeviceSync()
+        callRelationshipSync.resumeDirectRestore?()
         guard groupDeliveryClient != nil, canEditSavedGroups else { return }
         requestInvitationInternetReply(restart: true)
         if hasPendingContactDeletionRelay {

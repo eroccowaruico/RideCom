@@ -21,9 +21,18 @@ struct CallRelationshipBackupCheckpointStore {
 
         var isValid: Bool {
             let fingerprints = [saved, pending].compactMap { $0 }
-            return !fingerprints.isEmpty && fingerprints.allSatisfy { value in
-                value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-            }
+            return !fingerprints.isEmpty && fingerprints.allSatisfy(CallRelationshipBackupCheckpointStore.isFingerprint)
+        }
+    }
+
+    struct RestoreSelection: Codable, Equatable {
+        var id = UUID()
+        let contactID: UUID
+        let fingerprint: String
+
+        func matches(_ candidate: CallRelationshipBackup.Contact) throws -> Bool {
+            guard contactID == candidate.id else { return false }
+            return try CallRelationshipBackupCheckpointStore.fingerprint(candidate) == fingerprint
         }
     }
 
@@ -59,6 +68,27 @@ struct CallRelationshipBackupCheckpointStore {
         guard try load(as: signer) == value else { throw KeychainSecretStoreError.invalidData }
     }
 
+    func loadRestoreSelection(as signer: DeviceIdentitySigner) throws -> RestoreSelection? {
+        let key = try account(as: signer) + ".restore-selection"
+        guard let stored = try keychain.secret(service: service, account: key) else { return nil }
+        let value = try JSONDecoder().decode(RestoreSelection.self, from: Data(stored.utf8))
+        guard Self.isFingerprint(value.fingerprint) else { throw KeychainSecretStoreError.invalidData }
+        return value
+    }
+
+    func saveRestoreSelection(_ value: RestoreSelection?, as signer: DeviceIdentitySigner) throws {
+        let key = try account(as: signer) + ".restore-selection"
+        if let value {
+            guard Self.isFingerprint(value.fingerprint),
+                  let encoded = String(bytes: try JSONEncoder().encode(value), encoding: .utf8)
+            else { throw KeychainSecretStoreError.invalidData }
+            try keychain.saveSecret(encoded, service: service, account: key)
+        } else {
+            try keychain.deleteSecret(service: service, account: key)
+        }
+        guard try loadRestoreSelection(as: signer) == value else { throw KeychainSecretStoreError.invalidData }
+    }
+
     static func fingerprint(_ backup: CallRelationshipBackup) throws -> String {
         try digest(backup)
     }
@@ -78,5 +108,9 @@ struct CallRelationshipBackupCheckpointStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try SHA256.hash(data: encoder.encode(value)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func isFingerprint(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 }

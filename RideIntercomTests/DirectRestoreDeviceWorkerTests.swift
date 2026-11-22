@@ -7,6 +7,122 @@ import Testing
 
 extension GroupDeliveryWorkerTests {
     @Test(.timeLimit(.minutes(1)))
+    func selectedRestoreWaitsForAFreshDeviceCertificateAcrossRestart() async throws {
+        try await withWorker(directRestore: true) {
+            let holder = GroupDeliveryTestIdentity("expiry-holder")
+            let original = GroupDeliveryTestIdentity("expiry-original")
+            let replacement = GroupDeliveryTestIdentity("expiry-replacement")
+            defer { holder.remove(); original.remove(); replacement.remove() }
+            try await register(holder)
+            try await register(original)
+            try await register(replacement, appleSubject: original.memberID)
+            let publisher = try holder.harness(knowing: []).viewModel
+            let old = try original.harness(knowing: []).viewModel
+            let new = try replacement.harness(knowing: [], onDisk: true).viewModel
+            defer { publisher.disconnect(); old.disconnect(); new.disconnect() }
+            try confirmRestoreContact(from: publisher, to: old)
+
+            let source = CloudAccountFixture(account: "expiry-source")
+            let backup = try await saveRestoreBackup(of: old, as: original.signer, for: source)
+            let contact = try #require(backup.contacts.first)
+            let client = InternetAccountClient(session: workerSession())
+            let keys = DictionaryKeychain()
+            let reader = source.session(keychain: keys, directRestoreClient: client)
+            reader.bind(to: new)
+            defer { reader.bind(to: nil) }
+            await reader.task?.value
+            let publisherContact = try #require(publisher.savedRemoteUsers.first?.id)
+            let publisherAccess = try #require(try holder.store.notificationAccess(memberID: holder.memberID))
+            let expiry = try await publishShortLivedCertificate(
+                from: publisher, for: publisherContact, using: client, access: publisherAccess)
+            #expect(try await reader.prepareDirectRestore(for: contact.id, from: backup, using: client) != nil)
+            try await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow + 0.025)))
+
+            try await reader.selectDirectRestore(contact.id, from: backup)
+            try await requireWaitingForRestoreCertificate(reader)
+            reader.bind(to: nil)
+            let reopened = try replacement.harness(knowing: [], onDisk: true).viewModel
+            defer { reopened.disconnect() }
+            let restarted = source.session(keychain: keys, directRestoreClient: client)
+            let owner = AppCallOwner(account: reopened.accountSession, viewModel: reopened, backupSession: restarted)
+            defer { restarted.bind(to: nil) }
+            await restarted.task?.value
+            try await requireWaitingForRestoreCertificate(restarted)
+
+            await republishRestoreCertificateOnStartup(publisher, using: client)
+            owner.systemSurfaceIsForeground = true
+            guard case let .ready(pending)? = try await restarted.directRestorePreparation?.value
+            else { Issue.record("Returning to the app should prepare the same selection"); return }
+            #expect(try await client.directRestoreInbox(access: publisherAccess).isEmpty)
+            try await restarted.sendRelayedDirectRestore(pending, using: client)
+            #expect(try await client.directRestoreInbox(access: publisherAccess).count == 1)
+
+            try await removeAndReselectRestoreContact(contact.id, from: backup, in: source, with: restarted)
+            try await rejectRequestFromPreviousSelection(pending, on: restarted, using: client,
+                                                         access: publisherAccess, cloud: source)
+        }
+    }
+
+    private func requireWaitingForRestoreCertificate(_ reader: CloudKitCallRelationshipBackupSession) async throws {
+        let result = try await reader.directRestorePreparation?.value
+        let waiting = if case .waitingForDevice? = result { true } else { false }
+        try #require(waiting)
+    }
+
+    private func republishRestoreCertificateOnStartup(
+        _ publisher: IntercomViewModel, using client: InternetAccountClient
+    ) async {
+        let owner = AppCallOwner(account: publisher.accountSession, viewModel: publisher,
+                                 directRestoreDeviceClient: client)
+        await owner.viewModel?.directRestoreDeviceSync?.task?.value
+        owner.viewModel?.stopDirectRestoreDeviceSync()
+    }
+
+    private func publishShortLivedCertificate(
+        from publisher: IntercomViewModel, for contact: UUID,
+        using client: InternetAccountClient, access: CallNotificationServiceAccess
+    ) async throws -> Date {
+        let earlier = Date().addingTimeInterval(-86_396)
+        let signer = try #require(try publisher.callRelationshipBackupSigner())
+        let publication = try #require(try publisher.groupRepository.directRestoreDevicePublication(
+            for: contact, as: signer, now: earlier))
+        try await client.publishDirectRestoreDevice(publication, access: access)
+        return Date(timeIntervalSince1970: Double(publication.expiresAt) / 1_000)
+    }
+
+    private func rejectRequestFromPreviousSelection(
+        _ pending: CloudKitCallRelationshipBackupSession.PendingDirectRestore,
+        on session: CloudKitCallRelationshipBackupSession, using client: InternetAccountClient,
+        access: CallNotificationServiceAccess, cloud: CloudAccountFixture
+    ) async throws {
+        await #expect(throws: CloudKitCallRelationshipBackupSession.Failure.backupChanged) {
+            try await session.sendRelayedDirectRestore(pending, using: client)
+        }
+        #expect(try await client.directRestoreInbox(access: access).count == 1)
+        cloud.account = "different-cloud-account"
+        cloud.center.post(name: .CKAccountChanged, object: nil)
+        await session.task?.value
+        guard case .noSelection? = try await session.directRestorePreparation?.value
+        else { Issue.record("Another iCloud account should not open the saved selection"); return }
+    }
+
+    private func removeAndReselectRestoreContact(_ id: UUID, from backup: CallRelationshipBackup,
+                                                 in source: CloudAccountFixture,
+                                                 with session: CloudKitCallRelationshipBackupSession) async throws {
+        let record = try #require(source.records.values.first)
+        let removed = try JSONEncoder().encode(backup.removingContacts([id]))
+        record.encryptedValues["payload"] = removed as NSData
+        session.retrySelectedDirectRestore()
+        guard case .selectionChanged? = try await session.directRestorePreparation?.value
+        else { Issue.record("A removed contact should clear the selected restore"); return }
+        session.retrySelectedDirectRestore()
+        guard case .noSelection? = try await session.directRestorePreparation?.value
+        else { Issue.record("The removed contact should stay cleared"); return }
+        record.encryptedValues["payload"] = try JSONEncoder().encode(backup) as NSData
+        try await session.selectDirectRestore(id, from: backup)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func directRestoreDevicePublicationResumesFromSavedRelationships() async throws {
         try await withWorker(directRestore: true) {
             let holder = GroupDeliveryTestIdentity("automatic-holder")
