@@ -22,6 +22,15 @@ extension InternetAccountClient {
         let recipient: String?
         let recipientKey: String?
         let packet: String?
+
+        init(_ record: ContactDeletionPublication) {
+            slot = record.slot
+            id = record.id.uuidString.lowercased()
+            expiresAt = record.expiresAt
+            recipient = record.payload?.recipient.userID
+            recipientKey = record.payload?.recipientKey
+            packet = record.payload?.packet
+        }
     }
     nonisolated private struct DeletionRead: Encodable {
         let owner: String
@@ -43,14 +52,26 @@ extension InternetAccountClient {
         let state: ContactDeletionWorkerState?
     }
 
+    static func backgroundContactDeletionRequest(
+        _ record: ContactDeletionPublication, access: CallNotificationServiceAccess, signer: DeviceIdentitySigner,
+        now: Date
+    ) throws -> URLRequest? {
+        guard record.payload != nil, record.sender == access.principal, record.senderKey == signer.publicKey
+        else { return nil }
+        return try backgroundSubmissionRequest(
+            DeletionWrite(record), path: "api/contact-deletions/background-publish",
+            purpose: .publishBackgroundContactDeletion, access: access, signer: signer, now: now)
+    }
+
+    static func contactDeletionResponseState(_ data: Data) -> ContactDeletionWorkerState? {
+        (try? JSONDecoder().decode(DeletionResponse.self, from: data))?.state
+    }
+
     func writeContactDeletion(_ record: ContactDeletionPublication, access: CallNotificationServiceAccess)
         async throws -> ContactDeletionWorkerState {
         guard record.sender == access.principal else { throw Failure.rejected }
-        let body = DeletionWrite(slot: record.slot, id: record.id.uuidString.lowercased(), expiresAt: record.expiresAt,
-            recipient: record.payload?.recipient.userID, recipientKey: record.payload?.recipientKey,
-            packet: record.payload?.packet)
         let response: DeletionResponse = try await sendJSON(origin: access.origin, path: "api/contact-deletions",
-            method: record.payload == nil ? "DELETE" : "PUT", body: JSONEncoder().encode(body),
+            method: record.payload == nil ? "DELETE" : "PUT", body: JSONEncoder().encode(DeletionWrite(record)),
             token: access.accessToken)
         guard let state = response.state, record.payload != nil || state == .retired else {
             throw Failure.invalidResponse

@@ -25,6 +25,63 @@ extension IntercomViewModel {
         }
     }
 
+    func backgroundContactDeletionUploadIDs(
+        access: CallNotificationServiceAccess, binding: String
+    ) -> Set<InvitationBackgroundUploadID> {
+        let publications = groupRepository.contactDeletionPublications
+        guard canEditSavedGroups, groupDeliveryClient != nil, !publications.isEmpty,
+              let signer = try? internetSettingsStore.contactDeletionSigner(memberID: localMemberIdentity.memberID)
+        else { return [] }
+        let now = callAccessNow().timeIntervalSince1970 * 1_000
+        return Set(publications.compactMap { record in
+            guard record.sender == access.principal, record.senderKey == signer.publicKey,
+                  Double(record.expiresAt) > now,
+                  let payload = record.payload, payload.backgroundPublished != true else { return nil }
+            return contactDeletionUploadID(record, binding: binding)
+        })
+    }
+
+    private func contactDeletionUploadID(
+        _ record: ContactDeletionPublication, binding: String
+    ) -> InvitationBackgroundUploadID {
+        .init(deliveryID: record.id, sessionBinding: binding, operation: .contactDeletion)
+    }
+
+    func scheduleBackgroundContactDeletions(
+        _ keys: Set<InvitationBackgroundUploadID>, transfer: any InvitationBackgroundTransferring
+    ) {
+        let pending = keys.filter { $0.operation == .contactDeletion }
+        let capacity = 60 - pending.count(where: { transfer.contains($0) })
+        guard !pending.isEmpty, capacity > 0,
+              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+              let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken),
+              let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
+        else { return }
+        let now = callAccessNow()
+        for key in pending.lazy.filter({ !transfer.contains($0) }).prefix(capacity) {
+            guard key.sessionBinding == binding,
+                  let record = groupRepository.contactDeletionPublications.first(where: { $0.id == key.deliveryID }),
+                  let request = try? InternetAccountClient.backgroundContactDeletionRequest(
+                      record, access: access, signer: signer, now: now)
+            else { continue }
+            try? transfer.enqueue(request, for: key)
+        }
+    }
+
+    func applyBackgroundContactDeletionReply(
+        _ state: ContactDeletionWorkerState, for key: InvitationBackgroundUploadID
+    ) {
+        guard state == .pending || state == .received,
+              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+              let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken),
+              backgroundContactDeletionUploadIDs(access: access, binding: binding).contains(key)
+        else { return }
+        do {
+            try groupRepository.markContactDeletionBackgroundPublished(key.deliveryID, now: callAccessNow())
+            if state == .received { requestGroupDeliverySync(.localChange) }
+        } catch { reportGroupStorageError(error) }
+    }
+
     func synchronizeContactDeletionRelay(
         client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID
     ) async {
@@ -52,7 +109,7 @@ extension IntercomViewModel {
                   Double(record.expiresAt) > callAccessNow().timeIntervalSince1970 * 1_000
             else { continue }
             if record.payload != nil {
-                guard await publishContactDeletion(record, session: session) else { return }
+                guard await synchronizeContactDeletionPublication(record, session: session) else { return }
             }
             guard contactDeletionRelayIsCurrent(session) else { return }
             // A nearby receipt can retire a record while the publish or receipt lookup is still outstanding.
@@ -70,27 +127,39 @@ extension IntercomViewModel {
         }
     }
 
-    private func publishContactDeletion(
+    private func hasBackgroundContactDeletionUpload(
+        _ record: ContactDeletionPublication, access: CallNotificationServiceAccess
+    ) -> Bool {
+        guard let transfer = invitationBackgroundTransfer,
+              let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
+        else { return false }
+        return transfer.contains(contactDeletionUploadID(record, binding: binding))
+    }
+
+    private func synchronizeContactDeletionPublication(
         _ record: ContactDeletionPublication, session: ContactDeletionRelaySession
     ) async -> Bool {
+        if record.payload?.backgroundPublished == true {
+            await acceptRelayedContactDeletionReceipt(record, session: session)
+            return true
+        }
+        if hasBackgroundContactDeletionUpload(record, access: session.access) { return true }
         guard let state = try? await session.client.writeContactDeletion(record, access: session.access),
               contactDeletionRelayIsCurrent(session) else { return false }
-        if state == .received,
-           let notice = groupRepository.contactDeletions.first(where: { $0.id == record.id }) {
-            await acceptRelayedContactDeletionReceipt(notice, slot: record.slot, session: session)
-        }
+        if state == .received { await acceptRelayedContactDeletionReceipt(record, session: session) }
         return true
     }
 
     private func acceptRelayedContactDeletionReceipt(
-        _ notice: ContactDeletionNotice, slot: String, session: ContactDeletionRelaySession
+        _ record: ContactDeletionPublication, session: ContactDeletionRelaySession
     ) async {
+        guard let notice = groupRepository.contactDeletions.first(where: { $0.id == record.id }) else { return }
         let target = notice.target
         guard let message = try? await session.client.readContactDeletion(
-                owner: session.access.principal, slot: slot, access: session.access),
+                owner: session.access.principal, slot: record.slot, access: session.access),
               contactDeletionRelayIsCurrent(session), message.matches(target),
               let receipt = try? ContactDeletionRelayReceipt.open(
-                message.packet, slot: slot, sender: session.signer,
+                message.packet, slot: record.slot, sender: session.signer,
                 recipientID: target.recipientMemberID, recipientKey: target.recipientKey)
         else { return }
         do {

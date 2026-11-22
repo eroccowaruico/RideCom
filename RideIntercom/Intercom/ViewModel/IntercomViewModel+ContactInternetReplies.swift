@@ -18,10 +18,11 @@ extension IntercomViewModel {
     ) -> Set<InvitationBackgroundUploadID> {
         guard let binding = InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
         else { return [] }
-        let groups = backgroundGroupInvitationUploadIDs(access: access, binding: binding)
+        let outgoing = backgroundGroupInvitationUploadIDs(access: access, binding: binding)
+            .union(backgroundContactDeletionUploadIDs(access: access, binding: binding))
         guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil
-        else { return groups }
-        return groups.union(internetContactReplyRecords(access: access).compactMap {
+        else { return outgoing }
+        return outgoing.union(internetContactReplyRecords(access: access).compactMap {
             contactAcceptanceUploadID($0, binding: binding)
         })
     }
@@ -32,6 +33,10 @@ extension IntercomViewModel {
         case .send, .cancel:
             if let reply = try? decoder.decode(GroupDeliveryReply.self, from: data) {
                 applyBackgroundGroupInvitationReply(reply, for: key)
+            }
+        case .contactDeletion:
+            if let state = InternetAccountClient.contactDeletionResponseState(data) {
+                applyBackgroundContactDeletionReply(state, for: key)
             }
         case .contactAcceptance:
             guard hasCurrentAccountAccess, allowsInternetInvitationReplies, groupDeliveryClient != nil,

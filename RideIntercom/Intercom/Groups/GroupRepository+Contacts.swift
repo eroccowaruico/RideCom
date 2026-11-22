@@ -269,6 +269,15 @@ extension GroupRepository {
         }
     }
 
+    func markContactDeletionBackgroundPublished(_ id: UUID, now: Date) throws {
+        guard let snapshot = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
+        try amend(snapshot, now: now.timeIntervalSince1970) { next in
+            if let index = next.contactDeletionPublications.firstIndex(where: { $0.id == id }) {
+                next.contactDeletionPublications[index].markBackgroundPublished()
+            }
+        }
+    }
+
     func finishContactDeletionRelay(_ publication: ContactDeletionPublication, now: Date) throws {
         guard publication.payload == nil, let snapshot, snapshot.contactDeletionPublications.contains(publication)
         else { return }

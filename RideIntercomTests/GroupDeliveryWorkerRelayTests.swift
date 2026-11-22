@@ -4,6 +4,92 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryWorkerTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func savedContactDeletionCanBePublishedByTheBackgroundTransfer(nearbyFirst: Bool) async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("background-contact-delete-author")
+            let recipient = GroupDeliveryTestIdentity("background-contact-delete-recipient")
+            defer { author.remove(); recipient.remove() }
+            try await register(author); try await register(recipient)
+            let sender = try author.harness(knowing: [], onDisk: true).viewModel
+            let receiver = try recipient.harness(knowing: [], onDisk: true).viewModel
+            defer { sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync() }
+            for model in [sender, receiver] {
+                model.groupDeliveryClient = nil
+                model.contactSessionFactory = { RecordingCallSession() }
+                #expect(!model.notifications.isEnabled)
+            }
+            try exchangeContactInvitation(sender: sender, recipient: receiver)
+            let session = workerSession()
+            let client = InternetAccountClient(session: session)
+            let transfer = RecordingBackgroundInvitationTransfer()
+            sender.groupDeliveryClient = client
+            sender.invitationBackgroundTransfer = transfer
+            try #require(sender.removeSavedUser(try #require(sender.savedRemoteUsers.first).id))
+            let key = try #require(transfer.enqueued.first)
+            let request = try #require(transfer.requests[key])
+            #expect(request.url?.path == "/api/contact-deletions/background-publish")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+            let publication = try #require(sender.groupRepository.contactDeletionPublications.first)
+            #expect(key.deliveryID == publication.id)
+            await sender.synchronizeGroupDeliveries()
+            receiver.groupDeliveryClient = client
+            await receiver.synchronizeGroupDeliveries()
+            #expect(receiver.savedRemoteUsers.count == 1, "The regular sync does not also publish the queued upload")
+            try await completeBackgroundContactDeletion(
+                models: (sender, receiver), identities: (author, recipient),
+                client: client, upload: .init(key: key, request: request, transfer: transfer), nearbyFirst: nearbyFirst)
+        }
+    }
+
+    private struct BackgroundContactDeletionUpload {
+        let key: InvitationBackgroundUploadID
+        let request: URLRequest
+        let transfer: RecordingBackgroundInvitationTransfer
+    }
+
+    private func completeBackgroundContactDeletion(
+        models: (sender: IntercomViewModel, receiver: IntercomViewModel),
+        identities: (author: GroupDeliveryTestIdentity, recipient: GroupDeliveryTestIdentity),
+        client: InternetAccountClient, upload: BackgroundContactDeletionUpload, nearbyFirst: Bool
+    ) async throws {
+        let (sender, receiver) = models
+        let (key, request, transfer) = (upload.key, upload.request, upload.transfer)
+        if nearbyFirst {
+            let notice = try #require(sender.groupRepository.contactDeletions.first)
+            let receipt = try receiver.receiveContactDeletion(notice, from: identities.author.memberID)
+            try sender.acknowledgeContactDeletion(receipt, from: identities.recipient.memberID)
+            sender.requestGroupDeliverySync(.localChange)
+            #expect(!transfer.contains(key))
+            await sender.synchronizeGroupDeliveries()
+        }
+        let (reply, response) = try await client.session.data(for: request)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        let state = try JSONDecoder().decode([String: String].self, from: reply)["state"]
+        #expect(state == (nearbyFirst ? "retired" : "pending"))
+        if !nearbyFirst {
+            let oldKey = InvitationBackgroundUploadID(
+                deliveryID: key.deliveryID, sessionBinding: String(repeating: "0", count: 64),
+                operation: key.operation)
+            sender.applyBackgroundInvitationResponse(reply, for: oldKey)
+            #expect(sender.backgroundInvitationUploadIDs().contains(key))
+        }
+        transfer.active.remove(key)
+        sender.applyBackgroundInvitationResponse(reply, for: key)
+        #expect(!sender.backgroundInvitationUploadIDs().contains(key))
+        #expect(sender.groupRepository.contactDeletions.count == (nearbyFirst ? 0 : 1))
+        await receiver.synchronizeGroupDeliveries()
+        #expect(receiver.savedRemoteUsers.isEmpty)
+        let reopened = try identities.author.harness(knowing: [], onDisk: true).viewModel
+        defer { reopened.stopGroupDeliverySync() }
+        reopened.groupDeliveryClient = client
+        reopened.invitationBackgroundTransfer = RecordingBackgroundInvitationTransfer()
+        #expect(!reopened.backgroundInvitationUploadIDs().contains(key))
+        await reopened.synchronizeGroupDeliveries()
+        #expect(reopened.groupRepository.contactDeletions.isEmpty)
+        #expect(reopened.groupRepository.contactDeletionPublications.isEmpty)
+    }
+
     enum RelayedInvitation: CaseIterable { case group, contact, contactWithGroup }
 
     @Test(.timeLimit(.minutes(1)), arguments: RelayedInvitation.allCases)

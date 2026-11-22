@@ -49,7 +49,10 @@ extension GroupDeliveryFlowTests {
         let relays = try installContactDeletionRelays(author: authorDevice, recipient: recipientDevice, order: order)
         defer { GroupDeliveryHTTPStub.reset() }
         sender.groupDeliveryClient = client
+        let transfer = RecordingBackgroundInvitationTransfer()
+        sender.invitationBackgroundTransfer = transfer
         let packet = try await checkContactDeletionPublication(on: sender, order: order, relay: relays.forward)
+        #expect(transfer.enqueued.isEmpty, "Without the relay key, the regular HTTP path uses the saved packet")
 
         if order == .nearbyFirst {
             let notice = try #require(sender.groupRepository.contactDeletions.first)

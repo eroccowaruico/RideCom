@@ -177,6 +177,7 @@ nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable,
         let recipient: AccountPrincipal
         let recipientKey: String
         let packet: String
+        var backgroundPublished: Bool?
     }
 
     let id: UUID
@@ -204,6 +205,7 @@ nonisolated struct ContactDeletionPublication: Codable, Equatable, Identifiable,
     }
 
     mutating func markForRetirement() { payload = nil }
+    mutating func markBackgroundPublished() { payload?.backgroundPublished = true }
 
     var isValid: Bool {
         guard ContactDeletionRelayPacket.isValid(expiresAt: expiresAt, slot: slot),

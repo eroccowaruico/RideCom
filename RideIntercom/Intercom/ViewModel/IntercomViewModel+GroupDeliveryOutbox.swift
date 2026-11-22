@@ -15,7 +15,7 @@ extension IntercomViewModel {
         if let transfer = invitationBackgroundTransfer {
             await transfer.restore()
             guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
-            scheduleBackgroundGroupInvitations()
+            scheduleBackgroundGroupDeliveries()
         }
         let uploadBinding = invitationBackgroundTransfer.flatMap { _ in
             InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
@@ -213,10 +213,11 @@ extension IntercomViewModel {
         })
     }
 
-    func scheduleBackgroundGroupInvitations() {
+    func scheduleBackgroundGroupDeliveries() {
         guard let transfer = invitationBackgroundTransfer, transfer.hasRestored else { return }
         let keys = backgroundInvitationUploadIDs()
         transfer.reconcile(keeping: keys)
+        scheduleBackgroundContactDeletions(keys, transfer: transfer)
         // The send budget must not delay withdrawals.
         let sends = keys.filter { $0.operation == .send }
         var sendCapacity = 60 - sends.count(where: { transfer.contains($0) })
@@ -249,7 +250,7 @@ extension IntercomViewModel {
             case .cancel:
                 guard reply.status == .cancelled || reply.status == .received else { return }
                 try confirmInternetGroupInvitationCancellation(record.id)
-            case .contactAcceptance: return
+            case .contactAcceptance, .contactDeletion: return
             }
             finishNearbyGroupDeliveryIfComplete()
         } catch { reportGroupStorageError(error) }
@@ -283,7 +284,7 @@ extension IntercomViewModel {
             return try InternetAccountClient.backgroundGroupInvitationCancellationRequest(
                 record, access: access, signer: signer
             )
-        case .contactAcceptance: return nil
+        case .contactAcceptance, .contactDeletion: return nil
         }
     }
 

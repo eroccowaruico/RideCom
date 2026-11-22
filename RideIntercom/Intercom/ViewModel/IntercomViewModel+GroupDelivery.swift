@@ -97,7 +97,7 @@ extension IntercomViewModel {
         if outgoingDeletion || ((trigger == .notification || outgoingInvitation) && notifications.canUseNotifications) {
             requestGroupDeliveryBackgroundTime(run: groupDeliveryRunID)
         }
-        if trigger == .localChange { scheduleBackgroundGroupInvitations() }
+        if trigger == .localChange { scheduleBackgroundGroupDeliveries() }
     }
 
     /// Request time before the save or notification callback yields, even if a pass is already running.

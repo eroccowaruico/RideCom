@@ -9,6 +9,47 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryFlowTests {
+    @Test(.timeLimit(.minutes(2))) func systemBackgroundSessionPublishesSavedContactDeletion() async throws {
+        let author = GroupDeliveryTestIdentity("native-delete-author")
+        let recipient = GroupDeliveryTestIdentity("native-delete-recipient")
+        defer { author.remove(); recipient.remove() }
+        let issuer = P256.Signing.PrivateKey()
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64), issuer: issuer, relayEnabled: true)
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64), issuer: issuer)
+        let sender = try author.harness(knowing: [], onDisk: true).viewModel
+        let receiver = try recipient.harness(knowing: []).viewModel
+        defer { sender.stopGroupDeliverySync(); receiver.stopGroupDeliverySync() }
+        for model in [sender, receiver] {
+            model.groupDeliveryClient = nil
+            model.contactSessionFactory = { RecordingCallSession() }
+        }
+        try establishContact(sender: sender, recipient: receiver)
+        let recording = RecordingBackgroundInvitationTransfer()
+        sender.groupDeliveryClient = .init(session: GroupDeliveryHTTPStub.makeSession())
+        sender.invitationBackgroundTransfer = recording
+        try #require(sender.removeSavedUser(try #require(sender.savedRemoteUsers.first).id))
+        await sender.synchronizeGroupDeliveries()
+        let publication = try #require(sender.groupRepository.contactDeletionPublications.first)
+        let key = try #require(recording.enqueued.first)
+        var request = try #require(recording.requests[key])
+        #expect(key.operation == .contactDeletion)
+        let body = try #require(request.httpBody)
+        #expect(containsOnlySealedInvitation(
+            body, excluding: [publication.slot, publication.id.uuidString.lowercased()]))
+
+        let owner = AppCallOwner(account: sender.accountSession, viewModel: sender)
+        let transfer = InvitationBackgroundTransfer.shared
+        transfer.bind(to: owner)
+        await transfer.restore()
+        defer { transfer.reconcile(keeping: []) }
+        sender.invitationBackgroundTransfer = transfer
+        let reply = try JSONEncoder().encode(["state": "pending"])
+        try await checkBackgroundUpload(request: &request, key: key, reply: reply, transfer: transfer)
+        #expect(sender.groupRepository.contactDeletionPublications.first?.payload?.backgroundPublished == true)
+        #expect(sender.groupRepository.contactDeletions.map(\.id) == [publication.id])
+        #expect(owner.viewModel === sender)
+    }
+
     @Test(.timeLimit(.minutes(2))) func systemBackgroundSessionSendsTheCopiedFileAndAppliesTheReply() async throws {
         let authorDevice = GroupDeliveryTestIdentity("native-upload-author")
         let recipientDevice = GroupDeliveryTestIdentity("native-upload-recipient")
@@ -32,7 +73,7 @@ extension GroupDeliveryFlowTests {
             record.id.uuidString.lowercased(), authorDevice.memberID, recipientDevice.memberID
         ]
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
-        let transfer = InvitationBackgroundTransfer()
+        let transfer = InvitationBackgroundTransfer.shared
         transfer.bind(to: owner)
         await transfer.restore()
         defer { transfer.reconcile(keeping: []) }

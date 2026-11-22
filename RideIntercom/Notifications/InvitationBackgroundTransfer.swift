@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated struct InvitationBackgroundUploadID: Hashable, Sendable {
-    enum Operation: String, Hashable, Sendable { case send, cancel, contactAcceptance }
+    enum Operation: String, Hashable, Sendable { case send, cancel, contactAcceptance, contactDeletion }
     let deliveryID: UUID
     let sessionBinding: String
     let operation: Operation

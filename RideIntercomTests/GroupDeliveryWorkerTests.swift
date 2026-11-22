@@ -215,7 +215,7 @@ import Testing
         }
     }
 
-    private func exchangeContactInvitation(sender: IntercomViewModel, recipient: IntercomViewModel) throws {
+    func exchangeContactInvitation(sender: IntercomViewModel, recipient: IntercomViewModel) throws {
         try recipient.acceptContactInviteURL(try #require(sender.makeContactInviteURL()))
         let invitation = try #require(recipient.pendingContactInvitations.first?.id)
         try sender.receiveContactReplyURL(
