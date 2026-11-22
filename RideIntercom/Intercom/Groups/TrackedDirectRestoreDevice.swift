@@ -2,6 +2,7 @@ import Foundation
 
 /// Routing data for a certificate that may have reached the Worker.
 struct TrackedDirectRestoreDevice: Codable, Equatable {
+    static let maximumCount = 64
     let contactID: UUID
     let publisher: AccountPrincipal
     let deviceID: String

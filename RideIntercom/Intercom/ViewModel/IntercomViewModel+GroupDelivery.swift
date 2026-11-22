@@ -11,7 +11,9 @@ extension IntercomViewModel {
     func groupDeliveryNetworkPathChanged(isAvailable: Bool) {
         let wasAvailable = groupDeliveryNetworkWasAvailable
         groupDeliveryNetworkWasAvailable = isAvailable
-        guard wasAvailable == false, isAvailable, groupDeliveryClient != nil, canEditSavedGroups else { return }
+        guard wasAvailable == false, isAvailable else { return }
+        requestDirectRestoreDeviceSync()
+        guard groupDeliveryClient != nil, canEditSavedGroups else { return }
         requestInvitationInternetReply(restart: true)
         if hasPendingContactDeletionRelay {
             requestGroupDeliverySync(.networkRecovered)

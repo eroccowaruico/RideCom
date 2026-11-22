@@ -1,6 +1,13 @@
 import Foundation
 
+struct CallRelationshipSyncState {
+    var backup: CallRelationshipBackupSync?
+    var directRestoreDevice: DirectRestoreDeviceSync?
+}
+
 extension IntercomViewModel {
+    var callRelationshipBackupSync: CallRelationshipBackupSync? { callRelationshipSync.backup }
+
     func callRelationshipBackupSigner() throws -> DeviceIdentitySigner? {
         guard canStartCalls else { return nil }
         let memberID = localMemberIdentity.memberID
@@ -19,14 +26,14 @@ extension IntercomViewModel {
             guard currentCloudAccount() == checkpoints.cloud else { return nil }
             return try self?.callRelationshipBackupSigner()
         }
-        callRelationshipBackupSync = sync
+        callRelationshipSync.backup = sync
         groupRepository.onCommittedChange = { [weak sync] in sync?.request() }
         sync.request()
     }
 
     func stopCallRelationshipBackup() {
         callRelationshipBackupSync?.stop()
-        callRelationshipBackupSync = nil
+        callRelationshipSync.backup = nil
         groupRepository.onCommittedChange = nil
     }
 }

@@ -12,6 +12,7 @@ final class GroupRepository {
     private(set) var needsCleanup = false
     var writableSnapshot: GroupSnapshot? { isWritable ? snapshot : nil }
     var onCommittedChange: (() -> Void)?
+    var onCommittedCallRelationshipsChange: (() -> Void)?
     var users: [SavedUser] { snapshot?.users ?? [] }
     var contactInvitations: [ContactInvitationRecord] { snapshot?.contactInvitations ?? [] }
     var groupDeliveries: [GroupDeliveryRecord] { snapshot?.groupDeliveries ?? [] }
@@ -119,7 +120,7 @@ final class GroupRepository {
         modify: (inout GroupSnapshot) throws -> Void = { _ in }
     ) throws {
         guard let previous = writableSnapshot else { throw IntercomGroupError.storageUnavailable }
-        try withCurrentSnapshot(previous) {
+        let updated = try withCurrentSnapshot(previous) {
             var next = try makeUpdatedSnapshot(groups, users: users, from: previous, now: now)
             try modify(&next)
             if next.backupRemovals?.isPresent(in: next) == true { next.backupRemovals = nil }
@@ -154,8 +155,16 @@ final class GroupRepository {
             missingCredentialGroupIDs.formIntersection(Set(next.groups.map(\.id)))
             for credential in allCredentials { missingCredentialGroupIDs.remove(credential.groupID) }
             cleanup(next)
+            return next
         }
         onCommittedChange?()
+        notifyCallRelationshipsChange(from: previous, to: updated)
+    }
+
+    private func notifyCallRelationshipsChange(from previous: GroupSnapshot, to updated: GroupSnapshot) {
+        guard let callback = onCommittedCallRelationshipsChange,
+              updated.groups != previous.groups || updated.users != previous.users else { return }
+        callback()
     }
 
     private func makeUpdatedSnapshot(

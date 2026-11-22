@@ -105,8 +105,7 @@ nonisolated struct DirectRestoreDevicePublication: Encodable, Sendable {
         }
     }
 
-    @MainActor fileprivate init(at address: DirectRestoreDeviceAddress, as signer: DeviceIdentitySigner,
-                                now: Date) throws {
+    @MainActor init(at address: DirectRestoreDeviceAddress, as signer: DeviceIdentitySigner, now: Date) throws {
         let time = now.timeIntervalSince1970
         guard let identity = signer.identity, identity.expiresAt > time,
               let issuedAt = Int64(exactly: (time * 1000).rounded(.down)),
@@ -154,16 +153,25 @@ extension CallRelationshipBackup {
 extension GroupRepository {
     func directRestoreDevicePublication(for contactID: UUID, as signer: DeviceIdentitySigner,
                                         now: Date) throws -> DirectRestoreDevicePublication? {
-        let backup = try callRelationshipBackup(as: signer, now: now.timeIntervalSince1970)
-        guard let contact = backup.contacts.first(where: { $0.id == contactID }),
-              contact.restoreRecipientFingerprint != nil, let registration = contact.confirmedRegistrationID,
-              let seed = contact.restoreDiscoverySeed
+        guard let entry = try directRestoreDeviceAddresses(as: signer, now: now, contactID: contactID).first
         else { return nil }
-        let callID = AccountCallPair(backup.owner, contact.principal).id
-        let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
-            callID: callID, memberID: signer.memberID, key: signer.publicKey)
-        let address = try DirectRestoreDeviceAddress(publisher: backup.owner, reader: contact.principal,
-                                                     registration: registration, fingerprint: fingerprint, seed: seed)
-        return try .init(at: address, as: signer, now: now)
+        return try .init(at: entry.address, as: signer, now: now)
+    }
+
+    func directRestoreDeviceAddresses(as signer: DeviceIdentitySigner, now: Date, contactID: UUID? = nil) throws
+        -> [(contactID: UUID, address: DirectRestoreDeviceAddress)] {
+        let backup = try callRelationshipBackup(as: signer, now: now.timeIntervalSince1970)
+        return try backup.contacts.compactMap { contact in
+            guard contactID == nil || contact.id == contactID,
+                  contact.restoreRecipientFingerprint != nil, let registration = contact.confirmedRegistrationID,
+                  let seed = contact.restoreDiscoverySeed else { return nil }
+            let callID = AccountCallPair(backup.owner, contact.principal).id
+            let fingerprint = try CallRelationshipRestoreRequest.recipientFingerprint(
+                callID: callID, memberID: signer.memberID, key: signer.publicKey)
+            let address = try DirectRestoreDeviceAddress(
+                publisher: backup.owner, reader: contact.principal,
+                registration: registration, fingerprint: fingerprint, seed: seed)
+            return (contact.id, address)
+        }
     }
 }

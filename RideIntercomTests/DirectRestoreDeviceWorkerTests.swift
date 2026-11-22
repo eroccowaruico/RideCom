@@ -7,6 +7,66 @@ import Testing
 
 extension GroupDeliveryWorkerTests {
     @Test(.timeLimit(.minutes(1)))
+    func directRestoreDevicePublicationResumesFromSavedRelationships() async throws {
+        try await withWorker(directRestore: true) {
+            let holder = GroupDeliveryTestIdentity("automatic-holder")
+            let original = GroupDeliveryTestIdentity("automatic-original")
+            defer { holder.remove(); original.remove() }
+            try await register(holder)
+            try await register(original)
+            let publisher = try holder.harness(knowing: [], onDisk: true).viewModel
+            let old = try original.harness(knowing: []).viewModel
+            let client = InternetAccountClient(session: workerSession())
+            let attempts = GroupWorkerHTTPBridge.restoreDevicePublicationAttempts.withLock { $0 }
+            defer { publisher.stopDirectRestoreDeviceSync(); publisher.disconnect(); old.disconnect() }
+
+            let owner = AppCallOwner(account: publisher.accountSession, viewModel: publisher,
+                                     directRestoreDeviceClient: client)
+            let defaultOwner = AppCallOwner(account: old.accountSession, viewModel: old)
+            await publisher.directRestoreDeviceSync?.task?.value
+            #expect(GroupWorkerHTTPBridge.restoreDevicePublicationAttempts.withLock { $0 } == attempts)
+            GroupWorkerHTTPBridge.interruptNextRestorePublication.withLock { $0 = true }
+            defer { GroupWorkerHTTPBridge.interruptNextRestorePublication.withLock { $0 = false } }
+            try confirmRestoreContact(from: publisher, to: old)
+            await publisher.directRestoreDeviceSync?.task?.value
+            #expect(GroupWorkerHTTPBridge.restoreDevicePublicationAttempts.withLock { $0 } == attempts + 1)
+            #expect(defaultOwner.viewModel?.directRestoreDeviceSync == nil)
+
+            let contactID = try #require(old.savedRemoteUsers.first?.id)
+            let now = Date()
+            let backup = try old.groupRepository.callRelationshipBackup(
+                as: original.signer, now: now.timeIntervalSince1970)
+            let address = try #require(try backup.directRestoreDeviceAddress(
+                for: contactID, as: original.signer, now: now))
+            let access = try #require(try original.store.notificationAccess(memberID: original.memberID))
+            #expect(try await client.fetchDirectRestoreDevice(at: address, access: access) == nil)
+            publisher.groupDeliveryNetworkPathChanged(isAvailable: false)
+            publisher.groupDeliveryNetworkPathChanged(isAvailable: true)
+            await publisher.directRestoreDeviceSync?.task?.value
+            #expect(try await client.fetchDirectRestoreDevice(at: address, access: access) != nil)
+
+            owner.systemSurfaceIsForeground = true
+            await publisher.directRestoreDeviceSync?.task?.value
+            #expect(GroupWorkerHTTPBridge.restoreDevicePublicationAttempts.withLock { $0 } == attempts + 2)
+            try await withdrawAfterRestart(publisher, holder: holder, using: client)
+            #expect(try await client.fetchDirectRestoreDevice(at: address, access: access) == nil)
+        }
+    }
+
+    private func withdrawAfterRestart(_ publisher: IntercomViewModel, holder: GroupDeliveryTestIdentity,
+                                      using client: InternetAccountClient) async throws {
+        let contact = try #require(publisher.savedRemoteUsers.first?.id)
+        publisher.stopDirectRestoreDeviceSync()
+        try #require(publisher.removeSavedUser(contact))
+        let reopened = try holder.harness(knowing: [], onDisk: true).viewModel
+        defer { reopened.stopDirectRestoreDeviceSync(); reopened.disconnect() }
+        let owner = AppCallOwner(account: reopened.accountSession, viewModel: reopened,
+                                 directRestoreDeviceClient: client)
+        await reopened.directRestoreDeviceSync?.task?.value
+        #expect(owner.viewModel?.groupRepository.writableSnapshot?.directRestoreDevices.isEmpty == true)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func replacementSavesTheOriginalCallKeyThroughTheWorker() async throws {
         try await withWorker(directRestore: true) {
             let holder = GroupDeliveryTestIdentity("relay-holder")

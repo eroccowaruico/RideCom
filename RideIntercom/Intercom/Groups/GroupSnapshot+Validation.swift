@@ -7,7 +7,7 @@ extension GroupSnapshot {
             throw IntercomGroupError.invalidStoredGroups
         }
         guard version >= 29 || directRestoreDevices.isEmpty,
-              directRestoreDevices.count <= 64,
+              directRestoreDevices.count <= TrackedDirectRestoreDevice.maximumCount,
               Set(directRestoreDevices.map(\.slot)).count == directRestoreDevices.count,
               directRestoreDevices.allSatisfy(\.isValid)
         else { throw IntercomGroupError.invalidStoredGroups }
