@@ -328,7 +328,8 @@ export class AccountNotifications {
         const next = { ...value, envelope: null }
         if (next.status === 'queued') {
             const address = value.sourceRequestID ? this.addressForRedelivery(value) : null
-            const canReceive = !value.sourceRequestID || (address !== null && address.auth.deviceID === next.recipientDeviceID)
+            const canReceive = this.grantActive(userID, value.grantHash)
+                && (!value.sourceRequestID || (address !== null && address.auth.deviceID === next.recipientDeviceID))
             next.status = !withdrawing && !discard && canReceive ? 'received' : 'cancelled'
         }
         if (next.status === value.status && (!withdrawing || value.additionalDevicesClosed)) return next.status

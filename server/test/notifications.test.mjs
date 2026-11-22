@@ -622,6 +622,47 @@ test('a cancellation after download is reported to a delayed or repeated acknowl
     } finally { await r.dispose(); }
 });
 
+test('group invitation acknowledgement uses the current grant and preserves earlier receipts', async () => {
+    const r = await setup();
+    try {
+        const sender = await login(r, 'revoke-invitation-sender');
+        const recipient = await login(r, 'revoke-invitation-recipient');
+        const issued = await call(r, `${groupPath}/grants`, { senderUserID: sender.userID }, recipient.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability, grantID } = await issued.json();
+
+        const download = async recipientKey => {
+            const id = randomUUID();
+            const response = await call(r, groupPath, {
+                capability, requestID: id, recipientKey, expiresAt: Date.now() + 60_000,
+                envelope: Buffer.from('synthetic invitation ciphertext').toString('base64'),
+            }, sender.accessToken);
+            assert.equal(response.status, 200);
+            assert.equal((await response.json()).status, 'queued');
+            const inbox = await call(r, `${groupPath}?recipientKey=${recipientKey}`, undefined, recipient.accessToken, 'GET');
+            assert.equal((await inbox.json()).delivery?.requestID, id);
+            return `${groupPath}/${recipient.userID}/${id}`;
+        };
+        const ack = async path => {
+            const response = await call(r, path, undefined, recipient.accessToken, 'DELETE');
+            assert.equal(response.status, 200);
+            return response.json();
+        };
+        const accepted = await download('a'.repeat(87));
+        assert.deepEqual(await ack(accepted), { status: 'received' });
+        const pending = await download('b'.repeat(87));
+        const revoked = await call(r, `/api/notifications/grants/${grantID}`, undefined, recipient.accessToken, 'DELETE');
+        assert.equal(revoked.status, 200);
+
+        assert.deepEqual(await ack(pending), { status: 'cancelled' });
+        assert.deepEqual(await ack(pending), { status: 'cancelled' });
+        assert.deepEqual(await ack(accepted), { status: 'received' });
+        const senderStatus = await call(r, pending, undefined, sender.accessToken, 'GET');
+        assert.equal(senderStatus.status, 200);
+        assert.equal((await senderStatus.json()).status, 'cancelled');
+    } finally { await r.dispose(); }
+});
+
 test('group invitation alerts hide ciphertext and cancellation and grant revocation block later receipt', async () => {
     const requests = [], r = await setup({}, async q => { requests.push(await q.json()); return Response.json({}); });
     try {
