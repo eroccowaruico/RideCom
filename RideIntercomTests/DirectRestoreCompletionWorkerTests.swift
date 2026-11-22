@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import RTC
 import Synchronization
 import Testing
 @testable import RideIntercom
@@ -15,7 +16,8 @@ extension GroupDeliveryWorkerTests {
             try await register(holder)
             try await register(original)
             try await register(replacement, appleSubject: original.memberID)
-            let publisher = try holder.harness(knowing: []).viewModel
+            let holderHarness = try holder.harness(knowing: [])
+            let publisher = holderHarness.viewModel
             let old = try original.harness(knowing: []).viewModel
             let new = try replacement.harness(knowing: [], onDisk: true).viewModel
             defer { publisher.disconnect(); old.disconnect(); new.disconnect() }
@@ -46,14 +48,56 @@ extension GroupDeliveryWorkerTests {
             try #require(new.renameSavedUser(contact, displayName: "Retained choice"))
             reader.bind(to: nil)
 
-            let reopened = try replacement.harness(knowing: [], onDisk: true).viewModel
+            let reopenedHarness = try replacement.harness(knowing: [], onDisk: true)
+            let reopened = reopenedHarness.viewModel
             defer { reopened.disconnect() }
             try await finishRestoreReceipt(on: reopened, in: source, with: keys, using: client)
             #expect(reopened.groupRepository.writableSnapshot?.completedDirectRestore == nil)
             #expect(reopened.savedRemoteUsers.first?.localName == "Retained choice")
             #expect(try reopened.groupRepository.credential(for: callID) == originalKey)
             #expect(try await client.directRestoreInbox(access: access).isEmpty)
+            try assertRestoredCall(
+                holderHarness, to: publisherContact, reopenedHarness, to: contact, callID: callID)
         }
+    }
+
+    private func assertRestoredCall(
+        _ holder: AppTestSupport.Harness, to holderContact: UUID,
+        _ replacement: AppTestSupport.Harness, to replacementContact: UUID, callID: UUID
+    ) throws {
+        for (endpoint, contact) in [(holder, holderContact), (replacement, replacementContact)] {
+            let model = endpoint.viewModel
+            model.allowsNearbyGroupDelivery = false
+            model.setRTCTransportRoutes([.multipeer])
+            try #require(model.startCall(to: .user(contact), accountAccessID: model.accountAccessID))
+            try #require(model.activeGroupID == callID)
+            try #require(endpoint.callSession.connectedGroup?.id == callID)
+        }
+        let holderID = holder.viewModel.localMemberIdentity.memberID
+        let replacementID = replacement.viewModel.localMemberIdentity.memberID
+        holder.callSession.authenticate([replacementID])
+        replacement.callSession.authenticate([holderID])
+        #expect(holder.viewModel.callAccessAdmittedMemberships.isEmpty)
+        #expect(replacement.viewModel.callAccessAdmittedMemberships.isEmpty)
+
+        try exchangeCallProfile(verifier: holder, peer: replacement)
+        try exchangeCallProfile(verifier: replacement, peer: holder)
+        #expect(holder.viewModel.callAccessAdmittedMemberships.keys.map(\.rawValue) == [replacementID])
+        #expect(replacement.viewModel.callAccessAdmittedMemberships.keys.map(\.rawValue) == [holderID])
+    }
+
+    private func exchangeCallProfile(verifier: AppTestSupport.Harness, peer: AppTestSupport.Harness) throws {
+        verifier.viewModel.sendPeerProfileChallenges()
+        let challenge = try #require(verifier.callSession.sentApplicationDataMessages.last {
+            $0.namespace == PeerProfileChallenge.namespace
+        })
+        peer.viewModel.handleTransportEvent(.receivedApplicationData(
+            peerID: verifier.viewModel.localMemberIdentity.memberID, message: challenge))
+        let signedProfile = try #require(peer.callSession.sentApplicationDataMessages.last {
+            $0.namespace == SharedDisplayName.namespace
+        })
+        verifier.viewModel.handleTransportEvent(.receivedApplicationData(
+            peerID: peer.viewModel.localMemberIdentity.memberID, message: signedProfile))
     }
 
     private func answerRestoreOnStartup(on model: IntercomViewModel, as signer: DeviceIdentitySigner,
