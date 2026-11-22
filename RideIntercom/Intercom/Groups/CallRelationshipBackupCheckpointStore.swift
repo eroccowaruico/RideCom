@@ -48,6 +48,7 @@ struct CallRelationshipBackupCheckpointStore {
     }
 
     static let serviceSuffix = ".CallRelationshipBackupCheckpoint.v1"
+    private static let maximumRestoreBytes = 48 * 1_024
     private let keychain: KeychainSecretStoring
     private let service: String
     let cloud: CloudAccount
@@ -79,9 +80,7 @@ struct CallRelationshipBackupCheckpointStore {
 
     func loadRestoreProgress(as signer: DeviceIdentitySigner) throws -> RestoreProgress? {
         let key = try account(as: signer) + ".restore-selection"
-        guard let stored = try keychain.secret(service: service, account: key) else { return nil }
-        guard stored.utf8.count <= 48 * 1_024 else { throw KeychainSecretStoreError.invalidData }
-        let value = try JSONDecoder().decode(RestoreProgress.self, from: Data(stored.utf8))
+        guard let value: RestoreProgress = try loadRestoreValue(key) else { return nil }
         guard Self.isFingerprint(value.selection.fingerprint) else { throw KeychainSecretStoreError.invalidData }
         return value
     }
@@ -91,19 +90,52 @@ struct CallRelationshipBackupCheckpointStore {
     }
 
     func saveRestoreProgress(_ value: RestoreProgress?, as signer: DeviceIdentitySigner) throws {
-        let key = try account(as: signer) + ".restore-selection"
+        if let value, !Self.isFingerprint(value.selection.fingerprint) { throw KeychainSecretStoreError.invalidData }
+        try saveRestoreValue(value, key: account(as: signer) + ".restore-selection")
+    }
+
+    func loadRestoreReply(for requestID: String, as signer: DeviceIdentitySigner) throws
+        -> DirectRestoreResponseDraft? {
+        try loadRestoreValue(restoreReplyKey(for: requestID, as: signer))
+    }
+
+    func saveRestoreReply(_ value: DirectRestoreResponseDraft?, for requestID: String,
+                          as signer: DeviceIdentitySigner) throws {
+        try saveRestoreValue(value, key: restoreReplyKey(for: requestID, as: signer))
+    }
+
+    func pruneRestoreReplies(keeping requestIDs: Set<String>, as signer: DeviceIdentitySigner) throws {
+        let prefix = try account(as: signer) + ".restore-reply."
+        let retained = Set(requestIDs.map { prefix + $0 })
+        for key in try keychain.accounts(service: service) where key.hasPrefix(prefix) && !retained.contains(key) {
+            try keychain.deleteSecret(service: service, account: key)
+        }
+    }
+
+    private func restoreReplyKey(for requestID: String, as signer: DeviceIdentitySigner) throws -> String {
+        guard UUID(uuidString: requestID)?.uuidString.lowercased() == requestID
+        else { throw KeychainSecretStoreError.invalidData }
+        return try account(as: signer) + ".restore-reply." + requestID
+    }
+
+    private func loadRestoreValue<T: Decodable>(_ key: String) throws -> T? {
+        guard let stored = try keychain.secret(service: service, account: key) else { return nil }
+        guard stored.utf8.count <= Self.maximumRestoreBytes else { throw KeychainSecretStoreError.invalidData }
+        return try JSONDecoder().decode(T.self, from: Data(stored.utf8))
+    }
+
+    private func saveRestoreValue<T: Codable & Equatable>(_ value: T?, key: String) throws {
         if let value {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .withoutEscapingSlashes
-            guard Self.isFingerprint(value.selection.fingerprint),
-                  let encoded = String(bytes: try encoder.encode(value), encoding: .utf8),
-                  encoded.utf8.count <= 48 * 1_024
+            guard let encoded = String(bytes: try encoder.encode(value), encoding: .utf8),
+                  encoded.utf8.count <= Self.maximumRestoreBytes
             else { throw KeychainSecretStoreError.invalidData }
             try keychain.saveSecret(encoded, service: service, account: key)
         } else {
             try keychain.deleteSecret(service: service, account: key)
         }
-        guard try loadRestoreProgress(as: signer) == value else { throw KeychainSecretStoreError.invalidData }
+        guard try loadRestoreValue(key) == value else { throw KeychainSecretStoreError.invalidData }
     }
 
     static func fingerprint(_ backup: CallRelationshipBackup) throws -> String {

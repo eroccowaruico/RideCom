@@ -239,14 +239,27 @@ extension GroupRepository {
         _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner, trust: DeviceIdentityTrust,
         now: Date, matching backup: CallRelationshipBackup
     ) throws -> DirectCallRestoreResponse? {
-        try withAuthorizedRestore(
+        try withAuthorizedDirectRestoreResponse(
             request, as: signer, matching: backup, verifying: (trust, now)
-        ) { confirmation, record, credential in
+        ) { _, makeResponse in try makeResponse() }
+    }
+
+    func withAuthorizedDirectRestoreResponse<T>(
+        _ request: CallRelationshipRestoreRequest, as signer: DeviceIdentitySigner,
+        matching backup: CallRelationshipBackup, verifying verification: (trust: DeviceIdentityTrust, now: Date),
+        _ consume: (UUID, () throws -> DirectCallRestoreResponse) throws -> T?
+    ) throws -> T? {
+        try withAuthorizedRestore(
+            request, as: signer, matching: backup, verifying: verification
+        ) { confirmation, record, credential -> T? in
+            guard let reference = record.credentialReference else { return nil }
             let context = CallRelationshipRestoreContext(request: request, confirmation: confirmation, record: record)
-            let packet = try CallRelationshipRestoreCredential(
-                credential, for: context, as: signer, trust: trust, now: now)
-            return .init(confirmation: confirmation, credential: packet)
-        }
+            return try consume(reference) {
+                let packet = try CallRelationshipRestoreCredential(
+                    credential, for: context, as: signer, trust: verification.trust, now: verification.now)
+                return .init(confirmation: confirmation, credential: packet)
+            }
+        } ?? nil
     }
 
     private func withAuthorizedRestore<T>(

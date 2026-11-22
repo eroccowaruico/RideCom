@@ -22,12 +22,15 @@ final class CloudKitCallRelationshipBackupSession {
     let directRestoreClient: InternetAccountClient?
     private(set) var restoreSelectionCheckpoints: CallRelationshipBackupCheckpointStore?
     var directRestorePreparation: Task<SelectedDirectRestorePreparation, Error>?
+    var directRestoreInboxTask: Task<Int, Error>?
+    var restoreInboxRun: UUID?
+    var restoreInboxNeedsRetry = false
     var restoreSelectionChange = UUID()
     private var observer: NSObjectProtocol?
     private(set) weak var model: IntercomViewModel?
     private(set) var current: Account?
     private var generation = UUID()
-    private var respondingToRelay = false
+    var respondingToRelay: UUID?
     private(set) var task: Task<Void, Never>?
 
     convenience init(
@@ -68,7 +71,7 @@ final class CloudKitCallRelationshipBackupSession {
         self.model?.callRelationshipSync.resumeDirectRestore = nil
         self.model = model
         if directRestoreClient != nil {
-            model?.callRelationshipSync.resumeDirectRestore = { [weak self] in self?.retrySelectedDirectRestore() }
+            model?.callRelationshipSync.resumeDirectRestore = { [weak self] in self?.retryDirectRestoreRelayWork() }
         }
         refresh()
     }
@@ -108,6 +111,13 @@ final class CloudKitCallRelationshipBackupSession {
     }
 
     func respondToDirectRestore(_ request: CallRelationshipRestoreRequest) async throws -> DirectCallRestoreResponse? {
+        guard let checked = try await directRestoreResponderBackup(for: request),
+              let model, let latest = checked.backup else { return nil }
+        return try model.groupRepository.sealDirectRestore(
+            request, as: checked.signer, trust: checked.trust, now: Date(), matching: latest)
+    }
+
+    func directRestoreResponderBackup(for request: CallRelationshipRestoreRequest) async throws -> CurrentBackup? {
         guard let model, current != nil, let signer = try model.callRelationshipBackupSigner(),
               let trust = try model.internetSettingsStore.identityTrust() else {
             throw Failure.accountUnavailable
@@ -116,10 +126,7 @@ final class CloudKitCallRelationshipBackupSession {
         guard let requester = try request.verifiedDirectRequester(addressedTo: signer, trust: trust, now: Date()),
               await model.refreshContactDeletionBeforeRestore(requester, addressedTo: signer) else { return nil }
         guard generation == expected else { throw Failure.accountUnavailable }
-        let checked = try await readCurrentBackup(for: model, as: signer)
-        guard let latest = checked.backup else { return nil }
-        return try model.groupRepository.sealDirectRestore(
-            request, as: checked.signer, trust: checked.trust, now: Date(), matching: latest)
+        return try await readCurrentBackup(for: model, as: signer)
     }
 
     func readCurrentBackup(for model: IntercomViewModel, as signer: DeviceIdentitySigner) async throws
@@ -150,6 +157,10 @@ final class CloudKitCallRelationshipBackupSession {
         task = nil
         directRestorePreparation?.cancel()
         directRestorePreparation = nil
+        directRestoreInboxTask?.cancel()
+        directRestoreInboxTask = nil
+        restoreInboxRun = nil
+        restoreInboxNeedsRetry = false
         restoreSelectionCheckpoints = nil
         model?.stopCallRelationshipBackup()
     }
@@ -183,7 +194,7 @@ final class CloudKitCallRelationshipBackupSession {
         }
         if directRestoreClient != nil {
             restoreSelectionCheckpoints = checkpoints
-            retrySelectedDirectRestore()
+            retryDirectRestoreRelayWork()
         }
     }
 
@@ -263,27 +274,6 @@ extension CloudKitCallRelationshipBackupSession {
               Double(pending.submission.payload.expiresAt) > now.timeIntervalSince1970 * 1_000
         else { throw Failure.requestExpired }
         try await client.submitDirectRestorePacket(pending.submission, access: pending.account.access)
-    }
-
-    func respondToNextRelayedDirectRestore(using client: InternetAccountClient) async throws -> Bool {
-        guard !respondingToRelay else { return false }
-        respondingToRelay = true
-        defer { respondingToRelay = false }
-        let account = try relayAccount()
-        let inbox = try await client.directRestoreInbox(access: account.access)
-        try requireRelayAccount(account)
-        for packet in inbox {
-            guard let opened = try? packet.openRequest(as: account.signer, trust: account.trust, now: Date()),
-                  let response = try await respondToDirectRestore(opened.request) else { continue }
-            try requireRelayAccount(account)
-            let submission = try DirectCallRestoreRelayPacket.seal(
-                .response(value: response), to: opened.replyTo, as: account.signer, now: Date())
-            try await client.submitDirectRestorePacket(submission, access: account.access)
-            try requireRelayAccount(account)
-            try await client.retireDirectRestorePacket(packet.id, access: account.access)
-            return true
-        }
-        return false
     }
 
     func finishRelayedDirectRestore(_ pending: PendingDirectRestore, using client: InternetAccountClient)
