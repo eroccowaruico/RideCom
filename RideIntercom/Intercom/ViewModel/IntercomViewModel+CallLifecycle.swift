@@ -187,13 +187,25 @@ extension IntercomViewModel {
     func refreshCallMediaAdmission() {
         let admitted = isAudioReady && callDisconnectDeadline != nil && canStartCalls
             && canPrepareCallMedia && !authenticatedPeerIDs.isEmpty
-        // Close the pipeline before revoking media, and open it only after transport admission.
-        if !admitted { audioPipeline.setInputMuted(true) }
-        if admitted != isCallMediaStarted {
-            isCallMediaStarted = admitted
-            if admitted { callSession.startMedia() } else { callSession.stopMedia() }
+        guard admitted else {
+            if isCallMediaStarted {
+                stopCallMedia()
+            } else {
+                audioPipeline.setInputMuted(true)
+            }
+            return
         }
-        audioPipeline.setInputMuted(effectiveInputMuted || !admitted)
+        if !isCallMediaStarted {
+            isCallMediaStarted = true
+            callSession.startMedia()
+        }
+        audioPipeline.setInputMuted(effectiveInputMuted)
+    }
+
+    private func stopCallMedia() {
+        audioPipeline.setInputMuted(true)
+        isCallMediaStarted = false
+        callSession.stopMedia()
     }
 
     func stopAudioPipeline() {
@@ -206,9 +218,7 @@ extension IntercomViewModel {
         watchAudioLink?.setSendingAllowed(false)
         let wasAudioReady = isAudioReady
         setOtherAudioDuckingActive(false)
-        isCallMediaStarted = false
-        audioPipeline.setInputMuted(true)
-        callSession.stopMedia()
+        stopCallMedia()
         audioPipeline.stop()
         lastPlaybackScheduledAt = nil
         lastReceivedAudioAt = nil
