@@ -77,7 +77,7 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 | 接続点 | 契約 |
 |---|---|
 | `WatchControlMessage.swift` | Codableの操作要求／応答／表示snapshot。表示snapshotには音声・秘密・本人の認証資格を含めない。明示開始のofferだけが一時pair資格を持つ |
-| `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、`startCall`・`endCall`・`setCallMuted`へ渡す。Watch音声選択中のphone mute要求は共通入口が拒否する。開始は別通話への切替を許可しない。開始資格・購入・24時間条件は既存処理の所有 |
+| `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、[共通の操作](通信仕様.md#通話先と操作対象の共通境界)へ渡す。Watch音声選択中のiPhone側のミュート要求は共通入口が拒否する。開始資格・購入・24時間条件は既存処理の所有 |
 | リモコンの開始 | ログイン済みiPhoneはsnapshotの`supportsRemoteStart`をtrueにする。省略された旧snapshotも読める。対応端末への`startRemote`は保存済みの相手をiPhoneの音声入出力で開始し、Watch用の自動切断時間を使う。開始した通話のミュート・終了は既存の操作を使う。`start`・`startAudio`はWatch音声の操作として扱う。Watch画面からのリモコン既定化は[残作業](../../backlog/未実装課題.md#watchはリモコンを既定にし通話を開発者向けオプションにする)で追う |
 | 参照 | [CallControl](../packages/CallControl.md)が既存のaccountAccessID・connectionGeneration・groupIDを1つの形式で符号化する。Watchは待機中を含む不透明な参照を受け取る。iPhoneは要求と現在値を比較し、照合した参照をそのまま[共通の終了・ミュート操作](通信仕様.md#通話先と操作対象の共通境界)へ渡す。アプリが持つログイン世代と接続世代を使うため、同じ通話先へ接続し直した場合も以前の参照は失効する |
 | 期限 | iPhoneの発行時刻から120秒をsnapshotの期限とする。受信時には同じ120秒の上限を使い、期限が受信時刻より後で、受信時刻から120秒以内の要求を受け付ける。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
