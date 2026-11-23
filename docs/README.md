@@ -159,6 +159,8 @@
 | [development/BuildWebRTC/WebRTCビルドスクリプト.md](<development/BuildWebRTC/WebRTCビルドスクリプト.md>) | WebRTCビルドスクリプト |
 | [development/Cloudflare試用手順.md](<development/Cloudflare試用手順.md>) | Cloudflare試用手順 |
 | [development/Cloudflare費用試算.md](<development/Cloudflare費用試算.md>) | Cloudflare 音声通話の費用試算 |
+| [開発方針に反映した個別要求](development/history/開発方針に反映した個別要求.md) | 依頼当時の対象と優先指定、その後の受入・残作業 |
+| [日本語の用例調査](development/history/日本語の用例調査.md) | 比較した公開資料・集計条件・採用した表記 |
 | [コア優先スキルの判断と検証の記録](development/history/コア優先スキルの判断と検証の記録.md) | 指示の背景と机上評価の範囲 |
 | [モデル選択と作業分担の評価記録](development/history/モデル選択と作業分担の評価記録.md) | 当時の選択理由と評価結果 |
 | [development/history/旧機能拡張の着手順.md](<development/history/旧機能拡張の着手順.md>) | 初期の機能依存順と実装追記の履歴 |
