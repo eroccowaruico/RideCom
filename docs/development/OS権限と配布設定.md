@@ -8,12 +8,12 @@
 |---|---|---|
 | Appleログイン | 全通話で認証必須。AppのiOS/macOS entitlementにSign in with Apple | 対象App IDのcapabilityと、そのcapabilityを含む両OSのprofile。実Apple認証・取消・復帰 |
 | 近距離通信 | `NSBonjourServices`は近距離のQUIC制御用の`_ride-control._udp`と、音声用の`_ride-audio._udp`。ローカルネットワーク説明を日英で同梱 | 各端末でローカルネットワークを許可。固定BonjourとUDP unicastなのでmulticastの制限付きentitlementは追加しない |
-| マイク・継続音声 | 日英のマイク説明、macOS audio-input、Appのaudio background mode。端末本体の通話・Audio Check前に明示要求し、許可後は同じ操作を続行 | 各端末のマイク許可。実Bluetooth・中断・ロック中通話の受入。カメラ、連絡先、位置情報、Watchマイクは要求しない |
+| 本体のマイク・継続音声 | 日英のマイク説明、macOS audio-input、Appのaudio background mode。端末本体の通話・Audio Check前に明示要求し、許可後は同じ操作を続行 | 各端末のマイク許可。実Bluetooth・中断・ロック中通話の受入。本体はカメラ、連絡先、位置情報、Watchマイクを要求しない |
 | Mac sandbox | Appはsandboxとnetwork client/serverを有効。UDPの送受信に両方向が必要 | 通常sandboxの実起動と実通信。自動unitでsandboxを無効にした結果とは区別 |
 | Widgetの選択用共有 | AppとWidgetに同じApp Group。Widgetは資格を持たず、Appが投影を書きextensionは読む | 両App IDへのgroup割当と両profileのgroup許可。署名済みの実App/extension間で共有できること |
 | 通知 | AppだけPush entitlement。通常のalert/soundと利用者tapを使用。背景remote-notificationを要求しない | Push capability、APNs環境、server topic、provider鍵、利用者の通知許可を一致させる |
 | 招待・削除の背景更新 | iOS本体のInfoで `fetch` と同期用のタスクIDを1つ宣言する。App起動時に同じIDを登録する | 背景更新が利用できる端末で、iOSが実行を許可した時刻と、通常グループ・個人招待の返信および個人削除の進行を照合する。[通信仕様](../spec/App/通信仕様.md#iosが背景更新を許可したときの招待と個人削除) |
-| Watch | iPhone依存の単一Watch App、対応bundle ID、専用AppIcon。音声やPushの権限は持たない | Watch App ID/profile、iPhoneとの実ペアリングとWCSession手渡し。Watch音声は未実装 |
+| Watchの開発・検証 | iPhone依存の単一Watch App、対応bundle ID、専用AppIcon。Watch音声用のマイクと近距離通信の説明をWatch側に同梱する。WatchにはPushを付与しない。通常のiOS ReleaseはWatchを同梱しない | 開発・検証用のWatch App IDとprofile、iPhoneとのペアリングと操作の手渡し。[Watchの現行動作と実機の受入条件](../spec/App/Watch操作.md)を確認する |
 | CarPlay Widget | 27.0以降のWidget背景IntentとApp本体の共通操作を使用。CallKit・専用CarPlay entitlement・VoIP Pushは追加しない | タッチ対応車での実操作、iPhoneロック・cold launch・新規マイク開始・Widget更新。非タッチ車はボタン非対応 |
 | 状態表示 | iPhone/iPadの任意Live Activity、Mac Widgetを実装。対応端末のDynamic Islandとロック画面を使用 | OSによる表示・消去・ロック解除・手渡しを受入。Mac自身からのLive Activityは提供しない。iPhone由来のMac表示とMac native上部表示を混同しない |
 | 購入 | 公開`StoreProductCatalog.production`は未設定。商品が未設定の間は引き続き商用条件を適用しない | 商品・価格・契約・Family Sharing・審査・販売許可。ローカルStoreKit fixtureは販売設定ではない |
