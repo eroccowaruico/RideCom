@@ -25,7 +25,7 @@ Widgetとの違いは、Watchでは登録済みの通話先を選べることと
 |---|---|
 | 通話の所有者 | iPhone本体の`AppCallOwner`と既存`IntercomViewModel`。Watchにアカウント・利用権・RTC・保存ユーザーの別台帳を作らない。製品としての対応範囲もiPhone通話の音声・操作端末に限定し、Watch単体動作・独自の通話処理・直接のRTC接続は提供しない（[製品要求](../../requirements/製品要求.md)） |
 | 画面表示 | 通常時はアクセント色、iPhone未接続・音声停止・失敗時は黒のナビゲーション背景に接続先を見出し、状態を記号と文言で示す。通話先の行は電話の記号と名前で示し、種別情報を持たないため人物／グループを推測しない。押下送話は横幅を使った角丸の操作領域に表示する。録音チェックの単一ボタン`watchAudioCheckButton`は準備・実行中に停止、それ以外に開始を表示する |
-| Watchの操作 | 保存済みユーザーの開始、現在通話の終了、Watchの押下中送話／通常のマイク切替、現在状態の更新。用途別許可がある保存ユーザーへの明示呼出し通知と、現在の呼出しの取消 |
+| Watchの操作 | 保存済みユーザーの開始、現在通話の終了、マイク操作、現在状態の取得。Watch音声では押下中だけWatchの送話を許可する。呼び出しの手動送信・取消は[接続先一覧](#画面構成)に置かない |
 | 通話先 | 既存`callTargets`を再利用。groupで会っただけの参加者と内部1対1groupを独立した宛先にしない。名前は本人名／端末側の別名をそのまま表示し、翻訳keyにしない |
 | 音声 | WatchのSessionManager入出力とAACを、暗号化した端末pairでiPhoneの既存TX／合成済みRXへ接続。iPhoneの入力captureを開始せず、最終機器出力だけを消音する。実Watchの媒体成立は未受入 |
 | 到達不能 | 操作をqueueへ積まず、未接続を表示する。接続復帰時に現在状態を取得し、古い開始・マイクONを自動実行しない |
@@ -77,7 +77,7 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 | 接続点 | 契約 |
 |---|---|
 | `WatchControlMessage.swift` | Codableの操作要求／応答／表示snapshot。表示snapshotには音声・秘密・本人の認証資格を含めない。明示開始のofferだけが一時pair資格を持つ |
-| `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、[共通の操作](通信仕様.md#通話先と操作対象の共通境界)へ渡す。Watch音声選択中のiPhone側のミュート要求は共通入口が拒否する。開始資格・購入・24時間条件は既存処理の所有 |
+| `AppCallOwner+Watch.swift` | 現在ログインを`callModel()`で確認し、[共通の操作](通信仕様.md#通話先と操作対象の共通境界)へ渡す。別の通話が進行中で開始を拒否した場合は、現在の状態と `.denied` をWatchに返す。Watch音声選択中のiPhone側のミュート要求は共通入口が拒否する。開始資格・購入・24時間条件は既存処理の所有 |
 | リモコンの開始 | ログイン済みiPhoneはsnapshotの`supportsRemoteStart`をtrueにする。省略された旧snapshotも読める。対応端末への`startRemote`は保存済みの相手をiPhoneの音声入出力で開始し、Watch用の自動切断時間を使う。開始した通話のミュート・終了は既存の操作を使う。`start`・`startAudio`はWatch音声の操作として扱う。Watch画面からのリモコン既定化は[残作業](../../backlog/未実装課題.md#watchはリモコンを既定にし通話を開発者向けオプションにする)で追う |
 | 参照 | [CallControl](../packages/CallControl.md)が既存のaccountAccessID・connectionGeneration・groupIDを1つの形式で符号化する。Watchは待機中を含む不透明な参照を受け取る。iPhoneは要求と現在値を比較し、照合した参照をそのまま[共通の終了・ミュート操作](通信仕様.md#通話先と操作対象の共通境界)へ渡す。アプリが持つログイン世代と接続世代を使うため、同じ通話先へ接続し直した場合も以前の参照は失効する |
 | 期限 | iPhoneの発行時刻から120秒をsnapshotの期限とする。受信時には同じ120秒の上限を使い、期限が受信時刻より後で、受信時刻から120秒以内の要求を受け付ける。長時間通話では利用者の操作時だけ1回更新し、通話参照が変わっていなければ明示操作を行う。通話自体を120秒で終了しない |
@@ -86,7 +86,7 @@ Digital Crownと`handGestureShortcut`には送話を割り当てない。文言�
 | `WatchPhoneBridge` | iPhoneで1つ保持しWCSessionをactivate。Observationで状態変更を検出し、通話参照・通話先・表示内容が変わった場合だけ`updateApplicationContext`へ最新snapshotを渡す。音量meter等からの再評価で発行日時だけが変わっても送信しない。activation・Watch切替時は再発行し、送信失敗値は送信済みにしない。明示操作の応答は有効期限を更新する。周期pollingを設けない |
 | `WatchConnectivityClient` | activatedかつ到達可能なWCSessionの`sendMessageData`だけで要求する。activation／到達性変更／Watch前面復帰時に更新。接続切断で表示を外し、古い非同期応答を採用しない |
 | `WatchControlClient` | 応答待ちに重複タップをqueueへ追加しない。古い応答が新しいcontextを上書きしない。送信受付だけで接続済み・マイクONと表示しない |
-| 呼出し先と結果 | `canNotify`は現在の保存ユーザーの用途別許可から投影し、通常groupには付けない。iPhoneで要求時にSavedUserを再解決し、既存`notifications.send`へ渡す。既存outgoingのrequestID・固定status・取消可否だけを表示し、acceptedを転送・応答・通話成立と表示しない。古いrequestIDによる新しい呼出しの取消を拒否する |
+| 呼び出し | 保存済みの相手との個別通話を新しく開始すると、iPhone側が[共通の通知仕様](通知仕様.md#送信結果tap保持する情報)に従って一度だけ通知する。同じ通話を開き直すときは通知を追加しない |
 
 通知応答の固定categoryは`RIDEINTERCOM_CALL_REQUEST`、actionは「接続」（`RIDEINTERCOM_CONNECT`、`.foreground`）と「無視」（`RIDEINTERCOM_IGNORE`、optionsなし）。iPhoneでは「接続」と本体のタップをAppの通知bridgeから[共通の通知検証](通知仕様.md)へ渡し、受信ON・recipient・120秒期限・取消・保存関係・ログイン世代・別通話の維持を再利用する。未知action・dismiss・別categoryのactionを通話開始へ渡さない。Watch側に通知資格、APNs token、応答待ちqueue、再送・pollingを追加しない。
 
@@ -100,7 +100,7 @@ snapshotの現在通話は閲覧中groupと分ける。表示状態は未ログ�
 
 | 境界 | 実装・受入の条件 |
 |---|---|
-| 通話の所有 | iPhoneの既存RTC接続・認証・利用権・通話世代を使う。Watchを別の参加者やWebRTC接続として追加しない。Watchから開始した音声は明示終了または自動切断期限まで入出力ともWatchに固定し、iPhoneのマイク・スピーカーへ暗黙に切り替えない。音声機器の切替・復旧で24時間の起算点や自動切断期限を更新しない |
+| 通話の所有 | iPhoneの既存RTC接続・認証・利用権・通話世代を使う。Watchを別の参加者やWebRTC接続として追加しない。[Watch音声を選んだ通話](../../requirements/製品要求.md#watch音声の継続)では入出力をiPhoneへ自動で切り替えない。音声機器の切替・復旧で24時間の起算点や自動切断期限を更新しない |
 | 起動中の継続 | Watch Appを開いたまま手首を下げ画面が暗くなっても音声と受話を継続し、送話は暗転で閉じる。押下のrelease・操作取消はWatchローカルの送話gateだけを閉じ、受話と通話を維持する。腕下げによる暗転と別画面へ移った背景状態を区別する |
 | 通信とnative経路 | 相手の無音・packet欠落・省電力のための音声通信停止を、Watchのnative入出力経路の破棄と結び付けない。無音を出せる再生状態を維持し、次の受話で再初期化を要求しない。この条件と暗転中の受話継続、押下解除中の受話継続を回帰・実機受入で確認する |
 | 音声session | Watchでは[非同期activation](https://developer.apple.com/documentation/avfaudio/avaudiosession/activate(options:completionhandler:))の実完了を待つ。途中の終了・中断・新開始に古い完了を適用せず、設定変更のたびのactivationや周期的な再activationを設けない。指定できない周波数・バッファ長・出力先等は要求値と実適用を区別する |
