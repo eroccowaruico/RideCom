@@ -7,20 +7,48 @@ import XCTest
 private actor HeadlessSpeechReceiver {
     private(set) var isReady = false
     private var payloads: [UInt64: Data] = [:]
+    private var callState: CallConnectionState = .idle
+    private var hasInternetRoute = false
+    private var observingWait = false
+    private var interruptedWait = false
+
+    var receivedAudio: Bool { !payloads.isEmpty }
+
+    private var isWaitingAlone: Bool {
+        callState == .connecting && hasInternetRoute && !isReady && payloads.isEmpty
+    }
 
     func record(_ event: CallSessionEvent) {
         switch event {
         case .membersChanged(let members):
             isReady = members.contains { $0.isConnected && $0.route == .webRTC }
+        case .stateChanged(let state):
+            callState = state
+        case .routeChanged(let snapshot):
+            hasInternetRoute = snapshot.availableRoutes.contains(.webRTC)
         case .receivedAudioPacket(let received):
             payloads[received.packet.sequenceNumber] = received.packet.payload
         default:
             break
         }
+        if observingWait && !isWaitingAlone { interruptedWait = true }
     }
 
-    func matchingFrames(_ sent: [RTCAudioPacket]) -> Int {
-        sent.count { payloads[$0.sequenceNumber] == $0.payload }
+    func beginObservingAlone() -> Bool {
+        guard isWaitingAlone else { return false }
+        observingWait = true
+        return true
+    }
+
+    func finishObservingAlone() -> Bool {
+        defer { observingWait = false }
+        return observingWait && !interruptedWait && isWaitingAlone
+    }
+
+    func matchingFrames(_ sent: ArraySlice<RTCAudioPacket>, startingAt firstSequence: UInt64) -> Int {
+        sent.enumerated().count { index, packet in
+            payloads[firstSequence + UInt64(index)] == packet.payload
+        }
     }
 }
 
@@ -29,6 +57,11 @@ private struct HeadlessSpeechTrial: Decodable {
     let groupSecret: String
     let leftToken: String
     let rightToken: String
+}
+
+private struct HeadlessSpeechOptions {
+    let requiresRelay: Bool
+    let waitsForPeer: Bool
 }
 
 private final class RelayOnlyPeerConnectionFactory: RTCPeerConnectionFactory, @unchecked Sendable {
@@ -72,19 +105,21 @@ extension AudioE2ETests {
         let frameCount = min(sentA.count, sentB.count)
         let framesA = Array(sentA.prefix(frameCount)), framesB = Array(sentB.prefix(frameCount))
         let environment = ProcessInfo.processInfo.environment
-        let requiresRelay = environment["RIDEINTERCOM_TEST_TURN_RELAY"] == "1"
+        let options = HeadlessSpeechOptions(
+            requiresRelay: environment["RIDEINTERCOM_TEST_TURN_RELAY"] == "1",
+            waitsForPeer: environment["RIDEINTERCOM_TEST_WAIT_FOR_PEER"] == "1"
+        )
         if let bootstrap = environment["RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP"] {
             let trial = try await loadPreviewMediaTrial(bootstrap)
             let origin = try XCTUnwrap(URL(string: "https://preview-rideintercom.analog.workers.dev"))
-            await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin,
-                                 requiresRelay: requiresRelay)
+            await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin, options: options)
             return
         }
         let room = UUID().uuidString
         let trial = HeadlessSpeechTrial(room: room, groupSecret: room, leftToken: room, rightToken: room)
         let credential = RTCCredential.derived(groupID: room, secret: room)
         var serverICE = WebRTCIceServer(urls: ["stun:127.0.0.1:9"])
-        if requiresRelay {
+        if options.requiresRelay {
             let port = try XCTUnwrap(environment["RIDEINTERCOM_TEST_LOCAL_TURN_PORT"].flatMap(UInt16.init))
             serverICE = .init(urls: ["turn:127.0.0.1:\(port)?transport=udp"],
                               username: "relay-fixture", credential: "loopback-fixture")
@@ -95,8 +130,7 @@ extension AudioE2ETests {
             let listeningPort = await server.listeningPort
             let port = try XCTUnwrap(listeningPort)
             let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
-            await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin,
-                                 requiresRelay: requiresRelay)
+            await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin, options: options)
         } catch {
             await server.stop()
             throw error
@@ -136,10 +170,10 @@ extension AudioE2ETests {
 
     private func exchangeSpeech(
         sentA: [RTCAudioPacket], sentB: [RTCAudioPacket], trial: HeadlessSpeechTrial, origin: URL,
-        requiresRelay: Bool
+        options: HeadlessSpeechOptions
     ) async {
-        let leftFactory = requiresRelay ? RelayOnlyPeerConnectionFactory() : nil
-        let rightFactory = requiresRelay ? RelayOnlyPeerConnectionFactory() : nil
+        let leftFactory = options.requiresRelay ? RelayOnlyPeerConnectionFactory() : nil
+        let rightFactory = options.requiresRelay ? RelayOnlyPeerConnectionFactory() : nil
         let left = await speechSession(role: "a", token: trial.leftToken, trial: trial, origin: origin,
                                        relayFactory: leftFactory)
         let right = await speechSession(role: "b", token: trial.rightToken, trial: trial, origin: origin,
@@ -148,25 +182,20 @@ extension AudioE2ETests {
         let receiveLeft = Task { for await event in left.events { await heardLeft.record(event) } }
         let receiveRight = Task { for await event in right.events { await heardRight.record(event) } }
         defer { receiveLeft.cancel(); receiveRight.cancel() }
-        await left.startConnection()
-        await right.startConnection()
-        await left.startMedia()
-        await right.startMedia()
-        var bothReady = false
-        for _ in 0..<150 where !bothReady {
-            let ready = await (heardLeft.isReady, heardRight.isReady)
-            bothReady = ready.0 && ready.1
-            if !bothReady { try? await Task.sleep(for: .milliseconds(100)) }
-        }
+        let firstDuplexFrame = options.waitsForPeer ? 25 : 0
+        let duplexA = sentA.dropFirst(firstDuplexFrame), duplexB = sentB.dropFirst(firstDuplexFrame)
+        var bothReady = await startSpeechSessions(left, right, heardLeft: heardLeft, heardRight: heardRight,
+                                                  waitsForPeer: options.waitsForPeer)
         if bothReady, let leftFactory, let rightFactory {
             bothReady = await checkUDPRelay(leftFactory, rightFactory)
         }
         if bothReady {
-            for (packetA, packetB) in zip(sentA, sentB) {
-                await left.sendAudioPacket(packetA)
-                await right.sendAudioPacket(packetB)
-                try? await Task.sleep(for: .milliseconds(20))
+            if options.waitsForPeer {
+                let intro = (left: sentA.prefix(firstDuplexFrame), right: sentB.prefix(firstDuplexFrame))
+                await checkMutedReception(left, right, heardLeft: heardLeft, heardRight: heardRight, frames: intro)
+                await left.setLocalMute(false)
             }
+            await sendSpeech(left, right, framesA: duplexA, framesB: duplexB)
             try? await Task.sleep(for: .seconds(2))
             if let leftFactory, let rightFactory {
                 bothReady = await checkUDPRelay(leftFactory, rightFactory)
@@ -177,10 +206,74 @@ extension AudioE2ETests {
         await left.stopConnection()
         await right.stopConnection()
         XCTAssertTrue(bothReady, "Both peers must authenticate over WebRTC")
-        let leftFrames = await heardLeft.matchingFrames(sentB), rightFrames = await heardRight.matchingFrames(sentA)
-        XCTAssertGreaterThanOrEqual(leftFrames, sentB.count * 9 / 10)
-        XCTAssertGreaterThanOrEqual(rightFrames, sentA.count * 9 / 10)
-        print("WebRTC speech frames: left \(leftFrames)/\(sentB.count), right \(rightFrames)/\(sentA.count)")
+        // The relay numbers transmitted frames. The muted side starts at zero after unmuting.
+        let leftFrames = await heardLeft.matchingFrames(duplexB, startingAt: UInt64(firstDuplexFrame))
+        let rightFrames = await heardRight.matchingFrames(duplexA, startingAt: 0)
+        XCTAssertGreaterThanOrEqual(leftFrames * 10, duplexB.count * 9)
+        XCTAssertGreaterThanOrEqual(rightFrames * 10, duplexA.count * 9)
+        print("WebRTC speech frames: left \(leftFrames)/\(duplexB.count), right \(rightFrames)/\(duplexA.count)")
+    }
+
+    private func startSpeechSessions(
+        _ left: RouteManager, _ right: RouteManager, heardLeft: HeadlessSpeechReceiver,
+        heardRight: HeadlessSpeechReceiver, waitsForPeer: Bool
+    ) async -> Bool {
+        if waitsForPeer { await left.setLocalMute(true) }
+        await left.startConnection()
+        if waitsForPeer {
+            await left.startMedia()
+            let waited = await observeWaitingPeer(heardLeft)
+            XCTAssertTrue(waited, "The first peer must remain alone on the Internet route")
+            guard waited else { return false }
+        }
+        await right.startConnection()
+        if !waitsForPeer { await left.startMedia() }
+        await right.startMedia()
+        return await waitForSpeechCondition {
+            let ready = await (heardLeft.isReady, heardRight.isReady)
+            return ready.0 && ready.1
+        }
+    }
+
+    private func checkMutedReception(
+        _ left: RouteManager, _ right: RouteManager, heardLeft: HeadlessSpeechReceiver,
+        heardRight: HeadlessSpeechReceiver,
+        frames: (left: ArraySlice<RTCAudioPacket>, right: ArraySlice<RTCAudioPacket>)
+    ) async {
+        await sendSpeech(left, right, framesA: frames.left, framesB: frames.right)
+        let receivedWhileMuted = await waitForSpeechCondition {
+            await heardLeft.matchingFrames(frames.right, startingAt: 0) * 10 >= frames.right.count * 9
+        }
+        let mutedPeerSentAudio = await heardRight.receivedAudio
+        XCTAssertTrue(receivedWhileMuted, "The waiting peer must receive speech while muted")
+        XCTAssertFalse(mutedPeerSentAudio, "The muted peer must not send speech")
+        if receivedWhileMuted && !mutedPeerSentAudio {
+            let mutedFrames = await heardLeft.matchingFrames(frames.right, startingAt: 0)
+            print("WebRTC late join: 20 seconds waiting, listen-only \(mutedFrames)/\(frames.right.count)")
+        }
+    }
+
+    private func observeWaitingPeer(_ receiver: HeadlessSpeechReceiver) async -> Bool {
+        guard await waitForSpeechCondition({ await receiver.beginObservingAlone() }) else { return false }
+        do { try await Task.sleep(for: .seconds(20)) } catch { return false }
+        return await receiver.finishObservingAlone()
+    }
+
+    private func waitForSpeechCondition(_ condition: () async -> Bool) async -> Bool {
+        for _ in 0..<150 {
+            if await condition() { return true }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
+        }
+        return false
+    }
+
+    private func sendSpeech(_ left: RouteManager, _ right: RouteManager,
+                            framesA: ArraySlice<RTCAudioPacket>, framesB: ArraySlice<RTCAudioPacket>) async {
+        for (packetA, packetB) in zip(framesA, framesB) {
+            await left.sendAudioPacket(packetA)
+            await right.sendAudioPacket(packetB)
+            do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+        }
     }
 
     private func speechSession(
@@ -200,7 +293,9 @@ extension AudioE2ETests {
         return session
     }
 
-    private func checkUDPRelay(_ left: RelayOnlyPeerConnectionFactory, _ right: RelayOnlyPeerConnectionFactory) async -> Bool {
+    private func checkUDPRelay(
+        _ left: RelayOnlyPeerConnectionFactory, _ right: RelayOnlyPeerConnectionFactory
+    ) async -> Bool {
         let leftRelays = await left.usesUDPRelay()
         let rightRelays = await right.usesUDPRelay()
         print("WebRTC UDP TURN selected: left \(leftRelays), right \(rightRelays)")
