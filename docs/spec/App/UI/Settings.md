@@ -6,7 +6,7 @@ StandardとAdvancedの設定トップ、その中の通信・開発者向けの�
 
 本書は Settings タブの UI 項目を定義する。
 
-Standardの設定トップでは目的ごとにSectionを並べる。目的は自分・接続・通信・音声・高度な設定・リセット。iOSのSection間は`.listSectionSpacing(.compact)`とする。通信、開発者向けの高度な設定、リセットは、それぞれ1つのSectionだけでグループを作る。その間隔を36pt（`.custom(36)`）にして前後の切れ目を一段広くする。macOSでは標準のFormを使う。SwiftUIは隣り合う2つのSectionの大きい方の間隔を使うため、自分と接続の切れ目は広げていない（[バックログ](../../../backlog/画面実装とデザイン見本の差分.md#主画面)にデザインへの確認を記録）。Advancedの選択肢は、実装の既定値に「(Default)」を付ける（自動切断、Mode、Codec、Sample Rate、AAC-ELD Bitrate、VAD Sensitivity）。Standardの選択肢には付けない。Advancedのインターネット接続のWorker URLのプレースホルダーは`https://example.workers.dev`、Device access tokenは`Paste the token`。
+Standardの設定トップでは目的ごとにSectionを並べる。目的は自分・接続・通信・音声・高度な設定・リセット。iOSのSection間は`.listSectionSpacing(.compact)`とする。通信、開発者向けの高度な設定、リセットは、それぞれ1つのSectionだけでグループを作る。その間隔を36pt（`.custom(36)`）にして前後の切れ目を一段広くする。macOSでは標準のFormを使う。SwiftUIは隣り合う2つのSectionの大きい方の間隔を使うため、自分と接続の切れ目は広げていない（[バックログ](../../../backlog/画面実装とデザイン見本の差分.md#主画面)にデザインへの確認を記録）。Advancedの選択肢は、実装の既定値に「(Default)」を付ける（自動切断、Mode、Codec、Sample Rate、AAC-ELD Bitrate、VAD Sensitivity）。Standardの選択肢には付けない。
 
 ## 表示切替と共通設定
 
@@ -184,9 +184,9 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 | Continue with Apple | `internetAppleSignInButton` | 準備後に有効。現在のAppleアカウントと一致する認証だけをserverへ送り、端末資格をKeychainに保存して通話を終了・RTC configurationを更新 |
 | Apple認証の状態 | `internetAppleSignInStatus` | 準備・認証・保存の失敗、保存成功を表示。token・メール・本名は表示しない |
 
-端末資格の保存先はKeychain。設定済みの場合、Advancedは`Device token configured`を表示する。試用はLocal NetworkをOFFにしてInternetだけで確認できる。自動テストはローカル代替環境を使用する。
+Apple接続で発行された端末資格はKeychainに保存する。Standardの「設定済み」とAdvancedの `Device token configured` は、端末で使う資格を読み込めた状態を示す。通話の成立は通話画面で確認する。試用はLocal NetworkをOFFにしてInternetだけで確認できる。自動テストはローカル代替環境を使用する。
 
-接続先はビルドが決める。TestFlightを含むReleaseでは本番、Debugでは固定Previewが既定。ビルド時の設定は[設定値一覧](../Configuration/設定値一覧.md#開発用の既定接続値)を参照する。接続先の照合は[通信仕様](../通信仕様.md#アカウント削除と端末内消去)に従う。
+接続先はビルドが決める。画面には接続先を入力する欄や端末資格を入力する欄を設けない。TestFlightを含むReleaseでは本番、Debugでは固定Previewが既定。ビルド時の設定は[設定値一覧](../Configuration/設定値一覧.md#開発用の既定接続値)を参照する。接続先の照合は[通信仕様](../通信仕様.md#アカウント削除と端末内消去)に従う。
 
 未設定から準備すると処理中になり、準備が済むとAppleで認証できる。認証に成功すると設定済みになる。失敗したときはシート内で理由を案内し、接続準備から再試行できる。
 
