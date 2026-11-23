@@ -15,19 +15,24 @@ APP_PATH = 'Applications/RideIntercom.app'
 RENAME_EXCL = 0x00000004  # Darwin stdio.h
 
 
-def check_signature_and_symbols(product: Path, binary: Path, symbols: Path) -> None:
+def check_signature(product: Path) -> None:
     signature = subprocess.run(['/usr/bin/codesign', '-d', '--verbose=2', product], check=True, capture_output=True)
     if not re.search(rb'^Authority=.+$', signature.stderr, re.MULTILINE):
         raise ValueError('Archive must have a certificate signature')
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', product], check=True)
 
-    def uuids(file: Path) -> set[tuple[bytes, bytes]]:
-        output = subprocess.check_output(['/usr/bin/xcrun', 'dwarfdump', '--uuid', file])
-        return set(re.findall(rb'^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)', output, re.MULTILINE))
 
-    executable_uuids = uuids(binary)
-    if not executable_uuids or executable_uuids != uuids(symbols):
-        raise ValueError('Archive dSYM UUIDs must match the App executable')
+def macho_uuids(file: Path) -> set[tuple[bytes, bytes]]:
+    output = subprocess.check_output(['/usr/bin/xcrun', 'dwarfdump', '--uuid', file])
+    return set(re.findall(rb'^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)', output, re.MULTILINE))
+
+
+def check_symbols(archive_root: Path, binary: Path, symbols: Path, component: str) -> None:
+    if any(not path.is_file() or not path.resolve().is_relative_to(archive_root) for path in (binary, symbols)):
+        raise ValueError(f'Archive must contain the {component} executable and its dSYM')
+    executable_uuids = macho_uuids(binary)
+    if not executable_uuids or executable_uuids != macho_uuids(symbols):
+        raise ValueError(f'Archive {component} dSYM UUIDs must match the executable')
 
 
 def archive_info(archive: Path) -> tuple[date, str, str, str]:
@@ -37,9 +42,10 @@ def archive_info(archive: Path) -> tuple[date, str, str, str]:
         metadata = plistlib.load(info)
     properties = metadata['ApplicationProperties']
     product = archive / 'Products' / APP_PATH
+    archive_root = archive.resolve()
     if (properties.get('ApplicationPath') != APP_PATH
             or list(product.parent.glob('*.app')) != [product]
-            or not product.is_dir() or not product.resolve().is_relative_to(archive.resolve())):
+            or not product.is_dir() or not product.resolve().is_relative_to(archive_root)):
         raise ValueError('Archive must contain one top-level RideIntercom App')
 
     contents = product / 'Contents' if (product / 'Contents').is_dir() else product
@@ -72,10 +78,14 @@ def archive_info(archive: Path) -> tuple[date, str, str, str]:
         raise ValueError('Archive must contain a signing identity')
     binary = contents / ('MacOS/RideIntercom' if contents != product else 'RideIntercom')
     symbols = archive / 'dSYMs/RideIntercom.app.dSYM/Contents/Resources/DWARF/RideIntercom'
-    if not binary.is_file() or not symbols.is_file():
-        raise ValueError('Archive must preserve the executable and its dSYM')
-    check_signature_and_symbols(product, binary, symbols)
-    return created.replace(tzinfo=created.tzinfo or timezone.utc).astimezone().date(), platform_name, version, build
+    check_signature(product)
+    check_symbols(archive_root, binary, symbols, 'App')
+    if platform_name == 'iOS':
+        web_rtc = product / 'Frameworks/WebRTC.framework/WebRTC'
+        web_rtc_symbols = archive / 'dSYMs/WebRTC.framework.dSYM/Contents/Resources/DWARF/WebRTC'
+        check_symbols(archive_root, web_rtc, web_rtc_symbols, 'WebRTC')
+    archive_date = created.replace(tzinfo=created.tzinfo or timezone.utc).astimezone().date()
+    return archive_date, platform_name, version, build
 
 
 def publish_archive(staged: Path, destination: Path) -> None:
