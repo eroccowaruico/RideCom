@@ -128,6 +128,21 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.runner.results['simulator-audio-restore']['status'], 'failed')
         self.assertEqual(self.runner.exit_code, 1)
 
+    def test_live_tx_isolation_requests_audio_preparation_when_selected(self) -> None:
+        from scripts import audio_e2e
+
+        test = 'RideIntercomUITests/DesignSystemDiagnosticsUITests/testTXShowsLiveIsolationWithEffectsClosed'
+        with patch.object(self.module, 'SimulatorLease') as lease, \
+             patch.object(self.module, 'boot_simulator'), \
+             patch.object(self.runner, 'run', return_value=True), \
+             patch.object(audio_e2e, 'SimulatorAudioPin') as audio_pin, \
+             patch.object(self.runner, 'xcode') as xcode:
+            lease.return_value.prepare.return_value = 'test-phone'
+            audio_pin.return_value.pin.return_value = 'fixture-audio'
+            self.module.run_iphone_tests(self.runner, 'fixture-runtime', [test], [], True)
+            audio_pin.return_value.pin.assert_called_once()
+            self.assertIn('simulator-audio-device', xcode.call_args.kwargs['needs'])
+
     def test_selected_results_identify_missing_selectors_and_unexpected_tests(self) -> None:
         cases = [{'nodeType': 'Test Case', 'nodeIdentifier': identifier, 'result': 'Passed'}
                  for identifier in ['ContactTests/reply(retrying:)', 'ContactTests/accept()', 'OtherTests/unrelated()']]

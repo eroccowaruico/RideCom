@@ -504,6 +504,7 @@ RECOVERY_TEST = 'RideIntercomUITests/RideIntercomUITests/testCorruptGroupStoreRe
 SIMULATOR_AUDIO_TESTS = [
     'RideIntercomUITests/RideIntercomUITests/testPhoneAudioCheckRecordsAndPlaysFromSettings',
     'RideIntercomUITests/BackgroundCallLifecycleUITests',
+    'RideIntercomUITests/DesignSystemDiagnosticsUITests/testTXShowsLiveIsolationWithEffectsClosed',
 ]
 
 
