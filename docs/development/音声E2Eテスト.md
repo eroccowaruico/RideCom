@@ -30,6 +30,19 @@ xcodebuild -scheme RideIntercomAudioE2E -destination "platform=iOS Simulator,id=
 
 1台のSimulator内で、製品と同じ通話・WebRTC処理を2つ起動する。中継には既存のローカル試験用Workerを使い、参加者は試験用の通話鍵を共有して互いを確認する。異なる2つの発話ファイルを20 msごとのPCM16に分け、各方向で送信順と内容が一致したフレームを数える。両方向で送ったフレームの9割以上が一致すれば合格とする。Appleログインや音声機器の起動を必要とせず、音声の再生と遅延は上の2端末の試験で測る。実SFU・TURN経由の計測は[固定Previewの試用手順](Cloudflare試用手順.md#共有mainから固定previewと通話試験を用意する)に従う。
 
+### UDP TURNを経由する発話を検証する
+
+同じiPhone Simulator試験で、試験用のWebRTCファクトリーだけをリレー候補に限定できる。送信の前後に、両端で選ばれたローカルICE候補の種別が `relay`、TURNサーバーまでの通信が `udp` であることを確認する。経路の確認に失敗した試験は合格にしない。出力するのは両端の合否とフレームの件数に限る。[WebRTC統計仕様](https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatestats-relayprotocol)
+
+UDP TURNサーバーを `127.0.0.1` に限定して起動する。試験用の利用者名は `relay-fixture`、パスワードは `loopback-fixture`。Xcodeの起動時に環境変数を渡す。
+
+```text
+TEST_RUNNER_RIDEINTERCOM_TEST_TURN_RELAY=1
+TEST_RUNNER_RIDEINTERCOM_TEST_LOCAL_TURN_PORT=<ローカルTURNのポート>
+```
+
+音声試験は、そのポートと試験用の資格をローカルWorkerの応答へ設定する。固定Previewでの検証では[音声試験の手順](Cloudflare試用手順.md#appleログインなしで固定previewの音声を測る)から `--turn-relay` を指定する。ローカルのTURNサーバーを使う設定は渡さない。
+
 ### 保存済みグループから近距離通話を始める
 
 ```sh

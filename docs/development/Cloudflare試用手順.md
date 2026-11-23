@@ -150,6 +150,8 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
    python3 scripts/Cloudflare/run-preview-media-trial.py "$TRIAL_DIR/credentials.json" --output "$OUTPUT_DIR"
    ```
 
+   UDP TURNを確認する場合は、先に[ローカルのTURN試験](音声E2Eテスト.md#udp-turnを経由する発話を検証する)を通す。固定Previewの試験コマンドに `--turn-relay` を付け、送信の前後に両端で選ばれた経路がUDP TURNであることも判定する。
+
 4. `TEST_PREVIEW_MEDIA_TRIAL` の行を削除して同じ経路で配置する。同じコマンドの `--output` に代えて `--check-revoked` を指定し、両方の資格が401になることを確認する。最後にローカルの資格を回収する。
 
 `TEST_PREVIEW_MEDIA_TRIAL` は音声の試験時だけ固定Previewに設定する。試験用の資格は発行から最大20分だけ有効。[Workerの制約](../spec/server/Worker.md#apple認証と端末資格)と[実サービス検証の費用制約](../policies/開発方針.md#実サービスを使う検証の費用制約)を適用する。

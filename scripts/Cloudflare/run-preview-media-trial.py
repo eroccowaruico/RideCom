@@ -32,7 +32,7 @@ def status(token):
     return int(code), json.loads(body) if code == '200' else None
 
 
-def simulator_test(output, bootstrap):
+def simulator_test(output, bootstrap, require_turn):
     runtimes = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j']))['runtimes']
     runtime = max((row for row in runtimes if row['isAvailable'] and row['name'].startswith('iOS')),
                   key=lambda row: tuple(map(int, row['version'].split('.'))))['identifier']
@@ -46,6 +46,7 @@ def simulator_test(output, bootstrap):
                    '-destination', 'platform=iOS Simulator,id=' + device, '-parallel-testing-enabled', 'NO',
                    '-resultBundlePath', str(output / 'media.xcresult'), '-only-testing:' + CASE, 'test']
         environment = os.environ | {'TEST_RUNNER_RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP': bootstrap}
+        environment['TEST_RUNNER_RIDEINTERCOM_TEST_TURN_RELAY'] = '1' if require_turn else '0'
         with log.open('w') as stream:
             result = subprocess.run(command, cwd=ROOT, env=environment, stdout=stream,
                                     stderr=subprocess.STDOUT, timeout=420)
@@ -55,13 +56,17 @@ def simulator_test(output, bootstrap):
             if owned['state'] != 'Shutdown':
                 subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=True, capture_output=True, timeout=45)
             subprocess.run(['xcrun', 'simctl', 'delete', device], check=True, capture_output=True, timeout=45)
-    counts = re.search(r'WebRTC speech frames: left \d+/\d+, right \d+/\d+', log.read_text(errors='replace'))
+    log_text = log.read_text(errors='replace')
+    counts = re.search(r'WebRTC speech frames: left \d+/\d+, right \d+/\d+', log_text)
     if counts:
         print(counts[0])
-    return result.returncode == 0 and counts is not None
+    relay_checks = log_text.count('WebRTC UDP TURN selected: left true, right true')
+    if require_turn:
+        print(f'UDP TURN selected on both legs: {relay_checks}/2')
+    return result.returncode == 0 and counts is not None and (not require_turn or relay_checks == 2)
 
 
-def run_trial(data, output):
+def run_trial(data, output, require_turn):
     before_code, before = status(data['leftToken'])
     second_code, _ = status(data['rightToken'])
     print(f'Preview authorization: {before_code} {second_code}', flush=True)
@@ -94,7 +99,7 @@ def run_trial(data, output):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                succeeded = simulator_test(output, f'http://127.0.0.1:{server.server_port}{secret_path}')
+                succeeded = simulator_test(output, f'http://127.0.0.1:{server.server_port}{secret_path}', require_turn)
             except subprocess.TimeoutExpired:
                 print('The Simulator trial reached its execution deadline', flush=True)
                 succeeded = False
@@ -118,7 +123,10 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--output', type=Path)
     mode.add_argument('--check-revoked', action='store_true')
+    parser.add_argument('--turn-relay', action='store_true', help='Require both selected ICE paths to use UDP TURN')
     args = parser.parse_args()
+    if args.turn_relay and args.check_revoked:
+        parser.error('--turn-relay requires --output')
     metadata = args.credentials.lstat()
     if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_uid != os.getuid():
         parser.error('Use a private credential file')
@@ -135,7 +143,7 @@ def main():
     os.environ.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
     output = args.output.resolve()
     output.mkdir()
-    return run_trial(data, output)
+    return run_trial(data, output, args.turn_relay)
 
 
 if __name__ == '__main__':

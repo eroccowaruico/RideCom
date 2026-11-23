@@ -7,8 +7,7 @@ import RTCNativeWebRTC
 import XCTest
 
 /// Test composition uses the shipped engine and permits host loopback candidates.
-func makeAudioE2EWebRTCEngine() -> WebRTCNativeEngine {
-    let factory = RTCPeerConnectionFactory()
+func makeAudioE2EWebRTCEngine(factory: RTCPeerConnectionFactory = RTCPeerConnectionFactory()) -> WebRTCNativeEngine {
     let options = RTCPeerConnectionFactoryOptions()
     options.ignoreLoopbackNetworkAdapter = false
     factory.setOptions(options)
@@ -30,6 +29,7 @@ actor AudioE2EWorker {
     private let token: String
     private let room: String
     private let allowedPeers: Set<String>
+    private let iceServer: WebRTCIceServer
     private let checksInternetRecovery: Bool
     private var participants: [String: Participant] = [:]
     private var sockets: [String: NWConnection] = [:]
@@ -51,7 +51,8 @@ actor AudioE2EWorker {
     var listeningPort: UInt16? { listener.port?.rawValue }
 
     init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false,
-         holdsInternetSignaling: Bool = false, leavesICEUnanswered: Bool = false) throws {
+         holdsInternetSignaling: Bool = false, leavesICEUnanswered: Bool = false,
+         iceServer: WebRTCIceServer = .init(urls: ["stun:127.0.0.1:9"])) throws {
         let parameters = NWParameters.tcp
         let localPort = try XCTUnwrap(NWEndpoint.Port(rawValue: port))
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: localPort)
@@ -61,6 +62,7 @@ actor AudioE2EWorker {
         self.checksInternetRecovery = checksInternetRecovery
         self.holdsInternetSignaling = holdsInternetSignaling
         self.leavesICEUnanswered = leavesICEUnanswered
+        self.iceServer = iceServer
     }
 
     func start() async throws {
@@ -222,8 +224,10 @@ private extension AudioE2EWorker {
         } else if holdsInternetSignaling || !stillObservingInternetOutage.isEmpty {
             try await Self.respond(connection, status: 503, body: ["error": "fixture unavailable"])
         } else if operation == "ice" {
-            // No external STUN/TURN dependency. Host candidates carry this test.
-            try await Self.respond(connection, body: ["iceServers": [["urls": ["stun:127.0.0.1:9"]]]])
+            var server: [String: Any] = ["urls": iceServer.urls]
+            server["username"] = iceServer.username
+            server["credential"] = iceServer.credential
+            try await Self.respond(connection, body: ["iceServers": [server]])
         } else {
             try await join(request, connection: connection)
         }
