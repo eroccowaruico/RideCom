@@ -21,7 +21,7 @@ function call(runtime, path, { origin = preview, method = 'GET', token = tokens[
 }
 
 test('two Preview credentials are scoped to the room and cannot manage each other’s sessions', async t => {
-    const runtime = await makeRuntime({ PREVIEW_MEDIA_TRIAL: JSON.stringify(grant) }, { fixedNowMs: now });
+    const runtime = await makeRuntime({ TEST_PREVIEW_MEDIA_TRIAL: JSON.stringify(grant) }, { fixedNowMs: now });
     t.after(() => runtime.dispose());
     provider.requests = [];
     const join = (participantId, token = tokens[0]) =>
@@ -55,7 +55,7 @@ test('absent, expired, future and oversized Preview grants fail closed without l
     ];
     for (const value of variants) {
         const runtime = await makeRuntime({
-            PREVIEW_MEDIA_TRIAL: JSON.stringify(value) ?? '',
+            TEST_PREVIEW_MEDIA_TRIAL: JSON.stringify(value) ?? '',
             CLIENT_TOKENS_JSON: JSON.stringify({ [digests[0]]: 'must-not-fallback' })
         }, { fixedNowMs: now });
         try {

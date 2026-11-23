@@ -22,5 +22,5 @@ const grant = {
     }
 };
 writeFileSync(join(directory, 'credentials.json'), JSON.stringify({ leftToken, rightToken, room, groupSecret }), { mode: 0o600 });
-writeFileSync(join(directory, 'grant.toml'), `PREVIEW_MEDIA_TRIAL = ${JSON.stringify(JSON.stringify(grant))}\n`, { mode: 0o600 });
+writeFileSync(join(directory, 'grant.toml'), `TEST_PREVIEW_MEDIA_TRIAL = ${JSON.stringify(JSON.stringify(grant))}\n`, { mode: 0o600 });
 console.log(directory);

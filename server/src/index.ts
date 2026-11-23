@@ -38,7 +38,7 @@ export default {
         let owner: string | undefined
         if (device) owner = `${device.userID}:${device.deviceID}`
         else if (credential.startsWith(previewMediaTrialPrefix)) {
-            owner = await previewMediaTrialOwner(request, url, credential, env.PREVIEW_MEDIA_TRIAL, match?.[1], match?.[2])
+            owner = await previewMediaTrialOwner(request, url, credential, env.TEST_PREVIEW_MEDIA_TRIAL, match?.[1], match?.[2])
         } else if (!credential.startsWith('ri1.')) {
             const hash = await sha256Hex(credential)
             try {
