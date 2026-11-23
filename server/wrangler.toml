@@ -97,7 +97,6 @@ new_sqlite_classes = ["AppAttestKeyIndex"]
 # Previews inherit the SFU values and device registry from Previews Base.
 # Ordinary variables and env bindings must be declared separately from production.
 [previews.vars]
-TEST_PREVIEW_MEDIA_TRIAL = "{\"room\":\"d446d09b22e268f08bec6da68df9a2aaec78e47cdb3665a73316462933db5f5b\",\"issuedAt\":1795402990457,\"expiresAt\":1795404190457,\"participants\":{\"4dda33c1aee770189fd4747b06866b7737933074fadaa6ea6a2bf4bb293270ed\":\"e2e-a-AEA78788\",\"171cf4c3b5875484f1dc4aeff1ce32f602aabf1713bb3d8da1b38f478e8e35c0\":\"e2e-b-AEA78788\"}}"
 APPLE_AUTH_ENABLED = "true"
 APPLE_CLIENT_ID = "com.yowamushi-inc.RideIntercom.RideIntercom"
 APPLE_TEAM_ID = "UAY8FH5FF8"

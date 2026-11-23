@@ -47,7 +47,7 @@
 
 **今回の最優先はTestFlightでの実通話。** 開発署名のビルドで固定Previewの通話を試してから、本番環境につなぐTestFlightビルドを同じ2台に入れ、インターネット経由と圏外の近距離で、発着信と双方向の音声を確かめる。Previews Baseと既存の固定Previewに差があれば、試用先に必要な設定を照合し、承認済みの範囲で反映・再配置して通話を試す。サーバー側で所有者の設定操作が必要ならその場で対象と操作を尋ねる。端末のロック解除は[実機確認の全残件とまとめて依頼する](../policies/開発方針.md#実機確認を一度のロック解除で終える)。固定PreviewとTestFlightの通話結果をそれぞれ記録する。[固定Previewの設定](../development/Cloudflare試用手順.md)
 
-固定Previewでは、採用した無改変WebRTCを使い、Appleログインを省いたSimulator試験で実SFUの双方向音声を確認した。開発署名の実機とTestFlightで行う通常のログイン、通話、通知と招待の確認は続く。[固定Previewの音声試験](../validation/history/iOS音声E2Eと通話障害修復.md#採用した無改変webrtcで固定previewの発話を往復させる)
+固定Previewでは、採用した無改変WebRTCを使い、Appleログインを省いたSimulator試験で実SFUの双方向音声と[UDP TURN経由の双方向音声](../validation/history/iOS音声E2Eと通話障害修復.md#固定previewで両端のudp-turnを通る発話を確かめる)を確認した。開発署名の実機とTestFlightで行う通常のログイン、通話、通知と招待の確認は続く。[固定Previewの音声試験](../validation/history/iOS音声E2Eと通話障害修復.md#採用した無改変webrtcで固定previewの発話を往復させる)
 
 **iCloud自動バックアップと端末変更時の復元は、実通話の確認後に戻る実装の優先指定（2026-11-22）。** 端末鍵の検証から始め、自動保存と復元を実装し、再招待なしで既存の相手と通話できるところまで進める。[優先順位を変更した経緯と関連課題](未実装課題.md#要求を記録してから実装を最優先にするまで)
 
