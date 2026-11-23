@@ -70,7 +70,7 @@ export class SignalingRoom implements DurableObject {
             await this.state.storage.put(`member:${member.sessionId}`, member)
             for (const ws of this.state.getWebSockets(member.sessionId)) { try { ws.close(1000, 'Account deleted') } catch { /* closed */ } }
         }
-        for (const ice of orphans) { ice.expiresAt = 0; await this.state.storage.put(`ice:${ice.peer}`, ice) }
+        for (const ice of orphans) await this.turn.prepareRevocation(ice)
         await this.scheduleExpiry()
         await this.broadcastPeers()
         await Promise.all([...members.map(async member => { try { await this.close(member) } catch { /* Retain for retry. */ } }),
@@ -253,6 +253,8 @@ export class SignalingRoom implements DurableObject {
         for (const ws of this.state.getWebSockets()) { try { ws.send(JSON.stringify({ type: 'peers', peers })) } catch { /* closed */ } }
     }
     private async close(member: Member) {
+        const ice = await this.turn.get(member.id)
+        if (ice) await this.turn.prepareRevocation(ice)
         try {
             const status = await sfu(this.env, `/sessions/${member.sessionId}`, undefined, 'GET')
             const known = responseChannels(status).filter(hasChannelID).filter(c => c.status !== 'inactive').map(c => c.id)
@@ -261,7 +263,6 @@ export class SignalingRoom implements DurableObject {
             // cleanup record until the provider confirms the session is gone.
             if (member.allocationPending) throw new Error('pending-allocation')
         } catch (e) { if (!(e instanceof Error && e.message === 'session-gone')) throw e }
-        const ice = await this.turn.get(member.id)
         if (ice) await this.turn.remove(ice)
         await this.state.storage.delete(`member:${member.sessionId}`)
         await this.usage('release', { id: `${this.state.id}:${member.id}` })

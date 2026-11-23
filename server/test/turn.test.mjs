@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { callTestCredential, room, offer, provider, makeRuntime } from './support/runtime.mjs';
 const call = async (runtime, path, body, method = 'POST', credential) => runtime.dispatchFetch(`https://worker.test/api/rooms/${room}/${path}`, {
     method, headers: { Authorization: `Bearer ${credential ?? await callTestCredential(runtime)}`, 'Content-Type': 'application/json' },
@@ -165,17 +166,55 @@ test('abandoned preflight expires without creating an SFU session', async () => 
 });
 
 
-test('failed revocation retains cleanup and is retried instead of abandoning credentials', async () => {
-    const runtime = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' });
-    try {
-        await call(runtime, 'ice/retry', { leaseID });
-        provider.revokeFails = true;
-        assert.equal((await call(runtime, 'ice/retry', { leaseID }, 'DELETE')).status, 502);
-        provider.revokeFails = false;
-        await new Promise(resolve => setTimeout(resolve, 1800));
-        assert.equal((await call(runtime, 'ice/retry', { leaseID: 'new-attempt' })).status, 200);
-    } finally { provider.revokeFails = false; await runtime.dispose(); }
-});
+for (const failingProvider of ['TURN', 'SFU']) {
+    test(`cleanup after ${failingProvider} failure retries without caching the TURN password`, async () => {
+        const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-turn-retry-'));
+        const runtime = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' }, { storageDirectory });
+        try {
+            const issued = await call(runtime, 'ice/retry', { leaseID });
+            assert.equal(issued.status, 200);
+            const { iceServers } = await issued.json();
+            const credential = iceServers.find(server => server.credential);
+            assert.ok(credential);
+            let path = 'ice/retry';
+            let body = { leaseID };
+            if (failingProvider === 'SFU') {
+                const joined = await call(runtime, 'join', { participantId: 'retry', offer, iceLeaseID: leaseID });
+                assert.equal(joined.status, 200);
+                path = `sessions/${(await joined.json()).sessionId}`;
+                body = undefined;
+            }
+            const files = await readdir(storageDirectory, { recursive: true });
+            const sqlite = files.find(path => path.includes('SignalingRoom') && /^[0-9a-f]{64}\.sqlite$/.test(basename(path)));
+            assert.ok(sqlite, 'Room storage must exist');
+            const database = new DatabaseSync(join(storageDirectory, sqlite), { readOnly: true });
+            try {
+                // Read the current row through SQLite so old pages do not count as retained values.
+                const read = database.prepare('SELECT instr(value, CAST(? AS BLOB)) AS retained FROM _cf_KV WHERE CAST(key AS TEXT) = ?');
+                assert.ok(read.get(credential.credential, 'ice:retry')?.retained > 0, 'Active ICE response must be cached');
+                provider.revokeFails = failingProvider === 'TURN';
+                provider.upstreamFails = failingProvider === 'SFU';
+                assert.equal((await call(runtime, path, body, 'DELETE')).status, 502);
+                assert.equal(read.get(credential.credential, 'ice:retry')?.retained, 0, 'Only the information needed to retry should remain');
+            } finally { database.close(); }
+            const failedRequest = provider.requests.at(-1);
+            assert.ok(failedRequest?.url.endsWith(failingProvider === 'TURN' ? '/revoke' : path));
+            const beforeRetry = provider.requests.length;
+            provider.revokeFails = false;
+            provider.upstreamFails = false;
+            await new Promise(resolve => setTimeout(resolve, 1800));
+            const requests = provider.requests.slice(beforeRetry);
+            assert.ok(requests.some(request => request.url === failedRequest.url));
+            assert.ok(requests.some(request => request.url.endsWith(`/credentials/${credential.username}/revoke`)));
+            assert.equal((await call(runtime, 'ice/retry', { leaseID: 'new-attempt' })).status, 200);
+        } finally {
+            provider.revokeFails = false;
+            provider.upstreamFails = false;
+            await runtime.dispose();
+            await rm(storageDirectory, { recursive: true, force: true });
+        }
+    });
+}
 
 
 test('orphan credential cleanup does not serialize upstream delays across participants', async () => {

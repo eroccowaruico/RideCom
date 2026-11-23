@@ -55,10 +55,15 @@ export class TurnCredentials {
         await this.storage.put(`ice:${peer}`, lease)
         return servers
     }
-    async remove(lease: IceLease): Promise<void> {
-        // Mark cleanup pending before I/O so a failed revoke is retried by the alarm.
+    async prepareRevocation(lease: IceLease): Promise<void> {
+        if (lease.expiresAt === 0 && !lease.servers.length) return
+        // Keep the revocation handles while dropping the cached connection response before I/O.
         lease.expiresAt = 0
+        lease.servers = []
         await this.storage.put(`ice:${lease.peer}`, lease)
+    }
+    async remove(lease: IceLease): Promise<void> {
+        await this.prepareRevocation(lease)
         // Attempt every live credential; retain the record if any revocation needs retry.
         await Promise.all(lease.issued.filter(c => c.expiresAt > Date.now()).map(async c => {
             const response = await this.provider(c.keyID, `credentials/${encodeURIComponent(c.username)}/revoke`)
