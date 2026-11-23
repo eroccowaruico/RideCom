@@ -5,11 +5,12 @@ import { pathToFileURL } from 'node:url';
 
 let listingCount = 0;
 
-export async function listWorkerCases(directory = new URL('./', import.meta.url)) {
+export async function listWorkerCases(directory = new URL('./', import.meta.url), onlyFile) {
     const root = pathToFileURL(await realpath(directory) + sep);
     const files = (await readdir(root, { withFileTypes: true }))
         .filter(file => file.isFile() && !file.name.startsWith('.') && file.name.endsWith('.test.mjs'))
         .map(file => file.name)
+        .filter(file => onlyFile === undefined || file === onlyFile)
         .sort();
     const query = `?workerCases=${listingCount++}`;
     const registrar = new URL(`./support/case-registration.mjs${query}`, import.meta.url).href;
@@ -37,7 +38,7 @@ export async function listWorkerCases(directory = new URL('./', import.meta.url)
     } finally {
         hooks.deregister();
     }
-    if (!cases.length) {
+    if (!cases.length && onlyFile === undefined) {
         throw new Error('No Worker test cases registered');
     }
     return cases;
