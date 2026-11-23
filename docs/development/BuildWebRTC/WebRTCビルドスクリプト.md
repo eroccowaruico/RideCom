@@ -97,10 +97,10 @@ scripts/BuildWebRTC/doctor-webrtc-binary.sh
 | build output | iOS device、iOS simulator、macOS x64、macOS arm64のframeworkがあるか |
 | xcframework | header検証に通る `WebRTC.xcframework` があるか |
 | zip | `WebRTC-<branch>.xcframework.zip` があるか |
-| imported artifact | RTC package配下のbinary target zipとmetadataがあるか |
+| 採用済みの組 | RTC package配下のZIPと採用記録があり、記録のSHA-256がZIPと一致するか |
 | SwiftPM build | `RTCNativeWebRTC` がimport済みbinaryでビルドできるか |
 
-SwiftPM検証を省略して状態だけ見たい場合は次のようにする。
+ZIPと採用記録が揃わない場合は診断が失敗する。同じ採用時に生成した組を使う。診断と通常の自動検証は同じ処理でSHA-256を照合する。SwiftPMのビルドだけを省略する場合は、次のコマンドを使う。
 
 ```bash
 cd <RideIntercom repository>

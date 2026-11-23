@@ -33,6 +33,15 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_imported_checksum(zip_path: Path) -> None:
+    lines = zip_path.with_suffix('.metadata').read_text().splitlines()
+    checksums = [line.removeprefix('checksum=') for line in lines if line.startswith('checksum=')]
+    if len(checksums) != 1 or not matches(checksums[0], BUILD_FIELDS['checksum']):
+        raise ValueError('Imported WebRTC metadata must record one SHA-256 checksum')
+    if file_sha256(zip_path) != checksums[0]:
+        raise ValueError('WebRTC archive does not match imported metadata')
+
+
 def provenance_path(zip_path: Path) -> Path:
     return zip_path.with_suffix('.provenance.json')
 

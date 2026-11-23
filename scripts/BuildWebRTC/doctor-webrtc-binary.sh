@@ -123,32 +123,32 @@ fi
 echo
 imported_zip="${RTC_PACKAGE_DIR}/BinaryArtifacts/WebRTC/WebRTC.xcframework.zip"
 metadata="${RTC_PACKAGE_DIR}/BinaryArtifacts/WebRTC/WebRTC.xcframework.metadata"
-if [[ -f "${imported_zip}" ]]; then
-  ok "Imported binary target zip exists"
-  shasum -a 256 "${imported_zip}"
-else
-  fail "Imported binary target zip does not exist"
-  next_action "scripts/BuildWebRTC/import-webrtc-xcframework.sh"
-fi
+imported_verified=false
+if (cd "${REPOSITORY_ROOT}" && python3 -c '
+from pathlib import Path
+import sys
+from scripts.BuildWebRTC.webrtc_provenance import verify_imported_checksum
 
-if [[ -f "${metadata}" ]]; then
-  ok "Imported metadata exists"
+verify_imported_checksum(Path(sys.argv[1]))
+' "${imported_zip}" 2>/dev/null); then
+  imported_verified=true
+  ok "Imported WebRTC ZIP matches its adoption record"
   cat "${metadata}"
 else
-  warn "Imported metadata does not exist"
+  fail "Imported WebRTC ZIP or its adoption record is missing or invalid"
   next_action "scripts/BuildWebRTC/import-webrtc-xcframework.sh"
 fi
 
 echo
-if [[ "${RUN_SWIFTPM_CHECK}" == "true" ]]; then
-  if (cd "${RTC_PACKAGE_DIR}" && "${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift" build --target RTCNativeWebRTC >/dev/null); then
-    ok "RTCNativeWebRTC builds with imported WebRTC binary target"
-  else
-    fail "RTCNativeWebRTC build failed"
-    next_action "CLEAN_MODE=swiftpm DRY_RUN=false scripts/BuildWebRTC/clean-webrtc-build-resources.sh && scripts/BuildWebRTC/update-webrtc-binary.sh"
-  fi
-else
+if [[ "${RUN_SWIFTPM_CHECK}" != "true" ]]; then
   warn "SwiftPM build check skipped because RUN_SWIFTPM_CHECK=false"
+elif [[ "${imported_verified}" != "true" ]]; then
+  warn "SwiftPM build check skipped because the imported ZIP could not be verified"
+elif (cd "${RTC_PACKAGE_DIR}" && "${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift" build --target RTCNativeWebRTC >/dev/null); then
+  ok "RTCNativeWebRTC builds with imported WebRTC binary target"
+else
+  fail "RTCNativeWebRTC build failed"
+  next_action "CLEAN_MODE=swiftpm DRY_RUN=false scripts/BuildWebRTC/clean-webrtc-build-resources.sh && scripts/BuildWebRTC/update-webrtc-binary.sh"
 fi
 
 echo

@@ -15,6 +15,45 @@ ARTIFACT = ROOT / 'RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcfra
 
 
 class WebRTCScriptTests(unittest.TestCase):
+    def test_doctor_requires_zip_to_match_adoption_record(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / 'scripts/BuildWebRTC'
+            scripts.mkdir(parents=True)
+            for name in ('doctor-webrtc-binary.sh', 'webrtc_provenance.py'):
+                shutil.copy2(SCRIPTS / name, scripts)
+            resolver = scripts / 'resolve-webrtc-branch.sh'
+            resolver.write_text('#!/bin/sh\nexit 1\n')
+            resolver.chmod(0o755)
+            developer = root / 'developer'
+            (developer / 'usr/bin').mkdir(parents=True)
+            (developer / 'usr/bin/xcodebuild').touch()
+            for name in ('gclient', 'fetch'):
+                (root / name).touch()
+            artifact = root / ARTIFACT.relative_to(ROOT)
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b'adopted SDK fixture')
+            checksum = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            metadata = artifact.with_suffix('.metadata')
+            environment = dict(os.environ, DEVELOPER_DIR=str(developer), DEPOT_TOOLS_DIR=str(root),
+                               WEBRTC_BUILD_ROOT=str(root / 'build'), RUN_SWIFTPM_CHECK='false')
+            records = {
+                'match': (f'checksum={checksum}\n', 0),
+                'mismatch': ('checksum=' + '0' * 64, 1),
+                'duplicate': (f'checksum={checksum}\nchecksum={checksum}\n', 1),
+                'empty': ('', 1),
+                'missing': (None, 1),
+            }
+            for case, (record, expected) in records.items():
+                with self.subTest(case=case):
+                    if record is None:
+                        metadata.unlink(missing_ok=True)
+                    else:
+                        metadata.write_text(record)
+                    result = subprocess.run([str(scripts / 'doctor-webrtc-binary.sh')], env=environment,
+                                            capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
     def test_xcframework_build_defaults_match_supported_os_floor(self) -> None:
         script = (SCRIPTS / 'build-webrtc-xcframework.sh').read_text()
         self.assertIn('IOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-27.0}"', script)

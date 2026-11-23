@@ -22,6 +22,7 @@ from typing import TypedDict
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from scripts.BuildWebRTC.webrtc_provenance import verify_imported_checksum
 from scripts.crash_reports import CrashReports
 from scripts.test_lifecycle import (
     ProcessIdentity,
@@ -108,9 +109,7 @@ def verify_node() -> None:
 
 def verify_artifact() -> None:
     artifact = ROOT / 'RideIntercom/packages/RTC/BinaryArtifacts/WebRTC/WebRTC.xcframework.zip'
-    metadata = dict(line.split('=', 1) for line in artifact.with_suffix('.metadata').read_text().splitlines() if '=' in line)
-    if hashlib.sha256(artifact.read_bytes()).hexdigest() != metadata.get('checksum'):
-        raise ValueError('WebRTC archive does not match imported metadata')
+    verify_imported_checksum(artifact)
     with tempfile.TemporaryDirectory(prefix='rideintercom-artifact-') as folder:
         subprocess.run(['ditto', '-x', '-k', str(artifact), folder], check=True, timeout=60)
         subprocess.run(['bash', str(ROOT / 'scripts/BuildWebRTC/verify-webrtc-xcframework.sh'),
