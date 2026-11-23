@@ -209,7 +209,9 @@ export class SignalingRoom implements DurableObject {
             if (!Array.isArray(peerIds) || peerIds.length > 7 || peerIds.some((id: unknown) => typeof id !== 'string')) return json({ error: 'Invalid peers' }, 400)
             const peers = members.filter(m => m.id !== member.id && peerIds.includes(m.id) && m.publishers !== undefined
                 && m.expiresAt > Date.now() && this.usesConfiguredSFU(m))
-            if (new Set(peerIds).size !== peers.length) return json({ error: 'Peer not in room' }, 403)
+            if (new Set(peerIds).size !== peers.length) {
+                return json({ error: 'Peer not in room', code: 'peer_snapshot_changed' }, 403)
+            }
             const live = new Set(members.filter(m => m.expiresAt > Date.now() && this.usesConfiguredSFU(m)).map(m => m.sessionId))
             const stale = member.subscriptions.filter(s => !live.has(s.sessionId))
             if (stale.length) {

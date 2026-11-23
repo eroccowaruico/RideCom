@@ -154,7 +154,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 | GET `/api/status` | Bearer | 月の予約参加者秒・上限・active数。試用資格を持つ人に公開 |
 | POST `R/join` | participantId、iceLeaseID、offer {type,sdp} | sessionId、expiresAt (Unix ms)、renewAfterSeconds、answer |
 | POST `R/sessions/{id}/publish` | `{}` | audio/control channel ID。ICE接続後、同じsessionで1回確保 |
-| POST `R/sessions/{id}/pull` | peerIds | peerID・channel ID・転送方針。部屋外peerは拒否 |
+| POST `R/sessions/{id}/pull` | peerIds | peerID・channel ID・転送方針。指定した全員を現在の部屋で確認できない場合は403と `peer_snapshot_changed` を返し、この要求では購読を変更しない |
 | POST `R/sessions/{id}/renew` | `{}` | 同じsessionIdのlease。前半の重複更新は予約追加しない |
 | DELETE `R/sessions/{id}` | なし | 全channelをclose。利用枠のactive slotを解放 |
 | GET `R/sessions/{id}/signal` Upgrade | Bearer | Hibernation WebSocket。1 sessionにつき1接続 |

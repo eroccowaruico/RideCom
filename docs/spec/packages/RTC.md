@@ -227,6 +227,8 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 
 `pull`は指定peerの購読状態を照合する冪等な要求である。HTTP keep-alive接続の`networkConnectionLost`だけは100 ms、200 ms後に再試行し、初回を含め3回・元の要求の総期限25秒以内に制限する。進行中のmediaは維持し、世代変更やTaskのcancelは再試行待機を中断する。認証拒否、他のHTTPエラー、新規session作成はこの再試行の対象にしない。停止時のDELETEは、呼出元Taskがcancelされていても従来どおり一度実行する。
 
+購読でWorkerが403と `peer_snapshot_changed` を返した場合は、指定した全員を現在の部屋で確認できない。既存のSFUセッションを保ち、シグナリングのWebSocketを開き直して現在の参加者一覧を受け取る。古い一覧を再送せず、新しい一覧で購読を求める。この扱いは購読の応答に限り、他の403や端末資格の拒否には適用しない。購読の照合と解放は[Worker](../server/Worker.md#購読の入替)が行う。
+
 ### ユーザー操作を必要とする接続拒否
 
 | 境界 | 契約 |

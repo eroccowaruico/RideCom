@@ -92,22 +92,39 @@ test('unauthenticated and malformed provider.requests never contact the provider
 
 test('SFU publishing, authorized subscription, renewal and cleanup use the real contract', async () => {
     const other = await callTestCredential(runtime, 'rider-b');
+    const remaining = await callTestCredential(runtime, 'rider-c');
     const a = await (await join('a')).json();
     const b = await (await join('b', room, runtime, other)).json();
+    const c = await (await join('c', room, runtime, remaining)).json();
     assert.ok(a.sessionId); assert.equal(a.sessionDescription.type, 'answer');
     assert.ok(a.expiresAt > Date.now()); assert.equal(a.renewAfterSeconds, 300);
     assert.equal('participantToken' in a, false); assert.equal('sfuEndpoint' in a, false);
     const base = `/api/rooms/${room}/sessions/${a.sessionId}`;
-    await call(`${base}/publish`, {}); await call(`/api/rooms/${room}/sessions/${b.sessionId}/publish`, {}, 'POST', runtime, other);
-    const pull = await (await call(`${base}/pull`, { peerIds: ['b'] })).json();
+    const bPath = `/api/rooms/${room}/sessions/${b.sessionId}`;
+    const cPath = `/api/rooms/${room}/sessions/${c.sessionId}`;
+    await call(`${base}/publish`, {});
+    await call(`${bPath}/publish`, {}, 'POST', runtime, other);
+    await call(`${cPath}/publish`, {}, 'POST', runtime, remaining);
+    const pull = await (await call(`${base}/pull`, { peerIds: ['b', 'c'] })).json();
     assert.equal(pull.channels[0].peerID, 'b');
+    const remainingChannels = pull.channels.filter(channel => channel.peerID === 'c');
+    assert.equal(remainingChannels.length, 2);
     const before = provider.requests.length;
     const renewed = await (await call(`${base}/renew`, {})).json();
     assert.equal(renewed.sessionId, a.sessionId); assert.equal(provider.requests.length, before);
     assert.equal((await call(`${base}/pull`, { peerIds: ['not-in-room'] })).status, 403);
     assert.equal((await call(`/api/rooms/${'b'.repeat(64)}/sessions/${a.sessionId}/renew`, {})).status, 404);
+    assert.equal((await call(bPath, undefined, 'DELETE', runtime, other)).status, 200);
+    const afterDeparture = provider.requests.length;
+    const stale = await call(`${base}/pull`, { peerIds: ['b', 'c'] });
+    assert.equal(stale.status, 403);
+    assert.equal((await stale.json()).code, 'peer_snapshot_changed');
+    assert.equal(provider.requests.length, afterDeparture);
+    const current = await call(`${base}/pull`, { peerIds: ['c'] });
+    assert.equal(current.status, 200);
+    assert.deepEqual((await current.json()).channels, remainingChannels);
     assert.equal((await call(base, undefined, 'DELETE')).status, 200);
-    assert.equal((await call(`/api/rooms/${room}/sessions/${b.sessionId}`, undefined, 'DELETE', runtime, other)).status, 200);
+    assert.equal((await call(cPath, undefined, 'DELETE', runtime, remaining)).status, 200);
     assert.ok(provider.requests.some(r => r.url.endsWith('/datachannels/close')));
 });
 

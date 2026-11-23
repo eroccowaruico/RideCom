@@ -21,9 +21,6 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private var socketTask: Task<Void, Never>?
     private var renewalTask: Task<Void, Never>?
     private var peers: [PeerDescriptor] = []
-    private var subscribed: [PeerID: String] = [:]
-    private var peerSessions: [PeerID: String] = [:]
-    private var awaitingAnswer = false
     private var localChannels: [WebRTCDataChannel] = []
     private var publishing = false
     private static let sfuID = PeerID(rawValue: "cloudflare-sfu")
@@ -59,8 +56,8 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         self.generation = generation; socketTask?.cancel(); renewalTask?.cancel()
         socketTask = nil; renewalTask = nil; socket?.cancel(with: .normalClosure, reason: nil); socket = nil
         let oldID = sessionID, oldRequest = request, oldIceLeaseID = iceLeaseID
-        sessionID = nil; iceLeaseID = nil; request = nil; peers = []; subscribed = [:]; peerSessions = [:]
-        awaitingAnswer = false; localChannels = []; publishing = false
+        sessionID = nil; iceLeaseID = nil; request = nil; peers = []
+        localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
         if let oldRequest {
             let path = oldID.map { "sessions/\($0)" } ?? "ice/\(oldRequest.call.localPeer.id.rawValue)"
@@ -131,19 +128,24 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
             socket.cancel(with: .goingAway, reason: nil)
         }
     }
-    private func subscribe(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) async throws {
-        guard !awaitingAnswer else { return }
-        let fresh = peers.filter { subscribed[$0.id] != peerSessions[$0.id] }
-        let sessions = peerSessions
-        // Pull also releases departed subscriptions even when no peer joined.
-        awaitingAnswer = true
-        let response = try await http(
-            request, path: "sessions/\(id)/pull", body: ["peerIds": peers.map { $0.id.rawValue }])
-        guard self.generation == generation else { return }
-        let result = try JSONDecoder().decode(Pull.self, from: response)
-        for peer in fresh { subscribed[peer.id] = sessions[peer.id] }
-        source.yield(.dataChannels(localChannels + result.channels))
-        awaitingAnswer = false
+    private func subscribe(
+        _ request: WebRTCSignalingConnectRequest, id: String, generation: UUID
+    ) async throws -> Bool {
+        // The receive loop serializes pulls. The Worker owns subscription reconciliation.
+        do {
+            let response = try await http(
+                request, path: "sessions/\(id)/pull", body: ["peerIds": peers.map { $0.id.rawValue }])
+            guard self.generation == generation else { return false }
+            let result = try JSONDecoder().decode(Pull.self, from: response)
+            source.yield(.dataChannels(localChannels + result.channels))
+            return true
+        } catch Failure.peerSnapshotChanged {
+            // Reopen signaling to fetch current peers without replacing the SFU session.
+            throw Failure.peerSnapshotChanged
+        } catch {
+            await fail(error, generation: generation)
+            return false
+        }
     }
     private func renew(_ request: WebRTCSignalingConnectRequest, lease: Lease, generation: UUID) async -> Lease? {
         var delay = 1.0
@@ -195,7 +197,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         let type: String; let peers: [WirePeer]?; let from: String?; let namespace: String?; let payload: String?
     }
     private enum Failure: Error, LocalizedError {
-        case invalidConfiguration, invalidResponse, accountInUse, http(Int)
+        case invalidConfiguration, invalidResponse, accountInUse, peerSnapshotChanged, http(Int)
         var errorDescription: String? { description }
         var description: String {
             switch self {
@@ -204,6 +206,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
             case .accountInUse:
                 "This account already has an Internet call. End the existing call, then try again. "
                     + "If the other device lost its connection, wait for that call to expire."
+            case .peerSnapshotChanged: "Cloudflare peer snapshot changed"
             case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
             }
         }
@@ -249,14 +252,8 @@ private extension CloudflareRealtimeSignalingClient {
                 peers = remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
                     .init(id: .init(rawValue: $0.id), displayName: $0.id)
                 }
-                peerSessions = Dictionary(remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
-                    (PeerID(rawValue: $0.id), $0.sessionId)
-                }, uniquingKeysWith: { first, _ in first })
-                subscribed = subscribed.filter { peerSessions[$0.key] == $0.value }
                 source.yield(.members(peers))
-                do { try await subscribe(request, id: id, generation: generation) } catch {
-                    await fail(error, generation: generation); return
-                }
+                guard try await subscribe(request, id: id, generation: generation) else { return }
             } else if event.type == "appData", let sender = event.from,
                 peers.contains(where: { $0.id.rawValue == sender }),
                 let namespace = event.namespace, let encoded = event.payload,
@@ -336,6 +333,10 @@ extension CloudflareRealtimeSignalingClient {
                 if response.statusCode == 409, data.count <= 32768,
                    (try? JSONDecoder().decode(Rejection.self, from: data))?.code == "account_in_use" {
                     throw Failure.accountInUse
+                }
+                if response.statusCode == 403, url.path.hasSuffix("/pull"), data.count <= 32768,
+                   (try? JSONDecoder().decode(Rejection.self, from: data))?.code == "peer_snapshot_changed" {
+                    throw Failure.peerSnapshotChanged
                 }
                 guard (200..<300).contains(response.statusCode) else { throw Failure.http(response.statusCode) }
                 return data
