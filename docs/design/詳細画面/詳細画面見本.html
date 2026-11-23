@@ -67,6 +67,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .sbar .island { position: absolute; left: 50%; top: 10px; width: 92px; height: 26px; margin-left: -46px; background: #000; border-radius: 20px; }
 .ptitle { font-size: 21px; font-weight: 700; padding: 2px 14px 6px; }
 .call-title { display: flex; justify-content: space-between; align-items: center; }
+.call-close { display: grid; place-items: center; width: 44px; height: 44px; flex: none; color: var(--accent); font-size: 18px; }
 .call-more { position: relative; flex: none; }
 .call-more summary { display: grid; place-items: center; width: 44px; height: 44px; color: var(--accent); font-size: 18px; cursor: pointer; }
 .call-more summary::-webkit-details-marker { display: none; }
@@ -511,12 +512,12 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   </div>
 
   <h2 id="call">通話・ユーザー・グループ（Advanced）</h2>
-  <p class="note">タブは一般向けと同じく通話をタブにせず、Users（最初）・Groups・Diagnostics・Settings の4つにする。Users・Groups で選ぶとすぐ接続して通話のシート（Call）を開く（<a href="../操作の流れ見本.html">操作の流れ見本</a>）。中身は詳細表示のまま。通話は相手が1人でも内部ではグループ（kind: direct）なので、Call では常にグループの実体（種類・ID・自分を含むメンバー）として見せる。</p>
+  <p class="note">タブは一般向けと同じく通話をタブにせず、Users（最初）・Groups・Diagnostics・Settings の4つにする。Users・Groups で選ぶとすぐ接続して通話のシート（Call）を開く（<a href="../操作の流れ見本.html">操作の流れ見本</a>）。左上のCloseで通話を続けたまま元の一覧へ戻る。iPhone・iPadでは一覧の通話表示、Macではツールバーから開き直せる。通話を終える操作はCall statusのDisconnect。通話は相手が1人でも内部ではグループ（kind: direct）なので、Call では常にグループの実体（種類・ID・自分を含むメンバー）として見せる。</p>
   <div class="gallery">
     <figure>
       <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
-        <div class="ptitle call-title">Weekend Touring
+        <div class="ptitle call-title"><span class="call-close" role="img" aria-label="Close">⌄</span>Weekend Touring
           <details class="call-more"><summary aria-label="More">⋯</summary>
             <ul><li>Group Settings</li><li>Add Saved Users</li><li>Invite</li></ul>
           </details>
@@ -558,7 +559,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     <figure>
       <div class="phone tall"><div class="screen">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
-        <div class="ptitle call-title">Haruka
+        <div class="ptitle call-title"><span class="call-close" role="img" aria-label="Close">⌄</span>Haruka
           <details class="call-more"><summary aria-label="More">⋯</summary>
             <ul><li>User Settings</li><li>Share Call Invite</li></ul>
           </details>
