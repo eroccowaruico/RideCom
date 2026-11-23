@@ -5,6 +5,28 @@ import Testing
 
 @MainActor
 struct GroupRecoveryTests {
+    @Test func anotherProcessRecoveringAndSavingAGroupInvalidatesAnOldReset() throws {
+        let fixture = try GroupStorageFixture()
+        defer { fixture.remove() }
+        let corrupt = Data("{".utf8)
+        try corrupt.write(to: fixture.file.url)
+        #expect(throws: DecodingError.self) { _ = try fixture.repository.load(localMemberID: "local") }
+
+        let second = GroupRepository(store: FileGroupStore(directory: fixture.directory), credentials: fixture.keys)
+        #expect(throws: DecodingError.self) { _ = try second.load(localMemberID: "local") }
+        try second.reset()
+        let group = try fixture.group()
+        let credential = GroupAccessCredential(groupID: group.id, secret: "fixture")
+        try second.save([group], credential: credential)
+        let safe = try Data(contentsOf: fixture.file.url)
+        let before = try Set(FileManager.default.contentsOfDirectory(atPath: fixture.directory.path))
+
+        #expect(throws: GroupStorageError.changedByAnotherProcess) { try fixture.repository.reset() }
+        #expect(try Data(contentsOf: fixture.file.url) == safe)
+        #expect(try Set(FileManager.default.contentsOfDirectory(atPath: fixture.directory.path)) == before)
+        #expect(try second.credential(for: group.id) == credential)
+    }
+
     @Test func commandOverflowShowsCallEntryErrorAfterDisconnect() throws {
         let harness = AppTestSupport.makeHarness()
         let viewModel = harness.viewModel
@@ -15,6 +37,24 @@ struct GroupRecoveryTests {
         #expect(viewModel.groupErrorMessage?.contains("connect again") == true)
         viewModel.connectLocal()
         #expect(viewModel.groupErrorMessage == nil)
+    }
+
+    @Test func oldResetPromptsToReloadAndKeepsTheCurrentCallAndSavedGroups() throws {
+        let harness = AppTestSupport.makeHarness()
+        let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        viewModel.selectGroup(try #require(viewModel.groups.first))
+        let current = try #require(viewModel.activeGroupID)
+        let saved = harness.groupStore.snapshot
+        viewModel.groupStorageIssue = .corrupted
+        viewModel.resetSavedGroups()
+        #expect(viewModel.activeGroupID == current)
+        #expect(viewModel.groupStorageIssue == .unavailable)
+        #expect(harness.groupStore.snapshot == saved)
+        viewModel.disconnect()
+        viewModel.reloadSavedGroups()
+        #expect(viewModel.groupStorageIssue == nil)
+        #expect(viewModel.groups.map(\.id) == saved.groups.map(\.id))
     }
 
     @Test func reloadPreservesActiveCallAndRecoversAfterTransientFailure() throws {
@@ -52,6 +92,8 @@ struct GroupRecoveryTests {
         let viewModel = harness.viewModel
         let identity = viewModel.localMemberIdentity
         viewModel.selectGroup(try #require(viewModel.groups.first))
+        harness.groupStore.snapshot.groups[0].lastSponsoredStart = -1
+        viewModel.groupStorageIssue = .corrupted
         viewModel.resetSavedGroups()
         #expect(viewModel.activeGroupID == nil)
         #expect(viewModel.groups.isEmpty)
@@ -62,6 +104,7 @@ struct GroupRecoveryTests {
         harness.groupStore.snapshot.version = 99
         viewModel.reloadSavedGroups()
         #expect(viewModel.groupStorageIssue == .unsupportedVersion)
+        #expect(throws: GroupStorageError.unsupportedVersion) { try viewModel.groupRepository.reset() }
         let writes = harness.groupStore.saveCount
         viewModel.resetSavedGroups()
         #expect(harness.groupStore.saveCount == writes)

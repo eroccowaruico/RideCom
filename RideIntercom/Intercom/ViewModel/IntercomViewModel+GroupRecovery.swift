@@ -5,7 +5,7 @@ enum GroupStorageIssue: Equatable {
     static func classify(_ error: Error) -> Self {
         if error as? GroupStorageError == .unsupportedVersion { return .unsupportedVersion }
         if error as? GroupStorageError == .invalidUpdate { return .invalidChange }
-        if error is DecodingError || error as? IntercomGroupError == .invalidStoredGroups { return .corrupted }
+        if GroupStorageError.isCorruptedSnapshot(error) { return .corrupted }
         if error as? IntercomGroupError == .invalidIdentity
             || error as? IntercomGroupError == .invalidMemberCount {
             return .invalidChange
@@ -90,11 +90,11 @@ extension IntercomViewModel {
     }
     func resetSavedGroups() {
         guard canStartCalls else { groupErrorMessage = groupStorageNotice; return }
-        guard groupStorageIssue != .unsupportedVersion else { return }
-        stopContactInvitationSession()
-        disconnect()
+        guard groupStorageIssue == .corrupted else { return }
         do {
             try groupRepository.reset()
+            stopContactInvitationSession()
+            disconnect()
             groups = []; selectedGroup = nil; groupStorageIssue = nil; groupErrorMessage = nil
             refreshGroupStorageStatus()
         } catch { reportGroupStorageError(error) }

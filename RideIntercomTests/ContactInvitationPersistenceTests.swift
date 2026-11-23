@@ -25,6 +25,9 @@ struct ContactInvitationPersistenceTests {
         func installSnapshot(_ snapshot: GroupSnapshot) throws {
             try file.commit(snapshot)
         }
+        func corruptSnapshot() throws {
+            try Data("{".utf8).write(to: file.url)
+        }
 
         func read() throws -> GroupSnapshot? { try file.read() }
         func commit(_ snapshot: GroupSnapshot) throws {
@@ -196,6 +199,7 @@ struct ContactInvitationPersistenceTests {
         let (reloaded, _) = fixture.make()
         #expect(reloaded.viewModel.pendingContactInvitations.map(\.id) == [id])
         #expect(!fixture.credentials.values.isEmpty)
+        try fixture.store.corruptSnapshot()
         try reloaded.viewModel.groupRepository.reset()
         #expect(reloaded.viewModel.pendingContactInvitations.isEmpty)
         #expect(fixture.credentials.values.isEmpty)

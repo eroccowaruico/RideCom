@@ -306,7 +306,7 @@ SoundIsolation対応環境では、Settingsに自分の送信側、Callに受信
 | groupStorageStatus | Groups上部のSaved Groups Section、文字とSF Symbol | 一時アクセス失敗・破損・未知schema・鍵欠落・回収待ちを区別。固定高を設けず折り返す。同じ保存エラーを上部bannerへ重複表示しない |
 | reloadSavedGroupsButton | Reload Saved Groups | 通話中は無効でDisconnectを案内。未知schemaも無効。成功時は一覧を再構成し選択とerrorを解除 |
 | resetSavedGroupsButton | Reset Saved Groups and Users… | 破損時のみ標準destructive Button。標準alertに影響、退避、再招待の必要性を表示 |
-| confirmResetSavedGroupsButton / cancelResetSavedGroupsButton | Reset Saved Groups / Cancel | 確認後だけ通話を終了し、元データ退避→空manifest commit→group鍵回収。Cancelを明示し、取り消しなら変更なし |
+| confirmResetSavedGroupsButton / cancelResetSavedGroupsButton | Reset Saved Groups / Cancel | 確定時も破損が続いていれば、元データを退避し、空のmanifestを確定する。未参照のgroup鍵を回収し、通話を終了する。保存が復旧済みならデータを保つ。通話を続け、再読込を案内する。Cancelを明示し、取り消しなら変更なし |
 | standardCreateGroupButton | New Group | 保存読込に失敗している間は無効。鍵欠落・回収待ちだけなら他groupの利用を妨げない |
 
 resetでrider identity・音声設定・Internet資格は変更しない。退避失敗なら元データを保持してerrorを表示する。一般commandの待機上限超過はCallの案内から、停止完了後の明示Connectを促す。

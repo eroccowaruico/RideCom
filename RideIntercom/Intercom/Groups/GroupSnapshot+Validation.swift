@@ -2,6 +2,10 @@ import Foundation
 
 enum GroupStorageError: Error, Equatable {
     case busy, unsupportedVersion, changedByAnotherProcess, verificationFailed, invalidUpdate, identityConflict
+
+    static func isCorruptedSnapshot(_ error: Error) -> Bool {
+        error is DecodingError || error as? IntercomGroupError == .invalidStoredGroups
+    }
 }
 
 protocol GroupStoring: AnyObject {

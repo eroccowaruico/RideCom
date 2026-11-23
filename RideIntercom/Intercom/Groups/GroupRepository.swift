@@ -230,14 +230,16 @@ final class GroupRepository {
     }
 
     func reset() throws {
+        guard let localMemberID else { throw IntercomGroupError.storageUnavailable }
         try store.lock(); defer { store.unlock() }
-        // A newer schema must be opened by the matching app, not reset by this one.
         do {
-            _ = try store.read()
-        } catch GroupStorageError.unsupportedVersion {
-            throw GroupStorageError.unsupportedVersion
-        } catch {
-            // Preserve malformed bytes before replacing them.
+            if let current = try store.read() {
+                _ = try validateIdentity(current, localMemberID: localMemberID)
+            }
+            isWritable = false
+            throw GroupStorageError.changedByAnotherProcess
+        } catch where GroupStorageError.isCorruptedSnapshot(error) {
+            // The corruption still exists under the lock. Preserve the bytes before replacing them.
         }
         try store.archive()
         let empty = GroupSnapshot()

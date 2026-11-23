@@ -88,6 +88,7 @@ extension CallAccessTests {
         let now = Date().timeIntervalSince1970
         try repository.recordSponsoredStart(now, for: group.id, now: now)
         #expect(repository.lastSponsoredStart(for: group.id) == now)
+        try Data("{".utf8).write(to: fixture.file.url)
         try repository.reset()
         #expect(repository.lastSponsoredStart(for: group.id) == nil)
         var corrupt = snapshot; corrupt.groups[0].lastSponsoredStart = -1
