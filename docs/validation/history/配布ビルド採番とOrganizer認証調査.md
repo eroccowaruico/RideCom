@@ -165,6 +165,8 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 登録先は `~/Library/Developer/Xcode/Archives/2026-11-23/RideIntercom iOS 1.0.0 (2213).xcarchive`。登録済み・一覧表示は未確認。App Store Connectへの送信は行っていない。次回用の共通採番は2214へ進んだ。
 
+2,300コミットの監査で、Build 2213の署名は有効と確認した。同梱WebRTCのiOS arm64の31セクションはBuild 2077・2142および以前の共有側の検証用ZIPと一致した。採用記録に一致するZIPはBuild 2086と対応する。Build 2077・2142・2213の配布は保留し、採用済みの無改変のZIPと採用記録を共有側のビルド環境に揃えたうえで、新しいArchiveの署名と同梱バイナリを照合する。[2,300コミットの全体監査](../../development/history/バックログの優先順位と進捗の記録.md#2300コミットの全体監査で配布候補と稼働中の設定を照合する)
+
 ## 2,250コミットの区切りでiOS Build 2142をArchiveする
 
 2026-11-23。手元のmainの第一親の2,250件目は `a2995cf4`。対応する共有mainの `9524896a` を展開し、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。[標準のArchive手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
