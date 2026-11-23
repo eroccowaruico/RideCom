@@ -431,6 +431,30 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
 
+    def test_latency_is_inapplicable_only_when_the_selected_measurements_are_all_silent(self) -> None:
+        silence = next(case for case in scenarios('quick', 8) if case['id'] == 'output-mute')
+        speech = next(case for case in scenarios('quick', 8) if case['id'] == 'output-recovery')
+        muted_rows = [{'scenario': silence['id'], 'role': role, 'transport': 'local', 'expectedSilence': True}
+                      for role in ('a', 'b')]
+        speech_rows = [
+            {'scenario': speech['id'], 'role': role, 'transport': 'local', 'expectedSilence': False,
+             'continuityPassed': True, 'firstCaptureHostTime': 100.0, 'firstOutputHostTime': 101.08,
+             'localFixtureDurationSeconds': 8.0, 'continuity': {'referenceOffsetSeconds': 1.0}}
+            for role in ('a', 'b')
+        ]
+        samples = [
+            ([silence], muted_rows, 'not-applicable', 0),
+            ([silence, speech], muted_rows + speech_rows, 'passed', 0),
+            ([silence, speech], muted_rows + speech_rows[:1], 'failed', 1),
+            ([speech], [row | {'expectedSilence': True} for row in speech_rows], 'failed', 1),
+        ]
+        for index, (cases, rows, status, exit_code) in enumerate(samples):
+            with self.subTest(status=status, index=index):
+                runner = Runner(self.root / f'latency-{index}')
+                audio.record_duplex_latency(runner, rows, cases, ['local'])
+                self.assertEqual(runner.results['duplex-latency']['status'], status)
+                self.assertEqual(runner.exit_code, exit_code)
+
     def test_concurrent_runs_are_rejected_and_lock_releases_on_failure(self) -> None:
         lock = self.root / 'run.lock'
         with self.assertRaisesRegex(RuntimeError, 'injected'), exclusive_run(lock):

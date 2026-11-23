@@ -275,7 +275,7 @@ class Runner:
 
     @property
     def exit_code(self) -> int:
-        return int(any(r['status'] != 'passed' for r in self.results.values()))
+        return int(any(r['status'] not in ('passed', 'not-applicable') for r in self.results.values()))
 
     def record(self, name: str, command: list[str], status: str, code: int | None,
                started: float, reason: str = '') -> bool:

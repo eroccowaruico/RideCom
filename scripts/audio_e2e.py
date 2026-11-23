@@ -294,6 +294,34 @@ def duplex_latencies(rows: Sequence[Mapping[str, object]]) -> list[float]:
     return values
 
 
+def record_duplex_latency(runner: Runner, rows: Sequence[Mapping[str, object]],
+                          cases: Sequence[AudioCase], transports: Sequence[str]) -> None:
+    started = time.monotonic()
+    # Both endpoints receive the same scenario settings. Check the result against
+    # those settings before deciding whether any speech latency was required.
+    expected = {
+        (transport, case['id'], role):
+            case['localMute'] or case['outputMute'] or case['masterVolume'] == 0 or case['peerVolume'] == 0
+        for transport in transports for case in cases for role in ('a', 'b')
+    }
+    try:
+        observed = {(row['transport'], row['scenario'], row['role']): row['expectedSilence'] for row in rows}
+        if not expected or len(observed) != len(rows) or observed.keys() != expected.keys():
+            raise ValueError('Latency evidence does not cover the selected transports, scenarios and endpoints')
+        if any(observed[key] is not silent for key, silent in expected.items()):
+            raise ValueError('Latency evidence does not match the selected speech and silence conditions')
+        required = sum(not silent for silent in expected.values())
+        if required == 0:
+            runner.record('duplex-latency', [], 'not-applicable', None, started, 'Selected scenarios expect only silence')
+            return
+        measured = duplex_latencies(rows)
+        if len(measured) != required:
+            raise ValueError('Missing latency measurements for speech directions')
+        runner.record('duplex-latency', [], 'passed', 0, started, f'Measured all {required} speech directions')
+    except (KeyError, TypeError, ValueError) as error:
+        runner.record('duplex-latency', [], 'failed', 1, started, str(error))
+
+
 def run_pair(runner: Runner, commands: Sequence[Sequence[str | list[str]]], timeout: float,
              *, wait_for_first_native_setup: bool = True) -> None:
     processes = []
@@ -573,13 +601,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                         runner.record('coverage-' + name, [], 'passed', 0, time.monotonic())
                     except (OSError, ValueError) as error:
                         runner.record('coverage-' + name, [], 'failed', 1, time.monotonic(), str(error))
-        try:
-            if args.transport != 'mixed':
-                duplex_latencies(measured)
-            if measured and args.transport != 'mixed':
-                runner.record('duplex-latency', [], 'passed', 0, time.monotonic())
-        except (KeyError, TypeError, ValueError) as error:
-            runner.record('duplex-latency', [], 'failed', 1, time.monotonic(), str(error))
+        if args.transport != 'mixed':
+            record_duplex_latency(runner, measured, cases, transports)
         (out / 'measurements.json').write_text(json.dumps(measured, indent=2) + '\n')
         after_sources = source_manifest()
         (out / 'source-manifest-after.json').write_text(json.dumps(after_sources, indent=2) + '\n')
