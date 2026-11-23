@@ -43,7 +43,7 @@ final class FileGroupStore: GroupStoring {
         let bytes: Data
         do {
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size <= 1_048_576 else { throw IntercomGroupError.invalidStoredGroups }
+            guard size <= GroupSnapshot.maximumEncodedBytes else { throw IntercomGroupError.invalidStoredGroups }
             bytes = try Data(contentsOf: url)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
         return try GroupSnapshot.decode(bytes)

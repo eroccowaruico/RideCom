@@ -3,6 +3,7 @@ import Foundation
 /// Durable identity only. Runtime state and secrets never enter this format.
 struct GroupSnapshot: Codable, Equatable {
     static let currentVersion = 32
+    static let maximumEncodedBytes = 1_048_576
     static let maximumGroupDeliveries = 512
     static let maximumIssuedOrdinaryGroupInvitations = 32
     var version = Self.currentVersion
@@ -188,17 +189,17 @@ struct GroupSnapshot: Codable, Equatable {
     func encoded() throws -> Data {
         _ = try validated()
         let bytes = try JSONEncoder().encode(self)
-        guard bytes.count <= 1_048_576 else { throw IntercomGroupError.invalidStoredGroups }
+        guard bytes.count <= Self.maximumEncodedBytes else { throw IntercomGroupError.invalidStoredGroups }
         return bytes
     }
     static func decode(_ bytes: Data) throws -> GroupSnapshot {
-        guard bytes.count <= 1_048_576 else { throw IntercomGroupError.invalidStoredGroups }
+        guard bytes.count <= Self.maximumEncodedBytes else { throw IntercomGroupError.invalidStoredGroups }
         // Inspect the version first, even when a future schema has different fields.
         struct Header: Decodable { let version: Int }
-        guard (1...Self.currentVersion).contains(try JSONDecoder().decode(Header.self, from: bytes).version)
-        else { throw GroupStorageError.unsupportedVersion }
+        let decoder = JSONDecoder()
+        try Self.requireSupportedVersion(decoder.decode(Header.self, from: bytes).version)
         do {
-            return try JSONDecoder().decode(Self.self, from: bytes).validated()
+            return try decoder.decode(Self.self, from: bytes).validated()
         } catch is IntercomGroupError {
             // Only a decoded violation means stored data is corrupt. Invalid
             // proposed edits must not offer a reset of the valid old snapshot.

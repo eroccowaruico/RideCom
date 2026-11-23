@@ -13,8 +13,12 @@ protocol GroupStoring: AnyObject {
 }
 
 extension GroupSnapshot {
-    func validated() throws -> GroupSnapshot {
+    static func requireSupportedVersion(_ version: Int) throws {
         guard (1...Self.currentVersion).contains(version) else { throw GroupStorageError.unsupportedVersion }
+    }
+
+    func validated() throws -> GroupSnapshot {
+        try Self.requireSupportedVersion(version)
         if let completedDirectRestore, version < 30 || !completedDirectRestore.isValid {
             throw IntercomGroupError.invalidStoredGroups
         }
