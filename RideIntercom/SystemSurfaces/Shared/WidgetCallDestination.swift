@@ -21,11 +21,14 @@ nonisolated struct WidgetDestinationSnapshot: Codable, Equatable {
     /// The last destination that connected; a new Widget or Control starts with it.
     /// Optional, so a snapshot written before it existed still decodes.
     var recentDestinationID: String?
+    /// The App's automatic disconnect deadline. An undated projection cannot show active controls.
+    var currentCallDeadline: Date?
 
-    func currentCall(for configured: WidgetCallDestination?) -> CallLivePresentation? {
+    func currentCall(for configured: WidgetCallDestination?, at date: Date = .now) -> CallLivePresentation? {
         guard let configured,
               destinations.contains(where: { $0.id == configured.id }),
-              currentDestinationID == configured.id else { return nil }
+              currentDestinationID == configured.id,
+              let currentCallDeadline, date < currentCallDeadline else { return nil }
         return currentCall
     }
 }
@@ -94,12 +97,12 @@ nonisolated enum CallControlState: Equatable, Sendable {
     /// The chosen destination was removed or the app has not published destinations.
     case unavailable
 
-    init(configured: WidgetCallDestination?, snapshot: WidgetDestinationSnapshot?) {
+    init(configured: WidgetCallDestination?, snapshot: WidgetDestinationSnapshot?, at date: Date = .now) {
         guard let configured else { self = .unconfigured; return }
         guard let current = snapshot?.destinations.first(where: { $0.id == configured.id }) else {
             self = .unavailable; return
         }
-        self = snapshot?.currentCall(for: current) != nil ? .inCall(current) : .ready(current)
+        self = snapshot?.currentCall(for: current, at: date) != nil ? .inCall(current) : .ready(current)
     }
 }
 

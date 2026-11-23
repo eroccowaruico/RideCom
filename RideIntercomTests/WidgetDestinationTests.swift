@@ -204,31 +204,58 @@ struct WidgetDestinationTests {
     let call = CallLivePresentation(
       reference: .init(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()),
       status: .inCall, isMuted: false)
+    let deadline = Date().addingTimeInterval(600)
     try store.write(
       .init(
-        destinations: [configured, other], currentDestinationID: configured.id, currentCall: call))
+        destinations: [configured, other], currentDestinationID: configured.id, currentCall: call,
+        currentCallDeadline: deadline))
     #expect(store.readSnapshot()?.currentCall(for: configured) == call)
     #expect(store.readSnapshot()?.currentCall(for: other) == nil)
     #expect(store.readSnapshot()?.currentCall(for: nil) == nil)
     try store.write(
-      .init(destinations: [other], currentDestinationID: configured.id, currentCall: call))
+      .init(destinations: [other], currentDestinationID: configured.id, currentCall: call,
+            currentCallDeadline: deadline))
     #expect(store.readSnapshot()?.currentCall(for: configured) == nil)
     let foreign = WidgetCallDestination(
       id: "other-account|group|\(UUID())", name: "Ride", kind: .group)
     try store.write(
       .init(
-        destinations: [configured, foreign], currentDestinationID: configured.id, currentCall: call)
+        destinations: [configured, foreign], currentDestinationID: configured.id, currentCall: call,
+        currentCallDeadline: deadline)
     )
     #expect(store.readSnapshot()?.currentCall(for: foreign) == nil)
 
     let oldFileSnapshot =
       #"{"version":1,"destinations":[{"id":"scope|group|old","name":"Ride","kind":"group"}],"#
+      + #""currentDestinationID":"scope|group|old","#
       + #""currentCall":{"reference":{"accountAccessID":"00000000-0000-0000-0000-000000000001","#
       + #""connectionGeneration":"00000000-0000-0000-0000-000000000002","#
-      + #""groupID":"00000000-0000-0000-0000-000000000003"},"status":"inCall","isMuted":false}}"#
+      + #""groupID":"00000000-0000-0000-0000-000000000003"},"status":"inCall","isMuted":false,"#
+      + #""canControlMicrophone":true}}"#
     try Data(oldFileSnapshot.utf8).write(to: file)
     let old = WidgetCallDestination(id: "scope|group|old", name: "Ride", kind: .group)
+    #expect(store.read() == [old])
     #expect(store.readSnapshot()?.currentCall(for: old) == nil)
+  }
+
+  @Test func anUnchangedSnapshotStopsPresentingTheCallAtItsDeadline() throws {
+    let file = try temporaryFile()
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+    let store = WidgetDestinationStore(fileURL: file)
+    let destination = WidgetCallDestination(id: "scope|group|app-terminated", name: "Ride", kind: .group)
+    let deadline = Date(timeIntervalSince1970: 9000)
+    let call = CallLivePresentation(
+      reference: .init(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()),
+      status: .inCall, isMuted: true)
+    try store.write(.init(destinations: [destination], currentDestinationID: destination.id, currentCall: call,
+                          currentCallDeadline: deadline))
+    let snapshot = try #require(store.readSnapshot())
+    let before = deadline.addingTimeInterval(-1)
+    #expect(snapshot.currentCall(for: destination, at: before) == call)
+    #expect(CallControlState(configured: destination, snapshot: snapshot, at: before) == .inCall(destination))
+    #expect(snapshot.currentCall(for: destination, at: deadline) == nil)
+    #expect(CallControlState(configured: destination, snapshot: snapshot, at: deadline) == .ready(destination))
+    #expect(store.read() == [destination])
   }
 
 }
@@ -252,6 +279,8 @@ extension WidgetDestinationTests {
     let call = try #require(store.readSnapshot()?.currentCall)
     #expect(call.reference == owner.currentLivePresentation?.reference)
     #expect(store.readSnapshot()?.currentDestinationID == selected.entity.id)
+    #expect(store.readSnapshot()?.currentCallDeadline == viewModel.callDisconnectDeadline)
+    #expect(store.readSnapshot()?.currentCallDeadline != nil)
     #expect(call.status == viewModel.callStatus(for: viewModel.activeGroupID))
     #expect(owner.setCallSurfaceMuted(true, reference: call.reference))
     await AppTestSupport.waitUntil { store.readSnapshot()?.currentCall?.isMuted == true }

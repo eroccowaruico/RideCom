@@ -73,10 +73,12 @@ extension AppCallOwner {
             let recentDestinationID = viewModel?.recentCallDestination.flatMap { recent in
                 targets.first { $0.destination == recent }?.entity.id
             }
+            let call = currentLivePresentation
             return WidgetDestinationSnapshot(destinations: destinations,
                 currentDestinationID: currentDestinationID,
-                currentCall: currentLivePresentation,
-                recentDestinationID: recentDestinationID)
+                currentCall: call,
+                recentDestinationID: recentDestinationID,
+                currentCallDeadline: call == nil ? nil : viewModel?.callDisconnectDeadline)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.observeWidgetDestinations() }
         }
