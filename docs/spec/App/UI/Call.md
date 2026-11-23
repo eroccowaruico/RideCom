@@ -388,7 +388,7 @@ Standardは新しい人の名前にRegistered／Not registered（登録済み／
 
 ## 完了後のグループ設定で確認する招待状態
 
-StandardとAdvancedは、送信招待の人物IDから保存済みの相手を開くときに、ViewModelの `personForGroupInvitation` を共用する。相手が見つからなければ、Standardはメンバー編集へ進み、Advancedは招待の相手へのボタンを出さない。Advancedは表示に使う招待記録を同じ操作に渡す。
+StandardとAdvancedは、招待行を押したときにViewModelの `personForGroupInvitation` で、グループとその行の招待を照合してから保存済みの相手を開く。相手が見つからなければ、Standardはメンバー編集へ進み、Advancedは招待の相手へのボタンを出さない。Advancedで表示時に相手が見つかっても、押す前に招待を取り消したり更新で別の招待に置き換えたりした場合は、元の行の操作では人物詳細を開かない。
 
 StandardGroupSettingsViewのMembersは新しい相手の予約枠に「招待中」を添える。登録済み相手の送受信の記録が残る間は、同じ人の複数端末をまとめた状態を名前の下に出す。StandardGroupInvitationStatusが保存画面と同じ語（招待中／受け取り済み／招待を停止しました）を使う。記録がない旧形式や保持期限後のメンバーに受領済みを推測して付けない。状態の識別子はgroupSettingsInvitationState-{member.id}。既存のタップ・外す・名前変更はそのまま使う。
 

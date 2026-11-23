@@ -90,11 +90,12 @@ extension IntercomViewModel {
     }
 
     func personForGroupInvitation(memberID: String, groupID: UUID) -> SavedUser? {
-        outgoingGroupInvitation(forPendingMember: memberID, in: groupID).flatMap(personForGroupInvitation)
+        outgoingGroupInvitation(forPendingMember: memberID, in: groupID)?.personID.flatMap(contactPerson)
     }
 
     func personForGroupInvitation(_ invitation: ContactInvitationRecord) -> SavedUser? {
-        invitation.personID.flatMap(contactPerson)
+        guard invitation.direction == .outgoing, let groupID = invitation.invitedGroupID else { return nil }
+        return personForGroupInvitation(memberID: invitation.pendingGroupMemberID, groupID: groupID)
     }
 
     func groupInvitationPersonIDs(_ groupID: UUID) -> [UUID] {

@@ -26,8 +26,12 @@ struct AdvancedGroupSettingsView: View {
                             Group {
                                 if let invitation = viewModel.outgoingGroupInvitation(
                                     forPendingMember: member.id, in: groupID),
-                                   let person = viewModel.personForGroupInvitation(invitation) {
-                                    Button { invitationPerson = person } label: {
+                                   viewModel.personForGroupInvitation(invitation) != nil {
+                                    Button {
+                                        if let person = viewModel.personForGroupInvitation(invitation) {
+                                            invitationPerson = person
+                                        }
+                                    } label: {
                                         VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                                             Text(verbatim: member.resolvedDisplayName)
                                             let sent = invitation.sent.map(String.init) ?? "nil"

@@ -12,12 +12,15 @@ extension GroupContactInvitationTests {
         let person = fixture.personID
         defer { authorHarness.viewModel.disconnect(); recipientHarness.viewModel.disconnect() }
         let target = try #require(token.invitedGroup), id = try #require(token.directInvitation?.context.id)
+        let shownInvitation = try #require(authorHarness.viewModel.contactInvitationRecord(id))
+        #expect(authorHarness.viewModel.personForGroupInvitation(shownInvitation)?.id == person)
         try recipientHarness.viewModel.acceptContactInviteURL(
             GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true))
         let reply = try recipientHarness.viewModel.contactReplyURLForSharing(
             id, expectedAccountAccessID: recipientHarness.viewModel.accountAccessID)
         authorHarness.viewModel.deleteGroup(target.id)
         #expect(authorHarness.viewModel.contactInvitationRecord(id)?.state == .cancelled)
+        #expect(authorHarness.viewModel.personForGroupInvitation(shownInvitation) == nil)
         let before = authorHarness.groupStore.snapshot
         #expect(throws: (any Error).self) { try authorHarness.viewModel.receiveContactReplyURL(reply) }
         #expect(authorHarness.groupStore.snapshot == before)
@@ -99,6 +102,8 @@ extension GroupContactInvitationTests {
         #expect(renewed.id != id && authorModel.contactInvitationRecord(id) == nil)
         #expect(record.personID == person && record.sent == false)
         #expect(replacement.invitedGroup == target)
+        #expect(authorModel.personForGroupInvitation(initial) == nil)
+        #expect(authorModel.personForGroupInvitation(record)?.id == person)
         #expect(
             authorModel.groups.first(where: { $0.id == target.id })?.members.map(\.id) == [
                 "group-author", record.pendingGroupMemberID
