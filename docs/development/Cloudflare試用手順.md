@@ -186,7 +186,7 @@ Debugは固定Previewが既定。Apple登録はアプリ内の接続シートか
 
 | 操作 | 確認すること |
 |---|---|
-| Settings → Internet Connection → Configure | 同じ固定Previewに向く開発署名のAppで、Appleで端末を登録する |
+| Settings → Internet Connection → Configure | 同じ固定Previewに向く開発署名のAppで、有効な端末資格を確認する。資格がなければAppleで登録する |
 | Settings → Local Network OFF | Internetを明示選択。近距離経路の成功をSFU成功と誤認しない |
 | groupを作成し既存招待URLを共有 | 両端末が同じgroup secretを持つ |
 | Connect、双方向発話、mute | SFU APIの成功だけで音声成功と判定しない |
@@ -226,7 +226,7 @@ Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、T
 
 TestFlightに配布するAppは本番Workerを使う。固定Previewは開発署名での試用に使う。TestFlightでは同じビルドを2台に入れ、Internet通話と圏外の近距離通話から試す。通話の設定は端末登録・端末証明とSFUを先に揃える。通常通知のAPNsと、招待の背景転送用の鍵は、後続の各工程で照合する。[2端末の試用条件](../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)
 
-TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.workers.dev`。開発署名のDebugは固定Previewへ接続する。両端末でインターネット接続設定を開き、Appleで端末を登録する。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
+TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.workers.dev`。開発署名のDebugは固定Previewへ接続する。Internet通話を試すときは、両端末で接続先と、その環境で使える端末資格・端末証明を確認する。揃っていれば通話を試し、不足する端末だけでApple登録や証明の取得を済ませる。初回登録の成否を調べる場合は、その結果を通話の合否と分けて記録する。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
 
 開始前に対象のApple Team、AppのBundle ID、署名済みAppのAPNs環境を照合する。CloudflareのAccount ID、Worker名、対象のPreview名またはProduction、両端末の接続先URLも照合する。APNs鍵を作る担当にはApple DeveloperのAccount HolderかAdminの権限が必要。Apple側の設定とCloudflare側の配置を別の人が担当する場合もこの組を共有し、秘密値は承認された保管先から登録する。[Appleの鍵作成権限](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)・[CloudflareのPreviewの分離](https://developers.cloudflare.com/workers/previews/)
 
@@ -236,7 +236,7 @@ TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.
 | 2 | Cloudflareの対象WorkerのProduction／Previews Base | 上表の環境別secretを登録し、公開値をwrangler.tomlへ合わせる。Baseの変更は既存Previewへ遡及しないので、既存Previewにも必要なsecretを設定する |
 | 3 | Worker配置 | repoの6 bindingを配置する。SQLiteのmigrationは、v1がSIGNALING_ROOMとUSAGE_GUARD、v2がAPPLE_AUTH_ATTEMPTとUSER_ACCOUNT。v3はNOTIFICATION_INDEX、v4はAPP_ATTEST_KEY_INDEX。適用済みmigrationの履歴を保持し、Wranglerの配置で未適用分を反映する。手動で別名DOやQueueを増設しない |
 | 4 | 環境の有効化 | native資格発行はAPPLE_AUTH_ENABLED、通知と暗号文受信箱の作成はNOTIFICATIONS_ENABLED、音声SFUはSERVICE_ENABLEDを個別に有効化する。secretやApple profileの不足をフラグで迂回しない |
-| 5 | Internet通話 | 同じTestFlightビルドを入れた2端末を、本番WorkerにApple経由で登録する。端末証明の発行後、Internet経路で相手の声を互いに聞く。経路が一時的に切れた後の双方向再開も確認する。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
+| 5 | Internet通話 | 同じTestFlightビルドを入れ、本番Workerの有効な端末資格と端末証明が揃った2台で、Internet経路を使って相手の声を互いに聞く。経路が一時的に切れた後の双方向再開も確認する。[背景通話の受入](../validation/未確認事項.md#ios背景実行の調査と受入マトリクス) |
 | 6 | 圏外の近距離通話 | 通信できる間に相手の登録と鍵の共有を済ませる。セルラーとアクセスポイントを使えない状態で、近距離無線を有効にする。近距離で通話を始め、双方で相手の声を聞く。[圏外通話の条件](../requirements/製品要求.md#利用者に提供すること) |
 | 7 | 1対1の呼び出し | 署名、App Info、WorkerでAPNs環境を揃える。Debugはdevelopment署名とsandbox APNs、TestFlightはproductionを使う。OSで通知を許可し、通常通知が1回届くことを確認する。到着時は通話状態を維持する。未接続で通知本体や「接続」を開くと1対1の通話に入る。別の通話中は今の通話が開く。[通常通知の受入](../validation/未確認事項.md#通常通知の受入) |
 | 8 | 新しい相手へのグループ招待 | 未登録の相手への招待を名前付きで保存し、OS共有で相手に渡す。相手の登録とグループ保存、署名付き返信と、送り手の返信待ちが消えるところまで確認する。[実環境受入](../validation/未確認事項.md#新規相手招待の実環境受入) |
