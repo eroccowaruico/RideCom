@@ -138,8 +138,9 @@ extension DirectCallTests {
         await AppTestSupport.waitUntil(timeout: .seconds(12)) { alicePeers == ["bob"] && bobPeers == ["alice"] }
         let authenticated = alicePeers == ["bob"] && bobPeers == ["alice"]
         if authenticated {
+            let send = alice.audioPacketSink
             for sequence: UInt64 in 0..<40 {
-                alice.sendAudioPacket(.init(sequenceNumber: sequence, codec: .pcm16, payload: payload))
+                send(.init(sequenceNumber: sequence, codec: .pcm16, payload: payload))
                 try? await Task.sleep(for: .milliseconds(50))
                 if receivedAudio { break }
             }

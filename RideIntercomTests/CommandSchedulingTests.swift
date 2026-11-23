@@ -68,12 +68,13 @@ struct CommandSchedulingTests {
         let rtc = FakeRTCCallSession(); let gate = ManualAsyncGate(); rtc.audioGate = gate
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.connect(group: IntercomSeedData.recentGroups[0]); adapter.startMedia()
+        let send = adapter.audioPacketSink
         await rtc.waitForOperation("startMedia")
-        adapter.sendAudioPacket(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
+        send(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
         await gate.waitForEntry()
         for sequence in 1...100 {
             adapter.setLocalMute(true); adapter.setLocalMute(false)
-            adapter.sendAudioPacket(.init(sequenceNumber: UInt64(sequence), codec: .pcm16, payload: Data([0, 0])))
+            send(.init(sequenceNumber: UInt64(sequence), codec: .pcm16, payload: Data([0, 0])))
             await Task.yield()
         }
         #expect(await gate.entryCount == 1)

@@ -75,10 +75,6 @@ final class RecordingCallSession: RideIntercom.CallSession {
         runtimePackageReports.append(reports)
     }
 
-    func sendAudioPacket(_ packet: RTC.RTCAudioPacket) {
-        audioPackets.withLock { $0.append(packet) }
-    }
-
     func sendControl(_ message: ControlMessage) {
         sentControlMessages.append(message)
     }

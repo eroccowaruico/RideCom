@@ -132,7 +132,6 @@ protocol CallSession: AnyObject {
     func setLocalMute(_ muted: Bool)
     func setOutputMute(_ muted: Bool)
     func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport])
-    func sendAudioPacket(_ packet: RTC.RTCAudioPacket)
     func sendControl(_ message: ControlMessage)
     func sendApplicationData(_ message: ApplicationDataMessage)
 }

@@ -19,13 +19,14 @@ struct TransportAdapterTests {
         let rtc = FakeRTCCallSession()
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.startMedia()
-        adapter.sendAudioPacket(.init(sequenceNumber: 999, codec: .pcm16, payload: Data([0, 0])))
+        let send = adapter.audioPacketSink
+        send(.init(sequenceNumber: 999, codec: .pcm16, payload: Data([0, 0])))
         await AppTestSupport.waitUntil { rtc.sentAudioSequences == [999] }
         let driver = OfflineAudioDriver()
         let pipeline = AppAudioPipeline(makeEngine: driver.makeEngine)
             try pipeline.rebuild(
                 configuration: .init(preferredCodec: codec, transmitSoundIsolationEnabled: false), peerIDs: [])
-        pipeline.onTransmitPacket = adapter.audioPacketSink
+        pipeline.onTransmitPacket = send
         let delivery = AudioFrameDelivery { _ in }
         defer { delivery.finish(); adapter.disconnect(); pipeline.stop() }
         let completed = DispatchSemaphore(value: 0)
@@ -77,11 +78,12 @@ struct TransportAdapterTests {
         let rtc = FakeRTCCallSession()
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.startMedia()
-        adapter.sendAudioPacket(.init(sequenceNumber: 0, codec: .pcm16,
+        let send = adapter.audioPacketSink
+        send(.init(sequenceNumber: 0, codec: .pcm16,
             sampleCount: 480, payload: Data(repeating: 0, count: 960)))
         await AppTestSupport.waitUntil { rtc.sentAudioSequences == [0] }
         for sequence in 1...3 {
-            adapter.sendAudioPacket(.init(sequenceNumber: UInt64(sequence), codec: .pcm16,
+            send(.init(sequenceNumber: UInt64(sequence), codec: .pcm16,
                 sampleCount: 480, payload: Data(repeating: 0, count: 960)))
         }
         #expect(audioArrivesWhileUIIsOccupied(rtc),
@@ -118,8 +120,9 @@ struct TransportAdapterTests {
         // The time budget must survive packetization changes: 5/10/20 ms.
         let count = Int((0.1 / duration).rounded())
         let samples = Int((48000 * duration).rounded())
+        let send = adapter.audioPacketSink
         for sequence in 0..<count {
-            adapter.sendAudioPacket(.init(sequenceNumber: UInt64(sequence), codec: .pcm16,
+            send(.init(sequenceNumber: UInt64(sequence), codec: .pcm16,
                 sampleCount: samples, payload: Data(repeating: 0, count: samples * 2)))
         }
         await AppTestSupport.waitUntil { rtc.sentAudioSequences.last == UInt64(count - 1) }
@@ -232,8 +235,9 @@ struct TransportAdapterTests {
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.connect(group: IntercomSeedData.recentGroups[0])
         adapter.startMedia()
+        let send = adapter.audioPacketSink
         for sequence in 0..<100 {
-            adapter.sendAudioPacket(.init(sequenceNumber: UInt64(sequence), codec: .pcm16, payload: Data([0, 0])))
+            send(.init(sequenceNumber: UInt64(sequence), codec: .pcm16, payload: Data([0, 0])))
         }
         await AppTestSupport.waitUntil { rtc.sentAudioSequences.last == 99 }
         #expect(rtc.sentAudioSequences == [95, 96, 97, 98, 99])
@@ -244,7 +248,7 @@ struct TransportAdapterTests {
         let other = RideIntercomCallSessionAdapter(rtcSession: stalled)
         other.connect(group: IntercomSeedData.recentGroups[0])
         other.startMedia()
-        other.sendAudioPacket(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
+        other.audioPacketSink(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
         await AppTestSupport.waitUntil { stalled.operations.contains("startMedia") }
         try? await Task.sleep(for: .milliseconds(20))
         #expect(stalled.sentAudioSequences.isEmpty)

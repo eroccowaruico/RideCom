@@ -138,12 +138,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
         enqueue(.reports(reports))
     }
 
-    func sendAudioPacket(_ packet: RTC.RTCAudioPacket) {
-        guard requestedMediaStart != nil, !requestedLocalMute, !commandQueueFailed else { return }
-        audioDelivery.enqueue(packet)
-        drainPendingAudio()
-    }
-
     private func drainPendingAudio() {
         guard mediaActive, !appliedLocalMute, !requestedLocalMute else { return }
         audioDelivery.resume(with: rtcSession)
