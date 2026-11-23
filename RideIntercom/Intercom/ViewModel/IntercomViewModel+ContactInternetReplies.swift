@@ -110,10 +110,13 @@ extension IntercomViewModel {
         contactInvitationID == id || activeInternetContactReplyIDs.contains(id)
     }
 
-    func internetContactReplyRecords(access: CallNotificationServiceAccess) -> [ContactInvitationRecord] {
+    func internetContactReplyRecords(
+        access: CallNotificationServiceAccess, includeUnshared: Bool = true
+    ) -> [ContactInvitationRecord] {
         let now = callAccessNow().timeIntervalSince1970
         return groupRepository.contactInvitations.filter {
             contactInternetReplyIsEligible($0, access: access, now: now)
+                && (includeUnshared || !$0.isPendingOutgoing || $0.sent != false)
         }
     }
 
@@ -132,33 +135,6 @@ extension IntercomViewModel {
               let owner = groupRepository.users.first(where: { $0.deviceKeys?[member] == key })?.principal,
               owner.issuer == access.principal.issuer, owner != access.principal else { return nil }
         return owner
-    }
-
-    var needsContactInvitationBackgroundRefresh: Bool {
-        guard let access = backgroundContactInvitationAccess else { return false }
-        return !backgroundContactInvitationRecords(access: access).isEmpty
-    }
-
-    private var backgroundContactInvitationAccess: CallNotificationServiceAccess? {
-        guard groupDeliveryClient != nil, hasCurrentAccountAccess, allowsInternetInvitationReplies else { return nil }
-        return try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
-    }
-
-    private func backgroundContactInvitationRecords(
-        access: CallNotificationServiceAccess
-    ) -> [ContactInvitationRecord] {
-        internetContactReplyRecords(access: access).filter { !$0.isPendingOutgoing || $0.sent != false }
-    }
-
-    func refreshContactInvitationsInBackground() async -> Bool {
-        guard !Task.isCancelled, invitationInternetReplyWindow == nil, let client = groupDeliveryClient,
-              let access = backgroundContactInvitationAccess else { return false }
-        let window = InvitationInternetReplyWindow(client: client, access: access, generation: accountAccessID)
-        invitationInternetReplyWindow = window
-        defer { stopInvitationInternetReply(id: window.id) }
-        if let transfer = invitationBackgroundTransfer, !transfer.hasRestored { await transfer.restore() }
-        let records = backgroundContactInvitationRecords(access: window.access)
-        return await synchronizeInternetContactReplies(window, records: records)
     }
 
     func synchronizeInternetContactReplies(

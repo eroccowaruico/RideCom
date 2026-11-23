@@ -170,7 +170,8 @@ extension GroupDeliveryWorkerTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func reopenedInviterReceivesRepliesForBothIssuedGroupLinks() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func reopenedInviterReceivesRepliesForBothIssuedGroupLinks(backgroundRefresh: Bool) async throws {
         try await withWorker {
             let author = GroupDeliveryTestIdentity("multi-ordinary-author")
             let recipient = GroupDeliveryTestIdentity("multi-ordinary-recipient")
@@ -201,8 +202,7 @@ extension GroupDeliveryWorkerTests {
             try #require(left.startCall(to: .group(unrelated), accountAccessID: left.accountAccessID))
             let currentCall = left.currentCallReference
             let owner = AppCallOwner(account: left.accountSession, viewModel: left)
-            owner.systemSurfaceIsForeground = true
-            await left.invitationInternetReplyWindow?.task?.value
+            await synchronizeSavedOrdinaryReplies(owner, backgroundRefresh: backgroundRefresh)
 
             try right.acceptInviteURL(secondLink)
             await right.invitationInternetReplyWindow?.task?.value
@@ -211,18 +211,29 @@ extension GroupDeliveryWorkerTests {
             let before = [first, second].filter { right.groupRepository.pendingInvitation(for: $0) != nil }
             #expect(before.count == 2)
 
-            owner.systemSurfaceIsForeground = false
-            owner.systemSurfaceIsForeground = true
-            await left.invitationInternetReplyWindow?.task?.value
+            await synchronizeSavedOrdinaryReplies(owner, backgroundRefresh: backgroundRefresh)
             #expect(left.savedRemoteUsers.map(\.memberIDs) == [[recipient.memberID]])
             #expect(left.currentCallReference == currentCall)
             let recipientOwner = AppCallOwner(account: right.accountSession, viewModel: right)
-            recipientOwner.systemSurfaceIsForeground = true
-            await right.invitationInternetReplyWindow?.task?.value
+            await synchronizeSavedOrdinaryReplies(recipientOwner, backgroundRefresh: backgroundRefresh)
             let newerCompleted = right.groupRepository.pendingInvitation(for: second) == nil
             let olderCompleted = right.groupRepository.pendingInvitation(for: first) == nil
             #expect(newerCompleted)
             #expect(olderCompleted)
+        }
+    }
+
+    private func synchronizeSavedOrdinaryReplies(_ owner: AppCallOwner, backgroundRefresh: Bool) async {
+        owner.systemSurfaceIsForeground = false
+        if backgroundRefresh {
+            #expect(owner.viewModel?.notifications.isEnabled == false)
+            #expect(owner.viewModel?.invitationInternetReplyWindow == nil)
+            #expect(owner.needsSavedCommunicationBackgroundRefresh)
+            #expect(await owner.refreshSavedCommunicationInBackground())
+            #expect(owner.viewModel?.invitationInternetReplyWindow == nil)
+        } else {
+            owner.systemSurfaceIsForeground = true
+            await owner.viewModel?.invitationInternetReplyWindow?.task?.value
         }
     }
 

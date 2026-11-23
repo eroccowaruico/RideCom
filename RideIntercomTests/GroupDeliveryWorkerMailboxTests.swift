@@ -200,10 +200,10 @@ extension GroupDeliveryWorkerTests {
         #expect(!model.notifications.isEnabled)
         #expect(model.invitationInternetReplyWindow == nil)
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
-        #expect(model.needsContactInvitationBackgroundRefresh)
+        #expect(model.needsInvitationReplyBackgroundRefresh)
         #expect(owner.needsSavedCommunicationBackgroundRefresh)
         #expect(await owner.refreshSavedCommunicationInBackground())
-        #expect(!model.needsContactInvitationBackgroundRefresh)
+        #expect(!model.needsInvitationReplyBackgroundRefresh)
         #expect(model.invitationInternetReplyWindow == nil)
     }
 

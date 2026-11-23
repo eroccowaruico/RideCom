@@ -15,7 +15,7 @@ extension IntercomViewModel {
     }
 
     private var savedCommunicationRefreshWork: SavedCommunicationRefreshWork {
-        .init(invitationReplies: needsContactInvitationBackgroundRefresh,
+        .init(invitationReplies: needsInvitationReplyBackgroundRefresh,
               contactDeletions: needsContactDeletionBackgroundRefresh)
     }
 
@@ -24,7 +24,7 @@ extension IntercomViewModel {
     func refreshSavedCommunicationInBackground() async -> Bool {
         let work = savedCommunicationRefreshWork
         guard work.hasWork, !Task.isCancelled else { return false }
-        async let replies = work.invitationReplies ? refreshContactInvitationsInBackground() : true
+        async let replies = work.invitationReplies ? refreshInvitationRepliesInBackground() : true
         let deletions = work.contactDeletions ? await refreshContactDeletionsInBackground() : true
         let repliesCompleted = await replies
         return repliesCompleted && deletions && !Task.isCancelled

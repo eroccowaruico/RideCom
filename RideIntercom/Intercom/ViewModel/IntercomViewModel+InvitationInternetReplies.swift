@@ -30,9 +30,30 @@ extension IntercomViewModel {
         canEditSavedGroups && enabledRTCTransportRoutes.contains(.webRTC)
     }
 
+    private var invitationInternetAccess: CallNotificationServiceAccess? {
+        guard hasCurrentAccountAccess, allowsInternetInvitationReplies else { return nil }
+        return try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
+    }
+
+    var needsInvitationReplyBackgroundRefresh: Bool {
+        guard groupDeliveryClient != nil, let access = invitationInternetAccess else { return false }
+        return hasInternetInvitationReplies(access: access, includeUnshared: false)
+    }
+
+    func refreshInvitationRepliesInBackground() async -> Bool {
+        guard !Task.isCancelled, invitationInternetReplyWindow == nil, let client = groupDeliveryClient,
+              let access = invitationInternetAccess,
+              hasInternetInvitationReplies(access: access, includeUnshared: false)
+        else { return false }
+        let window = InvitationInternetReplyWindow(client: client, access: access, generation: accountAccessID)
+        invitationInternetReplyWindow = window
+        defer { stopInvitationInternetReply(id: window.id) }
+        if let transfer = invitationBackgroundTransfer, !transfer.hasRestored { await transfer.restore() }
+        return await synchronizeInvitationInternetReplies(window, includeUnshared: false)
+    }
+
     func requestInvitationInternetReply(restart: Bool = false) {
-        guard let client = groupDeliveryClient, hasCurrentAccountAccess, allowsInternetInvitationReplies,
-              let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID),
+        guard let client = groupDeliveryClient, let access = invitationInternetAccess,
               hasInternetInvitationReplies(access: access) else { return }
         scheduleBackgroundContactAcceptances(access: access)
         let contactIDs = Set(internetContactReplyRecords(access: access).map(\.id))
@@ -73,9 +94,8 @@ extension IntercomViewModel {
                     self.internetReplyWindowIsCurrent(window),
                     self.hasInternetInvitationReplies(access: window.access)
                 else { return }
-                let records = self.internetContactReplyRecords(access: window.access)
-                if !(await self.synchronizeInternetContactReplies(window, records: records)) { return }
-                if !(await self.synchronizeOrdinaryGroupInternetReplies(window)) { return }
+                guard await self.synchronizeInvitationInternetReplies(window, includeUnshared: true),
+                      self.hasInternetInvitationReplies(access: window.access) else { return }
             }
         }
     }
@@ -99,13 +119,23 @@ extension IntercomViewModel {
         }
     }
 
-    private func hasInternetInvitationReplies(access: CallNotificationServiceAccess) -> Bool {
-        if !internetContactReplyRecords(access: access).isEmpty { return true }
+    private func hasInternetInvitationReplies(
+        access: CallNotificationServiceAccess, includeUnshared: Bool = true
+    ) -> Bool {
+        if !internetContactReplyRecords(access: access, includeUnshared: includeUnshared).isEmpty { return true }
         let now = Date().timeIntervalSince1970
         if !groupRepository.issuedOrdinaryGroupInvitations(now: now).isEmpty { return true }
         return groupRepository.pendingOrdinaryGroupReplies(now: now).contains {
             internetOrdinaryReplyOwner(for: $0, access: access) != nil
         }
+    }
+
+    private func synchronizeInvitationInternetReplies(
+        _ window: InvitationInternetReplyWindow, includeUnshared: Bool
+    ) async -> Bool {
+        let records = internetContactReplyRecords(access: window.access, includeUnshared: includeUnshared)
+        guard await synchronizeInternetContactReplies(window, records: records) else { return false }
+        return await synchronizeOrdinaryGroupInternetReplies(window)
     }
 
     private func internetOrdinaryReplyOwner(
@@ -143,7 +173,7 @@ extension IntercomViewModel {
                 }
             }
         }
-        return internetReplyWindowIsCurrent(window) && hasInternetInvitationReplies(access: window.access)
+        return internetReplyWindowIsCurrent(window)
     }
 
     private func internetReplyTarget(_ invitation: DirectInvitationContext) -> InternetReplyTarget? {
