@@ -1,6 +1,6 @@
 import { isRecord, readJSON, sha256Hex } from './types'
 
-const fixedPreview = 'https://preview-rideintercom.analog.workers.dev'
+const fixedPreview = 'https://preview.workers.ridecom.yowamushi-inc.com'
 const lifetime = 20 * 60 * 1000
 const digestPattern = /^[a-f0-9]{64}$/
 const peerPattern = /^[a-zA-Z0-9_-]{1,60}$/

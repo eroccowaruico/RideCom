@@ -111,7 +111,7 @@ extension AudioE2ETests {
         )
         if let bootstrap = environment["RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP"] {
             let trial = try await loadPreviewMediaTrial(bootstrap)
-            let origin = try XCTUnwrap(URL(string: "https://preview-rideintercom.analog.workers.dev"))
+            let origin = try XCTUnwrap(URL(string: "https://preview.workers.ridecom.yowamushi-inc.com"))
             await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin, options: options)
             return
         }

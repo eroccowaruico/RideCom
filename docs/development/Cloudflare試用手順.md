@@ -53,6 +53,8 @@ Git連携の再構築に使う値は [server/cloudflare-builds.toml](../../serve
 
 2026-11-23の読取りでは、本番は復元用の値と一致した。新規Previewのビルド設定はRoot directoryが `/`。既存の固定Previewは `/` のままで、Build commandと `SKIP_DEPENDENCY_INSTALL` が未設定だった。固定Previewは自動の依存関係インストール中にリポジトリルートのPython設定を検出し、Wranglerの起動前に失敗する。復旧の確認では、先に個別設定を読み戻し、対象コミットのビルドが `server` で依存関係を導入して成功したことを確かめる。次に固定Previewの最新配置がそのコミットと一致し、目的のURLで応答することを確認する。[依存関係の自動インストール](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#skip-dependency-install)
 
+固定 `preview` を共有mainの `1bf40108` から作り直し、Previews Baseの `/server`、`npm ci`、`SKIP_DEPENDENCY_INSTALL=1` を引き継いだ。Cloudflareで配置コミットと互換日付 `2026-11-17` を照合した。独自ドメインと `workers.dev` はどちらも `/health` が200、資格なしの `/api/status` が401だった。
+
 本番と固定PreviewのWorkers Buildsは、ビルドのルート `server` にある `server/.node-version` からNode.jsのバージョンを選ぶ。ダッシュボードの `NODE_VERSION` に別のバージョンを重ねて指定しない。配置を受け入れる際は、両環境のビルド記録で指定したNode.jsのバージョンが使われたことを確認する。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)
 
 [公式プレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)と[GitHub連携](https://developers.cloudflare.com/workers/ci-cd/builds/)を参照する。
@@ -176,6 +178,8 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 ### Appleログインなしで固定Previewの音声を測る
 
+CLIとSimulatorは固定Previewの独自ドメイン `https://preview.workers.ridecom.yowamushi-inc.com` を使う。Workerはこの接続先で試験用の資格を受け付ける。試験前に対象URLの配置と公開応答を照合する。
+
 実中継を使う試験は、ローカルで発話の往復を確認してから明示的に実行する。対象は固定Previewの1グループ、参加者2人、各約2秒の発話を1回。Appleによる新規登録の試用は、開発署名のAppで行う別の工程として扱う。
 
 1. `node scripts/Cloudflare/prepare-preview-media-trial.mjs` を実行する。返るディレクトリには、試験の照合値を入れた `grant.toml` と、端末側の試験資格を入れた `credentials.json` がある。
@@ -187,6 +191,8 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
    ```
 
    UDP TURNを確認する場合は、先に[ローカルのTURN試験](音声E2Eテスト.md#udp-turnを経由する発話を検証する)を通す。固定Previewの試験コマンドに `--turn-relay` を付け、送信の前後に両端で選ばれた経路がUDP TURNであることも判定する。
+
+   後から参加した相手の声を受け取る条件を確認する場合は、先に[接続待ちのローカル試験](音声E2Eテスト.md#ミュートで待機して後から参加した相手の声を受け取る)を通す。固定Previewでは `--wait-for-peer` を指定する。先に接続する側がミュートのまま20秒待ち、相手の参加後に声を受け取る。続けてミュート解除後の双方向の発話を測る。同じ2人が同じ通話で行う。
 
 4. `TEST_PREVIEW_MEDIA_TRIAL` の行を削除して同じ経路で配置する。同じコマンドの `--output` に代えて `--check-revoked` を指定し、両方の資格が401になることを確認する。最後にローカルの資格を回収する。
 

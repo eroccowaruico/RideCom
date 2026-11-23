@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { makeRuntime, offer, provider, room } from './support/runtime.mjs';
 
-const preview = 'https://preview-rideintercom.analog.workers.dev';
+const preview = 'https://preview.workers.ridecom.yowamushi-inc.com';
 const tokens = ['a', 'b'].map(value => `preview-media.${value.repeat(43)}`);
 const digests = tokens.map(value => createHash('sha256').update(value).digest('hex'));
 const now = 1_700_000_000_000;
@@ -27,14 +27,22 @@ test('two Preview credentials are scoped to the room and cannot manage each othe
     const join = (participantId, token = tokens[0]) =>
         call(runtime, `${roomPath}/join`, { method: 'POST', token, body: { participantId, offer } });
     assert.equal((await call(runtime, '/api/status')).status, 200);
-    assert.equal((await call(runtime, '/api/status', { origin: 'https://rideintercom.analog.workers.dev' })).status, 401);
-    assert.equal((await call(runtime, '/api/status', { origin: 'https://other-preview.workers.dev' })).status, 401);
+    for (const origin of [
+        'https://preview-rideintercom.analog.workers.dev',
+        'https://ridecom.analog.workers.dev',
+        'https://workers.ridecom.yowamushi-inc.com',
+        'https://preview-ridecom.analog.workers.dev',
+        'http://preview.workers.ridecom.yowamushi-inc.com',
+        'https://other-preview.workers.dev'
+    ]) {
+        assert.equal((await call(runtime, '/api/status', { origin })).status, 401, origin);
+    }
     assert.equal((await call(runtime, `/api/rooms/${'b'.repeat(64)}/join`, {
         method: 'POST', body: { participantId: 'media-a', offer }
     })).status, 401);
     assert.equal((await call(runtime, `${roomPath}/ice/media-b`, { method: 'POST', body: { leaseID: 'ice' } })).status, 401);
     assert.equal((await join('media-b')).status, 401);
-    assert.equal((await join('media-a', 'preview-media.' + 'z'.repeat(43))).status, 401);
+    assert.equal((await join('media-a', `preview-media.${'z'.repeat(43)}`)).status, 401);
     assert.equal(provider.requests.length, 0);
     const a = await join('media-a');
     const b = await join('media-b', tokens[1]);
@@ -47,7 +55,7 @@ test('two Preview credentials are scoped to the room and cannot manage each othe
     assert.equal((await call(runtime, bSession, { method: 'DELETE', token: tokens[1] })).status, 200);
 });
 
-test('absent, expired, future and oversized Preview grants fail closed', async t => {
+test('absent, expired, future and oversized Preview grants fail closed', async () => {
     const variants = [
         undefined, { ...grant, expiresAt: now }, { ...grant, issuedAt: now + 1 },
         { ...grant, expiresAt: now + 21 * 60 * 1000 },
