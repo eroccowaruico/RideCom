@@ -9,7 +9,7 @@ import { encode } from 'cborg';
 import { Miniflare } from 'miniflare';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { AttributeTypeAndValue, BasicConstraints, Certificate, CryptoEngine, Extension } from 'pkijs';
-import { makeRuntime } from './support/runtime.mjs';
+import { makeRuntime, workerCompatibilityDate } from './support/runtime.mjs';
 
 const appID = 'RIDE123456.com.example.ridecom';
 const challenge = 'a1'.repeat(32);
@@ -100,7 +100,7 @@ test('local Worker validates a key proof only for the pinned certificate chain a
             ` },
             { type: 'ESModule', path: 'index.js', contents: await readFile('dist/index.js', 'utf8') }
         ],
-        compatibilityDate: '2024-11-01'
+        compatibilityDate: workerCompatibilityDate
     });
     const verify = async (changes = {}) => (await runtime.dispatchFetch('https://enrollment.test/', {
         method: 'POST', body: JSON.stringify({

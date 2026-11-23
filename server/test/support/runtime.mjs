@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { CompactEncrypt, importJWK } from 'jose';
 import { Miniflare, Response } from 'miniflare';
+import { unstable_readConfig } from 'wrangler';
+
+export const workerCompatibilityDate = unstable_readConfig({
+    config: fileURLToPath(new URL('../../wrangler.toml', import.meta.url)),
+}).compatibility_date;
 
 export async function sealInvitationSubmission(body, relayKey) {
     const key = await importJWK({ kty: 'OKP', crv: 'X25519', x: relayKey.x }, 'ECDH-ES');
@@ -113,7 +119,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             APPLE_ENROLLMENT_IP_LIMIT: { namespace_id: '1001', simple: { limit: 30, period: 60 } },
             APPLE_ENROLLMENT_GLOBAL_LIMIT: { namespace_id: '1002', simple: { limit: 300, period: 60 } }
         } : {}), ...(apiLimit === false ? {} : { CALL_API_LIMIT: { namespace_id: '1005', simple: { limit: apiLimit, period: 60 } } }) },
-        modules: true, ...source, compatibilityDate: '2024-11-01',
+        modules: true, ...source, compatibilityDate: workerCompatibilityDate,
         durableObjects: { SIGNALING_ROOM: { className: 'SignalingRoom', useSQLite: true }, USAGE_GUARD: { className: 'UsageGuard', useSQLite: true },
             NOTIFICATION_INDEX: { className: 'NotificationIndex', useSQLite: true },
             APPLE_AUTH_ATTEMPT: { className: 'AppleAuthAttempt', useSQLite: true }, USER_ACCOUNT: { className: 'UserAccount', useSQLite: true },

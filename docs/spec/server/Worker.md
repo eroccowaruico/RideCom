@@ -238,7 +238,7 @@ TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固�
 
 固定PreviewのSFU App IDとTURN Key IDは `previews.vars` に記載する。Previews BaseのシークレットはPreview作成時に取り込まれる。既存の固定Previewに追加・更新するシークレットは、そのPreviewを対象に登録する。GitHub連携ではmainの配置コマンドと固定Previewの配置コマンドを分ける。[CloudflareのPreview設定](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 
-本番と固定Previewのビルドに使うNode.jsは、共通の `server/.node-version` で指定する。[配置とビルドの確認手順](../../development/Cloudflare試用手順.md)
+本番と固定PreviewのWorker実行環境は、`server/wrangler.toml` の先頭の `compatibility_date = "2026-11-17"` を共通で使う。ビルドに使うNode.jsは `server/.node-version` で指定する。Workers BuildsのGit連携設定は [`server/cloudflare-builds.toml`](../../../server/cloudflare-builds.toml) に保持する。[配置とビルドの確認手順](../../development/Cloudflare試用手順.md#workers-buildsの設定を復元する)
 
 リポジトリの `wrangler.toml` は、環境ごとに次の値を明示する。実際に稼働する値と鍵の反映状況は[最新の配置で確認した試用条件](../../development/Cloudflare試用手順.md#最新の配置で確認した試用条件)を参照する。
 

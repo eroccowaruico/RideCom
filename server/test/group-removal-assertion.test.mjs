@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
+import { workerCompatibilityDate } from './support/runtime.mjs';
 
 const appID = 'RIDECOM123.com.example.ridecom';
 const nonce = 'a1'.repeat(32);
@@ -70,7 +71,7 @@ async function fixture() {
             ` },
             { type: 'ESModule', path: 'index.js', contents: await readFile('dist/index.js', 'utf8') }
         ],
-        compatibilityDate: '2024-11-01',
+        compatibilityDate: workerCompatibilityDate,
         durableObjects: { FIXTURE: { className: 'Fixture', useSQLite: true } }
     });
     return {

@@ -4,7 +4,7 @@
 
 ## 管理画面とプレビューの設定
 
-Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / App Secretを取得する。Workers & Pages → Create application → GitHubから本リポジトリを選ぶ場合は、次の3項目を設定する。Worker名を`ridecom`、root directoryを`server`、build commandを空欄にする。Worker名は`server/wrangler.toml`の`name`と揃える。
+Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / App Secretを取得する。Workers & Pages → Create applicationからGitHubの `eroccowaruico/RideCom` を選ぶ。Worker名は `server/wrangler.toml` の `name` と同じ `ridecom` にする。Git連携を設定する場合は[ビルド設定の復元手順](#workers-buildsの設定を復元する)に従う。
 
 | 配置先 | 配置方法 | 設定と接続先 |
 |---|---|---|
@@ -39,7 +39,13 @@ Baseの値は新しいプレビューへ引き継がれる。既存プレビュ�
 
 Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。手動配置でも対象は固定Previewとする。依存を導入して認証した後、リポジトリのルートで `npm --prefix server run preview -- --name preview` を実行する。
 
-GitHub連携ではSettings → Builds → Branch controlのEnable Preview BuildsをONにする。Preview commandを`npx wrangler preview`にする。通常の試用は共有mainから固定 `preview` ブランチへ反映し、同名のPreviewで行う。Production branchは`main`、既存のdeploy commandは`npx wrangler deploy`のまま維持し、プレビューのために本番の配置経路を置き換えない。root directoryは`server`、build commandは空欄。Productionの資格は本番を有効化するときに本番用の値を登録する。
+### Workers Buildsの設定を復元する
+
+Git連携設定は [`server/cloudflare-builds.toml`](../../server/cloudflare-builds.toml) を基準とする。Settings → Builds で `production_settings` を本番、`previews_base_config` をPreviews Baseのビルド設定へ反映する。Branch controlのEnable Preview Buildsは `previews_enabled` に合わせる。`environment_variables` は Build variables and secrets に登録する。既存の固定Previewは `fixed_preview.branch` に対応する対象を選び、Previews Baseと同じビルド設定に揃える。Baseの設定は新しいPreviewを作るときに継承される。
+
+本番・Base・固定Previewの Root directory は `server`、Build command は `npm ci`、ビルド変数 `SKIP_DEPENDENCY_INSTALL` は `1` とする。自動の依存関係インストールはリポジトリルートのPython設定を検出してWrangler起動前に失敗したため、Workerのディレクトリでロックファイルから依存関係を入れる。本番の Deploy command は `npx wrangler deploy`、Preview command は `npx wrangler preview`。配置後に両環境のビルド記録と設定を確認する。[Workers Buildsの設定](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)・[依存関係の自動インストールを無効にする設定](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#skip-dependency-install)
+
+APIで復元する場合は既存Workerのビルド設定の `production_settings` と `previews_base_config`、固定Previewの `settings` を更新する。APIにはTOMLから対象の項目を取り出してJSONで渡す。固定Previewの更新にはそのPreviewを指定する。Build API tokenはCloudflare側で選ぶ。[Workers Buildsの設定・Preview管理API](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#view-and-update-build-settings)
 
 本番と固定PreviewのWorkers Buildsは、ビルドのルート `server` にある `server/.node-version` からNode.jsのバージョンを選ぶ。ダッシュボードの `NODE_VERSION` に別のバージョンを重ねて指定しない。配置を受け入れる際は、両環境のビルド記録で指定したNode.jsのバージョンが使われたことを確認する。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)
 

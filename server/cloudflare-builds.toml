@@ -1,0 +1,32 @@
+# Cloudflare Workers Builds の復元用。Worker の実行時設定は wrangler.toml に置く。
+# 本番と Previews Base は同名の API 項目に対応する。既存の固定 Preview には
+# previews_base_config の内容を、対象 Preview の settings として反映する。
+previews_enabled = true
+
+[git_repository]
+provider_type = "github"
+provider_account_name = "eroccowaruico"
+repo_name = "RideCom"
+branch = "main"
+
+[production_settings]
+root_directory = "/server"
+build_command = "npm ci"
+deploy_command = "npx wrangler deploy"
+
+[production_settings.environment_variables.SKIP_DEPENDENCY_INSTALL]
+value = "1"
+is_secret = false
+
+[previews_base_config]
+root_directory = "/server"
+build_command = "npm ci"
+deploy_command = "npx wrangler preview"
+
+[previews_base_config.environment_variables.SKIP_DEPENDENCY_INSTALL]
+value = "1"
+is_secret = false
+
+[fixed_preview]
+branch = "preview"
+auto_build = true
