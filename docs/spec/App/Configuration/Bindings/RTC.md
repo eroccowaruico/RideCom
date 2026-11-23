@@ -101,8 +101,8 @@ App 側の report 更新間隔は 0.5 秒を下限とする。RTC は package re
 | 境界 | 値・所有 |
 |---|---|
 | adapter送信待ち | 20 ms音声を最大5件、待機時間100 ms以内。OSの100 ms tapから連続生成される5件を保持する。接続操作列へ音声を連結しない |
-| RTC EventSource | package既定の64件・100ms。一時的な音声/telemetryに限定 |
-| RTC再生待ち | package既定の15ms playout、100ms lifetime、256件上限 |
+| RTC EventSource | [RTCの待ち行列](../../../packages/RTC.md#音声の転送と待ち行列)に従う。Appは一時データの待ち時間や件数を上書きしない |
+| RTC再生待ち | [RTCの再生待ち](../../../packages/RTC.md#音声の転送と待ち行列)に従う。Appは並べ替え用の待ち時間を追加しない |
 | Internet経由の転送 | package/Workerで音声unreliable・unordered・再送0。利用者へTCP/UDP選択を要求しない |
 
 各境界の期限であり総遅延の保証値ではない。packetLifetime等をApp側で再定義せず、[RTC仕様](../../../packages/RTC.md)の契約を使う。

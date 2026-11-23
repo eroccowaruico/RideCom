@@ -75,8 +75,8 @@ flowchart LR
 | duplicate / replay | originと接続epochごとの1024 sequence window。古いepochは直近8世代を拒否。音声はpresenceで参加済みかつ有効な話者だけ受理。認証済み音声も活動期限を更新し、制御streamの再接続を音声の停止条件にしない |
 | 再参加 | 新epochで当該peerの受信待ちを破棄し、memberの再認証をAppへ通知。他のpeerは維持 |
 | presence | 2秒周期のreliable制御。presenceと認証済み音声のどちらも8秒届かない場合に失効。leave以前の遅延presenceで離脱を取り消さない |
-| 上限 | リモート7人、path最大8、envelope 32KiB、音声payload 8KiB、受信待ち256件。過剰分は古い受信待ちから破棄 |
-| 再生時刻 | 端末間時計の同期を前提にしない。最終受信端末では順序通りならすぐ次の処理へ渡し、sequence欠落だけ15msの並べ替え猶予（20ms timerでもdrain）、100msを過ぎた受信待ちは破棄。enqueue時とdrain時にpeerごとの再生済みsequenceを検査し、待機中に古くなったフレームも破棄 |
+| 上限 | リモート7人、path最大8、envelope 32KiB、音声payload 8KiB。受信待ちの上限は[音声の転送と待ち行列](#音声の転送と待ち行列)に従う |
+| 再生時刻 | 最終受信端末が[音声の転送と待ち行列](#音声の転送と待ち行列)に従って受信順を決める。期限の計算に端末間時計の同期を求めない |
 | codec / format | policyで許可されたcodec、8〜48kHz、1〜2ch。対応範囲内のformat差は保持し、PCM変換しない |
 | route capabilities | Local / Internetとも符号化済みPCM16・Opus・AAC-ELD・旧AAC-ELD v2を転送可能。初期codec設定に固定しない。OSの実encode/decode能力と受理codecのpolicyは別に判定する |
 | パケットsequence | 中継epoch内のsequenceで再生順を管理。収録再起動によるApp側counterのリセットと分離 |
@@ -126,7 +126,7 @@ Cloudflareは[custom media payloads](https://developers.cloudflare.com/realtime/
 | Local / Internet送信 | 音声は全経路で再送なしUDP、presenceを含む制御はreliable。音声に再送・順序保証待ち・reliableコピーを使わない | GroupRelayが分類、各routeが転送 |
 | Internet DataChannel | 音声は`ordered=false`、`maxRetransmits=0`。送信バッファが空のときだけ送信し、詰まっていたらその音声を破棄 | RTCNativeWebRTCとWorkerのpublish/pullで同じ指定 |
 | 接続通知と音声のイベント待ち | 各購読者につき一時データ最大64件・100ms。古い音声・telemetryを捨て、接続・認証・離脱・reliable制御は256件まで順序を保持 | EventSource（Local受信、native engine、route、CallSessionの各境界） |
-| 再生待ち | 連続packetは待機なし、欠落時だけ15ms、期限100ms、最大256件。期限・件数超過・再生済みsequence以下は破棄 | PacketAudioReceiveBuffer |
+| 再生待ち | 話者ごとに、最初に渡すパケットを順序の起点とする。連続するパケットは待たずに渡す。欠落したときだけ15ms並べ替えを待ち、次の期限に合わせてタイマーで取り出しを試みる。受信から100msで期限切れとし、最大256件を超える分は古い受信待ちから破棄する。追加と取り出しの両方で、すでに再生したsequence以下のパケットを破棄する | PacketAudioReceiveBuffer。RouteManagerが次回のタイマーを管理 |
 | 再接続 | peer離脱でそのpeerの再生sequenceを破棄、session停止で全待ち状態を破棄 | RTC |
 
 DataChannelの順序保証と再送回数は、TCP/UDPを選ぶUIではなくデータを渡す条件である。既定のreliable/orderedを音声に流用しない。`maxRetransmits=0`は初回送信後の再送を止める設定で、OS・SFUを含む絶対遅延の保証ではない。`maxPacketLifeTime`との同時指定は行わない。上記100msは各境界での待ち時間上限であり、端末間の総遅延ではない。期限に使う端末内時計は同期不要である。
