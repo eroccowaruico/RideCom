@@ -92,10 +92,17 @@ struct AudioActivationTests {
     viewModel.cancelAudioCheck()
   }
 
-  @Test func ordinaryAudioCheckCannotStartThroughAWatchOwnedRoute() {
+  @Test func watchAudioAttachmentStopsThePipelineOncePerAttemptAndKeepsWatchInput() async {
     let harness = AppTestSupport.makeHarness(groups: [])
     let viewModel = harness.viewModel
-    viewModel.selectWatchAudioRoute()
+    let offer = AppTestSupport.invalidWatchAudioOffer()
+    let initialStops = harness.callSession.stopMediaCallCount
+    for attempts in 1...2 {
+      await #expect(throws: (any Error).self) {
+        _ = try await viewModel.attachWatchAudio(offer)
+      }
+      #expect(harness.callSession.stopMediaCallCount == initialStops + attempts)
+    }
     #expect(!viewModel.canStartAudioCheck)
     viewModel.startAudioCheck()
     #expect(viewModel.audioCheckPhase == .idle && !viewModel.audioCheckOwnsAudioPipeline)

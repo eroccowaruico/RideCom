@@ -122,7 +122,7 @@ struct WatchControlTests {
         await AppTestSupport.waitUntil { model.isAudioReady }
         #expect(rig.inputBackend.startCount == 1)
         let deadline = model.callDisconnectDeadline
-        model.selectWatchAudioRoute()
+        await AppTestSupport.expectFailedWatchAudioAttachment(model)
         #expect(model.isUsingWatchAudio && !model.isAudioReady)
         #expect(rig.inputBackend.stopCount > 0)
         #expect(model.callDisconnectDeadline == deadline)

@@ -4,19 +4,18 @@ import RTC
 import SessionManager
 
 extension IntercomViewModel {
-    /// The selected input stays Watch-owned even when preparation fails.
-    /// Never silently open the phone microphone as a fallback.
-    func selectWatchAudioRoute() {
-        guard !isUsingWatchAudio else { return }
+    private func prepareWatchAudioReplacement() {
         stopAudioPipeline()
-        isUsingWatchAudio = true
-        applyEffectiveInputMute()
+        // Keep Watch as the input owner if preparation fails.
+        if !isUsingWatchAudio {
+            isUsingWatchAudio = true
+            applyEffectiveInputMute()
+        }
+        stopWatchAudioLink()
     }
 
     func attachWatchAudio(_ offer: WatchAudioOffer, audioCheck: Bool = false) async throws -> RTCAudioDeviceEndpoint {
-        selectWatchAudioRoute()
-        stopAudioPipeline()
-        stopWatchAudioLink()
+        prepareWatchAudioReplacement()
         let reference = currentCallReference, generation = audioGeneration
         if audioCheck {
             audioCheckGeneration = UUID()

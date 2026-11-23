@@ -24,6 +24,16 @@ enum AppTestSupport {
         let audioDriver: OfflineAudioDriver
     }
 
+    static func invalidWatchAudioOffer() -> WatchAudioOffer {
+        .init(sessionID: UUID(), key: Data(), endpoint: .init(name: "invalid", type: "invalid", domain: "invalid"))
+    }
+
+    static func expectFailedWatchAudioAttachment(_ model: IntercomViewModel) async {
+        await #expect(throws: (any Error).self) {
+            _ = try await model.attachWatchAudio(invalidWatchAudioOffer())
+        }
+    }
+
     /// One regular group plus one saved person. The Watch offers individuals only, so its
     /// tests need a saved user as well as a group.
     static func makeHarnessWithSavedUser(

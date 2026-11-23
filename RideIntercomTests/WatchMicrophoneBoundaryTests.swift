@@ -98,7 +98,7 @@ import Testing
         viewModel.applyLocalMute(true)
         #expect(viewModel.startCall(to: .group(viewModel.groups[0].id), accountAccessID: viewModel.accountAccessID))
         let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
-        viewModel.selectWatchAudioRoute()
+        await AppTestSupport.expectFailedWatchAudioAttachment(viewModel)
         let reference = viewModel.currentCallReference
         let surface = try #require(owner.currentLivePresentation)
         #expect(!surface.canControlMicrophone)
