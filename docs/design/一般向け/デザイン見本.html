@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RideCom デザイン見本</title>
 <!--
-  RideCom の一般向け画面・Watch・Widget のデザイン見本（実装前）。
+  RideCom の一般向け画面・検証用Watch・Widget のデザイン見本。
   設計を決めている文書: カラーテーマ.md / 画面構成とレイアウト.md
   ここでの描画は見た目の確認用であり、実装は SwiftUI 標準部品と OS の Material / Liquid Glass を使う。
   SF Symbols は配布できないため、簡易な線画アイコンで代用している。
@@ -1215,7 +1215,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 
   <!-- ================= Watch ================= -->
   <h2 id="watch">Apple Watch（開発・検証用）</h2>
-  <p class="note">以下は開発・検証用の見本。通常のiOS配布ではWatchを提供しない。watchOSは常に暗い外観。押している間だけ送話し、押していない間は常にマイクオフなので「マイクオフ」の表示や切替は置かない。切断は誤って触れやすい画面下部を避けて左上に置き、確認を出す。送話はトランシーバーの丸ボタンと区別し、画面の角に沿った下半分いっぱいのパネルにする。接続先は個人（1対1）だけ。</p>
+  <p class="note">以下は開発・検証用の見本。通常のiOS配布ではWatchを提供しない。watchOSは常に暗い外観。押している間だけ送話し、押していない間は常にマイクオフなので「マイクオフ」の表示や切替は置かない。切断は誤って触れやすい画面下部を避けて左上に置き、確認を出す。送話はトランシーバーの丸ボタンと区別し、画面の角に沿った下半分いっぱいのパネルにする。接続先はiPhoneに保存した相手（1対1）だけ。通常グループはiPhoneの一覧などから選ぶ。</p>
   <div class="gallery">
     <figure>
       <div class="watch"><div class="wscreen blue">
