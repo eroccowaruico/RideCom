@@ -367,6 +367,24 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 固定Previewで上の4項目だけを設定する管理APIの更新はHTTP 403で拒否された。ログ取得は無効だった。ログ取得を始める際は、対象環境で個別設定を照合する。[Workerの設定項目](https://developers.cloudflare.com/api/resources/workers/)
 
+#### SQLiteの復旧範囲を確認する
+
+2026-11-22。本番のWorker設定と固定Previewの最新配置から、各6件のDurable Objectのbindingを名前空間一覧と照合した。12件ともSQLiteで、本番と固定Previewに共用の名前空間はなかった。配置元 `1adc77da` と配布候補 `d4197073` の定義も、両環境で同じ6種類をSQLiteへ割り当てていた。[名前空間の一覧API](https://developers.cloudflare.com/api/go/resources/durable_objects/subresources/namespaces/methods/list/)
+
+Cloudflareの過去時点への復旧（PITR）は、SQLiteのテーブルとキー・値を含め、過去30日以内を復旧対象とする。RideComの削除APIの応答は稼働中の保存と資格の回収を示す。Cloudflareが持つ復旧用データの物理削除まではこの応答で確認できない。[CloudflareのSQLite復旧仕様](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#pitr-point-in-time-recovery-api)・[RideComの削除契約](../spec/server/Worker.md#アカウントの端末登録削除)
+
+固定した両ソースのWorker、運用スクリプト、GitHub ActionsにSQLiteの復旧APIを呼び出す箇所はなかった。復旧用データの内容と、復旧後に過去の資格を再利用できないことは未確認。アカウント全体のWorkers Trace Events用Logpushジョブ一覧は、既存の接続の権限では今回も取得できなかった。証跡は `.validation/security-audit-2100/sqlite-retention/` に保存した。
+
+稼働用Workerへ過去時点に戻す処理が加わることを防ぐため、通常のコミット時の検査でCloudflareの復旧APIへの参照をエラーにする。[Workerの構文検査](自動検証.md#プログラムのlintと型検査)
+
+##### Workerの配置を戻す場合に保存状態を維持する
+
+CloudflareのWorkerロールバックでは、以前に配置したWorkerバージョンへ切り替え、接続先の保存内容を維持する。ロールバック先の設定・資格・名前空間と、現在の保存形式を読めることを確認する。既に停止した入口や外部送信が古い設定で再開する場合は、その配置を使わない。[Cloudflareのロールバック仕様](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+
+2026-11-22。同じローカルSQLiteを維持したままWorkerのコードを更新し、旧版に戻す両方向を試した。削除したアカウントの2端末はセッション照会、通話サービスの状態取得、通知された招待の一覧、招待応答の受付開始で拒否された。有効な別アカウントのセッションと通話サービスの状態取得は成功した。証跡は `.validation/security-audit-2100/worker-code-rollback/` に保存した。
+
+現行の運用で扱うのは、最新の保存状態を維持したWorkerの切替まで。削除前のSQLiteを稼働中の保存へ戻す運用は保留する。その方式を検討するときは、利用者がいない隔離環境で、復旧の影響を受けない失効記録などを使って旧資格を拒否できることを確かめる。通話・通知・招待の入口に加え、復旧で戻った予約やアラームから送信されないことと、削除していないアカウントへの影響を検証する。[アカウント削除の受入条件](../backlog/未実装課題.md#アカウント削除のサービス範囲と別端末への反映)
+
 #### 稼働配置と手元の停止フラグを照合する
 
 2026-11-22。本番Workerの設定と固定Previewの最新配置を管理APIで読み取った。本番のApple登録、通常通知、Internet通話、TURN、端末審査の各フラグは手元の本番設定と一致した。本番のSFUとTURNの参照先は両方とも存在し、通知・端末証明・Apple認可取消の署名鍵も登録済みだった。観測はリソースと鍵の登録の有無に限る。背景転送の鍵は両環境とも未設定だった。[Cloudflareのプレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)

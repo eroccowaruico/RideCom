@@ -36,6 +36,37 @@ function resolvedSymbol(node, checker) {
     return symbol?.flags & SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol
 }
 
+function isCloudflareDeclaration(declaration) {
+    return dirname(realpathSync.native(declaration.path)) === workerTypes
+}
+
+function isDurableStorageRestoreReference(node, checker) {
+    let name, receiver
+    switch (node.kind) {
+        case K.PropertyAccessExpression:
+            name = node.name.text
+            receiver = node.expression
+            break
+        case K.ElementAccessExpression:
+            name = node.argumentExpression && checker.getTypeAtLocation(node.argumentExpression)?.value
+            receiver = node.expression
+            break
+        case K.BindingElement: {
+            const key = node.propertyName ?? node.name
+            if (!key || node.parent.kind !== K.ObjectBindingPattern) return false
+            name = key.kind === K.ComputedPropertyName ? checker.getTypeAtLocation(key.expression)?.value : key.text
+            receiver = node.parent
+            break
+        }
+        default: return false
+    }
+    if (name !== 'onNextSessionRestoreBookmark') return false
+    const type = checker.getTypeAtLocation(receiver)
+    const member = type && checker.getPropertyOfType(type, name)
+    return member?.declarations.some(declaration => declaration.kind === K.MethodSignature
+        && isCloudflareDeclaration(declaration) && declaration.resolve()?.parent?.name?.text === 'DurableObjectStorage')
+}
+
 function referenceKey(node, checker) {
     const reference = withoutParentheses(node)
     switch (reference.kind) {
@@ -60,8 +91,7 @@ function durableObjectContract(owner, checker) {
             const contract = resolvedSymbol(heritage.expression, checker)
             if (contract?.name !== 'DurableObject') continue
             const declarationKind = clause.token === K.ExtendsKeyword ? K.ClassDeclaration : K.InterfaceDeclaration
-            if (contract.declarations.some(declaration => declaration.kind === declarationKind
-                && dirname(realpathSync.native(declaration.path)) === workerTypes)) {
+            if (contract.declarations.some(declaration => declaration.kind === declarationKind && isCloudflareDeclaration(declaration))) {
                 return { members: contract.getMembers(), rpc: clause.token === K.ExtendsKeyword, delegations: new Set() }
             }
         }
@@ -107,6 +137,7 @@ function inspect(file, checker, shapes) {
     const contracts = new Map()
     function visit(node) {
         const pos = node.getStart(file)
+        if (isDurableStorageRestoreReference(node, checker)) report(pos, 'error', 'durable-storage-restore')
         const trivia = file.text.slice(node.pos, pos)
         for (const match of trivia.matchAll(/(?:\/\/\/?|\/\*+|^\s*\*)[ \t]*@ts-(nocheck|expect-error)\b/gm)) {
             const offset = node.pos + match.index

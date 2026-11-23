@@ -119,3 +119,31 @@ test('duplicate RPC delegation remains a review even when the published method n
         '',
     ].join('\n'))
 })
+
+test('Worker type lint rejects references to the Durable Object storage restore API', t => {
+    const { input, lint } = lintFixture(t, ['@cloudflare/workers-types'])
+    const allowed = [
+        'declare const storage: DurableObjectStorage',
+        'declare const other: { onNextSessionRestoreBookmark: string }',
+        'export const bookmark = storage.getCurrentBookmark',
+        'export const unrelated = other.onNextSessionRestoreBookmark',
+        'const onNextSessionRestoreBookmark = "getCurrentBookmark"',
+        'export const named = storage[onNextSessionRestoreBookmark]',
+    ]
+    writeFileSync(input, allowed.join('\n'))
+    assert.equal(lint().status, 0)
+
+    writeFileSync(input, [...allowed,
+        'export const restore = storage.onNextSessionRestoreBookmark',
+        'export const indexed = storage["onNextSessionRestoreBookmark"]',
+        'export const { onNextSessionRestoreBookmark: extracted } = storage',
+        'const restoreKey = "onNextSessionRestoreBookmark"',
+        'export const alias = storage[restoreKey]',
+        'export const { [restoreKey]: computed } = storage',
+    ].join('\n'))
+    const result = lint()
+    assert.equal(result.status, 1, result.stderr)
+    const diagnostics = result.stdout.split('\n').filter(line => line.includes('error durable-storage-restore'))
+    assert.deepEqual(diagnostics.map(line => Number(line.split(':')[1])), [7, 8, 9, 11, 12])
+    assert.doesNotMatch(result.stdout, /onNextSessionRestoreBookmark/)
+})

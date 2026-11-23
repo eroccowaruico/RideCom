@@ -120,9 +120,11 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 | 通話回収の参照 | 公開資格のroom操作前にUserAccountへroom DO参照を登録し、公開IDの一致も再確認する。最大8参照。媒体のないroomは参照を外す。削除transactionで参照を受領記録へ移し、進行中のjoin応答もroomの直列処理後に回収する。表示名・グループ情報は追加保存しない |
 | 媒体回収 | 削除対象の公開IDに属するmember／準備中TURNだけを失効させ、WebSocketへCloseを送り、参加者通知から除外する。SFU channel・TURN資格を既存の確認付き回収処理で閉じ、内部account ID・公開IDの世代・roomが一致する予約だけを解放する。他ユーザーの通話は維持する。内部回収pathは公開APIとしてルーティングしない |
 | 媒体回収の再試行 | Apple取消とは独立に、同じ1分・5分・30分・2時間・6時間、初回込み最大6回のaccount alarmを使う。以後は最低1分間隔のDELETE再送。roomの既存lease回収も継続する。未完のroom参照は24時間を超えて保持し、全回収後に除去する。再起動・応答喪失でも同じ公開IDの回収だけを再実行する |
-| 回収と限界 | 完了後24時間で受領記録を削除する。provider障害・タイムアウト中は回収待ちを返し、物理ネットワーク切断の即時完了を保証しない。バックアップの物理削除や他端末内のオフラインデータ消去をこのAPIの完了として扱わない |
+| 回収と限界 | 完了後24時間で稼働中のストレージから受領記録を削除する。provider障害・タイムアウト中は回収待ちを返す。バックアップの物理削除・他端末内のオフラインデータ消去・物理ネットワークの切断はそれぞれ別に確認する。[SQLiteの復旧範囲](../../development/Cloudflare試用手順.md#sqliteの復旧範囲を確認する) |
 
 Appの再認証・削除確認・復旧・取消待ち／手動取消の案内・端末内データ消去は[App仕様](../App/通信仕様.md#アカウント削除と端末内消去)を参照する。稼働媒体回収の実サービス受入とサービス範囲の整理は[残課題](../../backlog/未実装課題.md)で続ける。Apple tokenを持たない場合でもデータ削除を進め、必要なら手動の認可取消を案内する方針は[Apple TN3194](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)に基づく。
+
+サーバー側の保存を復旧する場合も、削除済みのアカウント、失効済み端末、通知・招待・通話の許可を復活させない。現行のWorkerには、Cloudflareの過去時点への復旧を呼び出す処理がない。[削除と復旧の残課題](../../backlog/未実装課題.md#アカウント削除のサービス範囲と別端末への反映)
 
 Appleとのコード交換・取消の契約は[Token validation](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)と[Token revocation](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)を適用した。
 
