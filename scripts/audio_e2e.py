@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Real speech test with Mac and/or iPhone Simulator. Artifacts and test data are isolated."""
+
 from __future__ import annotations
 
 import argparse
@@ -281,6 +282,7 @@ def duplex_latencies(rows: Sequence[Mapping[str, object]]) -> list[float]:
         # Retain a 10 ms allowance for alignment resolution in the 125 ms budget.
         allowance = 0.01
         comparison = delay + allowance
+        row['captureToRenderLatencyWithAllowanceSeconds'] = comparison
         endpoint = f"{row['transport']} {row['scenario']} {row['role']}"
         if delay < -allowance:
             failures.append(f"{endpoint}: invalid negative measured latency of {delay * 1000:.2f} ms")

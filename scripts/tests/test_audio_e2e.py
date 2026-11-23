@@ -36,6 +36,7 @@ class Continuity(TypedDict):
 
 class MeasurementResult(TypedDict, total=False):
     captureToRenderLatencySeconds: float
+    captureToRenderLatencyWithAllowanceSeconds: float
 
 
 class Measurement(MeasurementResult):
@@ -403,12 +404,24 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         values = duplex_latencies(rows)
         self.assertAlmostEqual(values[0], 0.1)
         self.assertAlmostEqual(values[1], 0.08)
+        self.assertEqual(len(rows), 2)
+        for row, expected in zip(rows, (0.11, 0.09)):
+            assessed = row['captureToRenderLatencyWithAllowanceSeconds']
+            assert isinstance(assessed, float)
+            self.assertAlmostEqual(assessed, expected)
         rows[0]['firstOutputHostTime'] += 0.2
         rows[1]['firstOutputHostTime'] += 0.01
         message = r'310\.00 ms including 10 ms alignment allowance \(300\.00 ms measured\) exceeds 125 ms'
         with self.assertRaisesRegex(ValueError, message):
             duplex_latencies(rows)
-        self.assertAlmostEqual(rows[1]['captureToRenderLatencySeconds'], 0.09,
+        self.assertEqual(len(rows), 2)
+        for row, expected in zip(rows, (0.31, 0.10)):
+            assessed = row['captureToRenderLatencyWithAllowanceSeconds']
+            assert isinstance(assessed, float)
+            self.assertAlmostEqual(assessed, expected)
+        second_measurement = rows[1]['captureToRenderLatencySeconds']
+        assert isinstance(second_measurement, float)
+        self.assertAlmostEqual(second_measurement, 0.09,
                                msg='Keep every measurement even when the first endpoint fails')
         with self.assertRaises(ValueError):
             duplex_latencies(rows[:1])
