@@ -26,7 +26,7 @@ struct AdvancedGroupSettingsView: View {
                             Group {
                                 if let invitation = viewModel.outgoingGroupInvitation(
                                     forPendingMember: member.id, in: groupID),
-                                   let personID = invitation.personID, let person = viewModel.contactPerson(personID) {
+                                   let person = viewModel.personForGroupInvitation(invitation) {
                                     Button { invitationPerson = person } label: {
                                         VStack(alignment: .leading, spacing: AppSpacing.extraExtraSmall) {
                                             Text(verbatim: member.resolvedDisplayName)
