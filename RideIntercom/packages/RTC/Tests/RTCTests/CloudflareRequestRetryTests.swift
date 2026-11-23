@@ -1,10 +1,11 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import RTC
 
 @Suite(.serialized)
 struct CloudflareRequestRetryTests {
-    private func fetch(retry: Bool = true) async throws -> Data {
+    private func fetch(retry: Bool = true, method: String = "POST") async throws -> Data {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [LostConnectionProtocol.self]
         let session = URLSession(configuration: config)
@@ -13,7 +14,7 @@ struct CloudflareRequestRetryTests {
         return try await CloudflareRealtimeSignalingClient.fetch(
             .init(workerURL: origin, accessToken: "synthetic-test-token"),
             url: origin.appendingPathComponent(retry ? "sessions/s/pull" : "join"),
-            method: "POST", body: Data("{\"peerIds\":[\"peer\"]}".utf8), session: session,
+            method: method, body: Data("{\"peerIds\":[\"peer\"]}".utf8), session: session,
             retryConnectionLoss: retry)
     }
 
@@ -78,6 +79,80 @@ struct CloudflareRequestRetryTests {
         LostConnectionProtocol.configure(failures: 0, status: 403)
         do { _ = try await fetch(); Issue.record("Expected authorization failure") } catch {}
         #expect(LostConnectionProtocol.requests.count == 1)
+    }
+
+    @Test func aCancelledCallerStillMakesOneCleanupRequest() async throws {
+        LostConnectionProtocol.configure(failures: 0)
+        let cleanup = Task {
+            try? await Task.sleep(for: .seconds(2))
+            #expect(Task.isCancelled)
+            return try await fetch(retry: false, method: "DELETE")
+        }
+        cleanup.cancel()
+        _ = try await cleanup.value
+        #expect(LostConnectionProtocol.requests.map(\.httpMethod) == ["DELETE"])
+    }
+
+    @Test func incomingDataCannotExtendTheTotalDeadline() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ProgressingResponseProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let origin = try #require(URL(string: "https://progress.test"))
+        do {
+            _ = try await CloudflareRealtimeSignalingClient.fetch(
+                .init(workerURL: origin, accessToken: "synthetic-test-token"),
+                url: origin.appendingPathComponent("sessions/s/pull"),
+                method: "POST", body: nil, session: session, retryConnectionLoss: true,
+                totalTimeout: .milliseconds(240))
+            Issue.record("A response that kept transferring past the deadline succeeded")
+        } catch {
+            #expect((error as? URLError)?.code == .timedOut)
+        }
+        for _ in 0..<50 where !ProgressingResponseProtocol.wasStopped {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(ProgressingResponseProtocol.delivered > 0)
+        #expect(ProgressingResponseProtocol.wasStopped)
+        #expect(!ProgressingResponseProtocol.didFinish)
+    }
+}
+
+private final class ProgressingResponseProtocol: URLProtocol, @unchecked Sendable {
+    private struct Observation { var delivered = 0; var stopped = false; var finished = false }
+    private static let observation = Mutex(Observation())
+    private let stream = Mutex<Task<Void, Never>?>(nil)
+    static var delivered: Int { observation.withLock { $0.delivered } }
+    static var wasStopped: Bool { observation.withLock { $0.stopped } }
+    static var didFinish: Bool { observation.withLock { $0.finished } }
+
+    override static func canInit(with request: URLRequest) -> Bool { request.url?.host == "progress.test" }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let response = HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: nil, headerFields: nil
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        stream.withLock { task in
+            task = Task { @Sendable [weak self] in
+                for _ in 0..<32 {
+                    do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+                    guard let self, !Task.isCancelled else { return }
+                    Self.observation.withLock { $0.delivered += 1 }
+                    client?.urlProtocol(self, didLoad: Data(" ".utf8))
+                }
+                guard let self else { return }
+                Self.observation.withLock { $0.finished = true }
+                client?.urlProtocolDidFinishLoading(self)
+            }
+        }
+    }
+    override func stopLoading() {
+        stream.withLock { task in task?.cancel(); task = nil }
+        Self.observation.withLock { $0.stopped = true }
     }
 }
 

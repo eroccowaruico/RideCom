@@ -311,13 +311,39 @@ extension CloudflareRealtimeSignalingClient {
     }
     static func fetch(
         _ configuration: CloudflareRealtimeConfiguration, url: URL, method: String, body: Data?,
-        session: URLSession, retryConnectionLoss: Bool = false
+        session: URLSession, retryConnectionLoss: Bool = false, totalTimeout: Duration = .seconds(25)
     ) async throws -> Data {
         var request = URLRequest(url: url); request.httpMethod = method
         request.setValue("Bearer \(configuration.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        let deadline = ContinuousClock.now.advanced(by: .seconds(25))
+        let operation: @Sendable () async throws -> Data = { [request] in
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: totalTimeout)
+            return try await withThrowingTaskGroup(of: Data.self) { group in
+                group.addTask {
+                    try await fetchAttempts(
+                        request, session: session, deadline: deadline, retryConnectionLoss: retryConnectionLoss)
+                }
+                group.addTask {
+                    try await clock.sleep(until: deadline)
+                    throw URLError(.timedOut)
+                }
+                defer { group.cancelAll() }
+                guard let result = try await group.next() else { throw URLError(.cancelled) }
+                return result
+            }
+        }
+        // Session teardown still sends its one bounded request after the call task is cancelled.
+        if method == "DELETE" { return try await Task(operation: operation).value }
+        return try await operation()
+    }
+
+    private static func fetchAttempts(
+        _ initialRequest: URLRequest, session: URLSession, deadline: ContinuousClock.Instant,
+        retryConnectionLoss: Bool
+    ) async throws -> Data {
+        var request = initialRequest
         var retries = 0
         while true {
             let remaining = ContinuousClock.now.duration(to: deadline)
@@ -326,6 +352,7 @@ extension CloudflareRealtimeSignalingClient {
             request.timeoutInterval = Double(components.seconds) + Double(components.attoseconds) / 1e18
             do {
                 let (data, response) = try await session.data(for: request, delegate: NoRedirects())
+                guard ContinuousClock.now < deadline else { throw URLError(.timedOut) }
                 guard let response = response as? HTTPURLResponse else { throw Failure.invalidResponse }
                 guard response.url?.host == request.url?.host, response.url?.scheme == request.url?.scheme else {
                     throw Failure.invalidResponse
@@ -334,7 +361,7 @@ extension CloudflareRealtimeSignalingClient {
                    (try? JSONDecoder().decode(Rejection.self, from: data))?.code == "account_in_use" {
                     throw Failure.accountInUse
                 }
-                if response.statusCode == 403, url.path.hasSuffix("/pull"), data.count <= 32768,
+                if response.statusCode == 403, request.url?.path.hasSuffix("/pull") == true, data.count <= 32768,
                    (try? JSONDecoder().decode(Rejection.self, from: data))?.code == "peer_snapshot_changed" {
                     throw Failure.peerSnapshotChanged
                 }
