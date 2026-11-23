@@ -88,11 +88,11 @@ final class RecordingCallSession: RideIntercom.CallSession {
     }
 
     private var memberships: [String: UUID] = [:]
-    func authenticate(_ peerIDs: [String]) {
+    func authenticate(_ peerIDs: [String], route: RTC.RouteKind = .multipeer) {
         memberships = memberships.filter { peerIDs.contains($0.key) }
         for id in peerIDs where memberships[id] == nil { memberships[id] = UUID() }
         onEvent?(.authenticated(members: peerIDs.map {
-            .init(peer: .init(id: .init(rawValue: $0), displayName: $0), route: .multipeer,
+            .init(peer: .init(id: .init(rawValue: $0), displayName: $0), route: route,
                   isConnected: true, membershipID: memberships[$0])
         }))
     }

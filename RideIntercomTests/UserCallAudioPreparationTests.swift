@@ -31,24 +31,68 @@ import Testing
         #expect(!viewModel.isAudioReady && harness.inputBackend.stopCount > 0 && harness.outputBackend.stopCount > 0)
     }
 
-    @Test func aLatePeerAndRecoverableLossDoNotRestartTheRequestedNativeCapture() async throws {
-        let harness = AppTestSupport.makeHarness(enforceCallAccess: false), viewModel = harness.viewModel
+    @Test(arguments: [RouteKind.multipeer, .webRTC])
+    func mutedCallReceivesAfterWaitingAndRecoverableLoss(route: RouteKind) async throws {
+        var now = Date()
+        let harness = AppTestSupport.makeHarness(enforceCallAccess: false, callAccessNow: { now })
+        let viewModel = harness.viewModel
         defer { viewModel.disconnect() }
-        viewModel.setSoundIsolationEnabled(false); viewModel.selectGroup(try #require(viewModel.groups.first))
+        viewModel.setSoundIsolationEnabled(false)
+        viewModel.setRTCTransportRoutes([route])
+        viewModel.setCallDisconnectInterval(.tenMinutes)
+        viewModel.applyLocalMute(true)
+        viewModel.selectGroup(try #require(viewModel.groups.first))
         await AppTestSupport.waitUntil { viewModel.isAudioReady }
         try #require(viewModel.isAudioReady)
-        let deadline = viewModel.callDisconnectDeadline, starts = harness.inputBackend.startCount
-        harness.callSession.authenticate(["member-108"])
-        await AppTestSupport.waitUntil { harness.callSession.startMediaCallCount > 0 }
-        #expect(harness.callSession.startMediaCallCount == 1 && harness.inputBackend.startCount == starts)
+
+        let deadline = try #require(viewModel.callDisconnectDeadline)
+        let reference = viewModel.currentCallReference
+        let inputStarts = harness.inputBackend.startCount, outputStarts = harness.outputBackend.startCount
+        let peerID = "member-108"
+
+        func outputContains(_ sample: Float) -> Bool {
+            harness.outputBackend.scheduledFrames.contains { frame in
+                frame.samples.contains { abs($0 - sample) < 0.001 }
+            }
+        }
+
+        now = now.addingTimeInterval(300)
+        viewModel.handleCallTick(now: now.timeIntervalSince1970)
+        #expect(harness.callSession.enabledRouteValues.last == [route])
+        #expect(viewModel.isMuted && viewModel.lastReceivedAudioAt == nil)
+        #expect(!viewModel.isCallMediaStarted && viewModel.callDisconnectDeadline == deadline)
+
+        harness.callSession.authenticate([peerID], route: route)
+        await AppTestSupport.waitUntil { harness.callSession.startMediaCallCount == 1 }
+        try receivePeerAudio(0.2, sequence: 1, from: peerID, through: harness.callSession)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(0.2) }
+        #expect(outputContains(0.2))
+
         viewModel.handleTransportEvent(.linkFailed(willRetry: true))
-        #expect(viewModel.isAudioReady && harness.inputBackend.startCount == starts)
-        #expect(viewModel.callDisconnectDeadline == deadline)
-        harness.callSession.authenticate(["member-108"])
+        #expect(viewModel.isAudioReady && !viewModel.isCallMediaStarted)
+        now = now.addingTimeInterval(60)
+        viewModel.handleCallTick(now: now.timeIntervalSince1970)
+        harness.callSession.authenticate([peerID], route: route)
         await AppTestSupport.waitUntil { harness.callSession.startMediaCallCount == 2 }
-        #expect(
-            viewModel.isAudioReady && harness.inputBackend.startCount == starts
-                && viewModel.callDisconnectDeadline == deadline)
+        let capturedAt = ProcessInfo.processInfo.systemUptime
+        for index in 0..<8 {
+            harness.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: .intercomPacketAudio,
+                capturedAt: capturedAt + Double(index) * 0.02, samples: Array(repeating: 0.2, count: 960)))
+        }
+        try receivePeerAudio(-0.3, sequence: 2, from: peerID, through: harness.callSession)
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(-0.3) }
+        #expect(outputContains(-0.3), "The recovered call must schedule the new peer audio")
+        #expect(viewModel.isMuted && harness.callSession.sentAudioPackets.isEmpty)
+        #expect(viewModel.callDisconnectDeadline == deadline && viewModel.currentCallReference == reference)
+        #expect(harness.inputBackend.startCount == inputStarts && harness.outputBackend.startCount == outputStarts)
+    }
+
+    private func receivePeerAudio(
+        _ sample: Float, sequence: UInt64, from peerID: String, through session: RecordingCallSession
+    ) throws {
+        let frame = PCMFrame(sequenceNumber: sequence, format: .intercomPacketAudio,
+            capturedAt: ProcessInfo.processInfo.systemUptime, samples: Array(repeating: sample, count: 960))
+        session.receive(try AppTestSupport.receivedAudioPacket(peerID: peerID, frame: frame, codec: .pcm16))
     }
 
     @Test func aRetiredAudioInputCannotSendThroughTheNextCall() async throws {
