@@ -23,10 +23,19 @@ extension WidgetDestinationStore {
 
 @MainActor final class WidgetDestinationPublisher {
     private let store: WidgetDestinationStore
-    private let reload: () -> Void
+    private let reload: (CallSurfaceKind) -> Void
     private var published: WidgetDestinationSnapshot?
-    init(store: WidgetDestinationStore, reload: @escaping () -> Void = {
-        WidgetCenter.shared.reloadTimelines(ofKind: "RideIntercom.SelectedCall")
+    init(store: WidgetDestinationStore, reload: @escaping (CallSurfaceKind) -> Void = { kind in
+        switch kind {
+        case .selectedWidget:
+            WidgetCenter.shared.reloadTimelines(ofKind: kind.rawValue)
+        case .destinationControl:
+            #if os(iOS)
+            ControlCenter.shared.reloadControls(ofKind: kind.rawValue)
+            #else
+            break
+            #endif
+        }
     }) { self.store = store; self.reload = reload }
 
     func publish(_ snapshot: WidgetDestinationSnapshot) {
@@ -40,7 +49,10 @@ extension WidgetDestinationStore {
             if let file = store.fileURL { try? FileManager.default.removeItem(at: file) }
             published = nil
         }
-        reload()
+        reload(.selectedWidget)
+        #if os(iOS)
+        reload(.destinationControl)
+        #endif
     }
 }
 

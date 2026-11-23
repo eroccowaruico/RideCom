@@ -19,7 +19,9 @@ struct RideIntercomWidgets: WidgetBundle {
 /// the Control Center opens on the lock screen, where nothing irreversible belongs.
 struct DestinationCallControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
-        AppIntentControlConfiguration(kind: "RideIntercom.DestinationCall", provider: Provider()) { state in
+        AppIntentControlConfiguration(
+            kind: CallSurfaceKind.destinationControl.rawValue, provider: Provider()
+        ) { state in
             ControlWidgetButton(action: Self.action(for: state)) {
                 DestinationControlLabel(state: state)
             }

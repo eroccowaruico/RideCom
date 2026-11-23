@@ -146,9 +146,18 @@ struct WidgetDestinationTests {
   @Test func failedPublicationCanRetryAndUnchangedSuccessDoesNotReload() throws {
     let file = try temporaryFile()
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-    var reloads = 0
-    let publisher = WidgetDestinationPublisher(
-      store: .init(fileURL: file), reload: { reloads += 1 })
+    let store = WidgetDestinationStore(fileURL: file)
+    var reloads: [CallSurfaceKind] = []
+    var snapshotsAtReload: [WidgetDestinationSnapshot?] = []
+    #if os(iOS)
+    let expectedKinds: [CallSurfaceKind] = [.selectedWidget, .destinationControl]
+    #else
+    let expectedKinds: [CallSurfaceKind] = [.selectedWidget]
+    #endif
+    let publisher = WidgetDestinationPublisher(store: store) { kind in
+      reloads.append(kind)
+      snapshotsAtReload.append(store.readSnapshot())
+    }
     let item = WidgetCallDestination(id: "scope|group|\(UUID())", name: "Ride", kind: .group)
     let recent = WidgetCallDestination(id: "scope|user|\(UUID())", name: "Friend", kind: .user)
     let call = CallLivePresentation(
@@ -157,23 +166,33 @@ struct WidgetDestinationTests {
     let snapshot = WidgetDestinationSnapshot(
       destinations: [item, recent], currentDestinationID: item.id, currentCall: call,
       recentDestinationID: recent.id)
-    let store = WidgetDestinationStore(fileURL: file)
     publisher.publish(snapshot)
     #expect(store.readSnapshot() == snapshot)
     publisher.publish(snapshot)
-    #expect(reloads == 1)
+    #expect(reloads == expectedKinds)
+    #expect(snapshotsAtReload == Array(repeating: snapshot, count: expectedKinds.count))
     try Data("broken".utf8).write(to: file)
     publisher.publish(snapshot)
     #expect(store.readSnapshot() == snapshot)
-    #expect(reloads == 2)
-    try FileManager.default.removeItem(at: file)
-    try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+    #expect(reloads == expectedKinds + expectedKinds)
+    #expect(snapshotsAtReload == Array(repeating: snapshot, count: reloads.count))
+    let idle = WidgetDestinationSnapshot(destinations: [item, recent], recentDestinationID: recent.id)
+    publisher.publish(idle)
+    #expect(store.readSnapshot() == idle)
+    #expect(Array(reloads.suffix(expectedKinds.count)) == expectedKinds)
+    #expect(snapshotsAtReload.suffix(expectedKinds.count).allSatisfy { $0 == idle })
+    reloads.removeAll()
+    snapshotsAtReload.removeAll()
+    let oversized = WidgetCallDestination(id: item.id, name: String(repeating: "X", count: 1_048_577), kind: .group)
+    publisher.publish(.init(destinations: [oversized]))
+    #expect(reloads == expectedKinds)
+    #expect(snapshotsAtReload == Array(repeating: nil, count: expectedKinds.count))
+    #expect(!FileManager.default.fileExists(atPath: file.path))
     let empty = WidgetDestinationSnapshot(destinations: [])
     publisher.publish(empty)
-    try? FileManager.default.removeItem(at: file)
-    publisher.publish(empty)
     #expect(store.readSnapshot() == empty)
-    #expect(FileManager.default.fileExists(atPath: file.path))
+    #expect(reloads == expectedKinds + expectedKinds)
+    #expect(snapshotsAtReload.suffix(expectedKinds.count).allSatisfy { $0 == empty })
   }
 
   @Test func selectedWidgetShowsCurrentControlsOnlyForItsConfiguredDestination() throws {
@@ -212,6 +231,9 @@ struct WidgetDestinationTests {
     #expect(store.readSnapshot()?.currentCall(for: old) == nil)
   }
 
+}
+
+extension WidgetDestinationTests {
   @Test func callProjectionCarriesCurrentReferenceAndExplicitMuteAndClearsAtSignOut() async throws {
     let file = try temporaryFile()
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }

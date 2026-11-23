@@ -27,7 +27,7 @@ private struct SelectedCallProvider: AppIntentTimelineProvider {
 
 struct SelectedCallWidget: Widget {
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "RideIntercom.SelectedCall", intent: SelectWidgetCallDestination.self,
+        AppIntentConfiguration(kind: CallSurfaceKind.selectedWidget.rawValue, intent: SelectWidgetCallDestination.self,
             provider: SelectedCallProvider()) { entry in
             SelectedCallContent(destination: entry.destination, currentCall: entry.currentCall)
                 .containerBackground(for: .widget) { WidgetSurfaceBackground() }

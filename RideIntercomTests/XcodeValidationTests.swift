@@ -178,7 +178,7 @@ struct XcodeValidationTests {
         #expect(!SystemSurfaceScope.permitsSystemAccess(storageNamespace: namespace))
         #expect(store.fileURL == nil)
         #expect(store.readSnapshot() == nil)
-        let publisher = WidgetDestinationPublisher(store: store, reload: { reloads += 1 })
+        let publisher = WidgetDestinationPublisher(store: store, reload: { _ in reloads += 1 })
         publisher.publish(.init(destinations: []))
         #expect(resolutions == 0)
         #expect(reloads == 0)

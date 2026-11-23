@@ -1,6 +1,11 @@
 import CallControl
 import Foundation
 
+nonisolated enum CallSurfaceKind: String {
+    case selectedWidget = "RideIntercom.SelectedCall"
+    case destinationControl = "RideIntercom.DestinationCall"
+}
+
 nonisolated enum StandardCallStatus: String, Codable, Hashable, Sendable {
     case chooseDestination, ready, connecting, inCall, audioPaused, audioUnavailable
     var message: String {
