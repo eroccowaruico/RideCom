@@ -94,8 +94,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func stopMedia() {
-        clearPendingAudio()
-        mediaActive = false
+        suspendMediaDelivery()
         requestedMediaStart = nil
         enqueue(.stopMedia)
     }
@@ -103,7 +102,6 @@ final class RideIntercomCallSessionAdapter: CallSession {
     func disconnect() {
         connectionRequest = nil
         requestedMediaStart = nil
-        mediaActive = false
         activeRouteDebugTypeName = "RTC RouteManager"
         invalidateEvents()
         enqueue(.disconnect)
@@ -127,7 +125,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func setLocalMute(_ muted: Bool) {
         requestedLocalMute = muted
-        if muted { clearPendingAudio() } else if requestedMediaStart != nil { audioDelivery.begin() }
+        if muted { audioDelivery.suspend() } else if requestedMediaStart != nil { audioDelivery.begin() }
         enqueue(.localMute(muted))
     }
 
@@ -145,7 +143,10 @@ final class RideIntercomCallSessionAdapter: CallSession {
         audioDelivery.resume(with: rtcSession)
     }
 
-    private func clearPendingAudio() { audioDelivery.suspend() }
+    private func suspendMediaDelivery() {
+        mediaActive = false
+        audioDelivery.suspend()
+    }
 
     func sendControl(_ message: ControlMessage) {
         switch message {
@@ -168,7 +169,7 @@ extension RideIntercomCallSessionAdapter {
         guard commands.append(command, generation: eventGeneration) else {
             commandQueueFailed = true
             needsConfigurationRecovery = true
-            connectionRequest = nil; requestedMediaStart = nil; mediaActive = false
+            connectionRequest = nil; requestedMediaStart = nil
             invalidateEvents()
             commands.removeAll()
             _ = commands.append(.disconnect, generation: eventGeneration)
@@ -255,7 +256,7 @@ extension RideIntercomCallSessionAdapter {
     }
 
     private func invalidateEvents() {
-        clearPendingAudio()
+        suspendMediaDelivery()
         eventGeneration = UUID()
         publishedPeerIDs = nil
         publishedAuthenticatedMembers = nil
@@ -271,6 +272,7 @@ extension RideIntercomCallSessionAdapter {
             from: group, memberID: memberID, routes: enabledRoutes, audioPolicy: audioPolicy
         )
         connectionRequest = request
+        requestedMediaStart = nil
         invalidateEvents()
         if needsConfigurationRecovery {
             needsConfigurationRecovery = false
@@ -382,7 +384,7 @@ extension RideIntercomCallSessionAdapter {
     private func rebuildOwnedRTCSession() {
         // Invalidate once per pending configuration segment. Further updates can
         // replace that segment without allocating intermediate RTC sessions.
-        if !hasPendingConfiguration { invalidateEvents(); mediaActive = false }
+        if !hasPendingConfiguration { invalidateEvents() }
         hasPendingConfiguration = true
         if var request = connectionRequest {
             request.audioPolicy = audioPolicy

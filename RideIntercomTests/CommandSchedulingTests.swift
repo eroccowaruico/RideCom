@@ -113,6 +113,37 @@ struct CommandSchedulingTests {
         #expect(rtc.sentAudioSequences == [2])
     }
 
+    @Test func preparingTheSameDestinationRequiresNewMediaAdmission() async throws {
+        let rtc = FakeRTCCallSession()
+        let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
+        defer { adapter.disconnect() }
+        let group = IntercomSeedData.recentGroups[0]
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
+        adapter.connect(group: group)
+        adapter.startMedia()
+        await rtc.waitForOperation("startMedia")
+        send(.init(sequenceNumber: 1, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil { rtc.sentAudioSequences == [1] }
+        try #require(rtc.sentAudioSequences == [1])
+
+        adapter.connect(group: group)
+        adapter.setLocalMute(true)
+        await AppTestSupport.waitUntil { rtc.localMuteValues.last == true }
+        try #require(rtc.localMuteValues.last == true)
+        adapter.setLocalMute(false)
+        await AppTestSupport.waitUntil { rtc.localMuteValues.last == false }
+        try #require(rtc.localMuteValues.last == false)
+        send(.init(sequenceNumber: 2, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil(timeout: .milliseconds(150)) { rtc.sentAudioSequences != [1] }
+        #expect(rtc.sentAudioSequences == [1], "Preparing a new connection must revoke the previous media admission")
+
+        adapter.startMedia()
+        await AppTestSupport.waitUntil { rtc.operations.filter { $0 == "startMedia" }.count == 2 }
+        send(.init(sequenceNumber: 3, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil { rtc.sentAudioSequences.last == 3 }
+        #expect(rtc.sentAudioSequences == [1, 3])
+    }
+
     @Test func slowConnectionKeepsOnlyFinalSettingsAndPreservesMediaOrder() async {
         let rtc = FakeRTCCallSession(); let gate = ManualAsyncGate(); rtc.prepareGate = gate
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
