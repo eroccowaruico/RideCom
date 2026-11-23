@@ -512,6 +512,8 @@ def snapshot(out: Path) -> None:
 
 # Tests of the regular-width layout. They skip themselves below 600x500 points.
 IPAD_ONLY_TESTS = ['RideIntercomUITests/DesignSystemCallUITests/testRegularWidthUsesSeparateCallColumns']
+# This case checks distinct iPhone margins and iPad sidebar behavior.
+IPAD_TESTS = [*IPAD_ONLY_TESTS, 'RideIntercomUITests/AdaptiveInterfaceUITests/testListsAndSettingsKeepReadableWidth']
 IPAD_DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB'
 WATCH_DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-12-46mm'
 RECOVERY_TEST = 'RideIntercomUITests/RideIntercomUITests/testCorruptGroupStoreRecovery'
@@ -526,10 +528,10 @@ def ios_test_selection(selectors: Sequence[str]) -> tuple[list[str], list[str], 
     device_specific = [RECOVERY_TEST, *IPAD_ONLY_TESTS]
     iphone = [selector for selector in selectors
               if not any(includes_test(test, selector) for test in device_specific)]
-    selected_special = [test for test in device_specific
+    selected_special = [test for test in [RECOVERY_TEST, *IPAD_TESTS]
                         if any(includes_test(selector, test) for selector in selectors)]
     return (iphone, [test for test in selected_special if test == RECOVERY_TEST],
-            [test for test in selected_special if test in IPAD_ONLY_TESTS])
+            [test for test in selected_special if test in IPAD_TESTS])
 
 
 def xctestrun_skips(path: str | os.PathLike[str]) -> list[str]:
@@ -611,7 +613,7 @@ def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> Non
         iphone_tests, recovery_tests, ipad_tests = ios_test_selection(selectors)
     else:
         iphone_tests = ['RideIntercomUITests'] if mode == 'ios-ui' else []
-        recovery_tests, ipad_tests = [RECOVERY_TEST], IPAD_ONLY_TESTS
+        recovery_tests, ipad_tests = [RECOVERY_TEST], IPAD_TESTS
     try:
         with exclusive_run(simulator_resource_root() / 'run.lock'):
             if not runner.run('simulator-runtimes', ['xcrun', 'simctl', 'list', 'runtimes', '-j'],

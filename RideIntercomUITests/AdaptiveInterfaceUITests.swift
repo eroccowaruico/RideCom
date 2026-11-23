@@ -37,12 +37,15 @@ final class AdaptiveInterfaceUITests: XCTestCase {
         tab("ユーザー", id: "usersTab")
         let users = element("standardUsersList")
         XCTAssertTrue(users.waitForExistence(timeout: 5))
-        // A fresh install has no rows to measure: opening and cancelling a new invitation leaves one row.
+        // A fresh install has no rows to measure. Save a person through the normal
+        // form so the test measures a real list row without sending an invitation.
         if !users.cells.firstMatch.waitForExistence(timeout: 2) {
             app.buttons["inviteContactButton"].firstMatch.tap()
-            let close = app.buttons["closeContactInvitationButton"].firstMatch
-            XCTAssertTrue(close.waitForExistence(timeout: 5))
-            close.tap()
+            let save = app.buttons["saveContactPersonButton"].firstMatch
+            XCTAssertTrue(save.waitForExistence(timeout: 5))
+            save.tap()
+            XCTAssertTrue(app.staticTexts["contactPersonSavedName"].firstMatch.waitForExistence(timeout: 5))
+            app.buttons["closeContactInvitationButton"].firstMatch.tap()
         }
         checkBothOrientations("Users") { self.assertReadableWidth(users.cells.firstMatch, in: users) }
         tab("設定", id: "settingsTab")

@@ -106,10 +106,14 @@ class ValidationTests(unittest.TestCase):
         design = 'RideIntercomUITests/DesignSystemCallUITests'
         recovery = 'RideIntercomUITests/RideIntercomUITests/testCorruptGroupStoreRecovery'
         ipad = self.module.IPAD_ONLY_TESTS[0]
+        adaptive = 'RideIntercomUITests/AdaptiveInterfaceUITests/testListsAndSettingsKeepReadableWidth'
         partition = self.module.ios_test_selection
         self.assertEqual(partition([contact, design, recovery]), ([contact, design], [recovery], [ipad]))
         self.assertEqual(partition([ipad + '()']), ([], [], [ipad]))
         self.assertEqual(partition([contact]), ([contact], [], []))
+        self.assertEqual(partition([adaptive]), ([adaptive], [], [adaptive]))
+        self.assertEqual(partition([contact, 'RideIntercomUITests/AdaptiveInterfaceUITests']),
+                         ([contact, 'RideIntercomUITests/AdaptiveInterfaceUITests'], [], [adaptive]))
 
     def test_iphone_audio_restore_failure_still_releases_the_owned_simulator(self) -> None:
         from scripts import audio_e2e
