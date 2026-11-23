@@ -8,6 +8,69 @@ import Testing
 extension GroupDeliveryWorkerTests {
     enum ContactMailboxCase: CaseIterable { case group, contact, renewedAuthor, background, scheduledRefresh }
 
+    @Test(.timeLimit(.minutes(1)))
+    func backgroundAcceptanceCompletesDuringAnExistingBackgroundRefresh() async throws {
+        try await withWorker {
+            let author = GroupDeliveryTestIdentity("handoff-author")
+            let recipient = GroupDeliveryTestIdentity("handoff-recipient")
+            defer { author.remove(); recipient.remove() }
+            try await register(author); try await register(recipient)
+            let left = try author.harness(knowing: [], onDisk: true).viewModel
+            let right = try recipient.harness(knowing: [], onDisk: true).viewModel
+            defer { left.stopGroupDeliverySync(); right.stopGroupDeliverySync(); left.disconnect(); right.disconnect() }
+            let calls = try startMailboxCalls(sender: left, recipient: right)
+            let draft = GroupInvitationDraft(name: "Friend", suggestedName: "Rider")
+            let (share, _) = try shareContactInvitation(from: left, invited: calls.invited, draft: draft,
+                                                       includesGroup: true)
+            let session = workerSession()
+            let client = InternetAccountClient(session: session)
+            let transfer = RecordingBackgroundInvitationTransfer()
+            right.invitationBackgroundTransfer = transfer
+            right.groupDeliveryClient = client
+            try #require(right.previewContactInvitation(share.url))
+            try #require(right.acceptPresentedContactInvitation())
+            await right.invitationInternetReplyWindow?.task?.value
+            try #require(right.contactInvitationRecord(share.id)?.state == .pending)
+            left.groupDeliveryClient = client
+            try await completeBackgroundAcceptanceWhileRefreshing(
+                share.id, sender: left, recipient: right, transfer: transfer, session: session)
+            #expect(right.contactInvitationRecord(share.id)?.state == .delivered)
+            #expect(!right.pendingContactInvitations.contains { $0.id == share.id })
+            #expect(left.activeGroupID == calls.author && right.activeGroupID == calls.recipient)
+            try verifyMailboxGroup(calls.invited, sender: left, recipient: right, recipientID: recipient.memberID)
+        }
+    }
+
+    private func completeBackgroundAcceptanceWhileRefreshing(
+        _ id: UUID, sender left: IntercomViewModel, recipient right: IntercomViewModel,
+        transfer: RecordingBackgroundInvitationTransfer, session: URLSession
+    ) async throws {
+        let key = try #require(transfer.enqueued.first)
+        let request = try #require(transfer.requests[key])
+        let writes = GroupWorkerHTTPBridge.contactAcceptanceWrites.withLock { $0 }
+        let gate = ManualAsyncGate()
+        GroupWorkerHTTPBridge.holdNextInvitationReceipt.withLock { $0 = gate }
+        right.setGroupDeliveryForeground(false)
+        let refresh = Task { await right.refreshInvitationRepliesInBackground() }
+        defer {
+            refresh.cancel()
+            GroupWorkerHTTPBridge.holdNextInvitationReceipt.withLock { $0 = nil }
+            Task { await gate.release() }
+        }
+        await gate.waitForEntry()
+        let (reply, response) = try await session.data(for: request)
+        try #require((response as? HTTPURLResponse)?.statusCode == 200)
+        await refreshPersonalInvitationWhileInBackground(left)
+        try #require(left.contactInvitationRecord(id)?.internetAcknowledged == true)
+        transfer.active.remove(key)
+        right.applyBackgroundInvitationResponse(reply, for: key)
+        #expect(right.contactInvitationRecord(id)?.internetAcceptanceSubmitted == true)
+        await gate.release()
+        #expect(await refresh.value)
+        #expect(transfer.enqueued.count == 1)
+        #expect(GroupWorkerHTTPBridge.contactAcceptanceWrites.withLock { $0 } == writes)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ContactMailboxCase.allCases)
     func contactInvitationCompletesWhileTheTwoAppsConnectAtDifferentTimes(scenario: ContactMailboxCase) async throws {
         try await withWorker {

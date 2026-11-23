@@ -2,20 +2,27 @@ import Foundation
 import RTC
 
 @MainActor final class InvitationInternetReplyWindow {
+    enum Purpose { case scheduledRefresh, retryWindow }
+
     let id = UUID()
     let client: InternetAccountClient
     let access: CallNotificationServiceAccess
     let generation: UUID
+    let purpose: Purpose
     var task: Task<Void, Never>?
     var deadline: Task<Void, Never>?
     var endBackgroundTime: (() -> Void)?
     var openedInvitationIDs: Set<UUID> = []
     var submittedReceiptIDs: Set<UUID> = []
+    fileprivate var backgroundAcceptanceIDs: Set<UUID> = []
 
-    init(client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID) {
+    init(
+        client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID, purpose: Purpose
+    ) {
         self.client = client
         self.access = access
         self.generation = generation
+        self.purpose = purpose
     }
 }
 
@@ -45,11 +52,26 @@ extension IntercomViewModel {
               let access = invitationInternetAccess,
               hasInternetInvitationReplies(access: access, includeUnshared: false)
         else { return false }
-        let window = InvitationInternetReplyWindow(client: client, access: access, generation: accountAccessID)
+        let window = InvitationInternetReplyWindow(
+            client: client, access: access, generation: accountAccessID, purpose: .scheduledRefresh)
         invitationInternetReplyWindow = window
         defer { stopInvitationInternetReply(id: window.id) }
         if let transfer = invitationBackgroundTransfer, !transfer.hasRestored { await transfer.restore() }
-        return await synchronizeInvitationInternetReplies(window, includeUnshared: false)
+        guard await synchronizeInvitationInternetReplies(window, includeUnshared: false) else { return false }
+        guard !window.backgroundAcceptanceIDs.isEmpty else { return true }
+        let records = internetContactReplyRecords(access: window.access, includeUnshared: false).filter {
+            window.backgroundAcceptanceIDs.contains($0.id) && $0.internetAcceptanceSubmitted == true
+        }
+        return await synchronizeInternetContactReplies(window, records: records)
+    }
+
+    func contactAcceptanceSubmittedInBackground(_ id: UUID) {
+        if let window = invitationInternetReplyWindow, window.purpose == .scheduledRefresh, !groupDeliveryIsForeground,
+           internetReplyWindowIsCurrent(window) {
+            window.backgroundAcceptanceIDs.insert(id)
+        } else {
+            requestInvitationInternetReply()
+        }
     }
 
     func requestInvitationInternetReply(restart: Bool = false) {
@@ -58,13 +80,14 @@ extension IntercomViewModel {
         scheduleBackgroundContactAcceptances(access: access)
         let contactIDs = Set(internetContactReplyRecords(access: access).map(\.id))
         if let window = invitationInternetReplyWindow, !restart, window.access == access,
-            window.generation == accountAccessID, window.task != nil || !groupDeliveryIsForeground {
+            window.generation == accountAccessID, window.purpose == .retryWindow || !groupDeliveryIsForeground {
             activeInternetContactReplyIDs = contactIDs
             return
         }
         stopInvitationInternetReply()
 
-        let window = InvitationInternetReplyWindow(client: client, access: access, generation: accountAccessID)
+        let window = InvitationInternetReplyWindow(
+            client: client, access: access, generation: accountAccessID, purpose: .retryWindow)
         let id = window.id
         invitationInternetReplyWindow = window
         activeInternetContactReplyIDs = contactIDs
@@ -112,7 +135,7 @@ extension IntercomViewModel {
     func reconcileInvitationInternetReply() {
         guard let window = invitationInternetReplyWindow else { return }
         if !internetReplyWindowIsCurrent(window)
-            || (window.task != nil && !hasInternetInvitationReplies(access: window.access)) {
+            || (window.purpose == .retryWindow && !hasInternetInvitationReplies(access: window.access)) {
             stopInvitationInternetReply(id: window.id)
         } else {
             activeInternetContactReplyIDs = Set(internetContactReplyRecords(access: window.access).map(\.id))

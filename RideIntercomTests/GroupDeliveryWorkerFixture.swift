@@ -85,6 +85,7 @@ private enum WorkerFixtureFailure: Error { case unavailable, unsupportedNode }
 final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
     nonisolated static let ordinaryReplyInboxReads = Mutex(0)
     nonisolated static let contactAcceptanceWrites = Mutex(0)
+    nonisolated static let holdNextInvitationReceipt = Mutex<ManualAsyncGate?>(nil)
     nonisolated static let holdNextRestoreDeviceRead = Mutex<ManualAsyncGate?>(nil)
     nonisolated static let interruptNextRestoreRetirement = Mutex(false)
     nonisolated static let interruptNextRestoreWithdrawal = Mutex(false)
@@ -135,6 +136,13 @@ final class GroupWorkerHTTPBridge: URLProtocol, @unchecked Sendable {
                 let status = (result as? HTTPURLResponse)?.statusCode ?? 500
                 try Self.checkRestoreReply(path: original.path, method: value.httpMethod, status: status)
                 await Self.holdRestoreDeviceReadIfRequested(path: original.path, method: value.httpMethod)
+                if original.path == "/api/ordinary-group-replies/receipt",
+                   let gate = Self.holdNextInvitationReceipt.withLock({ value in
+                       defer { value = nil }
+                       return value
+                   }) {
+                    await gate.wait()
+                }
                 if status == 200, value.url?.path == "/api/ordinary-group-replies/inbox" {
                     Self.ordinaryReplyInboxReads.withLock { $0 += 1 }
                 }

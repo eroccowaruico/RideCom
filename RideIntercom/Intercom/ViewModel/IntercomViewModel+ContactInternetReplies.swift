@@ -50,7 +50,7 @@ extension IntercomViewModel {
                   Int64(exactly: (record.expiresAt * 1000).rounded(.down)) == reply.expiresAt else { return }
             do {
                 try groupRepository.markContactInternetAcceptanceSubmitted(record.id, receiptID: reply.id)
-                requestInvitationInternetReply()
+                contactAcceptanceSubmittedInBackground(record.id)
             } catch { reportGroupStorageError(error) }
         }
     }
