@@ -6,17 +6,6 @@ import Foundation
 #endif
 
 #if canImport(AVFAudio)
-extension AVAudioFormat {
-    convenience init?(audioFormat: AudioFormat) {
-        self.init(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: audioFormat.sampleRate,
-            channels: AVAudioChannelCount(audioFormat.channelCount),
-            interleaved: false
-        )
-    }
-}
-
 extension PCMFrame {
     init?(
         buffer: AVAudioPCMBuffer,
@@ -52,23 +41,8 @@ extension PCMFrame {
     }
 
     func makePCMBuffer() throws -> AVAudioPCMBuffer {
-        _ = try validated()
-        guard let avFormat = AVAudioFormat(audioFormat: format),
-              let buffer = AVAudioPCMBuffer(
-                pcmFormat: avFormat,
-                frameCapacity: AVAudioFrameCount(samples.count / format.channelCount)
-              ),
-              let channelData = buffer.floatChannelData
-        else {
+        guard let buffer = try makePlanarFloat32Buffer() else {
             throw AudioStreamError.invalidFrame("failed to create PCM buffer")
-        }
-
-        let frameCount = samples.count / format.channelCount
-        buffer.frameLength = AVAudioFrameCount(frameCount)
-        for frameIndex in 0..<frameCount {
-            for channelIndex in 0..<format.channelCount {
-                channelData[channelIndex][frameIndex] = samples[frameIndex * format.channelCount + channelIndex]
-            }
         }
         return buffer
     }

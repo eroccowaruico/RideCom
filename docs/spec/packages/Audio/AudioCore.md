@@ -19,6 +19,7 @@
 |---|---|
 | PCM format | resample |
 | PCM frame | channel mix |
+| Float32 PCMをチャンネルごとの出力バッファに並べ替える処理 | 出力機器の選択と再生予約 |
 | encoded audio metadata | gain / volume |
 | signal measurement | limiter / VAD判断 / noise reduction |
 | processing report / failure | hardware / codec / transport |
@@ -27,7 +28,7 @@
 SessionManager -> PCMFrame -> AudioMixer -> PCMFrame -> Codec -> RTC
                          ^                    ^
                          |                    |
-                    AudioCore vocabulary only
+                AudioCore PCMの型とバッファ生成
 ```
 
 ## Public Contract
@@ -40,6 +41,10 @@ SessionManager -> PCMFrame -> AudioMixer -> PCMFrame -> Codec -> RTC
 | `EncodedAudioMetadata` | encoded payload の codec、format、timestamp、sample count、bit rate を保持する |
 | `AudioProcessingReport` | package内処理の source/target format、sample count、結果を表す |
 | `AudioProcessingFailure` | 継続可能な処理失敗を Codable な診断として表す |
+
+AudioMixerとSessionManagerは、`AudioFormat.makePlanarFloat32Format()` でチャンネル別のAVFAudio形式を作る。周波数とチャンネル数を維持する。形式が不正か生成できない場合は `nil` を返す。
+
+`PCMFrame.makePlanarFloat32Buffer()` はフレームを検証する。時系列順のサンプルをチャンネルごとの領域にコピーし、値やサンプル数を保つ。フレームが不正なら検証エラーを返す。形式またはバッファを生成できなければ `nil` を返し、呼出元がそれぞれの出力エラーとして扱う。
 
 ## External Specification
 

@@ -26,7 +26,7 @@ public final class AudioMixer {
 	}
 
 	public convenience init(engine: AVAudioEngine = AVAudioEngine(), audioFormat: AudioFormat) throws {
-		guard audioFormat.isValid, let format = AVAudioFormat(audioFormat: audioFormat) else {
+		guard let format = audioFormat.makePlanarFloat32Format() else {
 			throw AudioMixerError.formatCreationFailed(audioFormat)
 		}
 		self.init(engine: engine, format: format)

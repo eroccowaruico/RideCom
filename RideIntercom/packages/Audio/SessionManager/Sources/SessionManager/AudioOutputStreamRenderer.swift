@@ -187,7 +187,7 @@ private final class OutputPCMConversion {
            AudioFormat(avAudioFormat: converter.outputFormat) == target {
             return converter
         }
-        guard let input = AVAudioFormat(audioFormat: source), let output = AVAudioFormat(audioFormat: target),
+        guard let input = source.makePlanarFloat32Format(), let output = target.makePlanarFloat32Format(),
               let native = AVAudioConverter(from: input, to: output) else {
             throw AudioStreamError.invalidFrame("Cannot create native output conversion")
         }

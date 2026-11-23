@@ -65,7 +65,7 @@ public final class SystemAudioOutputStreamBackend: AudioOutputStreamBackend {
                 if !engine.attachedNodes.contains(playerNode) {
                     engine.attach(playerNode)
                 }
-                guard let format = AVAudioFormat(audioFormat: hardwareFormat) else {
+                guard let format = hardwareFormat.makePlanarFloat32Format() else {
                     throw AudioStreamError.invalidFrame("failed to create output format")
                 }
                 engine.disconnectNodeOutput(playerNode)

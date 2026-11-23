@@ -127,17 +127,6 @@ extension AudioFormat {
 	}
 }
 
-extension AVAudioFormat {
-	convenience init?(audioFormat: AudioFormat) {
-		self.init(
-			commonFormat: .pcmFormatFloat32,
-			sampleRate: audioFormat.sampleRate,
-			channels: AVAudioChannelCount(audioFormat.channelCount),
-			interleaved: false
-		)
-	}
-}
-
 extension PCMFrame {
 	init?(
 		buffer: AVAudioPCMBuffer,
@@ -169,28 +158,9 @@ extension PCMFrame {
 	}
 
 	func makePCMBuffer() throws -> AVAudioPCMBuffer {
-		_ = try validated()
-		guard let avFormat = AVAudioFormat(audioFormat: format),
-			  let buffer = AVAudioPCMBuffer(
-				pcmFormat: avFormat,
-				frameCapacity: AVAudioFrameCount(frameCount)
-			  ),
-			  let channels = buffer.floatChannelData else {
+		guard let buffer = try makePlanarFloat32Buffer() else {
 			throw AudioMixerError.formatCreationFailed(format)
 		}
-
-		buffer.frameLength = AVAudioFrameCount(frameCount)
-        if format.channelCount == 1 {
-            samples.withUnsafeBufferPointer { input in
-                if let base = input.baseAddress { channels[0].update(from: base, count: frameCount) }
-            }
-        } else {
-            for frameIndex in 0..<frameCount {
-                for channelIndex in 0..<format.channelCount {
-                    channels[channelIndex][frameIndex] = samples[frameIndex * format.channelCount + channelIndex]
-                }
-            }
-        }
 		return buffer
 	}
 }
