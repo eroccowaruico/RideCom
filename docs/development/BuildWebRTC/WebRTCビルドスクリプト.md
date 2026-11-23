@@ -67,7 +67,7 @@ Archiveから書き出した配布物のWebRTCを、取り込み時のZIPとビ�
 
 次回の通常更新では公式 WebRTC のコミットを固定する。上流のソース、ビルド定義、依存部品には独自パッチを当てず、公式の GN 引数とターゲットを使う。各構成で不要な映像オプションを無効にしても、公式の Apple 向け framework に映像 API が含まれることがある。シンボルや公開ヘッダーに含まれるだけなら、カメラを除くための設定変更や再ビルドは不要とする。
 
-RideCom の実装ではカメラを起動せず、映像トラックを作らない。配布前にはアプリの呼出元と権限を確認し、RTC のネゴシエーション試験で音声・映像トラックを含む入力の拒否と DataChannel の通過を確認する。採用済み ZIP に撮影機能を外すパッチを使った履歴がある。次の通常更新では無改変版を使う。過去の別ビルドへの通知だけを理由に採用を保留したり、別ターゲットを探したりしない。対象ビルドで実際に配布上の指摘を受けた場合は、[配布時の確認手順](../OS権限と配布設定.md#生成物での確認)に従う。
+RideCom の実装ではカメラを起動せず、映像トラックを作らない。配布前にはアプリの呼出元と権限を確認し、RTC のネゴシエーション試験で音声・映像トラックを含む入力の拒否と DataChannel の通過を確認する。過去のZIPには撮影機能を外すパッチを使った記録がある。[現在のZIP](#現行sdkとの組合せ)は無改変の公式ソースから作成した。過去の別ビルドへの通知だけを理由に採用を保留したり、別ターゲットを探したりしない。対象ビルドで実際に配布上の指摘を受けた場合は、[配布時の確認手順](../OS権限と配布設定.md#生成物での確認)に従う。
 
 固定branchで再現する場合も、上位スクリプトに `WEBRTC_BRANCH` を渡す。
 
@@ -358,16 +358,17 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 
 | 項目 | 採用内容 |
 |---|---|
-| 確認日 | 2026-11-21 |
-| WebRTCのコミット | `a9a462f4232b49f63ed3b22b0ff57725c82625ec` |
+| 確認日 | 2026-11-23 |
+| WebRTCのコミット | `f0b51cdb2fd2df5a44c2f05ccc3dc41f5f429362` |
 | XcodeとSDK | Xcode 27.2（27B52）。iOS実機・iOS Simulator・macOSのSDKはいずれも27.2 |
-| WebRTCのコンパイル警告 | Apple SDKの非推奨APIを使用する箇所で警告18件を記録 |
-| GN設定 | WebRTC本体だけ `treat_warnings_as_errors=false`。警告はログに保存し、compiler/linker errorは失敗のまま扱う。`rtc_enable_protobuf=false` でイベントログのProtobuf出力を外す |
+| GN設定 | 全構成で `is_debug=false`。WebRTC本体の `treat_warnings_as_errors=false` と、イベントログのProtobufを外す `rtc_enable_protobuf=false` を指定する |
 | 成果物 | iOS arm64、iOS Simulator arm64/x86_64、macOS arm64/x86_64 |
-| 採用時の検証 | 全sliceの実行ファイル・公開ヘッダー・プライバシーマニフェストとiOS実機用dSYMを検査。組み立てたZIPでMacのRTC回帰143件、ネイティブWebRTC回帰6件、SwiftとWorkerのローカル通信1件が通った。iOS実機向けRTCのReleaseビルドと、同じarm64バイナリを使ったiPhone Simulatorの経路切替試験4条件も通った |
-| チェックサムとビルド情報 | ZIPと同じディレクトリの `WebRTC.xcframework.metadata` を参照する。WebRTCとdepot_toolsのコミット、GN・Xcode・SDKのバージョン、パッチと5構成の設定、ZIPの照合値を記録する |
+| 採用時の検証 | 5構成の実行ファイル、公開ヘッダー、プライバシーマニフェストとiOS実機用dSYMを照合。共有側のRTC回帰148件とSwift・Workerの通信試験1件が通過。iPhone Simulatorの試験で両方向98/98フレームが一致した |
+| チェックサムとビルド情報 | ZIPと同じディレクトリの `WebRTC.xcframework.metadata`。上流コミット、depot_tools、GNとSDK、5構成の引数の照合値、ZIPのSHA-256を記録 |
 
-ビルドで生じたvendor警告をゼロとは記録しない。`ASSEMBLE_ONLY=true` は生成済みの構成を使った組み立ての確認用とする。採用には通常ビルドで生成した ZIP と対応する記録を使う。
+署名したiPhone用Archiveと採用したZIPの照合は[Build 2263の検証](../../validation/history/配布ビルド採番とOrganizer認証調査.md#採用した無改変webrtcでbuild-2263を作る)を参照する。以前の採用記録と配布候補は同じ検証文書に残す。
+
+ビルドで生じたvendor警告をゼロとは記録しない。`ASSEMBLE_ONLY=true` は生成済みの構成を使った組み立ての確認用とする。採用には通常ビルドで生成したZIPと対応する記録を使う。
 
 ## 掃除対象の検証
 

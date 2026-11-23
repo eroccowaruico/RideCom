@@ -185,6 +185,16 @@ macOSのRTC試験148件が通った。iPhone SimulatorのBuild 2262では、音�
 
 ZIPを展開した検査では、iOS向けのdSYMに個人のホームパスが2件残っていた。共有元からのビルドは再現できたが、このZIPの共有と配布は保留する。公式の同じコミットを個人名のない作業パスでビルドし、新しいZIPでパスの不在と署名・同梱物を確認する。[試用の残作業](../../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)
 
+2026-11-21に手元で採用したWebRTC `a9a462f423` では、Apple SDKの非推奨APIに関する警告18件を記録した。当時のZIPでMacのRTC回帰143件、ネイティブWebRTCの6件、SwiftとWorkerの通信試験1件が通った。iPhone向けReleaseビルドと、iPhone Simulatorでの経路切替4条件も通った。
+
+### 採用した無改変WebRTCでBuild 2263を作る
+
+2026-11-23。公式のWebRTCコミット `f0b51cdb2f` とその依存を、個人名を含まない作業パスに展開した。上流ソースとビルド定義に変更を加えず、Release用の5構成からZIPを作成した。ZIPと由来の記録を同じ取り込み操作で採用した。展開した323項目を検査し、dSYMを含めて個人のホームパスが0件と確認した。
+
+共有mainの `c50958c3` のソースと採用したZIPで、iPhone用Build 2263のArchiveを作成した。AppとWidgetの署名、AppとWebRTCのdSYMのUUID、ZIPと同梱WebRTCのARM64の31セクションを照合した。Appは本番Workerを参照する。Archiveに署名した時点の通常通知の環境は `development`。Xcodeの標準保存先へ登録した。
+
+macOSでRTCの回帰148件、SwiftとローカルWorkerを用いた2人の接続・更新・再参加の試験1件が通った。iPhone SimulatorのBuild 2264は、ローカル中継で両方向98/98フレームが一致した。次回用の共通採番は2265。試用配布と実機での通話は、引き続き[試用の残作業](../../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)で追う。
+
 ## 2,280コミットの区切りでiOS Build 2213をArchiveする
 
 2026-11-23。手元のmainの第一親で2,280件目の `d0f04ffd` に対応する共有main `b774c08d` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2213。署名とApp・WebRTCのdSYMが一致し、実行ファイルに本番Workerの接続先が入っていた。Watch App、カメラの利用目的、CallKitとPushToTalkの動的リンク、iCloudの権限は含まれなかった。署名時の通常通知の環境は `development`。[標準のArchive手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
