@@ -315,7 +315,7 @@ extension CallView {
     }
 
     private var connectionIconName: String {
-        return switch viewModel.selectedGroupConnectionState {
+        return switch viewModel.presentedConnectionState {
         case .idle:
             "wifi.slash"
         case .localConnecting, .internetConnecting:
@@ -328,7 +328,7 @@ extension CallView {
     }
 
     private var connectionStatusColor: Color {
-        return switch viewModel.selectedGroupConnectionState {
+        return switch viewModel.presentedConnectionState {
         case .idle:
             AppColorPalette.neutral
         case .localConnecting, .internetConnecting:
@@ -341,7 +341,7 @@ extension CallView {
     }
 
     private var routeIconName: String {
-        switch viewModel.selectedGroupConnectionState {
+        switch viewModel.presentedConnectionState {
         case .localConnected, .localConnecting:
             "dot.radiowaves.left.and.right"
         case .internetConnected, .internetConnecting:

@@ -242,7 +242,7 @@ Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）に表�
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 表示仕様 | 異常系の考え方 |
 |---|---|---|---|---|---|---|
 | 接続ボタン | `callScreen` | `connectButton` | `Connect` | `canDisconnectCall == false` | 主要ボタン | 音声起動失敗と接続失敗を分ける |
-| 切断ボタン | `callScreen` | `disconnectButton` | `Disconnect` | `canDisconnectCall == true` | 主要ボタン | 音声起動失敗と接続失敗を分ける |
+| 切断ボタン | `callScreen` | `disconnectButton` | `Disconnect` | `canDisconnectCall == true` | 主要ボタン | 表示先が進行中の通話と一致する。進行中かどうかはAppの共通判定を使う |
 
 ## 参加者
 

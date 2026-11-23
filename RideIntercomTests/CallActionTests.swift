@@ -45,9 +45,11 @@ struct CallActionTests {
         defer { viewModel.disconnect() }
         let first = viewModel.groups[0], second = viewModel.groups[1]
         #expect(viewModel.startCall(to: .group(first.id), accountAccessID: viewModel.accountAccessID))
+        #expect(viewModel.canDisconnectCall)
         let reference = viewModel.currentCallReference
         viewModel.selectGroup(second)
         #expect(viewModel.activeGroupID == first.id && viewModel.selectedGroup?.id == second.id)
+        #expect(!viewModel.canDisconnectCall && viewModel.presentedConnectionState == .idle)
         #expect(viewModel.startCall(to: .group(first.id), accountAccessID: viewModel.accountAccessID))
         #expect(viewModel.activeGroupID == first.id)
         #expect(viewModel.currentCallReference == reference)

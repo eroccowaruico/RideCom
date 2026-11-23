@@ -22,10 +22,6 @@ extension IntercomViewModel {
         return connectionState.label
     }
 
-    var selectedGroupConnectionState: CallConnectionState {
-        presentedConnectionState
-    }
-
     var callPresenceLabel: String {
         if selectedGroup?.id == activeGroupID, isAudioPausedForDeviceChange {
             return hasPresentedAuthenticatedConnection ? "Connected / Audio Paused" : String(localized: "Audio paused")
@@ -42,8 +38,7 @@ extension IntercomViewModel {
     }
 
     var canDisconnectCall: Bool {
-        guard selectedGroup?.id == activeGroupID else { return false }
-        return connectionState != .idle || isAudioReady || !authenticatedPeerIDs.isEmpty || localNetworkStatus != .idle
+        hasAnyActiveGroupConnection && selectedGroup?.id == activeGroupID
     }
 
     var routeLabel: String {

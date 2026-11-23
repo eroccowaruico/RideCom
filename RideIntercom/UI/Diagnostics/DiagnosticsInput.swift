@@ -69,7 +69,7 @@ struct DiagnosticsInput {
         } else {
             networkDiagnostics = nil
         }
-        selectedGroupConnectionState = viewModel.selectedGroupConnectionState
+        selectedGroupConnectionState = viewModel.presentedConnectionState
         selectedTransmitCodec = viewModel.selectedTransmitCodec
         // The transmitter increments this count as it collects encoded frames for delivery.
         encodedAudioPacketCount = viewModel.sentVoicePacketCount
