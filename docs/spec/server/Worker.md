@@ -126,9 +126,9 @@ Appの再認証・削除確認・復旧・取消待ち／手動取消の案内�
 
 Appleとのコード交換・取消の契約は[Token validation](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)と[Token revocation](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)を適用した。
 
-旧試用の静的`CLIENT_TOKENS_JSON`の照合は現行コードに残る。試用の手順はApple登録と固定Previewの短期試験を使う。`ri1.`資格が無効でも静的registryへfallbackしない。静的資格には確認済みユーザーIDがないため、以下のユーザー単位制限は公開用のApple端末資格へ適用する。
+通話APIは、Apple認証後にWorkerが端末ごとに発行した資格を受け付ける。以下のユーザー単位の制限は、その資格に対応するアカウントへ適用する。登録されていない資格、失効した資格、旧手順で発行した静的資格には401を返す。
 
-固定Previewで音声だけを確かめるときは、`[previews.vars]` の `TEST_PREVIEW_MEDIA_TRIAL` で試験用の資格を2件だけ設定できる。設定には通信先のグループを表すハッシュ、発行時刻、有効期限、資格のSHA-256と参加者IDを記載する。固定PreviewのHTTPS originに限り、発行から最大20分の間、指定グループと指定参加者でのICEと通話参加、本人のセッション操作、利用枠の読み取りを許可する。期限外、設定なし、紐づけ違いでは401を返す。この資格は既存の試用資格照合へ引き継がない。試験終了時は通話とTURNの回収を確認し、設定を削除して再配置する。
+固定Previewで音声だけを確かめるときは、`[previews.vars]` の `TEST_PREVIEW_MEDIA_TRIAL` で試験用の資格を2件だけ設定できる。設定には通信先のグループを表すハッシュ、発行時刻、有効期限、資格のSHA-256と参加者IDを記載する。固定PreviewのHTTPS originに限り、発行から最大20分の間、指定グループと指定参加者でのICEと通話参加、本人のセッション操作、利用枠の読み取りを許可する。期限外、設定なし、紐づけ違いでは401を返す。本番ではこの試験資格にも401を返す。試験終了時は通話とTURNの回収を確認し、設定を削除して再配置する。
 
 ### ユーザー単位のWebRTC接続予約
 

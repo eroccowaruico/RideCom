@@ -1,6 +1,6 @@
 import { SignalingRoom } from './SignalingRoom'
 import { UsageGuard } from './UsageGuard'
-import { type Env, isRecord, json, sha256Hex } from './types'
+import { type Env, json } from './types'
 import { accountRequest, authenticateDevice } from './AppleAccount'
 import { notificationRequest } from './Notifications'
 import { contactDeletionRequest } from './ContactDeletions'
@@ -39,13 +39,6 @@ export default {
         if (device) owner = `${device.userID}:${device.deviceID}`
         else if (credential.startsWith(previewMediaTrialPrefix)) {
             owner = await previewMediaTrialOwner(request, url, credential, env.TEST_PREVIEW_MEDIA_TRIAL, match?.[1], match?.[2])
-        } else if (!credential.startsWith('ri1.')) {
-            const hash = await sha256Hex(credential)
-            try {
-                const tokens: unknown = JSON.parse(env.CLIENT_TOKENS_JSON || '{}')
-                const value = isRecord(tokens) ? tokens[hash] : undefined
-                if (typeof value === 'string') owner = value
-            } catch { /* fail closed */ }
         }
         if (typeof owner !== 'string' || !owner) return json({ error: 'Unauthorized' }, 401)
         // Only the actual cleanup routes are exempt from the pause and API budget.

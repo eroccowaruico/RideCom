@@ -1,17 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { token, hash, room, offer, provider, makeRuntime } from './support/runtime.mjs';
-const request = (runtime, path, body, method = 'POST', credential = token) => runtime.dispatchFetch(`https://worker.test${path}`, {
-    method, headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
+import { callTestCredential, room, offer, provider, makeRuntime } from './support/runtime.mjs';
+const request = async (runtime, path, body, method = 'POST', credential) => runtime.dispatchFetch(`https://worker.test${path}`, {
+    method, headers: { Authorization: `Bearer ${credential ?? await callTestCredential(runtime)}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
 });
-const tokenHash = value => createHash('sha256').update(value).digest('hex');
 
 test('API budget covers rooms and status together, separates owners, and keeps authenticated cleanup reachable', async () => {
-    const same = 'another-token-for-the-same-owner', other = 'token-for-a-different-owner';
-    const runtime = await makeRuntime({ CLIENT_TOKENS_JSON: JSON.stringify({ [hash]: 'tester', [tokenHash(same)]: 'tester', [tokenHash(other)]: 'other' }) }, { apiLimit: 2 });
+    const runtime = await makeRuntime({}, { apiLimit: 2 });
     try {
+        const same = await callTestCredential(runtime, 'rider', 'second-device');
+        const other = await callTestCredential(runtime, 'other-rider');
         assert.equal((await request(runtime, '/api/status', undefined, 'GET', 'invalid')).status, 401);
         const joined = await request(runtime, `/api/rooms/${room}/join`, { participantId: 'alice', offer });
         assert.equal(joined.status, 200);
@@ -62,20 +61,24 @@ test('missing API limiter fails closed for new work but does not block valid cle
 test('default budget has headroom for eight participants, full subscriptions, renewals and frequent status reads', async () => {
     const runtime = await makeRuntime({ MAX_ROOM_PARTICIPANTS: '8' });
     try {
-        const sessions = [];
+        const sessions = [], credentials = [];
         for (let i = 0; i < 8; i++) {
-            assert.equal((await request(runtime, `/api/rooms/${room}/ice/rider-${i}`, { leaseID: `attempt-${i}` })).status, 200);
-            const response = await request(runtime, `/api/rooms/${room}/join`, { participantId: `rider-${i}`, offer });
+            const credential = await callTestCredential(runtime, `rider-${i}`);
+            credentials.push(credential);
+            assert.equal((await request(runtime, `/api/rooms/${room}/ice/rider-${i}`, { leaseID: `attempt-${i}` }, 'POST', credential)).status, 200);
+            const response = await request(runtime, `/api/rooms/${room}/join`, { participantId: `rider-${i}`, offer }, 'POST', credential);
             assert.equal(response.status, 200);
             sessions.push((await response.json()).sessionId);
-            assert.equal((await request(runtime, `/api/rooms/${room}/sessions/${sessions[i]}/publish`, {})).status, 200);
+            assert.equal((await request(runtime, `/api/rooms/${room}/sessions/${sessions[i]}/publish`, {}, 'POST', credential)).status, 200);
         }
         for (let i = 0; i < 8; i++) {
             const base = `/api/rooms/${room}/sessions/${sessions[i]}`;
-            assert.equal((await request(runtime, `${base}/pull`, { peerIds: sessions.flatMap((_, j) => i === j ? [] : [`rider-${j}`]) })).status, 200);
-            assert.equal((await request(runtime, `${base}/renew`, {})).status, 200);
+            assert.equal((await request(runtime, `${base}/pull`, { peerIds: sessions.flatMap((_, j) => i === j ? [] : [`rider-${j}`]) }, 'POST', credentials[i])).status, 200);
+            assert.equal((await request(runtime, `${base}/renew`, {}, 'POST', credentials[i])).status, 200);
         }
         for (let i = 0; i < 120; i++) assert.equal((await request(runtime, '/api/status', undefined, 'GET')).status, 200);
-        for (const id of sessions) assert.equal((await request(runtime, `/api/rooms/${room}/sessions/${id}`, undefined, 'DELETE')).status, 200);
+        for (const [index, id] of sessions.entries()) {
+            assert.equal((await request(runtime, `/api/rooms/${room}/sessions/${id}`, undefined, 'DELETE', credentials[index])).status, 200);
+        }
     } finally { await runtime.dispose(); }
 });

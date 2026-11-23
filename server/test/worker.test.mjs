@@ -1,13 +1,14 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { token, hash, room, offer, provider, makeRuntime } from './support/runtime.mjs';
+import { callTestCredential, room, offer, provider, makeRuntime } from './support/runtime.mjs';
 let runtime;
 before(async () => { runtime = await makeRuntime(); });
 after(async () => { await runtime?.dispose(); });
-const call = (path, body, method = 'POST', instance = runtime, credential = token) => instance.dispatchFetch(`https://worker.test${path}`, {
-    method, headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-const join = (id, target = room, instance = runtime) => call(`/api/rooms/${target}/join`, { participantId: id, offer }, 'POST', instance);
+const call = async (path, body, method = 'POST', instance = runtime, credential) => instance.dispatchFetch(`https://worker.test${path}`, {
+    method, headers: { Authorization: `Bearer ${credential ?? await callTestCredential(instance)}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+const join = (id, target = room, instance = runtime, credential) =>
+    call(`/api/rooms/${target}/join`, { participantId: id, offer }, 'POST', instance, credential);
 
 test('join rejects coerced identities and partial SCTP attribute matches before allocation', async () => {
     const instance = await makeRuntime();
@@ -31,7 +32,7 @@ test('WebSocket null is rejected with a policy close instead of an uncaught exce
     try {
         const member = await (await join('null-message', room, instance)).json();
         const response = await instance.dispatchFetch(`https://worker.test/api/rooms/${room}/sessions/${member.sessionId}/signal`, {
-            headers: { Authorization: `Bearer ${token}`, Upgrade: 'websocket' }
+            headers: { Authorization: `Bearer ${await callTestCredential(instance)}`, Upgrade: 'websocket' }
         });
         assert.equal(response.status, 101);
         const ws = response.webSocket; ws.accept();
@@ -48,10 +49,11 @@ test('eight participants join and publish while the ninth is refused', async () 
     const instance = await makeRuntime({ MAX_ROOM_PARTICIPANTS: '8' });
     try {
         for (let i = 0; i < 8; i++) {
-            const response = await join(`rider-${i}`, room, instance);
+            const credential = await callTestCredential(instance, `rider-${i}`);
+            const response = await join(`rider-${i}`, room, instance, credential);
             assert.equal(response.status, 200);
             const member = await response.json();
-            assert.equal((await call(`/api/rooms/${room}/sessions/${member.sessionId}/publish`, {}, 'POST', instance)).status, 200);
+            assert.equal((await call(`/api/rooms/${room}/sessions/${member.sessionId}/publish`, {}, 'POST', instance, credential)).status, 200);
         }
         assert.equal((await join('ninth', room, instance)).status, 429);
     } finally { await instance.dispose(); }
@@ -62,12 +64,21 @@ test('a stalled request body expires and does not keep the room locked', async (
     const body = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } });
     try {
         const response = await instance.dispatchFetch(`https://worker.test/api/rooms/${room}/join`, {
-            method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            method: 'POST', headers: { Authorization: `Bearer ${await callTestCredential(instance)}`, 'Content-Type': 'application/json' },
             body, duplex: 'half', signal: AbortSignal.timeout(6000)
         });
         assert.equal(response.status, 400);
         assert.equal((await join('after-stall', room, instance)).status, 200);
     } finally { await instance.dispose(); }
+});
+
+test('a legacy token is rejected even if its old registry is still configured', async t => {
+    const legacy = 'retired-test-credential';
+    const digest = createHash('sha256').update(legacy).digest('hex');
+    const instance = await makeRuntime({ CLIENT_TOKENS_JSON: JSON.stringify({ [digest]: 'retired' }) });
+    t.after(() => instance.dispose());
+    assert.equal((await call('/api/status', undefined, 'GET', instance, legacy)).status, 401);
+    assert.equal((await call('/api/status', undefined, 'GET', instance)).status, 200);
 });
 
 test('unauthenticated and malformed provider.requests never contact the provider', async () => {
@@ -80,12 +91,14 @@ test('unauthenticated and malformed provider.requests never contact the provider
 });
 
 test('SFU publishing, authorized subscription, renewal and cleanup use the real contract', async () => {
-    const a = await (await join('a')).json(); const b = await (await join('b')).json();
+    const other = await callTestCredential(runtime, 'rider-b');
+    const a = await (await join('a')).json();
+    const b = await (await join('b', room, runtime, other)).json();
     assert.ok(a.sessionId); assert.equal(a.sessionDescription.type, 'answer');
     assert.ok(a.expiresAt > Date.now()); assert.equal(a.renewAfterSeconds, 300);
     assert.equal('participantToken' in a, false); assert.equal('sfuEndpoint' in a, false);
     const base = `/api/rooms/${room}/sessions/${a.sessionId}`;
-    await call(`${base}/publish`, {}); await call(`/api/rooms/${room}/sessions/${b.sessionId}/publish`, {});
+    await call(`${base}/publish`, {}); await call(`/api/rooms/${room}/sessions/${b.sessionId}/publish`, {}, 'POST', runtime, other);
     const pull = await (await call(`${base}/pull`, { peerIds: ['b'] })).json();
     assert.equal(pull.channels[0].peerID, 'b');
     const before = provider.requests.length;
@@ -94,14 +107,14 @@ test('SFU publishing, authorized subscription, renewal and cleanup use the real 
     assert.equal((await call(`${base}/pull`, { peerIds: ['not-in-room'] })).status, 403);
     assert.equal((await call(`/api/rooms/${'b'.repeat(64)}/sessions/${a.sessionId}/renew`, {})).status, 404);
     assert.equal((await call(base, undefined, 'DELETE')).status, 200);
-    assert.equal((await call(`/api/rooms/${room}/sessions/${b.sessionId}`, undefined, 'DELETE')).status, 200);
+    assert.equal((await call(`/api/rooms/${room}/sessions/${b.sessionId}`, undefined, 'DELETE', runtime, other)).status, 200);
     assert.ok(provider.requests.some(r => r.url.endsWith('/datachannels/close')));
 });
 
 test('quota reservations survive concurrent provider.requests and prevent provider calls', async () => {
     const limited = await makeRuntime({ MONTHLY_PARTICIPANT_SECONDS: '600' });
     try {
-        const results = await Promise.all([join('one', 'c'.repeat(64), limited), join('two', 'd'.repeat(64), limited)]);
+        const results = await Promise.all([join('one', 'c'.repeat(64), limited), join('two', 'd'.repeat(64), limited, await callTestCredential(limited, 'rider-b'))]);
         assert.deepEqual(results.map(r => r.status).sort(), [200, 429]);
         const status = await (await call('/api/status', undefined, 'GET', limited)).json();
         assert.equal(status.reservedParticipantSeconds, 600);
@@ -116,7 +129,7 @@ test('join rejects an SFU answer without SDP and a nonnumeric data channel ID', 
             { sessionDescription: { type: 'answer', sdp: 'example' }, dataChannel: { id: '0' } },
         ].entries()) {
             provider.establishedChannel = reply;
-            const response = await join(`invalid-answer-${index}`, String(index).repeat(64), instance);
+            const response = await join(`invalid-answer-${index}`, String(index).repeat(64), instance, await callTestCredential(instance, `rider-${index}`));
             assert.equal(response.status, 502);
             assert.deepEqual(await response.json(), { error: 'SFU operation failed' });
         }
@@ -135,24 +148,24 @@ test('room capacity and duplicate membership are enforced', async () => {
     try {
         assert.equal((await join('one', room, small)).status, 200);
         assert.equal((await join('one', room, small)).status, 409);
-        assert.equal((await join('two', room, small)).status, 200);
-        assert.equal((await join('three', room, small)).status, 429);
+        assert.equal((await join('two', room, small, await callTestCredential(small, 'rider-two'))).status, 200);
+        assert.equal((await join('three', room, small, await callTestCredential(small, 'rider-three'))).status, 429);
     } finally { await small.dispose(); }
 });
 
 
 test('ownership and WebSocket sender identity are enforced without exposing provider credentials', async () => {
-    const other = 'another-device-token-with-at-least-32-characters';
-    const otherHash = createHash('sha256').update(other).digest('hex');
-    const instance = await makeRuntime({ CLIENT_TOKENS_JSON: JSON.stringify({ [hash]: 'tester', [otherHash]: 'other' }) });
+    const instance = await makeRuntime();
     try {
+        const other = await callTestCredential(instance, 'rider-b');
+        const owner = await callTestCredential(instance);
         const a = await (await join('alice', room, instance)).json();
-        const b = await (await join('bob', room, instance)).json();
+        const b = await (await join('bob', room, instance, other)).json();
         const base = `/api/rooms/${room}/sessions/`;
         assert.equal((await call(`${base + a.sessionId}/renew`, {}, 'POST', instance, other)).status, 403);
-        const connect = id => instance.dispatchFetch(`https://worker.test${base}${id}/signal`, {
-            headers: { Authorization: `Bearer ${token}`, Upgrade: 'websocket' } });
-        const ra = await connect(a.sessionId), rb = await connect(b.sessionId);
+        const connect = (id, credential) => instance.dispatchFetch(`https://worker.test${base}${id}/signal`, {
+            headers: { Authorization: `Bearer ${credential}`, Upgrade: 'websocket' } });
+        const ra = await connect(a.sessionId, owner), rb = await connect(b.sessionId, other);
         assert.equal(ra.status, 101); assert.equal(rb.status, 101);
         ra.webSocket.accept(); rb.webSocket.accept();
         const received = new Promise((resolve, reject) => {
@@ -200,16 +213,17 @@ test('repeated peer replacement closes old subscriptions without growing channel
     const instance = await makeRuntime();
     try {
         const listener = await (await join('listener', room, instance)).json();
+        const speaker = await callTestCredential(instance, 'speaker');
         for (let n = 0; n < 10; n++) {
-            const talker = await (await join('talker', room, instance)).json();
-            await call(`/api/rooms/${room}/sessions/${talker.sessionId}/publish`, {}, 'POST', instance);
+            const talker = await (await join('talker', room, instance, speaker)).json();
+            await call(`/api/rooms/${room}/sessions/${talker.sessionId}/publish`, {}, 'POST', instance, speaker);
             const base = `/api/rooms/${room}/sessions/${listener.sessionId}`;
             const response = await call(`${base}/pull`, { peerIds: ['talker'] }, 'POST', instance);
             assert.equal(response.status, 200);
             const result = await response.json();
             assert.equal(result.channels.length, 2);
 
-            assert.equal((await call(`/api/rooms/${room}/sessions/${talker.sessionId}`, undefined, 'DELETE', instance)).status, 200);
+            assert.equal((await call(`/api/rooms/${room}/sessions/${talker.sessionId}`, undefined, 'DELETE', instance, speaker)).status, 200);
         }
         const pulls = provider.requests.filter(r => r.url.includes(`/sessions/${listener.sessionId}/datachannels/new`));
         assert.equal(pulls.length, 10);

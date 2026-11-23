@@ -11,7 +11,7 @@ import { makeRuntime, offer, room, provider, sealInvitationSubmission } from './
 const keys = await generateKeyPair('RS256');
 const publicKey = { ...await exportJWK(keys.publicKey), kid: 'apple-fixture', alg: 'RS256', use: 'sig' };
 const audience = 'com.yowamushi-inc.RideIntercom.RideIntercom';
-const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: audience, CLIENT_TOKENS_JSON: '{}' };
+const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: audience };
 const appleClientKeys = await generateKeyPair('ES256', { extractable: true });
 const appleClientConfiguration = {
     APPLE_SIGN_IN_PRIVATE_KEY: await exportPKCS8(appleClientKeys.privateKey),

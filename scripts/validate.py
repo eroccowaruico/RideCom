@@ -720,7 +720,7 @@ def main() -> int:
         runner.run('swift-worker-pair', ['npm', '--prefix', 'server', 'run', 'test:pair'], needs=pair_needs, tests=True)
     if mode in ('all', 'headless', 'scripts'):
         runner.run('script-tests', [python, '-m', 'unittest', 'discover', '-s', 'scripts/tests'], tests=True)
-        runner.run('cloudflare-scripts', ['node', '--test', 'scripts/Cloudflare/estimate-cost.test.mjs', 'scripts/Cloudflare/issue-device.test.mjs'], needs=['node-toolchain'], tests=True)
+        runner.run('cloudflare-scripts', ['node', '--test', 'scripts/Cloudflare/estimate-cost.test.mjs'], needs=['node-toolchain'], tests=True)
     if mode in ('all', 'macos'):
         try:
             with exclusive_run(simulator_resource_root() / 'run.lock'):

@@ -2,7 +2,6 @@
 # Never commit real credentials. SERVICE_ENABLED remains false until explicitly enabled.
 CLOUDFLARE_SFU_APP_ID=""
 CLOUDFLARE_SFU_APP_SECRET=""
-CLIENT_TOKENS_JSON="{}"
 
 # Optional Sign in with Apple authorization-revocation credentials.
 # The Worker derives short-lived client-secret JWTs; do not store a generated JWT here.

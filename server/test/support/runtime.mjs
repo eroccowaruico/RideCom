@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { CompactEncrypt, importJWK } from 'jose';
 import { Miniflare, Response } from 'miniflare';
@@ -11,8 +11,34 @@ export async function sealInvitationSubmission(body, relayKey) {
         .encrypt(key);
 }
 
-export const token = 'test-device-token-with-at-least-32-characters';
-export const hash = createHash('sha256').update(token).digest('hex');
+const credentialSeed = randomBytes(32).toString('hex');
+const runtimeDevices = new WeakMap();
+
+export function callTestCredential(runtime, subject = 'rider', device = 'primary') {
+    let devices = runtimeDevices.get(runtime);
+    if (!devices) {
+        devices = new Map();
+        runtimeDevices.set(runtime, devices);
+    }
+    const deviceName = `${subject}/${device}`;
+    if (!devices.has(deviceName)) devices.set(deviceName, registerCallTestDevice(runtime, subject, deviceName));
+    return devices.get(deviceName);
+}
+
+async function registerCallTestDevice(runtime, subject, deviceName) {
+    const accounts = await runtime.getDurableObjectNamespace('USER_ACCOUNT');
+    const accountID = accounts.idFromName(`test-call/${subject}`);
+    const hash = value => createHash('sha256').update(value).digest('hex');
+    const deviceID = hash(deviceName).slice(0, 32).replace(/^(........)(....)(....)(....)(............)$/, '$1-$2-$3-$4-$5');
+    const secret = hash(`${credentialSeed}/${deviceName}`);
+    const tokenHash = hash(secret);
+    const account = accounts.get(accountID);
+    const identity = await account.authenticate(deviceID, tokenHash)
+        ?? await account.register(deviceID, tokenHash, Date.now());
+    assert.ok(identity?.userID, 'Register a device in the local account fixture');
+    return `ri1.${accountID}.${deviceID}.${secret}`;
+}
+
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
@@ -92,7 +118,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             NOTIFICATION_INDEX: { className: 'NotificationIndex', useSQLite: true },
             APPLE_AUTH_ATTEMPT: { className: 'AppleAuthAttempt', useSQLite: true }, USER_ACCOUNT: { className: 'UserAccount', useSQLite: true },
             APP_ATTEST_KEY_INDEX: { className: 'AppAttestKeyIndex', useSQLite: true } },
-        bindings: { SERVICE_ENABLED: 'true', CLIENT_TOKENS_JSON: JSON.stringify({ [hash]: 'tester' }),
+        bindings: { SERVICE_ENABLED: 'true',
             CLOUDFLARE_SFU_APP_ID: 'test-app', CLOUDFLARE_SFU_APP_SECRET: 'test-secret',
             MAX_ROOM_PARTICIPANTS: '4', MAX_ACTIVE_SESSIONS: '16', MONTHLY_PARTICIPANT_SECONDS: '36000', LEASE_SECONDS: '600', ...overrides },
         outboundService: async request => {

@@ -16,7 +16,6 @@ export interface Env extends Omit<WorkerBindings, 'SIGNALING_ROOM' | 'USAGE_GUAR
     INVITATION_RELAY_KEY_SEED?: string
     DIRECT_CALL_RESTORE_RELAY_ENABLED?: string
     TEST_PREVIEW_MEDIA_TRIAL?: string
-    CLIENT_TOKENS_JSON: string
 }
 export interface Description { type: 'offer' | 'answer'; sdp: string }
 export interface Member {

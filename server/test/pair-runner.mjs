@@ -1,16 +1,19 @@
 // Run real Swift signaling clients through workerd HTTP, WebSocket and SQLite DOs.
-// Only the external SFU media provider is replaced. No microphone or account used.
+// Uses local device credentials and a mock SFU. No microphone or Apple sign-in.
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { makeRuntime, token, provider } from './support/runtime.mjs';
+import { makeRuntime, callTestCredential, provider } from './support/runtime.mjs';
 const runtime = await makeRuntime({ LEASE_SECONDS: '4' });
 try {
     const origin = (await runtime.ready).origin;
+    const alice = await callTestCredential(runtime);
+    const bob = await callTestCredential(runtime, 'other-rider');
     const code = await new Promise((resolve, reject) => {
         const args = ['test', '--package-path', '../RideIntercom/packages/RTC', '--filter', 'WorkerPairTests'];
         if (process.env.RIDEINTERCOM_PAIR_SANITIZER) args.push(`--sanitize=${process.env.RIDEINTERCOM_PAIR_SANITIZER}`);
         const child = spawn('swift', args, {
-            stdio: 'inherit', env: { ...process.env, RIDEINTERCOM_PAIR_URL: origin, RIDEINTERCOM_PAIR_TOKEN: token }
+            stdio: 'inherit', env: { ...process.env, RIDEINTERCOM_PAIR_URL: origin,
+                RIDEINTERCOM_PAIR_TOKEN_A: alice, RIDEINTERCOM_PAIR_TOKEN_B: bob }
         });
         const timer = setTimeout(() => child.kill('SIGTERM'), 120000);
         child.on('error', reject);

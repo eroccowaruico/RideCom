@@ -28,7 +28,7 @@ if (!bundleMatches()) execFileSync(process.execPath, [resolve(serverRoot, 'node_
 if (!bundleMatches()) throw new Error('Local Worker bundle source mismatch');
 const apple = await generateKeyPair('RS256'), signing = await generateKeyPair('ES256', { extractable: true });
 const applePublic = { ...await exportJWK(apple.publicKey), kid: 'group-app-fixture', alg: 'RS256' };
-const runtime = await makeRuntime({ APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CLIENT_TOKENS_JSON: '{}',
+const runtime = await makeRuntime({ APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app',
     DIRECT_CALL_RESTORE_RELAY_ENABLED: process.argv[3] === '--direct-restore' ? 'true' : 'false',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),

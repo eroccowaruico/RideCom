@@ -8,7 +8,8 @@ struct WorkerPairTests {
         let env = ProcessInfo.processInfo.environment
         let address = try #require(env["RIDEINTERCOM_PAIR_URL"])
         let url = try #require(URL(string: address))
-        let token = try #require(env["RIDEINTERCOM_PAIR_TOKEN"])
+        let aliceToken = try #require(env["RIDEINTERCOM_PAIR_TOKEN_A"])
+        let bobToken = try #require(env["RIDEINTERCOM_PAIR_TOKEN_B"])
         let alice = PairEndpoint(), bob = PairEndpoint()
         let credential = RTCCredential.derived(groupID: UUID().uuidString, secret: "synthetic-pair")
         func request(_ id: String) -> WebRTCSignalingConnectRequest {
@@ -16,7 +17,7 @@ struct WorkerPairTests {
                 call: .init(
                     sessionID: "pair", localPeer: .init(id: .init(rawValue: id), displayName: "PrivateName-\(id)"),
                     credential: credential),
-                  cloudflare: .init(workerURL: url, accessToken: token))
+                  cloudflare: .init(workerURL: url, accessToken: id == "alice" ? aliceToken : bobToken))
         }
         let aliceListener = alice.listen(), bobListener = bob.listen()
         await alice.join(request("alice")); await bob.join(request("bob"))

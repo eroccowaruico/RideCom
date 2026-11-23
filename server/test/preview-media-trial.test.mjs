@@ -47,7 +47,7 @@ test('two Preview credentials are scoped to the room and cannot manage each othe
     assert.equal((await call(runtime, bSession, { method: 'DELETE', token: tokens[1] })).status, 200);
 });
 
-test('absent, expired, future and oversized Preview grants fail closed without legacy fallback', async t => {
+test('absent, expired, future and oversized Preview grants fail closed', async t => {
     const variants = [
         undefined, { ...grant, expiresAt: now }, { ...grant, issuedAt: now + 1 },
         { ...grant, expiresAt: now + 21 * 60 * 1000 },
@@ -55,8 +55,7 @@ test('absent, expired, future and oversized Preview grants fail closed without l
     ];
     for (const value of variants) {
         const runtime = await makeRuntime({
-            TEST_PREVIEW_MEDIA_TRIAL: JSON.stringify(value) ?? '',
-            CLIENT_TOKENS_JSON: JSON.stringify({ [digests[0]]: 'must-not-fallback' })
+            TEST_PREVIEW_MEDIA_TRIAL: JSON.stringify(value) ?? ''
         }, { fixedNowMs: now });
         try {
             assert.equal((await call(runtime, '/api/status')).status, 401);

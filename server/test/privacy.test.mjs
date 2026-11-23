@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unstable_readConfig } from 'wrangler';
-import { token, room, offer, makeRuntime } from './support/runtime.mjs';
+import { callTestCredential, room, offer, makeRuntime } from './support/runtime.mjs';
 
 test('production and Preview explicitly disable Worker logging and export', () => {
     const config = unstable_readConfig({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)) });
@@ -50,7 +50,7 @@ test('join needs no display name', async () => {
     const runtime = await makeRuntime();
     try {
         const response = await runtime.dispatchFetch(`https://worker.test/api/rooms/${room}/join`, {
-            method: 'POST', headers: { Authorization: `Bearer ${token}` },
+            method: 'POST', headers: { Authorization: `Bearer ${await callTestCredential(runtime)}` },
             body: JSON.stringify({ participantId: 'anonymous-rider', offer })
         });
         assert.equal(response.status, 200);
@@ -62,7 +62,7 @@ test('extra display name is neither persisted nor broadcast to room peers', asyn
     const runtime = await makeRuntime({}, { storageDirectory });
     try {
         const base = `https://worker.test/api/rooms/${room}`;
-        const headers = { Authorization: `Bearer ${token}` };
+        const headers = { Authorization: `Bearer ${await callTestCredential(runtime)}` };
         const response = await runtime.dispatchFetch(`${base}/join`, {
             method: 'POST', headers,
             body: JSON.stringify({ participantId: 'opaque-peer', displayName: 'PrivateHumanName', offer })

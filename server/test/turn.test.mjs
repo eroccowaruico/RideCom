@@ -1,12 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { token, hash, room, offer, provider, makeRuntime } from './support/runtime.mjs';
-const call = (runtime, path, body, method = 'POST', credential = token) => runtime.dispatchFetch(`https://worker.test/api/rooms/${room}/${path}`, {
-    method, headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
+import { callTestCredential, room, offer, provider, makeRuntime } from './support/runtime.mjs';
+const call = async (runtime, path, body, method = 'POST', credential) => runtime.dispatchFetch(`https://worker.test/api/rooms/${room}/${path}`, {
+    method, headers: { Authorization: `Bearer ${credential ?? await callTestCredential(runtime)}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const leaseID = 'test-attempt-1';
 
@@ -34,16 +33,15 @@ test('TURN preflight is quota guarded, owned, idempotent and revoked on disconne
 
 test('pausing Internet calls leaves only owned session and preparation cleanup available', async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-call-pause-'));
-    const other = 'other-fixture-credential-for-pause';
-    const otherHash = createHash('sha256').update(other).digest('hex');
     const config = {
-        TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret',
-        CLIENT_TOKENS_JSON: JSON.stringify({ [hash]: 'owner-fixture', [otherHash]: 'other-fixture' })
+        TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret'
     };
     let runtime = await makeRuntime(config, { storageDirectory });
     try {
+        const waiting = await callTestCredential(runtime, 'waiting-rider');
+        const other = await callTestCredential(runtime, 'other-rider');
         assert.equal((await call(runtime, 'ice/call', { leaseID })).status, 200);
-        assert.equal((await call(runtime, 'ice/waiting', { leaseID })).status, 200);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'POST', waiting)).status, 200);
         const joined = await call(runtime, 'join', { participantId: 'call', offer, iceLeaseID: leaseID });
         assert.equal(joined.status, 200);
         const session = `sessions/${(await joined.json()).sessionId}`;
@@ -60,12 +58,12 @@ test('pausing Internet calls leaves only owned session and preparation cleanup a
         assert.equal((await call(runtime, session, undefined, 'DELETE')).status, 503);
         assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE', 'unregistered')).status, 401);
         assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE', other)).status, 403);
-        assert.equal((await call(runtime, 'ice/waiting', { leaseID: 'older-attempt' }, 'DELETE')).status, 409);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID: 'older-attempt' }, 'DELETE', waiting)).status, 409);
         assert.equal(provider.requests.length, before);
-        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 200);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE', waiting)).status, 200);
         assert.equal(provider.requests.length, before + 1);
         assert.ok(provider.requests.at(-1)?.url.endsWith('/revoke'));
-        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE')).status, 200);
+        assert.equal((await call(runtime, 'ice/waiting', { leaseID }, 'DELETE', waiting)).status, 200);
         assert.equal(provider.requests.length, before + 1);
 
         await runtime.dispose();
@@ -125,7 +123,8 @@ test('TURN preflight cannot exceed quota or silently fall back when misconfigure
     try {
         assert.equal((await call(runtime, 'ice/a', { leaseID })).status, 200);
         const count = provider.requests.length;
-        assert.equal((await call(runtime, 'ice/b', { leaseID: 'another' })).status, 429);
+        const other = await callTestCredential(runtime, 'other-rider');
+        assert.equal((await call(runtime, 'ice/b', { leaseID: 'another' }, 'POST', other)).status, 429);
         assert.equal(provider.requests.length, count);
         assert.equal((await call(runtime, 'ice/a', { leaseID }, 'DELETE')).status, 200);
     } finally { await runtime.dispose(); }
@@ -183,9 +182,12 @@ test('orphan credential cleanup does not serialize upstream delays across partic
     const runtime = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' });
     let active = 0, peak = 0;
     try {
-        for (const peer of ['orphan-a', 'orphan-b']) await call(runtime, `ice/${peer}`, { leaseID });
+        const peers = ['orphan-a', 'orphan-b'];
+        const ice = async (peer, attempt, method = 'POST') =>
+            call(runtime, `ice/${peer}`, { leaseID: attempt }, method, await callTestCredential(runtime, peer));
+        for (const peer of peers) assert.equal((await ice(peer, leaseID)).status, 200);
         provider.revokeFails = true;
-        for (const peer of ['orphan-a', 'orphan-b']) assert.equal((await call(runtime, `ice/${peer}`, { leaseID }, 'DELETE')).status, 502);
+        for (const peer of peers) assert.equal((await ice(peer, leaseID, 'DELETE')).status, 502);
         provider.revokeFails = false;
         provider.onRevoke = async () => {
             peak = Math.max(peak, ++active);
@@ -194,6 +196,6 @@ test('orphan credential cleanup does not serialize upstream delays across partic
         };
         await new Promise(resolve => setTimeout(resolve, 2200));
         assert.equal(peak, 2, 'alarm should overlap independent revocations');
-        for (const peer of ['orphan-a', 'orphan-b']) assert.equal((await call(runtime, `ice/${peer}`, { leaseID: 'next-attempt' })).status, 200);
+        for (const peer of peers) assert.equal((await ice(peer, 'next-attempt')).status, 200);
     } finally { provider.revokeFails = false; provider.onRevoke = undefined; await runtime.dispose(); }
 });

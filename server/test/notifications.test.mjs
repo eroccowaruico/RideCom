@@ -8,7 +8,7 @@ const apple = await generateKeyPair('RS256');
 const applePublic = { ...await exportJWK(apple.publicKey), kid: 'notification-apple-fixture', alg: 'RS256' };
 const signing = await generateKeyPair('ES256', { extractable: true });
 const groupPath = '/api/notifications/group-invitations';
-const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app', CLIENT_TOKENS_JSON: '{}',
+const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
     APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' };
