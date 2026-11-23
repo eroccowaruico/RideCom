@@ -108,9 +108,8 @@ struct SignedInContentView: View {
 
     /// The accessory always returns to the live call, even after another destination was shown.
     private func openLiveCall() {
-        if let id = viewModel.activeGroupID, viewModel.selectedGroup?.id != id,
-           let group = viewModel.groups.first(where: { $0.id == id }) {
-            viewModel.selectGroup(group, connectIfIdle: false)
+        if viewModel.selectedGroup?.id != viewModel.activeGroupID {
+            viewModel.showLiveCall()
         }
         selectedTab = .call
     }
