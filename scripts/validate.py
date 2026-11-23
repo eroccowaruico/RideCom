@@ -578,10 +578,16 @@ def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
                          reuse_build='ios-tests' if not focused or iphone_tests else None,
                          verify_selection=focused)
     finally:
-        if audio_pin is not None:
-            audio_pin.restore()
-        if lease.acquired:
-            lease.cleanup('simulator-final')
+        started = time.monotonic()
+        try:
+            if audio_pin is not None:
+                audio_pin.restore()
+        except (OSError, RuntimeError, ValueError, TypeError, subprocess.SubprocessError) as error:
+            runner.record('simulator-audio-restore', [], 'failed', 1, started,
+                          'Could not restore Simulator audio selection: ' + type(error).__name__)
+        finally:
+            if lease.acquired:
+                lease.cleanup('simulator-final')
 
 
 def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> None:
