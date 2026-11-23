@@ -670,17 +670,18 @@ def main() -> int:
     parser.add_argument('--package', action='append', default=[], choices=PACKAGE_PATHS,
                         help='Run only these packages in packages mode; repeat to add packages')
     parser.add_argument('--only-testing', action='append', default=[], metavar='TARGET[/SUITE/...[/METHOD]]',
-                        help='Run selected Xcode tests in macos, ios or ios-ui; repeat to add selections')
+                        help='Run selected Xcode tests in worker, macos, ios or ios-ui; repeat to add selections')
     args = parser.parse_args()
     if args.package and args.mode != 'packages':
         parser.error('--package requires packages mode')
     targets = {
+        'worker': {'RideIntercomTests'},
         'macos': {'RideIntercomTests'},
         'ios': {'RideIntercomTests', 'RideIntercomUITests'},
         'ios-ui': {'RideIntercomUITests'},
     }
     if args.only_testing and args.mode not in targets:
-        parser.error('--only-testing requires macos, ios or ios-ui')
+        parser.error('--only-testing requires worker, macos, ios or ios-ui')
     for selector in args.only_testing:
         parts = selector.split('/')
         if not all(re.fullmatch(r'[^\s/]+', part) for part in parts) or parts[0] not in targets[args.mode]:
@@ -701,7 +702,9 @@ def main() -> int:
     runner.run('wording-review', [python, 'scripts/review_wording.py'])
     runner.run('string-catalogs', [python, 'scripts/check_string_catalogs.py'])
     mode = args.mode
-    swift_needed = mode in ('all', 'headless', 'packages', 'pair', 'macos', 'ios', 'ios-ui')
+    worker_app_tests = mode == 'worker' and bool(args.only_testing)
+    runs_macos_tests = mode in ('all', 'macos') or worker_app_tests
+    swift_needed = runs_macos_tests or mode in ('headless', 'packages', 'pair', 'ios', 'ios-ui')
     if swift_needed:
         runner.run('swift-toolchain', [python, '-c', 'from scripts.validate import verify_swift; verify_swift()'], timeout=65)
         if mode != 'packages' or not args.package or 'RTC' in args.package:
@@ -747,12 +750,15 @@ def main() -> int:
     if mode in ('all', 'headless', 'scripts'):
         runner.run('script-tests', [python, '-m', 'unittest', 'discover', '-s', 'scripts/tests'], tests=True)
         runner.run('cloudflare-scripts', ['node', '--test', 'scripts/Cloudflare/estimate-cost.test.mjs'], needs=['node-toolchain'], tests=True)
-    if mode in ('all', 'macos'):
+    if runs_macos_tests:
         try:
             with exclusive_run(simulator_resource_root() / 'run.lock'):
+                needs = ['swift-toolchain', 'webrtc-artifact']
+                if worker_app_tests:
+                    needs += ['worker-types', 'worker-test']
                 runner.xcode('macos-tests', 'platform=macOS,arch=arm64',
                              only=args.only_testing or 'RideIntercomTests',
-                             needs=['swift-toolchain', 'webrtc-artifact'], verify_selection=bool(args.only_testing))
+                             needs=needs, verify_selection=bool(args.only_testing))
         except BlockingIOError:
             runner.record('macos-tests', [], 'blocked', None, time.monotonic(), 'Another managed App or audio test run is active')
     if mode in ('all', 'ios', 'ios-ui'):

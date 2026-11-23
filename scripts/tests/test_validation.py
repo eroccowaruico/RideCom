@@ -689,6 +689,27 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn('webrtc-artifact', self.runner.results)
         self.assertNotIn('swift-worker-pair', self.runner.results)
 
+    def test_worker_selection_runs_the_requested_app_tests_after_worker_setup(self) -> None:
+        def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
+            self.assertTrue(all(self.runner.results.get(need, {}).get('status') == 'passed' for need in needs))
+            return self.runner.record(stage, argv, 'passed', 0, time.monotonic())
+
+        from contextlib import nullcontext
+
+        choice = 'RideIntercomTests/GroupDeliveryWorkerTests'
+        with patch.object(sys, 'argv', ['validate.py', 'worker', '--only-testing', choice]), \
+             patch.object(self.module, 'Runner', return_value=self.runner), \
+             patch.object(self.module, 'snapshot', side_effect=lambda out: (out / 'inputs.json').write_text('{}')), \
+             patch.object(self.module, 'exclusive_run', return_value=nullcontext()), \
+             patch.object(self.runner, 'run', side_effect=command), \
+             patch.object(self.runner, 'xcode') as xcode, patch.dict(os.environ):
+            self.assertEqual(self.module.main(), 0)
+        xcode.assert_called_once_with(
+            'macos-tests', 'platform=macOS,arch=arm64', only=[choice],
+            needs=['swift-toolchain', 'webrtc-artifact', 'worker-types', 'worker-test'], verify_selection=True)
+        self.assertEqual(self.runner.results['worker-install']['status'], 'passed')
+        self.assertNotIn('swift-worker-pair', self.runner.results)
+
     def test_pair_only_clean_failure_blocks_pair_without_custom_scratch(self) -> None:
         def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
             blocked = any(self.runner.results.get(need, {}).get('status') != 'passed' for need in needs)
