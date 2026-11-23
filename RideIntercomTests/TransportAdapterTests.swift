@@ -18,8 +18,9 @@ struct TransportAdapterTests {
     func capturedSpeechReachesRTCWhileUIIsOccupied(codec: RTCAudioCodecIdentifier) async throws {
         let rtc = FakeRTCCallSession()
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
+        let delivery = AudioFrameDelivery { _ in }
         adapter.startMedia()
-        let send = adapter.audioPacketSink
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { delivery.isActive })
         send(.init(sequenceNumber: 999, codec: .pcm16, payload: Data([0, 0])))
         await AppTestSupport.waitUntil { rtc.sentAudioSequences == [999] }
         let driver = OfflineAudioDriver()
@@ -27,7 +28,6 @@ struct TransportAdapterTests {
             try pipeline.rebuild(
                 configuration: .init(preferredCodec: codec, transmitSoundIsolationEnabled: false), peerIDs: [])
         pipeline.onTransmitPacket = send
-        let delivery = AudioFrameDelivery { _ in }
         defer { delivery.finish(); adapter.disconnect(); pipeline.stop() }
         let completed = DispatchSemaphore(value: 0)
         let task = Task.detached(priority: .userInitiated) {
@@ -47,6 +47,12 @@ struct TransportAdapterTests {
         pipeline.processMicrophoneFrame(.init(sequenceNumber: 6, samples: Array(repeating: 0.2, count: 480)),
             shouldProcess: { delivery.isActive })
         #expect(pipeline.inputObservation.sentPackets == count, "A retired capture binding cannot feed a new call")
+
+        send(.init(sequenceNumber: 1_000, codec: .pcm16, payload: Data([0, 0])))
+        let currentSend = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
+        currentSend(.init(sequenceNumber: 1_001, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil { rtc.sentAudioSequences.last == 1_001 }
+        #expect(rtc.sentAudioSequences.last == 1_001 && !rtc.sentAudioSequences.contains(1_000))
     }
 
     @Test func incomingAudioIsProcessedWhileTheUIActorIsOccupied() async throws {
@@ -78,7 +84,7 @@ struct TransportAdapterTests {
         let rtc = FakeRTCCallSession()
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.startMedia()
-        let send = adapter.audioPacketSink
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
         send(.init(sequenceNumber: 0, codec: .pcm16,
             sampleCount: 480, payload: Data(repeating: 0, count: 960)))
         await AppTestSupport.waitUntil { rtc.sentAudioSequences == [0] }
@@ -120,7 +126,7 @@ struct TransportAdapterTests {
         // The time budget must survive packetization changes: 5/10/20 ms.
         let count = Int((0.1 / duration).rounded())
         let samples = Int((48000 * duration).rounded())
-        let send = adapter.audioPacketSink
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
         for sequence in 0..<count {
             send(.init(sequenceNumber: UInt64(sequence), codec: .pcm16,
                 sampleCount: samples, payload: Data(repeating: 0, count: samples * 2)))
@@ -235,7 +241,7 @@ struct TransportAdapterTests {
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.connect(group: IntercomSeedData.recentGroups[0])
         adapter.startMedia()
-        let send = adapter.audioPacketSink
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
         for sequence in 0..<100 {
             send(.init(sequenceNumber: UInt64(sequence), codec: .pcm16, payload: Data([0, 0])))
         }
@@ -248,7 +254,8 @@ struct TransportAdapterTests {
         let other = RideIntercomCallSessionAdapter(rtcSession: stalled)
         other.connect(group: IntercomSeedData.recentGroups[0])
         other.startMedia()
-        other.audioPacketSink(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
+        let otherSend = other.makeAudioPacketSink(whileSourceIsActive: { true })
+        otherSend(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
         await AppTestSupport.waitUntil { stalled.operations.contains("startMedia") }
         try? await Task.sleep(for: .milliseconds(20))
         #expect(stalled.sentAudioSequences.isEmpty)

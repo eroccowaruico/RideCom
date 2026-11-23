@@ -119,7 +119,9 @@ enum TransportEvent: Equatable {
 protocol CallSession: AnyObject {
     var onEvent: ((TransportEvent) -> Void)? { get set }
     var processReceivedAudio: (@Sendable (RTC.ReceivedAudioPacket) -> AudioPacketReception)? { get set }
-    var audioPacketSink: @Sendable (RTC.RTCAudioPacket) -> Void { get }
+    func makeAudioPacketSink(
+        whileSourceIsActive: @escaping @Sendable () -> Bool
+    ) -> @Sendable (RTC.RTCAudioPacket) -> Void
     var activeRouteDebugTypeName: String { get }
     func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration)
 

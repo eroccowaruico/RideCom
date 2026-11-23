@@ -36,7 +36,7 @@ extension IntercomViewModel {
         if let recording {
             audioPipeline.onTransmitPacket = { recording.receive($0) }
         } else {
-            audioPipeline.onTransmitPacket = callSession.audioPacketSink
+            audioPipeline.onTransmitPacket = callSession.makeAudioPacketSink(whileSourceIsActive: { delivery.isActive })
         }
         bindCallAudioOutput(generation: generation, finiteRecordingDuration: finiteRecordingDuration)
     }

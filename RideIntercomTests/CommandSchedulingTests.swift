@@ -68,7 +68,7 @@ struct CommandSchedulingTests {
         let rtc = FakeRTCCallSession(); let gate = ManualAsyncGate(); rtc.audioGate = gate
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         adapter.connect(group: IntercomSeedData.recentGroups[0]); adapter.startMedia()
-        let send = adapter.audioPacketSink
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
         await rtc.waitForOperation("startMedia")
         send(.init(sequenceNumber: 0, codec: .pcm16, payload: Data([0, 0])))
         await gate.waitForEntry()
@@ -99,7 +99,7 @@ struct CommandSchedulingTests {
         await starting.release()
         await stopping.waitForEntry()
 
-        let send = adapter.audioPacketSink
+        let send = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
         send(.init(sequenceNumber: 1, codec: .pcm16, payload: Data([0, 0])))
         await AppTestSupport.waitUntil(timeout: .milliseconds(150)) { !rtc.sentAudioSequences.isEmpty }
         #expect(rtc.sentAudioSequences.isEmpty)

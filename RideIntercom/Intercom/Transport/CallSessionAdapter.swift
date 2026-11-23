@@ -6,9 +6,11 @@ final class RideIntercomCallSessionAdapter: CallSession {
     var processReceivedAudio: (@Sendable (RTC.ReceivedAudioPacket) -> AudioPacketReception)? {
         didSet { bindReceivedAudio() }
     }
-    var audioPacketSink: @Sendable (RTC.RTCAudioPacket) -> Void {
+    func makeAudioPacketSink(
+        whileSourceIsActive: @escaping @Sendable () -> Bool
+    ) -> @Sendable (RTC.RTCAudioPacket) -> Void {
         let delivery = audioDelivery
-        return { delivery.enqueue($0) }
+        return { delivery.enqueue($0, whileSourceIsActive: whileSourceIsActive) }
     }
     private(set) var activeRouteDebugTypeName: String = "RTC RouteManager"
 

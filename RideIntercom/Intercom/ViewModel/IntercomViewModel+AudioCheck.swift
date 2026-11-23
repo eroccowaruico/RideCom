@@ -263,7 +263,7 @@ extension IntercomViewModel {
         let observationDrops = audioPipeline.droppedRenderFrameCount
         #endif
         audioPipeline.stop()
-        audioPipeline.onTransmitPacket = callSession.audioPacketSink
+        audioPipeline.onTransmitPacket = nil
         audioCheckRecording = nil
         #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
         let inputStop = audioInputCapture.stop()

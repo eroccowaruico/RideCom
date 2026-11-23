@@ -220,6 +220,7 @@ extension IntercomViewModel {
         setOtherAudioDuckingActive(false)
         stopCallMedia()
         audioPipeline.stop()
+        audioPipeline.onTransmitPacket = nil
         lastPlaybackScheduledAt = nil
         lastReceivedAudioAt = nil
         _ = audioInputCapture.stop()

@@ -50,6 +50,32 @@ import Testing
             viewModel.isAudioReady && harness.inputBackend.startCount == starts
                 && viewModel.callDisconnectDeadline == deadline)
     }
+
+    @Test func aRetiredAudioInputCannotSendThroughTheNextCall() async throws {
+        let harness = AppTestSupport.makeHarness(enforceCallAccess: false), model = harness.viewModel
+        defer { model.disconnect() }
+        let group = try #require(model.groups.first)
+        model.setSoundIsolationEnabled(false)
+        model.selectGroup(group)
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        try #require(model.isAudioReady)
+        harness.callSession.authenticate(["member-108"])
+        try #require(model.isCallMediaStarted)
+        let retiredSend = try #require(model.audioPipeline.onTransmitPacket)
+
+        model.disconnect()
+        model.connectLocal()
+        await AppTestSupport.waitUntil { model.isAudioReady }
+        try #require(model.isAudioReady)
+        harness.callSession.authenticate(["member-108"])
+        try #require(model.isCallMediaStarted)
+        let currentSend = try #require(model.audioPipeline.onTransmitPacket)
+
+        retiredSend(.init(sequenceNumber: 1, codec: .pcm16, payload: Data([0, 0])))
+        currentSend(.init(sequenceNumber: 2, codec: .pcm16, payload: Data([0, 0])))
+        #expect(harness.callSession.sentAudioPackets.map(\.sequenceNumber) == [2])
+    }
+
     @Test func peerLossDuringActivationStillPreparesTheRequestedCallWithoutSending() async throws {
         let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel, gate = ManualAsyncGate()
         defer { viewModel.disconnect() }

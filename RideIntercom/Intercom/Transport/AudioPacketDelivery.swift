@@ -19,12 +19,13 @@ nonisolated final class AudioPacketDelivery: @unchecked Sendable {
     private var dropped = 0
     var droppedPacketCount: Int { lock.withLock { dropped } }
 
-    func enqueue(_ packet: RTCAudioPacket) {
+    func enqueue(_ packet: RTCAudioPacket, whileSourceIsActive: @Sendable () -> Bool) {
         let samplesDuration = Double(packet.sampleCount ?? 0)
             / Double(packet.format.channelCount) / packet.format.sampleRate
         let duration = samplesDuration.isFinite && samplesDuration > 0 ? samplesDuration : 0.02
         lock.withLock {
-            guard accepting else { return }
+            // The source's atomic lifetime check and queue admission share this boundary.
+            guard accepting, whileSourceIsActive() else { return }
             while !pending.isEmpty && (pending.count >= 64 || pendingDuration + duration > 0.100001) {
                 pendingDuration -= pending.removeFirst().duration
                 dropped += 1

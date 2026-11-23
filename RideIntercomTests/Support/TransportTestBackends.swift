@@ -27,8 +27,12 @@ final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var runtimePackageReports: [[RTCRuntimePackageReport]] = []
     private nonisolated let audioPackets = Mutex<[RTC.RTCAudioPacket]>([])
     var sentAudioPackets: [RTC.RTCAudioPacket] { audioPackets.withLock { $0 } }
-    var audioPacketSink: @Sendable (RTC.RTCAudioPacket) -> Void {
-        { [self] packet in audioPackets.withLock { $0.append(packet) } }
+    func makeAudioPacketSink(
+        whileSourceIsActive: @escaping @Sendable () -> Bool
+    ) -> @Sendable (RTC.RTCAudioPacket) -> Void {
+        { [self] packet in
+            audioPackets.withLock { if whileSourceIsActive() { $0.append(packet) } }
+        }
     }
     private(set) var sentControlMessages: [ControlMessage] = []
     private(set) var sentApplicationDataMessages: [ApplicationDataMessage] = []
