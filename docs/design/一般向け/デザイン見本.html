@@ -875,30 +875,30 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
     </figure>
 
     <!-- 登録した同じ受け取り画面から返信を共有する -->
-    <figure>
+    <figure id="individual-invitation-reply">
       <div class="phone"><div class="screen form">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
         <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
         <div class="body">
-          <div class="card"><div class="dest">マキ</div><div class="status">登録済み</div></div>
-          <div class="group-h">本人の名前</div><div class="group"><div class="row">マキ</div></div>
+          <div class="card"><div class="dest">ナオ</div><div class="status">登録済み</div></div>
+          <div class="group-h">本人の名前</div><div class="group"><div class="row">ナオ</div></div>
           <div class="group">
             <div class="row">返信が届いていません</div>
             <div class="row"><span class="link">もう一度送る</span></div>
             <div class="row"><span class="link">返信を共有</span></div>
           </div>
-          <p class="note">この返信をマキに共有してください。</p>
+          <p class="note">この返信をナオに共有してください。</p>
           <div class="group"><div class="row"><span class="link">名前を編集</span></div></div>
         </div>
       </div></div>
-      <figcaption><b>登録から返信共有まで同じ画面</b>図では、返信を自動で送る処理が止まっている。通話中も近距離または本人確認済みのInternet経路で返信を試し、通話・音量・ミュートを保つ。どちらも使えない場合は通話が終わるまで待つ案内を出す。受け取った招待の「登録」でこの保存済み詳細に変わり、自動では閉じない。iOSでは登録や「もう一度送る」で、条件が揃ったInternetの受諾をOSに預ける。受諾の受付を保存した後は、アプリを開き直しても到着確認の待機から再開する。iOSの背景更新の途中で受付が保存されたら、同じ更新で到着確認を照会する。署名付きの到着確認までは同じ相手に返信待ちが残る。通信を待たず「返信を共有」でOS共有へ進める。取り消してもコピーしても、この詳細と返信待ちを保つ。旧形式で削除済みの相手の返信記録は、移行時に取消して復活させない。「完了」で終えても相手の設定から続けられる。通話中も共有は使え、自動の再試行だけが通話終了待ちになる。</figcaption>
+      <figcaption><b>登録から返信共有まで同じ画面</b>マキがナオの招待を開いて登録した後。図では、返信を自動で送る処理が止まっている。通話中も近距離または本人確認済みのInternet経路で返信を試し、通話・音量・ミュートを保つ。どちらも使えない場合は通話が終わるまで待つ案内を出す。受け取った招待の「登録」でこの保存済み詳細に変わり、自動では閉じない。iOSでは登録や「もう一度送る」で、条件が揃ったInternetの受諾をOSに預ける。受諾の受付を保存した後は、アプリを開き直しても到着確認の待機から再開する。iOSの背景更新の途中で受付が保存されたら、同じ更新で到着確認を照会する。署名付きの到着確認までは同じ相手に返信待ちが残る。通信を待たず「返信を共有」でOS共有へ進める。取り消してもコピーしても、この詳細と返信待ちを保つ。旧形式で削除済みの相手の返信記録は、移行時に取消して復活させない。「完了」で終えても相手の設定から続けられる。通話中も共有は使え、自動の再試行だけが通話終了待ちになる。</figcaption>
     </figure>
-    <figure>
+    <figure id="individual-invitation-ack">
       <div class="phone"><div class="screen form">
         <div class="sbar"><span>9:41</span><span class="island"></span><span></span></div>
         <div class="navbar" style="justify-content:flex-start"><span class="link">完了</span></div>
         <div class="body">
-          <div class="card"><div class="dest">マキさん</div><div class="status">登録済み</div></div>
+          <div class="card"><div class="dest">青いキツネ</div><div class="status">登録済み</div></div>
           <div class="group-h">本人の名前</div><div class="group"><div class="row">マキ</div></div>
           <div class="group">
             <div class="row">返信を受け取りました</div>
@@ -908,7 +908,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="group"><div class="row"><span class="link">名前を編集</span></div></div>
         </div>
       </div></div>
-      <figcaption><b>共有された返信の到着確認</b>元の作者は検証済み返信で同じ人を登録済みに更新する。手動で受け取った場合だけ到着確認を案内する。相手が確認リンクを開いて検証・保存したときに返信待ちを外し、共有先の選択・コピーでは配達済みにしない。削除・取消後は、先に開いていた共有からも書き出さない。通常の近距離交換では通話を開始せず確認を自動で返す（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
+      <figcaption><b>共有された返信の到着確認</b>ナオがマキの返信を開くと、確認して保存した後に同じ人を登録済みに更新する。手動で受け取った場合だけ到着確認を案内する。相手が確認リンクを開いて検証・保存したときに返信待ちを外し、共有先の選択・コピーでは配達済みにしない。削除・取消後は、先に開いていた共有からも書き出さない。通常の近距離交換では通話を開始せず確認を自動で返す（<a href="../招待と登録の設計.md#通信を使わずに返信する">状態と復帰</a>）。</figcaption>
     </figure>
 
     <!-- 期限を越えて再起動した保存済みの返信 -->
