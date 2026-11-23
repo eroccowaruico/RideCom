@@ -6,11 +6,11 @@ struct CallConfigurationChange {
     let routes: Set<RTC.RouteKind>
     let internet: RTC.CloudflareRealtimeConfiguration?
     let request: RTC.CallStartRequest?
-    let startMedia: Bool
+    let mediaStartID: UUID?
 }
 
 enum CallCommand {
-    case connect(RTC.CallStartRequest), startMedia, stopMedia, disconnect
+    case connect(RTC.CallStartRequest), startMedia(UUID), stopMedia, disconnect
     case configure(CallConfigurationChange)
     case audioPolicy(RTC.RTCAudioPolicy)
     case localMute(Bool), outputMute(Bool), reports([RTCRuntimePackageReport])

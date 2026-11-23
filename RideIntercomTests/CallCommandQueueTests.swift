@@ -13,21 +13,25 @@ struct CallCommandQueueTests {
             #expect(accepted)
         }
         #expect(queue.count == 1)
-        let start = queue.append(.startMedia, generation: generation)
+        let startID = UUID()
+        let start = queue.append(.startMedia(startID), generation: generation)
         let mute = queue.append(.localMute(true), generation: generation)
         #expect(start && mute)
         #expect(queue.count == 3)
         guard case .localMute(false)? = queue.popFirst()?.command else {
             Issue.record("Final mute before boundary was not retained"); return
         }
-        guard case .startMedia? = queue.popFirst()?.command else { Issue.record("Media boundary moved"); return }
+        guard case .startMedia(let queuedStartID)? = queue.popFirst()?.command else {
+            Issue.record("Media boundary moved"); return
+        }
+        #expect(queuedStartID == startID)
         guard case .localMute(true)? = queue.popFirst()?.command else {
             Issue.record("Setting crossed the boundary"); return
         }
     }
     @Test func orderedCommandsAndBytesHaveIndependentBounds() {
         var queue = CallCommandQueue(); let generation = UUID()
-        for _ in 0..<64 { let accepted = queue.append(.startMedia, generation: generation); #expect(accepted) }
+        for _ in 0..<64 { let accepted = queue.append(.startMedia(UUID()), generation: generation); #expect(accepted) }
         let overflow = queue.append(.stopMedia, generation: generation)
         #expect(!overflow)
         #expect(queue.count == 64)

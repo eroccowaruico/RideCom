@@ -39,7 +39,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
     private var publishedPeerIDs: [String]?
     private var publishedAuthenticatedMembers: [RTC.CallMemberState]?
     private var connectionRequest: RTC.CallStartRequest?
-    private var mediaRequested = false
+    private var requestedMediaStart: UUID?
     private var audioPolicy: RTC.RTCAudioPolicy = .intercomDefault
     private var enabledRoutes: Set<RTC.RouteKind> = AppRTCTransportRoutePolicy.supportedRoutes
 
@@ -84,21 +84,23 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func startMedia() {
-        mediaRequested = true
+        guard !commandQueueFailed else { return }
+        let startID = requestedMediaStart ?? UUID()
+        requestedMediaStart = startID
         if !requestedLocalMute { audioDelivery.begin() }
-        enqueue(.startMedia)
+        enqueue(.startMedia(startID))
     }
 
     func stopMedia() {
         clearPendingAudio()
         mediaActive = false
-        mediaRequested = false
+        requestedMediaStart = nil
         enqueue(.stopMedia)
     }
 
     func disconnect() {
         connectionRequest = nil
-        mediaRequested = false
+        requestedMediaStart = nil
         mediaActive = false
         activeRouteDebugTypeName = "RTC RouteManager"
         invalidateEvents()
@@ -123,7 +125,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
 
     func setLocalMute(_ muted: Bool) {
         requestedLocalMute = muted
-        if muted { clearPendingAudio() } else if mediaRequested { audioDelivery.begin() }
+        if muted { clearPendingAudio() } else if requestedMediaStart != nil { audioDelivery.begin() }
         enqueue(.localMute(muted))
     }
 
@@ -137,7 +139,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func sendAudioPacket(_ packet: RTC.RTCAudioPacket) {
-        guard mediaRequested, !requestedLocalMute, !commandQueueFailed else { return }
+        guard requestedMediaStart != nil, !requestedLocalMute, !commandQueueFailed else { return }
         audioDelivery.enqueue(packet)
         drainPendingAudio()
     }
@@ -170,7 +172,7 @@ extension RideIntercomCallSessionAdapter {
         guard commands.append(command, generation: eventGeneration) else {
             commandQueueFailed = true
             needsConfigurationRecovery = true
-            connectionRequest = nil; mediaRequested = false; mediaActive = false
+            connectionRequest = nil; requestedMediaStart = nil; mediaActive = false
             invalidateEvents()
             commands.removeAll()
             _ = commands.append(.disconnect, generation: eventGeneration)
@@ -197,17 +199,15 @@ extension RideIntercomCallSessionAdapter {
             bindEvents(for: entry.generation)
             await rtcSession.prepare(request)
             await rtcSession.startConnection()
-        case .startMedia:
+        case .startMedia(let startID):
             await rtcSession.setLocalMute(appliedLocalMute)
             await rtcSession.setOutputMute(appliedOutputMute)
             await rtcSession.startMedia()
-            activateMedia(for: entry.generation)
+            activateMedia(for: entry.generation, startID: startID)
         case .stopMedia:
             await rtcSession.stopMedia()
-            mediaActive = false
         case .disconnect:
             await rtcSession.stopConnection()
-            mediaActive = false
             commandQueueFailed = false
         case .localMute(let muted):
             await applyLocalMute(muted)
@@ -240,9 +240,9 @@ extension RideIntercomCallSessionAdapter {
         guard let request = change.request else { return }
         await rtcSession.prepare(request)
         await rtcSession.startConnection()
-        if change.startMedia {
+        if let startID = change.mediaStartID {
             await rtcSession.startMedia()
-            activateMedia(for: generation)
+            activateMedia(for: generation, startID: startID)
         }
     }
 
@@ -252,8 +252,8 @@ extension RideIntercomCallSessionAdapter {
         if !muted { drainPendingAudio() }
     }
 
-    private func activateMedia(for generation: UUID) {
-        guard generation == eventGeneration else { return }
+    private func activateMedia(for generation: UUID, startID: UUID) {
+        guard generation == eventGeneration, requestedMediaStart == startID else { return }
         mediaActive = true
         drainPendingAudio()
     }
@@ -280,7 +280,7 @@ extension RideIntercomCallSessionAdapter {
             needsConfigurationRecovery = false
             if ownsRTCSession {
                 enqueue(.configure(.init(audioPolicy: audioPolicy, routes: enabledRoutes,
-                    internet: internetConfiguration, request: nil, startMedia: false)))
+                    internet: internetConfiguration, request: nil, mediaStartID: nil)))
             }
             enqueue(.localMute(requestedLocalMute))
             enqueue(.outputMute(requestedOutputMute))
@@ -394,7 +394,7 @@ extension RideIntercomCallSessionAdapter {
             connectionRequest = request
         }
         enqueue(.configure(.init(audioPolicy: audioPolicy, routes: enabledRoutes,
-            internet: internetConfiguration, request: connectionRequest, startMedia: mediaRequested)))
+            internet: internetConfiguration, request: connectionRequest, mediaStartID: requestedMediaStart)))
         activeRouteDebugTypeName = "RTC RouteManager"
     }
 }

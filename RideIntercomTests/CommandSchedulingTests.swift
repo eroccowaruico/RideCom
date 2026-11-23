@@ -83,6 +83,35 @@ struct CommandSchedulingTests {
         adapter.disconnect()
     }
 
+    @Test func supersededMediaStartDoesNotTransmitWhileTheStopIsPending() async {
+        let rtc = FakeRTCCallSession()
+        let starting = ManualAsyncGate(), stopping = ManualAsyncGate()
+        rtc.startMediaGate = starting
+        rtc.stopMediaGate = stopping
+        let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
+        defer { adapter.disconnect() }
+        adapter.connect(group: IntercomSeedData.recentGroups[0])
+        adapter.startMedia()
+        await starting.waitForEntry()
+        adapter.stopMedia()
+        adapter.startMedia()
+        await starting.release()
+        await stopping.waitForEntry()
+
+        let send = adapter.audioPacketSink
+        send(.init(sequenceNumber: 1, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil(timeout: .milliseconds(150)) { !rtc.sentAudioSequences.isEmpty }
+        #expect(rtc.sentAudioSequences.isEmpty)
+
+        await stopping.release()
+        let expectedOrder = ["prepare", "startConnection", "startMedia", "stopMedia", "startMedia"]
+        await AppTestSupport.waitUntil { rtc.operations == expectedOrder }
+        #expect(rtc.operations == expectedOrder)
+        send(.init(sequenceNumber: 2, codec: .pcm16, payload: Data([0, 0])))
+        await AppTestSupport.waitUntil { rtc.sentAudioSequences.last == 2 }
+        #expect(rtc.sentAudioSequences == [2])
+    }
+
     @Test func slowConnectionKeepsOnlyFinalSettingsAndPreservesMediaOrder() async {
         let rtc = FakeRTCCallSession(); let gate = ManualAsyncGate(); rtc.prepareGate = gate
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)

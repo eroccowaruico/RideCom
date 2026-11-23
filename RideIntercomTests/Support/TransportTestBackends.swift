@@ -137,6 +137,8 @@ final class FakeRTCCallSession: RTC.CallSession {
 
     var prepareDelay: Duration = .zero
     var prepareGate: ManualAsyncGate?
+    var startMediaGate: ManualAsyncGate?
+    var stopMediaGate: ManualAsyncGate?
     var audioGate: ManualAsyncGate?
     private var recordedOperations: [String] = []
     private var operationWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -167,8 +169,14 @@ final class FakeRTCCallSession: RTC.CallSession {
     }
     func startConnection() async { record("startConnection") }
     func stopConnection() async { record("stopConnection") }
-    func startMedia() async { record("startMedia") }
-    func stopMedia() async { record("stopMedia") }
+    func startMedia() async {
+        if let startMediaGate { await startMediaGate.wait() }
+        record("startMedia")
+    }
+    func stopMedia() async {
+        if let stopMediaGate { await stopMediaGate.wait() }
+        record("stopMedia")
+    }
     private var recordedAudioSequences: [UInt64] = []
     var sentAudioSequences: [UInt64] { lock.withLock { recordedAudioSequences } }
     func sendAudioPacket(_ packet: RTC.RTCAudioPacket) async {
