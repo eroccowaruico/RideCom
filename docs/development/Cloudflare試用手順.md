@@ -19,7 +19,6 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | CLOUDFLARE_SFU_APP_SECRET | Secret | SFU App Secret |
 | CLOUDFLARE_TURN_KEY_ID | Variable | TURN Key ID。Productionは`vars`、固定Previewは`previews.vars`へ環境別に設定 |
 | CLOUDFLARE_TURN_API_TOKEN | Secret | TURN資格発行・失効用のAPI token |
-| CLIENT_TOKENS_JSON | Secret（旧手動試用だけ） | 試用資格の登録用`client-tokens.json`の内容。native Apple登録には不要 |
 | APPLE_CLIENT_ID | Variable | Appの`com.yowamushi-inc.RideIntercom.RideIntercom`。repoへ設定済み |
 | DEVICE_IDENTITY_SIGNING_KEY | Secret | 環境ごとに生成し安全に保管したEC P-256秘密鍵のJWK JSON（`kty`、`crv`、`x`、`y`、`d`を含む）。端末証明と用途ごとの通知許可の署名に使用し、継続して保持する |
 | INVITATION_RELAY_KEY_SEED | Secret | 個人招待の受諾とグループ招待の送信・取消をiOSの背景転送に預ける環境で設定する。環境ごとのランダムな32 byteをpaddingなしbase64urlで表す。公開鍵の発行と使用期限は[Worker仕様](../spec/server/Worker.md#招待を預けるサービスの暗号化公開鍵)に従う |
@@ -36,8 +35,6 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 | NOTIFICATIONS_ENABLED | Variable | APNs鍵・profile・topic・環境を揃えてから `true` にする |
 | SERVICE_ENABLED | Variable | 音声SFUの入口。SFU資格と費用上限を確認して有効にする。停止中も既存の通話終了とICE接続準備の取消には、回収に必要なSFU・TURNの資格を使う。[TOMLの環境別設定](../spec/server/Worker.md#設定値) |
 
-`CLIENT_TOKENS_JSON`は手動発行した利用キーのSHA-256と識別名を対応付ける招待制試用用のregistry。実機の端末IDを事前収集するものではない。下記スクリプトで生成し、JSONを手書きしない。native Apple認証による自動登録・資格発行は実装済みで、下記のApple設定と環境別secret・有効化が必要。旧registryを公開Appへ埋め込まない。
-
 Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。検証端末ごとに固定Previewへ接続するDebugビルドを入れ、Appleで認証する。通常変数と6つのDO bindingは`wrangler.toml`の`previews`に定義する。固定Previewでは配置が参照するSFU App IDと、そのIDに対応するSecretを照合する。
 
 Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。手動配置でも対象は固定Previewとする。依存を導入して認証した後、リポジトリのルートで `npm --prefix server run preview -- --name preview` を実行する。
@@ -52,7 +49,7 @@ GitHub連携ではSettings → Builds → Branch controlのEnable Preview Builds
 
 開発先はmain、配置用の固定branchは`preview`とする。2026-10-30に設定した接続先は`https://preview-rideintercom.analog.workers.dev`。検証済みmainをpreviewへ反映し、作業用`codex/`branchを固定URLとして使わない。branchの同期とCloudflare側のbuild・配置成功は別々に確認する。
 
-このMacの`Configuration/Debug.local.xcconfig`と`server/.trial-credentials/`はmainの作業領域で保持する。Debug用の値だけであり、Release・Archive・通常の自動検証には実資格を入れない。秘密値はGitや引継ぎ文書へ転記しない。
+このMacの開発設定はGit管理外の `Configuration/Debug.local.xcconfig` で扱う。Debug用の値だけであり、Release・Archive・通常の自動検証には実資格を入れない。秘密値はGitや引継ぎ文書へ転記しない。
 
 Cloudflare設定チャットから引き継いだ残件は、実SFU/TURNを通した双方向音声、実費用・停止運用、およびbuild監視pathと旧作業branchの自動build設定の確認。固定URLの作成・HTTP認証成功だけでは音声受入完了にしない。本番を含む監視pathの変更は当時の自動承認審査で拒否されており、変更済みと扱わない。実サービスの実行条件は[開発方針](../policies/開発方針.md#実サービスを使う検証の費用制約)に従う。
 
@@ -109,7 +106,7 @@ npx wrangler preview secret put APNS_PRIVATE_KEY --name preview
 npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 ```
 
-通常のAppは[Apple経由でInternet登録](#利用者が行うapplecloudflareの設定と受入順)する。下記の端末トークンは旧方式を明示して試用する場合だけ使う。
+通常のAppは[Apple経由でInternet登録](#利用者が行うapplecloudflareの設定と受入順)する。
 
 ### 共有mainから固定Previewと通話試験を用意する
 
@@ -132,49 +129,18 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 | 入力元 | 再現する内容 |
 |---|---|
 | 共有mainの対象コミット | Worker、依存関係のロックファイル、Previewの通常変数・binding・migration、固定名を指定する配置手順 |
-| 管理されたPreview用の資格 | Previews Baseと発行元の手順から、対象環境の参照先と対応する資格を用意する。旧配置にしかない設定は供給元と手順に反映する。秘密値は記録しない |
+| 管理されたPreview用の資格 | Previews Baseと発行元の手順から、対象環境の参照先と対応する資格を用意する。旧配置にしかない設定は、現行方式でも必要な場合に限り供給元と手順に反映する。秘密値は記録しない |
 | 新しく用意する試験データ | 空の状態から今回の端末登録・グループ・招待を用意し、試験後に回収する。使用する接続先と合否の条件をそろえる |
 
 構成の変更時は、対象コミットを空の作業場所に展開して依存を復元し、Workerをビルドしてローカル試験を通す。管理側では、作成時に使う設定と固定Previewの実効設定を照合する。設定の有無、既存配置への再デプロイ、既存端末での通話は、それぞれその工程の結果として記録する。
 
-試験資格の登録でHTTP 403が出たら、Cloudflare管理APIでの設定更新と、試験端末からWorkerへの認証を区別する。旧手動資格を使う実中継試験では、[試用資格の登録簿](#旧手動トークンによる新規の試用)が必要になる。Appleの端末登録やSFU・TURNの鍵が有効でも、この登録簿の有無は別に確かめる。共有mainで選んだ試験方式の登録手順と、Previews Baseから継承する設定を照合する。供給元に必要な設定がなければ先に補う。既存Previewに継承されていなければ、配置担当が共有mainから固定ブランチを作り直す。再作成後は最新配置を特定し、試験資格が通ることと実中継で両方向の音声が届くことを個別に判定する。
+試験資格の登録でHTTP 403が出たら、Cloudflare管理APIでの設定更新と、試験端末からWorkerへの認証を区別する。実中継試験の準備は、共有mainで採用した試験方式が使う資格と、対象のPreviewに必要なSFU・TURNの設定を照合する。供給元に必要な設定がなければ先に補う。既存Previewに継承されていなければ、配置担当が共有mainから固定ブランチを作り直す。再作成後は最新配置を特定し、試験資格が通ることと実中継で両方向の音声が届くことを個別に判定する。
 
 新規作成からの実環境試験は、固定Previewが未作成のとき、または再構築を検証する区切りで行う。実行中の試験があればその区切りに合わせる。上の手順1から5までを同じ固定名で実行し、対象コミット、初期状態、両端の通話結果と回収結果を残す。実施記録がない場合や構成変更で以前の結果が使えなくなった場合は、次のサーバー資源点検で、未確認の条件と試用への影響を照合する。担当者は再作成を試す日程を調整して検証待ちに残す。
-
-### 旧手動トークンによる新規の試用
-
-2台だけの試験では、リポジトリのルートで次のコマンドを実行する。試験先のHTTPS originを指定すると、Git管理外の新しいディレクトリに端末ファイル2つと登録一覧を作る。実行ごとに別の資格を発行する。
-
-```sh
-node scripts/Cloudflare/prepare-trial-credentials.mjs https://preview.example
-```
-
-既存の資格を使う場合は、同じコマンドの末尾に端末ファイル2つを指定する。同じ試験先で発行した端末ファイルから登録一覧だけを再生成する。元の端末ファイルと登録一覧は保持する。作成先だけを出力し、資格はファイルに保管する。[2台分の準備処理](../../scripts/Cloudflare/prepare-trial-credentials.mjs)
-
-どちらの操作もCloudflareの配置と保存データを変更しない。既存Previewへ反映する場合は、更新する登録一覧に現在有効な全端末があることを管理用原本で確かめる。照合後、対象Previewのシークレットを更新する。
-
-今回発行した資格を試験先へ追加した場合は、試験後に登録一覧から今回の追加分を取り除き、その資格が拒否されることを確認する。試験用に生成したローカルディレクトリも回収する。
-
-リポジトリrootで、例のURLを実際に試すPreviewのHTTPS originへ置き換える。この手順は新しい試用registryを用意する場合のもの。既存registryに追加する際は、現在有効な全端末を含む、その環境の管理用原本を先に確認する。一部しか含まないJSONで置き換えると、省かれた端末はその資格で次回の認証ができなくなる。
-
-```sh
-node scripts/Cloudflare/issue-device.mjs https://rideintercom.example.workers.dev my-mac
-node scripts/Cloudflare/issue-device.mjs https://rideintercom.example.workers.dev my-phone
-cd server
-npx wrangler preview secret put CLIENT_TOKENS_JSON --name preview < .trial-credentials/client-tokens.json
-```
 
 ### Productionを公開するとき
 
 本番用SFU資格を対象WorkerのProductionへ登録し、[Worker設定](../../server/wrangler.toml)の `vars.SERVICE_ENABLED` を有効にする変更をレビューする。通常変数は次の配置でも同じ値になるよう構成ファイルと揃える。GitHub連携で当該コミットが配置された場合は、その配置番号を確認する。手動配置を選んだ場合のみリポジトリrootで `npm --prefix server run deploy` を実行する。
-
-旧手順で手動試用の疎通を確認する場合は、対象環境のURLで発行した端末ファイルを使う。リポジトリのルートで次を実行する。
-
-```sh
-node scripts/Cloudflare/check-service.mjs server/.trial-credentials/my-mac.json
-```
-
-発行ファイルはdirectory0700/file0600で生成し、Gitのignore対象とする。旧方式で使う接続先と資格は、開発時の設定に渡す。registryにはtokenのSHA-256だけを保存する。revoke時は対象hashをregistryから削除しsecretを再登録。稼働中のWSは既存lease終了まで残り得る。ファイルやsecretをログ・チャット・リポジトリへ貼らない。
 
 `v1` migrationは未デプロイ開発用namespaceを前提にSQLite DOを作る。既に同名Worker/旧KV DOをデプロイしていた場合は、既存migrationを書き換えて適用せず、新しい試用Worker名とnamespaceで開始する。既存データの移行・削除はこの手順に含めない。
 
@@ -182,7 +148,7 @@ node scripts/Cloudflare/check-service.mjs server/.trial-credentials/my-mac.json
 
 実サービスを使う前に、[開発方針](../policies/開発方針.md#実サービスを使う検証の費用制約)に従い、単体・結合を含むローカル検証をすべて成功させる。以降の手順は明示的な実サービス確認用であり、通常テストや設定マトリクスから大量実行しない。目的・人数・時間・回数を先に決め、短い疎通から進める。
 
-Debugは固定Previewが既定。Apple登録はアプリ内の接続シートから行う。旧方式の資格で試す場合は[開発時の設定](../../Configuration/README.md)を使う。
+Debugは固定Previewが既定。Apple登録はアプリ内の接続シートから行う。
 
 単体テスト、UIテスト、音声E2Eでは、テスト中のプロセスに構成を組み立てる。このときXCTestの環境変数または`RIDEINTERCOM_LOCAL_TESTING=1`でInternet資格を無効にする。UI testはこのflagをlaunch environmentへ渡す。ローカルfixtureを使うテストはstoreを明示注入する。外部費用のない自動試験と、Debugの手動試用を混同しない。
 
