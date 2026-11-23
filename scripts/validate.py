@@ -566,9 +566,10 @@ def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
                 needs.append('simulator-audio-device')
         destination = 'platform=iOS Simulator,id=' + sim
         if not focused or iphone_tests:
+            full_ui_suite = not focused or 'RideIntercomUITests' in iphone_tests
             runner.xcode('ios-tests', destination, only=iphone_tests, needs=needs,
                          skip=[RECOVERY_TEST, *IPAD_ONLY_TESTS], verify_selection=focused,
-                         timeout=None if focused else ios_tests_timeout(os.environ))
+                         timeout=ios_tests_timeout(os.environ) if full_ui_suite else None)
             needs = [*needs, 'ios-tests-acceptance']
             if focused:
                 needs.append('ios-tests-selection')

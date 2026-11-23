@@ -76,6 +76,31 @@ class ValidationTests(unittest.TestCase):
         self.assertGreater(self.module.IOS_TESTS_SECONDS, 4307)
         self.assertIsNone(self.module.ios_tests_timeout({'VALIDATION_TIMEOUT_SECONDS': '600'}))
 
+    def test_explicit_iphone_ui_target_keeps_the_full_suite_timeout(self) -> None:
+        from scripts import audio_e2e
+
+        ui_target = 'RideIntercomUITests'
+        suite = 'RideIntercomTests/GroupRecoveryTests'
+        cases = [
+            ([], False, {}, self.module.IOS_TESTS_SECONDS),
+            ([ui_target], False, {}, self.module.IOS_TESTS_SECONDS),
+            ([ui_target], True, {}, self.module.IOS_TESTS_SECONDS),
+            ([ui_target], True, {'VALIDATION_TIMEOUT_SECONDS': '600'}, None),
+            ([suite], True, {}, None),
+        ]
+        with patch.object(self.module, 'SimulatorLease') as lease, \
+             patch.object(self.module, 'boot_simulator'), \
+             patch.object(self.runner, 'run', return_value=True), \
+             patch.object(audio_e2e, 'SimulatorAudioPin') as audio_pin, \
+             patch.object(self.runner, 'xcode') as xcode:
+            lease.return_value.prepare.return_value = 'test-phone'
+            audio_pin.return_value.pin.return_value = 'fixture-audio'
+            for tests, focused, environment, expected in cases:
+                with self.subTest(tests=tests, focused=focused, environment=environment):
+                    with patch.dict('os.environ', environment, clear=True):
+                        self.module.run_iphone_tests(self.runner, 'fixture-runtime', tests, [], focused)
+                    self.assertEqual(xcode.call_args.kwargs['timeout'], expected)
+
     def test_selected_ios_suites_keep_recovery_and_regular_width_on_their_own_stages(self) -> None:
         contact = 'RideIntercomTests/ContactReplyTests'
         design = 'RideIntercomUITests/DesignSystemCallUITests'
