@@ -386,12 +386,46 @@ async function signRestoreRelay(value, identity) {
 }
 
 test('direct restore relay is unavailable without explicit test enablement', async () => {
-    const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
+    const runtime = await makeRuntime(options, { appleKeys: [publicKey], apiLimit: false });
     try {
         const device = await enrolled(runtime);
         assert.equal((await call(runtime, directRestorePath, undefined, device.accessToken, 'GET')).status, 404);
         assert.equal((await call(runtime, directRestorePath, {}, device.accessToken, 'PUT')).status, 404);
         assert.equal((await call(runtime, '/api/direct-call-restore/device', {}, device.accessToken, 'POST')).status, 404);
+    } finally { await runtime.dispose(); }
+});
+
+test('direct restore admission uses independent endpoint quotas shared by authorized devices on each account', async () => {
+    const runtime = await makeRuntime({ ...options, DIRECT_CALL_RESTORE_RELAY_ENABLED: 'true' },
+        { appleKeys: [publicKey], apiLimit: 1 });
+    try {
+        const one = await enrolled(runtime, 'restore-quota-owner');
+        const sibling = await enrolled(runtime, 'restore-quota-owner');
+        const other = await enrolled(runtime, 'restore-quota-other');
+        assert.equal(one.userID, sibling.userID);
+        assert.notEqual(one.userID, other.userID);
+
+        const devicePath = '/api/direct-call-restore/device';
+        const relay = (device, method = 'GET') =>
+            call(runtime, directRestorePath, method === 'GET' ? undefined : {}, device.accessToken, method);
+        const lookup = (device, owner) =>
+            call(runtime, devicePath, { slot: replySlot(), owner: owner.userID }, device.accessToken);
+        assert.equal((await relay(one, 'POST')).status, 405);
+        assert.equal((await call(runtime, devicePath, undefined, one.accessToken, 'GET')).status, 405);
+        assert.equal((await relay({ accessToken: '' })).status, 401);
+        assert.equal((await lookup({ accessToken: '' }, other)).status, 401);
+
+        const allowed = await relay(one);
+        assert.equal(allowed.status, 200);
+        assert.deepEqual(await allowed.json(), { messages: [] });
+        assert.equal((await lookup(one, other)).status, 404, 'The device endpoint still has its own quota');
+
+        for (const denied of [await relay(sibling, 'PUT'), await lookup(sibling, other)]) {
+            assert.equal(denied.status, 429);
+            assert.deepEqual(await denied.json(), { error: 'Too many restore requests' });
+        }
+        assert.equal((await relay(other)).status, 200);
+        assert.equal((await lookup(other, one)).status, 404);
     } finally { await runtime.dispose(); }
 });
 
