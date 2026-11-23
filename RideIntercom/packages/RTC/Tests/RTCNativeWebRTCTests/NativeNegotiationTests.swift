@@ -29,6 +29,40 @@ func loopbackEngine() -> WebRTCNativeEngine {
     }
 }
 
+@Test(arguments: [RTCRtpMediaType.audio, .video])
+func remoteOfferMustUseOnlyDataChannels(media: RTCRtpMediaType) async throws {
+    let receiver = loopbackEngine()
+    let sender = loopbackEngine()
+    let peer = PeerDescriptor(id: .init(rawValue: "data-only"), displayName: "Data only")
+    await receiver.createPeerConnection(for: peer)
+    await sender.createPeerConnection(for: peer)
+
+    let factory = RTCPeerConnectionFactory()
+    let config = RTCConfiguration()
+    config.sdpSemantics = .unifiedPlan
+    let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+    let connection = try #require(factory.peerConnection(with: config, constraints: constraints, delegate: nil))
+    defer { connection.close() }
+    let channelConfig = RTCDataChannelConfiguration()
+    _ = try #require(connection.dataChannel(forLabel: "test", configuration: channelConfig))
+    _ = try #require(connection.addTransceiver(of: media))
+    let mixedSDP: String? = await withCheckedContinuation { continuation in
+        connection.offer(for: constraints) { description, _ in
+            continuation.resume(returning: description?.sdp)
+        }
+    }
+    let mixedOffer = WebRTCSessionDescription(kind: .offer, sdp: try #require(mixedSDP))
+    #expect(mixedOffer.sdp.contains("m=application "))
+    #expect(mixedOffer.sdp.contains(media == .audio ? "m=audio " : "m=video "))
+    #expect(await receiver.acceptOffer(mixedOffer, from: peer.id) == nil)
+
+    let validOffer = try #require(await sender.makeOffer(for: peer.id))
+    let answer = try #require(await receiver.acceptOffer(validOffer, from: peer.id))
+    #expect(await sender.acceptAnswer(answer, from: peer.id))
+    await sender.close()
+    await receiver.close()
+}
+
 private actor PacketRecorder {
     var messages: [ApplicationDataMessage] = []
     var states: [RouteConnectionState] = []

@@ -152,3 +152,9 @@ iOS Simulatorの同じ試験から、2つのWebRTC接続で異なる約2秒の�
 共有mainから試験差分を適用したコピーで再現した。待機試験はBuild 2281、同時参加はBuild 2282。SwiftLintも通過した。
 
 中継はローカルの試験用Worker。固定Previewの実中継、実機の長時間ロック中の待機、通話が切れた後の再接続は[検証待ち](../未確認事項.md#ios背景実行の調査と受入マトリクス)で追う。
+
+## WebRTCでDataChannel以外の媒体を受け付けない
+
+2026-11-23。旧履歴の照合で、受信SDPの制限が仕様と試験手順にあり、共有コードには入っていないことを確認した。同梱SDKで音声付きと映像付きのofferをそれぞれ生成し、修正前は両方とも受け入れられ、続く正規のDataChannel専用offerを同じ接続で処理できなかった。
+
+受信したofferとanswerは同じ入口で媒体行を確認する。修正後は両方の試験で対象外のofferを拒否し、同じ接続でDataChannel専用のofferとanswerを処理できた。macOSでは同梱SDK間で符号化済み音声が双方向に届く回帰試験にも合格した。試験は合成データとローカル経路を使った。[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)・[試験の実行手順](../../development/自動検証.md#webrtcで受け取るsdp)

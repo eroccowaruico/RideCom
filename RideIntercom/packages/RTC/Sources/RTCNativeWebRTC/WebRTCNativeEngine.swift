@@ -111,19 +111,17 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         return WebRTCSessionDescription(kind: .offer, sdp: await connection.gatheredSDP(fallback: sdp))
     }
 
-        public override func acceptOffer(_ offer: WebRTCSessionDescription, from peerID: PeerID) async
-            -> WebRTCSessionDescription? {
+    public override func acceptOffer(_ offer: WebRTCSessionDescription, from peerID: PeerID) async
+        -> WebRTCSessionDescription? {
         guard let connection = lock.withLock({ peerConnections[peerID] }) else { return nil }
-        let remoteDescription = RTCSessionDescription(type: .offer, sdp: offer.sdp)
-        guard await connection.rtcSetRemoteDescription(remoteDescription) else { return nil }
+        guard await connection.setRemoteDataChannelSDP(offer.sdp, type: .offer) else { return nil }
         guard let sdp = await connection.makeAndSetLocalAnswerSDP() else { return nil }
         return WebRTCSessionDescription(kind: .answer, sdp: await connection.gatheredSDP(fallback: sdp))
     }
 
     public override func acceptAnswer(_ answer: WebRTCSessionDescription, from peerID: PeerID) async -> Bool {
         guard let connection = lock.withLock({ peerConnections[peerID] }) else { return false }
-        let description = RTCSessionDescription(type: .answer, sdp: answer.sdp)
-        return await connection.rtcSetRemoteDescription(description)
+        return await connection.setRemoteDataChannelSDP(answer.sdp, type: .answer)
     }
 
     public override func configureDataChannels(_ allocations: [WebRTCDataChannel], for peerID: PeerID) async {
@@ -289,8 +287,11 @@ private extension RTCPeerConnection {
         }
     }
 
-    func rtcSetRemoteDescription(_ description: RTCSessionDescription) async -> Bool {
-        await withCheckedContinuation { continuation in
+    func setRemoteDataChannelSDP(_ sdp: String, type: RTCSdpType) async -> Bool {
+        let mediaLines = sdp.split(whereSeparator: \.isNewline).filter { $0.hasPrefix("m=") }
+        guard !mediaLines.isEmpty, mediaLines.allSatisfy({ $0.hasPrefix("m=application ") }) else { return false }
+        let description = RTCSessionDescription(type: type, sdp: sdp)
+        return await withCheckedContinuation { continuation in
             setRemoteDescription(description) { error in
                 continuation.resume(returning: error == nil)
             }
