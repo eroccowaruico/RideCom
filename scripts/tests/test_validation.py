@@ -346,7 +346,9 @@ class ValidationTests(unittest.TestCase):
 
     def test_zero_skipped_and_failed_tests_are_rejected(self) -> None:
         for output in ['Ran 0 tests\nOK', 'Ran 2 tests\nOK (skipped=1)',
-                       'Test run with 0 tests passed', '# tests 2\n# pass 1\n# fail 1\n# skipped 0']:
+                       'Test run with 0 tests passed', '# tests 2\n# pass 1\n# fail 1\n# skipped 0',
+                       '# tests 2\n# pass 2',
+                       '# tests 2\n# pass 2\n# fail 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0']:
             self.assertFalse(self.module.tests_passed(output), output)
         for output in ['Ran 2 tests in 0.1s\n\nOK',
                        '✔ Test run with 5 tests in 1 suite passed after 1.0 seconds.',

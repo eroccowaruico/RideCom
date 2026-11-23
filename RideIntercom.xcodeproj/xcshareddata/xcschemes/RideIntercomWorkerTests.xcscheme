@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2710" version="1.7">
    <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="NO">
+      <PostActions>
+         <ExecutionAction ActionType="Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent title="Advance next build number" scriptText="set -eu&#10;cd &quot;$PROJECT_DIR&quot;&#10;xcrun --sdk macosx agvtool next-version&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="D77000000000000000000001" BuildableName="RideIntercomWorkerTests.xctest" BlueprintName="RideIntercomWorkerTests" ReferencedContainer="container:RideIntercom.xcodeproj"/>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <BuildActionEntries>
          <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">
             <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="D77000000000000000000001" BuildableName="RideIntercomWorkerTests.xctest" BlueprintName="RideIntercomWorkerTests" ReferencedContainer="container:RideIntercom.xcodeproj"/>

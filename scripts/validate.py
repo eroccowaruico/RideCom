@@ -140,9 +140,14 @@ def tests_passed(text: str) -> bool:
     python = re.search(r'Ran (\d+) tests?\b', text)
     if python:
         return int(python[1]) > 0 and re.search(r'^OK\s*$', text, re.MULTILINE) is not None
-    node = dict(re.findall(r'^[#ℹ]\s+(tests|pass|fail|skipped|cancelled|todo)\s+(\d+)', text, re.MULTILINE))
-    return (int(node.get('tests', 0)) > 0 and node.get('pass') == node.get('tests')
-            and all(int(node.get(key, 0)) == 0 for key in ['fail', 'skipped', 'cancelled', 'todo']))
+    failure_counts = {'fail', 'skipped', 'cancelled', 'todo'}
+    required = {'tests', 'pass', *failure_counts}
+    rows = re.findall(r'^[#ℹ][ \t]+(tests|pass|fail|skipped|cancelled|todo)[ \t]+(\d+)[ \t]*$',
+                      text, re.MULTILINE)
+    node = dict(rows)
+    return (len(rows) == len(required) and node.keys() == required
+            and int(node['tests']) > 0 and node['pass'] == node['tests']
+            and all(int(node[key]) == 0 for key in failure_counts))
 
 
 # The iPhone stage runs the App tests and then every UI test one at a time on one Simulator;
