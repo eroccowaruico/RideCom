@@ -39,6 +39,20 @@ from scripts.xcode_paths import (
     xcode_build_settings,
 )
 
+PACKAGE_PATHS = {
+    'AudioCore': 'Audio/AudioCore',
+    'AudioMixer': 'Audio/AudioMixer',
+    'Codec': 'Audio/Codec',
+    'SessionManager': 'Audio/SessionManager',
+    'AudioDevice': 'Audio/AudioDevice',
+    'DynamicsProcessor': 'Audio/Effectors/DynamicsProcessor',
+    'PeakLimiter': 'Audio/Effectors/PeakLimiter',
+    'SoundIsolation': 'Audio/Effectors/SoundIsolation',
+    'VADGate': 'Audio/Effectors/VADGate',
+    'RTC': 'RTC',
+    'CallControl': 'CallControl',
+}
+
 
 class TestSummary(TypedDict, total=False):
     totalTestCount: int
@@ -653,9 +667,13 @@ def main() -> int:
     parser.add_argument('mode', nargs='?', default='all', choices=['all', 'headless', 'packages', 'worker', 'pair', 'macos', 'ios', 'ios-ui', 'scripts'])
     parser.add_argument('--clean', action='store_true', help='Run standard swift package clean before package tests, using each package .build directory')
     parser.add_argument('--thread-sanitizer', action='store_true', help='Run supported Swift package tests under Thread Sanitizer')
+    parser.add_argument('--package', action='append', default=[], choices=PACKAGE_PATHS,
+                        help='Run only these packages in packages mode; repeat to add packages')
     parser.add_argument('--only-testing', action='append', default=[], metavar='TARGET[/SUITE/...[/METHOD]]',
                         help='Run selected Xcode tests in macos, ios or ios-ui; repeat to add selections')
     args = parser.parse_args()
+    if args.package and args.mode != 'packages':
+        parser.error('--package requires packages mode')
     targets = {
         'macos': {'RideIntercomTests'},
         'ios': {'RideIntercomTests', 'RideIntercomUITests'},
@@ -686,18 +704,18 @@ def main() -> int:
     swift_needed = mode in ('all', 'headless', 'packages', 'pair', 'macos', 'ios', 'ios-ui')
     if swift_needed:
         runner.run('swift-toolchain', [python, '-c', 'from scripts.validate import verify_swift; verify_swift()'], timeout=65)
-        runner.run('webrtc-artifact', [python, '-c', 'from scripts.validate import verify_artifact; verify_artifact()'], timeout=180)
+        if mode != 'packages' or not args.package or 'RTC' in args.package:
+            runner.run('webrtc-artifact', [python, '-c', 'from scripts.validate import verify_artifact; verify_artifact()'], timeout=180)
     if mode in ('all', 'headless', 'packages'):
-        packages = ['Audio/' + name for name in ['AudioCore', 'AudioMixer', 'Codec', 'SessionManager', 'AudioDevice']]
-        packages += ['Audio/Effectors/' + name for name in ['DynamicsProcessor', 'PeakLimiter', 'SoundIsolation', 'VADGate']]
-        packages += ['RTC', 'CallControl']
-        for package in packages:
-            name = package.split('/')[-1]
-            command = ['swift', 'test', '--package-path', 'RideIntercom/packages/' + package]
+        for name, relative_path in PACKAGE_PATHS.items():
+            if args.package and name not in args.package:
+                continue
+            package_path = 'RideIntercom/packages/' + relative_path
+            command = ['swift', 'test', '--package-path', package_path]
             needs = ['swift-toolchain'] + (['webrtc-artifact'] if name == 'RTC' else [])
             if args.clean:
                 clean = 'package-' + name + '-clean'
-                runner.run(clean, ['swift', 'package', '--package-path', 'RideIntercom/packages/' + package, 'clean'], needs=needs)
+                runner.run(clean, ['swift', 'package', '--package-path', package_path, 'clean'], needs=needs)
                 needs += [clean]
             if args.thread_sanitizer:
                 command += ['--sanitize=thread']

@@ -670,6 +670,25 @@ class ValidationTests(unittest.TestCase):
         self.assertIn('RideIntercom/packages/RTC', rtc)
         self.assertIn('swift-worker-pair', self.runner.results)
 
+    def test_package_selection_follows_the_standard_runner_without_other_packages(self) -> None:
+        def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
+            self.assertTrue(all(self.runner.results.get(need, {}).get('status') == 'passed' for need in needs))
+            return self.runner.record(stage, argv, 'passed', 0, time.monotonic())
+
+        with patch.object(sys, 'argv', ['validate.py', 'packages', '--package', 'AudioCore', '--package', 'VADGate']), \
+             patch.object(self.module, 'Runner', return_value=self.runner), \
+             patch.object(self.module, 'snapshot', side_effect=lambda out: (out / 'inputs.json').write_text('{}')), \
+             patch.object(self.runner, 'run', side_effect=command), patch.dict(os.environ):
+            self.assertEqual(self.module.main(), 0)
+        selected = {stage: result['command'] for stage, result in self.runner.results.items()
+                    if stage.startswith('package-')}
+        self.assertEqual(selected, {
+            'package-AudioCore': ['swift', 'test', '--package-path', 'RideIntercom/packages/Audio/AudioCore'],
+            'package-VADGate': ['swift', 'test', '--package-path', 'RideIntercom/packages/Audio/Effectors/VADGate'],
+        })
+        self.assertNotIn('webrtc-artifact', self.runner.results)
+        self.assertNotIn('swift-worker-pair', self.runner.results)
+
     def test_pair_only_clean_failure_blocks_pair_without_custom_scratch(self) -> None:
         def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
             blocked = any(self.runner.results.get(need, {}).get('status') != 'passed' for need in needs)
