@@ -232,7 +232,7 @@ TURN資格は受け取った端末から別用途へ持ち出され得る。参�
 
 ## 設定値
 
-`server/wrangler.toml`のWorker名は管理画面で作成済みの`rideintercom`と一致させる。Productionはtop-levelの`vars` / `durable_objects`、プレビューは`previews.vars` / `previews.durable_objects`を使用する。プレビューは通常変数とDO bindingをProductionから継承せず、DO namespaceもプレビューごとに分離される。top-levelの既存`v1` migrationは保持する。
+`server/wrangler.toml`のWorker名はCloudflareの`ridecom`と一致させる。Productionはtop-levelの`vars` / `durable_objects`、プレビューは`previews.vars` / `previews.durable_objects`を使用する。プレビューは通常変数とDO bindingをProductionから継承せず、DO namespaceもプレビューごとに分離される。top-levelの既存のmigration `v1`〜`v4`を保持する。
 
 TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固定Previewは開発署名とsandbox APNsによる開発試用に使う。[配布環境の要求](../../requirements/製品要求.md#購入復元共有と公開条件)
 
@@ -242,15 +242,19 @@ TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固�
 
 リポジトリの `wrangler.toml` は、環境ごとに次の値を明示する。実際に稼働する値と鍵の反映状況は[最新の配置で確認した試用条件](../../development/Cloudflare試用手順.md#最新の配置で確認した試用条件)を参照する。
 
-`wrangler.toml` は、Worker単位のObservabilityとLogpush、ログとトレースの取得・永続化、呼出ログを無効にする。ログとトレースの転送先は空とし、URLのクエリ除去を有効にする。本番と固定Previewは同じ設定を使う。配置後は、各設定と転送先を管理APIで読み戻す。アカウント全体の転送設定と過去の保存データは運用の監査で確認する。[Previewに適用される設定](https://developers.cloudflare.com/workers/previews/configuration/#what-goes-in-the-previews-block)
+本番のObservabilityは `[observability]`、固定Previewは `[previews.observability]` で指定する。両環境でWorkers LogsとIssuesを有効にする。固定Previewではトレースも有効にする。サンプリング率はログ・トレースとも100%。本番のトレースは無効とする。
+
+ログと固定PreviewのトレースはCloudflare内で保存する。呼出ログは無効にし、`redact_query_string = true` で記録する要求URLからクエリを除く。Logpush・Tail Workerは無効、エクスポート先は空にする。製品の識別子や資格をアプリ固有のログとIssuesの属性に加えない。固定Previewの観測確認には合成データを使う。配置後は[監視設定の確認手順](../../development/Cloudflare試用手順.md#本番と固定previewの監視設定を反映する)に従う。[Observabilityの設定項目](https://developers.cloudflare.com/api/resources/workers/)・[Previewのログとトレース](https://developers.cloudflare.com/workers/previews/test-and-debug/)・[Issuesの設定](https://developers.cloudflare.com/workers/observability/issues/)
 
 | 設定 | 本番の `vars` | `previews.vars` |
 |---|---|---|
-| `SERVICE_ENABLED` | `true` | `false` |
-| `APPLE_AUTH_ENABLED` | `true` | `false` |
-| `TURN_ENABLED` | `true` | `false` |
+| `SERVICE_ENABLED` | `true` | `true` |
+| `APPLE_AUTH_ENABLED` | `true` | `true` |
+| `TURN_ENABLED` | `true` | `true` |
 | `NOTIFICATIONS_ENABLED` | `true` | `false` |
 | `APNS_ENVIRONMENT` | `production` | `sandbox` |
+
+固定PreviewのInternet通話とTURNには専用のSFUとTURNの資格を使う。通常のApple登録は別途、当該環境に必要な署名資格と端末証明を確認する。固定Previewの通常通知は無効として、再開時にsandbox APNsの鍵と端末への到達を確認する。[固定Previewの試用条件](../../development/Cloudflare試用手順.md#固定previewの外部資格と無効化を確認する)
 
 次の表は設定の既定と有効化の条件を示す。
 

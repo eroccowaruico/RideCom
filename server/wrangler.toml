@@ -1,23 +1,29 @@
-name = "rideintercom"
+name = 'ridecom'
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 logpush = false
+tail_consumers = []
 
-# Previews inherit this setting unless they define their own override.
 [observability]
-enabled = false
+enabled = true
+head_sampling_rate = 1.0
 redact_query_string = true
 
 [observability.logs]
-enabled = false
+enabled = true
+head_sampling_rate = 1.0
 invocation_logs = false
-persist = false
+persist = true
 destinations = []
 
 [observability.traces]
 enabled = false
+head_sampling_rate = 1.0
 persist = false
 destinations = []
+
+[observability.issues]
+enabled = true
 
 [vars]
 APPLE_AUTH_ENABLED = "true"
@@ -94,7 +100,31 @@ tag = "v4"
 new_sqlite_classes = ["AppAttestKeyIndex"]
 
 
-# Previews inherit the SFU values and device registry from Previews Base.
+[previews]
+logpush = false
+tail_consumers = []
+
+[previews.observability]
+enabled = true
+head_sampling_rate = 1.0
+redact_query_string = true
+
+[previews.observability.logs]
+enabled = true
+head_sampling_rate = 1.0
+invocation_logs = false
+persist = true
+destinations = []
+
+[previews.observability.traces]
+enabled = true
+head_sampling_rate = 1.0
+persist = true
+destinations = []
+
+[previews.observability.issues]
+enabled = true
+
 # Ordinary variables and env bindings must be declared separately from production.
 [previews.vars]
 APPLE_AUTH_ENABLED = "true"

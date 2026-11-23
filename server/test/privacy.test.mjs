@@ -7,20 +7,28 @@ import { fileURLToPath } from 'node:url';
 import { unstable_readConfig } from 'wrangler';
 import { callTestCredential, room, offer, makeRuntime } from './support/runtime.mjs';
 
-test('production and Preview explicitly disable Worker logging and export', () => {
+test('telemetry profiles keep production logs and Preview traces separate', () => {
     const config = unstable_readConfig({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)) });
     assert.ok(config.previews);
     assert.equal(config.logpush, false);
-    assert.equal(config.previews.logpush ?? config.logpush, false);
-    for (const observability of [config.observability, config.previews.observability ?? config.observability]) {
-        assert.equal(observability?.enabled, false);
+    assert.deepEqual(config.tail_consumers, []);
+    assert.equal(config.previews.logpush, false);
+    assert.deepEqual(config.previews.tail_consumers, []);
+    for (const [observability, tracesEnabled] of [
+        [config.observability, false], [config.previews.observability, true]
+    ]) {
+        assert.equal(observability?.enabled, true);
+        assert.equal(observability.head_sampling_rate, 1);
         assert.equal(observability.redact_query_string, true);
-        assert.equal(observability.logs?.enabled, false);
+        assert.equal(observability.issues?.enabled, true);
+        assert.equal(observability.logs?.enabled, true);
+        assert.equal(observability.logs.head_sampling_rate, 1);
         assert.equal(observability.logs.invocation_logs, false);
-        assert.equal(observability.logs.persist, false);
+        assert.equal(observability.logs.persist, true);
         assert.deepEqual(observability.logs.destinations, []);
-        assert.equal(observability.traces?.enabled, false);
-        assert.equal(observability.traces.persist, false);
+        assert.equal(observability.traces?.enabled, tracesEnabled);
+        assert.equal(observability.traces.head_sampling_rate, 1);
+        assert.equal(observability.traces.persist, tracesEnabled);
         assert.deepEqual(observability.traces.destinations, []);
     }
 });

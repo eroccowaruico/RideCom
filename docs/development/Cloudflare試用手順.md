@@ -4,7 +4,7 @@
 
 ## 管理画面とプレビューの設定
 
-Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / App Secretを取得する。Workers & Pages → Create application → GitHubから本リポジトリを選ぶ場合は、次の3項目を設定する。Worker名を`rideintercom`、root directoryを`server`、build commandを空欄にする。Worker名は`server/wrangler.toml`の`name`と揃える。
+Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / App Secretを取得する。Workers & Pages → Create application → GitHubから本リポジトリを選ぶ場合は、次の3項目を設定する。Worker名を`ridecom`、root directoryを`server`、build commandを空欄にする。Worker名は`server/wrangler.toml`の`name`と揃える。
 
 | 配置先 | 配置方法 | 設定と接続先 |
 |---|---|---|
@@ -47,7 +47,23 @@ GitHub連携ではSettings → Builds → Branch controlのEnable Preview Builds
 
 ## 固定プレビューの継続運用
 
-開発先はmain、配置用の固定branchは`preview`とする。2026-10-30に設定した接続先は`https://preview-rideintercom.analog.workers.dev`。検証済みmainをpreviewへ反映し、作業用`codex/`branchを固定URLとして使わない。branchの同期とCloudflare側のbuild・配置成功は別々に確認する。
+開発先はmain、配置用の固定branchは`preview`とする。固定Previewの稼働URLは `https://preview-ridecom.analog.workers.dev`。検証済みmainをpreviewへ反映し、作業用`codex/`branchを固定URLとして使わない。branchの同期とCloudflare側のbuild・配置成功は別々に確認する。
+
+### Worker名の変更後に本番と固定Previewの設定を照合する
+
+2026-11-23。Worker名の変更後に本番と固定Previewを読み直した。両環境の新しい `workers.dev` URLで `/health` は200、旧URLは404だった。Gitの `main` と `preview` の両ビルドは `c966938d` で成功していた。本番の独自ドメインは本番への割り当てとヘルス応答200を確認した。固定Previewの独自ドメインは照会時に名前解決できなかった。当初の誤記のホストはCloudflare上で本番に割り当てられていた。
+
+Durable Objectsは両環境で6クラスずつあり、binding名とクラス名は設定ファイルと一致した。全12件の名前空間がCloudflareにあり、両環境が共有する名前空間は0件だった。固定Previewのmigrationは `v4`。Worker名をリポジトリ側で揃える変更では、既存のbindingとmigrationを使う。[Previewの資源分離](https://developers.cloudflare.com/workers/previews/resources/)
+
+SFU App IDとTURN Key IDはPreviews Baseと固定Previewで一致し、本番とは異なった。旧手動資格と短期試験設定は本番・固定Previewの双方で未設定。Apple認証は固定Previewでも有効と設定されていたが、Appleの署名用secretが登録されていないため、通常登録は試用前に別途確認する。固定PreviewのAPNs環境はsandboxで、通知は無効だった。
+
+Observabilityの親設定、ログ、トレース、WorkerのLogpushは両環境で無効。転送先とTail Workerは0件だった。Previews Baseでは親・ログ・トレースが有効だった。本番・固定Previewの個別設定は保存と呼出ログが有効、クエリ除去は無効であり、設定ファイルとは異なった。監視設定の差は[既存の課題](../backlog/未実装課題.md#cloudflareのobservability設定変更に対応する)で追う。アカウント全体のLogpush一覧は取得権限がなかった。
+
+### 本番と固定Previewの監視設定を反映する
+
+Workers LogsとIssuesは両環境で有効、トレースは固定Previewで有効にする。ログとトレースのサンプリング率は100%。呼出ログとエクスポートの扱いは[Workerの設定仕様](../spec/server/Worker.md#設定値)に従う。[Previewのログとトレース](https://developers.cloudflare.com/workers/previews/test-and-debug/)・[Issues](https://developers.cloudflare.com/workers/observability/issues/)
+
+変更は `server/wrangler.toml` の該当環境に入れる。共有mainと固定 `preview` の配置成功後、Cloudflareで両方の実効設定を個別に読み戻す。ログとIssuesの有効化、トレースの環境別の差、100%のサンプリング率、クエリ除去、エクスポートなしを照合する。固定Previewで観測を再現するときは合成データを使う。元に戻す場合は、戻す項目だけを同じ設定ファイルで前の値に合わせて配置し、両環境の実効設定を再確認する。
 
 このMacの開発設定はGit管理外の `Configuration/Debug.local.xcconfig` で扱う。Debug用の値だけであり、Release・Archive・通常の自動検証には実資格を入れない。秘密値はGitや引継ぎ文書へ転記しない。
 
@@ -95,7 +111,7 @@ node --test scripts/Cloudflare/*.test.mjs
 
 対象アカウントのRealtime → Serverless SFUでSFU AppのIDとSecretを用意する。[公式SFU API](https://developers.cloudflare.com/realtime/sfu/api/)
 
-以下のCLIはすべて `server/` で実行する。初回は `npx wrangler login` でログインする。続いて `npx wrangler whoami` とダッシュボードでアカウント、Worker名 `rideintercom`、対象Preview名 `preview` を照合する。複数のアカウントが表示される場合は対象のAccount IDを指定してから進める（Wranglerの `CLOUDFLARE_ACCOUNT_ID`）。固定Previewが未作成なら、[管理画面とプレビューの設定](#管理画面とプレビューの設定)でPreviews Baseを準備してから `npx wrangler preview --name preview` で作成する。
+以下のCLIはすべて `server/` で実行する。初回は `npx wrangler login` でログインする。続いて `npx wrangler whoami` とダッシュボードでアカウント、Worker名 `ridecom`、対象Preview名 `preview` を照合する。複数のアカウントが表示される場合は対象のAccount IDを指定してから進める（Wranglerの `CLOUDFLARE_ACCOUNT_ID`）。固定Previewが未作成なら、[管理画面とプレビューの設定](#管理画面とプレビューの設定)でPreviews Baseを準備してから `npx wrangler preview --name preview` で作成する。
 
 固定PreviewのSFU App IDとTURN Key IDは `server/wrangler.toml` の `previews.vars` で指定する。CloudflareのPreviews BaseにあるシークレットはPreviewを作成する際に取り込まれる。既存の固定Previewに足りないシークレットは、そのPreviewを対象に登録する。標準の対話入力で登録した後、最新配置でシークレットの型を照合する。[CloudflareのPreviewシークレット](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 
@@ -212,7 +228,7 @@ Internet通話にはApple登録とSFU、通常通知にはApple登録とAPNs、T
 
 TestFlightに配布するAppは本番Workerを使う。固定Previewは開発署名での試用に使う。TestFlightでは同じビルドを2台に入れ、Internet通話と圏外の近距離通話から試す。通話の設定は端末登録・端末証明とSFUを先に揃える。通常通知のAPNsと、招待の背景転送用の鍵は、後続の各工程で照合する。[2端末の試用条件](../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)
 
-TestFlightを含む配布用Releaseの接続先は `https://rideintercom.analog.workers.dev`。開発署名のDebugは固定Previewへ接続する。Internet通話を試すときは、両端末で接続先と、その環境で使える端末資格・端末証明を確認する。揃っていれば通話を試し、不足する端末だけでApple登録や証明の取得を済ませる。初回登録の成否を調べる場合は、その結果を通話の合否と分けて記録する。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
+配布用Releaseは本番、開発署名のDebugは固定Previewを選ぶ。既存ビルドが参照する旧URLと新URLは[Worker URLの切り替え](../backlog/未実装課題.md#本番と固定previewのworker-urlをridecomに揃える)で扱う。Internet通話を試すときは、両端末で接続先と、その環境で使える端末資格・端末証明を確認する。揃っていれば通話を試し、不足する端末だけでApple登録や証明の取得を済ませる。初回登録の成否を調べる場合は、その結果を通話の合否と分けて記録する。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
 
 開始前に対象のApple Team、AppのBundle ID、署名済みAppのAPNs環境を照合する。CloudflareのAccount ID、Worker名、対象のPreview名またはProduction、両端末の接続先URLも照合する。APNs鍵を作る担当にはApple DeveloperのAccount HolderかAdminの権限が必要。Apple側の設定とCloudflare側の配置を別の人が担当する場合もこの組を共有し、秘密値は承認された保管先から登録する。[Appleの鍵作成権限](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)・[CloudflareのPreviewの分離](https://developers.cloudflare.com/workers/previews/)
 
