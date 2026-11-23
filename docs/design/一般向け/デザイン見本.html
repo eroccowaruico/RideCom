@@ -285,6 +285,10 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .land .ctrls { margin: 10px 0 0; }
 .land .cbtn { width: 56px; height: 56px; font-size: 22px; }
 .land .sheetgrab { top: 7px; }
+.land-large-text .screen { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; padding-block: 12px; }
+.land-large-text .rcol { padding: 8px 10px; overflow-y: auto; }
+.land-large-text .ctrls { gap: 12px; justify-content: space-evenly; margin: 8px 0 0; }
+.land-large-text .ctrl { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 17px; }
 .ipad { width: 820px; height: 540px; border-radius: 30px; padding: 12px; background: #1B1D21; box-shadow: 0 18px 40px rgba(14,34,56,.22), inset 0 0 0 1.5px #3A3D44; }
 .ipad .screen { background: linear-gradient(180deg, var(--sky), var(--snow) 25%); border-radius: 20px; display: grid; grid-template-columns: 170px 1fr 1.1fr; }
 .ipad .side { padding: 22px 10px; border-right: .5px solid var(--sep); background: color-mix(in srgb, var(--glass) 70%, transparent); }
@@ -1169,7 +1173,31 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>iPhone 横：通話のシート（高さ500pt未満）</b>一覧は1列のまま。通話は全画面のシートで、左列（約45%）に状態と操作列を固定し、スクロールしても操作が隠れない。操作は56ptに縮め、間隔24pt以上を保つ。右列だけスクロール。左右はDynamic Islandと角の安全領域を空ける。</figcaption>
+      <figcaption><b>iPhone 横：通常の文字サイズ</b>一覧は1列のまま。通話は全画面のシートで、左列（約45%）に状態と操作列を固定し、スクロールしても操作が隠れない。操作は56ptに縮め、間隔24pt以上を保つ。右列だけスクロール。左右はDynamic Islandと角の安全領域を空ける。</figcaption>
+    </figure>
+    <figure id="landscape-large-text">
+      <div class="land land-large-text"><div class="screen">
+        <span class="island-v"></span>
+        <div class="rcol">
+          <div class="glass card">
+            <div class="kind"><svg class="i"><use href="#person3"/></svg>グループ・4人</div>
+            <div class="dest">週末ツーリング</div>
+            <div class="status ok"><svg class="i"><use href="#wave"/></svg>会話中</div>
+          </div>
+          <div class="group-h">メンバー</div>
+          <div class="group">
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">自分</span></div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ハルカ<div class="sub">話しています</div></span></div>
+            <div class="row"><span class="avatar"><svg class="i"><use href="#person"/></svg></span><span class="grow">ユウ<div class="sub">接続していません</div></span></div>
+          </div>
+        </div>
+        <div class="ctrls">
+          <div class="ctrl"><span class="cbtn gl"><svg class="i"><use href="#mic-slash"/></svg></span>ミュート</div>
+          <div class="ctrl"><span class="cbtn gl"><svg class="i"><use href="#speaker-slash"/></svg></span>消音</div>
+          <div class="ctrl"><span class="cbtn end"><svg class="i"><use href="#phone-down"/></svg></span>切断</div>
+        </div>
+      </div></div>
+      <figcaption><b>iPhone 横：アクセシビリティ文字サイズ</b>上の情報一覧をスクロールする。下にはミュート・消音・切断を固定し、記号の隣に操作名を表示する。</figcaption>
     </figure>
     <figure>
       <div class="ipad"><div class="screen">
