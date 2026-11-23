@@ -252,7 +252,9 @@ struct WidgetDestinationTests {
     let snapshot = try #require(store.readSnapshot())
     let before = deadline.addingTimeInterval(-1)
     #expect(snapshot.currentCall(for: destination, at: before) == call)
-    #expect(CallControlState(configured: destination, snapshot: snapshot, at: before) == .inCall(destination))
+    #expect(
+      CallControlState(configured: destination, snapshot: snapshot, at: before)
+        == .active(destination, status: .inCall))
     #expect(snapshot.currentCall(for: destination, at: deadline) == nil)
     #expect(CallControlState(configured: destination, snapshot: snapshot, at: deadline) == .ready(destination))
     #expect(store.read() == [destination])

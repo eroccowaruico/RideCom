@@ -93,7 +93,7 @@ struct SelectWidgetCallDestination: WidgetConfigurationIntent {
 nonisolated enum CallControlState: Equatable, Sendable {
     case unconfigured
     case ready(WidgetCallDestination)
-    case inCall(WidgetCallDestination)
+    case active(WidgetCallDestination, status: StandardCallStatus)
     /// The chosen destination was removed or the app has not published destinations.
     case unavailable
 
@@ -102,7 +102,11 @@ nonisolated enum CallControlState: Equatable, Sendable {
         guard let current = snapshot?.destinations.first(where: { $0.id == configured.id }) else {
             self = .unavailable; return
         }
-        self = snapshot?.currentCall(for: current, at: date) != nil ? .inCall(current) : .ready(current)
+        if let call = snapshot?.currentCall(for: current, at: date) {
+            self = .active(current, status: call.status)
+        } else {
+            self = .ready(current)
+        }
     }
 }
 

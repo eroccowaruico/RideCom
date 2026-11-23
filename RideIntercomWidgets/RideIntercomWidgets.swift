@@ -32,7 +32,7 @@ struct DestinationCallControl: ControlWidget {
     }
 
     /// Ready: open the app and start that destination (device unlock, as for every Control).
-    /// Not set, removed, or already connected: open the app, which shows the live call.
+    /// Not set, removed, or already active: open the app, which shows the live call.
     static func action(for state: CallControlState) -> OpenCallControlIntent {
         if case .ready(let destination) = state { return OpenCallControlIntent(destinationID: destination.id) }
         return OpenCallControlIntent(action: .calls)
@@ -56,9 +56,12 @@ struct DestinationControlLabel: View {
             Label("Set a destination", systemImage: "plus")
         case .ready(let destination):
             Label { Text(verbatim: destination.name); Text("Connect") } icon: { Image(systemName: "phone.fill") }
-        case .inCall(let destination):
-            Label { Text(verbatim: destination.name); Text("In a call") } icon: {
-                Image(systemName: "waveform").foregroundStyle(RideComColors.success)
+        case .active(let destination, let status):
+            Label {
+                Text(verbatim: destination.name)
+                Text(LocalizedStringKey(status.title))
+            } icon: {
+                Image(systemName: status.systemSurfaceSymbol).foregroundStyle(status.systemSurfaceColor)
             }
         case .unavailable:
             Label("Set the destination again", systemImage: "plus")

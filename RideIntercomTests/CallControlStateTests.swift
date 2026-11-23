@@ -7,6 +7,7 @@ import Testing
 struct CallControlStateTests {
     private let user = WidgetCallDestination(id: "user", name: "Haruka", kind: .user)
     private let group = WidgetCallDestination(id: "group", name: "Touring", kind: .group)
+    private let observedAt = Date(timeIntervalSince1970: 1_000)
     private let call = CallLivePresentation(
         reference: CallSurfaceReference(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()),
         status: .inCall, isMuted: false, canControlMicrophone: true)
@@ -17,15 +18,28 @@ struct CallControlStateTests {
 
     @Test func readyWhenTheDestinationIsSavedAndNotInACall() {
         let snapshot = WidgetDestinationSnapshot(
-            destinations: [user, group], currentDestinationID: group.id, currentCall: call)
-        #expect(CallControlState(configured: user, snapshot: snapshot) == .ready(user))
+            destinations: [user, group], currentDestinationID: group.id, currentCall: call,
+            currentCallDeadline: observedAt.addingTimeInterval(60))
+        #expect(CallControlState(configured: user, snapshot: snapshot, at: observedAt) == .ready(user))
     }
 
     @Test func inCallOnlyForTheDestinationOfTheLiveCall() {
         let snapshot = WidgetDestinationSnapshot(
-            destinations: [user, group], currentDestinationID: user.id, currentCall: call)
-        #expect(CallControlState(configured: user, snapshot: snapshot) == .inCall(user))
-        #expect(CallControlState(configured: group, snapshot: snapshot) == .ready(group))
+            destinations: [user, group], currentDestinationID: user.id, currentCall: call,
+            currentCallDeadline: observedAt.addingTimeInterval(60))
+        #expect(
+            CallControlState(configured: user, snapshot: snapshot, at: observedAt) == .active(user, status: .inCall))
+        #expect(CallControlState(configured: group, snapshot: snapshot, at: observedAt) == .ready(group))
+    }
+
+    @Test(arguments: [StandardCallStatus.connecting, .audioPaused, .audioUnavailable])
+    func preservesThePublishedStatusOfTheActiveCall(_ status: StandardCallStatus) {
+        var active = call
+        active.status = status
+        let snapshot = WidgetDestinationSnapshot(
+            destinations: [user], currentDestinationID: user.id, currentCall: active,
+            currentCallDeadline: observedAt.addingTimeInterval(60))
+        #expect(CallControlState(configured: user, snapshot: snapshot, at: observedAt) == .active(user, status: status))
     }
 
     @Test func unavailableWhenTheDestinationWasRemoved() {

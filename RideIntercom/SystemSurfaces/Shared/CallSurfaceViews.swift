@@ -35,12 +35,15 @@ struct RideComAppMark: View {
 struct CallSurfaceStatusIcon: View {
     let status: StandardCallStatus
     var body: some View {
-        Image(systemName: symbol)
-            .foregroundStyle(color)
+        Image(systemName: status.systemSurfaceSymbol)
+            .foregroundStyle(status.systemSurfaceColor)
             .widgetAccentable()
     }
-    private var symbol: String {
-        switch status {
+}
+
+extension StandardCallStatus {
+    var systemSurfaceSymbol: String {
+        switch self {
         case .chooseDestination, .ready: "phone"
         case .connecting: "progress.indicator"
         case .inCall: "waveform"
@@ -48,8 +51,8 @@ struct CallSurfaceStatusIcon: View {
         case .audioUnavailable: "exclamationmark.triangle.fill"
         }
     }
-    private var color: Color {
-        switch status {
+    var systemSurfaceColor: Color {
+        switch self {
         case .chooseDestination, .ready: .secondary
         case .connecting, .audioPaused: RideComColors.warning
         case .inCall: RideComColors.success
@@ -197,15 +200,7 @@ struct BackgroundWidgetCallButtons: View {
         }
     }
 
-    private var statusTitle: String {
-        switch call.status {
-        case .chooseDestination, .ready: "Ready to connect"
-        case .connecting: "Connecting"
-        case .inCall: "In a call"
-        case .audioPaused: "Audio paused"
-        case .audioUnavailable: "Audio unavailable"
-        }
-    }
+    private var statusTitle: String { call.status.title }
 }
 
 /// Lock screen Live Activity. No End control: it can be touched without unlocking.
