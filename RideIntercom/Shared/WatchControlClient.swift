@@ -32,11 +32,15 @@ final class WatchControlClient {
     }
 
     @discardableResult
-    func perform(_ action: WatchCallAction) async -> WatchControlReply? {
+    func perform(_ action: WatchCallAction, confirming confirmedReference: String? = nil) async -> WatchControlReply? {
         guard isReachable else { problem = .unavailable; return nil }
         guard !isWaiting else { return nil }
         let generation = connectionGeneration
         let displayedReference = snapshot?.reference
+        if let confirmedReference, confirmedReference != displayedReference {
+            problem = .stale
+            return nil
+        }
         isWaiting = true; problem = nil
         defer { if generation == connectionGeneration { isWaiting = false } }
         do {

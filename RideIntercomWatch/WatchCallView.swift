@@ -94,7 +94,7 @@ private struct WatchDestinationList: View {
 private struct WatchActiveCallView: View {
     let client: WatchControlClient
     let audio: WatchAudioController
-    @State private var confirmsEnd = false
+    @State private var pendingEndReference: String?
 
     private var state: WatchCallState { client.snapshot?.state ?? .connecting }
 
@@ -122,17 +122,20 @@ private struct WatchActiveCallView: View {
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("End", systemImage: "phone.down.fill", role: .destructive) { confirmsEnd = true }
-                    .tint(RideComColors.danger)
-                    .disabled(client.isWaiting)
-                    .accessibilityLabel("End Call")
-                    .accessibilityIdentifier("watchEndCallButton")
+                Button("End", systemImage: "phone.down.fill", role: .destructive) {
+                    pendingEndReference = client.snapshot?.reference
+                }
+                .tint(RideComColors.danger)
+                .disabled(client.isWaiting || client.snapshot?.reference == nil)
+                .accessibilityLabel("End Call")
+                .accessibilityIdentifier("watchEndCallButton")
             }
         }
-        .confirmationDialog("End this call?", isPresented: $confirmsEnd) {
+        .confirmationDialog("End this call?", isPresented: Binding(
+            get: { pendingEndReference != nil }, set: { if !$0 { pendingEndReference = nil } }),
+                            titleVisibility: .visible, presenting: pendingEndReference) { shown in
             Button("End Call", role: .destructive) {
-                audio.stop()
-                Task { await client.perform(.end) }
+                Task { await client.perform(.end, confirming: shown) }
             }
             Button("Cancel", role: .cancel) { }
         }

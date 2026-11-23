@@ -58,6 +58,41 @@ struct WatchControlClientTests {
         #expect(actions == [.refresh] && client.problem == .stale)
         #expect(client.snapshot?.reference == "new call")
     }
+
+    @Test func endConfirmationCannotActOnAReplacementCallThatWasAlreadyDisplayed() async throws {
+        let now = Date()
+        let original = snapshot("call-at-prompt", at: now)
+        let replacement = snapshot("replacement-call", at: now.addingTimeInterval(1))
+        var requests: [WatchControlRequest] = []
+        let client = WatchControlClient(now: { now }, send: { request in
+            requests.append(request)
+            return .init(snapshot: replacement, problem: nil)
+        })
+        client.setReachable(true)
+        client.receive(original)
+        let confirmedReference = try #require(client.snapshot?.reference)
+        client.receive(replacement)
+        #expect(await client.perform(.end, confirming: confirmedReference) == nil)
+        #expect(requests.isEmpty && client.snapshot == replacement && client.problem == .stale)
+    }
+
+    @Test func confirmedEndMayRefreshAndThenSendsTheSameReference() async throws {
+        let now = Date()
+        let expired = snapshot(at: now.addingTimeInterval(-121))
+        let current = snapshot(at: now)
+        var requests: [WatchControlRequest] = []
+        let client = WatchControlClient(now: { now }, send: { request in
+            requests.append(request)
+            return .init(snapshot: current, problem: nil)
+        })
+        client.setReachable(true)
+        client.receive(expired)
+        let confirmedReference = try #require(client.snapshot?.reference)
+        let reply = await client.perform(.end, confirming: confirmedReference)
+        #expect(reply?.snapshot == current && reply?.problem == nil)
+        #expect(requests.map(\.action) == [.refresh, .end])
+        #expect(requests.last?.reference == confirmedReference)
+    }
     @Test func newerContextWinsOverAnOlderReply() async {
         let now = Date(); let older = snapshot(at: now)
         let newer = snapshot("new login", at: now.addingTimeInterval(1))
