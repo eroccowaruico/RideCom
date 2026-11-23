@@ -4,7 +4,7 @@ import { callLifetime, dedupeLifetime, groupInvitationLifetime, type Notificatio
 import { deviceSigningKey, verifyDeviceProof } from './DeviceIdentity'
 import { receiveBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
-import { deliverNotification, notificationProviderToken, readyNotificationEnvironment } from './NotificationDelivery'
+import { deliverNotification, notificationProviderToken, readyAPNSEnvironment } from './NotificationDelivery'
 import { json, readJSON, sha256Hex as notificationHash, type Env } from './types'
 
 const publicIDPattern = /^[a-f0-9]{64}$/
@@ -17,14 +17,41 @@ const index = (env: Env, name: string) => env.NOTIFICATION_INDEX.get(env.NOTIFIC
 function fields(body: Record<string, unknown>, allowed: string[]) {
     if (Object.keys(body).some(key => !allowed.includes(key))) throw new Error('body')
 }
-async function capabilityKey(env: Env, signing: boolean) {
+type CapabilityKey = Awaited<ReturnType<typeof importJWK>>
+
+let cachedCapabilityKeys: {
+    configuration: string
+    keys: Promise<[signing: CapabilityKey, verification: CapabilityKey]>
+} | undefined
+
+function capabilityKeys(env: Env) {
+    const configuration = env.DEVICE_IDENTITY_SIGNING_KEY
+    if (!configuration) throw new Error('configuration')
+    if (cachedCapabilityKeys?.configuration === configuration) return cachedCapabilityKeys.keys
     const jwk = deviceSigningKey(env)
-    return importJWK(signing ? jwk : { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, 'ES256')
+    const keys = Promise.all([
+        importJWK(jwk, 'ES256'),
+        importJWK({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, 'ES256'),
+    ])
+    cachedCapabilityKeys = { configuration, keys }
+    void keys.catch(() => { if (cachedCapabilityKeys?.keys === keys) cachedCapabilityKeys = undefined })
+    return keys
 }
+
+async function readyNotificationEnvironment(env: Env) {
+    const environment = await readyAPNSEnvironment(env)
+    if (!environment) return null
+    try {
+        await capabilityKeys(env)
+        return environment
+    } catch { return null }
+}
+
 async function readCapability(value: unknown, env: Env, issuer: string, senderID: string, requiredAudience = audience) {
     if (typeof value !== 'string' || value.length > 4096) return null
     try {
-        const { payload, protectedHeader } = await jwtVerify(value, await capabilityKey(env, false), {
+        const [, verificationKey] = await capabilityKeys(env)
+        const { payload, protectedHeader } = await jwtVerify(value, verificationKey, {
             issuer, audience: requiredAudience, algorithms: ['ES256'], requiredClaims: ['sub', 'iat', 'jti', 'recipient']
         })
         if (protectedHeader.typ !== 'rideintercom-notification+jwt' || payload.sub !== senderID
@@ -295,8 +322,9 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (typeof body.senderUserID !== 'string' || !publicIDPattern.test(body.senderUserID) || body.senderUserID === auth.userID) throw new Error('body')
             if (!await owner.notificationMutationBudget(auth)) return json({ error: 'Too many notification changes' }, 429)
             const grantID = crypto.randomUUID()
+            const [signingKey] = await capabilityKeys(env)
             const capability = await new SignJWT({ recipient: auth.userID }).setProtectedHeader({ alg: 'ES256', typ: 'rideintercom-notification+jwt' })
-                .setIssuer(url.origin).setAudience(path.includes('/group-invitations/') ? groupAudience : audience).setSubject(body.senderUserID).setIssuedAt().setJti(grantID).sign(await capabilityKey(env, true))
+                .setIssuer(url.origin).setAudience(path.includes('/group-invitations/') ? groupAudience : audience).setSubject(body.senderUserID).setIssuedAt().setJti(grantID).sign(signingKey)
             if (!await owner.notificationActivateGrant(auth, await notificationHash(grantID))) return json({ error: 'Permission limit or inactive account', code: 'grant_limit_or_inactive' }, 409)
             const session = await owner.authenticate(auth.deviceID, auth.tokenHash)
             if (!session || session.userID !== auth.userID) return json({ error: 'Unauthorized' }, 401)

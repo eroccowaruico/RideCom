@@ -21,9 +21,9 @@ function notificationProvider(env: Env): NotificationProvider | null {
     return cachedProvider
 }
 
-export async function readyNotificationEnvironment(env: Env): Promise<NotificationDevice['environment'] | null> {
+export async function readyAPNSEnvironment(env: Env): Promise<NotificationDevice['environment'] | null> {
     const environment = env.APNS_ENVIRONMENT
-    if (env.NOTIFICATIONS_ENABLED !== 'true' || !env.DEVICE_IDENTITY_SIGNING_KEY || !env.APNS_TOPIC
+    if (env.NOTIFICATIONS_ENABLED !== 'true' || !env.APNS_TOPIC
         || (environment !== 'sandbox' && environment !== 'production')) return null
     const provider = notificationProvider(env)
     if (!provider) return null

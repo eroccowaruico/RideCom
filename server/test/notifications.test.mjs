@@ -625,17 +625,26 @@ test('queued group invitations pause with notifications and resume without repea
         const invite = { capability, requestID: randomUUID(), recipientKey: 'k'.repeat(87), expiresAt: Date.now() + 60_000,
             envelope: randomBytes(64).toString('base64') };
         const discarded = { ...invite, requestID: randomUUID() };
+        const cancelled = { ...invite, requestID: randomUUID() };
         const received = { ...invite, requestID: randomUUID() };
         const path = entry => `${groupPath}/${recipient.userID}/${entry.requestID}`;
         const submit = entry => call(r, groupPath, entry, sender.accessToken);
         const read = () => call(r, `${groupPath}?recipientKey=${invite.recipientKey}`, undefined, recipient.accessToken, 'GET');
         const acknowledge = entry => call(r, path(entry), undefined, recipient.accessToken, 'DELETE');
-        for (const entry of [invite, discarded, received]) assert.equal((await submit(entry)).status, 200);
+        for (const entry of [invite, discarded, cancelled, received]) assert.equal((await submit(entry)).status, 200);
         assert.equal((await acknowledge(received)).status, 200);
-        assert.equal(pushes, 3);
+        assert.equal(pushes, 4);
 
         const rejected = [];
-        for (const overrides of [{ APNS_PRIVATE_KEY: 'fixture-not-a-pkcs8-key' }, { APNS_PRIVATE_KEY: '' }, { NOTIFICATIONS_ENABLED: 'false' }]) {
+        const invalidSigningKey = { ...JSON.parse(options.DEVICE_IDENTITY_SIGNING_KEY), d: 'invalid' };
+        for (const overrides of [
+            { DEVICE_IDENTITY_SIGNING_KEY: 'invalid' },
+            { DEVICE_IDENTITY_SIGNING_KEY: '' },
+            { APNS_PRIVATE_KEY: 'fixture-not-a-pkcs8-key' },
+            { APNS_PRIVATE_KEY: '' },
+            { NOTIFICATIONS_ENABLED: 'false' },
+            { DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(invalidSigningKey) },
+        ]) {
             await r.dispose();
             r = await start(overrides);
             const reply = await read();
@@ -654,11 +663,14 @@ test('queued group invitations pause with notifications and resume without repea
             assert.deepEqual(await (await acknowledge(received)).json(), { status: 'received' });
             const status = await call(r, path(invite), undefined, sender.accessToken, 'GET');
             assert.equal((await status.json()).status, 'queued');
-            assert.equal(pushes, 3);
+            assert.equal(pushes, 4);
         }
         const cancel = await call(r, `${path(discarded)}?discard=1`, undefined, recipient.accessToken, 'DELETE');
         assert.equal(cancel.status, 200);
         assert.deepEqual(await cancel.json(), { status: 'cancelled' });
+        const senderCancel = await call(r, path(cancelled), undefined, sender.accessToken, 'DELETE');
+        assert.equal(senderCancel.status, 200);
+        assert.deepEqual(await senderCancel.json(), { status: 'cancelled' });
 
         await r.dispose();
         r = await start({});
@@ -667,7 +679,7 @@ test('queued group invitations pause with notifications and resume without repea
         assert.equal((await (await read()).json()).delivery.requestID, invite.requestID);
         assert.deepEqual(await (await acknowledge(invite)).json(), { status: 'received' });
         assert.equal((await (await read()).json()).delivery, null);
-        assert.equal(pushes, 3);
+        assert.equal(pushes, 4);
     } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
 });
 
