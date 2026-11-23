@@ -43,7 +43,7 @@ extension IntercomViewModel {
         case .authenticated(let members):
             handleAuthenticatedPeers(members)
         case .disconnected:
-            handleTransportDisconnected()
+            finishTransportConnection()
         case .linkFailed(let willRetry):
             handleLinkFailure(willRetry: willRetry)
         case .remotePeerMuteState, .remotePeerMetadata, .remoteRuntimeStatus, .receivedApplicationData,
@@ -145,19 +145,18 @@ extension IntercomViewModel {
         publishRuntimePackageReports(force: true)
     }
 
-    private func handleTransportDisconnected() {
+    private func finishTransportConnection() {
         connectionGeneration = UUID()
         callSession.onEvent = nil
         callDisconnectDeadline = nil
         networkDiagnostics = nil
         callTicker.stop()
-        stopAudioPipeline()
         connectedPeerIDs = []
         authenticatedPeerIDs = []
         peerProfiles.removeAll()
+        stopAudioPipeline()
         localNetworkStatus = .idle
         connectionState = .idle
-        isVoiceActive = false
         markMembers(.offline)
         publishRuntimePackageReports(force: true)
     }
@@ -180,13 +179,6 @@ extension IntercomViewModel {
     }
 
     private func handleLinkFailure(willRetry: Bool) {
-        networkDiagnostics = nil
-        if !willRetry {
-            connectionGeneration = UUID()
-            callSession.onEvent = nil
-            callDisconnectDeadline = nil
-            callTicker.stop()
-        }
         AppLoggers.rtc.error(
             "rtc.connection.failed",
             metadata: .event("rtc.connection.failed", [
@@ -194,13 +186,18 @@ extension IntercomViewModel {
                 "isRecoverable": "\(willRetry)"
             ])
         )
+        guard willRetry else {
+            finishTransportConnection()
+            return
+        }
+        networkDiagnostics = nil
         connectedPeerIDs = []
         authenticatedPeerIDs = []
         peerProfiles.removeAll()
-        if willRetry { refreshCallMediaAdmission() } else { stopAudioPipeline() }
-        localNetworkStatus = willRetry ? .unavailable : .idle
-        connectionState = willRetry ? .reconnectingOffline : .idle
-        markMembers(willRetry ? .connecting : .offline)
+        refreshCallMediaAdmission()
+        localNetworkStatus = .unavailable
+        connectionState = .reconnectingOffline
+        markMembers(.connecting)
         publishRuntimePackageReports(force: true)
     }
 }

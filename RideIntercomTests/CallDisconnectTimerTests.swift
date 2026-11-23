@@ -170,18 +170,23 @@ struct CallDisconnectTimerTests {
         #expect((viewModel.callTicker as? NoOpCallTicker)?.isRunning == false)
     }
 
-    @Test func permanentTransportStopDoesNotLeaveAnIdleTicker() {
+    @Test func permanentTransportStopDoesNotLeaveAnIdleTicker() async {
         let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel
         defer { viewModel.disconnect() }
-        #expect(viewModel.startCall(to: .group(viewModel.groups[0].id), accountAccessID: viewModel.accountAccessID))
-        viewModel.handleTransportEvent(.linkFailed(willRetry: false))
-        #expect(viewModel.callDisconnectDeadline == nil)
-        #expect((viewModel.callTicker as? NoOpCallTicker)?.isRunning == false)
-        #expect(viewModel.startCall(to: .group(viewModel.groups[0].id), accountAccessID: viewModel.accountAccessID))
-        #expect(viewModel.callDisconnectDeadline != nil)
-        viewModel.handleTransportEvent(.disconnected)
-        #expect(viewModel.callDisconnectDeadline == nil)
-        #expect((viewModel.callTicker as? NoOpCallTicker)?.isRunning == false)
+        viewModel.setSoundIsolationEnabled(false)
+        let destination = CallDestination.group(viewModel.groups[0].id)
+        for ending in [TransportEvent.linkFailed(willRetry: false), .disconnected] {
+            #expect(viewModel.startCall(to: destination, accountAccessID: viewModel.accountAccessID))
+            await AppTestSupport.waitUntil { viewModel.isAudioReady }
+            #expect(viewModel.isAudioReady && viewModel.callDisconnectDeadline != nil)
+            let inputStops = harness.inputBackend.stopCount, outputStops = harness.outputBackend.stopCount
+
+            viewModel.handleTransportEvent(ending)
+
+            #expect(!viewModel.isAudioReady && viewModel.callDisconnectDeadline == nil)
+            #expect(harness.inputBackend.stopCount > inputStops && harness.outputBackend.stopCount > outputStops)
+            #expect((viewModel.callTicker as? NoOpCallTicker)?.isRunning == false)
+        }
     }
 
     @Test func permanentStopRejectsQueuedConnectionEventsAndUnboundedMediaRestart() {
