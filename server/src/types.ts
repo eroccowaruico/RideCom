@@ -19,7 +19,7 @@ export interface Env extends Omit<WorkerBindings, 'SIGNALING_ROOM' | 'USAGE_GUAR
 }
 export interface Description { type: 'offer' | 'answer'; sdp: string }
 export interface Member {
-    id: string; owner: string; sessionId: string; expiresAt: number
+    id: string; owner: string; sessionId: string; sfuAppID: string; expiresAt: number
     allocationPending?: boolean;
     channels: number[]; publishers?: { id: number; delivery: string }[]; subscriptions: { sessionId: string; id: number; peerId: string; delivery: string }[]
 }
@@ -70,7 +70,11 @@ export function dataDescription(value: unknown, type: 'offer' | 'answer'): value
     const media = value.sdp.split(/\r?\n/).filter((line: string) => line.startsWith('m='))
     return media.length === 1 && media[0].startsWith('m=application ') && value.sdp.split(/\r?\n/).includes('a=sctp-port:5000')
 }
+export function sfuConfigured(env: Env): boolean {
+    return Boolean(env.CLOUDFLARE_SFU_APP_ID && env.CLOUDFLARE_SFU_APP_SECRET)
+}
 export async function sfu(env: Env, path: string, body?: unknown, method = 'POST'): Promise<Record<string, unknown>> {
+    if (!sfuConfigured(env)) throw new Error('sfu-configuration')
     const response = await fetch(`https://rtc.live.cloudflare.com/v1/apps/${encodeURIComponent(env.CLOUDFLARE_SFU_APP_ID)}${path}`, {
         method, headers: { Authorization: `Bearer ${env.CLOUDFLARE_SFU_APP_SECRET}`, 'Content-Type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(8000)

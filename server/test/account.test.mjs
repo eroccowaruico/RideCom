@@ -1575,6 +1575,84 @@ test('account deletion media cleanup retains failed TURN revocation across resta
 });
 
 
+for (const missingProvider of ['SFU', 'TURN']) {
+    test(`media cleanup waits locally without ${missingProvider} credentials`, async () => {
+        const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-delete-unconfigured-media-'));
+        const config = { ...options, TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' };
+        const start = (overrides = {}, clockOffsetMs = 0) => makeRuntime({ ...config, ...overrides }, { storageDirectory, appleKeys: [publicKey], clockOffsetMs });
+        let runtime = await start();
+        try {
+            const user = await enrolled(runtime);
+            const base = `/api/rooms/${room}`;
+            const ice = await call(runtime, `${base}/ice/owner`, { leaseID: 'delete-ice' }, user.accessToken);
+            assert.equal(ice.status, 200);
+            if (missingProvider === 'SFU') {
+                const joined = await call(runtime, `${base}/join`, { participantId: 'owner', offer, iceLeaseID: 'delete-ice' }, user.accessToken);
+                assert.equal(joined.status, 200);
+            }
+            await runtime.dispose();
+            const paused = { SERVICE_ENABLED: 'false', TURN_ENABLED: 'false' };
+            const binding = missingProvider === 'SFU' ? 'CLOUDFLARE_SFU_APP_SECRET' : 'CLOUDFLARE_TURN_API_TOKEN';
+            runtime = await start({ ...paused, [binding]: '' });
+            const before = provider.requests.length;
+            const pending = await call(runtime, '/api/auth/account', undefined, user.accessToken, 'DELETE');
+            assert.equal(pending.status, 200);
+            assert.equal((await pending.json()).mediaCleanupPending, true);
+            assert.equal((await call(runtime, '/api/auth/session', undefined, user.accessToken, 'GET')).status, 401);
+            assert.equal(provider.requests.length, before, 'Unconfigured provider must receive no cleanup request');
+
+            await runtime.dispose();
+            runtime = await start(paused, 61000);
+            const retried = await call(runtime, '/api/auth/account', undefined, user.accessToken, 'DELETE');
+            assert.equal(retried.status, 200);
+            assert.equal((await retried.json()).mediaCleanupPending, undefined);
+            assert.ok(provider.requests.slice(before).some(request => request.url.endsWith('/revoke')));
+        } finally { await runtime.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+    });
+}
+
+test('media remains pending until the SFU app that created it is configured again', async () => {
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-sfu-app-switch-'));
+    const start = (appID, clockOffsetMs = 0) => makeRuntime({ ...options, CLOUDFLARE_SFU_APP_ID: appID },
+        { storageDirectory, appleKeys: [publicKey], clockOffsetMs });
+    let runtime = await start('first-app');
+    try {
+        const user = await enrolled(runtime);
+        const other = await enrolled(runtime, 'different-account');
+        const base = `/api/rooms/${room}`;
+        const joined = await call(runtime, `${base}/join`, { participantId: 'original-peer', offer }, user.accessToken);
+        assert.equal(joined.status, 200);
+        const lease = await joined.json();
+        assert.ok(!JSON.stringify(lease).includes('first-app'));
+        const { sessionId } = lease;
+        await runtime.dispose();
+
+        runtime = await start('second-app');
+        const before = provider.requests.length;
+        provider.upstreamGone = true;
+        const renewed = await call(runtime, `${base}/sessions/${sessionId}/renew`, {}, user.accessToken);
+        const pending = await call(runtime, '/api/auth/account', undefined, user.accessToken, 'DELETE');
+        assert.equal(pending.status, 200);
+        assert.equal((await pending.json()).mediaCleanupPending, true, 'A response from the wrong app cannot complete cleanup');
+        assert.equal(renewed.status, 503);
+        assert.equal((await call(runtime, '/api/auth/session', undefined, user.accessToken, 'GET')).status, 401);
+        const newPeer = await call(runtime, `${base}/join`, { participantId: 'next-peer', offer }, other.accessToken);
+        assert.equal(newPeer.status, 503);
+        assert.ok(!(await newPeer.text()).includes('second-app'));
+        assert.equal(provider.requests.length, before, 'Prior session must stay out of the new SFU app');
+
+        await runtime.dispose();
+        provider.upstreamGone = false;
+        runtime = await start('first-app', 61000);
+        const retried = await call(runtime, '/api/auth/account', undefined, user.accessToken, 'DELETE');
+        assert.equal(retried.status, 200);
+        assert.equal((await retried.json()).mediaCleanupPending, undefined);
+        assert.ok(provider.requests.slice(before).some(request => request.url.endsWith(`/apps/first-app/sessions/${sessionId}/datachannels/close`)));
+        const rejoined = await call(runtime, `${base}/join`, { participantId: 'next-peer', offer }, other.accessToken);
+        assert.equal(rejoined.status, 200);
+    } finally { provider.upstreamGone = false; await runtime.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
 test('account deletion collects a join already waiting for the SFU response', { timeout: 15000 }, async () => {
     const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
     let entered, release;

@@ -1,6 +1,6 @@
 import { SignalingRoom } from './SignalingRoom'
 import { UsageGuard } from './UsageGuard'
-import { type Env, json } from './types'
+import { type Env, json, sfuConfigured } from './types'
 import { accountRequest, authenticateDevice } from './AppleAccount'
 import { notificationRequest } from './Notifications'
 import { contactDeletionRequest } from './ContactDeletions'
@@ -46,7 +46,7 @@ export default {
         const iceCancellation = request.method === 'DELETE' && match?.[2].startsWith('ice/') === true
         const cleanup = iceCancellation || (request.method === 'DELETE' && match !== null && /^sessions\/[^/]+$/.test(match[2]))
         if (!cleanup && env.SERVICE_ENABLED !== 'true') return json({ error: 'Service paused' }, 503)
-        if (!iceCancellation && (!env.CLOUDFLARE_SFU_APP_ID || !env.CLOUDFLARE_SFU_APP_SECRET)) {
+        if (!iceCancellation && !sfuConfigured(env)) {
             return json({ error: 'SFU is not configured' }, 503)
         }
         const headers = new Headers(request.headers)

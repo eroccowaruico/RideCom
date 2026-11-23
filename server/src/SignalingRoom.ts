@@ -1,5 +1,5 @@
 import { TurnCredentials, stun } from './TurnCredentials'
-import { type Env, type Member, dataDescription, isRecord, json, limit, readJSON, sfu } from './types'
+import { type Env, type Member, dataDescription, isRecord, json, limit, readJSON, sfu, sfuConfigured } from './types'
 interface RequestedChannel {
     location: 'local' | 'remote'
     dataChannelName: string
@@ -35,6 +35,9 @@ export class SignalingRoom implements DurableObject {
     }
     private async members(): Promise<Member[]> { return [...(await this.state.storage.list<Member>({ prefix: 'member:' })).values()] }
     private lease(m: Member) { return { sessionId: m.sessionId, expiresAt: m.expiresAt, renewAfterSeconds: limit(this.env.LEASE_SECONDS, 600, 3600) / 2 } }
+    private usesConfiguredSFU(member: Member): boolean {
+        return sfuConfigured(this.env) && member.sfuAppID === this.env.CLOUDFLARE_SFU_APP_ID
+    }
     async fetch(request: Request): Promise<Response> {
         return this.state.blockConcurrencyWhile(async () => {
             try {
@@ -118,6 +121,7 @@ export class SignalingRoom implements DurableObject {
             finally { await this.scheduleExpiry() }
         }
         if (url.pathname.endsWith('/join') && request.method === 'POST') {
+            if (members.some(m => !this.usesConfiguredSFU(m))) return json({ error: 'SFU configuration changed' }, 503)
             const b = await readJSON(request)
             if (typeof b.participantId !== 'string' || !/^[a-zA-Z0-9_-]{1,63}$/.test(b.participantId)
                 || !dataDescription(b.offer, 'offer') || b.offer.sdp.split(/\r?\n/).filter((l: string) => l.startsWith('m=')).length !== 1) return json({ error: 'One SCTP application section is required' }, 400)
@@ -135,7 +139,8 @@ export class SignalingRoom implements DurableObject {
             try {
                 const created = await sfu(this.env, '/sessions/new')
                 if (typeof created.sessionId !== 'string') throw new Error('upstream')
-                member = { id: b.participantId, owner, sessionId: created.sessionId, expiresAt, channels: [], subscriptions: [] }
+                member = { id: b.participantId, owner, sessionId: created.sessionId,
+                    sfuAppID: this.env.CLOUDFLARE_SFU_APP_ID, expiresAt, channels: [], subscriptions: [] }
                 // Persist before publishing; a lost upstream response must still be cleaned up.
                 await this.state.storage.put(`member:${member.sessionId}`, member)
                 await this.scheduleExpiry()
@@ -168,6 +173,7 @@ export class SignalingRoom implements DurableObject {
             await this.state.storage.setAlarm(Date.now() + 1000)
             await this.close(member); await this.broadcastPeers(); await this.scheduleExpiry(); return json({})
         }
+        if (!this.usesConfiguredSFU(member)) return json({ error: 'SFU configuration changed' }, 503)
         if (action === 'signal' && request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
             if (this.state.getWebSockets(member.sessionId).length) return json({ error: 'Signaling already connected' }, 409)
             const pair = new WebSocketPair(); this.state.acceptWebSocket(pair[1], [member.sessionId])
@@ -201,9 +207,10 @@ export class SignalingRoom implements DurableObject {
         if (action === 'pull' && request.method === 'POST') {
             const { peerIds } = await readJSON(request)
             if (!Array.isArray(peerIds) || peerIds.length > 7 || peerIds.some((id: unknown) => typeof id !== 'string')) return json({ error: 'Invalid peers' }, 400)
-            const peers = members.filter(m => m.id !== member.id && peerIds.includes(m.id) && m.publishers !== undefined && m.expiresAt > Date.now())
+            const peers = members.filter(m => m.id !== member.id && peerIds.includes(m.id) && m.publishers !== undefined
+                && m.expiresAt > Date.now() && this.usesConfiguredSFU(m))
             if (new Set(peerIds).size !== peers.length) return json({ error: 'Peer not in room' }, 403)
-            const live = new Set(members.filter(m => m.expiresAt > Date.now()).map(m => m.sessionId))
+            const live = new Set(members.filter(m => m.expiresAt > Date.now() && this.usesConfiguredSFU(m)).map(m => m.sessionId))
             const stale = member.subscriptions.filter(s => !live.has(s.sessionId))
             if (stale.length) {
                 await this.closeChannels(member.sessionId, stale.map(s => s.id))
@@ -231,7 +238,7 @@ export class SignalingRoom implements DurableObject {
     }
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
         const [id] = this.state.getTags(ws), member = await this.state.storage.get<Member>(`member:${id}`)
-        if (!member || member.expiresAt <= Date.now() || this.env.SERVICE_ENABLED !== 'true') { ws.close(1008, 'Session expired'); return }
+        if (!member || member.expiresAt <= Date.now() || this.env.SERVICE_ENABLED !== 'true' || !this.usesConfiguredSFU(member)) { ws.close(1008, 'Session unavailable'); return }
         const previous: unknown = ws.deserializeAttachment()
         if (!isRecord(previous) || typeof previous.minute !== 'number' || typeof previous.count !== 'number') {
             ws.close(1008, 'Invalid session state'); return
@@ -249,12 +256,15 @@ export class SignalingRoom implements DurableObject {
     webSocketClose(ws: WebSocket): void { try { ws.close(1000, 'Closed') } catch { /* closed */ } }
     webSocketError(ws: WebSocket): void { this.webSocketClose(ws) }
     private async broadcastPeers() {
-        const peers = (await this.members()).filter(m => m.publishers !== undefined && m.expiresAt > Date.now()).map(m => ({ id: m.id, sessionId: m.sessionId }))
+        const peers = (await this.members())
+            .filter(m => m.publishers !== undefined && m.expiresAt > Date.now() && this.usesConfiguredSFU(m))
+            .map(m => ({ id: m.id, sessionId: m.sessionId }))
         for (const ws of this.state.getWebSockets()) { try { ws.send(JSON.stringify({ type: 'peers', peers })) } catch { /* closed */ } }
     }
     private async close(member: Member) {
         const ice = await this.turn.get(member.id)
         if (ice) await this.turn.prepareRevocation(ice)
+        if (!this.usesConfiguredSFU(member)) throw new Error('sfu-configuration')
         try {
             const status = await sfu(this.env, `/sessions/${member.sessionId}`, undefined, 'GET')
             const known = responseChannels(status).filter(hasChannelID).filter(c => c.status !== 'inactive').map(c => c.id)

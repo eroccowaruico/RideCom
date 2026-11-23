@@ -124,6 +124,8 @@ AppのSettingsからnonce取得・native Apple認証・資格保存と、サイ�
 
 Appの再認証・削除確認・復旧・取消待ち／手動取消の案内・端末内データ消去は[App仕様](../App/通信仕様.md#アカウント削除と端末内消去)を参照する。稼働媒体回収の実サービス受入とサービス範囲の整理は[残課題](../../backlog/未実装課題.md)で続ける。Apple tokenを持たない場合でもデータ削除を進め、必要なら手動の認可取消を案内する方針は[Apple TN3194](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)に基づく。
 
+アカウント削除やアラームからの回収でも、SFUには作成時のApp IDとそのApp Secret、TURNには取消用の長期資格が必要。必要な設定がそろうまで対象の提供元へ要求を送らず、回収待ちの記録を使って既存の間隔で再試行する。設定が戻れば、新規通話とTURN資格の発行を停止したまま回収できる。
+
 サーバー側の保存を復旧する場合も、削除済みのアカウント、失効済み端末、通知・招待・通話の許可を復活させない。現行のWorkerには、Cloudflareの過去時点への復旧を呼び出す処理がない。[削除と復旧の残課題](../../backlog/未実装課題.md#アカウント削除のサービス範囲と別端末への反映)
 
 Appleとのコード交換・取消の契約は[Token validation](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)と[Token revocation](https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens)を適用した。
@@ -193,7 +195,7 @@ Appleとのコード交換・取消の契約は[Token validation](https://develo
 
 ### 表示名を保存しない境界
 
-RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・配信しない。余分な`displayName`を受け取ってもmemberへコピーしない。participant ID・owner・SFU session ID・期限・channel・購読関係は接続認可と回収のため保持する。表示名は端末側のグループ情報と、グループ鍵を使って認証・暗号化したpresenceで扱う。Workerのpeer一覧ではIDだけを名前の代替値に使い、グループの復号後に相手の表示名を取得する。
+RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・配信しない。余分な`displayName`を受け取ってもmemberへコピーしない。participant ID・owner・作成元のSFU App ID・SFU session ID・期限・channel・購読関係は接続認可と回収のため保持する。SFU App IDは通話APIの応答や参加者通知に含めない。表示名は端末側のグループ情報と、グループ鍵を使って認証・暗号化したpresenceで扱う。Workerのpeer一覧ではIDだけを名前の代替値に使い、グループの復号後に相手の表示名を取得する。
 
 新規開発のため旧形式の利用者データ移行や旧client用の互換フィールドは追加しない。これは今回以後に作る通話状態の契約であり、配置済みproviderのbackup・保存期間・過去データの物理削除を確認したものではない。
 
@@ -205,7 +207,8 @@ RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・�
 | WS切断 | mediaを閉じず1→2→4→最大10秒で接続を再試行。leaseは独立 |
 | 更新拒否 | clientは通話を終了しDELETE。届かない場合もDO alarmで期限切れchannelを閉じる |
 | 異常終了 | persisted memberをalarmで回収。SFUの成功応答が失われてもstatusからchannel IDを照会。応答不明のallocationはsession消失まで回収を継続 |
-| providerで既に削除 | 404/410は回収済みと扱う。その他の閉鎖失敗は記録を保持し再試行 |
+| providerで既に削除 | 作成元のSFU Appへの照会や閉鎖で返った404/410を回収済みと扱う。その他の閉鎖失敗は記録を保持し再試行 |
+| 作成元のSFUを確認できない | App IDが一致しない、資格の設定が欠けている、または記録に作成元がない場合、該当セッションを更新・公開・購読できない。Signalingの新規接続は503で拒否し、既存接続は次のメッセージで閉じる。同じ部屋への新規参加も503で拒否する。終了や回収の要求は記録に残し、作成元を確認できるまでSFUへ送らない。[SFU切替前の確認](../../development/Cloudflare試用手順.md#sfuの接続先を切り替える前に通話を回収する) |
 | 部屋変更 | 新しいroom capabilityを使い、旧sessionを終了 |
 | SERVICE_ENABLED=false | 状態取得、新規接続、媒体の追加、lease更新をHTTP 503で止める。既存の通話終了とICE接続準備の取消は、本人の有効な資格、所有権、回収に必要な提供元の資格を確認して受け付ける。接続中のWebSocketは次のメッセージで閉じる。終了要求がなければ、既存媒体の停止は次のlease alarmまで遅れ得る |
 
