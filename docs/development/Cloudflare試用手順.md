@@ -41,11 +41,17 @@ Cloudflareプラグインからは、その接続に許可された範囲で設�
 
 ### Workers Buildsの設定を復元する
 
-Git連携設定は [`server/cloudflare-builds.toml`](../../server/cloudflare-builds.toml) を基準とする。Settings → Builds で `production_settings` を本番、`previews_base_config` をPreviews Baseのビルド設定へ反映する。Branch controlのEnable Preview Buildsは `previews_enabled` に合わせる。`environment_variables` は Build variables and secrets に登録する。既存の固定Previewは `fixed_preview.branch` に対応する対象を選び、Previews Baseと同じビルド設定に揃える。Baseの設定は新しいPreviewを作るときに継承される。
+Git連携の再構築に使う値は [server/cloudflare-builds.toml](../../server/cloudflare-builds.toml) に置く。自動ビルドはCloudflareに保存した設定を読む。`wrangler.toml` は配置時に読み、互換日付・ルート・実行時の変数を管理する。[Workers Buildsの設定](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
 
-本番・Base・固定Previewの Root directory は `server`、Build command は `npm ci`、ビルド変数 `SKIP_DEPENDENCY_INSTALL` は `1` とする。自動の依存関係インストールはリポジトリルートのPython設定を検出してWrangler起動前に失敗したため、Workerのディレクトリでロックファイルから依存関係を入れる。本番の Deploy command は `npx wrangler deploy`、Preview command は `npx wrangler preview`。配置後に両環境のビルド記録と設定を確認する。[Workers Buildsの設定](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)・[依存関係の自動インストールを無効にする設定](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#skip-dependency-install)
+| 対象 | Cloudflareで変更する場所 | いつ反映されるか |
+|---|---|---|
+| 本番のGit連携とビルド | WorkerのSettings → Builds。Root directoryは `server`、Build commandは `npm ci`、Deploy commandは `npx wrangler deploy`。`SKIP_DEPENDENCY_INSTALL=1` はBuild variables and secretsに登録する | 次回の本番ビルド |
+| 今後作るPreviewのビルド設定 | Builds APIでWorkerの `previews_base_config` を更新する。`root_directory` は `/server`、`build_command` は `npm ci`、`deploy_command` は `npx wrangler preview`。`environment_variables` に `SKIP_DEPENDENCY_INSTALL=1` を設定する | 作成時に各Previewへコピーされる |
+| 作成済みの固定 `preview` のビルド設定 | Builds APIの一覧で `fixed_preview.branch` に一致するPreviewを特定し、そのPreviewだけを指定する `PATCH` の `settings` に上記と同じ値を渡す | 次回の固定Previewビルド。Previewと保存データはそのまま使う |
 
-APIで復元する場合は既存Workerのビルド設定の `production_settings` と `previews_base_config`、固定Previewの `settings` を更新する。APIにはTOMLから対象の項目を取り出してJSONで渡す。固定Previewの更新にはそのPreviewを指定する。Build API tokenはCloudflare側で選ぶ。[Workers Buildsの設定・Preview管理API](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#view-and-update-build-settings)
+固定Previewを復旧するときは、更新前後に同じPreviewのビルド設定を読み戻す。Previews Baseの変更は新規作成用で、既存Previewのビルド設定へは通常反映されない。既存Preview全件への一括適用やブランチの作り直しは、固定Previewだけの修正には不要。Builds APIでの更新には、ユーザーに紐づくAPIトークンの `Workers Builds Configuration: Edit` が必要。ビルドがWorkerを配置するためのトークンとは用途が異なる。[Builds APIの権限](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#create-an-api-token)・[Previewの個別更新](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#update-a-preview)
+
+2026-11-23の読取りでは、本番は復元用の値と一致した。新規Previewのビルド設定はRoot directoryが `/`。既存の固定Previewは `/` のままで、Build commandと `SKIP_DEPENDENCY_INSTALL` が未設定だった。固定Previewは自動の依存関係インストール中にリポジトリルートのPython設定を検出し、Wranglerの起動前に失敗する。復旧の確認では、先に個別設定を読み戻し、対象コミットのビルドが `server` で依存関係を導入して成功したことを確かめる。次に固定Previewの最新配置がそのコミットと一致し、目的のURLで応答することを確認する。[依存関係の自動インストール](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#skip-dependency-install)
 
 本番と固定PreviewのWorkers Buildsは、ビルドのルート `server` にある `server/.node-version` からNode.jsのバージョンを選ぶ。ダッシュボードの `NODE_VERSION` に別のバージョンを重ねて指定しない。配置を受け入れる際は、両環境のビルド記録で指定したNode.jsのバージョンが使われたことを確認する。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)
 

@@ -1,6 +1,7 @@
-# Cloudflare Workers Builds の復元用。Worker の実行時設定は wrangler.toml に置く。
-# 本番と Previews Base は同名の API 項目に対応する。既存の固定 Preview には
-# previews_base_config の内容を、対象 Preview の settings として反映する。
+# Cloudflare Workers Builds の復元用。ファイルの編集だけではCloudflareの設定に反映されない。
+# 本番はWorkerのSettings → Builds、今後作るPreviewのビルド設定はBuilds APIの
+# previews_base_configで管理する。既存の固定Previewは個別のAPI設定 settings に反映する。
+# Workerの実行時設定はwrangler.tomlに置く。
 previews_enabled = true
 
 [git_repository]
