@@ -98,6 +98,21 @@ class LanguageLintTests(unittest.TestCase):
                     self.assertEqual(lint.main(), 0, output.getvalue())
                 sample.unlink()
 
+    def test_web_lint_ignores_nested_projects_in_validation_results(self) -> None:
+        snapshot = self.root / ".validation" / "snapshot"
+        snapshot.mkdir(parents=True)
+        shutil.copyfile(self.root / "biome.json", snapshot / "biome.json")
+        (self.root / ".git" / "info" / "exclude").write_text("/.validation/\n")
+        source = self.root / "example.ts"
+        source.write_text("export const value = 1;")
+        output = io.StringIO()
+
+        with patch.object(sys, "argv", ["lint", "--web", "--base", "HEAD"]), redirect_stdout(output):
+            self.assertEqual(lint.main(), 0, output.getvalue())
+            source.write_text("export function example(value: any) { return value; }")
+            self.assertEqual(lint.main(), 1, output.getvalue())
+        self.assertIn("noExplicitAny", output.getvalue())
+
     def test_swiftlint_gets_xcode_from_the_caller_or_validation_default(self) -> None:
         (self.root / "Example.swift").touch()
         (self.root / ".swiftlint.yml").touch()
