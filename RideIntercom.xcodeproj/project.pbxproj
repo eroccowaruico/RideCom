@@ -47,6 +47,8 @@
 		D35100000000000000000004 /* Appearance.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D35100000000000000000001 /* Appearance.xcassets */; };
 		D35100000000000000000005 /* RideComColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35100000000000000000002 /* RideComColors.swift */; };
 		D35100000000000000000006 /* RideComColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35100000000000000000002 /* RideComColors.swift */; };
+		D77000000000000000000006 /* WorkerTestCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77000000000000000000004 /* WorkerTestCase.swift */; };
+		D77000000000000000000007 /* GeneratedWorkerCases.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77000000000000000000005 /* GeneratedWorkerCases.swift */; };
 		DC36F3422B1E25D249364967 /* RTC in Frameworks */ = {isa = PBXBuildFile; productRef = 2B44E19C9FE402C8B4453651 /* RTC */; };
 		E1FA6A96A55CF6A201DD62BC /* WatchControlMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF1CEF8CC38869E15C83735 /* WatchControlMessage.swift */; };
 		E2E00000000000000000000C /* MediaBlackhole.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E00000000000000000000D /* MediaBlackhole.swift */; };
@@ -156,6 +158,9 @@
 		D76000000000000000000003 /* package.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = package.json; sourceTree = "<group>"; };
 		D76000000000000000000004 /* tsconfig.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tsconfig.json; sourceTree = "<group>"; };
 		D76000000000000000000005 /* wrangler.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = wrangler.toml; sourceTree = "<group>"; };
+		D77000000000000000000002 /* RideIntercomWorkerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomWorkerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D77000000000000000000004 /* WorkerTestCase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkerTestCase.swift; sourceTree = "<group>"; };
+		D77000000000000000000005 /* GeneratedWorkerCases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedWorkerCases.swift; sourceTree = DERIVED_FILE_DIR; };
 		E2E000000000000000000002 /* RideIntercomAudioE2ETests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RideIntercomAudioE2ETests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2E00000000000000000000D /* MediaBlackhole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MediaBlackhole.swift; path = RideIntercom/packages/RTC/Tests/RTCTestSupport/MediaBlackhole.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -481,6 +486,7 @@
 				3170ECB8255D3C020D7A258B /* RideIntercomWatch */,
 				A77000000000000000000003 /* RideIntercomWatchUITests */,
 				563F9A8ED1BACA026C059AA5 /* RideIntercomWidgets */,
+				D77000000000000000000003 /* RideIntercomWorkerTests */,
 				93BD7A6E2FACCD5C00CBA553 /* scripts */,
 				93BD7A642FACCD5600CBA553 /* server */,
 			);
@@ -496,6 +502,7 @@
 				93F300D92F93829D0046716D /* RideIntercomTests.xctest */,
 				E2E000000000000000000002 /* RideIntercomAudioE2ETests.xctest */,
 				93F300E32F93829D0046716D /* RideIntercomUITests.xctest */,
+				D77000000000000000000002 /* RideIntercomWorkerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -526,6 +533,15 @@
 				AB5100000000000000000027 /* InfoPlist.strings */,
 			);
 			path = RideIntercom;
+			sourceTree = "<group>";
+		};
+		D77000000000000000000003 /* RideIntercomWorkerTests */ = {
+			isa = PBXGroup;
+			children = (
+				D77000000000000000000004 /* WorkerTestCase.swift */,
+				D77000000000000000000005 /* GeneratedWorkerCases.swift */,
+			);
+			path = RideIntercomWorkerTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -698,6 +714,20 @@
 			productReference = A77000000000000000000002 /* RideIntercomWatchUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		D77000000000000000000001 /* RideIntercomWorkerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D7700000000000000000000A /* Build configuration list for PBXNativeTarget "RideIntercomWorkerTests" */;
+			buildPhases = (
+				D77000000000000000000008 /* Prepare Worker Tests */,
+				D77000000000000000000009 /* Sources */,
+			);
+			buildRules = (
+			);
+			name = RideIntercomWorkerTests;
+			productName = RideIntercomWorkerTests;
+			productReference = D77000000000000000000002 /* RideIntercomWorkerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		E2E000000000000000000001 /* RideIntercomAudioE2ETests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E2E000000000000000000009 /* Build configuration list for PBXNativeTarget "RideIntercomAudioE2ETests" */;
@@ -782,6 +812,7 @@
 				93F300D82F93829D0046716D /* RideIntercomTests */,
 				E2E000000000000000000001 /* RideIntercomAudioE2ETests */,
 				93F300E22F93829D0046716D /* RideIntercomUITests */,
+				D77000000000000000000001 /* RideIntercomWorkerTests */,
 			);
 		};
 /* End PBXProject section */
@@ -852,6 +883,20 @@
 			);
 			showEnvVarsInLog = 0;
 		};
+		D77000000000000000000008 /* Prepare Worker Tests */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			name = "Prepare Worker Tests";
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/GeneratedWorkerCases.swift",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"/bin/sh \"$SRCROOT/scripts/prepare_worker_xcode_tests.sh\"",
+				"",
+			);
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -889,6 +934,13 @@
 		A77000000000000000000004 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
+			);
+		};
+		D77000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+				D77000000000000000000006 /* WorkerTestCase.swift in Sources */,
+				D77000000000000000000007 /* GeneratedWorkerCases.swift in Sources */,
 			);
 		};
 		E2E000000000000000000004 /* Sources */ = {
@@ -1458,6 +1510,32 @@
 				XROS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = "Debug-Validation";
+		};
+		93CB4ABB30B490A300DFCC1E /* Debug configuration for PBXNativeTarget "RideIntercomWorkerTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				PRODUCT_NAME = RideIntercomWorkerTests;
+			};
+			name = Debug;
+		};
+		93CB4ABC30B490A300DFCC1E /* Release configuration for PBXNativeTarget "RideIntercomWorkerTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				PRODUCT_NAME = RideIntercomWorkerTests;
+			};
+			name = Release;
+		};
+		93CB4ABD30B490A300DFCC1E /* Release-Validation configuration for PBXNativeTarget "RideIntercomWorkerTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = RideIntercomWorkerTests;
+			};
+			name = "Release-Validation";
 		};
 		93F300ED2F93829D0046716D /* Debug configuration for PBXNativeTarget "RideIntercom" */ = {
 			isa = XCBuildConfiguration;
@@ -2054,6 +2132,23 @@
 			};
 			name = "Debug-Validation";
 		};
+		D7700000000000000000000B /* Debug-Validation configuration for PBXNativeTarget "RideIntercomWorkerTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.yowamushi-inc.RideIntercom.WorkerTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = "Debug-Validation";
+		};
 		E2E00000000000000000000A /* Debug configuration for PBXNativeTarget "RideIntercomAudioE2ETests" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -2176,6 +2271,16 @@
 				122D5D51BFA7F6012D1A6DC6 /* Release-Validation configuration for PBXNativeTarget "RideIntercomWidgets" */,
 			);
 			defaultConfigurationName = Release;
+		};
+		D7700000000000000000000A /* Build configuration list for PBXNativeTarget "RideIntercomWorkerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D7700000000000000000000B /* Debug-Validation configuration for PBXNativeTarget "RideIntercomWorkerTests" */,
+				93CB4ABB30B490A300DFCC1E /* Debug configuration for PBXNativeTarget "RideIntercomWorkerTests" */,
+				93CB4ABC30B490A300DFCC1E /* Release configuration for PBXNativeTarget "RideIntercomWorkerTests" */,
+				93CB4ABD30B490A300DFCC1E /* Release-Validation configuration for PBXNativeTarget "RideIntercomWorkerTests" */,
+			);
+			defaultConfigurationName = "Debug-Validation";
 		};
 		E2E000000000000000000009 /* Build configuration list for PBXNativeTarget "RideIntercomAudioE2ETests" */ = {
 			isa = XCConfigurationList;
