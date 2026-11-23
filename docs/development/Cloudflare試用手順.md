@@ -280,7 +280,7 @@ secretは対象の環境を選んで入力する。CLIを使う場合は`server/
 
 固定Previewを更新する前に、稼働中のバージョンのSFU App IDと対応するSecret、Apple登録・通知・招待の鍵を配置単位で照合する。2026-11-21の固定PreviewのSFU App IDは、Previews Baseと本番のどちらとも異なる。固定Previewで使う組を承認済みの設定から確認し、配置前後に照合する。稼働中のバージョンはWorkers Buildsの対象コミット・結果と、固定Previewの配置の表示を照合する。[確認記録](history/バックログの優先順位と進捗の記録.md#固定previewの開発署名とtestflight向けの配布署名を照合する)
 
-実環境の受入は[最新の配置で確認した試用条件](#最新の配置で確認した試用条件)を参照する。固定Previewの通話は端末証明の鍵の反映とApple登録の有効化から始める。
+実環境の受入は[最新の配置で確認した試用条件](#最新の配置で確認した試用条件)を参照する。固定Previewの通話は、同じ配置で端末証明の鍵とApple登録の有効化を確認してから始める。
 
 ### 設定が合わないときの戻し方
 
@@ -297,6 +297,22 @@ Debug端末に届き、TestFlightで届かない場合は、TestFlightの接続�
 ## 外部設定の確認状況
 
 ### 最新の配置で確認した試用条件
+
+2026-11-23。共有 `main` と固定 `preview` の配置を `44c172c2` で照合した。Workerの互換日付は両方とも `2026-11-17`。固定Previewは独自ドメインと `workers.dev` の両方で `/health` が200を返した。通常の端末操作は[試用の順番と合否](#利用者が行うapplecloudflareの設定と受入順)で確認する。
+
+| 確認項目 | 本番 | 固定Preview |
+|---|---|---|
+| Apple登録と端末証明 | Apple登録が有効。署名鍵を確認 | Apple登録が有効。署名鍵を確認 |
+| Internet通話とTURN | どちらも有効。両方の資格の登録を確認 | どちらも有効。両方の資格の登録を確認 |
+| 通常通知 | 有効。APNsの鍵を確認 | 停止中。APNsの鍵の登録を確認 |
+| 招待の背景転送 | 背景転送用の鍵の設定が残る | 背景転送用の鍵の設定が残る |
+| ログ・Issues・トレース | ログとIssuesが有効。トレースは無効 | ログ・Issues・トレースが有効 |
+
+Observabilityは本番Workerと固定Previewの設定を個別に読み戻した。ログの保存は両環境で有効。トレースの保存は固定Previewだけで有効。ログ・トレースのサンプリング率は各100%。呼出ログを停止し、URLのクエリを除去する設定も確認した。WorkerのLogpush、ログとトレースの転送先、Tail Workerは両環境とも設定されていなかった。[環境別の設定](../../server/wrangler.toml)・[Cloudflareのログとトレース](https://developers.cloudflare.com/workers/previews/test-and-debug/)
+
+鍵の登録と有効化フラグを読み取った。実Apple登録、双方向音声、APNsの端末到達、実際のログ出力は別に確認する。外部転送の確認はWorkerの設定に限る。
+
+### 2026-11-21の配置で確認した試用条件
 
 2026-11-21の22時台（JST）に、Cloudflareの読取APIで本番と固定Previewの稼働配置を確認した。設定値は登録の有無・有効状態・環境の一致に変換した。SFU App IDは環境ごとに異なり、対応するSecretが両方の配置にある。
 
@@ -332,9 +348,15 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 同日にTestFlightの本番設定を再確認した。Build 1988のIPAで本番Workerの接続先、Apple Distribution署名とproduction APNsを照合した。本番のWorker設定と固定Previewの配置1153を手元の `wrangler.toml` と照合し、両環境でAPNs環境とApple登録の有効状態が一致した。固定PreviewでApple登録と通常通知を試すには、対象のPreviewの配置に端末証明とAPNsの鍵を反映し、Apple登録を有効にする。あとからPreviews Baseへ登録した鍵は、作成済みのPreviewに自動で反映されない。[Previews Baseと各Previewの鍵](https://developers.cloudflare.com/workers/previews/configuration/#secrets)・[Build 1988の配布確認](../validation/history/配布ビルド採番とOrganizer認証調査.md#ios-build-1988の本番向けarchiveとipa2026-11-22)
 
+#### 固定Previewの最新配置とWorkerのログ設定の再確認
+
+2026-11-22。当時のWorker APIで、固定Previewの配置とPreviews Baseを個別に読み取った。固定PreviewのApple登録は無効で、通知フラグは有効、APNsはsandbox、TURNは無効だった。端末証明用とAPNs用の鍵はPreviews Baseにあり、固定Previewの最新配置にはなかった。登録と通常通知を試すには、固定Previewの配置への反映とApple登録の有効化が必要。招待の背景転送用の鍵は本番と固定Previewの両方で未設定だった。[Worker API](https://developers.cloudflare.com/api/resources/workers/)・[Previewへ鍵を反映する条件](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
+
+本番と固定PreviewのWorker単位のObservability、ログ、トレース、Logpushは無効。ログとトレースの外部転送先およびTail Workerはなかった。旧APIでは本番のObservabilityの値を取得できなかったため、確定には現行Worker APIとPreview APIの結果を使う。固定Previewの最新配置にはコミットを照合できる注記を確認できなかった。[この監査で確認した範囲](history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)
+
 両環境でObservabilityの親設定、ログ、トレース、WorkerのLogpushは無効。TailとObservabilityの転送先は空だった。永続化と呼出ログの個別フラグは有効だった。アカウント全体のWorker Logpushの照会は権限不足で、クエリ除去の設定と過去のログ・バックアップに残るデータも未確認。読み取った結果は `.validation/security-audit-2000/live-worker-20261122/` に保存した。[Cloudflareのログ設定](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
 
-手元の `wrangler.toml` では、稼働中の設定に合わせてWorkerのObservabilityとLogpushを無効と明示した。Previewには本番と同じ値が適用される。次の配置後は両環境の管理画面でこの二項目と、ログ・トレース、転送先の実効設定を照合する。[Workerの配置仕様](../spec/server/Worker.md#設定値)
+当時の `wrangler.toml` では、両環境ともObservability、Logpush、ログ・トレースの保存、呼出ログを無効にし、転送先を空にした。URLのクエリを除く設定も指定した。各環境の現行の設定は上の試用条件を参照する。[Workerの配置仕様](../spec/server/Worker.md#設定値)
 
 #### Cloudflareが保持するWorkerログを件数で照合する
 
@@ -347,6 +369,12 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 2026-10-25の4時から2026-11-22の4時まで（JST）の28日間を、アカウント単位のGraphQL集計で照会した。データセット `logpushHealthAdaptiveGroups` が有効で、参照可能な期間に全範囲が含まれることを確認した。7日ずつ4区間に分け、成功と失敗のどちらも対象にした。どの区間にも転送の試行を示す集計行はなかった。[Logpushの転送状況](https://developers.cloudflare.com/logs/logpush/logpush-health/)・[データセットの参照条件](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/)
 
 この集計で確認できる範囲は対象期間内の記録。アカウントのジョブ一覧には `Logs Write` が必要で、一覧は今回の読み取りの対象外とした。証跡は `.validation/security-audit-2000/logpush-health/` に保存した。[Logpush APIの権限](https://developers.cloudflare.com/logs/logpush/permissions/)
+
+#### Log Explorerの保管設定と転送の記録を再確認する
+
+2026-11-22。Log Explorerの一覧をアカウント単位で読み取った。ゾーンを除く条件（`include_zones=false`）で、設定済みのデータセットは0件だった。Logpushの集計も同日4時から10時（JST）まで追加で照会した。参照可能な期間に収まることを確認し、転送の試行を示す集計行は0件だった。[Log Explorerのデータセット一覧](https://developers.cloudflare.com/api/resources/logs/subresources/log_explorer/subresources/datasets/methods/list/)・[集計の範囲と制限](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/)
+
+監査ログの分類一覧にLogpush専用の分類はなかった。プロジェクト名で絞ったR2のバケット一覧は、既存の権限で取得できなかった。この照会でアカウント全体のジョブ一覧や過去の転送先・バックアップの内容は観測していない。証跡は `.validation/security-audit-2100/log-retention-observation.json` に保存した。
 
 #### 現在のログ転送を読み取り権限内で照合する
 
@@ -367,6 +395,24 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 固定Previewで上の4項目だけを設定する管理APIの更新はHTTP 403で拒否された。ログ取得は無効だった。ログ取得を始める際は、対象環境で個別設定を照合する。[Workerの設定項目](https://developers.cloudflare.com/api/resources/workers/)
 
+#### 稼働中の本番Workerの配置元を照合する
+
+2026-11-22。稼働中の本番Workerは単一のバージョンに100%を配分していた。そのバージョンをWorkers Buildsの成功記録と照合し、当時の共有main `1adc77da` とビルドのルート `server` が一致した。固定Previewの最新配置は参照できたが、対応するビルドとコミットは確定できていない。[配置とバージョンの管理](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/deployment-management/)
+
+当時の本番ソースと配布候補 `d4197073` のいずれにも、リポジトリ直下と `server` に `.node-version` や `.nvmrc` はなかった。本番のビルド記録で参照できた設定項目に `NODE_VERSION` はなかった。Cloudflareで実際に使われたNode.jsのバージョンは未確認。ローカルでのNode.js 26.13.1による検証結果は監査記録に残した。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)・[依存と配布の監査範囲](history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)
+
+#### 固定Previewの配置元をビルドとGitで照合する
+
+2026-11-22。固定Previewの配置一覧の先頭と最新配置APIが同じ配置を返した。配置の `workers/tag` にある7桁のコミットIDは、共有 `preview` の `1adc77da` を一意に指した。固定PreviewのWorkers Builds履歴25件のうち、配置時刻を含む成功ビルドは1件で、同じコミットの `server` をビルドしていた。ビルドは配置の約4秒後に完了した。配置IDとビルドIDの直接対応はAPIの応答で確認できなかった。[Workers BuildsのPreviewの照会方法](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#manage-previews)
+
+当時のトリガーは `main` を対象に含み、ルートは `server` だった。固定Previewは `preview` を追跡し、自動ビルドは有効だった。トリガーのビルド変数、固定Previewの設定、該当ビルドの記録に `NODE_VERSION` はなかった。この設定が参照するソースにもNode.jsを指定するファイルがなかった。Cloudflareがこのビルドで実際に使ったNode.jsのバージョンは未確認。証跡は `.validation/security-audit-2100/preview-provenance/` に保存した。[ビルド変数の照会](https://developers.cloudflare.com/api/resources/workers_builds/subresources/triggers/subresources/environment_variables/)・[Cloudflareの既定バージョンと指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#runtime)
+
+##### 文書だけのpushがビルドと配置に届くことを確認する
+
+2026-11-22。Workers Buildsのトリガーを読み取った。`main` を対象に含み、ビルドのルートは `server`。変更を監視するパスは `*` の1件で、除外は0件だった。共有 `main` と固定 `preview` の `ab08011f` はバックログの文書2点だけを変更し、前回確認した固定Previewの `1adc77da` から `server` の変更はなかった。このコミットを使う本番向けと固定Previewのビルドは各1件が成功した。[Workers Buildsの監視パス](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)
+
+固定Previewの最新配置が `ab08011f` に一致した。通話と通常通知の稼働フラグはどちらも有効のままだった。本番では単一のバージョンに100%を配分していることまでは確認したが、このビルドとの対応は確認できなかった。文書だけのpushでも固定Previewは配置を更新する。送信前の監査では文書の差分と、送信した履歴で自動配置され得るWorkerを照合する。証跡は `.validation/security-audit-2100/docs-push-build-boundary/` に保存した。[監査で保留する操作](history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)
+
 #### SQLiteの復旧範囲を確認する
 
 2026-11-22。本番のWorker設定と固定Previewの最新配置から、各6件のDurable Objectのbindingを名前空間一覧と照合した。12件ともSQLiteで、本番と固定Previewに共用の名前空間はなかった。配置元 `1adc77da` と配布候補 `d4197073` の定義も、両環境で同じ6種類をSQLiteへ割り当てていた。[名前空間の一覧API](https://developers.cloudflare.com/api/go/resources/durable_objects/subresources/namespaces/methods/list/)
@@ -385,23 +431,27 @@ CloudflareのWorkerロールバックでは、以前に配置したWorkerバー�
 
 現行の運用で扱うのは、最新の保存状態を維持したWorkerの切替まで。削除前のSQLiteを稼働中の保存へ戻す運用は保留する。その方式を検討するときは、利用者がいない隔離環境で、復旧の影響を受けない失効記録などを使って旧資格を拒否できることを確かめる。通話・通知・招待の入口に加え、復旧で戻った予約やアラームから送信されないことと、削除していないアカウントへの影響を検証する。[アカウント削除の受入条件](../backlog/未実装課題.md#アカウント削除のサービス範囲と別端末への反映)
 
-#### 稼働配置と手元の停止フラグを照合する
+#### 固定Previewの外部資格と無効化を確認する
+
+2026-11-22。固定Previewの既存配置が参照するSFU App IDは、同じCloudflareアカウントのSFU一覧になく、個別照会は404だった。指定されたPreview用のSFU App IDとTURN Key IDは、いずれもPreviews Baseの値と一致し、本番とは別の実リソースだった。従来の `previews.vars` に指定がなかったため、確認したIDを明記した。最新配置のSFU Secretが新しい参照先に対応するかは未確認で、TURN資格は配置になかった。[SFUの照会API](https://developers.cloudflare.com/api/go/resources/calls/subresources/sfu/methods/get/)・[Previews Baseの設定](https://developers.cloudflare.com/workers/previews/configuration/#setting-your-previews-base-configuration)
+
+固定Previewの最新配置にはAPNsと端末証明の鍵もなかった。資格と動作を確認できるまで、手元の `previews.vars` ではApple登録と端末証明の発行、Internet通話、通常通知を無効にする。固定Previewだけへの反映を試したが、管理APIがHTTP 403で拒否した。読み戻した稼働中の配置に変更はなかった。再開時はSFUの資格、端末証明、sandbox APNsの鍵を同じ配置に揃え、端末登録・双方向通話・通知到達を確認する。招待の背景転送の鍵は両環境に未設定だった。[端末証明の停止条件](../spec/server/Worker.md#ユーザーと端末の署名付き証明)
+
+本番はSFU App IDとTURN Key IDがそれぞれ実リソースに一致した。Apple認可取消用とAPNsの署名鍵は登録済みで、鍵IDは別だった。固定のApple client-secret JWTは設定されていない。資格の有効性と実サービスでの更新・失効は別途確認する。[短命な資格の生成条件](#apple登録入口の保護)
+
+通知の停止を確認するときは、登録済み端末から通知とグループ招待を送れないことに加え、受信箱に残った暗号文の取得と未受領の確定、追加端末への転送も拒否されることを確かめる。所有者の取消と受取本人による破棄は可能。確認に使う招待は利用者のデータと分ける。[Workerの停止条件](../spec/server/通知.md#登録済みの相手への暗号化したグループ招待の送受信)
+
+##### 稼働配置と手元の停止フラグを照合する
 
 2026-11-22。本番Workerの設定と固定Previewの最新配置を管理APIで読み取った。本番のApple登録、通常通知、Internet通話、TURN、端末審査の各フラグは手元の本番設定と一致した。本番のSFUとTURNの参照先は両方とも存在し、通知・端末証明・Apple認可取消の署名鍵も登録済みだった。観測はリソースと鍵の登録の有無に限る。背景転送の鍵は両環境とも未設定だった。[Cloudflareのプレビュー設定](https://developers.cloudflare.com/workers/previews/configuration/)
 
-配置前の固定Previewの `41d1019f` では、`SERVICE_ENABLED` と `NOTIFICATIONS_ENABLED` はどちらも `true` だった。指定されたSFU Appは見つからず、sandbox APNsと端末証明の鍵も配置に含まれていなかった。共有 `main` の `previews.vars` で両方を `false` にし、固定PreviewではInternet通話と通常通知を停止する。配置後は最新配置の2項目を読み戻す。再開時は固定Preview用のSFUと対応する資格、sandbox APNsと端末証明の鍵を同じ配置に揃え、端末登録・双方向通話・通常通知の到達を確認する。[環境別の設定値](../spec/server/Worker.md#設定値)
+配置前の固定Previewの `41d1019f` では、`SERVICE_ENABLED` と `NOTIFICATIONS_ENABLED` はどちらも `true` だった。指定されたSFU Appは見つからず、sandbox APNsと端末証明の鍵も配置に含まれていなかった。共有 `main` の `previews.vars` で両方を `false` にし、固定PreviewではInternet通話と通常通知を停止する。配置後は最新配置の2項目を読み戻す。再開時は固定Preview用のSFUと対応する資格、sandbox APNsと端末証明の鍵を同じ配置に揃え、端末登録・双方向通話・通常通知の到達を確認する。[環境別の設定値](../spec/server/Worker.md#設定値) 以前の照合の証跡は `.validation/security-audit-2100/live-feature-gates-readback/` に保存した。
 
 2026-11-22。停止設定の `1fa64f8f` は本番と固定Previewに配置され、通話・通常通知のフラグは本番で有効、固定Previewで無効と読み戻した。指定のSFU AppとTURN KeyはCloudflareに存在し、Previews Baseでは両方のIDと4点のシークレットの登録を確認した。固定Previewの稼働配置には古いSFU Appの参照があり、TURNの参照とシークレット、sandbox APNs・端末証明の鍵がなかった。両IDを共有 `main` の設定に記載し、対応するシークレットが固定Previewの配置に揃ってから有効化する。
 
 2026-11-22。本番と固定Previewの `a6e827b8` で `/health` はHTTP 200。本番のSFUとTURNの参照先が存在し、シークレットの登録の有無と通話・TURNの有効化を管理APIで確認した。架空の端末IDによるApple登録の開始では、本番がHTTP 200と有効期限内のチャレンジを返し、固定PreviewはHTTP 503を返した。固定PreviewのSFUとTURNの参照は指定値と一致した。既存の試用端末資格2件は認証を通り、通話停止を示すHTTP 503を返した。固定PreviewにTURN・sandbox APNs・端末証明のシークレットを反映し、SFUの組を照合してから実媒体を試す。Appleのサインイン完了、実SFUとTURNを通した双方向音声、TestFlightの端末操作は今回の測定に含めていない。
 
 APNsの環境やトピックを変更する場合は、古い設定で登録した宛先への送信が止まることと、現在の設定で再登録した端末にだけ届くことを確認する。固定Previewの開発署名にはsandbox、本番のTestFlightにはproductionを使う。[APNsの接続先](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)・[送信先を照合する仕様](../spec/server/通知.md#費用悪用を抑える境界)
-
-#### 文書だけのpushがビルドと配置に届くことを確認する
-
-2026-11-22。Workers Buildsのトリガーを読み取った。`main` を対象に含み、ビルドのルートは `server`。変更を監視するパスは `*` の1件で、除外は0件だった。共有 `main` と固定 `preview` の `ab08011f` はバックログの文書2点だけを変更し、前回確認した固定Previewの `1adc77da` から `server` の変更はなかった。このコミットを使う本番向けと固定Previewのビルドは各1件が成功した。[Workers Buildsの監視パス](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)
-
-固定Previewの最新配置が `ab08011f` に一致した。通話と通常通知の稼働フラグはどちらも有効のままだった。本番では単一のバージョンに100%を配分していることまでは確認したが、このビルドとの対応は確認できなかった。文書だけのpushでも固定Previewは配置を更新する。送信前の監査では文書の差分と、送信した履歴で自動配置され得るWorkerを照合する。証跡は `.validation/security-audit-2100/docs-push-build-boundary/` に保存した。[監査で保留する操作](history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)
 
 #### SFUの接続先を切り替える前に通話を回収する
 
