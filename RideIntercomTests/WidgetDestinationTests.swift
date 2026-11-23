@@ -150,19 +150,29 @@ struct WidgetDestinationTests {
     let publisher = WidgetDestinationPublisher(
       store: .init(fileURL: file), reload: { reloads += 1 })
     let item = WidgetCallDestination(id: "scope|group|\(UUID())", name: "Ride", kind: .group)
-    publisher.publish([item])
-    publisher.publish([item])
+    let recent = WidgetCallDestination(id: "scope|user|\(UUID())", name: "Friend", kind: .user)
+    let call = CallLivePresentation(
+      reference: .init(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()),
+      status: .inCall, isMuted: true)
+    let snapshot = WidgetDestinationSnapshot(
+      destinations: [item, recent], currentDestinationID: item.id, currentCall: call,
+      recentDestinationID: recent.id)
+    let store = WidgetDestinationStore(fileURL: file)
+    publisher.publish(snapshot)
+    #expect(store.readSnapshot() == snapshot)
+    publisher.publish(snapshot)
     #expect(reloads == 1)
     try Data("broken".utf8).write(to: file)
-    publisher.publish([item])
-    #expect(WidgetDestinationStore(fileURL: file).read() == [item])
+    publisher.publish(snapshot)
+    #expect(store.readSnapshot() == snapshot)
     #expect(reloads == 2)
     try FileManager.default.removeItem(at: file)
     try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
-    publisher.publish([])
+    let empty = WidgetDestinationSnapshot(destinations: [])
+    publisher.publish(empty)
     try? FileManager.default.removeItem(at: file)
-    publisher.publish([])
-    #expect(WidgetDestinationStore(fileURL: file).read().isEmpty)
+    publisher.publish(empty)
+    #expect(store.readSnapshot() == empty)
     #expect(FileManager.default.fileExists(atPath: file.path))
   }
 

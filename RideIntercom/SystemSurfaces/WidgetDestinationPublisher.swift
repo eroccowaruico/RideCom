@@ -29,14 +29,8 @@ extension WidgetDestinationStore {
         WidgetCenter.shared.reloadTimelines(ofKind: "RideIntercom.SelectedCall")
     }) { self.store = store; self.reload = reload }
 
-    func publish(
-        _ destinations: [WidgetCallDestination], currentDestinationID: String? = nil,
-        currentCall: CallLivePresentation? = nil, recentDestinationID: String? = nil
-    ) {
+    func publish(_ snapshot: WidgetDestinationSnapshot) {
         guard store.fileURL != nil else { return }
-        let snapshot = WidgetDestinationSnapshot(
-            destinations: destinations, currentDestinationID: currentDestinationID, currentCall: currentCall,
-            recentDestinationID: recentDestinationID)
         guard published != snapshot || store.readSnapshot() != snapshot else { return }
         do {
             try store.write(snapshot)
@@ -74,9 +68,6 @@ extension AppCallOwner {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.observeWidgetDestinations() }
         }
-        widgetDestinations.publish(
-            snapshot.destinations, currentDestinationID: snapshot.currentDestinationID,
-            currentCall: snapshot.currentCall,
-            recentDestinationID: snapshot.recentDestinationID)
+        widgetDestinations.publish(snapshot)
     }
 }

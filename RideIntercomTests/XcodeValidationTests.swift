@@ -179,7 +179,7 @@ struct XcodeValidationTests {
         #expect(store.fileURL == nil)
         #expect(store.readSnapshot() == nil)
         let publisher = WidgetDestinationPublisher(store: store, reload: { reloads += 1 })
-        publisher.publish([])
+        publisher.publish(.init(destinations: []))
         #expect(resolutions == 0)
         #expect(reloads == 0)
     }
