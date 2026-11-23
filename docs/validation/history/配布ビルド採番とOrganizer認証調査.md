@@ -175,6 +175,16 @@ Xcodeの標準保存先へ登録し、Xcodeで開く操作に成功した。Orga
 ~/Library/Developer/Xcode/Archives/2026-11-23/RideIntercom iOS 1.0.0 (2260).xcarchive
 ```
 
+### 共有mainからBuild 2261を作りdSYMの共有条件を確認する
+
+2026-11-23。共有mainの `98451cca` に、Build 2260で検証した無改変の公式WebRTC ZIPと由来の記録を検証領域で揃えた。iOS実機・Simulator・macOS向けの計5構成で、由来の記録と実際の `args.gn` の照合値が一致した。全構成の `is_debug=false` を確認した。
+
+iPhone用Build 2261はApp・Widgetの署名とApp・WebRTCのdSYMの照合に通った。署名後のWebRTCを元のZIPと比べると、ARM64でファイルにデータを持つ31セクションが一致した。Xcodeの標準保存先への登録まで確認した。
+
+macOSのRTC試験148件が通った。iPhone SimulatorのBuild 2262では、音声機器を使わずに発話を双方向に送った。ローカル中継を使い、各方向で98/98フレームが一致した。次回用の共通採番は2263。
+
+ZIPを展開した検査では、iOS向けのdSYMに個人のホームパスが2件残っていた。共有元からのビルドは再現できたが、このZIPの共有と配布は保留する。公式の同じコミットを個人名のない作業パスでビルドし、新しいZIPでパスの不在と署名・同梱物を確認する。[試用の残作業](../../backlog/未実装課題.md#最初に試すインターネット通話と通知と招待)
+
 ## 2,280コミットの区切りでiOS Build 2213をArchiveする
 
 2026-11-23。手元のmainの第一親で2,280件目の `d0f04ffd` に対応する共有main `b774c08d` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2213。署名とApp・WebRTCのdSYMが一致し、実行ファイルに本番Workerの接続先が入っていた。Watch App、カメラの利用目的、CallKitとPushToTalkの動的リンク、iCloudの権限は含まれなかった。署名時の通常通知の環境は `development`。[標準のArchive手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
