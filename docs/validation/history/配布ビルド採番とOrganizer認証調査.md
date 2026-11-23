@@ -221,6 +221,15 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 2,200コミットの監査で、登録済みのArchiveと検証領域のArchiveの署名を再検証した。いずれも署名は有効で、アプリとプロビジョニングプロファイルの通常通知の環境は `development` だった。以前の記録では本番の通常通知の構成まで確認したと記載していた。Build 2077の本番用IPAの署名は別途確認が必要。再検証の集計は `.validation/security-audit-2200/archive-2077-confirmation.json` に保存した。
 
+## 2,460コミットの区切りでiOS Build 2383をArchiveする
+
+2026-11-24。共有main第一親2,460件目の `51379144` に対応する定期作業。コードと文書の整理を受け入れた `01a9788e` から、標準の `RideIntercom` スキームでiPhone向けの署名付きRelease Archiveを作成し、Xcodeの標準保存先に登録した。AppとWidgetは1.0.0 Build 2383で両方の署名が有効。AppとWebRTCのdSYMのUUID、採用済みの無改変WebRTCと同梱物のARM64の31セクションが一致した。Watch App、カメラ利用目的、CallKitとPushToTalkへの動的リンクは検出されなかった。App InfoのAPNs環境は `production`、Archiveに署名した時点の環境は `development`。Organizerでの一覧表示は未確認。次回用の共通採番は2384。
+
+- App実行ファイルには以前の本番Worker URLが残っていた。旧URLの `/health` は404、新URLは200だった。[接続先の課題](../../backlog/未実装課題.md#本番と固定previewのworker-urlをridecomに揃える)
+- App実行ファイルにカメラ関連クラスへのリンク参照はなかった。同梱WebRTCには `AVCaptureDevice`、`AVCaptureSession`、`AVCaptureDeviceInput`、`AVCaptureVideoDataOutput` への参照があった。これはBuild 2383の検査結果で、Appleから指摘を受けた配布物との同一性は未確認。[ITMS-90683の課題](../../backlog/未実装課題.md#itms-90683の再発を解消してtestflightへ送信する)
+
+登録したArchiveは `~/Library/Developer/Xcode/Archives/2026-11-24/RideIntercom iOS 1.0.0 (2383).xcarchive`。TestFlightへの送信や公開の操作は行っていない。
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。
