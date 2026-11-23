@@ -362,7 +362,7 @@ Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` お�
 
 `/api/direct-call-restore/relay` は、既に宛先を特定した端末間で、復元に使う暗号文を預かる。`DIRECT_CALL_RESTORE_RELAY_ENABLED` が `true` の場合だけ応答し、それ以外は404。現在の本番と固定Previewの設定では無効。Workerのローカル試験では模擬環境の設定で有効にする。この経路は通知とメディアの処理から独立する。
 
-有効にした場合、現在の端末Bearerを照合し、既存の `CALL_API_LIMIT` をアカウント単位で適用する。応答は `Cache-Control: no-store` とする。
+中継と[復元先の端末証明](#個別通話の復元先の端末証明を預かる)は、Workerで同じ受付処理を使う。有効化の設定、入口ごとに許可するHTTPメソッド、現在の端末Bearer、頻度制限の順で確認する。頻度制限には `CALL_API_LIMIT` を使い、中継と端末証明それぞれでアカウント単位に数える。応答は `Cache-Control: no-store` とする。
 
 | 操作 | 入力と結果 |
 |---|---|
@@ -376,7 +376,7 @@ Workerは既存の `USER_ACCOUNT`、`NOTIFICATION_INDEX`、`CALL_API_LIMIT` お�
 
 ### 個別通話の復元先の端末証明を預かる
 
-`/api/direct-call-restore/device` は、照合先の端末が預けた暗号文を、指定した別のアカウントに返す。発行側の現在の署名付き端末証明と、読む側の現在の端末Bearerを使う。読む側は旧端末からの資格を引き継ぐ必要がない。復元の中継と同じ変数が `true` の場合だけ有効にし、それ以外は404。頻度制限はアカウント単位。応答のキャッシュを許可しない。
+`/api/direct-call-restore/device` は、照合先の端末が預けた暗号文を、指定した別のアカウントに返す。発行側の現在の署名付き端末証明と、読む側の現在の端末Bearerを使う。読む側は旧端末からの資格を引き継ぐ必要がない。有効化と頻度制限は[復元の共通受付](#個別通話の復元で暗号文を一時中継する)に従う。
 
 | 操作 | 入力と結果 |
 |---|---|

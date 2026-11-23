@@ -1,5 +1,5 @@
-import { notificationAuth } from './AppleAccount'
 import { verifyDeviceProof } from './DeviceIdentity'
+import { restoreMissing as missing, restoreUnauthorized as unauthorized, withDirectRestoreRequest } from './DirectRestoreRequest'
 import { publicAccountIndex } from './NotificationIndex'
 import { isRecord, json, readJSON, sha256Hex, type Env } from './types'
 
@@ -7,26 +7,16 @@ export const directRestoreRelayPath = '/api/direct-call-restore/relay'
 const hex = /^[a-f0-9]{64}$/
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
-const missing = () => json({ error: 'Not found' }, 404)
-const unauthorized = () => json({ error: 'Unauthorized' }, 401)
-
 function field(value: unknown, pattern: RegExp) {
     if (typeof value !== 'string' || !pattern.test(value)) throw new Error('body')
     return value
 }
 
 export async function directRestoreRelayRequest(request: Request, url: URL, env: Env): Promise<Response> {
-    if (env.DIRECT_CALL_RESTORE_RELAY_ENABLED !== 'true') return missing()
     const method = request.method
-    if (!['GET', 'PUT', 'DELETE'].includes(method)) return json({ error: 'Method not allowed' }, 405)
-    try {
-        const bearer = request.headers.get('Authorization') ?? ''
-        const auth = bearer.startsWith('Bearer ') && bearer.length <= 512
-            ? await notificationAuth(bearer.slice(7), env) : null
-        if (!auth) return unauthorized()
-        if (!(await env.CALL_API_LIMIT.limit({ key: `direct-restore:${auth.accountID}` })).success) {
-            return json({ error: 'Too many restore requests' }, 429)
-        }
+    return withDirectRestoreRequest(request, env, {
+        methods: ['GET', 'PUT', 'DELETE'], rateScope: 'direct-restore',
+    }, async auth => {
         const sessionBinding = await sha256Hex(auth.tokenHash)
         const own = env.USER_ACCOUNT.get(env.USER_ACCOUNT.idFromString(auth.accountID))
         if (method === 'GET') {
@@ -76,8 +66,5 @@ export async function directRestoreRelayRequest(request: Request, url: URL, env:
             case 'expired': throw new Error('body')
             default: return missing()
         }
-    } catch (error) {
-        return error instanceof Error && error.message === 'body'
-            ? json({ error: 'Invalid restore request' }, 400) : json({ error: 'Restore delivery unavailable' }, 503)
-    }
+    })
 }

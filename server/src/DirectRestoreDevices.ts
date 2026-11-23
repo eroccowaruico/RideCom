@@ -1,29 +1,19 @@
 import { restoreDeviceClockTolerance, restoreDeviceLifetime } from './AccountDirectRestoreDevices'
-import { notificationAuth } from './AppleAccount'
 import { verifyDeviceProof } from './DeviceIdentity'
+import { restoreMissing as missing, restoreUnauthorized as unauthorized, withDirectRestoreRequest } from './DirectRestoreRequest'
 import { publicAccountIndex } from './NotificationIndex'
 import { isRecord, json, readJSON, sha256Hex, type Env } from './types'
 
 export const directRestoreDevicePath = '/api/direct-call-restore/device'
 const hex = /^[a-f0-9]{64}$/
 const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
-const missing = () => json({ error: 'Not found' }, 404)
-const unauthorized = () => json({ error: 'Unauthorized' }, 401)
-
 async function scope(slot: string, reader: string) { return sha256Hex(JSON.stringify([slot, reader])) }
 
 export async function directRestoreDeviceRequest(request: Request, url: URL, env: Env): Promise<Response> {
-    if (env.DIRECT_CALL_RESTORE_RELAY_ENABLED !== 'true') return missing()
     const method = request.method
-    if (!['POST', 'PUT', 'DELETE'].includes(method)) return json({ error: 'Method not allowed' }, 405)
-    try {
-        const bearer = request.headers.get('Authorization') ?? ''
-        const auth = bearer.startsWith('Bearer ') && bearer.length <= 512
-            ? await notificationAuth(bearer.slice(7), env) : null
-        if (!auth) return unauthorized()
-        if (!(await env.CALL_API_LIMIT.limit({ key: `direct-restore-device:${auth.accountID}` })).success) {
-            return json({ error: 'Too many restore requests' }, 429)
-        }
+    return withDirectRestoreRequest(request, env, {
+        methods: ['POST', 'PUT', 'DELETE'], rateScope: 'direct-restore-device',
+    }, async auth => {
         const body = await readJSON(request)
         const { slot } = body
         if (typeof slot !== 'string' || !hex.test(slot)) throw new Error('body')
@@ -60,10 +50,7 @@ export async function directRestoreDeviceRequest(request: Request, url: URL, env
         if (expiresAt > verified.expiresAt) throw new Error('body')
         return writeResult(await own.directRestoreDevicePublish(auth, key, {
             deviceID: auth.deviceID, sessionBinding, issuedAt, expiresAt, packet }))
-    } catch (error) {
-        return error instanceof Error && error.message === 'body'
-            ? json({ error: 'Invalid restore request' }, 400) : json({ error: 'Restore delivery unavailable' }, 503)
-    }
+    })
 }
 
 function writeResult(state: 'unauthorized' | 'expired' | 'stored' | 'revoked' | 'conflict' | 'limited') {
