@@ -12,6 +12,9 @@ const keys = await generateKeyPair('RS256');
 const publicKey = { ...await exportJWK(keys.publicKey), kid: 'apple-fixture', alg: 'RS256', use: 'sig' };
 const audience = 'com.yowamushi-inc.RideIntercom.RideIntercom';
 const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: audience };
+const attestationOptions = { ...options, DEVICE_ATTESTATION_ENABLED: 'true',
+    DEVICE_ATTESTATION_MAC_POLICY: JSON.stringify({ appID: `FIXTURE123.${audience}`,
+        environment: 'development', validationCategory: 3, bundleVersion: null }) };
 const appleClientKeys = await generateKeyPair('ES256', { extractable: true });
 const appleClientConfiguration = {
     APPLE_SIGN_IN_PRIVATE_KEY: await exportPKCS8(appleClientKeys.privateKey),
@@ -159,7 +162,7 @@ test('expired challenges and devices remain unusable after server restart', asyn
 
 test('the device attestation challenge is opt-in and belongs to a live device credential', async () => {
     const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
-    const enabled = await makeRuntime({ ...options, DEVICE_ATTESTATION_ENABLED: 'true' }, { appleKeys: [publicKey] });
+    const enabled = await makeRuntime(attestationOptions, { appleKeys: [publicKey] });
     const path = '/api/auth/device-attestation/challenge';
     try {
         const disabled = await (await signIn(runtime, await challenge(runtime))).json();
@@ -194,11 +197,30 @@ test('the device attestation challenge is opt-in and belongs to a live device cr
     } finally { await runtime.dispose(); await enabled.dispose(); }
 });
 
+const missingRegistrationSettings = [
+    ['missing policy', { ...attestationOptions, DEVICE_ATTESTATION_MAC_POLICY: '' }, true],
+    ['invalid policy', { ...attestationOptions, DEVICE_ATTESTATION_MAC_POLICY: '{}' }, true],
+    ['missing key index', attestationOptions, false]
+];
+
+for (const [condition, config, appAttestationIndex] of missingRegistrationSettings) {
+    test(`both attestation routes reject ${condition} before processing requests`, async () => {
+        const runtime = await makeRuntime(config, { appleKeys: [publicKey], appAttestationIndex });
+        try {
+            const device = await (await signIn(runtime, await challenge(runtime))).json();
+            for (const path of ['/api/auth/device-attestation/challenge', '/api/auth/device-attestation']) {
+                assert.equal((await call(runtime, path, {}, device.accessToken)).status, 503);
+                assert.equal((await call(runtime, path)).status, 503);
+            }
+            assert.equal((await call(runtime, '/api/auth/session', undefined, device.accessToken, 'GET')).status, 200);
+        } finally { await runtime.dispose(); }
+    });
+}
+
 test('the device attestation challenge survives restart and rotates at its original deadline', async () => {
     const start = Date.now();
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-attestation-challenge-'));
-    const config = { ...options, DEVICE_ATTESTATION_ENABLED: 'true' };
-    const newRuntime = fixedNowMs => makeRuntime(config, { storageDirectory, fixedNowMs, appleKeys: [publicKey] });
+    const newRuntime = fixedNowMs => makeRuntime(attestationOptions, { storageDirectory, fixedNowMs, appleKeys: [publicKey] });
     let runtime = await newRuntime(start);
     const path = '/api/auth/device-attestation/challenge';
     try {

@@ -687,7 +687,9 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
 
 async function deviceAttestationRequest(request: Request, env: Env, issuing: boolean): Promise<Response> {
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
-    if (env.DEVICE_ATTESTATION_ENABLED !== 'true') return json({ error: 'Device attestation is unavailable' }, 503)
+    const policy = env.DEVICE_ATTESTATION_ENABLED === 'true'
+        ? macAttestationPolicy(env.DEVICE_ATTESTATION_MAC_POLICY, env.APPLE_CLIENT_ID) : null
+    if (!policy || !env.APP_ATTEST_KEY_INDEX) return json({ error: 'Device attestation is unavailable' }, 503)
     const authorization = request.headers.get('Authorization') ?? ''
     const credential = authorization.startsWith('Bearer ') && authorization.length <= 512
         ? deviceCredential(authorization.slice(7), env) : null
@@ -702,8 +704,6 @@ async function deviceAttestationRequest(request: Request, env: Env, issuing: boo
         const issued = await credential.account.issueAttestationChallenge(credential.deviceID, tokenHash)
         return issued ? json(issued) : json({ error: 'Unauthorized' }, 401)
     }
-    const policy = macAttestationPolicy(env.DEVICE_ATTESTATION_MAC_POLICY, env.APPLE_CLIENT_ID)
-    if (!policy || !env.APP_ATTEST_KEY_INDEX) return json({ error: 'Device attestation is unavailable' }, 503)
     const { nonce, keyID, attestation } = body
     if (Object.keys(body).length !== 3 || typeof nonce !== 'string' || !objectPattern.test(nonce)
         || typeof keyID !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(keyID)

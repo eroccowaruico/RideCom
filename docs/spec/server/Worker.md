@@ -304,7 +304,7 @@ Worker内部の検証は、登録済み端末のP-256公開鍵、App ID、Apple�
 
 登録に使う確認要求は `POST /api/auth/device-attestation/challenge` で発行する。端末Bearerと空のJSONオブジェクトを受け、 `nonce`（乱数32バイトの小文字16進）と `expiresAt`（Unixミリ秒）を返す。アカウントと端末はBearerから決める。期限は発行から5分と端末資格の期限のうち早い方。期限内の並行・再試行では同じ値を返し、期限ちょうどから新しい値を発行する。確認要求は端末資格と同じSQLiteレコードに保存し、資格の更新・失効とアカウント削除で破棄する。期限切れは既存のalarmで回収する。
 
-`DEVICE_ATTESTATION_ENABLED=true` の環境でだけ発行する。無効時は503、未認証は401、POST以外は405、本文が空のJSONオブジェクト以外なら400。既存のApple登録と同じ送信元・全体の頻度制限を用い、上限超過は429を返す。
+確認要求の発行と端末鍵の登録に同じ有効化条件を適用する。`DEVICE_ATTESTATION_ENABLED=true` を指定し、`APPLE_CLIENT_ID` に一致する有効な `DEVICE_ATTESTATION_MAC_POLICY` と、鍵索引 `APP_ATTEST_KEY_INDEX` を揃える。いずれかが欠ける場合は資格の照合、頻度制限、本文の読み取りに進まず、両方の入口で503を返す。設定が揃ったときに未認証なら401、確認要求の本文が空のJSONオブジェクト以外なら400。どちらの入口もPOST以外は405、Apple登録と同じ送信元・全体の頻度制限を超えた場合は429を返す。[試用環境の設定](../../development/Cloudflare試用手順.md#利用者が行うapplecloudflareの設定と受入順)
 
 ### Macの端末鍵証明
 

@@ -48,7 +48,7 @@ async function registerCallTestDevice(runtime, subject, deviceName) {
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
@@ -123,7 +123,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         durableObjects: { SIGNALING_ROOM: { className: 'SignalingRoom', useSQLite: true }, USAGE_GUARD: { className: 'UsageGuard', useSQLite: true },
             NOTIFICATION_INDEX: { className: 'NotificationIndex', useSQLite: true },
             APPLE_AUTH_ATTEMPT: { className: 'AppleAuthAttempt', useSQLite: true }, USER_ACCOUNT: { className: 'UserAccount', useSQLite: true },
-            APP_ATTEST_KEY_INDEX: { className: 'AppAttestKeyIndex', useSQLite: true } },
+            ...(appAttestationIndex ? { APP_ATTEST_KEY_INDEX: { className: 'AppAttestKeyIndex', useSQLite: true } } : {}) },
         bindings: { SERVICE_ENABLED: 'true',
             CLOUDFLARE_SFU_APP_ID: 'test-app', CLOUDFLARE_SFU_APP_SECRET: 'test-secret',
             MAX_ROOM_PARTICIPANTS: '4', MAX_ACTIVE_SESSIONS: '16', MONTHLY_PARTICIPANT_SECONDS: '36000', LEASE_SECONDS: '600', ...overrides },
