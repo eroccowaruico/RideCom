@@ -606,6 +606,71 @@ test('group invitation delivery requires its own permission and keeps opaque off
     } finally { await r.dispose(); }
 });
 
+test('queued group invitations pause with notifications and resume without repeated alerts', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-group-delivery-pause-'));
+    let pushes = 0;
+    const start = overrides => setup(overrides, async () => { pushes++; return Response.json({}); }, { storageDirectory });
+    let r = await start({});
+    try {
+        const sender = await login(r, 'paused-sender'), recipient = await login(r, 'paused-recipient');
+        assert.equal((await register(r, recipient)).status, 200);
+        const callGrant = await grant(r, recipient, sender);
+        const callID = randomUUID();
+        const issued = await call(r, `${groupPath}/grants`, { senderUserID: sender.userID }, recipient.accessToken);
+        assert.equal(issued.status, 200);
+        const { capability } = await issued.json();
+        const invite = { capability, requestID: randomUUID(), recipientKey: 'k'.repeat(87), expiresAt: Date.now() + 60_000,
+            envelope: randomBytes(64).toString('base64') };
+        const discarded = { ...invite, requestID: randomUUID() };
+        const received = { ...invite, requestID: randomUUID() };
+        const path = entry => `${groupPath}/${recipient.userID}/${entry.requestID}`;
+        const submit = entry => call(r, groupPath, entry, sender.accessToken);
+        const read = () => call(r, `${groupPath}?recipientKey=${invite.recipientKey}`, undefined, recipient.accessToken, 'GET');
+        const acknowledge = entry => call(r, path(entry), undefined, recipient.accessToken, 'DELETE');
+        for (const entry of [invite, discarded, received]) assert.equal((await submit(entry)).status, 200);
+        assert.equal((await acknowledge(received)).status, 200);
+        assert.equal(pushes, 3);
+
+        const rejected = [];
+        for (const overrides of [{ APNS_PRIVATE_KEY: 'fixture-not-a-pkcs8-key' }, { APNS_PRIVATE_KEY: '' }, { NOTIFICATIONS_ENABLED: 'false' }]) {
+            await r.dispose();
+            r = await start(overrides);
+            const reply = await read();
+            assert.equal(reply.status, 503);
+            assert.deepEqual(await reply.json(), { error: 'Notifications are unavailable', code: 'notifications_unavailable' });
+            assert.equal((await acknowledge(invite)).status, 503);
+            assert.equal((await call(r, `${groupPath}/additional-devices?recipientKey=${invite.recipientKey}`,
+                undefined, recipient.accessToken, 'GET')).status, 503);
+            assert.equal((await call(r, `${path(invite)}/additional-devices`, undefined, sender.accessToken, 'GET')).status, 503);
+            const newInvite = { ...invite, requestID: randomUUID() };
+            assert.equal((await submit(newInvite)).status, 503);
+            rejected.push(newInvite);
+            assert.equal((await register(r, recipient)).status, 503);
+            assert.equal((await send(r, sender, callGrant.capability, callID)).status, 503);
+            assert.equal((await call(r, `${groupPath}/background`, {})).status, 503);
+            assert.deepEqual(await (await acknowledge(received)).json(), { status: 'received' });
+            const status = await call(r, path(invite), undefined, sender.accessToken, 'GET');
+            assert.equal((await status.json()).status, 'queued');
+            assert.equal(pushes, 3);
+        }
+        const cancel = await call(r, `${path(discarded)}?discard=1`, undefined, recipient.accessToken, 'DELETE');
+        assert.equal(cancel.status, 200);
+        assert.deepEqual(await cancel.json(), { status: 'cancelled' });
+
+        await r.dispose();
+        r = await start({});
+        for (const entry of rejected) assert.equal((await call(r, path(entry), undefined, sender.accessToken, 'GET')).status, 404);
+        assert.equal((await call(r, `/api/notifications/calls/${recipient.userID}/${callID}`, undefined, recipient.accessToken, 'GET')).status, 404);
+        assert.equal((await (await read()).json()).delivery.requestID, invite.requestID);
+        assert.deepEqual(await (await acknowledge(invite)).json(), { status: 'received' });
+        assert.equal((await (await read()).json()).delivery, null);
+        assert.equal(pushes, 3);
+    } finally { await r.dispose(); await rm(storageDirectory, { recursive: true, force: true }); }
+});
+
 test('a cancellation after download is reported to a delayed or repeated acknowledgement', async () => {
     const r = await setup();
     try {

@@ -2,30 +2,53 @@ import { importPKCS8, SignJWT } from 'jose'
 import type { Env } from './types'
 import type { NotificationDevice } from './AccountNotifications'
 
-export function notificationsConfigured(env: Env): env is Env & { APNS_ENVIRONMENT: NotificationDevice['environment'] } {
-    return env.NOTIFICATIONS_ENABLED === 'true' && !!env.DEVICE_IDENTITY_SIGNING_KEY && !!env.APNS_PRIVATE_KEY
-        && !!env.APNS_KEY_ID && !!env.APPLE_TEAM_ID && !!env.APNS_TOPIC
-        && ['sandbox', 'production'].includes(env.APNS_ENVIRONMENT ?? '')
+type NotificationProvider = {
+    privateKey: string
+    keyID: string
+    teamID: string
+    signingKey: Promise<CryptoKey>
+    credential?: { issuedAt: number; token: Promise<string> }
 }
 
-// Reusable provider credential only: no user/request state. A single isolate-local entry
-// avoids per-push signing; production connection reuse remains an APNs acceptance check.
-let providerCredential: { configuration: string; issuedAt: number; token: Promise<string> } | undefined
-export async function notificationProviderToken(env: Env): Promise<string> {
+// Cache one provider configuration per isolate. It contains no user or request state.
+let cachedProvider: NotificationProvider | undefined
+function notificationProvider(env: Env): NotificationProvider | null {
     const { APNS_PRIVATE_KEY: privateKey, APNS_KEY_ID: keyID, APPLE_TEAM_ID: teamID } = env
-    if (!privateKey || !keyID || !teamID) throw new Error('Notifications are unavailable')
-    const configuration = JSON.stringify([privateKey, keyID, teamID])
+    if (!privateKey || !keyID || !teamID) return null
+    if (cachedProvider?.privateKey === privateKey && cachedProvider.keyID === keyID
+        && cachedProvider.teamID === teamID) return cachedProvider
+    cachedProvider = { privateKey, keyID, teamID, signingKey: importPKCS8(privateKey, 'ES256') }
+    return cachedProvider
+}
+
+export async function readyNotificationEnvironment(env: Env): Promise<NotificationDevice['environment'] | null> {
+    const environment = env.APNS_ENVIRONMENT
+    if (env.NOTIFICATIONS_ENABLED !== 'true' || !env.DEVICE_IDENTITY_SIGNING_KEY || !env.APNS_TOPIC
+        || (environment !== 'sandbox' && environment !== 'production')) return null
+    const provider = notificationProvider(env)
+    if (!provider) return null
+    try {
+        await provider.signingKey
+        return environment
+    } catch {
+        if (cachedProvider === provider) cachedProvider = undefined
+        return null
+    }
+}
+
+export async function notificationProviderToken(env: Env): Promise<string> {
+    const provider = notificationProvider(env)
+    if (!provider) throw new Error('Notifications are unavailable')
+    const key = await provider.signingKey
     const issuedAt = Math.floor(Date.now() / 1000)
-    if (providerCredential?.configuration === configuration && issuedAt >= providerCredential.issuedAt
-        && issuedAt - providerCredential.issuedAt < 50 * 60) return providerCredential.token
-    const entry = { configuration, issuedAt, token: (async () => {
-        const key = await importPKCS8(privateKey, 'ES256')
-        return new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: keyID })
-            .setIssuer(teamID).setIssuedAt(issuedAt).sign(key)
-    })() }
-    providerCredential = entry
+    const previous = provider.credential
+    if (previous && issuedAt >= previous.issuedAt && issuedAt - previous.issuedAt < 50 * 60) return previous.token
+    const token = new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: provider.keyID })
+        .setIssuer(provider.teamID).setIssuedAt(issuedAt).sign(key)
+    const entry = { issuedAt, token }
+    provider.credential = entry
     try { return await entry.token }
-    catch (error) { if (providerCredential === entry) providerCredential = undefined; throw error }
+    catch (error) { if (provider.credential === entry) provider.credential = undefined; throw error }
 }
 
 export type NotificationDeliveryResult = 'accepted' | 'invalid_token' | 'retry_later' | 'rejected'

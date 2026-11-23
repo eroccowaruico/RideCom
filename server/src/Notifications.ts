@@ -4,7 +4,7 @@ import { callLifetime, dedupeLifetime, groupInvitationLifetime, type Notificatio
 import { deviceSigningKey, verifyDeviceProof } from './DeviceIdentity'
 import { receiveBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
-import { deliverNotification, notificationProviderToken, notificationsConfigured } from './NotificationDelivery'
+import { deliverNotification, notificationProviderToken, readyNotificationEnvironment } from './NotificationDelivery'
 import { json, readJSON, sha256Hex as notificationHash, type Env } from './types'
 
 const publicIDPattern = /^[a-f0-9]{64}$/
@@ -54,11 +54,10 @@ async function currentNotificationDestination(env: Env, recipientID: string, dev
     }
 }
 const callReply = (call: NotificationCall) => ({ requestID: call.requestID, expiresAt: call.expiresAt, status: call.status })
+const notificationsUnavailable = () => json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
 
 async function handleBackgroundGroupInvitation(request: Request, origin: string, env: Env, cancelling: boolean): Promise<Response> {
-    if (!cancelling && !notificationsConfigured(env)) {
-        return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
-    }
+    if (!cancelling && !await readyNotificationEnvironment(env)) return notificationsUnavailable()
     const purpose = cancelling ? 'cancelBackgroundGroupInvitation' : 'submitBackgroundGroupInvitation'
     const submission = await receiveBackgroundSubmission(request, origin, purpose, env)
     if (submission.status === 'limited') return json({ error: 'Too many requests' }, 429)
@@ -190,6 +189,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             return json({ ...callReply(call), senderUserID: call.sender.userID })
         }
         if (path === '/api/notifications/group-invitations/additional-devices' && method === 'GET') {
+            if (!await readyNotificationEnvironment(env)) return notificationsUnavailable()
             const key = url.searchParams.get('recipientKey') ?? ''
             if (!/^[A-Za-z0-9_-]{87}$/.test(key)) throw new Error('body')
             const requestIDs = await owner.groupInvitationIDsForAdditionalDevice(auth, key)
@@ -201,7 +201,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const notFound = () => json({ error: 'Not found' }, 404)
             if (method === 'POST') {
                 if (auth.userID !== recipient) return notFound()
-                if (!notificationsConfigured(env)) return json({ error: 'Notifications are unavailable' }, 503)
+                if (!await readyNotificationEnvironment(env)) return notificationsUnavailable()
                 const invitation = await owner.groupInvitationGet(recipient, id)
                 if (!invitation || invitation.status === 'cancelled' || invitation.additionalDevicesClosed
                     || !await owner.notificationGrantActive(recipient, invitation.grantHash)) return notFound()
@@ -211,6 +211,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 return await owner.groupInvitationAddDevice(auth, id, address) ? json({}) : notFound()
             }
             if (method === 'GET') {
+                if (!await readyNotificationEnvironment(env)) return notificationsUnavailable()
                 const receiver = await target(env, recipient)
                 const devices = await receiver?.groupInvitationDevices(auth, recipient, id)
                 if (!devices || await owner.groupInvitationSenderState(auth, recipient, id) !== 'active') return notFound()
@@ -223,7 +224,8 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const recipient = groupRoute[1].toLowerCase(), id = groupRoute[2].toLowerCase(), receiver = await target(env, recipient)
             const discard = url.searchParams.get('discard') === '1'
             const acknowledging = method === 'DELETE' && auth.userID === recipient && !discard
-            const value = await receiver?.groupInvitationStatus(recipient, id, acknowledging)
+            const canAcknowledge = acknowledging && Boolean(await readyNotificationEnvironment(env))
+            const value = await receiver?.groupInvitationStatus(recipient, id, canAcknowledge)
             if (!receiver || !value) {
                 if (method !== 'DELETE' || auth.userID === recipient) return json({ error: 'Not found' }, 404)
                 const status = await cancelUnstoredGroupInvitation(owner, receiver, auth, recipient, id)
@@ -236,6 +238,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
                 return json({ error: 'Not found' }, 404)
             }
             if (method === 'DELETE') {
+                if (acknowledging && !canAcknowledge && value.status === 'queued') return notificationsUnavailable()
                 const sender = value.pendingSender
                 const senderCheck = sender ? { sender, state: await account(env, sender.accountID)
                     .groupInvitationSenderState(sender, recipient, id) } : undefined
@@ -246,6 +249,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             return json({ requestID: id, expiresAt: value.expiresAt, status: value.status })
         }
         if (path === '/api/notifications/group-invitations' && method === 'GET') {
+            if (!await readyNotificationEnvironment(env)) return notificationsUnavailable()
             const key = url.searchParams.get('recipientKey') ?? ''
             if (!/^[A-Za-z0-9_-]{87}$/.test(key)) throw new Error('body')
             const pending = await owner.groupInvitationPending(auth.userID, key)
@@ -259,11 +263,12 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             }
             return json({ delivery: null })
         }
-        if (!notificationsConfigured(env)) return json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
+        const notificationEnvironment = await readyNotificationEnvironment(env)
+        if (!notificationEnvironment) return notificationsUnavailable()
         if (path === '/api/notifications/device' && method === 'PUT') {
             const body = await readJSON(request); fields(body, ['token', 'environment', 'topic'])
             if (typeof body.token !== 'string' || !/^(?:[a-f0-9]{2}){1,2048}$/i.test(body.token)
-                || body.environment !== env.APNS_ENVIRONMENT || body.topic !== env.APNS_TOPIC) throw new Error('body')
+                || body.environment !== notificationEnvironment || body.topic !== env.APNS_TOPIC) throw new Error('body')
             const session = await owner.authenticate(auth.deviceID, auth.tokenHash)
             if (!session || session.userID !== auth.userID) return json({ error: 'Unauthorized' }, 401)
             if (!await owner.notificationMutationBudget(auth)) return json({ error: 'Too many notification changes' }, 429)
@@ -271,7 +276,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             const tokenIndex = `token:${await notificationHash(`${body.environment}|${body.topic}|${body.token.toLowerCase()}`)}`
             // Index first. A later ownership transfer invalidates this registration even if its response is delayed.
             await index(env, tokenIndex).bind({ accountID: auth.accountID, userID: auth.userID, deviceID: auth.deviceID, registrationID, expiresAt: session.expiresAt })
-            const device: NotificationDevice = { token: body.token.toLowerCase(), environment: env.APNS_ENVIRONMENT, topic: body.topic,
+            const device: NotificationDevice = { token: body.token.toLowerCase(), environment: notificationEnvironment, topic: body.topic,
                 registrationID, tokenIndex, deviceID: auth.deviceID, tokenHash: auth.tokenHash, expiresAt: session.expiresAt }
             const registered = await owner.notificationRegister(auth, device)
             if (!registered) {
@@ -338,6 +343,6 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         return json({ error: 'Not found' }, 404)
     } catch (error) {
         return error instanceof Error && error.message === 'body' ? json({ error: 'Invalid body' }, 400)
-            : json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
+            : notificationsUnavailable()
     }
 }
