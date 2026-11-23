@@ -607,21 +607,54 @@ def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
                 lease.cleanup('simulator-final')
 
 
-def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> None:
+class SimulatorRuntime(TypedDict):
+    name: str
+    identifier: str
+    version: str
+    isAvailable: bool
+
+
+def latest_runtime(runtimes: Sequence[SimulatorRuntime], platform: str) -> str:
+    available = [runtime for runtime in runtimes
+                 if runtime['isAvailable'] and runtime['name'].startswith(platform)]
+    if not available:
+        raise ValueError(f'No available {platform} Simulator runtime')
+    return max(available, key=lambda runtime: tuple(map(int, runtime['version'].split('.'))))['identifier']
+
+
+def run_watch_tests(runner: Runner, runtime: str, selectors: list[str], needs: Sequence[str] = ()) -> None:
+    if any(runner.results.get(stage, {}).get('status') != 'passed' for stage in needs):
+        raise RuntimeError('Watch tests require their prerequisites to pass first')
+    lease = SimulatorLease(runner, simulator_resource_root() / 'reusable-watch.json', stage='watch')
+    try:
+        sim = lease.prepare(runtime, os.environ.get('SIMULATOR_WATCH_DEVICE_TYPE', WATCH_DEVICE_TYPE))
+        if sim:
+            boot_simulator(runner, sim, 'watch', timeout=300)
+            runner.xcode('watch-tests', 'platform=watchOS Simulator,id=' + sim,
+                         only=selectors or ['RideIntercomWatchUITests'],
+                         needs=['watch-ready', *needs], scheme='RideIntercomWatch', verify_selection=bool(selectors))
+    finally:
+        if lease.acquired:
+            lease.cleanup('watch-final')
+
+
+def run_simulator_tests(runner: Runner, mode: str, selectors: list[str]) -> None:
     focused = bool(selectors)
-    if focused:
-        iphone_tests, recovery_tests, ipad_tests = ios_test_selection(selectors)
-    else:
-        iphone_tests = ['RideIntercomUITests'] if mode == 'ios-ui' else []
-        recovery_tests, ipad_tests = [RECOVERY_TEST], IPAD_TESTS
     try:
         with exclusive_run(simulator_resource_root() / 'run.lock'):
             if not runner.run('simulator-runtimes', ['xcrun', 'simctl', 'list', 'runtimes', '-j'],
                               needs=['swift-toolchain'], timeout=60):
                 return
             runtimes = json.loads((runner.out / 'simulator-runtimes.log').read_text())['runtimes']
-            available = [r for r in runtimes if r['isAvailable'] and r['name'].startswith('iOS')]
-            runtime = os.environ.get('SIMULATOR_RUNTIME') or max(available, key=lambda r: tuple(map(int, r['version'].split('.'))))['identifier']
+            if mode == 'watch-ui':
+                run_watch_tests(runner, latest_runtime(runtimes, 'watchOS'), selectors)
+                return
+            runtime = os.environ.get('SIMULATOR_RUNTIME') or latest_runtime(runtimes, 'iOS')
+            if focused:
+                iphone_tests, recovery_tests, ipad_tests = ios_test_selection(selectors)
+            else:
+                iphone_tests = ['RideIntercomUITests'] if mode == 'ios-ui' else []
+                recovery_tests, ipad_tests = [RECOVERY_TEST], IPAD_TESTS
             needs = ['webrtc-artifact']
             build_stage = None
             if not focused or iphone_tests or recovery_tests:
@@ -645,34 +678,21 @@ def run_ios_tests(runner: Runner, mode: str, selectors: list[str] | None) -> Non
                     if lease.acquired:
                         lease.cleanup('ipad-final')
             if not focused:
-                lease = SimulatorLease(runner, simulator_resource_root() / 'reusable-watch.json', stage='watch')
-                try:
-                    if runner.results.get('ios-tests-acceptance', {}).get('status') != 'passed':
-                        raise RuntimeError('Watch tests require the iPhone run to pass first')
-                    watch_runtimes = [r for r in runtimes if r['isAvailable'] and r['name'].startswith('watchOS')]
-                    runtime = max(watch_runtimes, key=lambda r: tuple(map(int, r['version'].split('.'))))['identifier']
-                    sim = lease.prepare(runtime, os.environ.get('SIMULATOR_WATCH_DEVICE_TYPE', WATCH_DEVICE_TYPE))
-                    if sim:
-                        boot_simulator(runner, sim, 'watch', timeout=300)
-                        runner.xcode('watch-tests', 'platform=watchOS Simulator,id=' + sim,
-                                     only=['RideIntercomWatchUITests'],
-                                     needs=['watch-ready', 'ios-tests-acceptance'], scheme='RideIntercomWatch')
-                finally:
-                    if lease.acquired:
-                        lease.cleanup('watch-final')
+                run_watch_tests(runner, latest_runtime(runtimes, 'watchOS'), [], ['ios-tests-acceptance'])
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         runner.record('simulator-availability', [], 'blocked', None, time.monotonic(), str(error))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', nargs='?', default='all', choices=['all', 'headless', 'packages', 'worker', 'pair', 'macos', 'ios', 'ios-ui', 'scripts'])
+    parser.add_argument('mode', nargs='?', default='all',
+                        choices=['all', 'headless', 'packages', 'worker', 'pair', 'macos', 'ios', 'ios-ui', 'watch-ui', 'scripts'])
     parser.add_argument('--clean', action='store_true', help='Run standard swift package clean before package tests, using each package .build directory')
     parser.add_argument('--thread-sanitizer', action='store_true', help='Run supported Swift package tests under Thread Sanitizer')
     parser.add_argument('--package', action='append', default=[], choices=PACKAGE_PATHS,
                         help='Run only these packages in packages mode; repeat to add packages')
     parser.add_argument('--only-testing', action='append', default=[], metavar='TARGET[/SUITE/...[/METHOD]]',
-                        help='Run selected Xcode tests in worker, macos, ios or ios-ui; repeat to add selections')
+                        help='Run selected Xcode tests in worker, macos, ios, ios-ui or watch-ui; repeat to add selections')
     args = parser.parse_args()
     if args.package and args.mode != 'packages':
         parser.error('--package requires packages mode')
@@ -681,9 +701,10 @@ def main() -> int:
         'macos': {'RideIntercomTests'},
         'ios': {'RideIntercomTests', 'RideIntercomUITests'},
         'ios-ui': {'RideIntercomUITests'},
+        'watch-ui': {'RideIntercomWatchUITests'},
     }
     if args.only_testing and args.mode not in targets:
-        parser.error('--only-testing requires worker, macos, ios or ios-ui')
+        parser.error('--only-testing requires worker, macos, ios, ios-ui or watch-ui')
     for selector in args.only_testing:
         parts = selector.split('/')
         if not all(re.fullmatch(r'[^\s/]+', part) for part in parts) or parts[0] not in targets[args.mode]:
@@ -706,10 +727,10 @@ def main() -> int:
     mode = args.mode
     worker_app_tests = mode == 'worker' and bool(args.only_testing)
     runs_macos_tests = mode in ('all', 'macos') or worker_app_tests
-    swift_needed = runs_macos_tests or mode in ('headless', 'packages', 'pair', 'ios', 'ios-ui')
+    swift_needed = runs_macos_tests or mode in ('headless', 'packages', 'pair', 'ios', 'ios-ui', 'watch-ui')
     if swift_needed:
         runner.run('swift-toolchain', [python, '-c', 'from scripts.validate import verify_swift; verify_swift()'], timeout=65)
-        if mode != 'packages' or not args.package or 'RTC' in args.package:
+        if mode != 'watch-ui' and (mode != 'packages' or not args.package or 'RTC' in args.package):
             runner.run('webrtc-artifact', [python, '-c', 'from scripts.validate import verify_artifact; verify_artifact()'], timeout=180)
     if mode in ('all', 'headless', 'packages'):
         for name, relative_path in PACKAGE_PATHS.items():
@@ -763,8 +784,8 @@ def main() -> int:
                              needs=needs, verify_selection=bool(args.only_testing))
         except BlockingIOError:
             runner.record('macos-tests', [], 'blocked', None, time.monotonic(), 'Another managed App or audio test run is active')
-    if mode in ('all', 'ios', 'ios-ui'):
-        run_ios_tests(runner, mode, args.only_testing)
+    if mode in ('all', 'ios', 'ios-ui', 'watch-ui'):
+        run_simulator_tests(runner, mode, args.only_testing)
     # A concurrent edit invalidates evidence rather than silently passing.
     before = (runner.out / 'inputs.json').read_text()
     snapshot(runner.out)

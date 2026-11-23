@@ -204,13 +204,13 @@ class ValidationTests(unittest.TestCase):
              patch.object(self.module, 'boot_simulator') as boot, \
              patch.object(self.runner, 'run', return_value=True), \
              patch.object(self.runner, 'xcode') as xcode:
-            self.module.run_ios_tests(self.runner, 'ios', [contact])
+            self.module.run_simulator_tests(self.runner, 'ios', [contact])
             iphone.assert_called_once_with(self.runner, 'iOS-27-2', [contact], [], True)
             lease.assert_not_called()
             iphone.reset_mock()
             self.runner.results['webrtc-artifact'] = {'status': 'passed'}
             lease.return_value.prepare.return_value = 'test-ipad'
-            self.module.run_ios_tests(self.runner, 'ios-ui', [ipad])
+            self.module.run_simulator_tests(self.runner, 'ios-ui', [ipad])
             iphone.assert_not_called()
             lease.assert_called_once_with(self.runner, self.runner.out / 'reusable-ipad.json', stage='ipad')
             boot.assert_called_once_with(self.runner, 'test-ipad', 'ipad')
@@ -265,7 +265,7 @@ class ValidationTests(unittest.TestCase):
                                     'SIMULATOR_WATCH_DEVICE_TYPE': 'fixture-watch'}),
         ):
             audio.return_value.pin.return_value = 'fixture audio'
-            self.module.run_ios_tests(self.runner, 'ios', [])
+            self.module.run_simulator_tests(self.runner, 'ios', [])
 
         self.assertEqual(self.runner.exit_code, 0, self.runner.results.get('simulator-availability'))
         self.assertEqual([call.args[0] for call in xcode_runner.call_args_list],
@@ -275,6 +275,30 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual((self.runner.out / f'{stage}-create.log').read_text().strip(), f'fixture-{index + 1}')
             inventory = json.loads((self.runner.out / f'{stage}-inventory.json').read_text())
             self.assertEqual(len(inventory), index)
+
+    def test_watch_ui_selection_needs_no_iphone_runtime_or_results(self) -> None:
+        from contextlib import nullcontext
+
+        selector = 'RideIntercomWatchUITests/WatchLaunchUITests/testCallScreenPutsEndAwayFromTalkAndConfirmsIt'
+        runtime = {'isAvailable': True, 'name': 'watchOS 27.2', 'version': '27.2', 'identifier': 'Watch-27-2'}
+        (self.runner.out / 'simulator-runtimes.log').write_text(json.dumps({'runtimes': [runtime]}))
+        with patch.object(self.module, 'simulator_resource_root', return_value=self.runner.out), \
+             patch.object(self.module, 'exclusive_run', return_value=nullcontext()), \
+             patch.object(self.module, 'run_iphone_tests') as iphone, \
+             patch.object(self.module, 'SimulatorLease') as lease, \
+             patch.object(self.module, 'boot_simulator') as boot, \
+             patch.object(self.runner, 'run', return_value=True), \
+             patch.object(self.runner, 'xcode') as xcode:
+            lease.return_value.prepare.return_value = 'test-watch'
+            lease.return_value.acquired = True
+            self.module.run_simulator_tests(self.runner, 'watch-ui', [selector])
+            iphone.assert_not_called()
+            lease.assert_called_once_with(self.runner, self.runner.out / 'reusable-watch.json', stage='watch')
+            boot.assert_called_once_with(self.runner, 'test-watch', 'watch', timeout=300)
+            xcode.assert_called_once_with('watch-tests', 'platform=watchOS Simulator,id=test-watch',
+                                         only=[selector], needs=['watch-ready'], scheme='RideIntercomWatch',
+                                         verify_selection=True)
+            lease.return_value.cleanup.assert_called_once_with('watch-final')
 
     def test_timeout_kills_owned_child_process_group(self) -> None:
         child = Path(self.temporary.name) / 'child.pid'
