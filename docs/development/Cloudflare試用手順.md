@@ -356,7 +356,7 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 両環境でObservabilityの親設定、ログ、トレース、WorkerのLogpushは無効。TailとObservabilityの転送先は空だった。永続化と呼出ログの個別フラグは有効だった。アカウント全体のWorker Logpushの照会は権限不足で、クエリ除去の設定と過去のログ・バックアップに残るデータも未確認。読み取った結果は `.validation/security-audit-2000/live-worker-20261122/` に保存した。[Cloudflareのログ設定](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
 
-当時の `wrangler.toml` では、両環境ともObservability、Logpush、ログ・トレースの保存、呼出ログを無効にし、転送先を空にした。URLのクエリを除く設定も指定した。各環境の現行の設定は上の試用条件を参照する。[Workerの配置仕様](../spec/server/Worker.md#設定値)
+この照会時点では、共有 `main` と `preview` の `wrangler.toml` にObservabilityとLogpushの明示がなかった。手元の変更では、両環境ともObservability、Logpush、ログ・トレースの保存、呼出ログを無効にし、転送先を空にした。URLのクエリを除く設定も指定した。固定Previewのビルドは成功していたが、この照会では稼働中の配置とコミットの対応は確認できなかった。この回の証跡は `.validation/security-audit-2000/current-worker-api-20261122/` に保存した。各環境の現行の設定は上の試用条件を参照する。[Workerの配置仕様](../spec/server/Worker.md#設定値)
 
 #### Cloudflareが保持するWorkerログを件数で照合する
 
@@ -399,7 +399,7 @@ Previews Baseには端末証明とAPNsの鍵がある。固定Previewの稼働�
 
 2026-11-22。稼働中の本番Workerは単一のバージョンに100%を配分していた。そのバージョンをWorkers Buildsの成功記録と照合し、当時の共有main `1adc77da` とビルドのルート `server` が一致した。固定Previewの最新配置は参照できたが、対応するビルドとコミットは確定できていない。[配置とバージョンの管理](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/deployment-management/)
 
-当時の本番ソースと配布候補 `d4197073` のいずれにも、リポジトリ直下と `server` に `.node-version` や `.nvmrc` はなかった。本番のビルド記録で参照できた設定項目に `NODE_VERSION` はなかった。Cloudflareで実際に使われたNode.jsのバージョンは未確認。ローカルでのNode.js 26.13.1による検証結果は監査記録に残した。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)・[依存と配布の監査範囲](history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)
+当時の本番ソースと配布候補 `d4197073` のいずれにも、リポジトリ直下と `server` に `.node-version` や `.nvmrc` はなかった。本番のビルド記録で参照できた設定項目に `NODE_VERSION` はなかった。Cloudflareで実際に使われたNode.jsのバージョンは未確認。[Workers BuildsでのNode.jsの指定方法](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#overriding-default-versions)・[当時の依存の照合とローカルの検証結果](../validation/history/Cloudflare検証.md#本番の配置元と配布候補の依存を照合する2026-11-22)
 
 #### 固定Previewの配置元をビルドとGitで照合する
 

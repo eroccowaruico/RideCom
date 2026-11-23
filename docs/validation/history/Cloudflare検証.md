@@ -224,6 +224,19 @@ Appleコード交換・取消の署名、issuer・subject・audience・Key ID・
 
 端末登録の管理領域と通話の管理領域は確認時点でいずれも0件だった。新規登録、双方向音声、TURN経由の通信、再接続は未確認。次は開発版を2台で起動し、Appleで登録してから試験用グループに参加する。試験後の片付けは[固定Previewの試用手順](../../development/Cloudflare試用手順.md#共有mainから固定previewと通話試験を用意する)に従う。
 
+## 本番の配置元と配布候補の依存を照合する（2026-11-22）
+
+当日の本番Workerの配置元 `1adc77da` と、当時の配布候補 `d4197073` の依存バージョンを、同日に取得したOSVのnpmとSwiftURLの公開データとローカルで照合した。[本番の配置元の確認](../../development/Cloudflare試用手順.md#稼働中の本番workerの配置元を照合する)・[OSVの公開データ](https://google.github.io/osv.dev/data/)
+
+| 対象 | ロックファイルの項目と照合結果 | ローカルのWorker回帰試験 |
+|---|---|---|
+| 本番の配置元 | Workerの実行用7件は該当0件。ビルド・試験用121件のうち、Wranglerの間接依存 `undici 7.29.1` が重要度Highの4件、Moderateの4件に該当 | 116件合格 |
+| 当時の配布候補 | Workerの実行用7件、ビルド・試験用120件、文書検査用312件、SwiftPM 1件は該当0件。Wranglerの間接依存は `undici 7.30.2` | 120件合格 |
+
+両方ともNode.js 26.13.1で型検査とWranglerのdry-runが通過した。生成したWorkerのソースマップとインポート文を調べ、どちらにも `undici` の組み込みや参照はなかった。公開告知との照合は取得時点のデータを、組み込みの確認はローカルで生成したWorkerを対象とする。証跡は `.validation/security-audit-2100/dependencies/` に保存した。当時のCloudflareビルドで実際に使われたNode.jsと、同梱バイナリを含む依存の保守状況は、この検査の対象外だった。
+
+固定Previewの配置元はこの検査の時点では確定できていなかった。同日の後続確認で、固定Previewも当時の本番と同じ `1adc77da` と照合できた。[固定Previewの配置元の確認](../../development/Cloudflare試用手順.md#固定previewの配置元をビルドとgitで照合する)
+
 ## 旧試用の静的資格を廃止する（2026-11-23）
 
 通話APIから静的な `CLIENT_TOKENS_JSON` の照合を外した。開発用の設定例と旧発行手順向けのスクリプトも削除した。Workerの回帰試験では、旧設定に照合値を入れても旧資格はHTTP 401になり、通常の端末資格は受け付けた。
