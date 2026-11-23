@@ -143,6 +143,68 @@ macOSのネイティブRTC回帰6件が合格した。SDKが生成した通常�
 
 証跡は `.validation/archive-2070-build-2018/`。次回ビルド番号は2019。App Store Connectへの送信は[全体監査](../../development/history/バックログの優先順位と進捗の記録.md#2000コミットの全体監査で本番試用の条件を照合する)の完了待ち。
 
+## 2,100コミットの区切りでiOS Build 2071をArchiveする
+
+2026-11-22。ローカルmainの第一親で通算2,100件目の `d4197073` から、標準の `RideIntercom` スキームでiPhone用Release Archiveを作った。署名とApp・WebRTCのdSYMを検証した。登録先は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2071).xcarchive`。Organizerの一覧表示は未確認。
+
+共有設定を使い、同じArchiveからIPAをこのMacに書き出した。AppとWidgetは1.0.0 Build 2071。App・Widget・WebRTCはApple Distribution署名で、本番Workerの接続先とproduction APNsを確認した。App GroupとdSYMの照合、Watch・テストバンドル・iCloud用entitlementの非同梱を含む12項目が合格した。
+
+証跡は `.validation/maintenance-2100/production-export-verification.json`。App Store Connectへの送信は未実施。当時は配布前に[全体監査](../../development/history/バックログの優先順位と進捗の記録.md#2000コミットの全体監査で本番試用の条件を照合する)の残る項目を確認する予定だった。
+
+## Build 2071のWebRTCとChromeの公開修正を照合する
+
+2026-11-22。配布候補 `d4197073` のWebRTC ZIPは、採用記録のSHA-256と一致した。このZIPとBuild 2071のIPAではiOS arm64のデータを持つ31セクションが一致する。採用記録のWebRTCコミット `a9a462f423` を対象に、過去の照合で扱わなかったChromeの10月の公開告知2件を確認した。[採用したSDKとビルド情報](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#現行sdkとの組合せ)
+
+| 公開告知 | 配布候補に対する照合結果 |
+|---|---|
+| CVE-2026-118328 | WebRTCのRTP処理を修正した公開コミット `3efe1a3a90c1` と `d86ac8ab5e04` は、採用コミットの履歴にどちらも含まれる。[Chromeの公開告知](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_0562499947.html)・[1件目の公式レビュー](https://webrtc-review.googlesource.com/c/src/+/508300)・[2件目の公式レビュー](https://webrtc-review.googlesource.com/c/src/+/509462) |
+| CVE-2026-113303 | Chromiumのmainと配布ブランチの公開レビュー4件は、いずれもChromiumのBlink内にある4ファイルだけを変更していた。RideComが採用するWebRTCのSDKにBlinkは含まれない。[Chromeの公開告知](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02018666648.html)・[mainの公式レビュー](https://chromium-review.googlesource.com/c/chromium/src/+/8591863) |
+
+WebRTC公式リポジトリの参照を確認した時点では、`main` の先頭は11月21日の `97e37190541d` で、採用コミットから150コミット先だった。この数は新しい変更の件数を示す。今回の照合は表の2件を対象とし、その他の変更の影響や依存部品の継続保守は引き続き調べる。証跡は `.validation/security-audit-2100/webrtc-public/` に保存した。[WebRTC公式の公開履歴](https://webrtc.googlesource.com/src/+log/97e37190541d)
+
+## 2,130コミットの区切りでiOS Build 2074をArchiveする
+
+2026-11-22。ローカルmainの第一親で通算2,130件目の `e1a6502a` から、標準の `RideIntercom` スキームでiPhone用Release Archiveを作った。ソースはコミットから展開し、共通採番のBuild 2074を設定した。作業中のプロジェクトと依存設定の編集は組み込んでいない。Archiveの署名、AppとWebRTCのdSYMを検証した。
+
+登録先は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2074).xcarchive`。登録後の署名を再検証し、Xcodeで開く要求も成功した。Organizerの一覧で対象が見えるかは未確認。[AppleのArchive表示条件](https://developer.apple.com/documentation/technotes/tn3109-resolving-common-archiving-issues)
+
+共有設定で同じArchiveからIPAをローカルへ書き出した。AppとWidgetの1.0.0 Build 2074、配布署名、本番Workerの接続先、production APNsを確認した。Watch・テストバンドル・iCloud権限の非同梱を含め、IPAの11項目が合格した。証跡は `.validation/maintenance-2130/`。次回ビルド番号は2075。App Store Connectへの送信は[全体監査](../../development/history/バックログの優先順位と進捗の記録.md#進行中の全体監査の引き継ぎ)の完了待ちだった。
+
+### WebRTCの標準ターゲットに含まれるカメラ依存を確かめる
+
+2026-11-22。公式WebRTCの未改変ソース `2a990ce0cc` で、iOS実機向けとmacOSのarm64をそれぞれ一時ディレクトリへ生成した。映像関連の設定は、公式ソースに切り替えたビルド手順 `3f6e0d07` と同じ値を使った。GNの引数検査が両構成で通り、`gn desc` で標準ターゲットの依存全体を照合した。[上流のApple向けビルド定義](https://webrtc.googlesource.com/src/+/refs/heads/main/sdk/BUILD.gn)・[採用手順](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#上流の無改変とカメラの不使用)
+
+| 上流のターゲット | iOS実機とmacOSのarm64で確認した依存 |
+|---|---|
+| Apple向けObjective-C framework | カメラ撮影、カメラ関連の補助処理、dcSCTPを含む |
+| C++のモジュール式PeerConnectionファクトリー | dcSCTPを含む。カメラ撮影・補助処理と既定のメディア構成を含まない |
+
+当時のAppは、Apple向けframeworkのObjective-C APIを使う。C++ファクトリーは、Apple向けframeworkが配布条件を満たせない場合に検討できる標準の入口で、Swift側との接続と最終バイナリの検証が必要になる。この回ではGNの依存構成を確認した。標準版の通話、iOS Simulator、最終Archive・IPA、App Store Connectの処理は確認対象外だった。証跡は `.validation/security-audit-2100/webrtc-standard-targets/` に保存した。[上流のC++ API](https://webrtc.googlesource.com/src/+/refs/heads/main/api/create_modular_peer_connection_factory.h)・[配布時の確認](../../development/OS権限と配布設定.md#生成物での確認)
+
+### 無改変のWebRTCを組み込んだ署名付きArchiveとIPAを照合する
+
+2026-11-22。RideComの `4281e2b2` を検証領域へ展開し、公式WebRTCの `f0b51cdb2f` を更新スクリプトで5構成ビルドした。候補の履歴に当時採用していたWebRTCのコミットが含まれることと、依存同期で取得したBoringSSL `ddd732967` が修正 `9b639f5b` を含むことを照合した。依存同期で競合した旧gRPCチェックアウトは検証領域へ退避した。上流のソースとビルド定義は無改変で、候補ZIPは検証用のAppにだけ取り込んだ。[公式WebRTCのソース](https://webrtc.googlesource.com/src/+/f0b51cdb2fd2df5a44c2f05ccc3dc41f5f429362)
+
+MacでRTCの144件、ネイティブWebRTCの6件が合格した。DataChannelの接続、音声・映像の媒体を含む接続要求の拒否、マイクを使わない双方向音声、通信断と復旧を確認した。標準の `RideIntercom` スキームで検証用のiOS 1.0.0 Build 2075の署名付きArchiveを作り、ローカルにIPAを書き出した。同じビルド番号で標準保存先へ登録したArchiveとは、ソースと同梱SDKが異なる。AppとWidgetの番号、AppとWebRTCのdSYM、配布署名、本番APNsを照合した。Watchとカメラの利用目的が含まれないことを確かめた。候補ZIPと両方の配布物で、WebRTCのarm64の命令領域とUUIDが一致した。
+
+| AVCaptureクラスの外部参照 | App本体 | 同梱WebRTC |
+|---|---:|---:|
+| 比較元のBuild 2074のArchiveとIPA | 0 | 0 |
+| 公式SDKで作成したBuild 2075のArchiveとIPA | 0 | 6 |
+
+6種類には、過去の `ITMS-90683` で調査した `AVCaptureSession` と `AVCaptureDeviceDiscoverySession` が含まれる。標準のApple向けframeworkは、この候補での採用を保留した。同じコミットの実機向けGN依存で、公式のObjective-Cの `peerconnectionfactory_base_objc` とC++の `create_modular_peer_connection_factory` はdcSCTPを含み、`videocapture_objc` を含まなかった。両者は次の候補であり、既存のSwift呼出元との接続、最終Archive・IPAの参照、実機とApp Store Connectの受入が残る。今回のIPAはローカルに保持した。証跡は `.validation/security-audit-2100/webrtc-upstream-archive/` に保存した。[以前のApp Store Connectでの指摘](../README.md#カメラ不要の配布バイナリ修復2026-10-22)
+
+後日、公式の同じコミットから採用用ZIPを改めて作り、別の成果物で検証した。[採用したZIPとBuild 2263の検証](#採用した無改変webrtcでbuild-2263を作る)
+
+## 2,160コミットの区切りでiOS Build 2075をArchiveする
+
+2026-11-22。第一親の通算2,160件目 `58851b25` を展開し、標準の `RideIntercom` スキームからiOSの1.0.0 Build 2075の署名付きRelease Archiveを作成した。検証には固定したコミットのApp、Widgetと当時採用中のSDKを使った。上の公式SDK比較用のBuild 2075とは、別のソースとSDKで作成した。AppとWidgetの番号、AppとWebRTCのdSYMのUUID、同梱したWebRTCと採用済みSDKのUUID、本番Workerへの接続先を照合した。
+
+登録先は `~/Library/Developer/Xcode/Archives/2026-11-22/RideIntercom iOS 1.0.0 (2075).xcarchive`。
+登録後の署名と内容を再検証し、Xcodeで開く要求は成功した。Organizerの一覧での表示は未確認。[Archiveの登録と表示の確認](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
+
+同じArchiveから本番用IPAをローカルに書き出した。Apple Distribution署名、production APNs、AppとWidgetの共有App Groupを照合した。Watch、テストバンドル、開発用権限、iCloud権限がないことを確認した。次回用の共通採番は2076。App Store Connectへの送信・処理とTestFlightでの確認は未実施。証跡は `.validation/maintenance-2160/` に保存した。
+
 ## 共有mainの2,160コミットで配布版の本番接続先を確認する
 
 2026-11-22。共有 `main` の第一親の通算2,160件目 `78dddf01` を展開し、標準の `RideIntercom` スキームからiOS 1.0.0 Build 2076の署名付きRelease Archiveを作成した。AppとWidgetの番号、署名、dSYM、production APNsの構成は照合できた。Appの実行ファイルに本番Workerの固定接続先が入っていなかったため、配布版の受入は不合格とし、このArchiveは検証用の出力先に保持した。
