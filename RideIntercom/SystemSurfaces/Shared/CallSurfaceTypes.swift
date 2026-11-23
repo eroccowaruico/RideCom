@@ -8,16 +8,7 @@ nonisolated enum CallSurfaceKind: String {
 
 nonisolated enum StandardCallStatus: String, Codable, Hashable, Sendable {
     case chooseDestination, ready, connecting, inCall, audioPaused, audioUnavailable
-    var message: String {
-        switch self {
-        case .chooseDestination: "Choose someone or a group to call."
-        case .ready: "Ready to connect"
-        case .connecting: "Connecting — waiting for others"
-        case .inCall: "In a call"
-        case .audioPaused: "Audio paused — check your audio device"
-        case .audioUnavailable: "Audio unavailable — check your settings"
-        }
-    }
+
     /// The state alone, for one line; `detail` puts the reason on the next line.
     var title: String {
         switch self {
