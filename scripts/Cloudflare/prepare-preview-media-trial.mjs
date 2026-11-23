@@ -5,6 +5,8 @@ import { join } from 'node:path';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
+console.error('固定Previewの音声試験では、今回の試験設定を含む共有mainから preview ブランチを作り直し、再デプロイを確認してから接続してください。');
+
 const directory = mkdtempSync(join(tmpdir(), 'ridecom-preview-media-'));
 const room = randomUUID().toUpperCase();
 const groupSecret = randomBytes(32).toString('base64url');

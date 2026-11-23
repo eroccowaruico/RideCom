@@ -37,7 +37,7 @@ Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / A
 
 Baseの値は新しいプレビューへ引き継がれる。既存プレビューのsecretはBaseの後続変更では更新されないため、そのプレビューを選んで更新する。プレビュー側だけに登録した資格はProductionへ反映されない。検証端末ごとに固定Previewへ接続するDebugビルドを入れ、Appleで認証する。通常変数と6つのDO bindingは`wrangler.toml`の`previews`に定義する。固定Previewでは配置が参照するSFU App IDと、そのIDに対応するSecretを照合する。
 
-Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。手動配置でも対象は固定Previewとする。依存を導入して認証した後、リポジトリのルートで `npm --prefix server run preview -- --name preview` を実行する。
+Cloudflareプラグインからは、その接続に許可された範囲で設定・メトリクスを確認できる。読取り成功はプレビューの作成権限を保証しない。試用を始めるときは[固定Previewの利用開始手順](#固定previewを作り直せる条件)に従う。手動で配置する場合も、再作成したブランチと同じコミットから固定Previewを指定して `npm --prefix server run preview -- --name preview` を実行する。
 
 ### Workers Buildsの設定を復元する
 
@@ -49,7 +49,7 @@ Git連携の再構築に使う値は [server/cloudflare-builds.toml](../../serve
 | 今後作るPreviewのビルド設定 | Builds APIでWorkerの `previews_base_config` を更新する。`root_directory` は `/server`、`build_command` は `npm ci`、`deploy_command` は `npx wrangler preview`。`environment_variables` に `SKIP_DEPENDENCY_INSTALL=1` を設定する | 作成時に各Previewへコピーされる |
 | 作成済みの固定 `preview` のビルド設定 | Builds APIの一覧で `fixed_preview.branch` に一致するPreviewを特定し、そのPreviewだけを指定する `PATCH` の `settings` に上記と同じ値を渡す | 次回の固定Previewビルド。Previewと保存データはそのまま使う |
 
-固定Previewを復旧するときは、更新前後に同じPreviewのビルド設定を読み戻す。Previews Baseの変更は新規作成用で、既存Previewのビルド設定へは通常反映されない。既存Preview全件への一括適用やブランチの作り直しは、固定Previewだけの修正には不要。Builds APIでの更新には、ユーザーに紐づくAPIトークンの `Workers Builds Configuration: Edit` が必要。ビルドがWorkerを配置するためのトークンとは用途が異なる。[Builds APIの権限](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#create-an-api-token)・[Previewの個別更新](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#update-a-preview)
+固定Previewを復旧するときは、更新前後に同じPreviewのビルド設定を読み戻す。Previews Baseの変更は新規作成用で、既存Previewのビルド設定へは通常反映されない。設定だけの修正は対象の固定Previewに適用する。その環境で試用を始める際は[固定Previewの利用開始手順](#固定previewを作り直せる条件)に従う。Builds APIでの更新には、ユーザーに紐づくAPIトークンの `Workers Builds Configuration: Edit` が必要。ビルドがWorkerを配置するためのトークンとは用途が異なる。[Builds APIの権限](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#create-an-api-token)・[Previewの個別更新](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#update-a-preview)
 
 2026-11-23の読取りでは、本番は復元用の値と一致した。新規Previewのビルド設定はRoot directoryが `/`。既存の固定Previewは `/` のままで、Build commandと `SKIP_DEPENDENCY_INSTALL` が未設定だった。固定Previewは自動の依存関係インストール中にリポジトリルートのPython設定を検出し、Wranglerの起動前に失敗する。復旧の確認では、先に個別設定を読み戻し、対象コミットのビルドが `server` で依存関係を導入して成功したことを確かめる。次に固定Previewの最新配置がそのコミットと一致し、目的のURLで応答することを確認する。[依存関係の自動インストール](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/#skip-dependency-install)
 
@@ -125,7 +125,7 @@ node --test scripts/Cloudflare/*.test.mjs
 
 対象アカウントのRealtime → Serverless SFUでSFU AppのIDとSecretを用意する。[公式SFU API](https://developers.cloudflare.com/realtime/sfu/api/)
 
-以下のCLIはすべて `server/` で実行する。初回は `npx wrangler login` でログインする。続いて `npx wrangler whoami` とダッシュボードでアカウント、Worker名 `ridecom`、対象Preview名 `preview` を照合する。複数のアカウントが表示される場合は対象のAccount IDを指定してから進める（Wranglerの `CLOUDFLARE_ACCOUNT_ID`）。固定Previewが未作成なら、[管理画面とプレビューの設定](#管理画面とプレビューの設定)でPreviews Baseを準備してから `npx wrangler preview --name preview` で作成する。
+以下のCLIはすべて `server/` で実行する。初回は `npx wrangler login` でログインする。続いて `npx wrangler whoami` とダッシュボードでアカウント、Worker名 `ridecom`、対象Preview名 `preview` を照合する。複数のアカウントが表示される場合は対象のAccount IDを指定してから進める（Wranglerの `CLOUDFLARE_ACCOUNT_ID`）。試用時は[固定Previewの利用開始手順](#固定previewを作り直せる条件)を先に完了する。
 
 固定PreviewのSFU App IDとTURN Key IDは `server/wrangler.toml` の `previews.vars` で指定する。CloudflareのPreviews BaseにあるシークレットはPreviewを作成する際に取り込まれる。既存の固定Previewに足りないシークレットは、そのPreviewを対象に登録する。標準の対話入力で登録した後、最新配置でシークレットの型を照合する。[CloudflareのPreviewシークレット](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 
@@ -142,7 +142,7 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 共有 `main` にWorkerの実装、固定Previewの公開設定、試験条件を置く。環境ごとの鍵はCloudflareのPreviews Baseで管理する。端末資格、招待リンク、グループの共有鍵、アカウントや通話の保存データはCloudflareまたは試用端末で扱う。
 
-1. 検証済みの共有 `main` を固定 `preview` ブランチへ反映する。固定Previewが存在しない場合、GitHubへのpushからWorkers Buildsが同じ名前のPreviewを作成し、Previews Baseのシークレットを取り込む。固定Previewが存在する場合、pushはそのPreviewを更新する。[Cloudflareの自動作成](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#manage-previews)・[シークレットの継承](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
+1. [固定Previewの利用開始手順](#固定previewを作り直せる条件)に従い、今回検証する共有mainのコミットから新しい配置を用意する。[Cloudflareの自動作成](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/#manage-previews)・[シークレットの継承](https://developers.cloudflare.com/workers/previews/configuration/#secrets)
 2. 最新配置のコミット、SFUとTURNの参照先、SFU・TURN・端末証明のシークレットの型を管理APIで照合する。資格が揃った配置で、[外部設定の受入順](#利用者が行うapplecloudflareの設定と受入順)に従い固定PreviewのApple登録、通話、TURNを有効にする。
 3. 固定Preview内の試験データには下記の破棄方針を適用する。開発署名のAppを2台とも固定Previewに向け、それぞれ試験用のAppleアカウントで登録する。Aが試験用グループを作り、Bに招待リンクを送り、Bが参加する。試験のたびに同じ操作で登録とグループを用意できる。リンクと共有鍵はAppがその都度生成する。
 4. 両端でInternet経路の受話を確認し、制限回線で試す場合は試験時間帯のPreview用TURNキーの転送量も照合する。実際に相手の発話が両端で聞こえ、再接続後にも新しい発話を互いに受け取れたかを[検証記録](../validation/history/Cloudflare検証.md)に残す。[TURNの計測項目](https://developers.cloudflare.com/realtime/turn/analytics/)
@@ -150,11 +150,17 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 過去の試験グループや招待リンクを前提にせず、手順3から新しく作った状態で比較する。[試験データと判定の再現条件](../policies/開発方針.md#試験データを作り直し同じ条件で判定する)に従い、実行したmainのコミット、手順・入力の変更点、両端での合否を記録する。
 
-固定Preview内の端末登録・グループ・通話の接続管理を含む試験データは破棄してよい。再作成時は残存件数にかかわらず旧状態を破棄し、同じ固定名で試験に必要な状態を新しく作る。消失の了承を再度求める必要はない。対象ブランチと環境を照合し、共有mainの履歴、Previews Baseの資格と外部サービスの資源を保つ。ブランチ削除に連動する構成では、旧Previewの削除を確認してから、対象コミットで同名のブランチを復元し、新規配置を確認する。
+固定Preview内の端末登録・グループ・通話の接続管理を含む試験データは破棄してよい。再作成時は残存件数にかかわらず旧状態を破棄し、同じ固定名で試験に必要な状態を新しく作る。消失の了承を再度求める必要はない。対象ブランチと環境を照合し、共有mainの履歴、Previews Baseの資格と外部サービスの資源を保つ。
 
 #### 固定Previewを作り直せる条件
 
-通常の通話試験は同じ固定Previewで繰り返す。作り直す際に必要な入力は次の3か所からそろえる。
+**固定Previewの試用・E2Eを始めるたびに、リモートの `preview` ブランチを共有mainから作り直し、再デプロイしてから接続する。** 前回と同じコミットを試す場合もこの手順を使う。
+
+1. 検証済みの `origin/main` のコミットを特定し、下表の入力をそろえる。管理画面で変更した設定の取り込みを依頼されている場合は先に保存する。別の試験や再作成が進行中なら、担当と切り替え時点を合わせる。
+2. 対象が固定名 `preview` であることと、ブランチ固有の作業が保全されていることを確認する。リモートに旧ブランチがあれば削除する。Cloudflare側でも旧Previewの削除完了を確認する。ブランチ削除に連動せず旧環境が残る場合は、その固定Previewだけを削除する。旧環境がなくなったら、手順1のコミットから同名のリモートブランチを作成する。
+3. 今回の再デプロイが成功し、固定Previewの稼働中の配置が今回のビルドと対象コミットに対応することを照合する。検証記録に対象コミットと新しい配置の識別情報を残してから試験を始める。配置に失敗した場合や新旧を区別できない場合は試験を保留する。
+
+再作成に必要な入力は次の3か所からそろえる。
 
 | 入力元 | 再現する内容 |
 |---|---|
@@ -166,14 +172,14 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 試験資格の登録でHTTP 403が出たら、Cloudflare管理APIでの設定更新と、試験端末からWorkerへの認証を区別する。実中継試験の準備は、共有mainで採用した試験方式が使う資格と、対象のPreviewに必要なSFU・TURNの設定を照合する。供給元に必要な設定がなければ先に補う。既存Previewに継承されていなければ、配置担当が共有mainから固定ブランチを作り直す。再作成後は最新配置を特定し、試験資格が通ることと実中継で両方向の音声が届くことを個別に判定する。
 
-新規作成からの実環境試験は、固定Previewが未作成のとき、または再構築を検証する区切りで行う。実行中の試験があればその区切りに合わせる。上の手順1から5までを同じ固定名で実行し、対象コミット、初期状態、両端の通話結果と回収結果を残す。実施記録がない場合や構成変更で以前の結果が使えなくなった場合は、次のサーバー資源点検で、未確認の条件と試用への影響を照合する。担当者は再作成を試す日程を調整して検証待ちに残す。
+通話の実環境試験では、今回の配置に対して[試験の準備から回収まで](#共有mainから固定previewと通話試験を用意する)を実行し、初期状態、両端の通話結果と回収結果を残す。
 
 ### Appleログインなしで固定Previewの音声を測る
 
 実中継を使う試験は、ローカルで発話の往復を確認してから明示的に実行する。対象は固定Previewの1グループ、参加者2人、各約2秒の発話を1回。Appleによる新規登録の試用は、開発署名のAppで行う別の工程として扱う。
 
 1. `node scripts/Cloudflare/prepare-preview-media-trial.mjs` を実行する。返るディレクトリには、試験の照合値を入れた `grant.toml` と、端末側の試験資格を入れた `credentials.json` がある。
-2. `grant.toml` の1行を `server/wrangler.toml` の `[previews.vars]` に加え、共有mainと固定Previewの通常の配置経路で反映する。配置を読み戻し、公開先とコミット、設定の有無を照合する。試験資格と通話鍵はローカルの `credentials.json` で扱う。
+2. `grant.toml` の1行を `server/wrangler.toml` の `[previews.vars]` に加え、試験設定を含む共有mainのコミットを対象に[固定Previewの利用開始手順](#固定previewを作り直せる条件)を実行する。配置を読み戻し、公開先とコミット、設定の有無を照合する。試験資格と通話鍵はローカルの `credentials.json` で扱う。
 3. 下のコマンドで測定する。出力先には新しいディレクトリを指定する。資格2件の受付、両方向の発話フレームの一致、試験後の通話数と利用枠を確認する。
 
    ```sh
