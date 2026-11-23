@@ -59,7 +59,9 @@ import Testing
         let result = BackgroundWaitingMeasurements(records: records, muted: muted)
         #expect(result.sampleCount == 28)
         #expect(result.span == 27)
+        #expect(result.largestSampleGap == 1)
         #expect(result.validSimulatorContext && result.sameCall && result.sameDeadline)
+        #expect(result.deadlineUnexpired)
         #expect(result.audioRunningWithExpectedMute && result.waitingWithoutRemoteAudio && result.silentNativeOutput)
     }
 
@@ -79,7 +81,28 @@ import Testing
         let records = waitingRecords(muted: false).map { record in
             record.filter { $0.key != "deadline" }
         }
-        #expect(!BackgroundWaitingMeasurements(records: records, muted: false).sameDeadline)
+        let result = BackgroundWaitingMeasurements(records: records, muted: false)
+        #expect(!result.sameDeadline)
+        #expect(!result.deadlineUnexpired)
+    }
+
+    @Test func aLongGapIsVisibleEvenWhenCallbackCountAndSpanAreEnough() {
+        var records = waitingRecords(muted: false)
+        for index in 15..<records.count {
+            records[index]["uptime"] = Double(index + 4)
+        }
+        let result = BackgroundWaitingMeasurements(records: records, muted: false)
+        #expect(result.sampleCount == 30 && result.span == 33)
+        #expect(result.largestSampleGap == 5)
+    }
+
+    @Test func theSameDeadlineCanExpireBeforeTheLastSample() {
+        let records = waitingRecords(muted: true).map { record in
+            record.merging(["deadline": 29.0]) { _, replacement in replacement }
+        }
+        let result = BackgroundWaitingMeasurements(records: records, muted: true)
+        #expect(result.sameDeadline)
+        #expect(!result.deadlineUnexpired)
     }
 
     @Test(arguments: [false, true])

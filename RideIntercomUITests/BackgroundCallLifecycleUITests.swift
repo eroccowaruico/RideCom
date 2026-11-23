@@ -279,9 +279,11 @@ private extension BackgroundCallLifecycleUITests {
     struct WaitingMeasurements: Decodable {
         let sampleCount: Int
         let span: TimeInterval
+        let largestSampleGap: TimeInterval?
         let validSimulatorContext: Bool
         let sameCall: Bool
         let sameDeadline: Bool
+        let deadlineUnexpired: Bool
         let audioRunningWithExpectedMute: Bool
         let waitingWithoutRemoteAudio: Bool
         let silentNativeOutput: Bool
@@ -297,8 +299,10 @@ private extension BackgroundCallLifecycleUITests {
         XCTAssertTrue(report.validSimulatorContext)
         XCTAssertGreaterThanOrEqual(report.sampleCount, 20)
         XCTAssertGreaterThanOrEqual(report.span, 29)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(report.largestSampleGap), 2.5)
         XCTAssertTrue(report.sameCall)
         XCTAssertTrue(report.sameDeadline)
+        XCTAssertTrue(report.deadlineUnexpired)
         XCTAssertTrue(report.audioRunningWithExpectedMute)
         XCTAssertTrue(report.waitingWithoutRemoteAudio)
         XCTAssertTrue(report.silentNativeOutput)

@@ -180,9 +180,11 @@ struct BackgroundWaitingObservationValue: ViewModifier {
 nonisolated struct BackgroundWaitingMeasurements: Encodable {
     let sampleCount: Int
     let span: TimeInterval
+    let largestSampleGap: TimeInterval?
     let validSimulatorContext: Bool
     let sameCall: Bool
     let sameDeadline: Bool
+    let deadlineUnexpired: Bool
     let audioRunningWithExpectedMute: Bool
     let waitingWithoutRemoteAudio: Bool
     let silentNativeOutput: Bool
@@ -193,15 +195,24 @@ nonisolated struct BackgroundWaitingMeasurements: Encodable {
         let samples = records.filter { $0["background"] as? Bool == true && $0[callback] as? Bool == true }
         sampleCount = samples.count
         let timestamps = samples.compactMap { $0["uptime"] as? TimeInterval }
-        if timestamps.count == samples.count, let start = timestamps.first, let end = timestamps.last {
+        let gaps = zip(timestamps, timestamps.dropFirst()).map { earlier, later in later - earlier }
+        if timestamps.count == samples.count, let start = timestamps.first, let end = timestamps.last,
+           gaps.allSatisfy({ $0.isFinite && $0 > 0 }) {
             span = end - start
+            largestSampleGap = gaps.max()
         } else {
             span = 0
+            largestSampleGap = nil
         }
         validSimulatorContext = Self.hasOneValue(in: records, for: "processInstance", ofType: String.self)
             && records.allSatisfy(Self.hasSimulatorContext)
         sameCall = Self.hasOneValue(in: samples, for: "connectionInstance", ofType: String.self)
         sameDeadline = Self.hasOneValue(in: samples, for: "deadline", ofType: TimeInterval.self)
+        deadlineUnexpired = !samples.isEmpty && samples.allSatisfy {
+            guard let observedAt = $0["recordedAt"] as? TimeInterval,
+                  let deadline = $0["deadline"] as? TimeInterval else { return false }
+            return observedAt < deadline
+        }
         audioRunningWithExpectedMute = !samples.isEmpty && samples.allSatisfy {
             $0["audioReady"] as? Bool == true
                 && $0["inputRunning"] as? Bool == true && $0["outputRunning"] as? Bool == true
