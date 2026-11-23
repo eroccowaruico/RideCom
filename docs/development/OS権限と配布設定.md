@@ -56,9 +56,13 @@ APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`�
 
 App Privacy、プライバシーポリシーURL、年齢区分、審査連絡先、配布地域、TestFlightの配布先もApp Store Connect側の設定である。端末内の名前・group情報、serverが保持するアカウント／端末識別子・通知先・通知grant、短時間の通話中継、診断の実運用を確認して回答する。既存PrivacyInfo.xcprivacyのRequired Reason API宣言や、ローカル設定試験を「収集なし」の証拠にしない。
 
-### 中国本土の配信設定
+### App Storeの配信地域
 
-RideComは中国本土のApp Storeで新規配信しない。App Store ConnectでRideComを開き、「価格および配信状況」の配信地域から China mainland（中国本土）を外す。保存後に中国本土が対象外と表示されることを確かめる。[Appleの配信地域の設定手順](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/manage-availability-for-your-app-on-the-app-store/)
+RideComは中国本土のApp Storeで新規配信しない。フランスは、追加の手続きが必要になる可能性を考慮して配信対象から外す。フランスへの配信を検討する場合は、[配布時の暗号化申告](開発環境.md#配布時の暗号化申告)も見直す。
+
+2026年11月23日、依頼者からApp Store Connectで中国本土とフランスの両方を配信対象から外したと報告を受けた。
+
+配信地域を変更するときは、App Store ConnectでRideComを開き、「価格および配信状況」で対象地域を選ぶ。保存後に配信地域の一覧を開き直し、変更した地域と既存のほかの地域の選択を確認する。[Appleの配信地域の設定手順](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/manage-availability-for-your-app-on-the-app-store/)
 
 ## 生成物での確認
 
