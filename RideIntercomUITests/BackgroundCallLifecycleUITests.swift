@@ -185,15 +185,20 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         firstPermission: Bool = false
     ) throws {
         let app = XCUIApplication(); defer { app.terminate() }
+        let waitsForInvitation = muted && !advanced
+            && ProcessInfo.processInfo.environment["RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION"] == "1"
         if firstPermission { app.resetAuthorizationStatus(for: .microphone) }
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
             "RIDEINTERCOM_INTERFACE_FIXTURE": advanced ? "advanced" : "standard",
             "RIDEINTERCOM_BACKGROUND_OBSERVATION": "1", "RIDEINTERCOM_BACKGROUND_MUTED": muted ? "1" : "0",
             "RIDEINTERCOM_BACKGROUND_RESUME": resuming ? "1" : "0",
             "RIDEINTERCOM_BACKGROUND_FIRST_PERMISSION": firstPermission ? "1" : "0"]
+        #if targetEnvironment(simulator)
+        if !waitsForInvitation { app.launchEnvironment["RIDEINTERCOM_BACKGROUND_WAITING_ASSERTIONS"] = "1" }
+        #endif
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch(); app.activate()
-        let name = try prepareWaitingCall(in: app, advanced: advanced, muted: muted)
+        let name = try prepareWaitingCall(in: app, waitsForInvitation: waitsForInvitation)
         if firstPermission { allowFirstMicrophonePermission() }
         if muted {
             let mute = app.buttons[advanced ? "localMicrophoneMuteButton" : "standardMuteButton"].firstMatch
@@ -218,6 +223,9 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(end.waitForExistence(timeout: 5))
         if resuming { XCTAssertFalse(app.buttons["resumeAudioButton"].firstMatch.exists) }
         XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
+        #if targetEnvironment(simulator)
+        if !waitsForInvitation { try assertWaitingMeasurements(on: end) }
+        #endif
         let image = XCTAttachment(screenshot: app.screenshot())
         image.name = "Waiting after background return"
         image.lifetime = .keepAlways
@@ -227,9 +235,7 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(end.waitForNonExistence(timeout: 5))
     }
 
-    @MainActor private func prepareWaitingCall(in app: XCUIApplication, advanced: Bool, muted: Bool) throws -> String {
-        let waitsForInvitation = muted && !advanced
-            && ProcessInfo.processInfo.environment["RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION"] == "1"
+    @MainActor private func prepareWaitingCall(in app: XCUIApplication, waitsForInvitation: Bool) throws -> String {
         let name: String
         if waitsForInvitation {
             name = "Audio E2E"
@@ -267,4 +273,36 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         if open.waitForExistence(timeout: timeout) { open.tap() }
     }
 }
+
+#if targetEnvironment(simulator)
+private extension BackgroundCallLifecycleUITests {
+    struct WaitingMeasurements: Decodable {
+        let sampleCount: Int
+        let span: TimeInterval
+        let validSimulatorContext: Bool
+        let sameCall: Bool
+        let sameDeadline: Bool
+        let audioRunningWithExpectedMute: Bool
+        let waitingWithoutRemoteAudio: Bool
+        let silentNativeOutput: Bool
+    }
+
+    @MainActor func assertWaitingMeasurements(on end: XCUIElement) throws {
+        let valueIsReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "{"),
+                                                     object: end)
+        XCTAssertEqual(XCTWaiter.wait(for: [valueIsReady], timeout: 5), .completed,
+                       "No background audio measurements returned")
+        let value = try XCTUnwrap(end.value as? String)
+        let report = try JSONDecoder().decode(WaitingMeasurements.self, from: Data(value.utf8))
+        XCTAssertTrue(report.validSimulatorContext)
+        XCTAssertGreaterThanOrEqual(report.sampleCount, 20)
+        XCTAssertGreaterThanOrEqual(report.span, 29)
+        XCTAssertTrue(report.sameCall)
+        XCTAssertTrue(report.sameDeadline)
+        XCTAssertTrue(report.audioRunningWithExpectedMute)
+        XCTAssertTrue(report.waitingWithoutRemoteAudio)
+        XCTAssertTrue(report.silentNativeOutput)
+    }
+}
+#endif
 #endif

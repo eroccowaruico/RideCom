@@ -49,5 +49,63 @@ import Testing
         #expect(fields["maxWorkerGap"] as? Double == 1)
         #expect(fields["lastWorkerAt"] as? Double == 11.02)
     }
+
+    #if targetEnvironment(simulator)
+    @Test(arguments: [false, true])
+    func waitingMeasurementsCountOnlyBackgroundCallbacks(muted: Bool) {
+        var records = waitingRecords(muted: muted)
+        records[0]["background"] = false
+        records[1][muted ? "outputCallback" : "inputCallback"] = false
+        let result = BackgroundWaitingMeasurements(records: records, muted: muted)
+        #expect(result.sampleCount == 28)
+        #expect(result.span == 27)
+        #expect(result.validSimulatorContext && result.sameCall && result.sameDeadline)
+        #expect(result.audioRunningWithExpectedMute && result.waitingWithoutRemoteAudio && result.silentNativeOutput)
+    }
+
+    @Test func missingOrChangedContextIsDetected() {
+        var records = waitingRecords(muted: false)
+        records[29].removeValue(forKey: "microphonePermission")
+        records[29]["connectionInstance"] = "second-call"
+        records[29]["deadline"] = 61.0
+        let result = BackgroundWaitingMeasurements(records: records, muted: false)
+        #expect(!result.validSimulatorContext)
+        #expect(!result.audioRunningWithExpectedMute)
+        #expect(!result.sameCall)
+        #expect(!result.sameDeadline)
+    }
+
+    @Test func missingDeadlineInEverySampleIsDetected() {
+        let records = waitingRecords(muted: false).map { record in
+            record.filter { $0.key != "deadline" }
+        }
+        #expect(!BackgroundWaitingMeasurements(records: records, muted: false).sameDeadline)
+    }
+
+    @Test(arguments: [false, true])
+    func mutedAudioRequiresAdvancingSilentNativeOutput(audible: Bool) {
+        var records = waitingRecords(muted: true)
+        records[29]["nativeOutput"] = ["callbackCount": audible ? 30 : 1, "audibleDuration": audible ? 0.1 : 0.0]
+        records[29]["receivedVoicePackets"] = 1
+        records[29]["authenticatedPeers"] = 1
+        let result = BackgroundWaitingMeasurements(records: records, muted: true)
+        #expect(!result.silentNativeOutput)
+        #expect(!result.waitingWithoutRemoteAudio)
+        #expect(!result.audioRunningWithExpectedMute)
+    }
+
+    private func waitingRecords(muted: Bool) -> [[String: Any]] {
+        (0..<30).map { second in [
+            "background": true, "inputCallback": !muted, "outputCallback": muted, "uptime": Double(second),
+            "deadline": 60.0, "processInstance": "fixture-process", "processID": 1, "platform": "simulator",
+            "recordedAt": Double(second), "protectedDataAvailable": true, "testRunnerPresent": true,
+            "microphonePermission": "granted", "debuggerAttached": NSNull(), "connectionInstance": "fixture-call",
+            "usesNativeOutput": true, "receivedVoicePackets": 0, "availableRoutes": [String](),
+            "lastAudibleOutputAt": NSNull(), "audioReady": true, "inputRunning": true, "outputRunning": true,
+            "mediaStarted": false, "authenticatedPeers": 0, "muted": muted,
+            "nativeOutput": ["callbackCount": second + 1, "audibleDuration": 0.0]
+        ] }
+    }
+    #endif
 }
 #endif

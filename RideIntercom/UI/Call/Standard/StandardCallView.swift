@@ -203,8 +203,10 @@ struct StandardCallView: View {
                     Image(systemName: "phone.down.fill").frame(width: symbol, height: symbol)
                 }
                 .buttonStyle(.glassProminent).tint(AppColorPalette.danger)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel("End Call")
+                .buttonBorderShape(.circle).accessibilityLabel("End Call")
+                #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+                .modifier(BackgroundWaitingObservationValue())
+                #endif
                 .accessibilityIdentifier("standardEndCallButton")
                 Text("End").font(AppTypography.footnoteStrong)
                     .fixedSize(horizontal: horizontalLabels, vertical: true)

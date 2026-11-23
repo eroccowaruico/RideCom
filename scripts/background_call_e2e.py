@@ -17,88 +17,24 @@ from scripts.test_lifecycle import (
 from scripts.validate import ROOT, Runner, snapshot
 
 
-def observation_report(source: Path, variant: str, muted: bool) -> dict[str, object]:
-    if not source.is_file():
-        return {'variant': variant, 'passed': False, 'reason': 'missing evidence'}
-    rows = json.loads(source.read_text())
-    context_ok = (
-        bool(rows)
-        and len({v.get('processInstance') for v in rows}) == 1
-        and all(
-            v.get('platform') == 'simulator'
-            and isinstance(v.get('processInstance'), str)
-            and isinstance(v.get('processID'), int)
-            and isinstance(v.get('recordedAt'), (float, int))
-            and isinstance(v.get('protectedDataAvailable'), bool)
-            and v.get('microphonePermission')
-            in ['undetermined', 'denied', 'granted', 'unknown']
-            and (
-                v.get('debuggerAttached') is None
-                or isinstance(v.get('debuggerAttached'), bool)
-            )
-            and isinstance(v.get('testRunnerPresent'), bool)
-            for v in rows
-        )
+def archive_observations(runner: Runner, sim: str, cases: list[str]) -> None:
+    started = time.monotonic()
+    container = subprocess.run(
+        ['xcrun', 'simctl', 'get_app_container', sim, 'com.yowamushi-inc.RideIntercom.RideIntercom', 'data'],
+        capture_output=True, text=True, check=False,
     )
-    # With no remote source, AVAudioEngine need not deliver silent output taps.
-    # Observe native capture when unmuted, render when capture delivery is muted.
-    kind = 'outputCallback' if muted else 'inputCallback'
-    samples = [v for v in rows if v['background'] and v.get(kind)]
-    span = samples[-1]['uptime'] - samples[0]['uptime'] if samples else 0
-    call_instances = {v.get('connectionInstance') for v in samples}
-    same_call = len(call_instances) == 1 and None not in call_instances
-    waiting_without_remote_audio = all(
-        v.get('usesNativeOutput') is True
-        and v.get('receivedVoicePackets') == 0
-        and isinstance(v.get('availableRoutes'), list)
-        and 'lastAudibleOutputAt' in v
-        and v['lastAudibleOutputAt'] is None
-        for v in samples
-    )
-    native_frames = [
-        (v.get('nativeOutput') or {}).get('callbackCount', 0) for v in samples
-    ]
-    silent_native_output = kind != 'outputCallback' or (
-        len(native_frames) > 1
-        and 0 < native_frames[0] < native_frames[-1]
-        and all(
-            (v.get('nativeOutput') or {}).get('audibleDuration') == 0 for v in samples
-        )
-    )
-    ok = (
-        len(samples) >= 20
-        and span >= 29
-        and len({v['deadline'] for v in samples}) == 1
-        and all(
-            v['audioReady']
-            and v['inputRunning']
-            and v['outputRunning']
-            and not v['mediaStarted']
-            and v['authenticatedPeers'] == 0
-            and v['muted'] == muted
-            and v.get('microphonePermission') == 'granted'
-            for v in samples
-        )
-    )
-    detail = {
-        'kind': kind,
-        'samples': len(samples),
-        'span': span,
-        'sameCall': same_call,
-        'waitingWithoutRemoteAudio': waiting_without_remote_audio,
-        'silentNativeOutput': silent_native_output,
-        'passed': ok
-        and same_call
-        and waiting_without_remote_audio
-        and silent_native_output,
-    }
-    passed = context_ok and detail['passed']
-    return {
-        'variant': variant,
-        'passed': passed,
-        'observations': [detail],
-        'runtimeContextValid': context_ok,
-    }
+    missing = []
+    for layout in ['standard', 'advanced']:
+        for suffix in cases:
+            variant = f'{layout}-{suffix}'
+            name = f'background-call-{variant}.json'
+            source = Path(container.stdout.strip()) / 'tmp' / name
+            if container.returncode == 0 and source.is_file():
+                shutil.copyfile(source, runner.out / name)
+            else:
+                missing.append(variant)
+    runner.record('background-observations', [], 'failed' if missing else 'passed', int(bool(missing)), started,
+                  'missing evidence: ' + ', '.join(missing) if missing else '')
 
 
 def main() -> int:
@@ -112,12 +48,11 @@ def main() -> int:
     parser.add_argument('--scenario', choices=['waiting','resumed','first-permission','all'], default='waiting')
     args=parser.parse_args()
     root=ROOT
-    cases={'waiting':[('open',False),('muted',True)],'resumed':[('resumed',False)],
-           'first-permission':[('first-permission',False)],
-           'all':[('open',False),('muted',True),('resumed',False),('first-permission',False)]}[args.scenario]
+    cases = {'waiting': ['open', 'muted'], 'resumed': ['resumed'], 'first-permission': ['first-permission'],
+             'all': ['open', 'muted', 'resumed', 'first-permission']}[args.scenario]
     tests=[]
     for layout in ['Standard','Advanced']:
-        for variant,_ in cases:
+        for variant in cases:
             method=('test'+layout+'WaitingReturnsFromBackgroundWithoutLosingItsCall' if variant=='open' else
                     'test'+layout+'MutedWaitingKeepsAudioInBackground' if variant=='muted' else
                     'test'+layout+'FirstMicrophonePermissionContinuesInBackground' if variant=='first-permission' else
@@ -151,20 +86,10 @@ def main() -> int:
             if prior.returncode==0:
                 for old in (Path(prior.stdout.strip())/'tmp').glob('background-call-*.json'):
                     old.unlink()
-            runner.xcode('ui','platform=iOS Simulator,id='+sim, only=tests,needs=['ready'],
+            runner.xcode('ui', 'platform=iOS Simulator,id=' + sim, only=tests,
+                         needs=['appearance', 'microphone-permission'], verify_selection=True,
                          reuse_build='reused-build' if reuse else None)
-            container=Path(subprocess.check_output(['xcrun','simctl','get_app_container',sim,'com.yowamushi-inc.RideIntercom.RideIntercom','data'],text=True).strip())
-            found=[]
-            for layout in ['standard','advanced']:
-                for suffix,muted in cases:
-                    variant=layout+'-'+suffix
-                    source=container/'tmp'/('background-call-'+variant+'.json')
-                    if source.is_file():
-                        shutil.copyfile(source, runner.out / source.name)
-                    outcome = observation_report(source, variant, muted)
-                    found.append(outcome)
-                    runner.record('background-native-'+variant,[],'passed' if outcome['passed'] else 'failed',0 if outcome['passed'] else 1,time.monotonic(),json.dumps(outcome))
-            (runner.out/'background-observation-summary.json').write_text(json.dumps(found,indent=2)+'\n')
+            archive_observations(runner, sim, cases)
         finally:
             try:
                 if audio_pin: audio_pin.restore()

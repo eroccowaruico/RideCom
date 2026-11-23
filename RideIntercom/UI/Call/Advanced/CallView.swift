@@ -156,6 +156,9 @@ struct CallView: View {
         .appProminentButtonStyle()
         .controlSize(.large)
         .accessibilityValue(viewModel.callPresenceLabel)
+        #if DEBUG && RIDEINTERCOM_VALIDATION && os(iOS) && targetEnvironment(simulator)
+        .modifier(BackgroundWaitingObservationValue())
+        #endif
     }
 }
 

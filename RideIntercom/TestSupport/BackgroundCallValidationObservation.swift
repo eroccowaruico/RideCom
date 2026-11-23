@@ -7,6 +7,9 @@ import RTC
 import SessionManager
 import Synchronization
 import UIKit
+#if targetEnvironment(simulator)
+import SwiftUI
+#endif
 
 /// Persists bounded snapshots on the existing App delivery, without PCM or participant identity.
 @MainActor enum BackgroundCallValidationObservation {
@@ -43,6 +46,15 @@ import UIKit
         try JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
             .write(to: url, options: CallStorageProtection.writingOptions)
     }
+    #if targetEnvironment(simulator)
+    static let waitingAssertionsEnabled = isEnabled
+        && ProcessInfo.processInfo.environment["RIDEINTERCOM_BACKGROUND_WAITING_ASSERTIONS"] == "1"
+
+    static func waitingMeasurements() -> BackgroundWaitingMeasurements {
+        BackgroundWaitingMeasurements(records: records,
+            muted: ProcessInfo.processInfo.environment["RIDEINTERCOM_BACKGROUND_MUTED"] == "1")
+    }
+    #endif
     /// Debug-only observation of this process; failure stays unknown, never "not attached".
     private static func debuggerAttached() -> Bool? {
         var info = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride
@@ -105,7 +117,7 @@ import UIKit
         let decode = model.audioPipeline.receiveDecodeCounts
         return ["uptime": now, "background": UIApplication.shared.applicationState == .background,
             "recordedAt": Date().timeIntervalSince1970, "processInstance": processInstance,
-            "processID": ProcessInfo.processInfo.processIdentifier, "platform": platform,
+            "processID": Int(ProcessInfo.processInfo.processIdentifier), "platform": platform,
             "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
             "protectedDataAvailable": UIApplication.shared.isProtectedDataAvailable,
             "microphonePermission": microphonePermission,
@@ -143,6 +155,93 @@ import UIKit
         return environment["RIDEINTERCOM_BACKGROUND_MUTED"] == "1" ? "muted" : "open"
     }
 }
+
+#if targetEnvironment(simulator)
+/// Returns the background measurements through an existing control only for the isolated UI test.
+struct BackgroundWaitingObservationValue: ViewModifier {
+    @State private var measurementValue = ""
+
+    func body(content: Content) -> some View {
+        if BackgroundCallValidationObservation.waitingAssertionsEnabled {
+            let foreground = NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+            content.accessibilityValue(Text(verbatim: measurementValue))
+                .onReceive(foreground) { _ in
+                    let report = BackgroundCallValidationObservation.waitingMeasurements()
+                    guard let encoded = try? JSONEncoder().encode(report),
+                          let value = String(bytes: encoded, encoding: .utf8) else { return }
+                    measurementValue = value
+                }
+        } else {
+            content
+        }
+    }
+}
+
+nonisolated struct BackgroundWaitingMeasurements: Encodable {
+    let sampleCount: Int
+    let span: TimeInterval
+    let validSimulatorContext: Bool
+    let sameCall: Bool
+    let sameDeadline: Bool
+    let audioRunningWithExpectedMute: Bool
+    let waitingWithoutRemoteAudio: Bool
+    let silentNativeOutput: Bool
+
+    init(records: [[String: Any]], muted: Bool) {
+        // With no remote source, unmuted audio needs native capture but not silent output taps.
+        let callback = muted ? "outputCallback" : "inputCallback"
+        let samples = records.filter { $0["background"] as? Bool == true && $0[callback] as? Bool == true }
+        sampleCount = samples.count
+        let timestamps = samples.compactMap { $0["uptime"] as? TimeInterval }
+        if timestamps.count == samples.count, let start = timestamps.first, let end = timestamps.last {
+            span = end - start
+        } else {
+            span = 0
+        }
+        validSimulatorContext = Self.hasOneValue(in: records, for: "processInstance", ofType: String.self)
+            && records.allSatisfy(Self.hasSimulatorContext)
+        sameCall = Self.hasOneValue(in: samples, for: "connectionInstance", ofType: String.self)
+        sameDeadline = Self.hasOneValue(in: samples, for: "deadline", ofType: TimeInterval.self)
+        audioRunningWithExpectedMute = !samples.isEmpty && samples.allSatisfy {
+            $0["audioReady"] as? Bool == true
+                && $0["inputRunning"] as? Bool == true && $0["outputRunning"] as? Bool == true
+                && $0["mediaStarted"] as? Bool == false && $0["authenticatedPeers"] as? Int == 0
+                && $0["muted"] as? Bool == muted && $0["microphonePermission"] as? String == "granted"
+        }
+        waitingWithoutRemoteAudio = !samples.isEmpty && samples.allSatisfy {
+            $0["usesNativeOutput"] as? Bool == true && $0["receivedVoicePackets"] as? Int == 0
+                && $0["availableRoutes"] is [String] && $0["lastAudibleOutputAt"] is NSNull
+        }
+        silentNativeOutput = !muted || Self.hasSilentNativeOutput(in: samples)
+    }
+
+    private static func hasOneValue<T: Equatable>(
+        in records: [[String: Any]], for key: String, ofType type: T.Type
+    ) -> Bool {
+        guard let value = records.first?[key] as? T else { return false }
+        return records.allSatisfy { $0[key] as? T == value }
+    }
+
+    private static func hasSimulatorContext(_ record: [String: Any]) -> Bool {
+        let permissions = ["undetermined", "denied", "granted", "unknown"]
+        return record["platform"] as? String == "simulator"
+            && record["processID"] is Int && record["recordedAt"] is TimeInterval
+            && record["protectedDataAvailable"] is Bool && record["testRunnerPresent"] is Bool
+            && permissions.contains(record["microphonePermission"] as? String ?? "")
+            && (record["debuggerAttached"] is NSNull || record["debuggerAttached"] is Bool)
+    }
+
+    private static func hasSilentNativeOutput(in samples: [[String: Any]]) -> Bool {
+        let output = samples.compactMap { $0["nativeOutput"] as? [String: Any] }
+        guard output.count == samples.count,
+              let firstCount = output.first?["callbackCount"] as? Int,
+              let lastCount = output.last?["callbackCount"] as? Int else { return false }
+        return firstCount > 0 && lastCount > firstCount && output.allSatisfy {
+            $0["audibleDuration"] as? TimeInterval == 0
+        }
+    }
+}
+#endif
 
 /// The mixer's capture worker delivers frames here after leaving the render
 /// thread and before enqueueing them for MainActor. Retain only counters.
