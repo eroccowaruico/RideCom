@@ -7,6 +7,7 @@ import { contactDeletionRequest } from './ContactDeletions'
 import { directRestoreDevicePath, directRestoreDeviceRequest } from './DirectRestoreDevices'
 import { directRestoreRelayPath, directRestoreRelayRequest } from './DirectRestoreRelay'
 import { ordinaryGroupReplyPrefix, ordinaryGroupReplyRequest } from './OrdinaryGroupReplies'
+import { previewMediaTrialOwner, previewMediaTrialPrefix } from './PreviewMediaTrial'
 export { NotificationIndex } from './NotificationIndex'
 export { SignalingRoom, UsageGuard }
 export { AppleAuthAttempt, UserAccount } from './AppleAccount'
@@ -30,12 +31,15 @@ export default {
         const authorization = request.headers.get('Authorization') ?? ''
         if (!authorization.startsWith('Bearer ') || authorization.length > 512) return json({ error: 'Unauthorized' }, 401)
         const credential = authorization.slice(7)
+        const match = url.pathname.match(/^\/api\/rooms\/([a-f0-9]{64})\/(ice\/[a-zA-Z0-9_-]{1,80}|join|sessions\/[^/]+(?:\/(?:pull|publish|renew|signal))?)$/)
         let device: Awaited<ReturnType<typeof authenticateDevice>>
         try { device = await authenticateDevice(credential, env) }
         catch { return json({ error: 'Account service unavailable' }, 503) }
         let owner: string | undefined
         if (device) owner = `${device.userID}:${device.deviceID}`
-        else if (!credential.startsWith('ri1.')) {
+        else if (credential.startsWith(previewMediaTrialPrefix)) {
+            owner = await previewMediaTrialOwner(request, url, credential, env.PREVIEW_MEDIA_TRIAL, match?.[1], match?.[2])
+        } else if (!credential.startsWith('ri1.')) {
             const hash = await sha256Hex(credential)
             try {
                 const tokens: unknown = JSON.parse(env.CLIENT_TOKENS_JSON || '{}')
@@ -44,7 +48,6 @@ export default {
             } catch { /* fail closed */ }
         }
         if (typeof owner !== 'string' || !owner) return json({ error: 'Unauthorized' }, 401)
-        const match = url.pathname.match(/^\/api\/rooms\/([a-f0-9]{64})\/(ice\/[a-zA-Z0-9_-]{1,80}|join|sessions\/[^/]+(?:\/(?:pull|publish|renew|signal))?)$/)
         // Only the actual cleanup routes are exempt from the pause and API budget.
         // Authentication above and room ownership checks below remain mandatory.
         const iceCancellation = request.method === 'DELETE' && match?.[2].startsWith('ice/') === true

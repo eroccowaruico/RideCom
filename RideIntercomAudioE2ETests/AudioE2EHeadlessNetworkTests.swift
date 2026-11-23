@@ -23,27 +23,53 @@ private actor HeadlessSpeechReceiver {
     }
 }
 
+private struct HeadlessSpeechTrial: Decodable {
+    let room: String
+    let groupSecret: String
+    let leftToken: String
+    let rightToken: String
+}
+
 extension AudioE2ETests {
     @MainActor
     func testWebRTCDuplexSpeechWithoutAudioHardware() async throws {
-        let room = UUID().uuidString
-        let credential = RTCCredential.derived(groupID: room, secret: room)
         let sentA = try speechPackets(named: "speech")
         let sentB = try speechPackets(named: "reply")
         let frameCount = min(sentA.count, sentB.count)
+        let framesA = Array(sentA.prefix(frameCount)), framesB = Array(sentB.prefix(frameCount))
+        if let bootstrap = ProcessInfo.processInfo.environment["RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP"] {
+            let trial = try await loadPreviewMediaTrial(bootstrap)
+            let origin = try XCTUnwrap(URL(string: "https://preview-rideintercom.analog.workers.dev"))
+            await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin)
+            return
+        }
+        let room = UUID().uuidString
+        let trial = HeadlessSpeechTrial(room: room, groupSecret: room, leftToken: room, rightToken: room)
+        let credential = RTCCredential.derived(groupID: room, secret: room)
         let server = try AudioE2EWorker(port: 0, run: room, room: credential.groupHash)
         try await server.start()
         do {
             let listeningPort = await server.listeningPort
             let port = try XCTUnwrap(listeningPort)
             let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
-            await exchangeSpeech(sentA: Array(sentA.prefix(frameCount)), sentB: Array(sentB.prefix(frameCount)),
-                                     room: room, credential: credential, origin: origin)
+            await exchangeSpeech(sentA: framesA, sentB: framesB, trial: trial, origin: origin)
         } catch {
             await server.stop()
             throw error
         }
         await server.stop()
+    }
+
+    private func loadPreviewMediaTrial(_ bootstrap: String) async throws -> HeadlessSpeechTrial {
+        guard let url = URL(string: bootstrap), url.scheme == "http", url.host == "127.0.0.1",
+              url.port != nil, url.user == nil, url.password == nil else { throw URLError(.badURL) }
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await session.data(for: URLRequest(url: url, timeoutInterval: 5))
+        guard (response as? HTTPURLResponse)?.statusCode == 200, response.url == url, data.count <= 1024 else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        return try JSONDecoder().decode(HeadlessSpeechTrial.self, from: data)
     }
 
     private func speechPackets(named name: String) throws -> [RTCAudioPacket] {
@@ -65,10 +91,10 @@ extension AudioE2ETests {
     }
 
     private func exchangeSpeech(
-        sentA: [RTCAudioPacket], sentB: [RTCAudioPacket], room: String, credential: RTCCredential, origin: URL
+        sentA: [RTCAudioPacket], sentB: [RTCAudioPacket], trial: HeadlessSpeechTrial, origin: URL
     ) async {
-        let left = await speechSession(role: "a", room: room, credential: credential, origin: origin)
-        let right = await speechSession(role: "b", room: room, credential: credential, origin: origin)
+        let left = await speechSession(role: "a", token: trial.leftToken, trial: trial, origin: origin)
+        let right = await speechSession(role: "b", token: trial.rightToken, trial: trial, origin: origin)
         let heardLeft = HeadlessSpeechReceiver(), heardRight = HeadlessSpeechReceiver()
         let receiveLeft = Task { for await event in left.events { await heardLeft.record(event) } }
         let receiveRight = Task { for await event in right.events { await heardRight.record(event) } }
@@ -103,16 +129,17 @@ extension AudioE2ETests {
     }
 
     private func speechSession(
-        role: String, room: String, credential: RTCCredential, origin: URL
+        role: String, token: String, trial: HeadlessSpeechTrial, origin: URL
     ) async -> RouteManager {
         let configuration = CallRouteConfiguration(enabledRoutes: [.webRTC], preferredRoute: .webRTC)
-        let internet = CloudflareRealtimeConfiguration(workerURL: origin, accessToken: room)
+        let internet = CloudflareRealtimeConfiguration(workerURL: origin, accessToken: token)
         let routes = CallSessionFactory.makeRoutes(.init(routeConfiguration: configuration, webRTC: .init(
             cloudflareConfigurationProvider: { _ in internet }, engineFactory: { makeAudioE2EWebRTCEngine() })))
         let session = RouteManager(routes: routes, configuration: configuration)
-        let peer = PeerDescriptor(id: .init(rawValue: "e2e-\(role)-\(room.prefix(8))"), displayName: role)
+        let peer = PeerDescriptor(id: .init(rawValue: "e2e-\(role)-\(trial.room.prefix(8))"), displayName: role)
+        let credential = RTCCredential.derived(groupID: trial.room, secret: trial.groupSecret)
         await session.prepare(
-            .init(sessionID: room, localPeer: peer, credential: credential, configuration: configuration))
+            .init(sessionID: trial.room, localPeer: peer, credential: credential, configuration: configuration))
         return session
     }
 }

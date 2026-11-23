@@ -138,6 +138,22 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 新規作成からの実環境試験は、固定Previewが未作成のとき、または再構築を検証する区切りで行う。実行中の試験があればその区切りに合わせる。上の手順1から5までを同じ固定名で実行し、対象コミット、初期状態、両端の通話結果と回収結果を残す。実施記録がない場合や構成変更で以前の結果が使えなくなった場合は、次のサーバー資源点検で、未確認の条件と試用への影響を照合する。担当者は再作成を試す日程を調整して検証待ちに残す。
 
+### Appleログインなしで固定Previewの音声を測る
+
+実中継を使う試験は、ローカルで発話の往復を確認してから明示的に実行する。対象は固定Previewの1グループ、参加者2人、各約2秒の発話を1回。Appleによる新規登録の試用は、開発署名のAppで行う別の工程として扱う。
+
+1. `node scripts/Cloudflare/prepare-preview-media-trial.mjs` を実行する。返るディレクトリには、試験の照合値を入れた `grant.toml` と、端末側の試験資格を入れた `credentials.json` がある。
+2. `grant.toml` の1行を `server/wrangler.toml` の `[previews.vars]` に加え、共有mainと固定Previewの通常の配置経路で反映する。配置を読み戻し、公開先とコミット、設定の有無を照合する。試験資格と通話鍵はローカルの `credentials.json` で扱う。
+3. 下のコマンドで測定する。出力先には新しいディレクトリを指定する。資格2件の受付、両方向の発話フレームの一致、試験後の通話数と利用枠を確認する。
+
+   ```sh
+   python3 scripts/Cloudflare/run-preview-media-trial.py "$TRIAL_DIR/credentials.json" --output "$OUTPUT_DIR"
+   ```
+
+4. `PREVIEW_MEDIA_TRIAL` の行を削除して同じ経路で配置する。同じコマンドの `--output` に代えて `--check-revoked` を指定し、両方の資格が401になることを確認する。最後にローカルの資格を回収する。
+
+試験用の資格は発行から最大20分だけ有効。[Workerの制約](../spec/server/Worker.md#apple認証と端末資格)と[実サービス検証の費用制約](../policies/開発方針.md#実サービスを使う検証の費用制約)を適用する。
+
 ### Productionを公開するとき
 
 本番用SFU資格を対象WorkerのProductionへ登録し、[Worker設定](../../server/wrangler.toml)の `vars.SERVICE_ENABLED` を有効にする変更をレビューする。通常変数は次の配置でも同じ値になるよう構成ファイルと揃える。GitHub連携で当該コミットが配置された場合は、その配置番号を確認する。手動配置を選んだ場合のみリポジトリrootで `npm --prefix server run deploy` を実行する。
