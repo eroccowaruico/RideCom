@@ -159,6 +159,18 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 2,200コミットの監査で、登録済みのArchiveと検証領域のArchiveの署名を再検証した。いずれも署名は有効で、アプリとプロビジョニングプロファイルの通常通知の環境は `development` だった。以前の記録では本番の通常通知の構成まで確認したと記載していた。Build 2077の本番用IPAの署名は別途確認が必要。再検証の集計は `.validation/security-audit-2200/archive-2077-confirmation.json` に保存した。
 
+## 2,330コミットの区切りでiOS Build 2270をArchiveする
+
+2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。
+
+実機用バイナリのARM64の31セクションが、採用済みの無改変WebRTCのZIPと一致した。AppとWebRTCのdSYMのUUIDは各実行ファイルと一致した。Appには本番Workerの接続先とプライバシーマニフェストが入っていた。ArchiveのAPNs署名は `development`。Watch App、カメラの利用目的、CallKit・PushToTalkへの動的リンク、iCloud権限、試験用の接続設定は検出されなかった。
+
+Xcodeの標準保存先に登録し、登録後の署名を再検証した。Organizerの一覧表示は未確認。次回用の共通採番は2271。[Archiveの標準手順](../../development/開発環境.md#xcode標準のバージョン管理とarchive)
+
+```text
+~/Library/Developer/Xcode/Archives/2026-11-23/RideIntercom iOS 1.0.0 (2270).xcarchive
+```
+
 ## 2,310コミットの区切りでiOS Build 2260をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,310件目は `bdb8cf0f`。区切りを確認した時点の `4e957dc7` を展開し、標準の `RideIntercom` スキームでiPhone用のRelease Archiveを作成した。採用中だったZIPの記録には過去の独自パッチがあり、そのZIPで作ったBuild 2259は検証領域に留めた。
