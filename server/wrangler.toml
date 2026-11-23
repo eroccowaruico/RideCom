@@ -1,8 +1,16 @@
 name = 'ridecom'
 main = "src/index.ts"
 compatibility_date = "2026-11-17"
+workers_dev = true
+preview_urls = true
 logpush = false
 tail_consumers = []
+
+[[routes]]
+pattern = "workers.ridecom.yowamushi-inc.com"
+custom_domain = true
+enabled = true
+previews_enabled = true
 
 [observability]
 enabled = true
