@@ -316,9 +316,10 @@ extension AudioE2ETests {
         XCTAssertNotNil(inputDrops, "Input delivery drop count must be sampled during playback")
         XCTAssertEqual(inputDrops, 0)
         var row = observation.record(
-            phase: viewModel.audioCheckPhase.rawValue, drops: renderDrops, inputDrops: inputDrops ?? -1,
-            inputStopped: !engine.isRunning, outputStopped: !engine.isRunning,
-            nativeBackends: false, watchRoute: false, engineRunning: engine.isRunning
+            phase: viewModel.audioCheckPhase.rawValue,
+            status: .init(droppedRenderFrames: renderDrops, droppedInputFrames: inputDrops ?? -1,
+                          inputStopped: !engine.isRunning, outputStopped: !engine.isRunning,
+                          nativeBackends: false, watchRoute: false, engineRunning: engine.isRunning)
         )
         row["cycle"] = cycle
         row["nativeCaptureClock"] = true

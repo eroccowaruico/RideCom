@@ -48,6 +48,8 @@ actor AudioE2EWorker {
     private var stopped = false
     private enum Failure: Error { case invalidRequest, disconnected }
 
+    var listeningPort: UInt16? { listener.port?.rawValue }
+
     init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false,
          holdsInternetSignaling: Bool = false, leavesICEUnanswered: Bool = false) throws {
         let parameters = NWParameters.tcp

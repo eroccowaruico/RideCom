@@ -19,6 +19,17 @@ MacのBonjour探索が`NoAuth`になる環境では、ネットワーク音声�
 
 通常は両通信経路の`quick`を実行する。`--transport local`は、Bonjourによる探索、QUICによる認証・制御、見つかった相手とのUDP音声に絞る。`--transport webrtc`はローカルのサーバーモックと実WebRTCに絞る。切り分け用の`--matrix smoke`は既定設定だけを測る。`--codec pcm16` / `--codec opus`と`--isolation off`は診断用の上書きであり、全設定を検証した実績にはしない。`--seconds`は各発話区間の秒数で、既定8秒。無音を測る区間は2秒。
 
+### 音声機器を使わずにWebRTCの発話を往復させる
+
+`RideIntercomAudioE2E` schemeで `AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware` を選び、iOS Simulatorで実行する。CLIではテストを指定する。
+
+```sh
+xcodebuild -scheme RideIntercomAudioE2E -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+  -only-testing:RideIntercomAudioE2ETests/AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware test
+```
+
+1台のSimulator内で、製品と同じ通話・WebRTC処理を2つ起動する。中継には既存のローカル試験用Workerを使い、参加者は試験用の通話鍵を共有して互いを確認する。異なる2つの発話ファイルを20 msごとのPCM16に分け、各方向で送信順と内容が一致したフレームを数える。両方向で送ったフレームの9割以上が一致すれば合格とする。Appleログインや音声機器の起動を必要とせず、音声の再生と遅延は上の2端末の試験で測る。実SFU・TURN経由の計測は[固定Previewの試用手順](Cloudflare試用手順.md#共有mainから固定previewと通話試験を用意する)に従う。
+
 ### 保存済みグループから近距離通話を始める
 
 ```sh
