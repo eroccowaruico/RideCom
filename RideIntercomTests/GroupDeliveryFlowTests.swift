@@ -109,6 +109,76 @@ struct GroupDeliveryFlowTests {
         #expect(owner.callPresentationID == nil && owner.groupsPresentationID == nil)
     }
 
+    @Test(arguments: [false, true])
+    func aNewGroupInvitationArrivesWhileInBackgroundWithoutAPNs(usesBackgroundRefresh: Bool) async throws {
+        let author = GroupDeliveryTestIdentity("background-inbox-author")
+        let recipient = GroupDeliveryTestIdentity("background-inbox-recipient")
+        defer {
+            author.remove()
+            recipient.remove()
+        }
+        try author.authorizeFixture(userID: String(repeating: "a", count: 64))
+        try recipient.authorizeFixture(userID: String(repeating: "b", count: 64))
+        let sender = try author.harness(knowing: [recipient]).viewModel
+        let receiver = try recipient.harness(knowing: [author]).viewModel
+        defer {
+            sender.stopGroupDeliverySync()
+            receiver.stopGroupDeliverySync()
+            sender.disconnect()
+            receiver.disconnect()
+        }
+        GroupDeliveryHTTPStub.reset()
+        try allowGroupDeliveryRequests(from: author, recipient)
+        let client = InternetAccountClient(session: GroupDeliveryHTTPStub.makeSession())
+        #expect(receiver.createTalkGroup(name: "Current call"))
+        let currentCall = receiver.currentCallReference
+        receiver.setGroupDeliveryForeground(false)
+        receiver.groupDeliveryClient = client
+        #expect(!receiver.notifications.isEnabled)
+        #expect(!receiver.canReceiveRelayedContactDeletions && !receiver.hasPendingContactDeletionRelay)
+        #expect(!receiver.needsSavedCommunicationBackgroundRefresh)
+        receiver.groupDeliveryNetworkPathChanged(isAvailable: false)
+        receiver.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(receiver.groupDeliveryTask == nil)
+
+        let access = try #require(receiver.notifications.access())
+        let grant = try testCallNotificationGrant(
+            owner: recipient.principal, allowedSender: author.principal, audience: "rideintercom-group-invitation")
+        try receiver.notifications.update(author.personID, context: access) {
+            $0.allowsGroupInvitations = true
+            $0.groupReceiving = grant
+        }
+        try grantGroupInvitationPermission(on: sender, recipient: recipient, sender: author)
+        let groupID = UUID()
+        #expect(sender.createTalkGroup(name: "New invitation", userIDs: [recipient.personID], id: groupID))
+        sender.groupDeliveryClient = client
+        try await expectSavedGroupBackgroundRefresh(sender)
+        try #require(sender.groupRepository.groupDeliveries.first?.state == .queued)
+        #expect(receiver.groupRepository.groupDeliveries.isEmpty)
+
+        try await triggerBackgroundGroupInvitationReceipt(receiver, usesBackgroundRefresh: usesBackgroundRefresh)
+
+        #expect(receiver.groups.contains { $0.id == groupID })
+        #expect(receiver.groupRepository.groupDeliveries.first?.state == .received)
+        #expect(receiver.currentCallReference == currentCall)
+        try await expectSavedGroupBackgroundRefresh(sender)
+        #expect(sender.groupRepository.groupDeliveries.first?.state == .received)
+        #expect(sender.groupInvitationDeliveryState(forMember: recipient.memberID, in: groupID) == .received)
+    }
+
+    private func triggerBackgroundGroupInvitationReceipt(
+        _ receiver: IntercomViewModel, usesBackgroundRefresh: Bool
+    ) async throws {
+        if usesBackgroundRefresh {
+            try await expectSavedGroupBackgroundRefresh(receiver)
+        } else {
+            receiver.groupDeliveryNetworkPathChanged(isAvailable: false)
+            receiver.groupDeliveryNetworkPathChanged(isAvailable: true)
+            let recovery = try #require(receiver.groupDeliveryTask)
+            #expect(await recovery.value)
+        }
+    }
+
     func grantGroupInvitationPermission(
         on model: IntercomViewModel,
         recipient: GroupDeliveryTestIdentity,
@@ -137,5 +207,12 @@ struct GroupDeliveryFlowTests {
             users[access.accessToken] = try device.principal.userID
         }
         GroupDeliveryHTTPStub.users = users
+    }
+
+    func expectSavedGroupBackgroundRefresh(_ model: IntercomViewModel, completes: Bool = true) async throws {
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        model.setGroupDeliveryForeground(false)
+        try #require(owner.needsSavedCommunicationBackgroundRefresh)
+        #expect(await owner.refreshSavedCommunicationInBackground() == completes)
     }
 }

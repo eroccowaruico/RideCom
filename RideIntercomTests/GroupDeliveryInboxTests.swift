@@ -78,7 +78,7 @@ extension GroupDeliveryFlowTests {
         sender.groupDeliveryNetworkPathChanged(isAvailable: true)
         sender.groupDeliveryNetworkPathChanged(isAvailable: false)
         sender.groupDeliveryNetworkPathChanged(isAvailable: true)
-        await sender.groupDeliveryTask?.value
+        _ = await sender.groupDeliveryTask?.value
         #expect(GroupDeliveryHTTPStub.requestCount == beforeRecovery)
         sender.groupDeliveryNetworkPathChanged(isAvailable: false)
         if recoversDuringPass {
@@ -91,12 +91,12 @@ extension GroupDeliveryFlowTests {
         #expect(sender.createTalkGroup(name: "Automatically delivered", userIDs: [recipientID]))
         let group = try #require(sender.groups.first)
         let senderCall = sender.currentCallReference
-        await sender.groupDeliveryTask?.value
+        _ = await sender.groupDeliveryTask?.value
         if !recoversDuringPass {
             #expect(sender.groupRepository.groupDeliveries.first?.state == .pending)
             sender.groupDeliveryNetworkPathChanged(isAvailable: true)
             sender.groupDeliveryNetworkPathChanged(isAvailable: true)
-            await sender.groupDeliveryTask?.value
+            _ = await sender.groupDeliveryTask?.value
         }
         try #require(sender.groupRepository.groupDeliveries.first?.state == .queued)
         #expect(
@@ -227,7 +227,7 @@ extension GroupDeliveryFlowTests {
         recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
         let recovered = try #require(recipient.groupDeliveryTask)
         recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
-        await recovered.value
+        _ = await recovered.value
     }
 
     @Test func anInvalidInboxPacketWhoseDiscardFailsWaitsForTheNextLifecycleEvent() async throws {

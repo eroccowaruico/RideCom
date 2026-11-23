@@ -264,7 +264,7 @@ extension GroupDeliveryFlowTests {
             .init(requestID: removed.id, expiresAt: removed.expiresAt * 1_000, status: .cancelled),
             for: withdrawnBeforeAcceptance)
         #expect(model.groupRepository.groupDeliveries.first { $0.id == removed.id } == nil)
-        await model.groupDeliveryTask?.value
+        _ = await model.groupDeliveryTask?.value
     }
 }
 

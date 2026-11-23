@@ -151,7 +151,7 @@ extension GroupDeliveryWorkerTests {
             !author.groupInvitationDeliveries(in: first.groups.revokedAfterDownload).contains {
                 $0.recipientMemberID == second.memberID
             })
-        await author.groupDeliveryTask?.value
+        _ = await author.groupDeliveryTask?.value
         try await verifySecondDeviceNotification(run: run, initial: first.groups, redelivery: redelivery,
                                                  device: second, receiving: (secondReceiver, secondCall))
     }

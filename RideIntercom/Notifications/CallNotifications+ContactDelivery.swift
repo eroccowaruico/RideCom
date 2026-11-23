@@ -3,6 +3,17 @@ import Foundation
 extension CallNotifications {
     var canUseNotifications: Bool { access() != nil }
 
+    var hasGroupInvitationReceivingPermission: Bool {
+        guard let context = access() else { return false }
+        return contacts().contains { user in
+            guard let peer = user.principal, let record = permission(user.id, context: context),
+                  record.allowsGroupInvitations == true else { return false }
+            return record.groupReceiving?.isAddressed(
+                to: context.principal, from: peer, audience: "rideintercom-group-invitation"
+            ) == true
+        }
+    }
+
     func allowsIncoming(from id: UUID) -> Bool {
         guard let context = access(), let record = permission(id, context: context) else { return false }
         return record.allowsIncoming && record.receiving != nil

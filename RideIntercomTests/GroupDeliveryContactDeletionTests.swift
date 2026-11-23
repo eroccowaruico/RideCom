@@ -159,7 +159,7 @@ extension GroupDeliveryFlowTests {
         if order == .internetOnPathRecovery {
             sender.groupDeliveryNetworkPathChanged(isAvailable: true)
             sender.groupDeliveryNetworkPathChanged(isAvailable: true)
-            await sender.groupDeliveryTask?.value
+            _ = await sender.groupDeliveryTask?.value
             try #require(relay.entry?.state == "pending")
             let reusedPacket = relay.submitted == [packet, packet]
             #expect(reusedPacket)
@@ -237,7 +237,7 @@ extension GroupDeliveryFlowTests {
         let requestsOnRecovery = backgroundStarts
         recipient.groupDeliveryNetworkPathChanged(isAvailable: true)
         #expect(backgroundStarts == requestsOnRecovery)
-        await recipient.groupDeliveryTask?.value
+        _ = await recipient.groupDeliveryTask?.value
     }
 
     @Test func contactDeletionSealsOneInternetPacketBeforeDiscardingThePairKey() throws {

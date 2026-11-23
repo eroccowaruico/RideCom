@@ -161,10 +161,11 @@ extension GroupDeliveryFlowTests {
             #expect(model.groupRepository.groupDeliveries.first(where: { $0.id == removed.id })?.state == .cancelled)
             model.requestGroupDeliverySync()
         }
-        await model.groupDeliveryTask?.value
+        _ = await model.groupDeliveryTask?.value
     }
 
-    @Test func anOlderSendFailureDoesNotLeaveARemovedMembersInvitationAvailable() async throws {
+    @Test(arguments: [false, true])
+    func anOlderSendFailureDoesNotLeaveARemovedMembersInvitationAvailable(backgroundRefresh: Bool) async throws {
         let author = GroupDeliveryTestIdentity("cancellation-author")
         let waiting = GroupDeliveryTestIdentity("waiting-recipient")
         let removed = GroupDeliveryTestIdentity("removed-recipient")
@@ -197,15 +198,19 @@ extension GroupDeliveryFlowTests {
         sender.groupDeliveryClient = client
         await sender.synchronizeGroupDeliveries()
         let records = sender.groupRepository.groupDeliveries
-        let pending = try #require(records.first)
-        let queued = try #require(records.last)
-        try #require(pending.groupID == waitingID && pending.state == .pending)
-        try #require(queued.groupID == removedID && queued.state == .queued)
+        let pending = try #require(records.first { $0.groupID == waitingID && $0.state == .pending })
+        let queued = try #require(records.first { $0.groupID == removedID && $0.state == .queued })
 
         try grantGroupInvitationPermission(on: sender, recipient: waiting, sender: author)
         GroupDeliveryHTTPStub.failNextSubmit = true
+        if backgroundRefresh { sender.groupDeliveryClient = nil }
         #expect(sender.removeMember(removed.memberID, from: removedID))
-        await sender.synchronizeGroupDeliveries()
+        if backgroundRefresh {
+            sender.groupDeliveryClient = client
+            try await expectSavedGroupBackgroundRefresh(sender, completes: false)
+        } else {
+            await sender.synchronizeGroupDeliveries()
+        }
         #expect(sender.groupRepository.groupDeliveries.map(\.id) == [pending.id])
         #expect(sender.groupRepository.groupDeliveries.first?.state == .pending)
         #expect(GroupDeliveryHTTPStub.items[queued.id.uuidString.lowercased()]?["status"] as? String == "cancelled")
@@ -216,7 +221,12 @@ extension GroupDeliveryFlowTests {
         #expect(!receiver.groups.contains { $0.id == removedID })
     }
 
-    @Test func aLateResponseCannotCommitAfterTheAccountSignsOut() async throws {
+    enum GroupDeliveryInterruption: CaseIterable {
+        case signOut, backgroundSignOut, backgroundExpiration
+    }
+
+    @Test(arguments: GroupDeliveryInterruption.allCases)
+    func aLateResponseCannotCommitAfterTheSyncIsInterrupted(interruption: GroupDeliveryInterruption) async throws {
         let authorDevice = GroupDeliveryTestIdentity("late-author")
         let recipientDevice = GroupDeliveryTestIdentity("late-recipient")
         defer {
@@ -226,22 +236,35 @@ extension GroupDeliveryFlowTests {
         try authorDevice.authorizeFixture(userID: String(repeating: "a", count: 64))
         try recipientDevice.authorizeFixture(userID: String(repeating: "b", count: 64))
         let harness = try authorDevice.harness(knowing: [recipientDevice])
-        defer {
-            harness.viewModel.stopGroupDeliverySync()
-            harness.viewModel.disconnect()
-        }
+        let model = harness.viewModel
+        defer { model.stopGroupDeliverySync(); model.disconnect(); GroupDeliveryHTTPStub.reset() }
         GroupDeliveryHTTPStub.reset()
         GroupDeliveryHTTPStub.users = [
             try #require(try authorDevice.store.notificationAccess(memberID: authorDevice.memberID)).accessToken:
                 try authorDevice.principal.userID
         ]
-        harness.viewModel.groupDeliveryClient = .init(session: GroupDeliveryHTTPStub.makeSession())
-        try grantGroupInvitationPermission(on: harness.viewModel, recipient: recipientDevice, sender: authorDevice)
-        GroupDeliveryHTTPStub.onQueued = { harness.viewModel.accountSession.signOut() }
-        #expect(harness.viewModel.createTalkGroup(name: "No late commit", userIDs: [recipientDevice.personID]))
-        await harness.viewModel.synchronizeGroupDeliveries()
-        #expect(!harness.viewModel.hasCurrentAccountAccess)
-        #expect(harness.viewModel.groupRepository.groupDeliveries.first?.state == .pending)
+        try grantGroupInvitationPermission(on: model, recipient: recipientDevice, sender: authorDevice)
+        model.groupDeliveryClient = nil
+        try #require(model.createTalkGroup(name: "No late commit", userIDs: [recipientDevice.personID]))
+        model.groupDeliveryClient = .init(session: GroupDeliveryHTTPStub.makeSession())
+        var refresh: Task<Bool, Never>?
+        GroupDeliveryHTTPStub.onQueued = {
+            if interruption == .backgroundExpiration { refresh?.cancel() } else { model.accountSession.signOut() }
+        }
+
+        if interruption == .signOut {
+            await model.synchronizeGroupDeliveries()
+        } else {
+            let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+            model.setGroupDeliveryForeground(false)
+            try #require(owner.needsSavedCommunicationBackgroundRefresh)
+            let task = Task { await owner.refreshSavedCommunicationInBackground() }
+            refresh = task
+            #expect(!(await task.value))
+        }
+        #expect(GroupDeliveryHTTPStub.submitted.count == 1)
+        #expect(model.hasCurrentAccountAccess == (interruption == .backgroundExpiration))
+        #expect(model.groupRepository.groupDeliveries.first?.state == .pending)
     }
 
     @Test func aLocalWriteFailureAfterRemoteAcceptanceRemainsRecoverable() async throws {

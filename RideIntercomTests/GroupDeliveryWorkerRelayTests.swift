@@ -110,7 +110,7 @@ extension GroupDeliveryWorkerTests {
             receiver.setGroupDeliveryForeground(false)
             receiver.groupDeliveryNetworkPathChanged(isAvailable: false)
             receiver.groupDeliveryNetworkPathChanged(isAvailable: true)
-            await receiver.groupDeliveryTask?.value
+            _ = await receiver.groupDeliveryTask?.value
         case .backgroundRefresh:
             let owner = AppCallOwner(account: receiver.accountSession, viewModel: receiver)
             #expect(receiver.needsContactDeletionBackgroundRefresh)

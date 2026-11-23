@@ -51,8 +51,9 @@ extension GroupDeliveryFlowTests {
         #expect(receiver.groups.filter { $0.id == nextGroup }.count == 1)
     }
 
-    @Test(arguments: [false, true])
-    func foregroundAfterExpiryRecoversTheConfirmedInvitationOutcome(cancelled: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func nextSyncAfterExpiryRecoversTheConfirmedInvitationOutcome(cancelled: Bool, backgroundRefresh: Bool)
+        async throws {
         let authorDevice = GroupDeliveryTestIdentity("expiry-author")
         let recipientDevice = GroupDeliveryTestIdentity("expiry-recipient")
         defer {
@@ -98,9 +99,10 @@ extension GroupDeliveryFlowTests {
         }
         reopened.groupDeliveryClient = http.client
         try await checkConfirmedOutcomeAfterRestart(
-            on: reopened, receiver: receiver, recipient: recipientDevice,
-            groupID: invitation.groupID, cancelled: cancelled
+            on: reopened, recipient: recipientDevice,
+            groupID: invitation.groupID, cancelled: cancelled, backgroundRefresh: backgroundRefresh
         )
+        #expect(receiver.groups.contains { $0.id == invitation.groupID } == !cancelled)
         now = Date(timeIntervalSince1970: invitation.delivery.expiresAt + 21 * 86_400)
         await checkExpiredInvitationRetirement(on: reopened, originalWriteCount: writes)
     }
@@ -175,16 +177,18 @@ extension GroupDeliveryFlowTests {
 
     private func checkConfirmedOutcomeAfterRestart(
         on reopened: IntercomViewModel,
-        receiver: IntercomViewModel,
         recipient recipientDevice: GroupDeliveryTestIdentity,
         groupID: UUID,
-        cancelled: Bool
+        cancelled: Bool, backgroundRefresh: Bool
     ) async throws {
         let expected: GroupDeliveryRecord.State = cancelled ? .cancelled : .received
-        await reopened.synchronizeGroupDeliveries()
+        if backgroundRefresh {
+            try await expectSavedGroupBackgroundRefresh(reopened)
+        } else {
+            await reopened.synchronizeGroupDeliveries()
+        }
         #expect(reopened.groupInvitationDeliveryState(for: try recipientDevice.savedUser(), in: groupID) == expected)
         #expect(reopened.groupRepository.groupDeliveries.first?.credentialReference == nil)
-        #expect(receiver.groups.contains { $0.id == groupID } == !cancelled)
     }
 
     @Test(arguments: [false, true])
@@ -237,7 +241,7 @@ extension GroupDeliveryFlowTests {
                 name: "Saved before leaving the app", userIDs: [recipientID], id: groupID))
         #expect(starts == 1, "Request extra time before the save action returns")
         let pass = try #require(model.groupDeliveryTask)
-        await pass.value
+        _ = await pass.value
         #expect(finishes == 1)
         let record = try #require(model.groupRepository.groupDeliveries.first)
         #expect(record.groupID == groupID && GroupDeliveryHTTPStub.items.count == 1)

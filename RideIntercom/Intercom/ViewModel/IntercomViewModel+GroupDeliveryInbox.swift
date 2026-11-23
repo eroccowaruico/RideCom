@@ -23,17 +23,18 @@ extension IntercomViewModel {
 
     func receiveGroupDeliveries(
         client: InternetAccountClient, access: CallNotificationServiceAccess, generation: UUID
-    ) async {
+    ) async -> Bool {
         guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups,
               let signer = try? internetSettingsStore.invitationSigner(memberID: localMemberIdentity.memberID)
-        else { return }
+        else { return false }
         let session = GroupDeliveryInboxSession(client: client, signer: signer, access: access, generation: generation)
 
         // Resume locally saved work before reading new mail. An acknowledged packet
         // can disappear from the mailbox even if its response never reached this device.
         var waitingForSender = Set<UUID>()
+        var completed = true
         receiving: for _ in 0..<64 {
-            guard groupDeliveryInboxIsCurrent(session) else { return }
+            guard groupDeliveryInboxIsCurrent(session) else { return false }
             let pending = groupRepository.groupDeliveries.first {
                 $0.direction == .incoming && $0.state == .pending && $0.recipient == access.principal
                     && $0.recipientMemberID == signer.memberID && $0.recipientKey == signer.publicKey
@@ -45,9 +46,10 @@ extension IntercomViewModel {
                     recipientKey: signer.publicKey, access: access
                 ) : nil
             } catch {
+                completed = false
                 break
             }
-            guard groupDeliveryInboxIsCurrent(session) else { return }
+            guard groupDeliveryInboxIsCurrent(session) else { return false }
             guard let id = pending?.id ?? item?.requestID else {
                 await requestInvitationsForAdditionalDevice(session)
                 break
@@ -55,11 +57,14 @@ extension IntercomViewModel {
             switch await receiveGroupInvitation(id, pending: pending, item: item, session: session) {
             case .next: continue
             case .waitForSender: waitingForSender.insert(id)
-            case .finishInbox: break receiving
-            case .stopInbox: return
+            case .finishInbox:
+                completed = false
+                break receiving
+            case .stopInbox: return false
             }
         }
         refreshGroupStorageStatus()
+        return completed && groupDeliveryInboxIsCurrent(session)
     }
 
     private func groupDeliveryInboxIsCurrent(_ session: GroupDeliveryInboxSession) -> Bool {

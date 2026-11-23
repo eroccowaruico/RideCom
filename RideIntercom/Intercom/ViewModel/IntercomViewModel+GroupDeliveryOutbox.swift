@@ -7,34 +7,48 @@ extension IntercomViewModel {
         case stopSync
     }
 
-    func performGroupDeliverySync() async {
+    private enum OutgoingGroupDeliveryPass {
+        case completed
+        case deferred
+        case interrupted
+    }
+
+    func performGroupDeliverySync(backgroundRefresh: Bool) async -> Bool {
         guard canEditSavedGroups, let client = groupDeliveryClient,
               let access = try? internetSettingsStore.notificationAccess(memberID: localMemberIdentity.memberID)
-        else { return }
+        else { return false }
         let generation = accountAccessID
         if let transfer = invitationBackgroundTransfer {
             await transfer.restore()
-            guard groupDeliveryIsCurrent(access, accountID: generation) else { return }
+            guard groupDeliveryIsCurrent(access, accountID: generation) else { return false }
             scheduleBackgroundGroupDeliveries()
         }
         let uploadBinding = invitationBackgroundTransfer.flatMap { _ in
             InternetAccountClient.backgroundSubmissionSessionBinding(for: access.accessToken)
         }
-        _ = await synchronizeContactDeletionRelay(client: client, access: access, generation: generation)
+        var deletionsCompleted = true
+        if !backgroundRefresh || needsContactDeletionBackgroundRefresh {
+            deletionsCompleted = await synchronizeContactDeletionRelay(
+                client: client, access: access, generation: generation, schedulesReceiptRetry: !backgroundRefresh
+            )
+        }
         guard canEditSavedGroups, notifications.canUseNotifications,
-              groupDeliveryIsCurrent(access, accountID: generation) else { return }
+              groupDeliveryIsCurrent(access, accountID: generation) else { return false }
         do {
             try groupRepository.removeFinishedGroupDeliveries(now: callAccessNow().timeIntervalSince1970)
         } catch {
             reportGroupStorageError(error)
-            return
+            return false
         }
-        guard await sendOutgoingGroupDeliveries(
+        let sent = await sendOutgoingGroupDeliveries(
             client: client, access: access, generation: generation, uploadBinding: uploadBinding
-        ) else { return }
-        await receiveGroupDeliveries(client: client, access: access, generation: generation)
+        )
+        guard sent != .interrupted else { return false }
+        let received = await receiveGroupDeliveries(client: client, access: access, generation: generation)
         await queueDeliveriesForAdditionalDevices(client: client, access: access, generation: generation)
         finishNearbyGroupDeliveryIfComplete()
+        return deletionsCompleted && sent == .completed && received
+            && groupDeliveryIsCurrent(access, accountID: generation)
     }
 
     private func sendOutgoingGroupDeliveries(
@@ -42,7 +56,7 @@ extension IntercomViewModel {
         access: CallNotificationServiceAccess,
         generation: UUID,
         uploadBinding: String?
-    ) async -> Bool {
+    ) async -> OutgoingGroupDeliveryPass {
         // One finite pass. Offline work stays in the manifest for the next sync trigger.
         let outgoing = groupRepository.groupDeliveries
         // The inbox accepts cancellations even when the Worker rejects new submissions.
@@ -51,8 +65,8 @@ extension IntercomViewModel {
             + outgoing.filter { $0.internetAction == .send && $0.state == .pending }
             + outgoing.filter { $0.internetAction == .send && $0.state == .queued }
             + outgoing.filter { $0.internetAction == .checkOutcome }).map(\.id)
-        sending: for id in outgoingIDs {
-            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return false }
+        for id in outgoingIDs {
+            guard groupDeliveryIsCurrent(access, accountID: generation), canEditSavedGroups else { return .interrupted }
             // A member may have been removed while awaiting another delivery.
             guard let record = groupRepository.groupDeliveries.first(where: { $0.id == id }) else { continue }
             let step = await attemptOutgoingGroupDelivery(
@@ -60,11 +74,11 @@ extension IntercomViewModel {
             )
             switch step {
             case .next: continue
-            case .stopSending: break sending
-            case .stopSync: return false
+            case .stopSending: return .deferred
+            case .stopSync: return .interrupted
             }
         }
-        return true
+        return .completed
     }
 
     private func attemptOutgoingGroupDelivery(

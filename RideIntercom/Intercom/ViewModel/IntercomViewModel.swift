@@ -43,7 +43,7 @@ final class IntercomViewModel {
         AppBackgroundTime.begin(name: "Finish Group Invitation Delivery", expiration: $0)
     }
     @ObservationIgnored var endGroupDeliveryBackgroundTime: (@MainActor () -> Void)?
-    @ObservationIgnored var groupDeliveryTask: Task<Void, Never>?
+    @ObservationIgnored var groupDeliveryTask: Task<Bool, Never>?
     @ObservationIgnored var groupDeliverySyncState = GroupDeliverySyncState()
     @ObservationIgnored var allowsNearbyGroupDelivery = SystemSurfaceScope.permitsSystemAccess
     @ObservationIgnored var nearbyGroupDeliveryExchange: NearbyGroupDeliveryExchange?

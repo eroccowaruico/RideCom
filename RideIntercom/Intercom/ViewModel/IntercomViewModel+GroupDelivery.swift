@@ -9,13 +9,15 @@ struct GroupDeliverySyncState {
 extension IntercomViewModel {
     private struct SavedCommunicationRefreshWork {
         let invitationReplies: Bool
+        let groupDeliveries: Bool
         let contactDeletions: Bool
 
-        var hasWork: Bool { invitationReplies || contactDeletions }
+        var hasWork: Bool { invitationReplies || groupDeliveries || contactDeletions }
     }
 
     private var savedCommunicationRefreshWork: SavedCommunicationRefreshWork {
         .init(invitationReplies: needsInvitationReplyBackgroundRefresh,
+              groupDeliveries: needsGroupDeliveryBackgroundRefresh,
               contactDeletions: needsContactDeletionBackgroundRefresh)
     }
 
@@ -25,9 +27,28 @@ extension IntercomViewModel {
         let work = savedCommunicationRefreshWork
         guard work.hasWork, !Task.isCancelled else { return false }
         async let replies = work.invitationReplies ? refreshInvitationRepliesInBackground() : true
-        let deletions = work.contactDeletions ? await refreshContactDeletionsInBackground() : true
+        let deliveriesCompleted: Bool
+        if work.groupDeliveries {
+            deliveriesCompleted = await refreshGroupDeliveriesInBackground()
+        } else {
+            deliveriesCompleted = work.contactDeletions ? await refreshContactDeletionsInBackground() : true
+        }
         let repliesCompleted = await replies
-        return repliesCompleted && deletions && !Task.isCancelled
+        return repliesCompleted && deliveriesCompleted && !Task.isCancelled
+    }
+
+    private var needsGroupDeliveryBackgroundRefresh: Bool {
+        hasCurrentAccountAccess && canEditSavedGroups && groupDeliveryClient != nil && hasBackgroundGroupDeliveryWork
+    }
+
+    private func refreshGroupDeliveriesInBackground() async -> Bool {
+        guard !Task.isCancelled, groupDeliveryTask == nil, needsGroupDeliveryBackgroundRefresh else { return false }
+        let task = startGroupDeliverySync(backgroundRefresh: true)
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     enum GroupDeliveryTrigger {
@@ -55,20 +76,25 @@ extension IntercomViewModel {
         callRelationshipSync.resumeDirectRestore?()
         guard groupDeliveryClient != nil, canEditSavedGroups else { return }
         requestInvitationInternetReply(restart: true)
-        if hasPendingContactDeletionRelay || canReceiveRelayedContactDeletions {
-            requestGroupDeliverySync(.networkRecovered)
-            if !groupDeliveryIsForeground, hasCurrentAccountAccess {
-                requestGroupDeliveryBackgroundTime(run: groupDeliverySyncState.runID)
-            }
-            return
+        let canSyncInvitations = groupDeliveryIsForeground
+            ? notifications.canUseNotifications : hasBackgroundGroupDeliveryWork
+        guard canSyncInvitations || hasPendingContactDeletionRelay || canReceiveRelayedContactDeletions else { return }
+        requestGroupDeliverySync(.networkRecovered)
+        if !groupDeliveryIsForeground, hasCurrentAccountAccess {
+            requestGroupDeliveryBackgroundTime(run: groupDeliverySyncState.runID)
         }
-        guard notifications.canUseNotifications else { return }
+    }
+
+    private var hasBackgroundGroupDeliveryWork: Bool {
+        notifications.hasGroupInvitationReceivingPermission
+            || (hasRecoverableGroupDelivery && notifications.canUseNotifications)
+    }
+
+    private var hasRecoverableGroupDelivery: Bool {
         let now = callAccessNow().timeIntervalSince1970
-        if groupDeliveryIsForeground || groupRepository.groupDeliveries.contains(where: { record in
+        return groupRepository.groupDeliveries.contains { record in
             guard let current = record.retainingOutcome(at: now) else { return false }
             return current.internetAction != nil || (current.direction == .incoming && current.state == .pending)
-        }) {
-            requestGroupDeliverySync(.networkRecovered)
         }
     }
 
@@ -114,21 +140,7 @@ extension IntercomViewModel {
         if trigger == .localChange { refreshNearbyGroupDelivery(afterSave: true) }
         guard groupDeliveryClient != nil, hasCurrentAccountAccess else { return }
         if groupDeliveryTask == nil {
-            groupDeliverySyncState.needsSync = true
-            let run = UUID()
-            groupDeliverySyncState.runID = run
-            groupDeliveryTask = Task {
-                defer {
-                    if groupDeliverySyncState.runID == run {
-                        groupDeliveryTask = nil
-                        finishGroupDeliveryBackgroundTime()
-                    }
-                }
-                while groupDeliverySyncState.needsSync && !Task.isCancelled && hasCurrentAccountAccess {
-                    groupDeliverySyncState.needsSync = false
-                    await performGroupDeliverySync()
-                }
-            }
+            _ = startGroupDeliverySync(backgroundRefresh: false)
         } else if trigger != .refresh {
             groupDeliverySyncState.needsSync = true
         }
@@ -140,6 +152,32 @@ extension IntercomViewModel {
             requestGroupDeliveryBackgroundTime(run: groupDeliverySyncState.runID)
         }
         if trigger == .localChange { scheduleBackgroundGroupDeliveries() }
+    }
+
+    private func startGroupDeliverySync(backgroundRefresh: Bool) -> Task<Bool, Never> {
+        groupDeliverySyncState.needsSync = true
+        let run = UUID()
+        groupDeliverySyncState.runID = run
+        let task = Task {
+            defer {
+                if groupDeliverySyncState.runID == run {
+                    groupDeliveryTask = nil
+                    finishGroupDeliveryBackgroundTime()
+                    if backgroundRefresh && groupDeliveryIsForeground && groupDeliverySyncState.needsSync {
+                        requestGroupDeliverySync()
+                    }
+                }
+            }
+            var completed = false
+            while groupDeliverySyncState.needsSync && !Task.isCancelled && hasCurrentAccountAccess {
+                groupDeliverySyncState.needsSync = false
+                let isBackgroundPass = backgroundRefresh && !groupDeliveryIsForeground
+                completed = await performGroupDeliverySync(backgroundRefresh: isBackgroundPass)
+            }
+            return completed && !Task.isCancelled
+        }
+        groupDeliveryTask = task
+        return task
     }
 
     /// Request time before the save or notification callback yields, even if a pass is already running.
@@ -165,7 +203,7 @@ extension IntercomViewModel {
 
     func synchronizeGroupDeliveries(_ trigger: GroupDeliveryTrigger = .refresh) async {
         requestGroupDeliverySync(trigger)
-        await groupDeliveryTask?.value
+        _ = await groupDeliveryTask?.value
     }
     func stopGroupDeliverySync() {
         invitationBackgroundTransfer?.reconcile(keeping: [])

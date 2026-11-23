@@ -6,12 +6,14 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryWorkerTests {
-    @Test(.timeLimit(.minutes(1)), arguments: [1, 9])
-    func theActualWorkerDeliversAndAcknowledgesAGroupWithoutStartingTheRecipientsCall(count: Int) async throws {
-        try await withWorker { try await exerciseGroupDelivery(count: count) }
+    @Test(.timeLimit(.minutes(1)), arguments: [1, 9], [false, true])
+    func theActualWorkerDeliversAndAcknowledgesAGroupWithoutStartingTheRecipientsCall(
+        count: Int, backgroundRefresh: Bool
+    ) async throws {
+        try await withWorker { try await exerciseGroupDelivery(count: count, backgroundRefresh: backgroundRefresh) }
     }
 
-    private func exerciseGroupDelivery(count: Int) async throws {
+    private func exerciseGroupDelivery(count: Int, backgroundRefresh: Bool) async throws {
         let authorDevice = GroupDeliveryTestIdentity("worker-author"),
             recipientDevice = GroupDeliveryTestIdentity("worker-recipient")
         defer { authorDevice.remove(); recipientDevice.remove() }
@@ -35,7 +37,8 @@ extension GroupDeliveryWorkerTests {
         #expect(permission.groupGrant != nil)
         try left.viewModel.notifications.receivePermission(permission, peerID: recipientDevice.memberID)
         let run = TransferRun(
-            authorDevice: authorDevice, recipientDevice: recipientDevice, left: left, right: right, client: client)
+            authorDevice: authorDevice, recipientDevice: recipientDevice, left: left, right: right, client: client,
+            backgroundRefresh: backgroundRefresh)
         let first = try await startInitialDelivery(count: count, run: run)
         GroupWorkerHTTPBridge.dropReceiptForID = first.lostReceiptID
         defer {
@@ -82,7 +85,11 @@ extension GroupDeliveryWorkerTests {
         let group = try #require(left.viewModel.groups.first(where: { groups.invited.contains($0.id) }))
         let call = left.viewModel.currentCallReference
         let recipientCall = right.viewModel.currentCallReference
-        await left.viewModel.synchronizeGroupDeliveries()
+        if run.backgroundRefresh {
+            try await refreshSavedGroupDeliveries(left.viewModel)
+        } else {
+            await left.viewModel.synchronizeGroupDeliveries()
+        }
         let author = left.viewModel
         #expect(author.groupRepository.groupDeliveries.first(where: { $0.id == unsent.id })?.state == .cancelled)
         let revoked = try #require(
@@ -96,7 +103,7 @@ extension GroupDeliveryWorkerTests {
         author.removeMember(recipientDevice.memberID, from: groups.revokedBeforeReceipt)
         #expect(backgroundTime.requested == 1, "Request time before returning from the removal")
         #expect(author.groupRepository.groupDeliveries.first(where: { $0.id == revoked.id })?.state == .cancelled)
-        await author.groupDeliveryTask?.value
+        _ = await author.groupDeliveryTask?.value
         #expect(backgroundTime.released == 1)
         #expect(!author.groupRepository.groupDeliveries.contains { $0.id == revoked.id })
         #expect(author.savedRemoteUsers.contains { $0.id == recipientDevice.personID })
@@ -141,7 +148,12 @@ extension GroupDeliveryWorkerTests {
         #expect(!receiver.groups.contains { $0.id == first.groupID })
         let reopenedCall = receiver.currentCallReference
         receiver.groupDeliveryClient = client
-        await receiver.synchronizeGroupDeliveries()
+        if run.backgroundRefresh {
+            #expect(!receiver.canReceiveRelayedContactDeletions && !receiver.hasPendingContactDeletionRelay)
+            try await refreshSavedGroupDeliveries(receiver)
+        } else {
+            await receiver.synchronizeGroupDeliveries()
+        }
         #expect(GroupWorkerHTTPBridge.cancellationResponse == "cancelled")
         #expect(
             !receiver.groups.contains { $0.id == first.groups.revokedAfterDownload },
@@ -161,7 +173,11 @@ extension GroupDeliveryWorkerTests {
         let source = try #require(try left.viewModel.groupRepository.credential(for: first.groupID))
         let target = try #require(try receiver.groupRepository.credential(for: first.groupID))
         #expect(SHA256.hash(data: Data(source.secret.utf8)) == SHA256.hash(data: Data(target.secret.utf8)))
-        await left.viewModel.synchronizeGroupDeliveries()
+        if run.backgroundRefresh {
+            try await refreshSavedGroupDeliveries(left.viewModel)
+        } else {
+            await left.viewModel.synchronizeGroupDeliveries()
+        }
         #expect(left.viewModel.groupRepository.groupDeliveries.filter { $0.state == .received }.count == count)
         #expect(
             left.viewModel.groupRepository.groupDeliveries.first(where: { $0.id == first.afterDownloadID })?.state
@@ -171,6 +187,13 @@ extension GroupDeliveryWorkerTests {
             receiver.groupRepository.groupDeliveries.first(where: { $0.id == first.lostReceiptID })?.state
                 == .received)
         #expect(receiver.savedRemoteUsers.count == 1)
+    }
+
+    private func refreshSavedGroupDeliveries(_ model: IntercomViewModel) async throws {
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        model.setGroupDeliveryForeground(false)
+        try #require(owner.needsSavedCommunicationBackgroundRefresh)
+        try #require(await owner.refreshSavedCommunicationInBackground())
     }
 
     private func verifyConflictingInvitation(run: TransferRun, receiver: IntercomViewModel) async throws -> UUID {
@@ -240,6 +263,7 @@ extension GroupDeliveryWorkerTests {
         let left: AppTestSupport.Harness
         let right: AppTestSupport.Harness
         let client: InternetAccountClient
+        let backgroundRefresh: Bool
 
         var author: IntercomViewModel { left.viewModel }
     }
