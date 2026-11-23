@@ -175,6 +175,31 @@ class ArtifactPublicationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assert_old()
 
+    def test_home_paths_in_debug_symbols_do_not_publish_or_enter_diagnostics(self) -> None:
+        private_path = b'/Users/fixture-rider/source/out'
+        with zipfile.ZipFile(self.source, 'a') as archive:
+            archive.writestr('WebRTC.xcframework/ios-arm64/dSYMs/WebRTC.framework.dSYM/'
+                             'Contents/Resources/DWARF/WebRTC', b'\x00' + private_path + b'\x00')
+        self.write_provenance()
+
+        result = self.run_entry()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('a user home path', result.stderr)
+        self.assertNotIn(private_path.decode(), result.stdout + result.stderr)
+        self.assert_old()
+
+    def test_debug_symbols_built_outside_a_home_directory_can_be_published(self) -> None:
+        with zipfile.ZipFile(self.source, 'a') as archive:
+            archive.writestr('WebRTC.xcframework/ios-arm64/dSYMs/WebRTC.framework.dSYM/'
+                             'Contents/Resources/DWARF/WebRTC', b'\x00/private/tmp/webrtc/src/out\x00')
+        self.write_provenance()
+
+        result = self.run_entry()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_new()
+
     def test_unsupported_or_failed_exchange_keeps_the_installed_pair(self) -> None:
         module = self.module()
         for code in (errno.ENOTSUP, errno.EIO, errno.ENOSPC):

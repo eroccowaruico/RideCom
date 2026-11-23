@@ -6,9 +6,11 @@ import ctypes
 import errno
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,6 +53,17 @@ def _validate_destination(destination: Path) -> None:
             raise ValueError('Artifact directory contains unrelated files; existing contents were preserved')
 
 
+def _verify_debug_symbol_paths(artifact: Path) -> None:
+    user_home = re.compile(rb'/(?:Users/(?!Shared/)|home/)[^/\x00\r\n]+/')
+    with zipfile.ZipFile(artifact) as archive:
+        for member in archive.infolist():
+            if member.is_dir() or '.dSYM/Contents/Resources/DWARF/' not in member.filename:
+                continue
+            if user_home.search(archive.read(member)):
+                raise ValueError('WebRTC debug symbols contain a user home path. '
+                                 'Build with WEBRTC_BUILD_ROOT outside user home directories.')
+
+
 def _cleanup_owned_pair(staging: Path) -> None:
     if not os.path.lexists(staging):
         return
@@ -85,6 +98,7 @@ def import_artifact(source: str | Path, destination: str | Path, verifier: str |
         with tempfile.TemporaryDirectory(prefix='WebRTC-verify-') as unpacked:
             subprocess.run(['unzip', '-q', str(staged_zip), '-d', unpacked], check=True)
             subprocess.run([str(verifier), str(Path(unpacked) / 'WebRTC.xcframework')], check=True)
+        _verify_debug_symbol_paths(staged_zip)
         checksum = file_sha256(staged_zip)
         provenance = read_provenance(source, checksum)
         _write_metadata(staging / METADATA_NAME, source.name, checksum, provenance)

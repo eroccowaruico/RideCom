@@ -154,6 +154,8 @@ scripts/BuildWebRTC/import-webrtc-xcframework.sh
 
 これはプロセス中断と公開操作の整合性であり、電源断・媒体障害の耐久性や、別processが交換をまたいで2ファイルを個別に開く一連の読取りまでtransactionにする保証ではない。常設の履歴・復旧台帳・採用先symlinkは追加しない。
 
+共有するSDKは、個人名を含まない作業パスでビルドする。既存の `WEBRTC_BUILD_ROOT` で作業場所を指定できる。取り込みはコピー済みのZIPを検査し、dSYMに個人のホームパスがあれば中止する。検出したパスは表示せず、採用済みのZIPと記録を保つ。
+
 新規ビルドは、upstreamとdepot_toolsの完全なcommit、GN・Xcode・各SDKのバージョンを `.provenance.json` に記録する。同じファイルに、無改変のビルドであることと、各sliceの`args.gn`、生成したZIPのSHA-256も記録する。ビルド中にcheckoutやdepot_toolsのcommitが変わると更新を中止する。取り込みはコピーしたZIPを検証し、SHA-256と一致する記録を `WebRTC.xcframework.metadata` の `build_provenance` に移す。新しく取り込むZIPに無改変のビルド記録がない場合や、SHA-256が一致しない場合は、採用済みZIPとmetadataを維持する。`ASSEMBLE_ONLY=true` と既存ZIPの手動取り込みでは新規ビルドの記録を後付けしない。
 
 特定のzipを取り込む場合は `WEBRTC_XCFRAMEWORK_ZIP` を指定する。
