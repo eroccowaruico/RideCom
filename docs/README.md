@@ -159,6 +159,8 @@
 | [development/BuildWebRTC/WebRTCビルドスクリプト.md](<development/BuildWebRTC/WebRTCビルドスクリプト.md>) | WebRTCビルドスクリプト |
 | [development/Cloudflare試用手順.md](<development/Cloudflare試用手順.md>) | Cloudflare試用手順 |
 | [development/Cloudflare費用試算.md](<development/Cloudflare費用試算.md>) | Cloudflare 音声通話の費用試算 |
+| [コア優先スキルの判断と検証の記録](development/history/コア優先スキルの判断と検証の記録.md) | 指示の背景と机上評価の範囲 |
+| [モデル選択と作業分担の評価記録](development/history/モデル選択と作業分担の評価記録.md) | 当時の選択理由と評価結果 |
 | [development/history/旧機能拡張の着手順.md](<development/history/旧機能拡張の着手順.md>) | 初期の機能依存順と実装追記の履歴 |
 | [development/history/旧HE-AAC-v2追加計画.md](<development/history/旧HE-AAC-v2追加計画.md>) | 旧HE-AAC-v2追加計画 |
 | [development/history/旧アーキテクチャ再編計画.md](<development/history/旧アーキテクチャ再編計画.md>) | 旧アーキテクチャ再編計画 |
