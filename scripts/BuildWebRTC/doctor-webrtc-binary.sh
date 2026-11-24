@@ -24,7 +24,8 @@ default_developer_dir() {
 }
 
 RTC_PACKAGE_DIR="${RTC_PACKAGE_DIR:-${REPOSITORY_ROOT}/RideIntercom/packages/RTC}"
-WEBRTC_BUILD_ROOT="${WEBRTC_BUILD_ROOT:-${REPOSITORY_PARENT}/webrtc-build}"
+# shellcheck source=scripts/BuildWebRTC/webrtc-build-root.sh
+source "${SCRIPT_DIR}/webrtc-build-root.sh"
 DEPOT_TOOLS_DIR="${DEPOT_TOOLS_DIR:-${REPOSITORY_PARENT}/depot_tools}"
 DEVELOPER_DIR="${DEVELOPER_DIR:-$(default_developer_dir)}"
 RUN_SWIFTPM_CHECK="${RUN_SWIFTPM_CHECK:-true}"
@@ -78,17 +79,17 @@ else
 fi
 
 base_outputs=(
-  "ios-arm64-device/WebRTC.framework"
-  "ios-x64-simulator/WebRTC.framework"
-  "ios-arm64-simulator/WebRTC.framework"
-  "macos-x64/WebRTC.framework"
-  "macos-arm64/WebRTC.framework"
+  "ios-arm64-device/build.ninja"
+  "ios-x64-simulator/build.ninja"
+  "ios-arm64-simulator/build.ninja"
+  "macos-x64/build.ninja"
+  "macos-arm64/build.ninja"
 )
 
 missing_base=0
 for output in "${base_outputs[@]}"; do
-  if [[ -d "${WEBRTC_BUILD_ROOT}/src/out/${output}" ]]; then
-    ok "Build output exists: ${output}"
+  if [[ -f "${WEBRTC_BUILD_ROOT}/src/out/${output}" ]]; then
+    ok "GN build plan exists: ${output}"
   else
     warn "Build output missing: ${output}"
     missing_base=1
@@ -100,18 +101,18 @@ fi
 
 echo
 if [[ -d "${WEBRTC_BUILD_ROOT}/src/out/WebRTC.xcframework" ]]; then
-  if "${SCRIPT_DIR}/verify-webrtc-xcframework.sh" "${WEBRTC_BUILD_ROOT}/src/out/WebRTC.xcframework" >/dev/null; then
+  if "${SCRIPT_DIR}/verify-webrtc-xcframework.sh" "${WEBRTC_BUILD_ROOT}/src/out/WebRTC.xcframework" modular >/dev/null; then
     ok "Generated WebRTC.xcframework header verification passed"
   else
     fail "Generated WebRTC.xcframework header verification failed"
-    next_action "ASSEMBLE_ONLY=true IOS=true MACOS=true scripts/BuildWebRTC/build-webrtc-xcframework.sh"
+    next_action "ASSEMBLE_ONLY=true scripts/BuildWebRTC/build-webrtc-xcframework.sh"
   fi
 else
   warn "Generated WebRTC.xcframework does not exist"
   next_action "scripts/BuildWebRTC/update-webrtc-binary.sh"
 fi
 
-zip_path="$(find "${WEBRTC_BUILD_ROOT}/src/out" -maxdepth 1 -type f -name 'WebRTC-*.xcframework.zip' -print 2>/dev/null | sort | tail -1 || true)"
+zip_path="$(find_webrtc_candidate "${WEBRTC_BUILD_ROOT}/src/out")"
 if [[ -n "${zip_path}" ]]; then
   ok "Generated zip exists: ${zip_path}"
   shasum -a 256 "${zip_path}"

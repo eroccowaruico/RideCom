@@ -85,7 +85,10 @@ def output(*command: str) -> str:
     return subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL).strip()
 
 
-def record(zip_path: Path, upstream: str, depot: str, platforms: list[str]) -> None:
+def record(
+    zip_path: Path, upstream: str, depot: str, platforms: list[str], gn_output: Path | None = None,
+) -> None:
+    build_root = gn_output or zip_path.parent
     version = re.fullmatch(r'Xcode (\S+)\nBuild version (\S+)', output('xcodebuild', '-version'))
     if version is None:
         raise ValueError('Xcode did not report version and build')
@@ -101,7 +104,7 @@ def record(zip_path: Path, upstream: str, depot: str, platforms: list[str]) -> N
         'xcode_version': version_number,
         'xcode_build': build,
         'sdks': sdks,
-        'gn_args_sha256': {name: file_sha256(zip_path.parent / name / 'args.gn')
+        'gn_args_sha256': {name: file_sha256(build_root / name / 'args.gn')
                           for sdk in platforms for name in PLATFORM_OUTPUTS[sdk]},
     }, checksum)
     with provenance_path(zip_path).open('x') as stream:
@@ -114,9 +117,10 @@ def main() -> None:
     parser.add_argument('upstream_revision')
     parser.add_argument('depot_tools_revision')
     parser.add_argument('platforms', nargs='+', choices=PLATFORM_OUTPUTS)
+    parser.add_argument('--gn-output', type=Path, help='Prepared GN directories when the ZIP is staged elsewhere')
     inputs = parser.parse_args()
     try:
-        record(inputs.zip, inputs.upstream_revision, inputs.depot_tools_revision, inputs.platforms)
+        record(inputs.zip, inputs.upstream_revision, inputs.depot_tools_revision, inputs.platforms, inputs.gn_output)
     except (OSError, ValueError, subprocess.CalledProcessError):
         parser.exit(1, 'WebRTC build provenance could not be recorded.\n')
 

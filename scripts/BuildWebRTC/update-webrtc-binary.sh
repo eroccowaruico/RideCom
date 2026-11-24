@@ -24,7 +24,8 @@ default_developer_dir() {
 }
 
 RTC_PACKAGE_DIR="${RTC_PACKAGE_DIR:-${REPOSITORY_ROOT}/RideIntercom/packages/RTC}"
-WEBRTC_BUILD_ROOT="${WEBRTC_BUILD_ROOT:-${REPOSITORY_PARENT}/webrtc-build}"
+# shellcheck source=scripts/BuildWebRTC/webrtc-build-root.sh
+source "${SCRIPT_DIR}/webrtc-build-root.sh"
 DEPOT_TOOLS_DIR="${DEPOT_TOOLS_DIR:-${REPOSITORY_PARENT}/depot_tools}"
 DEVELOPER_DIR="${DEVELOPER_DIR:-$(default_developer_dir)}"
 WEBRTC_BRANCH="${WEBRTC_BRANCH:-}"
@@ -46,8 +47,7 @@ the candidate in an isolated RTC package, and only then imports the zip.
 
 Common overrides:
   WEBRTC_BRANCH=branch-heads/7727   Build a fixed WebRTC branch.
-  IOS=true|false                    Include iOS device/simulator slices. Default: ${IOS}
-  MACOS=true|false                  Include macOS universal slice. Default: ${MACOS}
+  WEBRTC_BUILD_ROOT=/path           Use a checkout outside a personal home directory.
   RUN_TESTS=false                   Skip isolated RTC package tests.
   RUN_SWIFTPM_VALIDATION=false      Skip RTCNativeWebRTC build validation.
 USAGE
@@ -97,7 +97,7 @@ export WEBRTC_BRANCH
 echo "WEBRTC_BRANCH=${WEBRTC_BRANCH}"
 
 log_step "Building WebRTC.xcframework"
-"${SCRIPT_DIR}/build-webrtc-xcframework.sh"
+ASSEMBLE_ONLY=false "${SCRIPT_DIR}/build-webrtc-xcframework.sh"
 
 log_step "Validating the candidate in an isolated RTC package"
 STAGING_ROOT="$(mktemp -d)"

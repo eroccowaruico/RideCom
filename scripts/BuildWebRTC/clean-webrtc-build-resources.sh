@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-REPOSITORY_PARENT="$(cd "${REPOSITORY_ROOT}/.." && pwd)"
-WEBRTC_BUILD_ROOT="${WEBRTC_BUILD_ROOT:-${REPOSITORY_PARENT}/webrtc-build}"
+# shellcheck source=scripts/BuildWebRTC/webrtc-build-root.sh
+source "${SCRIPT_DIR}/webrtc-build-root.sh"
 RTC_PACKAGE_DIR="${RTC_PACKAGE_DIR:-${REPOSITORY_ROOT}/RideIntercom/packages/RTC}"
 CLEAN_MODE="${CLEAN_MODE:-build-output}"
 DRY_RUN="${DRY_RUN:-true}"

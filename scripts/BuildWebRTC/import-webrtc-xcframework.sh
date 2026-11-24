@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-REPOSITORY_PARENT="$(cd "${REPOSITORY_ROOT}/.." && pwd)"
-WEBRTC_BUILD_ROOT="${WEBRTC_BUILD_ROOT:-${REPOSITORY_PARENT}/webrtc-build}"
+# shellcheck source=scripts/BuildWebRTC/webrtc-build-root.sh
+source "${SCRIPT_DIR}/webrtc-build-root.sh"
 DEFAULT_OUTPUT_DIR="${WEBRTC_BUILD_ROOT}/src/out"
 OUTPUT_DIR="${WEBRTC_OUTPUT_DIR:-${DEFAULT_OUTPUT_DIR}}"
 RTC_PACKAGE_DIR="${RTC_PACKAGE_DIR:-${REPOSITORY_ROOT}/RideIntercom/packages/RTC}"
@@ -12,7 +12,7 @@ ARTIFACT_DIR="${WEBRTC_ARTIFACT_DIR:-${RTC_PACKAGE_DIR}/BinaryArtifacts/WebRTC}"
 SOURCE_ZIP="${WEBRTC_XCFRAMEWORK_ZIP:-}"
 
 if [[ -z "${SOURCE_ZIP}" ]]; then
-  SOURCE_ZIP="$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name 'WebRTC-*.xcframework.zip' -print 2>/dev/null | sort | tail -1)"
+  SOURCE_ZIP="$(find_webrtc_candidate "${OUTPUT_DIR}")"
 fi
 
 if [[ -z "${SOURCE_ZIP}" || ! -f "${SOURCE_ZIP}" ]]; then

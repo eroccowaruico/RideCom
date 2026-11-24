@@ -20,7 +20,7 @@ class WebRTCScriptTests(unittest.TestCase):
             root = Path(directory)
             scripts = root / 'scripts/BuildWebRTC'
             scripts.mkdir(parents=True)
-            for name in ('doctor-webrtc-binary.sh', 'webrtc_provenance.py'):
+            for name in ('doctor-webrtc-binary.sh', 'webrtc_provenance.py', 'webrtc-build-root.sh'):
                 shutil.copy2(SCRIPTS / name, scripts)
             resolver = scripts / 'resolve-webrtc-branch.sh'
             resolver.write_text('#!/bin/sh\nexit 1\n')
@@ -234,7 +234,7 @@ class WebRTCScriptTests(unittest.TestCase):
                 'gn_args_sha256': dict.fromkeys(('macos-arm64', 'macos-x64'), '3' * 64),
             }
             candidate.with_suffix('.provenance.json').write_text(json.dumps(build_record))
-            (scripts / 'build-webrtc-xcframework.sh').write_text('#!/bin/bash\nexit 0\n')
+            (scripts / 'build-webrtc-xcframework.sh').write_text('#!/bin/bash\ntest "$ASSEMBLE_ONLY" = false\n')
             # A broken candidate package must fail compilation before installation.
             (package / 'Package.swift').write_text('// swift-tools-version: 6.3\ninvalid manifest\n')
             developer = Path(os.environ.get('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer'))
@@ -244,7 +244,8 @@ class WebRTCScriptTests(unittest.TestCase):
                 (depot / name).touch(mode=0o755)
             environment = dict(os.environ, DEVELOPER_DIR=str(developer), DEPOT_TOOLS_DIR=str(depot),
                                WEBRTC_BUILD_ROOT=str(root / 'build'), RTC_PACKAGE_DIR=str(package),
-                               WEBRTC_BRANCH='branch-heads/test', RUN_SWIFTPM_VALIDATION='true', RUN_TESTS='true')
+                               WEBRTC_BRANCH='branch-heads/test', ASSEMBLE_ONLY='true',
+                               RUN_SWIFTPM_VALIDATION='true', RUN_TESTS='true')
             result = subprocess.run([str(scripts / 'update-webrtc-binary.sh')], env=environment,
                                     capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)

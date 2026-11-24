@@ -14,7 +14,7 @@ WebRTC本体とChromium依存ソースは巨大なため、`RideIntercom` reposi
 | `scripts/BuildWebRTC/doctor-webrtc-binary.sh` | 現在のWebRTC build/import状態を診断し、次に実行する具体コマンドを表示する | 失敗したら最初に使う |
 | `scripts/BuildWebRTC/resolve-webrtc-branch.sh` | Chromium Dashboardからstable milestoneのWebRTC branch-headを取得する | 直接実行またはbuild scriptから自動実行する |
 | `scripts/BuildWebRTC/build-current-webrtc-xcframework.sh` | 現在stableのWebRTC branchを自動取得して `WebRTC.xcframework` をビルドする | 上位スクリプトが内部で使う。buildだけを確認したい場合に使う |
-| `scripts/BuildWebRTC/build-webrtc-xcframework.sh` | 指定されたbranch、platform、deployment targetでビルドする | 上位スクリプトが内部で使う。branchやplatformを固定したい場合に使う |
+| `scripts/BuildWebRTC/build-webrtc-xcframework.sh` | 指定されたbranchと最小OSバージョンで公式C++ターゲットを組み立てる | 上位スクリプトが内部で使う。branchを固定したい場合にも使う |
 | `scripts/BuildWebRTC/verify-webrtc-xcframework.sh` | Info.plist、実バイナリのarchitecture、必須platform、iOS実機dSYMのUUID、public headersを検証する | 上位スクリプトが内部で使う。成果物だけを検証したい場合に使う |
 | `scripts/BuildWebRTC/import-webrtc-xcframework.sh` | 検証済みzipをRTC package配下のbinary target入力へ取り込む | 上位スクリプトが内部で使う。既存zipだけを取り込み直す場合に使う |
 | `scripts/BuildWebRTC/import_webrtc_artifact.py` | 同一filesystemでzipとmetadataを準備・検証し、directory単位で採用する | import shellから内部呼び出し。利用者の追加操作は不要 |
@@ -26,7 +26,7 @@ WebRTC本体とChromium依存ソースは巨大なため、`RideIntercom` reposi
 | 項目 | 標準値 | 説明 |
 |---|---|---|
 | depot_tools | `../depot_tools` | repository親ディレクトリから見た既定位置。`fetch`、`gclient`、`gn`、`ninja` を提供する |
-| WebRTC build root | `../webrtc-build` | repository親ディレクトリから見た既定位置。WebRTC source checkoutとbuild outputを置く |
+| `WEBRTC_BUILD_ROOT` | macOSが利用者ごとに確保する一時領域の `ridecom-webrtc-build` | checkoutと生成物を置く。個人のホーム外であれば別の場所を指定できる |
 | `RideIntercom` repository | current directory | スクリプトと仕様ドキュメントだけを置く |
 | Xcode | `xcode-select -p` | 必要な場合だけ `DEVELOPER_DIR` で上書きする |
 | Python | macOSの `/usr/bin/python3`（3.9以降） | ビルド情報の記録とZIPの取り込みに使う |
@@ -46,8 +46,8 @@ scripts/BuildWebRTC/update-webrtc-binary.sh
 |---|---|---|
 | branch解決 | `WEBRTC_BRANCH` 未指定時にstable branch-headを取得する | 取得不能なら `WEBRTC_BRANCH=branch-heads/<number>` の指定を案内する |
 | source取得 | `WEBRTC_BUILD_ROOT/src` がなければ `fetch --nohooks webrtc_ios` から開始する | `depot_tools` 不備なら設定値を案内する |
-| sync/build | cleanなsourceをbranchへ切替え、`gclient sync`、`gn gen`、`ninja` でiOS/macOS sliceをビルドする | 中断する。旧出力の自動再組み立てで成功に置き換えない |
-| 成果物検証 | Info.plistと実バイナリのarchitecture、必須slice、iOS実機dSYMのUUID、`WebRTC.h` のimport先を検証する | 欠落があれば採用しない。空のdirectoryも失敗 |
+| sync/build | cleanなsourceをbranchへ切り替え、`gclient sync` と `gn gen` を済ませる。公式C++ファクトリーの依存をNinjaでビルドし、3つのフレームワークに組み立てる | 中断する。旧出力の自動再組み立てで成功に置き換えない |
+| 成果物検証 | Info.plistと実バイナリのarchitecture、必須slice、iOS実機dSYMのUUID、公開Cヘッダーとファクトリー、カメラ参照を検証する | 欠落があれば採用しない。空のdirectoryも失敗 |
 | 隔離取り込み | 一時directoryへRTC packageをコピーし、候補zipを取り込む | repository内の採用済みzipとmetadataは維持 |
 | SwiftPM検証 | 一時packageで `RTCNativeWebRTC` をビルドする | 失敗時は旧成果物を維持 |
 | テスト | 一時packageで `RTC` testsを実行する | 失敗時は旧成果物を維持 |
@@ -86,8 +86,9 @@ scripts/BuildWebRTC/update-webrtc-binary.sh
 カメラを使わない候補では、上流の `//api:create_modular_peer_connection_factory` を使う。GNで生成済みの構成を1つ指定すると、次のコマンドがNinjaの依存関係からリンクに必要なパスを列挙する。
 
 ```bash
+source scripts/BuildWebRTC/webrtc-build-root.sh
 python3 scripts/BuildWebRTC/webrtc_modular_link_inputs.py \
-  "${WEBRTC_BUILD_ROOT:-../webrtc-build}/src/out/ios-arm64-device" \
+  "${WEBRTC_BUILD_ROOT}/src/out/ios-arm64-device" \
   --ninja "${DEPOT_TOOLS_DIR:-../depot_tools}/ninja"
 ```
 
@@ -191,8 +192,8 @@ scripts/BuildWebRTC/doctor-webrtc-binary.sh
 | Xcode Developer directory | `DEVELOPER_DIR` がXcode本体を向いているか |
 | depot_tools | `gclient` と `fetch` が存在するか |
 | branch解決 | Chromium Dashboardからstable branchを取れるか |
-| source checkout | `../webrtc-build/src` があるか |
-| build output | iOS device、iOS simulator、macOS x64、macOS arm64のframeworkがあるか |
+| source checkout | `${WEBRTC_BUILD_ROOT}/src` があるか |
+| build output | iOS実機、iOS Simulator、macOSの5構成に `build.ninja` があるか |
 | xcframework | header検証に通る `WebRTC.xcframework` があるか |
 | zip | `WebRTC-<branch>.xcframework.zip` があるか |
 | 採用済みの組 | RTC package配下のZIPと採用記録があり、記録のSHA-256がZIPと一致するか |
@@ -218,8 +219,8 @@ scripts/BuildWebRTC/build-current-webrtc-xcframework.sh
 
 | 出力 | パス |
 |---|---|
-| xcframework | `../webrtc-build/src/out/WebRTC.xcframework` |
-| zip | `../webrtc-build/src/out/WebRTC-<branch>.xcframework.zip` |
+| xcframework | `${WEBRTC_BUILD_ROOT}/src/out/WebRTC.xcframework` |
+| zip | `${WEBRTC_BUILD_ROOT}/src/out/WebRTC-<branch>.xcframework.zip` |
 | checksum | build scriptの最後に表示される `shasum -a 256` の値 |
 
 ## プロジェクトへの取り込み
@@ -260,7 +261,8 @@ scripts/BuildWebRTC/import-webrtc-xcframework.sh
 
 ```bash
 cd <RideIntercom repository>
-WEBRTC_XCFRAMEWORK_ZIP=../webrtc-build/src/out/WebRTC-branch-heads-7727.xcframework.zip \
+source scripts/BuildWebRTC/webrtc-build-root.sh
+WEBRTC_XCFRAMEWORK_ZIP="${WEBRTC_BUILD_ROOT}/src/out/WebRTC-branch-heads-7727.xcframework.zip" \
 scripts/BuildWebRTC/import-webrtc-xcframework.sh
 ```
 
@@ -280,52 +282,41 @@ scripts/BuildWebRTC/build-webrtc-xcframework.sh
 
 ## platform指定
 
-Appに採用する成果物はiOS device、iOS Simulator、macOSの全sliceを必須とする。`IOS`、`MACOS` はビルド対象を制御するが、片方だけの成果物は最終検証・取り込みには合格しない。
+RTC packageに採用する成果物はiOS実機、iOS Simulator、macOSの全5構成を必須とする。`IOS` と `MACOS` には既定の `true` を使う。全構成を生成できない設定は配布候補を作る前に停止する。
 
-各構成は共通の手順で `gn gen`、GN設定の記録、`ninja` の順に実行する。OSごとの関数は、CPU・OSバージョン・ビルド対象を渡す。iOSでは実機とSimulatorの区別も渡し、実機向けだけにdSYMの生成を指定する。設定の生成や記録に失敗した構成はビルドを始めず、後続の構成と組み立ても止める。
-
-全構成で `rtc_enable_protobuf=false` を指定し、SDKのイベントログをProtobufで出力する機能を外す。通話の接続と音声パケットの転送は、[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)に従う。映像 API の同梱は[上流の無改変とカメラの不使用](#上流の無改変とカメラの不使用)に従って判断する。
-
-```bash
-cd <RideIntercom repository>
-IOS=true \
-MACOS=true \
-scripts/BuildWebRTC/build-current-webrtc-xcframework.sh
-```
+各構成で `gn gen` とGN設定の記録を済ませ、[公式C++ターゲットの組み立て](#公式cターゲットのxcframeworkを組み立てる)へ渡す。組み立て側が公式ファクトリーの依存だけをNinjaでビルドする。全構成で `rtc_enable_protobuf=false` を指定し、WebRTCのイベントログをProtobufで出力する機能を外す。
 
 | 変数 | 標準値 | 対象 |
 |---|---|---|
-| `IOS` | `true` | iOS deviceとiOS simulator |
+| `IOS` | `true` | iOS実機とiOS Simulator |
 | `MACOS` | `true` | macOS universal binary |
-| `ASSEMBLE_ONLY` | `false` | `true` の場合は既存の `src/out/*/WebRTC.framework` からxcframeworkとzipだけを作る |
-| `RUN_SWIFTPM_VALIDATION` | `true` | `scripts/BuildWebRTC/update-webrtc-binary.sh` 用。`false` の場合は `RTCNativeWebRTC` build検証を省略する |
-| `RUN_TESTS` | `true` | `scripts/BuildWebRTC/update-webrtc-binary.sh` 用。`false` の場合はRTC package testsを省略する |
-| `IOS_DEPLOYMENT_TARGET` | `27.0` | iOS sliceのdeployment target |
-| `MACOS_DEPLOYMENT_TARGET` | `27.0` | macOS sliceのdeployment target |
+| `ASSEMBLE_ONLY` | `false` | `true` では[検査用に再組み立てる](#既存成果物からの再組み立て) |
+| `RUN_SWIFTPM_VALIDATION` | `true` | `update-webrtc-binary.sh` 用。`false` の場合は `RTCNativeWebRTC` のビルド検証を省略する |
+| `RUN_TESTS` | `true` | `update-webrtc-binary.sh` 用。`false` の場合はRTC package testsを省略する |
+| `IOS_DEPLOYMENT_TARGET` | `27.0` | iOSの最小バージョン |
+| `MACOS_DEPLOYMENT_TARGET` | `27.0` | macOSの最小バージョン |
 
 ## 既存成果物からの再組み立て
 
-途中で失敗し、iOS / macOSの `WebRTC.framework` が生成済みの場合は、再コンパイルせずにxcframeworkだけを組み立て直せる。
+同じ上流revisionで作った5つのGN出力が揃っていれば、取り込み前に組み立てだけを検査できる。準備済みのcheckoutと同じ `WEBRTC_BRANCH` を指定する。
 
 ```bash
 cd <RideIntercom repository>
-ASSEMBLE_ONLY=true \
-IOS=true \
-MACOS=true \
+WEBRTC_BRANCH=branch-heads/7727 ASSEMBLE_ONLY=true \
 scripts/BuildWebRTC/build-webrtc-xcframework.sh
 ```
 
-この指定では `fetch`、`gclient sync`、`gn gen`、`ninja` を実行しない。既存の `../webrtc-build/src/out/*/WebRTC.framework` とiOS実機用の `ios-arm64-device/WebRTC.dSYM` を入力にする。dSYMがない旧出力は再組み立てだけでは修復できないため、同じsource revisionからiOS実機sliceを再ビルドする。
+この指定では `fetch`、`gclient sync`、`gn gen` を省く。Ninjaは不足する入力をビルドする。検査用ZIPは `WebRTC-<branch>.inspection.xcframework.zip`。配布に使うZIPと記録を保持し、検査用ZIPを取り込み候補に選ばない。由来を記録して取り込む場合は通常の更新を使う。
 
 ## iOSとmacOSの差分
 
-| platform | WebRTC build target | framework構造 | スクリプトでの扱い |
-|---|---|---|---|
-| iOS device | `framework_objc` | `WebRTC.framework/Headers` | arm64 device sliceとしてxcframeworkへ追加する |
-| iOS simulator | `framework_objc` | `WebRTC.framework/Headers` | x86_64とarm64を `lipo` で統合する |
-| macOS | `mac_framework_objc` | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
+使用する接続部と公開Cヘッダーは全構成で共通とする。上流のApple向けメタデータ生成は、Info.plistとPrivacyInfo.xcprivacyの取得に使う。
 
-macOS sliceでは、配布済みbinaryと同様にpublic headersを欠く場合がある。`scripts/BuildWebRTC/build-webrtc-xcframework.sh` はmacOSの `gen/sdk/WebRTC.framework/Headers` を優先してpublic headersを補完し、`gen/sdk` が存在しない場合のみiOS device sliceをfallbackとして使う。その後 `scripts/BuildWebRTC/verify-webrtc-xcframework.sh` で必須headerと `WebRTC.h` がimportするheaderの存在を検証する。
+| platform | framework内のヘッダー | 組み立て |
+|---|---|---|
+| iOS実機 | `WebRTC.framework/Headers` | arm64の実行ファイルと対応するdSYMを追加する |
+| iOS Simulator | `WebRTC.framework/Headers` | x86_64とarm64を `lipo` で統合する |
+| macOS | `WebRTC.framework/Versions/A/Headers` | x86_64とarm64を `lipo` で統合する |
 
 ## iOS配布用デバッグシンボル
 
@@ -337,40 +328,23 @@ iOS実機sliceは `enable_dsyms=true` でビルドする。生成された `WebR
 
 | 対象 | 配置と扱い |
 |---|---|
-| iOS device / Simulator | `WebRTC.framework/PrivacyInfo.xcprivacy`を通常ファイルとして必須にする |
-| macOS | `Versions/A/Resources/PrivacyInfo.xcprivacy`を必須にし、framework直下の`Resources`から同じ場所へ到達することを確認する |
-| 組み立て時 | 既知のGN出力`Versions/A/Versions/A/Resources/PrivacyInfo.xcprivacy`だけを組み立て先で移動する。全sliceを先に検査し、既に正しい配置なら変更しない。元checkout・個別build出力・manifestのbytes・Mach-O・dSYMは変更しない |
-| 自動修復しない状態 | manifest重複、欠損、壊れたplist、既知fieldの型違い、外部・循環・壊れたsymlink、resource sealを持つMac frameworkはエラーにする。未知の配置を推測して修復しない |
-| 検証・取り込み | `verify-webrtc-xcframework.sh`が`webrtc_privacy.py`で配置を検査する。importは同じ検査に成功してからZIPとmetadataを更新し、失敗時はインストール済みartifactを保持する。verify/import自身は修復しない |
+| iOS実機とSimulator | `WebRTC.framework/PrivacyInfo.xcprivacy` を通常ファイルとして同梱する |
+| macOS | `Versions/A/Resources/PrivacyInfo.xcprivacy` へ置く。framework直下の `Resources` は同じ場所を指す |
+| 生成元 | 上流のGNターゲットで生成したプライバシーマニフェストを、フレームワークの組み立て時に所定の場所へコピーする |
+| 検証・取り込み | `verify-webrtc-xcframework.sh` が全構成の配置と形式を調べる。重複、欠損、壊れたplist、型の不一致、外部・循環・壊れたsymlinkは拒否する。失敗時は採用済みのZIPと記録を保持する |
 
-plist検査はリソースの形式確認であり、Appleの理由コード審査や最終Archiveのprivacy reportの代わりにはならない。Macで既知の配置ミスを直す際は再コンパイル・再署名を伴わず、元の署名状態を保持する。[修正と検証の記録](../../validation/history/WebRTCマニフェスト配置の修正.md)を参照する。
+配布前に最終のArchiveとIPAを確認する。Appleの理由コード審査と過去の配置修復は別の記録で追う。[過去の修正と検証](../../validation/history/WebRTCマニフェスト配置の修正.md)
 
 ## 成果物検証
 
-build後、binary targetへ差し替える前に必ず検証する。
+取り込み前に、公開Cヘッダー `WebRTC.h` と `RideComRTC.h`、公開ファクトリー、全5構成のカメラ参照、マニフェスト、実機dSYMのUUIDを検証する。
 
 ```bash
 cd <RideIntercom repository>
+source scripts/BuildWebRTC/webrtc-build-root.sh
 scripts/BuildWebRTC/verify-webrtc-xcframework.sh \
-  ../webrtc-build/src/out/WebRTC.xcframework
+  "${WEBRTC_BUILD_ROOT}/src/out/WebRTC.xcframework" modular
 ```
-
-検証対象headerは次の通りとする。
-
-| header |
-|---|
-| `WebRTC.h` |
-| `RTCAudioSource.h` |
-| `RTCAudioTrack.h` |
-| `RTCConfiguration.h` |
-| `RTCDataChannel.h` |
-| `RTCDataChannelConfiguration.h` |
-| `RTCIceCandidate.h` |
-| `RTCIceServer.h` |
-| `RTCMediaConstraints.h` |
-| `RTCPeerConnection.h` |
-| `RTCPeerConnectionFactory.h` |
-| `RTCSessionDescription.h` |
 
 ## 後片付け
 
@@ -390,9 +364,9 @@ DRY_RUN=false scripts/BuildWebRTC/clean-webrtc-build-resources.sh
 
 | `CLEAN_MODE` | 削除対象 | 用途 |
 |---|---|---|
-| `build-output` | `../webrtc-build/src/out` | build outputだけを消し、source checkoutは残す |
+| `build-output` | `${WEBRTC_BUILD_ROOT}/src/out` | build outputだけを消し、source checkoutは残す |
 | `swiftpm` | `RideIntercom/packages/RTC/.build/workspace-state.json`、`RideIntercom/packages/RTC/.build/artifacts/rtc/WebRTC`、`RideIntercom/packages/RTC/.build/artifacts/extract/rtc`、debug用 `WebRTC.framework`、WebRTC adapter build output、WebRTC関連の旧 `checkouts`、WebRTC関連の旧 `repositories` | SwiftPMが展開したWebRTC binary artifact、古い解決状態、旧remote package cacheを消す |
-| `source` | `../webrtc-build` | WebRTC source checkout全体を消す |
+| `source` | `${WEBRTC_BUILD_ROOT}` | WebRTC source checkout全体を消す |
 | `all` | 上記すべて | ディスク容量を大きく空ける |
 
 通常は `build-output` の削除に留める。source checkoutを残すと、次回は `gclient sync` と差分buildで済む可能性が高い。
@@ -454,7 +428,7 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 
 ## 現行SDKとの組合せ
 
-採用版の再作成には[公式C++ターゲットの組み立て手順](#公式cターゲットのxcframeworkを組み立てる)を使う。従来の一括更新が組み立てるObjective-C版は取り込み時に拒否する。一括更新を公式C++ターゲットへつなぐ作業は[配布前の残課題](../../backlog/未実装課題.md#itms-90683の再発を解消してtestflightへ送信する)で追う。
+通常の一括更新と検査用の組み立ては、同じ[公式C++ターゲットの組み立て](#公式cターゲットのxcframeworkを組み立てる)を使う。採用済みSDKを再作成するときは、表のコミットを `WEBRTC_BRANCH` に指定する。
 
 | 項目 | 採用内容 |
 |---|---|

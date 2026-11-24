@@ -17,8 +17,8 @@ RouteManagerは固定20ms pollingを行わず、未解決の並べ替え期限�
 | 音声I/O | `SessionManager` が所有。Local/InternetともApp compositionがAudioMixer・Codec・RTCへ接続 |
 | パッケージ境界 | RTCはAudioパッケージに依存しない。hardware 48kHz、RTC 16/24/48kHzなどの変換はAudioMixer/Codec側 |
 | products | `RTC`、`RTCNativeWebRTC`。後者のみ同梱WebRTC binaryへ依存 |
-| カメラ | 公式SDKに撮影・映像APIが含まれていても、アプリはカメラの権限を要求せず、撮影や映像トラックを開始しない。通話の音声はDataChannelで転送する |
-| SDK privacy manifest | 同梱ZIPの全sliceで標準リソース位置を検査。macOSは`Resources`から`Versions/A/Resources/PrivacyInfo.xcprivacy`へ到達し、上流manifestのbytesを保持する。組み立て時のみ既知の二重`Versions/A`配置を正規化し、検証・importは不正配置を拒否する |
+| カメラ | 同梱SDKから撮影実装と撮影APIへの参照を除く。アプリはカメラ権限を求めず、映像トラックを開始しない。音声はDataChannelで転送する。[SDKの配布条件](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#上流の無改変とカメラの不使用) |
+| SDK privacy manifest | 全構成で上流のマニフェストを所定のリソース位置に同梱する。配置と検査は[組み立ての仕様](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#sdkプライバシーマニフェストの配置)に従う |
 | OS / Swift | iOS/iPadOS/macOS/watchOS 27.0以上、Swift 6 |
 | plugin | `RTCCallRoute`、`CallSessionFactory`。中継の共通契約は認証済みpeerとapplication dataの転送 |
 
@@ -103,7 +103,7 @@ flowchart LR
 | 項目 | 実装 |
 |---|---|
 | transport | ネイティブWebRTCのDTLS/SCTP DataChannel。標準RTP audio track方式から、話者を保持できる符号化済みパケット転送へ変更 |
-| ネイティブ接続部 | RTCNativeWebRTCは、公式のC++ファクトリーを薄いCインターフェースから呼び出す。採用するXCFrameworkに撮影実装を含めない。SDPとチャネルの契約はこの表のとおり |
+| ネイティブ接続部 | RTCNativeWebRTCは、公式のC++ファクトリーを薄いCインターフェースから呼び出す |
 | audio channel | `group-audio-v1`、unordered、maxRetransmits=0。送信待ちが残ると新しい音声を捨て、蓄積しない |
 | control channel | `group-control-v1`、ordered/reliable。送信待ち上限64KiB |
 | 接続 | 完全SDP offer → Worker `/join` → SFU datachannels/establish → answer。ICE接続後 `/publish` で2種類のchannelを確保 |

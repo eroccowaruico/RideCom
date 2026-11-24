@@ -179,34 +179,40 @@ fi''')
         self.assertEqual(previous.read_bytes(), b'previous archive')
         self.assertEqual(metadata.read_bytes(), b'previous metadata')
 
-    def test_assembly_repairs_only_copied_macos_privacy_resource(self) -> None:
-        self.legacy.parent.mkdir(parents=True)
-        self.manifest.rename(self.legacy)
+    def test_inspection_reuses_gn_and_preserves_the_release_zip(self) -> None:
+        scripts = self.base / 'scripts/BuildWebRTC'
+        scripts.mkdir(parents=True)
+        for name in ('build-webrtc-xcframework.sh', 'webrtc-build-root.sh'):
+            shutil.copy2(SCRIPTS / name, scripts)
+        (scripts / 'assemble_webrtc_modular_xcframework.py').write_text(
+            'import os, pathlib, shutil, sys\n'
+            'source, output, destination = map(pathlib.Path, sys.argv[1:])\n'
+            'assert source.name == "src" and output == source / "out"\n'
+            'shutil.copytree(os.environ["FIXTURE_XCFRAMEWORK"], destination, symlinks=True)\n'
+        )
         build = self.base / 'build'
         output = build / 'src/out'
         output.mkdir(parents=True)
-        inputs = [('ios-arm64-device', 'ios-arm64'),
-                  ('ios-x64-simulator', 'ios-x86_64_arm64-simulator'),
-                  ('ios-arm64-simulator', 'ios-x86_64_arm64-simulator'),
-                  ('macos-x64', 'macos-x86_64_arm64'),
-                  ('macos-arm64', 'macos-x86_64_arm64')]
-        for target, identifier in inputs:
-            shutil.copytree(self.root / identifier / 'WebRTC.framework',
-                            output / target / 'WebRTC.framework', symlinks=True)
-        shutil.copytree(self.root / 'ios-arm64/dSYMs/WebRTC.framework.dSYM',
-                        output / 'ios-arm64-device/WebRTC.dSYM')
-        for name in ['fetch', 'gclient']:
-            self.command(name, 'exit 99')  # Assembly must not fetch or compile.
-        result = subprocess.run([str(SCRIPTS / 'build-webrtc-xcframework.sh')],
-            env=dict(self.env, WEBRTC_BUILD_ROOT=str(build), DEPOT_TOOLS_DIR=str(self.commands),
-                     WEBRTC_BRANCH='fixture', ASSEMBLE_ONLY='true'), capture_output=True, text=True, check=False)
+        release = output / 'WebRTC-fixture.xcframework.zip'
+        record = release.with_suffix('.provenance.json')
+        release.write_bytes(b'last release archive')
+        record.write_bytes(b'last release record')
+        for name in ('fetch', 'gclient', 'gn'):
+            self.command(name, 'exit 99')
+        environment = dict(self.env, WEBRTC_BUILD_ROOT=str(build), DEPOT_TOOLS_DIR=str(self.commands),
+                           WEBRTC_BRANCH='fixture', ASSEMBLE_ONLY='true', FIXTURE_XCFRAMEWORK=str(self.root))
+        result = subprocess.run([str(scripts / 'build-webrtc-xcframework.sh')],
+                                env=environment, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        assembled = output / 'WebRTC.xcframework/macos-x86_64_arm64/WebRTC.framework'
-        self.assertTrue((assembled / 'Resources/PrivacyInfo.xcprivacy').is_file())
-        self.assertEqual((assembled / 'Resources/PrivacyInfo.xcprivacy').read_bytes(), PRIVACY)
-        self.assertFalse((assembled / self.legacy.relative_to(self.mac)).exists())
-        self.assertEqual(self.legacy.read_bytes(), PRIVACY)
-        self.assertTrue((output / 'macos-x64/WebRTC.framework' / self.legacy.relative_to(self.mac)).exists())
+        self.assertEqual(release.read_bytes(), b'last release archive')
+        self.assertEqual(record.read_bytes(), b'last release record')
+        inspection = output / 'WebRTC-fixture.inspection.xcframework.zip'
+        self.assertTrue(inspection.is_file())
+        self.assertFalse(inspection.with_suffix('.provenance.json').exists())
+        selected = subprocess.check_output(
+            ['bash', '-c', 'source "$1"; find_webrtc_candidate "$2"', '_',
+             str(scripts / 'webrtc-build-root.sh'), str(output)], env=environment, text=True)
+        self.assertEqual(selected.strip(), str(release))
 
     def normalize(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(['python3', str(SCRIPTS / 'webrtc_privacy.py'), str(self.root),
