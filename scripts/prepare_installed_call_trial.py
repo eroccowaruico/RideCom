@@ -18,6 +18,10 @@ TEST_BUNDLE = '__TESTHOST__/PlugIns/RideIntercomUITests.xctest'
 SELECTOR = 'BackgroundCallLifecycleUITests/testStartInvitedTrialGroupMuted'
 
 
+class RunnerUnavailableError(ValueError):
+    """A fixed diagnostic for missing or unverifiable local runner artifacts."""
+
+
 def read_device_info(device: str, command: str, *options: str) -> dict[str, Any]:
     try:
         output = subprocess.run(
@@ -69,6 +73,20 @@ def check_device(device: str) -> tuple[dict[str, str | None], int]:
     return report, 1 if 'missing' in report.values() else 0
 
 
+def verify_runner(products: Path) -> None:
+    runner = products.absolute() / RUNNER_PATH.removeprefix('__TESTROOT__/')
+    test_bundle = runner / TEST_BUNDLE.removeprefix('__TESTHOST__/')
+    if not test_bundle.is_dir():
+        raise RunnerUnavailableError('Missing the iPhoneOS test runner or its XCTest bundle')
+    try:
+        subprocess.run(
+            ['/usr/bin/codesign', '--verify', '--deep', '--strict', str(runner)],
+            capture_output=True, check=True, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise RunnerUnavailableError('Cannot verify the iPhoneOS test runner signature') from None
+
+
 def prepare(source: Path, destination: Path, trial_id: UUID) -> None:
     with source.open('rb') as stream:
         plan = plistlib.load(stream)
@@ -84,6 +102,7 @@ def prepare(source: Path, destination: Path, trial_id: UUID) -> None:
             target.get('TestBundlePath'), target.get('UITargetAppPath')) != (
             'RideIntercomUITests', RUNNER_ID, RUNNER_PATH, TEST_BUNDLE, APP_PATH):
         raise ValueError('Expected the generated iPhoneOS plan for RideIntercom')
+    verify_runner(source.parent)
 
     configuration['TestTargets'] = [target]
     for key in ('TestHostPath', 'TestBundlePath', 'UITargetAppPath', 'DependentProductPaths',
@@ -117,6 +136,8 @@ def main() -> None:
         parser.error('expected source, destination, and trial_id, or --check-device')
     try:
         prepare(args.source, args.destination, args.trial_id)
+    except RunnerUnavailableError as error:
+        parser.exit(2, f'{error}. Use the products from the shared scheme build-for-testing.\n')
     except (OSError, ValueError, KeyError, TypeError, plistlib.InvalidFileException):
         parser.exit(2, 'Cannot prepare the installed-app test plan. Check the iPhoneOS source and new destination.\n')
 

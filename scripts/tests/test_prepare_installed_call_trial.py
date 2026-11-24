@@ -17,6 +17,8 @@ class InstalledCallTrialPlanTests(unittest.TestCase):
         self.source = Path(root.name) / 'generated.xctestrun'
         self.destination = Path(root.name) / 'installed.xctestrun'
         self.trial = UUID('ca422e94-e64e-43a7-86da-8d4c98b15df7')
+        self.runner = Path(root.name) / 'Debug-Validation-iphoneos' / 'RideIntercomUITests-Runner.app'
+        self.test_bundle = self.runner / 'PlugIns' / 'RideIntercomUITests.xctest'
         self.target = {
             'BlueprintName': 'RideIntercomUITests',
             'IsUITestBundle': True,
@@ -35,10 +37,15 @@ class InstalledCallTrialPlanTests(unittest.TestCase):
             {'IsEnabled': True, 'TestTargets': [{'BlueprintName': 'RideIntercomTests'}, self.target]},
         ]}))
 
-    def test_selects_only_installed_artifacts_and_does_not_configure_product(self) -> None:
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_selects_only_installed_artifacts_and_does_not_configure_product(self, run: Mock) -> None:
+        self.test_bundle.mkdir(parents=True)
         self.write_source()
         original = self.source.read_bytes()
         installed_trial.prepare(self.source, self.destination, self.trial)
+        run.assert_called_once()
+        self.assertIn(str(self.runner), run.call_args.args[0])
+        self.assertTrue(run.call_args.kwargs['capture_output'])
         result = plistlib.loads(self.destination.read_bytes())
         target, = result['TestConfigurations'][0]['TestTargets']
         self.assertIs(target['UseDestinationArtifacts'], True)
@@ -53,6 +60,27 @@ class InstalledCallTrialPlanTests(unittest.TestCase):
             self.assertNotIn(key, target)
         self.assertEqual(self.source.read_bytes(), original)
 
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_refuses_plan_when_the_runner_or_test_bundle_is_missing(self, run: Mock) -> None:
+        self.write_source()
+        for runner_exists in (False, True):
+            with self.subTest(runner_exists=runner_exists):
+                if runner_exists:
+                    self.runner.mkdir(parents=True)
+                with self.assertRaises(ValueError):
+                    installed_trial.prepare(self.source, self.destination, self.trial)
+                self.assertFalse(self.destination.exists())
+        run.assert_not_called()
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_refuses_plan_when_the_runner_signature_cannot_be_verified(self, run: Mock) -> None:
+        self.test_bundle.mkdir(parents=True)
+        self.write_source()
+        run.side_effect = subprocess.CalledProcessError(1, 'synthetic', stderr='synthetic-private-path')
+        with self.assertRaisesRegex(ValueError, '^Cannot verify the iPhoneOS test runner signature$'):
+            installed_trial.prepare(self.source, self.destination, self.trial)
+        self.assertFalse(self.destination.exists())
+
     def test_refuses_simulator_artifacts(self) -> None:
         self.target['TestHostPath'] = installed_trial.RUNNER_PATH.replace('iphoneos', 'iphonesimulator')
         self.write_source()
@@ -60,7 +88,9 @@ class InstalledCallTrialPlanTests(unittest.TestCase):
             installed_trial.prepare(self.source, self.destination, self.trial)
         self.assertFalse(self.destination.exists())
 
-    def test_refuses_to_overwrite_a_plan(self) -> None:
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_refuses_to_overwrite_a_plan(self, _run: Mock) -> None:
+        self.test_bundle.mkdir(parents=True)
         self.write_source()
         original = self.source.read_bytes()
         with self.assertRaises(FileExistsError):
