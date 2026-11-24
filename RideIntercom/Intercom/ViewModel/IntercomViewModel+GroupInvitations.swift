@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 extension IntercomViewModel {
@@ -64,13 +63,7 @@ extension IntercomViewModel {
         if creating {
             guard !groups.contains(where: { $0.id == groupID }), IntercomGroup.isValidName(name), !name.contains("|")
             else { throw GroupStorageError.invalidUpdate }
-            let local = GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)
-            let roster = [local] + members
-            let group = try IntercomGroup(
-                id: groupID, name: name, members: roster, accountDevices: groupAccountDevices(for: roster)
-            )
-            let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
-            return (group, .init(groupID: groupID, secret: secret))
+            return try prepareNewTalkGroup(id: groupID, name: name, remoteMembers: members)
         }
         guard var group = groups.first(where: { $0.id == groupID && $0.kind == .group }),
               let credential = try credential(for: group)

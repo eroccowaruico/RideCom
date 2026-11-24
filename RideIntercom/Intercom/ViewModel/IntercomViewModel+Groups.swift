@@ -225,25 +225,17 @@ extension IntercomViewModel {
             requestGroupDeliverySync(.localChange)
             return true
         }
-        let members =
-            [GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)]
-            + remoteMembers
-        let newGroup = try? IntercomGroup(
-            id: groupID,
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            members: members, accountDevices: groupAccountDevices(for: members)
-        )
-
-        guard let newGroup else {
+        guard let (newGroup, credential) = try? prepareNewTalkGroup(
+            id: groupID, name: name.trimmingCharacters(in: .whitespacesAndNewlines), remoteMembers: remoteMembers
+        ) else {
             groupErrorMessage =
                 "Could not create the group because the saved rider identity is invalid."
                 + " Saved groups have not been changed."
             return false
         }
-        let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
         do {
             try groupRepository.save(
-                [newGroup] + groups, credential: .init(groupID: groupID, secret: secret),
+                [newGroup] + groups, credential: credential,
                 deliveries: groupDeliveryRecords(for: userIDs, groupID: groupID))
             refreshGroupStorageStatus()
         } catch {
@@ -254,5 +246,17 @@ extension IntercomViewModel {
         selectGroup(newGroup)
         requestGroupDeliverySync(.localChange)
         return true
+    }
+
+    func prepareNewTalkGroup(
+        id: UUID, name: String, remoteMembers: [GroupMember]
+    ) throws -> (group: IntercomGroup, credential: GroupAccessCredential) {
+        let local = GroupMember(id: localMemberIdentity.memberID, displayName: localMemberIdentity.displayName)
+        let members = [local] + remoteMembers
+        let group = try IntercomGroup(
+            id: id, name: name, members: members, accountDevices: groupAccountDevices(for: members)
+        )
+        let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
+        return (group, .init(groupID: group.id, secret: secret))
     }
 }
