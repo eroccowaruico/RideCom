@@ -120,12 +120,15 @@ struct TransmitPipelinePresentation {
     }
 
     var mixerBusStep: PipelineStep {
+        let isolation = pipelineIsolationDetail(
+            isEnabled: input.isolationSettings.transmitEnabled,
+            chain: input.isAudioReady ? input.transmitEffectChainSnapshot : nil)
         guard input.isAudioReady else {
             return PipelineStep(
                 id: "mixer",
                 package: "AudioMixer",
                 title: "TX Bus",
-                detail: "Not available",
+                detail: "Not available · \(isolation)",
                 icon: "slider.horizontal.3",
                 state: .idle,
                 accessibilityIdentifier: "pipeline-mixer-step"
@@ -136,16 +139,12 @@ struct TransmitPipelinePresentation {
         var detail = bus.map { "\($0.sourceCount) in / \($0.effectCount) FX" } ?? "Snapshot waiting"
         if waitingOnEffect {
             detail = effectChainPipelineDetail
-        } else if let isolation = input.transmitEffectChainSnapshot.stages.first(
-            where: { $0.id == "sound-isolation" }
-        ) {
-            detail += " · \(isolation.name) \(isolation.state.rawValue)"
         }
         return PipelineStep(
             id: "mixer",
             package: "AudioMixer",
             title: "TX Bus",
-            detail: detail,
+            detail: "\(detail) · \(isolation)",
             icon: "slider.horizontal.3",
             state: bus != nil && !waitingOnEffect ? .passing : .waiting,
             accessibilityIdentifier: "pipeline-mixer-step"

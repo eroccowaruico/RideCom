@@ -5,6 +5,18 @@ import SessionManager
 import VADGate
 
 struct DiagnosticsInput {
+    struct IsolationSettings {
+        let transmitEnabled: Bool
+        let receiveMixEnabled: Bool
+        let receivePeerEnabled: [String: Bool]
+
+        init(_ model: IntercomViewModel) {
+            transmitEnabled = model.isSoundIsolationEnabled
+            receiveMixEnabled = model.receiveMixSoundIsolationEnabled
+            receivePeerEnabled = model.remoteSoundIsolationEnabled
+        }
+    }
+
     var audioErrorMessage: String?
     let pausedCall: (status: String, reason: String?)?
     var audioSessionProfile: AudioSessionProfile
@@ -24,6 +36,7 @@ struct DiagnosticsInput {
     var selectedGroupConnectionState: CallConnectionState
     var selectedTransmitCodec: AudioCodecIdentifier
     var encodedAudioPacketCount: Int
+    let isolationSettings: IsolationSettings
     var transmitEffectChainSnapshot: AudioEffectChainSnapshot
     var audioMixerSnapshot: AudioMixerSnapshot
     var authenticatedPeerCount: Int
@@ -77,6 +90,7 @@ struct DiagnosticsInput {
         selectedTransmitCodec = viewModel.selectedTransmitCodec
         // The transmitter increments this count as it collects encoded frames for delivery.
         encodedAudioPacketCount = viewModel.sentVoicePacketCount
+        isolationSettings = IsolationSettings(viewModel)
         transmitEffectChainSnapshot = viewModel.transmitEffectChainSnapshot
         audioMixerSnapshot = viewModel.audioMixerSnapshot
         authenticatedPeerCount = viewModel.authenticatedPeerCount

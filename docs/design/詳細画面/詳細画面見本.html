@@ -143,6 +143,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .peer-unrouted { margin-bottom: 6px; }
 .blk summary { cursor: pointer; font-size: 12px; }
 .blk summary span { font-size: 10px; }
+.blk summary .sub { display: block; }
 .blk-detail { display: grid; gap: 3px; padding-top: 4px; margin-top: 4px; border-top: 1px solid var(--line); }
 .card.off { opacity: .5; }
 .merge { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 11px; background: color-mix(in srgb, var(--accent) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); font-weight: 700; }
@@ -300,7 +301,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="k"><span class="d ok"></span> Session</span><span class="v">Burst mode · active</span><span class="x"></span></div>
             <div class="row"><span class="k"><span class="d ok"></span> Input</span><span class="v">AirPods Pro · 48 kHz mono</span><span class="x num"><b>48,000</b> frames/s</span></div>
             <div class="row"><span class="k"><span class="d ok"></span> VAD</span><span class="v">Speech · Standard<div class="sub">Microphone input before TX Bus Effects.</div><div class="sub num">Input −28.0 dBFS / Noise floor −52.0 dBFS / Threshold −40.0 dBFS / Gain 1.00</div></span><span class="x"></span></div>
-            <div class="row" style="border-bottom:0"><span class="k"><span class="d ok"></span> TX Bus</span><span class="v">1 in / 3 FX · Isolation active</span><span class="x"></span></div>
+            <div class="row" style="border-bottom:0"><span class="k"><span class="d ok"></span> TX Bus</span><span class="v">1 in / 3 FX · Voice Isolation On · active</span><span class="x"></span></div>
             <div class="nest">
               <div class="sub" style="font-weight:600">TX Bus Effects</div>
               <div class="row"><span class="k">Isolation</span><span class="v"></span><span class="x ok-t">active</span></div>
@@ -319,7 +320,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>TX（Live TX Pipeline）</b>Session → Input → VAD → TX Bus → Codec → RTC。TX Busを閉じていても、VADの発話状態に続けて Isolation active／Isolation bypassed を読める。TX Busのeffectと、RTCから経路ごとへの分岐を入れ子で示す。経路の受付・不受付・未計測を区別する。近距離でカバーした場合、InternetはIdleの記号と Covered by Local を表示する。</figcaption>
+      <figcaption><b>TX（Live TX Pipeline）</b>Session → Input → VAD → TX Bus → Codec → RTC。TX Busを閉じていても、VADの発話状態に続けて、分離の設定と実状態を Voice Isolation On · active のように読める。TX Busのeffectと、RTCから経路ごとへの分岐を入れ子で示す。経路の受付・不受付・未計測を区別する。近距離でカバーした場合、InternetはIdleの記号と Covered by Local を表示する。</figcaption>
     </figure>
 
     <!-- RX (tall) -->
@@ -339,12 +340,12 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="hd">Participants</div>
           <details class="card blk off peer-unrouted" name="rx-participant">
-            <summary><b>Yu</b> <span class="r">Offline</span></summary>
+            <summary><b>Yu</b> <span class="r">Offline</span><span class="sub num">Voice Isolation Off · Not measured</span></summary>
             <div class="blk-detail">Offline</div>
           </details>
           <div class="tree">
             <details class="card blk" name="rx-participant">
-              <summary><b>Haruka</b> <span class="ok-t"><span aria-hidden="true">✓</span> Passing</span></summary>
+              <summary><b>Haruka</b> <span class="ok-t"><span aria-hidden="true">✓</span> Passing</span><span class="sub num">Voice Isolation On · active</span></summary>
               <div class="blk-detail">
                 <div>Sender: Unmuted / codec mpeg4AACELD / bitrate 48000 bps / VAD speech / Isolation active</div>
                 <div>Sender updated 1s ago</div>
@@ -355,7 +356,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
               </div>
             </details>
             <details class="card blk" name="rx-participant">
-              <summary><b>Kenta</b> <span class="warn-t"><span aria-hidden="true">Ⅱ</span> Waiting</span></summary>
+              <summary><b>Kenta</b> <span class="warn-t"><span aria-hidden="true">Ⅱ</span> Waiting</span><span class="sub num">Voice Isolation Off · bypassed</span></summary>
               <div class="blk-detail">
                 <div>Sender: Unmuted / codec opus / bitrate 32000 bps / VAD silence / Isolation bypassed</div>
                 <div>Sender updated 16s ago / Stale</div>
@@ -366,7 +367,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
               </div>
             </details>
             <details class="card blk" name="rx-participant" open>
-              <summary><b>Mika</b> <span class="ok-t"><span aria-hidden="true">✓</span> Passing</span></summary>
+              <summary><b>Mika</b> <span class="ok-t"><span aria-hidden="true">✓</span> Passing</span><span class="sub num">Voice Isolation On · active</span></summary>
               <div class="blk-detail">
                 <div>Sender: Unmuted / codec pcm16 / bitrate Not measured / VAD speech / Isolation unavailable</div>
                 <div>Sender updated 3s ago</div>
@@ -380,7 +381,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="down">↓</div>
           <div class="card">
-            <div class="row rx-master" style="border-bottom:0"><span class="k"><span class="d ok"></span> RX Master</span><span class="v">3 in / 1 FX / OUT 120%<div class="sub">3 buses / RX 240</div></span><span class="x"><span class="meter"><i style="width:62%"></i></span></span></div>
+            <div class="row rx-master" style="border-bottom:0"><span class="k"><span class="d ok"></span> RX Master</span><span class="v">3 in / 1 FX / OUT 120% · Voice Isolation Off · bypassed<div class="sub">3 buses / RX 240</div></span><span class="x"><span class="meter"><i style="width:62%"></i></span></span></div>
             <div class="nest">
               <div class="sub" style="font-weight:600">Master FX</div>
               <div class="row"><span class="k">SoundIsolation</span><span class="v"></span><span class="x idle-t">bypassed</span></div>
@@ -392,7 +393,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。受信と復号は最後の観測からの経過秒も表示する。相手の名前を選ぶと、その人の内訳を開ける。別の相手を開くと前の内訳は閉じる。相手ごとに Sender（相手の端末の報告）→ RTC RX → Decode → Playout（PCMの再生予約・調整・リセット）→ Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。直近2秒以内に再生予約を観測した相手は Passing、未観測または2秒を超えた相手は Waiting。Waitingでも経路があれば枝を描き、いずれかの相手がPassingならMix DownもPassingになる。経路がない相手は木の上に表示する。合流線はMix Downで終わる。その下に RX Master → Master FX → Output が続く。Outputは最後の有声PCMからの経過を表示する。別rendererでは Playback scheduled と Render not measured を併記する。大きい文字では集計の下にメーターを置き、Master FXを1列にする。</figcaption>
+      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。受信と復号は最後の観測からの経過秒も表示する。各相手の見出しとRX Masterに、自端末の分離の設定と実状態を表示する。相手の名前を選ぶと、その人の内訳を開ける。別の相手を開くと前の内訳は閉じる。相手ごとに Sender（相手の端末の報告）→ RTC RX → Decode → Playout（PCMの再生予約・調整・リセット）→ Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。直近2秒以内に再生予約を観測した相手は Passing、未観測または2秒を超えた相手は Waiting。Waitingでも経路があれば枝を描き、いずれかの相手がPassingならMix DownもPassingになる。経路がない相手は木の上に表示する。合流線はMix Downで終わる。その下に RX Master → Master FX → Output が続く。Outputは最後の有声PCMからの経過を表示する。別rendererでは Playback scheduled と Render not measured を併記する。大きい文字では集計の下にメーターを置き、Master FXを1列にする。</figcaption>
     </figure>
 
     <!-- Network -->

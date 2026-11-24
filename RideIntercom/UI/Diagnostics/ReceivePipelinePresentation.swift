@@ -48,10 +48,11 @@ struct ReceivePipelinePresentation {
 
     private func receiveMixerStep(identity: (id: String, icon: String), title: String,
                                   detail: @autoclosure () -> String, state: @autoclosure () -> PipelineStepState,
-                                  accessibilityIdentifier: String) -> PipelineStep {
-        PipelineStep(
+                                  accessibilityIdentifier: String, additionalDetail: String? = nil) -> PipelineStep {
+        let summary = input.isAudioReady ? detail() : "Not available"
+        return PipelineStep(
             id: identity.id, package: "AudioMixer", title: title,
-            detail: input.isAudioReady ? detail() : "Not available",
+            detail: additionalDetail.map { "\(summary) · \($0)" } ?? summary,
             icon: identity.icon, state: input.isAudioReady ? state() : .idle,
             accessibilityIdentifier: accessibilityIdentifier
         )
@@ -67,6 +68,13 @@ struct ReceivePipelinePresentation {
                 authenticationState: authenticated.contains(id) ? .authenticated : .open,
                 connectionState: authenticated.contains(id) ? .connected : .offline)
         }
+    }
+
+    func peerIsolationDetail(for peerID: String) -> String {
+        pipelineIsolationDetail(
+            isEnabled: input.isolationSettings.receivePeerEnabled[peerID]
+                ?? IntercomViewModel.defaultReceiveSoundIsolationEnabled,
+            chain: receivePeerStates[peerID] == nil ? nil : input.receivePeerEffectChainSnapshot(peerID: peerID))
     }
 
     struct PeerDetail {
@@ -169,7 +177,9 @@ struct ReceivePipelinePresentation {
 
     var outputBusStep: PipelineStep {
         receiveMixerStep(identity: ("master-bus", "waveform.path.ecg"), title: "RX Master",
-            detail: outputBusDetail, state: mixState, accessibilityIdentifier: "receive-pipeline-master-bus-step")
+            detail: outputBusDetail, state: mixState, accessibilityIdentifier: "receive-pipeline-master-bus-step",
+            additionalDetail: pipelineIsolationDetail(isEnabled: input.isolationSettings.receiveMixEnabled,
+                chain: input.isAudioReady ? input.receiveOutputEffectChainSnapshot : nil))
     }
 
     var outputEffectChainStep: PipelineStep {

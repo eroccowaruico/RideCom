@@ -1,7 +1,15 @@
 import AudioCore
 import AudioMixer
+import Foundation
 import RTC
 import SessionManager
+
+func pipelineIsolationDetail(isEnabled: Bool, chain: AudioEffectChainSnapshot?) -> String {
+    let title = String(localized: "Voice Isolation")
+    let setting = isEnabled ? String(localized: "On") : String(localized: "Off")
+    let state = chain?.stages.first { $0.id == "sound-isolation" }?.state.rawValue
+    return "\(title) \(setting) · \(state ?? String(localized: "Not measured"))"
+}
 
 struct EffectChainStage: Equatable, Identifiable {
     let id: String

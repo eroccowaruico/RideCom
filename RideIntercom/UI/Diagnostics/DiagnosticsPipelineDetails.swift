@@ -94,6 +94,9 @@ struct DiagnosticsReceiveDetails: View {
                     Text(member.connectionState == .offline ? "Offline" : "No mixer route")
                         .foregroundStyle(.secondary)
                 }
+                Text(presentation.peerIsolationDetail(for: member.id))
+                    .font(AppTypography.caption2Mono)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .id(member.id)

@@ -123,6 +123,54 @@ struct DiagnosticsPresentationTests {
         #expect(paused.rtcStep.detail == presentation.rtcStep.detail)
     }
 
+    @Test func isolationSettingsAreVisibleBeforeAudioAndRemainSeparateFromAppliedState() {
+        let model = AppTestSupport.makeHarness().viewModel
+        model.isSoundIsolationEnabled = true
+        model.receiveMixSoundIsolationEnabled = false
+        var input = DiagnosticsInput(model)
+        let title = String(localized: "Voice Isolation")
+        let enabled = String(localized: "On")
+        let off = String(localized: "Off")
+        let unmeasured = String(localized: "Not measured")
+        let initialTransmit = TransmitPipelinePresentation(input: input).mixerBusStep.detail
+        #expect(initialTransmit.hasSuffix("\(title) \(enabled) · \(unmeasured)"))
+        let initialReceive = ReceivePipelinePresentation(input: input).outputBusStep.detail
+        #expect(initialReceive.hasSuffix("\(title) \(off) · \(unmeasured)"))
+
+        input.isAudioReady = true
+        let bypassed = MixerEffectSnapshot(
+            id: "sound-isolation", typeName: "SoundIsolation", index: 0, state: .bypassed, parameters: [])
+        input.transmitEffectChainSnapshot = .init(id: "tx-bus", effects: [bypassed])
+        input.receiveOutputEffectChainSnapshot = .init(id: "rx-master", effects: [bypassed])
+        let bypassedTransmit = TransmitPipelinePresentation(input: input).mixerBusStep.detail
+        #expect(bypassedTransmit.hasSuffix("\(title) \(enabled) · bypassed"))
+        #expect(ReceivePipelinePresentation(input: input).outputBusStep.detail.hasSuffix("\(title) \(off) · bypassed"))
+    }
+
+    @Test func receiveIsolationUsesEachPeersCurrentRouteAndSetting() {
+        let model = AppTestSupport.makeHarness().viewModel
+        model.remoteSoundIsolationEnabled = ["first": true]
+        var input = DiagnosticsInput(model)
+        input.isAudioReady = true
+        let unavailable = MixerEffectSnapshot(
+            id: "sound-isolation", typeName: "SoundIsolation", index: 0, state: .unavailable, parameters: [])
+        input.audioMixerSnapshot.buses = [
+            .init(id: "rx-peer-first", volume: 1, sourceCount: 0, effectCount: 1, effectChain: [unavailable])
+        ]
+        let title = String(localized: "Voice Isolation")
+        let enabled = String(localized: "On")
+        let off = String(localized: "Off")
+        let unmeasured = String(localized: "Not measured")
+        let withoutRoute = ReceivePipelinePresentation(input: input)
+        #expect(withoutRoute.peerIsolationDetail(for: "first") == "\(title) \(enabled) · \(unmeasured)")
+
+        input.audioMixerSnapshot.routes = [.init(sourceBusID: "rx-peer-first", destinationBusID: "rx-master")]
+        let receive = ReceivePipelinePresentation(input: input)
+        model.remoteSoundIsolationEnabled = [:]
+        #expect(receive.peerIsolationDetail(for: "first") == "\(title) \(enabled) · unavailable")
+        #expect(receive.peerIsolationDetail(for: "second") == "\(title) \(off) · \(unmeasured)")
+    }
+
     @Test func transmitBranchesDistinguishOffersLocalCoverageAndStaleReports() throws {
         let model = AppTestSupport.makeHarness().viewModel
         let now = Date().timeIntervalSince1970

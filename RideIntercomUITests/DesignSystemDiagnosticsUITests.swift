@@ -49,6 +49,8 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         picker.buttons["TX"].tap()
         let vad = app.descendants(matching: .any)["pipeline-vad-step"].firstMatch
         XCTAssertTrue(vad.waitForExistence(timeout: 3), app.debugDescription)
+        let bus = app.descendants(matching: .any)["pipeline-mixer-step"].firstMatch
+        XCTAssertTrue((bus.value as? String)?.contains("Voice Isolation On · Not measured") == true)
         vad.tap()
         XCTAssertTrue(
             app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
@@ -78,6 +80,9 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         reveal(mix, app: app)
         XCTAssertEqual(mix.value as? String, "Idle, Not available")
         XCTAssertTrue(app.staticTexts["No participants"].firstMatch.exists)
+        let receiveMix = app.descendants(matching: .any)["receive-pipeline-master-bus-step-summary"].firstMatch
+        reveal(receiveMix, app: app)
+        XCTAssertTrue((receiveMix.value as? String)?.contains("Voice Isolation Off · Not measured") == true)
         attachScreen("RX diagnostics before a call")
         let output = app.descendants(matching: .any)["receive-pipeline-output-step"].firstMatch
         XCTAssertTrue(output.waitForExistence(timeout: 3))
@@ -162,7 +167,7 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         let vad = app.descendants(matching: .any)["pipeline-vad-step"].firstMatch
         let bus = app.descendants(matching: .any)["pipeline-mixer-step"].firstMatch
         let active = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value CONTAINS %@", "Isolation active"), object: bus)
+            predicate: NSPredicate(format: "value CONTAINS %@", "Voice Isolation On · active"), object: bus)
         XCTAssertEqual(XCTWaiter.wait(for: [active], timeout: 15), .completed, app.debugDescription)
         XCTAssertLessThan(vad.frame.minY, bus.frame.minY)
         XCTAssertFalse(app.descendants(matching: .any)["pipeline-effects-step"].firstMatch.exists)
