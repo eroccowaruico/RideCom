@@ -166,6 +166,7 @@ struct AudioE2ENetworkRun {
     let startsFromSavedGroup: Bool
     let waitsForInternet: Bool
     let standaloneReceiver: Bool
+    let standaloneDiagnostics: Bool
     let startsBeforeInternet: Bool
     let waitsForLateParticipant: Bool
     let movesToBackground: Bool
@@ -201,6 +202,7 @@ struct AudioE2ENetworkRun {
         startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
         waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
         standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
+        standaloneDiagnostics = env["AUDIO_E2E_STANDALONE_DIAGNOSTICS"] == "1"
         startsBeforeInternet = env["AUDIO_E2E_DELAY_INTERNET"] == "1"
         waitsForLateParticipant = env["AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT"] == "1"
         movesToBackground = env["AUDIO_E2E_BACKGROUND_AFTER_START"] == "1"
@@ -216,6 +218,7 @@ struct AudioE2ENetworkRun {
 
     func verifyConfiguration() {
         XCTAssertTrue((0...300).contains(mutedWait))
+        if standaloneDiagnostics { XCTAssertTrue(standaloneReceiver) }
         if standaloneReceiver {
             XCTAssertTrue(role == "b" && transport == "local" && !waitsForLateParticipant && !movesToBackground
                 && !recovery && !checksBackgroundMute && !checksBackgroundSilence && mutedWait == 0)

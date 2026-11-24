@@ -392,3 +392,15 @@ MacとSimulatorは同じMacのCoreAudio serviceを共有する。2つのhostのn
 受話端末の背景・単独待機・マイクOFF・受信0の継続を確認してから、同じ送話側フォルダに空の`join`ファイルを作る。送話側は合図を最大10分待ち、近距離の認証とメディア開始後に試験音声を送る。送話側の結果には発話を確認した時刻と符号化packet数だけを残す。受話側の記録で、同じ通話の識別子・期限、認証、受信と発話区間の有声出力を照合する。実機はロック中の観測を確認する。Simulatorでの手順確認では、同じ通常画面を既存の`testStandardMutedWaitingKeepsAudioInBackground`で操作し、UIテスト側の`RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION=1`で外部の招待を待つ。
 
 再起動したAppで受話を確認する場合は、受話側の`testSavedGroupStartsLocalAfterColdOfflineLaunch`に`RIDEINTERCOM_COLD_START_PEER_GROUP`として送話側の実行UUIDを渡す。受話側の`AUDIO_E2E_RECEIVER_WAITING_FOR_INVITE`を確認して招待を開く。受話側は保存・終了・再起動を経て一覧で選んだ後に`AUDIO_E2E_RECEIVER_WAITING_AFTER_RESTART`を出す。音声準備・受信0を確認してから送話側の`join`を作る。受話側は「会話中」を確認し、相手が離脱したら待機に戻る。音声の判定は受話側の`background-call-standard-open.json`を使い、待機時と同じプロセス・通話・自動切断期限で、近距離での認証、受信、復号、native出力の有声を照合する。[再起動後の受話結果](../validation/history/近距離オフライン通信.md#再起動後の待機から相手が参加して受話へ進む)
+
+### 診断のRXを開いたまま音声の停止と再開を確かめる
+
+```sh
+python3 scripts/diagnostics_audio_e2e.py
+```
+
+既存の音声E2Eと同じSimulator環境で実行する。送話側はXcodeの共有スキーム `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork`、受話側は `RideIntercom` の `testStartInvitedTrialGroupMutedInAdvanced` を使う。ランナーは各Testの共有構成を読み、標準のビルド・結果保存先を使う。既存のAdvanced招待試験を単独で実行すると、通常の合成招待からマイクOFFまでを確認する。
+
+送話側は同じ合成発話を近距離通話へ送る。受話側は招待を受けてマイクOFFで待ち、診断のRXを開く。ランナーは、画面で最初の受信を確認した後に送話側をミュートし、画面で無音を確認した後にミュートを解除する。受話側はRXを開いたまま、RTC RXとDecodeの両方がPassing、Waiting、Passingの順に変わることを確認する。RTC RXは無音の間も認証済み1人の表示を維持する。Decodeは無音の間も最後のPCMの観測を表示する。
+
+合図は `.validation/diagnostics-audio-*/results.tsv` に残す。招待は送話側の一時ファイルから受話側にだけ渡し、結果には含めない。使い終わった試験計画を回収し、音声機器の選択を復元する。送話側と受話側のSimulatorは毎回作成し、試験後に両方を停止・削除する。結果の範囲はSimulatorでの近距離受信、復号、画面の状態。実無線での通話や音声の実出力は[実環境受入](../validation/未確認事項.md#画面デザインの実環境受入)で照合する。

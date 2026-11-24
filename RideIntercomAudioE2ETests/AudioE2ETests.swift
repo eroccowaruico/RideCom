@@ -177,8 +177,9 @@ final class AudioE2ETests: XCTestCase {
         FileHandle.standardOutput.write(Data("AUDIO_E2E_NATIVE_READY\n".utf8))
         let invitation = try storage.makeInvitation(for: run)
         if run.standaloneReceiver {
-            try await sendToStandaloneReceiver(viewModel: viewModel, invitation: invitation,
-                                               directory: storage.directory, seconds: run.initial.seconds)
+            try await sendToStandaloneReceiver(
+                viewModel: viewModel, invitation: invitation, directory: storage.directory,
+                seconds: run.initial.seconds, observesDiagnostics: run.standaloneDiagnostics)
             return
         }
         let endpoint = AudioE2EEndpoint(run: run, audio: audio, worker: worker, directory: storage.directory,
@@ -188,7 +189,7 @@ final class AudioE2ETests: XCTestCase {
 
     @MainActor
     private func sendToStandaloneReceiver(
-        viewModel: IntercomViewModel, invitation: URL, directory: URL, seconds: Double
+        viewModel: IntercomViewModel, invitation: URL, directory: URL, seconds: Double, observesDiagnostics: Bool
     ) async throws {
         XCTAssertTrue((6...20).contains(seconds))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -215,6 +216,15 @@ final class AudioE2ETests: XCTestCase {
                     && viewModel.isAudioReady && viewModel.isCallMediaStarted
             }
         )
+        if observesDiagnostics {
+            try await coordinateDiagnosticsSpeech(viewModel, directory: directory)
+        } else {
+            try await measureStandaloneSpeech(viewModel, seconds: seconds)
+        }
+    }
+
+    @MainActor
+    private func measureStandaloneSpeech(_ viewModel: IntercomViewModel, seconds: Double) async throws {
         let call = viewModel.currentCallReference
         let packets = viewModel.sentVoicePacketCount
         let adapter = try XCTUnwrap(viewModel.callSession as? RideIntercomCallSessionAdapter)
@@ -239,6 +249,29 @@ final class AudioE2ETests: XCTestCase {
             "localSampleBeforeSpeechAt": diagnosticsBeforeSpeech?.generatedAt as Any? ?? NSNull(),
             "localSampleAfterSpeechAt": diagnosticsAfterSpeech.generatedAt]
         try addAudioE2EJSONAttachment(evidence, name: "standalone-sender-observation")
+    }
+
+    @MainActor
+    private func coordinateDiagnosticsSpeech(_ model: IntercomViewModel, directory: URL) async throws {
+        let call = model.currentCallReference
+        let initial = model.sentVoicePacketCount
+        try await waitForDiagnosticsCommand("pause", in: directory)
+        XCTAssertGreaterThan(model.sentVoicePacketCount, initial)
+        XCTAssertTrue(model.setCallMuted(true, for: call))
+        try await waitForDiagnosticsCommand("resume", in: directory)
+        let paused = model.sentVoicePacketCount
+        XCTAssertTrue(model.setCallMuted(false, for: call))
+        try await waitForDiagnosticsCommand("finish", in: directory)
+        XCTAssertGreaterThan(model.sentVoicePacketCount, paused)
+        XCTAssertEqual(model.currentCallReference, call)
+        XCTAssertEqual(model.authenticatedPeerIDs.count, 1)
+    }
+
+    @MainActor
+    private func waitForDiagnosticsCommand(_ name: String, in directory: URL) async throws {
+        let signal = directory.appendingPathComponent(name)
+        try await waitUntil(seconds: 60, description: "Diagnostics sender coordination",
+                            status: { name }, condition: { FileManager.default.fileExists(atPath: signal.path) })
     }
 }
 
