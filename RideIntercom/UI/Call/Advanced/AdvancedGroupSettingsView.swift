@@ -52,6 +52,7 @@ struct AdvancedGroupSettingsView: View {
                                     } icon: {
                                         DestinationAvatar(isGroup: false, diameter: 28)
                                     }
+                                    .accessibilityIdentifier("groupSettingsMember-\(member.id)")
                                 }
                             }
                             .groupMemberRowActions(member, groupID: groupID, viewModel: viewModel,

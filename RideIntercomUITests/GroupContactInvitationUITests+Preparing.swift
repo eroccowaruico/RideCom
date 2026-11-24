@@ -214,9 +214,8 @@ extension GroupContactInvitationUITests {
         let peer = "group-peer-" + suffix
         app.open(try InvitationURLFixture.acceptance(invitation, invitee: peer, sharedName: "Remote " + suffix))
         openSavedGroupSettings(in: app, groupName: groupName, advanced: advanced)
-        if !advanced {
-            XCTAssertTrue(app.buttons["groupSettingsMember-" + peer].waitForExistence(timeout: 5))
-        }
+        let member = app.descendants(matching: .any)["groupSettingsMember-" + peer].firstMatch
+        XCTAssertTrue(member.waitForExistence(timeout: 5), "The signed reply adds its member to this group")
     }
 
     @MainActor private func copiedURL(in app: XCUIApplication) throws -> URL {
