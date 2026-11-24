@@ -78,6 +78,15 @@ def scenarios(mode: str, seconds: int) -> list[AudioCase]:
     }
     if mode == 'smoke':
         return [default]
+    if mode == 'isolation':
+        bypassed: AudioCase = {**default, 'transmitIsolation': False}
+        return [
+            {**default, 'id': 'isolation-tx-on'},
+            {**bypassed, 'id': 'isolation-off'},
+            {**default, 'id': 'isolation-tx-restored'},
+            {**bypassed, 'id': 'isolation-rx-master', 'masterIsolation': True},
+            {**bypassed, 'id': 'isolation-rx-peer', 'peerIsolation': True},
+        ]
     if mode == 'identity':
         # Both bundled pairs complete at least one full utterance per recording.
         duration = max(20, seconds)

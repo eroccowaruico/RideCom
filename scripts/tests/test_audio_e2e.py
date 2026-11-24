@@ -109,6 +109,17 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertFalse(args.two_simulators)
         self.assertEqual(args.background_recovery, 300)
 
+    def test_isolation_matrix_changes_only_the_effect_under_test(self) -> None:
+        cases = audio.scenarios('isolation', 12)
+        changes = ('transmitIsolation', 'masterIsolation', 'peerIsolation')
+        self.assertEqual([tuple(case[key] for key in changes) for case in cases], [
+            (True, False, False), (False, False, False), (True, False, False),
+            (False, True, False), (False, False, True),
+        ])
+        baseline = {key: value for key, value in cases[0].items() if key not in (*changes, 'id')}
+        for case in cases[1:]:
+            self.assertEqual({key: value for key, value in case.items() if key not in (*changes, 'id')}, baseline)
+
     def test_standalone_mode_carries_one_plan_for_selection_and_measurements(self) -> None:
         examples = {
             'pipeline': (('testSpeechContinuityWithoutNetwork',), ('pipeline-20ms', 'pipeline-100ms'), 180),

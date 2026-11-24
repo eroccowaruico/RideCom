@@ -111,6 +111,17 @@ python3 scripts/audio_e2e.py --configuration Release --transport local --matrix 
 
 `scenarios.json`に実行対象の設定を保存し、両端の測定が選んだ全ケースのIDと一致することを照合する。波形、連続性、遅延の基準は共通。Xcodeから同じ組合せを実行する場合は、そのJSONを両端の`AUDIO_E2E_SCENARIOS`に設定する。結果の範囲は選択したケースと経路に限定する。
 
+### 近距離通話で声の分離を送信と受信に分けて測る
+
+```sh
+python3 scripts/audio_e2e.py --configuration Release --two-simulators --transport local \
+  --matrix isolation --speech-pair japanese --seconds 12
+```
+
+同じグループのAAC-ELD 48 kHz／48 kbpsを使い、送信ON、全OFF、送信の再ON、受信全体ON、相手別ONの順に測る。開始時と切替後の設定は既存の画面と同じViewModelの操作へ渡す。端末Aの発話だけに397 Hzと1763 Hz、振幅0.030と0.020の合成音を加える。BからAへ送る発話は元の素材を使う。受話の比較元は両端とも合成音を加える前の発話にする。
+
+各区間で、受話側の復号直後、ミックス、再生の波形と測定結果を保存する。付加音を比較する場合は、測定結果にある参照音声との時刻差を使い、発話のRMSが0.04以上の250 ms窓でHann窓を掛ける。2周波数それぞれの正弦・余弦成分から振幅を求め、窓ごとのdBFSの中央値を比べる。送信の効果はBの復号から、受信の効果は復号値も見ながらBの再生で調べる。発話照合と遅延には既存の基準を使う。不合格でも波形を回収し、抑制量と発話の判定を確認できる。[測定例](../validation/history/音声同一性と途切れの再現.md#近距離通話の復号と再生で声の分離を測る)
+
 ## 通る経路と判定
 
 合成発話WAVを次の経路に通す。

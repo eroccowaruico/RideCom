@@ -260,7 +260,7 @@ def main() -> int:
     parser.add_argument('--transport', choices=['local', 'webrtc', 'mixed', 'all'], default='all')
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
     parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
-    parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity'], default='quick')
+    parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity', 'isolation'], default='quick')
     parser.add_argument('--scenario', metavar='ID', action='append', default=[],
                         help='Run only this scenario from the network audio matrix; repeat to select multiple cases')
     parser.add_argument('--speech-pair', choices=['english', 'japanese', 'conversation'], default='english')
@@ -280,6 +280,8 @@ def main() -> int:
     if len(standalone_plans) > 1:
         parser.error('Choose one standalone audio test mode')
     standalone = next(iter(standalone_plans), None)
+    if args.matrix == 'isolation' and (standalone or args.cleanup_only or args.isolation == 'off'):
+        parser.error('The isolation matrix requires a network run with independent TX and RX settings')
     if args.background_recovery is not None and (
         not 1 <= args.background_recovery <= 300 or args.transport not in ('local', 'webrtc')
         or (args.transport == 'local' and (not args.two_simulators or args.configuration != 'Debug'))
@@ -484,6 +486,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
             environment = {'AUDIO_E2E_RUN': run_id, 'AUDIO_E2E_TRANSPORT': transport,
                 'AUDIO_E2E_SPEECH_PAIR': args.speech_pair,
                 'AUDIO_E2E_WORKER_URL': f'http://127.0.0.1:{port}', 'AUDIO_E2E_SCENARIOS': json.dumps(cases)}
+            if args.matrix == 'isolation':
+                environment['AUDIO_E2E_ISOLATION_NOISE'] = '1'
             if args.saved_group_start:
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
             if args.unanswered_internet:

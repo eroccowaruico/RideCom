@@ -176,6 +176,7 @@ struct AudioE2ENetworkRun {
     let mutedWait: Int
     let workerURL: String?
     let speechPair: String?
+    let measuresIsolationNoise: Bool
 
     var mixed: Bool { transport == "mixed" }
     var usesInternet: Bool { transport == "webrtc" || mixed || waitsForInternet }
@@ -210,6 +211,7 @@ struct AudioE2ENetworkRun {
         mutedWait = env["AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS"].map { Int($0) ?? -1 } ?? 0
         workerURL = env["AUDIO_E2E_WORKER_URL"]
         speechPair = env["AUDIO_E2E_SPEECH_PAIR"]
+        measuresIsolationNoise = env["AUDIO_E2E_ISOLATION_NOISE"] == "1"
     }
 
     func verifyConfiguration() {

@@ -163,7 +163,7 @@ final class SpeechFileInput: AudioInputStreamBackend {
         #endif
     }
 
-    init(name: String, engine: AVAudioEngine = AVAudioEngine()) throws {
+    init(name: String, engine: AVAudioEngine = AVAudioEngine(), addingIsolationNoise: Bool = false) throws {
         #if os(iOS)
         hardware = SystemAudioInputStreamBackend(engine: engine)
         #endif
@@ -175,7 +175,16 @@ final class SpeechFileInput: AudioInputStreamBackend {
         try file.read(into: buffer)
         precondition(file.processingFormat.sampleRate == 48_000 && file.processingFormat.channelCount == 1)
         let channel = try XCTUnwrap(buffer.floatChannelData)[0]
-        samples = Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+        let input = UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))
+        if addingIsolationNoise {
+            // Keep the other endpoint and the speech match references clean.
+            samples = input.enumerated().map { index, sample in
+                let time = Double(index) / 48_000
+                return sample + Float(0.030 * sin(2 * .pi * 397 * time) + 0.020 * sin(2 * .pi * 1763 * time))
+            }
+        } else {
+            samples = Array(input)
+        }
     }
 
     func updateVoiceProcessing(_ configuration: AudioInputVoiceProcessingConfiguration) throws {

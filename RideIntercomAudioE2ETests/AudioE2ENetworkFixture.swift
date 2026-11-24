@@ -95,7 +95,9 @@ struct AudioE2ENativeAudio {
         localFixture = fixtures[role == "a" ? 0 : 1]
         remoteFixture = fixtures[role == "a" ? 1 : 0]
         outputEngine = AVAudioEngine()
-        input = try SpeechFileInput(name: localFixture, engine: outputEngine)
+        input = try SpeechFileInput(
+            name: localFixture, engine: outputEngine, addingIsolationNoise: run.measuresIsolationNoise && role == "a"
+        )
         if run.mixed { input.setFrameDeliveryEnabled(false) }
         remote = try SpeechFileInput(name: remoteFixture)
         probe = RenderedAudioProbe(recordsRenderClock: run.waitsForInternet)

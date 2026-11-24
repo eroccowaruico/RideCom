@@ -247,7 +247,7 @@ extension AudioE2ETests {
         let mixedRecording = analysis.mixedRecording
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var recordings = [("speech", rendered)]
-        if !scenario.expectsSilence && (!continuityPassed || waitsForInternet) {
+        if !scenario.expectsSilence && (!continuityPassed || waitsForInternet || endpoint.run.measuresIsolationNoise) {
             recordings.append(("decoded", decodedRecording))
             recordings.append(("mixed", mixedRecording))
         }
