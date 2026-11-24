@@ -4,9 +4,11 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
+#include "absl/strings/ascii.h"
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/data_channel_interface.h"
 #include "api/jsep.h"
@@ -24,6 +26,36 @@ namespace {
 constexpr size_t kMaximumPacketBytes = 48 * 1024;
 constexpr uint64_t kMaximumControlQueueBytes = 64 * 1024;
 
+using PeerConnection = webrtc::PeerConnectionInterface;
+
+RideComRTCIceState IceState(PeerConnection::IceConnectionState state) {
+  switch (state) {
+    case PeerConnection::kIceConnectionNew:
+    case PeerConnection::kIceConnectionChecking:
+      return RideComRTCIceConnecting;
+    case PeerConnection::kIceConnectionConnected:
+    case PeerConnection::kIceConnectionCompleted:
+      return RideComRTCIceConnected;
+    case PeerConnection::kIceConnectionDisconnected:
+    case PeerConnection::kIceConnectionClosed:
+    case PeerConnection::kIceConnectionMax:
+      return RideComRTCIceDisconnected;
+    case PeerConnection::kIceConnectionFailed:
+      return RideComRTCIceFailed;
+  }
+  return RideComRTCIceFailed;
+}
+
+bool IsUdpIceServer(const char* url) {
+  if (!url) {
+    return false;
+  }
+  const std::string value = absl::AsciiStrToLower(std::string_view(url));
+  const size_t query = value.find('?');
+  return (value.starts_with("stun:") || value.starts_with("turn:")) &&
+         (query == std::string::npos || value.compare(query + 1, std::string::npos, "transport=udp") == 0);
+}
+
 struct Factory {
   std::unique_ptr<webrtc::Thread> network = webrtc::Thread::CreateWithSocketServer();
   std::unique_ptr<webrtc::Thread> signaling = webrtc::Thread::Create();
@@ -38,6 +70,17 @@ class PeerObserver final : public webrtc::PeerConnectionObserver {
   void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState) override {}
   void OnIceCandidate(const webrtc::IceCandidate*) override {}
 
+  void SetIceCallback(void* context, RideComRTCIceStateChanged changed) {
+    context_ = context;
+    changed_ = changed;
+  }
+
+  void OnIceConnectionChange(PeerConnection::IceConnectionState state) override {
+    if (changed_) {
+      changed_(context_, IceState(state));
+    }
+  }
+
   void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> channel) override {
     // Only a negotiated channel may be owned by the application.
     signaling_.PostTask([channel = std::move(channel)] { channel->Close(); });
@@ -45,6 +88,8 @@ class PeerObserver final : public webrtc::PeerConnectionObserver {
 
  private:
   webrtc::Thread& signaling_;
+  void* context_ = nullptr;
+  RideComRTCIceStateChanged changed_ = nullptr;
 };
 
 struct Peer {
@@ -208,8 +253,47 @@ RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* factory) {
 
 void RideComRTCPeerRelease(RideComRTCPeer* peer) {
   if (peer) {
-    peer->handle->native->Close();
+    peer->handle->factory->signaling->BlockingCall([&] {
+      peer->handle->observer.SetIceCallback(nullptr, nullptr);
+      peer->handle->native->Close();
+    });
     delete peer;
+  }
+}
+
+bool RideComRTCPeerSetIceServers(RideComRTCPeer* peer, const RideComRTCIceServer* servers, size_t count) {
+  if (!peer || !servers || count == 0) {
+    return false;
+  }
+  PeerConnection::IceServers eligible;
+  for (const RideComRTCIceServer& server : std::span(servers, count)) {
+    if (!IsUdpIceServer(server.url)) {
+      continue;
+    }
+    auto& entry = eligible.emplace_back();
+    entry.urls.emplace_back(server.url);
+    if (server.username) {
+      entry.username = server.username;
+    }
+    if (server.password) {
+      entry.password = server.password;
+    }
+  }
+  if (eligible.empty()) {
+    return false;
+  }
+  return peer->handle->factory->signaling->BlockingCall([&] {
+    auto configuration = peer->handle->native->GetConfiguration();
+    configuration.servers = std::move(eligible);
+    return peer->handle->native->SetConfiguration(configuration).ok();
+  });
+}
+
+void RideComRTCPeerObserveIce(RideComRTCPeer* peer, void* context, RideComRTCIceStateChanged changed) {
+  if (peer) {
+    peer->handle->factory->signaling->BlockingCall([&] {
+      peer->handle->observer.SetIceCallback(context, changed);
+    });
   }
 }
 

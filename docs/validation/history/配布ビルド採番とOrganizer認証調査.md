@@ -268,6 +268,8 @@ RTCパッケージにC++候補の接続部を追加した。SwiftからPeerConne
 
 候補の接続部から、制御用と音声用のDataChannelを使ってバイナリを送受信した。Mac arm64のSwiftで、同一プロセスの2接続をIPv4ループバックでつないだ。両チャネルで状態変更の通知を受け、期待した4個のデータを双方向で受け取った。開く前と48KiBを超える入力の送信は拒否した。同じ試験を5回実行した。iPhone、Simulator、macOSの計5構成でリンクし、撮影クラスへの参照はなかった。[バイナリの送受信](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#c候補のdatachannelでバイナリを送受信する)
 
+ICEの接続状態通知と、既存の接続にサーバー設定を渡す処理を追加した。Mac内の両端で接続済みを受け取った。接続を保ったまま、STUNとUDP TURNの試験用設定をSDKが受理した。TCP、TLS、空の設定を拒否した後も、既存の制御・音声チャネルで双方向の送受信が通った。これは設定更新の試験で、TURN経由の通信は採用候補のE2Eで確認する。[ICEの設定と検証](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#通話中の接続にiceサーバーを設定する)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。

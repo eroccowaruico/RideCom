@@ -10,24 +10,32 @@ private final class DescriptionCompletion: Sendable {
     }
 }
 
-private final class ChannelRecording: Sendable {
+private final class ConnectionRecording: Sendable {
+    let iceConnected = Mutex(false)
     let changes = Mutex(0)
     let packets = Mutex<[Data]>([])
 }
 
-private func observe(_ channels: [OpaquePointer], recording: ChannelRecording) -> Unmanaged<ChannelRecording> {
+private func observe(
+    peer: OpaquePointer, channels: [OpaquePointer], recording: ConnectionRecording
+) -> Unmanaged<ConnectionRecording> {
     let context = Unmanaged.passRetained(recording)
+    RideComRTCPeerObserveIce(peer, context.toOpaque()) { pointer, state in
+        guard let pointer, state == RideComRTCIceConnected else { return }
+        let recording = Unmanaged<ConnectionRecording>.fromOpaque(pointer).takeUnretainedValue()
+        recording.iceConnected.withLock { $0 = true }
+    }
     for channel in channels {
         RideComRTCChannelObserve(
             channel, context.toOpaque(),
             { pointer in
                 guard let pointer else { return }
-                let recording = Unmanaged<ChannelRecording>.fromOpaque(pointer).takeUnretainedValue()
+                let recording = Unmanaged<ConnectionRecording>.fromOpaque(pointer).takeUnretainedValue()
                 recording.changes.withLock { $0 += 1 }
             },
             { pointer, bytes, count in
                 guard let pointer, let bytes else { return }
-                let recording = Unmanaged<ChannelRecording>.fromOpaque(pointer).takeUnretainedValue()
+                let recording = Unmanaged<ConnectionRecording>.fromOpaque(pointer).takeUnretainedValue()
                 let packet = Data(bytes: bytes, count: count)
                 recording.packets.withLock { $0.append(packet) }
             }
@@ -36,7 +44,10 @@ private func observe(_ channels: [OpaquePointer], recording: ChannelRecording) -
     return context
 }
 
-private func stopObserving(_ channels: [OpaquePointer], context: Unmanaged<ChannelRecording>) {
+private func stopObserving(
+    peer: OpaquePointer, channels: [OpaquePointer], context: Unmanaged<ConnectionRecording>
+) {
+    RideComRTCPeerObserveIce(peer, nil, nil)
     for channel in channels {
         RideComRTCChannelObserve(channel, nil, nil, nil)
     }
@@ -150,10 +161,32 @@ private func exchangeDescriptions(sender: OpaquePointer, receiver: OpaquePointer
     precondition(answerAccepted)
 }
 
+private func checkIceServerUpdate(on peer: OpaquePointer) {
+    func setServer(_ url: String) -> Bool {
+        url.withCString { pointer in
+            var server = RideComRTCIceServer(url: pointer, username: nil, password: nil)
+            return RideComRTCPeerSetIceServers(peer, &server, 1)
+        }
+    }
+
+    precondition(setServer("stun:127.0.0.1:3478"))
+    let turnAccepted = "turn:127.0.0.1:3478?transport=udp".withCString { url in
+        "loopback-test".withCString { credential in
+            var server = RideComRTCIceServer(url: url, username: credential, password: credential)
+            return RideComRTCPeerSetIceServers(peer, &server, 1)
+        }
+    }
+    precondition(turnAccepted)
+    precondition(!setServer("turns:127.0.0.1:5349"))
+    precondition(!setServer("turn:127.0.0.1:3478?transport=tcp"))
+    precondition(!setServer("stun:"))
+    precondition(!RideComRTCPeerSetIceServers(peer, nil, 0))
+}
+
 @MainActor
 private func checkPacketTransfer(
-    senderChannels: [OpaquePointer], receiverChannels: [OpaquePointer],
-    senderRecording: ChannelRecording, receiverRecording: ChannelRecording
+    sender: OpaquePointer, senderChannels: [OpaquePointer], receiverChannels: [OpaquePointer],
+    senderRecording: ConnectionRecording, receiverRecording: ConnectionRecording
 ) async {
     let allOpened = await waitUntil {
         (senderChannels + receiverChannels).allSatisfy { RideComRTCChannelGetState($0) == RideComRTCChannelOpen }
@@ -163,6 +196,11 @@ private func checkPacketTransfer(
         senderRecording.changes.withLock { $0 > 0 } && receiverRecording.changes.withLock { $0 > 0 }
     }
     precondition(gotChanges)
+    let sawIceConnected = await waitUntil {
+        senderRecording.iceConnected.withLock { $0 } && receiverRecording.iceConnected.withLock { $0 }
+    }
+    precondition(sawIceConnected)
+    checkIceServerUpdate(on: sender)
     precondition(!send(Data(repeating: 0, count: 48 * 1024 + 1), on: senderChannels[0]))
 
     let sentBySender = [Data([0, 1, 2]), Data([3, 4, 5])]
@@ -201,20 +239,20 @@ private func checkNegotiation() async {
         RideComRTCPeerRelease(receiver)
         RideComRTCFactoryRelease(factory)
     }
-    let senderRecording = ChannelRecording()
-    let receiverRecording = ChannelRecording()
-    let senderContext = observe(senderChannels, recording: senderRecording)
-    let receiverContext = observe(receiverChannels, recording: receiverRecording)
+    let senderRecording = ConnectionRecording()
+    let receiverRecording = ConnectionRecording()
+    let senderContext = observe(peer: sender, channels: senderChannels, recording: senderRecording)
+    let receiverContext = observe(peer: receiver, channels: receiverChannels, recording: receiverRecording)
     defer {
-        stopObserving(senderChannels, context: senderContext)
-        stopObserving(receiverChannels, context: receiverContext)
+        stopObserving(peer: sender, channels: senderChannels, context: senderContext)
+        stopObserving(peer: receiver, channels: receiverChannels, context: receiverContext)
     }
 
     precondition(RideComRTCChannelBufferedBytes(senderControl) == 0)
     precondition(!send(Data([0]), on: senderControl))
     await exchangeDescriptions(sender: sender, receiver: receiver)
     await checkPacketTransfer(
-        senderChannels: senderChannels, receiverChannels: receiverChannels,
+        sender: sender, senderChannels: senderChannels, receiverChannels: receiverChannels,
         senderRecording: senderRecording, receiverRecording: receiverRecording
     )
     await checkClosingDuringNegotiation(factory)

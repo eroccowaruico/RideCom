@@ -27,7 +27,21 @@ typedef enum RideComRTCDescriptionKind {
   RideComRTCDescriptionAnswer,
 } RideComRTCDescriptionKind;
 
+typedef enum RideComRTCIceState {
+  RideComRTCIceConnecting,
+  RideComRTCIceConnected,
+  RideComRTCIceDisconnected,
+  RideComRTCIceFailed,
+} RideComRTCIceState;
+
+typedef struct RideComRTCIceServer {
+  const char* url;
+  const char* username;
+  const char* password;
+} RideComRTCIceServer;
+
 typedef void (*RideComRTCDescriptionCompletion)(void* context, bool success);
+typedef void (*RideComRTCIceStateChanged)(void* context, RideComRTCIceState state);
 typedef void (*RideComRTCChannelStateChanged)(void* context);
 typedef void (*RideComRTCChannelReceived)(void* context, const uint8_t* bytes, size_t length);
 
@@ -41,6 +55,15 @@ RIDECOM_RTC_EXPORT RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* facto
 // Closes the connection before releasing the handle. Open channel handles can
 // still be released afterwards.
 RIDECOM_RTC_EXPORT void RideComRTCPeerRelease(RideComRTCPeer* peer);
+
+// The configuration is copied during this call. Only UDP STUN and TURN URLs
+// are eligible. Returning false leaves the existing configuration in place.
+RIDECOM_RTC_EXPORT bool RideComRTCPeerSetIceServers(
+    RideComRTCPeer* peer, const RideComRTCIceServer* servers, size_t count);
+// The callback must not call back into the adapter. Clear it by passing NULL
+// or by releasing the peer before freeing the callback context.
+RIDECOM_RTC_EXPORT void RideComRTCPeerObserveIce(
+    RideComRTCPeer* peer, void* context, RideComRTCIceStateChanged changed);
 
 // The local operation creates the offer or answer appropriate to the current
 // signaling state. Each operation calls its completion once, possibly before

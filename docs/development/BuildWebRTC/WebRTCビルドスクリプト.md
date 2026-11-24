@@ -143,6 +143,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 `check_negotiation.swift` はテスト時だけループバックを許可する。交換するSDPをIPv4の `127.0.0.1` に絞る。制御用と音声用の両方で、開く前の送信拒否、状態変更の通知、双方向の受信を確かめる。
 
+#### 通話中の接続にICEサーバーを設定する
+
+接続部は、SDKのICE状態から接続中・接続済み・切断済み・失敗を通知する。呼出元は通知を受け取る関数を解除した後で、渡したコンテキストを解放できる。
+
+ICEサーバーを更新するときは、既存のPeerConnectionに設定を渡す。対象はUDPのSTUNかTURN。TCPの指定とTLS用の `turns:` は候補から除く。有効な設定がない場合やSDKが更新を拒否した場合は、以前の設定を保つ。
+
+`check_negotiation.swift` では、Mac内の接続が成立したことをICEの通知で確認する。接続済みのPeerConnectionにループバック用のSTUNと試験用のUDP TURN設定を渡す。TCP・TLSや空の設定の拒否を確認し、同じチャネルでバイナリを送受信する。
+
 ## 失敗時の入口
 
 失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。
