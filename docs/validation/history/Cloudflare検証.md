@@ -301,6 +301,12 @@ iPhone 12 mini向けには既存TestFlight版を対象とするランナーの�
 
 Workerのローカル回帰144件、RTCの選択13件、WorkerとSwiftをつないだ通話試験2件、Macの設定回帰24件が合格した。SwiftLintとWorkerの型検査も通った。結果は `.validation/call-service-paused-20261125/` と `.validation/20261125-025538-777351/` に保存した。次回用Buildは2501。稼働中のサービスの停止や再開は試しておらず、Build 2440の原因の確定には使わない。[Wranglerのローカル生成](https://developers.cloudflare.com/workers/wrangler/bundling/)
 
+## 通話の調査に使う本番と固定Previewの配置元を確かめる
+
+2026-11-25。Cloudflareの読取APIで、本番の全トラフィックを処理するバージョンと、対応するWorkers Buildsの成功結果を照合した。配置は03時12分（JST）、ソースは共有 `main` の `fa5da1bf`、ビルドのルートは `server`。同じソースに通話の運用停止を診断で見分ける修正 `df4d964c` が含まれる。固定Previewは03時13分（JST）の最新配置のタグと `preview` の最新成功ビルドで同じコミットを確認し、互換日付は `2026-11-17` だった。[バージョンとビルドの照会](https://developers.cloudflare.com/api/resources/workers_builds/methods/get_builds_by_version/)
+
+本番の実行設定ではApple登録、通話、TURNが有効で、Apple登録のクライアント識別子は通常版のバンドルIDと一致した。通話要求に使う制限とSQLiteの接続先、SFU・TURNのシークレット名が存在し、固定Preview限定の試験資格設定は本番に存在しなかった。照合は配置と設定の読み取りまで。登録済みの資格を使う入室と音声の送受信は[本番の復旧課題](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)で追う。
+
 ## 通知の停止と鍵の不備で保存済み招待の配信を保留する
 
 2026-11-23。保存済みの合成招待があるローカルWorkerで、APNsの署名鍵を読み込めない状態でも受信箱がHTTP 200で暗号文を返すことを再現した。修正後は、通知停止、鍵の未設定、鍵の形式不正のどの場合も、通知先の登録、呼出し、招待の送信・取得・追加端末への照会と未受領の確定はHTTP 503だった。代替APNsへの要求は増えず、再開後にも停止中に拒否した新規送信の記録はなかった。
