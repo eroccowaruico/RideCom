@@ -306,6 +306,14 @@ ArchiveをXcodeの標準保存先へ登録した。Organizerの一覧表示は�
 ~/Library/Developer/Xcode/Archives/2026-11-24/RideIntercom iOS 1.0.0 (2389).xcarchive
 ```
 
+## 2,490コミットの区切りでiOS Build 2398をArchiveする
+
+2026-11-24。共有mainの2,490件目 `4d3d2f24` で到来した定期Archiveを、進行中の固定Previewの音声試験を受け入れた共有main `c9b5b4b3` から作成した。固定Previewは試験後の配置番号2に試験設定がなく、2件の短期資格がHTTP 401となった。一時ファイルも回収した。[実SFUとUDP TURNの音声試験](iOS音声E2Eと通話障害修復.md#固定previewの実sfuとudp-turnでミュート待機後の受話を確認する)
+
+標準の `RideIntercom` スキームでiPhoneの署名付きArchiveを作り、配布署名付きIPAを書き出した。AppとWidgetのバージョンは1.0.0、ビルド番号は2398で一致した。AppとWebRTCは実行ファイルと対応するdSYMのUUIDが一致し、採用ZIPとArchive・IPAのarm64 WebRTCの17セクションが一致した。ArchiveとIPAのカメラ検査は参照0件で通過した。署名と実行ファイルを照合し、接続先は本番Worker、通知の権限はArchiveが `development`、IPAが `production`。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限、カメラの利用目的はいずれも含まれない。次回用の共通採番は2399。
+
+ArchiveはXcodeの標準保存先に登録した。2026-11-24のフォルダにある `RideIntercom iOS 1.0.0 (2398).xcarchive` が対象。Organizerの一覧表示は未確認。IPAと検査結果は `.validation/itms-90683/archive-2490/` に保存した。App Store Connectには送信していない。
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。
