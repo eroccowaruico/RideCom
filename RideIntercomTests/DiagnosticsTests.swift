@@ -66,7 +66,10 @@ struct DiagnosticsTests {
             receivedAudioFrameCount: 8, droppedAudioFrameCount: 2, queuedAudioFrameCount: 0))
         #expect(presentation().codecDecodeStep.state == .passing)
         #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 1 / Last PCM"))
-        #expect(presentation().rtcReceiveStep.detail.hasSuffix("DROP 2"))
+        let receiptSummary = presentation().rtcReceiveStep.detail
+        #expect(receiptSummary.contains("2 connected / 1 authenticated"))
+        #expect(receiptSummary.contains("Received packets 8 / Last receipt"))
+        #expect(receiptSummary.hasSuffix("Dropped packets 2"))
         await AppTestSupport.waitUntil(timeout: .seconds(3)) {
             harness.outputBackend.scheduledFrames.contains { $0.samples.contains { $0 > 0.05 } }
         }

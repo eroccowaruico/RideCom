@@ -114,11 +114,14 @@ struct ReceivePipelinePresentation {
         } else {
             let received = input.receivedVoicePacketCount
             let dropped = input.droppedAudioPacketCount
-            let peers = "\(input.routeLabel) / C \(input.connectedPeerCount) / A \(input.authenticatedPeerCount)"
+            let peers = """
+                \(input.routeLabel) / \(input.connectedPeerCount) connected / \
+                \(input.authenticatedPeerCount) authenticated
+                """
             let receipt = observation(input.lastReceivedAudioAt)
             let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? " / Receipt time not measured"
-            let media = received > 0 || dropped > 0 ? " / RX \(received)" : ""
-            let failures = dropped > 0 ? " / DROP \(dropped)" : ""
+            let media = received > 0 || dropped > 0 ? " / Received packets \(received)" : ""
+            let failures = dropped > 0 ? " / Dropped packets \(dropped)" : ""
             value = (peers + media + lastReceipt + failures, receipt.state)
         }
         return PipelineStep(

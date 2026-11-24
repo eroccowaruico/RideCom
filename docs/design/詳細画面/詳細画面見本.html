@@ -331,7 +331,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div class="pbody">
           <div class="hd">Live RX Pipeline <span>Peers -&gt; mix -&gt; RX master -&gt; output</span></div>
           <div class="card rx-entry">
-            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local + Internet / C 3 / A 3 / RX 240 / Last receipt · 0s ago / DROP 3</span></div>
+            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local + Internet / 3 connected / 3 authenticated / Received packets 240 / Last receipt · 0s ago / Dropped packets 3</span></div>
             <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 238 / Last PCM · 0s ago / Decode errors 2 / Last error · 4s ago</span></div>
           </div>
           <div class="card rx-entry">
@@ -472,13 +472,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   <h2 id="stopped">停止の例</h2>
   <div class="card rx-stop-example" id="rx-decode-blocked">
     <div class="hd">Live RX Pipeline</div>
-    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / C 1 / A 1 / RX 241 / Last receipt · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / 1 connected / 1 authenticated / Received packets 241 / Last receipt · 0s ago</span></div>
     <div class="row"><span class="k"><span class="err-t" role="img" aria-label="Blocked">×</span> Decode</span><span class="v num">PCM 238 / Last PCM · 3s ago / Decode errors 3 / Last error · 0s ago</span></div>
   </div>
   <p class="note">受信が続く間に復号だけが止まった例。Overviewでも RX: Blocked at Decode と表示する。</p>
   <div class="card rx-stop-example" id="rx-output-stalled">
     <div class="hd">Live RX Pipeline</div>
-    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / C 1 / A 1 / RX 460 / Last receipt · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / 1 connected / 1 authenticated / Received packets 460 / Last receipt · 0s ago</span></div>
     <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 460 / Last PCM · 0s ago</span></div>
     <div class="row"><span class="k"><span class="warn-t" role="img" aria-label="Waiting">Ⅱ</span> Output</span><span class="v num">Last audible PCM · 3s ago / Last render · 3s ago</span></div>
   </div>
