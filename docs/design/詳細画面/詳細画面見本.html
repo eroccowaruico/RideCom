@@ -249,7 +249,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 
   <h2 id="diag">診断（Diagnostics）</h2>
   <p class="note">上部からOverview、TX、RX、Network、Appliedを選ぶ。Overviewの送信・受信の判定から、止まった段を各ページで読む。TXとRXの詳細は段・相手・出力ごとに開く。<a href="../../spec/App/UI/Diagnostics.md#画面構成">現行の画面仕様</a></p>
-  <p class="note">通常の文字サイズで幅900pt以上あり、TX・RX・Network・Appliedのいずれかを選ぶと、Overviewを左に並べる。アクセシビリティ文字サイズでは、広いiPadでも選んだページだけを1列で表示する。上部の「Diagnostics」から一覧を開き、Overviewに戻れる。</p>
+  <p class="note">診断に使える幅が900pt以上で通常の文字サイズのとき、TX・RX・Network・Appliedを選ぶとOverviewを左に並べる。2列では各列が最大560pt。Overviewだけを選んだとき、幅が足りないとき、アクセシビリティ文字サイズでは、選んだページだけを最大640ptの1列で表示する。iOSのアクセシビリティ文字サイズでは上部の「Diagnostics」から一覧を開き、Overviewに戻れる。</p>
   <p class="note">ナオのグループ通話の例。Harukaは近距離で直接、KentaはHaruka経由の中継で低帯域のOpus、MikaはインターネットでPCMへフォールバック、Yuは未接続。ナオは相手ごとの経路と音声の状態を確認する。<a href="../操作の流れ.md#人物と場面での立場">人物と立場の定義</a></p>
   <div class="gallery">
 
