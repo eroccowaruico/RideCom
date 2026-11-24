@@ -100,7 +100,7 @@ struct CallLifecycleTests {
     }
 
     @Test func blockedInternetOnlyCallOffersConnectInsteadOfClaimingAutomaticRecovery() {
-        let testHarness = AppTestSupport.makeHarness()
+        let testHarness = AppTestSupport.makeHarness(hasInternetCallCredential: true)
         testHarness.viewModel.enabledRTCTransportRoutes = [.webRTC]
         testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         testHarness.viewModel.handleTransportEvent(.serviceBlocked("End the existing Internet call, then try again."))

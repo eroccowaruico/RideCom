@@ -134,7 +134,7 @@ extension AppTests.SettingsTests {
 
     @Test(arguments: [RTC.RouteKind.multipeer, .webRTC])
     func actualEffectsFollowSettingsWithoutRestartingMedia(route: RTC.RouteKind) async throws {
-        let harness = AppTestSupport.makeHarness()
+        let harness = AppTestSupport.makeHarness(hasInternetCallCredential: route == .webRTC)
         let model = harness.viewModel
         model.setRTCTransportRoute(route == .webRTC ? .multipeer : .webRTC, enabled: false)
         #expect(model.supportsSoundIsolation == VoiceIsolationSupport.isAvailable)
@@ -293,6 +293,71 @@ extension AppTests.SettingsTests {
         #expect(harness.viewModel.internetWorkerURL == "https://worker.test")
         #expect(!harness.viewModel.internetCheckMessage.contains("private-token"))
         #expect(harness.callSession.startMediaCallCount == 0)
+    }
+
+    @Test func callWithoutInternetCredentialsShowsSetupAndKeepsNearbyAvailable() throws {
+        let store = InternetConnectionSettingsStore(keychain: InternetTestKeychain())
+        let harness = AppTestSupport.makeHarness(internetSettingsStore: store)
+        let model = harness.viewModel
+        let group = try #require(model.groups.first)
+        let setup = String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+
+        model.setRTCTransportRoutes([.webRTC])
+        model.openDestination(.group(group.id))
+        #expect(model.selectedGroup?.id == group.id)
+        #expect(model.groupErrorMessage == setup)
+        #expect(model.activeGroupID == nil)
+        #expect(harness.callSession.connectedGroup == nil)
+
+        model.setRTCTransportRoutes([.multipeer, .webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        model.openDestination(.group(group.id))
+        #expect(model.activeGroupID == group.id)
+        #expect(harness.callSession.connectedGroup?.id == group.id)
+        #expect(model.groupErrorMessage == nil)
+        #expect(model.connectivityNotice == nil)
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(model.connectivityNotice == setup)
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        #expect(model.connectivityNotice == nil)
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(model.connectivityNotice == setup)
+        model.disconnect()
+        #expect(model.connectivityNotice == nil)
+
+        model.setRTCTransportRoutes([.multipeer])
+        model.openDestination(.group(group.id))
+        #expect(model.activeGroupID == group.id)
+        #expect(model.connectivityNotice == nil)
+        model.disconnect()
+
+        try store.save(url: "https://worker.test", token: "fixture-device-token")
+        let registeredHarness = AppTestSupport.makeHarness(internetSettingsStore: store)
+        let registeredModel = registeredHarness.viewModel
+        let registeredGroup = try #require(registeredModel.groups.first)
+        registeredModel.setRTCTransportRoutes([.webRTC])
+        registeredModel.openDestination(.group(registeredGroup.id))
+        #expect(registeredModel.activeGroupID == registeredGroup.id)
+        #expect(registeredHarness.callSession.connectedGroup?.id == registeredGroup.id)
+        #expect(registeredModel.connectivityNotice == nil)
+        registeredModel.disconnect()
+    }
+
+    @Test func unreadableInternetSettingsKeepSavedDataAndReportReadFailure() throws {
+        let keychain = InternetTestKeychain()
+        keychain.value = "unreadable-saved-credentials"
+        let store = InternetConnectionSettingsStore(keychain: keychain)
+        let harness = AppTestSupport.makeHarness(internetSettingsStore: store)
+        let model = harness.viewModel
+        let group = try #require(model.groups.first)
+
+        model.setRTCTransportRoutes([.webRTC])
+        model.openDestination(.group(group.id))
+
+        #expect(model.groupErrorMessage == String(localized:
+            "Could not read saved Internet calling settings. Reopen RideCom and try again."))
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(keychain.value == "unreadable-saved-credentials")
     }
 
 }

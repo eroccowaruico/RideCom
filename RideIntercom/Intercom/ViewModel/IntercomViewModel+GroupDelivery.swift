@@ -69,8 +69,8 @@ extension IntercomViewModel {
     }
 
     func groupDeliveryNetworkPathChanged(isAvailable: Bool) {
-        let wasAvailable = groupDeliveryNetworkWasAvailable
-        groupDeliveryNetworkWasAvailable = isAvailable
+        let wasAvailable = networkPathIsAvailable
+        networkPathIsAvailable = isAvailable
         guard wasAvailable == false, isAvailable else { return }
         requestDirectRestoreDeviceSync()
         callRelationshipSync.resumeDirectRestore?()

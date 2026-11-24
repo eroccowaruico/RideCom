@@ -2,8 +2,32 @@ import Foundation
 import CryptoKit
 import RTC
 
+enum InternetCredentialState {
+    case missing, unreadable, configured
+}
+
 extension IntercomViewModel {
     var fixedInternetWorkerOrigin: String? { internetSettingsStore.fixedWorkerOrigin?.absoluteString }
+
+    var connectivityNotice: String? {
+        if let internetTransportNotice { return internetTransportNotice }
+        guard hasAnyActiveGroupConnection, networkPathIsAvailable == true else { return nil }
+        return internetCallSetupNotice
+    }
+
+    var internetCallSetupNotice: String? {
+        guard internetSettingsStore.permitsServiceAccess, enabledRTCTransportRoutes.contains(.webRTC) else {
+            return nil
+        }
+        switch internetCredentialState {
+        case .missing:
+            return String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+        case .unreadable:
+            return String(localized: "Could not read saved Internet calling settings. Reopen RideCom and try again.")
+        case .configured:
+            return nil
+        }
+    }
 
     func makeInternetAccountAuthorization() throws -> InternetAccountAuthorization {
         guard canStartCalls, let accountUserID else { throw InternetAccountClient.Failure.rejected }
@@ -40,7 +64,7 @@ extension IntercomViewModel {
         internetCheckGeneration = UUID()
         isCheckingInternet = false
         if accountSession.deletion.blocksSignIn {
-            hasInternetCredentials = false
+            internetCredentialState = .missing
             localAccountPrincipal = nil
             return
         }
@@ -48,7 +72,7 @@ extension IntercomViewModel {
         do { _ = try internetSettingsStore.retireAppleCredential() } catch {
             internetCheckMessage = "Could not read Internet access for sign-out. Saved data has been preserved."
         }
-        hasInternetCredentials = false
+        internetCredentialState = .missing
         localAccountPrincipal = nil
         Task { await retryInternetAccountRevocation() }
     }
@@ -75,7 +99,7 @@ extension IntercomViewModel {
                 stopContactInvitationSession()
                 disconnect()
                 localAccountPrincipal = nil
-                hasInternetCredentials = false
+                internetCredentialState = .missing
             }
             throw error
         }
@@ -90,7 +114,7 @@ extension IntercomViewModel {
         disconnect()
         callSession.updateInternetConfiguration(configuration)
         internetWorkerURL = configuration.workerURL.absoluteString
-        hasInternetCredentials = true
+        internetCredentialState = .configured
         internetCheckMessage = "Device token saved. Service not checked."
         callRelationshipBackupSync?.request()
         requestDirectRestoreDeviceSync()

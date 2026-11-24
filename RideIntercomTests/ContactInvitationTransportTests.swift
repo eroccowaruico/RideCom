@@ -8,7 +8,8 @@ extension ContactInvitationPersistenceTests {
         let group = try IntercomGroup(
             name: "Current Group", members: [.init(id: "call-author", displayName: "Author")],
             accessSecret: "existing-call-key")
-        let harness = AppTestSupport.makeHarness(groups: [group], localMemberID: "call-author")
+        let harness = AppTestSupport.makeHarness(
+            groups: [group], hasInternetCallCredential: true, localMemberID: "call-author")
         let viewModel = harness.viewModel
         let contact = RecordingCallSession()
         viewModel.contactSessionFactory = { contact }

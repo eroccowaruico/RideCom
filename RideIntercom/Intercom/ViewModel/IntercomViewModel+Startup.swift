@@ -133,11 +133,12 @@ extension IntercomViewModel {
         switch startup.internetConfiguration {
         case .success(let saved?):
             internetWorkerURL = saved.workerURL.absoluteString
-            hasInternetCredentials = true
+            internetCredentialState = .configured
             internetCheckMessage = "Device token configured. Service not checked."
         case .success(nil):
             break
         case .failure:
+            internetCredentialState = .unreadable
             internetCheckMessage = "Could not read saved Internet credentials. Saved data has been preserved."
         }
         self.storedRecentCallDestination = appSettings.recentCallDestination

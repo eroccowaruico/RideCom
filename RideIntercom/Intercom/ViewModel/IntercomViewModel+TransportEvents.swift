@@ -34,10 +34,11 @@ extension IntercomViewModel {
             groupErrorMessage = "Too many pending operations. The call stopped; connect again to retry."
         case .serviceBlocked(let reason):
             internetFailureDetail = reason
-            connectivityNotice = reason
+            internetTransportNotice = reason
         case .serviceError(let reason):
             internetFailureDetail = reason
-            connectivityNotice = "Internet is unavailable. Retrying automatically; reachable riders stay connected."
+            internetTransportNotice =
+                "Internet is unavailable. Retrying automatically; reachable riders stay connected."
         case .connected(let peerIDs):
             handleConnectedPeers(peerIDs)
         case .authenticated(let members):
@@ -97,7 +98,7 @@ extension IntercomViewModel {
             connectionState = routeConnectionState(isConnected: false)
         }
         if snapshot.availableRoutes.contains(.webRTC) {
-            connectivityNotice = nil
+            internetTransportNotice = nil
             internetFailureDetail = nil
         }
         if activeGroupID != nil {

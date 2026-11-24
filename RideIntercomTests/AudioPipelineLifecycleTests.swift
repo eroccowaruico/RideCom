@@ -116,7 +116,7 @@ extension AppTests.AudioPipelineTests {
     }
 
     @Test func internetUsesSharedCaptureMixerAndDeviceRestart() async {
-        let harness = AppTestSupport.makeHarness()
+        let harness = AppTestSupport.makeHarness(hasInternetCallCredential: true)
         harness.viewModel.setRTCTransportRoute(.multipeer, enabled: false)
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         harness.callSession.authenticate(["member-108"])

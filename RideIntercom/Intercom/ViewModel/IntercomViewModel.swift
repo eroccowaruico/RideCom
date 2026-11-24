@@ -37,7 +37,7 @@ final class IntercomViewModel {
         SystemSurfaceScope.permitsSystemAccess ? .init() : nil
     @ObservationIgnored var invitationBackgroundTransfer: (any InvitationBackgroundTransferring)?
     @ObservationIgnored var groupDeliveryPathMonitor: NWPathMonitor?
-    @ObservationIgnored var groupDeliveryNetworkWasAvailable: Bool?
+    var networkPathIsAvailable: Bool?
     @ObservationIgnored var groupDeliveryIsForeground = false
     @ObservationIgnored var beginGroupDeliveryBackgroundTime: AppBackgroundTime.Request = {
         AppBackgroundTime.begin(name: "Finish Group Invitation Delivery", expiration: $0)
@@ -84,7 +84,8 @@ final class IntercomViewModel {
 
     var interfaceMode: InterfaceMode = .standard
     var internetWorkerURL = ""
-    var hasInternetCredentials = false
+    var internetCredentialState: InternetCredentialState = .missing
+    var hasInternetCredentials: Bool { internetCredentialState == .configured }
     var internetCheckMessage = "Not checked. Configure Internet Connection in Settings."
     var isCheckingInternet = false
     var internetCheckGeneration = UUID()
@@ -107,7 +108,7 @@ final class IntercomViewModel {
     var audioErrorMessage: String?
     var isAudioPausedForDeviceChange = false
     var audioRouteNotice: String?
-    var connectivityNotice: String?
+    var internetTransportNotice: String?
     var internetFailureDetail: String?
     var availableCallRoutes: Set<RTC.RouteKind> = []
     var selectedInputPort: AudioPortInfo = .systemDefault

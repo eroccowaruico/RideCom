@@ -1954,6 +1954,16 @@
         }
       }
     },
+    "Could not read saved Internet calling settings. Reopen RideCom and try again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インターネット通話の設定を読み込めませんでした。RideComを開き直して、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "Could not read the group key. Try again." : {
       "extractionState" : "manual",
       "localizations" : {

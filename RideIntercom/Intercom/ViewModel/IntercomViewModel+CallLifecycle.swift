@@ -27,12 +27,16 @@ extension IntercomViewModel {
             groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
             return
         }
+        if !enabledRTCTransportRoutes.contains(.multipeer), let internetSetupNotice = internetCallSetupNotice {
+            groupErrorMessage = internetSetupNotice
+            return
+        }
         resumeOrdinaryGroupReply(for: selectedGroup)
         if let invitation = contactInvitationSession {
             if invitation.canContinueDuringCall { invitation.stopCallRoute() } else { stopContactInvitationSession() }
         }
         groupErrorMessage = nil
-        connectivityNotice = nil
+        internetTransportNotice = nil
         internetFailureDetail = nil
         cancelAudioCheck()
 
@@ -271,7 +275,7 @@ extension IntercomViewModel {
         if wasUsingWatchAudio { applyEffectiveInputMute() }
         callSession.disconnect()
         availableCallRoutes = []
-        connectivityNotice = nil
+        internetTransportNotice = nil
         internetFailureDetail = nil
         audioRouteNotice = nil
         isAudioPausedForDeviceChange = false

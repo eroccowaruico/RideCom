@@ -67,6 +67,7 @@ enum AppTestSupport {
         credentialStore: GroupCredentialStoring? = nil,
         appSettingsStore: AppSettingsStoring? = nil,
         internetSettingsStore: InternetConnectionSettingsStore? = nil,
+        hasInternetCallCredential: Bool = false,
         invitationAuthority: DirectInvitationAuthority? = nil,
         localMemberID: String? = nil,
         enforceCallAccess: Bool? = nil,
@@ -91,7 +92,8 @@ enum AppTestSupport {
         let audioDriver = OfflineAudioDriver()
         let memberID = localMemberID ?? groups.first?.members.first?.id ?? "member-local"
         let identityStore = InMemoryLocalMemberIdentityStore(identity: .init(memberID: memberID, displayName: "You"))
-        let internetSettingsStore = internetSettingsStore ?? fixtureInternetSettingsStore(memberID: memberID)
+        let internetSettingsStore = internetSettingsStore
+            ?? fixtureInternetSettingsStore(memberID: memberID, hasInternetCallCredential: hasInternetCallCredential)
         let viewModel = IntercomViewModel(
             accountSession: accountSession ?? signedInAccount(),
             enforceCallAccess: enforceCallAccess,
@@ -143,16 +145,22 @@ enum AppTestSupport {
         }
     }
 
-    private static func fixtureInternetSettingsStore(memberID: String) -> InternetConnectionSettingsStore {
+    private static func fixtureInternetSettingsStore(
+        memberID: String, hasInternetCallCredential: Bool
+    ) -> InternetConnectionSettingsStore {
         let namespace = "RideIntercom.Tests." + UUID().uuidString
         let keychain = DictionaryKeychain()
+        let store = InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
         let key = TestDeviceIdentities.key(memberID).rawRepresentation.base64EncodedString()
         do {
             try keychain.saveSecret(key, service: namespace + ".InternetConnection", account: "identity-key")
+            if hasInternetCallCredential {
+                try store.save(url: "https://worker.test", token: "fixture-device-token")
+            }
         } catch {
-            Issue.record("Could not seed the test device identity.")
+            Issue.record("Could not seed the test call credentials.")
         }
-        return InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
+        return store
     }
 
     static func signedInAccount() -> AppleAccountSession {

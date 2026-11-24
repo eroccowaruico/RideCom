@@ -210,7 +210,7 @@ extension AppTests.AudioPipelineTests {
     @Test(arguments: [RTC.RouteKind.multipeer, .webRTC]) func individualVolumeScalesRealPCMThroughEveryRoute(
         route: RTC.RouteKind
     ) async throws {
-        let harness = AppTestSupport.makeHarness()
+        let harness = AppTestSupport.makeHarness(hasInternetCallCredential: route == .webRTC)
         harness.viewModel.setRTCTransportRoute(route == .webRTC ? .multipeer : .webRTC, enabled: false)
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         harness.callSession.authenticate(["member-108", "member-109"])
