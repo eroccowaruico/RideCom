@@ -250,7 +250,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   <h2 id="diag">診断（Diagnostics）</h2>
   <p class="note">上部からOverview、TX、RX、Network、Appliedを選ぶ。Overviewの送信・受信の判定から、止まった段を各ページで読む。TXとRXの詳細は段・相手・出力ごとに開く。<a href="../../spec/App/UI/Diagnostics.md#画面構成">現行の画面仕様</a></p>
   <p class="note">通常の文字サイズで幅900pt以上あり、TX・RX・Network・Appliedのいずれかを選ぶと、Overviewを左に並べる。アクセシビリティ文字サイズでは、広いiPadでも選んだページだけを1列で表示する。上部の「Diagnostics」から一覧を開き、Overviewに戻れる。</p>
-  <p class="note">例: グループ通話中。Harukaは近距離で直接、KentaはHaruka経由の中継で低帯域のOpus、MikaはインターネットでPCMへフォールバック、Yuは未接続。相手ごとに送信条件と自分側の設定がばらばらな状態。</p>
+  <p class="note">ナオのグループ通話の例。Harukaは近距離で直接、KentaはHaruka経由の中継で低帯域のOpus、MikaはインターネットでPCMへフォールバック、Yuは未接続。ナオは相手ごとの経路と音声の状態を確認する。<a href="../操作の流れ.md#人物と場面での立場">人物と立場の定義</a></p>
   <div class="gallery">
 
     <!-- Overview -->
@@ -595,15 +595,18 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="slider"><span class="track"><i style="width:50%"></i><b style="left:50%"></b></span><svg class="i"><use href="#speaker"/></svg></div>
             <div class="frow"><span class="g">Isolate All Received Voices</span><span class="toggle off"></span></div>
           </div>
-          <div class="hd">Participants <span>You + 1</span></div>
+          <div class="hd">Participants</div>
           <div class="card">
-            <div class="row"><b>You</b><span class="v">Naohito · local member</span><span class="x"></span></div>
-            <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div><div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div></span><span class="x num">100%</span></div>
+            <div class="vline"><b>Haruka</b><span class="sub mono">AAC-ELD</span></div>
+            <div class="sub">Connected / Auth OK / Playing</div>
+            <div class="row"><span class="k">Input</span><span class="v"><span class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></span></span></div>
+            <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:100%"></i><b style="left:100%"></b></span><span class="num">Output 100%</span></div>
+            <div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div>
           </div>
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>Call（シート）：1対1</b>Group に「Direct · 2 members」と内部グループのIDを出す。Outputの Isolate All Received Voices は受信全体、参加者行の Isolate This Voice はその相手に適用する。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。アカウント宛ての個別通話では、相手の登録端末が変わっても同じ相手の設定を開く。共有の項目は共有可能な場合に表示する。</figcaption>
+      <figcaption><b>Call（シート）：1対1</b>ナオがハルカとの通話を見る。Groupにナオを含む人数「Direct · 2 members」と内部グループのIDを出す。Participantsは相手のハルカを表示する。Outputの Isolate All Received Voices は受信全体、参加者の Isolate This Voice はその相手の音声を分離する。ツールバーのMore（…）で相手の設定と個別通話の招待を開く。アカウント宛ての個別通話では、相手の登録端末が変わっても同じ相手の設定を開く。共有の項目は共有可能な場合に表示する。<a href="../../spec/App/UI/Call.md#参加者">画面仕様</a></figcaption>
     </figure>
 
     <figure id="advanced-users">
