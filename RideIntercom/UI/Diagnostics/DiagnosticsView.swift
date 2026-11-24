@@ -11,7 +11,6 @@ struct DiagnosticsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var page: DiagnosticsPage = .overview
     @State private var expandedStage: String?
-    @State private var scrollTarget: String?
 
     var body: some View {
         VStack(spacing: AppSpacing.large) {
@@ -19,35 +18,29 @@ struct DiagnosticsView: View {
                 .padding(.horizontal, AppSpacing.screen)
             GeometryReader { geometry in
                 TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            GlassEffectContainer(spacing: AppSpacing.large) {
-                                Group {
-                                    if geometry.size.width >= AppSize.diagnosticsTwoColumnMinimumWidth
-                                        && !dynamicTypeSize.isAccessibilitySize && page != .overview {
-                                        HStack(alignment: .top, spacing: AppSpacing.large) {
-                                            overviewContent
-                                                .frame(maxWidth: AppSize.callColumnMaxWidth, alignment: .leading)
-                                            pageContent
-                                                .frame(maxWidth: AppSize.callColumnMaxWidth, alignment: .leading)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .top)
-                                    } else {
+                    ScrollView {
+                        GlassEffectContainer(spacing: AppSpacing.large) {
+                            Group {
+                                if geometry.size.width >= AppSize.diagnosticsTwoColumnMinimumWidth
+                                    && !dynamicTypeSize.isAccessibilitySize && page != .overview {
+                                    HStack(alignment: .top, spacing: AppSpacing.large) {
+                                        overviewContent
+                                            .frame(maxWidth: AppSize.callColumnMaxWidth, alignment: .leading)
                                         pageContent
-                                            .frame(maxWidth: AppSize.singleColumnMaxWidth, alignment: .leading)
-                                            .frame(maxWidth: .infinity)
+                                            .frame(maxWidth: AppSize.callColumnMaxWidth, alignment: .leading)
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .top)
+                                } else {
+                                    pageContent
+                                        .frame(maxWidth: AppSize.singleColumnMaxWidth, alignment: .leading)
+                                        .frame(maxWidth: .infinity)
                                 }
-                                .padding(AppSpacing.large)
                             }
-                        }
-                        .accessibilityIdentifier("diagnosticsScrollView")
-                        .id(page)
-                        .onChange(of: scrollTarget) { _, target in
-                            guard let target else { return }
-                            DispatchQueue.main.async { proxy.scrollTo(target, anchor: .top) }
+                            .padding(AppSpacing.large)
                         }
                     }
+                    .accessibilityIdentifier("diagnosticsScrollView")
+                    .id(page)
                 }
             }
         }
@@ -93,7 +86,6 @@ struct DiagnosticsView: View {
         }
     }
 
-    // The former summary cards are retired; Overview is the pipeline summary and the symptom actions.
     private var overviewContent: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let steps = pipelineSteps(now: context.date.timeIntervalSince1970)
@@ -102,7 +94,6 @@ struct DiagnosticsView: View {
                 pipelineOverview(transmit: steps.transmit, receive: steps.receive)
                 participantsOverview
                 networkOverview
-                symptomButtons
             }
         }
     }
@@ -182,33 +173,6 @@ extension DiagnosticsView {
                 verbatim: "\(name): " + steps.map { "\($0.title) \($0.state.statusText)" }.joined(separator: ", "))
         )
         .accessibilityIdentifier("diagnosticsStageDots-\(name)")
-    }
-
-    private var symptomButtons: some View {
-        WrappingRow(spacing: AppSpacing.small, lineSpacing: AppSpacing.small) {
-            Button("Others can't hear me") { navigate(.transmit, target: firstTransmitIssue) }
-                .accessibilityIdentifier("diagnosticsOthersCannotHearButton")
-            Button("I can't hear someone") { navigate(.receive, target: "receive-peers") }
-                .accessibilityIdentifier("diagnosticsCannotHearButton")
-            Button("Audio drops out") { navigate(.receive, target: "receive-input", expanding: "receive-peers") }
-                .accessibilityIdentifier("diagnosticsAudioDropsButton")
-            Button("Audio is delayed") { navigate(.receive, target: "receive-output") }
-                .accessibilityIdentifier("diagnosticsAudioDelayedButton")
-        }
-        .buttonStyle(.glass)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func navigate(_ destination: DiagnosticsPage, target: String, expanding detail: String? = nil) {
-        expandedStage = detail ?? target
-        scrollTarget = nil
-        page = destination
-        DispatchQueue.main.async { scrollTarget = target }
-    }
-
-    private var firstTransmitIssue: String {
-        let transmit = TransmitPipelinePresentation(input: DiagnosticsInput(viewModel))
-        return transmit.flowSteps.first { $0.state != .passing }?.id ?? "session"
     }
 
     private func pipelineOverview(transmit: [PipelineStep], receive: [PipelineStep]) -> some View {

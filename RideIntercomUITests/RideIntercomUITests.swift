@@ -127,18 +127,7 @@ extension RideIntercomUITests {
     }
 
     func openDiagnosticsTab() {
-        app.closeCallIfOpen()
-        if app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch.exists { return }
-        if app.tabBars.buttons["Diagnostics"].firstMatch.exists {
-            app.tabBars.buttons["Diagnostics"].firstMatch.tap()
-        } else if app.radioButtons["diagnosticsTab"].firstMatch.exists {
-            app.radioButtons["diagnosticsTab"].firstMatch.tap()
-        } else if app.buttons["diagnosticsTab"].firstMatch.exists {
-            app.buttons["diagnosticsTab"].firstMatch.tap()
-        } else {
-            app.buttons["Diagnostics"].firstMatch.tap()
-        }
-        XCTAssertTrue(app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch.waitForExistence(timeout: 3))
+        app.openDiagnosticsTab()
     }
 
     func selectDiagnosticsPage(_ title: String) {

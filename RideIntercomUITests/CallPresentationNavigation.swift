@@ -2,6 +2,25 @@ import XCTest
 
 /// The call is not a tab: it opens over the lists as a sheet (iPhone) or a column (iPad, Mac).
 extension XCUIApplication {
+    func openDiagnosticsTab() {
+        closeCallIfOpen()
+        let picker = descendants(matching: .any)["diagnosticsPagePicker"].firstMatch
+        if picker.exists { return }
+        let tab = tabBars.buttons["Diagnostics"].firstMatch
+        let sidebarRadio = radioButtons["diagnosticsTab"].firstMatch
+        let sidebarButton = buttons["diagnosticsTab"].firstMatch
+        if tab.exists {
+            tab.tap()
+        } else if sidebarRadio.exists {
+            sidebarRadio.tap()
+        } else if sidebarButton.exists {
+            sidebarButton.tap()
+        } else {
+            buttons["Diagnostics"].firstMatch.tap()
+        }
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+    }
+
     /// The tab bar sits under the call sheet on iPhone, so close the call before switching tabs.
     func closeCallIfOpen() {
         let close = buttons["closeCallButton"].firstMatch

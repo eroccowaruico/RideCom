@@ -132,8 +132,6 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .nest.routes .row { grid-template-columns: 78px minmax(0, 1fr); }
 .nest.routes .passing { color: var(--ok); }
 .nest.routes .waiting { color: var(--warn); }
-.btns { display: flex; flex-wrap: wrap; gap: 4px; }
-.btns span { font-size: 9.5px; font-weight: 600; padding: 4px 7px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--accent); }
 .meter { display: inline-block; width: 40px; height: 5px; border-radius: 3px; background: var(--line); position: relative; vertical-align: middle; }
 .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--voice); }
 
@@ -250,7 +248,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   <p class="note" style="margin-top:10px">状態の語と記号・色・寸法・部品（Pipelineの流れ・段の行・合流する木）は <a href="../デザインシステム見本.html">デザインシステム見本</a> を参照する。ここでは詳細表示（Advanced）の画面の組み合わせだけを示す。</p>
 
   <h2 id="diag">診断（Diagnostics）</h2>
-  <p class="note">現在は上部からOverview、TX、RX、Network、Appliedを選ぶ。Overviewの送信・受信の判定から、止まった段を各ページで読む。TXとRXの詳細は段・相手・出力ごとに開く。Overviewの下部にある症状の案内は、現在のページ移動の入口の一つ。<a href="../../spec/App/UI/Diagnostics.md#画面構成">現行の画面仕様</a></p>
+  <p class="note">上部からOverview、TX、RX、Network、Appliedを選ぶ。Overviewの送信・受信の判定から、止まった段を各ページで読む。TXとRXの詳細は段・相手・出力ごとに開く。<a href="../../spec/App/UI/Diagnostics.md#画面構成">現行の画面仕様</a></p>
   <p class="note">通常の文字サイズで幅900pt以上あり、TX・RX・Network・Appliedのいずれかを選ぶと、Overviewを左に並べる。アクセシビリティ文字サイズでは、広いiPadでも選んだページだけを1列で表示する。上部の「Diagnostics」から一覧を開き、Overviewに戻れる。</p>
   <p class="note">例: グループ通話中。Harukaは近距離で直接、KentaはHaruka経由の中継で低帯域のOpus、MikaはインターネットでPCMへフォールバック、Yuは未接続。相手ごとに送信条件と自分側の設定がばらばらな状態。</p>
   <div class="gallery">
@@ -285,11 +283,10 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><b>Local</b><span class="v">2 participants</span><span class="x"><span class="d ok"></span> RTT Not available</span></div>
             <div class="row"><b>Internet</b><span class="v">1 participant</span><span class="x num"><span class="d ok"></span> RTT 42 ms</span></div>
           </div>
-          <div class="btns"><span>Others can't hear me</span><span>I can't hear someone</span><span>Audio drops out</span><span>Audio is delayed</span></div>
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Overview（スクロール全体）</b>TXとRXの判定に続けて、処理順を矢印、状態を記号と色で示す。相手待ちは RX: Waiting at RTC RX と Control Waiting を使う。接続後に受信をまだ観測していなければ、同じ段に Receipt time not measured を含む情報を表示する。実際の復号や描画は後の段で確認する。ParticipantsとNetworkは各1行で一覧する。Audio drops out を選ぶと、相手の詳細を展開したRXが RTC RX から表示される。受信の破棄、復号失敗、相手別の Playout を上からたどる。Loss と Event drops は Network を選んで確認する。</figcaption>
+      <figcaption><b>Overview（スクロール全体）</b>TXとRXの判定に続けて、処理順を矢印、状態を記号と色で示す。相手待ちは RX: Waiting at RTC RX と Control Waiting を使う。接続後に受信をまだ観測していなければ、同じ段に Receipt time not measured を含む情報を表示する。実際の復号や描画は後の段で確認する。ParticipantsとNetworkは各1行で一覧する。声が途切れるときは上部でRXを選び、RTC RXの破棄、復号失敗、相手別のPlayoutを上から読む。LossとEvent dropsはNetworkで確認する。</figcaption>
     </figure>
 
     <!-- TX -->

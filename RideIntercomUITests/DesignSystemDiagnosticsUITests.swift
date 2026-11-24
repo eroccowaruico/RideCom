@@ -12,8 +12,7 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "advanced"
         app.launch()
         defer { app.terminate() }
-        let tab = app.tabBars.buttons["Diagnostics"].firstMatch
-        XCTAssertTrue(tab.waitForExistence(timeout: 8)); tab.tap()
+        app.openDiagnosticsTab()
         let picker = app.segmentedControls["diagnosticsPagePicker"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 3), app.debugDescription)
         // Every page is visible at once, without opening a menu.
@@ -21,6 +20,7 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
             XCTAssertTrue(picker.buttons[page].isHittable, page)
         }
         XCTAssertTrue(picker.buttons["Overview"].isSelected)
+        verifyOverviewUsesPagePicker(in: app)
         let flow = app.descendants(matching: .any)["diagnosticsStageDots-TX"].firstMatch
         XCTAssertTrue(flow.waitForExistence(timeout: 3))
         let txLabel = flow.label
@@ -117,8 +117,7 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
         XCTAssertTrue(
             app.descendants(matching: .any)["diagnosticsAppliedCodec"].firstMatch.waitForExistence(timeout: 3))
         choose("Overview", in: picker, app: app, capture: true)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["diagnosticsCannotHearButton"].firstMatch.waitForExistence(timeout: 3))
+        verifyOverviewUsesPagePicker(in: app)
         XCTAssertFalse(
             app.descendants(matching: .any)["diagnosticsOverviewGrid"].firstMatch.exists,
             "The summary cards are retired")
@@ -191,8 +190,7 @@ extension DesignSystemDiagnosticsUITests {
         XCTAssertTrue(tab.waitForExistence(timeout: 8)); tab.tap()
         let picker = app.descendants(matching: .any)["diagnosticsPagePicker"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(
-            app.descendants(matching: .any)["diagnosticsCannotHearButton"].firstMatch.waitForExistence(timeout: 3))
+        verifyOverviewUsesPagePicker(in: app)
         XCTAssertFalse(
             app.descendants(matching: .any)["diagnosticsOverviewGrid"].firstMatch.exists,
             "The summary cards are retired")
@@ -258,34 +256,21 @@ extension DesignSystemDiagnosticsUITests {
         reveal(check, app: app)
         XCTAssertTrue(check.exists)
         XCTAssertFalse(check.isEnabled, "Without credentials the existing service check remains disabled")
-        verifySymptomActions(in: app, picker: picker)
+        choose("Overview", in: picker, app: app)
+        verifyOverviewUsesPagePicker(in: app)
         choose("Applied", in: picker, app: app)
         reveal(status, app: app)
         XCTAssertTrue(status.waitForExistence(timeout: 3))
         XCTAssertEqual(status.label, before)
     }
 
-    private func verifySymptomActions(in app: XCUIApplication, picker: XCUIElement) {
-        for (identifier, expected) in [
-            ("diagnosticsOthersCannotHearButton", "pipeline-session-step"),
-            ("diagnosticsCannotHearButton", "diagnosticsReceiveDetails"),
-            ("diagnosticsAudioDropsButton", "diagnosticsReceiveDetails"),
-            ("diagnosticsAudioDelayedButton", "receive-pipeline-output-step")
+    private func verifyOverviewUsesPagePicker(in app: XCUIApplication) {
+        XCTAssertTrue(
+            app.descendants(matching: .any)["diagnosticsStageDots-RX"].firstMatch.waitForExistence(timeout: 3))
+        for label in [
+            "Others can't hear me", "I can't hear someone", "Audio drops out", "Audio is delayed"
         ] {
-            choose("Overview", in: picker, app: app)
-            let symptom = app.buttons[identifier].firstMatch
-            reveal(symptom, app: app)
-            symptom.tap()
-            XCTAssertTrue(app.descendants(matching: .any)[expected].firstMatch.waitForExistence(timeout: 3))
-            if identifier == "diagnosticsAudioDropsButton" {
-                let receipt = app.descendants(matching: .any)["receive-pipeline-rtc-step"].firstMatch
-                let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    receipt.exists && receipt.isHittable && receipt.frame.minY >= picker.frame.maxY
-                }, object: nil)
-                XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 3), .completed,
-                    "The symptom should start at RTC RX so the receive flow can be read in order.")
-                attachScreen("RX entry for Audio drops out")
-            }
+            XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch.exists, label)
         }
     }
 }

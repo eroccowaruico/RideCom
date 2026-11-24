@@ -19,11 +19,9 @@ struct LiveReceivePipelineView: View {
                 title: "Live RX Pipeline", systemImage: "point.bottomleft.forward.to.point.topright.scurvepath",
                 detail: "Peers -> mix -> RX master -> output")
             CompactPipelineStepRow(step: presentation.rtcReceiveStep)
-                .id("receive-input")
             CompactPipelineStepRow(step: presentation.codecDecodeStep)
             CompactPipelineStepRow(step: presentation.peerBusStep)
             DiagnosticsReceiveDetails(presentation: presentation, expandedStage: $expandedStage)
-                .id("receive-peers")
             ReceiveOutputMixGroup(
                 step: presentation.outputBusStep, effectStep: presentation.outputEffectChainStep,
                 effectStages: presentation.outputEffectStages, outputMix: presentation.receiveOutputMix)
@@ -46,7 +44,6 @@ struct LiveReceivePipelineView: View {
                     """
                 )
             } label: { CompactPipelineStepRow(step: presentation.outputStep) }
-                .id("receive-output")
         }
         .appDiagnosticsCardStyle()
         .accessibilityElement(children: .contain)

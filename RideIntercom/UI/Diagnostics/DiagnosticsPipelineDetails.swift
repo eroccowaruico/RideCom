@@ -80,7 +80,7 @@ struct DiagnosticsReceiveDetails: View {
 
     private func participant(_ member: GroupMember, state: PipelineStepState?) -> some View {
         DisclosureGroup(isExpanded: Binding(
-            get: { expandedStage == "receive-peers" || expandedStage == member.id },
+            get: { expandedStage == member.id },
             set: { expandedStage = $0 ? member.id : nil }
         )) {
             peer(member)
