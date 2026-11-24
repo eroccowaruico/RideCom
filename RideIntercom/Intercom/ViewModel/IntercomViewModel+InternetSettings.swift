@@ -10,7 +10,7 @@ extension IntercomViewModel {
     var fixedInternetWorkerOrigin: String? { internetSettingsStore.fixedWorkerOrigin?.absoluteString }
 
     var connectivityNotice: String? {
-        if let internetTransportNotice { return internetTransportNotice }
+        if let internetTransportFailure { return internetTransportFailure.notice }
         guard hasAnyActiveGroupConnection, networkPathIsAvailable == true else { return nil }
         return internetCallSetupNotice
     }

@@ -218,6 +218,8 @@ Audio CheckはSettingsに置く。端末内の録音再生、サービス認証�
 
 ## Network診断
 
+ViewModelは、Internetの失敗理由と手動復帰・自動再試行の区分を同じ状態として保持する。通話画面では区分に応じた案内を出し、Networkでは処理の詳細を表示する。Internet経路が利用可能になるか、通話を開始し直す・終了した時点で、両方の表示のもとになる失敗状態を消去する。
+
 | 表示 | identifier | 意味 |
 |---|---|---|
 | Network | `networkDiagnosticsSummary` | RTCNetworkDiagnosticsの表示。計測処理はRTC/native側が所有 |

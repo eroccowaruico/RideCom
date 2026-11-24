@@ -36,8 +36,7 @@ extension IntercomViewModel {
             if invitation.canContinueDuringCall { invitation.stopCallRoute() } else { stopContactInvitationSession() }
         }
         groupErrorMessage = nil
-        internetTransportNotice = nil
-        internetFailureDetail = nil
+        internetTransportFailure = nil
         cancelAudioCheck()
 
         switchActiveCallIfNeeded(to: selectedGroup.id, source: source)
@@ -275,8 +274,7 @@ extension IntercomViewModel {
         if wasUsingWatchAudio { applyEffectiveInputMute() }
         callSession.disconnect()
         availableCallRoutes = []
-        internetTransportNotice = nil
-        internetFailureDetail = nil
+        internetTransportFailure = nil
         audioRouteNotice = nil
         isAudioPausedForDeviceChange = false
         resetConnectionRuntimeState()

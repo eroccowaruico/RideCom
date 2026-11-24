@@ -108,8 +108,7 @@ final class IntercomViewModel {
     var audioErrorMessage: String?
     var isAudioPausedForDeviceChange = false
     var audioRouteNotice: String?
-    var internetTransportNotice: String?
-    var internetFailureDetail: String?
+    var internetTransportFailure: InternetTransportFailure?
     var availableCallRoutes: Set<RTC.RouteKind> = []
     var selectedInputPort: AudioPortInfo = .systemDefault
     var selectedOutputPort: AudioPortInfo = .systemDefault

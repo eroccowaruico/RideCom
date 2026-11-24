@@ -126,13 +126,21 @@ struct CallLifecycleTests {
     }
 
     @Test func internetFailureDoesNotMisreportHealthyLocalAudio() async {
-        let testHarness = AppTestSupport.makeHarness()
+        let testHarness = AppTestSupport.makeHarness(hasInternetCallCredential: true)
         testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         testHarness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
         testHarness.viewModel.handleTransportEvent(.serviceError("quota"))
         #expect(testHarness.viewModel.isAudioReady)
         #expect(testHarness.viewModel.audioErrorMessage == nil)
+        #expect(testHarness.viewModel.connectivityNotice?.contains("Retrying automatically") == true)
+        #expect(testHarness.viewModel.internetFailureDetail == "quota")
+        testHarness.viewModel.handleTransportEvent(.routesChanged(.init(
+            activeRoute: .multipeer, mediaRoute: .multipeer,
+            availableRoutes: [.multipeer, .webRTC], isHandoverInProgress: false)))
+        #expect(testHarness.viewModel.connectivityNotice == nil)
+        #expect(testHarness.viewModel.internetFailureDetail == nil)
+        #expect(testHarness.viewModel.isAudioReady)
         testHarness.viewModel.disconnect()
     }
 

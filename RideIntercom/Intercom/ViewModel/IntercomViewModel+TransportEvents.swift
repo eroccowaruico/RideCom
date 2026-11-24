@@ -8,7 +8,27 @@ import RTC
 import SessionManager
 import VADGate
 
+enum InternetTransportFailure {
+    case blocked(String)
+    case retrying(String)
+
+    var detail: String {
+        switch self {
+        case .blocked(let reason), .retrying(let reason): reason
+        }
+    }
+
+    var notice: String {
+        switch self {
+        case .blocked(let reason): reason
+        case .retrying: "Internet is unavailable. Retrying automatically; reachable riders stay connected."
+        }
+    }
+}
+
 extension IntercomViewModel {
+    var internetFailureDetail: String? { internetTransportFailure?.detail }
+
     func broadcastControl(_ message: ControlMessage) {
         callSession.sendControl(message)
     }
@@ -33,12 +53,9 @@ extension IntercomViewModel {
             disconnect()
             groupErrorMessage = "Too many pending operations. The call stopped; connect again to retry."
         case .serviceBlocked(let reason):
-            internetFailureDetail = reason
-            internetTransportNotice = reason
+            internetTransportFailure = .blocked(reason)
         case .serviceError(let reason):
-            internetFailureDetail = reason
-            internetTransportNotice =
-                "Internet is unavailable. Retrying automatically; reachable riders stay connected."
+            internetTransportFailure = .retrying(reason)
         case .connected(let peerIDs):
             handleConnectedPeers(peerIDs)
         case .authenticated(let members):
@@ -98,8 +115,7 @@ extension IntercomViewModel {
             connectionState = routeConnectionState(isConnected: false)
         }
         if snapshot.availableRoutes.contains(.webRTC) {
-            internetTransportNotice = nil
-            internetFailureDetail = nil
+            internetTransportFailure = nil
         }
         if activeGroupID != nil {
             if newlyAvailable.contains(.webRTC) { requestInvitationInternetReply() }
