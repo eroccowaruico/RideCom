@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.simulator_audio import SimulatorAudioPin
 from scripts.test_lifecycle import (
     SimulatorLease,
     exclusive_run,
@@ -74,8 +75,7 @@ def main() -> int:
             runner.run('boot',['xcrun','simctl','boot',sim],timeout=120)
             runner.run('ready',['xcrun','simctl','bootstatus',sim,'-b'],needs=['boot'],timeout=180)
             runner.run('appearance',['xcrun','simctl','ui',sim,'appearance','light'],needs=['ready'],timeout=30)
-            from scripts.audio_e2e import SimulatorAudioPin, run_devicectl_json
-            audio_pin=SimulatorAudioPin(sim,run_devicectl_json)
+            audio_pin=SimulatorAudioPin(sim)
             (runner.out/'simulator-duplex-device.txt').write_text(audio_pin.pin()+'\n')
             reuse=args.reuse_settings
             if reuse:

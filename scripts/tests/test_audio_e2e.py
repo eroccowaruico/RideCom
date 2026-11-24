@@ -26,6 +26,7 @@ from scripts.audio_e2e import (
     run_pair,
 )
 from scripts.audio_e2e_matrix import scenarios
+from scripts.simulator_audio import SimulatorAudioPin, shared_host_audio_device
 from scripts.test_lifecycle import SimulatorLease, exclusive_run
 from scripts.validate import Fingerprint, Runner, file_fingerprint, fingerprints_match
 
@@ -666,21 +667,21 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
              'coreaudio_default_audio_output_device': 'spaudio_yes'}]
 
     def test_selects_the_single_48_khz_device_with_both_directions(self) -> None:
-        self.assertEqual(audio.shared_host_audio_device(self.DEVICES, self.HOST), 'wave')
+        self.assertEqual(shared_host_audio_device(self.DEVICES, self.HOST), 'wave')
 
     def test_rejects_hosts_without_one_unambiguous_duplex_device(self) -> None:
         only_split = [item for item in self.HOST if item['_name'] != 'Wave']
         with self.assertRaises(ValueError):
-            audio.shared_host_audio_device(self.DEVICES, only_split)
+            shared_host_audio_device(self.DEVICES, only_split)
         twins = {key: value + [{'uid': 'other', 'name': 'Other'}] for key, value in self.DEVICES.items()}
         other = dict(self.HOST[0], _name='Other')
         other.pop('coreaudio_default_audio_input_device')
-        self.assertEqual(audio.shared_host_audio_device(twins, self.HOST + [other]), 'wave',
+        self.assertEqual(shared_host_audio_device(twins, self.HOST + [other]), 'wave',
                          'The host default input wins over another eligible device')
         plain = [dict(item) for item in self.HOST]
         plain[0].pop('coreaudio_default_audio_input_device')
         with self.assertRaises(ValueError):
-            audio.shared_host_audio_device(twins, plain + [other])
+            shared_host_audio_device(twins, plain + [other])
 
     def test_pins_both_directions_and_restores_the_original_selection(self) -> None:
         calls = []
@@ -704,7 +705,7 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
                 state[key] = {'systemDefault': {}} if value == 'systemDefault' else {'device': {'_0': value}}
             return {}
 
-        pin = audio.SimulatorAudioPin('sim', run)
+        pin = SimulatorAudioPin('sim', run)
         with (
             patch.dict(os.environ, RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE='Display Mic'),
             self.assertRaisesRegex(ValueError, 'RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE'),

@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.BuildWebRTC.webrtc_provenance import verify_imported_checksum
 from scripts.crash_reports import CrashReports
+from scripts.simulator_audio import SimulatorAudioPin
 from scripts.test_lifecycle import (
     ProcessIdentity,
     SimulatorLease,
@@ -581,8 +582,7 @@ def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
         if not focused or any(includes_test(selector, audio) or includes_test(audio, selector)
                               for selector in iphone_tests for audio in SIMULATOR_AUDIO_TESTS):
             # Split host defaults can leave the Simulator microphone at 0 Hz.
-            from scripts.audio_e2e import SimulatorAudioPin, run_devicectl_json
-            audio_pin = SimulatorAudioPin(sim, run_devicectl_json)
+            audio_pin = SimulatorAudioPin(sim)
             try:
                 audio_device = audio_pin.pin()
                 runner.record('simulator-audio-device', [], 'passed', 0, time.monotonic(), 'Input and output pinned to ' + audio_device)

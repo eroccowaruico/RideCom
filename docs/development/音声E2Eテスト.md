@@ -13,7 +13,7 @@ python3 scripts/audio_e2e.py --matrix full
 
 MacのBonjour探索が`NoAuth`になる環境では、ネットワーク音声試験に`--two-simulators`を指定できる。iOS用のビルドを1回行い、端末ごとに別の役割と実行結果を割り当てる。コマンドは試験専用の2台を起動し、終了時に追加した端末を削除する。実出力の波形、継続性、遅延の判定は通常と同じ。単一端末で行う音声処理の試験ではこの指定を使わない。
 
-試験は48 kHzの入出力に対応した同じ音声機器を、試験用Simulatorの入力と出力に一時的に設定する。自動で1台に絞れない場合は、`RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE` にMacで表示される機器の名前を指定する。この指定は音声E2Eと、同じ機器選択を使うiOSの音声UIテストに適用する。指定に一致する機器が1台に決まらなければ、選択を変更する前に試験を中止する。試験終了時はSimulatorの選択を元に戻す。Macの既定の音声設定は変更しない。
+試験は48 kHzの入出力に対応した同じ音声機器を、試験用Simulatorの入力と出力に一時的に設定する。自動で1台に絞れない場合は、`RIDEINTERCOM_SIMULATOR_AUDIO_DEVICE` にMacで表示される機器の名前を指定する。音声E2E、iOSの音声UIテスト、背景通話の試験は `scripts/simulator_audio.py` の機器選択と復元を使う。指定に一致する機器が1台に決まらなければ、選択を変更する前に試験を中止する。試験終了時はSimulatorの選択を元に戻す。Macの既定の音声設定は変更しない。
 
 生成されたxctestrunが参照するAppのInfo.plistを起動前に読み、保存先がXcodeの検証構成から取得した`RideIntercom.Validation.Xcode`と一致し、開発用の接続資格を含まないことを確認する。build引数だけを証拠にせず、通常のApp／StoreKit検証と[同じhost検査](自動検証.md#xcodeテストの起動前検査)を使う。不一致の場合は音声hostを起動しない。
 

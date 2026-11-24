@@ -77,8 +77,6 @@ class ValidationTests(unittest.TestCase):
         self.assertIsNone(self.module.ios_tests_timeout({'VALIDATION_TIMEOUT_SECONDS': '600'}))
 
     def test_explicit_iphone_ui_target_keeps_the_full_suite_timeout(self) -> None:
-        from scripts import audio_e2e
-
         ui_target = 'RideIntercomUITests'
         suite = 'RideIntercomTests/GroupRecoveryTests'
         cases = [
@@ -91,7 +89,7 @@ class ValidationTests(unittest.TestCase):
         with patch.object(self.module, 'SimulatorLease') as lease, \
              patch.object(self.module, 'boot_simulator'), \
              patch.object(self.runner, 'run', return_value=True), \
-             patch.object(audio_e2e, 'SimulatorAudioPin') as audio_pin, \
+             patch.object(self.module, 'SimulatorAudioPin') as audio_pin, \
              patch.object(self.runner, 'xcode') as xcode:
             lease.return_value.prepare.return_value = 'test-phone'
             audio_pin.return_value.pin.return_value = 'fixture-audio'
@@ -116,12 +114,10 @@ class ValidationTests(unittest.TestCase):
                          ([contact, 'RideIntercomUITests/AdaptiveInterfaceUITests'], [], [adaptive]))
 
     def test_iphone_audio_restore_failure_still_releases_the_owned_simulator(self) -> None:
-        from scripts import audio_e2e
-
         with patch.object(self.module, 'SimulatorLease') as lease, \
              patch.object(self.module, 'boot_simulator'), \
              patch.object(self.runner, 'run', return_value=True), \
-             patch.object(audio_e2e, 'SimulatorAudioPin') as audio_pin, \
+             patch.object(self.module, 'SimulatorAudioPin') as audio_pin, \
              patch.object(self.runner, 'xcode'):
             lease.return_value.prepare.return_value = 'test-phone'
             audio_pin.return_value.pin.return_value = 'fixture-audio'
@@ -133,13 +129,11 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.runner.exit_code, 1)
 
     def test_live_tx_isolation_requests_audio_preparation_when_selected(self) -> None:
-        from scripts import audio_e2e
-
         test = 'RideIntercomUITests/DesignSystemDiagnosticsUITests/testTXShowsLiveIsolationWithEffectsClosed'
         with patch.object(self.module, 'SimulatorLease') as lease, \
              patch.object(self.module, 'boot_simulator'), \
              patch.object(self.runner, 'run', return_value=True), \
-             patch.object(audio_e2e, 'SimulatorAudioPin') as audio_pin, \
+             patch.object(self.module, 'SimulatorAudioPin') as audio_pin, \
              patch.object(self.runner, 'xcode') as xcode:
             lease.return_value.prepare.return_value = 'test-phone'
             audio_pin.return_value.pin.return_value = 'fixture-audio'
@@ -219,7 +213,7 @@ class ValidationTests(unittest.TestCase):
                                          verify_selection=True)
 
     def test_full_ios_run_can_create_each_managed_simulator_from_empty_inventory(self) -> None:
-        from scripts import audio_e2e, test_lifecycle
+        from scripts import test_lifecycle
 
         devices: list[test_lifecycle.SimulatorDevice] = []
         personal_simulator: test_lifecycle.SimulatorDevice = {
@@ -259,7 +253,7 @@ class ValidationTests(unittest.TestCase):
             patch.object(self.module, 'process_snapshot', return_value={}),
             patch.object(self.runner, 'run', side_effect=run_simctl),
             patch.object(self.runner, 'xcode', side_effect=xcode) as xcode_runner,
-            patch.object(audio_e2e, 'SimulatorAudioPin') as audio,
+            patch.object(self.module, 'SimulatorAudioPin') as audio,
             patch.dict(os.environ, {'SIMULATOR_RUNTIME': 'fixture-ios', 'SIMULATOR_DEVICE_TYPE': 'fixture-phone',
                                     'SIMULATOR_IPAD_DEVICE_TYPE': 'fixture-ipad',
                                     'SIMULATOR_WATCH_DEVICE_TYPE': 'fixture-watch'}),
