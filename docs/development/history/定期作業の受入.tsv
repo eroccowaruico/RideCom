@@ -3,7 +3,7 @@
 バックログ	2420	完了	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2420で整理後の着手条件とバックログを揃える
 Xcode	2420	指定延期	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2420でXcodeの参照と共通の検証入口を点検する
 コード整理	2400	完了	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2400のコード全体の再整理を受け入れる
-コードと文書	2500	未完	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2400のコード全体の再整理を受け入れる
+コードと文書	2500	進行中	docs/development/history/バックログの優先順位と進捗の記録.md	2,500コミットのコードと文書の対象期間を照合する
 コードと文書	2520	完了	docs/development/history/バックログの優先順位と進捗の記録.md	2,520コミットのコードと文書の整理を受け入れる
 Archive	2490	未完	docs/validation/history/配布ビルド採番とOrganizer認証調査.md	2,490コミットの区切りでiOS Build 2398をArchiveする
 全体監査	2500	完了	docs/development/history/バックログの優先順位と進捗の記録.md	2,500コミットの全体監査をコード整理後に行う

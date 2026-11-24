@@ -190,9 +190,7 @@ extension RideIntercomCallSessionAdapter {
     private func execute(_ entry: CallCommandQueue.Entry) async {
         switch entry.command {
         case .connect(let request):
-            bindEvents(for: entry.generation)
-            await rtcSession.prepare(request)
-            await rtcSession.startConnection()
+            await openRTCConnection(request, generation: entry.generation)
         case .startMedia(let startID):
             await rtcSession.setLocalMute(appliedLocalMute)
             await rtcSession.setOutputMute(appliedOutputMute)
@@ -227,14 +225,16 @@ extension RideIntercomCallSessionAdapter {
         await rtcSession.setLocalMute(appliedLocalMute)
         await rtcSession.setOutputMute(appliedOutputMute)
         await rtcSession.updateRuntimePackageReports(appliedReports)
-        // Initial settings can emit runtime reports without any connection.
-        // Subscribe after priming, before prepare/start, so those reports do
-        // not appear as network measurements on the idle Diagnostics page.
+        // Subscribe after priming so initial reports stay off the idle Diagnostics page.
+        await openRTCConnection(change.request, generation: generation, startID: change.mediaStartID)
+    }
+
+    private func openRTCConnection(_ request: RTC.CallStartRequest?, generation: UUID, startID: UUID? = nil) async {
         bindEvents(for: generation)
-        guard let request = change.request else { return }
+        guard let request else { return }
         await rtcSession.prepare(request)
         await rtcSession.startConnection()
-        if let startID = change.mediaStartID {
+        if let startID {
             await rtcSession.startMedia()
             activateMedia(for: generation, startID: startID)
         }
