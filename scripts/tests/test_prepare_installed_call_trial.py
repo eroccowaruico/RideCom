@@ -81,33 +81,65 @@ class InstalledCallTrialDeviceTests(unittest.TestCase):
 
     @patch('scripts.prepare_installed_call_trial.subprocess.run')
     def test_reports_installed_artifacts_and_locked_state(self, run: Mock) -> None:
-        run.side_effect = [self.response({'apps': self.apps}), self.response({'passcodeRequired': True})]
+        run.side_effect = [
+            self.response({'apps': self.apps}), self.response({'passcodeRequired': True}),
+            self.response({'runningProcesses': [{'executable': 'synthetic-private-path'}]}),
+        ]
         report, status = installed_trial.check_device(self.device)
-        self.assertEqual(report, {'app': 'installed', 'app_build': '2440', 'runner': 'installed', 'lock': 'locked'})
+        self.assertEqual(report, {
+            'app': 'installed', 'app_build': '2440', 'runner': 'installed', 'lock': 'locked', 'process': 'running',
+        })
         self.assertEqual(status, 0)
-        for call, command in zip(run.call_args_list, ('apps', 'lockState')):
+        self.assertEqual(run.call_count, 3)
+        self.assertIn('RideIntercom.app/RideIntercom', run.call_args_list[2].args[0])
+        for call, command in zip(run.call_args_list, ('apps', 'lockState', 'processes')):
             self.assertEqual(call.args[0][:5], ['xcrun', 'devicectl', 'device', 'info', command])
             self.assertIn(self.device, call.args[0])
             self.assertTrue(call.kwargs['capture_output'])
 
     @patch('scripts.prepare_installed_call_trial.subprocess.run')
     def test_missing_runner_is_visible_while_app_is_installed(self, run: Mock) -> None:
-        run.side_effect = [self.response({'apps': self.apps[:1]}), self.response({'passcodeRequired': False})]
+        run.side_effect = [
+            self.response({'apps': self.apps[:1]}), self.response({'passcodeRequired': True}),
+            self.response({'runningProcesses': []}),
+        ]
         report, status = installed_trial.check_device(self.device)
-        self.assertEqual(report, {'app': 'installed', 'app_build': '2440', 'runner': 'missing', 'lock': 'unlocked'})
+        self.assertEqual(report, {
+            'app': 'installed', 'app_build': '2440', 'runner': 'missing', 'lock': 'locked', 'process': 'absent',
+        })
         self.assertEqual(status, 1)
 
     @patch('scripts.prepare_installed_call_trial.subprocess.run')
     def test_unreadable_inventory_does_not_report_missing_artifacts(self, run: Mock) -> None:
-        run.side_effect = [subprocess.TimeoutExpired('synthetic', 1), self.response({'passcodeRequired': True})]
+        run.side_effect = [
+            subprocess.TimeoutExpired('synthetic', 1), self.response({'passcodeRequired': True}),
+            self.response({'runningProcesses': []}),
+        ]
         report, status = installed_trial.check_device(self.device)
-        self.assertEqual(report, {'app': 'unknown', 'app_build': None, 'runner': 'unknown', 'lock': 'locked'})
+        self.assertEqual(report, {
+            'app': 'unknown', 'app_build': None, 'runner': 'unknown', 'lock': 'locked', 'process': 'absent',
+        })
+        self.assertEqual(status, 2)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_unreadable_process_state_does_not_claim_app_is_inactive(self, run: Mock) -> None:
+        run.side_effect = [
+            self.response({'apps': self.apps}), self.response({'passcodeRequired': True}),
+            subprocess.TimeoutExpired('synthetic', 1),
+        ]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report['process'], 'unknown')
         self.assertEqual(status, 2)
 
     @patch('scripts.prepare_installed_call_trial.subprocess.run')
     def test_device_text_cannot_enter_the_report(self, run: Mock) -> None:
         self.apps[0]['bundleVersion'] = 'synthetic-personal-data'
-        run.side_effect = [self.response({'apps': self.apps}), self.response({'passcodeRequired': 'synthetic-private'})]
+        run.side_effect = [
+            self.response({'apps': self.apps}), self.response({'passcodeRequired': 'synthetic-private'}),
+            self.response({'runningProcesses': 'synthetic-private-process-data'}),
+        ]
         report, status = installed_trial.check_device(self.device)
-        self.assertEqual(report, {'app': 'installed', 'app_build': None, 'runner': 'installed', 'lock': 'unknown'})
+        self.assertEqual(report, {
+            'app': 'installed', 'app_build': None, 'runner': 'installed', 'lock': 'unknown', 'process': 'unknown',
+        })
         self.assertEqual(status, 2)
