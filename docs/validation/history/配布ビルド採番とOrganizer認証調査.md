@@ -236,6 +236,10 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 欠けた実行ファイル、読み取れないシンボル、成果物の外を指す参照は、検査不能として失敗させる。署名済みの対象からどの構成が検出されたかを確認できる。Appleから指摘を受けた配布物との同一性と、修正版の処理結果は確認待ち。[検査の実行方法](../../development/OS権限と配布設定.md#iosのカメラ参照の送信前検査)
 
+2026-11-24の照合。依頼者が今回の指摘を受けた番号を2263と特定した。標準保存先の署名付きBuild 2263も同梱WebRTCから同じ6クラスを検出した。保存済みの検証用Build 2075のIPAは、ファイルを直接指定した検査で拒否した。Build 1988のIPAは通過した。Build 2263の送信済みIPAは手元にないため、Archiveと送信したファイルの同一性は未確認。
+
+採用時の上流 `f0b51cdb2f` のiOS実機向けGN依存では、通常の `framework_objc` は `videocapture_objc` を含む。公式ターゲットの `peerconnectionfactory_base_objc` と `create_modular_peer_connection_factory` は、いずれもdcSCTPを含み、`videocapture_objc` は含まない。確認時の上流main `5c5b140751` でも通常frameworkから撮影依存を外す条件は見つからなかった。候補の依存を確認した段階で、Swiftの呼出元との接続と署名済みの生成物は次に検証する。[上流のビルド定義](https://webrtc.googlesource.com/src/+/5c5b140751e0f4907e092c7a7b59981787d642e8/sdk/BUILD.gn)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。

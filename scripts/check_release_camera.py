@@ -1,4 +1,4 @@
-"""Check a signed RideCom iOS archive or exported App bundle for camera imports."""
+"""Check a signed RideCom iOS archive, IPA, or exported App bundle for camera imports."""
 
 from __future__ import annotations
 
@@ -6,8 +6,12 @@ import argparse
 import os
 import plistlib
 import re
+import stat
 import subprocess
 import sys
+import tempfile
+import unicodedata
+import zipfile
 from pathlib import Path
 
 from scripts.register_archive import APP_PATH, BUNDLE_ID, check_signature
@@ -83,7 +87,36 @@ def raise_read_error(error: OSError) -> None:
     raise error
 
 
+def extract_ipa_app(ipa: Path, directory: Path) -> Path:
+    names = set()
+    with zipfile.ZipFile(ipa) as package:
+        for member in package.infolist():
+            name = member.filename.removesuffix('/')
+            parts = name.split('/')
+            if parts[0] != 'Payload':
+                continue
+            mode = member.external_attr >> 16
+            expected = stat.S_IFDIR if member.is_dir() else stat.S_IFREG
+            if (any(part in ('', '.', '..') for part in parts) or '\\' in name
+                    or member.orig_filename != member.filename or stat.S_IFMT(mode) not in (0, expected)):
+                raise ValueError('Invalid member in the IPA payload')
+            key = unicodedata.normalize('NFD', name).casefold()
+            if key in names:
+                raise ValueError('Duplicate member in the IPA payload')
+            names.add(key)
+            target = Path(package.extract(member, directory))
+            if not member.is_dir() and stat.S_IMODE(mode):
+                target.chmod(mode & 0o777)
+    app = directory / 'Payload' / Path(APP_PATH).name
+    if list(app.parent.glob('*.app')) != [app]:
+        raise ValueError('Expected only the RideCom App in the IPA payload')
+    return app
+
+
 def inspect(artifact: Path) -> list[tuple[str, tuple[str, ...]]]:
+    if artifact.suffix == '.ipa':
+        with tempfile.TemporaryDirectory(prefix='ridecom-release-') as temporary:
+            return inspect(extract_ipa_app(artifact, Path(temporary)))
     app = release_app(artifact)
     findings = []
     for folder, directories, files in os.walk(app, onerror=raise_read_error):
@@ -106,11 +139,12 @@ def inspect(artifact: Path) -> list[tuple[str, tuple[str, ...]]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('artifact', type=Path, help='Path to a signed iOS .xcarchive or exported RideIntercom.app')
+    parser.add_argument('artifact', type=Path, help='Path to a signed iOS .xcarchive, .ipa, or exported RideIntercom.app')
     args = parser.parse_args(argv)
     try:
         findings = inspect(args.artifact)
-    except (OSError, ValueError, TypeError, RuntimeError, plistlib.InvalidFileException, subprocess.SubprocessError):
+    except (OSError, ValueError, TypeError, RuntimeError, plistlib.InvalidFileException,
+            subprocess.SubprocessError, zipfile.BadZipFile):
         print('Camera inspection incomplete. Select an intact, signed RideCom iOS Release artifact.', file=sys.stderr)
         return 2
     for component, matches in findings:

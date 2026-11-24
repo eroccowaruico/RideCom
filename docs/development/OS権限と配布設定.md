@@ -91,14 +91,15 @@ RideCom はカメラを使わず、カメラの利用目的を追加しない。
 
 ### iOSのカメラ参照の送信前検査
 
-配布を準備する担当者は、送信に使う署名付きのiOS Archiveを指定し、リポジトリのルートから検査する。書き出したIPAを使う場合は、そのPayloadから取り出した実際の `RideIntercom.app` も同じコマンドで検査する。
+配布を準備する担当者は、送信に使う署名付きのiOS Archiveを指定し、リポジトリのルートから検査する。書き出したIPAを使う場合は、そのIPAを直接検査する。取り出したAppを確認するときは同じコマンドに指定できる。
 
 ```sh
 python3 -m scripts.check_release_camera /path/to/RideIntercom.xcarchive
+python3 -m scripts.check_release_camera /path/to/RideIntercom.ipa
 python3 -m scripts.check_release_camera /path/to/Payload/RideIntercom.app
 ```
 
-検査はAppの署名を確かめ、Appと同梱物にあるMach-Oの全アーキテクチャから所定のAVCaptureクラスへの参照を探す。各 `Info.plist` の `NSCameraUsageDescription` も調べる。音声のためにAVFoundationをリンクしているだけなら、このクラス検査では検出されない。
+検査はAppの署名を確かめ、Appと同梱物にあるMach-Oの全アーキテクチャから所定のAVCaptureクラスへの参照を探す。各 `Info.plist` の `NSCameraUsageDescription` も調べる。IPAのPayloadは一時領域で検査し、終了時に取り除く。音声のためにAVFoundationをリンクしているだけなら、このクラス検査では検出されない。
 
 終了コードが1か2なら対象の送信を止める。App Store Connectの処理結果は別に確認する。
 

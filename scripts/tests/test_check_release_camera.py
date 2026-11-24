@@ -1,8 +1,10 @@
 import io
 import plistlib
+import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -80,6 +82,48 @@ class CheckReleaseCameraTests(unittest.TestCase):
         self.binary.symlink_to(outside)
         with redirect_stderr(io.StringIO()):
             self.assertEqual(check_release_camera.main([str(self.archive)]), 2)
+        self.verify.assert_not_called()
+
+    def make_ipa(self, path: Path) -> None:
+        with zipfile.ZipFile(path, 'w') as package:
+            for item in self.app.rglob('*'):
+                if item.is_file():
+                    package.write(item, (Path('Payload') / item.relative_to(self.app.parent)).as_posix())
+
+    def test_ipa_checks_the_actual_signed_payload(self) -> None:
+        ipa = self.archive.parent / 'Export.ipa'
+        self.make_ipa(ipa)
+        with patch.object(check_release_camera, 'imported_symbols',
+                          return_value=b'_OBJC_CLASS_$_AVCaptureSession\n'):
+            findings = check_release_camera.inspect(ipa)
+        self.verify.assert_called_once()
+        app_path = self.verify.call_args.args[0]
+        self.assertEqual(app_path.parent.name, 'Payload')
+        self.assertFalse(app_path.exists())
+        self.assertEqual(findings, [
+            ('Frameworks/WebRTC.framework/WebRTC', ('AVCaptureSession',)),
+            ('RideIntercom', ('AVCaptureSession',)),
+        ])
+
+    def test_ipa_fails_if_payload_cannot_be_extracted_reliably(self) -> None:
+        ipa = self.archive.parent / 'Export.ipa'
+        self.make_ipa(ipa)
+        with zipfile.ZipFile(ipa, 'a') as package:
+            redirect = zipfile.ZipInfo('Payload/RideIntercom.app/Frameworks/Unknown')
+            redirect.create_system = 3
+            redirect.external_attr = (stat.S_IFLNK | 0o777) << 16
+            package.writestr(redirect, 'SomeOtherFile')
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(check_release_camera.main([str(ipa)]), 2)
+        self.verify.assert_not_called()
+
+    def test_ipa_rejects_members_with_the_same_name_on_disk(self) -> None:
+        ipa = self.archive.parent / 'Export.ipa'
+        self.make_ipa(ipa)
+        with zipfile.ZipFile(ipa, 'a') as package:
+            package.writestr('Payload/RideIntercom.app/info.plist', 'other')
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(check_release_camera.main([str(ipa)]), 2)
         self.verify.assert_not_called()
 
 
