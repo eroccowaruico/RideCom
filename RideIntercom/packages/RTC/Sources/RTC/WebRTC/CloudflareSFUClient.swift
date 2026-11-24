@@ -40,7 +40,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
             }
             source.yield(.iceServers(ice.iceServers))
             source.yield(.connected)
-        } catch { await fail(error, generation: generation) }
+        } catch { await fail(error, generation: generation, step: String(localized: "ICE preparation")) }
     }
     public func disconnect() async { await disconnect(generation: UUID()) }
     private func disconnect(generation: UUID) async {
@@ -94,7 +94,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                     current = next
                 }
             }
-        } catch { await fail(error, generation: generation) }
+        } catch { await fail(error, generation: generation, step: String(localized: "Call join")) }
     }
     public func startPublishing() async {
         guard !publishing, let request, let sessionID else { return }
@@ -171,14 +171,15 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         }
         return nil
     }
-    private func fail(_ error: Error, generation: UUID) async {
+    private func fail(_ error: Error, generation: UUID, step: String? = nil) async {
         guard self.generation == generation else { return }
         let message = (error as? Failure)?.description ?? "Cloudflare connection failed"
-        switch error {
-        case Failure.accountInUse, Failure.http(401):
+        switch (step, error) {
+        case (_, Failure.accountInUse), (_, Failure.http(401)):
             source.yield(.blocked(message))
-        default:
-            source.yield(.failed(message))
+        case (_, Failure.servicePaused): source.yield(.failed(message))
+        case (let step?, Failure.http(let code)): source.yield(.failed("\(step) · HTTP \(code)"))
+        default: source.yield(.failed(step.map { "\($0) · \(message)" } ?? message))
         }
         await disconnect()
     }

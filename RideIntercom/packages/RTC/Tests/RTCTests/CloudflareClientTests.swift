@@ -51,8 +51,14 @@ struct CloudflareClientTests {
         guard case .failed(let message) = await events.next() else {
             Issue.record("Expected a recoverable connection failure"); return
         }
-        #expect(message == (code == "call_service_paused"
-            ? String(localized: "Internet calling is paused.") : "Cloudflare Worker rejected request (HTTP 503)"))
+        switch (code, stage) {
+        case ("call_service_paused", _):
+            #expect(message == String(localized: "Internet calling is paused."))
+        case (_, "ice"):
+            #expect(message == "\(String(localized: "ICE preparation")) · HTTP 503")
+        default:
+            #expect(message == "\(String(localized: "Call join")) · HTTP 503")
+        }
         #expect(!message.contains("private-upstream-message"))
         #expect(SFUHTTPStub.requests.last?.httpMethod == "DELETE")
         await client.disconnect()

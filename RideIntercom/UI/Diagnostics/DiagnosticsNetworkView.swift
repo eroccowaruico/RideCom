@@ -10,7 +10,7 @@ struct DiagnosticsNetworkView: View {
         let report = viewModel.networkDiagnostics
         VStack(alignment: .leading, spacing: AppSpacing.large) {
             Text(
-                report == nil
+                report == nil && viewModel.internetFailureDetail == nil
                     ? "Not measured. Connect to a group to collect network diagnostics." : "Network diagnostics"
             )
                 .accessibilityIdentifier("networkDiagnosticsSummary")
@@ -50,6 +50,10 @@ struct DiagnosticsNetworkView: View {
         let jitter = metrics?.jitter.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured"
         return GroupBox {
             VStack(alignment: .leading, spacing: AppSpacing.small) {
+                if kind == .webRTC, let failure = viewModel.internetFailureDetail {
+                    DiagnosticsValueRow(String(localized: "Connection failure"), value: failure, warns: true)
+                        .accessibilityIdentifier("diagnosticsNetworkInternetFailure")
+                }
                 DiagnosticsValueRow(
                     "RTT",
                     value: route?.statistics.roundTripTime.map { String(format: "%.0f ms", $0 * 1000) }

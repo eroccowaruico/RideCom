@@ -33,6 +33,7 @@ struct DiagnosticsPresentationTests {
         drops.overflow = 7
         drops.expired = 12
         model.lastRouteMetrics = .init(route: .webRTC, jitter: 0.006)
+        model.handleTransportEvent(.serviceError("\(String(localized: "Call join")) · HTTP 503"))
         model.networkDiagnostics = .init(generatedAt: now - 20,
                 routes: [.init(route: .webRTC, statistics: internet, eventDrops: ["transport": drops])],
                                         peers: [

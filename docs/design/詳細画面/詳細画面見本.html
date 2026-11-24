@@ -412,6 +412,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
           <div class="hd network-heading">Internet <span>Updated 20 s ago · Stale</span></div>
           <div class="card network-metrics">
+            <div class="row" id="diagnosticsNetworkInternetFailure"><span class="k">Connection failure</span><span class="v"><span class="metric-warning" aria-hidden="true">⚠</span> Call join · HTTP 503</span></div>
             <div class="row"><span class="k">RTT</span><span class="v num">42 ms</span></div>
             <div class="row"><span class="k">Loss</span><span class="v num">0.4%</span></div>
             <div class="row"><span class="k">Jitter</span><span class="v num">6 ms</span></div>
@@ -428,7 +429,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>Network</b>LocalとInternetの計測を別々のカードに置く。LossとJitterは1項目ずつ並べ、横に収まらない値は項目名の下へ移す。Pathsでは、相手ごとに最後の経路、中継順、観測の古さを読む。アクセシビリティ文字サイズではIDを1行ずつ下向きの矢印でつなぐ。</figcaption>
+      <figcaption><b>Network</b>LocalとInternetの計測を別々のカードに置く。Internetの入室に失敗し、直近の計測値も残っている例。失敗理由はInternetカードの先頭に出る。LossとJitterは1項目ずつ並べ、横に収まらない値は項目名の下へ移す。Pathsでは、相手ごとに最後の経路、中継順、観測の古さを読む。アクセシビリティ文字サイズではIDを1行ずつ下向きの矢印でつなぐ。</figcaption>
     </figure>
 
     <!-- Applied -->

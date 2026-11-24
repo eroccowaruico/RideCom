@@ -221,6 +221,7 @@ Audio CheckはSettingsに置く。端末内の録音再生、サービス認証�
 | 表示 | identifier | 意味 |
 |---|---|---|
 | Network | `networkDiagnosticsSummary` | RTCNetworkDiagnosticsの表示。計測処理はRTC/native側が所有 |
+| Connection failure | `diagnosticsNetworkInternetFailure` | Internetカードの先頭に、ViewModelの `internetFailureDetail` がある間だけ表示。ICE準備・入室の一般の失敗では、その処理名と失敗理由を表示する。経路が復帰するか通話を開始し直す・終了すると表示を消す |
 | RTT / Send queue | 同上 | ICE transport RTTをms、DataChannel送信待ちをBで表示する。未取得は `Not measured` |
 | Loss / Jitter | 同上 | Lossを%・Jitterをmsで別々に表示する。未取得は各項目で `Not measured` |
 | Event drops | 同上 | session / route / engine / transportのoverflowとexpired。ネットワーク損失率ではない |
