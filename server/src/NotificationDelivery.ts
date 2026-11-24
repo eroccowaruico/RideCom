@@ -52,9 +52,11 @@ export async function notificationProviderToken(env: Env): Promise<string> {
 }
 
 export type NotificationDeliveryResult = 'accepted' | 'invalid_token' | 'retry_later' | 'rejected'
+export type NotificationKind = 'call' | 'groupInvitation'
 /** Native fetch is the production candidate; tests intercept it before any external I/O. */
 export async function deliverNotification(device: NotificationDevice, providerToken: string,
-                                        requestID: string, recipientID: string, expiresAt: number, kind: 'call' | 'groupInvitation' = 'call'): Promise<NotificationDeliveryResult> {
+                                        requestID: string, recipientID: string, expiresAt: number,
+                                        kind: NotificationKind = 'call'): Promise<NotificationDeliveryResult> {
     const host = device.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
     try {
         const response = await fetch(`https://${host}/3/device/${device.token}`, {

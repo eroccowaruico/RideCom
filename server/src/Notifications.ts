@@ -4,7 +4,7 @@ import { callLifetime, dedupeLifetime, groupInvitationLifetime, type Notificatio
 import { deviceSigningKey, verifyDeviceProof } from './DeviceIdentity'
 import { receiveBackgroundSubmission } from './BackgroundSubmission'
 import { publicAccountIndex } from './NotificationIndex'
-import { deliverNotification, notificationProviderToken, readyAPNSEnvironment } from './NotificationDelivery'
+import { deliverNotification, notificationProviderToken, readyAPNSEnvironment, type NotificationKind } from './NotificationDelivery'
 import { json, readJSON, sha256Hex as notificationHash, type Env } from './types'
 
 const publicIDPattern = /^[a-f0-9]{64}$/
@@ -68,16 +68,19 @@ async function target(env: Env, userID: string) {
 async function publishRoute(env: Env, auth: NotificationAuth, expiresAt: number) {
     await publicAccountIndex(env, auth.userID).bind({ accountID: auth.accountID, userID: auth.userID, expiresAt })
 }
-async function currentNotificationDestination(env: Env, recipientID: string, device: NotificationDevice) {
+async function prepareNotificationDelivery(env: Env, receiver: ReturnType<typeof account>, recipientID: string,
+                                           device: NotificationDevice) {
     const tokenIndex = index(env, device.tokenIndex)
     const binding = await tokenIndex.current()
     if (binding?.registrationID !== device.registrationID || binding.userID !== recipientID) return null
-    return {
-        async removeInvalid(receiver: ReturnType<typeof account>) {
+    return async (providerToken: string, requestID: string, expiresAt: number, kind?: NotificationKind) => {
+        const result = await deliverNotification(device, providerToken, requestID, recipientID, expiresAt, kind)
+        if (result === 'invalid_token') {
             await receiver.notificationInvalidToken(recipientID, device.deviceID, device.registrationID)
             try { await tokenIndex.remove(binding.accountID, recipientID, device.registrationID) }
             catch { /* The unused binding expires through its own alarm. */ }
-        },
+        }
+        return result
     }
 }
 const callReply = (call: NotificationCall) => ({ requestID: call.requestID, expiresAt: call.expiresAt, status: call.status })
@@ -164,12 +167,11 @@ async function submitGroupInvitation(body: Record<string, unknown>, origin: stri
         if (candidates.length) {
             const providerToken = await notificationProviderToken(env)
             for (const device of candidates) {
-                const destination = await currentNotificationDestination(env, grant.recipient, device)
-                if (!destination) continue
+                const deliver = await prepareNotificationDelivery(env, receiver, grant.recipient, device)
+                if (!deliver) continue
                 if (await owner.groupInvitationSenderState(auth, grant.recipient, id) !== 'active') break
                 if (!(await receiver.groupInvitationCandidates(grant.recipient, id)).some(v => v.deviceID === device.deviceID && v.registrationID === device.registrationID)) continue
-                const result = await deliverNotification(device, providerToken, id, grant.recipient, body.expiresAt, 'groupInvitation')
-                if (result === 'invalid_token') await destination.removeInvalid(receiver)
+                await deliver(providerToken, id, body.expiresAt, 'groupInvitation')
             }
         }
     }
@@ -354,12 +356,11 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (candidates.length) {
                 const providerToken = await notificationProviderToken(env)
                 for (const device of candidates) {
-                    const destination = await currentNotificationDestination(env, grant.recipient, device)
-                    if (!destination) continue
+                    const deliver = await prepareNotificationDelivery(env, receiver, grant.recipient, device)
+                    if (!deliver) continue
                     if (!await owner.notificationAuthorized(auth)
                         || !await receiver.notificationDeliveryCurrent(grant.recipient, requestID, device.deviceID, device.registrationID)) continue
-                    const delivered = await deliverNotification(device, providerToken, requestID, grant.recipient, started.call.expiresAt)
-                    if (delivered === 'invalid_token') await destination.removeInvalid(receiver)
+                    const delivered = await deliver(providerToken, requestID, started.call.expiresAt)
                     if (delivered === 'accepted') status = 'accepted'
                     else if (status !== 'accepted' && delivered === 'retry_later') status = 'retry_later'
                     else if (status === 'no_destinations') status = 'rejected'
