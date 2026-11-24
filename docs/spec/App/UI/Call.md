@@ -250,12 +250,12 @@ Advanced Group Settingsの新規招待行（`groupSettingsMember-{id}`）に表�
 |---|---|---|---|---|---|---|
 | 参加者見出し | `call-participants-section` | なし | `Participants` | 固定文字列 | セクション見出し | なし |
 | 参加者空状態 | `call-participants-section` | `emptyRemoteParticipantsLabel` | `No remote riders` | 固定文字列 | 空状態カード | 相手不在 |
-| 参加者カード行 | `call-participants-section` | `remoteParticipantRow{index}` | 参加者カード | `GroupMember`, `remoteOutputVolumes[member.id]`, `remoteSoundIsolationEnabled[member.id]` | 1 参加者 1 カード | 受信音声がなくても存在 |
+| 参加者カード行 | `call-participants-section` | `remoteParticipantRow{index}` | 参加者カード | `GroupMember`, `remoteOutputVolumes[member.id]`, `remoteSoundIsolationEnabled[member.id]` | 自分以外を1人1カードで表示 | 受信音声がなくても存在 |
 | 参加者名 | `remoteParticipantRow{index}` | `participantName{index}` | `member.displayName` | `String` | 最大 2 行 | 保存名 |
-| 接続/認証状態 | `remoteParticipantRow{index}` | `participantStatusSummary{index}` | 状態の文字 | `connectionState`, `authenticationState` | Wi-Fi 系 + 認証系の記号と文字 | 接続軸と認証軸を分ける |
-| コーデック表示 | `remoteParticipantRow{index}` | `participantAudioPipelineState{index}` | `PCM 16-bit` など | `AudioCodecIdentifier?` | `Label`。未観測は `--` | 最後に観測した codec |
+| 接続・認証・音声処理の状態 | `remoteParticipantRow{index}` | `participantStatusSummary{index}` | 例 `Connected / Auth OK / Playing` | `connectionState`、`authenticationState`、`audioPipelineState` | 接続と認証は記号と語で表示し、音声処理の状態は語で表示する | 接続・認証・音声処理はそれぞれの値を使う |
+| コーデック表示 | `remoteParticipantRow{index}` | `participantAudioPipelineState{index}` | `AAC-ELD`、`PCM 16-bit` など | `AudioCodecIdentifier?` | `Label`。未観測は `--` | 最後に観測した codec |
 | 参加者入力メーター | `remoteParticipantRow{index}` | `participantVoiceLevel{index}` | なし | `voiceLevel`, `voicePeakLevel`, `isMuted` | 値文字列`LEVEL n  PEAK n`（ミュート中は`MUTED`、`voiceMeterValueLabel`） | 受信後デコード済みレベル |
-| 参加者出力値 | `remoteParticipantRow{index}` | `participantOutputValue{index}` | `{n}%` | `remoteOutputVolumes[member.id]` | 補助テキスト | peer source fader |
+| 参加者出力値 | `remoteParticipantRow{index}` | `participantOutputValue{index}` | `Output {n}%` | `remoteOutputVolumes[member.id]` | 補助テキスト | peer source fader |
 | 参加者出力スライダー | `remoteParticipantRow{index}` | `participantOutputSlider{index}` | `{name} Output` | `Double`, `0...1`。未設定時 `1.0` | 個別出力スライダー | マスター出力とは別。peer source faderへ即時反映 |
 | 参加者 Voice Isolation Effect | `remoteParticipantRow{index}` | `participantVoiceIsolationToggle{index}` | `Isolate This Voice`（英語）、読み上げは `Isolate Voice From {name}` | `remoteSoundIsolationEnabled[member.id]`。未設定時 `false` | `supportsSoundIsolation == true` のとき Toggle | 該当 peer bus の SoundIsolation effect 有効/無効 |
 

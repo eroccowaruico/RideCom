@@ -517,7 +517,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="card">
             <div class="vline"><span class="d ok"></span><b>Connected</b></div>
             <div class="vline" style="padding-left:14px;color:var(--label2)">Local + Internet / Relay · 3 connected · 3 authenticated</div>
-            <div class="row" style="margin-top:4px"><span class="k">Group</span><span class="v">Group · 4 members <span class="sub mono">3f9a2c1e</span></span><span class="x"></span></div>
+            <div class="row" style="margin-top:4px"><span class="k">Group</span><span class="v">Group · 5 members <span class="sub mono">3f9a2c1e</span></span><span class="x"></span></div>
             <div style="display:flex;gap:6px;margin-top:6px"><div class="btn danger" style="flex:1">Disconnect</div></div>
           </div>
           <div class="hd">Input</div>
@@ -532,18 +532,39 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="frow"><span class="g">Isolate All Received Voices</span><span class="toggle off"></span></div>
             <div class="frow"><span class="g">Duck Other Audio</span><span class="tail">active</span></div>
           </div>
-          <div class="hd">Participants <span>You + 3</span></div>
+          <div class="hd">Participants</div>
           <div class="card">
-            <div class="row"><b>You</b><span class="v">Naohito · local member</span><span class="x"></span></div>
-            <div class="row"><b>Haruka</b><span class="v">Connected · AUTH OK · MPEG-4 AAC-ELD<div class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></div><div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div></span><span class="x num">100%</span></div>
-            <div class="row"><b>Kenta</b><span class="v">Connected · AUTH OK · Opus<div class="pmeter"><span class="bar"><i style="width:0%"></i><b style="left:12%"></b></span><span class="val">LEVEL 0  PEAK 12</span></div></span><span class="x num">80%</span></div>
-            <div class="row"><b>Mika</b><span class="v">Connected · AUTH OK · PCM 16-bit<div class="pmeter"><span class="bar"><i style="width:45%"></i><b style="left:58%"></b></span><span class="val">LEVEL 45  PEAK 58</span></div></span><span class="x num">60%</span></div>
-            <div class="row dim"><b>Yu</b><span class="v">Offline</span><span class="x"></span></div>
+            <div class="vline"><b>Haruka</b><span class="sub mono">AAC-ELD</span></div>
+            <div class="sub">Connected / Auth OK / Playing</div>
+            <div class="row"><span class="k">Input</span><span class="v"><span class="pmeter"><span class="bar"><i style="width:62%"></i><b style="left:80%"></b></span><span class="val">LEVEL 62  PEAK 80</span></span></span></div>
+            <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:100%"></i><b style="left:100%"></b></span><span class="num">Output 100%</span></div>
+            <div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div>
+          </div>
+          <div class="card">
+            <div class="vline"><b>Kenta</b><span class="sub mono">Opus</span></div>
+            <div class="sub">Connected / Auth OK / Audio Idle</div>
+            <div class="row"><span class="k">Input</span><span class="v"><span class="pmeter"><span class="bar"><i style="width:0%"></i><b style="left:12%"></b></span><span class="val">LEVEL 0  PEAK 12</span></span></span></div>
+            <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:80%"></i><b style="left:80%"></b></span><span class="num">Output 80%</span></div>
+            <div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div>
+          </div>
+          <div class="card">
+            <div class="vline"><b>Mika</b><span class="sub mono">PCM 16-bit</span></div>
+            <div class="sub">Connected / Auth OK / Receiving</div>
+            <div class="row"><span class="k">Input</span><span class="v"><span class="pmeter"><span class="bar"><i style="width:45%"></i><b style="left:58%"></b></span><span class="val">LEVEL 45  PEAK 58</span></span></span></div>
+            <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:60%"></i><b style="left:60%"></b></span><span class="num">Output 60%</span></div>
+            <div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div>
+          </div>
+          <div class="card">
+            <div class="vline"><b>Yu</b><span class="sub mono">--</span></div>
+            <div class="sub">Offline / Auth Off / Audio Idle</div>
+            <div class="row"><span class="k">Input</span><span class="v"><span class="pmeter"><span class="bar"><i style="width:0%"></i><b style="left:0%"></b></span><span class="val">LEVEL 0  PEAK 0</span></span></span></div>
+            <div class="slider"><svg class="i"><use href="#speaker"/></svg><span class="track"><i style="width:100%"></i><b style="left:100%"></b></span><span class="num">Output 100%</span></div>
+            <div class="frow"><span class="g">Isolate This Voice</span><span class="toggle off"></span></div>
           </div>
         </div>
         <div class="sheetgrab"></div>
       </div></div>
-      <figcaption><b>Call（シート）：グループ通話</b>Call status → Input → Output → Participants。相手ごとに受信のメーター（<code>voiceLevel</code>のバーと<code>voicePeakLevel</code>の印）と、実装の値の文<code>LEVEL n  PEAK n</code>（相手がミュート中は<code>MUTED</code>）を出す。ツールバーのMore（…）でグループの設定・追加・共有を開く。Add Saved Usersは利用権があるときに出す。保存済みの相手も新しい相手も追加できる。入力中に利用権が切れたときは、入力を保ち、利用権の確認を案内する。Call status にグループの種類・人数・短縮IDを出し、Participants は自分（local member）を含めて並べる。</figcaption>
+      <figcaption><b>Call（シート）：グループ通話</b>Call status → Input → Output → Participants。相手ごとに受信のメーター（<code>voiceLevel</code>のバーと<code>voicePeakLevel</code>の印）と、実装の値の文<code>LEVEL n  PEAK n</code>（相手がミュート中は<code>MUTED</code>）を出す。ツールバーのMore（…）でグループの設定・追加・共有を開く。Add Saved Usersは利用権があるときに出す。保存済みの相手も新しい相手も追加できる。入力中に利用権が切れたときは、入力を保ち、利用権の確認を案内する。Call statusには自分を含めた人数を表示する。Participantsは相手ごとに接続・認証・音声処理の状態を並べる。<a href="../../spec/App/UI/Call.md#参加者">画面仕様</a></figcaption>
     </figure>
 
     <figure>
