@@ -15,9 +15,9 @@ struct CloudflareClientTests {
                          credential: .derived(groupID: "group", secret: "invitation-secret")),
             cloudflare: .init(workerURL: try #require(URL(string: url)), accessToken: "device-token"))
     }
-    @Test(arguments: ["ice", "join"])
-    func accountConflictEmitsManualRecoveryAndCleansOnlyItsOwnAttempt(stage: String) async throws {
-        SFUHTTPStub.reset(rejectedStage: stage)
+    @Test(arguments: ["ice", "join"], [401, 409])
+    func credentialRejectionOrAccountConflictRequiresManualRecovery(stage: String, status: Int) async throws {
+        SFUHTTPStub.reset(rejectedStage: stage, rejectedStatus: status)
         let client = makeClient()
         var events = client.events.makeAsyncIterator()
         await client.connect(try request())
@@ -27,7 +27,7 @@ struct CloudflareClientTests {
             await client.sendOffer(.init(kind: .offer, sdp: "offer"), to: .init(rawValue: "cloudflare-sfu"))
         }
         guard case .blocked(let message) = await events.next() else { Issue.record("Expected manual recovery"); return }
-        #expect(message.contains("End the existing call"))
+        #expect(message.contains(status == 401 ? "Set Up Internet Calling" : "End the existing call"))
         #expect(!message.contains("private-upstream-message"))
         let calls = SFUHTTPStub.requests
         #expect(calls.filter { $0.httpMethod == "POST" }.count == (stage == "ice" ? 1 : 2))
@@ -209,14 +209,16 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var transient = false
     nonisolated(unsafe) private static var delayFirstDelete = false
     nonisolated(unsafe) private static var rejectedStage: String?
+    nonisolated(unsafe) private static var rejectedStatus = 409
     nonisolated(unsafe) private static var missingAnswer = false
     static func reset(
         transient: Bool = false, delayFirstDelete: Bool = false,
-        rejectedStage: String? = nil, missingAnswer: Bool = false
+        rejectedStage: String? = nil, rejectedStatus: Int = 409, missingAnswer: Bool = false
     ) {
         lock.withLock {
             recorded = []; self.transient = transient; self.delayFirstDelete = delayFirstDelete
             self.rejectedStage = rejectedStage
+            self.rejectedStatus = rejectedStatus
             self.missingAnswer = missingAnswer
         }
     }
@@ -241,7 +243,8 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
         }
         let status =
             rejected
-            ? 409 : renewing ? (transient ? (renewals == 1 ? 503 : 200) : (renewals >= 2 ? 429 : 200)) : 200
+            ? Self.lock.withLock { Self.rejectedStatus }
+            : renewing ? (transient ? (renewals == 1 ? 503 : 200) : (renewals >= 2 ? 429 : 200)) : 200
         guard let response = HTTPURLResponse(
                 url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"]
         ) else {

@@ -182,9 +182,10 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private func fail(_ error: Error, generation: UUID) async {
         guard self.generation == generation else { return }
         let message = (error as? Failure)?.description ?? "Cloudflare connection failed"
-        if case Failure.accountInUse = error {
+        switch error {
+        case Failure.accountInUse, Failure.http(401):
             source.yield(.blocked(message))
-        } else {
+        default:
             source.yield(.failed(message))
         }
         await disconnect()
@@ -213,6 +214,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                 "This account already has an Internet call. End the existing call, then try again. "
                     + "If the other device lost its connection, wait for that call to expire."
             case .peerSnapshotChanged: "Cloudflare peer snapshot changed"
+            case .http(401): String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
             case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
             }
         }

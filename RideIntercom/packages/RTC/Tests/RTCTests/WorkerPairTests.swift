@@ -23,6 +23,11 @@ struct WorkerPairTests {
                   cloudflare: .init(workerURL: url, accessToken: id == "alice" ? aliceToken : bobToken))
         }
         let aliceListener = alice.listen(), bobListener = bob.listen()
+        var rejected = request("alice")
+        rejected.cloudflare.accessToken = "unregistered-device-credential"
+        await alice.client.connect(rejected)
+        try await eventually { alice.blockedMessages.contains { $0.contains("Set Up Internet Calling") } }
+        #expect(alice.failures.isEmpty)
         await alice.join(request("alice")); await bob.join(request("bob"))
         try await eventually { alice.members == ["bob"] && bob.members == ["alice"] }
         try await eventually { !alice.channelIDs(from: "bob").isEmpty && !bob.channelIDs(from: "alice").isEmpty }
@@ -104,6 +109,9 @@ private final class PairEndpoint: @unchecked Sendable {
         return []
     }
     var failures: [String] { values.compactMap { if case .failed(let reason) = $0 { return reason }; return nil } }
+    var blockedMessages: [String] {
+        values.compactMap { if case .blocked(let reason) = $0 { return reason }; return nil }
+    }
     var messages: [String] {
         values.compactMap { event in
             guard case .receivedApplicationData(let data) = event else { return nil }

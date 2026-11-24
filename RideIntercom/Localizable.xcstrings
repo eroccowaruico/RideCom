@@ -2895,6 +2895,17 @@
         }
       }
     },
+    "In Settings, choose Set Up Internet Calling, then try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定で「インターネット通話を設定」を選び、もう一度接続してください。"
+          }
+        }
+      }
+    },
     "In a call" : {
       "extractionState" : "manual",
       "localizations" : {

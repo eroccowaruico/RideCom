@@ -277,7 +277,7 @@ SoundIsolation対応環境では、Settingsに自分の送信側、Callに受信
 |---|---|
 | 経路 | availableRoutesからLocal / Internet / Local + Internetを表示。Localだけでも他者経由の中継が可能 |
 | 音声操作 | 全production routeで共通のmeter・effect・master/peer音量・muteを使用 |
-| Internet失敗 | `connectivityNotice`。通常は到達可能な参加者との接続を維持して再試行する旨を表示。アカウントの既存通話との競合は、既存通話の終了・通信断時の期限待ち・再操作を案内する。通話全体が手動復帰待ちならConnectを表示する |
+| Internet失敗 | `connectivityNotice`。回線障害では、到達可能な参加者との接続を維持して再試行すると伝える。通話用の端末資格が拒否された場合は、設定で「インターネット通話を設定」を選んでから再接続するよう案内し、同じ資格での自動再試行を止める。近距離通話は継続する。アカウントの既存通話との競合は、既存通話の終了・通信断時の期限待ち・再操作を案内する。通話全体が手動復帰待ちならConnectを表示する |
 | 通話中のiOS音声再構成 | 同じ入出力先で音声の構成だけが変わったときは、同じ通話で音声が自動で戻る。再構成に失敗したらAudio Pausedを表示し、理由と再開の操作を出す。マイクの許可が得られなかった場合は、設定で許可する案内を理由にする。Standardはヒーローに理由をまとめ、Advancedは再開操作のそばに理由を出す。 |
 | 機器消失 | `audioRouteNotice`と、認証済み相手がいるときはConnected / Audio Paused、相手待ちはAudio paused。理由と接続・中継の維持を明示 |
 | 再開 | `resumeAudioButton`。標準Button、文字ラベルとSF Symbolを併用。[共通の再開条件](画面・状態遷移.md#機器と混在経路の遷移)は相手待ちにも適用する |
