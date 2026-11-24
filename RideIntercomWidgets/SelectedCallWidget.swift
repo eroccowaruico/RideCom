@@ -29,11 +29,8 @@ private struct SelectedCallProvider: AppIntentTimelineProvider {
     private func entry(
         for configured: WidgetCallDestination?, snapshot: WidgetDestinationSnapshot?, at date: Date
     ) -> SelectedCallEntry {
-        let destination = configured.flatMap { selected in
-            snapshot?.destinations.first { $0.id == selected.id }
-        }
-        let currentCall = snapshot?.currentCall(for: destination, at: date)
-        return .init(date: date, destination: destination, currentCall: currentCall)
+        let selection = snapshot?.selection(for: configured, at: date)
+        return .init(date: date, destination: selection?.destination, currentCall: selection?.currentCall)
     }
 }
 

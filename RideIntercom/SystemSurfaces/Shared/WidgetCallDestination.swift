@@ -24,12 +24,13 @@ nonisolated struct WidgetDestinationSnapshot: Codable, Equatable {
     /// The App's automatic disconnect deadline. An undated projection cannot show active controls.
     var currentCallDeadline: Date?
 
-    func currentCall(for configured: WidgetCallDestination?, at date: Date = .now) -> CallLivePresentation? {
+    func selection(for configured: WidgetCallDestination?, at date: Date = .now)
+        -> (destination: WidgetCallDestination, currentCall: CallLivePresentation?)? {
         guard let configured,
-              destinations.contains(where: { $0.id == configured.id }),
-              currentDestinationID == configured.id,
-              let currentCallDeadline, date < currentCallDeadline else { return nil }
-        return currentCall
+              let destination = destinations.first(where: { $0.id == configured.id }) else { return nil }
+        guard currentDestinationID == destination.id,
+              let currentCallDeadline, date < currentCallDeadline else { return (destination, nil) }
+        return (destination, currentCall)
     }
 }
 
@@ -99,13 +100,13 @@ nonisolated enum CallControlState: Equatable, Sendable {
 
     init(configured: WidgetCallDestination?, snapshot: WidgetDestinationSnapshot?, at date: Date = .now) {
         guard let configured else { self = .unconfigured; return }
-        guard let current = snapshot?.destinations.first(where: { $0.id == configured.id }) else {
+        guard let selection = snapshot?.selection(for: configured, at: date) else {
             self = .unavailable; return
         }
-        if let call = snapshot?.currentCall(for: current, at: date) {
-            self = .active(current, status: call.status)
+        if let call = selection.currentCall {
+            self = .active(selection.destination, status: call.status)
         } else {
-            self = .ready(current)
+            self = .ready(selection.destination)
         }
     }
 }

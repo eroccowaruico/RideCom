@@ -200,6 +200,7 @@ struct WidgetDestinationTests {
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     let store = WidgetDestinationStore(fileURL: file)
     let configured = WidgetCallDestination(id: "scope|group|\(UUID())", name: "Ride", kind: .group)
+    let renamed = WidgetCallDestination(id: configured.id, name: "Morning ride", kind: .group)
     let other = WidgetCallDestination(id: "scope|group|\(UUID())", name: "Other", kind: .group)
     let call = CallLivePresentation(
       reference: .init(accountAccessID: UUID(), connectionGeneration: UUID(), groupID: UUID()),
@@ -207,15 +208,18 @@ struct WidgetDestinationTests {
     let deadline = Date().addingTimeInterval(600)
     try store.write(
       .init(
-        destinations: [configured, other], currentDestinationID: configured.id, currentCall: call,
+        destinations: [renamed, other], currentDestinationID: configured.id, currentCall: call,
         currentCallDeadline: deadline))
-    #expect(store.readSnapshot()?.currentCall(for: configured) == call)
-    #expect(store.readSnapshot()?.currentCall(for: other) == nil)
-    #expect(store.readSnapshot()?.currentCall(for: nil) == nil)
+    let selection = try #require(store.readSnapshot()?.selection(for: configured))
+    #expect(selection.destination == renamed)
+    #expect(selection.currentCall == call)
+    let otherSelection = try #require(store.readSnapshot()?.selection(for: other))
+    #expect(otherSelection.destination == other && otherSelection.currentCall == nil)
+    #expect(store.readSnapshot()?.selection(for: nil) == nil)
     try store.write(
       .init(destinations: [other], currentDestinationID: configured.id, currentCall: call,
             currentCallDeadline: deadline))
-    #expect(store.readSnapshot()?.currentCall(for: configured) == nil)
+    #expect(store.readSnapshot()?.selection(for: configured) == nil)
     let foreign = WidgetCallDestination(
       id: "other-account|group|\(UUID())", name: "Ride", kind: .group)
     try store.write(
@@ -223,7 +227,7 @@ struct WidgetDestinationTests {
         destinations: [configured, foreign], currentDestinationID: configured.id, currentCall: call,
         currentCallDeadline: deadline)
     )
-    #expect(store.readSnapshot()?.currentCall(for: foreign) == nil)
+    #expect(store.readSnapshot()?.selection(for: foreign)?.currentCall == nil)
 
     let oldFileSnapshot =
       #"{"version":1,"destinations":[{"id":"scope|group|old","name":"Ride","kind":"group"}],"#
@@ -235,7 +239,7 @@ struct WidgetDestinationTests {
     try Data(oldFileSnapshot.utf8).write(to: file)
     let old = WidgetCallDestination(id: "scope|group|old", name: "Ride", kind: .group)
     #expect(store.read() == [old])
-    #expect(store.readSnapshot()?.currentCall(for: old) == nil)
+    #expect(store.readSnapshot()?.selection(for: old)?.currentCall == nil)
   }
 
   @Test func anUnchangedSnapshotStopsPresentingTheCallAtItsDeadline() throws {
@@ -251,11 +255,11 @@ struct WidgetDestinationTests {
                           currentCallDeadline: deadline))
     let snapshot = try #require(store.readSnapshot())
     let before = deadline.addingTimeInterval(-1)
-    #expect(snapshot.currentCall(for: destination, at: before) == call)
+    #expect(snapshot.selection(for: destination, at: before)?.currentCall == call)
     #expect(
       CallControlState(configured: destination, snapshot: snapshot, at: before)
         == .active(destination, status: .inCall))
-    #expect(snapshot.currentCall(for: destination, at: deadline) == nil)
+    #expect(snapshot.selection(for: destination, at: deadline)?.currentCall == nil)
     #expect(CallControlState(configured: destination, snapshot: snapshot, at: deadline) == .ready(destination))
     #expect(store.read() == [destination])
   }
