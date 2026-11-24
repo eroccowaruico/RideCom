@@ -258,6 +258,8 @@ MacではIPv4ループバックを使った。両端でSDPを設定した後、D
 
 上流と既存のAppには変更を加えていない。試作とローカル証跡は `.validation/itms-90683/upstream/` に保存した。既存のSwift実装から本番の通話に使うには、接続・SDP・ICE・統計・終了の契約をアプリ側から扱う接続部と、生成手順が必要になる。SimulatorとiPhoneでの実行、本番SFUを使った通話、署名付きArchive・IPA、Apple側の処理は候補の受入で確認する。[採用と配布の条件](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#上流の無改変とカメラの不使用)
 
+続いて、通常frameworkのリンク情報を使わず、公式C++ターゲットを起点にリンク入力を得た。iPhone arm64、iOS SimulatorとmacOSのarm64とx86_64の計5構成で試作をリンクした。いずれもNinjaが出すビルドコマンドにカメラ撮影と通常frameworkの生成がなく、試作バイナリに撮影クラスへの外部参照はなかった。[リンク入力を確かめるコマンド](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#cの公式ターゲットに必要なリンク入力を確認する)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。

@@ -81,6 +81,20 @@ WEBRTC_BRANCH=branch-heads/7727 \
 scripts/BuildWebRTC/update-webrtc-binary.sh
 ```
 
+### C++の公式ターゲットに必要なリンク入力を確認する
+
+カメラを使わない候補では、上流の `//api:create_modular_peer_connection_factory` を使う。GNで生成済みの構成を1つ指定すると、次のコマンドがNinjaの依存関係からリンクに必要なパスを列挙する。
+
+```bash
+python3 scripts/BuildWebRTC/webrtc_modular_link_inputs.py \
+  "${WEBRTC_BUILD_ROOT:-../webrtc-build}/src/out/ios-arm64-device" \
+  --ninja "${DEPOT_TOOLS_DIR:-../depot_tools}/ninja"
+```
+
+出力の各行は、指定した構成のディレクトリを基準としたリンカー入力。アーカイブに含まれるオブジェクトと、単独でリンクするオブジェクトを二重に数えない。既知のカメラ依存や通常のObjective-C frameworkが対象に入る場合は、一覧を出力せずに失敗する。
+
+このコマンドは依存を読み取る。コンパイルや採用済みXCFrameworkの更新は行わない。候補を組み立てた後は、全構成でカメラ参照をバイナリから検査する。最終のArchive・IPAでは既存の送信前検査も通す。[試作の実行と検査](../../validation/history/配布ビルド採番とOrganizer認証調査.md#撮影を含まないwebrtcのcターゲットでdatachannelを試す)
+
 ## 失敗時の入口
 
 失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。
