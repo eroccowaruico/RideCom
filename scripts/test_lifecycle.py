@@ -9,11 +9,35 @@ import signal
 import subprocess
 import time
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict, overload
+
+IPHONE_DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
+
+
+class SimulatorDeviceType(TypedDict):
+    identifier: str
+
+
+class SimulatorRuntime(TypedDict):
+    name: str
+    identifier: str
+    version: str
+    isAvailable: bool
+    supportedDeviceTypes: list[SimulatorDeviceType]
+
+
+def latest_runtime(runtimes: Sequence[SimulatorRuntime], platform: str, *device_types: str) -> str:
+    required = set(device_types)
+    available = [runtime for runtime in runtimes
+                 if runtime['isAvailable'] and runtime['name'].startswith(platform)
+                 and required <= {device['identifier'] for device in runtime.get('supportedDeviceTypes', [])}]
+    if not available:
+        raise ValueError(f'No available {platform} Simulator runtime for the required device types')
+    return max(available, key=lambda runtime: tuple(map(int, runtime['version'].split('.'))))['identifier']
 
 
 class SimulatorDevice(TypedDict, total=False):

@@ -26,9 +26,11 @@ from scripts.BuildWebRTC.webrtc_provenance import verify_imported_checksum
 from scripts.crash_reports import CrashReports
 from scripts.simulator_audio import SimulatorAudioPin
 from scripts.test_lifecycle import (
+    IPHONE_DEVICE_TYPE,
     ProcessIdentity,
     SimulatorLease,
     exclusive_run,
+    latest_runtime,
     process_snapshot,
     simulator_resource_root,
     stop_process_tree,
@@ -618,7 +620,7 @@ def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
     lease = SimulatorLease(runner, simulator_resource_root() / 'reusable.json')
     audio_pin = None
     try:
-        device = os.environ.get('SIMULATOR_DEVICE_TYPE', 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro')
+        device = os.environ.get('SIMULATOR_DEVICE_TYPE', IPHONE_DEVICE_TYPE)
         sim = lease.prepare(runtime, device)
         if not sim:
             return
@@ -663,21 +665,6 @@ def run_iphone_tests(runner: Runner, runtime: str, iphone_tests: list[str],
                 lease.cleanup('simulator-final')
 
 
-class SimulatorRuntime(TypedDict):
-    name: str
-    identifier: str
-    version: str
-    isAvailable: bool
-
-
-def latest_runtime(runtimes: Sequence[SimulatorRuntime], platform: str) -> str:
-    available = [runtime for runtime in runtimes
-                 if runtime['isAvailable'] and runtime['name'].startswith(platform)]
-    if not available:
-        raise ValueError(f'No available {platform} Simulator runtime')
-    return max(available, key=lambda runtime: tuple(map(int, runtime['version'].split('.'))))['identifier']
-
-
 def run_watch_tests(runner: Runner, runtime: str, selectors: list[str], needs: Sequence[str] = ()) -> None:
     if any(runner.results.get(stage, {}).get('status') != 'passed' for stage in needs):
         raise RuntimeError('Watch tests require their prerequisites to pass first')
@@ -702,18 +689,26 @@ def run_simulator_tests(runner: Runner, mode: str, selectors: list[str]) -> None
                               needs=['swift-toolchain'], timeout=60):
                 return
             runtimes = json.loads((runner.out / 'simulator-runtimes.log').read_text())['runtimes']
+            watch_device = os.environ.get('SIMULATOR_WATCH_DEVICE_TYPE', WATCH_DEVICE_TYPE)
             if mode == 'watch-ui':
-                run_watch_tests(runner, latest_runtime(runtimes, 'watchOS'), selectors)
+                run_watch_tests(runner, latest_runtime(runtimes, 'watchOS', watch_device), selectors)
                 return
-            runtime = os.environ.get('SIMULATOR_RUNTIME') or latest_runtime(runtimes, 'iOS')
             if focused:
                 iphone_tests, recovery_tests, ipad_tests = ios_test_selection(selectors)
             else:
                 iphone_tests = ['RideIntercomUITests'] if mode == 'ios-ui' else []
                 recovery_tests, ipad_tests = [RECOVERY_TEST], IPAD_TESTS
+            use_iphone = not focused or bool(iphone_tests or recovery_tests)
+            ipad_device = os.environ.get('SIMULATOR_IPAD_DEVICE_TYPE', IPAD_DEVICE_TYPE)
+            requested_devices = []
+            if use_iphone:
+                requested_devices.append(os.environ.get('SIMULATOR_DEVICE_TYPE', IPHONE_DEVICE_TYPE))
+            if ipad_tests:
+                requested_devices.append(ipad_device)
+            runtime = os.environ.get('SIMULATOR_RUNTIME') or latest_runtime(runtimes, 'iOS', *requested_devices)
             needs = ['webrtc-artifact']
             build_stage = None
-            if not focused or iphone_tests or recovery_tests:
+            if use_iphone:
                 run_iphone_tests(runner, runtime, iphone_tests, recovery_tests, focused)
                 if not focused or iphone_tests:
                     build_stage = 'ios-tests'
@@ -725,7 +720,7 @@ def run_simulator_tests(runner: Runner, mode: str, selectors: list[str]) -> None
                 try:
                     if any(runner.results.get(stage, {}).get('status') != 'passed' for stage in needs):
                         raise RuntimeError('iPad tests require their prerequisites to pass first')
-                    sim = lease.prepare(runtime, os.environ.get('SIMULATOR_IPAD_DEVICE_TYPE', IPAD_DEVICE_TYPE))
+                    sim = lease.prepare(runtime, ipad_device)
                     if sim:
                         boot_simulator(runner, sim, 'ipad')
                         runner.xcode('ipad-tests', 'platform=iOS Simulator,id=' + sim, only=ipad_tests,
@@ -734,7 +729,7 @@ def run_simulator_tests(runner: Runner, mode: str, selectors: list[str]) -> None
                     if lease.acquired:
                         lease.cleanup('ipad-final')
             if not focused:
-                run_watch_tests(runner, latest_runtime(runtimes, 'watchOS'), [], ['ios-tests-acceptance'])
+                run_watch_tests(runner, latest_runtime(runtimes, 'watchOS', watch_device), [], ['ios-tests-acceptance'])
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         runner.record('simulator-availability', [], 'blocked', None, time.monotonic(), str(error))
 

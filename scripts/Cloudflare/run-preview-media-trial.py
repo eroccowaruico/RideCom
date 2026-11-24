@@ -17,7 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.test_lifecycle import (
+    IPHONE_DEVICE_TYPE,
     exclusive_run,
+    latest_runtime,
     simulator_devices,
     simulator_resource_root,
 )
@@ -40,11 +42,10 @@ def status(token: str) -> tuple[int, dict[str, int] | None]:
 
 def simulator_test(output: Path, bootstrap: str, require_turn: bool, wait_for_peer: bool) -> bool:
     runtimes = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j']))['runtimes']
-    runtime = max((row for row in runtimes if row['isAvailable'] and row['name'].startswith('iOS')),
-                  key=lambda row: tuple(map(int, row['version'].split('.'))))['identifier']
+    runtime = latest_runtime(runtimes, 'iOS', IPHONE_DEVICE_TYPE)
     name = 'RideIntercom Preview Media ' + uuid.uuid4().hex[:8]
     device = subprocess.check_output(
-        ['xcrun', 'simctl', 'create', name, 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro', runtime],
+        ['xcrun', 'simctl', 'create', name, IPHONE_DEVICE_TYPE, runtime],
         text=True, timeout=30).strip()
     log = output / 'xcodebuild.log'
     try:

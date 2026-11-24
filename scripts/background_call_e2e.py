@@ -11,8 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.simulator_audio import SimulatorAudioPin
 from scripts.test_lifecycle import (
+    IPHONE_DEVICE_TYPE,
     SimulatorLease,
     exclusive_run,
+    latest_runtime,
     simulator_resource_root,
 )
 from scripts.validate import ROOT, Runner, record_unchanged_inputs, snapshot
@@ -66,9 +68,9 @@ def main() -> int:
         audio_pin=None
         try:
             runner.run('runtimes',['xcrun','simctl','list','runtimes','-j'],timeout=60)
-            available=[r for r in json.loads((runner.out/'runtimes.log').read_text())['runtimes'] if r['isAvailable'] and r['name'].startswith('iOS')]
-            runtime=max(available,key=lambda r:tuple(map(int,r['version'].split('.'))))['identifier']
-            sim=lease.prepare(runtime,'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro')
+            runtimes = json.loads((runner.out / 'runtimes.log').read_text())['runtimes']
+            runtime = latest_runtime(runtimes, 'iOS', IPHONE_DEVICE_TYPE)
+            sim = lease.prepare(runtime, IPHONE_DEVICE_TYPE)
             if not sim: raise RuntimeError('No simulator lease')
             (runner.out/'simulator-id.txt').write_text(sim+'\n')
             runner.run('boot',['xcrun','simctl','boot',sim],timeout=120)

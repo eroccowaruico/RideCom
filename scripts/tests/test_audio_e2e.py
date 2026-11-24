@@ -164,16 +164,21 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             peer.pin.return_value = 'fixture-audio'
             peer.restore.side_effect = failure('synthetic command detail')
 
-            def run(stage: str, *_args: object, output: Path = out, **_options: object) -> bool:
+            def run(stage: str, command: list[str], *, output: Path = out, **_options: object) -> bool:
                 if stage == 'runtimes':
                     (output / 'runtimes.log').write_text(json.dumps({'runtimes': [
-                        {'name': 'iOS Fixture', 'version': '1.0', 'identifier': 'ios-fixture', 'isAvailable': True}
+                        {'name': 'iOS Fixture', 'version': '27.2', 'identifier': 'other-device', 'isAvailable': True,
+                         'supportedDeviceTypes': [{'identifier': 'some-other-device'}]},
+                        {'name': 'iOS Fixture', 'version': '27.2', 'identifier': 'ios-fixture', 'isAvailable': True,
+                         'supportedDeviceTypes': [{'identifier': audio.IPHONE_DEVICE_TYPE}]},
                     ]}))
                 elif stage == 'peer-create':
+                    self.assertEqual(command[-2:], [audio.IPHONE_DEVICE_TYPE, 'ios-fixture'])
                     (output / 'peer-create.log').write_text('peer-simulator\n')
                 return True
 
-            def prepare(lease: SimulatorLease, *_args: object, **_options: object) -> str:
+            def prepare(lease: SimulatorLease, runtime: str, device_type: str, **_options: object) -> str:
+                self.assertEqual((runtime, device_type), ('ios-fixture', audio.IPHONE_DEVICE_TYPE))
                 lease.acquired = True
                 return 'primary-simulator'
 

@@ -189,8 +189,13 @@ class ValidationTests(unittest.TestCase):
         from contextlib import nullcontext
         contact = 'RideIntercomTests/ContactReplyTests'
         ipad = self.module.IPAD_ONLY_TESTS[0]
-        runtime = {'isAvailable': True, 'name': 'iOS 27.2', 'version': '27.2', 'identifier': 'iOS-27-2'}
-        (self.runner.out / 'simulator-runtimes.log').write_text(json.dumps({'runtimes': [runtime]}))
+        runtimes = [
+            {'isAvailable': True, 'name': 'iOS 27.2', 'version': '27.2', 'identifier': 'iOS-27-2-phone-only',
+             'supportedDeviceTypes': [{'identifier': self.module.IPHONE_DEVICE_TYPE}]},
+            {'isAvailable': True, 'name': 'iOS 27.2', 'version': '27.2', 'identifier': 'iOS-27-2',
+             'supportedDeviceTypes': [{'identifier': self.module.IPAD_DEVICE_TYPE}]},
+        ]
+        (self.runner.out / 'simulator-runtimes.log').write_text(json.dumps({'runtimes': runtimes}))
         with patch.object(self.module, 'simulator_resource_root', return_value=self.runner.out), \
              patch.object(self.module, 'exclusive_run', return_value=nullcontext()), \
              patch.object(self.module, 'run_iphone_tests') as iphone, \
@@ -199,7 +204,7 @@ class ValidationTests(unittest.TestCase):
              patch.object(self.runner, 'run', return_value=True), \
              patch.object(self.runner, 'xcode') as xcode:
             self.module.run_simulator_tests(self.runner, 'ios', [contact])
-            iphone.assert_called_once_with(self.runner, 'iOS-27-2', [contact], [], True)
+            iphone.assert_called_once_with(self.runner, 'iOS-27-2-phone-only', [contact], [], True)
             lease.assert_not_called()
             iphone.reset_mock()
             self.runner.results['webrtc-artifact'] = {'status': 'passed'}
@@ -207,6 +212,7 @@ class ValidationTests(unittest.TestCase):
             self.module.run_simulator_tests(self.runner, 'ios-ui', [ipad])
             iphone.assert_not_called()
             lease.assert_called_once_with(self.runner, self.runner.out / 'reusable-ipad.json', stage='ipad')
+            lease.return_value.prepare.assert_called_once_with('iOS-27-2', self.module.IPAD_DEVICE_TYPE)
             boot.assert_called_once_with(self.runner, 'test-ipad', 'ipad')
             xcode.assert_called_once_with('ipad-tests', 'platform=iOS Simulator,id=test-ipad', only=[ipad],
                                          needs=['webrtc-artifact', 'ipad-ready'], reuse_build=None,
@@ -220,8 +226,12 @@ class ValidationTests(unittest.TestCase):
             'name': 'Unrelated Fixture', 'udid': 'unrelated', 'state': 'Booted',
         }
         runtimes = {'runtimes': [
-            {'isAvailable': True, 'name': 'iOS', 'version': '27.2', 'identifier': 'fixture-ios'},
-            {'isAvailable': True, 'name': 'watchOS', 'version': '27.2', 'identifier': 'fixture-watchos'},
+            {'isAvailable': True, 'name': 'iOS', 'version': '27.2', 'identifier': 'fixture-ios-phone-only',
+             'supportedDeviceTypes': [{'identifier': 'fixture-phone'}]},
+            {'isAvailable': True, 'name': 'iOS', 'version': '27.2', 'identifier': 'fixture-ios',
+             'supportedDeviceTypes': [{'identifier': 'fixture-phone'}, {'identifier': 'fixture-ipad'}]},
+            {'isAvailable': True, 'name': 'watchOS', 'version': '27.2', 'identifier': 'fixture-watchos',
+             'supportedDeviceTypes': [{'identifier': 'fixture-watch'}]},
         ]}
         original_run = self.runner.run
 
@@ -254,7 +264,7 @@ class ValidationTests(unittest.TestCase):
             patch.object(self.runner, 'run', side_effect=run_simctl),
             patch.object(self.runner, 'xcode', side_effect=xcode) as xcode_runner,
             patch.object(self.module, 'SimulatorAudioPin') as audio,
-            patch.dict(os.environ, {'SIMULATOR_RUNTIME': 'fixture-ios', 'SIMULATOR_DEVICE_TYPE': 'fixture-phone',
+            patch.dict(os.environ, {'SIMULATOR_RUNTIME': '', 'SIMULATOR_DEVICE_TYPE': 'fixture-phone',
                                     'SIMULATOR_IPAD_DEVICE_TYPE': 'fixture-ipad',
                                     'SIMULATOR_WATCH_DEVICE_TYPE': 'fixture-watch'}),
         ):
@@ -265,6 +275,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in xcode_runner.call_args_list],
                          ['ios-tests', 'ios-recovery', 'ipad-tests', 'watch-tests'])
         self.assertEqual([device['state'] for device in devices], ['Shutdown'] * 3)
+        self.assertEqual([device['runtime'] for device in devices], ['fixture-ios', 'fixture-ios', 'fixture-watchos'])
         for index, stage in enumerate(('simulator', 'ipad', 'watch')):
             self.assertEqual((self.runner.out / f'{stage}-create.log').read_text().strip(), f'fixture-{index + 1}')
             inventory = json.loads((self.runner.out / f'{stage}-inventory.json').read_text())
@@ -274,7 +285,8 @@ class ValidationTests(unittest.TestCase):
         from contextlib import nullcontext
 
         selector = 'RideIntercomWatchUITests/WatchLaunchUITests/testCallScreenPutsEndAwayFromTalkAndConfirmsIt'
-        runtime = {'isAvailable': True, 'name': 'watchOS 27.2', 'version': '27.2', 'identifier': 'Watch-27-2'}
+        runtime = {'isAvailable': True, 'name': 'watchOS 27.2', 'version': '27.2', 'identifier': 'Watch-27-2',
+                   'supportedDeviceTypes': [{'identifier': self.module.WATCH_DEVICE_TYPE}]}
         (self.runner.out / 'simulator-runtimes.log').write_text(json.dumps({'runtimes': [runtime]}))
         with patch.object(self.module, 'simulator_resource_root', return_value=self.runner.out), \
              patch.object(self.module, 'exclusive_run', return_value=nullcontext()), \
@@ -707,7 +719,8 @@ class ValidationTests(unittest.TestCase):
         from scripts import background_call_e2e, validate
 
         (self.runner.out / 'runtimes.log').write_text(json.dumps({'runtimes': [
-            {'isAvailable': True, 'name': 'iOS fixture', 'version': '27.0', 'identifier': 'fixture-runtime'}
+            {'isAvailable': True, 'name': 'iOS fixture', 'version': '27.0', 'identifier': 'fixture-runtime',
+             'supportedDeviceTypes': [{'identifier': validate.IPHONE_DEVICE_TYPE}]}
         ]}))
         before = {'RideIntercom/App.swift': {'sha256': 'before'}}
         after = {'RideIntercom/App.swift': {'sha256': 'after'}}

@@ -29,8 +29,10 @@ from scripts.audio_e2e_matrix import (
 )
 from scripts.simulator_audio import SimulatorAudioPin
 from scripts.test_lifecycle import (
+    IPHONE_DEVICE_TYPE,
     SimulatorLease,
     exclusive_run,
+    latest_runtime,
     process_snapshot,
     simulator_resource_root,
 )
@@ -342,9 +344,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         else:
             command('runtimes', ['xcrun', 'simctl', 'list', 'runtimes', '-j'], 60)
             runtimes = json.loads((out / 'runtimes.log').read_text())['runtimes']
-            available = [r for r in runtimes if r['isAvailable'] and r['name'].startswith('iOS')]
-            runtime = max(available, key=lambda r: tuple(map(int, r['version'].split('.'))))['identifier']
-            device_type = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
+            device_type = IPHONE_DEVICE_TYPE
+            runtime = latest_runtime(runtimes, 'iOS', device_type)
             simulator = lease.prepare(runtime, device_type, reusable=not args.ephemeral)
         # Retain recovery of hosts recorded by the other (ephemeral/reusable)
         # mode without deleting the device that prepare just adopted.

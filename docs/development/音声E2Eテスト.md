@@ -6,6 +6,8 @@ MacとiPhone Simulator、またはiPhone Simulator 2台で別々のアプリプ�
 
 Xcode、iOS Simulator runtime、プロジェクトの署名環境を[開発環境](開発環境.md)に従って準備する。初回のmacOS側のOS権限承認は開発環境の設定として済ませる。Simulatorのマイク権限は実行スクリプトで設定する。
 
+ローカル音声、背景通話、固定Previewの音声試験は、Xcodeが利用可能と報告したiOSランタイムから、iPhone 17 Proをサポートする最新版を選ぶ。2台での音声試験は同じランタイムで揃える。
+
 ```sh
 python3 scripts/audio_e2e.py
 python3 scripts/audio_e2e.py --matrix full
