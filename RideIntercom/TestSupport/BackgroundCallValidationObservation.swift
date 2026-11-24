@@ -14,6 +14,7 @@ import SwiftUI
 /// Persists bounded snapshots on the existing App delivery, without PCM or participant identity.
 @MainActor enum BackgroundCallValidationObservation {
     private static var didPauseForResumeFixture = false
+    private static var didAttemptStartupCall = false
     private static let processInstance = UUID().uuidString
     private static var records: [[String: Any]] = []
     private static var lastRecordedAt: [String: TimeInterval] = [:]
@@ -42,6 +43,38 @@ import SwiftUI
         environment["RIDEINTERCOM_BACKGROUND_OBSERVATION"] == "1"
             && storageNamespace?.hasPrefix("RideIntercom.Validation.") == true
     }
+
+    static func startMutedGroupIfRequested(in owner: AppCallOwner) {
+        let environment = ProcessInfo.processInfo.environment
+        guard isEnabled, environment["RIDEINTERCOM_LOCAL_TESTING"] == "1", !didAttemptStartupCall,
+              let invitation = environment["RIDEINTERCOM_BACKGROUND_GROUP_INVITATION"] else { return }
+        didAttemptStartupCall = true
+        let result = startMutedGroup(invitation, model: owner.viewModel)
+        if result == "startedMuted" { owner.callPresentationID = UUID() }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("background-call-startup.json")
+        try? write([["result": result, "pid": ProcessInfo.processInfo.processIdentifier]], to: url)
+    }
+
+    private static func startMutedGroup(_ invitation: String, model: IntercomViewModel?) -> String {
+        guard let url = URL(string: invitation), let token = try? GroupInviteTokenCodec.decodeJoinURL(url),
+              token.recipientMemberID == nil, token.accountPair == nil else { return "invalidGroupInvitation" }
+        guard let model, model.canStartCalls, model.activeGroupID == nil else {
+            return "accountOrCallUnavailable"
+        }
+        let previousMute = model.isMuted
+        guard model.setCallMuted(true, for: model.currentCallReference) else { return "muteUnavailable" }
+        do {
+            try model.acceptInviteURL(url)
+        } catch {
+            model.setCallMuted(previousMute, for: model.currentCallReference)
+            return "invitationRejected"
+        }
+        guard model.activeGroupID == token.groupID, model.isMuted else {
+            return "callNotStarted"
+        }
+        return "startedMuted"
+    }
+
     static func write(_ records: [[String: Any]], to url: URL) throws {
         try JSONSerialization.data(withJSONObject: records, options: [.sortedKeys])
             .write(to: url, options: CallStorageProtection.writingOptions)

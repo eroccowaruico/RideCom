@@ -365,7 +365,7 @@ MacとSimulatorは同じMacのCoreAudio serviceを共有する。2つのhostのn
 
 受話端末を一度準備してマイクOFFでロックする試験には、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を送話側だけに使う。通常の音声E2Eと同じ隔離済みホストを用意する。送話側で`AUDIO_E2E_ROLE=b`、`AUDIO_E2E_TRANSPORT=local`、`AUDIO_E2E_STANDALONE_RECEIVER=1`を指定する。`AUDIO_E2E_RUN`には新しいUUIDを設定し、発話6〜20秒のsmokeシナリオを1件選ぶ。受話端末は既存の[実機用検証App](自動検証.md#ios実機の準備とロック中の検証を分ける)を使う。
 
-送話側のログで`AUDIO_E2E_STANDALONE_INVITE_READY`が出たら、送話側のAppのdata containerで`tmp/RideIntercom.AudioE2E.<実行ID>.b/receiver-invitation.url`を読み、受話側で通常の招待として開く。試験用の招待リンクは操作時だけ渡し、ログ・結果の添付・Gitに残さない。利用者は必要なOS許可とリンクを開く確認を済ませ、通話画面でマイクOFFにしてロックする。
+送話側のログで`AUDIO_E2E_STANDALONE_INVITE_READY`が出たら、送話側のAppのdata containerで`tmp/RideIntercom.AudioE2E.<実行ID>.b/receiver-invitation.url`を読む。試験用の招待リンクは受話側の起動時だけ渡す。[試験用グループの自動開始](自動検証.md#試験用グループをマイクoffで自動開始する)で、受話側のグループ選択、通話開始、マイクOFFを自動化する。招待リンクはログ・結果の添付・Gitに残さない。
 
 受話端末の背景・単独待機・マイクOFF・受信0の継続を確認してから、同じ送話側フォルダに空の`join`ファイルを作る。送話側は合図を最大10分待ち、近距離の認証とメディア開始後に試験音声を送る。送話側の結果には発話を確認した時刻と符号化packet数だけを残す。受話側の記録で、同じ通話の識別子・期限、認証、受信と発話区間の有声出力を照合する。実機はロック中の観測を確認する。Simulatorでの手順確認では、同じ通常画面を既存の`testStandardMutedWaitingKeepsAudioInBackground`で操作し、UIテスト側の`RIDEINTERCOM_WAIT_FOR_AUDIO_E2E_INVITATION=1`で外部の招待を待つ。
 

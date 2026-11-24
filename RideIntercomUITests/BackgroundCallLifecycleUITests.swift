@@ -309,4 +309,28 @@ private extension BackgroundCallLifecycleUITests {
     }
 }
 #endif
+
+extension BackgroundCallLifecycleUITests {
+    @MainActor
+    @objc func testValidationLaunchStartsInvitedGroupWithMicrophoneMuted() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        let suffix = UUID().uuidString.prefix(8)
+        let groupName = "Muted waiting " + suffix
+        let invitation = try InvitationURLFixture.make(inviter: "muted-waiting-" + suffix, name: groupName)
+        app.launchEnvironment = [
+            "RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": "standard", "RIDEINTERCOM_BACKGROUND_OBSERVATION": "1",
+            "RIDEINTERCOM_BACKGROUND_MUTED": "1", "RIDEINTERCOM_BACKGROUND_GROUP_INVITATION": invitation.absoluteString
+        ]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["standardEndCallButton"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts[groupName].firstMatch.exists)
+        let mute = app.buttons["standardMuteButton"].firstMatch
+        XCTAssertTrue(mute.waitForExistence(timeout: 5))
+        XCTAssertEqual(mute.value as? String, "Muted")
+    }
+}
 #endif

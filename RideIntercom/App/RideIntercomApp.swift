@@ -62,6 +62,9 @@ struct RideIntercomApp: App {
         return WindowGroup {
             ContentView(owner: callOwner)
                 .environment(\.callLiveActivityPresenter, callOwner.liveActivities)
+                #if DEBUG && RIDEINTERCOM_VALIDATION
+                .task { BackgroundCallValidationObservation.startMutedGroupIfRequested(in: callOwner) }
+                #endif
                     .onChange(of: scenePhase, initial: true) { _, phase in
                         callOwner.systemSurfaceIsForeground = phase == .active
                         if phase != .inactive {
