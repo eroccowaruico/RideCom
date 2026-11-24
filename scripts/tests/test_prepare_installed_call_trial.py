@@ -88,6 +88,7 @@ class InstalledCallTrialDeviceTests(unittest.TestCase):
         report, status = installed_trial.check_device(self.device)
         self.assertEqual(report, {
             'app': 'installed', 'app_build': '2440', 'runner': 'installed', 'lock': 'locked', 'process': 'running',
+            'next_step': 'try_running_app',
         })
         self.assertEqual(status, 0)
         self.assertEqual(run.call_count, 3)
@@ -106,6 +107,7 @@ class InstalledCallTrialDeviceTests(unittest.TestCase):
         report, status = installed_trial.check_device(self.device)
         self.assertEqual(report, {
             'app': 'installed', 'app_build': '2440', 'runner': 'missing', 'lock': 'locked', 'process': 'absent',
+            'next_step': 'unlock_for_runner_and_launch',
         })
         self.assertEqual(status, 1)
 
@@ -118,6 +120,7 @@ class InstalledCallTrialDeviceTests(unittest.TestCase):
         report, status = installed_trial.check_device(self.device)
         self.assertEqual(report, {
             'app': 'unknown', 'app_build': None, 'runner': 'unknown', 'lock': 'locked', 'process': 'absent',
+            'next_step': 'unknown',
         })
         self.assertEqual(status, 2)
 
@@ -129,7 +132,50 @@ class InstalledCallTrialDeviceTests(unittest.TestCase):
         ]
         report, status = installed_trial.check_device(self.device)
         self.assertEqual(report['process'], 'unknown')
+        self.assertEqual(report['next_step'], 'unknown')
         self.assertEqual(status, 2)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_installed_app_without_process_needs_unlock_even_with_runner(self, run: Mock) -> None:
+        for locked, next_step in [(True, 'unlock_for_launch'), (False, 'try_launch')]:
+            with self.subTest(locked=locked):
+                run.side_effect = [
+                    self.response({'apps': self.apps}), self.response({'passcodeRequired': locked}),
+                    self.response({'runningProcesses': []}),
+                ]
+                report, status = installed_trial.check_device(self.device)
+                self.assertEqual(report['next_step'], next_step)
+                self.assertEqual(status, 0)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_running_app_can_be_tried_without_installing_a_runner_while_locked(self, run: Mock) -> None:
+        run.side_effect = [
+            self.response({'apps': self.apps[:1]}), self.response({'passcodeRequired': True}),
+            self.response({'runningProcesses': [{}]}),
+        ]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report['next_step'], 'try_running_app')
+        self.assertEqual(status, 1)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_missing_testflight_app_is_not_treated_as_launchable(self, run: Mock) -> None:
+        run.side_effect = [
+            self.response({'apps': self.apps[1:]}), self.response({'passcodeRequired': False}),
+            self.response({'runningProcesses': []}),
+        ]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report['next_step'], 'app_missing')
+        self.assertEqual(status, 1)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_missing_runner_can_be_prepared_when_unlocked(self, run: Mock) -> None:
+        run.side_effect = [
+            self.response({'apps': self.apps[:1]}), self.response({'passcodeRequired': False}),
+            self.response({'runningProcesses': []}),
+        ]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report['next_step'], 'install_runner_and_launch')
+        self.assertEqual(status, 1)
 
     @patch('scripts.prepare_installed_call_trial.subprocess.run')
     def test_device_text_cannot_enter_the_report(self, run: Mock) -> None:
@@ -141,5 +187,6 @@ class InstalledCallTrialDeviceTests(unittest.TestCase):
         report, status = installed_trial.check_device(self.device)
         self.assertEqual(report, {
             'app': 'installed', 'app_build': None, 'runner': 'installed', 'lock': 'unknown', 'process': 'unknown',
+            'next_step': 'unknown',
         })
         self.assertEqual(status, 2)

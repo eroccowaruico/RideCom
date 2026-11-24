@@ -54,7 +54,18 @@ def check_device(device: str) -> tuple[dict[str, str | None], int]:
     if isinstance(processes, list) and all(isinstance(process, dict) for process in processes):
         report['process'] = 'running' if processes else 'absent'
     if 'unknown' in report.values():
+        report['next_step'] = 'unknown'
         return report, 2
+    if report['app'] == 'missing':
+        report['next_step'] = 'app_missing'
+    elif report['process'] == 'running':
+        report['next_step'] = 'try_running_app'
+    elif report['runner'] == 'missing':
+        report['next_step'] = (
+            'unlock_for_runner_and_launch' if report['lock'] == 'locked' else 'install_runner_and_launch'
+        )
+    else:
+        report['next_step'] = 'unlock_for_launch' if report['lock'] == 'locked' else 'try_launch'
     return report, 1 if 'missing' in report.values() else 0
 
 
