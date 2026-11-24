@@ -161,6 +161,42 @@ struct CommandSchedulingTests {
         #expect(rtc.localMuteValues == [false, false])
         #expect(adapter.pendingCommandCount == 0)
     }
+
+    @Test func changingRoutesRestartsTheRequestedMediaAndDropsAudioDuringTheTransition() async throws {
+        let current = FakeRTCCallSession()
+        let replacement = FakeRTCCallSession()
+        let starting = ManualAsyncGate()
+        replacement.startMediaGate = starting
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, routes, _ in
+            routes == [.webRTC] ? replacement : current
+        })
+        defer { adapter.disconnect() }
+        let sink = adapter.makeAudioPacketSink(whileSourceIsActive: { true })
+        func send(_ sequence: UInt64) {
+            sink(.init(sequenceNumber: sequence, codec: .pcm16, payload: Data([0, 0])))
+        }
+
+        adapter.connect(group: IntercomSeedData.recentGroups[0])
+        adapter.startMedia()
+        await AppTestSupport.waitUntil { current.operations.contains("startMedia") }
+        try #require(current.operations.contains("startMedia"))
+        send(1)
+        await AppTestSupport.waitUntil { current.sentAudioSequences == [1] }
+        try #require(current.sentAudioSequences == [1])
+
+        adapter.setEnabledRoutes([.webRTC])
+        await AppTestSupport.waitUntil { replacement.operations.contains("startConnection") }
+        send(2)
+        // This command runs after the replacement RTC completes startMedia.
+        adapter.setAudioPolicy(.init(preferredSendFormat: .init(sampleRate: 24_000), preferredCodecs: [.pcm16]))
+        await starting.release()
+        await AppTestSupport.waitUntil { replacement.operations.contains("audioPolicy") }
+        try #require(replacement.operations == ["prepare", "startConnection", "startMedia", "audioPolicy"])
+        send(3)
+        await AppTestSupport.waitUntil { replacement.sentAudioSequences.contains(3) }
+        #expect(current.sentAudioSequences == [1])
+        #expect(replacement.sentAudioSequences == [3])
+    }
     @Test func overflowReportsOnceAndStopsBeforeAcceptingReconnect() async {
         let rtc = FakeRTCCallSession(); let gate = ManualAsyncGate(); rtc.prepareGate = gate
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
