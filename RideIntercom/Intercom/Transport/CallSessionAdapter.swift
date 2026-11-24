@@ -100,10 +100,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
     }
 
     func disconnect() {
-        connectionRequest = nil
-        requestedMediaStart = nil
         activeRouteDebugTypeName = "RTC RouteManager"
-        invalidateEvents()
+        resetConnection(to: nil)
         enqueue(.disconnect)
     }
 
@@ -169,8 +167,7 @@ extension RideIntercomCallSessionAdapter {
         guard commands.append(command, generation: eventGeneration) else {
             commandQueueFailed = true
             needsConfigurationRecovery = true
-            connectionRequest = nil; requestedMediaStart = nil
-            invalidateEvents()
+            resetConnection(to: nil)
             commands.removeAll()
             _ = commands.append(.disconnect, generation: eventGeneration)
             onEvent?(.commandQueueFailed)
@@ -266,14 +263,18 @@ extension RideIntercomCallSessionAdapter {
         audioNotificationTask?.cancel(); audioNotificationTask = nil
     }
 
+    private func resetConnection(to request: RTC.CallStartRequest?) {
+        connectionRequest = request
+        requestedMediaStart = nil
+        invalidateEvents()
+    }
+
     private func prepareConnection(group: IntercomGroup) {
         guard !commandQueueFailed else { onEvent?(.commandQueueFailed); return }
         let request = Self.makeRTCRequest(
             from: group, memberID: memberID, routes: enabledRoutes, audioPolicy: audioPolicy
         )
-        connectionRequest = request
-        requestedMediaStart = nil
-        invalidateEvents()
+        resetConnection(to: request)
         if needsConfigurationRecovery {
             needsConfigurationRecovery = false
             if ownsRTCSession {

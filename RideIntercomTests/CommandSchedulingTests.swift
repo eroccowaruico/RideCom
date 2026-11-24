@@ -41,7 +41,7 @@ struct CommandSchedulingTests {
         #expect(rtc.audioPolicies.map(\.preferredSendFormat.sampleRate) == [24_000])
         adapter.disconnect()
     }
-    @Test func reconnectAfterOverflowAppliesSettingsRequestedDuringFailure() async {
+    @Test func reconnectAfterOverflowAppliesSettingsRequestedDuringFailure() async throws {
         let old = FakeRTCCallSession(); let next = FakeRTCCallSession()
         let gate = ManualAsyncGate(); old.prepareGate = gate
         var routes: [Set<RTC.RouteKind>] = []
@@ -49,19 +49,28 @@ struct CommandSchedulingTests {
             routes.append(value)
             return routes.count == 1 ? old : next
         })
-        adapter.connect(group: IntercomSeedData.recentGroups[0])
+        defer { adapter.disconnect() }
+        let group = IntercomSeedData.recentGroups[0]
+        var reconnectRejected = false
+        adapter.onEvent = { if case .commandQueueFailed = $0 { reconnectRejected = true } }
+        adapter.connect(group: group)
         await gate.waitForEntry()
         for _ in 0..<65 { adapter.sendApplicationData(.init(namespace: "ordered", payload: Data([1]))) }
         adapter.setLocalMute(true)
         adapter.setEnabledRoutes([.webRTC])
         await gate.release()
-        await old.waitForOperation("stopConnection")
-        adapter.connect(group: IntercomSeedData.recentGroups[0])
+        // Recording the stop call does not mean the adapter has resumed after awaiting it.
+        await AppTestSupport.waitUntil {
+            reconnectRejected = false
+            adapter.connect(group: group)
+            return !reconnectRejected
+        }
+        try #require(!reconnectRejected)
         adapter.startMedia()
         await AppTestSupport.waitUntil { next.operations.contains("startMedia") }
+        #expect(next.operations.contains("startMedia"))
         #expect(routes.last == [.webRTC])
         #expect(next.localMuteValues.last == true)
-        adapter.disconnect()
     }
 
     @Test func muteChangesDoNotAccumulateNonCooperativeAudioTasks() async {
