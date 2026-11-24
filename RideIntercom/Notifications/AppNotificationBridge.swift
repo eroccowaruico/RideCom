@@ -62,11 +62,7 @@ final class AppNotificationBridge: NSObject, UNUserNotificationCenterDelegate {
         return await presentationOptions(for: tap)
     }
     func groupPresentationOptions(for tap: GroupInvitationTap) -> UNNotificationPresentationOptions {
-        guard let owner, let model = owner.viewModel, model.accountSession === owner.account,
-            model.hasCurrentAccountAccess,
-            let access = try? model.internetSettingsStore.notificationAccess(
-                memberID: model.localMemberIdentity.memberID),
-              access.principal.userID == tap.recipientID else { return [] }
+        guard let model = owner?.groupInvitationRecipient(for: tap) else { return [] }
         model.requestGroupDeliverySync(.notification)
         return [.list]
     }
