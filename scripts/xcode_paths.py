@@ -5,10 +5,30 @@ from __future__ import annotations
 import argparse
 import json
 import plistlib
+import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+
+def xcode_test_result(log: Path, build_dir: Path) -> Path:
+    """Resolve the result that this invocation wrote to its native test logs."""
+    results = re.findall(r'^Test session results, code coverage, and logs:\n[ \t]+([^\n]+\.xcresult)[ \t]*$',
+                         log.read_text(errors='replace'), re.MULTILINE)
+    if len(results) != 1:
+        raise ValueError('Xcode did not report one test result bundle')
+    path = Path(results[0])
+    if not path.is_absolute() or path.is_symlink() or not path.is_dir():
+        raise ValueError('The reported Xcode result bundle is outside the standard test logs or missing')
+    # A generated xctestrun can use a different project folder under the same
+    # DerivedData root than the original build used.
+    result = path.resolve()
+    derived_data = build_dir.parent.parent.parent.resolve()
+    relative = result.relative_to(derived_data)
+    if len(relative.parts) != 4 or relative.parts[1:3] != ('Logs', 'Test'):
+        raise ValueError('The reported Xcode result bundle is outside the standard test logs or missing')
+    return result
 
 
 def scheme_configuration(root: Path | str, scheme: str, action: str = 'TestAction') -> str:

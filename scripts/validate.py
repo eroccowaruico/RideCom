@@ -38,6 +38,7 @@ from scripts.xcode_paths import (
     scheme_test_plan,
     select_test_run,
     xcode_build_settings,
+    xcode_test_result,
 )
 
 PACKAGE_PATHS = {
@@ -392,8 +393,7 @@ class Runner:
 
     def xcode(self, name: str, destination: str, only: str | Sequence[str] | None = None,
               needs: Sequence[str] = (), skip: str | Sequence[str] | None = None, reuse_build: str | None = None,
-              scheme: str = 'RideIntercom', timeout: float | None = None, verify_selection: bool = False) -> None:
-        bundle = self.out / f'{name}.xcresult'
+              scheme: str = 'RideIntercom', timeout: float | None = None, verify_selection: bool = False) -> Path | None:
         settings_stage = name + '-build-settings'
         started = time.monotonic()
         settings, test_run, configuration, namespace, plan_name = None, None, '', '', None
@@ -435,7 +435,7 @@ class Runner:
                        '-scheme', scheme, '-testPlan', plan_name, '-configuration', configuration]
         else:
             command = ['xcodebuild', 'test-without-building', '-xctestrun', str(test_run or '')]
-        command += ['-destination', destination, '-parallel-testing-enabled', 'NO', '-resultBundlePath', str(bundle)]
+        command += ['-destination', destination, '-parallel-testing-enabled', 'NO']
         selectors = [only] if isinstance(only, str) else list(only or [])
         for identifier in selectors:
             command.append(f'-only-testing:{identifier}')
@@ -449,7 +449,15 @@ class Runner:
         if settings and settings['PLATFORM_NAME'] == 'macosx':
             test_env = os.environ.copy()
             test_env.setdefault('TEST_RUNNER_PATH', test_env.get('PATH', os.defpath) + ':__CURRENT_VALUE__')
-        self.run(name, command, needs=[preflight], timeout=timeout, env=test_env)
+        completed = self.run(name, command, needs=[preflight], timeout=timeout, env=test_env)
+        started = time.monotonic()
+        try:
+            if not completed or settings is None:
+                raise ValueError('Xcode tests did not complete successfully')
+            bundle = xcode_test_result(self.out / f'{name}.log', Path(settings['BUILD_DIR']))
+        except (OSError, ValueError):
+            self.record(name + '-acceptance', [], 'failed', 1, started, 'requires a successful run and its native xcresult')
+            return None
         summary_name = name + '-summary'
         self.run(summary_name, ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle)], needs=[name], timeout=60)
         started = time.monotonic()
@@ -462,6 +470,7 @@ class Runner:
                     started, 'requires nonzero tests, no failures/skips/runtime warnings, and a readable xcresult')
         if verify_selection:
             self.check_test_selection(name, bundle, selectors)
+        return bundle
 
     def check_test_selection(self, name: str, bundle: Path, selectors: list[str]) -> None:
         listing = name + '-tests'

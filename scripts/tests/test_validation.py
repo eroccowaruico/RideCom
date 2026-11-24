@@ -499,6 +499,11 @@ class ValidationTests(unittest.TestCase):
                 code = 'print(' + repr(json.dumps({'totalTestCount': 1, 'passedTests': 1})) + ')'
             else:
                 code = 'from pathlib import Path; Path(' + repr(str(marker)) + ').touch()'
+                if fault != 'missing-result':
+                    bundle = products.parent.parent.parent / 'Xcode Test Run' / 'Logs' / 'Test' / f'Test {name}.xcresult'
+                    bundle.mkdir(parents=True, exist_ok=True)
+                    message = 'Test session results, code coverage, and logs:\n\t' + str(bundle)
+                    code += '; print(' + repr(message) + ')'
                 if expected_runner_path is not None:
                     code = ('import os; assert os.environ["TEST_RUNNER_PATH"] == '
                             + repr(expected_runner_path) + '; ' + code)
@@ -513,11 +518,20 @@ class ValidationTests(unittest.TestCase):
     def test_macos_test_runner_uses_cli_path_with_xcode_fallback(self) -> None:
         selected_tools = '/fixture-node/bin:/usr/bin:/bin'
         with patch.dict(os.environ, {'PATH': selected_tools}, clear=True):
-            _, marker = self.xcode_fixture('macos-tests', 'platform=macOS',
-                                          expected_runner_path=selected_tools + ':__CURRENT_VALUE__')
+            commands, marker = self.xcode_fixture('macos-tests', 'platform=macOS',
+                                                 expected_runner_path=selected_tools + ':__CURRENT_VALUE__')
             self.assertNotIn('TEST_RUNNER_PATH', os.environ)
         self.assertTrue(marker.exists())
+        self.assertNotIn('-resultBundlePath', commands['macos-tests'])
+        self.assertEqual(Path(commands['macos-tests-summary'][-1]).parent,
+                         Path(self.temporary.name).resolve() / 'Xcode Test Run' / 'Logs' / 'Test')
         self.assertEqual(self.runner.results['macos-tests-acceptance']['status'], 'passed')
+
+    def test_successful_xcode_without_a_result_cannot_claim_acceptance(self) -> None:
+        commands, _ = self.xcode_fixture('macos-tests', 'platform=macOS', fault='missing-result')
+        self.assertNotIn('macos-tests-summary', commands)
+        self.assertEqual(self.runner.results['macos-tests']['status'], 'passed')
+        self.assertEqual(self.runner.results['macos-tests-acceptance']['status'], 'failed')
 
     def test_watch_scheme_uses_selected_host_and_watchsimulator_run(self) -> None:
         commands, marker = self.xcode_fixture('watch-tests', 'platform=watchOS Simulator,id=owned',
@@ -802,13 +816,13 @@ class ValidationTests(unittest.TestCase):
              patch.object(validate_storekit, 'exclusive_run', return_value=nullcontext()) as lease, \
              patch.object(validate_storekit, 'simulator_resource_root', return_value=Path(self.temporary.name) / 'resources', create=True), \
              patch.object(validate_storekit, 'record_selection_coverage') as coverage, \
-             patch.object(self.runner, 'xcode') as run, patch.dict(os.environ):
+             patch.object(self.runner, 'xcode', return_value=self.runner.out / 'native.xcresult') as run, patch.dict(os.environ):
             self.assertEqual(validate_storekit.main(), 0)
         self.assertEqual(run.call_args.kwargs['scheme'], 'RideIntercom-StoreKitTests')
         self.assertNotIn('derived_data', run.call_args.kwargs)
         self.assertNotIn('extra_conditions', run.call_args.kwargs)
         self.assertEqual(lease.call_args.args[0], Path(self.temporary.name) / 'resources/run.lock')
-        coverage.assert_called_once_with(self.runner, self.runner.out / 'storekit.xcresult')
+        coverage.assert_called_once_with(self.runner, self.runner.out / 'native.xcresult')
 
     def test_storekit_selection_rejects_missing_real_purchase_cases_even_when_other_suites_run(self) -> None:
         from scripts import validate_storekit

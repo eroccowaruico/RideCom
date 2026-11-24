@@ -75,9 +75,10 @@ def run(output: Path) -> int:
     runner = Runner(output)
     before = manifest()
     (runner.out / 'source-before.json').write_text(json.dumps(before, indent=2) + '\n')
-    runner.xcode('storekit', 'platform=macOS,arch=arm64', scheme='RideIntercom-StoreKitTests',
-                 only=['RideIntercomTests/' + name for name in SUITES])
-    record_selection_coverage(runner, runner.out / 'storekit.xcresult')
+    bundle = runner.xcode('storekit', 'platform=macOS,arch=arm64', scheme='RideIntercom-StoreKitTests',
+                          only=['RideIntercomTests/' + name for name in SUITES])
+    if bundle is not None:
+        record_selection_coverage(runner, bundle)
     after = manifest()
     (runner.out / 'source-after.json').write_text(json.dumps(after, indent=2) + '\n')
     same = before['head'] == after['head'] and fingerprints_match(before['files'], after['files'])
