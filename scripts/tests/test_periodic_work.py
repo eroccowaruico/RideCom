@@ -51,6 +51,16 @@ class PeriodicWorkTests(unittest.TestCase):
         self.assertTrue({"バックログ@2445", "Xcode@2435", "Archive@2550", "コードと文書@2575"} <= ordinary.keys())
         self.assertNotIn("コード整理@2430", ordinary)
 
+    def test_forecast_on_boundary_uses_same_next_round_as_gate(self) -> None:
+        now = self.now.replace(hour=23, minute=59)
+        lines = gate.upcoming(2440, 2560, now, (5, 10))
+        self.assertIn("Xcode: 通常換算 2455（あと 20 ビルド、実番号 2460）", lines)
+        self.assertIn("Archive: 通常換算 2590（あと 40 コミット、実番号 2600）", lines)
+        self.assertIn("全体監査: 実件数 2600（あと 40 コミット、実番号 2600）", lines)
+        self.assertIn("資源と費用: 2026-11-25 00:00 JST", lines)
+        due = dict(due_rows(self.record, 2460, 2600, now, lambda _: "## 確認", (5, 10)))
+        self.assertTrue({"Xcode@2455", "Archive@2590", "全体監査@2600"} <= due.keys())
+
     def test_hook_counts_only_the_periodic_commit_and_its_builds(self) -> None:
         hook = Path(__file__).resolve().parents[2] / ".githooks/prepare-commit-msg"
         with tempfile.TemporaryDirectory() as tmp:

@@ -31,17 +31,22 @@ def git(*args: str) -> str:
     return subprocess.check_output(["git", *args]).decode()
 
 
-def periodic_overhead(revision: str) -> tuple[int, int]:
+def periodic_overhead(revision: str, *, explain: bool = False) -> tuple[int, int]:
     """Count marked first-parent commits and their own increases of the shared build number."""
     span = f"{CUTOVER}..{revision}"
     logs = git("log", "--first-parent", "--format=%H%x09%(trailers:key=Ride-Periodic,valueonly,separator=%x2C)", span)
-    marked = {line.split("\t")[0] for line in logs.splitlines() if re.fullmatch(
-        r"[0-9a-f]+\t(?:" + "|".join(RULES) + r")@[0-9]+", line)}
+    marked: dict[str, str] = {}
+    for line in logs.splitlines():
+        commit, _, label = line.partition("\t")
+        if re.fullmatch("(?:" + "|".join(RULES) + r")@[0-9]+", label):
+            marked[commit] = label
+        elif label:
+            print(f"{commit[:12]}: 定期作業の識別子が不正です。通常変更として数えます。", file=sys.stderr)
     if not marked:
         return 0, 0
     patches = git("log", "--first-parent", "--diff-merges=first-parent", "--format=%x00%H", "--patch",
                   "--unified=0", span, "--", PROJECT)
-    builds = 0
+    increments: dict[str, int] = {}
     for patch in patches.split("\0")[1:]:
         commit, _, diff = patch.partition("\n")
         if commit not in marked:
@@ -49,8 +54,34 @@ def periodic_overhead(revision: str) -> tuple[int, int]:
         old, new = (set(map(int, re.findall(rf"^{prefix}\s*CURRENT_PROJECT_VERSION = (\d+);", diff, re.MULTILINE)))
                     for prefix in ("-", r"\+"))
         if old and new and max(new) > max(old):
-            builds += max(new) - max(old)
-    return builds, len(marked)
+            increments[commit] = max(new) - max(old)
+    if explain:
+        for commit, label in marked.items():
+            print(f"除外 {commit[:12]}  {label}  ビルド +{increments.get(commit, 0)}、コミット +1")
+    return sum(increments.values()), len(marked)
+
+
+def next_point(current: int, interval: int, phase: int) -> int:
+    return current + 1 + (phase - current - 1) % interval
+
+
+def upcoming(build: int, commits: int, now: datetime, overhead: tuple[int, int]) -> list[str]:
+    lines = [f"ビルド: 実番号 {build} − 定期作業 {overhead[0]} = 通常換算 {build - overhead[0]}",
+             f"コミット: 実件数 {commits} − 定期作業 {overhead[1]} = 通常換算 {commits - overhead[1]}",
+             "次回予定（実番号の最短見込みは、以降の定期作業によって後ろに動きます）"]
+    for name, (interval, phase) in CADENCE.items():
+        axis = RULES[name][0]
+        raw, excluded, unit = ((build, overhead[0], "ビルド") if axis == "build" else
+                               (commits, 0 if name == "全体監査" else overhead[1], "コミット"))
+        current = raw - excluded
+        target = next_point(current, interval, phase)
+        basis = "実件数" if name == "全体監査" else "通常換算"
+        lines.append(f"{name}: {basis} {target}（あと {target - current} {unit}、実番号 {target + excluded}）")
+    step = RULES["資源と費用"][1]
+    local = now.astimezone(JST)
+    next_time = local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=step - local.hour % step)
+    lines.append(f"資源と費用: {next_time:%Y-%m-%d %H:%M} JST")
+    return lines
 
 
 def due_rows(record: str, build: int, commits: int, now: datetime,
@@ -85,7 +116,7 @@ def due_rows(record: str, build: int, commits: int, now: datetime,
             limit, cut, excluded = ((build, CUTOVER_BUILD, overhead[0]) if axis == "build"
                                     else (commits, CUTOVER_COMMITS, 0 if name == "全体監査" else overhead[1]))
             interval, phase = CADENCE[name]
-            first = cut + 1 + (phase - cut - 1) % interval
+            first = next_point(cut, interval, phase)
             points = [str(n) for n in range(start, min(cut, limit) + 1, step)]
             points.extend(str(n) for n in range(first, limit - excluded + 1, interval))
         if rows[name].keys() - set(points):
@@ -102,13 +133,15 @@ def due_rows(record: str, build: int, commits: int, now: datetime,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", action="store_true")
+    parser.add_argument("--explain", action="store_true", help="除外したコミット、対象回、ビルド増分を表示")
     args = parser.parse_args()
+    shared = git("rev-parse", "origin/main").strip()
     # Use the actual commit index in the hook; at selection time use shared main.
-    ref = "" if args.commit else "origin/main"
+    ref = "" if args.commit else shared
     @cache
     def read(path: str) -> str:
         return git("show", f"{ref}:{path}")
-    versions = set(re.findall(r"CURRENT_PROJECT_VERSION = (\d+);", git("show", f"origin/main:{PROJECT}")))
+    versions = set(re.findall(r"CURRENT_PROJECT_VERSION = (\d+);", git("show", f"{shared}:{PROJECT}")))
     if len(versions) != 1:
         raise ValueError("全構成の共通ビルド番号を確認してください")
     if args.commit and LEDGER in git("ls-tree", "--name-only", "HEAD", LEDGER).splitlines():
@@ -116,8 +149,15 @@ def main() -> int:
             return {tuple(line.split("\t")[:2]) for line in data.splitlines()[1:]}
         if keys(git("show", f"HEAD:{LEDGER}")) - keys(read(LEDGER)):
             raise ValueError("以前の節目の行を保持してください")
-    pending = due_rows(read(LEDGER), int(versions.pop()), int(git("rev-list", "--first-parent", "--count",
-                                                                  "origin/main")), datetime.now(JST), read, periodic_overhead("origin/main"))
+    build = int(versions.pop())
+    commits = int(git("rev-list", "--first-parent", "--count", shared))
+    now = datetime.now(JST)
+    overhead = periodic_overhead(shared, explain=args.explain)
+    pending = due_rows(read(LEDGER), build, commits, now, read, overhead)
+    if not args.commit:
+        print(f"共有main {shared[:12]}（{now:%Y-%m-%d %H:%M} JST）")
+        print(*upcoming(build, commits, now, overhead), sep="\n")
+        print("到来済み・未完:" if pending else "到来済みの未完: なし")
     for key, state in pending:
         print(key, state)
     if not pending:
