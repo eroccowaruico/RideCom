@@ -4,6 +4,8 @@
 
 ## 管理画面とプレビューの設定
 
+稼働設定の照合と機能試験には、[Cloudflareの閲覧結果と手元の試験で挙動を確かめる手順](../policies/開発方針.md#cloudflareの閲覧結果と手元の試験で挙動を確かめる)を適用する。
+
 Cloudflareのアカウントを選び、Realtime → Serverless SFUでApp ID / App Secretを取得する。Workers & Pages → Create applicationからGitHubの `eroccowaruico/RideCom` を選ぶ。Worker名は `server/wrangler.toml` の `name` と同じ `ridecom` にする。Git連携を設定する場合は[ビルド設定の復元手順](#workers-buildsの設定を復元する)に従う。
 
 | 配置先 | 配置方法 | 設定と接続先 |
