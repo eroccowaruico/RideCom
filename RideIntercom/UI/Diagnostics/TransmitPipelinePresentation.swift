@@ -320,8 +320,8 @@ extension TransmitPipelinePresentation {
     }
 
     var codecPipelineDetail: String {
-        let requested = codecShortLabel(input.preferredTransmitCodec)
-        let selected = codecShortLabel(input.selectedTransmitCodec)
+        let requested = input.preferredTransmitCodec.diagnosticsLabel
+        let selected = input.selectedTransmitCodec.diagnosticsLabel
         if requested == selected { return selected }
         return "\(requested) -> \(selected)"
     }
@@ -331,17 +331,9 @@ extension TransmitPipelinePresentation {
         guard let observation = input.lastTransmitEncode else { return ("Encode not measured", .waiting) }
         let age = max(0, input.capturedAt - observation.observedAt)
         let encoding = age <= 2
-        let codec = codecShortLabel(observation.codec)
+        let codec = observation.codec.diagnosticsLabel
         let activity = encoding ? "Encoding" : "Encode idle"
         return ("\(activity) / Last encode \(codec) · \(Int(age))s ago", encoding ? .passing : .waiting)
-    }
-
-    private func codecShortLabel(_ codec: AudioCodecIdentifier) -> String {
-        if codec == .pcm16 { return "PCM" }
-        if codec == .mpeg4AACELD { return "AAC-ELD" }
-        if codec == .mpeg4AACELDv2 { return "AAC-ELD v2" }
-        if codec == .opus { return "Opus" }
-        return codec.rawValue
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {

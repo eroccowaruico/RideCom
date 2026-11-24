@@ -37,6 +37,14 @@ struct ReceivePipelinePresentation {
         return "Playout: \(queued) queued / Adjustments: \(adjustments) / Resets: \(source.playbackResetCount)"
     }
 
+    func peerDecodeDetail(for peerID: String) -> String {
+        guard input.isAudioReady, let pcm = input.receiveDecodeDiagnostics.peerPCM[peerID],
+              let age = observation(pcm.observedAt).elapsed else {
+            return "Decode: Not measured / packets/s: Not measured"
+        }
+        return "Decode: \(pcm.codec.diagnosticsLabel) · \(age) / packets/s: Not measured"
+    }
+
     private var receivePeerBusCount: Int { receivePeerStates.count }
     private var mixState: PipelineStepState { receivePeerStates.values.contains(.passing) ? .passing : .waiting }
 
@@ -148,7 +156,9 @@ struct ReceivePipelinePresentation {
         if input.isAudioReady {
             let pcm = hasPCM || counts.failures > 0 ? "PCM \(counts.pcmPackets)" : "No PCM observed"
             let decoded = observation(counts.lastPCMAt)
-            let lastPCM = decoded.elapsed.map { " / Last PCM · \($0)" } ?? ""
+            let lastPCM = counts.lastPCM.flatMap { pcm in
+                decoded.elapsed.map { " / Last PCM · \(pcm.codec.diagnosticsLabel) · \($0)" }
+            } ?? ""
             let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
             let failure = observation(counts.lastFailureAt)
             let lastError = failure.elapsed.map { " / Last error · \($0)" } ?? ""

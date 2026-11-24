@@ -135,7 +135,7 @@ struct DiagnosticsReceiveDetails: View {
                     \(detail.paths)
                     """
                 )
-                Text("Decode: \(member.activeCodec?.rawValue ?? "Not measured") / packets/s: Not measured")
+                Text(presentation.peerDecodeDetail(for: member.id))
                 Text(presentation.playoutDetail(for: member.id))
                     .accessibilityIdentifier("receive-peer-playout")
                 Text("Peer Bus: volume \(Int(detail.volume * 100))% / FX \(detail.effectSummary)")

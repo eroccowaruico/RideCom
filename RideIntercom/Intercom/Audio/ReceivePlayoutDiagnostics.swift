@@ -4,8 +4,15 @@ import Foundation
 nonisolated struct ReceiveDecodeCounts: Equatable, Sendable {
     var pcmPackets = 0
     var failures = 0
-    var lastPCMAt: TimeInterval?
+    var lastPCM: CodecOutputObservation?
     var lastFailureAt: TimeInterval?
+
+    var lastPCMAt: TimeInterval? { lastPCM?.observedAt }
+}
+
+nonisolated struct ReceiveDecodeDiagnostics: Sendable {
+    let counts: ReceiveDecodeCounts
+    let peerPCM: [String: CodecOutputObservation]
 }
 
 nonisolated struct ReceiveProcessingTiming: Encodable, Sendable {

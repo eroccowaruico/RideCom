@@ -22,6 +22,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         lazy var decoder = StreamingCodecDecoder()
         var source: MixerPCMSource?
         var scheduledEncoding: PacketEncoding?
+        var lastPCM: CodecOutputObservation?
     }
 
     private enum IsolationTarget: Hashable {
@@ -66,7 +67,6 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         lock.withLock { Dictionary(uniqueKeysWithValues: effects.map { ($0.key.busID, $0.value.runtimeSnapshot) }) }
     }
     var limiterSnapshot: PeakLimiterRuntimeSnapshot? { lock.withLock { limiter?.runtimeSnapshot } }
-    var decodeSnapshot: ReceiveDecodeCounts { lock.withLock { decodeCounts } }
     var droppedRenderFrameCount: Int {
         lock.withLock { (mixer?.busIDs ?? []).reduce(0) { $0 + (mixer?.bus($1)?.droppedCaptureFrameCount ?? 0) } }
     }
@@ -174,10 +174,12 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         timing?.decodedAt = ProcessInfo.processInfo.systemUptime
         var reservation: MixerPlayoutReservation?
         if !frame.samples.isEmpty {
-            decodeCounts.pcmPackets += 1
-            decodeCounts.lastPCMAt = Date().timeIntervalSince1970
-            let observeReservation: ((MixerPlayoutReservation) -> Void)? = onPlayout.map { _ in { reservation = $0 } }
             let packet = received.packet
+            let decoded = CodecOutputObservation(codec: packet.codec, observedAt: Date().timeIntervalSince1970)
+            decodeCounts.pcmPackets += 1
+            decodeCounts.lastPCM = decoded
+            playback.lastPCM = decoded
+            let observeReservation: ((MixerPlayoutReservation) -> Void)? = onPlayout.map { _ in { reservation = $0 } }
             let encoding = PacketEncoding(codec: packet.codec, format: packet.format, bitRate: packet.bitRate)
             let changedEncoding = playback.scheduledEncoding.map { $0 != encoding } ?? false
             if try scheduleInGraph(frame, peer: id, packetizationJitter: decoder.packetizationJitterDuration,
@@ -217,13 +219,6 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         let target = IsolationTarget.peer(peer)
         try mixer?.removeBus(target.busID)
         effects.removeValue(forKey: target)
-    }
-
-    func playoutDiagnostics(peer: String) -> ReceivePlayoutDiagnostics? {
-        lock.withLock {
-            guard let source = peerPlayback[peer]?.source else { return nil }
-            return .init(source: source)
-        }
     }
 
     func playbackDrainDuration(peer: String) -> TimeInterval {
@@ -374,6 +369,22 @@ extension AppAudioReceiver {
             let enabled = target.isEnabled(mix: mix, peers: peers)
             return effect.avAudioUnitEffect.bypass == enabled
                 ? IsolationChange(target: target, effect: effect, enabled: enabled) : nil
+        }
+    }
+}
+
+extension AppAudioReceiver {
+    var decodeSnapshot: ReceiveDecodeCounts { lock.withLock { decodeCounts } }
+    var decodeDiagnostics: ReceiveDecodeDiagnostics {
+        lock.withLock {
+            .init(counts: decodeCounts, peerPCM: peerPlayback.compactMapValues(\.lastPCM))
+        }
+    }
+
+    func playoutDiagnostics(peer: String) -> ReceivePlayoutDiagnostics? {
+        lock.withLock {
+            guard let source = peerPlayback[peer]?.source else { return nil }
+            return .init(source: source)
         }
     }
 }

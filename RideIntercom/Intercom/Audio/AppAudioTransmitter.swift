@@ -9,16 +9,11 @@ import RTC
 import SoundIsolation
 import VADGate
 
-nonisolated struct TransmitEncodingObservation: Sendable {
-    let codec: AudioCodecIdentifier
-    let observedAt: TimeInterval
-}
-
 nonisolated struct AudioInputObservation: Sendable {
     var level: Float = 0
     var voiceActive = false
     var sentPackets = 0
-    var lastEncode: TransmitEncodingObservation?
+    var lastEncode: CodecOutputObservation?
     var failure: String?
 }
 

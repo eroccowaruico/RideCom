@@ -333,7 +333,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           <div class="hd">Live RX Pipeline <span>Peers -&gt; mix -&gt; RX master -&gt; output</span></div>
           <div class="card rx-entry">
             <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local + Internet / 3 connected / 3 authenticated / Audio received / Received packets 240 / Last receipt · 0s ago / Dropped packets 3</span></div>
-            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 238 / Last PCM · 0s ago / Decode errors 2 / Last error · 4s ago</span></div>
+            <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 238 / Last PCM · Opus · 0s ago / Decode errors 2 / Last error · 4s ago</span></div>
           </div>
           <div class="card rx-entry">
             <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Peer Buses</span><span class="v num">3 peer buses</span></div>
@@ -350,7 +350,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
                 <div>Sender: Unmuted / codec mpeg4AACELD / bitrate 48000 bps / VAD speech / Isolation active</div>
                 <div>Sender updated 1s ago</div>
                 <div>RTC RX: Connected / AUTH OK / Local direct</div>
-                <div>Decode: mpeg4AACELD / packets/s: Not measured</div>
+                <div>Decode: AAC-ELD · 1s ago / packets/s: Not measured</div>
                 <div>Playout: 24 ms queued / Adjustments: 1 / Resets: 0</div>
                 <div>Peer Bus: volume 100% / FX 1 stages / Isolation voice</div>
               </div>
@@ -361,7 +361,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
                 <div>Sender: Unmuted / codec opus / bitrate 32000 bps / VAD silence / Isolation bypassed</div>
                 <div>Sender updated 16s ago / Stale</div>
                 <div>RTC RX: Connected / AUTH OK / Local relayed</div>
-                <div>Decode: opus / packets/s: Not measured</div>
+                <div>Decode: Opus · 0s ago / packets/s: Not measured</div>
                 <div>Playout: 0 ms queued / Adjustments: 0 / Resets: 0</div>
                 <div>Peer Bus: volume 80% / FX 1 stages / Isolation voice</div>
               </div>
@@ -372,7 +372,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
                 <div>Sender: Unmuted / codec pcm16 / bitrate Not measured / VAD speech / Isolation unavailable</div>
                 <div>Sender updated 3s ago</div>
                 <div>RTC RX: Connected / AUTH OK / Internet</div>
-                <div>Decode: pcm16 / packets/s: Not measured</div>
+                <div>Decode: PCM · 2s ago / packets/s: Not measured</div>
                 <div>Playout: 62 ms queued / Adjustments: 0 / Resets: 1</div>
                 <div>Peer Bus: volume 60% / FX 1 stages / Isolation voice</div>
               </div>
@@ -475,13 +475,13 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   <div class="card rx-stop-example" id="rx-decode-blocked">
     <div class="hd">Live RX Pipeline</div>
     <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / 1 connected / 1 authenticated / Received packets 241 / Last receipt · 0s ago</span></div>
-    <div class="row"><span class="k"><span class="err-t" role="img" aria-label="Blocked">×</span> Decode</span><span class="v num">PCM 238 / Last PCM · 3s ago / Decode errors 3 / Last error · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="err-t" role="img" aria-label="Blocked">×</span> Decode</span><span class="v num">PCM 238 / Last PCM · AAC-ELD · 3s ago / Decode errors 3 / Last error · 0s ago</span></div>
   </div>
   <p class="note">受信が続く間に復号だけが止まった例。Overviewでも RX: Blocked at Decode と表示する。</p>
   <div class="card rx-stop-example" id="rx-output-stalled">
     <div class="hd">Live RX Pipeline</div>
     <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> RTC RX</span><span class="v num">Local / 1 connected / 1 authenticated / Received packets 460 / Last receipt · 0s ago</span></div>
-    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 460 / Last PCM · 0s ago</span></div>
+    <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Decode</span><span class="v num">PCM 460 / Last PCM · AAC-ELD · 0s ago</span></div>
     <div class="row"><span class="k"><span class="warn-t" role="img" aria-label="Waiting">Ⅱ</span> Output</span><span class="v num">Last audible PCM · 3s ago / Last render · 3s ago</span></div>
   </div>
   <p class="note">受信と復号が続く間に出力の描画が止まった例。Overviewで RX: Waiting at Output と表示する。</p>

@@ -37,7 +37,7 @@ struct DiagnosticsInput {
     var selectedGroupConnectionState: CallConnectionState
     var selectedTransmitCodec: AudioCodecIdentifier
     var encodedAudioPacketCount: Int
-    let lastTransmitEncode: TransmitEncodingObservation?
+    let lastTransmitEncode: CodecOutputObservation?
     let isolationSettings: IsolationSettings
     var transmitEffectChainSnapshot: AudioEffectChainSnapshot
     var audioMixerSnapshot: AudioMixerSnapshot
@@ -56,7 +56,8 @@ struct DiagnosticsInput {
     var lastPlaybackScheduledAt: TimeInterval?
     let capturedAt: TimeInterval
     var receiveOutputEffectChainSnapshot: AudioEffectChainSnapshot
-    var receiveDecodeCounts: ReceiveDecodeCounts
+    let receiveDecodeDiagnostics: ReceiveDecodeDiagnostics
+    var receiveDecodeCounts: ReceiveDecodeCounts { receiveDecodeDiagnostics.counts }
     var lastReceivedAudioAt: TimeInterval?
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
@@ -109,7 +110,7 @@ struct DiagnosticsInput {
         lastNativeRenderAt = viewModel.audioPipeline.lastNativeRenderAt
         lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
         receiveOutputEffectChainSnapshot = viewModel.receiveMixEffectChainSnapshot
-        receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
+        receiveDecodeDiagnostics = viewModel.audioPipeline.receiveDecodeDiagnostics
         lastReceivedAudioAt = showsActiveCall ? viewModel.lastReceivedAudioAt : nil
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount
         selectedGroup = viewModel.selectedGroup

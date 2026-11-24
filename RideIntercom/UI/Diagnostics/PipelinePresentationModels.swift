@@ -4,6 +4,18 @@ import Foundation
 import RTC
 import SessionManager
 
+extension AudioCodecIdentifier {
+    var diagnosticsLabel: String {
+        switch self {
+        case .pcm16: "PCM"
+        case .mpeg4AACELD: "AAC-ELD"
+        case .mpeg4AACELDv2: "AAC-ELD v2"
+        case .opus: "Opus"
+        default: rawValue
+        }
+    }
+}
+
 func pipelineIsolationDetail(isEnabled: Bool, chain: AudioEffectChainSnapshot?) -> String {
     let title = String(localized: "Voice Isolation")
     let setting = isEnabled ? String(localized: "On") : String(localized: "Off")

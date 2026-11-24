@@ -221,6 +221,7 @@ final class AppAudioPipeline {
     func processPlaybackFrame(_ frame: PCMFrame) throws { try receiver.play(frame) }
     func stopReceivePeer(_ peerID: String) throws { try receiver.removePeer(peerID) }
     nonisolated var receiveDecodeCounts: ReceiveDecodeCounts { receiver.decodeSnapshot }
+    var receiveDecodeDiagnostics: ReceiveDecodeDiagnostics { receiver.decodeDiagnostics }
     nonisolated func receivePlayoutDiagnostics(peerID: String) -> ReceivePlayoutDiagnostics? {
         receiver.playoutDiagnostics(peer: peerID)
     }

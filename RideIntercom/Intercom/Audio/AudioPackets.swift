@@ -10,6 +10,11 @@ nonisolated enum OutboundAudioPacket: Equatable, Sendable {
 
 typealias AudioCodecIdentifier = RTC.RTCAudioCodecIdentifier
 
+nonisolated struct CodecOutputObservation: Equatable, Sendable {
+    let codec: AudioCodecIdentifier
+    let observedAt: TimeInterval
+}
+
 enum RTCAudioFormatPreset: String, CaseIterable, Identifiable, Codable, Sendable {
     case mono48k
     case mono24k

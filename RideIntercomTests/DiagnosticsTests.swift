@@ -67,7 +67,7 @@ struct DiagnosticsTests {
         harness.callSession.publishMetrics(.init(route: .multipeer, activePeerCount: 1,
             receivedAudioFrameCount: 8, droppedAudioFrameCount: 2, queuedAudioFrameCount: 0))
         #expect(presentation().codecDecodeStep.state == .passing)
-        #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 1 / Last PCM"))
+        #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 1 / Last PCM · PCM"))
         let receiptSummary = presentation().rtcReceiveStep.detail
         #expect(receiptSummary.contains("2 connected / 1 authenticated"))
         #expect(receiptSummary.contains("Received packets 8 / Last receipt"))
@@ -287,6 +287,43 @@ struct DiagnosticsTests {
 }
 
 extension AppTests.DiagnosticsTests {
+    @Test func receiveDiagnosticsKeepDecodedFormatsSeparateForEachPeer() throws {
+        let pipeline = AppAudioPipeline(makeEngine: OfflineAudioDriver().makeEngine)
+        let model = AppTestSupport.makeHarness(audioPipeline: pipeline).viewModel
+        try pipeline.rebuild(configuration: .init(transmitSoundIsolationEnabled: false), peerIDs: ["first", "second"])
+        defer { pipeline.stop() }
+        model.isAudioReady = true
+        func presentation() -> ReceivePipelinePresentation { .init(input: DiagnosticsInput(model)) }
+
+        let frame = PCMFrame(sequenceNumber: 0, format: .intercomMixer,
+                             samples: Array(repeating: 0.2, count: 960))
+        let pcm = try AppTestSupport.receivedAudioPacket(peerID: "first", frame: frame, codec: .pcm16)
+        let opus = try AppTestSupport.receivedAudioPacket(peerID: "second", frame: frame, codec: .opus)
+        try #require(opus.packet.codec == .opus)
+        #expect(presentation().peerDecodeDetail(for: "first").hasPrefix("Decode: Not measured"))
+        try pipeline.processReceivedAudioPacket(pcm)
+        try pipeline.processReceivedAudioPacket(opus)
+        #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 2 / Last PCM · Opus"))
+        #expect(presentation().peerDecodeDetail(for: "first").hasPrefix("Decode: PCM ·"))
+        #expect(presentation().peerDecodeDetail(for: "second").hasPrefix("Decode: Opus ·"))
+
+        var invalid = pcm
+        invalid.packet.codec = .init(rawValue: "unsupported-fixture")
+        #expect(throws: (any Error).self) { try pipeline.processReceivedAudioPacket(invalid) }
+        #expect(presentation().codecDecodeStep.detail.contains("Last PCM · Opus"))
+        #expect(presentation().peerDecodeDetail(for: "first").hasPrefix("Decode: PCM ·"))
+
+        try pipeline.processReceivedAudioPacket(.init(peerID: .init(rawValue: "first"), packet: opus.packet))
+        #expect(presentation().codecDecodeStep.detail.hasPrefix("PCM 3 / Last PCM · Opus"))
+        #expect(presentation().peerDecodeDetail(for: "first").hasPrefix("Decode: Opus ·"))
+        try pipeline.stopReceivePeer("first")
+        #expect(presentation().peerDecodeDetail(for: "first").hasPrefix("Decode: Not measured"))
+        #expect(presentation().peerDecodeDetail(for: "second").hasPrefix("Decode: Opus ·"))
+        pipeline.stop()
+        #expect(presentation().codecDecodeStep.detail == "No PCM observed")
+        #expect(presentation().peerDecodeDetail(for: "second").hasPrefix("Decode: Not measured"))
+    }
+
     @Test func isolationConfigurationReportMatchesTheAppliedEffect() async throws {
         let harness = AppTestSupport.makeHarness()
         harness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
