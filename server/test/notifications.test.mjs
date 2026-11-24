@@ -1067,7 +1067,7 @@ test('group invitation outcomes survive the invite deadline for up to 28 days fr
         assert.deepEqual(await (await finish(received, receiver)).json(), { status: 'received' });
         assert.deepEqual(await (await finish(cancelled, sender)).json(), { status: 'cancelled' });
 
-        await r.dispose(); r = await at(now + 8 * day);
+        await r.dispose(); r = await at(expiresAt);
         for (const [request, status] of [[received, 'received'], [cancelled, 'cancelled']]) {
             const response = await lookup(request);
             assert.equal(response.status, 200);
@@ -1079,6 +1079,11 @@ test('group invitation outcomes survive the invite deadline for up to 28 days fr
         assert.equal((await finish(pending, receiver)).status, 404);
         const inbox = await call(r, `${path}?recipientKey=${pending.recipientKey}`, undefined, receiver.accessToken, 'GET');
         assert.deepEqual(await inbox.json(), { delivery: null });
+        for (const [request, status] of [[received, 'received'], [cancelled, 'cancelled']]) {
+            const response = await lookup(request);
+            assert.equal(response.status, 200);
+            assert.deepEqual(await response.json(), { requestID: request.requestID, expiresAt, status });
+        }
         const additional = await call(r, `${item(received.requestID)}/additional-devices`, undefined, sender.accessToken, 'GET');
         assert.equal(additional.status, 404);
         assert.equal((await call(r, path, received, sender.accessToken)).status, 400);

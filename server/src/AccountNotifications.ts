@@ -228,8 +228,13 @@ export class AccountNotifications {
         if (result && result.retainUntil > now) return result
         // An alarm may not have compacted an expired invitation yet.
         const invite = this.storage.kv.get<NotificationGroupInvitation>(invitationPrefix + requestID)
-        if (!invite || invite.expiresAt > now || invite.status === 'queued' || !invite.retainUntil || invite.retainUntil <= now) return null
-        return { ...this.invitationStatusFields(invite), status: invite.status, retainUntil: invite.retainUntil }
+        if (!invite || invite.expiresAt > now) return null
+        return this.retainedInvitationOutcome(invite, now)
+    }
+    private retainedInvitationOutcome(value: NotificationGroupInvitation, now: number): RetainedGroupInvitationResult | null {
+        const { status, retainUntil } = value
+        if (status === 'queued' || !retainUntil || retainUntil <= now) return null
+        return { ...this.invitationStatusFields(value), status, retainUntil }
     }
     private acceptsAdditionalDevices(value: NotificationGroupInvitation) {
         return !value.sourceRequestID && value.status !== 'cancelled' && !value.additionalDevicesClosed
@@ -374,10 +379,9 @@ export class AccountNotifications {
         const now = Date.now()
         for (const [key, value] of this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })) {
             if (value.expiresAt > now) continue
-            const { status, retainUntil } = value
-            if (status === 'queued' || !retainUntil || retainUntil <= now) this.storage.kv.delete(key)
+            const result = this.retainedInvitationOutcome(value, now)
+            if (!result) this.storage.kv.delete(key)
             else this.storage.transactionSync(() => {
-                const result: RetainedGroupInvitationResult = { ...this.invitationStatusFields(value), status, retainUntil }
                 this.storage.kv.put(invitationResultPrefix + value.requestID, result)
                 this.storage.kv.delete(key)
             })
