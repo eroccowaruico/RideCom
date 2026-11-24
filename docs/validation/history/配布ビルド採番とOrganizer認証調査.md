@@ -314,7 +314,7 @@ ArchiveをXcodeの標準保存先へ登録した。Organizerの一覧表示は�
 
 ArchiveはXcodeの標準保存先に登録した。2026-11-24のフォルダにある `RideIntercom iOS 1.0.0 (2398).xcarchive` が対象。Organizerの一覧表示は未確認。IPAと検査結果は `.validation/itms-90683/archive-2490/` に保存した。App Store Connectには送信していない。
 
-2026-11-24 19:30 JSTに、登録先のBuild 2398を再確認した。Appと同梱物の署名の厳密検証、Archiveと保存済みIPAのカメラ検査が通った。結果は `.validation/archive-2490-recheck-20261124-193021/`。Organizerの一覧は依頼者指定で確認待ち。内部TestFlightへの送信は依頼者が扱うため、送信試行の記録が得られるまでこの回の受入は未完とする。[Xcodeの確認待ち](../未確認事項.md#build-1540のxcode画面確認)
+2026-11-24 19:30 JSTに、登録先のBuild 2398を再確認した。Appと同梱物の署名の厳密検証、Archiveと保存済みIPAのカメラ検査が通った。結果は `.validation/archive-2490-recheck-20261124-193021/`。Organizerの一覧は依頼者指定で確認待ち。この時点では、依頼者が扱う内部TestFlightへの送信結果を待ち、Archiveを未完と判定していた。今回、登録と署名検証の証拠を照合し、定期Archiveを完了に訂正した。担当者による内部送信は未試行。[Xcodeの確認待ち](../未確認事項.md#build-1540のxcode画面確認)
 
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
