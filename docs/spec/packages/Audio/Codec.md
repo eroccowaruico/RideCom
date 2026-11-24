@@ -308,4 +308,6 @@ Opusの公開範囲は24〜128kbpsとし、初期化・Codable読み込み・pro
 
 StreamingCodecEncoderは入力quantumとnative codec frameの剰余が生む送出間隔の揺れを計算する。両者のsample数の最大公約数を使い、`min(最大入力quantum, native frame) - gcd` sampleだけを上限とする。20ms入力・16kHz AAC-ELDの30ms frameでは10ms、整合する10ms入力では0となる。codec名による受信側分岐や一律の再生待ちは追加しない。
 
+送出間隔の見積もりには、同じストリームで符号器が処理する入力だけを使う。無音抑制で省略した入力は数えない。収録時刻に不連続があり、符号器がストリームを作り直すときは、新しいストリームの最初の入力から計算し直す。たとえば中断前の未完の320サンプルが残っていても、再開後が48 kHzのAAC-ELDの480サンプル周期なら、送出間隔の余裕は0になる。
+
 0でない場合だけpayloadの任意key `j` にsample数を付ける。既存payloadで省略された場合は0とし、未知keyを無視する旧decoderとの後方互換を維持する。通常は0〜480 sample、ELDv2はPCM換算後のnative周期に合わせて上限を1,024 sampleとし、StreamingCodecDecoderの`packetizationJitterDuration`へ秒で公開する。上限480はAAC-ELDのnative frame sizeであり、最小対応8kHzでは60msとなる。ELDv2はcoreの512 sampleがPCMの1,024 sampleに相当する組合せがある。PCMと周期が整合するcodecではfield自体を送らない。無音抑制・codec履歴・元の音声timestampは変更しない。

@@ -49,3 +49,23 @@ import Testing
     }
     #expect(checked)
 }
+
+@Test func aacDiscontinuityDropsTimingFromAnAbandonedPartialFrame() throws {
+    let encoder = try StreamingCodecEncoder(configuration: .init(codec: .mpeg4AACELD))
+    let decoder = StreamingCodecDecoder()
+    let partial = try encoder.encode(.init(sequenceNumber: 0, capturedAt: 0,
+        samples: Array(repeating: 0.1, count: 320)))
+    #expect((partial?.sampleCount ?? 0) == 0, "The partial PCM has not produced playable audio")
+
+    var packets = 0
+    for index in 0..<8 {
+        guard let packet = try encoder.encode(.init(sequenceNumber: UInt64(index + 1),
+            capturedAt: 5 + Double(index) * 0.01, samples: Array(repeating: 0.1, count: 480))) else { continue }
+        let envelope = try CompressedPayloadEnvelope.decode(packet.payload, expectedCodec: .mpeg4AACELD)
+        #expect(envelope.packetizationJitterFrames == nil)
+        _ = try decoder.decode(packet)
+        #expect(decoder.packetizationJitterDuration == 0)
+        packets += 1
+    }
+    #expect(packets > 5)
+}

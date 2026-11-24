@@ -136,7 +136,6 @@ public final class StreamingCodecEncoder {
         guard frame.frameCount <= Int(frame.format.sampleRate) else {
             throw CodecError.malformedPayload(configuration.codec)
         }
-        packetizationTiming.observe(quantumFrames: frame.frameCount)
         if shouldSuppress(frame) { return nil }
         lastSequenceNumber = frame.sequenceNumber
         var inputFrame = frame
@@ -144,8 +143,10 @@ public final class StreamingCodecEncoder {
             converter?.reset()
             capturedStart = nil
             emittedFrames = 0
+            packetizationTiming = .init(nativeFrames: Int(nativePacketFrames))
             streamID = UUID()
         }
+        packetizationTiming.observe(quantumFrames: frame.frameCount)
         if capturedStart == nil, converter != nil {
             // Native Opus drops its initial 2.5 ms while priming. Warm each
             // stream with one silent codec packet, never with the first syllable.
