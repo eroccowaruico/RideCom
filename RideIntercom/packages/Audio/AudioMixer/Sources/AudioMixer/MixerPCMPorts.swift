@@ -116,7 +116,7 @@ public final class MixerPCMSource {
                 capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: buffer.frameLength,
                 duration: duration, audible: audible, position: position, packetizationJitter: packetizationJitter,
                 startsNewArrivalTiming: startsNewArrivalTiming
-            ))
+            ), observesAnchor: onReservation != nil)
             let startSample = reservation.startSample
             let options = reservation.options
 			playout.scheduledEndSample = startSample + AVAudioFramePosition(buffer.frameLength)
@@ -134,7 +134,7 @@ public final class MixerPCMSource {
 				onReservation(.init(capturedAt: capturedAt, sampleRate: mixerFormat.sampleRate,
 					startSample: startSample, frameCount: Int(buffer.frameLength), completedSample: position.completed,
 					writableSample: position.writable, renderAnchorSample: playback.anchorSample,
-					renderAnchorHostTime: playback.anchorHostTime))
+					renderAnchorHostTime: playback.anchorHostTime, anchorLead: reservation.anchorLead))
 			}
 			return normalized.report
 		} catch let failure as AudioProcessingFailure {
@@ -158,8 +158,8 @@ public final class MixerPCMSource {
     }
 
     private func reservePlayback(
-        _ packet: PlaybackPacket
-    ) throws -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
+        _ packet: PlaybackPacket, observesAnchor: Bool
+    ) throws -> MixerPCMPlayout.Reservation {
         let capturedAt = packet.capturedAt
         let arrivedAt = packet.arrivedAt
         let duration = packet.duration
@@ -169,7 +169,6 @@ public final class MixerPCMSource {
         let startsNewArrivalTiming = packet.startsNewArrivalTiming
         let rendered = position.writable
         var options: AVAudioPlayerNodeBufferOptions = []
-        let startSample: AVAudioFramePosition
         if let delay = captureTimePlayoutDelay, let limit = maximumBufferedDuration {
             guard capturedAt.isFinite else {
                 throw AudioMixerError.pcmSourceScheduleFailed("Invalid capture timestamp")
@@ -183,13 +182,11 @@ public final class MixerPCMSource {
                 && playerNode.engine?.isInManualRenderingMode == false
                 ? min(AVAudioFramePosition(renderClock.frameCount.load(ordering: .relaxed)),
                     AVAudioFramePosition((0.002 * mixerFormat.sampleRate).rounded(.up))) : 0
-            let reservation = captureTimeReservation(.init(
+            return captureTimeReservation(.init(
                 capturedAt: capturedAt, arrivedAt: arrivedAt, frameLength: packet.frameLength, duration: duration,
                 audible: audible, position: position, nativeLead: nativeLead,
                 delay: delay, limit: limit, packetizationJitter: packetizationJitter,
-                startsNewArrivalTiming: startsNewArrivalTiming))
-            startSample = reservation.startSample
-            options = reservation.options
+                startsNewArrivalTiming: startsNewArrivalTiming), observesAnchor: observesAnchor)
         } else {
             // Bound the wait before this frame starts, not its completion.
             // A full capture batch may overlap the previous batch's healthy tail.
@@ -199,9 +196,8 @@ public final class MixerPCMSource {
                 playout.scheduledEndSample = rendered
                 playout.playbackResetCount += 1
             }
-            startSample = max(playout.scheduledEndSample, rendered)
+            return .init(startSample: max(playout.scheduledEndSample, rendered), options: options)
         }
-        return (startSample, options)
     }
 
 	private func validatePlaybackBudget(for duration: TimeInterval) throws {
@@ -213,9 +209,9 @@ public final class MixerPCMSource {
 	}
 
     func captureTimeReservation(
-        _ input: MixerPCMPlayout.ReservationInput
-    ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
-        playout.captureTimeReservation(input)
+        _ input: MixerPCMPlayout.ReservationInput, observesAnchor: Bool = false
+    ) -> MixerPCMPlayout.Reservation {
+        playout.captureTimeReservation(input, observesAnchor: observesAnchor)
     }
 
 	/// A rejected native start keeps the request; the next schedule retries it

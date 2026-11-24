@@ -91,6 +91,14 @@ public struct MixerPlayoutAdjustment: Codable, Equatable, Sendable {
 
 /// Successful timestamped scheduling, in samples on the source player's clock.
 public struct MixerPlayoutReservation: Encodable, Sendable {
+	public struct AnchorLead: Encodable, Sendable {
+		public let nativeLeadFrames: Int64
+		public let configuredDelay: TimeInterval
+		public let packetizationJitter: TimeInterval
+		public let retainedJitterFramesBefore: Int64
+		public let retainedJitterFramesAfter: Int64
+	}
+
 	public let capturedAt: TimeInterval
 	public let sampleRate: Double
 	public let startSample: Int64
@@ -99,6 +107,8 @@ public struct MixerPlayoutReservation: Encodable, Sendable {
 	public let writableSample: Int64
 	public let renderAnchorSample: Int64?
 	public let renderAnchorHostTime: TimeInterval?
+	/// Present only for a reservation that establishes or replaces the capture clock mapping.
+	public let anchorLead: AnchorLead?
 }
 
 public struct MixerSourceSnapshot: Codable, Equatable, Sendable {

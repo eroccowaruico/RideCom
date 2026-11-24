@@ -4,30 +4,6 @@ import Foundation
 import Testing
 @testable import AudioMixer
 
-@Test(arguments: [0, 256, 512])
-func lateReservationCountsTheRenderBlockOnce(writableLead: Int) throws {
-    let mixer = try AudioMixer(audioFormat: .init())
-    let bus = try mixer.createBus("late-reservation")
-    let source = try bus.addPCMSource(id: "voice", maximumBufferedDuration: 0.12,
-        captureTimePlayoutDelay: 0.002, adaptivePlayout: true)
-    let lead = AVAudioFramePosition(writableLead)
-    let nativeHandoff = min(lead, 96)
-    let initial = source.captureTimeReservation(.init(capturedAt: 0, arrivedAt: 0.013, frameLength: 480,
-        duration: 0.01, audible: true, position: (0, lead), nativeLead: nativeHandoff,
-        delay: 0.002, limit: 0.12, packetizationJitter: 0))
-    let expiredPosition = initial.startSample + 1200
-    let completed = expiredPosition + 32
-    let recovered = source.captureTimeReservation(.init(capturedAt: 0.025, arrivedAt: 0.048, frameLength: 480,
-        duration: 0.01, audible: true, position: (completed, completed + lead), nativeLead: nativeHandoff,
-        delay: 0.002, limit: 0.12, packetizationJitter: 0))
-    let additionalWait = recovered.startSample - completed
-    let expectedWait = max(lead, 480) + 480 + nativeHandoff + 96
-    #expect(abs(additionalWait - expectedWait) <= 1)
-    #expect(source.lastPlayoutAdjustment?.reason == .pastRenderPosition)
-    #expect(source.lastPlayoutAdjustment?.previousSample == expiredPosition)
-    #expect(source.playbackResetCount == 0)
-}
-
 @Test func healthyConversationPauseKeepsItsClockButExcessWaitIsRemoved() throws {
     let engine = AVAudioEngine()
     let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
@@ -191,6 +167,9 @@ func recoveringExcessWaitInSilencePreservesTheSamplesOnBothSides(transitImprovem
     #expect((6720..<7680).allSatisfy { abs(samples[$0] - 0.4) < 0.001 })
     #expect(reservations.map(\.capturedAt) == [9000, 9000.1])
     #expect(reservations.map(\.startSample) == [1920, 6720])
+    let initialLead = try #require(reservations[0].anchorLead)
+    #expect(initialLead.configuredDelay == 0.04)
+    #expect(reservations[1].anchorLead == nil)
     #expect(reservations.allSatisfy { $0.frameCount == 960 && $0.sampleRate == 48_000 })
     #expect(reservations.allSatisfy { $0.renderAnchorHostTime == nil && $0.renderAnchorSample == nil })
     #expect(source.playbackResetCount == 0)

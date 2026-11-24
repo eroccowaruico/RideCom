@@ -5,6 +5,11 @@ import Foundation
 /// Owns the capture-to-playout clock and learned arrival timing for one source.
 final class MixerPCMPlayout {
     typealias PlaybackPosition = MixerPCMSource.PlaybackPosition
+    struct Reservation {
+        let startSample: AVAudioFramePosition
+        let options: AVAudioPlayerNodeBufferOptions
+        var anchorLead: MixerPlayoutReservation.AnchorLead?
+    }
     private let mixerFormat: AudioFormat
     private let adaptivePlayout: Bool
     var playoutAnchor: (capturedAt: TimeInterval, sample: AVAudioFramePosition)?
@@ -56,37 +61,33 @@ final class MixerPCMPlayout {
 
     /// Update the capture-to-playout mapping using the position already observed for this packet.
     func captureTimeReservation(
-        _ input: ReservationInput
-    ) -> (startSample: AVAudioFramePosition, options: AVAudioPlayerNodeBufferOptions) {
+        _ input: ReservationInput, observesAnchor: Bool = false
+    ) -> Reservation {
         let capturedAt = input.capturedAt
-        let arrivedAt = input.arrivedAt
-        let duration = input.duration
-        let position = input.position
-        let limit = input.limit
-        let startsNewArrivalTiming = input.startsNewArrivalTiming
-        let rendered = position.writable
         var options: AVAudioPlayerNodeBufferOptions = []
         // Device handoff and arrival jitter are independent. Taking
         // their maximum silently removes the configured jitter margin.
         // Reserve only the sender's measured capture/codec remainder.
         // This is independent of network jitter; aligned codecs add zero.
         let margin = adaptivePlayout ? retainedJitterMargin(at: capturedAt) : 0
-        if startsNewArrivalTiming {
+        if input.startsNewArrivalTiming {
             // A codec/capture change can shift the minimum transit even on a
             // calm link. Keep the wait previously earned by real arrivals.
             fastestTransit = nil
             arrivalBatch = nil
         }
-        let transit = arrivedAt - capturedAt
+        let transit = input.arrivedAt - capturedAt
         let batch = adaptivePlayout ? updateArrivalBatch(capturedAt: capturedAt,
-            arrivedAt: arrivedAt, packetDuration: duration) : (previousDuration: 0, offset: 0)
+            arrivedAt: input.arrivedAt, packetDuration: input.duration) : (previousDuration: 0, offset: 0)
         if let fastest = fastestTransit,
            transit >= fastest.seconds + (capturedAt - fastest.observedAt) * Self.clockDriftAllowance {
         } else { fastestTransit = (transit, capturedAt) }
         let requestedLead = input.nativeLead + margin
             + AVAudioFramePosition(((input.delay + input.packetizationJitter) * mixerFormat.sampleRate).rounded())
-        let boundedLead = min(requestedLead, AVAudioFramePosition((limit * mixerFormat.sampleRate).rounded(.down)) - 1)
-        let delayedStart = rendered + boundedLead
+        let boundedLead = min(requestedLead,
+            AVAudioFramePosition((input.limit * mixerFormat.sampleRate).rounded(.down)) - 1)
+        let delayedStart = input.position.writable + boundedLead
+        let establishesAnchor = playoutAnchor == nil
         let anchor = playoutAnchor ?? (capturedAt: capturedAt, sample: delayedStart)
         if playoutAnchor == nil { playoutAnchor = anchor }
         var target = Double(anchor.sample) + (capturedAt - anchor.capturedAt) * mixerFormat.sampleRate
@@ -97,22 +98,29 @@ final class MixerPCMPlayout {
                     delayedStart: delayedStart), target: &target, options: &options
             )
         }
+        let previousResetCount = playbackResetCount
         let startSample = boundedStartSample(
             target: target, input: input, delayedStart: delayedStart, options: &options
         )
         if let adjustment {
-            playoutAdjustmentCount += 1
-            lastPlayoutAdjustment = MixerPlayoutAdjustment(
-                reason: adjustment.reason,
-                capturedAt: capturedAt,
-                completedSample: position.completed,
-                previousSample: adjustment.previousSample,
-                scheduledSample: startSample
-            )
+            recordAdjustment(.init(reason: adjustment.reason, capturedAt: capturedAt,
+                completedSample: input.position.completed, previousSample: adjustment.previousSample,
+                scheduledSample: startSample))
         }
         lastCapturedAt = capturedAt
-        lastCapturedEnd = capturedAt + duration
-        return (startSample, options)
+        lastCapturedEnd = capturedAt + input.duration
+        var reservation = Reservation(startSample: startSample, options: options)
+        if observesAnchor && (establishesAnchor || adjustment != nil || playbackResetCount != previousResetCount) {
+            reservation.anchorLead = .init(nativeLeadFrames: input.nativeLead, configuredDelay: input.delay,
+                packetizationJitter: input.packetizationJitter, retainedJitterFramesBefore: margin,
+                retainedJitterFramesAfter: retainedJitterMargin(at: capturedAt))
+        }
+        return reservation
+    }
+
+    private func recordAdjustment(_ adjustment: MixerPlayoutAdjustment) {
+        playoutAdjustmentCount += 1
+        lastPlayoutAdjustment = adjustment
     }
 
     private struct AdaptiveReservationContext {
