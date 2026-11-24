@@ -15,6 +15,7 @@ Xcode	2420	指定延期	docs/development/history/バックログの優先順位�
 Xcode	2435	指定延期	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2435ビルドでXcodeの標準出力と検証入口を点検する
 Xcode	2455	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2455ビルドで既存版の試験入口とXcodeの登録を照合する
 Xcode	2475	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2475ビルドで共有スキームとテスト登録を照合する
+Xcode	2495	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2495ビルドで開発と音声試験のXcode登録を照合する
 コード整理	2400	完了	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2400のコード全体の再整理を受け入れる
 コード整理	2460	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2460ビルドのテスト全体の整理を受け入れる
 コードと文書	2500	完了	docs/development/history/バックログの優先順位と進捗の記録.md	2,500コミットのコードと文書の整理を受け入れる
