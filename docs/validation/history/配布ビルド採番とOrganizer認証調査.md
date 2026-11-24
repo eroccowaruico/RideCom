@@ -264,6 +264,8 @@ Mac arm64では空の出力先にGNの構成を生成した。Ninjaの2,485工�
 
 RTCパッケージにC++候補の接続部を追加した。SwiftからPeerConnectionと制御・音声2種類のチャネルを作成した。ファクトリーのハンドルを先に解放しても、接続を利用できた。無効なIDと重複IDを拒否し、接続を解放すると両チャネルが閉じた。Mac arm64で同じ手順を3回実行した。iPhone、Simulator、macOSの計5構成で候補をリンクし、撮影クラスへの参照はなかった。[作成・終了の検証](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#c候補の接続とチャネルの作成終了を確認する)
 
+候補の接続部にSDPの交渉を追加した。MacのSwiftで、媒体のないSDP、音声付きoffer、映像付きanswerを拒否した。続くDataChannel専用のofferとanswerは通った。offerの作成開始直後に接続を解放しても、Swift側で完了を受け取れた。同じ試験を3回実行した。全5構成でリンクし、撮影クラスへの参照はなかった。[SDPの検証](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#c候補でdatachannel専用のsdpを交渉する)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。

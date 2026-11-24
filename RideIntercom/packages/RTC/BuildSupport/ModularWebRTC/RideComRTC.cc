@@ -1,12 +1,19 @@
 #include "include/RideComRTC.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/data_channel_interface.h"
+#include "api/jsep.h"
+#include "api/make_ref_counted.h"
 #include "api/peer_connection_interface.h"
 #include "api/sctp_transport_interface.h"
+#include "api/set_local_description_observer_interface.h"
+#include "api/set_remote_description_observer_interface.h"
 #include "rtc_base/thread.h"
 
 namespace {
@@ -44,6 +51,66 @@ struct Peer {
   PeerObserver observer;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> native;
 };
+
+class DescriptionResult {
+ public:
+  DescriptionResult(void* context, RideComRTCDescriptionCompletion completion)
+      : context_(context), completion_(completion) {}
+  DescriptionResult(const DescriptionResult&) = delete;
+  DescriptionResult& operator=(const DescriptionResult&) = delete;
+  ~DescriptionResult() { Finish(false); }
+
+  void Finish(bool success) {
+    if (auto completion = std::exchange(completion_, nullptr)) {
+      completion(context_, success);
+    }
+  }
+
+ private:
+  void* context_;
+  RideComRTCDescriptionCompletion completion_;
+};
+
+class LocalDescriptionObserver : public webrtc::SetLocalDescriptionObserverInterface {
+ public:
+  LocalDescriptionObserver(void* context, RideComRTCDescriptionCompletion completion)
+      : result_(context, completion) {}
+
+  void OnSetLocalDescriptionComplete(webrtc::RTCError error) override { result_.Finish(error.ok()); }
+
+ private:
+  DescriptionResult result_;
+};
+
+class RemoteDescriptionObserver : public webrtc::SetRemoteDescriptionObserverInterface {
+ public:
+  RemoteDescriptionObserver(void* context, RideComRTCDescriptionCompletion completion)
+      : result_(context, completion) {}
+
+  void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override { result_.Finish(error.ok()); }
+
+ private:
+  DescriptionResult result_;
+};
+
+bool HasOnlyDataChannelMedia(std::string_view sdp) {
+  bool has_media = false;
+  while (!sdp.empty()) {
+    const size_t end = sdp.find_first_of("\r\n");
+    const std::string_view line = sdp.substr(0, end);
+    if (line.starts_with("m=")) {
+      if (!line.starts_with("m=application ")) {
+        return false;
+      }
+      has_media = true;
+    }
+    if (end == std::string_view::npos) {
+      break;
+    }
+    sdp.remove_prefix(end + 1);
+  }
+  return has_media;
+}
 
 }  // namespace
 
@@ -100,6 +167,58 @@ void RideComRTCPeerRelease(RideComRTCPeer* peer) {
     peer->handle->native->Close();
     delete peer;
   }
+}
+
+void RideComRTCPeerSetLocalDescription(
+    RideComRTCPeer* peer, void* context, RideComRTCDescriptionCompletion completion) {
+  if (!completion) {
+    return;
+  }
+  if (!peer) {
+    completion(context, false);
+    return;
+  }
+  peer->handle->native->SetLocalDescription(
+      webrtc::make_ref_counted<LocalDescriptionObserver>(context, completion));
+}
+
+void RideComRTCPeerSetRemoteDescription(
+    RideComRTCPeer* peer, RideComRTCDescriptionKind kind, const char* sdp,
+    void* context, RideComRTCDescriptionCompletion completion) {
+  if (!completion) {
+    return;
+  }
+  if (!peer || !sdp || !HasOnlyDataChannelMedia(sdp) ||
+      (kind != RideComRTCDescriptionOffer && kind != RideComRTCDescriptionAnswer)) {
+    completion(context, false);
+    return;
+  }
+  const auto type = kind == RideComRTCDescriptionOffer ? webrtc::SdpType::kOffer : webrtc::SdpType::kAnswer;
+  auto description = webrtc::CreateSessionDescription(type, sdp);
+  if (!description) {
+    completion(context, false);
+    return;
+  }
+  peer->handle->native->SetRemoteDescription(
+      std::move(description), webrtc::make_ref_counted<RemoteDescriptionObserver>(context, completion));
+}
+
+bool RideComRTCPeerHasGatheredCandidates(RideComRTCPeer* peer) {
+  return peer && peer->handle->native->ice_gathering_state() == webrtc::PeerConnectionInterface::kIceGatheringComplete;
+}
+
+char* RideComRTCPeerCopyLocalDescription(RideComRTCPeer* peer) {
+  if (!peer) {
+    return nullptr;
+  }
+  return peer->handle->factory->signaling->BlockingCall([&] {
+    const auto* description = peer->handle->native->local_description();
+    return description ? strdup(description->ToString().c_str()) : nullptr;
+  });
+}
+
+void RideComRTCDescriptionRelease(char* sdp) {
+  std::free(sdp);
 }
 
 RideComRTCChannel* RideComRTCChannelCreate(

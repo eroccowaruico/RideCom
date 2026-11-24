@@ -21,6 +21,13 @@ typedef enum RideComRTCChannelState {
   RideComRTCChannelClosed,
 } RideComRTCChannelState;
 
+typedef enum RideComRTCDescriptionKind {
+  RideComRTCDescriptionOffer,
+  RideComRTCDescriptionAnswer,
+} RideComRTCDescriptionKind;
+
+typedef void (*RideComRTCDescriptionCompletion)(void* context, bool success);
+
 // Creation returns an owned handle, or NULL if the operation fails.
 // The caller releases each handle once and serializes use against its release.
 RIDECOM_RTC_EXPORT RideComRTCFactory* RideComRTCFactoryCreate(void);
@@ -30,6 +37,20 @@ RIDECOM_RTC_EXPORT RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* facto
 // Closes the connection before releasing the handle. Open channel handles can
 // still be released afterwards.
 RIDECOM_RTC_EXPORT void RideComRTCPeerRelease(RideComRTCPeer* peer);
+
+// The local operation creates the offer or answer appropriate to the current
+// signaling state. Each operation calls its completion once, possibly before
+// returning. The completion must not call back into the adapter.
+RIDECOM_RTC_EXPORT void RideComRTCPeerSetLocalDescription(
+    RideComRTCPeer* peer, void* context, RideComRTCDescriptionCompletion completion);
+RIDECOM_RTC_EXPORT void RideComRTCPeerSetRemoteDescription(
+    RideComRTCPeer* peer, RideComRTCDescriptionKind kind, const char* sdp,
+    void* context, RideComRTCDescriptionCompletion completion);
+RIDECOM_RTC_EXPORT bool RideComRTCPeerHasGatheredCandidates(RideComRTCPeer* peer);
+// Copy the current local SDP, including candidates gathered so far. Release a
+// non-null result with RideComRTCDescriptionRelease.
+RIDECOM_RTC_EXPORT char* RideComRTCPeerCopyLocalDescription(RideComRTCPeer* peer);
+RIDECOM_RTC_EXPORT void RideComRTCDescriptionRelease(char* sdp);
 
 // Channel IDs are allocated out of band. Unreliable channels are unordered and
 // have zero retransmissions.

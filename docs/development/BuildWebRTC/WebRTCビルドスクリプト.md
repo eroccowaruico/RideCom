@@ -119,13 +119,21 @@ macOS向けの出力名は `libRideComRTC.dylib` とし、出力したディレ�
 adapter_dir="$PWD/RideIntercom/packages/RTC/BuildSupport/ModularWebRTC"
 library_dir="$(dirname "$output_dylib")"
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcrun swiftc -I "$adapter_dir/include" -L "$library_dir" -lRideComRTC \
+  xcrun swiftc -swift-version 6 -I "$adapter_dir/include" -L "$library_dir" -lRideComRTC \
   -Xlinker -rpath -Xlinker @executable_path \
   "$adapter_dir/check_lifecycle.swift" -o "$library_dir/check-lifecycle"
 "$library_dir/check-lifecycle"
 ```
 
 この手順は候補の接続部を検証する。採用済みのAppでは、同梱WebRTCのObjective-C APIを使う。[現行SDKとの組合せ](#現行sdkとの組合せ)
+
+#### C++候補でDataChannel専用のSDPを交渉する
+
+ローカルSDPの作成を求めると、現時点の交渉状態に応じてofferかanswerを作成する。候補の収集状態を確認し、収集した候補を含むローカルSDPをコピーできる。呼出元はコピーした文字列を専用の関数で解放する。
+
+受け取ったSDPには媒体行が1つ以上必要で、すべての媒体行を `m=application` に限る。条件を満たさないSDPは接続部で拒否し、SDKの交渉状態を保つ。SDKがローカルまたはリモートのSDPを処理した結果は、呼出元の関数へ一度返す。結果を受け取る関数から接続部を呼び直さない。[媒体とSDPの契約](../../spec/packages/RTC.md#cloudflareの媒体契約)
+
+前節のSwiftのビルド手順で `check_negotiation.swift` を指定する。Mac上の2つの接続で、音声・映像付きSDPの拒否後に正常なofferとanswerが通ることを確かめる。offerの作成を始めてすぐに接続を解放した場合も、Swiftが完了を受け取ることを確かめる。
 
 ## 失敗時の入口
 
