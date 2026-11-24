@@ -563,14 +563,15 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <div class="sheet"><div class="sh"><b>招待</b><span class="link">完了</span></div>
           <div class="body"><div class="group"><div class="row"><b>週末の仲間</b></div>
             <div class="row">招待を保存しました。共有せずに閉じても、後から共有できます。</div>
+          </div><div class="group">
             <div class="row"><span class="grow">ソラ</span><span>未登録</span><span>›</span></div>
           </div><div class="group">
             <div class="row"><span class="grow">マキ</span><span>招待中</span></div>
             <div class="row link"><svg class="i"><use href="#share"/></svg><span>招待を共有</span></div>
-          </div><p class="note">相手の受取が確定すると、同じ行が「受け取り済み」になります。</p></div>
+          </div></div>
         </div>
       </div></div>
-      <figcaption><b>保存から相手ごとの共有へ</b>登録済みの相手だけでも同じ位置に対象グループ名を表示する。ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えても、通話・グループ設定、またはUsersの同じ人の行から再開できる。ある相手への送信が許可されなくても、他の相手への招待は続ける。相手の受領を確認するまで招待中のまま。iOSでは条件を満たした未送信の招待をOSに預ける。相手の受取が確定するまでは「招待中」を表示する。この例は登録済みのマキも選んでいるため、招待の自動送信の状態と、任意で共有する操作を下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
+      <figcaption><b>保存から相手ごとの共有へ</b>登録済みの相手だけでも同じ位置に対象グループ名を表示する。ソラを開くと、確定した名前・未登録・招待先のグループと「招待を共有」を表示する。OS共有を取り消しても同じ詳細へ戻り、コピーだけで登録済みにしない。完了で終えても、通話・グループ設定、またはUsersの同じ人の行から再開できる。ある相手への送信が許可されなくても、他の相手への招待は続ける。iOSでは条件を満たした未送信の招待をOSに預ける。相手の受取が確定すると、同じ行が「招待中」から「受け取り済み」に変わる。この例は登録済みのマキも選んでいるため、招待の自動送信の状態と、任意で共有する操作を下に出す。新しい人だけなら下の共有は出さない。返信は同じ人と枠だけを更新する（<a href="../招待と登録の設計.md#新しい相手のグループ招待の状態遷移">状態遷移</a>）。</figcaption>
     </figure>
     <figure id="group-settings">
       <div class="phone"><div class="screen">

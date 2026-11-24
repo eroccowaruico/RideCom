@@ -346,7 +346,7 @@ StandardとAdvancedの接続・音声再開には標準`glassProminent`、補助
 | newGroupInviteName-{UUID} | Their Name。空欄は重複しない仮名候補を採用。Removeは未保存行だけを外す。Returnはfocusを外すだけで保存しない |
 | saveUserSelectionButton | Standardの既存groupはSave Invitations、AdvancedはAdd Users、新規作成のCreate and Connect／Create Groupは従来どおり。名前・人・予約枠・招待を同じcommitで確定する |
 | groupInvitePerson-{UUID} | Invitation（招待）に参加先・保存済みの名前を並べ、同じ人のモード別詳細を開く。元のperson IDで識別し、既知の相手へ解決しても勝手に別画面へ進めない |
-| groupDeliverySelectionMessage | Standardの保存後の画面で、登録済みの選択相手または未登録の新しい人がいる場合に、参加先の下へ案内を1回表示する。「完了」で閉じた後も共有できる |
+| groupDeliverySelectionMessage | Standardの保存後の画面で、登録済みの選択相手または未登録の新しい人がいる場合に、参加先の下へ「招待を保存しました。共有せずに閉じても、後から共有できます。」を1回表示する |
 | shareContactInvitationButton | 参加先と人を確認してOS共有を開く。取消・コピー後も同じ詳細に戻り、人と招待を保持する |
 | group設定の招待中の行 | 保存した同じ人のContactPersonSheetを開き、共有・名前編集を再開。通常のメンバーの編集・削除と区別し、PendingAvatarを使う |
 | invitedGroupPreview／acceptContactInvitationButton | 作者とgroup名、登録するとGroupsへも加わる旨。拒否は無保存。Registerは関係とgroupを一度に保存し、通話を切り替えず同じ詳細へ |
@@ -367,7 +367,7 @@ Standardの保存済み人物詳細は、未登録 AND 共有対象の送信招�
 
 ## 登録済みの相手へのグループ招待の表示
 
-保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。`StandardRegisteredGroupInvitations`は次の案内を表示する。「招待を保存しました。相手ごとの状態を確認できます。必要なら招待を共有してください。」名前ごとの状態と、任意の「招待を共有」を表示する。pending／queuedは「招待中」、同じ相手のどれか1台がreceivedなら「受け取り済み」。同期で追加端末へ届ける場合も、表示は「受け取り済み」を保ち、Advancedでは追加端末の転送を同じ欄で確認できる。全件cancelledは「招待を停止しました」。外した相手を同じグループに招待し直すと「招待中」から始まり、新しい転送の受領で「受け取り済み」になる。Advancedの送受信状況の欄にも新しい転送が出て、前回の受領済み記録は消える。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。旧形式の相手だけでも同じ保存済み画面で名前ごとに「招待の共有が必要です」と任意の共有を表示する。
+保存後も同じSavedUsersViewを維持し、OS共有を自動では開かない。Done／完了で明示的に閉じる。保存後の共通案内は[新しい相手へのグループ招待](#新しい相手へのグループ招待)の `groupDeliverySelectionMessage` を使う。`StandardRegisteredGroupInvitations` は登録済みの相手の状態を名前ごとに表示する。その一覧の下から、任意でグループ招待を共有できる。pending／queuedは「招待中」、同じ相手のどれか1台がreceivedなら「受け取り済み」。同期で追加端末へ届ける場合も、表示は「受け取り済み」を保ち、Advancedでは追加端末の転送を同じ欄で確認できる。全件cancelledは「招待を停止しました」。外した相手を同じグループに招待し直すと「招待中」から始まり、新しい転送の受領で「受け取り済み」になる。Advancedの送受信状況の欄にも新しい転送が出て、前回の受領済み記録は消える。principalや確認済み鍵がなく記録を作れない相手は「招待の共有が必要です」。旧形式の相手だけでも同じ保存済み画面で名前ごとに「招待の共有が必要です」と任意の共有を表示する。
 
 `AdvancedRegisteredGroupInvitations`は`GroupDeliveryRecord`の`id`・`recipientMemberID`・`state`・`expiresAt`・`credentialReference`を表示する。項目名と値が同じ行に収まらないときは値を次の行へ送り、長いIDを折り返す。保存後の`Invite`は送受信の記録の前に置き、相手の受取を待っている間も共有できる。OS共有を開く・閉じる・コピーする操作で送受信の状況を進めない。両モードで保存・送受信・判定は同じ処理を使い、文言と配置はモード所有の画面に分ける。新しい相手もいる場合、その人の名前付き詳細と登録済みの相手の送受信の状況を同じ保存後の画面で続けられる。
 
@@ -385,13 +385,15 @@ StandardUsersViewだけがStandardGroupInvitationOfferを持つ。StandardのUse
 
 SavedUsersViewは選択から保存済みへの遷移・対象ID・sheetの終了を所有する。StandardGroupInvitationSavedViewとAdvancedGroupInvitationSavedViewが表示を分け、Doneは親から渡す同じ終了操作を呼ぶ。両方で見出しInvitation（招待）、対象group名（savedInvitationGroupName）、任意共有、明示的な完了を維持する。共有の完了を保存の条件にしない。
 
-Standardは新しい人の名前にRegistered／Not registered（登録済み／未登録）を添え、未登録の人が残るときだけ各人の共有案内を出す。内部IDや鍵・データを渡す方法の説明は出さない。AdvancedはIntercomGroup.id／name、SavedUserのid／isRegisteredを表示し、人を開くと既存の詳細へ進む。登録済みの送受信の記録はAdvancedRegisteredGroupInvitationsがそのまま表示する。未保存の選択値と保存処理はMemberSelectionで共通に保ち、見た目の都合で状態を複製しない。
+Standardは新しい人を別のまとまりに並べ、名前にRegistered／Not registered（登録済み／未登録）を添える。招待を共有するにはその人の詳細を開く。内部IDや鍵・データを渡す方法の説明は出さない。AdvancedはIntercomGroup.id／name、SavedUserのid／isRegisteredを表示し、人を開くと既存の詳細へ進む。登録済みの送受信の記録はAdvancedRegisteredGroupInvitationsがそのまま表示する。未保存の選択値と保存処理はMemberSelectionで共通に保ち、見た目の都合で状態を複製しない。
 
 ## 完了後のグループ設定で確認する招待状態
 
 StandardとAdvancedは、招待行を押したときにViewModelの `personForGroupInvitation` で、グループとその行の招待を照合してから保存済みの相手を開く。相手が見つからなければ、Standardはメンバー編集へ進み、Advancedは招待の相手へのボタンを出さない。Advancedで表示時に相手が見つかっても、押す前に招待を取り消したり更新で別の招待に置き換えたりした場合は、元の行の操作では人物詳細を開かない。
 
-StandardGroupSettingsViewのMembersは新しい相手の予約枠に「招待中」を添える。登録済み相手の送受信の記録が残る間は、同じ人の複数端末をまとめた状態を名前の下に出す。StandardGroupInvitationStatusが保存画面と同じ語（招待中／受け取り済み／招待を停止しました）を使う。記録がない旧形式や保持期限後のメンバーに受領済みを推測して付けない。状態の識別子はgroupSettingsInvitationState-{member.id}。既存のタップ・外す・名前変更はそのまま使う。
+Standardの通話画面とグループ設定は、同じ `StandardGroupInvitationStatus` で予約枠と招待記録を照合する。新しい相手が未登録の場合は、人物詳細と同じ「まだ送っていません」「受け取り待ち」「期限切れ」を表示する。対応する記録がない予約枠には「招待中」を添える。
+
+登録済みの相手は、同じ人の複数端末をまとめて「招待中」「受け取り済み」「招待を停止しました」を表示する。グループ設定では「受け取り済み」も読み取れる。通話画面ではその表示を省き、相手の通話状態を表示する。記録がない旧形式や保持期限後のメンバーに受領済みを推測して付けない。設定の状態の識別子は `groupSettingsInvitationState-{member.id}`。
 
 AdvancedGroupSettingsViewは共有できる場合に`Invite`を送受信の記録の前に置く。対象groupのoutgoing記録はAdvancedGroupDeliveryRecordsで表示する。id・recipientMemberID・state・expiresAt・credentialReferenceとその識別子は保存画面と同じ。受諾期限を過ぎた結果の照会中は、Standardの「招待中」とAdvancedの送受信の記録を表示対象から外す。確定結果が届いたら従来と同じ状態を表示し、発行から28日で対象から外す。回線復帰やiOSに預けた送信でも同じ表示条件を使う。iOSへの引き渡しだけではpendingを保つ。入力中の名前、今の通話、共有操作を状態更新で切り替えない。`groupInvitationDeliveries(in:)`が対象groupの記録を照会する。`groupInvitationDeliveryState(forMember:in:)`は保存済み人物のアカウントを解決して既存の端末集約判定を使う。画面用の別の送受信の状況・通信・timerは持たない。
 
