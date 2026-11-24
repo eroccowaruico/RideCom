@@ -162,6 +162,15 @@ python3 scripts/audio_e2e.py --pipeline-only
 
 ### マイクOFFで待ち、後参加と経路復旧を続けて検証する
 
+通常のCLIでは、次のコマンドでInternet経路を試す。Internetは `--configuration Release` でも試せる。近距離は `--transport local` を選び、UDP受信口を中断できるDebug構成を使う。待機秒数は1〜300秒。実行環境の確認には短い待機を使え、5分の待機を評価するときは300秒を指定する。
+
+```sh
+python3 scripts/audio_e2e.py --two-simulators --transport webrtc --matrix smoke \
+  --seconds 6 --speech-pair japanese --background-recovery 300
+```
+
+両端のXcodeの試験結果に加え、後参加、双方のマイクOFF、経路復旧後の3つの測定結果が両端に揃うことを確認する。この試験は片側のマイクをOFFに保って聞こえ方を調べる。双方向の遅延基準は、通常の音声試験で引き続き測る。
+
 2台のiOS Simulatorで `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端で同じ実行IDと試験Worker URLを指定し、それぞれ異なるroleを使う。両端の試験構成を次の表に合わせる。
 
 | 条件 | 環境変数と設定値 |

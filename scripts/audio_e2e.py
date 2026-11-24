@@ -244,6 +244,8 @@ def main() -> int:
     parser.add_argument('--clean-build', action='store_true', help='Clean test products before building, preserving bundle identifiers and signing')
     parser.add_argument('--ephemeral', action='store_true', help='Delete the owned simulator after this run (CI)')
     parser.add_argument('--two-simulators', action='store_true', help='Run both network audio endpoints on iPhone Simulators')
+    parser.add_argument('--background-recovery', type=int, metavar='WAIT_SECONDS',
+                        help='Wait muted in the background, then measure late speech and audio after a route outage')
     parser.add_argument('--cleanup-only', action='store_true', help='Recover managed devices and report old running hosts without stopping unknown owners')
     parser.add_argument('--transport', choices=['local', 'webrtc', 'mixed', 'all'], default='all')
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
@@ -268,6 +270,14 @@ def main() -> int:
     if len(standalone_plans) > 1:
         parser.error('Choose one standalone audio test mode')
     standalone = next(iter(standalone_plans), None)
+    if args.background_recovery is not None and (
+        not 1 <= args.background_recovery <= 300 or not args.two_simulators or args.transport not in ('local', 'webrtc')
+        or (args.transport == 'local' and args.configuration != 'Debug')
+        or args.matrix != 'smoke' or standalone or args.cleanup_only
+        or args.saved_group_start or args.scenario
+    ):
+        parser.error('--background-recovery requires 1–300 seconds and a two-Simulator smoke run for Local or WebRTC. '
+                     'Use Debug for Local listener interruption.')
     if args.two_simulators and standalone:
         parser.error('--two-simulators requires a network audio test')
     if args.saved_group_start and (args.transport != 'local' or standalone):
@@ -307,6 +317,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
             standalone: StandaloneAudioPlan | None) -> int:
     out = runner.out
     run_id = str(uuid.uuid4())
+    recovery_wait = args.background_recovery or 0
+    recovery_route = 'internet' if args.transport == 'webrtc' else 'local'
     for case in cases:
         if args.codec != 'default':
             case['codec'] = args.codec
@@ -320,12 +332,16 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         measurement_ids = standalone.measurement_ids
     elif args.transport == 'mixed':
         measurement_ids = MIXED_AUDIO_MEASUREMENT_IDS
+    elif recovery_wait:
+        measurement_ids = (f'late-{recovery_route}', 'background-mic-off', f'background-{recovery_route}-recovered')
     else:
         measurement_ids = tuple(case['id'] for case in cases)
     (out / 'configuration.json').write_text(json.dumps({'run': run_id, 'seconds': args.seconds, 'codec': args.codec,
         'isolation': args.isolation, 'buildConfiguration': args.configuration, 'input': 'bundled synthetic speech WAV', 'transport': args.transport,
         'speechPair': args.speech_pair, 'pipelineOnly': args.pipeline_only, 'realtimeOnly': args.realtime_only, 'groupOnly': args.group_only, 'codecOnly': args.codec_only, 'switchesOnly': args.switches_only,
-        'switchLimitsOnly': args.switch_limits_only, 'twoSimulators': args.two_simulators, 'expectedMeasurementIDs': measurement_ids, 'output': 'system AVAudioEngine render tap'}, indent=2) + '\n')
+        'switchLimitsOnly': args.switch_limits_only, 'twoSimulators': args.two_simulators,
+        'backgroundRecoveryWaitSeconds': recovery_wait, 'expectedMeasurementIDs': measurement_ids,
+        'output': 'system AVAudioEngine render tap'}, indent=2) + '\n')
     audio_pins = []
     leases = [SimulatorLease(runner, resource_root / name) for name in ['reusable.json', 'ephemeral.json']]
     lease = leases[int(args.ephemeral)]
@@ -449,6 +465,12 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
             if args.unanswered_internet:
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
+            if recovery_wait:
+                environment.update({
+                    'AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT': '1', 'AUDIO_E2E_BACKGROUND_AFTER_START': '1',
+                    'AUDIO_E2E_BACKGROUND_MIC_OFF': '1', 'AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS': str(recovery_wait),
+                    f'AUDIO_E2E_BACKGROUND_{recovery_route.upper()}_RECOVERY': '1',
+                })
             (out / (transport + '-configuration.json')).write_text(json.dumps(environment, indent=2) + '\n')
             commands = []
             result_sources: dict[str, tuple[str, Path]] = {}
@@ -460,7 +482,11 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 result_sources[role] = (name, configured.parent)
                 commands.append(('test-' + name, ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
                     '-destination', destination, '-parallel-testing-enabled', 'NO']))
-            run_pair(runner, commands, 120 + sum(case['seconds'] + 20 for case in cases),
+            timeout = 120 + sum(case['seconds'] + 20 for case in cases)
+            if recovery_wait:
+                # The quiet interval and new speech sample follow the initial speech sample.
+                timeout += recovery_wait + 90 + cases[0]['seconds']
+            run_pair(runner, commands, timeout,
                      wait_for_first_native_setup=not args.two_simulators)
             bundles: dict[str, Path] = {}
             for role, (name, products) in result_sources.items():
@@ -489,6 +515,9 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                         runner.record('coverage-' + name, [], 'failed', 1, time.monotonic(), str(error))
         if standalone:
             runner.record('duplex-latency', [], 'not-applicable', None, time.monotonic(), 'Standalone tests use their own latency checks')
+        elif recovery_wait:
+            runner.record('duplex-latency', [], 'not-applicable', None, time.monotonic(),
+                          'Background recovery keeps the waiting endpoint muted')
         elif args.transport != 'mixed':
             record_duplex_latency(runner, measured, cases, transports)
         (out / 'measurements.json').write_text(json.dumps(measured, indent=2) + '\n')

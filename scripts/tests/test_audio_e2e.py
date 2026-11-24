@@ -116,6 +116,12 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             ('selected', ['--scenario', 'output-mute'], ['output-mute'], ['output-mute']),
             ('mixed', ['--transport', 'mixed', '--matrix', 'smoke'],
              ['one-way-initial', 'local-before', 'internet-during', 'local-after'], ['default']),
+            ('internet-recovery', ['--transport', 'webrtc', '--matrix', 'smoke', '--two-simulators',
+                                   '--background-recovery', '300', '--configuration', 'Release'],
+             ['late-internet', 'background-mic-off', 'background-internet-recovered'], ['default']),
+            ('local-recovery', ['--transport', 'local', '--matrix', 'smoke', '--two-simulators',
+                                '--background-recovery', '5'],
+             ['late-local', 'background-mic-off', 'background-local-recovered'], ['default']),
             ('cleanup', ['--cleanup-only'], [], None),
         ]
         for name, arguments, expected_measurements, scenario_ids in examples:
@@ -143,6 +149,11 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             (['--switches-only', '--scenario', 'default'], 'requires a network audio matrix'),
             (['--cleanup-only', '--scenario', 'default'], 'requires a network audio matrix'),
             (['--transport', 'mixed', '--matrix', 'smoke', '--scenario', 'default'], 'requires a network audio matrix'),
+            (['--background-recovery', '300', '--transport', 'webrtc', '--matrix', 'smoke'], 'two-Simulator smoke'),
+            (['--background-recovery', '301', '--transport', 'webrtc', '--matrix', 'smoke', '--two-simulators'],
+             'requires 1–300 seconds'),
+            (['--background-recovery', '5', '--transport', 'local', '--matrix', 'smoke', '--two-simulators',
+              '--configuration', 'Release'], 'Use Debug for Local listener interruption'),
         ]
         out = self.root / 'unstarted'
         for arguments, message in examples:
