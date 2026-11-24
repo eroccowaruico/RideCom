@@ -165,7 +165,7 @@ def main() -> int:
     if args.commit:
         paths = git("diff", "--cached", "--no-renames", "--name-only", "-z").split("\0")[:-1]
         mode = os.environ.get("RIDE_WORK", "")
-        governance = {"AGENTS.md", LEDGER, ".githooks/pre-commit", ".githooks/prepare-commit-msg", "scripts/check_periodic_work.py",
+        governance = {"AGENTS.md", "docs/development/開発環境.md", LEDGER, ".githooks/pre-commit", ".githooks/prepare-commit-msg", "scripts/check_periodic_work.py",
                       "scripts/tests/test_periodic_work.py", "scripts/tests/test_language_lint.py"}
         if mode == "文書" and paths and all(p.startswith(("docs/policies/", "docs/backlog/", ".agents/skills/"))
                                            or p in governance for p in paths):
