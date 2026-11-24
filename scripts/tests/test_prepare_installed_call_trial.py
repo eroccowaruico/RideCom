@@ -1,7 +1,10 @@
+import json
 import plistlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 from uuid import UUID
 
 from scripts import prepare_installed_call_trial as installed_trial
@@ -63,3 +66,48 @@ class InstalledCallTrialPlanTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             installed_trial.prepare(self.source, self.source, self.trial)
         self.assertEqual(self.source.read_bytes(), original)
+
+
+class InstalledCallTrialDeviceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.apps = [
+            {'bundleIdentifier': installed_trial.APP_ID, 'bundleVersion': '2440'},
+            {'bundleIdentifier': installed_trial.RUNNER_ID, 'bundleVersion': 'not-reported'},
+        ]
+        self.device = 'synthetic-destination'
+
+    def response(self, result: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess([], 0, json.dumps({'result': result}), 'synthetic-personal-data')
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_reports_installed_artifacts_and_locked_state(self, run: Mock) -> None:
+        run.side_effect = [self.response({'apps': self.apps}), self.response({'passcodeRequired': True})]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report, {'app': 'installed', 'app_build': '2440', 'runner': 'installed', 'lock': 'locked'})
+        self.assertEqual(status, 0)
+        for call, command in zip(run.call_args_list, ('apps', 'lockState')):
+            self.assertEqual(call.args[0][:5], ['xcrun', 'devicectl', 'device', 'info', command])
+            self.assertIn(self.device, call.args[0])
+            self.assertTrue(call.kwargs['capture_output'])
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_missing_runner_is_visible_while_app_is_installed(self, run: Mock) -> None:
+        run.side_effect = [self.response({'apps': self.apps[:1]}), self.response({'passcodeRequired': False})]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report, {'app': 'installed', 'app_build': '2440', 'runner': 'missing', 'lock': 'unlocked'})
+        self.assertEqual(status, 1)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_unreadable_inventory_does_not_report_missing_artifacts(self, run: Mock) -> None:
+        run.side_effect = [subprocess.TimeoutExpired('synthetic', 1), self.response({'passcodeRequired': True})]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report, {'app': 'unknown', 'app_build': None, 'runner': 'unknown', 'lock': 'locked'})
+        self.assertEqual(status, 2)
+
+    @patch('scripts.prepare_installed_call_trial.subprocess.run')
+    def test_device_text_cannot_enter_the_report(self, run: Mock) -> None:
+        self.apps[0]['bundleVersion'] = 'synthetic-personal-data'
+        run.side_effect = [self.response({'apps': self.apps}), self.response({'passcodeRequired': 'synthetic-private'})]
+        report, status = installed_trial.check_device(self.device)
+        self.assertEqual(report, {'app': 'installed', 'app_build': None, 'runner': 'installed', 'lock': 'unknown'})
+        self.assertEqual(status, 2)
