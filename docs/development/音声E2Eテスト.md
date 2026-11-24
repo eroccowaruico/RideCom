@@ -204,11 +204,11 @@ python3 scripts/audio_e2e.py --cleanup-only
 | configuration.json | run識別子、入力境界、通信経路、実行するmodeと`expectedMeasurementIDs`。同じIDを、通信試験の経路と両端ごと、または専用modeの測定結果の照合に使う。`--cleanup-only`の期待IDは空配列 |
 | scenarios.json | 通信試験の両端に渡す設定。通常の通信試験では選択したマトリクス、`--transport mixed`では通話を始めるための初期設定。専用modeと`--cleanup-only`では作成しない |
 | source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含める。ビルドから受入までに入力やHEADが変わると失敗する。プロジェクトで共通のビルド番号だけが進む場合は許容する |
-| local-mac.xcresult / local-ios.xcresult / webrtc-mac.xcresult / webrtc-ios.xcresult | 通信経路・端末別の独立したXCTest結果 |
+| `test-<通信経路>-<端末>.log` | Xcodeが報告した `.xcresult` の場所を記録する。通信経路と端末ごとに別の結果を標準の `Logs/Test` から読み取る |
 | attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性の検査に合格しなかった場合の復号・ミキサーWAV、終了時の状態 |
 | simulator-id.txt | 実行に使用した端末の識別子 |
 
-双方向の遅延を計測できた行では、`measurements.json` の `captureToRenderLatencySeconds` に実測値を保存する。`captureToRenderLatencyWithAllowanceSeconds` は、実測値に位置合わせの計測余裕10 msを加えた判定値である。125 msの上限には後者を照合し、上限を超えた行にも両方の値を保存する。
+双方向の遅延を計測できた行では、`measurements.json` の `captureToRenderLatencySeconds` に実測値を保存する。`captureToRenderLatencyWithAllowanceSeconds` は、実測値に位置合わせの計測余裕10 msを加えた判定値である。125 msの上限には後者を照合し、上限を超えた行にも両方の値を保存する。専用モードにはそれぞれの遅延判定があり、2台間の `duplex-latency` は対象外と記録する。
 
 背景通話の後参加と受話再開では、各端末の `packet-timing` に符号化済みpacketの収録時刻、受信側で処理を始めた時刻と予約後の待ち量・調整回数を記録する。相手音声を受ける測定では復号直後のWAVとnative出力WAVを保存し、それぞれの固定時刻での連続性を測定する。両端のpacketは収録時刻を基準に照合し、記録区間の前後は重なる範囲を使う。音声は試験fixtureの内容を専用の検証成果物に保存する。
 

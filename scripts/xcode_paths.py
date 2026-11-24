@@ -25,6 +25,8 @@ def xcode_test_result(log: Path, build_dir: Path) -> Path:
     # DerivedData root than the original build used.
     result = path.resolve()
     derived_data = build_dir.parent.parent.parent.resolve()
+    if not result.is_relative_to(derived_data):
+        raise ValueError('The reported Xcode result bundle is outside the standard test logs or missing')
     relative = result.relative_to(derived_data)
     if len(relative.parts) != 4 or relative.parts[1:3] != ('Logs', 'Test'):
         raise ValueError('The reported Xcode result bundle is outside the standard test logs or missing')

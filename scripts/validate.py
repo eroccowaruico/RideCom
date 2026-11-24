@@ -452,12 +452,12 @@ class Runner:
         completed = self.run(name, command, needs=[preflight], timeout=timeout, env=test_env)
         started = time.monotonic()
         try:
-            if not completed or settings is None:
-                raise ValueError('Xcode tests did not complete successfully')
-            bundle = xcode_test_result(self.out / f'{name}.log', Path(settings['BUILD_DIR']))
+            bundle = xcode_test_result(self.out / f'{name}.log', Path(settings['BUILD_DIR'])) if settings else None
         except (OSError, ValueError):
+            bundle = None
+        if not completed or bundle is None:
             self.record(name + '-acceptance', [], 'failed', 1, started, 'requires a successful run and its native xcresult')
-            return None
+            return bundle
         summary_name = name + '-summary'
         self.run(summary_name, ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle)], needs=[name], timeout=60)
         started = time.monotonic()

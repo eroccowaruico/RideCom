@@ -46,6 +46,7 @@ from scripts.xcode_paths import (
     scheme_configuration,
     select_test_run,
     xcode_build_settings,
+    xcode_test_result,
 )
 
 
@@ -393,10 +394,10 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         preflight = configure_test_run(ios_run, 'preflight', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
                                        {}, identifiers=ios_preflight_tests)
         command('preflight', ['xcodebuild', 'test-without-building', '-xctestrun', str(preflight),
-            '-destination', 'platform=iOS Simulator,id=' + simulator, '-parallel-testing-enabled', 'NO',
-            '-resultBundlePath', str(out / 'preflight.xcresult')], 120)
+            '-destination', 'platform=iOS Simulator,id=' + simulator, '-parallel-testing-enabled', 'NO'], 120)
+        preflight_bundle = xcode_test_result(out / 'preflight.log', preflight.parent)
         command('preflight-summary', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
-            '--path', str(out / 'preflight.xcresult'), '--format', 'json'], 60)
+            '--path', str(preflight_bundle), '--format', 'json'], 60)
         preflight_summary = json.loads((out / 'preflight-summary.log').read_text())
         if not xcode_tests_passed(preflight_summary) or preflight_summary['totalTestCount'] != len(ios_preflight_tests):
             raise RuntimeError('Speech oracle and real iOS session preflight must both pass')
@@ -406,10 +407,10 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 'AudioE2ETests/testMacFixturePacesCompletedSamples',
                 'AudioE2ETests/testFixturePreservesClockGapsWithoutDelayingLaterSpeech'])
             command('preflight-mac', ['xcodebuild', 'test-without-building', '-xctestrun', str(mac_preflight),
-                '-destination', 'platform=macOS,arch=arm64', '-parallel-testing-enabled', 'NO',
-                '-resultBundlePath', str(out / 'preflight-mac.xcresult')], 120)
+                '-destination', 'platform=macOS,arch=arm64', '-parallel-testing-enabled', 'NO'], 120)
+            mac_bundle = xcode_test_result(out / 'preflight-mac.log', mac_preflight.parent)
             command('preflight-mac-summary', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
-                '--path', str(out / 'preflight-mac.xcresult'), '--format', 'json'], 60)
+                '--path', str(mac_bundle), '--format', 'json'], 60)
             mac_summary = json.loads((out / 'preflight-mac-summary.log').read_text())
             if not xcode_tests_passed(mac_summary) or mac_summary['totalTestCount'] != 2:
                 raise RuntimeError('Mac fixture capture clock must pass before latency measurement')
@@ -418,17 +419,17 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
             configured = configure_test_run(ios_run, 'pipeline', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
                                             {}, identifiers=standalone.tests)
             runner.run('test-pipeline', ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
-                '-destination', 'platform=iOS Simulator,id=' + simulator, '-parallel-testing-enabled', 'NO',
-                '-resultBundlePath', str(out / 'pipeline.xcresult')], timeout=standalone.timeout)
+                '-destination', 'platform=iOS Simulator,id=' + simulator, '-parallel-testing-enabled', 'NO'], timeout=standalone.timeout)
+            pipeline_bundle = xcode_test_result(out / 'test-pipeline.log', configured.parent)
             if runner.run('summary-pipeline', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
-                '--path', str(out / 'pipeline.xcresult'), '--format', 'json'], timeout=60):
+                '--path', str(pipeline_bundle), '--format', 'json'], timeout=60):
                 summary = json.loads((out / 'summary-pipeline.log').read_text())
                 passed = xcode_tests_passed(summary) and summary['totalTestCount'] == len(standalone.tests)
                 result_name = 'measure-switch-limits' if args.switch_limits_only else 'accept-pipeline'
                 runner.record(result_name, [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
             folder = out / 'attachments-pipeline'
             if runner.run('attachments-pipeline', ['xcrun', 'xcresulttool', 'export', 'attachments',
-                '--path', str(out / 'pipeline.xcresult'), '--output-path', str(folder)], timeout=60):
+                '--path', str(pipeline_bundle), '--output-path', str(folder)], timeout=60):
                 rows = measurements(folder, measurement_ids, 'pipeline', 'none')
                 (out / 'pipeline-measurements.json').write_text(json.dumps(rows, indent=2) + '\n')
             transports = []
@@ -449,35 +450,45 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             (out / (transport + '-configuration.json')).write_text(json.dumps(environment, indent=2) + '\n')
             commands = []
-            result_names = {}
+            result_sources: dict[str, tuple[str, Path]] = {}
             for role, platform, destination in endpoints:
                 settings, source = products_by_platform[platform]
                 purpose = 'pair-' + role if args.two_simulators else 'pair'
                 configured = configure_test_run(source, purpose, platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment | {'AUDIO_E2E_ROLE': role})
                 name = transport + '-' + (platform + '-' + role if args.two_simulators else platform)
-                result_names[role] = name
+                result_sources[role] = (name, configured.parent)
                 commands.append(('test-' + name, ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
-                    '-destination', destination, '-parallel-testing-enabled', 'NO',
-                    '-resultBundlePath', str(out / (name + '.xcresult'))]))
+                    '-destination', destination, '-parallel-testing-enabled', 'NO']))
             run_pair(runner, commands, 120 + sum(case['seconds'] + 20 for case in cases),
                      wait_for_first_native_setup=not args.two_simulators)
-            for role, name in result_names.items():
+            bundles: dict[str, Path] = {}
+            for role, (name, products) in result_sources.items():
+                try:
+                    bundles[role] = xcode_test_result(out / ('test-' + name + '.log'), products)
+                except (OSError, ValueError):
+                    runner.record('result-' + name, [], 'failed', 1, time.monotonic(), 'Native Xcode result unavailable')
+            if len(set(bundles.values())) != len(bundles):
+                raise ValueError('Audio endpoints must report separate Xcode result bundles')
+            for role, bundle in bundles.items():
+                name, _ = result_sources[role]
                 summary_ok = runner.run('summary-' + name, ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
-                    '--path', str(out / (name + '.xcresult')), '--format', 'json'], timeout=60)
+                    '--path', str(bundle), '--format', 'json'], timeout=60)
                 if summary_ok:
                     summary = json.loads((out / ('summary-' + name + '.log')).read_text())
                     passed = xcode_tests_passed(summary) and summary['totalTestCount'] == 1
                     runner.record('accept-' + name, [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
                 folder = out / ('attachments-' + name)
                 exported = runner.run('attachments-' + name, ['xcrun', 'xcresulttool', 'export', 'attachments',
-                    '--path', str(out / (name + '.xcresult')), '--output-path', str(folder)], timeout=60)
+                    '--path', str(bundle), '--output-path', str(folder)], timeout=60)
                 if exported:
                     try:
                         measured += measurements(folder, measurement_ids, role, transport)
                         runner.record('coverage-' + name, [], 'passed', 0, time.monotonic())
                     except (OSError, ValueError) as error:
                         runner.record('coverage-' + name, [], 'failed', 1, time.monotonic(), str(error))
-        if args.transport != 'mixed':
+        if standalone:
+            runner.record('duplex-latency', [], 'not-applicable', None, time.monotonic(), 'Standalone tests use their own latency checks')
+        elif args.transport != 'mixed':
             record_duplex_latency(runner, measured, cases, transports)
         (out / 'measurements.json').write_text(json.dumps(measured, indent=2) + '\n')
         after_sources = source_manifest(ROOT)

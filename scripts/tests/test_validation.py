@@ -457,6 +457,7 @@ class ValidationTests(unittest.TestCase):
                     'watchsimulator' if destination.startswith('platform=watchOS Simulator') else 'iphonesimulator')
         product = 'RideIntercomWatch.app' if scheme == 'RideIntercomWatch' else 'RideIntercom.app'
         products = Path(self.temporary.name) / 'Xcode Default/Build/Products'
+        native_result = products.parent.parent.parent / 'Xcode Test Run' / 'Logs' / 'Test' / f'Test {name}.xcresult'
         target_dir = products / (configuration + ('' if platform == 'macosx' else '-' + platform))
         settings = {'BUILD_DIR': str(products), 'TARGET_BUILD_DIR': str(target_dir),
                         'FULL_PRODUCT_NAME': product, 'CONFIGURATION': configuration,
@@ -500,19 +501,22 @@ class ValidationTests(unittest.TestCase):
             else:
                 code = 'from pathlib import Path; Path(' + repr(str(marker)) + ').touch()'
                 if fault != 'missing-result':
-                    bundle = products.parent.parent.parent / 'Xcode Test Run' / 'Logs' / 'Test' / f'Test {name}.xcresult'
-                    bundle.mkdir(parents=True, exist_ok=True)
-                    message = 'Test session results, code coverage, and logs:\n\t' + str(bundle)
+                    native_result.mkdir(parents=True, exist_ok=True)
+                    message = 'Test session results, code coverage, and logs:\n\t' + str(native_result)
                     code += '; print(' + repr(message) + ')'
+                if fault == 'test-failure':
+                    code += '; raise SystemExit(9)'
                 if expected_runner_path is not None:
                     code = ('import os; assert os.environ["TEST_RUNNER_PATH"] == '
                             + repr(expected_runner_path) + '; ' + code)
             return original_run(stage, [sys.executable, '-c', code], **kwargs)
         with patch.object(self.runner, 'run', side_effect=run), patch.object(
                 self.module, 'xcode_build_settings', return_value=settings, create=True):
-            self.runner.xcode(name, destination, only=only_tests or ('Recovery' if reuse_build else None),
-                              skip=None if reuse_build or only_tests else 'Recovery', reuse_build=reuse_build,
-                              scheme=scheme)
+            result = self.runner.xcode(name, destination, only=only_tests or ('Recovery' if reuse_build else None),
+                                       skip=None if reuse_build or only_tests else 'Recovery', reuse_build=reuse_build,
+                                       scheme=scheme)
+        if fault == 'test-failure':
+            self.assertEqual(result, native_result.resolve())
         return commands, marker
 
     def test_macos_test_runner_uses_cli_path_with_xcode_fallback(self) -> None:
@@ -531,6 +535,12 @@ class ValidationTests(unittest.TestCase):
         commands, _ = self.xcode_fixture('macos-tests', 'platform=macOS', fault='missing-result')
         self.assertNotIn('macos-tests-summary', commands)
         self.assertEqual(self.runner.results['macos-tests']['status'], 'passed')
+        self.assertEqual(self.runner.results['macos-tests-acceptance']['status'], 'failed')
+
+    def test_failed_xcode_keeps_the_native_result_for_diagnostics(self) -> None:
+        commands, _ = self.xcode_fixture('macos-tests', 'platform=macOS', fault='test-failure')
+        self.assertNotIn('macos-tests-summary', commands)
+        self.assertEqual(self.runner.results['macos-tests']['exit_code'], 9)
         self.assertEqual(self.runner.results['macos-tests-acceptance']['status'], 'failed')
 
     def test_watch_scheme_uses_selected_host_and_watchsimulator_run(self) -> None:

@@ -50,7 +50,7 @@ def simulator_test(output: Path, bootstrap: str, require_turn: bool, wait_for_pe
     try:
         command = ['xcodebuild', '-project', 'RideIntercom.xcodeproj', '-scheme', 'RideIntercomAudioE2E',
                    '-destination', 'platform=iOS Simulator,id=' + device, '-parallel-testing-enabled', 'NO',
-                   '-resultBundlePath', str(output / 'media.xcresult'), '-only-testing:' + CASE, 'test']
+                   '-only-testing:' + CASE, 'test']
         environment = os.environ | {'TEST_RUNNER_RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP': bootstrap}
         environment['TEST_RUNNER_RIDEINTERCOM_TEST_TURN_RELAY'] = '1' if require_turn else '0'
         environment['TEST_RUNNER_RIDEINTERCOM_TEST_WAIT_FOR_PEER'] = '1' if wait_for_peer else '0'

@@ -184,7 +184,7 @@ CLIとSimulatorは `https://preview-ridecom.analog.workers.dev` を使う。Work
 
 1. `node scripts/Cloudflare/prepare-preview-media-trial.mjs` を実行する。返るディレクトリには、試験の照合値を入れた `grant.toml` と、端末側の試験資格を入れた `credentials.json` がある。
 2. `grant.toml` の1行を `server/wrangler.toml` の `[previews.vars]` に加え、試験設定を含む共有mainのコミットを対象に[固定Previewの利用開始手順](#固定previewを作り直せる条件)を実行する。配置を読み戻し、公開先とコミット、設定の有無を照合する。試験資格と通話鍵はローカルの `credentials.json` で扱う。
-3. 下のコマンドで測定する。出力先には新しいディレクトリを指定する。資格2件の受付、両方向の発話フレームの一致、試験後の通話数と利用枠を確認する。
+3. 下のコマンドで測定する。実行ログには新しい保存先を指定する。Xcodeのテスト結果はXcodeの標準保存先に作成し、場所を `xcodebuild.log` から確認する。資格2件の受付、両方向の発話フレームの一致、試験後の通話数と利用枠を確認する。
 
    ```sh
    python3 scripts/Cloudflare/run-preview-media-trial.py "$TRIAL_DIR/credentials.json" --output "$OUTPUT_DIR"
