@@ -175,7 +175,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         guard self.generation == generation else { return }
         let message = (error as? Failure)?.description ?? "Cloudflare connection failed"
         switch (step, error) {
-        case (_, Failure.accountInUse), (_, Failure.http(401)):
+        case (_, Failure.accountInUse), (_, Failure.deviceCredentialRejected):
             source.yield(.blocked(message))
         case (_, Failure.servicePaused): source.yield(.failed(message))
         case (let step?, Failure.http(let code)): source.yield(.failed("\(step) · HTTP \(code)"))
@@ -196,23 +196,6 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private struct WireEvent: Decodable {
         let type: String; let peers: [WirePeer]?; let from: String?; let namespace: String?; let payload: String?
     }
-    private enum Failure: Error, LocalizedError {
-        case invalidConfiguration, invalidResponse, accountInUse, peerSnapshotChanged, servicePaused, http(Int)
-        var errorDescription: String? { description }
-        var description: String {
-            switch self {
-            case .invalidConfiguration: "A secure Worker URL and device token are required"
-            case .invalidResponse: "Invalid Cloudflare response"
-            case .accountInUse:
-                "This account already has an Internet call. End the existing call, then try again. "
-                    + "If the other device lost its connection, wait for that call to expire."
-            case .peerSnapshotChanged: "Cloudflare peer snapshot changed"
-            case .servicePaused: String(localized: "Internet calling is paused.")
-            case .http(401): String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
-            case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
-            }
-        }
-    }
 }
 
 private extension CloudflareRealtimeSignalingClient {
@@ -223,7 +206,7 @@ private extension CloudflareRealtimeSignalingClient {
                 guard let self else { return }
                 do { try await self.receiveSocket(request, id: id, generation: generation); return } catch {
                     guard !Task.isCancelled else { return }
-                    if case Failure.http(401) = error {
+                    if case Failure.deviceCredentialRejected = error {
                         await self.fail(error, generation: generation)
                         return
                     }
@@ -275,8 +258,10 @@ private extension CloudflareRealtimeSignalingClient {
     func receiveMessage(from socket: URLSessionWebSocketTask) async throws -> URLSessionWebSocketTask.Message {
         do { return try await socket.receive() } catch {
             guard let response = socket.response as? HTTPURLResponse, let url = socket.originalRequest?.url,
-                  response.statusCode == 401, response.url == url else { throw error }
-            throw Failure.http(401)
+                  response.url == url else { throw error }
+            let rejection = Failure(httpStatus: response.statusCode)
+            guard case .deviceCredentialRejected = rejection else { throw error }
+            throw rejection
         }
     }
     func socketUpgrade(_ request: WebRTCSignalingConnectRequest, id: String) throws -> URLRequest {
@@ -377,7 +362,7 @@ extension CloudflareRealtimeSignalingClient {
                 case (403, "peer_snapshot_changed") where request.url?.path.hasSuffix("/pull") == true:
                     throw Failure.peerSnapshotChanged
                 case (503, "call_service_paused"): throw Failure.servicePaused
-                default: throw Failure.http(response.statusCode)
+                default: throw Failure(httpStatus: response.statusCode)
                 }
             } catch let error as URLError
                 where retryConnectionLoss && error.code == .networkConnectionLost && retries < 2 {
