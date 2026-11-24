@@ -135,7 +135,6 @@ enabled = true
 
 # Ordinary variables and env bindings must be declared separately from production.
 [previews.vars]
-TEST_PREVIEW_MEDIA_TRIAL = "{\"room\":\"cb3af26337abf1f2e00c25875e7ad8685da918add00515d5f4f21e8bd16b2153\",\"issuedAt\":1795492159087,\"expiresAt\":1795493359087,\"participants\":{\"e6fb3a1751ed1b6d404747bf83e385adffde2fdc55e48409281783f85d5e28f5\":\"e2e-a-FB3E13A3\",\"22bdb62705cd5e873cdee7718e20e6393d461dfbf9ccc19de784c72f76977b22\":\"e2e-b-FB3E13A3\"}}"
 APPLE_AUTH_ENABLED = "true"
 APPLE_CLIENT_ID = "com.yowamushi-inc.RideIntercom.RideIntercom"
 APPLE_TEAM_ID = "UAY8FH5FF8"
