@@ -2,7 +2,7 @@
 重要度	2420	完了	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2420で背景待機と近距離の発話欠落を照合する
 重要度	2430	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2430ビルドで近距離の再生待ちを優先する
 重要度	2440	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2440ビルドで本番の接続と実機試験の準備を照合する
-重要度	2450	進行中	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2450ビルドで実機の準備と本番通話の着手順を確かめる
+重要度	2450	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2450ビルドで実機の準備と本番通話の着手順を確かめる
 バックログ	2420	完了	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2420で整理後の着手条件とバックログを揃える
 バックログ	2445	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2445ビルドで実機の準備と残る通話試験を照合する
 Xcode	2420	指定延期	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2420でXcodeの参照と共通の検証入口を点検する
