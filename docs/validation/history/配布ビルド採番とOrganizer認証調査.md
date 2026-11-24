@@ -266,6 +266,8 @@ RTCパッケージにC++候補の接続部を追加した。SwiftからPeerConne
 
 候補の接続部にSDPの交渉を追加した。MacのSwiftで、媒体のないSDP、音声付きoffer、映像付きanswerを拒否した。続くDataChannel専用のofferとanswerは通った。offerの作成開始直後に接続を解放しても、Swift側で完了を受け取れた。同じ試験を3回実行した。全5構成でリンクし、撮影クラスへの参照はなかった。[SDPの検証](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#c候補でdatachannel専用のsdpを交渉する)
 
+候補の接続部から、制御用と音声用のDataChannelを使ってバイナリを送受信した。Mac arm64のSwiftで、同一プロセスの2接続をIPv4ループバックでつないだ。両チャネルで状態変更の通知を受け、期待した4個のデータを双方向で受け取った。開く前と48KiBを超える入力の送信は拒否した。同じ試験を5回実行した。iPhone、Simulator、macOSの計5構成でリンクし、撮影クラスへの参照はなかった。[バイナリの送受信](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#c候補のdatachannelでバイナリを送受信する)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。

@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <utility>
 
@@ -14,9 +15,14 @@
 #include "api/sctp_transport_interface.h"
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
+#include "rtc_base/copy_on_write_buffer.h"
+#include "rtc_base/network_constants.h"
 #include "rtc_base/thread.h"
 
 namespace {
+
+constexpr size_t kMaximumPacketBytes = 48 * 1024;
+constexpr uint64_t kMaximumControlQueueBytes = 64 * 1024;
 
 struct Factory {
   std::unique_ptr<webrtc::Thread> network = webrtc::Thread::CreateWithSocketServer();
@@ -93,6 +99,30 @@ class RemoteDescriptionObserver : public webrtc::SetRemoteDescriptionObserverInt
   DescriptionResult result_;
 };
 
+class ChannelObserver final : public webrtc::DataChannelObserver {
+ public:
+  ChannelObserver(void* context, RideComRTCChannelStateChanged state_changed,
+                  RideComRTCChannelReceived received)
+      : context_(context), state_changed_(state_changed), received_(received) {}
+
+  void OnStateChange() override {
+    if (state_changed_) {
+      state_changed_(context_);
+    }
+  }
+
+  void OnMessage(const webrtc::DataBuffer& buffer) override {
+    if (received_ && buffer.binary && buffer.size() > 0 && buffer.size() <= kMaximumPacketBytes) {
+      received_(context_, buffer.data.data(), buffer.size());
+    }
+  }
+
+ private:
+  void* context_;
+  RideComRTCChannelStateChanged state_changed_;
+  RideComRTCChannelReceived received_;
+};
+
 bool HasOnlyDataChannelMedia(std::string_view sdp) {
   bool has_media = false;
   while (!sdp.empty()) {
@@ -123,11 +153,20 @@ struct RideComRTCPeer {
 };
 
 struct RideComRTCChannel {
+  void ClearObserver() {
+    if (observer) {
+      native->UnregisterObserver();
+      observer.reset();
+    }
+  }
+
   std::shared_ptr<Peer> peer;
   webrtc::scoped_refptr<webrtc::DataChannelInterface> native;
+  bool reliable;
+  std::unique_ptr<ChannelObserver> observer;
 };
 
-RideComRTCFactory* RideComRTCFactoryCreate(void) {
+RideComRTCFactory* RideComRTCFactoryCreate(bool include_loopback) {
   auto factory = std::make_shared<Factory>();
   if (!factory->network->Start() || !factory->signaling->Start()) {
     return nullptr;
@@ -138,6 +177,11 @@ RideComRTCFactory* RideComRTCFactoryCreate(void) {
   factory->native = webrtc::CreateModularPeerConnectionFactory(std::move(dependencies));
   if (!factory->native) {
     return nullptr;
+  }
+  if (include_loopback) {
+    webrtc::PeerConnectionFactoryInterface::Options options;
+    options.network_ignore_mask &= ~webrtc::ADAPTER_TYPE_LOOPBACK;
+    factory->native->SetOptions(options);
   }
   return new RideComRTCFactory{std::move(factory)};
 }
@@ -237,7 +281,7 @@ RideComRTCChannel* RideComRTCChannelCreate(
   if (!channel.ok()) {
     return nullptr;
   }
-  return new RideComRTCChannel{peer->handle, channel.MoveValue()};
+  return new RideComRTCChannel{peer->handle, channel.MoveValue(), reliable, nullptr};
 }
 
 RideComRTCChannelState RideComRTCChannelGetState(RideComRTCChannel* channel) {
@@ -253,8 +297,43 @@ RideComRTCChannelState RideComRTCChannelGetState(RideComRTCChannel* channel) {
   return RideComRTCChannelClosed;
 }
 
+uint64_t RideComRTCChannelBufferedBytes(RideComRTCChannel* channel) {
+  return channel ? channel->native->buffered_amount() : 0;
+}
+
+bool RideComRTCChannelSend(RideComRTCChannel* channel, const uint8_t* bytes, size_t length) {
+  if (!channel || !bytes || length == 0 || length > kMaximumPacketBytes) {
+    return false;
+  }
+  return channel->peer->factory->signaling->BlockingCall([&] {
+    const uint64_t queue_limit = channel->reliable ? kMaximumControlQueueBytes : 0;
+    if (channel->native->state() != webrtc::DataChannelInterface::kOpen ||
+        channel->native->buffered_amount() > queue_limit) {
+      return false;
+    }
+    const std::span<const uint8_t> packet(bytes, length);
+    return channel->native->Send(webrtc::DataBuffer(webrtc::CopyOnWriteBuffer(packet), true));
+  });
+}
+
+void RideComRTCChannelObserve(
+    RideComRTCChannel* channel, void* context, RideComRTCChannelStateChanged state_changed,
+    RideComRTCChannelReceived received) {
+  if (!channel) {
+    return;
+  }
+  channel->peer->factory->signaling->BlockingCall([&] {
+    channel->ClearObserver();
+    if (state_changed || received) {
+      channel->observer = std::make_unique<ChannelObserver>(context, state_changed, received);
+      channel->native->RegisterObserver(channel->observer.get());
+    }
+  });
+}
+
 void RideComRTCChannelRelease(RideComRTCChannel* channel) {
   if (channel) {
+    channel->ClearObserver();
     channel->native->Close();
     delete channel;
   }

@@ -1,7 +1,7 @@
 import RideComRTC
 
 func checkConnectionLifecycle() {
-    guard let factory = RideComRTCFactoryCreate() else {
+    guard let factory = RideComRTCFactoryCreate(false) else {
         preconditionFailure("Could not create modular WebRTC factory")
     }
     guard let peer = RideComRTCPeerCreate(factory) else {

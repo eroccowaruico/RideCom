@@ -2,6 +2,7 @@
 #define RIDECOM_RTC_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -27,10 +28,13 @@ typedef enum RideComRTCDescriptionKind {
 } RideComRTCDescriptionKind;
 
 typedef void (*RideComRTCDescriptionCompletion)(void* context, bool success);
+typedef void (*RideComRTCChannelStateChanged)(void* context);
+typedef void (*RideComRTCChannelReceived)(void* context, const uint8_t* bytes, size_t length);
 
 // Creation returns an owned handle, or NULL if the operation fails.
 // The caller releases each handle once and serializes use against its release.
-RIDECOM_RTC_EXPORT RideComRTCFactory* RideComRTCFactoryCreate(void);
+// Include the loopback adapter only for same-machine testing.
+RIDECOM_RTC_EXPORT RideComRTCFactory* RideComRTCFactoryCreate(bool include_loopback);
 RIDECOM_RTC_EXPORT void RideComRTCFactoryRelease(RideComRTCFactory* factory);
 
 RIDECOM_RTC_EXPORT RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* factory);
@@ -57,6 +61,15 @@ RIDECOM_RTC_EXPORT void RideComRTCDescriptionRelease(char* sdp);
 RIDECOM_RTC_EXPORT RideComRTCChannel* RideComRTCChannelCreate(
     RideComRTCPeer* peer, const char* label, int32_t id, bool reliable);
 RIDECOM_RTC_EXPORT RideComRTCChannelState RideComRTCChannelGetState(RideComRTCChannel* channel);
+RIDECOM_RTC_EXPORT uint64_t RideComRTCChannelBufferedBytes(RideComRTCChannel* channel);
+RIDECOM_RTC_EXPORT bool RideComRTCChannelSend(
+    RideComRTCChannel* channel, const uint8_t* bytes, size_t length);
+// Received bytes are borrowed for the duration of the callback. Callbacks
+// must not call back into the adapter. Passing two NULL callbacks removes
+// the observer and ends use of its context before this call returns.
+RIDECOM_RTC_EXPORT void RideComRTCChannelObserve(
+    RideComRTCChannel* channel, void* context, RideComRTCChannelStateChanged state_changed,
+    RideComRTCChannelReceived received);
 RIDECOM_RTC_EXPORT void RideComRTCChannelRelease(RideComRTCChannel* channel);
 
 #undef RIDECOM_RTC_EXPORT

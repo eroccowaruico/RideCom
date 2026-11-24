@@ -1,4 +1,6 @@
+import Foundation
 import RideComRTC
+import Synchronization
 
 private final class DescriptionCompletion: Sendable {
     let continuation: CheckedContinuation<Bool, Never>
@@ -6,6 +8,67 @@ private final class DescriptionCompletion: Sendable {
     init(_ continuation: CheckedContinuation<Bool, Never>) {
         self.continuation = continuation
     }
+}
+
+private final class ChannelRecording: Sendable {
+    let changes = Mutex(0)
+    let packets = Mutex<[Data]>([])
+}
+
+private func observe(_ channels: [OpaquePointer], recording: ChannelRecording) -> Unmanaged<ChannelRecording> {
+    let context = Unmanaged.passRetained(recording)
+    for channel in channels {
+        RideComRTCChannelObserve(
+            channel, context.toOpaque(),
+            { pointer in
+                guard let pointer else { return }
+                let recording = Unmanaged<ChannelRecording>.fromOpaque(pointer).takeUnretainedValue()
+                recording.changes.withLock { $0 += 1 }
+            },
+            { pointer, bytes, count in
+                guard let pointer, let bytes else { return }
+                let recording = Unmanaged<ChannelRecording>.fromOpaque(pointer).takeUnretainedValue()
+                let packet = Data(bytes: bytes, count: count)
+                recording.packets.withLock { $0.append(packet) }
+            }
+        )
+    }
+    return context
+}
+
+private func stopObserving(_ channels: [OpaquePointer], context: Unmanaged<ChannelRecording>) {
+    for channel in channels {
+        RideComRTCChannelObserve(channel, nil, nil, nil)
+    }
+    context.release()
+}
+
+private func send(_ packet: Data, on channel: OpaquePointer) -> Bool {
+    packet.withUnsafeBytes { buffer in
+        RideComRTCChannelSend(channel, buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count)
+    }
+}
+
+private func ipv4LoopbackSDP(_ sdp: String) -> String {
+    var loopbackCandidates = 0
+    let lines = sdp.split(whereSeparator: \.isNewline).filter { line in
+        guard line.hasPrefix("a=candidate:") else { return true }
+        let fields = line.split(separator: " ")
+        guard fields.count >= 5, fields[4] == "127.0.0.1" else { return false }
+        loopbackCandidates += 1
+        return true
+    }
+    precondition(loopbackCandidates > 0, "SDP did not contain a local loopback candidate")
+    return lines.joined(separator: "\r\n") + "\r\n"
+}
+
+@MainActor
+private func waitUntil(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<100 {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    return condition()
 }
 
 @MainActor
@@ -68,26 +131,9 @@ private func checkClosingDuringNegotiation(_ factory: OpaquePointer) async {
 }
 
 @MainActor
-private func checkNegotiation() async {
-    guard
-        let factory = RideComRTCFactoryCreate(),
-        let sender = RideComRTCPeerCreate(factory),
-        let receiver = RideComRTCPeerCreate(factory),
-        let senderChannel = RideComRTCChannelCreate(sender, "control", 0, true),
-        let receiverChannel = RideComRTCChannelCreate(receiver, "control", 0, true)
-    else {
-        preconditionFailure("Could not create two peers with matching channels")
-    }
-    defer {
-        RideComRTCChannelRelease(senderChannel)
-        RideComRTCChannelRelease(receiverChannel)
-        RideComRTCPeerRelease(sender)
-        RideComRTCPeerRelease(receiver)
-        RideComRTCFactoryRelease(factory)
-    }
-
+private func exchangeDescriptions(sender: OpaquePointer, receiver: OpaquePointer) async {
     precondition(RideComRTCPeerCopyLocalDescription(sender) == nil)
-    let offer = await prepareLocalDescription(sender)
+    let offer = await ipv4LoopbackSDP(prepareLocalDescription(sender))
     for invalid in ["", "v=0\r\n", offer + "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"] {
         let accepted = await applyRemoteDescription(receiver, kind: RideComRTCDescriptionOffer, sdp: invalid)
         precondition(!accepted)
@@ -95,15 +141,84 @@ private func checkNegotiation() async {
     let offerAccepted = await applyRemoteDescription(receiver, kind: RideComRTCDescriptionOffer, sdp: offer)
     precondition(offerAccepted)
 
-    let answer = await prepareLocalDescription(receiver)
+    let answer = await ipv4LoopbackSDP(prepareLocalDescription(receiver))
     let videoAccepted = await applyRemoteDescription(
         sender, kind: RideComRTCDescriptionAnswer, sdp: answer + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
     )
     precondition(!videoAccepted)
     let answerAccepted = await applyRemoteDescription(sender, kind: RideComRTCDescriptionAnswer, sdp: answer)
     precondition(answerAccepted)
+}
+
+@MainActor
+private func checkPacketTransfer(
+    senderChannels: [OpaquePointer], receiverChannels: [OpaquePointer],
+    senderRecording: ChannelRecording, receiverRecording: ChannelRecording
+) async {
+    let allOpened = await waitUntil {
+        (senderChannels + receiverChannels).allSatisfy { RideComRTCChannelGetState($0) == RideComRTCChannelOpen }
+    }
+    precondition(allOpened, "DataChannels did not open over loopback")
+    let gotChanges = await waitUntil {
+        senderRecording.changes.withLock { $0 > 0 } && receiverRecording.changes.withLock { $0 > 0 }
+    }
+    precondition(gotChanges)
+    precondition(!send(Data(repeating: 0, count: 48 * 1024 + 1), on: senderChannels[0]))
+
+    let sentBySender = [Data([0, 1, 2]), Data([3, 4, 5])]
+    let sentByReceiver = [Data([6, 7, 8]), Data([9, 10, 11])]
+    for (channel, packet) in zip(senderChannels, sentBySender) {
+        precondition(send(packet, on: channel))
+    }
+    for (channel, packet) in zip(receiverChannels, sentByReceiver) {
+        precondition(send(packet, on: channel))
+    }
+    let receivedPackets = await waitUntil {
+        senderRecording.packets.withLock { $0.count == sentByReceiver.count && Set($0) == Set(sentByReceiver) }
+            && receiverRecording.packets.withLock { $0.count == sentBySender.count && Set($0) == Set(sentBySender) }
+    }
+    precondition(receivedPackets, "Both channel types must deliver binary data in both directions")
+}
+
+@MainActor
+private func checkNegotiation() async {
+    guard
+        let factory = RideComRTCFactoryCreate(true),
+        let sender = RideComRTCPeerCreate(factory),
+        let receiver = RideComRTCPeerCreate(factory),
+        let senderControl = RideComRTCChannelCreate(sender, "control", 0, true),
+        let senderAudio = RideComRTCChannelCreate(sender, "audio", 1, false),
+        let receiverControl = RideComRTCChannelCreate(receiver, "control", 0, true),
+        let receiverAudio = RideComRTCChannelCreate(receiver, "audio", 1, false)
+    else {
+        preconditionFailure("Could not create two peers with matching channels")
+    }
+    let senderChannels = [senderControl, senderAudio]
+    let receiverChannels = [receiverControl, receiverAudio]
+    defer {
+        (senderChannels + receiverChannels).forEach(RideComRTCChannelRelease)
+        RideComRTCPeerRelease(sender)
+        RideComRTCPeerRelease(receiver)
+        RideComRTCFactoryRelease(factory)
+    }
+    let senderRecording = ChannelRecording()
+    let receiverRecording = ChannelRecording()
+    let senderContext = observe(senderChannels, recording: senderRecording)
+    let receiverContext = observe(receiverChannels, recording: receiverRecording)
+    defer {
+        stopObserving(senderChannels, context: senderContext)
+        stopObserving(receiverChannels, context: receiverContext)
+    }
+
+    precondition(RideComRTCChannelBufferedBytes(senderControl) == 0)
+    precondition(!send(Data([0]), on: senderControl))
+    await exchangeDescriptions(sender: sender, receiver: receiver)
+    await checkPacketTransfer(
+        senderChannels: senderChannels, receiverChannels: receiverChannels,
+        senderRecording: senderRecording, receiverRecording: receiverRecording
+    )
     await checkClosingDuringNegotiation(factory)
 }
 
 await checkNegotiation()
-print("Data-only offer and answer accepted after rejected media descriptions")
+print("Both negotiated channel types transferred binary data in both directions")
