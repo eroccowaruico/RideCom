@@ -95,6 +95,18 @@ python3 scripts/BuildWebRTC/webrtc_modular_link_inputs.py \
 
 このコマンドは依存を読み取る。コンパイルや採用済みXCFrameworkの更新は行わない。候補を組み立てた後は、全構成でカメラ参照をバイナリから検査する。最終のArchive・IPAでは既存の送信前検査も通す。[試作の実行と検査](../../validation/history/配布ビルド採番とOrganizer認証調査.md#撮影を含まないwebrtcのcターゲットでdatachannelを試す)
 
+#### C++の接続部を動的ライブラリにする
+
+候補をリンクするときは、上流のcheckoutと対象構成のGN出力を指定する。RideCom側のC++ソースと、生成する `.dylib` のパスも指定する。
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  python3 scripts/BuildWebRTC/build_webrtc_modular_library.py \
+  "$webrtc_source" "$gn_output" "$adapter_source" "$output_dylib"
+```
+
+コマンドは上流の追跡ファイルに変更がないことを確かめる。Ninjaに渡す対象をC++ファクトリーの依存に絞る。RideCom側のC++ソースにはGNが生成したコンパイル設定を使う。ビルド経路に既知のカメラ依存がある場合や、リンク後に撮影クラスへの参照を検出した場合は失敗する。検査を通過したライブラリだけを指定先に置く。
+
 ## 失敗時の入口
 
 失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。
