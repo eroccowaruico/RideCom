@@ -10,9 +10,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.audio_e2e import SourceManifest, source_manifest
 from scripts.test_lifecycle import exclusive_run, simulator_resource_root
-from scripts.validate import Runner, file_fingerprint, fingerprints_match
+from scripts.validate import (
+    Runner,
+    SourceManifest,
+    file_fingerprint,
+    fingerprints_match,
+    source_manifest,
+)
 
 SUITES = ('StoreEntitlementTests', 'StoreKitAccessTests', 'StoreDistributionAccessTests', 'LocalStoreKitTests')
 CORE_CASES = (
@@ -50,7 +55,7 @@ def record_selection_coverage(runner: Runner, bundle: Path) -> None:
 
 
 def manifest() -> SourceManifest:
-    value = source_manifest()
+    value = source_manifest(ROOT)
     fixture = 'RideIntercomTests/Fixtures/LocalPurchases.storekit'
     value['files'][fixture] = file_fingerprint(ROOT / fixture)
     return value
@@ -77,7 +82,7 @@ def run(output: Path) -> int:
     (runner.out / 'source-after.json').write_text(json.dumps(after, indent=2) + '\n')
     same = before['head'] == after['head'] and fingerprints_match(before['files'], after['files'])
     runner.record('unchanged-inputs', [], 'passed' if same else 'failed', 0 if same else 1, time.monotonic(),
-                  'source, fixture, and configuration hashes must match exactly')
+                  'Source, fixture, and configuration match except for advancing the shared build number')
     return runner.exit_code
 
 

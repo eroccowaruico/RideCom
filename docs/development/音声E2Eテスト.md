@@ -201,7 +201,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 | pipeline-measurements.json | 各専用modeで回収した測定。`--pipeline-only`では20ms／100ms入力周期別の連続性、相手別の再生予約調整・リセット、最終出力側のリセット、処理失敗 |
 | configuration.json | run識別子、入力境界、通信経路、実行するmodeと`expectedMeasurementIDs`。同じIDを、通信試験の経路と両端ごと、または専用modeの測定結果の照合に使う。`--cleanup-only`の期待IDは空配列 |
 | scenarios.json | 通信試験の両端に渡す設定。通常の通信試験では選択したマトリクス、`--transport mixed`では通話を始めるための初期設定。専用modeと`--cleanup-only`では作成しない |
-| source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含め、buildから受入までにsourceが変わると失敗扱い |
+| source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含める。ビルドから受入までに入力やHEADが変わると失敗する。プロジェクトで共通のビルド番号だけが進む場合は許容する |
 | local-mac.xcresult / local-ios.xcresult / webrtc-mac.xcresult / webrtc-ios.xcresult | 通信経路・端末別の独立したXCTest結果 |
 | attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性の検査に合格しなかった場合の復号・ミキサーWAV、終了時の状態 |
 | simulator-id.txt | 実行に使用した端末の識別子 |

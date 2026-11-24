@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +90,11 @@ class Fingerprint(TypedDict, total=False):
     sha256: str | None
     build_number: int
     configuration_sha256: str
+
+
+class SourceManifest(TypedDict):
+    head: str
+    files: dict[str, Fingerprint]
 
 
 def swift_supported(output: str) -> bool:
@@ -510,13 +515,34 @@ def fingerprints_match(before: dict[str, Fingerprint], after: dict[str, Fingerpr
     return True
 
 
-def snapshot(out: Path) -> None:
-    # Hash file contents without copying potential credentials to the report.
-    files = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=ROOT).decode().split('\0')
+def repository_fingerprints(root: Path, include: Callable[[Path], bool] | None = None) -> dict[str, Fingerprint]:
+    files = subprocess.check_output(
+        ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=root
+    ).decode().split('\0')
     hashes = {}
     for name in sorted(set(filter(None, files))):
-        path = ROOT / name
-        hashes[name] = file_fingerprint(path)
+        path = root / name
+        if include is None or include(path):
+            hashes[name] = file_fingerprint(path)
+    return hashes
+
+
+def source_manifest(root: Path) -> SourceManifest:
+    suffixes = {'.swift', '.py', '.pbxproj', '.xcscheme', '.wav', '.metadata', '.json', '.plist', '.resolved',
+                '.xcstrings', '.storekit', '.entitlements', '.xcconfig', '.xctestplan', '.png', '.strings',
+                '.stringsdict', '.xcprivacy', '.zip'}
+
+    def builds_xcode_test(path: Path) -> bool:
+        return path.suffix in suffixes or any(part.endswith(('.xcassets', '.icon')) for part in path.parts)
+
+    files = repository_fingerprints(root, builds_xcode_test)
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+    return {'head': head, 'files': files}
+
+
+def snapshot(out: Path) -> None:
+    # Hash file contents without copying potential credentials to the report.
+    hashes = repository_fingerprints(ROOT)
     (out / 'inputs.json').write_text(json.dumps(hashes, ensure_ascii=False, indent=2) + '\n')
 
 

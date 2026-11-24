@@ -28,7 +28,13 @@ from scripts.audio_e2e import (
 from scripts.audio_e2e_matrix import scenarios
 from scripts.simulator_audio import SimulatorAudioPin, shared_host_audio_device
 from scripts.test_lifecycle import SimulatorLease, exclusive_run
-from scripts.validate import Fingerprint, Runner, file_fingerprint, fingerprints_match
+from scripts.validate import (
+    Fingerprint,
+    Runner,
+    file_fingerprint,
+    fingerprints_match,
+    source_manifest,
+)
 
 
 class Continuity(TypedDict):
@@ -283,7 +289,6 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertNotEqual(runner.results['only']['exit_code'], 0)
 
     def test_source_gate_includes_new_surface_code_and_signing_configuration(self) -> None:
-        from scripts.audio_e2e import source_manifest
         names = ['RideIntercomWatch/WatchApp.swift', 'RideIntercomWidgets/Widget.swift',
                  'RideIntercomWidgets/Widget.entitlements', 'Config/Test.xcconfig',
                  'RideIntercom.xctestplan', 'RideIntercom/RideComAppIcon.icon/icon.json',
@@ -299,13 +304,13 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             path.write_text('fixture')
         def output(command: list[str], **kwargs: object) -> str | bytes:
             return ('\0'.join(names) + '\0').encode() if command[1] == 'ls-files' else 'fixture-head\n'
-        with patch('scripts.audio_e2e.ROOT', self.root), patch('scripts.audio_e2e.subprocess.check_output', side_effect=output):
-            before = source_manifest()
+        with patch('scripts.validate.subprocess.check_output', side_effect=output):
+            before = source_manifest(self.root)
             self.assertEqual(set(before['files']), set(names))
             for name in names:
                 with self.subTest(changed=name):
                     (self.root / name).write_text('changed build input')
-                    after = source_manifest()
+                    after = source_manifest(self.root)
                     self.assertFalse(fingerprints_match(before['files'], after['files']))
                     (self.root / name).write_text('fixture')
 

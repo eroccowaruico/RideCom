@@ -18,7 +18,6 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
-from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.audio_e2e_matrix import (
@@ -37,10 +36,9 @@ from scripts.test_lifecycle import (
 )
 from scripts.validate import (
     ROOT,
-    Fingerprint,
     Runner,
-    file_fingerprint,
     fingerprints_match,
+    source_manifest,
     test_host_metadata,
     xcode_tests_passed,
 )
@@ -49,22 +47,6 @@ from scripts.xcode_paths import (
     select_test_run,
     xcode_build_settings,
 )
-
-
-class SourceManifest(TypedDict):
-    head: str
-    files: dict[str, Fingerprint]
-
-
-def source_manifest() -> SourceManifest:
-    names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-    files = {}
-    for name in sorted(set(names)):
-        path = ROOT / name
-        is_asset = any(part.endswith(('.xcassets', '.icon')) for part in path.parts)
-        if name and (is_asset or path.suffix in {'.swift', '.py', '.pbxproj', '.xcscheme', '.wav', '.metadata', '.json', '.plist', '.resolved', '.xcstrings', '.storekit', '.entitlements', '.xcconfig', '.xctestplan', '.png', '.strings', '.stringsdict', '.xcprivacy', '.zip'}):
-            files[name] = file_fingerprint(path)
-    return {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'files': files}
 
 
 def configure_test_run(source: Path, purpose: str, platform: str, namespace: str,
@@ -346,7 +328,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
     lease = leases[int(args.ephemeral)]
     peer_lease = SimulatorLease(runner, resource_root / 'audio-peer.json')
     peer_reserved = False
-    sources = source_manifest()
+    sources = source_manifest(ROOT)
     (out / 'source-manifest.json').write_text(json.dumps(sources, indent=2) + '\n')
     try:
         def command(name: str, argv: list[str], timeout: int = 1800) -> None:
@@ -498,11 +480,11 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         if args.transport != 'mixed':
             record_duplex_latency(runner, measured, cases, transports)
         (out / 'measurements.json').write_text(json.dumps(measured, indent=2) + '\n')
-        after_sources = source_manifest()
+        after_sources = source_manifest(ROOT)
         (out / 'source-manifest-after.json').write_text(json.dumps(after_sources, indent=2) + '\n')
         unchanged = sources['head'] == after_sources['head'] and fingerprints_match(sources['files'], after_sources['files'])
         runner.record('source-stability', [], 'passed' if unchanged else 'failed', 0 if unchanged else 1,
-                      time.monotonic(), 'Sources/configuration unchanged; all raw input hashes must match exactly')
+                      time.monotonic(), 'Sources and configuration match except for advancing the shared build number')
     except (OSError, ValueError, KeyError, RuntimeError, TimeoutError, KeyboardInterrupt, subprocess.SubprocessError) as error:
         runner.record('audio-e2e', [], 'failed', 1, time.monotonic(), str(error))
     finally:
