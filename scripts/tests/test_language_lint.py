@@ -43,6 +43,8 @@ class LanguageLintTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(project / name, path)
+        # This fixture exercises language lint; milestone gating has its own tests.
+        (self.root / "scripts/check_periodic_work.py").write_text("raise SystemExit(0)\n")
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "commit.gpgsign", "false")
