@@ -1,6 +1,20 @@
 import Foundation
 
 extension RouteManager {
+    public func sendAudioPacket(_ packet: RTCAudioPacket) async {
+        guard isMediaStarted, !localMute, packet.payload.count <= 8192 else { return }
+        if case .admittedMemberships(let admitted) = request?.audioPolicy.peerPolicy {
+            let now = ProcessInfo.processInfo.systemUptime
+            guard admitted.contains(where: { relay?.membershipID(for: $0.key, now: now) == $0.value }) else { return }
+        }
+        await broadcast(.audio(packet), recordsOutboundAudio: true)
+    }
+
+    public func sendApplicationData(_ message: ApplicationDataMessage) async {
+        guard message.namespace != GroupRelay.namespace, message.payload.count <= 12000 else { return }
+        await broadcast(.application(message))
+    }
+
     func allowsAudio(from peerID: PeerID, now: TimeInterval) -> Bool {
         guard let membership = relay?.membershipID(for: peerID, now: now) else { return false }
         switch request?.audioPolicy.peerPolicy {

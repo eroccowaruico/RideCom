@@ -49,7 +49,7 @@ flowchart LR
 | 接続経路がなくなる | 接続を作れるまで音声は届かない。無音や探索中を接続成功とみなさない。presence失効は8秒 |
 | `stopMedia`、中継端末自身のmute | 自分の収録・再生要求を停止。他人の中継は継続。`stopConnection`が明示的な離脱 |
 | `updateAudioPolicy` | 通話中のcodec / format方針を更新する。transport・認証済みpeer・relay epoch・replay windowを維持し、音声設定だけの変更で再接続しない |
-| `stopConnection` / group変更 | leave通知、世代無効化、購読・タイマー・受信バッファ・認証状態を終了 |
+| `stopConnection` / group変更 | 終了時は離脱を通知し、世代を無効にして購読・タイマー・認証状態を終了する。`RouteManager` は終了時と次の通話の準備時に、参加者、再試行の状態、送受信の記録、受信バッファを同じ手順で空にする |
 | active/media route | UI用の代表経路。実際に使う経路が1本だけであることを表さない。availableRoutesとmembersのrouteも確認する |
 
 ```mermaid

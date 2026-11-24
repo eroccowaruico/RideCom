@@ -54,11 +54,8 @@ public actor RouteManager: CallSession {
         self.request = request
         configuration = request.configuration.normalized()
         relay = GroupRelay(request: request)
-        observedPaths = [:]; lastPresence = 0; lastRuntimeStatus = 0; eventSource.resetDiagnostics()
-        outboundAudioDispatch = nil
-        receiveBuffer.reset(); memberSnapshot = []; memberRoutes = [:]; routeMembers = [:]
-        routeStates = [:]; routeAvailabilities = [:]; started = []; retries = [:]; blocked = []
-        availableRoutes = []; activeRoute = nil; isMediaStarted = false
+        resetCallTraffic()
+        routeStates = [:]; routeAvailabilities = [:]
         emitState(.preparing)
         let enabled = configuration.enabledRoutes.compactMap { routes[$0] }
         guard !enabled.isEmpty else { emit(.error(.noEnabledRoute)); emitState(.failed); return }
@@ -119,16 +116,31 @@ public actor RouteManager: CallSession {
         timer?.cancel(); timer = nil; maintenanceDeadline = nil; fallbackTask?.cancel(); fallbackTask = nil
         isConnectionStarted = false
         routeTasks.forEach { $0.cancel() }; routeTasks = []
-        observedPaths = [:]; lastPresence = 0; lastRuntimeStatus = 0; eventSource.resetDiagnostics()
-        outboundAudioDispatch = nil
-        request = nil; relay = nil; started = []; retries = [:]; blocked = []; availableRoutes = []
-        activeRoute = nil; isMediaStarted = false; receiveBuffer.reset()
-        memberSnapshot = []; memberRoutes = [:]; routeMembers = [:]
+        resetCallTraffic()
+        request = nil; relay = nil
         for route in routes.values {
             await route.stopConnection()
             guard generation == token else { return }
         }
         emit(.membersChanged([])); emitRouteSnapshot(); emitState(.disconnected)
+    }
+
+    private func resetCallTraffic() {
+        observedPaths = [:]
+        lastPresence = 0
+        lastRuntimeStatus = 0
+        eventSource.resetDiagnostics()
+        outboundAudioDispatch = nil
+        receiveBuffer.reset()
+        memberSnapshot = []
+        memberRoutes = [:]
+        routeMembers = [:]
+        started = []
+        retries = [:]
+        blocked = []
+        availableRoutes = []
+        activeRoute = nil
+        isMediaStarted = false
     }
     public func startMedia() async {
         guard request != nil else { return }
@@ -141,18 +153,6 @@ public actor RouteManager: CallSession {
         // Relay remains active while this device changes its microphone/output.
         await sendRuntimeStatus(reason: .mediaStopped)
         updateState()
-    }
-    public func sendAudioPacket(_ packet: RTCAudioPacket) async {
-        guard isMediaStarted, !localMute, packet.payload.count <= 8192 else { return }
-        if case .admittedMemberships(let admitted) = request?.audioPolicy.peerPolicy {
-            let now = ProcessInfo.processInfo.systemUptime
-            guard admitted.contains(where: { relay?.membershipID(for: $0.key, now: now) == $0.value }) else { return }
-        }
-        await broadcast(.audio(packet), recordsOutboundAudio: true)
-    }
-    public func sendApplicationData(_ message: ApplicationDataMessage) async {
-        guard message.namespace != GroupRelay.namespace, message.payload.count <= 12000 else { return }
-        await broadcast(.application(message))
     }
     public func setLocalMute(_ muted: Bool) async {
         localMute = muted
@@ -179,7 +179,7 @@ public actor RouteManager: CallSession {
         }
         await sendRuntimeStatus(reason: .localControlsChanged)
     }
-    private func broadcast(_ body: RelayBody, recordsOutboundAudio: Bool = false) async {
+    func broadcast(_ body: RelayBody, recordsOutboundAudio: Bool = false) async {
         guard let data = try? relay?.make(body, now: ProcessInfo.processInfo.systemUptime), data.count <= 32768
         else { return }
         await forward(data, body: body, recordsOutboundAudio: recordsOutboundAudio)
