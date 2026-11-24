@@ -6,6 +6,17 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXAggregateTarget section */
+		E2E100000000000000000001 /* RideIntercomAudioE2E-LocalPair */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = E2E100000000000000000002 /* Build configuration list for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */;
+			buildPhases = ();
+			dependencies = ();
+			name = "RideIntercomAudioE2E-LocalPair";
+			productName = "RideIntercomAudioE2E-LocalPair";
+		};
+/* End PBXAggregateTarget section */
+
 /* Begin PBXBuildFile section */
 		46D1F67273160099EA54F6D1 /* RideIntercomWidgets.appex in Embed Widget Extension */ = {isa = PBXBuildFile; fileRef = 56F6D0BB98E4179BB121F578 /* RideIntercomWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4A70295CC8984182A928FC3A /* AudioDevice in Frameworks */ = {isa = PBXBuildFile; productRef = FD5319A4F84D41EEBD886629 /* AudioDevice */; };
@@ -806,6 +817,7 @@
 			projectRoot = "";
 			targets = (
 				93F300C72F93829C0046716D /* RideIntercom */,
+				E2E100000000000000000001 /* RideIntercomAudioE2E-LocalPair */,
 				4517BC59AC831097FA328DE8 /* RideIntercomWidgets */,
 				0CCFFDBF2F4415059F932F5F /* RideIntercomWatch */,
 				A77000000000000000000001 /* RideIntercomWatchUITests */,
@@ -998,6 +1010,38 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		E2E100000000000000000003 /* Debug configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+			};
+			name = Debug;
+		};
+		E2E100000000000000000004 /* Release configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+			};
+			name = Release;
+		};
+		E2E100000000000000000005 /* Debug-Validation configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+			};
+			name = "Debug-Validation";
+		};
+		E2E100000000000000000006 /* Release-Validation configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+			};
+			name = "Release-Validation";
+		};
 		0C1B5AAACE6C9DC7D84AC9EA /* Debug-Validation configuration for PBXNativeTarget "RideIntercomWidgets" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1225,7 +1269,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2400;
+				CURRENT_PROJECT_VERSION = 2405;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1392,7 +1436,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2400;
+				CURRENT_PROJECT_VERSION = 2405;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1705,7 +1749,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2400;
+				CURRENT_PROJECT_VERSION = 2405;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -1775,7 +1819,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2400;
+				CURRENT_PROJECT_VERSION = 2405;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = UAY8FH5FF8;
@@ -2202,6 +2246,16 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		E2E100000000000000000002 /* Build configuration list for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E2E100000000000000000003 /* Debug configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */,
+				E2E100000000000000000004 /* Release configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */,
+				E2E100000000000000000005 /* Debug-Validation configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */,
+				E2E100000000000000000006 /* Release-Validation configuration for PBXAggregateTarget "RideIntercomAudioE2E-LocalPair" */,
+			);
+			defaultConfigurationName = Debug;
+		};
 		5E38A3781DC3937AD241B271 /* Build configuration list for PBXNativeTarget "RideIntercomWatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -342,7 +342,11 @@ class Runner:
                                            start_new_session=True, env=env)
                 original = None
                 try:
-                    original = process_snapshot().get(process.pid)
+                    try:
+                        original = process_snapshot().get(process.pid)
+                    except subprocess.TimeoutExpired:
+                        # Process identity helps cleanup. Only waiting for the command determines its timeout.
+                        pass
                     code = self.wait_for_stage(process, timeout if timeout is not None else self.timeout)
                     status = 'passed' if code == 0 else 'failed'
                 except subprocess.TimeoutExpired:

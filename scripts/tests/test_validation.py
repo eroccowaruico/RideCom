@@ -300,6 +300,15 @@ class ValidationTests(unittest.TestCase):
                                          verify_selection=True)
             lease.return_value.cleanup.assert_called_once_with('watch-final')
 
+    def test_process_snapshot_timeout_preserves_command_result(self) -> None:
+        with patch.object(self.module, 'process_snapshot', side_effect=subprocess.TimeoutExpired('ps', 10)):
+            self.assertTrue(self.runner.run('success', [sys.executable, '-c', 'print("finished")']))
+            self.assertFalse(self.runner.run('failure', [sys.executable, '-c', 'raise SystemExit(7)']))
+        self.assertEqual((self.runner.results['success']['status'], self.runner.results['success']['exit_code']),
+                         ('passed', 0))
+        self.assertEqual((self.runner.results['failure']['status'], self.runner.results['failure']['exit_code']),
+                         ('failed', 7))
+
     def test_timeout_kills_owned_child_process_group(self) -> None:
         child = Path(self.temporary.name) / 'child.pid'
         code = ('import subprocess,time; p=subprocess.Popen(["sleep","60"]); '

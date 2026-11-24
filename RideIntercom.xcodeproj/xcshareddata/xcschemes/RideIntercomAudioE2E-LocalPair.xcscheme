@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "2640"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "NO">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "NO"
+            buildForRunning = "YES"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "E2E100000000000000000001"
+               BuildableName = "RideIntercomAudioE2E-LocalPair"
+               BlueprintName = "RideIntercomAudioE2E-LocalPair"
+               ReferencedContainer = "container:RideIntercom.xcodeproj"/>
+         </BuildActionEntry>
+      </BuildActionEntries>
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Advance next build number"
+               scriptText = "set -eu&#10;cd &quot;$PROJECT_DIR&quot;&#10;xcrun --sdk macosx agvtool next-version&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E2E100000000000000000001"
+                     BuildableName = "RideIntercomAudioE2E-LocalPair"
+                     BlueprintName = "RideIntercomAudioE2E-LocalPair"
+                     ReferencedContainer = "container:RideIntercom.xcodeproj"/>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
+   </BuildAction>
+   <LaunchAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = ""
+      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "YES"
+      customWorkingDirectory = "$(SRCROOT)">
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "E2E100000000000000000001"
+            BuildableName = "RideIntercomAudioE2E-LocalPair"
+            BlueprintName = "RideIntercomAudioE2E-LocalPair"
+            ReferencedContainer = "container:RideIntercom.xcodeproj"/>
+      </MacroExpansion>
+      <PathRunnable
+         runnableDebuggingMode = "0"
+         FilePath = "/usr/bin/env"/>
+      <CommandLineArguments>
+         <CommandLineArgument argument = "python3" isEnabled = "YES"/>
+         <CommandLineArgument argument = "-u" isEnabled = "YES"/>
+         <CommandLineArgument argument = "scripts/audio_e2e.py" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--transport" isEnabled = "YES"/>
+         <CommandLineArgument argument = "local" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--matrix" isEnabled = "YES"/>
+         <CommandLineArgument argument = "smoke" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--saved-group-start" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--two-simulators" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--ephemeral" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--seconds" isEnabled = "YES"/>
+         <CommandLineArgument argument = "6" isEnabled = "YES"/>
+      </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable key = "PATH"
+            value = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" isEnabled = "YES"/>
+      </EnvironmentVariables>
+   </LaunchAction>
+</Scheme>

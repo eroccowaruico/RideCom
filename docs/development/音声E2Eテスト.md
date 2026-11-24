@@ -51,8 +51,13 @@ TEST_RUNNER_RIDEINTERCOM_TEST_LOCAL_TURN_PORT=<ローカルTURNのポート>
 
 ### 保存済みグループから近距離通話を始める
 
+Xcodeで共有スキーム `RideIntercomAudioE2E-LocalPair` と実行先 `My Mac` を選び、Product → Runを実行する。Mac上の既存ランナーが専用のiPhone Simulator 2台を用意する。保存済みグループから近距離通話を始め、両方向の発話を各6秒測定する。Xcodeのコンソールで合否と `.validation/` 内の保存先を確認する。試験を終えると音声機器の設定を戻し、試験用Simulatorを回収する。
+
+CLIで同じ条件を実行するには、次のコマンドを使う。
+
 ```sh
-python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-start
+python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-start \
+  --two-simulators --ephemeral --seconds 6
 ```
 
 両端でInternetを無効にし、検証用のログイン、グループと鍵を保存する。Appleの資格照会が圏外エラーを返す条件でログインとグループを新しいモデルへ読み直し、保存済みグループを一覧から選ぶ操作で接続を始める。StoreKitの利用権判定には有効な利用権を入力する。近距離経路だけで互いを認証し、Appの音声許可が成立し、各端末の実出力にもう一方の発話が届くことを波形で判定する。
