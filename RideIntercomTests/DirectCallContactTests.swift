@@ -50,6 +50,7 @@ extension DirectCallTests {
         let before = thirdPeer.groupStore.snapshot
         let invite = try #require(firstPeer.viewModel.makeSelectedGroupInviteURL())
         #expect(throws: GroupInviteTokenError.wrongRecipient) { try thirdPeer.viewModel.acceptInviteURL(invite) }
+        #expect(thirdPeer.viewModel.groupErrorMessage == "This call invitation is addressed to another rider.")
         #expect(thirdPeer.groupStore.snapshot == before)
     }
 

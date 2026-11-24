@@ -360,9 +360,7 @@ extension GroupRepository {
         else { throw GroupStorageError.invalidUpdate }
         if envelope.sourceRequestID != nil {
             guard let redeliveryTrust else { throw GroupStorageError.invalidUpdate }
-            let identity = try proof.verify(
-                Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID,
-                                            trust: redeliveryTrust, now: Date(timeIntervalSince1970: now))
+            let identity = try token.verifyInviterProof(trust: redeliveryTrust, now: Date(timeIntervalSince1970: now))
             guard identity.principal == envelope.sender else { throw GroupStorageError.invalidUpdate }
             return .init(inviterName: inviterName(for: token), identity: identity, snapshot: snapshot)
         }
@@ -372,8 +370,7 @@ extension GroupRepository {
                     && $0.deviceKeys?[envelope.senderMemberID] == envelope.proof?.publicKey
             })
         else { throw GroupStorageError.invalidUpdate }
-        let identity = try proof.verify(
-            Data(token.signature.utf8), purpose: .issueInvitation, memberID: envelope.senderMemberID)
+        let identity = try token.verifyInviterProof()
         return .init(inviterName: user.displayName, identity: identity, snapshot: snapshot)
     }
 

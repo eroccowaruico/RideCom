@@ -95,12 +95,11 @@ struct ContactInvitationPayload: Codable {
         else { throw GroupStorageError.invalidUpdate }
         let payload = try JSONDecoder().decode(Self.self, from: bytes)
         try payload.token.validate(contactBootstrap: true)
-        guard payload.token.verifySignature(), let proof = payload.token.identityProof,
+        guard payload.token.verifySignature(),
               payload.token.directInvitation?.context.id == record.id,
               payload.token.expiresAt == record.expiresAt,
               payload.token.invitedGroup?.id == record.invitedGroupID else { throw GroupStorageError.invalidUpdate }
-        _ = try proof.verify(
-            Data(payload.token.signature.utf8), purpose: .issueInvitation, memberID: payload.token.inviterMemberID)
+        _ = try payload.token.verifyInviterProof()
         if let receipt = payload.receipt {
             guard receipt.isValid, receipt.kind == .accepted,
                   receipt.invitation == payload.token.directInvitation?.context,

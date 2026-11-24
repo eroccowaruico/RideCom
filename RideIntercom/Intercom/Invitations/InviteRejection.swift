@@ -13,6 +13,7 @@ enum InviteRejection: String {
     case activeGroupKeyChanged = "active_group_key_changed"
     case accountVerificationRequired = "account_verification_required"
     case storageUnavailable = "storage_unavailable"
+    case conflictingDirectInvitation = "conflicting_direct_invitation"
     case other
 
     init(_ error: any Error) {
@@ -39,6 +40,9 @@ enum InviteRejection: String {
         case .unsupportedVersion:
             "This invitation uses a different app version. Update RideCom and ask for a new invitation."
         case .unverified: "This invitation could not be verified. Ask the sender for a new invitation."
+        case .wrongRecipient: "This call invitation is addressed to another rider."
+        case .incompatibleCall: "This invitation cannot change an individual call into a group."
+        case .activeGroupKeyChanged: "This invitation changes the active group key. Disconnect before opening it again."
         default:
             "This invitation could not be opened or saved. Check your account and saved groups, "
                 + "then open the link again."
@@ -52,11 +56,7 @@ enum InviteDeepLinkLog {
         .event("app.deeplink.invite.accepted", ["groupID": "\(groupID.uuidString)", "kind": "\(kind.rawValue)"])
     }
 
-    static func rejected(_ error: any Error) -> Logging.Logger.Metadata {
-        rejected(reason: InviteRejection(error).rawValue)
-    }
-
-    static func rejected(reason: String) -> Logging.Logger.Metadata {
-        .event("app.deeplink.invite.rejected", ["reason": "\(reason)"])
+    static func rejected(_ rejection: InviteRejection) -> Logging.Logger.Metadata {
+        .event("app.deeplink.invite.rejected", ["reason": "\(rejection.rawValue)"])
     }
 }

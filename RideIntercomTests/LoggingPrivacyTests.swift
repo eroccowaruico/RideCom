@@ -26,6 +26,7 @@ struct LoggingPrivacyTests {
     @Test func inviteDeepLinkRejectionRecordsOnlyTheReasonCategory() {
         let cases: [(any Error, String)] = [
             (GroupInviteTokenError.expired, "expired"),
+            (GroupInviteTokenError.retiredGroupLink, "retired_group_link"),
             (GroupInviteTokenError.unsupportedVersion, "unsupported_version"),
             (GroupInviteTokenError.invalidURL, "unverified"),
             (GroupInviteTokenError.invalidTokenEncoding, "unverified"),
@@ -38,13 +39,13 @@ struct LoggingPrivacyTests {
             (CocoaError(.fileWriteUnknown), "other")
         ]
         for (error, reason) in cases {
-            let metadata = InviteDeepLinkLog.rejected(error)
+            let metadata = InviteDeepLinkLog.rejected(InviteRejection(error))
             #expect(metadata["reason"] == .string(reason))
             #expect(metadata["event"] == "app.deeplink.invite.rejected")
             #expect(metadata.count == 2)
         }
         #expect(
-            InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation")["reason"]
+            InviteDeepLinkLog.rejected(.conflictingDirectInvitation)["reason"]
                 == "conflicting_direct_invitation")
     }
 

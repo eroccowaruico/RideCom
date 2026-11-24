@@ -129,7 +129,7 @@ struct GroupLifecycleTests {
         #expect(harness.viewModel.inviteStatusMessage == "JOINED Ride")
     }
 
-    @Test(arguments: ["expired", "version", "signature", "malformed"])
+    @Test(arguments: ["expired", "version", "signature", "proof", "malformed"])
     func failedInvitationClearsSuccessExplainsRecoveryAndAcceptsReplacement(_ failure: String) throws {
         let harness = AppTestSupport.makeHarness(groups: [])
             let token = try GroupInviteToken.make(
@@ -142,14 +142,47 @@ struct GroupLifecycleTests {
         let groupIDs = harness.viewModel.groups.map(\.id)
         let activeID = harness.viewModel.activeGroupID
         let saves = harness.groupStore.saveCount
+
+        let invalid = try invalidInvitation(token, failure: failure)
+        if failure == "proof" {
+            #expect(throws: GroupInviteTokenError.invalidSignature) {
+                try GroupInviteTokenCodec.decodeJoinURL(invalid.url)
+            }
+        }
+        #expect(throws: (any Error).self) {
+            try harness.viewModel.acceptInviteURL(invalid.url, now: failure == "expired" ? 200 : 150)
+        }
+        #expect(harness.viewModel.groupErrorMessage == invalid.notice)
+        #expect(harness.viewModel.inviteStatusMessage == nil)
+        #expect(harness.viewModel.groups.map(\.id) == groupIDs)
+        #expect(harness.viewModel.activeGroupID == activeID)
+        #expect(harness.groupStore.saveCount == saves)
+        #expect(harness.callSession.disconnectCallCount == 0)
+
+        let replacement = try GroupInviteToken.make(
+            authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
+            credential: .init(groupID: token.groupID, secret: "shared"), groupName: "Ride", inviterMemberID: "remote",
+            issuedAt: 200, expiresAt: 300)
+        try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: replacement), now: 250)
+        #expect(harness.viewModel.groupErrorMessage == nil)
+        #expect(harness.viewModel.inviteStatusMessage == "JOINED Ride")
+        #expect(harness.viewModel.activeGroupID == activeID)
+    }
+
+    private func invalidInvitation(_ token: GroupInviteToken, failure: String) throws -> (url: URL, notice: String) {
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(token)) as? [String: Any])
         let expected: String
         switch failure {
         case "expired":
             expected = "This invitation has expired. Ask the sender for a new invitation."
         case "version":
-            object["version"] = 999
+            object["version"] = 5
             expected = "This invitation uses a different app version. Update RideCom and ask for a new invitation."
+        case "proof":
+            var proof = try #require(object["identityProof"] as? [String: Any])
+            proof["signature"] = "AA"
+            object["identityProof"] = proof
+            expected = "This invitation could not be verified. Ask the sender for a new invitation."
         default:
             object["signature"] = "invalid"
             expected = "This invitation could not be verified. Ask the sender for a new invitation."
@@ -159,23 +192,7 @@ struct GroupLifecycleTests {
             .replacingOccurrences(of: "=", with: "")
             let badURL = try #require(
                 URL(string: "rideintercom://join?token=\(failure == "malformed" ? "broken" : encoded)"))
-        #expect(throws: (any Error).self) { try harness.viewModel.acceptInviteURL(badURL, now: 200) }
-        #expect(harness.viewModel.groupErrorMessage == expected)
-        #expect(harness.viewModel.inviteStatusMessage == nil)
-        #expect(harness.viewModel.groups.map(\.id) == groupIDs)
-        #expect(harness.viewModel.activeGroupID == activeID)
-        #expect(harness.groupStore.saveCount == saves)
-        #expect(harness.callSession.disconnectCallCount == 0)
-
-            let replacement = try GroupInviteToken.make(
-                authority: testInvitationAuthority(), signer: testIdentitySigner("remote"),
-            credential: .init(groupID: token.groupID, secret: "shared"),
-                groupName: "Ride", inviterMemberID: "remote",
-            issuedAt: 200, expiresAt: 300)
-        try harness.viewModel.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: replacement), now: 250)
-        #expect(harness.viewModel.groupErrorMessage == nil)
-        #expect(harness.viewModel.inviteStatusMessage == "JOINED Ride")
-        #expect(harness.viewModel.activeGroupID == activeID)
+        return (badURL, expected)
     }
 
     @Test func corruptLocalIdentityReportsCreationFailureWithoutWritingGroups() {

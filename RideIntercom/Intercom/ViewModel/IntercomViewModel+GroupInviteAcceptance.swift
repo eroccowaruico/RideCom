@@ -9,9 +9,10 @@ extension IntercomViewModel {
         do {
             accepted = try applyInviteURL(url, now: now)
         } catch {
-            AppLoggers.app.warning("app.deeplink.invite.rejected", metadata: InviteDeepLinkLog.rejected(error))
+            let rejection = InviteRejection(error)
+            AppLoggers.app.warning("app.deeplink.invite.rejected", metadata: InviteDeepLinkLog.rejected(rejection))
             // Storage and account failures already carry their own recovery action.
-            if groupErrorMessage == nil { groupErrorMessage = InviteRejection(error).notice }
+            if groupErrorMessage == nil { groupErrorMessage = rejection.notice }
             throw error
         }
         if let accepted {
@@ -25,7 +26,7 @@ extension IntercomViewModel {
         } else {
             AppLoggers.app.warning(
                 "app.deeplink.invite.rejected",
-                metadata: InviteDeepLinkLog.rejected(reason: "conflicting_direct_invitation"))
+                metadata: InviteDeepLinkLog.rejected(.conflictingDirectInvitation))
         }
     }
 
@@ -39,7 +40,6 @@ extension IntercomViewModel {
         let kind: IntercomGroup.Kind = token.recipientMemberID == nil && token.accountPair == nil ? .group : .direct
         let existing = groups.first { $0.id == token.groupID }
         if let existing, existing.kind != kind || existing.accountPair != token.accountPair {
-            groupErrorMessage = "This invitation cannot change an individual call into a group."
             throw GroupInviteTokenError.incompatibleCall
         }
 
@@ -65,7 +65,6 @@ extension IntercomViewModel {
             return nil
         }
         guard !changesKey || activeGroupID != token.groupID else {
-            groupErrorMessage = "This invitation changes the active group key. Disconnect before opening it again."
             throw GroupInviteTokenError.activeGroupKeyChanged
         }
         let inviterName = groupRepository.inviterName(for: token)
@@ -85,12 +84,7 @@ extension IntercomViewModel {
         guard !token.isExpired(now: now) else {
             throw GroupInviteTokenError.expired
         }
-        if let recipient = token.recipientMemberID, recipient != localMemberIdentity.memberID {
-            groupErrorMessage = "This call invitation is addressed to another rider."
-            throw GroupInviteTokenError.wrongRecipient
-        }
-        if let recipient = token.recipientAccount, recipient != localAccountPrincipal {
-            groupErrorMessage = "This call invitation is addressed to another rider."
+        guard token.isAddressed(to: localMemberIdentity.memberID, principal: localAccountPrincipal) else {
             throw GroupInviteTokenError.wrongRecipient
         }
         return token

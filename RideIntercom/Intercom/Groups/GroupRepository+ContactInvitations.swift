@@ -11,8 +11,7 @@ extension GroupRepository {
               token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
             !snapshot.contactInvitations.contains(where: { $0.id == context.id })
         else { throw GroupStorageError.invalidUpdate }
-        guard let proof = token.identityProof else { throw GroupStorageError.invalidUpdate }
-        _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
+        _ = try token.verifyInviterProof()
         let previous = id.flatMap { id in snapshot.contactInvitations.first { $0.id == id } }
         if id != nil {
             guard let previous, previous.isExpiredOutgoing(at: now) else {

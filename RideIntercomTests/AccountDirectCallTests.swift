@@ -33,6 +33,7 @@ struct AccountDirectCallTests {
         #expect(secondPeerSecondDevice.viewModel.selectedGroup?.id == direct.id)
         let snapshot = thirdPeer.groupStore.snapshot
         #expect(throws: GroupInviteTokenError.wrongRecipient) { try thirdPeer.viewModel.acceptInviteURL(url) }
+        #expect(thirdPeer.viewModel.groupErrorMessage == "This call invitation is addressed to another rider.")
         #expect(thirdPeer.groupStore.snapshot == snapshot)
     }
 

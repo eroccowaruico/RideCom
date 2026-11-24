@@ -36,6 +36,11 @@ struct GroupInviteToken: Codable, Equatable {
     var accountPair: AccountCallPair? { directInvitation?.context.accountPair }
     var recipientAccount: AccountPrincipal? { directInvitation?.context.recipientAccount }
 
+    func isAddressed(to memberID: String, principal: AccountPrincipal?) -> Bool {
+        (recipientMemberID == nil || recipientMemberID == memberID)
+            && (recipientAccount == nil || recipientAccount == principal)
+    }
+
     init(
         version: Int = GroupInviteToken.currentVersion,
         groupID: UUID,
@@ -121,13 +126,11 @@ struct GroupInviteToken: Codable, Equatable {
         now: TimeInterval = Date().timeIntervalSince1970, contactBootstrap: Bool? = nil
     ) throws -> AcceptedDirectInvitation {
         try validate(contactBootstrap: contactBootstrap)
-        guard verifySignature(), let identityProof, let grant = directInvitation else {
+        guard verifySignature(), let grant = directInvitation else {
             throw GroupInviteTokenError.invalidSignature
         }
         guard !isExpired(now: now) else { throw GroupInviteTokenError.expired }
-        let inviter = try identityProof.verify(
-            Data(signature.utf8), purpose: .issueInvitation, memberID: inviterMemberID,
-            trust: trust, now: Date(timeIntervalSince1970: now))
+        let inviter = try verifyInviterProof(trust: trust, now: Date(timeIntervalSince1970: now))
         if let recipientAccount {
             guard signer.principal == recipientAccount else { throw GroupInviteTokenError.wrongRecipient }
             guard inviter.principal == grant.context.inviterAccount else {
@@ -137,6 +140,13 @@ struct GroupInviteToken: Codable, Equatable {
         let receipt = try DirectInvitationReceipt.make(
             grant: grant, signer: signer, inviteeMemberID: signer.memberID, displayName: displayName)
         return AcceptedDirectInvitation(receipt: receipt, inviter: inviter)
+    }
+
+    func verifyInviterProof(trust: DeviceIdentityTrust? = nil, now: Date = Date()) throws -> VerifiedDeviceProof {
+        guard let identityProof, let inviter = try? identityProof.verify(
+            Data(signature.utf8), purpose: .issueInvitation, memberID: inviterMemberID, trust: trust, now: now)
+        else { throw GroupInviteTokenError.invalidSignature }
+        return inviter
     }
 
     func verifySignature() -> Bool {
@@ -284,8 +294,7 @@ enum GroupInviteTokenCodec {
         guard token.verifySignature() else {
             throw GroupInviteTokenError.invalidSignature
         }
-        _ = try token.identityProof?.verify(
-            Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
+        _ = try token.verifyInviterProof()
         return token
     }
 }

@@ -180,10 +180,9 @@ extension GroupRepository {
                   token.inviterMemberID == localMemberID, !token.isExpired(now: now), token.verifySignature(),
                   !person.isRegistered, IntercomGroup.isValidName(person.resolvedDisplayName),
                   !snapshot.users.contains(where: { $0.id == person.id }),
-                !snapshot.contactInvitations.contains(where: { $0.id == context.id }),
-                let proof = token.identityProof
+                !snapshot.contactInvitations.contains(where: { $0.id == context.id })
             else { throw GroupStorageError.invalidUpdate }
-            _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID)
+            _ = try token.verifyInviterProof()
             reserved.members.append(
                 .init(
                     id: GroupMember.pendingInvitePrefix + "contact-" + context.id.uuidString.lowercased(),

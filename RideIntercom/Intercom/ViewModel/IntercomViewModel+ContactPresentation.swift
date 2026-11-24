@@ -25,12 +25,10 @@ extension IntercomViewModel {
             let now = callAccessNow()
             guard !token.isExpired(now: now.timeIntervalSince1970),
                   token.inviterMemberID != localMemberIdentity.memberID,
-                  token.recipientMemberID == nil || token.recipientMemberID == localMemberIdentity.memberID,
-                  token.recipientAccount == nil || token.recipientAccount == localAccountPrincipal,
-                let context = token.directInvitation?.context, let proof = token.identityProof
+                  token.isAddressed(to: localMemberIdentity.memberID, principal: localAccountPrincipal),
+                  let context = token.directInvitation?.context
             else { throw GroupInviteTokenError.wrongRecipient }
-            _ = try proof.verify(Data(token.signature.utf8), purpose: .issueInvitation, memberID: token.inviterMemberID,
-                                 trust: internetSettingsStore.identityTrust(), now: now)
+            _ = try token.verifyInviterProof(trust: internetSettingsStore.identityTrust(), now: now)
             stopContactInvitationSession()
             contactInvitationMessage = nil
             contactInvitationPresentation = .accepting(.init(id: context.id,
