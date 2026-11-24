@@ -32,6 +32,53 @@ test('TURN preflight is quota guarded, owned, idempotent and revoked on disconne
     } finally { await runtime.dispose(); }
 });
 
+test('the same device can retry an abandoned TURN preparation without replacing an active session', async () => {
+    const runtime = await makeRuntime({
+        TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret',
+        MONTHLY_PARTICIPANT_SECONDS: '600'
+    });
+    try {
+        provider.requests = [];
+        const other = await callTestCredential(runtime, 'another-rider');
+        assert.equal((await call(runtime, 'ice/alice', { leaseID })).status, 200);
+        const retry = { leaseID: 'test-attempt-2' };
+        assert.equal((await call(runtime, 'ice/alice', retry, 'POST', other)).status, 403);
+        assert.equal(provider.requests.length, 1);
+        assert.equal((await call(runtime, 'ice/alice', retry)).status, 200);
+        assert.deepEqual(provider.requests.map(r => r.url.split('/').at(-1)), [
+            'generate-ice-servers', 'revoke', 'generate-ice-servers'
+        ]);
+        assert.equal((await call(runtime, 'ice/alice', { leaseID }, 'DELETE')).status, 409);
+        assert.equal((await call(runtime, 'join', { participantId: 'alice', offer, iceLeaseID: leaseID })).status, 403);
+        const joined = await call(runtime, 'join', { participantId: 'alice', offer, iceLeaseID: retry.leaseID });
+        assert.equal(joined.status, 200);
+        const lease = await joined.json();
+        const before = provider.requests.length;
+        assert.equal((await call(runtime, 'ice/alice', { leaseID: 'test-attempt-3' })).status, 409);
+        assert.equal(provider.requests.length, before);
+        assert.equal((await call(runtime, `sessions/${lease.sessionId}`, undefined, 'DELETE')).status, 200);
+    } finally { await runtime.dispose(); }
+});
+
+test('TURN retry issues no replacement credentials while old revocation fails', async () => {
+    const runtime = await makeRuntime({ TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret' });
+    try {
+        provider.requests = [];
+        assert.equal((await call(runtime, 'ice/alice', { leaseID })).status, 200);
+        const retry = { leaseID: 'test-attempt-2' };
+        provider.revokeFails = true;
+        assert.equal((await call(runtime, 'ice/alice', retry)).status, 502);
+        assert.deepEqual(provider.requests.map(r => r.url.split('/').at(-1)), ['generate-ice-servers', 'revoke']);
+        assert.equal((await call(runtime, 'join', { participantId: 'alice', offer, iceLeaseID: leaseID })).status, 403);
+        provider.revokeFails = false;
+        assert.equal((await call(runtime, 'ice/alice', retry)).status, 200);
+        assert.deepEqual(provider.requests.map(r => r.url.split('/').at(-1)), [
+            'generate-ice-servers', 'revoke', 'revoke', 'generate-ice-servers'
+        ]);
+        assert.equal((await call(runtime, 'ice/alice', retry, 'DELETE')).status, 200);
+    } finally { delete provider.revokeFails; await runtime.dispose(); }
+});
+
 test('pausing Internet calls leaves only owned session and preparation cleanup available', async () => {
     const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-call-pause-'));
     const config = {

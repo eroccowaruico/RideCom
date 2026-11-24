@@ -99,8 +99,8 @@ export class SignalingRoom implements DurableObject {
             if (typeof b.leaseID !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(b.leaseID)) return json({ error: 'Invalid ICE lease' }, 400)
             const current = await this.turn.get(peer)
             if (current && current.owner !== owner) return json({ error: 'Forbidden' }, 403)
-            if (current && current.leaseID !== b.leaseID) return json({ error: 'ICE lease changed' }, 409)
             if (request.method === 'DELETE') {
+                if (current && current.leaseID !== b.leaseID) return json({ error: 'ICE lease changed' }, 409)
                 if (members.some(m => m.id === peer)) return json({ error: 'Session owns ICE lease' }, 409)
                 if (current) {
                     try { await this.turn.remove(current); await this.usage('release', { id: `${this.state.id}:${peer}` }) }
@@ -109,15 +109,20 @@ export class SignalingRoom implements DurableObject {
                 await this.scheduleExpiry(); return json({})
             }
             if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+            if (members.some(m => m.id === peer)) return json({ error: 'Participant already connected' }, 409)
             if (!this.turn.enabled) return json({ iceServers: stun })
             if (!this.turn.configured) return json({ error: 'TURN is not configured' }, 503)
-            if (members.some(m => m.id === peer)) return json({ error: 'Participant already connected' }, 409)
             const pending = await this.turn.all()
             if (!current && new Set([...members.map(m => m.id), ...pending.map(m => m.peer)]).size >= limit(this.env.MAX_ROOM_PARTICIPANTS, 8, 8)) return json({ error: 'Room is full' }, 429)
             const reservation = await this.usage('reserve', { id: `${this.state.id}:${peer}`, owner, userID })
             if (!reservation.ok) return reservation
             const expiresAt = await reservationExpiry(reservation)
-            try { return json({ iceServers: await this.turn.issue(peer, owner, b.leaseID, expiresAt) }) }
+            try {
+                // An interrupted preflight may never send DELETE. Keep its reservation and
+                // revoke its TURN credentials before issuing any for the same device's retry.
+                if (current && current.leaseID !== b.leaseID) await this.turn.remove(current)
+                return json({ iceServers: await this.turn.issue(peer, owner, b.leaseID, expiresAt) })
+            }
             finally { await this.scheduleExpiry() }
         }
         if (url.pathname.endsWith('/join') && request.method === 'POST') {

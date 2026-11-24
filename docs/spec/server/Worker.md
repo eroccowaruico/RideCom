@@ -218,7 +218,8 @@ RTCはjoinへ表示名を送らず、Workerは参加者の表示名を保存・�
 
 | API / 条件 | 挙動 |
 |---|---|
-| POST R/ice/{participantId} | bodyのleaseIDは接続試行ID。端末認証・room capacity・全体利用枠を確認してから資格を発行。所有者と試行IDが同じ再試行は既存の有効資格を返す |
+| POST R/ice/{participantId} | bodyのleaseIDは接続試行ID。端末認証・room capacity・全体利用枠を確認してから資格を発行する。所有者と試行IDが同じ再試行には既存の有効資格を返す |
+| 通話に入る前の接続準備をやり直す | 同じ端末・room・participantで試行IDが変わった場合は、同じ利用枠を使い、以前のTURN資格を失効させてから新しい資格を発行する。失効に失敗したときはHTTP 502を返し、次の再試行に必要な記録を保持する。同じroom・participantの準備を別端末が持っていれば403、同じparticipantの通話が始まっていれば409を返す |
 | TURN無効 | STUNのみ返す。TURN用の追加予約・発行はしない |
 | POST R/join | TURN有効なら同じ所有者・participant・iceLeaseIDの有効な事前資格が必要。事前予約とSFU予約は同じ利用枠IDを使用 |
 | POST R/sessions/{id}/renew | 同じSFU sessionを延長し、更新したiceServersを返す。Appから手動再接続を要求しない |
