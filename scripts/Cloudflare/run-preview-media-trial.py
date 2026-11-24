@@ -12,6 +12,8 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,30 +42,37 @@ def status(token: str) -> tuple[int, dict[str, int] | None]:
     return int(code), json.loads(body) if code == '200' else None
 
 
-def simulator_test(output: Path, bootstrap: str, require_turn: bool, wait_for_peer: bool) -> bool:
+@contextmanager
+def test_destination(macos: bool) -> Generator[str]:
+    if macos:
+        yield 'platform=macOS,arch=arm64'
+        return
     runtimes = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j']))['runtimes']
     runtime = latest_runtime(runtimes, 'iOS', IPHONE_DEVICE_TYPE)
     name = 'RideIntercom Preview Media ' + uuid.uuid4().hex[:8]
     device = subprocess.check_output(
         ['xcrun', 'simctl', 'create', name, IPHONE_DEVICE_TYPE, runtime],
         text=True, timeout=30).strip()
-    log = output / 'xcodebuild.log'
     try:
-        command = ['xcodebuild', '-project', 'RideIntercom.xcodeproj', '-scheme', 'RideIntercomAudioE2E',
-                   '-destination', 'platform=iOS Simulator,id=' + device, '-parallel-testing-enabled', 'NO',
-                   '-only-testing:' + CASE, 'test']
-        environment = os.environ | {'TEST_RUNNER_RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP': bootstrap}
-        environment['TEST_RUNNER_RIDEINTERCOM_TEST_TURN_RELAY'] = '1' if require_turn else '0'
-        environment['TEST_RUNNER_RIDEINTERCOM_TEST_WAIT_FOR_PEER'] = '1' if wait_for_peer else '0'
-        with log.open('w') as stream:
-            result = subprocess.run(command, cwd=ROOT, env=environment, stdout=stream,
-                                    stderr=subprocess.STDOUT, timeout=420, check=False)
+        yield 'platform=iOS Simulator,id=' + device
     finally:
         owned = next((row for row in simulator_devices() if row['udid'] == device and row['name'] == name), None)
         if owned:
             if owned['state'] != 'Shutdown':
                 subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=True, capture_output=True, timeout=45)
             subprocess.run(['xcrun', 'simctl', 'delete', device], check=True, capture_output=True, timeout=45)
+
+
+def media_test(output: Path, bootstrap: str, require_turn: bool, wait_for_peer: bool, *, macos: bool) -> bool:
+    log = output / 'xcodebuild.log'
+    environment = os.environ | {'TEST_RUNNER_RIDEINTERCOM_PREVIEW_MEDIA_BOOTSTRAP': bootstrap}
+    environment['TEST_RUNNER_RIDEINTERCOM_TEST_TURN_RELAY'] = '1' if require_turn else '0'
+    environment['TEST_RUNNER_RIDEINTERCOM_TEST_WAIT_FOR_PEER'] = '1' if wait_for_peer else '0'
+    with test_destination(macos) as destination, log.open('w') as stream:
+        command = ['xcodebuild', '-project', 'RideIntercom.xcodeproj', '-scheme', 'RideIntercomAudioE2E',
+                   '-destination', destination, '-parallel-testing-enabled', 'NO', '-only-testing:' + CASE, 'test']
+        result = subprocess.run(command, cwd=ROOT, env=environment, stdout=stream,
+                                stderr=subprocess.STDOUT, timeout=420, check=False)
     log_text = log.read_text(errors='replace')
     counts = re.search(r'WebRTC speech frames: left \d+/\d+, right \d+/\d+', log_text)
     if counts:
@@ -78,7 +87,7 @@ def simulator_test(output: Path, bootstrap: str, require_turn: bool, wait_for_pe
             and (not require_turn or relay_checks == 2) and (not wait_for_peer or waiting is not None))
 
 
-def run_trial(data: dict[str, str], output: Path, require_turn: bool, wait_for_peer: bool) -> int:
+def run_trial(data: dict[str, str], output: Path, require_turn: bool, wait_for_peer: bool, *, macos: bool) -> int:
     before_code, before = status(data['leftToken'])
     second_code, _ = status(data['rightToken'])
     print(f'Preview authorization: {before_code} {second_code}', flush=True)
@@ -111,10 +120,10 @@ def run_trial(data: dict[str, str], output: Path, require_turn: bool, wait_for_p
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            succeeded = simulator_test(
-                output, f'http://127.0.0.1:{server.server_port}{secret_path}', require_turn, wait_for_peer)
+            succeeded = media_test(
+                output, f'http://127.0.0.1:{server.server_port}{secret_path}', require_turn, wait_for_peer, macos=macos)
         except subprocess.TimeoutExpired:
-            print('The Simulator trial reached its execution deadline', flush=True)
+            print('The audio trial reached its execution deadline', flush=True)
             succeeded = False
         finally:
             server.shutdown()
@@ -137,9 +146,12 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--output', type=Path)
     mode.add_argument('--check-revoked', action='store_true')
+    parser.add_argument('--macos', action='store_true', help='Run on this Mac instead of an iPhone Simulator')
     parser.add_argument('--turn-relay', action='store_true', help='Require both selected ICE paths to use UDP TURN')
     parser.add_argument('--wait-for-peer', action='store_true', help='Test a muted participant waiting before late join')
     args = parser.parse_args()
+    if args.macos and args.check_revoked:
+        parser.error('--macos requires --output')
     if args.turn_relay and args.check_revoked:
         parser.error('--turn-relay requires --output')
     if args.wait_for_peer and args.check_revoked:
@@ -160,7 +172,7 @@ def main() -> int:
     os.environ.setdefault('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer')
     output = args.output.resolve()
     output.mkdir()
-    return run_trial(data, output, args.turn_relay, args.wait_for_peer)
+    return run_trial(data, output, args.turn_relay, args.wait_for_peer, macos=args.macos)
 
 
 if __name__ == '__main__':

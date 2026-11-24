@@ -194,6 +194,8 @@ CLIとSimulatorは `https://preview-ridecom.analog.workers.dev` を使う。Work
    python3 scripts/Cloudflare/run-preview-media-trial.py "$TRIAL_DIR/credentials.json" --output "$OUTPUT_DIR"
    ```
 
+   Macで測定する場合は、同じコマンドに `--macos` を加える。共有の `RideIntercomAudioE2E` スキームをこのMacのarm64で実行し、Simulatorは作成しない。MacとSimulatorのどちらも、同じ短期資格と合成音声で受信したフレームを照合する。本番のApple登録やマイク・スピーカーは別に試す。
+
    UDP TURNを確認する場合は、先に[ローカルのTURN試験](音声E2Eテスト.md#udp-turnを経由する発話を検証する)を通す。固定Previewの試験コマンドに `--turn-relay` を付け、送信の前後に両端で選ばれた経路がUDP TURNであることも判定する。
 
    後から参加した相手の声を受け取る条件を確認する場合は、先に[接続待ちのローカル試験](音声E2Eテスト.md#ミュートで待機して後から参加した相手の声を受け取る)を通す。固定Previewでは `--wait-for-peer` を指定する。先に接続する側がミュートのまま20秒待ち、相手の参加後に声を受け取る。続けてミュート解除後の双方向の発話を測る。同じ2人が同じ通話で行う。

@@ -23,7 +23,7 @@ MacのBonjour探索が`NoAuth`になる環境では、ネットワーク音声�
 
 ### 音声機器を使わずにWebRTCの発話を往復させる
 
-`RideIntercomAudioE2E` schemeで `AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware` を選び、iOS Simulatorで実行する。CLIではテストを指定する。
+`RideIntercomAudioE2E` schemeで `AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware` を選び、iOS SimulatorまたはMacで実行する。CLIではテストを指定し、Macでは実行先を `platform=macOS,arch=arm64` にする。
 
 ```sh
 xcodebuild -scheme RideIntercomAudioE2E -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \

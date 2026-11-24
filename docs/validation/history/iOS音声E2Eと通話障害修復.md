@@ -199,3 +199,9 @@ iPhone SimulatorのBuild 2397で、片側をミュートのまま20秒待たせ�
 2026-11-23。旧履歴の照合で、受信SDPの制限が仕様と試験手順にあり、共有コードには入っていないことを確認した。同梱SDKで音声付きと映像付きのofferをそれぞれ生成し、修正前は両方とも受け入れられ、続く正規のDataChannel専用offerを同じ接続で処理できなかった。
 
 受信したofferとanswerは同じ入口で媒体行を確認する。修正後は両方の試験で対象外のofferを拒否し、同じ接続でDataChannel専用のofferとanswerを処理できた。macOSでは同梱SDK間で符号化済み音声が双方向に届く回帰試験にも合格した。試験は合成データとローカル経路を使った。[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)・[試験の実行手順](../../development/自動検証.md#webrtcで受け取るsdp)
+
+## Macで固定Previewの発話を測る前にローカル中継を確かめる
+
+2026-11-25。Macの共有スキームでマイクとスピーカーを使わず、ローカル中継を経由して2つの合成音声を送った。両方向で98/98フレームが一致し、選択したXCTest 1件が通った。次回用Buildは2517。証跡は `.validation/mac-preview-local-preflight-20261125.ptqIKW/`。
+
+固定Previewの試験コマンドにMacを選べるようにした。選択時は自身のMacを使い、既定のSimulatorは試験用の端末だけを終了時に回収する。実行先、試験用の条件、失敗時の回収を調べるPython回帰2件と型・静的検査が通った。固定Previewの実SFU・TURNでのMacの試験は準備中。本番の資格と通話、物理端末の計測は[実機確認待ち](../実機確認待ち.md#最新の残件に対する準備状況)で追う。[固定Previewの試験手順](../../development/Cloudflare試用手順.md#appleログインなしで固定previewの音声を測る)
