@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -13,14 +14,21 @@ from webrtc_modular_link_inputs import CAMERA_COMPONENTS, modular_link_inputs
 FACTORY_TARGET = '//api:create_modular_peer_connection_factory'
 
 
-def build_library(source: Path, build: Path, adapter: Path, library: Path) -> None:
+def require_unmodified_source(source: Path) -> None:
+    clean = subprocess.run(['git', 'diff', '--quiet', '--no-ext-diff', 'HEAD'], cwd=source, check=False)
+    if clean.returncode != 0:
+        raise ValueError('WebRTC checkout must have unmodified tracked source')
+
+
+def build_library(
+    source: Path, build: Path, adapter: Path, library: Path, *,
+    install_name: str | None = None, debug_symbols: Path | None = None,
+) -> None:
     # A generated build directory supplies the stock compiler settings and ABI.
     gn = source / 'buildtools/mac/gn'
     ninja = str(source / 'third_party/ninja/ninja')
     clang = source / 'third_party/llvm-build/Release+Asserts/bin/clang++'
-    clean = subprocess.run(['git', 'diff', '--quiet', '--no-ext-diff', 'HEAD'], cwd=source, check=False)
-    if clean.returncode != 0:
-        raise ValueError('WebRTC checkout must have unmodified tracked source')
+    require_unmodified_source(source)
     description = subprocess.check_output(
         [gn, 'desc', build, FACTORY_TARGET, f'--root={source}', '--format=json'],
         cwd=source, text=True,
@@ -38,7 +46,7 @@ def build_library(source: Path, build: Path, adapter: Path, library: Path) -> No
     compile_flags = [
         *factory['cflags'], *factory['cflags_cc'],
         *(f'-D{define}' for define in factory['defines']),
-        *(f'-I{path}' for path in includes),
+        *(f'-I{os.path.relpath(path, build)}' for path in includes),
     ]
     # -Wcrl is interpreted by GN's link wrapper, which this direct link does not use.
     link_flags = [flag for flag in factory['ldflags'] if not flag.startswith('-Wcrl,')]
@@ -47,14 +55,21 @@ def build_library(source: Path, build: Path, adapter: Path, library: Path) -> No
     with tempfile.TemporaryDirectory(dir=library.parent) as temporary:
         object_file = Path(temporary) / 'adapter.o'
         candidate = Path(temporary) / library.name
-        subprocess.run([clang, *compile_flags, '-c', adapter, '-o', object_file], cwd=build, check=True)
+        subprocess.run([
+            clang, *compile_flags, '-c', os.path.relpath(adapter, build), '-o', object_file,
+        ], cwd=build, check=True)
         subprocess.run([
             clang, *link_flags, '-fuse-ld=lld', '-dynamiclib', '-Xlinker', '-install_name',
-            '-Xlinker', f'@rpath/{library.name}', object_file, *inputs, *frameworks, '-o', candidate,
+            '-Xlinker', install_name or f'@rpath/{library.name}',
+            object_file, *inputs, *frameworks, '-o', candidate,
         ], cwd=build, check=True)
         symbols = subprocess.check_output(['nm', '-u', '-arch', 'all', candidate], text=True)
         if any(f'_OBJC_{kind}_$_AVCapture' in symbols for kind in ('CLASS', 'METACLASS')):
             raise ValueError('Camera class reference in linked library')
+        if debug_symbols is not None:
+            bundle = Path(temporary) / debug_symbols.name
+            subprocess.run(['xcrun', 'dsymutil', candidate, '-o', bundle], cwd=build, check=True)
+            bundle.rename(debug_symbols)
         candidate.replace(library)
 
 

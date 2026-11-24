@@ -84,14 +84,33 @@ fi''')
         path.write_text('#!/bin/sh\nset -eu\n' + body + '\n')
         path.chmod(0o755)
 
-    def verify(self) -> subprocess.CompletedProcess[str]:
-        return subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), str(self.root)],
+    def verify(self, *options: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'), str(self.root), *options],
                               env=self.env, capture_output=True, text=True, check=False)
 
     def test_standard_resources_and_manifest_bytes_are_accepted(self) -> None:
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.mac / 'Resources/PrivacyInfo.xcprivacy').read_bytes(), PRIVACY)
+
+    def test_modular_framework_requires_its_factory_and_rejects_camera_references(self) -> None:
+        for framework in self.root.glob('*/WebRTC.framework'):
+            headers = framework / 'Headers'
+            for header in headers.glob('*.h'):
+                if header.name != 'WebRTC.h':
+                    header.unlink()
+            (headers / 'RideComRTC.h').write_text('// C adapter fixture\n')
+        self.assertIn('Missing modular factory', self.verify('modular').stderr)
+
+        export_line = "printf '0000000000000010 T _RideComRTCFactoryCreate\\n'"
+        self.command('nm', export_line)
+        result = self.verify('modular')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        self.command('nm', export_line + '\nprintf "                 U _OBJC_CLASS_\\$_AVCaptureSession\\n"')
+        result = self.verify('modular')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Camera API present in modular SDK', result.stderr)
 
     def test_missing_manifest_is_rejected(self) -> None:
         self.manifest.unlink()

@@ -2,9 +2,10 @@
 set -euo pipefail
 
 XCFRAMEWORK_PATH="${1:-}"
+API="${2:-objc}"
 
-if [[ -z "${XCFRAMEWORK_PATH}" ]]; then
-  echo "Usage: $0 path/to/WebRTC.xcframework" >&2
+if [[ -z "${XCFRAMEWORK_PATH}" || ( "${API}" != objc && "${API}" != modular ) ]]; then
+  echo "Usage: $0 path/to/WebRTC.xcframework [objc|modular]" >&2
   exit 2
 fi
 
@@ -17,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python3 "${SCRIPT_DIR}/webrtc_privacy.py" "${XCFRAMEWORK_PATH}"
 
 # Validate the manifest and the actual binaries, not just any folders found.
-python3 - "${XCFRAMEWORK_PATH}" <<'PYTHON'
+python3 - "${XCFRAMEWORK_PATH}" "${API}" <<'PYTHON'
 import pathlib, plistlib, re, subprocess, sys
 root = pathlib.Path(sys.argv[1])
 
@@ -54,10 +55,18 @@ try:
             if uuids(binary) != uuids(dwarf):
                 raise ValueError(f'dSYM UUID mismatch: {binary} and {dwarf}')
         found.setdefault(platform, set()).update(actual)
-        symbols = subprocess.check_output(['nm', '-g', str(binary)], text=True)
-        headers = (framework / 'Headers').glob('*.h')
-        if re.search(r'AVCapture|RTCCamera', symbols) or any(re.search(r'AVCapture|RTCCamera', h.name) for h in headers):
-            print(f'Camera API present in vendor SDK ({platform}).')
+        modular = sys.argv[2] == 'modular'
+        camera_header = any(re.search(r'AVCapture|RTCCamera', h.name) for h in (framework / 'Headers').glob('*.h'))
+        for architecture in sorted(actual) if modular else [None]:
+            options = ['-arch', architecture] if architecture else []
+            symbols = subprocess.check_output(['nm', '-g', *options, str(binary)], text=True)
+            sdk = (platform, architecture) if architecture else platform
+            if modular and not re.search(r'^[ \t]*[0-9a-fA-F]+ T _RideComRTCFactoryCreate$', symbols, re.M):
+                raise ValueError(f'Missing modular factory export ({sdk})')
+            if camera_header or re.search(r'AVCapture|RTCCamera', symbols):
+                if modular:
+                    raise ValueError(f'Camera API present in modular SDK ({sdk})')
+                print(f'Camera API present in vendor SDK ({sdk}).')
     for platform, architectures in expected.items():
         if not architectures <= found.get(platform, set()):
             raise ValueError(f'Missing slice or architectures: {platform} {architectures}')
@@ -80,6 +89,9 @@ required_headers=(
   RTCPeerConnectionFactory.h
   RTCSessionDescription.h
 )
+if [[ "${API}" == modular ]]; then
+  required_headers=(WebRTC.h RideComRTC.h)
+fi
 
 missing_count=0
 

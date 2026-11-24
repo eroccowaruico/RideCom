@@ -157,6 +157,22 @@ SDKの統計から、選択されたICE候補ペアの現在の往復時間を�
 
 `check_negotiation.swift` で、交渉前には値を返さず、Mac内の接続で送受信した後に往復時間が得られることを確かめる。
 
+#### 公式C++ターゲットのXCFrameworkを組み立てる
+
+iOS向けの動的リンクには、XCFrameworkに含まれる各バイナリをフレームワークに収める。次のコマンドは5構成のGN出力を読み、iPhone、iOS Simulator、macOSの3つのフレームワークを作る。Swiftからは `WebRTC` モジュールとして読む。[AppleのXCFramework作成手順](https://developer.apple.com/documentation/xcode/creating-a-multi-platform-binary-framework-bundle)
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  python3 scripts/BuildWebRTC/assemble_webrtc_modular_xcframework.py \
+  "$webrtc_source" "$webrtc_source/out" "$candidate_dir/WebRTC.xcframework"
+```
+
+上流のGNターゲットからInfo.plistとプライバシーマニフェストを生成する。上流のスクリプトでリンクした部品のライセンスを集める。iPhone用には対応するdSYMも作る。組み立てたバイナリからビルドパスを含むデバッグ情報を除き、アドホック署名を付ける。
+
+最後に全構成のバイナリ、Cの公開ヘッダー、撮影参照、iPhoneのdSYMのUUIDを検査する。検査が通ったXCFrameworkを新しい出力先へ置く。共有する候補を作るときは、ソースのcheckout、GN出力、XCFrameworkの出力先を個人のホーム外に置く。接続部のソースは、XCFrameworkを組み立てる一時領域へコピーしてコンパイルする。[配布成果物に含める情報](#取り込みの中断と復帰)
+
+この手順の出力は候補ファイル。Appへの取り込みは、既存のRTC契約の回帰と実際に同梱した配布物の検査を合わせて行う。
+
 ## 失敗時の入口
 
 失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。
