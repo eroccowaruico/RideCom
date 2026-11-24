@@ -316,6 +316,12 @@ ArchiveはXcodeの標準保存先に登録した。2026-11-24のフォルダに�
 
 2026-11-24 19:30 JSTに、登録先のBuild 2398を再確認した。Appと同梱物の署名の厳密検証、Archiveと保存済みIPAのカメラ検査が通った。結果は `.validation/archive-2490-recheck-20261124-193021/`。Organizerの一覧は依頼者指定で確認待ち。この時点では、依頼者が扱う内部TestFlightへの送信結果を待ち、Archiveを未完と判定していた。今回、登録と署名検証の証拠を照合し、定期Archiveを完了に訂正した。担当者による内部送信は未試行。[Xcodeの確認待ち](../未確認事項.md#build-1540のxcode画面確認)
 
+## 2,520コミットの区切りでiOS Build 2440を標準保存先へ作る
+
+2026-11-24。共有main `e4a11683` の標準 `RideIntercom` スキームで、iPhone向けの署名付きRelease Archiveを作った。Xcode本体の開発環境を指定した。保存先はXcodeが決めた。`~/Library/Developer/Xcode/Archives/2026-11-24/` に `RideIntercom 2026-11-24, 21.11.xcarchive` が直接作成された。フォルダの日付はArchiveの作成日時と一致した。
+
+AppとWidgetは1.0.0のBuild 2440で一致した。Appの署名を同梱物を含めて厳密に検証し、AppとWebRTCの実行ファイルとdSYMのUUIDを照合した。カメラ検査は通過した。次回用の共通採番は2441。実行記録と検査結果は `.validation/archive-2520-standard-20261124-211035/` に保存した。Organizerの一覧は後日の確認とする。内部TestFlightは依頼者が送信を扱うため未試行。[Xcodeの確認待ち](../未確認事項.md#build-1540のxcode画面確認)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。
