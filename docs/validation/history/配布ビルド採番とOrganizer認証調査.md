@@ -232,7 +232,7 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 2026-11-24。共有main第一親2,460件目の `51379144` に対応する定期作業。コードと文書の整理を受け入れた `01a9788e` から、標準の `RideIntercom` スキームでiPhone向けの署名付きRelease Archiveを作成し、Xcodeの標準保存先に登録した。AppとWidgetは1.0.0 Build 2383で両方の署名が有効。AppとWebRTCのdSYMのUUID、採用済みの無改変WebRTCと同梱物のARM64の31セクションが一致した。Watch App、カメラ利用目的、CallKitとPushToTalkへの動的リンクは検出されなかった。App InfoのAPNs環境は `production`、Archiveに署名した時点の環境は `development`。Organizerでの一覧表示は未確認。次回用の共通採番は2384。
 
 - App実行ファイルには以前の本番Worker URLが残っていた。旧URLの `/health` は404、新URLは200だった。[接続先の課題](../../backlog/未実装課題.md#本番と固定previewのworker-urlをridecomに揃える)
-- App実行ファイルに対象クラスへの参照はなかった。同梱WebRTCには `AVCaptureDeviceDiscoverySession`、`AVCaptureDeviceInput`、`AVCaptureDeviceRotationCoordinator`、`AVCaptureSession`、`AVCaptureVideoDataOutput`、`AVCaptureVideoPreviewLayer` への参照があった。クラス名の完全一致で照合したBuild 2383の結果であり、Appleから指摘を受けた配布物との同一性は未確認。[ITMS-90683の課題](../../backlog/未実装課題.md#itms-90683の再発を解消してtestflightへ送信する)
+- App実行ファイルに対象クラスへの参照はなかった。同梱WebRTCには `AVCaptureDeviceDiscoverySession`、`AVCaptureDeviceInput`、`AVCaptureDeviceRotationCoordinator`、`AVCaptureSession`、`AVCaptureVideoDataOutput`、`AVCaptureVideoPreviewLayer` への参照があった。クラス名の完全一致で照合したBuild 2383の結果であり、Appleから指摘を受けた配布物との同一性は未確認。[ITMS-90683の完了記録](#testflight公開とitms-90683の完了)
 
 登録したArchiveは `~/Library/Developer/Xcode/Archives/2026-11-24/RideIntercom iOS 1.0.0 (2383).xcarchive`。TestFlightへの送信や公開の操作は行っていない。
 
@@ -395,3 +395,11 @@ AppとWidgetはともに1.0.0 Build 2142だった。署名とApp・WebRTCのdSYM
 ArchiveのAppに署名された通常通知の環境は `development`。内部テストへの直接送信ではXcodeが配布用に署名する。今回の記録はArchiveまでで、App Store Connectへの送信結果は未確認。
 
 Build 2086の元のWebRTC ZIPはBuild 2071・2074で公開修正を確認したZIPと同一だった。Build 2086の署名付きArchiveに含まれるWebRTCと、このZIPのiOS実機用バイナリを比較し、arm64でデータを持つ31セクションの内容がすべて一致した。照合済みのWebRTCとBoringSSLの修正については、この結果を内部試用に引き継ぐ。
+
+## TestFlight公開とITMS-90683の完了
+
+2026-11-24、依頼者からテスト公開できたとの報告を受けた。この報告を根拠にTestFlight公開とITMS-90683の対応を完了とする。公開済みビルドの番号はこの報告からは特定していない。
+
+Build 2263と2383の同梱WebRTCではカメラ参照を検出した。撮影を含まない公式C++ターゲットを採用した後、Build 2398の署名付きArchiveとIPAは検査を通過した。今後も実際に送る配布物を自動検査し、カメラ参照が残る場合や検査できない場合は送信を止める。[送信前のカメラ参照検査](../../development/OS権限と配布設定.md#iosのカメラ参照の送信前検査)
+
+別途報告された[インターネット通話の不具合](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)は復旧の課題で追う。
