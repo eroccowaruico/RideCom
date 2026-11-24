@@ -102,27 +102,6 @@ struct DiagnosticsPresentationTests {
         #expect(presentation.rtcStep.accessibilityIdentifier == "pipeline-rtc-step")
     }
 
-    @Test func transmitProjectionDoesNotReportEncodedAudioAsNetworkDelivery() {
-        let harness = AppTestSupport.makeHarness()
-        harness.viewModel.isAudioReady = true
-        harness.viewModel.sentVoicePacketCount = 10
-        var input = DiagnosticsInput(harness.viewModel)
-        input.isVoiceActive = true
-        input.selectedGroupConnectionState = .localConnected
-        let presentation = TransmitPipelinePresentation(input: input)
-
-        #expect(presentation.rtcStep.detail.contains("Control Connected"))
-        #expect(!presentation.rtcStep.detail.contains("10"))
-        #expect(presentation.encodedAudioPacketCount == 10)
-        #expect(presentation.codecStep.state == .passing)
-        input.encodedAudioPacketCount = 0
-        #expect(TransmitPipelinePresentation(input: input).codecStep.state == .waiting)
-        input.isAudioReady = false
-        let paused = TransmitPipelinePresentation(input: input)
-        #expect(paused.encodedAudioPacketCount == nil)
-        #expect(paused.rtcStep.detail == presentation.rtcStep.detail)
-    }
-
     @Test func isolationSettingsAreVisibleBeforeAudioAndRemainSeparateFromAppliedState() {
         let model = AppTestSupport.makeHarness().viewModel
         model.isSoundIsolationEnabled = true
@@ -282,4 +261,67 @@ struct DiagnosticsPresentationTests {
         #expect(ReceivePipelinePresentation(input: input).outputStep.state == .waiting)
     }
 }
+}
+
+extension AppTests.DiagnosticsPresentationTests {
+    @Test func transmitProjectionDoesNotReportEncodedAudioAsNetworkDelivery() {
+        let harness = AppTestSupport.makeHarness()
+        harness.viewModel.isAudioReady = true
+        harness.viewModel.sentVoicePacketCount = 10
+        var input = DiagnosticsInput(harness.viewModel)
+        input.isVoiceActive = true
+        input.selectedGroupConnectionState = .localConnected
+        let presentation = TransmitPipelinePresentation(input: input)
+
+        #expect(presentation.rtcStep.detail.contains("Control Connected"))
+        #expect(!presentation.rtcStep.detail.contains("10"))
+        #expect(presentation.encodedAudioPacketCount == 10)
+        #expect(presentation.codecStep.state == .passing)
+        input.encodedAudioPacketCount = 0
+        #expect(TransmitPipelinePresentation(input: input).codecStep.state == .waiting)
+        input.isAudioReady = false
+        let paused = TransmitPipelinePresentation(input: input)
+        #expect(paused.encodedAudioPacketCount == nil)
+        #expect(paused.rtcStep.detail.contains("Control Connected / Media Idle"))
+        #expect(paused.rtcStep.state == .idle)
+    }
+
+    @Test func connectedTransmitTracksAcceptanceSilenceAndResumeSeparatelyFromControl() {
+        let model = AppTestSupport.makeHarness().viewModel
+        let group = IntercomSeedData.recentGroups[0]
+        model.activeGroupID = group.id
+        model.selectedGroup = group
+        model.isAudioReady = true
+        func step(now: TimeInterval) -> PipelineStep {
+            var input = DiagnosticsInput(model, now: now)
+            input.selectedGroupConnectionState = .localConnected
+            return TransmitPipelinePresentation(input: input).rtcStep
+        }
+
+        #expect(step(now: 10).state == .waiting)
+        #expect(step(now: 10).detail.contains("Audio TX not measured"))
+        model.networkDiagnostics = .init(generatedAt: 10, outboundAudioDispatch: .init(
+            offeredRoutes: [.multipeer], internetCoveredByLocal: true, observedAt: 10,
+            transportAcceptance: [.multipeer: true]))
+        #expect(step(now: 11).state == .passing)
+        #expect(step(now: 13).state == .waiting)
+        #expect(step(now: 13).detail.contains("Control Connected"))
+        #expect(step(now: 13).detail.contains("Audio TX idle"))
+        model.networkDiagnostics?.outboundAudioDispatch?.observedAt = 14
+        model.networkDiagnostics?.outboundAudioDispatch?.transportAcceptance = [.multipeer: false]
+        #expect(step(now: 14).state == .waiting)
+        #expect(step(now: 14).detail.contains("Audio not accepted by transport"))
+        model.networkDiagnostics?.outboundAudioDispatch?.transportAcceptance = nil
+        #expect(step(now: 14).detail.contains("Audio acceptance not measured"))
+
+        let subsequent = RTCOutboundAudioDispatch(offeredRoutes: [.webRTC], internetCoveredByLocal: false,
+            observedAt: 15, transportAcceptance: [.webRTC: true])
+        var fresh = DiagnosticsInput(model, now: 15, localDispatch: subsequent)
+        fresh.selectedGroupConnectionState = .internetConnected
+        let resumed = TransmitPipelinePresentation(input: fresh)
+        #expect(resumed.rtcStep.state == .passing)
+        #expect(resumed.outboundRoutes(now: 15).branches.last?.detail.contains("Accepted by transport") == true)
+        model.selectedGroup = IntercomSeedData.recentGroups[1]
+        #expect(DiagnosticsInput(model, now: 15, localDispatch: subsequent).outboundAudioDispatch == nil)
+    }
 }

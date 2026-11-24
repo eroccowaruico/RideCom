@@ -74,7 +74,22 @@ TX/RXは従来のpipeline、Networkは、[Network診断](#network診断)のと�
 | AudioMixer TX busステップ | `liveTransmitPipelineView` | `pipeline-mixer-step` | TX Bus | `AudioMixerSnapshot` の `tx-bus` のsource数・effect数、`isSoundIsolationEnabled`、`transmitEffectChainSnapshot`の`sound-isolation` | 閉じた行に `n in / n FX` と声の分離の設定・実状態を表示する | 音声未準備やbusの未観測でも設定を表示する。待機や利用不能の理由は件数の位置に表示する |
 | AudioMixer effect chainステップ | `liveTransmitPipelineView` | `pipeline-effects-step` | FX Chain | `AudioMixerSnapshot` の `tx-bus.effectChain` から導出した `transmitEffectChainSnapshot.stages` | TX bus 配下の inline stage chip として表示 | stage 内の unavailable / bypassed を warning 以下で表示 |
 | codec ステップ | `liveTransmitPipelineView` | `pipeline-codec-step` | Codec | 要求と実効codec、`AppAudioTransmitter`が生成した音声packetの現在の通話分 | requested と selected を表示。fallback 時は `requested -> selected / Fallback`。展開すると`Encoded audio packets`の累計 | fallback は warning。発話状態で生成実績があればPassing。メディア未準備は未計測。値をRTC受付・音声到着へ流用しない |
-| RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | 選択通話の制御接続と経路 | 制御の接続済みは経路と`Control Connected`。展開すると最後の自端末音声を渡した経路と観測時刻 | 制御接続は音声停止中も表示する。相手側の到着と最終出力は各端末の観測を要する |
+| RTC ステップ | `liveTransmitPipelineView` | `pipeline-rtc-step` | RTC | 選択通話の制御接続、経路、`lastOutboundAudioDispatch()` | 経路、制御の接続、音声の受付状態を閉じた行に表示する。展開すると経路ごとの受付結果を表示する | `Control Connected` は音声停止中も表示する。相手側の受信はRXで確認する |
+
+### 制御接続と音声パケットの観測
+
+TXで制御が接続済みなら、閉じたRTC行に `Control Connected` と音声の受付状態を並べる。画面が前面にあり、表示中の通話で音声を準備済みの間は、RTCが保持する自端末の最新記録を1秒ごとに読む。相手へのレポート送信とその間隔は変えない。同じ通話の定期レポートも、端末内の記録をまだ読めていない間は使える。表示対象が変わると以前の読み取り結果を使わない。[RTCの記録](../../packages/RTC.md#ネットワーク診断の契約)
+
+| 観測 | TXの音声表示と状態 |
+|---|---|
+| 音声を準備していない | `Media Idle`。Idle |
+| この通話の送信を未観測 | `Audio TX not measured`。Waiting |
+| 最新の記録が直近2秒以内で、少なくとも1経路が受け付けた | `Audio accepted by transport`。Passing |
+| 最新の記録が直近2秒以内で、全経路が拒否した | `Audio not accepted by transport`。Waiting |
+| 最新の記録が直近2秒以内で、受付結果が足りない | `Audio acceptance not measured`。Waiting |
+| 最新の記録から2秒超 | `Audio TX idle`。Waiting |
+
+記録があれば `Last dispatch` と経過秒も表示する。近距離のUDPへの引き渡しとInternetのDataChannelの受付を使う。相手への到着は相手側のRXで観測する。RXは認証済みの音声をAppで受け取った時点を読む。復号に失敗しても受信は観測できる。経過秒は両方とも画面を開いたまま更新する。
 
 ### 声の分離の設定と実状態
 
@@ -101,13 +116,13 @@ effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正と
 
 ## 送信RTCの経路分岐
 
-`RTC` の分岐は `pipeline-rtc-route-multipeer`（Local）と `pipeline-rtc-route-webRTC`（Internet）。選択中の通話の `RTCNetworkDiagnostics.outboundAudioDispatch` を使う。経路へ渡した場合は受付結果を表示する。受付はPassingの記号と `Accepted by transport`、不受付はWaitingの記号と `Not accepted by transport` を表示する。受付結果のないreportはWaitingと `Acceptance not measured`。近距離でInternetの相手をカバーしたときはInternetにIdleの記号と `Covered by Local`。最後のpacketで使わなかった経路は `Not used for last packet`。記録がない場合は `No audio dispatch observed`、15秒を超えた場合は `Last dispatch is stale` としてIdleにする。Internetの `Send queue` は生成から15秒以内のnetwork reportの値を使用する。相手の受信は `Peer receipt: Not measured` とする。
+`RTC` の分岐は `pipeline-rtc-route-multipeer`（Local）と `pipeline-rtc-route-webRTC`（Internet）。閉じたRTC行と同じ送信記録を使う。経路へ渡した場合は受付結果を表示する。受付はPassingの記号と `Accepted by transport`、不受付はWaitingの記号と `Not accepted by transport` を表示する。受付結果のないreportはWaitingと `Acceptance not measured`。近距離でInternetの相手をカバーしたときはInternetにIdleの記号と `Covered by Local`。最後のpacketで使わなかった経路は `Not used for last packet`。記録がない場合は `No audio dispatch observed`、15秒を超えた場合は `Last dispatch is stale` としてIdleにする。Internetの `Send queue` は生成から15秒以内のnetwork reportの値を使用する。相手の受信は `Peer receipt: Not measured` とする。
 
 ## 受信パイプライン
 
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 表示仕様 | 状態・異常系の考え方 |
 |---|---|---|---|---|---|---|
-| RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数、Appで認証済みの音声を受け取った時刻 | 音声の準備前は `Media Idle`。音声準備済みで制御未接続なら `Control Waiting`。接続後は経路、`n connected / n authenticated`、`Last receipt` と経過秒。時刻がない場合は `Receipt time not measured`。受信または破棄がある場合に `Received packets n`、破棄がある場合に `Dropped packets n` を表示する | 音声の準備前はIdle。接続待ち・受信の未観測・最後の受信から2秒超はWaiting。直近2秒に受信を観測するとPassing。復号エラーが起きても受信の時刻は進む |
+| RTC受信ステップ | `liveReceivePipelineView` | `receive-pipeline-rtc-step` | RTC RX | route、connected peer count、authenticated peer count、受信 packet count、RTCの破棄数、Appで認証済みの音声を受け取った時刻 | 音声の準備前は `Media Idle`。音声準備済みで制御未接続なら `Control Waiting`。接続後は経路、`n connected / n authenticated`、`Last receipt` と経過秒。直近2秒なら `Audio received`。2秒を超えると `Audio RX idle`、時刻がなければ `Audio RX not measured`。受信または破棄がある場合に `Received packets n`、破棄がある場合に `Dropped packets n` を表示する | 音声の準備前はIdle。接続待ち・受信の未観測・最後の受信から2秒超はWaiting。直近2秒に受信を観測するとPassing。復号エラーが起きても受信の時刻は進む |
 | Codec decodeステップ | `liveReceivePipelineView` | `receive-pipeline-codec-step` | Decode | 現在の受信処理で空でないPCMを返したpacket数と最終時刻、復号に失敗したpacket数と最終時刻。受信グラフを作り直すと初期化する | `No PCM observed` または `PCM n`。PCMがあれば `Last PCM` と経過秒。失敗があれば `Decode errors n` と `Last error` の経過秒。peer別のdecode codecは参加者内訳で表示 | 直近2秒にPCMがあればPassing。直近のPCMがなく、2秒以内に失敗があればBlocked。両方の観測が途絶えればWaiting |
 | peer busステップ | `liveReceivePipelineView` | `receive-pipeline-peer-bus-step` | Peer Buses | `AudioMixerSnapshot.routes` の `rx-peer-*` → `rx-master` と各入力の `MixerSourceSnapshot.lastScheduledAt` | `n peer buses`。peer別の再生予約・音量・FX要約は下の参加者内訳に表示 | 音声未準備はIdle。経路のある入力のいずれかに直近2秒以内のPCM再生予約があればPassing。全入力で未観測か2秒超はWaiting |
 | receive mix downステップ | `liveReceivePipelineView` | `receive-pipeline-mix-step` | Mix Down | Peer Busesと同じ経路・再生予約 | `n routes → rx-master`（1本は `1 route → rx-master`）。その経路がある参加者の枝線が左の縦線で合流し、Mix Downで線が終わる | Peer Busesと同じ判定。再生予約後の出力はOutputで確認する |

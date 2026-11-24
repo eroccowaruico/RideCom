@@ -122,6 +122,7 @@ protocol CallSession: AnyObject {
     func makeAudioPacketSink(
         whileSourceIsActive: @escaping @Sendable () -> Bool
     ) -> @Sendable (RTC.RTCAudioPacket) -> Void
+    func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch?
     var activeRouteDebugTypeName: String { get }
     func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration)
 
@@ -140,4 +141,5 @@ protocol CallSession: AnyObject {
 
 extension CallSession {
     func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration) {}
+    func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch? { nil }
 }

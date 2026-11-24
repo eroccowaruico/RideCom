@@ -229,6 +229,7 @@ extension AudioE2ETests {
         if bothMute {
             XCTAssertEqual(transmitted, 0)
             XCTAssertEqual(received, 0)
+            if run.mutedWait > 0 { await verifyQuietPacketIndicators(viewModel) }
         }
         let evidence: [String: Any] = ["scenario": scenario, "background": run.movesToBackground,
             "bothMicrophonesMuted": bothMute, "role": run.role, "transport": run.transport,

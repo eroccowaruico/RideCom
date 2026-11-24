@@ -12,6 +12,14 @@ final class RideIntercomCallSessionAdapter: CallSession {
         let delivery = audioDelivery
         return { delivery.enqueue($0, whileSourceIsActive: whileSourceIsActive) }
     }
+
+    func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch? {
+        guard mediaActive else { return nil }
+        let generation = eventGeneration
+        let dispatch = await rtcSession.lastOutboundAudioDispatch()
+        return mediaActive && eventGeneration == generation ? dispatch : nil
+    }
+
     private(set) var activeRouteDebugTypeName: String = "RTC RouteManager"
 
     private var internetConfiguration: RTC.CloudflareRealtimeConfiguration?
@@ -356,25 +364,15 @@ extension RideIntercomCallSessionAdapter {
     }
 
     private func publishMembershipChanges(_ members: [RTC.CallMemberState]) {
-        let remote = members.filter { $0.peer.id.rawValue != memberID }
-            .sorted { $0.peer.id.rawValue < $1.peer.id.rawValue }
-        let peerIDs = remote.map { $0.peer.id.rawValue }
-        let authenticated = remote.filter(\.isConnected)
-        // RTC reports the most recent path on each member. Admission responds
-        // to participant changes, while routesChanged carries route state.
-        let membership = authenticated.map { member in
-            var copy = member
-            copy.route = nil
-            return copy
-        }
-        let notifyConnected = peerIDs != publishedPeerIDs
-        let notifyAuthenticated = membership != publishedAuthenticatedMembers
-        publishedPeerIDs = peerIDs
-        publishedAuthenticatedMembers = membership
+        let update = Self.membershipEvents(members, excluding: memberID)
+        let notifyConnected = update.peerIDs != publishedPeerIDs
+        let notifyAuthenticated = update.comparable != publishedAuthenticatedMembers
+        publishedPeerIDs = update.peerIDs
+        publishedAuthenticatedMembers = update.comparable
         let generation = eventGeneration
-        if notifyConnected { onEvent?(.connected(peerIDs: peerIDs)) }
+        if notifyConnected { onEvent?(.connected(peerIDs: update.peerIDs)) }
         if notifyAuthenticated, generation == eventGeneration {
-            onEvent?(.authenticated(members: authenticated))
+            onEvent?(.authenticated(members: update.authenticated))
         }
     }
 

@@ -49,6 +49,7 @@ struct DiagnosticsTests {
         #expect(presentation().codecDecodeStep.state == .waiting)
         #expect(presentation().codecDecodeStep.detail == "No PCM observed")
         #expect(presentation().rtcReceiveStep.state == .waiting, "Cumulative route metrics have no receipt timestamp")
+        #expect(presentation().rtcReceiveStep.detail.contains("Audio RX not measured"))
 
         let frame = PCMFrame(sequenceNumber: 0, format: .intercomMixer,
             samples: Array(repeating: 0.2, count: 480))
@@ -59,6 +60,7 @@ struct DiagnosticsTests {
         #expect(presentation().codecDecodeStep.detail.contains("PCM 0 / Decode errors 1"))
         #expect(presentation().codecDecodeStep.detail.contains("Last error"))
         #expect(presentation().rtcReceiveStep.state == .passing)
+        #expect(presentation().rtcReceiveStep.detail.contains("Audio received"))
         #expect(presentation().codecDecodeStep.state == .blocked)
 
         harness.callSession.receive(valid)
@@ -108,6 +110,7 @@ struct DiagnosticsTests {
         let later = DiagnosticsInput(model, now: Date().timeIntervalSince1970 + 3)
         let stale = ReceivePipelinePresentation(input: later)
         #expect(stale.rtcReceiveStep.state == .waiting)
+        #expect(stale.rtcReceiveStep.detail.contains("Audio RX idle"))
         #expect(stale.codecDecodeStep.state == .waiting)
         let resumed = PCMFrame(sequenceNumber: 1, format: frame.format,
             samples: Array(repeating: -0.2, count: 480))
@@ -222,7 +225,7 @@ struct DiagnosticsTests {
         let model = harness.viewModel
         func presentation() -> TransmitPipelinePresentation { .init(input: DiagnosticsInput(model)) }
 
-        #expect(presentation().mixerBusStep.detail == "Not available")
+        #expect(presentation().mixerBusStep.detail == "Not available · \(expectedIsolation(true))")
         model.selectGroup(IntercomSeedData.recentGroups[0])
         harness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { model.isAudioReady }
@@ -252,7 +255,8 @@ struct DiagnosticsTests {
             let effect = try #require(transmit.transmitEffectStages.first { $0.id == "sound-isolation" })
             #expect(effect.runtimeState == expectedState)
             #expect(transmit.mixerBusStep.state == .passing)
-            #expect(transmit.mixerBusStep.detail.contains("Isolation \(expectedState)"))
+            let isolationDetail = expectedIsolation(enabled, state: expectedState)
+            #expect(transmit.mixerBusStep.detail.hasSuffix(isolationDetail))
 
             let before = try #require(transmit.encodedAudioPacketCount)
             feed(speech, frames: 60)
@@ -267,10 +271,16 @@ struct DiagnosticsTests {
             let quiet = presentation()
             #expect(quiet.vadStep.detail.hasPrefix("Silence"))
             #expect(quiet.vadStep.state == .waiting)
-            #expect(quiet.mixerBusStep.detail.contains("Isolation \(expectedState)"))
+            #expect(quiet.mixerBusStep.detail.hasSuffix(isolationDetail))
             feed(silence, frames: 25)
             #expect(presentation().encodedAudioPacketCount == quiet.encodedAudioPacketCount)
         }
+    }
+
+    private func expectedIsolation(_ enabled: Bool, state: String = String(localized: "Not measured")) -> String {
+        let title = String(localized: "Voice Isolation")
+        let setting = enabled ? String(localized: "On") : String(localized: "Off")
+        return "\(title) \(setting) · \(state)"
     }
 
 }

@@ -202,13 +202,14 @@ struct TransmitPipelinePresentation {
     var rtcStep: PipelineStep {
         if input.selectedGroupConnectionState == .localConnected
             || input.selectedGroupConnectionState == .internetConnected {
+            let audio = outboundActivity
             return PipelineStep(
                 id: "rtc",
                 package: "RTC",
                 title: "RTC",
-                detail: "\(input.routeLabel) / Control Connected",
+                detail: "\(input.routeLabel) / Control Connected / \(audio.detail)",
                 icon: "dot.radiowaves.left.and.right",
-                state: .passing,
+                state: audio.state,
                 accessibilityIdentifier: "pipeline-rtc-step"
             )
         }
@@ -234,6 +235,18 @@ struct TransmitPipelinePresentation {
         )
     }
 
+    private var outboundActivity: (detail: String, state: PipelineStepState) {
+        guard input.isAudioReady else { return ("Media Idle", .idle) }
+        guard let dispatch = input.outboundAudioDispatch else { return ("Audio TX not measured", .waiting) }
+        let age = max(0, input.capturedAt - dispatch.observedAt)
+        let lastDispatch = "Last dispatch · \(Int(age))s ago"
+        guard age <= 2 else { return ("Audio TX idle / \(lastDispatch)", .waiting) }
+        let results = dispatch.offeredRoutes.map { dispatch.transportAcceptance?[$0] }
+        if results.contains(true) { return ("Audio accepted by transport / \(lastDispatch)", .passing) }
+        let detail = results.contains(nil) ? "Audio acceptance not measured" : "Audio not accepted by transport"
+        return ("\(detail) / \(lastDispatch)", .waiting)
+    }
+
 }
 
 extension TransmitPipelinePresentation {
@@ -243,7 +256,7 @@ extension TransmitPipelinePresentation {
 
     func outboundRoutes(now: TimeInterval) -> (summary: String, branches: [PipelineStep]) {
         let report = input.networkDiagnostics
-        let dispatch = report?.outboundAudioDispatch
+        let dispatch = input.outboundAudioDispatch
         let age = dispatch.map { max(0, now - $0.observedAt) }
         let summary = age.map { "Last audio dispatch · \(Int($0))s ago" } ?? "Last audio dispatch"
         let telemetryLifetime: TimeInterval = 15
@@ -252,7 +265,7 @@ extension TransmitPipelinePresentation {
             let isInternet = route == .webRTC
             let status: (state: PipelineStepState, label: String)
             if let dispatch, let age {
-                if age > telemetryLifetime || !reportIsFresh {
+                if age > telemetryLifetime {
                     status = (.idle, "Last dispatch is stale")
                 } else if dispatch.offeredRoutes.contains(route) {
                     switch dispatch.transportAcceptance?[route] {

@@ -239,6 +239,7 @@ extension RealtimeTransportTests.GroupContinuityTests {
         let records = riders.map(\.record)
         try await waitForMembershipCount(2, in: records)
         let speaker = riders[0].manager
+        let observingSession: any CallSession = speaker
         func sendToBothListeners(_ marker: UInt8) async throws {
             await riders[0].sendAudio(marker: marker)
             for record in records.dropFirst() {
@@ -246,12 +247,13 @@ extension RealtimeTransportTests.GroupContinuityTests {
             }
         }
 
-        #expect(await speaker.networkDiagnostics().outboundAudioDispatch == nil)
+        #expect(await observingSession.lastOutboundAudioDispatch() == nil)
         try await sendToBothListeners(1)
         let local = try #require(await speaker.networkDiagnostics().outboundAudioDispatch)
         #expect(local.offeredRoutes == [.multipeer])
         #expect(local.internetCoveredByLocal)
         #expect(local.transportAcceptance == [.multipeer: true])
+        #expect(await observingSession.lastOutboundAudioDispatch() == local)
         #expect(await riders[1].manager.networkDiagnostics().peers.contains { $0.peerID == ids[0] })
         #expect(await riders[1].manager.networkDiagnostics().outboundAudioDispatch == nil)
 
@@ -268,10 +270,12 @@ extension RealtimeTransportTests.GroupContinuityTests {
         let internet = try #require(await speaker.networkDiagnostics().outboundAudioDispatch)
         #expect(internet.offeredRoutes == [.multipeer, .webRTC])
         #expect(internet.transportAcceptance == [.multipeer: false, .webRTC: true])
+        #expect(await observingSession.lastOutboundAudioDispatch() == internet)
         let encoded = try JSONEncoder().encode(internet)
         #expect(try JSONDecoder().decode(RTCOutboundAudioDispatch.self, from: encoded) == internet)
         for rider in riders { await rider.manager.stopConnection() }
         #expect(await speaker.networkDiagnostics().outboundAudioDispatch == nil)
+        #expect(await observingSession.lastOutboundAudioDispatch() == nil)
     }
 
     func waitForMembershipCount(_ count: Int, in records: [ContinuityCallRecorder]) async throws {

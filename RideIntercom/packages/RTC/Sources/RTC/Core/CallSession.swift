@@ -34,6 +34,8 @@ public protocol CallSession: AnyObject {
     func startMedia() async
     func stopMedia() async
     func sendAudioPacket(_ packet: RTCAudioPacket) async
+    /// Reads the last local audio offer without requesting a report or sending any traffic.
+    func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch?
     func sendApplicationData(_ message: ApplicationDataMessage) async
     /// Changes packet policy without restarting transports or group authentication.
     func updateAudioPolicy(_ policy: RTCAudioPolicy) async
@@ -43,6 +45,8 @@ public protocol CallSession: AnyObject {
 }
 
 public extension CallSession {
+    func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch? { nil }
+
     func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) async {
         _ = reports
     }

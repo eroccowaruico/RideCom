@@ -8,9 +8,11 @@ import RTC
 struct LiveTransmitPipelineView: View {
     @Bindable var viewModel: IntercomViewModel
     @Binding var expandedStage: String?
+    var localDispatch: RTCOutboundAudioDispatch?
 
     var body: some View {
-        let presentation = TransmitPipelinePresentation(input: DiagnosticsInput(viewModel))
+        let input = DiagnosticsInput(viewModel, localDispatch: localDispatch)
+        let presentation = TransmitPipelinePresentation(input: input)
         VStack(alignment: .leading, spacing: AppSpacing.medium) {
             CompactPipelineHeader(
                 title: "Live TX Pipeline", systemImage: "point.topleft.down.curvedto.point.bottomright.up",

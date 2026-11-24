@@ -25,6 +25,26 @@ extension RideIntercomCallSessionAdapter {
         return ApplicationDataMessage(namespace: peerMuteStateNamespace, payload: payload, delivery: .reliable)
     }
 
+    struct MembershipEvents {
+        let peerIDs: [String]
+        let authenticated: [RTC.CallMemberState]
+        let comparable: [RTC.CallMemberState]
+    }
+
+    static func membershipEvents(_ members: [RTC.CallMemberState], excluding localID: String) -> MembershipEvents {
+        let remote = members.filter { $0.peer.id.rawValue != localID }
+            .sorted { $0.peer.id.rawValue < $1.peer.id.rawValue }
+        let authenticated = remote.filter(\.isConnected)
+        // Route changes do not change admission. Only compare the member information.
+        let comparable = authenticated.map { member in
+            var copy = member
+            copy.route = nil
+            return copy
+        }
+        return MembershipEvents(peerIDs: remote.map { $0.peer.id.rawValue },
+                                authenticated: authenticated, comparable: comparable)
+    }
+
     static func makeAppEvent(
         peerID: String, applicationData message: RTC.ApplicationDataMessage
     ) -> TransportEvent {

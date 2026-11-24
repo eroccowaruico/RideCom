@@ -1,6 +1,8 @@
 import Foundation
 
 extension RouteManager {
+    public func lastOutboundAudioDispatch() -> RTCOutboundAudioDispatch? { outboundAudioDispatch }
+
     func emitRouteSnapshot() { emit(.routeChanged(routeSnapshot())) }
     private func routeSnapshot() -> ActiveRouteSnapshot {
         ActiveRouteSnapshot(activeRoute: activeRoute, mediaRoute: activeRoute, availableRoutes: availableRoutes,

@@ -91,7 +91,7 @@ struct ReceivePipelinePresentation {
 
     func peerDetail(for peerID: String) -> PeerDetail {
         let status = input.receivePeerRuntimeStatuses[peerID]
-        let paths = input.receiveNetworkDiagnostics?.peers.filter { $0.peerID.rawValue == peerID } ?? []
+        let paths = input.networkDiagnostics?.peers.filter { $0.peerID.rawValue == peerID } ?? []
         let age = status.map { max(0, input.capturedAt - $0.generatedAt) }
         return PeerDetail(
             status: status,
@@ -127,10 +127,12 @@ struct ReceivePipelinePresentation {
                 \(input.authenticatedPeerCount) authenticated
                 """
             let receipt = observation(input.lastReceivedAudioAt)
-            let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? " / Receipt time not measured"
+            let audio = receipt.elapsed == nil ? "Audio RX not measured"
+                : (receipt.state == .passing ? "Audio received" : "Audio RX idle")
+            let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? ""
             let media = received > 0 || dropped > 0 ? " / Received packets \(received)" : ""
             let failures = dropped > 0 ? " / Dropped packets \(dropped)" : ""
-            value = (peers + media + lastReceipt + failures, receipt.state)
+            value = ("\(peers) / \(audio)" + media + lastReceipt + failures, receipt.state)
         }
         return PipelineStep(
             id: "rtc-receive", package: "RTC", title: "RTC RX", detail: value.detail,

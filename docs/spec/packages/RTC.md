@@ -164,7 +164,7 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 | bufferedBytes | native connectionが所有するDataChannelのbufferedAmount合計 | アプリの送信待ちbyte数。接続がない場合はnil |
 | packetLoss | DataChannel用の損失率はnil | RTPのpacketsLostをSCTP音声に流用しない。取得不能理由を明示し、0で正常表示しない |
 | peers | group envelopeを認証・重複検査した最後のpathと到着route、観測時刻 | 最後に届いた経路。全候補経路の探索結果ではない。8秒経過・hop消失・route消失・stopで表示対象から除く |
-| outboundAudioDispatch | 自端末が生成した音声packetを最後に各経路へ渡した記録。経路の順序、経路ごとの `transportAcceptance`、近距離でInternetを省いたか、観測時刻を持つ | Localは送信条件を満たしてUDPへ渡したか、InternetはDataChannelの送信受付結果。未計測の経路は結果に含めない。相手到着は受信側の観測を要する。制御や中継の送信では更新せず、通話準備・切断で消去する |
+| outboundAudioDispatch | 自端末が生成した音声packetを最後に各経路へ渡した記録。経路の順序、経路ごとの `transportAcceptance`、近距離でInternetを省いたか、観測時刻を持つ | Localは送信条件を満たしてUDPへ渡したか、InternetはDataChannelの送信受付結果。未計測の経路は結果に含めない。相手到着は受信側の観測を要する。制御や中継の送信では更新せず、通話準備・切断で消去する。端末内の `CallSession.lastOutboundAudioDispatch()` は同じ記録を読み取るだけで、レポートを生成せず、通信も行わない |
 | Local | transportとrouteのmailbox破棄を通知 | UDP音声の送受信datagram数・送信処理中bytes・最近の媒体受領確認があるendpoint数を通知。間引いた受領確認からpacketごとのRTTやネットワーク損失を推定しない |
 
 経路の新実装が統計backendを持たない場合も、共通診断APIから明示的な取得不能を返す。新たなplugin層は追加せず既存route / native engine境界を使う。packet形式・音声送信方式は変更しない。

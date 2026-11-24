@@ -33,6 +33,7 @@ struct DiagnosticsInput {
     var preferredTransmitCodec: AudioCodecIdentifier
     var routeLabel: String
     var networkDiagnostics: RTCNetworkDiagnostics?
+    let outboundAudioDispatch: RTCOutboundAudioDispatch?
     var selectedGroupConnectionState: CallConnectionState
     var selectedTransmitCodec: AudioCodecIdentifier
     var encodedAudioPacketCount: Int
@@ -59,10 +60,10 @@ struct DiagnosticsInput {
     var receivedVoicePacketCount: Int
     var selectedGroup: IntercomGroup?
     var receivePeerRuntimeStatuses: [String: RTCRuntimeStatus]
-    var receiveNetworkDiagnostics: RTCNetworkDiagnostics?
     var receivePeerVolumes: [String: Float]
 
-    init(_ viewModel: IntercomViewModel, now: TimeInterval = Date().timeIntervalSince1970) {
+    init(_ viewModel: IntercomViewModel, now: TimeInterval = Date().timeIntervalSince1970,
+         localDispatch: RTCOutboundAudioDispatch? = nil) {
         capturedAt = now
         audioErrorMessage = viewModel.audioErrorMessage
         audioSessionProfile = viewModel.audioSessionProfile
@@ -80,6 +81,7 @@ struct DiagnosticsInput {
         routeLabel = viewModel.routeLabel
         let showsActiveCall = viewModel.activeGroupID != nil && viewModel.activeGroupID == viewModel.selectedGroup?.id
         networkDiagnostics = showsActiveCall ? viewModel.networkDiagnostics : nil
+        outboundAudioDispatch = showsActiveCall ? localDispatch ?? networkDiagnostics?.outboundAudioDispatch : nil
         if showsActiveCall, viewModel.isAudioPausedForDeviceChange {
             let status = viewModel.hasPresentedAuthenticatedConnection ? viewModel.callPresenceLabel : "Audio paused"
             pausedCall = (status, viewModel.audioRouteNotice ?? viewModel.audioPauseError)
@@ -108,11 +110,10 @@ struct DiagnosticsInput {
         lastPlaybackScheduledAt = viewModel.lastPlaybackScheduledAt
         receiveOutputEffectChainSnapshot = viewModel.receiveMixEffectChainSnapshot
         receiveDecodeCounts = viewModel.audioPipeline.receiveDecodeCounts
-        lastReceivedAudioAt = viewModel.lastReceivedAudioAt
+        lastReceivedAudioAt = showsActiveCall ? viewModel.lastReceivedAudioAt : nil
         receivedVoicePacketCount = viewModel.receivedVoicePacketCount
         selectedGroup = viewModel.selectedGroup
         receivePeerRuntimeStatuses = viewModel.remoteRuntimeStatuses
-        receiveNetworkDiagnostics = viewModel.networkDiagnostics
         receivePeerVolumes = viewModel.remoteOutputVolumes
     }
     func receivePeerEffectChainSnapshot(peerID: String) -> AudioEffectChainSnapshot {

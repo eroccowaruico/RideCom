@@ -9,8 +9,10 @@ private enum DiagnosticsPage: String, CaseIterable, Identifiable {
 struct DiagnosticsView: View {
     @Bindable var viewModel: IntercomViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @State private var page: DiagnosticsPage = .overview
     @State private var expandedStage: String?
+    @State private var outboundObservation: (generation: UUID, dispatch: RTCOutboundAudioDispatch?)?
 
     var body: some View {
         VStack(spacing: AppSpacing.large) {
@@ -50,6 +52,35 @@ struct DiagnosticsView: View {
             viewModel.publishRuntimePackageReports(force: true)
         }
         .onDisappear { viewModel.isDiagnosticsVisible = false }
+        .task(id: observationGeneration) {
+            guard let generation = observationGeneration else {
+                outboundObservation = nil
+                return
+            }
+            await observeOutboundAudio(generation: generation)
+        }
+    }
+
+    private var observationGeneration: UUID? {
+        guard scenePhase == .active, viewModel.isAudioReady, let groupID = viewModel.activeGroupID,
+              groupID == viewModel.selectedGroup?.id else { return nil }
+        return viewModel.connectionGeneration
+    }
+
+    private var localDispatch: RTCOutboundAudioDispatch? {
+        guard let outboundObservation, outboundObservation.generation == observationGeneration else { return nil }
+        return outboundObservation.dispatch
+    }
+
+    private func observeOutboundAudio(generation: UUID) async {
+        while !Task.isCancelled {
+            let dispatch = await viewModel.callSession.lastOutboundAudioDispatch()
+            guard !Task.isCancelled, observationGeneration == generation else { return }
+            if outboundObservation?.generation != generation || outboundObservation?.dispatch != dispatch {
+                outboundObservation = (generation, dispatch)
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
     }
 
     // Every page is visible at once as segments. Accessibility text sizes don't fit five segments,
@@ -76,7 +107,7 @@ struct DiagnosticsView: View {
         case .overview:
             overviewContent
         case .transmit:
-            LiveTransmitPipelineView(viewModel: viewModel, expandedStage: $expandedStage)
+            LiveTransmitPipelineView(viewModel: viewModel, expandedStage: $expandedStage, localDispatch: localDispatch)
         case .receive:
             LiveReceivePipelineView(viewModel: viewModel, expandedStage: $expandedStage)
         case .network:
@@ -88,7 +119,8 @@ struct DiagnosticsView: View {
 
     private var overviewContent: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let input = DiagnosticsInput(viewModel, now: context.date.timeIntervalSince1970)
+            let now = context.date.timeIntervalSince1970
+            let input = DiagnosticsInput(viewModel, now: now, localDispatch: localDispatch)
             let steps = pipelineSteps(input)
             VStack(alignment: .leading, spacing: AppSpacing.large) {
                 verdicts(input, transmit: steps.transmit, receive: steps.receive)
