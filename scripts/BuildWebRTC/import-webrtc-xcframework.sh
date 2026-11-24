@@ -23,4 +23,4 @@ fi
 
 # Stage and validate the pair before one atomic directory publication.
 exec python3 "${SCRIPT_DIR}/import_webrtc_artifact.py" "${SOURCE_ZIP}" "${ARTIFACT_DIR}" \
-  "${SCRIPT_DIR}/verify-webrtc-xcframework.sh"
+  "${SCRIPT_DIR}/verify-webrtc-xcframework.sh" modular

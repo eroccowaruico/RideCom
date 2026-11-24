@@ -96,21 +96,23 @@ class WebRTCScriptTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(marker.exists(), dirty == 'no', result.stderr)
 
-    def test_vendor_camera_symbol_is_reported_without_blocking_import(self) -> None:
+    def test_adopted_framework_rejects_a_camera_symbol(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(['unzip', '-q', str(ARTIFACT), '-d', directory], check=True)
             commands = root / 'bin'
             commands.mkdir()
             nm = commands / 'nm'
-            nm.write_text("#!/bin/sh\nprintf '%s\\n' '_OBJC_CLASS_$_AVCaptureSession'\n")
+            nm.write_text(
+                "#!/bin/sh\nprintf '%s\\n' '0001 T _RideComRTCFactoryCreate' '_OBJC_CLASS_$_AVCaptureSession'\n"
+            )
             nm.chmod(0o755)
             result = subprocess.run([str(SCRIPTS / 'verify-webrtc-xcframework.sh'),
                                      str(root / 'WebRTC.xcframework')],
                                     env=dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH']),
                                     capture_output=True, text=True, check=False)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('Camera API present in vendor SDK', result.stdout)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn('Camera API present in modular SDK', result.stderr)
 
     def test_cleanup_rejects_non_checkout_without_removing_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

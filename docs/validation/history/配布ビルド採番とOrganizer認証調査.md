@@ -282,6 +282,18 @@ ICEの接続状態通知と、既存の接続にサーバー設定を渡す処�
 
 最初は個人のホーム内のGN出力を使った。取り込みの検査は、dSYMに作業パスを検出して停止した。採用済みの成果物は保持された。配布用のビルドと一時領域は個人のホームから移す。組み立てでは、実行ファイルのデバッグ情報を除いてからフレームワークに署名する。[取り込み時の作業パス検査](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#取り込みの中断と復帰)
 
+## 撮影を含まないWebRTCをRTCに取り込む
+
+2026-11-24。個人のホーム外にある未改変の公式ソースから、配布用の5構成をビルドした。撮影クラスへの参照は全構成で0件。3つの実行ファイルとiPhone向けdSYMを照合し、個人のホームパスがないことを確認した。iPhone向けバイナリとdSYMのUUIDは一致した。採用したZIPは38,161,713バイトで、取り込み前後のSHA-256は `a6723bb0c6a3758adb773edeeea52e8c17e01b1915be2726272d0904d4f20287`。
+
+Swift側のRTC実装を同じC++ファクトリーへ接続した。Mac上で既存のRTC経由の双方向音声、DataChannel専用の交渉、近距離経路の復旧を確認した。[RTCの媒体契約](../../spec/packages/RTC.md#cloudflareの媒体契約)
+
+RTCの146件とネイティブ通話の7件、検証スクリプトの243件を通過した。ネイティブの試験では、受信通知中にチャネルの最後のSwift参照がなくなる場合も確認した。
+
+iPhone向けRelease Build 2384の署名付きArchiveを作成し、同じBuildのIPAを書き出した。AppとWidgetのビルド番号が一致した。AppとWebRTCは、それぞれの実行ファイルとdSYMのUUIDが一致した。採用ZIP、Archive、IPAの実機向けWebRTCは、データのある17セクションが一致した。ArchiveとIPAのカメラ検査は両方とも通過した。IPAの通知署名は `production`。Watch App、CallKit、PushToTalk、iCloud権限、カメラの利用目的は検出されなかった。次回用の共通採番は2385。
+
+この検証用Buildには旧Worker URLが残っている。ArchiveとIPAはローカルの検証領域へ保存した。TestFlight用は本番の接続先を更新して作成する。Apple側の処理結果は未確認。[本番と固定Previewの接続先](../../backlog/未実装課題.md#本番と固定previewのworker-urlをridecomに揃える)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。

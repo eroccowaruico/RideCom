@@ -93,13 +93,16 @@ fi''')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.mac / 'Resources/PrivacyInfo.xcprivacy').read_bytes(), PRIVACY)
 
-    def test_modular_framework_requires_its_factory_and_rejects_camera_references(self) -> None:
+    def use_modular_headers(self) -> None:
         for framework in self.root.glob('*/WebRTC.framework'):
             headers = framework / 'Headers'
             for header in headers.glob('*.h'):
                 if header.name != 'WebRTC.h':
                     header.unlink()
             (headers / 'RideComRTC.h').write_text('// C adapter fixture\n')
+
+    def test_modular_framework_requires_its_factory_and_rejects_camera_references(self) -> None:
+        self.use_modular_headers()
         self.assertIn('Missing modular factory', self.verify('modular').stderr)
 
         export_line = "printf '0000000000000010 T _RideComRTCFactoryCreate\\n'"
@@ -273,6 +276,8 @@ fi''')
         self.assertNotEqual(result.returncode, 0)
 
     def test_valid_archive_without_provenance_is_not_installed(self) -> None:
+        self.use_modular_headers()
+        self.command('nm', "printf '0000000000000010 T _RideComRTCFactoryCreate\\n'")
         archive = self.archive()
         destination = self.base / 'installed'
         result = subprocess.run([str(SCRIPTS / 'import-webrtc-xcframework.sh')],
@@ -280,6 +285,16 @@ fi''')
                      WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Missing WebRTC build provenance', result.stderr)
+        self.assertFalse(destination.exists())
+
+    def test_import_rejects_an_objective_c_sdk(self) -> None:
+        archive = self.archive()
+        destination = self.base / 'installed'
+        result = subprocess.run([str(SCRIPTS / 'import-webrtc-xcframework.sh')],
+            env=dict(self.env, WEBRTC_XCFRAMEWORK_ZIP=str(archive),
+                     WEBRTC_ARTIFACT_DIR=str(destination)), capture_output=True, text=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing modular factory', result.stderr)
         self.assertFalse(destination.exists())
 
 

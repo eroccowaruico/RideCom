@@ -113,6 +113,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 Swift側は取得したハンドルを一度だけ解放する。同じハンドルの解放と別の操作を同時に呼ばない。ファクトリーのハンドルを解放した後も、作成済みの接続を利用できる。接続の解放でその配下のチャネルが閉じる。チャネルのハンドルは接続の解放後も解放できる。
 
+Swiftから明示的に閉じると、登録した通知を解除してから戻る。Swift側の参照が尽きたときは専用キューでハンドルを解放する。SDKスレッドで通知を処理している間に、同じスレッドへ終了処理が入り込むことを防ぐ。解除が済むまで通知先を保持する。
+
 macOS向けの出力名は `libRideComRTC.dylib` とし、出力したディレクトリでSwiftの検証プログラムを動かす。同一プロセスでチャネルの作成、無効なIDと重複IDの拒否、解放の順序を確かめる。
 
 ```bash
@@ -125,7 +127,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 "$library_dir/check-lifecycle"
 ```
 
-この手順は候補の接続部を検証する。採用済みのAppでは、同梱WebRTCのObjective-C APIを使う。[現行SDKとの組合せ](#現行sdkとの組合せ)
+この手順は接続部を単体で検証する。Appの `RTCNativeWebRTC` も同じCインターフェースを使う。[現行SDKとの組合せ](#現行sdkとの組合せ)
 
 #### C++候補でDataChannel専用のSDPを交渉する
 
@@ -171,7 +173,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 最後に全構成のバイナリ、Cの公開ヘッダー、撮影参照、iPhoneのdSYMのUUIDを検査する。検査が通ったXCFrameworkを新しい出力先へ置く。共有する候補を作るときは、ソースのcheckout、GN出力、XCFrameworkの出力先を個人のホーム外に置く。接続部のソースは、XCFrameworkを組み立てる一時領域へコピーしてコンパイルする。[配布成果物に含める情報](#取り込みの中断と復帰)
 
-この手順の出力は候補ファイル。Appへの取り込みは、既存のRTC契約の回帰と実際に同梱した配布物の検査を合わせて行う。
+この手順で作るXCFrameworkをZIPにし、ビルドの由来を示す記録とともに取り込む。RTCの回帰テストを実行し、配布物に含まれるファイルを検査する。
 
 ## 失敗時の入口
 
@@ -452,17 +454,20 @@ worktreeが通常checkoutと異なる場所にある場合は `DEPOT_TOOLS_DIR` 
 
 ## 現行SDKとの組合せ
 
+採用版の再作成には[公式C++ターゲットの組み立て手順](#公式cターゲットのxcframeworkを組み立てる)を使う。従来の一括更新が組み立てるObjective-C版は取り込み時に拒否する。一括更新を公式C++ターゲットへつなぐ作業は[配布前の残課題](../../backlog/未実装課題.md#itms-90683の再発を解消してtestflightへ送信する)で追う。
+
 | 項目 | 採用内容 |
 |---|---|
-| 確認日 | 2026-11-23 |
+| 確認日 | 2026-11-24 |
 | WebRTCのコミット | `f0b51cdb2fd2df5a44c2f05ccc3dc41f5f429362` |
 | XcodeとSDK | Xcode 27.2（27B52）。iOS実機・iOS Simulator・macOSのSDKはいずれも27.2 |
 | GN設定 | 全構成で `is_debug=false`。WebRTC本体の `treat_warnings_as_errors=false` と、イベントログのProtobufを外す `rtc_enable_protobuf=false` を指定する |
 | 成果物 | iOS arm64、iOS Simulator arm64/x86_64、macOS arm64/x86_64 |
-| 採用時の検証 | 5構成の実行ファイル、公開ヘッダー、プライバシーマニフェストとiOS実機用dSYMを照合。共有側のRTC回帰148件とSwift・Workerの通信試験1件が通過。iPhone Simulatorの試験で両方向98/98フレームが一致した |
+| 接続の入口 | `//api:create_modular_peer_connection_factory` を使う。撮影クラスへの参照がないことを全構成で検査する |
+| 採用時の検証 | 5構成の実行ファイルと公開Cヘッダー、プライバシーマニフェスト、iOS実機用dSYMを照合。Macで既存のRTC経由の双方向送受信と近距離復旧を確認。iOS Build 2384の署名付きArchiveとIPAでカメラ参照は0件 |
 | チェックサムとビルド情報 | ZIPと同じディレクトリの `WebRTC.xcframework.metadata`。上流コミット、depot_tools、GNとSDK、5構成の引数の照合値、ZIPのSHA-256を記録 |
 
-署名したiPhone用Archiveと採用したZIPの照合は[Build 2263の検証](../../validation/history/配布ビルド採番とOrganizer認証調査.md#採用した無改変webrtcでbuild-2263を作る)を参照する。以前の採用記録と配布候補は同じ検証文書に残す。
+撮影を含まないZIPの作成と検証は[公式C++ターゲットを使うSDKの取り込み](../../validation/history/配布ビルド採番とOrganizer認証調査.md#撮影を含まないwebrtcをrtcに取り込む)を参照する。[Build 2263で使った従来のSDK](../../validation/history/配布ビルド採番とOrganizer認証調査.md#採用した無改変webrtcでbuild-2263を作る)の記録も残す。
 
 ビルドで生じたvendor警告をゼロとは記録しない。`ASSEMBLE_ONLY=true` は生成済みの構成を使った組み立ての確認用とする。採用には通常ビルドで生成したZIPと対応する記録を使う。
 

@@ -2,317 +2,233 @@ import Foundation
 import RTC
 
 #if canImport(WebRTC)
-@preconcurrency import WebRTC
+import WebRTC
 
 public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
-    public override var isAvailable: Bool { true }
+    public override var isAvailable: Bool { factory != nil }
 
-    private let factory: RTCPeerConnectionFactory
-    private var rtcConfiguration: RTCConfiguration
-    private let lock = NSRecursiveLock()
-    private var channels: [PeerID: [Int32: RTCDataChannel]] = [:]
+    private let factory: ModularWebRTCFactory?
+    // Native callbacks may run while the caller waits on an SDK operation.
+    // They use the state lock only, and SDK operations never hold that lock.
+    private let mutations = NSLock()
+    private let state = NSLock()
+    private let stateEvents = DispatchQueue(label: "RideCom.WebRTC.state")
+    private var iceServers: [WebRTCIceServer]
+    private var peerConnections: [PeerID: ModularWebRTCPeer] = [:]
+    private var channels: [PeerID: [Int32: ModularWebRTCChannel]] = [:]
     private var channelOrigins: [ObjectIdentifier: PeerID] = [:]
     private var publishers: [PeerID: [ApplicationDataDelivery: Int32]] = [:]
-    private var peerConnections: [PeerID: RTCPeerConnection] = [:]
-    private var peerIDsByConnection = [ObjectIdentifier: PeerID]()
 
-    public override init() {
-        RTCInitializeSSL()
-        self.factory = RTCPeerConnectionFactory()
-        self.rtcConfiguration = Self.configuration([.init(urls: ["stun:stun.cloudflare.com:3478"])])
+    public override convenience init() {
+        self.init(iceServers: [.init(urls: ["stun:stun.cloudflare.com:3478"])])
+    }
+
+    public convenience init(iceServers: [WebRTCIceServer]) {
+        self.init(iceServers: iceServers, includeLoopback: false)
+    }
+
+    init(iceServers: [WebRTCIceServer], includeLoopback: Bool) {
+        factory = ModularWebRTCFactory(includeLoopback: includeLoopback)
+        self.iceServers = Self.udpIceServers(iceServers)
         super.init()
     }
 
-    public init(iceServers: [WebRTCIceServer], factory: RTCPeerConnectionFactory = RTCPeerConnectionFactory()) {
-        RTCInitializeSSL()
-        self.factory = factory
-        self.rtcConfiguration = Self.configuration(iceServers)
-        super.init()
-    }
-
-    /// maxRetransmits=0 alone is insufficient if ICE selects TCP/TLS TURN.
-    /// Every construction and credential refresh uses the same UDP-only policy.
-    private static func configuration(_ servers: [WebRTCIceServer]) -> RTCConfiguration {
-        let configuration = RTCConfiguration()
-        configuration.sdpSemantics = .unifiedPlan
-        configuration.tcpCandidatePolicy = .disabled
-        configuration.iceServers = servers.compactMap { server in
+    private static func udpIceServers(_ servers: [WebRTCIceServer]) -> [WebRTCIceServer] {
+        servers.compactMap { server in
             let urls = server.urls.filter { url in
                 let value = url.lowercased()
                 guard value.hasPrefix("stun:") || value.hasPrefix("turn:") else { return false }
                 let parts = value.split(separator: "?", maxSplits: 1)
                 return parts.count == 1 || parts[1] == "transport=udp"
             }
-                return urls.isEmpty
-                    ? nil
-                    : RTCIceServer(urlStrings: urls, username: server.username, credential: server.credential)
+            return urls.isEmpty ? nil : .init(urls: urls, username: server.username, credential: server.credential)
         }
-        return configuration
     }
 
     public override func createPeerConnection(for peer: PeerDescriptor) async {
-        lock.withLock {
-        guard peerConnections[peer.id] == nil else { return }
+        mutations.withLock {
+            guard
+                state.withLock({ peerConnections[peer.id] == nil }),
+                let connection = factory?.makePeer()
+            else { return }
+            guard iceServers.isEmpty || connection.setIceServers(iceServers) else {
+                connection.close()
+                return
+            }
 
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        guard let connection = factory.peerConnection(
-            with: rtcConfiguration,
-            constraints: constraints,
-            delegate: self
-        ) else { return }
-
-        // Reserve a negotiated control channel to put SCTP in the initial SDP.
-        // It never carries audio; the Worker returns the actual SFU allocations.
-        let bootstrap = RTCDataChannelConfiguration()
-        bootstrap.isNegotiated = true; bootstrap.channelId = 0
-        if let channel = connection.dataChannel(forLabel: "server-events", configuration: bootstrap) {
-            channels[peer.id] = [0: channel]
-        }
-        peerConnections[peer.id] = connection
-        peerIDsByConnection[ObjectIdentifier(connection)] = peer.id
+            // Reserve the initial negotiated channel so the offer contains SCTP.
+            let bootstrap = connection.makeChannel(label: "server-events", id: 0, delivery: .reliable)
+            state.withLock {
+                peerConnections[peer.id] = connection
+                if let bootstrap { channels[peer.id] = [0: bootstrap] }
+            }
+            observeIce(connection, peerID: peer.id)
         }
     }
 
     public override func configureIceServers(_ servers: [WebRTCIceServer]) async -> Bool {
-        let configuration = Self.configuration(servers)
-        guard !configuration.iceServers.isEmpty else { return false }
-        let connections = lock.withLock {
-            rtcConfiguration = configuration
-            return Array(peerConnections.values)
+        let eligible = Self.udpIceServers(servers)
+        guard !eligible.isEmpty else { return false }
+        return mutations.withLock {
+            iceServers = eligible
+            let connections = state.withLock { Array(peerConnections.values) }
+            return connections.allSatisfy { $0.setIceServers(eligible) }
         }
-        // Refresh credentials on the existing connection without replacing its channels.
-        return connections.allSatisfy { $0.setConfiguration(configuration) }
     }
 
     public override func networkStatistics(for peerID: PeerID) async -> RTCNetworkStatistics {
-        guard let connection = lock.withLock({ peerConnections[peerID] }) else { return .init() }
-        let result: RTCNetworkStatistics = await withCheckedContinuation { continuation in
-            connection.statistics { report in
-                    let selected =
-                        report.statistics.values.first { $0.type == "transport" }?.values[
-                            "selectedCandidatePairId"] as? String
-                let pair = selected.flatMap { report.statistics[$0] }
-                let rtt = (pair?.values["currentRoundTripTime"] as? NSNumber)?.doubleValue
-                continuation.resume(returning: .init(roundTripTime: rtt,
-                    unavailableReason: "SCTP DataChannel packet loss is not exposed; RTT is ICE transport RTT"))
-            }
-        }
-        return lock.withLock {
+        guard let connection = state.withLock({ peerConnections[peerID] }) else { return .init() }
+        let roundTripTime = await connection.roundTripTime()
+        let currentChannels = state.withLock { channels[peerID].map { Array($0.values) } }
+        let bytes = currentChannels?.reduce(UInt64(0)) { $0 + $1.bufferedBytes }
+        return state.withLock {
             guard peerConnections[peerID] === connection else { return .init() }
-            var current = result
-            current.bufferedBytes = channels[peerID]?.values.reduce(UInt64(0)) { $0 + $1.bufferedAmount }
-            return current
+            return RTCNetworkStatistics(
+                roundTripTime: roundTripTime, bufferedBytes: bytes,
+                unavailableReason: "SCTP DataChannel packet loss is not exposed; RTT is ICE transport RTT"
+            )
         }
     }
 
     public override func makeOffer(for peerID: PeerID) async -> WebRTCSessionDescription? {
-        guard let connection = lock.withLock({ peerConnections[peerID] }) else { return nil }
-        guard let sdp = await connection.makeAndSetLocalOfferSDP() else { return nil }
-        return WebRTCSessionDescription(kind: .offer, sdp: await connection.gatheredSDP(fallback: sdp))
+        guard
+            let connection = state.withLock({ peerConnections[peerID] }),
+            let sdp = await connection.makeLocalDescription(),
+            state.withLock({ peerConnections[peerID] === connection })
+        else { return nil }
+        return .init(kind: .offer, sdp: sdp)
     }
 
     public override func acceptOffer(_ offer: WebRTCSessionDescription, from peerID: PeerID) async
         -> WebRTCSessionDescription? {
-        guard let connection = lock.withLock({ peerConnections[peerID] }) else { return nil }
-        guard await connection.setRemoteDataChannelSDP(offer.sdp, type: .offer) else { return nil }
-        guard let sdp = await connection.makeAndSetLocalAnswerSDP() else { return nil }
-        return WebRTCSessionDescription(kind: .answer, sdp: await connection.gatheredSDP(fallback: sdp))
+        guard
+            let connection = state.withLock({ peerConnections[peerID] }),
+            await connection.setRemoteDescription(offer.sdp, kind: RideComRTCDescriptionOffer),
+            let sdp = await connection.makeLocalDescription(),
+            state.withLock({ peerConnections[peerID] === connection })
+        else { return nil }
+        return .init(kind: .answer, sdp: sdp)
     }
 
     public override func acceptAnswer(_ answer: WebRTCSessionDescription, from peerID: PeerID) async -> Bool {
-        guard let connection = lock.withLock({ peerConnections[peerID] }) else { return false }
-        return await connection.setRemoteDataChannelSDP(answer.sdp, type: .answer)
+        guard let connection = state.withLock({ peerConnections[peerID] }) else { return false }
+        return await connection.setRemoteDescription(answer.sdp, kind: RideComRTCDescriptionAnswer)
+            && state.withLock { peerConnections[peerID] === connection }
     }
 
     public override func configureDataChannels(_ allocations: [WebRTCDataChannel], for peerID: PeerID) async {
-        guard let connection = lock.withLock({ peerConnections[peerID] }) else { return }
-        let wanted = Set(allocations.map(\.id))
-        let obsolete: [RTCDataChannel] = lock.withLock {
-            let old = channels[peerID, default: [:]].filter { !wanted.contains($0.key) }.map(\.value)
-            for channel in old {
-                channelOrigins[ObjectIdentifier(channel)] = nil; channels[peerID]?[channel.channelId] = nil
+        mutations.withLock {
+            guard let connection = state.withLock({ peerConnections[peerID] }) else { return }
+            let wanted = Set(allocations.map(\.id))
+            let obsolete = state.withLock {
+                let removed = channels[peerID, default: [:]].filter { !wanted.contains($0.key) }.map(\.value)
+                for channel in removed {
+                    channelOrigins[ObjectIdentifier(channel)] = nil
+                    channels[peerID]?[channel.id] = nil
+                }
+                publishers[peerID] = nil
+                return removed
             }
-            publishers[peerID] = nil
-            return old
-        }
-        // RTC callbacks can be synchronous. Never hold our lock across SDK mutations.
-        for channel in obsolete { channel.delegate = nil; channel.close() }
-        for allocation in allocations {
-            let config = RTCDataChannelConfiguration()
-            config.isNegotiated = true; config.channelId = allocation.id
-            if allocation.delivery == .unreliable { config.isOrdered = false; config.maxRetransmits = 0 }
-            let existing = lock.withLock { channels[peerID]?[allocation.id] }
-            if let existing, existing.isOrdered != config.isOrdered
-                || (allocation.delivery == .unreliable && existing.maxRetransmits != 0) {
-                emit(.connectionStateChanged(.failed))
-                continue
+            for channel in obsolete { channel.close() }
+            for allocation in allocations {
+                installChannel(allocation, peerID: peerID, connection: connection)
             }
-                guard
-                    let channel = existing
-                        ?? connection.dataChannel(forLabel: "rideintercom", configuration: config)
-                else { continue }
-            let retained = retainDataChannel(channel, allocation: allocation, peerID: peerID, connection: connection)
-            if retained { channel.delegate = self } else { channel.close() }
         }
     }
 
-    private func retainDataChannel(
-        _ channel: RTCDataChannel,
-        allocation: WebRTCDataChannel,
-        peerID: PeerID,
-        connection: RTCPeerConnection
-    ) -> Bool {
-        lock.withLock {
-            guard peerConnections[peerID] === connection else { return false }
-            channels[peerID, default: [:]][allocation.id] = channel
-            if allocation.isPublisher { publishers[peerID, default: [:]][allocation.delivery] = allocation.id }
-            if let origin = allocation.peerID { channelOrigins[ObjectIdentifier(channel)] = origin }
-            return true
+    private func installChannel(
+        _ allocation: WebRTCDataChannel, peerID: PeerID, connection: ModularWebRTCPeer
+    ) {
+        let existing = state.withLock { channels[peerID]?[allocation.id] }
+        if let existing, existing.delivery != allocation.delivery {
+            emit(.connectionStateChanged(.failed))
+            return
         }
+        guard let channel = existing ?? connection.makeChannel(
+            label: "rideintercom", id: allocation.id, delivery: allocation.delivery
+        ) else { return }
+
+        state.withLock {
+            channels[peerID, default: [:]][allocation.id] = channel
+            if allocation.isPublisher {
+                publishers[peerID, default: [:]][allocation.delivery] = allocation.id
+            }
+            channelOrigins[ObjectIdentifier(channel)] = allocation.peerID
+        }
+        observeChannel(channel, peerID: peerID)
     }
 
     @discardableResult
     public override func sendApplicationData(_ message: ApplicationDataMessage, to peerID: PeerID) async -> Bool? {
-        let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
-        guard let data = try? encoder.encode(message), data.count <= 49152 else { return false }
-        let channel = lock.withLock { publishers[peerID]?[message.delivery].flatMap { channels[peerID]?[$0] } }
-        guard let channel, channel.readyState == .open,
-                message.delivery == .reliable ? channel.bufferedAmount <= 65536 : channel.bufferedAmount == 0
-            else { return false }
-        guard message.delivery == .reliable || (!channel.isOrdered && channel.maxRetransmits == 0) else { return false }
-        return channel.sendData(RTCDataBuffer(data: data, isBinary: true))
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        guard let data = try? encoder.encode(message), data.count <= 49_152 else { return false }
+        let channel = state.withLock { publishers[peerID]?[message.delivery].flatMap { channels[peerID]?[$0] } }
+        return channel?.send(data) ?? false
     }
 
     public override func closePeerConnection(peerID: PeerID) async {
-        let owned = lock.withLock { () -> (RTCPeerConnection?, [RTCDataChannel]) in
-            let old = Array(channels.removeValue(forKey: peerID)?.values ?? [:].values)
-            for channel in old { channelOrigins[ObjectIdentifier(channel)] = nil }
-            publishers[peerID] = nil
-            let connection = peerConnections.removeValue(forKey: peerID)
-            if let connection { peerIDsByConnection.removeValue(forKey: ObjectIdentifier(connection)) }
-            return (connection, old)
+        mutations.withLock {
+            let removed = state.withLock { () -> (ModularWebRTCPeer?, [ModularWebRTCChannel]) in
+                let old = Array(channels.removeValue(forKey: peerID)?.values ?? [:].values)
+                for channel in old { channelOrigins[ObjectIdentifier(channel)] = nil }
+                publishers[peerID] = nil
+                return (peerConnections.removeValue(forKey: peerID), old)
+            }
+            for channel in removed.1 { channel.close() }
+            removed.0?.close()
         }
-        for channel in owned.1 { channel.delegate = nil; channel.close() }
-        owned.0?.close()
     }
+
     public override func close() async {
-        let ids = lock.withLock { Array(peerConnections.keys) }
-        for id in ids { await closePeerConnection(peerID: id) }
+        let peers = state.withLock { Array(peerConnections.keys) }
+        for peerID in peers { await closePeerConnection(peerID: peerID) }
     }
 
-}
-
-extension WebRTCNativeEngine: RTCPeerConnectionDelegate {
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
-    public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
-
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        lock.withLock {
-            guard peerIDsByConnection[ObjectIdentifier(peerConnection)] != nil else { return }
-            emit(.connectionStateChanged(newState.routeState))
-        }
-    }
-
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
-
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        // Offers/answers include gathered ICE. No unused trickle or DataChannel path.
-    }
-
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
-        public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
-            dataChannel.close()
-        }
-}
-
-extension WebRTCNativeEngine: RTCDataChannelDelegate {
-    public func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
-        guard dataChannel.readyState == .open else { return }
-        let publishing = lock.withLock {
-            publishers.contains { peer, ids in
-                ids[.unreliable] == dataChannel.channelId && channels[peer]?[dataChannel.channelId] === dataChannel
-            }
-        }
-        if publishing { emit(.connectionStateChanged(.mediaReady)) }
-    }
-    public func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
-        guard buffer.isBinary, buffer.data.count <= 49152,
-                let message = try? PropertyListDecoder().decode(ApplicationDataMessage.self, from: buffer.data)
-            else { return }
-        lock.withLock {
-            guard let origin = channelOrigins[ObjectIdentifier(dataChannel)] else { return }
-            emit(.receivedApplicationData(.init(peerID: origin, message: message)))
-        }
-    }
-}
-
-private extension RTCPeerConnection {
-    func gatheredSDP(fallback: String) async -> String {
-        for _ in 0..<100 {
-            if iceGatheringState == .complete || Task.isCancelled { break }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return localDescription?.sdp ?? fallback
-    }
-
-    func makeAndSetLocalOfferSDP() async -> String? {
-        await withCheckedContinuation { continuation in
-            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-            offer(for: constraints) { description, _ in
-                guard let description else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                self.setLocalDescription(description) { error in
-                    continuation.resume(returning: error == nil ? description.sdp : nil)
+    private func observeIce(_ connection: ModularWebRTCPeer, peerID: PeerID) {
+        connection.observeIce { [weak self, weak connection] value in
+            self?.stateEvents.async { [weak self, weak connection] in
+                guard let self, let connection else { return }
+                state.withLock {
+                    guard peerConnections[peerID] === connection else { return }
+                    emit(.connectionStateChanged(value.routeState))
                 }
             }
         }
     }
 
-    func makeAndSetLocalAnswerSDP() async -> String? {
-        await withCheckedContinuation { continuation in
-            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-            answer(for: constraints) { description, _ in
-                guard let description else {
-                    continuation.resume(returning: nil)
-                    return
+    private func observeChannel(_ channel: ModularWebRTCChannel, peerID: PeerID) {
+        channel.observe(
+            changed: { [weak self, weak channel] in
+                self?.stateEvents.async { [weak self, weak channel] in
+                    guard let self, let channel, channel.isOpen else { return }
+                    state.withLock {
+                        guard publishers[peerID]?[.unreliable] == channel.id,
+                              channels[peerID]?[channel.id] === channel else { return }
+                        emit(.connectionStateChanged(.mediaReady))
+                    }
                 }
-                self.setLocalDescription(description) { error in
-                    continuation.resume(returning: error == nil ? description.sdp : nil)
+            },
+            received: { [weak self, weak channel] packet in
+                guard let self, let channel,
+                      let message = try? PropertyListDecoder().decode(ApplicationDataMessage.self, from: packet)
+                else { return }
+                state.withLock {
+                    guard let origin = channelOrigins[ObjectIdentifier(channel)] else { return }
+                    emit(.receivedApplicationData(.init(peerID: origin, message: message)))
                 }
             }
-        }
+        )
     }
-
-    func setRemoteDataChannelSDP(_ sdp: String, type: RTCSdpType) async -> Bool {
-        let mediaLines = sdp.split(whereSeparator: \.isNewline).filter { $0.hasPrefix("m=") }
-        guard !mediaLines.isEmpty, mediaLines.allSatisfy({ $0.hasPrefix("m=application ") }) else { return false }
-        let description = RTCSessionDescription(type: type, sdp: sdp)
-        return await withCheckedContinuation { continuation in
-            setRemoteDescription(description) { error in
-                continuation.resume(returning: error == nil)
-            }
-        }
-    }
-
 }
 
-private extension RTCIceConnectionState {
+private extension RideComRTCIceState {
     var routeState: RouteConnectionState {
         switch self {
-        case .connected, .completed:
-            .connected
-        case .checking, .new:
-            .connecting
-        case .failed:
-            .failed
-        case .disconnected, .closed, .count:
-            .disconnected
-        @unknown default:
-            .failed
+        case RideComRTCIceConnecting: .connecting
+        case RideComRTCIceConnected: .connected
+        case RideComRTCIceDisconnected: .disconnected
+        default: .failed
         }
     }
 }

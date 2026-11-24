@@ -1,14 +1,12 @@
 import Foundation
+import Synchronization
 import Testing
 import RTC
 @testable import RTCNativeWebRTC
-@preconcurrency import WebRTC
+import WebRTC
 
 func loopbackEngine() -> WebRTCNativeEngine {
-    let factory = RTCPeerConnectionFactory(), options = RTCPeerConnectionFactoryOptions()
-    options.ignoreLoopbackNetworkAdapter = false
-    factory.setOptions(options)
-    return WebRTCNativeEngine(iceServers: [], factory: factory)
+    WebRTCNativeEngine(iceServers: [], includeLoopback: true)
 }
 
 @Test func nativeSDPUsesPacketTransportAndReportsRejectedAnswers() async throws {
@@ -29,34 +27,26 @@ func loopbackEngine() -> WebRTCNativeEngine {
     }
 }
 
-@Test(arguments: [RTCRtpMediaType.audio, .video])
-func remoteOfferMustUseOnlyDataChannels(media: RTCRtpMediaType) async throws {
+@Test(arguments: ["audio", "video"])
+func remoteOfferMustUseOnlyDataChannels(media: String) async throws {
     let receiver = loopbackEngine()
     let sender = loopbackEngine()
     let peer = PeerDescriptor(id: .init(rawValue: "data-only"), displayName: "Data only")
     await receiver.createPeerConnection(for: peer)
     await sender.createPeerConnection(for: peer)
 
-    let factory = RTCPeerConnectionFactory()
-    let config = RTCConfiguration()
-    config.sdpSemantics = .unifiedPlan
-    let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-    let connection = try #require(factory.peerConnection(with: config, constraints: constraints, delegate: nil))
-    defer { connection.close() }
-    let channelConfig = RTCDataChannelConfiguration()
-    _ = try #require(connection.dataChannel(forLabel: "test", configuration: channelConfig))
-    _ = try #require(connection.addTransceiver(of: media))
-    let mixedSDP: String? = await withCheckedContinuation { continuation in
-        connection.offer(for: constraints) { description, _ in
-            continuation.resume(returning: description?.sdp)
-        }
-    }
-    let mixedOffer = WebRTCSessionDescription(kind: .offer, sdp: try #require(mixedSDP))
-    #expect(mixedOffer.sdp.contains("m=application "))
-    #expect(mixedOffer.sdp.contains(media == .audio ? "m=audio " : "m=video "))
-    #expect(await receiver.acceptOffer(mixedOffer, from: peer.id) == nil)
-
     let validOffer = try #require(await sender.makeOffer(for: peer.id))
+    let mediaSection = [
+        "m=\(media) 9 UDP/TLS/RTP/SAVPF 96",
+        "c=IN IP4 0.0.0.0",
+        "a=mid:track",
+        "a=inactive"
+    ].joined(separator: "\r\n") + "\r\n"
+    let mixedOffer = WebRTCSessionDescription(kind: .offer, sdp: validOffer.sdp + mediaSection)
+    #expect(await receiver.acceptOffer(mixedOffer, from: peer.id) == nil)
+    let nulDelimitedOffer = WebRTCSessionDescription(kind: .offer, sdp: validOffer.sdp + "\0" + mediaSection)
+    #expect(await receiver.acceptOffer(nulDelimitedOffer, from: peer.id) == nil)
+
     let answer = try #require(await receiver.acceptOffer(validOffer, from: peer.id))
     #expect(await sender.acceptAnswer(answer, from: peer.id))
     await sender.close()
@@ -171,4 +161,42 @@ private func preparePair(
         "A changed delivery contract needs a fresh allocation; never send audio on the reliable channel"
     )
     await engine.close()
+}
+
+private final class CallbackChannelOwner: Sendable {
+    let channel = Mutex<ModularWebRTCChannel?>(nil)
+    let payload = Mutex<Data?>(nil)
+
+    func observe(_ receiver: ModularWebRTCChannel) {
+        channel.withLock { $0 = receiver }
+        receiver.observe(changed: {}, received: { [weak self] data in
+            guard let self else { return }
+            channel.withLock { $0 = nil }
+            payload.withLock { $0 = data }
+        })
+    }
+}
+
+@Test(.timeLimit(.minutes(1)))
+func receivingCallbackCanDropTheLastSwiftChannelReference() async throws {
+    let factory = try #require(ModularWebRTCFactory(includeLoopback: true))
+    let sender = try #require(factory.makePeer())
+    let receiver = try #require(factory.makePeer())
+    defer { sender.close(); receiver.close() }
+    let channel = try #require(sender.makeChannel(label: "ownership", id: 2, delivery: .reliable))
+    let owner = CallbackChannelOwner()
+    owner.observe(try #require(receiver.makeChannel(label: "ownership", id: 2, delivery: .reliable)))
+
+    let offer = try #require(await sender.makeLocalDescription())
+    try #require(await receiver.setRemoteDescription(offer, kind: RideComRTCDescriptionOffer))
+    let answer = try #require(await receiver.makeLocalDescription())
+    try #require(await sender.setRemoteDescription(answer, kind: RideComRTCDescriptionAnswer))
+
+    let payload = Data([1, 2, 3])
+    try await requireContinuity("A callback can release its Swift channel without re-entering WebRTC") {
+        if owner.payload.withLock({ $0 }) == payload { return true }
+        _ = channel.send(payload)
+        return false
+    }
+    #expect(owner.channel.withLock { $0 == nil })
 }

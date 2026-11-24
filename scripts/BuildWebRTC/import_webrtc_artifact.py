@@ -82,7 +82,9 @@ def _cleanup_owned_pair(staging: Path) -> None:
     print(f'Unrelated staging contents were preserved at: {staging}', file=sys.stderr)
 
 
-def import_artifact(source: str | Path, destination: str | Path, verifier: str | Path) -> str:
+def import_artifact(
+    source: str | Path, destination: str | Path, verifier: str | Path, api: str | None = None,
+) -> str:
     source, destination, verifier = Path(source), Path(destination), Path(verifier)
     _validate_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +99,10 @@ def import_artifact(source: str | Path, destination: str | Path, verifier: str |
         # Validate the copied bytes, not a source that may change before copying.
         with tempfile.TemporaryDirectory(prefix='WebRTC-verify-') as unpacked:
             subprocess.run(['unzip', '-q', str(staged_zip), '-d', unpacked], check=True)
-            subprocess.run([str(verifier), str(Path(unpacked) / 'WebRTC.xcframework')], check=True)
+            command = [str(verifier), str(Path(unpacked) / 'WebRTC.xcframework')]
+            if api is not None:
+                command.append(api)
+            subprocess.run(command, check=True)
         _verify_debug_symbol_paths(staged_zip)
         checksum = file_sha256(staged_zip)
         provenance = read_provenance(source, checksum)
@@ -113,9 +118,9 @@ def import_artifact(source: str | Path, destination: str | Path, verifier: str |
 
 
 def main() -> None:
-    if len(sys.argv) != 4:
-        raise ValueError('Expected source zip, artifact directory and verifier')
-    checksum = import_artifact(*map(Path, sys.argv[1:]))
+    if len(sys.argv) not in (4, 5):
+        raise ValueError('Expected source zip, artifact directory, verifier and optional API')
+    checksum = import_artifact(*sys.argv[1:])
     print(f'Imported: {Path(sys.argv[2]) / ZIP_NAME}')
     print(f'Checksum: {checksum}')
 

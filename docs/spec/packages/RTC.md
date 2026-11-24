@@ -103,6 +103,7 @@ flowchart LR
 | 項目 | 実装 |
 |---|---|
 | transport | ネイティブWebRTCのDTLS/SCTP DataChannel。標準RTP audio track方式から、話者を保持できる符号化済みパケット転送へ変更 |
+| ネイティブ接続部 | RTCNativeWebRTCは、公式のC++ファクトリーを薄いCインターフェースから呼び出す。採用するXCFrameworkに撮影実装を含めない。SDPとチャネルの契約はこの表のとおり |
 | audio channel | `group-audio-v1`、unordered、maxRetransmits=0。送信待ちが残ると新しい音声を捨て、蓄積しない |
 | control channel | `group-control-v1`、ordered/reliable。送信待ち上限64KiB |
 | 接続 | 完全SDP offer → Worker `/join` → SFU datachannels/establish → answer。ICE接続後 `/publish` で2種類のchannelを確保 |

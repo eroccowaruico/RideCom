@@ -2,16 +2,24 @@
 set -euo pipefail
 
 XCFRAMEWORK_PATH="${1:-}"
-API="${2:-objc}"
+API="${2:-auto}"
 
-if [[ -z "${XCFRAMEWORK_PATH}" || ( "${API}" != objc && "${API}" != modular ) ]]; then
-  echo "Usage: $0 path/to/WebRTC.xcframework [objc|modular]" >&2
+if [[ -z "${XCFRAMEWORK_PATH}" || ( "${API}" != auto && "${API}" != objc && "${API}" != modular ) ]]; then
+  echo "Usage: $0 path/to/WebRTC.xcframework [auto|objc|modular]" >&2
   exit 2
 fi
 
 if [[ ! -d "${XCFRAMEWORK_PATH}" ]]; then
   echo "WebRTC.xcframework was not found: ${XCFRAMEWORK_PATH}" >&2
   exit 1
+fi
+
+if [[ "${API}" == auto ]]; then
+  API=objc
+  modular_header="$(find "${XCFRAMEWORK_PATH}" -name RideComRTC.h -type f -print -quit)"
+  if [[ -n "${modular_header}" ]]; then
+    API=modular
+  fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
