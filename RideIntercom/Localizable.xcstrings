@@ -3004,6 +3004,17 @@
         }
       }
     },
+    "Internet calling is paused." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インターネット通話は現在停止中です。"
+          }
+        }
+      }
+    },
     "Internet Connection" : {
       "extractionState" : "manual",
       "localizations" : {

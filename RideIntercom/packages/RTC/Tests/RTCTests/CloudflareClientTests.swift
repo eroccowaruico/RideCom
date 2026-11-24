@@ -37,6 +37,27 @@ struct CloudflareClientTests {
         await client.disconnect()
     }
 
+    @Test(arguments: ["ice", "join"], ["call_service_paused", "other"])
+    func servicePauseIsDistinguishedWithoutDisablingRecovery(stage: String, code: String) async throws {
+        SFUHTTPStub.reset(rejectedStage: stage, rejectedStatus: 503, rejectedCode: code)
+        let client = makeClient()
+        var events = client.events.makeAsyncIterator()
+        await client.connect(try request())
+        if stage == "join" {
+            guard case .iceServers = await events.next() else { Issue.record("Expected ICE"); return }
+            #expect(await events.next() == .connected)
+            await client.sendOffer(.init(kind: .offer, sdp: "offer"), to: .init(rawValue: "cloudflare-sfu"))
+        }
+        guard case .failed(let message) = await events.next() else {
+            Issue.record("Expected a recoverable connection failure"); return
+        }
+        #expect(message == (code == "call_service_paused"
+            ? String(localized: "Internet calling is paused.") : "Cloudflare Worker rejected request (HTTP 503)"))
+        #expect(!message.contains("private-upstream-message"))
+        #expect(SFUHTTPStub.requests.last?.httpMethod == "DELETE")
+        await client.disconnect()
+    }
+
     @Test func joinDoesNotSendTheLocalDisplayName() async throws {
         SFUHTTPStub.reset()
         let client = makeClient()
@@ -113,8 +134,10 @@ struct CloudflareClientTests {
         #expect(failed.withLock { $0 })
         await client.disconnect()
     }
-    @Test func temporaryRenewalFailureKeepsTheExistingSessionAndRetries() async throws {
-        SFUHTTPStub.reset(transient: true)
+    @Test(arguments: [false, true])
+    func temporaryRenewalFailureKeepsTheExistingSessionAndRetries(paused: Bool) async throws {
+        SFUHTTPStub.reset(transient: true, rejectedStage: paused ? "firstRenewal" : nil,
+                          rejectedStatus: 503, rejectedCode: "call_service_paused")
         let client = makeClient()
         await client.connect(try request())
         await client.sendOffer(.init(kind: .offer, sdp: "audio-offer"), to: .init(rawValue: "cloudflare-sfu"))
@@ -183,6 +206,14 @@ struct CloudflareClientTests {
             Issue.record("Insecure public endpoint accepted")
         } catch { }
         #expect(SFUHTTPStub.requests.count == 1)
+        SFUHTTPStub.reset(rejectedStage: "status", rejectedStatus: 503, rejectedCode: "call_service_paused")
+        do {
+            _ = try await CloudflareRealtimeSignalingClient.checkService(request().cloudflare, session: session)
+            Issue.record("Paused service reported as ready")
+        } catch {
+            #expect(error.localizedDescription == String(localized: "Internet calling is paused."))
+        }
+        #expect(SFUHTTPStub.requests.map { $0.url?.path } == ["/api/status"])
     }
 
     @Test func rejectsInsecurePublicEndpointBeforeMakingRequests() async throws {
@@ -210,15 +241,18 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var delayFirstDelete = false
     nonisolated(unsafe) private static var rejectedStage: String?
     nonisolated(unsafe) private static var rejectedStatus = 409
+    nonisolated(unsafe) private static var rejectedCode = "account_in_use"
     nonisolated(unsafe) private static var missingAnswer = false
     static func reset(
         transient: Bool = false, delayFirstDelete: Bool = false,
-        rejectedStage: String? = nil, rejectedStatus: Int = 409, missingAnswer: Bool = false
+        rejectedStage: String? = nil, rejectedStatus: Int = 409, rejectedCode: String = "account_in_use",
+        missingAnswer: Bool = false
     ) {
         lock.withLock {
             recorded = []; self.transient = transient; self.delayFirstDelete = delayFirstDelete
             self.rejectedStage = rejectedStage
             self.rejectedStatus = rejectedStatus
+            self.rejectedCode = rejectedCode
             self.missingAnswer = missingAnswer
         }
     }
@@ -238,8 +272,10 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
         let transient = Self.lock.withLock { Self.transient }
         let renewing = path.hasSuffix("/renew")
         let rejected = Self.lock.withLock {
-            request.httpMethod == "POST" && (Self.rejectedStage == "ice" && path.contains("/ice/")
-                    || Self.rejectedStage == "join" && path.hasSuffix("/join"))
+            (request.httpMethod == "GET" && Self.rejectedStage == "status" && path == "/api/status")
+                || (request.httpMethod == "POST" && (Self.rejectedStage == "ice" && path.contains("/ice/")
+                    || Self.rejectedStage == "join" && path.hasSuffix("/join")
+                    || Self.rejectedStage == "firstRenewal" && renewing && renewals == 1))
         }
         let status =
             rejected
@@ -296,7 +332,10 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
                 + "\"monthlyParticipantSeconds\":1000000,\"activeSessions\":0}"
             data = Data(limitsJSON.utf8)
         }
-        if rejected { data = Data("{\"code\":\"account_in_use\",\"error\":\"private-upstream-message\"}".utf8) }
+        if rejected {
+            let code = Self.lock.withLock { Self.rejectedCode }
+            data = Data("{\"code\":\"\(code)\",\"error\":\"private-upstream-message\"}".utf8)
+        }
         return data
     }
 

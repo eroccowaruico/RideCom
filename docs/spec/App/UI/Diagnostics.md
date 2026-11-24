@@ -207,7 +207,7 @@ AppliedのCallとInviteは、カードの見出しとStateの値で識別する�
 | 順序 / 項目 | ID / 表示 | 契約 |
 |---|---|---|
 | 概要 | `audioPathSummary` / Call / Network / Invite | 現在の媒体所有者を最初に表示。長い値は行数で切り捨てない |
-| Internet Service | `internetServiceCheckStatus` | 保存前、確認中、認証済み、失敗をテキスト表示。tokenを含めない |
+| Internet Service | `internetServiceCheckStatus` | 保存前、確認中、認証済み、失敗をテキスト表示。運用側で通話を停止している応答を受けた場合は「インターネット通話は現在停止中です。」を表示する。tokenを含めない |
 | Check Internet Service | `checkInternetService` | RTCのcheckServiceを呼ぶ。資格がない場合と確認中はdisabled。SFU媒体を作らない |
 | 認証成功後 | active session数、予約参加者秒/月枠、対象月 | Workerの設定と端末認証の確認。SFU App Secretの正当性や音声成功とは別 |
 | Local packet音声 | 既存TX/RX pipeline | 実際のMixer/codecのruntime reportを表示 |

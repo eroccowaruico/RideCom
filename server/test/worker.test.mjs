@@ -155,7 +155,15 @@ test('join rejects an SFU answer without SDP and a nonnumeric data channel ID', 
 
 test('kill switch fails closed and upstream failure does not publish a participant', async () => {
     const disabled = await makeRuntime({ SERVICE_ENABLED: 'false' });
-    try { assert.equal((await join('off', room, disabled)).status, 503); } finally { await disabled.dispose(); }
+    try {
+        const status = await call('/api/status', undefined, 'GET', disabled);
+        const prepare = await call(`/api/rooms/${room}/ice/off`, { leaseID: 'attempt' }, 'POST', disabled);
+        const entry = await join('off', room, disabled);
+        for (const response of [status, prepare, entry]) {
+            assert.equal(response.status, 503);
+            assert.equal((await response.json()).code, 'call_service_paused');
+        }
+    } finally { await disabled.dispose(); }
     provider.upstreamFails = true;
     try { assert.equal((await join('failed', 'e'.repeat(64))).status, 502); } finally { provider.upstreamFails = false; }
 });

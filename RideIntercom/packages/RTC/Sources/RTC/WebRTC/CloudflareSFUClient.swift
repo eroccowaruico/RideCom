@@ -159,11 +159,10 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
             } catch {
                 guard self.generation == generation, !Task.isCancelled else { return nil }
                 let remaining = lease.expiresAt / 1000 - Date().timeIntervalSince1970
-                let retryable: Bool
-                if case Failure.http(let code) = error {
-                    retryable = (500..<600).contains(code)
-                } else {
-                    retryable = error is URLError
+                let retryable = switch error {
+                case Failure.servicePaused: true
+                case Failure.http(let code): (500..<600).contains(code)
+                default: error is URLError
                 }
                 guard retryable, remaining > delay else { await fail(error, generation: generation); return nil }
                 try? await Task.sleep(for: .seconds(delay))
@@ -197,7 +196,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         let type: String; let peers: [WirePeer]?; let from: String?; let namespace: String?; let payload: String?
     }
     private enum Failure: Error, LocalizedError {
-        case invalidConfiguration, invalidResponse, accountInUse, peerSnapshotChanged, http(Int)
+        case invalidConfiguration, invalidResponse, accountInUse, peerSnapshotChanged, servicePaused, http(Int)
         var errorDescription: String? { description }
         var description: String {
             switch self {
@@ -207,6 +206,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                 "This account already has an Internet call. End the existing call, then try again. "
                     + "If the other device lost its connection, wait for that call to expire."
             case .peerSnapshotChanged: "Cloudflare peer snapshot changed"
+            case .servicePaused: String(localized: "Internet calling is paused.")
             case .http(401): String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
             case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
             }
@@ -365,20 +365,19 @@ extension CloudflareRealtimeSignalingClient {
             do {
                 let (data, response) = try await session.data(for: request, delegate: NoRedirects())
                 guard ContinuousClock.now < deadline else { throw URLError(.timedOut) }
-                guard let response = response as? HTTPURLResponse else { throw Failure.invalidResponse }
-                guard response.url?.host == request.url?.host, response.url?.scheme == request.url?.scheme else {
+                guard let response = response as? HTTPURLResponse,
+                      response.url?.host == request.url?.host, response.url?.scheme == request.url?.scheme else {
                     throw Failure.invalidResponse
                 }
-                if response.statusCode == 409, data.count <= 32768,
-                   (try? JSONDecoder().decode(Rejection.self, from: data))?.code == "account_in_use" {
-                    throw Failure.accountInUse
-                }
-                if response.statusCode == 403, request.url?.path.hasSuffix("/pull") == true, data.count <= 32768,
-                   (try? JSONDecoder().decode(Rejection.self, from: data))?.code == "peer_snapshot_changed" {
+                if (200..<300).contains(response.statusCode) { return data }
+                let code = data.count <= 32768 ? (try? JSONDecoder().decode(Rejection.self, from: data))?.code : nil
+                switch (response.statusCode, code) {
+                case (409, "account_in_use"): throw Failure.accountInUse
+                case (403, "peer_snapshot_changed") where request.url?.path.hasSuffix("/pull") == true:
                     throw Failure.peerSnapshotChanged
+                case (503, "call_service_paused"): throw Failure.servicePaused
+                default: throw Failure.http(response.statusCode)
                 }
-                guard (200..<300).contains(response.statusCode) else { throw Failure.http(response.statusCode) }
-                return data
             } catch let error as URLError
                 where retryConnectionLoss && error.code == .networkConnectionLost && retries < 2 {
                 // Pull reconciles the requested subscriptions idempotently. A lost

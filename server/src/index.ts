@@ -45,7 +45,9 @@ export default {
         // Authentication above and room ownership checks below remain mandatory.
         const iceCancellation = request.method === 'DELETE' && match?.[2].startsWith('ice/') === true
         const cleanup = iceCancellation || (request.method === 'DELETE' && match !== null && /^sessions\/[^/]+$/.test(match[2]))
-        if (!cleanup && env.SERVICE_ENABLED !== 'true') return json({ error: 'Service paused' }, 503)
+        if (!cleanup && env.SERVICE_ENABLED !== 'true') {
+            return json({ code: 'call_service_paused', error: 'Service paused' }, 503)
+        }
         if (!iceCancellation && !sfuConfigured(env)) {
             return json({ error: 'SFU is not configured' }, 503)
         }

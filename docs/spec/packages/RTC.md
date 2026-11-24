@@ -243,6 +243,8 @@ HTTP要求の総期限は25秒。応答データを受信している時間と�
 | 他経路 | 利用できるLocal経路は維持する。全有効routeが手動復帰待ちなら全体をfailedとし、reconnectingを繰り返さない。presence・診断・受信整理の定期タイマーも停止し、次の明示prepare/startで再開する |
 | 明示的な再操作 | 新しいprepareで抑止を解除する。既存通話の強制切断・他端末の追い出しは行わない。通信断した端末の予約回収はWorkerのleaseに従う |
 
+通話のHTTP応答と状態照会で、503と32 KiB以内のJSONの `code: call_service_paused` が一致した場合は、運用設定で通話サービスを停止していると判定する。診断には固定文言「インターネット通話は現在停止中です。」を渡す。端末資格の変更を求めず、通常の接続失敗と同じ自動再試行を使う。既存通話の更新では、再試行に必要な時間が期限内に残っていれば同じ通話を再試行する。ほかの503は従来のHTTP失敗として扱う。[Workerの停止条件](../server/Worker.md#継続と後始末)
+
 ## 通話を開始しない近距離データ交換
 
 `RTCLocalDataChannel`はiOS・iPadOS・macOSで、同じ個別の共有資格を持つ近距離の端末へ、認証済みQUICで順序付きのデータを送る。既存の`LocalControlTransport`と証明書に束縛した共有鍵のhandshakeを使う。探索と認証に使う資格は`ride-local-data-v1`で分離して導出するため、同じ元の資格を使う通話の制御peerとは接続しない。`CallSession`、GroupRelay、UDP音声listener、Internet登録は起動しない。
