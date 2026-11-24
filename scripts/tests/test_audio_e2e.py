@@ -98,6 +98,17 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             self.assertEqual(audio.main(), 0)
         self.assertEqual(execute.call_args.args[3], scenarios('smoke', 8))
 
+    def test_internet_background_recovery_can_use_a_mac_sender(self) -> None:
+        argv = ['audio_e2e.py', '--output', str(self.root / 'mac-sender'), '--matrix', 'smoke',
+                '--transport', 'webrtc', '--background-recovery', '300']
+        with patch.object(sys, 'argv', argv), patch.dict(os.environ), \
+                patch.object(audio, 'simulator_resource_root', return_value=self.root), \
+                patch.object(audio, 'execute', return_value=0) as execute:
+            self.assertEqual(audio.main(), 0)
+        args = execute.call_args.args[0]
+        self.assertFalse(args.two_simulators)
+        self.assertEqual(args.background_recovery, 300)
+
     def test_standalone_mode_carries_one_plan_for_selection_and_measurements(self) -> None:
         examples = {
             'pipeline': (('testSpeechContinuityWithoutNetwork',), ('pipeline-20ms', 'pipeline-100ms'), 180),
@@ -168,11 +179,12 @@ class AudioE2ELifecycleTests(unittest.TestCase):
             (['--switches-only', '--scenario', 'default'], 'requires a network audio matrix'),
             (['--cleanup-only', '--scenario', 'default'], 'requires a network audio matrix'),
             (['--transport', 'mixed', '--matrix', 'smoke', '--scenario', 'default'], 'requires a network audio matrix'),
-            (['--background-recovery', '300', '--transport', 'webrtc', '--matrix', 'smoke'], 'two-Simulator smoke'),
+            (['--background-recovery', '300', '--transport', 'local', '--matrix', 'smoke'],
+             'Use two Simulators and Debug'),
             (['--background-recovery', '301', '--transport', 'webrtc', '--matrix', 'smoke', '--two-simulators'],
-             'requires 1–300 seconds'),
+             '1–300 second wait'),
             (['--background-recovery', '5', '--transport', 'local', '--matrix', 'smoke', '--two-simulators',
-              '--configuration', 'Release'], 'Use Debug for Local listener interruption'),
+              '--configuration', 'Release'], 'Use two Simulators and Debug'),
         ]
         out = self.root / 'unstarted'
         for arguments, message in examples:
@@ -183,6 +195,13 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
                 self.assertIn(message, stderr.getvalue())
                 self.assertFalse(out.exists())
+
+    def test_recovery_evidence_distinguishes_background_iphone_from_the_mac(self) -> None:
+        sample = {'scenario': 'late-internet', 'role': 'a', 'transport': 'webrtc', 'background': False}
+        (self.root / 'sample.json').write_text(json.dumps(sample))
+        self.assertEqual(measurements(self.root, ['late-internet'], 'a', 'webrtc', background=False), [sample])
+        with self.assertRaisesRegex(ValueError, 'endpoint background condition'):
+            measurements(self.root, ['late-internet'], 'a', 'webrtc', background=True)
 
     def test_interrupted_pair_still_recovers_both_simulators_after_an_audio_restore_error(self) -> None:
         for failure in (FileNotFoundError, TypeError):

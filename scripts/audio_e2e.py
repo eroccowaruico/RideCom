@@ -116,7 +116,8 @@ def build_audio_hosts(runner: Runner, endpoints: list[tuple[str, str, str]], opt
     return products
 
 
-def measurements(folder: Path, expected_ids: Sequence[str], role: str, transport: str) -> list[dict[str, object]]:
+def measurements(folder: Path, expected_ids: Sequence[str], role: str, transport: str,
+                 *, background: bool | None = None) -> list[dict[str, object]]:
     rows = [json.loads(path.read_text()) for path in folder.glob('*.json') if path.name != 'manifest.json']
     rows = [row for row in rows if 'scenario' in row]
     actual = [row.get('scenario') for row in rows]
@@ -124,6 +125,8 @@ def measurements(folder: Path, expected_ids: Sequence[str], role: str, transport
         raise ValueError('Missing or duplicate per-scenario speech measurements')
     if any(row.get('role') != role or row.get('transport') != transport for row in rows):
         raise ValueError('Speech measurements belong to a different endpoint or transport')
+    if background is not None and any(row.get('background') is not background for row in rows):
+        raise ValueError('Speech measurements do not match the endpoint background condition')
     return rows
 
 
@@ -278,13 +281,13 @@ def main() -> int:
         parser.error('Choose one standalone audio test mode')
     standalone = next(iter(standalone_plans), None)
     if args.background_recovery is not None and (
-        not 1 <= args.background_recovery <= 300 or not args.two_simulators or args.transport not in ('local', 'webrtc')
-        or (args.transport == 'local' and args.configuration != 'Debug')
+        not 1 <= args.background_recovery <= 300 or args.transport not in ('local', 'webrtc')
+        or (args.transport == 'local' and (not args.two_simulators or args.configuration != 'Debug'))
         or args.matrix != 'smoke' or standalone or args.cleanup_only
         or args.saved_group_start or args.scenario
     ):
-        parser.error('--background-recovery requires 1–300 seconds and a two-Simulator smoke run for Local or WebRTC. '
-                     'Use Debug for Local listener interruption.')
+        parser.error('--background-recovery requires a 1–300 second wait and the smoke matrix for Local or WebRTC. '
+                     'Use two Simulators and Debug for Local listener interruption.')
     if args.two_simulators and standalone:
         parser.error('--two-simulators requires a network audio test')
     if args.saved_group_start and (args.transport != 'local' or standalone):
@@ -399,8 +402,14 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 runner.record(step, [], 'failed', 1, time.monotonic(), str(error))
                 raise RuntimeError(step + ' failed; see ' + str(out)) from error
             runner.record(step, [], 'passed', 0, time.monotonic(), 'Input and output pinned to ' + device)
-        first = ('a', 'ios', 'platform=iOS Simulator,id=' + peer) if args.two_simulators else ('a', 'mac', 'platform=macOS,arch=arm64')
-        endpoints = [first, ('b', 'ios', 'platform=iOS Simulator,id=' + simulator)]
+        ios_destination = 'platform=iOS Simulator,id=' + simulator
+        mac_destination = 'platform=macOS,arch=arm64'
+        if args.two_simulators:
+            endpoints = [('a', 'ios', 'platform=iOS Simulator,id=' + peer), ('b', 'ios', ios_destination)]
+        elif recovery_wait:
+            endpoints = [('a', 'ios', ios_destination), ('b', 'mac', mac_destination)]
+        else:
+            endpoints = [('a', 'mac', mac_destination), ('b', 'ios', ios_destination)]
         products_by_platform = build_audio_hosts(runner, endpoints, args.configuration, args.clean_build)
         ios_settings, ios_run = products_by_platform['ios']
         for prefix, device_id in simulators.items():
@@ -481,17 +490,23 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             if recovery_wait:
                 environment.update({
-                    'AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT': '1', 'AUDIO_E2E_BACKGROUND_AFTER_START': '1',
+                    'AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT': '1',
                     'AUDIO_E2E_BACKGROUND_MIC_OFF': '1', 'AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS': str(recovery_wait),
                     f'AUDIO_E2E_BACKGROUND_{recovery_route.upper()}_RECOVERY': '1',
                 })
             (out / (transport + '-configuration.json')).write_text(json.dumps(environment, indent=2) + '\n')
             commands = []
             result_sources: dict[str, tuple[str, Path]] = {}
+            background_roles: set[str] = set()
             for role, platform, destination in endpoints:
                 settings, source = products_by_platform[platform]
                 purpose = 'pair-' + role if args.two_simulators else 'pair'
-                configured = configure_test_run(source, purpose, platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], environment | {'AUDIO_E2E_ROLE': role})
+                endpoint_env = environment | {'AUDIO_E2E_ROLE': role}
+                if recovery_wait and platform == 'ios':
+                    endpoint_env['AUDIO_E2E_BACKGROUND_AFTER_START'] = '1'
+                    background_roles.add(role)
+                configured = configure_test_run(
+                    source, purpose, platform, settings['RIDEINTERCOM_STORAGE_NAMESPACE'], endpoint_env)
                 name = transport + '-' + (platform + '-' + role if args.two_simulators else platform)
                 result_sources[role] = (name, configured.parent)
                 commands.append(('test-' + name, ['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
@@ -524,7 +539,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                     '--path', str(bundle), '--output-path', str(folder)], timeout=60)
                 if exported:
                     try:
-                        measured += measurements(folder, measurement_ids, role, transport)
+                        measured += measurements(folder, measurement_ids, role, transport,
+                                                 background=(role in background_roles) if recovery_wait else None)
                         runner.record('coverage-' + name, [], 'passed', 0, time.monotonic())
                     except (OSError, ValueError) as error:
                         runner.record('coverage-' + name, [], 'failed', 1, time.monotonic(), str(error))

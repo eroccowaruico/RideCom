@@ -233,12 +233,15 @@ struct AudioE2ENetworkRun {
 
     private func verifyBackgroundConfiguration() {
         if movesToBackground { XCTAssertTrue(waitsForLateParticipant) }
+        #if os(iOS)
+        if recovery || checksBackgroundSilence || checksBackgroundMute { XCTAssertTrue(movesToBackground) }
+        #endif
         if checksInternetRecovery {
-            XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "webrtc")
+            XCTAssertTrue(waitsForLateParticipant && transport == "webrtc")
         }
         if checksLocalRecovery { XCTAssertTrue(movesToBackground && waitsForLateParticipant && transport == "local") }
         if checksBackgroundSilence || checksBackgroundMute {
-            XCTAssertTrue(movesToBackground && waitsForLateParticipant)
+            XCTAssertTrue(waitsForLateParticipant)
             if recovery { XCTAssertTrue(checksBackgroundMute && mutedWait > 0) }
             XCTAssertFalse(checksBackgroundSilence && checksBackgroundMute)
         }

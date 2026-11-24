@@ -147,6 +147,14 @@ struct AudioE2ECallStorage {
         } else {
             access = nil
         }
+        let internetSettings = InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
+        if run.usesInternet {
+            var origin = try XCTUnwrap(worker.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) })
+            XCTAssertEqual(origin.host, "127.0.0.1")
+            // Saved settings require HTTPS. The injected RTC adapter uses the local HTTP fixture.
+            origin.scheme = "https"
+            try internetSettings.save(url: XCTUnwrap(origin.url).absoluteString, token: run.identifier)
+        }
         return IntercomViewModel(
             accountSession: startingAccount,
             enforceCallAccess: startsFromSavedGroup ? true : nil,
@@ -154,7 +162,7 @@ struct AudioE2ECallStorage {
             callSession: callSession,
             groupRepository: GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials),
             appSettingsStore: settings,
-            internetSettingsStore: InternetConnectionSettingsStore(keychain: keychain, namespace: namespace),
+            internetSettingsStore: internetSettings,
             localMemberIdentityStore: identity,
             invitationAuthority: DirectInvitationAuthority(keychain: keychain, namespace: namespace),
             requestMicrophoneAccess: {

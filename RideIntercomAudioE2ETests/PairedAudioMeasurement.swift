@@ -6,7 +6,6 @@ import XCTest
 
 struct PairedSpeechExpectation {
     let scenario: String
-    let movesToBackground: Bool
     let expectsRemoteSpeech: Bool
 }
 
@@ -19,7 +18,7 @@ extension AudioE2ETests {
         let barrier = pair.barrier
         let probe = pair.endpoint.audio.probe
         let scenario = expectation.scenario
-        let movesToBackground = expectation.movesToBackground
+        let movesToBackground = pair.endpoint.run.movesToBackground
         try await waitUntil(
             seconds: 12, description: "Media starts for \(scenario)",
             status: { viewModel.routeLabel },
@@ -87,7 +86,7 @@ extension AudioE2ETests {
         let role = pair.endpoint.run.role
         let transport = pair.endpoint.run.transport
         let scenario = expectation.scenario
-        let movesToBackground = expectation.movesToBackground
+        let movesToBackground = pair.endpoint.run.movesToBackground
         let expectsRemoteSpeech = expectation.expectsRemoteSpeech
         let rendered = sample.rendered
         let decoded = sample.decoded

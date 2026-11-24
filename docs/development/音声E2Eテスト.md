@@ -162,20 +162,21 @@ python3 scripts/audio_e2e.py --pipeline-only
 
 ### マイクOFFで待ち、後参加と経路復旧を続けて検証する
 
-通常のCLIでは、次のコマンドでInternet経路を試す。Internetは `--configuration Release` でも試せる。近距離は `--transport local` を選び、UDP受信口を中断できるDebug構成を使う。待機秒数は1〜300秒。実行環境の確認には短い待機を使え、5分の待機を評価するときは300秒を指定する。
+通常のCLIでは、次のコマンドでInternet経路を試す。iPhone Simulatorが先に入って背景で待ち、Macが後から参加する。双方をiOSの背景に移す条件では `--two-simulators` を加える。Internetは `--configuration Release` でも試せる。近距離は `--transport local --two-simulators` を選び、UDP受信口を中断できるDebug構成を使う。待機秒数は1〜300秒。実行環境の確認には短い待機を使え、5分の待機を評価するときは300秒を指定する。
 
 ```sh
-python3 scripts/audio_e2e.py --two-simulators --transport webrtc --matrix smoke \
+python3 scripts/audio_e2e.py --transport webrtc --matrix smoke \
   --seconds 6 --speech-pair japanese --background-recovery 300
 ```
 
-両端のXcodeの試験結果に加え、後参加、双方のマイクOFF、経路復旧後の3つの測定結果が両端に揃うことを確認する。この試験は片側のマイクをOFFに保って聞こえ方を調べる。双方向の遅延基準は、通常の音声試験で引き続き測る。
+両端のXcodeの試験結果に加え、後参加、双方のマイクOFF、経路復旧後の3つの測定結果が両端に揃うことを確認する。iOSの測定では背景にいたことを確認し、Macの測定では背景状態の検証対象外であることを記録する。この試験は片側のマイクをOFFに保って聞こえ方を調べる。双方向の遅延基準は、通常の音声試験で引き続き測る。
 
-2台のiOS Simulatorで `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端で同じ実行IDと試験Worker URLを指定し、それぞれ異なるroleを使う。両端の試験構成を次の表に合わせる。
+各端末で `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を使う。両端で同じ実行IDと試験Worker URLを指定し、待つ側をrole `a`、後から入る側をrole `b` にする。試験構成を次の表に合わせる。
 
 | 条件 | 環境変数と設定値 |
 |---|---|
-| 共通 | `AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT=1`、`AUDIO_E2E_BACKGROUND_AFTER_START=1` |
+| 共通 | `AUDIO_E2E_WAIT_FOR_LATE_PARTICIPANT=1` |
+| iOSの試験端末 | `AUDIO_E2E_BACKGROUND_AFTER_START=1` |
 | 共通 | `AUDIO_E2E_BACKGROUND_MIC_OFF=1`、`AUDIO_E2E_BACKGROUND_MUTED_WAIT_SECONDS=300` |
 | 近距離の場合 | `AUDIO_E2E_TRANSPORT=local`、`AUDIO_E2E_BACKGROUND_LOCAL_RECOVERY=1` |
 | Internetの場合 | `AUDIO_E2E_TRANSPORT=webrtc`、`AUDIO_E2E_BACKGROUND_INTERNET_RECOVERY=1` |

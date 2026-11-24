@@ -98,7 +98,7 @@ extension AudioE2ETests {
         XCTAssertEqual(viewModel.activeGroupID, run.groupID)
         print("Audio E2E: Authenticated remote over \(run.transport) after \(joiningStarted.duration(to: .now))")
         try await verifyPairedAudio(pair, trace: trace, expectation: .init(
-            scenario: run.usesInternet ? "late-internet" : "late-local", movesToBackground: run.movesToBackground,
+            scenario: run.usesInternet ? "late-internet" : "late-local",
             expectsRemoteSpeech: run.mutedWait == 0 || run.role == "a"
         ))
         if run.checksBackgroundSilence || run.checksBackgroundMute {
@@ -132,7 +132,7 @@ extension AudioE2ETests {
         ))
         if !run.recovery {
             try await verifyPairedAudio(pair, trace: trace, expectation: .init(
-                scenario: "\(scenario)-resumed", movesToBackground: true,
+                scenario: "\(scenario)-resumed",
                 expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a"
             ))
             if run.checksBackgroundMute {
@@ -153,7 +153,7 @@ extension AudioE2ETests {
         }
         try await verifyPairedAudio(pair, trace: trace, expectation: .init(
             scenario: run.checksInternetRecovery ? "background-internet-recovered" : "background-local-recovered",
-            movesToBackground: true, expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a"
+            expectsRemoteSpeech: !run.checksBackgroundMute || run.role == "a"
         ))
     }
 
@@ -198,11 +198,10 @@ extension AudioE2ETests {
         let barrier = pair.barrier
         let input = pair.endpoint.audio.input
         let probe = pair.endpoint.audio.probe
-        let role = pair.endpoint.run.role
-        let transport = pair.endpoint.run.transport
+        let run = pair.endpoint.run
         let scenario = quiet.scenario
         let bothMute = quiet.bothMute
-        checkBackgroundIfRequested(true)
+        checkBackgroundIfRequested(run.movesToBackground)
         let call = viewModel.currentCallReference
         let callDeadline = viewModel.callDisconnectDeadline
         if bothMute { XCTAssertTrue(viewModel.setCallMuted(true, for: call)) } else { input.setSilentInput(true) }
@@ -215,7 +214,7 @@ extension AudioE2ETests {
         let firstOutputBatchCount = observedOutputBatches(viewModel)
         let started = ProcessInfo.processInfo.systemUptime
         try await waitThroughBackgroundQuietPeriod(pair, bothMute: bothMute, started: started)
-        checkBackgroundIfRequested(true)
+        checkBackgroundIfRequested(run.movesToBackground)
         let duration = ProcessInfo.processInfo.systemUptime - started
         let rendered = probe.snapshot()
         let transmitted = viewModel.sentVoicePacketCount - firstSent
@@ -231,13 +230,14 @@ extension AudioE2ETests {
             XCTAssertEqual(transmitted, 0)
             XCTAssertEqual(received, 0)
         }
-        let evidence: [String: Any] = ["scenario": scenario, "background": true, "bothMicrophonesMuted": bothMute,
-            "role": role, "transport": transport, "durationSeconds": duration, "peak": peak,
+        let evidence: [String: Any] = ["scenario": scenario, "background": run.movesToBackground,
+            "bothMicrophonesMuted": bothMute, "role": run.role, "transport": run.transport,
+            "durationSeconds": duration, "peak": peak,
             "renderedSamples": rendered.samples.count, "renderedRate": rendered.rate,
             "transmitted": transmitted, "received": received, "outputBatches": outputBatches]
-        try addAudioE2EJSONAttachment(evidence, name: "endpoint-\(role)-\(scenario)-measurement")
+        try addAudioE2EJSONAttachment(evidence, name: "endpoint-\(run.role)-\(scenario)-measurement")
         try await barrier.meet("\(scenario)-observed")
-        if bothMute, !quiet.keepMuted, role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: call)) }
+        if bothMute, !quiet.keepMuted, run.role == "b" { XCTAssertTrue(viewModel.setCallMuted(false, for: call)) }
         print(
             "Audio E2E: Both endpoints kept the call during \(duration) seconds in \(scenario); "
                 + "peak=\(peak) tx=\(transmitted) rx=\(received) outputBatches=\(outputBatches)"
@@ -252,8 +252,7 @@ extension AudioE2ETests {
         let viewModel = endpoint.viewModel
         let run = endpoint.run
         let workerURL = try XCTUnwrap(endpoint.worker.url)
-        let groupID = run.groupID
-        let peerID = pair.peerID
+        let execution = run.movesToBackground ? "in the OS background" : "on the Mac"
         func signalOutage(_ phase: String) async throws {
             try await AudioE2EWorker.signalInternetOutage(
                 phase, at: workerURL, room: endpoint.worker.room, token: run.identifier, participantID: run.memberID
@@ -263,11 +262,11 @@ extension AudioE2ETests {
             "routes=\(viewModel.availableCallRoutes) state=\(viewModel.connectionState) "
                 + "peers=\(viewModel.authenticatedPeerIDs.count) audioReady=\(viewModel.isAudioReady)"
         }
-        checkBackgroundIfRequested(true)
+        checkBackgroundIfRequested(run.movesToBackground)
         let callDeadline = viewModel.callDisconnectDeadline
         try await signalOutage("ready")
         try await waitUntil(
-            seconds: 25, description: "The Internet route and authenticated peer are lost in the background",
+            seconds: 25, description: "The Internet route and authenticated peer are lost \(execution)",
             status: status
         ) {
             viewModel.availableCallRoutes.isEmpty && viewModel.authenticatedPeerIDs.isEmpty
@@ -275,28 +274,28 @@ extension AudioE2ETests {
         let outageObserved = ContinuousClock.now
         let packetsAtLoss = viewModel.receivedVoicePacketCount
         repeat {
-            checkBackgroundIfRequested(true)
-            XCTAssertEqual(viewModel.activeGroupID, groupID)
+            checkBackgroundIfRequested(run.movesToBackground)
+            XCTAssertEqual(viewModel.activeGroupID, run.groupID)
             XCTAssertTrue(viewModel.availableCallRoutes.isEmpty)
             XCTAssertTrue(viewModel.isAudioReady)
             XCTAssertEqual(viewModel.receivedVoicePacketCount, packetsAtLoss)
             try await Task.sleep(for: .milliseconds(100))
         } while outageObserved.duration(to: .now) < .seconds(2)
-        print("Audio E2E: Observed Internet route loss without stopping native audio or leaving the background")
+        print("Audio E2E: Observed Internet route loss \(execution) without stopping native audio")
         try await signalOutage("observed")
         try await waitUntil(
-            seconds: 45, description: "The same call recovers its authenticated peer and media in the background",
+            seconds: 45, description: "The same call recovers its authenticated peer and media \(execution)",
             status: status
         ) {
-            viewModel.availableCallRoutes == [.webRTC] && viewModel.authenticatedPeerIDs == [peerID]
+            viewModel.availableCallRoutes == [.webRTC] && viewModel.authenticatedPeerIDs == [pair.peerID]
                 && viewModel.isCallMediaStarted && viewModel.isAudioReady
                 && IntercomViewModel.admittedMemberships(in: viewModel.peerProfiles).count == 1
         }
-        checkBackgroundIfRequested(true)
-        XCTAssertEqual(viewModel.activeGroupID, groupID)
+        checkBackgroundIfRequested(run.movesToBackground)
+        XCTAssertEqual(viewModel.activeGroupID, run.groupID)
         XCTAssertEqual(viewModel.callDisconnectDeadline, callDeadline)
         let elapsed = outageObserved.duration(to: .now)
-        print("Audio E2E: Recovered authenticated Internet media in the background after \(elapsed)")
+        print("Audio E2E: Recovered authenticated Internet media \(execution) after \(elapsed)")
     }
 
     #if DEBUG
@@ -383,7 +382,7 @@ extension AudioE2ETests {
         let groupID = pair.endpoint.run.groupID
         let route = pair.endpoint.run.soleRoute
         repeat {
-            checkBackgroundIfRequested(true)
+            checkBackgroundIfRequested(pair.endpoint.run.movesToBackground)
             XCTAssertEqual(viewModel.activeGroupID, groupID)
             XCTAssertEqual(viewModel.availableCallRoutes, [route])
             XCTAssertEqual(viewModel.authenticatedPeerIDs, [peerID])
