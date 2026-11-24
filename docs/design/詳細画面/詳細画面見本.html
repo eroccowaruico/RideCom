@@ -511,7 +511,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   </div>
 
   <h2 id="call">通話・ユーザー・グループ（Advanced）</h2>
-  <p class="note">タブは一般向けと同じく通話をタブにせず、Users（最初）・Groups・Diagnostics・Settings の4つにする。Users・Groups で選ぶとすぐ接続して通話のシート（Call）を開く（<a href="../操作の流れ見本.html">操作の流れ見本</a>）。左上のCloseで通話を続けたまま元の一覧へ戻る。iPhone・iPadでは一覧の通話表示、Macではツールバーから開き直せる。通話を終える操作はCall statusのDisconnect。通話は相手が1人でも内部ではグループ（kind: direct）なので、Call では常にグループの実体（種類・ID・自分を含むメンバー）として見せる。</p>
+  <p class="note">AdvancedのタブはUsers（最初）・Groups・Diagnostics・Settings。Standardのグループタブの設定にかかわらず、AdvancedにはGroupsがある。Users・Groupsで相手やグループを選ぶと接続し、通話を開く。通話はiPhone・iPadのcompact幅ではシート、regular幅とMacでは右の列に表示する。Closeで通話を続けたまま一覧へ戻る。iPhone・iPadでは一覧の通話表示、Macではツールバーから開き直せる。通話を終える操作はCall statusのDisconnect。1対1でも、Callはグループの種類とID、自分を含む人数を表示する。<a href="../../spec/App/UI/Call.md#standardの通話ユーザーグループ">一覧と通話の仕様</a></p>
   <div class="gallery">
     <figure>
       <div class="phone tall"><div class="screen">
