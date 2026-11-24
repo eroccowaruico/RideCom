@@ -240,6 +240,24 @@ Xcodeで開く要求は成功した。Organizerの一覧表示、配布後のサ
 
 採用時の上流 `f0b51cdb2f` のiOS実機向けGN依存では、通常の `framework_objc` は `videocapture_objc` を含む。公式ターゲットの `peerconnectionfactory_base_objc` と `create_modular_peer_connection_factory` は、いずれもdcSCTPを含み、`videocapture_objc` は含まない。確認時の上流main `5c5b140751` でも通常frameworkから撮影依存を外す条件は見つからなかった。候補の依存を確認した段階で、Swiftの呼出元との接続と署名済みの生成物は次に検証する。[上流のビルド定義](https://webrtc.googlesource.com/src/+/5c5b140751e0f4907e092c7a7b59981787d642e8/sdk/BUILD.gn)
 
+### 撮影を含まないWebRTCのC++ターゲットでDataChannelを試す
+
+2026-11-24。採用済みの上流 `f0b51cdb2f` を無改変のまま比較した。Mac用の試作には公式の `//sdk:peerconnectionfactory_base_objc` を使った。現行Appと同じ初期化方法でPeerConnectionとDataChannelを作成できた。
+
+依存に撮影ターゲット `videocapture_objc` はなかった。`base_native_additions_objc` が依存する `helpers_objc` には `AVCaptureSession+DevicePosition.mm` があった。試作の実行ファイルに `AVCaptureSession` への外部参照が1種類残った。iPhone用とSimulator用のGN定義でも、このヘルパーを含むことを確認した。[上流のビルド定義](https://webrtc.googlesource.com/src/+/f0b51cdb2fd2df5a44c2f05ccc3dc41f5f429362/sdk/BUILD.gn)
+
+次の候補には公式の `//api:create_modular_peer_connection_factory` を使った。各構成の `gn desc` で得た推移依存とNinjaのリンク入力を照合した。必要な既存のオブジェクトとライブラリから試験用の動的ライブラリをリンクした。メディアファクトリーとSTUN・TURNサーバーを設定せず、Swiftの検証プログラムからCのインターフェースを通じてPeerConnectionを2つ作った。
+
+MacではIPv4ループバックを使った。両端でSDPを設定した後、DataChannelが開いた。2バイトのバイナリが双方向に届くことを3回確認した。
+
+| C++ターゲットを使った試作 | 撮影クラスへの外部参照 | DataChannelの確認 |
+|---|---:|---|
+| macOS arm64 | 0 | MacのSwiftから双方向の送受信を確認 |
+| iPhone arm64 | 0 | リンクとMach-Oの対象OSを確認 |
+| iOS Simulator arm64 | 0 | リンクとMach-Oの対象OSを確認 |
+
+上流と既存のAppには変更を加えていない。試作とローカル証跡は `.validation/itms-90683/upstream/` に保存した。既存のSwift実装から本番の通話に使うには、接続・SDP・ICE・統計・終了の契約をアプリ側から扱う接続部と、生成手順が必要になる。SimulatorとiPhoneでの実行、本番SFUを使った通話、署名付きArchive・IPA、Apple側の処理は候補の受入で確認する。[採用と配布の条件](../../development/BuildWebRTC/WebRTCビルドスクリプト.md#上流の無改変とカメラの不使用)
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。
