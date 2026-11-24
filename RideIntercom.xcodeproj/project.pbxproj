@@ -434,11 +434,11 @@
 		9374C4BB2FA3652B00D259B2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				9374C4C92FA3657700D259B2 /* AudioToolbox.framework */,
 				9306F0292FA8DFD30030B045 /* AVFAudio.framework */,
 				9306F0272FA8DFBA0030B045 /* AVFoundation.framework */,
-				93C60CE52FA3B46A00841E64 /* SafetyKit.framework */,
 				93DCB0822FA3864000B921FA /* CryptoKit.framework */,
-				9374C4C92FA3657700D259B2 /* AudioToolbox.framework */,
+				93C60CE52FA3B46A00841E64 /* SafetyKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -447,13 +447,13 @@
 			isa = PBXGroup;
 			children = (
 				D35100000000000000000001 /* Appearance.xcassets */,
-				D35100000000000000000002 /* RideComColors.swift */,
-				A9F382A78A734E6BAC3AFB82 /* WatchMicrophoneIntent.swift */,
-				7FF1CEF8CC38869E15C83735 /* WatchControlMessage.swift */,
-				8EC36A73C65578D5E215505E /* WatchControlClient.swift */,
-				0874A31143C7555BB4D5AC15 /* SystemSurfaceScope.swift */,
-				F2FF24FCC7CD717AC0CF70D8 /* Widget System Surfaces */,
 				E2E00000000000000000000D /* MediaBlackhole.swift */,
+				D35100000000000000000002 /* RideComColors.swift */,
+				0874A31143C7555BB4D5AC15 /* SystemSurfaceScope.swift */,
+				8EC36A73C65578D5E215505E /* WatchControlClient.swift */,
+				7FF1CEF8CC38869E15C83735 /* WatchControlMessage.swift */,
+				A9F382A78A734E6BAC3AFB82 /* WatchMicrophoneIntent.swift */,
+				F2FF24FCC7CD717AC0CF70D8 /* Widget System Surfaces */,
 			);
 			name = "Shared Build Inputs";
 			sourceTree = "<group>";
@@ -461,11 +461,11 @@
 		93BD7A642FACCD5600CBA553 /* server */ = {
 			isa = PBXGroup;
 			children = (
-				D76000000000000000000006 /* src */,
-				D76000000000000000000007 /* test */,
 				D76000000000000000000001 /* .dev.vars.example */,
 				D76000000000000000000002 /* package-lock.json */,
 				D76000000000000000000003 /* package.json */,
+				D76000000000000000000006 /* src */,
+				D76000000000000000000007 /* test */,
 				D76000000000000000000004 /* tsconfig.json */,
 				D76000000000000000000005 /* wrangler.toml */,
 			);
@@ -488,9 +488,7 @@
 				9374C4BB2FA3652B00D259B2 /* Frameworks */,
 				93F300C92F93829C0046716D /* Products */,
 				7944AFF7C78702E1B3DDCE2C /* README.md */,
-				9391B9533088EDA000FDB74A /* Shared Build Inputs */,
 				93F300CA2F93829C0046716D /* RideIntercom */,
-				1C0A209D1EDC02B2C3B6C9AD /* VS Code Workspace */,
 				E2E000000000000000000003 /* RideIntercomAudioE2ETests */,
 				93F300DC2F93829D0046716D /* RideIntercomTests */,
 				93F300E62F93829D0046716D /* RideIntercomUITests */,
@@ -500,6 +498,8 @@
 				D77000000000000000000003 /* RideIntercomWorkerTests */,
 				93BD7A6E2FACCD5C00CBA553 /* scripts */,
 				93BD7A642FACCD5600CBA553 /* server */,
+				9391B9533088EDA000FDB74A /* Shared Build Inputs */,
+				1C0A209D1EDC02B2C3B6C9AD /* VS Code Workspace */,
 			);
 			sourceTree = "<group>";
 		};
@@ -507,12 +507,12 @@
 			isa = PBXGroup;
 			children = (
 				93F300C82F93829C0046716D /* RideIntercom.app */,
-				56F6D0BB98E4179BB121F578 /* RideIntercomWidgets.appex */,
+				E2E000000000000000000002 /* RideIntercomAudioE2ETests.xctest */,
+				93F300D92F93829D0046716D /* RideIntercomTests.xctest */,
+				93F300E32F93829D0046716D /* RideIntercomUITests.xctest */,
 				C68FF7D6B2B5F4B5810BDC7E /* RideIntercomWatch.app */,
 				A77000000000000000000002 /* RideIntercomWatchUITests.xctest */,
-				93F300D92F93829D0046716D /* RideIntercomTests.xctest */,
-				E2E000000000000000000002 /* RideIntercomAudioE2ETests.xctest */,
-				93F300E32F93829D0046716D /* RideIntercomUITests.xctest */,
+				56F6D0BB98E4179BB121F578 /* RideIntercomWidgets.appex */,
 				D77000000000000000000002 /* RideIntercomWorkerTests.xctest */,
 			);
 			name = Products;
@@ -523,25 +523,25 @@
 			children = (
 				AB5100000000000000000001 /* Account */,
 				AB5100000000000000000002 /* App */,
+				AB5100000000000000000020 /* AppShortcuts.xcstrings */,
+				AB5100000000000000000022 /* Info.plist */,
+				AB5100000000000000000027 /* InfoPlist.strings */,
 				AB5100000000000000000003 /* Intents */,
 				AB5100000000000000000004 /* Intercom */,
+				24CAD00D525C7DAC722B6173 /* Localizable.xcstrings */,
 				AB5100000000000000000005 /* Notifications */,
+				AB510000000000000000000D /* packages */,
 				AB5100000000000000000006 /* Platform */,
+				AB5100000000000000000021 /* PrivacyInfo.xcprivacy */,
+				C0DE1C010000000000000002 /* RideComAppIcon.icon */,
+				AB5100000000000000000024 /* RideIntercom-macOS.entitlements */,
+				AB5100000000000000000023 /* RideIntercom.entitlements */,
 				AB5100000000000000000007 /* Shared */,
 				AB5100000000000000000008 /* StoreKit */,
 				AB5100000000000000000009 /* SystemSurfaces */,
 				AB510000000000000000000A /* TestSupport */,
 				AB510000000000000000000B /* UI */,
 				AB510000000000000000000C /* Watch */,
-				AB510000000000000000000D /* packages */,
-				AB5100000000000000000020 /* AppShortcuts.xcstrings */,
-				24CAD00D525C7DAC722B6173 /* Localizable.xcstrings */,
-				AB5100000000000000000021 /* PrivacyInfo.xcprivacy */,
-				C0DE1C010000000000000002 /* RideComAppIcon.icon */,
-				AB5100000000000000000022 /* Info.plist */,
-				AB5100000000000000000023 /* RideIntercom.entitlements */,
-				AB5100000000000000000024 /* RideIntercom-macOS.entitlements */,
-				AB5100000000000000000027 /* InfoPlist.strings */,
 			);
 			path = RideIntercom;
 			sourceTree = "<group>";
@@ -549,8 +549,8 @@
 		D77000000000000000000003 /* RideIntercomWorkerTests */ = {
 			isa = PBXGroup;
 			children = (
-				D77000000000000000000004 /* WorkerTestCase.swift */,
 				D77000000000000000000005 /* GeneratedWorkerCases.swift */,
+				D77000000000000000000004 /* WorkerTestCase.swift */,
 			);
 			path = RideIntercomWorkerTests;
 			sourceTree = "<group>";
@@ -841,10 +841,10 @@
 			isa = PBXResourcesBuildPhase;
 			files = (
 				AB5100000000000000000030 /* AppShortcuts.xcstrings in Resources */,
+				AB5100000000000000000034 /* InfoPlist.strings in Resources */,
 				AB5100000000000000000031 /* Localizable.xcstrings in Resources */,
 				AB5100000000000000000032 /* PrivacyInfo.xcprivacy in Resources */,
 				AB5100000000000000000033 /* RideComAppIcon.icon in Resources */,
-				AB5100000000000000000034 /* InfoPlist.strings in Resources */,
 			);
 		};
 		93F300D72F93829D0046716D /* Resources */ = {
