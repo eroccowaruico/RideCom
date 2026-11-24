@@ -357,7 +357,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
     audio_pins = []
     leases = [SimulatorLease(runner, resource_root / name) for name in ['reusable.json', 'ephemeral.json']]
     lease = leases[int(args.ephemeral)]
-    peer_lease = SimulatorLease(runner, resource_root / 'audio-peer.json')
+    peer_lease = SimulatorLease(runner, resource_root / 'audio-peer.json', stage='peer')
     peer_reserved = False
     sources = source_manifest(ROOT)
     (out / 'source-manifest.json').write_text(json.dumps(sources, indent=2) + '\n')
@@ -386,9 +386,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         if args.two_simulators:
             peer_lease.reserve('RideIntercom Validation Audio Peer ' + uuid.uuid4().hex[:8])
             peer_reserved = True
-            command('peer-create', ['xcrun', 'simctl', 'create', peer_lease.state['name'], device_type, runtime], 60)
-            peer = (out / 'peer-create.log').read_text().strip()
-            peer_lease.identify(peer)
+            peer = peer_lease.create_reserved(runtime, device_type)
             simulators['peer-simulator'] = peer
         for prefix, device_id in simulators.items():
             command(prefix + '-boot', ['xcrun', 'simctl', 'boot', device_id], 60)

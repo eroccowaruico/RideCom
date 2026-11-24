@@ -202,6 +202,8 @@ python3 scripts/audio_e2e.py --transport webrtc --matrix smoke \
 
 通常実行では通常検証（`validate.py`）と共通の専用Simulatorを1台だけ再利用し、終了時に停止する。`--two-simulators`の2台目は所有記録を残して作り、終了時に削除する。試験の後片付けでは、端末一覧を読み直し、再利用する端末は停止済み、一時的な端末は削除済みであることを所有記録のIDで照合する。状態が一致しない場合や一覧を取得できない場合は、不合格として記録を保持する。中断で残った場合も、次回の同じ実行ロックの下で所有する端末だけを回収する。mainの通常作業フォルダのprojectを使い、build cacheはXcode既定のDerivedDataを再利用する。projectコピーや`/tmp`専用build、`--build-root`による別cacheは使用しない。生成先はXcodeの`-showBuildSettings -json`から必要なpathだけを取得する。MacとiOS Simulatorは同じBuild/Productsを使うため、生成xctestrun名にはplatformを含める。2台構成では役割も含める。
 
+新規作成は、通常検証、音声E2E、診断E2Eで `SimulatorLease` を使う。呼出側は作成前に一意な端末名を所有記録に保存し、回収手段を確保する。作成と返された端末IDの保存は `SimulatorLease` が担当する。端末を作成したコマンドからIDを受け取れずに中断した場合は、記録した完全名と一致する端末を回収する。
+
 正常終了時のtest host終了はXcodeに任せる。timeout・SIGINT・SIGTERMでは、起動時に取得したprocess identityと所有子孫だけを回収し、専用Simulatorを停止する。同じ既定DerivedDataを使うGUI hostをpath一致で終了しない。旧journalに実行ファイルpathだけが残り、そのhostが動いている場合は所有を証明できないため失敗を記録し、signalを送らない。名前だけの`pkill`や`simctl shutdown all`は使用しない。二重実行はlockで拒否する。SIGKILLや電源断で終了処理自体が実行できなかった場合は、次回起動で全端末の一覧を証跡へ保存する。管理記録が失われても専用名から停止済み端末を再発見し、互換端末を再利用する。起動中の専用端末がある場合は、端末を作成・削除せずに失敗するため、所有する作業を確認して終了してから再実行する。
 
 ```sh

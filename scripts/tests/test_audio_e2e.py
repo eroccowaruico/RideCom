@@ -606,11 +606,19 @@ class AudioE2ELifecycleTests(unittest.TestCase):
 
     def test_create_failure_is_recovered_by_exact_journaled_name(self) -> None:
         runner = Runner(self.root / 'evidence')
-        lease = SimulatorLease(runner, self.root / 'lease.json')
+        lease = SimulatorLease(runner, self.root / 'lease.json', stage='peer')
         lease.reserve('owned-unique-name')
         # simctl may create the device before its caller is interrupted, so the
         # journal must already contain the name even when no UUID was returned.
-        self.assertEqual(json.loads(lease.journal.read_text())['name'], 'owned-unique-name')
+        def interrupted_create(stage: str, command: list[str], *, timeout: int) -> bool:
+            self.assertEqual(stage, 'peer-create')
+            self.assertEqual(command, ['xcrun', 'simctl', 'create', 'owned-unique-name', 'phone', 'ios'])
+            self.assertEqual(timeout, 60)
+            self.assertEqual(json.loads(lease.journal.read_text()), {'name': 'owned-unique-name', 'reusable': False})
+            return False
+
+        with patch.object(runner, 'run', side_effect=interrupted_create), self.assertRaisesRegex(RuntimeError, 'peer-create'):
+            lease.create_reserved('ios', 'phone')
         devices = [{'name': 'owned-unique-name', 'udid': 'ours', 'state': 'Booted'},
                    {'name': 'owned-unique-name-extra', 'udid': 'other', 'state': 'Booted'}]
         calls = []

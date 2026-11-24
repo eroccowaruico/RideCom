@@ -180,16 +180,13 @@ def boot(runner: Runner, role: str, device: str, cleanup: ExitStack) -> None:
 
 def make_device(runner: Runner, role: str, runtime: str, cleanup: ExitStack) -> str:
     journal = simulator_resource_root() / f'diagnostics-audio-{role}.json'
-    lease = SimulatorLease(runner, journal)
+    lease = SimulatorLease(runner, journal, stage=role)
     if lease.state and not lease.cleanup(role + '-recovery'):
         raise RuntimeError(f'Could not recover the owned {role} simulator')
     name = f'RideIntercom Validation Audio Diagnostics {role} ' + uuid.uuid4().hex[:8]
     lease.reserve(name)
     cleanup.callback(lease.cleanup, role + '-cleanup')
-    run(runner, role + '-create', ['xcrun', 'simctl', 'create', name, IPHONE_DEVICE_TYPE, runtime])
-    device = (runner.out / f'{role}-create.log').read_text().strip()
-    lease.identify(device)
-    return device
+    return lease.create_reserved(runtime, IPHONE_DEVICE_TYPE)
 
 
 def main() -> int:

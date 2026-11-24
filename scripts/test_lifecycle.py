@@ -226,6 +226,16 @@ class SimulatorLease:
         self.state['udid'] = device_id
         self.save()
 
+    def create_reserved(self, runtime: str, device_type: str) -> str:
+        """Create the reserved device and record its ID for cleanup."""
+        stage = f'{self.stage}-create'
+        command = ['xcrun', 'simctl', 'create', self.state['name'], device_type, runtime]
+        if not self.runner.run(stage, command, timeout=60):
+            raise RuntimeError(f'{stage} failed')
+        device_id = (self.runner.out / f'{stage}.log').read_text().strip()
+        self.identify(device_id)
+        return device_id
+
     def owned_devices(self) -> list[SimulatorDevice]:
         return [d for d in simulator_devices() if d['name'] == self.state.get('name')
                 and (not self.state.get('udid') or d['udid'] == self.state['udid'])]
@@ -283,12 +293,7 @@ class SimulatorLease:
             return None
         assert runtime is not None and device_type is not None
         self.reserve('RideIntercom Audio E2E ' + uuid.uuid4().hex[:8], reusable=reusable)
-        create_stage = f'{self.stage}-create'
-        if not self.runner.run(create_stage, ['xcrun', 'simctl', 'create', self.state['name'], device_type, runtime], timeout=60):
-            raise RuntimeError('Could not create managed simulator')
-        device_id = (self.runner.out / f'{create_stage}.log').read_text().strip()
-        self.identify(device_id)
-        return device_id
+        return self.create_reserved(runtime, device_type)
 
     def cleanup_host(self, prefix: str) -> bool:
         # Older journals recorded only a binary path. With standard DerivedData
