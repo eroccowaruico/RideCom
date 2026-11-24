@@ -111,24 +111,49 @@ final class RealtimeRenderBoundaryTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
 
         let packets = (0..<4).map { index in Array(repeating: Float(0.2) + Float(index) * 0.1, count: 480) }
-        try probe.source.schedule(.init(sequenceNumber: 0, capturedAt: 100, samples: packets[0]), arrivedAt: 50.013)
+        let firstArrival = 50.013
+        let burstArrival = firstArrival + 0.075688
+        var reservations: [MixerPlayoutReservation] = []
+        try probe.source.schedule(.init(sequenceNumber: 0, capturedAt: 100, samples: packets[0]),
+            arrivedAt: firstArrival) { reservations.append($0) }
         // Let the original reservation for packet 1 expire before releasing the
         // adjacent packets together. Only the arrival times supplied to the link
         // estimator are injected; the device decides how far it has rendered.
-        try await Task.sleep(for: .milliseconds(75))
+        try await Task.sleep(for: .milliseconds(76))
         for index in 1..<packets.count {
             try probe.source.schedule(.init(sequenceNumber: UInt64(index), capturedAt: 100 + Double(index) / 100,
-                samples: packets[index]), arrivedAt: 50.063)
+                samples: packets[index]), arrivedAt: burstArrival) { reservations.append($0) }
         }
         let adjustment = try XCTUnwrap(probe.source.lastPlayoutAdjustment)
         XCTAssertEqual(adjustment.reason, .pastRenderPosition)
         XCTAssertEqual(probe.source.playoutAdjustmentCount, 1)
         XCTAssertEqual(probe.source.playbackResetCount, 0)
         try await Task.sleep(for: .milliseconds(150))
-        let heard = probe.received.snapshot.flatMap(\.samples).filter { $0 > 0.1 }
+        let rendered = probe.received.snapshot.flatMap(\.samples)
+        let heard = rendered.filter { $0 > 0.1 }
         let expected = packets.flatMap { $0 }
         XCTAssertEqual(heard.count, expected.count)
         XCTAssertTrue(zip(heard, expected).allSatisfy { abs($0 - $1) < 0.00001 })
+
+        XCTAssertEqual(reservations.count, packets.count)
+        let first = try XCTUnwrap(reservations.first)
+        let late = try XCTUnwrap(reservations.dropFirst().first)
+        let firstEnd = first.startSample + AVAudioFramePosition(first.frameCount)
+        let expired = late.completedSample - firstEnd
+        let renderLead = late.writableSample - late.completedSample
+        let afterWritable = late.startSample - late.writableSample
+        let lastFirstSample = try XCTUnwrap(rendered.lastIndex { abs($0 - packets[0][0]) < 0.00001 })
+        let firstLateSample = try XCTUnwrap(rendered.firstIndex { abs($0 - packets[1][0]) < 0.00001 })
+        guard lastFirstSample < firstLateSample else {
+            return XCTFail("The late packet must render after the first packet")
+        }
+        let silentSamples = firstLateSample - lastFirstSample - 1
+        XCTAssertGreaterThan(expired, 0, "The first packet must end before the completed render position")
+        XCTAssertGreaterThanOrEqual(afterWritable, 0)
+        XCTAssertEqual(silentSamples, Int(expired + renderLead + afterWritable))
+        XCTAssertTrue(rendered[(lastFirstSample + 1)..<firstLateSample].allSatisfy { abs($0) < 0.00001 })
+        print("Late burst samples: expired=\(expired), renderLead=\(renderLead), "
+            + "afterWritable=\(afterWritable), silent=\(silentSamples)")
     }
 
 }
