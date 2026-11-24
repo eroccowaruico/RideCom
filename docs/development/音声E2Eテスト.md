@@ -216,6 +216,7 @@ python3 scripts/audio_e2e.py --cleanup-only
 | scenarios.json | 通信試験の両端に渡す設定。通常の通信試験では選択したマトリクス、`--transport mixed`では通話を始めるための初期設定。専用modeと`--cleanup-only`では作成しない |
 | source-manifest.json | HEAD、Swift・テスト・スクリプト・project・発話fixture・アセットカタログとIcon Composer内の全形式のSHA-256。Git未登録の追加アセットも含める。ビルドから受入までに入力やHEADが変わると失敗する。プロジェクトで共通のビルド番号だけが進む場合は許容する |
 | `test-<通信経路>-<端末>.log` | Xcodeが報告した `.xcresult` の場所を記録する。通信経路と端末ごとに別の結果を標準の `Logs/Test` から読み取る |
+| `<実行段階>-selection.json` | 事前試験、専用モード、通話の両端それぞれで、指定したケースとXcodeの実行結果を識別子で照合する。指定漏れや指定外の実行があれば、成功件数が一致していても不合格 |
 | attachments-<通信経路>-<端末> | 設定区間ごとのJSON測定値、実render WAV、連続性の検査に合格しなかった場合の復号・ミキサーWAV、終了時の状態 |
 | simulator-id.txt | 実行に使用した端末の識別子 |
 

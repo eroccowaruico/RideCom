@@ -59,6 +59,25 @@ class Measurement(MeasurementResult):
 
 
 class AudioE2ELifecycleTests(unittest.TestCase):
+    def test_audio_selection_rejects_the_wrong_case_even_with_one_passing_result(self) -> None:
+        runner = Runner(self.root / 'test-selection')
+        expected = 'AudioE2ETests/testDuplexSpeechOverNetwork'
+        for method, passed in [('testDuplexSpeechOverNetwork', True), ('testSystemSessionAcceptsCallProfiles', False)]:
+            stage = f'test-{method}'
+            case = {'nodeType': 'Test Case', 'nodeIdentifier': f'AudioE2ETests/{method}()', 'result': 'Passed'}
+            bundle = {'nodeType': 'Unit test bundle', 'name': 'RideIntercomAudioE2ETests', 'children': [case]}
+            self.assertTrue(audio.xcode_tests_passed({'totalTestCount': 1, 'passedTests': 1}))
+            (runner.out / f'{stage}-tests.log').write_text(json.dumps({'testNodes': [bundle]}))
+
+            def list_tests(name: str, command: list[str], **kwargs: object) -> bool:
+                self.assertEqual(kwargs['needs'], [name.removesuffix('-tests')])
+                return runner.record(name, command, 'passed', 0, time.monotonic())
+
+            with self.subTest(method=method), patch.object(runner, 'run', side_effect=list_tests):
+                self.assertEqual(audio.check_audio_test_selection(runner, stage, self.root / 'native.xcresult', [expected]), passed)
+            evidence = json.loads((runner.out / f'{stage}-selection.json').read_text())
+            self.assertEqual(evidence['missing'], [] if passed else ['RideIntercomAudioE2ETests/' + expected])
+
     def test_network_audio_selects_requested_cases_in_matrix_order(self) -> None:
         argv = ['audio_e2e.py', '--output', str(self.root / 'selection'), '--matrix', 'quick',
                 '--scenario', 'output-recovery', '--scenario', 'pcm16-16k-voicechat']

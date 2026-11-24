@@ -474,7 +474,7 @@ class Runner:
             self.check_test_selection(name, bundle, selectors)
         return bundle
 
-    def check_test_selection(self, name: str, bundle: Path, selectors: list[str]) -> None:
+    def check_test_selection(self, name: str, bundle: Path, selectors: list[str]) -> bool:
         listing = name + '-tests'
         self.run(listing, ['xcrun', 'xcresulttool', 'get', 'test-results', 'tests',
                            '--path', str(bundle), '--compact'], needs=[name], timeout=60)
@@ -487,9 +487,9 @@ class Runner:
             passed = self.results[listing]['status'] == 'passed' and not (coverage['missing'] or coverage['unexpected'])
             reason = 'Each selector ran and all executed tests matched the selection' if passed else (
                 f"Missing selectors: {coverage['missing']}; unexpected tests: {coverage['unexpected']}")
-            self.record(stage, [], 'passed' if passed else 'failed', 0 if passed else 1, started, reason)
+            return self.record(stage, [], 'passed' if passed else 'failed', 0 if passed else 1, started, reason)
         except (OSError, ValueError, KeyError, TypeError) as error:
-            self.record(stage, [], 'failed', 1, started, 'Cannot verify selected tests: ' + str(error))
+            return self.record(stage, [], 'failed', 1, started, 'Cannot verify selected tests: ' + str(error))
 
 
 def file_fingerprint(path: Path) -> Fingerprint:

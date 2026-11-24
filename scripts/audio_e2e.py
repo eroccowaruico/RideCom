@@ -51,12 +51,19 @@ from scripts.xcode_paths import (
     xcode_test_result,
 )
 
+AUDIO_TEST_TARGET = 'RideIntercomAudioE2ETests'
+DUPLEX_TEST = 'AudioE2ETests/testDuplexSpeechOverNetwork'
+
+
+def check_audio_test_selection(runner: Runner, stage: str, bundle: Path, identifiers: Sequence[str]) -> bool:
+    return runner.check_test_selection(stage, bundle, [f'{AUDIO_TEST_TARGET}/{identifier}' for identifier in identifiers])
+
 
 def configure_test_run(source: Path, purpose: str, platform: str, namespace: str,
                        environment: dict[str, str], identifiers: Sequence[str] | None = None) -> Path:
     data = plistlib.loads(source.read_bytes())
     targets = [target for config in data['TestConfigurations'] for target in config['TestTargets']]
-    if len(targets) != 1 or targets[0]['BlueprintName'] != 'RideIntercomAudioE2ETests':
+    if len(targets) != 1 or targets[0]['BlueprintName'] != AUDIO_TEST_TARGET:
         raise ValueError('Expected the dedicated audio E2E test target')
     test_host_metadata(source, namespace)
     targets[0].setdefault('EnvironmentVariables', {}).update(environment)
@@ -65,7 +72,7 @@ def configure_test_run(source: Path, purpose: str, platform: str, namespace: str
         targets[0]['SkipTestIdentifiers'] = [
             name for name in targets[0].get('SkipTestIdentifiers', []) if name.removesuffix('()') not in limits
         ]
-    targets[0]['OnlyTestIdentifiers'] = identifiers or ['AudioE2ETests/testDuplexSpeechOverNetwork']
+    targets[0]['OnlyTestIdentifiers'] = identifiers or [DUPLEX_TEST]
     # Mac and Simulator now share Xcode's product root. Keep distinct files
     # beside their products so __TESTROOT__ stays valid for both endpoints.
     destination = source.parent / f'audio-{purpose}-{platform}.xctestrun'
@@ -418,19 +425,25 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         preflight_summary = json.loads((out / 'preflight-summary.log').read_text())
         if not xcode_tests_passed(preflight_summary) or preflight_summary['totalTestCount'] != len(ios_preflight_tests):
             raise RuntimeError('Speech oracle and real iOS session preflight must both pass')
+        if not check_audio_test_selection(runner, 'preflight', preflight_bundle, ios_preflight_tests):
+            raise RuntimeError('The selected iOS audio preflight tests must run')
         if 'mac' in products_by_platform:
             mac_settings, mac_run = products_by_platform['mac']
-            mac_preflight = configure_test_run(mac_run, 'preflight', 'mac', mac_settings['RIDEINTERCOM_STORAGE_NAMESPACE'], {}, identifiers=[
+            mac_preflight_tests = [
                 'AudioE2ETests/testMacFixturePacesCompletedSamples',
-                'AudioE2ETests/testFixturePreservesClockGapsWithoutDelayingLaterSpeech'])
+                'AudioE2ETests/testFixturePreservesClockGapsWithoutDelayingLaterSpeech']
+            mac_preflight = configure_test_run(mac_run, 'preflight', 'mac', mac_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
+                                               {}, identifiers=mac_preflight_tests)
             command('preflight-mac', ['xcodebuild', 'test-without-building', '-xctestrun', str(mac_preflight),
                 '-destination', 'platform=macOS,arch=arm64', '-parallel-testing-enabled', 'NO'], 120)
             mac_bundle = xcode_test_result(out / 'preflight-mac.log', mac_preflight.parent)
             command('preflight-mac-summary', ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary',
                 '--path', str(mac_bundle), '--format', 'json'], 60)
             mac_summary = json.loads((out / 'preflight-mac-summary.log').read_text())
-            if not xcode_tests_passed(mac_summary) or mac_summary['totalTestCount'] != 2:
+            if not xcode_tests_passed(mac_summary) or mac_summary['totalTestCount'] != len(mac_preflight_tests):
                 raise RuntimeError('Mac fixture capture clock must pass before latency measurement')
+            if not check_audio_test_selection(runner, 'preflight-mac', mac_bundle, mac_preflight_tests):
+                raise RuntimeError('The selected Mac audio preflight tests must run')
         transports = ['local', 'webrtc'] if args.transport == 'all' else [args.transport]
         if standalone:
             configured = configure_test_run(ios_run, 'pipeline', 'ios', ios_settings['RIDEINTERCOM_STORAGE_NAMESPACE'],
@@ -444,6 +457,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 passed = xcode_tests_passed(summary) and summary['totalTestCount'] == len(standalone.tests)
                 result_name = 'measure-switch-limits' if args.switch_limits_only else 'accept-pipeline'
                 runner.record(result_name, [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
+            check_audio_test_selection(runner, 'test-pipeline', pipeline_bundle, standalone.tests)
             folder = out / 'attachments-pipeline'
             if runner.run('attachments-pipeline', ['xcrun', 'xcresulttool', 'export', 'attachments',
                 '--path', str(pipeline_bundle), '--output-path', str(folder)], timeout=60):
@@ -504,6 +518,7 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                     summary = json.loads((out / ('summary-' + name + '.log')).read_text())
                     passed = xcode_tests_passed(summary) and summary['totalTestCount'] == 1
                     runner.record('accept-' + name, [], 'passed' if passed else 'failed', 0 if passed else 1, time.monotonic())
+                check_audio_test_selection(runner, 'test-' + name, bundle, [DUPLEX_TEST])
                 folder = out / ('attachments-' + name)
                 exported = runner.run('attachments-' + name, ['xcrun', 'xcresulttool', 'export', 'attachments',
                     '--path', str(bundle), '--output-path', str(folder)], timeout=60)
