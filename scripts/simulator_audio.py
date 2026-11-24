@@ -55,7 +55,7 @@ def shared_host_audio_device(devices: Mapping[str, object], host_items: Sequence
 def _run_audio_command(args: list[str]) -> Mapping[str, object]:
     output = subprocess.run(args, capture_output=True, text=True, timeout=60, check=True).stdout
     data = json.loads(output)
-    result = data.get('result', data) if args[0] == 'xcrun' else data
+    result = data.get('result', data) if isinstance(data, dict) and args[0] == 'xcrun' else data
     if not isinstance(result, dict):
         raise TypeError('Invalid audio device command response')
     return result

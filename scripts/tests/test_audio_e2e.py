@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from contextlib import redirect_stderr
 from pathlib import Path
 from typing import ClassVar, TypedDict
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import scripts.audio_e2e as audio
 from scripts.audio_e2e import (
@@ -153,6 +153,48 @@ class AudioE2ELifecycleTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
                 self.assertIn(message, stderr.getvalue())
                 self.assertFalse(out.exists())
+
+    def test_interrupted_pair_still_recovers_both_simulators_after_an_audio_restore_error(self) -> None:
+        for failure in (FileNotFoundError, TypeError):
+            out = self.root / failure.__name__
+            argv = ['audio_e2e.py', '--output', str(out), '--transport', 'local',
+                    '--matrix', 'smoke', '--two-simulators', '--ephemeral']
+            primary, peer = Mock(), Mock()
+            primary.pin.return_value = 'fixture-audio'
+            peer.pin.return_value = 'fixture-audio'
+            peer.restore.side_effect = failure('synthetic command detail')
+
+            def run(stage: str, *_args: object, output: Path = out, **_options: object) -> bool:
+                if stage == 'runtimes':
+                    (output / 'runtimes.log').write_text(json.dumps({'runtimes': [
+                        {'name': 'iOS Fixture', 'version': '1.0', 'identifier': 'ios-fixture', 'isAvailable': True}
+                    ]}))
+                elif stage == 'peer-create':
+                    (output / 'peer-create.log').write_text('peer-simulator\n')
+                return True
+
+            def prepare(lease: SimulatorLease, *_args: object, **_options: object) -> str:
+                lease.acquired = True
+                return 'primary-simulator'
+
+            with self.subTest(failure=failure.__name__), \
+                    patch.object(sys, 'argv', argv), patch.dict(os.environ), \
+                    patch.object(audio, 'simulator_resource_root', return_value=out), \
+                    patch.object(audio, 'source_manifest', return_value={'head': 'fixture', 'files': {}}), \
+                    patch.object(audio.Runner, 'run', side_effect=run), \
+                    patch.object(audio.SimulatorLease, 'prepare', autospec=True, side_effect=prepare), \
+                    patch.object(audio.SimulatorLease, 'cleanup', autospec=True, return_value=True) as cleanup, \
+                    patch.object(audio, 'SimulatorAudioPin', side_effect=[primary, peer]), \
+                    patch.object(audio, 'build_audio_hosts', side_effect=KeyboardInterrupt):
+                self.assertEqual(audio.main(), 1)
+                peer.restore.assert_called_once_with()
+                primary.restore.assert_called_once_with()
+                self.assertEqual([call.args[1] for call in cleanup.call_args_list], ['peer-cleanup', 'cleanup'])
+                results = json.loads((out / 'results.json').read_text())
+                peer_result = results['peer-simulator-audio-restore']
+                self.assertEqual(peer_result['status'], 'failed')
+                self.assertEqual(results['simulator-audio-restore']['status'], 'passed')
+                self.assertEqual(peer_result['reason'], 'Could not restore Simulator audio selection: ' + failure.__name__)
 
     def test_configuring_audio_hosts_requires_isolated_real_products(self) -> None:
         for platform in ('mac', 'ios'):
@@ -673,6 +715,14 @@ class SimulatorAudioDeviceTests(unittest.TestCase):
 
     def test_selects_the_single_48_khz_device_with_both_directions(self) -> None:
         self.assertEqual(shared_host_audio_device(self.DEVICES, self.HOST), 'wave')
+
+    def test_malformed_audio_command_response_fails_as_a_type_error(self) -> None:
+        pin = SimulatorAudioPin('fixture-simulator')
+        pin.original = ('systemDefault', 'systemDefault')
+        response = subprocess.CompletedProcess([], 0, stdout='[]')
+        with patch('scripts.simulator_audio.subprocess.run', return_value=response), \
+                self.assertRaisesRegex(TypeError, 'Invalid audio device command response'):
+            pin.restore()
 
     def test_rejects_hosts_without_one_unambiguous_duplex_device(self) -> None:
         only_split = [item for item in self.HOST if item['_name'] != 'Wave']

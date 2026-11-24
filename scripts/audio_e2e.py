@@ -495,8 +495,9 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 try:
                     audio_pin.restore()
                     runner.record(prefix + '-audio-restore', [], 'passed', 0, time.monotonic())
-                except (ValueError, KeyError, subprocess.SubprocessError) as error:
-                    runner.record(prefix + '-audio-restore', [], 'failed', 1, time.monotonic(), str(error))
+                except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+                    runner.record(prefix + '-audio-restore', [], 'failed', 1, time.monotonic(),
+                                  'Could not restore Simulator audio selection: ' + type(error).__name__)
             if peer_reserved:
                 peer_lease.cleanup('peer-cleanup')
             if lease.acquired:
