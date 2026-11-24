@@ -34,4 +34,21 @@ extension View {
             }
         }
     }
+
+    func groupMemberRowActions(
+        _ member: GroupMember, groupID: UUID, viewModel: IntercomViewModel,
+        pending: Binding<PendingMemberRemoval?>, @ViewBuilder primary: () -> some View
+    ) -> some View {
+        trailingRowActions(primary: primary) {
+            if viewModel.canManageRegularGroups {
+                Button(role: .destructive) {
+                    pending.wrappedValue = PendingMemberRemoval(name: member.resolvedDisplayName) {
+                        viewModel.removeMember(member.id, from: groupID)
+                    }
+                } label: {
+                    Label("Remove", systemImage: "person.badge.minus")
+                }
+            }
+        }
+    }
 }

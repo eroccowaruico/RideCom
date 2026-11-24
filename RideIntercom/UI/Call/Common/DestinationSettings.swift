@@ -55,19 +55,6 @@ struct GroupSettingsView: View {
 }
 
 extension View {
-    @ViewBuilder
-    func memberRemovalAction(
-        canRemove: Bool, pending: Binding<PendingMemberRemoval?>, name: String, remove: @escaping () -> Void
-    ) -> some View {
-        if canRemove {
-            Button(role: .destructive) {
-                pending.wrappedValue = PendingMemberRemoval(name: name, perform: remove)
-            } label: {
-                Label("Remove", systemImage: "person.badge.minus")
-            }
-        }
-    }
-
     /// Removing a member always asks first. Held by the screen: an alert on a row does not
     /// appear once its swipe closes.
     func memberRemoveConfirmation(_ pending: Binding<PendingMemberRemoval?>) -> some View {

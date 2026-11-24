@@ -354,6 +354,19 @@ extension StandardInterfaceUITests {
         XCTAssertTrue(selfRow.exists, "You come first in the members, as in the call")
         XCTAssertLessThan(selfRow.frame.minY, member.frame.minY)
         XCTAssertFalse(app.staticTexts["Touch and hold a member to rename or remove them."].exists)
+
+        member.swipeLeft()
+        let rowRemove = app.buttons["Remove"].firstMatch
+        XCTAssertTrue(rowRemove.waitForExistence(timeout: 3))
+        let rowConfirmation = app.alerts.firstMatch
+        XCTAssertFalse(rowConfirmation.exists)
+        XCTAssertTrue(member.exists)
+        rowRemove.tap()
+        XCTAssertTrue(rowConfirmation.staticTexts["Remove \(inviterName) from the group?"].waitForExistence(timeout: 3))
+        rowConfirmation.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(rowConfirmation.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(member.exists)
+
         member.tap()
         let remove = app.buttons["removeGroupMemberButton"].firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 3))

@@ -196,7 +196,7 @@ Users / Groupsのルート識別子`standardUsersList` / `standardGroupsList`は
 | Standardの相手の行 | 行末にchevronを出す。タップ（`groupSettingsMember-{id}`）で`StandardGroupMemberView`を開く。画面タイトルはその人の名前。スワイプの操作は`Remove`（`person.badge.minus`）だけとする |
 | Standardのメンバー画面 | 「この端末での名前」（`groupMemberNameField`）と、最後に赤い`Remove from Group`（グループから外す、`removeGroupMemberButton`）だけを置く。名前欄が空なら本人名をプレースホルダーに出し、空で保存した場合は本人名へ戻す。Advancedの`GroupMemberNameView`とは部品を分ける |
 | Advancedの相手の行 | スワイプで`Edit Name`を出す。`canManageRegularGroups`のときだけ`Remove`も出す。Macは同じ操作を右クリックで出す |
-| 外す操作の確認 | どの入口でも標準の`alert`で「{名前}をグループから外しますか？」と確認する。確定は`confirmRemoveMemberButton` |
+| 外す操作の確認 | 両モードのメンバー行は `groupMemberRowActions` で「外す」の表示条件と対象を揃える。行のスワイプとMacの右クリックから同じ操作を選ぶ。どの入口でも標準の`alert`で「{名前}をグループから外しますか？」と確認する。確定は`confirmRemoveMemberButton` |
 | 追加の行 | 識別子は`groupSettingsAddMembersButton`。Standardは一覧の先頭に破線のアバターと`Invite Members`（メンバーを招待）を置き、通話のメンバー一覧の先頭と同じ語を使う。Advancedは`Add Members`と表示する。招待（`groupSettingsInviteButton`）はAdvancedだけに出す |
 | 利用権 | グループ設定からのメンバー招待、通話の`addSavedUsersButton`、外す操作は`canManageRegularGroups`のときだけ表示する。利用権がない人には無効表示も出さない |
 | 設定の末尾 | 両モードで`GroupRemovalSection`を共用する。記号を付けず、赤い文字のボタンを1つ置く |

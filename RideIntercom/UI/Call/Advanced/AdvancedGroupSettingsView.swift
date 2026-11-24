@@ -54,16 +54,9 @@ struct AdvancedGroupSettingsView: View {
                                     }
                                 }
                             }
-                            .trailingRowActions {
+                            .groupMemberRowActions(member, groupID: groupID, viewModel: viewModel,
+                                                   pending: $pendingRemoval) {
                                 Button { editingMember = member } label: { Label("Edit Name", systemImage: "pencil") }
-                            } destructive: {
-                                memberRemovalAction(
-                                    canRemove: viewModel.canManageRegularGroups,
-                                    pending: $pendingRemoval,
-                                    name: member.resolvedDisplayName
-                                ) {
-                                    viewModel.removeMember(member.id, from: groupID)
-                                }
                             }
                         }
                         if viewModel.canManageRegularGroups {
