@@ -300,18 +300,20 @@ export class AccountNotifications {
             || value.sender.deviceID !== sender.deviceID) return null
         return this.activeInvitationDevices(value).map(({ memberID, recipientKey }) => ({ memberID, recipientKey }))
     }
+    private isPendingInvitationFor(value: NotificationGroupInvitation, recipient: string): boolean {
+        return value.recipientID === recipient && value.status === 'queued' && this.grantActive(recipient, value.grantHash)
+    }
     pendingInvitations(userID: string, recipientKey: string): Pick<NotificationGroupInvitation, 'requestID' | 'sender'>[] {
         this.prune()
         return [...this.storage.kv.list<NotificationGroupInvitation>({ prefix: invitationPrefix })].map(([, v]) => v)
-            .filter(v => v.recipientID === userID && v.recipientKey === recipientKey && v.status === 'queued' && this.grantActive(userID, v.grantHash))
+            .filter(v => v.recipientKey === recipientKey && this.isPendingInvitationFor(v, userID))
             .map(({ requestID, sender }) => ({ requestID, sender }))
     }
     invitationForDelivery(auth: NotificationAuth, recipientKey: string, requestID: string, verifiedSender: NotificationAuth) {
         if (!this.authorized(auth)) return 'unauthorized'
         // Read the current envelope after the Worker awaited the sender's account.
         const value = this.invitation(auth.userID, requestID)
-        if (!value?.envelope || value.status !== 'queued' || value.recipientID !== auth.userID
-            || value.recipientKey !== recipientKey || !this.grantActive(auth.userID, value.grantHash)) return null
+        if (!value?.envelope || value.recipientKey !== recipientKey || !this.isPendingInvitationFor(value, auth.userID)) return null
         if (value.sourceRequestID && (auth.deviceID !== value.recipientDeviceID
             || this.addressForRedelivery(value)?.auth.deviceID !== auth.deviceID)) return null
         const sender = value.sender
@@ -340,7 +342,7 @@ export class AccountNotifications {
         const next = { ...value, envelope: null }
         if (next.status === 'queued') {
             const address = value.sourceRequestID ? this.addressForRedelivery(value) : null
-            const canReceive = !withdrawing && !discard && this.grantActive(userID, value.grantHash)
+            const canReceive = !withdrawing && !discard && this.isPendingInvitationFor(value, userID)
                 && (!value.sourceRequestID || (address !== null && address.auth.deviceID === next.recipientDeviceID))
             // A resubmission may have changed the stored sender while the Worker checked the old session.
             if (canReceive && (!senderCheck || !sameNotificationAuth(value.sender, senderCheck.sender)
@@ -365,7 +367,7 @@ export class AccountNotifications {
     }
     invitationCandidates(userID: string, requestID: string): NotificationDevice[] {
         const value = this.invitation(userID, requestID)
-        return value?.status === 'queued' && this.grantActive(userID, value.grantHash) ? this.devices().filter(v =>
+        return value && this.isPendingInvitationFor(value, userID) ? this.devices().filter(v =>
             this.authorized({ accountID: '', userID, deviceID: v.deviceID, tokenHash: v.tokenHash }) && v.expiresAt > Date.now()).slice(0, 8) : []
     }
     prune() {
