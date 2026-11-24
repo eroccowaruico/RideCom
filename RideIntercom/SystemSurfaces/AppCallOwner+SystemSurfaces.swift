@@ -24,12 +24,14 @@ extension AppCallOwner {
         }
         liveActivities.setPresentation(input.0, enabled: input.1, isForeground: input.2)
     }
-    func performCallSurfaceAction(_ action: CallSurfaceAction, reference: CallSurfaceReference?) throws {
+    func performCallSurfaceAction(
+        _ action: CallSurfaceAction, reference: CallSurfaceReference? = nil, destinationID: String? = nil
+    ) throws {
         switch action {
         case .calls:
             _ = try callModel()
         case .saved:
-            return try startWidgetCall(id: "")
+            return try startSavedCall(id: destinationID)
         case .recent:
             return try startRecentExternalCall()
         case .end:
@@ -42,16 +44,13 @@ extension AppCallOwner {
         callPresentationID = UUID()
     }
 
-    func startWidgetCall(id: String) throws {
-        try startSavedCall(
-            id: id,
-            missingDestinationMessage:
-                "This call destination is no longer available. Choose a saved user or group in RideCom.")
-    }
-
-    func startSavedCall(id: String, missingDestinationMessage: String) throws {
+    func startSavedCall(
+        id: String?,
+        missingDestinationMessage: String =
+            "This call destination is no longer available. Choose a saved user or group in RideCom."
+    ) throws {
         let model = try callModel()
-        let destination = callTargets.first { $0.entity.id == id }?.destination
+        let destination = id.flatMap { id in callTargets.first { $0.entity.id == id }?.destination }
         try startExternalCall(to: destination, using: model, missingDestinationMessage: missingDestinationMessage)
     }
 

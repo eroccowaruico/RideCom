@@ -24,7 +24,8 @@ struct BackgroundWidgetTests {
         let actions = WidgetActionsRecorder()
         let intent = BackgroundCallControlIntent(destinationID: "current-target"); intent.actions = actions
         _ = try await intent.perform()
-        #expect(actions.events == ["prepare", "start:current-target"])
+        #expect(actions.events == ["prepare", "saved"])
+        #expect(actions.destinationID == "current-target")
     }
 
     @Test func failedPreparationDoesNotRunAnAction() async {
@@ -120,15 +121,18 @@ struct BackgroundWidgetTests {
     var events: [String] = []
     var mutedValues: [Bool] = []
     var references: [CallSurfaceReference] = []
+    var destinationID: String?
     var failPreparation = false
     func prepareForBackgroundCallAction() async throws {
         events.append("prepare")
         if failPreparation { throw Failure.unavailable }
     }
-    func startWidgetCall(id: String) throws { events.append("start:\(id)") }
-    func performCallSurfaceAction(_ action: CallSurfaceAction, reference: CallSurfaceReference?) throws {
+    func performCallSurfaceAction(
+        _ action: CallSurfaceAction, reference: CallSurfaceReference?, destinationID: String?
+    ) throws {
         events.append(action.rawValue)
         if let reference { references.append(reference) }
+        if action == .saved { self.destinationID = destinationID }
     }
     func setCallSurfaceMuted(_ muted: Bool, reference: CallSurfaceReference) -> Bool {
         mutedValues.append(muted); references.append(reference); return true

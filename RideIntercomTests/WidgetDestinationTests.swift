@@ -82,7 +82,7 @@ struct WidgetDestinationTests {
     #expect(store.read().isEmpty)
     account.signIn()
     #expect(owner.callTargets.isEmpty)
-    #expect(throws: CallIntentError.self) { try owner.startWidgetCall(id: first.id) }
+    #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.saved, destinationID: first.id) }
   }
 
   @Test func selectedIntentRechecksOwnerRejectsOldOrDeletedTargetAndDoesNotSwitchCalls()
@@ -91,6 +91,10 @@ struct WidgetDestinationTests {
     defer { viewModel.disconnect() }
     let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
     let ids = owner.callTargets.map(\.entity.id)
+    let missing = OpenCallControlIntent(action: .saved)
+    missing.actions = owner
+    await #expect(throws: CallIntentError.self) { _ = try await missing.perform() }
+    #expect(viewModel.activeGroupID == nil)
     let start = OpenCallControlIntent(destinationID: ids[0])
     start.actions = owner
     _ = try await start.perform()
@@ -128,7 +132,7 @@ struct WidgetDestinationTests {
     let selected = try #require(store.read().first(where: { $0.kind == .user }))
     #expect(store.read().filter { $0.kind == .user }.count == 1)
     viewModel.disconnect()
-    try owner.startWidgetCall(id: selected.id)
+    try owner.performCallSurfaceAction(.saved, destinationID: selected.id)
     let reference = try #require(owner.currentLivePresentation?.reference)
     await AppTestSupport.waitUntil { store.readSnapshot()?.currentCall?.reference == reference }
     #expect(store.readSnapshot()?.currentDestinationID == selected.id)
@@ -136,7 +140,7 @@ struct WidgetDestinationTests {
     await AppTestSupport.waitUntil { !store.read().contains(where: { $0.id == selected.id }) }
     #expect(store.readSnapshot()?.destinations.first { $0.id == selected.id } == nil)
     #expect(store.readSnapshot()?.currentDestinationID == nil)
-    #expect(throws: CallIntentError.self) { try owner.startWidgetCall(id: selected.id) }
+    #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.saved, destinationID: selected.id) }
     #expect(viewModel.activeGroupID == nil)
     #expect(throws: (any Error).self) {
       try owner.performCallSurfaceAction(.end, reference: reference)
@@ -280,7 +284,7 @@ extension WidgetDestinationTests {
     let owner = AppCallOwner(
       account: account.session, viewModel: viewModel, widgetDestinationStore: store)
     let selected = try #require(owner.callTargets.first)
-    try owner.startWidgetCall(id: selected.entity.id)
+    try owner.performCallSurfaceAction(.saved, destinationID: selected.entity.id)
     await AppTestSupport.waitUntil { store.readSnapshot()?.currentCall != nil }
     let call = try #require(store.readSnapshot()?.currentCall)
     #expect(call.reference == owner.currentLivePresentation?.reference)

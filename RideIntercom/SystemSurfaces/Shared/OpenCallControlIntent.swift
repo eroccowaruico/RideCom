@@ -4,8 +4,9 @@ import Foundation
 
 @MainActor protocol CallSurfaceActions: AnyObject, Sendable {
     func prepareForBackgroundCallAction() async throws
-    func startWidgetCall(id: String) throws
-    func performCallSurfaceAction(_ action: CallSurfaceAction, reference: CallSurfaceReference?) throws
+    func performCallSurfaceAction(
+        _ action: CallSurfaceAction, reference: CallSurfaceReference?, destinationID: String?
+    ) throws
     func setCallSurfaceMuted(_ muted: Bool, reference: CallSurfaceReference) -> Bool
 }
 
@@ -35,12 +36,9 @@ struct OpenCallControlIntent: OpenIntent {
     }
     init(destinationID: String) { target = .saved; selectedDestinationID = destinationID }
     @MainActor func perform() async throws -> some IntentResult {
-        if target == .saved {
-            try actions.startWidgetCall(id: selectedDestinationID ?? "")
-        } else {
-            try actions.performCallSurfaceAction(
-                target, reference: displayedReference.flatMap(CallSurfaceReference.init(encoded:)))
-        }
+        try actions.performCallSurfaceAction(
+            target, reference: displayedReference.flatMap(CallSurfaceReference.init(encoded:)),
+            destinationID: selectedDestinationID)
         return .result()
     }
 }

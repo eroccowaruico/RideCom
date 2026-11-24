@@ -36,14 +36,14 @@ struct BackgroundCallControlIntent: AppIntent {
         }
         try Task.checkCancellation()
         if action == .start {
-            try actions.startWidgetCall(id: selectedDestinationID ?? "")
+            try actions.performCallSurfaceAction(.saved, reference: nil, destinationID: selectedDestinationID)
         } else {
             guard let reference = displayedReference.flatMap(CallSurfaceReference.init(encoded:)) else {
                 throw BackgroundCallSurfaceError.stale
             }
             switch action {
             case .start: break
-            case .end: try actions.performCallSurfaceAction(.end, reference: reference)
+            case .end: try actions.performCallSurfaceAction(.end, reference: reference, destinationID: nil)
             case .mute, .unmute:
                 guard actions.setCallSurfaceMuted(action == .mute, reference: reference) else {
                     throw BackgroundCallSurfaceError.stale
