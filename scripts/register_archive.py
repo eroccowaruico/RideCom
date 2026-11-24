@@ -19,7 +19,7 @@ def check_signature(product: Path) -> None:
     signature = subprocess.run(['/usr/bin/codesign', '-d', '--verbose=2', product], check=True, capture_output=True)
     if not re.search(rb'^Authority=.+$', signature.stderr, re.MULTILINE):
         raise ValueError('Archive must have a certificate signature')
-    subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', product], check=True)
+    subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', product], check=True, capture_output=True)
 
 
 def macho_uuids(file: Path) -> set[tuple[bytes, bytes]]:

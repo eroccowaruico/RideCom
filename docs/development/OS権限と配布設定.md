@@ -89,6 +89,27 @@ Watchの配布は保留中。通常のiOS ReleaseはWatchの依存と埋め込�
 
 RideCom はカメラを使わず、カメラの利用目的を追加しない。送信前に[WebRTCの配布条件](BuildWebRTC/WebRTCビルドスクリプト.md#上流の無改変とカメラの不使用)に従って撮影機能の除外を確認する。通常の配布時に App Store Connect で対象ビルドの処理結果を確認する。カメラに関する通知が届いた場合に、その内容と対象の成果物を照合する。[以前の配布結果](../validation/README.md#カメラ不要の配布バイナリ修復2026-10-22)
 
+### iOSのカメラ参照の送信前検査
+
+配布を準備する担当者は、送信に使う署名付きのiOS Archiveを指定し、リポジトリのルートから検査する。書き出したIPAを使う場合は、そのPayloadから取り出した実際の `RideIntercom.app` も同じコマンドで検査する。
+
+```sh
+python3 -m scripts.check_release_camera /path/to/RideIntercom.xcarchive
+python3 -m scripts.check_release_camera /path/to/Payload/RideIntercom.app
+```
+
+検査はAppの署名を確かめ、Appと同梱物にあるMach-Oの全アーキテクチャから所定のAVCaptureクラスへの参照を探す。各 `Info.plist` の `NSCameraUsageDescription` も調べる。音声のためにAVFoundationをリンクしているだけなら、このクラス検査では検出されない。
+
+終了コードが1か2なら対象の送信を止める。App Store Connectの処理結果は別に確認する。
+
+| 終了コード | 検査結果 |
+|---|---|
+| `0` | 検査を通過した |
+| `1` | カメラ参照や利用目的を検出した |
+| `2` | 署名、構成、読み取りなどの検査を完了できなかった |
+
+### 配布用プロファイルを更新した後の確認
+
 配布用プロファイルを更新したときは、TestFlightからインストールした端末で次の順に確認し、結果を1項目ずつ記録する。
 
 1. 配布物の固定接続先を本番Workerと照合し、Appleログインで端末を登録
