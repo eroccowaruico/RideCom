@@ -1,5 +1,12 @@
 import Foundation
 
+public struct CloudflareServiceStatus: Decodable, Equatable, Sendable {
+    public let month: String
+    public let reservedParticipantSeconds: Int
+    public let monthlyParticipantSeconds: Int
+    public let activeSessions: Int
+}
+
 public struct CloudflareRealtimeConfiguration: Equatable, Sendable {
     public var workerURL: URL
     public var accessToken: String

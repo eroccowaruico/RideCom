@@ -48,7 +48,7 @@ async function registerCallTestDevice(runtime, subject, deviceName) {
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
@@ -83,7 +83,20 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
                 async clearReplyAlarm() { await this.ctx.storage.deleteAlarm(); }
             };
         }` : '';
-    const source = afterInboxSnapshot || onInvitationStore || attestationRoot || trackReplyStorage || adjustableClock ? { modules: [
+    const testWorkerFetch = adjustableClock || rejectSignalForRoom ? `{ ...productionWorker, async fetch(request, env, ctx) {
+        ${adjustableClock ? `if (request.url === '${clockAdvanceURL}') {
+            testClockOffset += Number(await request.text());
+            return new Response(null, { status: 204 });
+        }` : ''}
+        ${rejectSignalForRoom ? `if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+            const path = new URL(request.url).pathname;
+            if (path.startsWith('/api/rooms/' + ${JSON.stringify(rejectSignalForRoom)} + '/sessions/') && path.endsWith('/signal')) {
+                return new Response(null, { status: 401 });
+            }
+        }` : ''}
+        return productionWorker.fetch(request, env, ctx);
+    } }` : 'productionWorker';
+    const source = afterInboxSnapshot || onInvitationStore || attestationRoot || trackReplyStorage || adjustableClock || rejectSignalForRoom ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
             export { AppleAuthAttempt, AppAttestKeyIndex, SignalingRoom, UsageGuard } from './index.js';
             import productionWorker, { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex, createAppAttestEnrollmentVerifier } from './index.js';
@@ -105,13 +118,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
                 }
                 ${attestationVerifier}
             }
-            export default ${adjustableClock ? `{ ...productionWorker, async fetch(request, env, ctx) {
-                if (request.url === '${clockAdvanceURL}') {
-                    testClockOffset += Number(await request.text());
-                    return new Response(null, { status: 204 });
-                }
-                return productionWorker.fetch(request, env, ctx);
-            } }` : 'productionWorker'};` },
+            export default ${testWorkerFetch};` },
         { type: 'ESModule', path: 'index.js', contents: clock + await readFile('dist/index.js', 'utf8') }
     ] } : clock ? { script: clock + await readFile('dist/index.js', 'utf8') } : { scriptPath: 'dist/index.js' };
     const instance = new Miniflare({ durableObjectsPersist: storageDirectory,

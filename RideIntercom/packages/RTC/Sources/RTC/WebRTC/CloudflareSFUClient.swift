@@ -1,12 +1,5 @@
 import Foundation
 
-public struct CloudflareServiceStatus: Decodable, Equatable, Sendable {
-    public let month: String
-    public let reservedParticipantSeconds: Int
-    public let monthlyParticipantSeconds: Int
-    public let activeSessions: Int
-}
-
 /// The SFU secret never enters this client. All media mutations are authorized by the Worker.
 public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     public nonisolated var events: AsyncStream<WebRTCSignalingEvent> { source.stream }
@@ -229,6 +222,10 @@ private extension CloudflareRealtimeSignalingClient {
                 guard let self else { return }
                 do { try await self.receiveSocket(request, id: id, generation: generation); return } catch {
                     guard !Task.isCancelled else { return }
+                    if case Failure.http(401) = error {
+                        await self.fail(error, generation: generation)
+                        return
+                    }
                     // Signaling can reconnect without replacing SFU media. Lease renewal still bounds lifetime.
                     try? await Task.sleep(for: .seconds(retry)); retry = min(10, retry * 2)
                 }
@@ -245,7 +242,7 @@ private extension CloudflareRealtimeSignalingClient {
             if self.socket === socket { self.socket = nil }
         }
         while !Task.isCancelled {
-            let message = try await socket.receive()
+            let message = try await receiveMessage(from: socket)
             guard self.generation == generation else { return }
             let data: Data
             switch message {
@@ -272,6 +269,13 @@ private extension CloudflareRealtimeSignalingClient {
                             peerID: .init(rawValue: sender), message: .init(namespace: namespace, payload: payload)
                         )))
             }
+        }
+    }
+    func receiveMessage(from socket: URLSessionWebSocketTask) async throws -> URLSessionWebSocketTask.Message {
+        do { return try await socket.receive() } catch {
+            guard let response = socket.response as? HTTPURLResponse, let url = socket.originalRequest?.url,
+                  response.statusCode == 401, response.url == url else { throw error }
+            throw Failure.http(401)
         }
     }
     func socketUpgrade(_ request: WebRTCSignalingConnectRequest, id: String) throws -> URLRequest {

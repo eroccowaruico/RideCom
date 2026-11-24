@@ -3,8 +3,34 @@ import Synchronization
 import Testing
 @testable import RTC
 
-@Suite(.enabled(if: ProcessInfo.processInfo.environment["RIDEINTERCOM_PAIR_URL"] != nil))
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["RIDEINTERCOM_PAIR_URL"] != nil))
 struct WorkerPairTests {
+    @Test(.timeLimit(.minutes(1))) func signaling401BlocksRecoveryAndReleasesTheJoinedSession() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let address = try #require(env["RIDEINTERCOM_PAIR_URL"])
+        let url = try #require(URL(string: address))
+        let groupHash = try #require(env["RIDEINTERCOM_PAIR_REJECTED_SIGNAL_ROOM"])
+        let configuration = CloudflareRealtimeConfiguration(
+            workerURL: url, accessToken: try #require(env["RIDEINTERCOM_PAIR_TOKEN_A"]))
+        let endpoint = PairEndpoint()
+        let listener = endpoint.listen()
+        defer { listener.cancel() }
+        let request = WebRTCSignalingConnectRequest(
+            call: .init(sessionID: "signal-rejection",
+                        localPeer: .init(id: .init(rawValue: "alice"), displayName: "Alice"),
+                        credential: .init(groupHash: groupHash, sharedSecret: Data(repeating: 1, count: 32))),
+            cloudflare: configuration)
+        await endpoint.join(request)
+        try await eventually { !endpoint.blockedMessages.isEmpty }
+        #expect(endpoint.answers == 1)
+        #expect(endpoint.failures.isEmpty)
+        #expect(endpoint.blockedMessages.count == 1)
+        try await eventually(attempts: 40) {
+            try await CloudflareRealtimeSignalingClient.checkService(configuration).activeSessions == 0
+        }
+        await endpoint.client.disconnect()
+    }
+
     @Test(.timeLimit(.minutes(1))) func authenticatedPairRenewsExchangesAndRejoins() async throws {
         let env = ProcessInfo.processInfo.environment
         let address = try #require(env["RIDEINTERCOM_PAIR_URL"])
@@ -162,10 +188,10 @@ private final class StalePeerSnapshotResponse: URLProtocol, @unchecked Sendable 
     override func stopLoading() {}
 }
 
-private func eventually(_ predicate: () -> Bool) async throws {
-    for _ in 0..<200 {
-        if predicate() { return }
+private func eventually(attempts: Int = 200, _ predicate: () async throws -> Bool) async throws {
+    for _ in 0..<attempts {
+        if try await predicate() { return }
         try await Task.sleep(for: .milliseconds(25))
     }
-    #expect(predicate(), "Pair condition did not become true within five seconds")
+    #expect(try await predicate(), "Pair condition did not become true within its observation window")
 }

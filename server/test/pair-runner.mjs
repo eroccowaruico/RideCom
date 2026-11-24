@@ -11,11 +11,12 @@ const { APPLE_CLIENT_ID: audience } = unstable_readConfig({ config: 'wrangler.to
 assert.equal(typeof audience, 'string');
 const apple = await generateKeyPair('RS256');
 const publicKey = { ...await exportJWK(apple.publicKey), kid: 'call-pair-fixture', alg: 'RS256' };
+const rejectedSignalRoom = 'f'.repeat(64);
 const runtime = await makeRuntime({
     APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: audience,
     TURN_ENABLED: 'true', CLOUDFLARE_TURN_KEY_ID: 'test-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret',
     LEASE_SECONDS: '4',
-}, { appleKeys: [publicKey] });
+}, { appleKeys: [publicKey], rejectSignalForRoom: rejectedSignalRoom });
 
 async function enroll(subject) {
     const post = (path, body) => runtime.dispatchFetch(`https://worker.test/api/auth/apple/${path}`, {
@@ -45,6 +46,7 @@ try {
         if (process.env.RIDEINTERCOM_PAIR_SANITIZER) args.push(`--sanitize=${process.env.RIDEINTERCOM_PAIR_SANITIZER}`);
         const child = spawn('swift', args, {
             stdio: 'inherit', env: { ...process.env, RIDEINTERCOM_PAIR_URL: origin,
+                RIDEINTERCOM_PAIR_REJECTED_SIGNAL_ROOM: rejectedSignalRoom,
                 RIDEINTERCOM_PAIR_TOKEN_A: alice.accessToken, RIDEINTERCOM_PAIR_TOKEN_B: bob.accessToken }
         });
         const timer = setTimeout(() => child.kill('SIGTERM'), 120000);
