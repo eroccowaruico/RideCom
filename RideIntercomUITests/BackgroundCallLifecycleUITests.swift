@@ -313,12 +313,24 @@ private extension BackgroundCallLifecycleUITests {
 extension BackgroundCallLifecycleUITests {
     @MainActor
     @objc func testStartInvitedTrialGroupMuted() throws {
+        try startInvitedTrialGroupMuted()
+    }
+
+    #if targetEnvironment(simulator)
+    @MainActor
+    @objc func testStartInvitedTrialGroupMutedInAdvanced() throws {
+        try startInvitedTrialGroupMuted(advancedFixture: true)
+    }
+    #endif
+
+    @MainActor
+    private func startInvitedTrialGroupMuted(advancedFixture: Bool = false) throws {
         let app = XCUIApplication()
         #if targetEnvironment(simulator)
         defer { app.terminate() }
         let trialID = UUID()
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
-            "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
+            "RIDEINTERCOM_INTERFACE_FIXTURE": advancedFixture ? "advanced" : "standard"]
         app.launch()
         #else
         let suppliedID = ProcessInfo.processInfo.environment["RIDEINTERCOM_INSTALLED_TRIAL_ID"]
@@ -327,8 +339,11 @@ extension BackgroundCallLifecycleUITests {
         app.activate()
         #endif
 
-        let end = app.buttons["standardEndCallButton"].firstMatch
-        XCTAssertFalse(end.exists || app.buttons["disconnectButton"].firstMatch.exists, "A call is already active")
+        let end = app.buttons.matching(
+            NSPredicate(format: "identifier IN %@", ["standardEndCallButton", "disconnectButton"])
+        ).firstMatch
+        let activeCallAccessory = app.buttons["callAccessoryOpenButton"].firstMatch
+        XCTAssertFalse(end.exists || activeCallAccessory.exists, "A call is already active")
         let groupName = "RideCom Trial " + trialID.uuidString.prefix(8)
         FileHandle.standardOutput.write(Data("RIDE_INSTALLED_INVITE_READY\n".utf8))
         #if targetEnvironment(simulator)
@@ -337,9 +352,14 @@ extension BackgroundCallLifecycleUITests {
         confirmExternalApplicationOpen(timeout: 3)
         #endif
 
-        XCTAssertTrue(end.waitForExistence(timeout: 30), "The trial invitation did not start a Standard call")
-        XCTAssertTrue(app.staticTexts[groupName].firstMatch.exists, "The active call is not the selected trial")
-        let mute = app.buttons["standardMuteButton"].firstMatch
+        XCTAssertTrue(end.waitForExistence(timeout: 30), "The trial invitation did not start a call")
+        let advanced = end.identifier == "disconnectButton"
+        #if targetEnvironment(simulator)
+        XCTAssertEqual(advanced, advancedFixture, "The trial opened in a different interface")
+        #endif
+        let title = advanced ? app.navigationBars[groupName].firstMatch : app.staticTexts[groupName].firstMatch
+        XCTAssertTrue(title.exists, "The active call is not the selected trial")
+        let mute = app.buttons[advanced ? "localMicrophoneMuteButton" : "standardMuteButton"].firstMatch
         XCTAssertTrue(mute.waitForExistence(timeout: 5))
         if !mute.isSelected { mute.tap() }
         let muted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: mute)
