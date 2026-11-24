@@ -15,7 +15,7 @@
 バックログ	2465	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2465ビルドでバックログの着手条件を揃える
 バックログ	2485	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2485ビルドで通話の残作業と実機試験の準備を揃える
 バックログ	2505	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2505ビルドで実機の準備と診断の残作業を照合する
-バックログ	2525	進行中	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2525ビルドで診断の進捗と残る受入を照合する
+バックログ	2525	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2525ビルドで診断の進捗と残る受入を照合する
 Xcode	2420	指定延期	docs/development/history/バックログの優先順位と進捗の記録.md	Build 2420でXcodeの参照と共通の検証入口を点検する
 Xcode	2435	指定延期	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2435ビルドでXcodeの標準出力と検証入口を点検する
 Xcode	2455	完了	docs/development/history/バックログの優先順位と進捗の記録.md	通常換算2455ビルドで既存版の試験入口とXcodeの登録を照合する
