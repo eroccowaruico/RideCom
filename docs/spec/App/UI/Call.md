@@ -346,7 +346,8 @@ StandardとAdvancedの接続・音声再開には標準`glassProminent`、補助
 | newGroupInviteName-{UUID} | Their Name。空欄は重複しない仮名候補を採用。Removeは未保存行だけを外す。Returnはfocusを外すだけで保存しない |
 | saveUserSelectionButton | Standardの既存groupはSave Invitations、AdvancedはAdd Users、新規作成のCreate and Connect／Create Groupは従来どおり。名前・人・予約枠・招待を同じcommitで確定する |
 | groupInvitePerson-{UUID} | Invitation（招待）に参加先・保存済みの名前を並べ、同じ人のモード別詳細を開く。元のperson IDで識別し、既知の相手へ解決しても勝手に別画面へ進めない |
-| shareContactInvitationButton | 参加先と人を確認してOS共有へ。取消・コピーで同じ詳細と保存状態を保つ。Doneは取消ではなく、保存済みのまま閉じる |
+| groupDeliverySelectionMessage | Standardの保存後の画面で、登録済みの選択相手または未登録の新しい人がいる場合に、参加先の下へ案内を1回表示する。「完了」で閉じた後も共有できる |
+| shareContactInvitationButton | 参加先と人を確認してOS共有を開く。取消・コピー後も同じ詳細に戻り、人と招待を保持する |
 | group設定の招待中の行 | 保存した同じ人のContactPersonSheetを開き、共有・名前編集を再開。通常のメンバーの編集・削除と区別し、PendingAvatarを使う |
 | invitedGroupPreview／acceptContactInvitationButton | 作者とgroup名、登録するとGroupsへも加わる旨。拒否は無保存。Registerは関係とgroupを一度に保存し、通話を切り替えず同じ詳細へ |
 | AdvancedContactInvitationContent | invitedGroupIDとsentを他の保存値に併記。秘密の添付やgroup鍵を表示のために読み出さない |

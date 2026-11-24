@@ -22,6 +22,10 @@ extension GroupContactInvitationUITests {
         let fromStandardCall = !advanced && entry == "call"
         openInviteeSelection(in: app, entry: entry, advanced: advanced, fromStandardCall: fromStandardCall)
         let saved = saveInvitee(in: app, groupName: groupName)
+        if !advanced {
+            XCTAssertEqual(app.staticTexts["groupDeliverySelectionMessage"].label,
+                           "Invitations saved. You can close this screen and share them later.")
+        }
         let unsent = advanced ? "outgoing · pending · sent false" : "Not sent yet"
         let shared = advanced ? "outgoing · pending · sent true" : "Waiting to be accepted"
         let savedEntry: SavedInvitationEntry = reopenInSettings ? .settings : (fromStandardCall ? .call : .person)

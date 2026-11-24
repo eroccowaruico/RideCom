@@ -12,15 +12,14 @@ struct StandardGroupInvitationSavedView: View {
         Form {
             Section {
                 Text(verbatim: group.name).font(.headline).accessibilityIdentifier("savedInvitationGroupName")
+                if !selectedUsers.isEmpty
+                    || people.contains(where: { viewModel.contactPerson($0)?.isRegistered == false }) {
+                    Text("Invitations saved. You can close this screen and share them later.")
+                        .accessibilityIdentifier("groupDeliverySelectionMessage")
+                }
             }
             if !people.isEmpty {
                 Section {
-                    if people.contains(where: { viewModel.contactPerson($0)?.isRegistered == false }) {
-                        Text("""
-                            Invitations saved. Share each person's invitation. \
-                            Cancelling sharing keeps the saved people and invitations.
-                            """)
-                    }
                     ForEach(people, id: \.self) { personID in
                         if let person = viewModel.contactPerson(personID) {
                             NavigationLink {

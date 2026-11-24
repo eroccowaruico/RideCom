@@ -6,8 +6,6 @@ struct StandardRegisteredGroupInvitations: View {
     let selectedUsers: Set<UUID>
     var body: some View {
         Section {
-            Text("Invitations saved. You can check each person's status and share an invitation if needed.")
-                .accessibilityIdentifier("groupDeliverySelectionMessage")
             ForEach(viewModel.savedRemoteUsers.filter { selectedUsers.contains($0.id) }) { person in
                 LabeledContent {
                     StandardGroupInvitationStatus(
