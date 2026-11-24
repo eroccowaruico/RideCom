@@ -100,7 +100,7 @@ private func waitForDescription(
 private func readIceRoundTripTime(_ peer: OpaquePointer) async -> Double? {
     await withCheckedContinuation { continuation in
         let context = Unmanaged.passRetained(Completion(continuation)).toOpaque()
-        RideComRTCPeerGetIceRoundTripTime(peer, context) { @Sendable rawContext, available, seconds in
+        RideComRTCPeerGetIcePath(peer, context) { @Sendable rawContext, available, seconds, _ in
             guard let rawContext else { return }
             let result = Unmanaged<Completion<Double?>>.fromOpaque(rawContext).takeRetainedValue()
             result.continuation.resume(returning: available ? seconds : nil)
@@ -140,7 +140,7 @@ private func applyRemoteDescription(
 @MainActor
 private func checkClosingDuringNegotiation(_ factory: OpaquePointer) async {
     guard
-        let peer = RideComRTCPeerCreate(factory),
+        let peer = RideComRTCPeerCreate(factory, false),
         let channel = RideComRTCChannelCreate(peer, "control", 0, true)
     else {
         preconditionFailure("Could not create a peer for shutdown")
@@ -234,8 +234,8 @@ private func checkPacketTransfer(
 private func checkNegotiation() async {
     guard
         let factory = RideComRTCFactoryCreate(true),
-        let sender = RideComRTCPeerCreate(factory),
-        let receiver = RideComRTCPeerCreate(factory),
+        let sender = RideComRTCPeerCreate(factory, false),
+        let receiver = RideComRTCPeerCreate(factory, false),
         let senderControl = RideComRTCChannelCreate(sender, "control", 0, true),
         let senderAudio = RideComRTCChannelCreate(sender, "audio", 1, false),
         let receiverControl = RideComRTCChannelCreate(receiver, "control", 0, true),

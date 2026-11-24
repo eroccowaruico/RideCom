@@ -147,11 +147,11 @@ class RemoteDescriptionObserver : public webrtc::SetRemoteDescriptionObserverInt
   DescriptionResult result_;
 };
 
-class IceRoundTripTimeCollector : public webrtc::RTCStatsCollectorCallback {
+class IcePathCollector : public webrtc::RTCStatsCollectorCallback {
  public:
-  IceRoundTripTimeCollector(void* context, RideComRTCRoundTripTimeCompletion completion)
+  IcePathCollector(void* context, RideComRTCIcePathCompletion completion)
       : context_(context), completion_(completion) {}
-  ~IceRoundTripTimeCollector() override { Finish(std::nullopt); }
+  ~IcePathCollector() override { Finish(std::nullopt, false); }
 
   void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
     for (const auto* transport : report->GetStatsOfType<webrtc::RTCTransportStats>()) {
@@ -160,23 +160,27 @@ class IceRoundTripTimeCollector : public webrtc::RTCStatsCollectorCallback {
       }
       const auto* pair =
           report->GetAs<webrtc::RTCIceCandidatePairStats>(*transport->selected_candidate_pair_id);
-      if (pair && pair->current_round_trip_time) {
-        Finish(pair->current_round_trip_time);
-        return;
-      }
+      if (!pair) continue;
+      const auto* local = pair->local_candidate_id
+          ? report->GetAs<webrtc::RTCLocalIceCandidateStats>(*pair->local_candidate_id)
+          : nullptr;
+      const bool udp_relay = local && local->candidate_type && *local->candidate_type == "relay" &&
+          local->relay_protocol && *local->relay_protocol == "udp";
+      Finish(pair->current_round_trip_time, udp_relay);
+      return;
     }
-    Finish(std::nullopt);
+    Finish(std::nullopt, false);
   }
 
  private:
-  void Finish(std::optional<double> value) {
+  void Finish(std::optional<double> value, bool udp_relay) {
     if (auto completion = std::exchange(completion_, nullptr)) {
-      completion(context_, value.has_value(), value.value_or(0));
+      completion(context_, value.has_value(), value.value_or(0), udp_relay);
     }
   }
 
   void* context_;
-  RideComRTCRoundTripTimeCompletion completion_;
+  RideComRTCIcePathCompletion completion_;
 };
 
 class ChannelObserver final : public webrtc::DataChannelObserver {
@@ -270,13 +274,16 @@ void RideComRTCFactoryRelease(RideComRTCFactory* factory) {
   delete factory;
 }
 
-RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* factory) {
+RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* factory, bool relay_only) {
   if (!factory) {
     return nullptr;
   }
   auto peer = std::make_shared<Peer>(factory->handle);
   webrtc::PeerConnectionInterface::RTCConfiguration configuration;
   configuration.tcp_candidate_policy = webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
+  if (relay_only) {
+    configuration.type = webrtc::PeerConnectionInterface::kRelay;
+  }
   auto connection = peer->factory->native->CreatePeerConnectionOrError(
       configuration, webrtc::PeerConnectionDependencies(&peer->observer));
   if (!connection.ok()) {
@@ -332,16 +339,16 @@ void RideComRTCPeerObserveIce(RideComRTCPeer* peer, void* context, RideComRTCIce
   }
 }
 
-void RideComRTCPeerGetIceRoundTripTime(
-    RideComRTCPeer* peer, void* context, RideComRTCRoundTripTimeCompletion completion) {
+void RideComRTCPeerGetIcePath(
+    RideComRTCPeer* peer, void* context, RideComRTCIcePathCompletion completion) {
   if (!completion) {
     return;
   }
   if (!peer) {
-    completion(context, false, 0);
+    completion(context, false, 0, false);
     return;
   }
-  const auto collector = webrtc::make_ref_counted<IceRoundTripTimeCollector>(context, completion);
+  const auto collector = webrtc::make_ref_counted<IcePathCollector>(context, completion);
   peer->handle->native->GetStats(collector.get());
 }
 

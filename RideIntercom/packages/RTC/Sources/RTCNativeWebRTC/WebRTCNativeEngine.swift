@@ -8,6 +8,7 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
     public override var isAvailable: Bool { factory != nil }
 
     private let factory: ModularWebRTCFactory?
+    private let relayOnly: Bool
     // Native callbacks may run while the caller waits on an SDK operation.
     // They use the state lock only, and SDK operations never hold that lock.
     private let mutations = NSLock()
@@ -27,9 +28,11 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         self.init(iceServers: iceServers, includeLoopback: false)
     }
 
-    init(iceServers: [WebRTCIceServer], includeLoopback: Bool) {
+    @_spi(Validation)
+    public init(iceServers: [WebRTCIceServer], includeLoopback: Bool, relayOnly: Bool = false) {
         factory = ModularWebRTCFactory(includeLoopback: includeLoopback)
         self.iceServers = Self.udpIceServers(iceServers)
+        self.relayOnly = relayOnly
         super.init()
     }
 
@@ -49,7 +52,7 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
         mutations.withLock {
             guard
                 state.withLock({ peerConnections[peer.id] == nil }),
-                let connection = factory?.makePeer()
+                let connection = factory?.makePeer(relayOnly: relayOnly)
             else { return }
             guard iceServers.isEmpty || connection.setIceServers(iceServers) else {
                 connection.close()
@@ -78,15 +81,26 @@ public final class WebRTCNativeEngine: NativeWebRTCEngine, @unchecked Sendable {
 
     public override func networkStatistics(for peerID: PeerID) async -> RTCNetworkStatistics {
         guard let connection = state.withLock({ peerConnections[peerID] }) else { return .init() }
-        let roundTripTime = await connection.roundTripTime()
+        let icePath = await connection.icePath()
         let currentChannels = state.withLock { channels[peerID].map { Array($0.values) } }
         let bytes = currentChannels?.reduce(UInt64(0)) { $0 + $1.bufferedBytes }
         return state.withLock {
             guard peerConnections[peerID] === connection else { return .init() }
             return RTCNetworkStatistics(
-                roundTripTime: roundTripTime, bufferedBytes: bytes,
+                roundTripTime: icePath.roundTripTime, bufferedBytes: bytes,
                 unavailableReason: "SCTP DataChannel packet loss is not exposed; RTT is ICE transport RTT"
             )
+        }
+    }
+
+    @_spi(Validation)
+    public func usesUDPRelay() async -> Bool {
+        guard let connection = state.withLock({
+            peerConnections.count == 1 ? peerConnections.values.first : nil
+        }) else { return false }
+        let icePath = await connection.icePath()
+        return state.withLock {
+            icePath.usesUDPRelay && peerConnections.count == 1 && peerConnections.values.first === connection
         }
     }
 

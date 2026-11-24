@@ -2,16 +2,12 @@ import CryptoKit
 import Foundation
 import Network
 import RTC
-import RTCNativeWebRTC
-@preconcurrency import WebRTC
+@_spi(Validation) import RTCNativeWebRTC
 import XCTest
 
 /// Test composition uses the shipped engine and permits host loopback candidates.
-func makeAudioE2EWebRTCEngine(factory: RTCPeerConnectionFactory = RTCPeerConnectionFactory()) -> WebRTCNativeEngine {
-    let options = RTCPeerConnectionFactoryOptions()
-    options.ignoreLoopbackNetworkAdapter = false
-    factory.setOptions(options)
-    return WebRTCNativeEngine(iceServers: [], factory: factory)
+func makeAudioE2EWebRTCEngine(relayOnly: Bool = false, includeLoopback: Bool = true) -> WebRTCNativeEngine {
+    WebRTCNativeEngine(iceServers: [], includeLoopback: includeLoopback, relayOnly: relayOnly)
 }
 
 /// Loopback-only Worker/SFU fixture. The production HTTP/WebSocket signaling

@@ -32,7 +32,7 @@ xcodebuild -scheme RideIntercomAudioE2E -destination "platform=iOS Simulator,id=
 
 ### UDP TURNを経由する発話を検証する
 
-同じiPhone Simulator試験で、試験用のWebRTCファクトリーだけをリレー候補に限定できる。送信の前後に、両端で選ばれたローカルICE候補の種別が `relay`、TURNサーバーまでの通信が `udp` であることを確認する。経路の確認に失敗した試験は合格にしない。出力するのは両端の合否とフレームの件数に限る。[WebRTC統計仕様](https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatestats-relayprotocol)
+同じiPhone Simulator試験で、製品と同じネイティブWebRTCに、試験時だけリレー候補を使う設定を渡せる。送信の前後に、両端で選ばれたローカルICE候補の種別が `relay`、TURNサーバーまでの通信が `udp` であることを確認する。どちらかの統計を取得できない場合も不合格とする。出力するのは両端の合否とフレームの件数に限る。[WebRTC統計仕様](https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatestats-relayprotocol)
 
 UDP TURNサーバーを `127.0.0.1` に限定して起動する。試験用の利用者名は `relay-fixture`、パスワードは `loopback-fixture`。Xcodeの起動時に環境変数を渡す。
 

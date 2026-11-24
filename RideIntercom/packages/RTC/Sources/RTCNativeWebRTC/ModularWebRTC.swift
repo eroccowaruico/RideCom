@@ -64,8 +64,8 @@ final class ModularWebRTCFactory: Sendable {
         handle = WebRTCHandle(factory, release: RideComRTCFactoryRelease)
     }
 
-    func makePeer() -> ModularWebRTCPeer? {
-        guard let peer = handle.use({ RideComRTCPeerCreate($0) }) ?? nil else { return nil }
+    func makePeer(relayOnly: Bool = false) -> ModularWebRTCPeer? {
+        guard let peer = handle.use({ RideComRTCPeerCreate($0, relayOnly) }) ?? nil else { return nil }
         return ModularWebRTCPeer(peer)
     }
 }
@@ -87,6 +87,11 @@ private final class IceObservation: Sendable {
 }
 
 final class ModularWebRTCPeer: Sendable {
+    struct IcePath: Sendable {
+        var roundTripTime: Double?
+        var usesUDPRelay = false
+    }
+
     private let handle: WebRTCHandle
 
     init(_ peer: OpaquePointer) {
@@ -169,18 +174,19 @@ final class ModularWebRTCPeer: Sendable {
         }
     }
 
-    func roundTripTime() async -> Double? {
+    func icePath() async -> IcePath {
         await withCheckedContinuation { continuation in
             let requested = handle.use { peer in
                 let context = Unmanaged.passRetained(WebRTCCompletion(continuation)).toOpaque()
-                RideComRTCPeerGetIceRoundTripTime(peer, context) { @Sendable pointer, available, seconds in
+                RideComRTCPeerGetIcePath(peer, context) { @Sendable pointer, available, seconds, usesUDPRelay in
                     guard let pointer else { return }
-                    let completion = Unmanaged<WebRTCCompletion<Double?>>.fromOpaque(pointer).takeRetainedValue()
-                    completion.continuation.resume(returning: available ? seconds : nil)
+                    let completion = Unmanaged<WebRTCCompletion<IcePath>>.fromOpaque(pointer).takeRetainedValue()
+                    completion.continuation.resume(returning: .init(roundTripTime: available ? seconds : nil,
+                                                                    usesUDPRelay: usesUDPRelay))
                 }
                 return true
             } ?? false
-            if !requested { continuation.resume(returning: nil) }
+            if !requested { continuation.resume(returning: .init()) }
         }
     }
 

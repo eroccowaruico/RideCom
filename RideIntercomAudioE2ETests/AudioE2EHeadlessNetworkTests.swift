@@ -1,7 +1,7 @@
 import AVFAudio
 import Foundation
 import RTC
-@preconcurrency import WebRTC
+@_spi(Validation) import RTCNativeWebRTC
 import XCTest
 
 private actor HeadlessSpeechReceiver {
@@ -62,39 +62,6 @@ private struct HeadlessSpeechTrial: Decodable {
 private struct HeadlessSpeechOptions {
     let requiresRelay: Bool
     let waitsForPeer: Bool
-}
-
-private final class RelayOnlyPeerConnectionFactory: RTCPeerConnectionFactory, @unchecked Sendable {
-    private let lock = NSLock()
-    private var connection: RTCPeerConnection?
-
-    override func peerConnection(with configuration: RTCConfiguration, constraints: RTCMediaConstraints,
-                                 delegate: RTCPeerConnectionDelegate?) -> RTCPeerConnection? {
-        configuration.iceTransportPolicy = .relay
-        let created = super.peerConnection(with: configuration, constraints: constraints, delegate: delegate)
-        lock.withLock { connection = created }
-        return created
-    }
-
-    func usesUDPRelay() async -> Bool {
-        guard let connection = lock.withLock({ self.connection }) else { return false }
-        return await withCheckedContinuation { continuation in
-            connection.statistics { report in
-                // The selected local candidate proves relay use even when the remote SFU
-                // advertises direct candidates. relayProtocol is the client-to-TURN transport.
-                let usesUDPRelay = report.statistics.values.contains { transport in
-                    guard transport.type == "transport",
-                          let pairID = transport.values["selectedCandidatePairId"] as? String,
-                          let pair = report.statistics[pairID],
-                          let candidateID = pair.values["localCandidateId"] as? String,
-                          let candidate = report.statistics[candidateID] else { return false }
-                    return candidate.values["candidateType"] as? String == "relay"
-                        && candidate.values["relayProtocol"] as? String == "udp"
-                }
-                continuation.resume(returning: usesUDPRelay)
-            }
-        }
-    }
 }
 
 extension AudioE2ETests {
@@ -172,12 +139,13 @@ extension AudioE2ETests {
         sentA: [RTCAudioPacket], sentB: [RTCAudioPacket], trial: HeadlessSpeechTrial, origin: URL,
         options: HeadlessSpeechOptions
     ) async {
-        let leftFactory = options.requiresRelay ? RelayOnlyPeerConnectionFactory() : nil
-        let rightFactory = options.requiresRelay ? RelayOnlyPeerConnectionFactory() : nil
+        let includeLoopback = origin.host == "127.0.0.1"
+        let leftEngine = makeAudioE2EWebRTCEngine(relayOnly: options.requiresRelay, includeLoopback: includeLoopback)
+        let rightEngine = makeAudioE2EWebRTCEngine(relayOnly: options.requiresRelay, includeLoopback: includeLoopback)
         let left = await speechSession(role: "a", token: trial.leftToken, trial: trial, origin: origin,
-                                       relayFactory: leftFactory)
+                                       engine: leftEngine)
         let right = await speechSession(role: "b", token: trial.rightToken, trial: trial, origin: origin,
-                                        relayFactory: rightFactory)
+                                        engine: rightEngine)
         let heardLeft = HeadlessSpeechReceiver(), heardRight = HeadlessSpeechReceiver()
         let receiveLeft = Task { for await event in left.events { await heardLeft.record(event) } }
         let receiveRight = Task { for await event in right.events { await heardRight.record(event) } }
@@ -186,8 +154,8 @@ extension AudioE2ETests {
         let duplexA = sentA.dropFirst(firstDuplexFrame), duplexB = sentB.dropFirst(firstDuplexFrame)
         var bothReady = await startSpeechSessions(left, right, heardLeft: heardLeft, heardRight: heardRight,
                                                   waitsForPeer: options.waitsForPeer)
-        if bothReady, let leftFactory, let rightFactory {
-            bothReady = await checkUDPRelay(leftFactory, rightFactory)
+        if bothReady && options.requiresRelay {
+            bothReady = await checkUDPRelay(leftEngine, rightEngine)
         }
         if bothReady {
             if options.waitsForPeer {
@@ -197,8 +165,8 @@ extension AudioE2ETests {
             }
             await sendSpeech(left, right, framesA: duplexA, framesB: duplexB)
             try? await Task.sleep(for: .seconds(2))
-            if let leftFactory, let rightFactory {
-                bothReady = await checkUDPRelay(leftFactory, rightFactory)
+            if options.requiresRelay {
+                bothReady = await checkUDPRelay(leftEngine, rightEngine)
             }
         }
         await left.stopMedia()
@@ -278,13 +246,13 @@ extension AudioE2ETests {
 
     private func speechSession(
         role: String, token: String, trial: HeadlessSpeechTrial, origin: URL,
-        relayFactory: RelayOnlyPeerConnectionFactory?
+        engine: WebRTCNativeEngine
     ) async -> RouteManager {
         let configuration = CallRouteConfiguration(enabledRoutes: [.webRTC], preferredRoute: .webRTC)
         let internet = CloudflareRealtimeConfiguration(workerURL: origin, accessToken: token)
         let routes = CallSessionFactory.makeRoutes(.init(routeConfiguration: configuration, webRTC: .init(
             cloudflareConfigurationProvider: { _ in internet },
-            engineFactory: { makeAudioE2EWebRTCEngine(factory: relayFactory ?? RTCPeerConnectionFactory()) })))
+            engineFactory: { engine })))
         let session = RouteManager(routes: routes, configuration: configuration)
         let peer = PeerDescriptor(id: .init(rawValue: "e2e-\(role)-\(trial.room.prefix(8))"), displayName: role)
         let credential = RTCCredential.derived(groupID: trial.room, secret: trial.groupSecret)
@@ -294,7 +262,7 @@ extension AudioE2ETests {
     }
 
     private func checkUDPRelay(
-        _ left: RelayOnlyPeerConnectionFactory, _ right: RelayOnlyPeerConnectionFactory
+        _ left: WebRTCNativeEngine, _ right: WebRTCNativeEngine
     ) async -> Bool {
         let leftRelays = await left.usesUDPRelay()
         let rightRelays = await right.usesUDPRelay()

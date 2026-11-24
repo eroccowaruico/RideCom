@@ -42,7 +42,8 @@ typedef struct RideComRTCIceServer {
 
 typedef void (*RideComRTCDescriptionCompletion)(void* context, bool success);
 typedef void (*RideComRTCIceStateChanged)(void* context, RideComRTCIceState state);
-typedef void (*RideComRTCRoundTripTimeCompletion)(void* context, bool available, double seconds);
+typedef void (*RideComRTCIcePathCompletion)(
+    void* context, bool has_round_trip_time, double seconds, bool uses_udp_relay);
 typedef void (*RideComRTCChannelStateChanged)(void* context);
 typedef void (*RideComRTCChannelReceived)(void* context, const uint8_t* bytes, size_t length);
 
@@ -52,7 +53,7 @@ typedef void (*RideComRTCChannelReceived)(void* context, const uint8_t* bytes, s
 RIDECOM_RTC_EXPORT RideComRTCFactory* RideComRTCFactoryCreate(bool include_loopback);
 RIDECOM_RTC_EXPORT void RideComRTCFactoryRelease(RideComRTCFactory* factory);
 
-RIDECOM_RTC_EXPORT RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* factory);
+RIDECOM_RTC_EXPORT RideComRTCPeer* RideComRTCPeerCreate(RideComRTCFactory* factory, bool relay_only);
 // Closes the connection before releasing the handle. Open channel handles can
 // still be released afterwards.
 RIDECOM_RTC_EXPORT void RideComRTCPeerRelease(RideComRTCPeer* peer);
@@ -65,10 +66,11 @@ RIDECOM_RTC_EXPORT bool RideComRTCPeerSetIceServers(
 // or by releasing the peer before freeing the callback context.
 RIDECOM_RTC_EXPORT void RideComRTCPeerObserveIce(
     RideComRTCPeer* peer, void* context, RideComRTCIceStateChanged changed);
-// Report the selected ICE pair's round trip time, if available. Completion is
-// called once and must not call back into the adapter.
-RIDECOM_RTC_EXPORT void RideComRTCPeerGetIceRoundTripTime(
-    RideComRTCPeer* peer, void* context, RideComRTCRoundTripTimeCompletion completion);
+// Report the selected ICE pair's round trip time, if available, and whether its
+// local candidate uses UDP to reach a TURN server. Completion is called once
+// and must not call back into the adapter.
+RIDECOM_RTC_EXPORT void RideComRTCPeerGetIcePath(
+    RideComRTCPeer* peer, void* context, RideComRTCIcePathCompletion completion);
 
 // The local operation creates the offer or answer appropriate to the current
 // signaling state. Each operation calls its completion once, possibly before

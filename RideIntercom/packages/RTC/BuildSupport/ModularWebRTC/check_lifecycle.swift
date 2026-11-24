@@ -4,7 +4,7 @@ func checkConnectionLifecycle() {
     guard let factory = RideComRTCFactoryCreate(false) else {
         preconditionFailure("Could not create modular WebRTC factory")
     }
-    guard let peer = RideComRTCPeerCreate(factory) else {
+    guard let peer = RideComRTCPeerCreate(factory, false) else {
         preconditionFailure("Could not create a data-only peer")
     }
     RideComRTCFactoryRelease(factory)

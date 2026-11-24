@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 import Testing
 import RTC
-@testable import RTCNativeWebRTC
+@_spi(Validation) @testable import RTCNativeWebRTC
 import WebRTC
 
 func loopbackEngine() -> WebRTCNativeEngine {
