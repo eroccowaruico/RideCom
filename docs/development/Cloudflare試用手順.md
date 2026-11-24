@@ -61,7 +61,7 @@ Git連携の再構築に使う値は [server/cloudflare-builds.toml](../../serve
 
 ## 固定プレビューの継続運用
 
-開発先はmain、配置用の固定branchは`preview`とする。固定Previewの独自ドメインは `https://preview.workers.ridecom.yowamushi-inc.com`。動作確認には `https://preview-ridecom.analog.workers.dev` も使える。検証済みmainをpreviewへ反映し、作業用`codex/`branchを固定URLとして使わない。branchの同期とCloudflare側のbuild・配置成功は別々に確認する。
+開発先はmain、配置用の固定branchは`preview`とする。開発版と試験は `https://preview-ridecom.analog.workers.dev` を使う。固定Previewの独自ドメインは `https://preview.workers.ridecom.yowamushi-inc.com` で、再作成直後に新しいPreviewへ届くことを確認できるまで試験には使わない。検証済みmainをpreviewへ反映し、作業用`codex/`branchを固定URLとして使わない。branchの同期とCloudflare側のbuild・配置成功は別々に確認する。
 
 ### Worker名の変更後に本番と固定Previewの設定を照合する
 
@@ -178,7 +178,7 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 ### Appleログインなしで固定Previewの音声を測る
 
-CLIとSimulatorは固定Previewの独自ドメイン `https://preview.workers.ridecom.yowamushi-inc.com` を使う。Workerはこの接続先で試験用の資格を受け付ける。試験前に対象URLの配置と公開応答を照合する。
+CLIとSimulatorは `https://preview-ridecom.analog.workers.dev` を使う。Workerはこの接続先で試験用の資格を受け付ける。試験前に対象URLの配置と公開応答を照合する。ヘルス確認を送った時刻のWorker集計で `isPreview` と配置IDを確かめると、本番と固定Previewが同じHTTP 200を返す場合も判別できる。
 
 実中継を使う試験は、ローカルで発話の往復を確認してから明示的に実行する。対象は固定Previewの1グループ、参加者2人、各約2秒の発話を1回。Appleによる新規登録の試用は、開発署名のAppで行う別の工程として扱う。
 

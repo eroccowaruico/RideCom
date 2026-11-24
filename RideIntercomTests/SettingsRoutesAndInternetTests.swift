@@ -232,7 +232,7 @@ extension AppTests.SettingsTests {
         let keychain = InternetTestKeychain()
         let store = InternetConnectionSettingsStore.makeForCurrentProcess(
             keychain: keychain, namespace: "fixture", info: [:], environment: [:])
-        let preview = "https://preview.workers.ridecom.yowamushi-inc.com"
+        let preview = "https://preview-ridecom.analog.workers.dev"
         #expect(store.fixedWorkerOrigin?.absoluteString == preview)
         #expect(try store.load() == nil)
         #expect(try store.workerOrigin(preview).absoluteString == preview)
@@ -241,7 +241,7 @@ extension AppTests.SettingsTests {
         }
         #expect(keychain.value == nil)
 
-        let legacy = "https://preview-rideintercom.analog.workers.dev"
+        let legacy = "https://preview.workers.ridecom.yowamushi-inc.com"
         let previous = InternetConnectionSettingsStore(keychain: keychain, namespace: "fixture")
         try previous.save(url: legacy, token: "previous-origin-token")
         let saved = try #require(keychain.value)

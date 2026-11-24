@@ -22,7 +22,7 @@ from scripts.test_lifecycle import (
     simulator_resource_root,
 )
 
-PREVIEW = 'https://preview.workers.ridecom.yowamushi-inc.com'
+PREVIEW = 'https://preview-ridecom.analog.workers.dev'
 CASE = 'RideIntercomAudioE2ETests/AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware'
 
 

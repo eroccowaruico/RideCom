@@ -35,7 +35,7 @@ final class InternetConnectionSettingsStore {
             && environment["XCTestConfigurationFilePath"] == nil && environment["XCTestBundlePath"] == nil
         #if DEBUG
         let developmentDefaults = info["DevelopmentInternetConnection"] as? [String: String]
-        let defaultOrigin = "https://preview.workers.ridecom.yowamushi-inc.com"
+        let defaultOrigin = "https://preview-ridecom.analog.workers.dev"
         #else
         let developmentDefaults: [String: String]? = nil
         let defaultOrigin = "https://workers.ridecom.yowamushi-inc.com"

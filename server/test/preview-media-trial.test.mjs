@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { makeRuntime, offer, provider, room } from './support/runtime.mjs';
 
-const preview = 'https://preview.workers.ridecom.yowamushi-inc.com';
+const preview = 'https://preview-ridecom.analog.workers.dev';
 const tokens = ['a', 'b'].map(value => `preview-media.${value.repeat(43)}`);
 const digests = tokens.map(value => createHash('sha256').update(value).digest('hex'));
 const now = 1_700_000_000_000;
@@ -31,8 +31,8 @@ test('two Preview credentials are scoped to the room and cannot manage each othe
         'https://preview-rideintercom.analog.workers.dev',
         'https://ridecom.analog.workers.dev',
         'https://workers.ridecom.yowamushi-inc.com',
-        'https://preview-ridecom.analog.workers.dev',
-        'http://preview.workers.ridecom.yowamushi-inc.com',
+        'https://preview.workers.ridecom.yowamushi-inc.com',
+        'http://preview-ridecom.analog.workers.dev',
         'https://other-preview.workers.dev'
     ]) {
         assert.equal((await call(runtime, '/api/status', { origin })).status, 401, origin);
