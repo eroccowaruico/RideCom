@@ -232,14 +232,22 @@ extension AppTests.SettingsTests {
         let keychain = InternetTestKeychain()
         let store = InternetConnectionSettingsStore.makeForCurrentProcess(
             keychain: keychain, namespace: "fixture", info: [:], environment: [:])
-        let preview = "https://preview-rideintercom.analog.workers.dev"
+        let preview = "https://preview.workers.ridecom.yowamushi-inc.com"
         #expect(store.fixedWorkerOrigin?.absoluteString == preview)
         #expect(try store.load() == nil)
         #expect(try store.workerOrigin(preview).absoluteString == preview)
         #expect(throws: (any Error).self) {
-            try store.workerOrigin("https://rideintercom.analog.workers.dev")
+            try store.workerOrigin("https://workers.ridecom.yowamushi-inc.com")
         }
         #expect(keychain.value == nil)
+
+        let legacy = "https://preview-rideintercom.analog.workers.dev"
+        let previous = InternetConnectionSettingsStore(keychain: keychain, namespace: "fixture")
+        try previous.save(url: legacy, token: "previous-origin-token")
+        let saved = try #require(keychain.value)
+        #expect(try store.load() == nil)
+        #expect(throws: (any Error).self) { try store.workerOrigin(legacy) }
+        #expect(keychain.value == saved)
     }
 
     @Test func localTestProcessesCannotLoadOrReplaceLiveInternetCredentials() throws {

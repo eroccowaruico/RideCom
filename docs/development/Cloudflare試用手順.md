@@ -256,6 +256,8 @@ TestFlightに配布するAppは本番Workerを使う。固定Previewは開発署
 
 配布用Releaseは本番、開発署名のDebugは固定Previewを選ぶ。既存ビルドが参照する旧URLと新URLは[Worker URLの切り替え](../backlog/未実装課題.md#本番と固定previewのworker-urlをridecomに揃える)で扱う。Internet通話を試すときは、両端末で接続先と、その環境で使える端末資格・端末証明を確認する。揃っていれば通話を試し、不足する端末だけでApple登録や証明の取得を済ませる。初回登録の成否を調べる場合は、その結果を通話の合否と分けて記録する。[配布版とDebugの画面](../spec/App/UI/Settings.md#internet-connection)
 
+2026-11-24。Cloudflareの本番ドメインは `ridecom` のproduction、固定の `preview` には `preview.workers.ridecom.yowamushi-inc.com` の割当があると管理APIで確認した。本番の新しいホストの `/health` は200、旧ホストは404。ビルドの既定値は[設定値一覧](../spec/App/Configuration/設定値一覧.md#開発用の既定接続値)を参照する。端末証明の発行元にはホスト名が含まれる。接続先が変わった端末は、新しいホストで登録を済ませる。アプリ画面で接続先を入力する操作はない。
+
 開始前に対象のApple Team、AppのBundle ID、署名済みAppのAPNs環境を照合する。CloudflareのAccount ID、Worker名、対象のPreview名またはProduction、両端末の接続先URLも照合する。APNs鍵を作る担当にはApple DeveloperのAccount HolderかAdminの権限が必要。Apple側の設定とCloudflare側の配置を別の人が担当する場合もこの組を共有し、秘密値は承認された保管先から登録する。[Appleの鍵作成権限](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)・[CloudflareのPreviewの分離](https://developers.cloudflare.com/workers/previews/)
 
 | 順 | 設定する場所 | 行うこと・確認する出力 |

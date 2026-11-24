@@ -35,10 +35,10 @@ final class InternetConnectionSettingsStore {
             && environment["XCTestConfigurationFilePath"] == nil && environment["XCTestBundlePath"] == nil
         #if DEBUG
         let developmentDefaults = info["DevelopmentInternetConnection"] as? [String: String]
-        let defaultOrigin = "https://preview-rideintercom.analog.workers.dev"
+        let defaultOrigin = "https://preview.workers.ridecom.yowamushi-inc.com"
         #else
         let developmentDefaults: [String: String]? = nil
-        let defaultOrigin = "https://rideintercom.analog.workers.dev"
+        let defaultOrigin = "https://workers.ridecom.yowamushi-inc.com"
         #endif
         let buildOrigin = developmentDefaults?["workerURL"].flatMap { try? InternetAccountClient.origin($0) }
             .flatMap(IdentityEncoding.origin)

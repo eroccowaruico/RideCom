@@ -294,6 +294,18 @@ iPhone向けRelease Build 2384の署名付きArchiveを作成し、同じBuild�
 
 この検証用Buildには旧Worker URLが残っている。ArchiveとIPAはローカルの検証領域へ保存した。TestFlight用は本番の接続先を更新して作成する。Apple側の処理結果は未確認。[本番と固定Previewの接続先](../../backlog/未実装課題.md#本番と固定previewのworker-urlをridecomに揃える)
 
+## 本番Workerを使うBuild 2389を検証する
+
+2026-11-24。iPhone用の署名付きRelease Archiveと配布署名付きIPAを1.0.0 Build 2389で作った。両方の実行ファイルに本番の `https://workers.ridecom.yowamushi-inc.com` があることを確認した。旧ホスト、Previewのホスト、開発用の接続設定は含まれなかった。AppとWidgetの番号は同じだった。AppとWebRTCで実行ファイルと対応するdSYMのUUIDが一致した。カメラ参照は0件。APNs署名はArchiveが `development`、IPAが `production`。次回用の番号は2390。
+
+Macの設定試験22件を通した。通常のDebugは指定の固定Previewを選ぶ。旧ホストに結び付いた資格は、起動時に消去されず、新しいホストに接続するためには使われないことを確かめた。配布物での通話・通知・招待と、App Store Connectの処理結果は未確認。[接続先と資格の仕様](../../spec/App/Configuration/設定値一覧.md#開発用の既定接続値)
+
+ArchiveをXcodeの標準保存先へ登録した。Organizerの一覧表示は未確認。
+
+```text
+~/Library/Developer/Xcode/Archives/2026-11-24/RideIntercom iOS 1.0.0 (2389).xcarchive
+```
+
 ## 2,330コミットの区切りでiOS Build 2270をArchiveする
 
 2026-11-23。ローカルmainの第一親の2,330件目は `e0c566a7`。定期作業の優先順位を記録した共有mainの `6318d4af` から、標準の `RideIntercom` スキームでiPhone用の署名付きRelease Archiveを作成した。AppとWidgetは1.0.0 Build 2270で、両方の署名を検証した。
