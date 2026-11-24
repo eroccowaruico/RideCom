@@ -107,6 +107,26 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 コマンドは上流の追跡ファイルに変更がないことを確かめる。Ninjaに渡す対象をC++ファクトリーの依存に絞る。RideCom側のC++ソースにはGNが生成したコンパイル設定を使う。ビルド経路に既知のカメラ依存がある場合や、リンク後に撮影クラスへの参照を検出した場合は失敗する。検査を通過したライブラリだけを指定先に置く。
 
+#### C++候補の接続とチャネルの作成・終了を確認する
+
+接続部のソースは `RideIntercom/packages/RTC/BuildSupport/ModularWebRTC/RideComRTC.cc`。CのヘッダーをSwiftから読み込める。Swiftからファクトリー、PeerConnection、IDを指定したDataChannelを作成する。制御チャネルは順序付きで、データを再送する。音声チャネルは順不同・再送なしで転送する。
+
+Swift側は取得したハンドルを一度だけ解放する。同じハンドルの解放と別の操作を同時に呼ばない。ファクトリーのハンドルを解放した後も、作成済みの接続を利用できる。接続の解放でその配下のチャネルが閉じる。チャネルのハンドルは接続の解放後も解放できる。
+
+macOS向けの出力名は `libRideComRTC.dylib` とし、出力したディレクトリでSwiftの検証プログラムを動かす。同一プロセスでチャネルの作成、無効なIDと重複IDの拒否、解放の順序を確かめる。
+
+```bash
+adapter_dir="$PWD/RideIntercom/packages/RTC/BuildSupport/ModularWebRTC"
+library_dir="$(dirname "$output_dylib")"
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcrun swiftc -I "$adapter_dir/include" -L "$library_dir" -lRideComRTC \
+  -Xlinker -rpath -Xlinker @executable_path \
+  "$adapter_dir/check_lifecycle.swift" -o "$library_dir/check-lifecycle"
+"$library_dir/check-lifecycle"
+```
+
+この手順は候補の接続部を検証する。採用済みのAppでは、同梱WebRTCのObjective-C APIを使う。[現行SDKとの組合せ](#現行sdkとの組合せ)
+
 ## 失敗時の入口
 
 失敗時に手作業で原因を選ばない。まず診断スクリプトを実行する。

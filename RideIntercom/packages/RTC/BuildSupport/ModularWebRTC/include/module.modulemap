@@ -1,0 +1,4 @@
+module RideComRTC {
+    header "RideComRTC.h"
+    export *
+}
