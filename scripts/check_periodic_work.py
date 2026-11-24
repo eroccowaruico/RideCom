@@ -19,13 +19,42 @@ RULES = {"重要度": ("build", 10), "バックログ": ("build", 20), "Xcode": 
          "コード整理": ("build", 30), "コードと文書": ("commit", 20),
          "Archive": ("commit", 30), "全体監査": ("commit", 100), "資源と費用": ("time", 6)}
 
+# Existing obligations through this shared snapshot retain their original identifiers.
+CUTOVER = "a0a6001a593139a0cfe687a05a483cceff40cde5"
+CUTOVER_BUILD = 2427
+CUTOVER_COMMITS = 2528
+CADENCE = {"重要度": (10, 0), "バックログ": (20, 5), "Xcode": (20, 15), "コード整理": (60, 0),
+           "コードと文書": (50, 25), "Archive": (40, 30), "全体監査": (100, 0)}
+
 
 def git(*args: str) -> str:
     return subprocess.check_output(["git", *args]).decode()
 
 
+def periodic_overhead(revision: str) -> tuple[int, int]:
+    """Count marked first-parent commits and their own increases of the shared build number."""
+    span = f"{CUTOVER}..{revision}"
+    logs = git("log", "--first-parent", "--format=%H%x09%(trailers:key=Ride-Periodic,valueonly,separator=%x2C)", span)
+    marked = {line.split("\t")[0] for line in logs.splitlines() if re.fullmatch(
+        r"[0-9a-f]+\t(?:" + "|".join(RULES) + r")@[0-9]+", line)}
+    if not marked:
+        return 0, 0
+    patches = git("log", "--first-parent", "--diff-merges=first-parent", "--format=%x00%H", "--patch",
+                  "--unified=0", span, "--", PROJECT)
+    builds = 0
+    for patch in patches.split("\0")[1:]:
+        commit, _, diff = patch.partition("\n")
+        if commit not in marked:
+            continue
+        old, new = (set(map(int, re.findall(rf"^{prefix}\s*CURRENT_PROJECT_VERSION = (\d+);", diff, re.MULTILINE)))
+                    for prefix in ("-", r"\+"))
+        if old and new and max(new) > max(old):
+            builds += max(new) - max(old)
+    return builds, len(marked)
+
+
 def due_rows(record: str, build: int, commits: int, now: datetime,
-             read_evidence: Callable[[str], str]) -> list[tuple[str, str]]:
+             read_evidence: Callable[[str], str], overhead: tuple[int, int] = (0, 0)) -> list[tuple[str, str]]:
     """The first recorded boundary per activity is the reviewed migration baseline."""
     rows: dict[str, dict[str, str]] = {name: {} for name in RULES}
     for line in record.splitlines()[1:]:
@@ -53,7 +82,12 @@ def due_rows(record: str, build: int, commits: int, now: datetime,
             start = min(map(int, rows[name]))
             if start % step:
                 raise ValueError(f"{name}: 倍数の節目を指定してください")
-            points = list(map(str, range(start, (build if axis == "build" else commits) + 1, step)))
+            limit, cut, excluded = ((build, CUTOVER_BUILD, overhead[0]) if axis == "build"
+                                    else (commits, CUTOVER_COMMITS, 0 if name == "全体監査" else overhead[1]))
+            interval, phase = CADENCE[name]
+            first = cut + 1 + (phase - cut - 1) % interval
+            points = [str(n) for n in range(start, min(cut, limit) + 1, step)]
+            points.extend(str(n) for n in range(first, limit - excluded + 1, interval))
         if rows[name].keys() - set(points):
             raise ValueError(f"{name}: 範囲外の節目です")
         for point in points:
@@ -83,7 +117,7 @@ def main() -> int:
         if keys(git("show", f"HEAD:{LEDGER}")) - keys(read(LEDGER)):
             raise ValueError("以前の節目の行を保持してください")
     pending = due_rows(read(LEDGER), int(versions.pop()), int(git("rev-list", "--first-parent", "--count",
-                                                                  "origin/main")), datetime.now(JST), read)
+                                                                  "origin/main")), datetime.now(JST), read, periodic_overhead("origin/main"))
     for key, state in pending:
         print(key, state)
     if not pending:
@@ -91,7 +125,7 @@ def main() -> int:
     if args.commit:
         paths = git("diff", "--cached", "--no-renames", "--name-only", "-z").split("\0")[:-1]
         mode = os.environ.get("RIDE_WORK", "")
-        governance = {"AGENTS.md", LEDGER, ".githooks/pre-commit", "scripts/check_periodic_work.py",
+        governance = {"AGENTS.md", LEDGER, ".githooks/pre-commit", ".githooks/prepare-commit-msg", "scripts/check_periodic_work.py",
                       "scripts/tests/test_periodic_work.py", "scripts/tests/test_language_lint.py"}
         if mode == "文書" and paths and all(p.startswith(("docs/policies/", "docs/backlog/", ".agents/skills/"))
                                            or p in governance for p in paths):
@@ -109,7 +143,7 @@ def main() -> int:
             if any(line.startswith("+#") and line.lstrip("+# ") == note for line in
                    git("diff", "--cached", "--unified=0", "--", "docs/development/history/").splitlines()):
                 return 0
-    print("定期作業が残っています。開発方針「節目の目的と成果の確認」に従ってください。")
+    print("定期作業が残っています。新規着手は停止します。着手済みの差分は開発方針の「前件の共有」で検証・コミット・pushしてから切り替えてください。")
     return 1
 
 

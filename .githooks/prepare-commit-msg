@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+work=${RIDE_WORK:-}
+case "${work%@*}" in
+    重要度|バックログ|Xcode|コード整理|コードと文書|Archive|全体監査|資源と費用) ;;
+    *) exit 0 ;;
+esac
+case "${work##*@}" in
+    ''|*[!0-9]*) exit 0 ;;
+esac
+git interpret-trailers --in-place --if-exists replace --trailer "Ride-Periodic: $work" "$1"
