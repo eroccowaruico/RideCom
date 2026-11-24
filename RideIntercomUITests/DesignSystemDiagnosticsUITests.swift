@@ -56,6 +56,9 @@ final class DesignSystemDiagnosticsUITests: XCTestCase {
             app.staticTexts["Microphone input before TX Bus Effects."].firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Input level: Not measured"].firstMatch.exists)
         attachScreen("TX diagnostics before microphone analysis")
+        let codec = app.descendants(matching: .any)["pipeline-codec-step"].firstMatch
+        reveal(codec, app: app)
+        XCTAssertEqual(codec.value as? String, "Idle, Not available")
         let rtc = app.descendants(matching: .any)["pipeline-rtc-step"].firstMatch
         reveal(rtc, app: app)
         rtc.tap()

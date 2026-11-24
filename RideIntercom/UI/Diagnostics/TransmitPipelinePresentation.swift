@@ -188,13 +188,15 @@ struct TransmitPipelinePresentation {
             )
         }
         let isFallback = input.preferredTransmitCodec != input.selectedTransmitCodec
+        let settings = isFallback ? "\(codecPipelineDetail) / Fallback" : codecPipelineDetail
+        let activity = encodingActivity
         return PipelineStep(
             id: "codec",
             package: "Codec",
             title: "Codec",
-            detail: isFallback ? "\(codecPipelineDetail) / Fallback" : codecPipelineDetail,
-            icon: isFallback ? "cpu" : "cpu.fill",
-            state: isFallback ? .waiting : codecState,
+            detail: "\(settings) / \(activity.detail)",
+            icon: activity.state == .passing ? "cpu.fill" : "cpu",
+            state: activity.state,
             accessibilityIdentifier: "pipeline-codec-step"
         )
     }
@@ -298,10 +300,6 @@ extension TransmitPipelinePresentation {
         return (summary, branches)
     }
 
-    var codecState: PipelineStepState {
-        input.isVoiceActive && input.encodedAudioPacketCount > 0 ? .passing : .waiting
-    }
-
     var transmitEffectStages: [EffectChainStage] {
         input.transmitEffectChainSnapshot.stages.map(EffectChainStage.init(snapshot:))
     }
@@ -328,9 +326,20 @@ extension TransmitPipelinePresentation {
         return "\(requested) -> \(selected)"
     }
 
+    private var encodingActivity: (detail: String, state: PipelineStepState) {
+        if input.isMuted { return ("Encode idle · Muted", .waiting) }
+        guard let observation = input.lastTransmitEncode else { return ("Encode not measured", .waiting) }
+        let age = max(0, input.capturedAt - observation.observedAt)
+        let encoding = age <= 2
+        let codec = codecShortLabel(observation.codec)
+        let activity = encoding ? "Encoding" : "Encode idle"
+        return ("\(activity) / Last encode \(codec) · \(Int(age))s ago", encoding ? .passing : .waiting)
+    }
+
     private func codecShortLabel(_ codec: AudioCodecIdentifier) -> String {
         if codec == .pcm16 { return "PCM" }
-        if codec == .mpeg4AACELD || codec == .mpeg4AACELDv2 { return "AAC" }
+        if codec == .mpeg4AACELD { return "AAC-ELD" }
+        if codec == .mpeg4AACELDv2 { return "AAC-ELD v2" }
         if codec == .opus { return "Opus" }
         return codec.rawValue
     }

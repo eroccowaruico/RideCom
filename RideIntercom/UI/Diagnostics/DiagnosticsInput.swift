@@ -37,6 +37,7 @@ struct DiagnosticsInput {
     var selectedGroupConnectionState: CallConnectionState
     var selectedTransmitCodec: AudioCodecIdentifier
     var encodedAudioPacketCount: Int
+    let lastTransmitEncode: TransmitEncodingObservation?
     let isolationSettings: IsolationSettings
     var transmitEffectChainSnapshot: AudioEffectChainSnapshot
     var audioMixerSnapshot: AudioMixerSnapshot
@@ -82,16 +83,15 @@ struct DiagnosticsInput {
         let showsActiveCall = viewModel.activeGroupID != nil && viewModel.activeGroupID == viewModel.selectedGroup?.id
         networkDiagnostics = showsActiveCall ? viewModel.networkDiagnostics : nil
         outboundAudioDispatch = showsActiveCall ? localDispatch ?? networkDiagnostics?.outboundAudioDispatch : nil
-        if showsActiveCall, viewModel.isAudioPausedForDeviceChange {
-            let status = viewModel.hasPresentedAuthenticatedConnection ? viewModel.callPresenceLabel : "Audio paused"
-            pausedCall = (status, viewModel.audioRouteNotice ?? viewModel.audioPauseError)
-        } else {
-            pausedCall = nil
-        }
+        pausedCall = if showsActiveCall, viewModel.isAudioPausedForDeviceChange {
+            (viewModel.hasPresentedAuthenticatedConnection ? viewModel.callPresenceLabel : "Audio paused",
+             viewModel.audioRouteNotice ?? viewModel.audioPauseError)
+        } else { nil }
         selectedGroupConnectionState = viewModel.presentedConnectionState
         selectedTransmitCodec = viewModel.selectedTransmitCodec
         // The transmitter increments this count as it collects encoded frames for delivery.
         encodedAudioPacketCount = viewModel.sentVoicePacketCount
+        lastTransmitEncode = isAudioReady ? viewModel.audioPipeline.inputObservation.lastEncode : nil
         isolationSettings = IsolationSettings(viewModel)
         transmitEffectChainSnapshot = viewModel.transmitEffectChainSnapshot
         audioMixerSnapshot = viewModel.audioMixerSnapshot

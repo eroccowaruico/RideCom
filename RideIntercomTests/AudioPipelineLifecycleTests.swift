@@ -17,11 +17,17 @@ extension AppTests.AudioPipelineTests {
     @Test func transmitProcessingPreservesCaptureClockWithoutPlaybackReservations() async throws {
         let driver = OfflineAudioDriver()
         let pipeline = AppAudioPipeline(makeEngine: driver.makeEngine)
+        let model = AppTestSupport.makeHarness(audioPipeline: pipeline).viewModel
         let collected = Mutex<[RTC.RTCAudioPacket]>([])
         pipeline.onTransmitPacket = { packet in collected.withLock { $0.append(packet) } }
         try pipeline.rebuild(
             configuration: .init(preferredCodec: .pcm16, transmitSoundIsolationEnabled: false), peerIDs: [])
         defer { pipeline.stop() }
+        // The model initially mutes the transmitter until call media starts.
+        pipeline.setInputMuted(false)
+        model.isAudioReady = true
+        #expect(TransmitPipelinePresentation(input: DiagnosticsInput(model)).codecStep.detail.contains(
+            "Encode not measured"))
         for sequence in 0..<2 {
             try pipeline.processCapturedFrame(
                 .init(
@@ -30,6 +36,7 @@ extension AppTests.AudioPipelineTests {
             #expect(
                 collected.withLock { $0.count } == (sequence + 1) * 10,
                 "Encoding finishes before capture processing returns")
+            try verifyTransmitCodecActivity(model)
             try await Task.sleep(for: .milliseconds(50))
         }
         let packets = collected.withLock { $0 }
@@ -41,6 +48,44 @@ extension AppTests.AudioPipelineTests {
         let source = try #require(pipeline.snapshot.buses.first { $0.id == "tx-bus" }?.sources.first)
         #expect(source.typeName == "AVAudioSourceNode")
         #expect(source.bufferedDuration == nil)
+        pipeline.setInputMuted(true)
+        model.isMuted = true
+        #expect(pipeline.inputObservation.lastEncode == nil)
+        let muted = TransmitPipelinePresentation(input: DiagnosticsInput(model)).codecStep
+        #expect(muted.state == .waiting)
+        #expect(muted.detail.contains("Encode idle · Muted"))
+        pipeline.setInputMuted(false)
+        model.isMuted = false
+        #expect(TransmitPipelinePresentation(input: DiagnosticsInput(model)).codecStep.detail.contains(
+            "Encode not measured"))
+        try pipeline.processCapturedFrame(
+            .init(sequenceNumber: 2, format: .intercomMixer, capturedAt: 0.2,
+                  samples: Array(repeating: 0.03, count: 4800)))
+        #expect(TransmitPipelinePresentation(input: DiagnosticsInput(model)).codecStep.state == .passing)
+        pipeline.stop()
+        #expect(TransmitPipelinePresentation(input: DiagnosticsInput(model)).codecStep.detail.contains(
+            "Encode not measured"))
+    }
+
+    private func verifyTransmitCodecActivity(_ model: IntercomViewModel) throws {
+        let encode = try #require(model.audioPipeline.inputObservation.lastEncode)
+        #expect(encode.codec == .pcm16)
+        var input = DiagnosticsInput(model, now: encode.observedAt)
+        input.isVoiceActive = false
+        input.preferredTransmitCodec = .opus
+        input.selectedTransmitCodec = .pcm16
+        let active = TransmitPipelinePresentation(input: input).codecStep
+        #expect(active.state == .passing)
+        #expect(active.detail == "Opus -> PCM / Fallback / Encoding / Last encode PCM · 0s ago")
+        input.preferredTransmitCodec = .mpeg4AACELD
+        input.selectedTransmitCodec = .mpeg4AACELDv2
+        #expect(TransmitPipelinePresentation(input: input).codecStep.detail
+            == "AAC-ELD -> AAC-ELD v2 / Fallback / Encoding / Last encode PCM · 0s ago")
+        var silentInput = DiagnosticsInput(model, now: encode.observedAt + 3)
+        silentInput.isVoiceActive = true
+        let idle = TransmitPipelinePresentation(input: silentInput).codecStep
+        #expect(idle.state == .waiting)
+        #expect(idle.detail.contains("Encode idle / Last encode PCM · 3s ago"))
     }
 
     @Test func liveCallBoundsPCMReservationsWithoutRebuildingEffects() async throws {

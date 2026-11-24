@@ -276,7 +276,8 @@ extension AppTests.DiagnosticsPresentationTests {
         #expect(presentation.rtcStep.detail.contains("Control Connected"))
         #expect(!presentation.rtcStep.detail.contains("10"))
         #expect(presentation.encodedAudioPacketCount == 10)
-        #expect(presentation.codecStep.state == .passing)
+        #expect(presentation.codecStep.state == .waiting)
+        #expect(presentation.codecStep.detail.contains("Encode not measured"))
         input.encodedAudioPacketCount = 0
         #expect(TransmitPipelinePresentation(input: input).codecStep.state == .waiting)
         input.isAudioReady = false

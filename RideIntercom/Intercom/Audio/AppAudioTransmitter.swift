@@ -9,10 +9,16 @@ import RTC
 import SoundIsolation
 import VADGate
 
+nonisolated struct TransmitEncodingObservation: Sendable {
+    let codec: AudioCodecIdentifier
+    let observedAt: TimeInterval
+}
+
 nonisolated struct AudioInputObservation: Sendable {
     var level: Float = 0
     var voiceActive = false
     var sentPackets = 0
+    var lastEncode: TransmitEncodingObservation?
     var failure: String?
 }
 
@@ -60,6 +66,7 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
             encoder = nil
             pendingPackets.removeAll(keepingCapacity: true)
             observation.level = 0; observation.voiceActive = false
+            observation.lastEncode = nil
         }
     }
     func applyVADSensitivity(_ value: VoiceActivitySensitivity) {
@@ -99,6 +106,7 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
         processor?.stop(); processor = nil; encoder = nil; encodingTransition = nil; pendingPackets.removeAll()
         controller.reset()
         observation.level = 0; observation.voiceActive = false
+        observation.lastEncode = nil
         isolation = nil; dynamics = nil; limiter = nil
     }
 
@@ -233,6 +241,7 @@ nonisolated final class AppAudioTransmitter: @unchecked Sendable {
             bitRate: encoded.bitRate, payload: encoded.payload)
         sequence &+= 1
         observation.sentPackets += 1
+        observation.lastEncode = .init(codec: packet.codec, observedAt: Date().timeIntervalSince1970)
         pendingPackets.append(packet)
     }
 

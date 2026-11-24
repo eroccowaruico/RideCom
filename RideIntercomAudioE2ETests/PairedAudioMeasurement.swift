@@ -75,25 +75,36 @@ extension AudioE2ETests {
         activity?.cancel()
         if let observed = await activity?.value {
             let scenario = expectation.scenario
+            XCTAssertEqual(observed.encoded, !viewModel.effectiveInputMuted, "Codec TX indicator in \(scenario)")
             XCTAssertEqual(observed.transmit, !viewModel.effectiveInputMuted, "Audio TX indicator in \(scenario)")
             XCTAssertEqual(observed.receive, expectation.expectsRemoteSpeech, "Audio RX indicator in \(scenario)")
         }
     }
 
+    private struct ObservedPacketActivity: Sendable {
+        var encoded = false
+        var transmit = false
+        var receive = false
+    }
+
+    private struct PacketIndicators {
+        let encode: PipelineStep
+        let transmit: PipelineStep
+        let receive: PipelineStep
+    }
+
     @MainActor
-    private func observePacketActivity(
-        _ viewModel: IntercomViewModel
-    ) -> Task<(transmit: Bool, receive: Bool), Never> {
+    private func observePacketActivity(_ viewModel: IntercomViewModel) -> Task<ObservedPacketActivity, Never> {
         Task {
-            var transmitted = false
-            var received = false
+            var activity = ObservedPacketActivity()
             while !Task.isCancelled {
                 let observation = await packetIndicators(viewModel)
-                transmitted = transmitted || observation.transmit.state == .passing
-                received = received || observation.receive.state == .passing
+                activity.encoded = activity.encoded || observation.encode.state == .passing
+                activity.transmit = activity.transmit || observation.transmit.state == .passing
+                activity.receive = activity.receive || observation.receive.state == .passing
                 try? await Task.sleep(for: .milliseconds(500))
             }
-            return (transmitted, received)
+            return activity
         }
     }
 
@@ -101,17 +112,18 @@ extension AudioE2ETests {
     func verifyQuietPacketIndicators(_ viewModel: IntercomViewModel) async {
         let observation = await packetIndicators(viewModel)
         XCTAssertTrue(observation.transmit.detail.contains("Control Connected"))
+        XCTAssertEqual(observation.encode.state, .waiting)
         XCTAssertEqual(observation.transmit.state, .waiting)
         XCTAssertEqual(observation.receive.state, .waiting)
     }
 
     @MainActor
-    private func packetIndicators(_ viewModel: IntercomViewModel) async
-        -> (transmit: PipelineStep, receive: PipelineStep) {
+    private func packetIndicators(_ viewModel: IntercomViewModel) async -> PacketIndicators {
         let dispatch = await viewModel.callSession.lastOutboundAudioDispatch()
         let input = DiagnosticsInput(viewModel, localDispatch: dispatch)
-        return (TransmitPipelinePresentation(input: input).rtcStep,
-                ReceivePipelinePresentation(input: input).rtcReceiveStep)
+        let transmit = TransmitPipelinePresentation(input: input)
+        return PacketIndicators(encode: transmit.codecStep, transmit: transmit.rtcStep,
+                                receive: ReceivePipelinePresentation(input: input).rtcReceiveStep)
     }
 
     @MainActor
