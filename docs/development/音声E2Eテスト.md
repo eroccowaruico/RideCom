@@ -218,6 +218,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 
 再生位置を調整した受信packetの行には `playoutAdjustment` が付く。送受信の境界で `sequence` は一致するとは限らない。そのため、送受信は外側の `capture` と `duration` で照合する。内側の `capturedAt` と3つのsample位置は、復号後に予約した音声との照合に使う。sample位置の単位と `reason` の意味は[AudioMixerの現行仕様](../spec/packages/Audio/AudioMixer.md)に従う。次のpacketに同じ調整を繰り返し記録しない。通常の双方向試験でも同じ観測を使う。
 
+再生の基準位置を決めた予約では `playoutReservation.anchorLead` に待ち時間を決めた値が付く。単位と記録条件は[AudioMixerの再生予約の仕様](../spec/packages/Audio/AudioMixer.md#再生予約量の制御)に従う。定常区間の収録から予測描画までの時間を比べる際は、起動区間の予約のうち、その時間が定常区間へ続いた行を調べる。
+
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。
 
 ## 音声トラブルの比較記録
