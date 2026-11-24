@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -17,6 +18,8 @@
 #include "api/sctp_transport_interface.h"
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
+#include "api/stats/rtc_stats_collector_callback.h"
+#include "api/stats/rtcstats_objects.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/network_constants.h"
 #include "rtc_base/thread.h"
@@ -142,6 +145,38 @@ class RemoteDescriptionObserver : public webrtc::SetRemoteDescriptionObserverInt
 
  private:
   DescriptionResult result_;
+};
+
+class IceRoundTripTimeCollector : public webrtc::RTCStatsCollectorCallback {
+ public:
+  IceRoundTripTimeCollector(void* context, RideComRTCRoundTripTimeCompletion completion)
+      : context_(context), completion_(completion) {}
+  ~IceRoundTripTimeCollector() override { Finish(std::nullopt); }
+
+  void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+    for (const auto* transport : report->GetStatsOfType<webrtc::RTCTransportStats>()) {
+      if (!transport->selected_candidate_pair_id) {
+        continue;
+      }
+      const auto* pair =
+          report->GetAs<webrtc::RTCIceCandidatePairStats>(*transport->selected_candidate_pair_id);
+      if (pair && pair->current_round_trip_time) {
+        Finish(pair->current_round_trip_time);
+        return;
+      }
+    }
+    Finish(std::nullopt);
+  }
+
+ private:
+  void Finish(std::optional<double> value) {
+    if (auto completion = std::exchange(completion_, nullptr)) {
+      completion(context_, value.has_value(), value.value_or(0));
+    }
+  }
+
+  void* context_;
+  RideComRTCRoundTripTimeCompletion completion_;
 };
 
 class ChannelObserver final : public webrtc::DataChannelObserver {
@@ -295,6 +330,19 @@ void RideComRTCPeerObserveIce(RideComRTCPeer* peer, void* context, RideComRTCIce
       peer->handle->observer.SetIceCallback(context, changed);
     });
   }
+}
+
+void RideComRTCPeerGetIceRoundTripTime(
+    RideComRTCPeer* peer, void* context, RideComRTCRoundTripTimeCompletion completion) {
+  if (!completion) {
+    return;
+  }
+  if (!peer) {
+    completion(context, false, 0);
+    return;
+  }
+  const auto collector = webrtc::make_ref_counted<IceRoundTripTimeCollector>(context, completion);
+  peer->handle->native->GetStats(collector.get());
 }
 
 void RideComRTCPeerSetLocalDescription(

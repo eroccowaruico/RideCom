@@ -42,6 +42,7 @@ typedef struct RideComRTCIceServer {
 
 typedef void (*RideComRTCDescriptionCompletion)(void* context, bool success);
 typedef void (*RideComRTCIceStateChanged)(void* context, RideComRTCIceState state);
+typedef void (*RideComRTCRoundTripTimeCompletion)(void* context, bool available, double seconds);
 typedef void (*RideComRTCChannelStateChanged)(void* context);
 typedef void (*RideComRTCChannelReceived)(void* context, const uint8_t* bytes, size_t length);
 
@@ -64,6 +65,10 @@ RIDECOM_RTC_EXPORT bool RideComRTCPeerSetIceServers(
 // or by releasing the peer before freeing the callback context.
 RIDECOM_RTC_EXPORT void RideComRTCPeerObserveIce(
     RideComRTCPeer* peer, void* context, RideComRTCIceStateChanged changed);
+// Report the selected ICE pair's round trip time, if available. Completion is
+// called once and must not call back into the adapter.
+RIDECOM_RTC_EXPORT void RideComRTCPeerGetIceRoundTripTime(
+    RideComRTCPeer* peer, void* context, RideComRTCRoundTripTimeCompletion completion);
 
 // The local operation creates the offer or answer appropriate to the current
 // signaling state. Each operation calls its completion once, possibly before

@@ -2,10 +2,10 @@ import Foundation
 import RideComRTC
 import Synchronization
 
-private final class DescriptionCompletion: Sendable {
-    let continuation: CheckedContinuation<Bool, Never>
+private final class Completion<Value: Sendable>: Sendable {
+    let continuation: CheckedContinuation<Value, Never>
 
-    init(_ continuation: CheckedContinuation<Bool, Never>) {
+    init(_ continuation: CheckedContinuation<Value, Never>) {
         self.continuation = continuation
     }
 }
@@ -87,11 +87,23 @@ private func waitForDescription(
     _ operation: (UnsafeMutableRawPointer, RideComRTCDescriptionCompletion) -> Void
 ) async -> Bool {
     await withCheckedContinuation { continuation in
-        let context = Unmanaged.passRetained(DescriptionCompletion(continuation)).toOpaque()
-        operation(context) { rawContext, success in
+        let context = Unmanaged.passRetained(Completion(continuation)).toOpaque()
+        operation(context) { @Sendable rawContext, success in
             guard let rawContext else { return }
-            let result = Unmanaged<DescriptionCompletion>.fromOpaque(rawContext).takeRetainedValue()
+            let result = Unmanaged<Completion<Bool>>.fromOpaque(rawContext).takeRetainedValue()
             result.continuation.resume(returning: success)
+        }
+    }
+}
+
+@MainActor
+private func readIceRoundTripTime(_ peer: OpaquePointer) async -> Double? {
+    await withCheckedContinuation { continuation in
+        let context = Unmanaged.passRetained(Completion(continuation)).toOpaque()
+        RideComRTCPeerGetIceRoundTripTime(peer, context) { @Sendable rawContext, available, seconds in
+            guard let rawContext else { return }
+            let result = Unmanaged<Completion<Double?>>.fromOpaque(rawContext).takeRetainedValue()
+            result.continuation.resume(returning: available ? seconds : nil)
         }
     }
 }
@@ -250,11 +262,15 @@ private func checkNegotiation() async {
 
     precondition(RideComRTCChannelBufferedBytes(senderControl) == 0)
     precondition(!send(Data([0]), on: senderControl))
+    let before = await readIceRoundTripTime(sender)
+    precondition(before == nil)
     await exchangeDescriptions(sender: sender, receiver: receiver)
     await checkPacketTransfer(
         sender: sender, senderChannels: senderChannels, receiverChannels: receiverChannels,
         senderRecording: senderRecording, receiverRecording: receiverRecording
     )
+    let after = await readIceRoundTripTime(sender)
+    precondition(after.map { $0.isFinite && $0 >= 0 } == true)
     await checkClosingDuringNegotiation(factory)
 }
 
