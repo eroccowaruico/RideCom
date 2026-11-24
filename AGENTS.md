@@ -37,4 +37,6 @@ UI／UXへ影響する仮実装は、[機能実装とデザイン判断の引継
 
 Cloudflareの固定Previewを使い始めるたびに、[ブランチの再作成と再デプロイ](docs/development/Cloudflare試用手順.md#固定previewを作り直せる条件)を先に行う。
 
+Build・Run・Test・Profile・Analyze・ArchiveをGUI、CLI、IDEタスク、外部ツールのどこから起動するときも、[Xcode標準を使う条件](docs/development/開発環境.md#実行前にxcodeの設定と引数を照合する)を適用する。コマンド例やツールの既定引数を採用する前に、共有schemeと今回の要求に照合する。
+
 ビルド・テスト・E2Eは自動化で完結する構成を基本とし、XcodeのUIからも同じ入口を使える状態を保つ。利用者への操作依頼は、目的と必要性が明確な最小範囲に絞る。
