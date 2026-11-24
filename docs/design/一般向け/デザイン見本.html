@@ -1321,9 +1321,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   </div>
 
   <!-- ================= Widget ================= -->
-  <h2 id="widget">Widget・Live Activity</h2>
+  <h2 id="widget">Widget・Live Activity・Control</h2>
   <p class="note">自動切断時刻を迎えた通話は、同じ接続先の「接続」を表示する待機状態へ移る。端末のOSがタイムラインに沿って表示を更新する。</p>
-  <p class="note">選択通話Widgetは配置時に選んだ相手・グループ専用のリモコン。背景はテーマのグラデーション。色付き・クリア表示では背景が外れ、<code>widgetAccentable()</code> を付けた要素だけがユーザーの色になる。</p>
+  <p class="note">選択通話Widgetは配置時に選んだ相手・グループ専用のリモコン。同じ通話のミュート・切断を操作できる。施錠中のボタン操作はOSの認証と解除に従う。背景はテーマのグラデーション。色付き・クリア表示では背景が外れ、<code>widgetAccentable()</code> を付けた要素だけがユーザーの色になる。</p>
 
   <h3>ホーム画面（フルカラー）</h3>
   <div class="wall">
@@ -1419,7 +1419,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
           </div>
         </div>
       </div>
-      <figcaption><b>ライブアクティビティ（ロック画面）</b>状態を表示し（ミュート中は「会話中・ミュート中」）、タップでアプリの通話画面を開く。マイク操作は選択通話ウィジェットにあり、施錠中はOSの認証が必要。接続先の名前は出さない。左上はアプリアイコン（小さな書き出し画像）。</figcaption>
+      <figcaption><b>ライブアクティビティ（ロック画面）</b>状態を表示し（ミュート中は「会話中・ミュート中」）、本体をタップすると通話画面を開く。接続先の名前は出さない。左上はアプリアイコン（小さな書き出し画像）。</figcaption>
     </figure>
     <figure>
       <div class="di-wrap">
@@ -1446,7 +1446,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         <figure><div class="control"><svg class="i ca"><use href="#again"/></svg></div><figcaption>前回の接続先</figcaption></figure>
         <figure><div class="control unset"><svg class="i ca"><use href="#plus"/></svg></div><figcaption>接続先を設定</figcaption></figure>
       </div>
-      <figcaption><b>Control</b>追加するときに接続先（ユーザー／グループ）を選ぶ。待機中に押すと、その宛先への接続を始める。同じ宛先の通話がある間は「接続中」「会話中」「音声停止中」「音声エラー」を表示し、押すとその通話を開く。コントロールセンターはロック中も開けるため、切断は置かない。</figcaption>
+      <figcaption><b>Control</b>追加するときに接続先（ユーザー／グループ）を選ぶ。待機中に押すと、その宛先への接続を始める。同じ宛先の通話がある間は「接続中」「会話中」「音声停止中」「音声エラー」を表示し、押すとその通話を開く。操作には端末認証が必要。ロック中の表示と操作は<a href="../../validation/未確認事項.md#widgetcontrollive-activityのos受入">実機で確認</a>する。</figcaption>
     </figure>
   </div>
 </main>
