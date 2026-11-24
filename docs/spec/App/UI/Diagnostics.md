@@ -115,13 +115,13 @@ native出力は無音の間も `Last render` を更新する。描画が2秒を�
 
 ## 受信 mix topology 表示
 
-`LiveReceivePipelineView` はRTC RX、Decode、Peer Busesの段を1行ずつ並べ、その下に参加者ごとの内訳（`diagnosticsReceiveDetails`）を置く。内訳の見出し`receive-mix-topology`（Participants）の下に標準DisclosureGroupを置く。開閉の対象は、自分以外の登録メンバーと、名簿への反映前でも認証または経路を確認できた相手である。経路のない相手を木の上に並べる。peerが増えても巨大なcard gridへせず、開いた参加者だけ詳細行を表示する。上部からRXを選ぶと処理順の先頭から表示する。調べたい相手の行を開く。RTC RXの破棄、Decodeの復号失敗、各相手のPlayoutを処理順にたどれる。LossとEvent dropsはNetworkを選んで確認する。
+`LiveReceivePipelineView` はRTC RX、Decode、Peer Busesの段を1行ずつ並べ、その下に参加者ごとの内訳（`diagnosticsReceiveDetails`）を置く。内訳の見出し`receive-mix-topology`（Participants）の下に標準DisclosureGroupを置く。開閉の対象は、自分以外の登録メンバーと、名簿への反映前でも認証または経路を確認できた相手である。経路のない相手を木の上に並べる。一度に開ける参加者は1人。別の相手を開くと前の詳細を閉じる。参加者の見出しと、経路がある人の合流線は表示したままにする。上部からRXを選ぶと処理順の先頭から表示する。調べたい相手の行を開く。RTC RXの破棄、Decodeの復号失敗、各相手のPlayoutを処理順にたどれる。LossとEvent dropsはNetworkを選んで確認する。
 
 | 項目 | accessibilityIdentifier | 表示する状態 |
 |---|---|---|
 | 参加者内訳 | `diagnosticsReceiveDetails` | 見出しと参加者の一覧。通話先がなければNo participants |
 | 内訳の見出し | `receive-mix-topology` | Participants |
-| 参加者行 | メンバーIDを`id`に持つDisclosureGroup | 表示名と状態。経路なしはOfflineまたはNo mixer route。経路ありは、その相手の入力に直近2秒以内のPCM再生予約があればPassing、未観測か2秒超はWaiting。状態は共通の記号と語で示し、Waitingでも経路がある間は枝を描く。開くと、送信側のミュート（`mic.slash.fill`と語）、送信側のcodec・bitrate・VAD・isolationと報告の経過秒を順に出す（15秒超はStale）。続けてRTC RXの接続・認証・経路（Internet／Local direct／Local relayed）を表示する。その次にDecode codec、Playout、Peer Busの音量・FX要約を順に表示する。offlineはOfflineだけを表示する。未取得値はNot measured |
+| 参加者行 | メンバーIDを`id`に持つDisclosureGroup | 表示名と状態。経路なしはOfflineまたはNo mixer route。経路ありは、その相手の入力に直近2秒以内のPCM再生予約があればPassing、未観測か2秒超はWaiting。状態は共通の記号と語で示し、Waitingでも経路がある間は枝を描く。開くと、送信側のミュート（`mic.slash.fill`と語）、送信側が報告した実際のcodec識別子・bitrate（bps）・VAD・isolationと報告の経過秒を順に出す（15秒超はStale）。続けてRTC RXの接続・認証・観測した経路（Internet／Local direct／Local relayed、未観測時はPath not measured）を表示する。その次にDecodeのcodec識別子とpackets/sのNot measured、Playout、Peer Busの音量・FX要約を順に表示する。offlineはOfflineだけを表示する。未取得値はNot measured |
 | 相手の再生予約 | `receive-peer-playout` | PCM sourceの`bufferedDuration`を`Playout: n ms queued`、そのsourceの累計を`Adjustments: n / Resets: n`と表示する。0は観測値。受信グラフの未準備・相手の経路なし・PCM sourceなしは`Playout: Not measured`。旧snapshotで調整回数が欠ける場合は調整回数に`Not measured`を表示する。再生予約の観測と状態は同じsnapshotを使い、実出力はOutputで確認する |
 | master mix row | `receive-master-mix-card` | source bus count、総 RX、master volume / mute、RX master effect summary、出力 level |
 

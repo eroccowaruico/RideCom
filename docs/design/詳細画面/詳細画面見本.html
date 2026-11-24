@@ -141,10 +141,9 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
 .tree > .card { position: relative; }
 .tree > .card::before { content: ""; position: absolute; left: -10px; top: 12px; width: 9px; border-top: 2px solid var(--accent); opacity: .55; }
 .peer-unrouted { margin-bottom: 6px; }
-.blk-h { display: grid; justify-items: start; gap: 2px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
-.blk-h b { font-size: 12px; }
-.blk-h .r { color: var(--label2); font-size: 10px; white-space: nowrap; }
-.blk .row { grid-template-columns: 46px 1fr; }
+.blk summary { cursor: pointer; font-size: 12px; }
+.blk summary span { font-size: 10px; }
+.blk-detail { display: grid; gap: 3px; padding-top: 4px; margin-top: 4px; border-top: 1px solid var(--line); }
 .card.off { opacity: .5; }
 .merge { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 11px; background: color-mix(in srgb, var(--accent) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); font-weight: 700; }
 .merge::before { content: ""; position: absolute; left: -10px; top: 50%; width: 9px; border-top: 2px solid var(--accent); opacity: .55; }
@@ -339,34 +338,44 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
             <div class="row"><span class="k"><span class="ok-t" role="img" aria-label="Passing">✓</span> Peer Buses</span><span class="v num">3 peer buses</span></div>
           </div>
           <div class="hd">Participants</div>
-          <div class="card blk off peer-unrouted">
-            <div class="blk-h" style="border-bottom:0;margin:0;padding:0"><b>Yu</b><span class="r">Offline</span></div>
-          </div>
+          <details class="card blk off peer-unrouted" name="rx-participant">
+            <summary><b>Yu</b> <span class="r">Offline</span></summary>
+            <div class="blk-detail">Offline</div>
+          </details>
           <div class="tree">
-            <div class="card blk">
-              <div class="blk-h"><b>Haruka</b><span class="ok-t" style="font-weight:600"><span aria-hidden="true">✓</span> Passing</span></div>
-              <div class="row"><span class="k">Sender</span><span class="v">MPEG-4 AAC-ELD · 48 kHz · 48 kbps<div class="sub">Unmuted · Speech · SoundIsolation active</div></span></div>
-              <div class="row"><span class="k">RTC RX</span><span class="v">connected / authenticated / Local direct</span></div>
-              <div class="row"><span class="k">Decode</span><span class="v num">MPEG-4 AAC-ELD</span></div>
-              <div class="row"><span class="k">Playout</span><span class="v num">24 ms queued / Adjustments: 1 / Resets: 0</span></div>
-              <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 100% / FX SoundIsolation bypassed</span></div>
-            </div>
-            <div class="card blk">
-              <div class="blk-h"><b>Kenta</b><span class="warn-t" style="font-weight:600"><span aria-hidden="true">Ⅱ</span> Waiting</span></div>
-              <div class="row"><span class="k">Sender</span><span class="v">Opus · 24 kHz · 32 kbps <span class="pill">Lower Quality</span><div class="sub">Unmuted · Silence · SoundIsolation bypassed</div></span></div>
-              <div class="row"><span class="k">RTC RX</span><span class="v">connected / authenticated / Local relayed</span></div>
-              <div class="row"><span class="k">Decode</span><span class="v num">Opus</span></div>
-              <div class="row"><span class="k">Playout</span><span class="v num">0 ms queued / Adjustments: 0 / Resets: 0</span></div>
-              <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 80% / FX SoundIsolation active</span></div>
-            </div>
-            <div class="card blk">
-              <div class="blk-h"><b>Mika</b><span class="ok-t" style="font-weight:600"><span aria-hidden="true">✓</span> Passing</span></div>
-              <div class="row"><span class="k">Sender</span><span class="v">MPEG-4 AAC-ELD → PCM 16-bit · 16 kHz <span class="pill warn-t">Fallback</span><div class="sub">Unmuted · Speech · SoundIsolation unavailable · 3 s ago</div></span></div>
-              <div class="row"><span class="k">RTC RX</span><span class="v">connected / authenticated / Internet<div class="sub">Local unavailable</div></span></div>
-              <div class="row"><span class="k">Decode</span><span class="v num">PCM 16-bit</span></div>
-              <div class="row"><span class="k">Playout</span><span class="v num">62 ms queued / Adjustments: 0 / Resets: 1</span></div>
-              <div class="row"><span class="k">Peer Bus</span><span class="v num">Volume 60% / FX SoundIsolation bypassed</span></div>
-            </div>
+            <details class="card blk" name="rx-participant">
+              <summary><b>Haruka</b> <span class="ok-t"><span aria-hidden="true">✓</span> Passing</span></summary>
+              <div class="blk-detail">
+                <div>Sender: Unmuted / codec mpeg4AACELD / bitrate 48000 bps / VAD speech / Isolation active</div>
+                <div>Sender updated 1s ago</div>
+                <div>RTC RX: Connected / AUTH OK / Local direct</div>
+                <div>Decode: mpeg4AACELD / packets/s: Not measured</div>
+                <div>Playout: 24 ms queued / Adjustments: 1 / Resets: 0</div>
+                <div>Peer Bus: volume 100% / FX 1 stages / Isolation voice</div>
+              </div>
+            </details>
+            <details class="card blk" name="rx-participant">
+              <summary><b>Kenta</b> <span class="warn-t"><span aria-hidden="true">Ⅱ</span> Waiting</span></summary>
+              <div class="blk-detail">
+                <div>Sender: Unmuted / codec opus / bitrate 32000 bps / VAD silence / Isolation bypassed</div>
+                <div>Sender updated 16s ago / Stale</div>
+                <div>RTC RX: Connected / AUTH OK / Local relayed</div>
+                <div>Decode: opus / packets/s: Not measured</div>
+                <div>Playout: 0 ms queued / Adjustments: 0 / Resets: 0</div>
+                <div>Peer Bus: volume 80% / FX 1 stages / Isolation voice</div>
+              </div>
+            </details>
+            <details class="card blk" name="rx-participant" open>
+              <summary><b>Mika</b> <span class="ok-t"><span aria-hidden="true">✓</span> Passing</span></summary>
+              <div class="blk-detail">
+                <div>Sender: Unmuted / codec pcm16 / bitrate Not measured / VAD speech / Isolation unavailable</div>
+                <div>Sender updated 3s ago</div>
+                <div>RTC RX: Connected / AUTH OK / Internet</div>
+                <div>Decode: pcm16 / packets/s: Not measured</div>
+                <div>Playout: 62 ms queued / Adjustments: 0 / Resets: 1</div>
+                <div>Peer Bus: volume 60% / FX 1 stages / Isolation voice</div>
+              </div>
+            </details>
             <div class="merge"><span><span class="ok-t" role="img" aria-label="Passing">✓</span> Mix Down</span><span class="r">3 routes → rx-master</span></div>
           </div>
           <div class="down">↓</div>
@@ -383,7 +392,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
         </div>
         <div class="tabbar"><span class="tab"><svg class="i"><use href="#person2"/></svg>Users</span><span class="tab"><svg class="i"><use href="#person3"/></svg>Groups</span><span class="tab on"><svg class="i"><use href="#gauge"/></svg>Diagnostics</span><span class="tab"><svg class="i"><use href="#gear"/></svg>Settings</span></div>
       </div></div>
-      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。受信と復号は最後の観測からの経過秒も表示する。相手ごとに Sender（相手の端末の条件）→ RTC RX → Decode → Playout（PCMの再生予約・調整・リセット）→ Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。直近2秒以内に再生予約を観測した相手は Passing、未観測または2秒を超えた相手は Waiting。Waitingでも経路があれば枝を描き、いずれかの相手がPassingならMix DownもPassingになる。経路がない相手は木の上に表示する。合流線はMix Downで終わる。その下に RX Master → Master FX → Output が続く。Outputは最後の有声PCMからの経過を表示する。別rendererでは Playback scheduled と Render not measured を併記する。大きい文字では集計の下にメーターを置き、Master FXを1列にする。</figcaption>
+      <figcaption><b>RX（Live RX Pipeline・スクロール全体）</b>RTC RXの受信・破棄と、Decodeで実際に得られたPCM・復号失敗をそれぞれ表示する。受信と復号は最後の観測からの経過秒も表示する。相手の名前を選ぶと、その人の内訳を開ける。別の相手を開くと前の内訳は閉じる。相手ごとに Sender（相手の端末の報告）→ RTC RX → Decode → Playout（PCMの再生予約・調整・リセット）→ Peer Bus（自分側の設定）を入れ子で並べ、rx-masterへの経路がある相手の枝が左の線で Mix Down へ合流する。直近2秒以内に再生予約を観測した相手は Passing、未観測または2秒を超えた相手は Waiting。Waitingでも経路があれば枝を描き、いずれかの相手がPassingならMix DownもPassingになる。経路がない相手は木の上に表示する。合流線はMix Downで終わる。その下に RX Master → Master FX → Output が続く。Outputは最後の有声PCMからの経過を表示する。別rendererでは Playback scheduled と Render not measured を併記する。大きい文字では集計の下にメーターを置き、Master FXを1列にする。</figcaption>
     </figure>
 
     <!-- Network -->
