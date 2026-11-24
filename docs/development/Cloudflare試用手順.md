@@ -71,11 +71,13 @@ Durable Objectsは両環境で6クラスずつあり、binding名とクラス名
 
 SFU App IDとTURN Key IDはPreviews Baseと固定Previewで一致し、本番とは異なった。旧手動資格と短期試験設定は本番・固定Previewの双方で未設定。Apple認証は固定Previewでも有効と設定されていたが、Appleの署名用secretが登録されていないため、通常登録は試用前に別途確認する。固定PreviewのAPNs環境はsandboxで、通知は無効だった。
 
-Observabilityの親設定、ログ、トレース、WorkerのLogpushは両環境で無効。転送先とTail Workerは0件だった。Previews Baseでは親・ログ・トレースが有効だった。本番・固定Previewの個別設定は保存と呼出ログが有効、クエリ除去は無効であり、設定ファイルとは異なった。監視設定の差は[既存の課題](../backlog/未実装課題.md#cloudflareのobservability設定変更に対応する)で追う。アカウント全体のLogpush一覧は取得権限がなかった。
+Observabilityの親設定、ログ、トレース、WorkerのLogpushは両環境で無効。転送先とTail Workerは0件だった。Previews Baseでは親・ログ・トレースが有効だった。本番・固定Previewの個別設定は保存と呼出ログが有効、クエリ除去は無効であり、設定ファイルとは異なった。この後の照合結果は[本番と固定Previewの監視設定](#本番と固定previewの監視設定を反映する)を参照する。アカウント全体のLogpush一覧は取得権限がなかった。
 
 2026-11-23。Preview専用の基点に `preview.workers.ridecom.yowamushi-inc.com` を指定すると、Cloudflareが固定名 `preview` を付け、`preview.preview.workers.ridecom.yowamushi-inc.com` が生成された。既存の `workers.ridecom.yowamushi-inc.com` をProduction and Previewに変更し、本番と目的の固定Preview URLの割当を確認した。両方の `/health` はHTTPSで200を返した。固定Previewでは、手元のDNSに残る変更前の結果を避けるため、公開DNSで取得したアドレスを使い、TLSの証明書も検証した。この基点と両環境の有効化は `server/wrangler.toml` の `routes` に記録する。[Previewのカスタムドメイン](https://developers.cloudflare.com/workers/previews/custom-domains/#enable-custom-domain-preview-urls)
 
 ### 本番と固定Previewの監視設定を反映する
+
+2026-11-23。共有の配置 `44c172c2` で、本番と固定Previewの有効化、ログ・トレースの保存、転送先、サンプリング率がTOMLと一致した。設定変更は確認済み。以後の確認は、現行の読み取り権限で取得できる設定や合成試験の結果を対象とする。アカウント全体のLogpush一覧など、その権限で取得できない項目は確認範囲の限界として記録する。未完了タスクには入れない。[照合の結果](#最新の配置で確認した試用条件)
 
 Workers LogsとIssuesは両環境で有効、トレースは固定Previewで有効にする。ログとトレースのサンプリング率は100%。呼出ログとエクスポートの扱いは[Workerの設定仕様](../spec/server/Worker.md#設定値)に従う。[Previewのログとトレース](https://developers.cloudflare.com/workers/previews/test-and-debug/)・[Issues](https://developers.cloudflare.com/workers/observability/issues/)
 
