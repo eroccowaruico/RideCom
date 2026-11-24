@@ -147,20 +147,52 @@ struct CallLifecycleTests {
             reason: .routeChanged(.oldDeviceUnavailable), snapshot: testHarness.audioSessionBackend.current)))
         #expect(testHarness.viewModel.isAudioPausedForDeviceChange)
         #expect(testHarness.viewModel.callPresenceLabel == "Connected / Audio Paused")
+        let paused = DiagnosticsInput(testHarness.viewModel)
+        #expect(paused.pausedCall?.status == "Connected / Audio Paused")
+        #expect(paused.pausedCall?.reason?.hasPrefix("Audio device disconnected.") == true)
+        #expect(TransmitPipelinePresentation(input: paused).inputStreamStep.state == .muted)
+        #expect(ReceivePipelinePresentation(input: paused).rtcReceiveStep.state == .idle)
         testHarness.inputBackend.startError = AudioStreamError.engineOperationFailed("missing")
         testHarness.viewModel.resumeAudioAfterDeviceChange()
         await AppTestSupport.waitUntil { testHarness.viewModel.audioErrorMessage != nil }
         #expect(testHarness.viewModel.isAudioPausedForDeviceChange)
         #expect(!testHarness.viewModel.isAudioReady)
+        let retry = DiagnosticsInput(testHarness.viewModel).pausedCall
+        #expect(retry?.reason == (testHarness.viewModel.audioRouteNotice ?? testHarness.viewModel.audioPauseError))
         testHarness.inputBackend.startError = nil
         testHarness.viewModel.resumeAudioAfterDeviceChange()
         await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
         #expect(testHarness.viewModel.isAudioReady)
         #expect(!testHarness.viewModel.isAudioPausedForDeviceChange)
+        #expect(DiagnosticsInput(testHarness.viewModel).pausedCall == nil)
         #expect(testHarness.viewModel.isMuted && testHarness.viewModel.isOutputMuted)
         #expect(testHarness.viewModel.audioRouteNotice == nil)
         testHarness.viewModel.disconnect()
         #expect(testHarness.viewModel.availableCallRoutes.isEmpty)
+    }
+
+    @Test func diagnosticsShowsPauseOnTheActiveCallWhileWaitingForPeers() async throws {
+        let harness = AppTestSupport.makeHarness()
+        let viewModel = harness.viewModel
+        defer { viewModel.disconnect() }
+        let group = try #require(viewModel.groups.first)
+        viewModel.selectGroup(group)
+        await AppTestSupport.waitUntil { viewModel.isAudioReady }
+        try #require(viewModel.isAudioReady)
+
+        viewModel.handleAudioSessionRuntimeEvent(.snapshotChanged(.init(
+            reason: .routeChanged(.oldDeviceUnavailable), snapshot: harness.audioSessionBackend.current)))
+        let paused = try #require(DiagnosticsInput(viewModel).pausedCall)
+        #expect(paused.status == "Audio paused")
+        #expect(paused.reason?.hasPrefix("Audio device disconnected.") == true)
+        #expect(viewModel.activeGroupID == group.id)
+
+        let other = try #require(viewModel.groups.first { $0.id != group.id })
+        viewModel.selectGroup(other, connectIfIdle: false)
+        #expect(DiagnosticsInput(viewModel).pausedCall == nil)
+        #expect(viewModel.activeGroupID == group.id)
+        viewModel.selectGroup(group, connectIfIdle: false)
+        #expect(DiagnosticsInput(viewModel).pausedCall?.status == "Audio paused")
     }
 
     @Test func actualDefaultDeviceChangeRestartsBothStreamsAndInterruptsAudioCheck() async {

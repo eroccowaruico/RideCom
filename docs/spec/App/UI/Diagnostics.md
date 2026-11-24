@@ -48,6 +48,10 @@ TX/RXは従来のpipeline、Networkは、[Network診断](#network診断)のと�
 | 送信パイプライン | `liveTransmitPipelineView` | ローカル送信がどこまで進んでいるかを読む | `LiveTransmitPipelineView` | 0.5 秒 | compact row。effect chain は TX bus 内に内包表示 |
 | 受信パイプライン | `liveReceivePipelineView` | 受信してから出力するまでの進み具合を読む | `LiveReceivePipelineView` | 0.5 秒 | compact row。peer bus は複数行一覧、effect chain は該当 bus 内に内包表示。RX master FXは実グラフの内容のみを表示する |
 
+### 通話の音声が一時停止したとき
+
+選択中の通話が現在の通話と一致し、`isAudioPausedForDeviceChange` が真の場合に、Overviewで送受信の判定の上に音声停止の行（`diagnosticsPausedCall`）を表示する。認証済みの相手がいれば `Connected / Audio Paused`、認証済みの相手がいなければ `Audio paused` とする。理由にはCallと同じ `audioRouteNotice` を使い、再開の失敗で通知文がない場合は `audioPauseError` を使う。送受信の判定と各段はそれぞれの観測を示す。再開の操作はCallで行い、成功後は音声停止の行が消える。[音声機器の切替・切断と復旧](../音声処理仕様.md)
+
 ### Diagnosticsの状態と遷移
 
 [UIスタック](../../../design/デザインシステム.md#uiスタック)の5状態を、既存のpackage report・snapshotの有無と各段の状態から導出する。ページ選択は表示状態だけを変え、どの状態でも全5ページへ移動できる。

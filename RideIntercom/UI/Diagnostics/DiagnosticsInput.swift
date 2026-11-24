@@ -6,6 +6,7 @@ import VADGate
 
 struct DiagnosticsInput {
     var audioErrorMessage: String?
+    let pausedCall: (status: String, reason: String?)?
     var audioSessionProfile: AudioSessionProfile
     var audioSessionSnapshot: SessionManager.AudioSessionSnapshot
     var isAudioReady: Bool
@@ -64,10 +65,13 @@ struct DiagnosticsInput {
         lastVoiceProcessingOperationReport = viewModel.lastVoiceProcessingOperationReport
         preferredTransmitCodec = viewModel.preferredTransmitCodec
         routeLabel = viewModel.routeLabel
-        if let activeGroupID = viewModel.activeGroupID, activeGroupID == viewModel.selectedGroup?.id {
-            networkDiagnostics = viewModel.networkDiagnostics
+        let showsActiveCall = viewModel.activeGroupID != nil && viewModel.activeGroupID == viewModel.selectedGroup?.id
+        networkDiagnostics = showsActiveCall ? viewModel.networkDiagnostics : nil
+        if showsActiveCall, viewModel.isAudioPausedForDeviceChange {
+            let status = viewModel.hasPresentedAuthenticatedConnection ? viewModel.callPresenceLabel : "Audio paused"
+            pausedCall = (status, viewModel.audioRouteNotice ?? viewModel.audioPauseError)
         } else {
-            networkDiagnostics = nil
+            pausedCall = nil
         }
         selectedGroupConnectionState = viewModel.presentedConnectionState
         selectedTransmitCodec = viewModel.selectedTransmitCodec

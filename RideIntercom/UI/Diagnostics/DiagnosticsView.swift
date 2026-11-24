@@ -88,9 +88,10 @@ struct DiagnosticsView: View {
 
     private var overviewContent: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let steps = pipelineSteps(now: context.date.timeIntervalSince1970)
+            let input = DiagnosticsInput(viewModel, now: context.date.timeIntervalSince1970)
+            let steps = pipelineSteps(input)
             VStack(alignment: .leading, spacing: AppSpacing.large) {
-                verdicts(transmit: steps.transmit, receive: steps.receive)
+                verdicts(input, transmit: steps.transmit, receive: steps.receive)
                 pipelineOverview(transmit: steps.transmit, receive: steps.receive)
                 participantsOverview
                 networkOverview
@@ -101,8 +102,7 @@ struct DiagnosticsView: View {
 }
 
 extension DiagnosticsView {
-    private func pipelineSteps(now: TimeInterval) -> (transmit: [PipelineStep], receive: [PipelineStep]) {
-        let input = DiagnosticsInput(viewModel, now: now)
+    private func pipelineSteps(_ input: DiagnosticsInput) -> (transmit: [PipelineStep], receive: [PipelineStep]) {
         let transmit = TransmitPipelinePresentation(input: input)
         let receive = ReceivePipelinePresentation(input: input)
         return (transmit.flowSteps,
@@ -113,32 +113,38 @@ extension DiagnosticsView {
         )
     }
 
-    /// The conclusion first: one verdict per direction with the reason the stages report.
-    private func verdicts(transmit: [PipelineStep], receive: [PipelineStep]) -> some View {
-        GroupBox {
+    private func verdicts(_ input: DiagnosticsInput, transmit: [PipelineStep], receive: [PipelineStep]) -> some View {
+        let transmitVerdict = PipelineVerdict(steps: transmit)
+        let receiveVerdict = PipelineVerdict(steps: receive)
+        return GroupBox {
             VStack(alignment: .leading, spacing: AppSpacing.medium) {
-                verdictRow("TX", verdict: PipelineVerdict(steps: transmit))
-                verdictRow("RX", verdict: PipelineVerdict(steps: receive))
+                if let pause = input.pausedCall {
+                    statusRow(pause.status, reason: pause.reason, state: .waiting)
+                        .accessibilityIdentifier("diagnosticsPausedCall")
+                }
+                statusRow("TX: \(transmitVerdict.text)", reason: transmitVerdict.reason, state: transmitVerdict.state)
+                    .accessibilityIdentifier("diagnosticsVerdict-TX")
+                statusRow("RX: \(receiveVerdict.text)", reason: receiveVerdict.reason, state: receiveVerdict.state)
+                    .accessibilityIdentifier("diagnosticsVerdict-RX")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func verdictRow(_ name: String, verdict: PipelineVerdict) -> some View {
+    private func statusRow(_ title: String, reason: String?, state: PipelineStepState) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.extraSmall) {
             Label {
-                Text(verbatim: "\(name): \(verdict.text)").font(.headline)
+                Text(verbatim: title).font(.headline)
             } icon: {
-                PipelineStateDot(state: verdict.state)
+                PipelineStateDot(state: state)
             }
-            if let reason = verdict.reason {
+            if let reason {
                 Text(verbatim: reason)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("diagnosticsVerdict-\(name)")
     }
 
     private var pagePicker: some View {
