@@ -239,10 +239,12 @@ struct TransmitPipelinePresentation {
 
     private var outboundActivity: (detail: String, state: PipelineStepState) {
         guard input.isAudioReady else { return ("Media Idle", .idle) }
-        guard let dispatch = input.outboundAudioDispatch else { return ("Audio TX not measured", .waiting) }
-        let age = max(0, input.capturedAt - dispatch.observedAt)
-        let lastDispatch = "Last dispatch · \(Int(age))s ago"
-        guard age <= 2 else { return ("Audio TX idle / \(lastDispatch)", .waiting) }
+        let timing = input.observation(input.outboundAudioDispatch?.observedAt)
+        guard let dispatch = input.outboundAudioDispatch, let elapsed = timing.elapsed else {
+            return ("Audio TX not measured", .waiting)
+        }
+        let lastDispatch = "Last dispatch · \(elapsed)"
+        guard timing.state == .passing else { return ("Audio TX idle / \(lastDispatch)", .waiting) }
         let results = dispatch.offeredRoutes.map { dispatch.transportAcceptance?[$0] }
         if results.contains(true) { return ("Audio accepted by transport / \(lastDispatch)", .passing) }
         let detail = results.contains(nil) ? "Audio acceptance not measured" : "Audio not accepted by transport"
@@ -328,12 +330,13 @@ extension TransmitPipelinePresentation {
 
     private var encodingActivity: (detail: String, state: PipelineStepState) {
         if input.isMuted { return ("Encode idle · Muted", .waiting) }
-        guard let observation = input.lastTransmitEncode else { return ("Encode not measured", .waiting) }
-        let age = max(0, input.capturedAt - observation.observedAt)
-        let encoding = age <= 2
+        let timing = input.observation(input.lastTransmitEncode?.observedAt)
+        guard let observation = input.lastTransmitEncode, let elapsed = timing.elapsed else {
+            return ("Encode not measured", .waiting)
+        }
         let codec = observation.codec.diagnosticsLabel
-        let activity = encoding ? "Encoding" : "Encode idle"
-        return ("\(activity) / Last encode \(codec) · \(Int(age))s ago", encoding ? .passing : .waiting)
+        let activity = timing.state == .passing ? "Encoding" : "Encode idle"
+        return ("\(activity) / Last encode \(codec) · \(elapsed)", timing.state)
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {

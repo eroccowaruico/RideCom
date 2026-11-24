@@ -21,7 +21,7 @@ struct ReceivePipelinePresentation {
                 let peerID = String(route.sourceBusID.dropFirst(Self.peerBusPrefix.count))
                 let bus = input.mixerBusSnapshot(id: route.sourceBusID)
                 let lastScheduledAt = bus?.sources.compactMap(\.lastScheduledAt).max()
-                states[peerID] = Self.observation(lastScheduledAt, now: input.capturedAt).state
+                states[peerID] = input.observation(lastScheduledAt).state
             }
         }
         receivePeerStates = states
@@ -39,7 +39,7 @@ struct ReceivePipelinePresentation {
 
     func peerDecodeDetail(for peerID: String) -> String {
         guard input.isAudioReady, let pcm = input.receiveDecodeDiagnostics.peerPCM[peerID],
-              let age = observation(pcm.observedAt).elapsed else {
+              let age = input.observation(pcm.observedAt).elapsed else {
             return "Decode: Not measured / packets/s: Not measured"
         }
         return "Decode: \(pcm.codec.diagnosticsLabel) · \(age) / packets/s: Not measured"
@@ -134,7 +134,7 @@ struct ReceivePipelinePresentation {
                 \(input.routeLabel) / \(input.connectedPeerCount) connected / \
                 \(input.authenticatedPeerCount) authenticated
                 """
-            let receipt = observation(input.lastReceivedAudioAt)
+            let receipt = input.observation(input.lastReceivedAudioAt)
             let audio = receipt.elapsed == nil ? "Audio RX not measured"
                 : (receipt.state == .passing ? "Audio received" : "Audio RX idle")
             let lastReceipt = receipt.elapsed.map { " / Last receipt · \($0)" } ?? ""
@@ -155,12 +155,12 @@ struct ReceivePipelinePresentation {
         let value: (detail: String, state: PipelineStepState)
         if input.isAudioReady {
             let pcm = hasPCM || counts.failures > 0 ? "PCM \(counts.pcmPackets)" : "No PCM observed"
-            let decoded = observation(counts.lastPCMAt)
+            let decoded = input.observation(counts.lastPCMAt)
             let lastPCM = counts.lastPCM.flatMap { pcm in
                 decoded.elapsed.map { " / Last PCM · \(pcm.codec.diagnosticsLabel) · \($0)" }
             } ?? ""
             let failures = counts.failures > 0 ? " / Decode errors \(counts.failures)" : ""
-            let failure = observation(counts.lastFailureAt)
+            let failure = input.observation(counts.lastFailureAt)
             let lastError = failure.elapsed.map { " / Last error · \($0)" } ?? ""
             let blocked = decoded.state == .waiting && failure.state == .passing
             value = (pcm + lastPCM + failures + lastError, blocked ? .blocked : decoded.state)
@@ -217,12 +217,12 @@ struct ReceivePipelinePresentation {
             value = OutputDescription(detail: "Not available", icon: "speaker", state: .idle)
         } else if input.usesNativeOutput {
             let lifetime = AppAudioPipeline.nativeOutputObservationLifetime
-            let output = observation(input.lastNativeAudibleOutputAt, maximumAge: lifetime)
+            let output = input.observation(input.lastNativeAudibleOutputAt, maximumAge: lifetime)
             let audible = output.elapsed.map { "Last audible PCM · \($0)" } ?? "No audible PCM observed"
-            let rendered = observation(input.lastNativeRenderAt, maximumAge: lifetime)
+            let rendered = input.observation(input.lastNativeRenderAt, maximumAge: lifetime)
             let render = rendered.elapsed.map { " / Last render · \($0)" } ?? ""
             value = OutputDescription(detail: audible + render, icon: "speaker.wave.2.fill", state: output.state)
-        } else if let elapsed = observation(input.lastPlaybackScheduledAt).elapsed {
+        } else if let elapsed = input.observation(input.lastPlaybackScheduledAt).elapsed {
             value = OutputDescription(detail: "Playback scheduled · \(elapsed) / Render not measured",
                                       icon: "speaker.wave.2.fill", state: .waiting)
         } else {
@@ -250,18 +250,6 @@ struct ReceivePipelinePresentation {
             isMuted: input.isOutputMuted,
             state: outputBusStep.state
         )
-    }
-
-    private func observation(_ timestamp: TimeInterval?, maximumAge: TimeInterval = 2)
-        -> (state: PipelineStepState, elapsed: String?) {
-        Self.observation(timestamp, now: input.capturedAt, maximumAge: maximumAge)
-    }
-
-    private static func observation(_ timestamp: TimeInterval?, now: TimeInterval,
-                                    maximumAge: TimeInterval = 2) -> (state: PipelineStepState, elapsed: String?) {
-        guard let timestamp else { return (.waiting, nil) }
-        let age = max(0, now - timestamp)
-        return (age <= maximumAge ? .passing : .waiting, "\(Int(age))s ago")
     }
 
     private func aggregateState(_ states: [PipelineStepState]) -> PipelineStepState {

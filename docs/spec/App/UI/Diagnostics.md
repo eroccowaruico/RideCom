@@ -92,6 +92,8 @@ TXで制御が接続済みなら、閉じたRTC行に `Control Connected` と音
 
 記録があれば `Last dispatch` と経過秒も表示する。近距離のUDPへの引き渡しとInternetのDataChannelの受付を使う。相手への到着は相手側のRXで観測する。RXは認証済みの音声をAppで受け取った時点を読む。復号に失敗しても受信は観測できる。経過秒は両方とも画面を開いたまま更新する。
 
+TXとRXの経過時間は、観測時刻から画面の状態を取得するまでの時間。時刻差が負なら0秒とし、秒未満を切り捨てて表示する。2秒以内の観測を直近とみなす。native出力の有効期間は出力メーターと共通。
+
 ### 声の分離の設定と実状態
 
 TX Bus、RX Master、各参加者の見出しは、展開していなくても `Voice Isolation On · active` の形で設定と実状態を示す。TXは `isSoundIsolationEnabled`、RX Masterは `receiveMixSoundIsolationEnabled`、相手別は `remoteSoundIsolationEnabled` の対象者の値を読む。相手別で保存値がなければAppの既定値を使う。

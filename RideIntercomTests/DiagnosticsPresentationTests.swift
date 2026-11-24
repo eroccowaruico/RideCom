@@ -304,7 +304,10 @@ extension AppTests.DiagnosticsPresentationTests {
         model.networkDiagnostics = .init(generatedAt: 10, outboundAudioDispatch: .init(
             offeredRoutes: [.multipeer], internetCoveredByLocal: true, observedAt: 10,
             transportAcceptance: [.multipeer: true]))
-        #expect(step(now: 11).state == .passing)
+        #expect(step(now: 9.99).detail.contains("Last dispatch · 0s ago"))
+        #expect(step(now: 12).state == .passing)
+        #expect(step(now: 12).detail.contains("Last dispatch · 2s ago"))
+        #expect(step(now: 12.01).state == .waiting)
         #expect(step(now: 13).state == .waiting)
         #expect(step(now: 13).detail.contains("Control Connected"))
         #expect(step(now: 13).detail.contains("Audio TX idle"))

@@ -117,6 +117,13 @@ struct DiagnosticsInput {
         receivePeerRuntimeStatuses = viewModel.remoteRuntimeStatuses
         receivePeerVolumes = viewModel.remoteOutputVolumes
     }
+    func observation(_ timestamp: TimeInterval?, maximumAge: TimeInterval = 2)
+        -> (state: PipelineStepState, elapsed: String?) {
+        guard let timestamp else { return (.waiting, nil) }
+        let age = max(0, capturedAt - timestamp)
+        return (age <= maximumAge ? .passing : .waiting, "\(Int(age))s ago")
+    }
+
     func receivePeerEffectChainSnapshot(peerID: String) -> AudioEffectChainSnapshot {
         let id = "rx-peer-" + peerID
         return AudioEffectChainSnapshot(id: id, effects: mixerBusSnapshot(id: id)?.effectChain ?? [])
