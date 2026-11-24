@@ -6,12 +6,8 @@ struct AdvancedGroupInvitationSavedView: View {
     let selectedUsers: Set<UUID>
     let onDone: () -> Void
 
-    private var people: [UUID] {
-        Set(viewModel.groupInvitationPersonIDs(group.id)).union(selectedUsers)
-            .sorted { $0.uuidString < $1.uuidString }
-    }
-
     var body: some View {
+        let people = viewModel.groupInvitationPeople(group.id, including: selectedUsers)
         Form {
             Section {
                 LabeledContent {
@@ -24,21 +20,19 @@ struct AdvancedGroupInvitationSavedView: View {
             } header: { Text(verbatim: "IntercomGroup") }
             if !people.isEmpty {
                 Section {
-                    ForEach(people, id: \.self) { personID in
-                        if let person = viewModel.contactPerson(personID) {
-                            NavigationLink {
-                                AdvancedContactPersonDetail(
-                                    viewModel: viewModel, person: person, presentationPersonID: personID)
-                            } label: {
-                                AdvancedRecordRow(
-                                    title: person.resolvedDisplayName,
-                                    value: "isRegistered \(person.isRegistered)",
-                                    detail: "id " + person.id.uuidString.lowercased(),
-                                    monospacedDetail: true
-                                )
-                            }
-                            .accessibilityIdentifier("groupInvitePerson-\(personID)")
+                    ForEach(people) { row in
+                        NavigationLink {
+                            AdvancedContactPersonDetail(
+                                viewModel: viewModel, person: row.person, presentationPersonID: row.id)
+                        } label: {
+                            AdvancedRecordRow(
+                                title: row.person.resolvedDisplayName,
+                                value: "isRegistered \(row.person.isRegistered)",
+                                detail: "id " + row.person.id.uuidString.lowercased(),
+                                monospacedDetail: true
+                            )
                         }
+                        .accessibilityIdentifier("groupInvitePerson-\(row.id)")
                     }
                 } header: { Text(verbatim: "SavedUser") }
             }

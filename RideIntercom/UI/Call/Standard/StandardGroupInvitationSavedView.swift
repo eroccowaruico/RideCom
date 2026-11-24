@@ -6,36 +6,33 @@ struct StandardGroupInvitationSavedView: View {
     let selectedUsers: Set<UUID>
     let onDone: () -> Void
 
-    private var people: [UUID] { viewModel.groupInvitationPersonIDs(group.id) }
-
     var body: some View {
+        let people = viewModel.groupInvitationPeople(group.id)
         Form {
             Section {
                 Text(verbatim: group.name).font(.headline).accessibilityIdentifier("savedInvitationGroupName")
                 if !selectedUsers.isEmpty
-                    || people.contains(where: { viewModel.contactPerson($0)?.isRegistered == false }) {
+                    || people.contains(where: { !$0.person.isRegistered }) {
                     Text("Invitations saved. You can close this screen and share them later.")
                         .accessibilityIdentifier("groupDeliverySelectionMessage")
                 }
             }
             if !people.isEmpty {
                 Section {
-                    ForEach(people, id: \.self) { personID in
-                        if let person = viewModel.contactPerson(personID) {
-                            NavigationLink {
-                                StandardContactPersonDetail(
-                                    viewModel: viewModel, person: person, presentationPersonID: personID)
-                            } label: {
-                                HStack {
-                                    Text(verbatim: person.resolvedDisplayName)
-                                    Spacer()
-                                    Text(LocalizedStringKey(person.isRegistered ? "Registered" : "Not registered"))
-                                        .font(.subheadline).foregroundStyle(.secondary)
-                                        .accessibilityIdentifier("groupInviteRegistrationState-\(personID)")
-                                }
+                    ForEach(people) { row in
+                        NavigationLink {
+                            StandardContactPersonDetail(
+                                viewModel: viewModel, person: row.person, presentationPersonID: row.id)
+                        } label: {
+                            HStack {
+                                Text(verbatim: row.person.resolvedDisplayName)
+                                Spacer()
+                                Text(LocalizedStringKey(row.person.isRegistered ? "Registered" : "Not registered"))
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("groupInviteRegistrationState-\(row.id)")
                             }
-                            .accessibilityIdentifier("groupInvitePerson-\(personID)")
                         }
+                        .accessibilityIdentifier("groupInvitePerson-\(row.id)")
                     }
                 }
             }

@@ -1,6 +1,12 @@
 import Foundation
 
 extension IntercomViewModel {
+    struct GroupInvitationPerson: Identifiable {
+        // Keep the invitation's identity even when the directory resolves it to an existing person.
+        let id: UUID
+        let person: SavedUser
+    }
+
     func contactGroupAttachment(for groupID: UUID) throws -> ContactGroupInvitation {
         guard canShareGroup(groupID), let group = groups.first(where: { $0.id == groupID && $0.kind == .group }),
               let key = try credential(for: group) else { throw ContactInvitationError.unavailable }
@@ -91,23 +97,13 @@ extension IntercomViewModel {
         return personForGroupInvitation(memberID: invitation.pendingGroupMemberID, groupID: groupID)
     }
 
-    func groupInvitationPersonIDs(_ groupID: UUID) -> [UUID] {
-        outgoingGroupInvitationPersonIDs(in: groupID)
-            .filter { contactPerson($0) != nil }
-            .sorted { $0.uuidString < $1.uuidString }
-    }
-
-    func groupInvitationPeople(_ groupID: UUID) -> [SavedUser] {
-        let people = outgoingGroupInvitationPersonIDs(in: groupID).compactMap(contactPerson)
-        let uniquePeople = Dictionary(people.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return uniquePeople.values.sorted {
-            $0.resolvedDisplayName.localizedStandardCompare($1.resolvedDisplayName) == .orderedAscending
-        }
-    }
-
-    private func outgoingGroupInvitationPersonIDs(in groupID: UUID) -> Set<UUID> {
-        Set(groupRepository.contactInvitations.filter {
+    func groupInvitationPeople(_ groupID: UUID, including selectedUsers: Set<UUID> = []) -> [GroupInvitationPerson] {
+        _ = contactInvitationRevision
+        let invited = groupRepository.contactInvitations.filter {
             $0.direction == .outgoing && $0.invitedGroupID == groupID && $0.state != .cancelled
-        }.compactMap(\.personID))
+        }.compactMap(\.personID)
+        return selectedUsers.union(invited).sorted { $0.uuidString < $1.uuidString }.compactMap { id in
+            contactPerson(id).map { GroupInvitationPerson(id: id, person: $0) }
+        }
     }
 }

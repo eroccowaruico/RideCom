@@ -87,6 +87,9 @@ struct GroupContactInvitationTests {
         defer { authorHarness.viewModel.disconnect(); recipientHarness.viewModel.disconnect() }
         let target = try #require(token.invitedGroup), id = try #require(token.directInvitation?.context.id)
         #expect(authorHarness.viewModel.groups.first(where: { $0.id == target.id })?.members.count == 2)
+        let beforeReply = authorHarness.viewModel.groupInvitationPeople(target.id)
+        #expect(beforeReply.map(\.id) == [person])
+        #expect(beforeReply.first?.person.isRegistered == false)
         let url = try GroupInviteTokenCodec.joinURL(for: token, contactBootstrap: true)
         try recipientHarness.viewModel.acceptContactInviteURL(url)
         #expect(recipientHarness.viewModel.savedRemoteUsers.count == 1)
@@ -97,6 +100,9 @@ struct GroupContactInvitationTests {
         try authorHarness.viewModel.receiveContactReplyURL(reply)
         #expect(authorHarness.viewModel.savedRemoteUsers.first?.id == person)
         #expect(authorHarness.viewModel.savedRemoteUsers.first?.resolvedDisplayName == "My new rider")
+        let afterReply = authorHarness.viewModel.groupInvitationPeople(target.id, including: [person])
+        #expect(afterReply.map(\.id) == [person])
+        #expect(afterReply.first?.person.isRegistered == true)
         #expect(
             authorHarness.viewModel.groups.first(where: { $0.id == target.id })?.members.map(\.id) == [
                 "group-author", "group-recipient"
