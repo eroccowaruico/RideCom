@@ -42,9 +42,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                 request, path: "ice/\(request.call.localPeer.id.rawValue)", body: ["leaseID": attempt])
             let ice = try JSONDecoder().decode(IceConfiguration.self, from: data)
             guard self.generation == generation else {
-                _ = try? await http(
-                    request, path: "ice/\(request.call.localPeer.id.rawValue)", method: "DELETE",
-                    body: ["leaseID": attempt])
+                await releaseLease(request, iceLeaseID: attempt)
                 return
             }
             source.yield(.iceServers(ice.iceServers))
@@ -60,12 +58,18 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
         if let oldRequest {
-            let path = oldID.map { "sessions/\($0)" } ?? "ice/\(oldRequest.call.localPeer.id.rawValue)"
-            _ = try? await http(
-                oldRequest, path: path, method: "DELETE",
-                body: oldID == nil ? ["leaseID": oldIceLeaseID ?? ""] : nil)
+            await releaseLease(oldRequest, sessionID: oldID, iceLeaseID: oldIceLeaseID)
         }
     }
+
+    private func releaseLease(
+        _ request: WebRTCSignalingConnectRequest, sessionID: String? = nil, iceLeaseID: String? = nil
+    ) async {
+        let path = sessionID.map { "sessions/\($0)" } ?? "ice/\(request.call.localPeer.id.rawValue)"
+        _ = try? await http(
+            request, path: path, method: "DELETE", body: sessionID == nil ? ["leaseID": iceLeaseID ?? ""] : nil)
+    }
+
     public func sendOffer(_ offer: WebRTCSessionDescription, to peerID: PeerID) async {
         guard peerID == Self.sfuID, let request, sessionID == nil else { return }
         let generation = generation
@@ -77,12 +81,14 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
                 "iceLeaseID": iceLeaseID ?? "", "offer": ["type": "offer", "sdp": offer.sdp]])
             let lease = try JSONDecoder().decode(Lease.self, from: response)
             guard self.generation == generation else {
-                _ = try? await http(request, path: "sessions/\(lease.sessionId)", method: "DELETE"); return
+                await releaseLease(request, sessionID: lease.sessionId)
+                return
             }
+            // The Worker has already allocated a session, even if it cannot be used.
+            sessionID = lease.sessionId
             guard let description = lease.sessionDescription, description.type == "answer" else {
                 throw Failure.invalidResponse
             }
-            sessionID = lease.sessionId
             localChannels = lease.channels ?? []
             source.yield(.dataChannels(localChannels))
             source.yield(.answer(.init(kind: .answer, sdp: description.sdp), from: Self.sfuID))

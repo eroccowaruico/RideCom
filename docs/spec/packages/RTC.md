@@ -177,7 +177,7 @@ iOS・iPadOS・macOSのLocal経路はBonjourで近くの参加者を探し、QUI
 | native適用 | SDP生成前にICE設定。更新は同じpeer connectionへsetConfigurationを適用しDataChannelを作り直さない |
 | TURNの媒体経路 | UDPのTURN候補を使用する。TCPやTLSのTURN候補は使わない。UDPで媒体経路を作れない場合は、Internet経路の失敗として扱う |
 | lease更新 | Workerのrenew応答にiceServersがある場合だけ更新。Cloudflare長期秘密は受け取らない |
-| 中断 | SFU session成立前は試行leaseID付きDELETE、成立後はsession DELETE。古い試行の遅延cleanupは新資格を削除できない |
+| 中断 | WorkerからSFUセッションIDを受け取る前は接続試行のleaseIDを指定してDELETEする。受け取った後はそのセッションをDELETEする。接続に必要なSDP answerが欠けていても、受け取ったセッションIDを使う。古い試行の片付けはその試行に割り当てられた資格とセッションだけを対象とする |
 | エラー | 資格の取得・適用失敗はInternet routeの失敗として既存report/eventに反映。他の有効なLocal経路を止めない |
 
 [Cloudflare公式の資格生成・失効・更新](https://developers.cloudflare.com/realtime/turn/generate-credentials/)に基づく。資格の期間・利用枠・失効再試行は[Worker](../server/Worker.md)が所有する。

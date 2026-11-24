@@ -51,6 +51,19 @@ struct CloudflareClientTests {
         #expect(!text.contains("Device"))
         await client.disconnect()
     }
+
+    @Test func releasesTheJoinedSessionWhenTheAnswerIsMissing() async throws {
+        SFUHTTPStub.reset(missingAnswer: true)
+        let client = makeClient()
+        await client.connect(try request())
+        await client.sendOffer(.init(kind: .offer, sdp: "offer"), to: .init(rawValue: "cloudflare-sfu"))
+        await client.disconnect()
+
+        let releases = SFUHTTPStub.requests.filter { $0.httpMethod == "DELETE" }
+        #expect(releases.count == 1)
+        #expect(releases.first?.url?.path.hasSuffix("/sessions/same-session") == true)
+    }
+
     @Test func iceCredentialsArriveBeforeOfferAndAreCleanedUpWithoutSession() async throws {
         SFUHTTPStub.reset()
         let client = makeClient()
@@ -196,10 +209,15 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var transient = false
     nonisolated(unsafe) private static var delayFirstDelete = false
     nonisolated(unsafe) private static var rejectedStage: String?
-    static func reset(transient: Bool = false, delayFirstDelete: Bool = false, rejectedStage: String? = nil) {
+    nonisolated(unsafe) private static var missingAnswer = false
+    static func reset(
+        transient: Bool = false, delayFirstDelete: Bool = false,
+        rejectedStage: String? = nil, missingAnswer: Bool = false
+    ) {
         lock.withLock {
             recorded = []; self.transient = transient; self.delayFirstDelete = delayFirstDelete
             self.rejectedStage = rejectedStage
+            self.missingAnswer = missingAnswer
         }
     }
     override static func canInit(with request: URLRequest) -> Bool { request.url?.scheme == "https" }
@@ -262,8 +280,10 @@ private final class SFUHTTPStub: URLProtocol, @unchecked Sendable {
     }
 
     private func data(path: String, sessionID: String, rejected: Bool) -> Data {
-        let sessionJSON = "{\"sessionId\":\"\(sessionID)\",\"expiresAt\":9999999999999,\"renewAfterSeconds\":1,"
-            + "\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"}}"
+        let missingAnswer = Self.lock.withLock { Self.missingAnswer }
+        let answer = missingAnswer ? "" : ",\"sessionDescription\":{\"type\":\"answer\",\"sdp\":\"answer\"}"
+        let sessionJSON = "{\"sessionId\":\"\(sessionID)\",\"expiresAt\":9999999999999,"
+            + "\"renewAfterSeconds\":1\(answer)}"
         var data = Data(sessionJSON.utf8)
         if path.contains("/ice/") {
             data = Data("{\"iceServers\":[{\"urls\":[\"stun:stun.cloudflare.com:3478\"]}]}".utf8)
