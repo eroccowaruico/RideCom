@@ -197,12 +197,12 @@ public actor RouteManager: CallSession {
         // as immediate acceptance on the flow that actually sends this frame.
         for kind in [RouteKind.multipeer, .webRTC] where started.contains(kind) && kind != excluding {
             guard !blocked.contains(kind), let route = routes[kind] else { continue }
-            // Every direct peer on this path has already handled this audio.
             if case .audio = body, kind == .multipeer, !path.isEmpty,
                routeMembers[kind, default: []].isSubset(of: path) { continue }
-            if case .audio = body, kind == .webRTC {
-                let internetPeers = routeMembers[.webRTC, default: []]
-                if !internetPeers.isEmpty, internetPeers.isSubset(of: localRecipients) {
+            if case .audio = body, kind == .webRTC,
+               let internetPeers = routeMembers[kind], !internetPeers.isEmpty {
+                if internetPeers.isSubset(of: path) { continue }
+                if internetPeers.isSubset(of: localRecipients) {
                     internetCoveredByLocal = true
                     continue
                 }

@@ -72,7 +72,7 @@ actor ContinuityVirtualNetwork {
     let internetAvailable: Bool
     private var unavailable: [RouteKind: Set<PeerID>] = [:]
     private var attempts: [RouteKind: [PeerID: Int]] = [:]
-    private var localAudioSends: [PeerID: Int] = [:]
+    private var audioSends: [RouteKind: [PeerID: Int]] = [:]
     private var localNetworks: [PeerID: String] = [:]
     private let localLine: [PeerID]
 
@@ -116,7 +116,7 @@ actor ContinuityVirtualNetwork {
         routes[kind]?[peer]?.report ?? .init()
     }
 
-    func localAudioSendCount(for peer: PeerID) -> Int { localAudioSends[peer, default: 0] }
+    func audioSendCount(for peer: PeerID, kind: RouteKind) -> Int { audioSends[kind]?[peer] ?? 0 }
     func reachablePeers(_ peer: PeerID, kind: RouteKind) -> Set<PeerID> {
         guard routes[kind]?[peer] != nil else { return [] }
         return Set(routes[kind, default: [:]].keys.filter { other in
@@ -132,7 +132,7 @@ actor ContinuityVirtualNetwork {
     }
 
     func send(_ peer: PeerID, kind: RouteKind, message: ApplicationDataMessage) {
-        if kind == .multipeer && message.delivery == .unreliable { localAudioSends[peer, default: 0] += 1 }
+        if message.delivery == .unreliable { audioSends[kind, default: [:]][peer, default: 0] += 1 }
         for other in reachablePeers(peer, kind: kind) {
             routes[kind]?[other]?.yield(.receivedApplicationData(kind, .init(peerID: peer, message: message)))
         }

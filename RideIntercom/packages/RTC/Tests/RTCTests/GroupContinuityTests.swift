@@ -28,8 +28,10 @@ extension RealtimeTransportTests.GroupContinuityTests {
 
         try await assertAllDirections(riders: riders, offset: 0)
         #expect(await managers[3].networkDiagnostics().peers.contains { $0.peerID == ids[0] && $0.path == ids })
-        #expect(await network.localAudioSendCount(for: ids[0]) == 1, "The first rider only sends their own audio")
-        #expect(await network.localAudioSendCount(for: ids[3]) == 1, "The last rider only sends their own audio")
+        #expect(await network.audioSendCount(for: ids[0], kind: .multipeer) == 1,
+                "The first rider only sends their own audio")
+        #expect(await network.audioSendCount(for: ids[3], kind: .multipeer) == 1,
+                "The last rider only sends their own audio")
         await network.fail(ids[1], kind: .multipeer)
         #expect(await network.reachablePeers(ids[0], kind: .multipeer).isEmpty)
         await riders[0].sendAudio(marker: 21)
@@ -48,6 +50,57 @@ extension RealtimeTransportTests.GroupContinuityTests {
                 #expect(markers.filter { $0 == UInt8(30 + sender) }.count == 1)
             }
             await managers[receiver].stopConnection()
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func localGatewayOnlyUsesInternetWhenAnUnreachedPeerCanReceive() async throws {
+        let network = ContinuityVirtualNetwork()
+        let local = CallRouteConfiguration(enabledRoutes: [.multipeer], preferredRoute: .multipeer)
+        let mixed = CallRouteConfiguration(enabledRoutes: [.multipeer, .webRTC],
+                                          preferredRoute: .multipeer, fallbackDelay: 0)
+        let internet = CallRouteConfiguration(enabledRoutes: [.webRTC], preferredRoute: .webRTC)
+        let speaker = ContinuityRider(id: .init(rawValue: "speaker"), routeKinds: [.multipeer], network: network)
+        let gateway = ContinuityRider(id: .init(rawValue: "gateway"),
+                                      routeKinds: [.multipeer, .webRTC], network: network)
+        let listener = ContinuityRider(id: .init(rawValue: "listener"), routeKinds: [.webRTC], network: network)
+        let session = "local-gateway"
+        let credential = RTCCredential.derived(groupID: session, secret: "fixture")
+        let recorders = [gateway.listen(), listener.listen()]
+        defer { recorders.forEach { $0.cancel() } }
+
+        try await withConnectionCleanup([speaker, gateway, listener]) {
+            await speaker.start(sessionID: session, displayName: "Speaker",
+                                credential: credential, configuration: local)
+            await gateway.start(sessionID: session, displayName: "Gateway",
+                                credential: credential, configuration: mixed)
+            // The SFU lists the speaker before their presence advertises Internet readiness.
+            await network.join(speaker.id, kind: .webRTC, source: EventSource<RouteEvent>())
+            try await eventually("Gateway connects on both routes") {
+                let members = await gateway.manager.routeMembers
+                let ready = await gateway.manager.routeStates[.webRTC] == .mediaReady
+                return ready && members[.webRTC] == [speaker.id] && members[.multipeer] == [speaker.id]
+            }
+
+            await speaker.sendAudio(marker: 1)
+            try await eventually("First frame reaches gateway over Local") {
+                await gateway.record.audio.contains { $0.peerID == speaker.id && $0.packet.payload.first == 1 }
+            }
+
+            await listener.start(sessionID: session, displayName: "Listener",
+                                 credential: credential, configuration: internet)
+            try await eventually("Listener sees the speaker's forwarded presence") {
+                let members = await gateway.manager.routeMembers
+                let speakerIsKnown = await listener.record.members.contains { $0.peer.id == speaker.id }
+                return members[.webRTC] == [speaker.id, listener.id] && speakerIsKnown
+            }
+            await speaker.sendAudio(marker: 2)
+            try await eventually("The second frame crosses through the gateway to the listener") {
+                await listener.record.audio.contains { $0.peerID == speaker.id && $0.packet.payload.first == 2 }
+            }
+            let internetSends = await network.audioSendCount(for: gateway.id, kind: .webRTC)
+            #expect(internetSends == 1,
+                    "Only the frame with a new Internet recipient is forwarded")
         }
     }
 
