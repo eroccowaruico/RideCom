@@ -15,7 +15,7 @@ from scripts.test_lifecycle import (
     exclusive_run,
     simulator_resource_root,
 )
-from scripts.validate import ROOT, Runner, snapshot
+from scripts.validate import ROOT, Runner, record_unchanged_inputs, snapshot
 
 
 def archive_observations(runner: Runner, sim: str, cases: list[str]) -> None:
@@ -45,7 +45,6 @@ def main() -> int:
         description='Native iOS waiting audio during background, without a peer; not physical-device acceptance'
     )
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--reuse-settings', type=Path)
     parser.add_argument('--scenario', choices=['waiting','resumed','first-permission','all'], default='waiting')
     args=parser.parse_args()
     root=ROOT
@@ -77,9 +76,6 @@ def main() -> int:
             runner.run('appearance',['xcrun','simctl','ui',sim,'appearance','light'],needs=['ready'],timeout=30)
             audio_pin=SimulatorAudioPin(sim)
             (runner.out/'simulator-duplex-device.txt').write_text(audio_pin.pin()+'\n')
-            reuse=args.reuse_settings
-            if reuse:
-                shutil.copyfile(reuse, runner.out/'reused-build-build-settings.json')
             permission='reset' if args.scenario in ['first-permission','all'] else 'grant'
             runner.run('microphone-permission',['xcrun','simctl','privacy',sim,permission,'microphone','com.yowamushi-inc.RideIntercom.RideIntercom'],needs=['ready'],timeout=30)
             prior=subprocess.run(['xcrun','simctl','get_app_container',sim,'com.yowamushi-inc.RideIntercom.RideIntercom','data'],capture_output=True,text=True,check=False)
@@ -87,14 +83,14 @@ def main() -> int:
                 for old in (Path(prior.stdout.strip())/'tmp').glob('background-call-*.json'):
                     old.unlink()
             runner.xcode('ui', 'platform=iOS Simulator,id=' + sim, only=tests,
-                         needs=['appearance', 'microphone-permission'], verify_selection=True,
-                         reuse_build='reused-build' if reuse else None)
+                         needs=['appearance', 'microphone-permission'], verify_selection=True)
             archive_observations(runner, sim, cases)
         finally:
             try:
                 if audio_pin: audio_pin.restore()
             finally:
                 if lease.acquired: lease.cleanup('simulator-final')
+    record_unchanged_inputs(runner)
     return runner.exit_code
 
 

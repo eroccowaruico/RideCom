@@ -546,6 +546,18 @@ def snapshot(out: Path) -> None:
     (out / 'inputs.json').write_text(json.dumps(hashes, ensure_ascii=False, indent=2) + '\n')
 
 
+def record_unchanged_inputs(runner: Runner) -> None:
+    # A concurrent edit invalidates evidence rather than silently passing.
+    started = time.monotonic()
+    path = runner.out / 'inputs.json'
+    before = path.read_text()
+    snapshot(runner.out)
+    (runner.out / 'inputs-before.json').write_text(before)
+    unchanged = fingerprints_match(json.loads(before), json.loads(path.read_text()))
+    runner.record('unchanged-inputs', [], 'passed' if unchanged else 'failed', int(not unchanged),
+                  started, 'source/configuration fingerprints must match except for advancing the shared build number')
+
+
 # Tests of the regular-width layout. They skip themselves below 600x500 points.
 IPAD_ONLY_TESTS = ['RideIntercomUITests/DesignSystemCallUITests/testRegularWidthUsesSeparateCallColumns']
 # This case checks distinct iPhone margins and iPad sidebar behavior.
@@ -821,13 +833,7 @@ def main() -> int:
             runner.record('macos-tests', [], 'blocked', None, time.monotonic(), 'Another managed App or audio test run is active')
     if mode in ('all', 'ios', 'ios-ui', 'watch-ui'):
         run_simulator_tests(runner, mode, args.only_testing)
-    # A concurrent edit invalidates evidence rather than silently passing.
-    before = (runner.out / 'inputs.json').read_text()
-    snapshot(runner.out)
-    after = (runner.out / 'inputs.json').read_text()
-    (runner.out / 'inputs-before.json').write_text(before)
-    runner.record('unchanged-inputs', [], 'passed' if fingerprints_match(json.loads(before), json.loads(after)) else 'failed', 0 if fingerprints_match(json.loads(before), json.loads(after)) else 1,
-                  time.monotonic(), 'source/configuration fingerprints must match except for advancing the shared build number')
+    record_unchanged_inputs(runner)
     runner.crash_reports.sample()
     print(f'Crash reports: {runner.out / "crash-reports.json"}')
     print(f'Results: {runner.out / "results.tsv"}')

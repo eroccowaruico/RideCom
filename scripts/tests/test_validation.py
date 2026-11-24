@@ -677,6 +677,42 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertEqual(self.runner.results['wrong-platform-recovery-build-settings']['status'], 'failed')
 
+    def test_background_run_rejects_a_changed_input_after_the_ui_test(self) -> None:
+        from contextlib import nullcontext
+
+        from scripts import background_call_e2e, validate
+
+        (self.runner.out / 'runtimes.log').write_text(json.dumps({'runtimes': [
+            {'isAvailable': True, 'name': 'iOS fixture', 'version': '27.0', 'identifier': 'fixture-runtime'}
+        ]}))
+        before = {'RideIntercom/App.swift': {'sha256': 'before'}}
+        after = {'RideIntercom/App.swift': {'sha256': 'after'}}
+        with (
+            patch.object(sys, 'argv', ['background_call_e2e.py', '--out', str(self.runner.out)]),
+            patch.dict(os.environ),
+            patch.object(background_call_e2e.os, 'chdir'),
+            patch.object(background_call_e2e, 'Runner', return_value=self.runner),
+            patch.object(background_call_e2e, 'snapshot',
+                         side_effect=lambda out: (out / 'inputs.json').write_text(json.dumps(before))),
+            patch.object(validate, 'snapshot',
+                         side_effect=lambda out: (out / 'inputs.json').write_text(json.dumps(after))),
+            patch.object(background_call_e2e, 'exclusive_run', return_value=nullcontext()),
+            patch.object(background_call_e2e, 'SimulatorLease') as lease,
+            patch.object(background_call_e2e, 'SimulatorAudioPin') as audio,
+            patch.object(background_call_e2e.subprocess, 'run', return_value=SimpleNamespace(returncode=1)),
+            patch.object(background_call_e2e, 'archive_observations'),
+            patch.object(self.runner, 'run'),
+            patch.object(self.runner, 'xcode') as xcode,
+        ):
+            lease.return_value.prepare.return_value = 'fixture-simulator'
+            audio.return_value.pin.return_value = 'fixture-audio'
+            self.assertEqual(background_call_e2e.main(), 1)
+        xcode.assert_called_once()
+        audio.return_value.restore.assert_called_once()
+        lease.return_value.cleanup.assert_called_once_with('simulator-final')
+        self.assertEqual(self.runner.results['unchanged-inputs']['status'], 'failed')
+        self.assertEqual(json.loads((self.runner.out / 'inputs-before.json').read_text()), before)
+
     def test_clean_uses_standard_package_outputs_and_reuses_rtc_for_pair(self) -> None:
         commands = []
         def command(stage: str, argv: list[str], *, needs: Sequence[str] = (), **kwargs: object) -> bool:
