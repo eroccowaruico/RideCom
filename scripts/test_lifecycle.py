@@ -310,18 +310,30 @@ class SimulatorLease:
         success = self.cleanup_host(prefix)
         if not self.state:
             return success
+        reusable = self.state.get('reusable', False)
         try:
-            for index, device in enumerate(self.owned_devices()):
+            devices = self.owned_devices()
+            for index, device in enumerate(devices):
                 if device['state'] != 'Shutdown':
                     result = self.runner.run(f'{prefix}-shutdown-{index}', ['xcrun', 'simctl', 'shutdown', device['udid']], timeout=60)
                     success = result and success
-                if not self.state.get('reusable'):
+                if not reusable:
                     result = self.runner.run(f'{prefix}-delete-{index}', ['xcrun', 'simctl', 'delete', device['udid']], timeout=60)
                     success = result and success
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            self.runner.record(prefix + '-simulator', [], 'failed', 1, time.monotonic(), str(error))
-            success = False
-        if success and not self.state.get('reusable'):
-            self.journal.unlink(missing_ok=True)
-            self.state = {}
+            if devices and success:
+                started = time.monotonic()
+                owned_ids = {device['udid'] for device in devices}
+                expected = dict.fromkeys(owned_ids, 'Shutdown') if reusable else {}
+                observed = {device['udid']: device['state'] for device in simulator_devices()
+                            if device['udid'] in owned_ids}
+                matches = observed == expected
+                reason = ('Owned device inventory confirms cleanup' if matches else
+                          'Owned device inventory does not match the expected cleanup state')
+                success = self.runner.record(prefix + '-verify', [], 'passed' if matches else 'failed',
+                                             0 if matches else 1, started, reason)
+            if success and not reusable:
+                self.journal.unlink(missing_ok=True)
+                self.state = {}
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            return self.runner.record(prefix + '-simulator', [], 'failed', 1, time.monotonic(), type(error).__name__)
         return success

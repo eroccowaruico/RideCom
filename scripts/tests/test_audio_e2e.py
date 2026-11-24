@@ -584,7 +584,7 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         devices = [{'name': 'owned-unique-name', 'udid': 'ours', 'state': 'Booted'},
                    {'name': 'owned-unique-name-extra', 'udid': 'other', 'state': 'Booted'}]
         calls = []
-        with patch('scripts.test_lifecycle.simulator_devices', return_value=devices), \
+        with patch('scripts.test_lifecycle.simulator_devices', side_effect=[devices, [devices[1]]]), \
              patch.object(runner, 'run', side_effect=lambda name, command, **kw: calls.append(command) or True):
             SimulatorLease(runner, lease.journal).cleanup('recovery')
         self.assertEqual(calls, [['xcrun', 'simctl', 'shutdown', 'ours'], ['xcrun', 'simctl', 'delete', 'ours']])
@@ -604,14 +604,30 @@ class AudioE2ELifecycleTests(unittest.TestCase):
         self.assertEqual([c[2] for c in calls], ['shutdown', 'delete'])
         self.assertTrue(lease.journal.exists())
 
+    def test_cleanup_rejects_successful_commands_that_leave_the_wrong_device_state(self) -> None:
+        devices = [{'name': 'owned-fixture', 'udid': 'ours', 'state': 'Booted'}]
+        for reusable, final_state in [(True, 'Booted'), (False, 'Shutdown')]:
+            with self.subTest(reusable=reusable):
+                runner = Runner(self.root / f'evidence-{reusable}')
+                lease = SimulatorLease(runner, self.root / f'lease-{reusable}.json')
+                lease.reserve('owned-fixture', reusable=reusable)
+                lease.identify('ours')
+                remaining = [devices[0] | {'state': final_state}]
+                with patch('scripts.test_lifecycle.simulator_devices', side_effect=[devices, remaining]), \
+                     patch.object(runner, 'run', return_value=True):
+                    self.assertFalse(lease.cleanup('final'))
+                self.assertEqual(runner.results['final-verify']['status'], 'failed')
+                self.assertEqual(runner.exit_code, 1)
+                self.assertEqual(SimulatorLease(runner, lease.journal).state['udid'], 'ours')
+
     def test_reusable_device_is_stopped_and_remains_owned_for_the_next_run(self) -> None:
         runner = Runner(self.root / 'evidence')
         lease = SimulatorLease(runner, self.root / 'lease.json')
         lease.reserve('one-managed-device', reusable=True)
         lease.identify('our-uuid')
         calls = []
-        with patch('scripts.test_lifecycle.simulator_devices', return_value=[
-                {'name': 'one-managed-device', 'udid': 'our-uuid', 'state': 'Booted'}]), \
+        device = {'name': 'one-managed-device', 'udid': 'our-uuid', 'state': 'Booted'}
+        with patch('scripts.test_lifecycle.simulator_devices', side_effect=[[device], [device | {'state': 'Shutdown'}]]), \
              patch.object(runner, 'run', side_effect=lambda name, command, **kw: calls.append(command) or True):
             self.assertTrue(lease.cleanup('final'))
         self.assertEqual(calls, [['xcrun', 'simctl', 'shutdown', 'our-uuid']])
