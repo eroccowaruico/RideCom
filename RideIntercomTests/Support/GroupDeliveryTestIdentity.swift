@@ -12,9 +12,10 @@ import Foundation
     private let groupDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
         "RideIntercom-GroupDelivery-" + UUID().uuidString)
     let store: InternetConnectionSettingsStore
-    init(_ memberID: String) {
+    init(_ memberID: String, fixedWorkerOrigin: URL? = nil) {
         self.memberID = memberID
-        store = InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
+        store = InternetConnectionSettingsStore(
+            keychain: keychain, namespace: namespace, fixedWorkerOrigin: fixedWorkerOrigin)
     }
     func authorizeFixture(
         userID: String, issuer: P256.Signing.PrivateKey = P256.Signing.PrivateKey(), relayEnabled: Bool = false

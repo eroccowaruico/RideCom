@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { generateKeyPair, exportJWK, exportPKCS8, SignJWT } from 'jose';
 import { makeRuntime } from './support/runtime.mjs';
 
@@ -28,16 +28,35 @@ if (!bundleMatches()) execFileSync(process.execPath, [resolve(serverRoot, 'node_
 if (!bundleMatches()) throw new Error('Local Worker bundle source mismatch');
 const apple = await generateKeyPair('RS256'), signing = await generateKeyPair('ES256', { extractable: true });
 const applePublic = { ...await exportJWK(apple.publicKey), kid: 'group-app-fixture', alg: 'RS256' };
+const credentialRenewal = process.argv.includes('--credential-renewal');
 const runtime = await makeRuntime({ APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app',
     DIRECT_CALL_RESTORE_RELAY_ENABLED: process.argv[3] === '--direct-restore' ? 'true' : 'false',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     INVITATION_RELAY_KEY_SEED: randomBytes(32).toString('base64url'),
     APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
-    APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' }, { appleKeys: [applePublic], apns: async () => Response.json({}) });
+    APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' }, {
+    appleKeys: [applePublic], apns: async () => Response.json({}),
+    ...(credentialRenewal ? { fixedNowMs: Math.floor(Date.now() / 1000) * 1000, deviceLifetimeMs: 2 * 86_400_000 } : {}),
+});
 const origin = 'https://delivery.test';
 const dispatch = (path, method, body, token) => runtime.dispatchFetch(origin + path, { method,
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+const digest = value => createHash('sha256').update(value).digest('hex');
+async function enrollmentProof(challenge, input) {
+    const native = credentialRenewal ? await generateKeyPair('ES256', { extractable: true }) : null;
+    const publicKey = native ? Buffer.from(await crypto.subtle.exportKey('raw', native.publicKey)).toString('base64url') : null;
+    const nonce = publicKey ? digest(`ridecom.apple-sign-in-key.v1\n${publicKey}`) : challenge.nonce;
+    const identityToken = await new SignJWT({ sub: input.appleSubject ?? input.memberID, nonce }).setIssuer('https://appleid.apple.com')
+        .setAudience('fixture-app').setIssuedAt().setExpirationTime('5m')
+        .setProtectedHeader({ alg: 'RS256', kid: applePublic.kid }).sign(apple.privateKey);
+    const result = { challengeID: challenge.challengeID, identityToken };
+    if (!native) return result;
+    const deviceKey = input.deviceKey;
+    const message = ['ridecom.apple-enrollment.v1', input.deviceID, challenge.nonce, digest(identityToken), deviceKey].join('\n');
+    const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, native.privateKey, Buffer.from(message));
+    return { ...result, signInProof: { publicKey, deviceKey, signature: Buffer.from(signature).toString('base64url') } };
+}
 const server = createServer(async (request, response) => {
     try {
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
@@ -45,9 +64,7 @@ const server = createServer(async (request, response) => {
         if (request.url === '/fixture/register') {
             const input = JSON.parse(data.toString());
             const challenge = await (await dispatch('/api/auth/apple/challenge', 'POST', { deviceID: input.deviceID })).json();
-            const identityToken = await new SignJWT({ sub: input.appleSubject ?? input.memberID, nonce: challenge.nonce }).setIssuer('https://appleid.apple.com')
-                .setAudience('fixture-app').setIssuedAt().setExpirationTime('5m').setProtectedHeader({ alg: 'RS256', kid: applePublic.kid }).sign(apple.privateKey);
-            const session = await dispatch('/api/auth/apple/session', 'POST', { challengeID: challenge.challengeID, identityToken });
+            const session = await dispatch('/api/auth/apple/session', 'POST', await enrollmentProof(challenge, input));
             if (session.status !== 200) throw new Error('Fixture enrollment failed');
             const credential = await session.json();
             const proof = await dispatch('/api/auth/identity', 'POST', { memberID: input.memberID, deviceKey: input.deviceKey }, credential.accessToken);

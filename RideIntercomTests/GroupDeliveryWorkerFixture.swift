@@ -12,7 +12,8 @@ extension GroupDeliveryWorkerTests {
         return URLSession(configuration: configuration)
     }
 
-    func withWorker(directRestore: Bool = false, _ exercise: () async throws -> Void) async throws {
+    func withWorker(directRestore: Bool = false, credentialRenewal: Bool = false,
+                    _ exercise: () async throws -> Void) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             "RideIntercom-GroupWorker-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -29,7 +30,7 @@ extension GroupDeliveryWorkerTests {
         process.currentDirectoryURL = root
         process.arguments = [
             "node", root.appendingPathComponent("server/test/group-delivery-app-bridge.mjs").path, portFile.path
-        ] + (directRestore ? ["--direct-restore"] : [])
+        ] + (directRestore ? ["--direct-restore"] : []) + (credentialRenewal ? ["--credential-renewal"] : [])
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = (environment["PATH"] ?? "/usr/bin:/bin") + ":/opt/homebrew/bin:/usr/local/bin"
         try verifyWorkerNode(at: root, environment: environment, log: log)
