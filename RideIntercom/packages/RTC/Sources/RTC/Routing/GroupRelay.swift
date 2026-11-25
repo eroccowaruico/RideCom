@@ -99,7 +99,9 @@ struct GroupRelay: Sendable {
                 sequence: sequence, path: [request.localPeer.id], body: body, internetReady: internetReady))
     }
 
-    mutating func receive(_ bytes: Data, from hop: PeerID, now: TimeInterval) -> Reception? {
+    mutating func receive(
+        _ bytes: Data, from hop: PeerID, now: TimeInterval, preparesAudioForwarding: Bool = true
+    ) -> Reception? {
         guard bytes.count <= 32768, var envelope = try? decode(bytes), envelope.session == request.sessionID,
               envelope.origin.id != request.localPeer.id, envelope.path.first == envelope.origin.id,
               envelope.path.last == hop, (1...8).contains(envelope.path.count),
@@ -141,10 +143,16 @@ struct GroupRelay: Sendable {
         }
         peers[id] = member
         envelope.path.append(request.localPeer.id)
-        let forwarded = envelope.path.count < 8 ? try? encode(envelope) : nil
         return Reception(
-            peer: envelope.origin, body: envelope.body, forward: forwarded, didRestart: didRestart,
+            peer: envelope.origin, body: envelope.body,
+            forward: forwardingData(for: envelope, preparesAudio: preparesAudioForwarding), didRestart: didRestart,
             path: envelope.path)
+    }
+
+    private func forwardingData(for envelope: GroupRelayEnvelope, preparesAudio: Bool) -> Data? {
+        guard envelope.path.count < 8 else { return nil }
+        if case .audio = envelope.body, !preparesAudio { return nil }
+        return try? encode(envelope)
     }
 
     private mutating func member(for envelope: GroupRelayEnvelope, now: TimeInterval) -> Member? {

@@ -110,9 +110,10 @@ import Testing
         func receive(
             _ data: Data, hop: PeerID, relay: inout GroupRelay, queue: inout PacketAudioReceiveBuffer, now: Double
         ) throws {
-            let received = relay.receive(data, from: hop, now: now)
+            let received = relay.receive(data, from: hop, now: now, preparesAudioForwarding: false)
             let result = try #require(received)
             guard case .audio(let packet) = result.body else { Issue.record("Missing audio"); return }
+            try #require(result.forward == nil)
             queue.enqueue(.init(received: .init(peerID: result.peer.id, packet: packet)), receivedAt: now)
             #expect(relay.receive(data, from: hop, now: now) == nil)
             #expect(queue.queuedPacketCount <= 2)

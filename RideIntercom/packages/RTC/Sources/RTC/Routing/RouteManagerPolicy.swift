@@ -42,6 +42,11 @@ extension RouteManager {
         }
     }
 
+    func canForwardAudio(from kind: RouteKind) -> Bool {
+        // The SFU already distributes this audio. Only an active Local route can take another copy.
+        kind != .webRTC || (started.contains(.multipeer) && blocked[.multipeer] == nil)
+    }
+
     func forwardingExclusion(from kind: RouteKind, body: RelayBody, sender: PeerID) -> RouteKind? {
         // SFU already fans out to every subscriber. Local links may be a chain.
         if kind == .webRTC { return .webRTC }

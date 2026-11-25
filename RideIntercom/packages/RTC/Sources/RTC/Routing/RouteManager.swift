@@ -319,8 +319,8 @@ private extension RouteManager {
     func handleApplicationData(_ data: ReceivedApplicationData, from kind: RouteKind) async {
         guard started.contains(kind), blocked[kind] == nil, routeMembers[kind, default: []].contains(data.peerID),
               data.message.namespace == GroupRelay.namespace,
-            let result = relay?.receive(
-                data.message.payload, from: data.peerID, now: ProcessInfo.processInfo.systemUptime)
+              let result = relay?.receive(data.message.payload, from: data.peerID,
+                now: ProcessInfo.processInfo.systemUptime, preparesAudioForwarding: canForwardAudio(from: kind))
         else { return }
         if result.didRestart {
             receiveBuffer.removePeer(result.peer.id)
