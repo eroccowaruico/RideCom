@@ -8,6 +8,27 @@ import UserNotifications
 @MainActor
 @Suite(.serialized)
 struct GroupDeliveryFlowTests {
+    #if os(iOS)
+    @Test func backgroundRefreshReplacesTheRequestCancelledWhileSubmitting() {
+        var submission = BackgroundRefreshSubmission()
+        #expect(submission.reconcile(needed: true) == .submit)
+        #expect(submission.reconcile(needed: true) == .none)
+        #expect(submission.reconcile(needed: false) == .cancel)
+        #expect(submission.reconcile(needed: true) == .none)
+        #expect(submission.finish(needed: true) == .submit)
+        #expect(submission.finish(needed: true) == .none)
+    }
+
+    @Test func backgroundRefreshClosesLateSubmissionWhenItIsNoLongerNeeded() {
+        var submission = BackgroundRefreshSubmission()
+        #expect(submission.reconcile(needed: true) == .submit)
+        #expect(submission.reconcile(needed: false) == .cancel)
+        #expect(submission.finish(needed: false) == .cancel)
+        #expect(submission.reconcile(needed: true) == .submit)
+        #expect(submission.finish(needed: true) == .none)
+    }
+    #endif
+
     @Test func selectingAKnownAccountQueuesEveryKnownDeviceInTheSameSave() throws {
         let peer = AccountPrincipal(issuer: "https://delivery.test", userID: String(repeating: "b", count: 64))
         let user = SavedUser(displayName: "Registered friend", memberIDs: ["friend-one", "friend-two"],

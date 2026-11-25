@@ -2,6 +2,31 @@
 import BackgroundTasks
 import UIKit
 
+struct BackgroundRefreshSubmission {
+    enum Action { case none, submit, cancel }
+
+    private enum State { case idle, submitting, cancelledWhileSubmitting }
+    private var state = State.idle
+
+    mutating func reconcile(needed: Bool) -> Action {
+        guard needed else {
+            if state == .submitting { state = .cancelledWhileSubmitting }
+            return .cancel
+        }
+        guard state == .idle else { return .none }
+        state = .submitting
+        return .submit
+    }
+
+    mutating func finish(needed: Bool) -> Action {
+        let wasCancelled = state == .cancelledWhileSubmitting
+        state = .idle
+        guard needed else { return .cancel }
+        // A foreground cancellation can win before the async submission reports back.
+        return wasCancelled ? reconcile(needed: true) : .none
+    }
+}
+
 @MainActor
 final class SavedCommunicationBackgroundRefresh {
     static let identifier = "com.yowamushi-inc.RideIntercom.saved-communication-refresh"
@@ -9,7 +34,7 @@ final class SavedCommunicationBackgroundRefresh {
     weak var owner: AppCallOwner?
     private var isRegistered = false
     private var isInBackground = false
-    private var isSubmitting = false
+    private var submission = BackgroundRefreshSubmission()
     private var running: Task<Void, Never>?
 
     func register() {
@@ -41,24 +66,28 @@ final class SavedCommunicationBackgroundRefresh {
 
     func reconcileSchedule() {
         guard isRegistered else { return }
-        guard shouldSchedule else {
+        apply(submission.reconcile(needed: shouldSchedule))
+    }
+
+    private func apply(_ action: BackgroundRefreshSubmission.Action) {
+        switch action {
+        case .none:
+            break
+        case .cancel:
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.identifier)
-            return
-        }
-        guard !isSubmitting else { return }
-        isSubmitting = true
-        let identifier = Self.identifier
-        Task.detached(priority: .utility) { [weak self] in
-            let request = BGAppRefreshTaskRequest(identifier: identifier)
-            request.earliestBeginDate = Date().addingTimeInterval(15 * 60)
-            try? await BGTaskScheduler.shared.submitTaskRequest(request)
-            await self?.submissionFinished()
+        case .submit:
+            let identifier = Self.identifier
+            Task.detached(priority: .utility) { [weak self] in
+                let request = BGAppRefreshTaskRequest(identifier: identifier)
+                request.earliestBeginDate = Date().addingTimeInterval(15 * 60)
+                try? await BGTaskScheduler.shared.submitTaskRequest(request)
+                await self?.submissionFinished()
+            }
         }
     }
 
     private func submissionFinished() {
-        isSubmitting = false
-        if !shouldSchedule { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.identifier) }
+        apply(submission.finish(needed: shouldSchedule))
     }
 
     private func run(_ task: BGTask) {
