@@ -58,6 +58,7 @@ sequenceDiagram
 | POST `/api/auth/apple/challenge` | UUIDの`deviceID`を受け、5分有効の`challengeID`・`nonce`・`expiresAt`を返す。従来の登録画面ではAppleの認証要求にnonceを渡す。通常のサインインの証明を使う場合は、回線が使える時点で確認要求を取得する |
 | POST `/api/auth/apple/session` | `challengeID`と最大16KiBの`identityToken`を照合し、`userID`・`deviceID`・`expiresAt`・`accessToken`を返す。nonceは並行再送でも1回だけ消費する。1つのchallengeの検証試行は5回までで、外部鍵取得前に回数を永続化する。上限後は新しいchallengeが必要 |
 | GET `/api/auth/session` | 端末Bearerを照合し、ユーザーID・端末ID・期限だけ返す |
+| POST `/api/auth/session` | 有効な端末資格と登録時の鍵による署名を確認し、残り48時間以内なら期限を更新する。[更新条件](#端末資格の期限を延ばす) |
 | DELETE `/api/auth/session` | そのBearerの端末資格だけを失効。他の端末は維持。通話サービス停止中も操作できる |
 | 同一人物 | Apple subjectのハッシュでユーザーDOを解決する。DO内で256bit乱数の公開`userID`を保存し、同じAppleユーザーの複数端末・再ログイン・全端末の資格期限切れでも維持する。アカウント削除だけで破棄し、再登録時は新しいIDへ対応する。表示名やメールによる統合はしない |
 | 識別子の分離 | `ri1`資格内のDO locatorは認証先を解決する内部IDであり、公開`userID`と一致させない。相手への本人確認・通知許可にlocatorやBearerを配布しない。AppはHTTPS登録応答のユーザーIDと資格を別々に検証する |
@@ -91,6 +92,14 @@ ridecom.apple-enrollment.v1
 サーバーは確認要求に対応する署名と、公開鍵に対応するAppleのnonceを照合する。両方に成功したときだけ確認要求を消費する。公開鍵そのもの、署名、Appleの証明はサーバーに保存しない。アカウント削除前に発行された証明は、削除後の確認要求を使っても登録できない。
 
 回線が切れて応答が得られなければ、新しい確認要求に署名する。Appleの証明が有効で、同じ秘密鍵を端末が保持している間は、Appleの確認をやり直さずに再試行できる。回線と設定に応じてアプリが登録する条件は[Appの通信仕様](../App/通信仕様.md#通常サインインからインターネット通話の端末を登録する)を参照する。
+
+#### 端末資格の期限を延ばす
+
+`POST /api/auth/session` は、有効な端末Bearerと [端末証明を含む署名](#ユーザーと端末の署名付き証明)を使う。本文は端末署名の `publicKey`・`certificate`・`signature`。署名の用途は `renewDeviceCredential`、対象データは空のバイト列。署名付き証明の発行元と宛先、ユーザー・端末・`sessionBinding`、Appleの本人確認を経て登録した端末公開鍵とその署名を照合する。登録の有効化条件と頻度制限はAppleの端末登録と同じ。
+
+Workerの時刻で残り48時間以内になり、署名付き証明の期限が現在の端末資格の期限を秒単位で切り捨てた時刻と一致すると、同じ資格の期限を更新時点から30日後にする。残り48時間より前の要求や、更新の応答を失って有効な同じ署名を再送した場合は、現在の期限をそのまま返す。応答はGETと同じユーザーID・端末ID・Unixミリ秒の期限だけ。端末資格の秘密、通話セッション、通知先はそのまま使う。端末は更新後の期限で既存の証明発行APIから証明を取り直せる。
+
+期限に達した資格や証明、失効、別の鍵、Appleで登録した鍵の照合値がない資格、削除の準備中は更新を拒否する。照合後に資格が失効・置換された場合は、更新要求で資格を復活させない。更新の応答を得られない場合は同じBearerで現在の期限を照会できる。
 
 [CloudflareのRate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)はlocation単位で非同期に集計する近似制限であり、分散攻撃の厳密な全世界上限・請求額上限ではない。共有回線では登録枠を共有する。公開時のedge対策・請求監視・緊急停止は別途整備する。
 

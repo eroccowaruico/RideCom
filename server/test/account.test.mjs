@@ -40,6 +40,16 @@ async function signIn(runtime, attempt, changes) {
     return call(runtime, '/api/auth/apple/session', { challengeID: attempt.challengeID, identityToken: await proof(attempt, changes) });
 }
 
+async function nativeEnrollmentBody(attempt, identityToken, publicKey, signingKey, deviceKey) {
+    const tokenDigest = createHash('sha256').update(identityToken).digest('hex');
+    const fields = ['ridecom.apple-enrollment.v1', attempt.deviceID, attempt.nonce, tokenDigest];
+    if (deviceKey !== undefined) fields.push(deviceKey);
+    const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, signingKey,
+        new TextEncoder().encode(fields.join('\n')));
+    return { challengeID: attempt.challengeID, identityToken,
+        signInProof: { publicKey, signature: base64url.encode(new Uint8Array(signature)), deviceKey } };
+}
+
 test('Apple enrollment gives one account across devices and authorizes individual device credentials', async () => {
     const runtime = await makeRuntime(options, { appleKeys: [publicKey] });
     try {
@@ -110,14 +120,8 @@ test('ordinary Apple sign-in can enroll after reconnection with proof of the ori
         // The Apple proof already exists before the first request to the Worker.
         const first = await challenge(runtime);
         const other = await challenge(runtime);
-        const body = async (attempt, publicKey = key, signingKey = nativeKey.privateKey, deviceKey) => {
-            const fields = ['ridecom.apple-enrollment.v1', attempt.deviceID, attempt.nonce, digest(token)];
-            if (deviceKey !== undefined) fields.push(deviceKey);
-            const message = new TextEncoder().encode(fields.join('\n'));
-            const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, signingKey, message);
-            return { challengeID: attempt.challengeID, identityToken: token,
-                signInProof: { publicKey, signature: base64url.encode(new Uint8Array(signature)), deviceKey } };
-        };
+        const body = (attempt, publicKey = key, signingKey = nativeKey.privateKey, deviceKey) =>
+            nativeEnrollmentBody(attempt, token, publicKey, signingKey, deviceKey);
         const original = await body(first);
         const enroll = (value) => call(runtime, '/api/auth/apple/session', value);
         assert.equal((await enroll({ ...original, signInProof: undefined })).status, 401);
@@ -149,6 +153,71 @@ test('ordinary Apple sign-in can enroll after reconnection with proof of the ori
         assert.equal((await call(runtime, '/api/auth/account', undefined, renewed.accessToken, 'DELETE')).status, 200);
         // Even a fresh server challenge cannot revive a deleted account using old Apple proof.
         assert.equal((await enroll(await body(await challenge(runtime, first.deviceID)))).status, 401);
+    } finally { await runtime.dispose(); }
+});
+
+test('device credential renewal preserves the active call and rejects expired or revoked credentials', async () => {
+    const issuer = await generateKeyPair('ES256', { extractable: true });
+    const fixedNowMs = Math.floor(Date.now() / 1000) * 1000;
+    const runtime = await makeRuntime({
+        ...options, DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(issuer.privateKey))
+    }, { appleKeys: [publicKey], adjustableClock: true, fixedNowMs });
+    try {
+        const nativeKey = await generateKeyPair('ES256', { extractable: true });
+        const deviceKey = await generateKeyPair('ES256', { extractable: true });
+        const nativePublicKey = base64url.encode(new Uint8Array(await crypto.subtle.exportKey('raw', nativeKey.publicKey)));
+        const devicePublicKey = base64url.encode(new Uint8Array(await crypto.subtle.exportKey('raw', deviceKey.publicKey)));
+        const nonce = createHash('sha256').update(`ridecom.apple-sign-in-key.v1\n${nativePublicKey}`).digest('hex');
+        const token = await proof({ nonce });
+        const attempt = await challenge(runtime);
+        const registration = await nativeEnrollmentBody(attempt, token, nativePublicKey, nativeKey.privateKey, devicePublicKey);
+        const response = await call(runtime, '/api/auth/apple/session', registration);
+        assert.equal(response.status, 200);
+        const active = await response.json();
+        const unbound = await enrolled(runtime);
+        const boundProof = await signReplyDevice(runtime, active, 'bound-member', deviceKey);
+        const unboundProof = await signReplyDevice(runtime, unbound, 'unbound-member');
+        const signed = await boundProof.proof('renewDeviceCredential', '');
+        const sessionAPI = '/api/auth/session';
+        const renew = (value = signed, access = active.accessToken) => call(runtime, sessionAPI, value, access);
+        const day = 86_400_000;
+        assert.equal((await renew(await unboundProof.proof('renewDeviceCredential', ''), unbound.accessToken)).status, 401);
+        assert.equal((await renew(await boundProof.proof('anotherPurpose', ''))).status, 401);
+
+        await runtime.advanceClock(28 * day - 1);
+        const early = await renew();
+        assert.equal(early.status, 200);
+        assert.equal((await early.json()).expiresAt, active.expiresAt);
+        const joined = await call(runtime, `/api/rooms/${room}/join`, { participantId: 'renewing-device', offer }, active.accessToken);
+        assert.equal(joined.status, 200);
+        const { sessionId } = await joined.json();
+        const sessionPath = `/api/rooms/${room}/sessions/${sessionId}`;
+        assert.equal((await call(runtime, `${sessionPath}/publish`, {}, active.accessToken)).status, 200);
+
+        await runtime.advanceClock(1);
+        const responses = await Promise.all([renew(), renew()]);
+        assert.deepEqual(responses.map(value => value.status), [200, 200]);
+        const renewed = { userID: active.userID, deviceID: active.deviceID, expiresAt: fixedNowMs + 58 * day };
+        for (const value of responses) assert.deepEqual(await value.json(), renewed);
+        assert.equal((await call(runtime, `${sessionPath}/pull`, { peerIds: [] }, active.accessToken)).status, 200);
+        assert.equal((await call(runtime, `${sessionPath}/renew`, {}, active.accessToken)).status, 200);
+        assert.equal((await call(runtime, sessionPath, undefined, active.accessToken, 'DELETE')).status, 200);
+
+        await runtime.advanceClock(2 * day);
+        const current = await call(runtime, sessionAPI, undefined, active.accessToken, 'GET');
+        assert.deepEqual(await current.json(), renewed);
+        assert.equal((await renew()).status, 401);
+        assert.equal((await renew(await unboundProof.proof('renewDeviceCredential', ''), unbound.accessToken)).status, 401);
+
+        const currentProof = await signReplyDevice(runtime, active, 'bound-member', deviceKey);
+        const currentSignature = await currentProof.proof('renewDeviceCredential', '');
+        await runtime.advanceClock(26 * day);
+        const outcomes = await Promise.all([renew(currentSignature),
+            call(runtime, sessionAPI, undefined, active.accessToken, 'DELETE')]);
+        assert.ok([200, 401].includes(outcomes[0].status));
+        assert.equal(outcomes[1].status, 200);
+        assert.equal((await renew(currentSignature)).status, 401);
+        assert.equal((await call(runtime, sessionAPI, undefined, active.accessToken, 'GET')).status, 401);
     } finally { await runtime.dispose(); }
 });
 
@@ -408,8 +477,8 @@ const replyPath = '/api/ordinary-group-replies';
 const replySlot = () => randomBytes(32).toString('hex');
 const replyPacket = () => randomBytes(64).toString('base64');
 
-async function signReplyDevice(runtime, user, memberID) {
-    const key = await generateKeyPair('ES256', { extractable: true });
+async function signReplyDevice(runtime, user, memberID, signingKey) {
+    const key = signingKey ?? await generateKeyPair('ES256', { extractable: true });
     const jwk = await exportJWK(key.publicKey);
     const publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
     const issued = await call(runtime, '/api/auth/identity', { memberID, deviceKey: publicKey }, user.accessToken);

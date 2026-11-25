@@ -2,7 +2,7 @@ import type { GroupInvitationSenderCheck, InvitationDeviceAddress, NotificationG
 import { DurableObject } from 'cloudflare:workers'
 import { base64url, errors, jwtVerify } from 'jose'
 import { type Env, isRecord, json, readJSON } from './types'
-import { certifyDevice, importP256VerificationKey } from './DeviceIdentity'
+import { certifyDevice, importP256VerificationKey, verifyDeviceProof } from './DeviceIdentity'
 import { publicAccountIndex } from './NotificationIndex'
 import { AccountNotifications, type NotificationAuth, type NotificationDevice, type NotificationCall, type DeliveryStatus } from './AccountNotifications'
 import { AccountOrdinaryGroupReplies, type OrdinaryGroupReplyPacket, type OrdinaryGroupReplyStatus } from './AccountOrdinaryGroupReplies'
@@ -14,6 +14,8 @@ import { createAppAttestEnrollmentVerifier, macAttestationPolicy, type Enrollmen
 import { appleKeys, appleAuthorizationConfigured, appleDeletionToken, revokeAppleAuthorization } from './AppleAuthorization'
 const devicePattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const objectPattern = /^[a-f0-9]{64}$/
+const deviceLifetime = 30 * 86400000
+const deviceRenewalWindow = 2 * 86400000
 const randomSecret = () => hex(crypto.getRandomValues(new Uint8Array(32)))
 const hex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 const digest = async (secret: string) => hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))))
@@ -359,7 +361,7 @@ export class UserAccount extends DurableObject<Env> {
         const previousDevice = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)
         if (!previousDevice && [...this.ctx.storage.kv.list({ prefix: 'device:' })].length >= 8) return null
         const previousNotification = this.notifications.device(deviceID)
-        const expiresAt = Date.now() + 30 * 86400000
+        const expiresAt = Date.now() + deviceLifetime
         // Public identity is stable across device expiry/sign-out, and retired only
         // by account deletion. Never derive it from the private DO locator.
         const userID = this.ctx.storage.kv.get<string>('userID') ?? randomSecret()
@@ -415,6 +417,23 @@ export class UserAccount extends DurableObject<Env> {
         if (identityKeyHash !== undefined && device.identityKeyHash !== undefined
             && identityKeyHash !== device.identityKeyHash) return null
         return { userID, deviceID, expiresAt: device.expiresAt }
+    }
+
+    async renewDeviceCredential(deviceID: string, tokenHash: string, identityKeyHash: string,
+                                proofExpiresAt: number): Promise<DeviceIdentity | null> {
+        const now = Date.now()
+        const identity = this.authenticate(deviceID, tokenHash)
+        const key = `device:${deviceID}`
+        const device = this.ctx.storage.kv.get<Device>(key)
+        if (!identity || device?.identityKeyHash !== identityKeyHash || proofExpiresAt <= now
+            || this.ctx.storage.kv.get('deletionPreparation')) return null
+        if (identity.expiresAt - now > deviceRenewalWindow) return identity
+        if (proofExpiresAt !== Math.floor(identity.expiresAt / 1000) * 1000) return null
+
+        // Recheck and replace synchronously. A revoked device is never added back.
+        this.ctx.storage.kv.put<Device>(key, { ...device, expiresAt: now + deviceLifetime })
+        await this.scheduleExpiry()
+        return this.authenticate(deviceID, tokenHash, identityKeyHash)
     }
 
     async issueAttestationChallenge(deviceID: string, tokenHash: string): Promise<DeviceAttestationChallenge | null> {
@@ -780,9 +799,20 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
             if (request.method === 'DELETE') {
                 return await credential.account.revoke(credential.deviceID, tokenHash) ? json({}) : json({ error: 'Unauthorized' }, 401)
             }
-            if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
+            if (request.method !== 'GET' && request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
             const identity = await credential.account.authenticate(credential.deviceID, tokenHash)
-            return identity ? json(identity) : json({ error: 'Unauthorized' }, 401)
+            if (!identity) return json({ error: 'Unauthorized' }, 401)
+            if (request.method === 'GET') return json(identity)
+            if (env.APPLE_AUTH_ENABLED !== 'true' || !env.APPLE_CLIENT_ID) return json({ error: 'Apple enrollment is unavailable' }, 503)
+            const limited = await limitEnrollment(request, env)
+            if (limited) return limited
+            const sessionBinding = await digest(tokenHash)
+            const verified = await verifyDeviceProof({ ...identity, sessionBinding }, new URL(request.url).origin,
+                'renewDeviceCredential', '', await readJSON(request), env)
+            if (!verified) return json({ error: 'Unauthorized' }, 401)
+            const renewed = await credential.account.renewDeviceCredential(
+                credential.deviceID, tokenHash, await digest(verified.recipientKey), verified.expiresAt)
+            return renewed ? json(renewed) : json({ error: 'Unauthorized' }, 401)
         }
         if (!['/api/auth/apple/challenge', '/api/auth/apple/session'].includes(path)) return json({ error: 'Not found' }, 404)
         if (env.APPLE_AUTH_ENABLED !== 'true' || !env.APPLE_CLIENT_ID) return json({ error: 'Apple enrollment is unavailable' }, 503)

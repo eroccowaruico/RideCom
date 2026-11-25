@@ -100,7 +100,8 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         { type: 'ESModule', path: 'fixture.mjs', contents: `
             export { AppleAuthAttempt, AppAttestKeyIndex, SignalingRoom, UsageGuard } from './index.js';
             import productionWorker, { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex, createAppAttestEnrollmentVerifier } from './index.js';
-            ${adjustableClock ? 'const testSystemNow = Date.now; let testClockOffset = 0; Date.now = () => testSystemNow() + testClockOffset;' : ''}
+            ${adjustableClock ? `const testSystemNow = ${fixedNowMs === undefined ? 'Date.now' : `() => ${Number(fixedNowMs)}`};
+                let testClockOffset = 0; Date.now = () => testSystemNow() + testClockOffset;` : ''}
             ${storageObservation}
             export const NotificationIndex = ${trackReplyStorage ? 'observeStorage(ProductionIndex)' : 'ProductionIndex'};
             export class UserAccount extends ${trackReplyStorage ? 'observeStorage(ProductionAccount)' : 'ProductionAccount'} {
