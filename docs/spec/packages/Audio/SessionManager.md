@@ -212,20 +212,20 @@ flowchart LR
 | `AudioInputStreamConfiguration` | input `AudioStreamOperationReport` | `ignored` / `failed` report | preferred と actual hardware format を分ける |
 | input hardware callback | `AudioStreamRuntimeEvent.inputFrame(PCMFrame)` | frame生成不能時は drop | actual hardware PCM を変換せず通知する |
 | `AudioOutputStreamConfiguration` | output `AudioStreamOperationReport` | `ignored` / `failed` report | output hardware format を snapshot に保持する |
-| `schedule(PCMFrame)` | `outputFrameScheduled(PCMFrame)` | `hardwareFormatMismatch`, `invalidFrame`, `engineOperationFailed` | actual hardware format の frame だけ schedule する |
+| `schedule(PCMFrame)` | 再生を予約したときに `outputFrameScheduled(PCMFrame)` | `hardwareFormatMismatch`, `invalidFrame`, `engineOperationFailed` | [再生機器の形式へ変換](#stream-format-contract)してからbackendへ渡す |
 | `AudioInputVoiceProcessingConfiguration` | voice processing operation report | `unsupportedOnCurrentPlatform` | OS対応操作だけ適用し、非対応でも stream を壊さない |
 
 ## Audio Flow
 
 | flow | 経路 | SessionManager の責務 |
 |---|---|---|
-| capture send | 機器の入力をSessionManagerの入力からAudioMixerのsourceへ渡す。sinkで送信形式に変換し、CodecからRTCへ渡す | hardware actual PCM を出す |
-| receive output | RTCからCodecを経てAudioMixerのsourceへ渡す。sinkで機器の出力形式に変換し、SessionManagerの出力から機器へ渡す | hardware actual PCM だけ受け取る |
-| local monitor | 機器の入力をSessionManagerの入力からAudioMixerのsourceへ渡す。sinkで機器の出力形式に変換し、SessionManagerの出力へ渡す | input / output hardware 境界を維持する |
+| 収録 | 入力機器から `AudioInputStreamCapture` へ | 実際の収録形式のPCMを渡す |
+| PCMの再生 | PCMから `AudioOutputStreamRenderer.schedule` を経て出力機器へ | 必要な場合だけ再生機器の形式へ変換する |
+| 共有出力グラフ | [出力engineを直接使う構成](#出力graphの共有) | 同じ出力時計を呼び出し側のグラフと共有する |
 
 ```text
-input hardware -> SessionManager -> PCMFrame(actual hardware format) -> AudioMixer
-AudioMixer -> PCMFrame(output actual hardware format) -> SessionManager -> output hardware
+input hardware -> AudioInputStreamCapture -> PCMFrame(actual hardware format)
+PCMFrame -> AudioOutputStreamRenderer.schedule -> output hardware
 ```
 
 ## Lifecycle
@@ -411,9 +411,9 @@ stateDiagram-v2
 | input開始 | backend が返した actual hardware format を snapshot に保持する | しない |
 | input frame受信 | `AVAudioPCMBuffer` を `PCMFrame` 化し、buffer format を `PCMFrame.format` に入れる | しない |
 | input preferred format | hardware への希望値として保持する | stream内変換には使わない |
-| output開始 | output node input format から actual hardware format を確定する | しない |
-| output schedule一致 | `PCMFrame.format == actualHardwareFormat` の場合だけ schedule する | しない |
-| output schedule不一致 | schedule せず `hardwareFormatMismatch` を返す | しない |
+| output開始 | [実際の出力形式](#出力graphの共有)を確定する | しない |
+| output schedule一致 | `PCMFrame.format == actualHardwareFormat` のPCMをbackendへ渡す | しない |
+| output schedule不一致 | AVFAudioが使える場合は再生機器の形式へ合わせ、生成したPCMをbackendへ渡す。AVFAudioがない構成では `hardwareFormatMismatch` を返す | サンプリング周波数とチャンネル数を必要に応じて変換する |
 | output preferred format | hardware への希望値として保持する | stream内変換には使わない |
 
 ## Stream Configuration Model
@@ -441,12 +441,12 @@ flowchart LR
     HWIn["input hardware\nOS actual format"]
     Capture["AudioInputStreamCapture"]
     MixerIn["AudioMixer source ingress\nbus formatへ正規化"]
-    MixerOut["AudioMixer sink egress\noutput hardware formatへ正規化"]
+    PCM["再生するPCM"]
     Renderer["AudioOutputStreamRenderer"]
     HWOut["output hardware\nOS actual format"]
 
     HWIn --> Capture -->|"PCMFrame(actual hardware)"| MixerIn
-    MixerOut -->|"PCMFrame"| Renderer -->|"hardware形式へ適合"| HWOut
+    PCM -->|"PCMFrame"| Renderer -->|"必要なら機器の形式へ変換"| HWOut
 ```
 
 ## Stream Operation Matrix
@@ -464,7 +464,7 @@ flowchart LR
 | output `stop()` | 実行中 | `.applied` | backendの失敗を report | stop結果 |
 | output `stop()` | すでに停止中 | `.ignored(.alreadyStopped)` | なし | stop結果 |
 | output `schedule(frame)` | `frame.format == actualHardwareFormat` | `.applied` | `invalidFrame` または engine操作失敗 | schedule結果、output scheduled frame |
-| output `schedule(frame)` | `frame.format != actualHardwareFormat` | native変換後に`.applied` | 変換不能・不正frame・再生予算超過はfailed | schedule結果、変換後のoutput scheduled frame |
+| output `schedule(frame)` | `frame.format != actualHardwareFormat` | native変換後に `.applied`。出力がまだ生成されない場合も受付済みとする | 変換不能・不正frame・再生予算超過はfailed | schedule結果。再生予約ができた場合は変換後のoutput scheduled frame |
 
 ## 無効なnative入力でのvoice processing切替
 
@@ -532,7 +532,7 @@ flowchart LR
 | `.ignored(.alreadyRunning)` | 実行中streamを再start | stream operation report | 継続可能 |
 | `.ignored(.alreadyStopped)` | 停止中streamをstop | stream operation report | 継続可能 |
 | `.failed(.invalidFrame(message))` | `PCMFrame` が `AudioCore` validation に失敗 | stream operation report | 対象frameだけ失敗 |
-| `.failed(.hardwareFormatMismatch(expected, actual))` | native変換を持たないbackendで形式が異なる | stream operation report | 対象frameだけ reject。Appleプラットフォームのrendererはnative変換を使う |
+| `.failed(.hardwareFormatMismatch(expected, actual))` | AVFAudioがない構成で、受け取ったPCMと機器の形式が異なる | stream operation report | 対象frameだけを拒否する |
 | `.failed(.engineOperationFailed(message))` | `AVAudioEngine` / `AVAudioPlayerNode` 操作失敗 | stream operation report | 呼び出し側判断 |
 | `AudioSessionRuntimeEvent.snapshotChanged` | route / default device / device list が変化 | runtime event | 継続可能 |
 
@@ -563,11 +563,11 @@ flowchart LR
 | macOS device property追加 | `SessionManager` | CoreAudio listener と snapshot reason の両方を追加する |
 | input hardware mute / OS voice processing追加 | `SessionManager` | input node / route に閉じる場合だけ追加する |
 | input PCMを無音化する mute | `AudioMixer` または Effectors | PCMを書き換えるため SessionManager に入れない |
-| sample rate 変換 | `AudioMixer` | SessionManager は preferred / actual を記録するだけ |
-| channel count 変換 | `AudioMixer` | SessionManager は channel mix しない |
+| バス間や符号化前の形式変換 | `AudioMixer` | 処理に使う周波数・チャンネル数をそろえる |
+| 単一のPCMを再生するための形式変換 | `AudioOutputStreamRenderer` | [実際の出力機器の形式](#stream-format-contract)へ合わせる |
 | output volume | `AudioMixer` | SessionManager は output device volume を抽象化しない |
 | codec向け送信format作成 | `AudioMixer` sink egress | SessionManager input から Codec へ直結しない |
-| receive PCM の再生format作成 | `AudioMixer` sink egress | SessionManager output へ渡す前に mixer が正規化する |
+| 混合後の出力形式の指定 | `AudioMixer` と出力グラフを使う側 | [通常通話の共有構成](../../App/音声処理仕様.md#出力クロックの共有)では出力engineに直接つなぐ |
 | hardware fallback の診断追加 | `AudioStreamSnapshot` / operation report | 実行時に呼び出し側へ返せる形で追加する |
 
 ## Test Matrix
@@ -582,8 +582,8 @@ flowchart LR
 | input stream | hardware format の frame を変換せず通知する |
 | input voice processing | start前適用、running中更新、unsupported時の継続 |
 | ducking level | `.systemDefault`, `.minimum`, `.medium`, `.maximum` を保持し、advanced ducking有効時だけ使う |
-| output stream | actual hardware format の frame だけ schedule する |
-| output format不一致 | `hardwareFormatMismatch` を返し、scheduleしない |
+| output stream | 機器と同じ形式はそのまま再生予約する |
+| output format不一致 | AVFAudio環境では変換後の形式と連続性を確認する。変換を使えない構成では形式の不一致を返す |
 | frame検証 | 不正な `PCMFrame` を `invalidFrame` report にする |
 | lifecycle | already running / already stopped を ignored report にする |
 

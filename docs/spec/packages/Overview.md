@@ -92,7 +92,7 @@ flowchart LR
 | package | 依存 | 持つ責務 | 持たない責務 |
 |---|---|---|---|
 | `AudioCore` | なし | PCM共通語彙、validation、signal measurement、report型 | resample、channel mix、volume、hardware、codec、transport |
-| `SessionManager` | `AudioCore` | Audio Session、device、route、hardware capture/render、OS voice processing | PCM正規化、mix、effect、codec、RTC |
+| `SessionManager` | `AudioCore` | Audio Session、device、route、機器の入出力、再生機器へのPCM形式変換、OS voice processing | 処理用バスの正規化、mix、effect、codec、RTC |
 | `AudioMixer` | `AudioCore` | PCM source/sink、bus graph、source ingress正規化、sink egress正規化、effect chain、volume、mix | hardware、codec、packet、暗号化 |
 | `Codec` | `AudioCore` | `PCMFrame <-> EncodedCodecFrame`、codec availability、bit rate option、fallback report | PCM正規化、mix、packet、暗号化、jitter |
 | Effectors | 必要に応じて `AudioCore` | 単機能effect、effect runtime snapshot | graph構築、hardware、codec、transport |
@@ -100,36 +100,11 @@ flowchart LR
 
 ## End-to-End Flow
 
-```mermaid
-flowchart TB
-    subgraph Send[Capture Send]
-        HWIn[Input hardware]
-        SessionIn[SessionManager<br/>actual hardware PCM]
-        CaptureSource[MixerPCMSource<br/>source original format]
-        CaptureBus[AudioMixer capture bus<br/>bus processing format]
-        SendSink[MixerPCMSink<br/>codec target format]
-        Encoder[CodecEncoder]
-        SendPacket[RTCAudioPacket]
-        RTCSend[RTC route send]
+[RideComの信号の流れ](../アーキテクチャ.md#音声通信の所有境界)を参照する。通話で機器の出力engineを使える場合、Appは受信Mixerを直接つなぎ、出力時計を共有する。[通話の出力](../App/音声処理仕様.md#出力クロックの共有)の観測通知は音量や診断に使う。
 
-        HWIn --> SessionIn --> CaptureSource --> CaptureBus --> SendSink --> Encoder --> SendPacket --> RTCSend
-    end
+送信では機器のPCMをMixerで処理用の形式へ揃え、送信用sinkから符号化先の形式で取り出す。Codecの出力をAppが `RTCAudioPacket` に入れてRTCへ渡す。受信では `ReceivedAudioPacket` から取り出した音声を復号し、復号時のPCM形式でMixerのsourceへ渡す。バスとsinkの形式は[Mixerへ渡す設定](../App/Configuration/Bindings/Audio/AudioMixer.md#mixer-設定)に従う。
 
-    subgraph Receive[Receive Output]
-        RTCRecv[RTC route receive]
-        RecvPacket[ReceivedAudioPacket]
-        Decoder[CodecDecoder]
-        PeerSource[MixerPCMSource<br/>peer original format]
-        PeerBus[AudioMixer peer/master bus<br/>bus processing format]
-        OutputSink[MixerPCMSink<br/>output hardware format]
-        SessionOut[SessionManager output renderer]
-        HWOut[Output hardware]
-
-        RTCRecv --> RecvPacket --> Decoder --> PeerSource --> PeerBus --> OutputSink --> SessionOut --> HWOut
-    end
-```
-
-この flow は RideCom の通話実装で採用する接続例である。別Appで `Codec` だけ、`RTC` だけ、`AudioMixer` だけを使う場合、この flow 全体を再現する必要はない。
+単一のPCMを再生する場合は [SessionManagerの再生予約](Audio/SessionManager.md#stream-format-contract)を利用できる。機器への形式変換はrendererが行う。呼び出し側は必要なpackageを[移植単位](#移植単位)から選ぶ。
 
 ## I/O とエラー出力の原則
 
@@ -138,7 +113,7 @@ flowchart TB
 | エラーも外部出力 | throw、operation report、runtime event、snapshot failure、drop metrics はすべて package の外部出力として扱う |
 | 継続可能な差分 | OS非対応、device不在、format mismatch、packet drop は可能な限り report / event / metrics に正規化する |
 | Appで推測しない | App は package 内部状態を推測せず、snapshot、runtime report、event、metrics を表示や判断に使う |
-| 音を変える場所を限定 | PCMのformat正規化、volume、effect、mixは `AudioMixer` に置く |
+| 音を変える場所を限定 | バス間の形式変換、volume、effect、mixは `AudioMixer` に置く。再生予約時の機器への形式変換は `SessionManager` が扱う |
 | 通信は音を変えない | `RTC` は codec metadata と payload を運ぶだけで、PCMやpayloadをDSPしない |
 | hardware formatを偽装しない | `SessionManager` は actual hardware format をそのまま外へ出す |
 
@@ -148,7 +123,8 @@ flowchart TB
 |---|---|---|
 | PCM型、frame validation、meter | `AudioCore` | `SessionManager`, `Codec`, `RTC` |
 | マイク入力、出力renderer、OS route | `SessionManager` | `AudioMixer`, `RTC` |
-| sample rate / channel count の吸収 | `AudioMixer` | `AudioCore`, `SessionManager`, `Codec`, `RTC` |
+| バスや符号化前のsample rate / channel count の変換 | `AudioMixer` | `AudioCore`, `Codec`, `RTC` |
+| 機器へのPCM再生時のsample rate / channel count の変換 | `SessionManager` | `Codec`, `RTC` |
 | peer volume、bus volume、master limiter | `AudioMixer` / Effectors | `RTC`, `Codec`, `SessionManager` |
 | codec追加、bit rate fallback | `Codec` | `RTC`, `AudioMixer` |
 | packet暗号化、重複排除、handover | `RTC` | `AudioMixer`, `Codec`, `SessionManager` |
