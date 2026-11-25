@@ -192,6 +192,57 @@ extension InternetAccountTests {
         #expect(account.session.enrollmentProof(for: model.accountAccessID) != nil)
     }
 
+    enum EnrollmentExecution: CaseIterable { case completes, recoversNetwork, returnsToForeground }
+
+    @Test(arguments: EnrollmentExecution.allCases)
+    func enrollmentEndsBackgroundTimeAndResumesAfterExpiration(execution: EnrollmentExecution) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        _ = try completeOrdinarySignIn(account.session)
+        let model = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture).viewModel
+        var expire: (@MainActor () -> Void)?
+        var starts = 0
+        var ends = 0
+        model.automaticInternetEnrollment.beginBackgroundTime = { expiration in
+            starts += 1
+            expire = expiration
+            return { ends += 1 }
+        }
+        AccountHTTPStub.delayExchange()
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        #expect(starts == 0)
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let initial = try #require(model.automaticInternetEnrollment.task)
+        await AppTestSupport.waitUntil(timeout: .seconds(2)) { AccountHTTPStub.requests.count == 2 }
+        try #require(AccountHTTPStub.requests.count == 2)
+        #expect(starts == 1 && ends == 0)
+        if execution != .completes {
+            let expiration = try #require(expire)
+            expiration()
+            #expect(ends == 1)
+        }
+        await initial.value
+        #expect(ends == 1)
+        if execution != .completes {
+            #expect(!model.hasInternetCredentials)
+            #expect(account.session.enrollmentProof(for: model.accountAccessID) != nil)
+            #expect(AccountHTTPStub.requests.map { $0.url?.lastPathComponent } == ["challenge", "session"])
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            #expect(model.automaticInternetEnrollment.task == nil)
+            if execution == .recoversNetwork {
+                model.groupDeliveryNetworkPathChanged(isAvailable: false)
+                model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            } else {
+                model.reconcileAutomaticInternetEnrollment(executionOpportunity: true)
+            }
+            let resumed = try #require(model.automaticInternetEnrollment.task)
+            await resumed.value
+            #expect(starts == 2 && ends == 2)
+        }
+        #expect(model.hasInternetCredentials)
+    }
+
     @Test func registrationResumesTheSameCallOnceAndPreservesMute() async throws {
         let account = AccountFixture()
         let fixture = InternetAccountTestFixture()

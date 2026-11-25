@@ -7,11 +7,15 @@ import RTC
 
 @Observable final class AutomaticInternetEnrollment {
     @ObservationIgnored var client = InternetAccountClient()
+    @ObservationIgnored var beginBackgroundTime: AppBackgroundTime.Request = {
+        AppBackgroundTime.begin(name: "Finish Internet Device Registration", expiration: $0)
+    }
     @ObservationIgnored var task: Task<Void, Never>?
     var waitingCall: CallAwaitingInternetEnrollment?
     @ObservationIgnored var startedCall: CallAwaitingInternetEnrollment?
     @ObservationIgnored var retryAt: Date?
     @ObservationIgnored var retryDelay = 5
+    @ObservationIgnored var waitsForExecutionOpportunity = false
 }
 
 struct CallAwaitingInternetEnrollment {
@@ -119,6 +123,7 @@ extension IntercomViewModel {
 
     private var canEnrollInternetAutomatically: Bool {
         canStartCalls && hasAutomaticInternetEnrollmentProof && networkPathIsAvailable == true
+            && !automaticInternetEnrollment.waitsForExecutionOpportunity
             && (!hasAnyActiveGroupConnection || automaticInternetEnrollment.waitingCall != nil)
             && contactInvitationSession == nil
     }
@@ -147,7 +152,8 @@ extension IntercomViewModel {
         reconcileAutomaticInternetEnrollment()
     }
 
-    func reconcileAutomaticInternetEnrollment() {
+    func reconcileAutomaticInternetEnrollment(executionOpportunity: Bool = false) {
+        if executionOpportunity { automaticInternetEnrollment.waitsForExecutionOpportunity = false }
         let proof = accountSession.enrollmentProof(for: accountAccessID)
         if needsInternetEnrollment, let pending = automaticInternetEnrollment.waitingCall,
            pending.needsAppleConfirmation != (proof == nil) {
@@ -259,6 +265,19 @@ extension IntercomViewModel {
     }
 
     private func finishAutomaticInternetEnrollment(_ proof: InternetSignInProof, at origin: URL) async throws {
+        var endBackgroundTime: (@MainActor () -> Void)?
+        endBackgroundTime = automaticInternetEnrollment.beginBackgroundTime { [weak self] in
+            guard let end = endBackgroundTime else { return }
+            endBackgroundTime = nil
+            self?.automaticInternetEnrollment.waitsForExecutionOpportunity = true
+            self?.automaticInternetEnrollment.task?.cancel()
+            end()
+        }
+        defer {
+            let end = endBackgroundTime
+            endBackgroundTime = nil
+            end?()
+        }
         let client = automaticInternetEnrollment.client
         let deviceID = try internetSettingsStore.accountDeviceID()
         let memberID = localMemberIdentity.memberID
