@@ -7,16 +7,26 @@ extension IntercomViewModel {
             store: internetSettingsStore, memberID: localMemberIdentity.memberID,
             isCurrentUser: { [weak self] in self?.canStartCalls == true },
             contacts: { [weak self] in self?.savedRemoteUsers ?? [] },
-            permitsDeviceRegistration: { [weak self] in self?.permitsNotificationDeviceRegistration == true })
+            permitsNotificationInternet: { [weak self] in self?.permitsNotificationInternet == true })
     }
 
-    var permitsNotificationDeviceRegistration: Bool {
+    var permitsNotificationInternet: Bool {
         enabledRTCTransportRoutes.contains(.webRTC) && networkPathIsAvailable != false
     }
 
-    func retryNotificationDeviceRegistration() {
-        guard permitsNotificationDeviceRegistration else { return }
-        Task { [weak self] in await self?.notifications.retryDeviceRegistration() }
+    func resumeNotificationInternetWork() {
+        guard permitsNotificationInternet else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            async let revocations: Void = notifications.retryRevocations()
+            await notifications.retryDeviceRegistration()
+            await revocations
+        }
+    }
+
+    func suspendNotificationInternetWork() {
+        notifications.cancelDeviceOperations()
+        notifications.cancelSavedGrantRevocations()
     }
 
     /// Registers for notifications by itself when the OS allows them and lets every saved person notify you.

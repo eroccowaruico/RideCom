@@ -13,7 +13,7 @@ final class CallNotifications {
     @ObservationIgnored let memberID: String
     @ObservationIgnored let client: InternetAccountClient
     @ObservationIgnored let isCurrentUser: @MainActor () -> Bool
-    @ObservationIgnored let permitsDeviceRegistration: @MainActor () -> Bool
+    @ObservationIgnored let permitsNotificationInternet: @MainActor () -> Bool
     @ObservationIgnored let contacts: @MainActor () -> [SavedUser]
     @ObservationIgnored private let requestAuthorization: @MainActor () async throws -> Bool
     @ObservationIgnored let authorizationGranted: @MainActor () async -> Bool
@@ -26,12 +26,13 @@ final class CallNotifications {
     @ObservationIgnored var tapLookups: [UUID: Task<CallNotificationReply, Error>] = [:]
     @ObservationIgnored var tokenGeneration = 0
     @ObservationIgnored var deviceOperations: [(id: UUID, task: Task<Void, Never>)] = []
+    @ObservationIgnored private var savedGrantRevocations: [UUID: Task<Void, Error>] = [:]
     @ObservationIgnored private var storageAvailable = true
 
     init(
         store: InternetConnectionSettingsStore, memberID: String, client: InternetAccountClient = .init(),
         isCurrentUser: @escaping @MainActor () -> Bool, contacts: @escaping @MainActor () -> [SavedUser],
-        permitsDeviceRegistration: @escaping @MainActor () -> Bool = { true },
+        permitsNotificationInternet: @escaping @MainActor () -> Bool = { true },
         requestAuthorization: @escaping @MainActor () async throws -> Bool = NotificationSystem.requestAuthorization,
         authorizationGranted: @escaping @MainActor () async -> Bool = NotificationSystem.authorizationGranted,
         register: @escaping @MainActor () -> Void = NotificationSystem.register,
@@ -39,7 +40,7 @@ final class CallNotifications {
         now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.store = store; self.memberID = memberID; self.client = client; self.isCurrentUser = isCurrentUser
-        self.contacts = contacts; self.permitsDeviceRegistration = permitsDeviceRegistration
+        self.contacts = contacts; self.permitsNotificationInternet = permitsNotificationInternet
         self.requestAuthorization = requestAuthorization; self.authorizationGranted = authorizationGranted
         self.register = register; self.unregister = unregister; self.now = now
         do { permissions = try store.notificationPermissions() } catch {
@@ -123,7 +124,12 @@ final class CallNotifications {
     func start() async {
         guard serviceAccess() != nil else { await refresh(); return }
         let granted = await authorizationGranted()
-        if granted && !isEnabled && !isBusy { await enable() } else { await refresh() }
+        if granted && !isEnabled && !isBusy {
+            await enable()
+            await retryRevocations()
+        } else {
+            await refresh()
+        }
         if granted { await allowEveryContact() } else { await allowGroupInvitations() }
     }
     /// Inbox delivery is independent of OS alert permission. Directly registered people may invite you.
@@ -205,7 +211,7 @@ extension CallNotifications {
             }
             if let existing = permission(contactID, context: context), !existing.allowsIncoming,
                 let grant = existing.receiving {
-                try await revoke(grant, context: context)
+                try await revokeSavedGrant(grant, context: context, generation: expected)
                 guard current(context, generation: expected), contact(contactID, context: context) != nil else {
                     return false
                 }
@@ -255,7 +261,11 @@ extension CallNotifications {
         }
     }
     func retryRevocations() async {
-        guard let context = access() else { return }
+        guard let context = access(), !Task.isCancelled else { return }
+        guard permitsNotificationInternet() else {
+            reclaimRevokedGrantRecords(context)
+            return
+        }
         let expected = generation
         guard await revokePendingGrants(\.receiving, context: context, generation: expected, where: {
             !$0.allowsIncoming
@@ -263,6 +273,10 @@ extension CallNotifications {
         guard await revokePendingGrants(\.groupReceiving, context: context, generation: expected, where: {
             $0.allowsGroupInvitations == false
         }), current(context, generation: expected) else { return }
+        reclaimRevokedGrantRecords(context)
+    }
+
+    private func reclaimRevokedGrantRecords(_ context: CallNotificationServiceAccess) {
         let next = permissions.filter { record in
             !(record.owner == context.principal && record.receiving == nil && record.groupReceiving == nil
                 && !record.allowsIncoming
@@ -283,9 +297,13 @@ extension CallNotifications {
         where isSuppressed: (CallNotificationPermission) -> Bool
     ) async -> Bool {
         for record in permissions where record.owner == context.principal && isSuppressed(record) {
-            guard let grant = record[keyPath: receiving] else { continue }
+            guard permitsNotificationInternet(), current(context, generation: expected) else { return false }
+            guard let grant = record[keyPath: receiving], permissions.contains(where: {
+                $0.owner == context.principal && $0.contactID == record.contactID && isSuppressed($0)
+                    && $0[keyPath: receiving] == grant
+            }) else { continue }
             do {
-                try await revoke(grant, context: context)
+                try await revokeSavedGrant(grant, context: context, generation: expected)
                 guard current(context, generation: expected) else { return false }
                 var next = permissions
                 if let index = next.firstIndex(where: {
@@ -294,10 +312,38 @@ extension CallNotifications {
                     next[index][keyPath: receiving] = nil
                     try savePermissions(next)
                 }
+            } catch is CancellationError {
+                return false
             } catch { break } // Keep this grant and still reclaim already cancelled rows.
         }
         return true
     }
+
+    func cancelSavedGrantRevocations() {
+        for revocation in savedGrantRevocations.values { revocation.cancel() }
+    }
+
+    private func revokeSavedGrant(
+        _ grant: CallNotificationGrant, context: CallNotificationServiceAccess, generation expected: Int
+    ) async throws {
+        guard permitsNotificationInternet(), current(context, generation: expected) else { throw CancellationError() }
+        let id = UUID()
+        let revocation = Task {
+            guard permitsNotificationInternet(), current(context, generation: expected)
+            else { throw CancellationError() }
+            try await revoke(grant, context: context)
+        }
+        savedGrantRevocations[id] = revocation
+        defer { savedGrantRevocations[id] = nil }
+        let result = await withTaskCancellationHandler {
+            await revocation.result
+        } onCancel: {
+            revocation.cancel()
+        }
+        guard !revocation.isCancelled, current(context, generation: expected) else { throw CancellationError() }
+        try result.get()
+    }
+
     private func revoke(_ grant: CallNotificationGrant, context: CallNotificationServiceAccess) async throws {
         try await client.revokeNotificationGrant(
             origin: context.origin, token: context.accessToken, grantID: grant.grantID)

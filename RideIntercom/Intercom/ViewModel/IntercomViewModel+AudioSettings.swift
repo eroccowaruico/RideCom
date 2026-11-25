@@ -225,7 +225,7 @@ extension IntercomViewModel {
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
         if !normalizedRoutes.contains(.webRTC) {
             notifications.cancelTapLookups()
-            notifications.cancelDeviceOperations()
+            suspendNotificationInternetWork()
             stopInvitationInternetReply()
         }
 
@@ -235,7 +235,7 @@ extension IntercomViewModel {
 
         enabledRTCTransportRoutes = normalizedRoutes
         callSession.setEnabledRoutes(normalizedRoutes)
-        if enablesInternet { retryNotificationDeviceRegistration() }
+        if enablesInternet { resumeNotificationInternetWork() }
         reconcileAutomaticInternetEnrollment()
         refreshNearbyGroupDelivery()
         if groupDeliveryIsForeground { resumeSavedInvitationReplies() }

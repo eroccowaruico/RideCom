@@ -23,10 +23,10 @@ extension CallNotifications {
     }
 
     func removePendingDevice(_ context: CallNotificationServiceAccess, generation expected: Int) async {
-        guard permitsDeviceRegistration() else { return }
+        guard permitsNotificationInternet() else { return }
         let revision = Result { try store.reserveNotificationDeviceRevision() }
         let operation = enqueueDeviceOperation { [self] in
-            guard permitsDeviceRegistration(), current(context, generation: expected), !isEnabled,
+            guard permitsNotificationInternet(), current(context, generation: expected), !isEnabled,
                   store.notificationRemovalPending else { return }
             do {
                 try await client.removeNotificationDevice(access: context, revision: revision.get())
@@ -41,12 +41,12 @@ extension CallNotifications {
     }
 
     func receivedDeviceToken(_ token: Data, environment: String, topic: String) async {
-        guard permitsDeviceRegistration(), isEnabled, let context = serviceAccess() else { return }
+        guard permitsNotificationInternet(), isEnabled, let context = serviceAccess() else { return }
         tokenGeneration += 1
         let expectedToken = tokenGeneration, expected = generation
         let revision = Result { try store.reserveNotificationDeviceRevision() }
         let operation = enqueueDeviceOperation { [self] in
-            guard permitsDeviceRegistration(), current(context, generation: expected), isEnabled,
+            guard permitsNotificationInternet(), current(context, generation: expected), isEnabled,
                   expectedToken == tokenGeneration else { return }
             do {
                 try await client.registerNotificationDevice(
@@ -71,12 +71,13 @@ extension CallNotifications {
     }
     @discardableResult
     func stop() -> Task<Void, Never>? {
+        cancelSavedGrantRevocations()
         let previous =
             isEnabled || store.notificationRemovalPending ? try? store.notificationAccess(memberID: memberID) : nil
         generation += 1; tokenGeneration += 1; isBusy = false; receivesNotifications = false
         guard let previous else { return nil }
         store.notificationRemovalPending = true
-        guard permitsDeviceRegistration(), let revision = try? store.reserveNotificationDeviceRevision()
+        guard permitsNotificationInternet(), let revision = try? store.reserveNotificationDeviceRevision()
         else { return nil }
         // This account has retired. The already authorised cleanup outlives its view model.
         return enqueueDeviceOperation { [client] in
@@ -84,14 +85,14 @@ extension CallNotifications {
         }
     }
 
-    func registerIfAllowed() { if permitsDeviceRegistration() { register() } }
+    func registerIfAllowed() { if permitsNotificationInternet() { register() } }
 
     func retryDeviceRegistration() async {
-        guard permitsDeviceRegistration(), let context = serviceAccess() else { return }
+        guard permitsNotificationInternet(), let context = serviceAccess() else { return }
         let expected = generation
         let expectedDevice = deviceDisableGeneration
         let granted = await authorizationGranted()
-        guard current(context, generation: expected), permitsDeviceRegistration(),
+        guard current(context, generation: expected), permitsNotificationInternet(),
               deviceDisableGeneration == expectedDevice else { return }
         if granted {
             guard !receivesNotifications else { return }
@@ -110,7 +111,7 @@ extension CallNotifications {
         store.notificationRegistrationEnabled = false
         store.notificationRemovalPending = true
         receivesNotifications = false; tokenGeneration += 1; unregister()
-        guard permitsDeviceRegistration(), let context = serviceAccess() else {
+        guard permitsNotificationInternet(), let context = serviceAccess() else {
             message = "Notifications are disabled here. Server removal is pending; retry when online."
             return
         }

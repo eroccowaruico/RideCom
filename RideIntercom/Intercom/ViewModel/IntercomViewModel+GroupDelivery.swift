@@ -72,8 +72,8 @@ extension IntercomViewModel {
         let wasAvailable = networkPathIsAvailable
         networkPathIsAvailable = isAvailable
         reconcileAutomaticInternetEnrollment()
-        if wasAvailable != false, !isAvailable { notifications.cancelDeviceOperations() }
-        if wasAvailable != true, isAvailable { retryNotificationDeviceRegistration() }
+        if wasAvailable != false, !isAvailable { suspendNotificationInternetWork() }
+        if wasAvailable != true, isAvailable { resumeNotificationInternetWork() }
         guard wasAvailable == false, isAvailable else { return }
         requestDirectRestoreDeviceSync()
         callRelationshipSync.resumeDirectRestore?()
