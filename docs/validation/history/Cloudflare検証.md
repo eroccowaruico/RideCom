@@ -351,6 +351,14 @@ RTCの回帰11件、Macの通話状態10件、Simulatorの診断表示8件が成
 
 同じソースからXcodeの共有スキームでMac Release 1.0.0（Build 2646）を作った。標準出力にあるAppを署名記録から特定し、署名、通常の保存先、本番Workerの接続先、Apple認証の権限を確認した。証跡は `.validation/production-readiness-2646/`。Macのアプリ起動と認証は未実施。試験用アカウントの端末資格を確認できたら、通常版のAdvancedから「Check Internet Service」で状態照会し、入室、ICE、相手認証、双方向再生へ進む。APNsの受付と端末への通知到達は実際の呼び出しで確かめる。次回用Buildは2647。[本番通話と通知の着手順](../../backlog/README.md#着手順)
 
+### Mac通常版の起動と保存済みサインインの有無を確かめる
+
+2026-11-25。標準出力にあるMac Release Build 2646の署名を再検証し、通常の保存先で起動した。起動した実行ファイルは標準出力のRelease版に一致した。既定のKeychainで確認したのは、RideComのAppleサインイン項目があることまで。項目の値は取得していない。
+
+デスクトップ操作権限がなく、アプリ内で試験用アカウントの本人確認と本番Workerへの状態照会を行えなかった。macOSに保存されているサインインが有効か、iPhoneとは異なる試験用アカウントか、Workerの端末資格が使えるかは未確認。
+
+実機試験の準備を再開するときは、まず相手側Macの試験用アカウントを照合する。そのアカウントで通常版のAdvancedから「Check Internet Service」を実行し、Workerが端末からの状態照会を受理することを確認する。試験用の招待を発行し、待機する送話側と計測・回収手段を揃えてから、iPhoneで必要な起動を判断する。[実機試験の準備状況](../実機確認待ち.md#最新の残件に対する準備状況)
+
 ## 専用SimulatorでAPNs Sandboxの端末トークンを受け取る
 
 2026-11-25。Appleシリコン搭載MacのiOS 27.2 Simulatorを試験専用に作成した。Xcodeの共有 `RideIntercom` スキームと通常のDebug構成でBuild 2670を生成した。生成時の権限情報で、Simulator用の `aps-environment` が `development` であることを照合した。[SimulatorのAPNs対応](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)
