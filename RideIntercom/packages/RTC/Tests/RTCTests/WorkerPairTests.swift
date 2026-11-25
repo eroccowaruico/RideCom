@@ -67,6 +67,54 @@ struct WorkerPairTests {
         await endpoint.client.disconnect()
     }
 
+    @Test(.timeLimit(.minutes(1))) func workerExpiryKeepsExistingSubscriptionsWhenAnotherPeerJoins() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let address = try #require(env["RIDEINTERCOM_PAIR_EXPIRY_URL"])
+        let url = try #require(URL(string: address))
+        let room = RTCCredential.derived(groupID: UUID().uuidString, secret: "synthetic-expiry-pair")
+        func request(_ id: String) throws -> WebRTCSignalingConnectRequest {
+            let token = try #require(env["RIDEINTERCOM_PAIR_" + id.uppercased()])
+            return .init(call: .init(sessionID: "expiry", localPeer: .init(id: .init(rawValue: id), displayName: id),
+                                     credential: room),
+                         cloudflare: .init(workerURL: url, accessToken: token))
+        }
+        let expiringRequest = try request("expiring")
+        let stayingRequest = try request("staying")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairExpiryRequests.self]
+        let expiring = PairEndpoint(session: URLSession(configuration: configuration))
+        let staying = PairEndpoint(), arriving = PairEndpoint()
+        let listeners = [expiring, staying, arriving].map { $0.listen() }
+        defer { listeners.forEach { $0.cancel() } }
+        await expiring.join(expiringRequest)
+        await staying.join(stayingRequest)
+        try await eventually {
+            !expiring.channelIDs(from: "staying").isEmpty && !staying.channelIDs(from: "expiring").isEmpty
+        }
+        let subscribedChannels = expiring.channelIDs(from: "staying")
+        let signal = try #require(env["RIDEINTERCOM_PAIR_CLOCK_SIGNAL"])
+        try Data().write(to: URL(fileURLWithPath: signal))
+        try await eventually {
+            do {
+                _ = try await CloudflareRealtimeSignalingClient.checkService(expiringRequest.cloudflare)
+                return false
+            } catch CloudflareRealtimeSignalingClient.Failure.deviceCredentialRejected {
+                return true
+            }
+        }
+        PairExpiryRequests.arm()
+        await arriving.join(try request("arriving"))
+        try await eventually {
+            PairExpiryRequests.didContinueAfterPullRejection && !staying.channelIDs(from: "arriving").isEmpty
+        }
+        #expect(expiring.answers == 1 && expiring.failures.isEmpty && expiring.blockedReasons.isEmpty)
+        #expect(expiring.channelIDs(from: "staying") == subscribedChannels)
+        #expect(expiring.channelIDs(from: "arriving").isEmpty)
+        #expect(try await CloudflareRealtimeSignalingClient.checkService(stayingRequest.cloudflare).activeSessions == 3)
+        for endpoint in [expiring, staying, arriving] { await endpoint.client.disconnect() }
+        #expect(try await CloudflareRealtimeSignalingClient.checkService(stayingRequest.cloudflare).activeSessions == 0)
+    }
+
     private func rejectedSignalRequest() throws -> WebRTCSignalingConnectRequest {
         let env = ProcessInfo.processInfo.environment
         let address = try #require(env["RIDEINTERCOM_PAIR_URL"])
