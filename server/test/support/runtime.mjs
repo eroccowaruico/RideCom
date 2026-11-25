@@ -48,7 +48,7 @@ async function registerCallTestDevice(runtime, subject, deviceName) {
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom, trace = false, sandboxSender, deviceLifetimeMs } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom, trace = false, sandboxSender, deviceLifetimeMs, failFirstCallRenewalRecord = false } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
@@ -97,7 +97,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
         return productionWorker.fetch(request, env, ctx);
     } }` : 'productionWorker';
     const source = afterInboxSnapshot || onInvitationStore || attestationRoot || trackReplyStorage || adjustableClock
-        || rejectSignalForRoom || deviceLifetimeMs !== undefined ? { modules: [
+        || rejectSignalForRoom || deviceLifetimeMs !== undefined || failFirstCallRenewalRecord ? { modules: [
         { type: 'ESModule', path: 'fixture.mjs', contents: `
             export { AppleAuthAttempt, AppAttestKeyIndex, UsageGuard } from './index.js';
             import productionWorker, { UserAccount as ProductionAccount, NotificationIndex as ProductionIndex,
@@ -116,6 +116,15 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
                 }
             }` : 'ProductionRoom'};
             export class UserAccount extends ${trackReplyStorage ? 'observeStorage(ProductionAccount)' : 'ProductionAccount'} {
+                ${failFirstCallRenewalRecord ? `
+                failNextCallRenewalRecord = true;
+                async rememberCallRenewal(...args) {
+                    if (this.failNextCallRenewalRecord) {
+                        this.failNextCallRenewalRecord = false;
+                        throw new Error('Temporary call renewal record failure');
+                    }
+                    return super.rememberCallRenewal(...args);
+                }` : ''}
                 ${deviceLifetimeMs === undefined ? '' : `
                 async register(...args) {
                     const result = await super.register(...args);

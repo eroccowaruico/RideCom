@@ -223,7 +223,8 @@ export class SignalingRoom implements DurableObject {
             member.expiresAt = await reservationExpiry(r)
             await this.state.storage.put(`member:${member.sessionId}`, member); await this.scheduleExpiry()
             // Persist the room timestamp first, so retrying account registration cannot move it.
-            const confirmed = establishedAt !== undefined && await this.rememberCallRenewal(request, member)
+            // A failed account write must not invalidate an already renewed ordinary lease.
+            const confirmed = establishedAt !== undefined && await this.rememberCallRenewal(request, member).catch(() => false)
             const ice = await this.turn.get(member.id)
             const expiresAt = Math.min(member.expiresAt, expiresNoLaterThan ?? Infinity)
             const iceServers = ice && (!scoped || ice.expiresAt <= expiresAt)

@@ -95,7 +95,7 @@ test('unauthenticated and malformed provider.requests never contact the provider
     assert.equal(provider.requests.length, 0);
 });
 
-async function establishWithPeer(instance, id, path, credential, usesTurn = false) {
+async function prepareReciprocalSubscriptions(instance, id, path, credential, usesTurn = false) {
     const peer = await callTestCredential(instance, 'confirmation-partner');
     const iceLeaseID = 'confirmation-ice';
     if (usesTurn) {
@@ -110,13 +110,59 @@ async function establishWithPeer(instance, id, path, credential, usesTurn = fals
     assert.equal((await call(`${peerPath}/publish`, {}, 'POST', instance, peer)).status, 200);
     assert.equal((await call(`${path}/pull`, { peerIds: ['confirmation-partner'] }, 'POST', instance, credential)).status, 200);
     assert.equal((await call(`${peerPath}/pull`, { peerIds: [id] }, 'POST', instance, peer)).status, 200);
+    return { path: peerPath, credential: peer };
+}
+
+async function establishWithPeer(instance, id, path, credential, usesTurn = false) {
+    const peer = await prepareReciprocalSubscriptions(instance, id, path, credential, usesTurn);
     const response = await confirm(path, credential, 'confirmation-partner', instance);
     assert.equal(response.status, 200);
     const { establishedAt } = await response.json();
     assert.equal(typeof establishedAt, 'number');
-    assert.equal((await call(peerPath, undefined, 'DELETE', instance, peer)).status, 200);
+    assert.equal((await call(peer.path, undefined, 'DELETE', instance, peer.credential)).status, 200);
     return establishedAt;
 }
+
+test('an ordinary call renewal survives a temporary failure to record its establishment', async t => {
+    const initialTime = Date.now();
+    const instance = await makeRuntime({}, {
+        adjustableClock: true, fixedNowMs: initialTime, failFirstCallRenewalRecord: true,
+    });
+    t.after(() => instance.dispose());
+    const credential = await callTestCredential(instance);
+    const beforeCall = 30 * 86400000 - 360000;
+    await instance.advanceClock(beforeCall);
+    const joined = await join('waiting', room, instance, credential);
+    assert.equal(joined.status, 200);
+    const { sessionId, expiresAt } = await joined.json();
+    const path = `/api/rooms/${room}/sessions/${sessionId}`;
+    assert.equal((await call(`${path}/publish`, {}, 'POST', instance, credential)).status, 200);
+    const peer = await prepareReciprocalSubscriptions(instance, 'waiting', path, credential);
+
+    const beforeConfirmation = 310000;
+    await instance.advanceClock(beforeConfirmation);
+    const first = await confirm(path, credential, 'confirmation-partner', instance);
+    assert.equal(first.status, 200);
+    const ordinary = await first.json();
+    assert.equal(ordinary.sessionId, sessionId);
+    assert.ok(ordinary.expiresAt > expiresAt);
+    assert.equal(ordinary.establishedAt, undefined);
+    assert.equal(ordinary.continuationOnly, undefined);
+
+    await instance.advanceClock(10000);
+    const retry = await confirm(path, credential, 'confirmation-partner', instance);
+    assert.equal(retry.status, 200);
+    assert.equal((await retry.json()).establishedAt, initialTime + beforeCall + beforeConfirmation);
+
+    await instance.advanceClock(40000);
+    const continued = await call(`${path}/renew`, {}, 'POST', instance, credential);
+    assert.equal(continued.status, 200);
+    const lease = await continued.json();
+    assert.equal(lease.sessionId, sessionId);
+    assert.equal(lease.continuationOnly, true);
+    assert.equal((await call(path, undefined, 'DELETE', instance, credential)).status, 200);
+    assert.equal((await call(peer.path, undefined, 'DELETE', instance, peer.credential)).status, 200);
+});
 
 test('an established call renews only its own lease after the device credential expires', async () => {
     const instance = await makeRuntime({}, { adjustableClock: true });
