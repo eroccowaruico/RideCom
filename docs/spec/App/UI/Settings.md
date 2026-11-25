@@ -152,7 +152,7 @@ Standardの音声チェック（`StandardAudioCheckSection`）は「Record 5s an
 | 低帯域候補の説明 | `transmitCodecPanel` | `aacLowBandwidthExplanation` | 英日説明文 | 48kHz・32kbps／24kHz・16kbpsは音質低下を伴い、既定を変更しない。符号化bitrateと総通信量は別 | AAC選択中で、現在の周波数にnative対応の低帯域候補がある | 標準Section footer内のText | 品質推奨・実通信量や電池の効果を確定した表示にしない |
 | Opus bitrate | `transmitCodecPanel` | `opusBitRateStepper` | `Opus Bitrate` | `Int`。OS対応の24／32kbpsと従来48〜128kbps。既定48kbps | `preferredTransmitCodec == .opus` | `Stepper`、24／32には`Lower Quality`／`音質低下`を付け、48以上は2kbps刻み | Appの候補を手動で選んだ後の値を表示 |
 | Opus低帯域候補の説明 | `transmitCodecPanel` | `opusLowBandwidthExplanation` | 英日説明文 | 24／32kbpsは音質低下を伴う選択肢。既定48を維持し符号化量と全通信量を区別 | `preferredTransmitCodec == .opus` | Section footer | 推奨下限の変更ではない |
-| RTC Audio選択 | `transmitCodecPanel` | `rtcAudioFormatPicker` | `Sample Rate` | `.mono48k` / `.mono24k` / `.mono16k`、既定48kHz mono | 常時 | segmented Picker | 稼働中は共通音声pipelineを再構築。hardware sample rateとは別 |
+| RTC Audio選択 | `transmitCodecPanel` | `rtcAudioFormatPicker` | `Sample Rate` | `.mono48k` / `.mono24k` / `.mono16k`、既定48kHz mono | 常時 | segmented Picker | 通信で送る音声の周波数を選ぶ。[送信設定を更新](../音声処理仕様.md#入力時間と受信資源の寿命)し、受信を続ける |
 
 ## Voice Activity
 
