@@ -24,68 +24,29 @@ App は必要な package だけを組み合わせる。package 内の責務を A
 | OS audio session / hardware I/Oだけ使う | `SessionManager` | `AudioCore` | `AudioMixer`, `Codec`, `RTC` |
 | PCM graph / mix / effect chainだけ使う | `AudioMixer` | `AudioCore`（Effectorsは使用側で追加） | `SessionManager`, `Codec`, `RTC` |
 | codec encode / decodeだけ使う | `Codec` | `AudioCore` | `SessionManager`, `AudioMixer`, `RTC` |
-| VAD / Dynamics / Limiter / SoundIsolationだけ使う | 対象Effector | packageごとの依存だけ | `AudioMixer`, `SessionManager`, `Codec`, `RTC` |
+| VAD / Dynamics / Limiter / SoundIsolationだけ使う | 対象Effector | なし | `AudioMixer`, `SessionManager`, `Codec`, `RTC` |
+| 暗号化された端末ペアを音声入出力に使う | [AudioDevice](Audio/AudioDevice.md) | `AudioCore`, `SessionManager`, `Codec`, `RTC` | `AudioMixer`, Effectors, `CallControl` |
 | route / packet / encryption / handoverだけ使う | `RTC` | なし | Audio packages |
 | 現在の通話世代を端末の操作入口へ渡す | [CallControl](CallControl.md) | なし | RTC、Audio、画面・OSの操作SDK |
 
-## 統合時だけの関係
+## ローカルpackageの依存関係
 
 ```mermaid
 flowchart LR
-    App[App composition layer]
-    Core[AudioCore]
-    Session[SessionManager]
-    Mixer[AudioMixer]
-    Codec[Codec]
-    RTC[RTC]
-    Effectors[Effectors]
-
-    Session -. uses PCM types .-> Core
-    Mixer -. uses PCM types .-> Core
-    Codec -. uses PCM types .-> Core
-    App --> Effectors
-    Effectors -->|AVAudioNode injection| Mixer
-
-    App --> Session
-    App --> Mixer
-    App --> Codec
-    App --> RTC
-
-    App -. connects outputs to inputs .-> Core
+    SessionManager --> AudioCore
+    AudioMixer --> AudioCore
+    Codec --> AudioCore
+    AudioDevice --> AudioCore
+    AudioDevice --> SessionManager
+    AudioDevice --> Codec
+    AudioDevice --> RTC
+    Effectors["VADGate / DynamicsProcessor / PeakLimiter / SoundIsolation"]
+    CallControl
 ```
 
-点線は package 依存、実線は App が使う入口を表す。`RTC` は Audio系packageへ点線を持たない。
+矢印の先が依存先である。WebRTC SDKはRTC package内の `RTCNativeWebRTC` が使う。外部SDKと試験用の依存は各 `Package.swift` で確認する。
 
-## 全体構成
-
-```mermaid
-flowchart LR
-    App[RideIntercom App]
-
-    subgraph Audio[Audio packages]
-        Core[AudioCore<br/>PCM vocabulary / reports]
-        Session[SessionManager<br/>OS / hardware boundary]
-        Mixer[AudioMixer<br/>PCM graph / normalize / mix]
-        Codec[Codec<br/>PCMFrame <-> encoded payload]
-        Effectors[Effectors<br/>VAD / Dynamics / Limiter / SoundIsolation]
-    end
-
-    subgraph Network[Communication package]
-        RTC[RTC<br/>route / packet / encryption / jitter / status]
-    end
-
-    Core --> Session
-    Core --> Mixer
-    Core --> Codec
-    Effectors --> Mixer
-
-    App --> Session
-    App --> Mixer
-    App --> Codec
-    App --> RTC
-```
-
-この図は RideCom で全packageを使う場合の全体像である。各packageの移植条件は「移植単位」の表を優先する。
+RideComのAppは必要なpackageを接続し、使用するEffectorのAVAudioNodeをMixerへ渡す。端末を組にして音声を入出力するときはSessionManagerへAudioDeviceをつなぐ。AppとWidgetはCallControlの参照を共有し、操作の可否はAppが現在の通話と照合して決める。
 
 ## Package 境界
 
@@ -95,8 +56,10 @@ flowchart LR
 | `SessionManager` | `AudioCore` | Audio Session、device、route、機器の入出力、再生機器へのPCM形式変換、OS voice processing | 処理用バスの正規化、mix、effect、codec、RTC |
 | `AudioMixer` | `AudioCore` | PCM source/sink、bus graph、source ingress正規化、sink egress正規化、effect chain、volume、mix | hardware、codec、packet、暗号化 |
 | `Codec` | `AudioCore` | `PCMFrame <-> EncodedCodecFrame`、codec availability、bit rate option、fallback report | PCM正規化、mix、packet、暗号化、jitter |
-| Effectors | 必要に応じて `AudioCore` | 単機能effect、effect runtime snapshot | graph構築、hardware、codec、transport |
+| Effectors | なし | 単機能effect、effect runtime snapshot | graph構築、hardware、codec、transport |
+| [AudioDevice](Audio/AudioDevice.md) | `AudioCore`, `SessionManager`, `Codec`, `RTC` | 暗号化された端末ペアをSessionManagerの入出力backendとして提供 | 出力時計の生成、端末内の再生、VAD、mix、通話の参加者管理 |
 | `RTC` | なし | route、handover、packet envelope、encryption、jitter、metadata、runtime status | Audio package依存、DSP、codec encode/decode |
+| [CallControl](CallControl.md) | なし（Foundationを使用） | 操作の対象とするログイン・通話の世代とグループを表す参照、文字列とJSONへの変換 | 世代の発行、操作の可否、認証、音声・通信 |
 
 ## End-to-End Flow
 
