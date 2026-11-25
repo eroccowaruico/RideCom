@@ -109,7 +109,7 @@ final class IntercomViewModel {
     var audioErrorMessage: String?
     var showsCallMicrophonePermissionAlert = false
     var callToPresentAfterPermission: CallReference?
-    var callMicrophonePermissionRequest: (id: UUID, task: Task<Bool, Never>)?
+    var callMicrophonePermissionRequest: (id: UUID, task: Task<CallReference?, Never>)?
     var isAudioPausedForDeviceChange = false
     var audioRouteNotice: String?
     var internetTransportFailure: InternetTransportFailure?

@@ -70,12 +70,19 @@ extension AppCallOwner {
         try Task.checkCancellation()
         let start = model.requestCallStart(to: destination, accountAccessID: model.accountAccessID,
             allowSwitchingCall: false, allowsMicrophonePrompt: allowsMicrophonePrompt)
-        guard await start.didStart(), viewModel === model, model.hasCurrentAccountAccess else {
+        guard await presentStartedCall(start, in: model) else {
             let message = model.callMicrophonePermission() == .granted
                 ? model.groupErrorMessage : IntercomViewModel.microphoneAccessRequiredMessage
             throw CallIntentError.unavailable(message ?? "The call could not be started.")
         }
+    }
+
+    @discardableResult
+    func presentStartedCall(_ start: CallStartOutcome, in model: IntercomViewModel) async -> Bool {
+        guard let reference = await start.startedCall(), !Task.isCancelled,
+              viewModel === model, model.matchesCurrentCall(reference) else { return false }
         callPresentationID = UUID()
+        return true
     }
 }
 

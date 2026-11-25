@@ -56,10 +56,8 @@ extension AppCallOwner {
             guard let model, self?.viewModel === model, model.notifications === notifications else { return false }
             return notifications.now() < resolved.expiresAt && notifications.canRespond(to: resolved, tap: tap)
         }
-        let started = await start.didStart()
-        if started {
-            callPresentationID = UUID()
-        } else if case .failed = start {
+        let started = await presentStartedCall(start, in: model)
+        if case .failed = start, !Task.isCancelled, viewModel === model, model.matchesCurrentCall(reference) {
             callPresentationID = UUID()
         }
         if case .waitingForMicrophone = start, !started, !Task.isCancelled, viewModel === model,

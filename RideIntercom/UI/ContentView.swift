@@ -22,7 +22,7 @@ struct ContentView: View {
         }
         .onChange(of: owner.callPresentationID) { _, _ in selectedTab = .call }
         .onChange(of: owner.viewModel?.callToPresentAfterPermission) { _, call in
-            if let call, owner.viewModel?.currentCallReference == call { selectedTab = .call }
+            if let call, owner.viewModel?.matchesCurrentCall(call) == true { selectedTab = .call }
         }
         .onChange(of: owner.usersPresentationID) { _, _ in selectedTab = .users }
         .onChange(of: owner.groupsPresentationID) { _, _ in

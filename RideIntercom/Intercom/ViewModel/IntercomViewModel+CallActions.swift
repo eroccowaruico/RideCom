@@ -19,20 +19,25 @@ enum CallStartSource {
 enum CallMicrophonePermission { case undetermined, denied, granted }
 
 enum CallStartOutcome {
-    case started, failed, blocked
-    case waitingForMicrophone(Task<Bool, Never>)
+    case started(CallReference)
+    case failed, blocked
+    case waitingForMicrophone(Task<CallReference?, Never>)
 
     var startedImmediately: Bool {
         if case .started = self { return true }
         return false
     }
 
-    func didStart() async -> Bool {
-        guard case .waitingForMicrophone(let task) = self else { return startedImmediately }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
+    func startedCall() async -> CallReference? {
+        switch self {
+        case .started(let reference): return reference
+        case .failed, .blocked: return nil
+        case .waitingForMicrophone(let task):
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
         }
     }
 }
@@ -121,7 +126,10 @@ extension IntercomViewModel {
                     source: source, presentsAfterPermission: presentsAfterPermission, isStillAllowed: isStillAllowed)
             }
         }
-        return beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source) ? .started : .failed
+        guard let call = beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source) else {
+            return .failed
+        }
+        return .started(call)
     }
 
     private func validateCallStartAccount(_ requestedAccess: UUID) -> Bool {
@@ -139,38 +147,40 @@ extension IntercomViewModel {
     ) -> CallStartOutcome {
         let id = UUID(), reference = currentCallReference
         let requestPermission = requestMicrophoneAccess
-        let task = Task { [weak self] in
+        let task = Task<CallReference?, Never> { [weak self] in
             let authorized = Task.isCancelled ? false : await requestPermission()
-            guard let self, self.callMicrophonePermissionRequest?.id == id else { return false }
+            guard let self, self.callMicrophonePermissionRequest?.id == id else { return nil }
             self.callMicrophonePermissionRequest = nil
             guard !Task.isCancelled, self.currentCallReference == reference, isStillAllowed(),
-                  self.validateCallStartAccount(reference.accountAccessID) else { return false }
+                  self.validateCallStartAccount(reference.accountAccessID) else { return nil }
             guard authorized else {
                 self.showsCallMicrophonePermissionAlert = true
-                return false
+                return nil
             }
-            let started = self.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source)
-            if started, presentsAfterPermission { self.callToPresentAfterPermission = self.currentCallReference }
-            return started
+            let call = self.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source)
+            if presentsAfterPermission, let call { self.callToPresentAfterPermission = call }
+            return call
         }
         callMicrophonePermissionRequest = (id, task)
         return .waitingForMicrophone(task)
     }
 
-    private func beginCall(to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource) -> Bool {
+    private func beginCall(
+        to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource
+    ) -> CallReference? {
         switch destination {
         case .group(let id):
-            guard selectGroupForCall(id, allowSwitchingCall: allowSwitchingCall) else { return false }
+            guard selectGroupForCall(id, allowSwitchingCall: allowSwitchingCall) else { return nil }
         case .user(let id):
-            guard selectUser(id, connectIfIdle: false, allowSwitchingCall: allowSwitchingCall) else { return false }
+            guard selectUser(id, connectIfIdle: false, allowSwitchingCall: allowSwitchingCall) else { return nil }
         }
-        guard let selectedGroup else { return false }
-        if activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection { return true }
+        guard let selectedGroup else { return nil }
+        if activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection { return currentCallReference }
         connectSelectedGroup(source: source)
-        let started = activeGroupID == selectedGroup.id && hasAnyActiveGroupConnection
+        guard activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection else { return nil }
         // Every new one-to-one connection notifies the person once, from a list, Widget, Watch or Siri.
-        if started, case .user(let id) = destination { noticeNewDirectCall(to: id) }
-        return started
+        if case .user(let id) = destination { noticeNewDirectCall(to: id) }
+        return currentCallReference
     }
 
     private func selectGroupForCall(_ id: UUID, allowSwitchingCall: Bool) -> Bool {
@@ -264,7 +274,7 @@ extension IntercomViewModel {
         return true
     }
 
-    private func matchesCurrentCall(_ reference: CallReference) -> Bool {
+    func matchesCurrentCall(_ reference: CallReference) -> Bool {
         hasCurrentAccountAccess && currentCallReference == reference
     }
 }
