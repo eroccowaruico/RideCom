@@ -183,7 +183,7 @@ SoundIsolation対応環境では、送信・peer・masterのVoice Isolation操�
 | 項目 | ID | 入力と動作 |
 |---|---|---|
 | Set Up Internet Calling | `prepareInternetAppleSignIn` | serverの使い捨てnonceを取得し、Apple認証を準備。失敗しても現在のLocalログインと通話を維持。同じsheetで再操作しても認証modelを作り直さず、429の待機期限までは再送しない |
-| Continue with Apple | `internetAppleSignInButton` | 準備後に有効。現在のAppleアカウントと一致する認証だけをserverへ送り、端末資格をKeychainに保存して通話を終了・RTC configurationを更新 |
+| Continue with Apple | `internetAppleSignInButton` | 準備後に有効。現在のAppleアカウントと一致する認証だけをサーバーへ送り、端末資格をKeychainに保存する。[再開の条件](../通信仕様.md#通常サインインからインターネット通話の端末を登録する)を満たす登録待ちの発信は接続を続ける。登録待ちがない場合は通話を終了してRTCの接続設定を更新する |
 | Apple認証の状態 | `internetAppleSignInStatus` | 準備・認証・保存の失敗、保存成功を表示。token・メール・本名は表示しない |
 
 Apple接続で発行された端末資格はKeychainに保存する。Standardの「設定済み」とAdvancedの `Device token configured` は、端末で使う資格を読み込めた状態を示す。通話の成立は通話画面で確認する。試用はLocal NetworkをOFFにしてInternetだけで確認できる。自動テストはローカル代替環境を使用する。

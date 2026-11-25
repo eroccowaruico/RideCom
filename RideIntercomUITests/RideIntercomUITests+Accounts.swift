@@ -1,6 +1,71 @@
 import XCTest
 
 extension RideIntercomUITests {
+    #if os(iOS)
+    @MainActor @objc
+    func testAdvancedInternetCredentialRecoveryClearsReopenedCallAndSettings() {
+        verifyInternetCredentialRecovery(advanced: true)
+    }
+
+    @MainActor @objc
+    func testStandardInternetCredentialRecoveryClearsReopenedCallAndSettings() {
+        verifyInternetCredentialRecovery(advanced: false)
+    }
+
+    @MainActor
+    private func verifyInternetCredentialRecovery(advanced: Bool) {
+        createTalkGroupAndOpenCall(advanced: advanced, handlesMicrophonePrompt: true)
+        let rejectedMessage = "Internet calling could not verify this device."
+        let rejection = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", rejectedMessage)).firstMatch
+        let apple = app.buttons["callAppleEnrollmentButton"].firstMatch
+        XCTAssertTrue(rejection.waitForExistence(timeout: 5))
+        XCTAssertTrue(apple.exists)
+        let status = openCredentialRecoverySettings(advanced: advanced)
+        XCTAssertEqual(status.label, advanced ? "Not configured" : "Not set up")
+
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5)
+            || app.wait(for: .runningBackgroundSuspended, timeout: 5))
+        app.activate()
+        let configured = advanced ? "Device token configured" : "Set up"
+        let updated = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", configured), object: status)
+        XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 8), .completed)
+
+        let callScreen = advanced ? "callScreen" : "standardCallScreen"
+        for _ in 0..<2 {
+            app.openCurrentCall()
+            XCTAssertTrue(app.descendants(matching: .any)[callScreen].waitForExistence(timeout: 5))
+            XCTAssertFalse(rejection.exists)
+            XCTAssertFalse(apple.exists)
+            XCTAssertEqual(openCredentialRecoverySettings(advanced: advanced).label, configured)
+        }
+    }
+
+    @MainActor
+    private func openCredentialRecoverySettings(advanced: Bool) -> XCUIElement {
+        let status = app.descendants(matching: .any)["internetConfigurationStatus"].firstMatch
+        if advanced {
+            openSettingsTab()
+            revealSettingsControl(status)
+            return status
+        }
+        app.closeCallIfOpen()
+        let developerSettings = app.navigationBars["Advanced Settings for Developers"]
+        if !developerSettings.exists {
+            openSettingsTab()
+            let more = app.buttons["moreSettingsLink"].firstMatch
+            revealSettingsControl(more)
+            more.tap()
+        }
+        XCTAssertTrue(developerSettings.waitForExistence(timeout: 3))
+        for _ in 0..<3 where !status.isHittable { app.swipeUp() }
+        XCTAssertTrue(status.isHittable)
+        return status
+    }
+    #endif
+
     @MainActor
     @objc
     func testInternetEnrollmentThrottleKeepsAccountAndShowsRetryInstruction() throws {

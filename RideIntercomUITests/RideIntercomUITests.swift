@@ -29,6 +29,12 @@ final class RideIntercomUITests: XCTestCase {
         if name.contains("InternetEnrollmentThrottle") {
             app.launchEnvironment["RIDEINTERCOM_INTERNET_ACCOUNT_FIXTURE"] = "throttled"
         }
+        if name.contains("InternetCredentialRecovery") {
+            app.launchEnvironment["RIDEINTERCOM_INTERNET_ACCOUNT_FIXTURE"] = "credential-recovery"
+            if name.contains("StandardInternetCredentialRecovery") {
+                app.launchEnvironment["RIDEINTERCOM_INTERFACE_FIXTURE"] = "standard"
+            }
+        }
         if name.contains("AccountReplacement") {
             app.launchEnvironment["RIDEINTERCOM_ACCOUNT_REPLACEMENT_FIXTURE"] = UUID().uuidString
         }

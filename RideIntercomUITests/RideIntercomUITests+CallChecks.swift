@@ -267,7 +267,7 @@ extension RideIntercomUITests {
             .containing(.staticText, identifier: "Talk Group")
     }
 
-    func createTalkGroupAndOpenCall() {
+    func createTalkGroupAndOpenCall(advanced: Bool = true, handlesMicrophonePrompt: Bool = false) {
         openGroupsTab()
         removeExistingTalkGroups()
         let createButton = app.buttons["standardCreateGroupButton"].firstMatch
@@ -279,7 +279,17 @@ extension RideIntercomUITests {
         let enteredName = (name.value as? String)?.count ?? 0
         name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: enteredName) + "Talk Group")
         app.buttons["saveUserSelectionButton"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["callScreen"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Participants"].waitForExistence(timeout: 3))
+        #if os(iOS)
+        if handlesMicrophonePrompt {
+            let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+                .alerts["kTCCServiceMicrophone-alert"].firstMatch
+                .buttons["kTCCServiceMicrophone-allow-button"].firstMatch
+            if allow.waitForExistence(timeout: 2) { allow.tap() }
+        }
+        #endif
+        let callScreen = advanced ? "callScreen" : "standardCallScreen"
+        XCTAssertTrue(app.descendants(matching: .any)[callScreen].waitForExistence(timeout: 3))
+        let participants = advanced ? "Participants" : "standardCallParticipantsHeading"
+        XCTAssertTrue(app.staticTexts[participants].waitForExistence(timeout: 3))
     }
 }

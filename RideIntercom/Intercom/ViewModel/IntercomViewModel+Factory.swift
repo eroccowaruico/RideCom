@@ -38,12 +38,14 @@ extension IntercomViewModel {
         let groupRepository = GroupRepository(
             store: groupStore, credentials: KeychainGroupCredentialStore(namespace: namespace)
         )
+        let (callSession, internetSettingsStore) = callInfrastructure(namespace: namespace, userID: userID)
         let model = IntercomViewModel(
             accountSession: accountSession,
             callAccessNow: callAccessNow,
+            callSession: callSession,
             groupRepository: groupRepository,
             appSettingsStore: UserDefaultsAppSettingsStore(defaults: defaults),
-            internetSettingsStore: InternetConnectionSettingsStore.makeForCurrentProcess(namespace: namespace),
+            internetSettingsStore: internetSettingsStore,
             localMemberIdentityStore: localMemberIdentityStore,
             invitationAuthority: DirectInvitationAuthority(keychain: SystemKeychainSecretStore(), namespace: namespace),
             requestMicrophoneAccess: {
@@ -56,8 +58,22 @@ extension IntercomViewModel {
             callMicrophonePermission: systemCallMicrophonePermission,
             audioSessionManager: processAudioSessionManager
         )
+        #if os(iOS) && DEBUG && RIDEINTERCOM_VALIDATION
+        (callSession as? InternetCredentialRecoveryFixture)?.bind(model)
+        #endif
         model.monitorGroupDeliveryPath()
         return model
+    }
+
+    private static func callInfrastructure(
+        namespace: String, userID: String
+    ) -> (CallSession?, InternetConnectionSettingsStore) {
+        #if os(iOS) && DEBUG && RIDEINTERCOM_VALIDATION
+        if let fixture = InternetCredentialRecoveryFixture.make(namespace: namespace, userID: userID) {
+            return (fixture, fixture.settings)
+        }
+        #endif
+        return (nil, InternetConnectionSettingsStore.makeForCurrentProcess(namespace: namespace))
     }
 
     private func monitorGroupDeliveryPath() {
