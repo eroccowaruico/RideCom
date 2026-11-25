@@ -70,7 +70,7 @@ TX/RXは従来のpipeline、Networkは、[Network診断](#network診断)のと�
 | 項目名（日本語） | 親項目 | 項目ID | ラベル | データ仕様 | 表示仕様 | 状態・異常系の考え方 |
 |---|---|---|---|---|---|---|
 | SessionManager sessionステップ | `liveTransmitPipelineView` | `pipeline-session-step` | Session | `AudioSessionSnapshot`, `audioSessionProfile`, 直近 session report | 状態アイコン + profile | session error は blocked |
-| SessionManager inputステップ | `liveTransmitPipelineView` | `pipeline-input-step` | Input | `AudioInputStreamCapture` snapshot、voice processing report、`isMuted` | stream format、frame count、mute | ミュートは故障ではなく waiting |
+| SessionManager inputステップ | `liveTransmitPipelineView` | `pipeline-input-step` | Input | `AudioInputStreamCapture` snapshot、voice processing report、`isMuted` | stream format、frame count、mute | マイクのミュートは `Muted` |
 | 発話判定 | `liveTransmitPipelineView` | `vad` | VAD | `VADGateRuntimeSnapshot.lastAnalysis`、感度preset | 判定状態と感度。展開すると`Microphone input before TX Bus Effects.`と判定入力、noise floor、threshold（dBFS）、gain | メディア準備前、ミュート中、分析がないときは`Input level: Not measured` |
 | AudioMixer TX busステップ | `liveTransmitPipelineView` | `pipeline-mixer-step` | TX Bus | `AudioMixerSnapshot` の `tx-bus` のsource数・effect数、`isSoundIsolationEnabled`、`transmitEffectChainSnapshot`の`sound-isolation` | 閉じた行に `n in / n FX` と声の分離の設定・実状態を表示する | 音声未準備やbusの未観測でも設定を表示する。待機や利用不能の理由は件数の位置に表示する |
 | AudioMixer effect chainステップ | `liveTransmitPipelineView` | `pipeline-effects-step` | FX Chain | `AudioMixerSnapshot` の `tx-bus.effectChain` から導出した `transmitEffectChainSnapshot.stages` | TX bus 配下の inline stage chip として表示 | stage 内の unavailable / bypassed を warning 以下で表示 |
