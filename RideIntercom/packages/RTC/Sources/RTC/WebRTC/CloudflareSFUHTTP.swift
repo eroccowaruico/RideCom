@@ -48,13 +48,14 @@ extension CloudflareRealtimeSignalingClient {
     static func fetch(
         _ configuration: CloudflareRealtimeConfiguration, url: URL, method: String, body: Data?,
         session: URLSession, retryConnectionLoss: Bool = false, totalTimeout: Duration = .seconds(25),
-        establishmentPeer: PeerID? = nil
+        establishmentPeers: Set<PeerID> = []
     ) async throws -> Data {
         var request = URLRequest(url: url); request.httpMethod = method
         request.setValue("Bearer \(configuration.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let establishmentPeer {
-            request.setValue(establishmentPeer.rawValue, forHTTPHeaderField: "X-Established-Peer")
+        if !establishmentPeers.isEmpty {
+            let peerIDs = establishmentPeers.map(\.rawValue).sorted().joined(separator: ",")
+            request.setValue(peerIDs, forHTTPHeaderField: "X-Established-Peer")
         }
         request.httpBody = body
         let operation: @Sendable () async throws -> Data = { [request] in

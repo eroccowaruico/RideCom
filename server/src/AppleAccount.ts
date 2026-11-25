@@ -391,13 +391,14 @@ export class UserAccount extends DurableObject<Env> {
     }
 
     async rememberCallRenewal(deviceID: string, tokenHash: string, roomID: string,
-        sessionID: string, expiresAt: number): Promise<void> {
-        if (expiresAt <= Date.now() || !this.authenticate(deviceID, tokenHash)) return
+        sessionID: string, expiresAt: number): Promise<boolean> {
+        if (expiresAt <= Date.now() || !this.authenticate(deviceID, tokenHash)) return false
         const existing = this.ctx.storage.kv.get<CallRenewal>('call-renewal')
-        if (existing && existing.expiresAt >= expiresAt) return
+        if (existing && existing.expiresAt > expiresAt) return false
         this.ctx.storage.kv.put<CallRenewal>('call-renewal',
             { deviceID, tokenHash, roomID, sessionID, expiresAt })
         await this.scheduleExpiry()
+        return true
     }
 
     authorizeCallRenewal(deviceID: string, tokenHash: string, roomID: string, sessionID: string): DeviceIdentity | null {

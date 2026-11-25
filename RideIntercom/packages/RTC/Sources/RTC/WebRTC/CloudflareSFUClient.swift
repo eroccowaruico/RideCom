@@ -17,7 +17,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
     private var renewalWait: Task<Void, Never>?
     private var needsEarlyRenewal = false
     private var currentLease: Lease?
-    private var establishmentPeer: PeerID?
+    private var establishmentPeers: Set<PeerID> = []
     private var callContinuationDeadline: ContinuousClock.Instant?
     private(set) var establishedAt: Double?
     private var peers: [PeerDescriptor] = []
@@ -64,7 +64,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         let oldID = sessionID, oldIceLeaseID = iceLeaseID
         let oldRequest = request.map { oldID == nil ? $0 : $0.replacingWorkerCredential(currentConfiguration()) }
         sessionID = nil; iceLeaseID = nil; request = nil; peers = []; currentLease = nil
-        establishmentPeer = nil; establishedAt = nil; callContinuationDeadline = nil
+        establishmentPeers = []; establishedAt = nil; callContinuationDeadline = nil
         localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
         if let oldRequest {
@@ -197,12 +197,12 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
         let remaining = currentLease?.continuationRemaining(through: callContinuationDeadline) ?? .infinity
         guard remaining > 0 else { throw Failure.deviceCredentialRejected }
-        let peer = currentLease?.continuationOnly == true ? nil : establishmentPeer
+        let candidates = currentLease?.continuationOnly == true ? [] : establishmentPeers
         needsEarlyRenewal = false
         let data = try await http(
             request.replacingWorkerCredential(currentConfiguration()),
             path: "sessions/\(id)/renew", body: [:], totalTimeout: .seconds(min(25, remaining)),
-            establishmentPeer: peer)
+            establishmentPeers: candidates)
         guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
         guard (currentLease?.continuationRemaining(through: callContinuationDeadline) ?? .infinity) > 0 else {
             throw Failure.deviceCredentialRejected
@@ -235,7 +235,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         currentLease = lease
         if establishedAt == nil, let confirmed = lease.establishedAt {
             establishedAt = confirmed
-            establishmentPeer = nil
+            establishmentPeers = []
             needsEarlyRenewal = false
         }
         if lease.continuationOnly == true { needsEarlyRenewal = false }
@@ -336,6 +336,7 @@ private extension CloudflareRealtimeSignalingClient {
                 peers = remote.filter { $0.id != request.call.localPeer.id.rawValue }.map {
                     .init(id: .init(rawValue: $0.id), displayName: $0.id)
                 }
+                establishmentPeers.formIntersection(peers.map(\.id))
                 source.yield(.members(peers))
                 guard try await subscribe(request, id: id, generation: generation) else { return }
             } else if event.type == "appData", let sender = event.from,
@@ -376,8 +377,7 @@ extension CloudflareRealtimeSignalingClient {
             if currentLease?.continuationOnly == true { renewalWait?.cancel() }
         }
         guard establishedAt == nil, currentLease?.continuationOnly != true else { return }
-        if let pending = establishmentPeer, peers.contains(where: { $0.id == pending }) { return }
-        establishmentPeer = peer
+        guard establishmentPeers.insert(peer).inserted else { return }
         needsEarlyRenewal = true
         renewalWait?.cancel()
     }
@@ -388,12 +388,12 @@ extension CloudflareRealtimeSignalingClient {
     }
     private func http(
         _ connect: WebRTCSignalingConnectRequest, path: String, method: String = "POST",
-        body: [String: Any]? = nil, totalTimeout: Duration = .seconds(25), establishmentPeer: PeerID? = nil
+        body: [String: Any]? = nil, totalTimeout: Duration = .seconds(25), establishmentPeers: Set<PeerID> = []
     ) async throws -> Data {
         try await Self.fetch(
             connect.cloudflare, url: try endpoint(connect, path: path), method: method,
             body: try body.map { try JSONSerialization.data(withJSONObject: $0) }, session: session,
             retryConnectionLoss: path.hasSuffix("/pull"), totalTimeout: totalTimeout,
-            establishmentPeer: establishmentPeer)
+            establishmentPeers: establishmentPeers)
     }
 }

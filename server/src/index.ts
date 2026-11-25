@@ -65,8 +65,8 @@ export default {
         headers.delete('Authorization'); headers.set('X-Owner', owner)
         headers.delete('X-User'); if (device) headers.set('X-User', device.accountID)
         headers.delete('X-Device-Token-Hash')
-        if (device && !device.continuing && (match?.[2].endsWith('/publish')
-            || (request.method === 'POST' && sessionAction?.[2] === '/renew' && headers.has('X-Established-Peer')))) {
+        if (device && !device.continuing && request.method === 'POST'
+            && sessionAction?.[2] === '/renew' && headers.has('X-Established-Peer')) {
             headers.set('X-Device-Token-Hash', device.tokenHash)
         }
         headers.delete('X-Call-Renewal')
