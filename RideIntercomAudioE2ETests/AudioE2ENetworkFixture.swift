@@ -98,10 +98,10 @@ struct AudioE2ENativeAudio {
         input = try SpeechFileInput(
             name: localFixture, engine: outputEngine, addingIsolationNoise: run.measuresIsolationNoise && role == "a"
         )
-        if run.waitsForInternet { input.observeStartupDelivery() }
+        if run.recordsStartupAudio { input.observeStartupDelivery() }
         if run.mixed { input.setFrameDeliveryEnabled(false) }
         remote = try SpeechFileInput(name: remoteFixture)
-        probe = RenderedAudioProbe(recordsRenderClock: run.waitsForInternet)
+        probe = RenderedAudioProbe(recordsRenderClock: run.recordsStartupAudio)
         mixedProbe = RenderedAudioProbe()
         decodedProbe = RenderedAudioProbe()
         output = SystemAudioOutputStreamBackend(engine: outputEngine)
@@ -334,14 +334,14 @@ extension AudioE2ETests {
             pipeline: viewModel.audioPipeline, decodedProbe: endpoint.audio.decodedProbe
         )
         let originalTransmit = viewModel.audioPipeline.onTransmitPacket
-        if run.waitsForInternet {
+        if run.recordsStartupAudio {
             // Joining binds the audio callbacks synchronously. Observe the
             // first packets without changing the callbacks during playback.
             viewModel.callSession.processReceivedAudio = trace.process
             viewModel.audioPipeline.onTransmitPacket = trace.transmitObserver(forwarding: originalTransmit)
         }
         defer {
-            if run.waitsForInternet { viewModel.audioPipeline.onTransmitPacket = originalTransmit }
+            if run.recordsStartupAudio { viewModel.audioPipeline.onTransmitPacket = originalTransmit }
         }
         let waiting = AudioE2EWaitingCall(viewModel: viewModel)
         if run.mutedWait > 0, run.role == "a" {
@@ -375,7 +375,7 @@ extension AudioE2ETests {
             return
         }
         #endif
-        if !run.waitsForInternet { viewModel.callSession.processReceivedAudio = trace.process }
+        if !run.recordsStartupAudio { viewModel.callSession.processReceivedAudio = trace.process }
         try await measureNetworkScenarios(pair, trace: trace)
     }
 

@@ -145,17 +145,17 @@ struct NetworkAudioWindow {
     var rendered: RenderedAudioProbe.Recording { steadyOutput.audio }
     var firstOutput: Double? { steadyOutput.firstHostTime }
 
-    func verifyLocalStartupClock() throws {
+    func verifyStartupClock() throws {
         let nativeClockObservations = receivedTrace.filter { $0.playoutReservation?.renderAnchorHostTime != nil }
         XCTAssertGreaterThan(
-            nativeClockObservations.count, 20, "Collect native render clock positions for the Local packets"
+            nativeClockObservations.count, 20, "Collect native render clock positions for received packets"
         )
         XCTAssertFalse(startupSentTrace?.isEmpty ?? true, "Record sent packets before steady playback")
         let input = try XCTUnwrap(startupInputDelivery)
         XCTAssertFalse(input.isEmpty, "Record native input delivery before steady playback")
         XCTAssertTrue(input.allSatisfy { $0.callback <= $0.handedOff && $0.handedOff <= $0.returned })
-        XCTAssertTrue(startupReceivedTrace?.contains { $0.playoutReservation != nil } == true,
-                      "Collect Local reservations before the steady-state sample")
+        XCTAssertTrue(startupReceivedTrace?.contains { $0.playoutReservation?.anchorLead != nil } == true,
+                      "Record what set the playout delay before the steady-state sample")
         XCTAssertNotNil(startupFirstDecoded)
         XCTAssertFalse(
             startupOutput?.blocks?.isEmpty ?? true, "Record the native render clock before the steady-state sample"
@@ -193,17 +193,17 @@ extension AudioE2ETests {
     ) async throws -> NetworkAudioWindow {
         let viewModel = endpoint.viewModel
         let audio = endpoint.audio
-        let waitsForInternet = endpoint.run.waitsForInternet
-        let startupDecoded = waitsForInternet ? audio.decodedProbe.snapshot() : nil
-        let startupOutput = waitsForInternet ? audio.probe.finishTimedRecording() : nil
-        let startupFirstDecoded = waitsForInternet ? audio.decodedProbe.firstOutputTime : nil
-        let startupInputDelivery = waitsForInternet ? audio.input.finishStartupDelivery() : nil
+        let recordsStartup = endpoint.run.recordsStartupAudio && scenario.id == endpoint.run.initial.id
+        let startupDecoded = recordsStartup ? audio.decodedProbe.snapshot() : nil
+        let startupOutput = recordsStartup ? audio.probe.finishTimedRecording() : nil
+        let startupFirstDecoded = recordsStartup ? audio.decodedProbe.firstOutputTime : nil
+        let startupInputDelivery = recordsStartup ? audio.input.finishStartupDelivery() : nil
         audio.probe.reset(recordsRenderClock: true)
         let originalTransmit = viewModel.audioPipeline.onTransmitPacket
         let originalOutput = viewModel.audioPipeline.onOutputFrame
         audio.mixedProbe.reset()
         audio.decodedProbe.reset()
-        let startup = trace.beginWindow(keepStartupTrace: waitsForInternet)
+        let startup = trace.beginWindow(keepStartupTrace: recordsStartup)
         let failuresBefore = trace.decodeFailures.withLock { $0 }
         var outputTiming: [[String: Double]] = []
         viewModel.audioPipeline.onOutputFrame = { frame in
@@ -213,11 +213,11 @@ extension AudioE2ETests {
                 "queued": audio.output.bufferedOutputDuration ?? 0])
             originalOutput?(frame)
         }
-        if !waitsForInternet {
+        if !endpoint.run.recordsStartupAudio {
             viewModel.audioPipeline.onTransmitPacket = trace.transmitObserver(forwarding: originalTransmit)
         }
         defer {
-            if !waitsForInternet { viewModel.audioPipeline.onTransmitPacket = originalTransmit }
+            if !endpoint.run.recordsStartupAudio { viewModel.audioPipeline.onTransmitPacket = originalTransmit }
             viewModel.audioPipeline.onOutputFrame = originalOutput
         }
         let dropsBefore = endpoint.dropCounts()

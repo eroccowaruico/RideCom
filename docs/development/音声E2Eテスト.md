@@ -252,6 +252,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 
 通常の双方向試験では、近距離とWebRTCの各設定で `packet-timing` に定常区間の `steadyRenderClock` を保存する。`startSample` は実出力WAVの先頭から数えた位置、`frameCount` はそのブロックの長さ、`hostTime` はブロック先頭の単調時計時刻である。時刻が増加し、ブロックがWAVを先頭から末尾まで覆うことを試験で確認する。復号音声があるときは `steadyFirstDecodedCaptureTime` を加える。復号WAVと実出力WAVの波形が一致した箇所では、そのブロックの時刻と `playoutReservation` から求めた予測描画時刻を照合できる。
 
+声の分離を比較する `--matrix isolation` では、最初の設定に[通話開始直後の記録](#internetの応答を待たずに始める)も添える。近距離とWebRTCで共通の `startupReceived` から `playoutReservation.anchorLead` を取得できることを確かめ、最初に決めた待ちと後続の調整を照合する。後続の設定では定常区間を個別に記録する。
+
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。
 
 ## 音声トラブルの比較記録

@@ -182,6 +182,7 @@ struct AudioE2ENetworkRun {
     var mixed: Bool { transport == "mixed" }
     var usesInternet: Bool { transport == "webrtc" || mixed || waitsForInternet }
     var recovery: Bool { checksInternetRecovery || checksLocalRecovery }
+    var recordsStartupAudio: Bool { waitsForInternet || measuresIsolationNoise }
     var soleRoute: RouteKind { usesInternet ? .webRTC : .multipeer }
     var groupSecret: String { "fixture-only-\(identifier)" }
     var memberID: String { "e2e-\(role)-\(identifier.prefix(8))" }
