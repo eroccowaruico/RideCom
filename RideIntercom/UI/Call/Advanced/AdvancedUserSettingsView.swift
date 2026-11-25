@@ -6,7 +6,7 @@ struct AdvancedUserSettingsView: View {
     let user: SavedUser
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
-    @State private var confirmsDelete = false
+    @State private var pendingDelete: PendingDestinationDelete?
     @State private var nameChoiceSaved = false
 
     init(viewModel: IntercomViewModel, user: SavedUser) {
@@ -15,8 +15,6 @@ struct AdvancedUserSettingsView: View {
     }
 
     private var currentUser: SavedUser { viewModel.savedUsers.first { $0.id == user.id } ?? user }
-    /// Deleting the person ends a call with them, so the confirmation says so.
-    private var endsCall: Bool { viewModel.isInCall(with: .user(user.id)) }
 
     private var typed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -57,7 +55,12 @@ struct AdvancedUserSettingsView: View {
                     }
                 }
                 Section {
-                    Button("Delete User", systemImage: "trash", role: .destructive) { confirmsDelete = true }
+                    Button("Delete User", systemImage: "trash", role: .destructive) {
+                        pendingDelete = .init(name: currentUser.resolvedDisplayName, destination: .user(user.id),
+                                              viewModel: viewModel) {
+                            if viewModel.removeSavedUser(user.id) { dismiss() }
+                        }
+                    }
                         .disabled(!viewModel.canEditSavedGroups)
                         .accessibilityIdentifier("deleteUserButton")
                 }
@@ -69,15 +72,8 @@ struct AdvancedUserSettingsView: View {
             .screenBackground(AppColorPalette.listScreenBackground)
             .navigationTitle("User Settings")
             .accessibilityIdentifier("userSettingsView")
-            .alert("Delete User?", isPresented: $confirmsDelete) {
-                Button(endsCall ? "Disconnect and Delete" : "Delete User", role: .destructive) {
-                    if viewModel.removeSavedUser(user.id) { dismiss() }
-                }
-                .accessibilityIdentifier("confirmDeleteUserButton")
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                if endsCall { Text("The current connection ends.") }
-            }
+            .destinationDeleteConfirmation($pendingDelete, viewModel: viewModel,
+                                           confirmButtonID: "confirmDeleteUserButton")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(nameChoiceSaved && !hasUncommittedNameEdit ? "Done" : "Cancel") { dismiss() }

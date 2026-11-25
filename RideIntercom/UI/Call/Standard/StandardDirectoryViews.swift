@@ -77,7 +77,7 @@ struct StandardUsersView: View {
             }
         }
         .destinationSettingsSheet($settings, viewModel: viewModel)
-        .destinationDeleteConfirmation($pendingDelete)
+        .destinationDeleteConfirmation($pendingDelete, viewModel: viewModel)
         .modifier(
             StandardGroupInvitationOffer(
                 viewModel: viewModel, selectedTab: $selectedTab, blocked: settings != nil || pendingDelete != nil))
@@ -135,7 +135,7 @@ struct StandardGroupsView: View {
             content: { SavedUsersView(viewModel: viewModel) }
         )
         .destinationSettingsSheet($settings, viewModel: viewModel)
-        .destinationDeleteConfirmation($pendingDelete)
+        .destinationDeleteConfirmation($pendingDelete, viewModel: viewModel)
         .onAppear { if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .onChange(of: selectedTab) { _, tab in if tab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .onChange(of: viewModel.contactInvitationRevision) { _, _ in

@@ -207,6 +207,42 @@ extension StandardInterfaceUITests {
         confirm.tap()
         XCTAssertTrue(renamed.waitForNonExistence(timeout: 3))
     }
+
+    @MainActor
+    @objc
+    func testJapaneseAdvancedUserDeleteNamesThePersonAndCancels() throws {
+        launch(japanese: true)
+        let suffix = String(UUID().uuidString.prefix(6))
+        let person = "Rider " + suffix
+        app.open(try InvitationURLFixture.make(inviter: "ui-settings-" + suffix, sharedName: person, contact: true))
+        let accept = app.buttons["acceptContactInvitationButton"].firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 5))
+        accept.tap()
+        XCTAssertTrue(accept.waitForNonExistence(timeout: 5))
+        app.buttons["closeContactInvitationButton"].tap()
+        tab("設定", id: "settingsTab")
+        selectLayout("詳細")
+        tab("ユーザー", id: "usersTab")
+        let row = inviterRows(person).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        openUserSettings(from: row)
+        let settings = app.descendants(matching: .any)["userSettingsView"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let delete = app.buttons["deleteUserButton"].firstMatch
+        for _ in 0..<4 where !delete.isHittable { settings.swipeUp() }
+        XCTAssertTrue(delete.isHittable)
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        let confirm = alert.buttons["confirmDeleteUserButton"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        XCTAssertTrue(alert.staticTexts["\(person)を削除しますか？"].exists)
+        XCTAssertEqual(confirm.label, "削除")
+        alert.buttons["キャンセル"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(delete.exists)
+        app.buttons["closeUserSettingsButton"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+    }
     #endif
 
     /// Waiting alone is a normal wait: the implementation must not report a lost connection.

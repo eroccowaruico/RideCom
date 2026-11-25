@@ -23,9 +23,12 @@ extension View {
             canDelete = viewModel.canEditSavedGroups
             delete = { _ = viewModel.removeSavedUser(id) }
         }
-        let endsCall = viewModel.isInCall(with: destination)
         let openSettings = { settings.wrappedValue = target }
-        let ask = { pending.wrappedValue = PendingDestinationDelete(name: name, endsCall: endsCall, perform: delete) }
+        let ask = {
+            pending.wrappedValue = PendingDestinationDelete(
+                name: name, destination: destination, viewModel: viewModel, perform: delete
+            )
+        }
         return trailingRowActions {
             Button(action: openSettings) { Label(settingsTitle, systemImage: "gearshape") }
         } destructive: {

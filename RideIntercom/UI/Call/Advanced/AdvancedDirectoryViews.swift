@@ -62,7 +62,7 @@ struct AdvancedUsersView: View {
         .screenBackground(AppColorPalette.listScreenBackground)
         .accessibilityIdentifier("standardUsersList")
         .destinationSettingsSheet($settings, viewModel: viewModel)
-        .destinationDeleteConfirmation($pendingDelete)
+        .destinationDeleteConfirmation($pendingDelete, viewModel: viewModel)
     }
 
     /// `SavedUser` as stored: the direct group's short id and the device count, or no direct group yet.
@@ -151,7 +151,7 @@ struct AdvancedGroupsView: View {
             content: { SavedUsersView(viewModel: viewModel) }
         )
         .destinationSettingsSheet($settings, viewModel: viewModel)
-        .destinationDeleteConfirmation($pendingDelete)
+        .destinationDeleteConfirmation($pendingDelete, viewModel: viewModel)
         .onAppear { if selectedTab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .onChange(of: selectedTab) { _, tab in if tab == .groups { viewModel.acknowledgeVisibleGroupTabInvitations() } }
         .onChange(of: viewModel.contactInvitationRevision) { _, _ in

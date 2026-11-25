@@ -1,3 +1,4 @@
+import CallControl
 import SwiftUI
 
 /// Group Settings and User Settings open from named entries: the call's More menu and
@@ -10,19 +11,24 @@ enum DestinationSettingsTarget: Identifiable, Hashable {
 
 /// Shared safety rules: deleting and removing always ask first.
 extension View {
-    /// The delete confirmation for a list's rows. `endsCall` says the live connection will be cut.
-    func destinationDeleteConfirmation(_ pending: Binding<PendingDestinationDelete?>) -> some View {
+    func destinationDeleteConfirmation(
+        _ pending: Binding<PendingDestinationDelete?>,
+        viewModel: IntercomViewModel,
+        confirmButtonID: String = "confirmDeleteDestinationButton"
+    ) -> some View {
         alert(pending.wrappedValue.map { Text("Delete \($0.name)?") } ?? Text(verbatim: ""), isPresented: Binding(
             get: { pending.wrappedValue != nil }, set: { if !$0 { pending.wrappedValue = nil } }),
               presenting: pending.wrappedValue) { item in
-            Button(
-                LocalizedStringKey(item.endsCall ? "Disconnect and Delete" : "Delete"), role: .destructive,
-                action: item.perform
-            )
-                .accessibilityIdentifier("confirmDeleteDestinationButton")
+            Button(item.endsCall ? "Disconnect and Delete" : "Delete", role: .destructive) {
+                item.confirm(in: viewModel)
+            }
+            .accessibilityIdentifier(confirmButtonID)
             Button("Cancel", role: .cancel) { }
         } message: { item in
             if item.endsCall { Text("The current connection ends.") }
+        }
+        .onChange(of: pending.wrappedValue?.isCurrent(in: viewModel)) { _, isCurrent in
+            if isCurrent == false { pending.wrappedValue = nil }
         }
     }
 
@@ -72,7 +78,26 @@ extension View {
 struct PendingDestinationDelete {
     let name: String
     let endsCall: Bool
-    let perform: () -> Void
+    private let destination: CallDestination
+    private let reference: CallReference
+    private let perform: () -> Void
+
+    init(name: String, destination: CallDestination, viewModel: IntercomViewModel, perform: @escaping () -> Void) {
+        self.name = name
+        self.destination = destination
+        self.reference = viewModel.currentCallReference
+        self.endsCall = viewModel.isInCall(with: destination)
+        self.perform = perform
+    }
+
+    func isCurrent(in viewModel: IntercomViewModel) -> Bool {
+        viewModel.currentCallReference == reference && viewModel.isInCall(with: destination) == endsCall
+    }
+
+    func confirm(in viewModel: IntercomViewModel) {
+        guard isCurrent(in: viewModel) else { return }
+        perform()
+    }
 }
 
 struct PendingMemberRemoval {

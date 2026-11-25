@@ -4,6 +4,42 @@ import Testing
 @testable import RideIntercom
 
 extension DirectCallTests {
+    @Test func deletionConfirmationExpiresWhenTheTargetCallChanges() throws {
+        let testHarness = try harness(local: "alice", remote: "bob")
+        let viewModel = testHarness.viewModel
+        defer { viewModel.disconnect() }
+        let user = try #require(viewModel.savedRemoteUsers.first)
+        let target = CallDestination.user(user.id)
+        var confirmations = 0
+        let idle = PendingDestinationDelete(name: user.resolvedDisplayName, destination: target, viewModel: viewModel) {
+            confirmations += 1
+        }
+        #expect(!idle.endsCall)
+        #expect(viewModel.selectUser(user.id, connectIfIdle: false))
+        viewModel.connectLocal()
+        #expect(viewModel.isInCall(with: target))
+        #expect(!idle.isCurrent(in: viewModel))
+        idle.confirm(in: viewModel)
+        #expect(confirmations == 0)
+
+        let active = PendingDestinationDelete(
+            name: user.resolvedDisplayName, destination: target, viewModel: viewModel
+        ) {
+            confirmations += 1
+        }
+        #expect(active.endsCall)
+        #expect(active.isCurrent(in: viewModel))
+        active.confirm(in: viewModel)
+        #expect(confirmations == 1)
+
+        viewModel.disconnect()
+        viewModel.connectLocal()
+        #expect(viewModel.isInCall(with: target))
+        #expect(!active.isCurrent(in: viewModel))
+        active.confirm(in: viewModel)
+        #expect(confirmations == 1)
+    }
+
     @Test func directCallMoreMenuFollowsTheSavedUser() throws {
         let testHarness = try harness(local: "alice", remote: "bob")
         let viewModel = testHarness.viewModel
