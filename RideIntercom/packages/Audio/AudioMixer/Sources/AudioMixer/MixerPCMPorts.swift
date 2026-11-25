@@ -119,8 +119,7 @@ public final class MixerPCMSource {
             ), observesAnchor: onReservation != nil)
             let startSample = reservation.startSample
             let options = reservation.options
-			playout.scheduledEndSample = startSample + AVAudioFramePosition(buffer.frameLength)
-            if audible { playout.lastAudibleEnd = playout.scheduledEndSample }
+			playout.recordScheduled(reservation, frameLength: buffer.frameLength, audible: audible)
 			// Timestamped sources preserve omitted silence and absorb arrival jitter.
 			// Keep capture-time sources explicit even when adjacent: after an
             // interrupt, native implicit adjacency can retain a different clock
@@ -167,8 +166,6 @@ public final class MixerPCMSource {
         let position = packet.position
         let packetizationJitter = packet.packetizationJitter
         let startsNewArrivalTiming = packet.startsNewArrivalTiming
-        let rendered = position.writable
-        var options: AVAudioPlayerNodeBufferOptions = []
         if let delay = captureTimePlayoutDelay, let limit = maximumBufferedDuration {
             guard capturedAt.isFinite else {
                 throw AudioMixerError.pcmSourceScheduleFailed("Invalid capture timestamp")
@@ -187,17 +184,8 @@ public final class MixerPCMSource {
                 audible: audible, position: position, nativeLead: nativeLead,
                 delay: delay, limit: limit, packetizationJitter: packetizationJitter,
                 startsNewArrivalTiming: startsNewArrivalTiming), observesAnchor: observesAnchor)
-        } else {
-            // Bound the wait before this frame starts, not its completion.
-            // A full capture batch may overlap the previous batch's healthy tail.
-            if let limit = maximumBufferedDuration,
-               playout.scheduledEndSample - rendered >= AVAudioFramePosition(limit * mixerFormat.sampleRate) {
-                options = .interrupts
-                playout.scheduledEndSample = rendered
-                playout.playbackResetCount += 1
-            }
-            return .init(startSample: max(playout.scheduledEndSample, rendered), options: options)
         }
+        return playout.queueReservation(writable: position.writable, limit: maximumBufferedDuration)
     }
 
 	private func validatePlaybackBudget(for duration: TimeInterval) throws {

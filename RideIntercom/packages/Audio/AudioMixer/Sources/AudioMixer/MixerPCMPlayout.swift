@@ -2,7 +2,7 @@ import AudioCore
 @preconcurrency import AVFAudio
 import Foundation
 
-/// Owns the capture-to-playout clock and learned arrival timing for one source.
+/// Owns reservations, the playback clock, and learned arrival timing for one source.
 final class MixerPCMPlayout {
     typealias PlaybackPosition = MixerPCMSource.PlaybackPosition
     struct Reservation {
@@ -12,10 +12,10 @@ final class MixerPCMPlayout {
     }
     private let mixerFormat: AudioFormat
     private let adaptivePlayout: Bool
-    var playoutAnchor: (capturedAt: TimeInterval, sample: AVAudioFramePosition)?
+    private(set) var playoutAnchor: (capturedAt: TimeInterval, sample: AVAudioFramePosition)?
     private var lastCapturedAt: TimeInterval?
     private var lastCapturedEnd: TimeInterval?
-    var lastAudibleEnd: AVAudioFramePosition = 0
+    private var lastAudibleEnd: AVAudioFramePosition = 0
     private var recoveringQuietBurst = false
     // Keep the wait earned by repeated bursty arrivals through conversation pauses.
     private var jitterMargin: (frames: AVAudioFramePosition, observedAt: TimeInterval)?
@@ -25,8 +25,8 @@ final class MixerPCMPlayout {
     static let clockDriftAllowance = 0.0002
     static let jitterMarginHold: TimeInterval = 10
     static let jitterMarginReleasePerSecond: TimeInterval = 0.01
-    var scheduledEndSample: AVAudioFramePosition = 0
-    var playbackResetCount = 0
+    private(set) var scheduledEndSample: AVAudioFramePosition = 0
+    private(set) var playbackResetCount = 0
     private(set) var playoutAdjustmentCount = 0
     private(set) var lastPlayoutAdjustment: MixerPlayoutAdjustment?
 
@@ -43,6 +43,21 @@ final class MixerPCMPlayout {
         arrivalBatch = nil
         lastAudibleEnd = 0
         recoveringQuietBurst = false
+    }
+
+    func queueReservation(writable: AVAudioFramePosition, limit: TimeInterval?) -> Reservation {
+        // The budget limits the wait before a new frame starts. It allows the
+        // new frame to extend past the budget while the previous tail plays.
+        if let limit, scheduledEndSample - writable >= AVAudioFramePosition(limit * mixerFormat.sampleRate) {
+            playbackResetCount += 1
+            return Reservation(startSample: writable, options: .interrupts)
+        }
+        return Reservation(startSample: max(scheduledEndSample, writable), options: [])
+    }
+
+    func recordScheduled(_ reservation: Reservation, frameLength: AVAudioFrameCount, audible: Bool) {
+        scheduledEndSample = reservation.startSample + AVAudioFramePosition(frameLength)
+        if audible { lastAudibleEnd = scheduledEndSample }
     }
 
     struct ReservationInput {
