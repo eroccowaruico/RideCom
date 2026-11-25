@@ -49,7 +49,8 @@ flowchart LR
 | 複雑なLocal接続グラフ | Localは重複破棄付き転送。近隣ごとに候補が異なる間は重複転送があり得るが、再生は1回。最大8hop |
 | 中継離脱・接続障害 | 残る経路を停止しない。membership/presence更新で中継候補を再評価し、失敗した経路だけ2〜30秒間隔で再試行 |
 | 接続経路がなくなる | 接続を作れるまで音声は届かない。無音や探索中を接続成功とみなさない。presence失効は8秒 |
-| `stopMedia`、中継端末自身のmute | 自分の収録・再生要求を停止。他人の中継は継続。`stopConnection`が明示的な離脱 |
+| マイクのミュート | 自端末の送信を止め、受話・他の相手の中継・接続を続ける |
+| `stopMedia` | 自端末の音声の送受信を止め、再生待ちを空にする。接続と他の相手の中継は続ける。端末の入出力の寿命は[Appの音声処理仕様](../App/音声処理仕様.md#音声-lifecycle)に従う |
 | `updateAudioPolicy` | 通話中のcodec / format方針を更新する。transport・認証済みpeer・relay epoch・replay windowを維持し、音声設定だけの変更で再接続しない |
 | `stopConnection` / group変更 | 終了時は離脱を通知し、世代を無効にして購読・タイマー・認証状態を終了する。`RouteManager` は終了時と次の通話の準備時に、参加者、再試行の状態、送受信の記録、受信バッファを同じ手順で空にする |
 | active/media route | UI用の代表経路。実際に使う経路が1本だけであることを表さない。availableRoutesとmembersのrouteも確認する |
