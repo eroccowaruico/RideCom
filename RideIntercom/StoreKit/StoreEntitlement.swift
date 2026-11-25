@@ -14,8 +14,6 @@ nonisolated struct StoreEntitlement: Equatable, Sendable {
     var originalTransactionID: UInt64?
     var ownershipType: String?
     var environment: String?
-    var appAccountToken: UUID?
-    var appTransactionID: String?
     var subscriptionStatus: String?
 
     private nonisolated struct SubscriptionSeries: Hashable {

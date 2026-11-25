@@ -194,7 +194,6 @@ final class SystemStoreKitAccessSource: StoreKitAccessSource {
               revocationDate: transaction.revocationDate, isUpgraded: transaction.isUpgraded,
               isFreeTrial: transaction.offer?.paymentMode == .freeTrial, graceExpirationDate: grace,
               originalTransactionID: transaction.originalID, ownershipType: transaction.ownershipType.rawValue,
-              environment: transaction.environment.rawValue, appAccountToken: transaction.appAccountToken,
-              appTransactionID: transaction.appTransactionID)
+              environment: transaction.environment.rawValue)
     }
 }
