@@ -1,4 +1,5 @@
 import Foundation
+import RTC
 
 extension AppCallOwner {
     func groupInvitationRecipient(for tap: GroupInvitationTap) -> IntercomViewModel? {
@@ -42,18 +43,19 @@ extension AppCallOwner {
 
         if showCurrentCallIfActive() { return false }
         let notifications = model.notifications
-        let resolved = await notifications.resolveTap(tap)
+        let resolved = model.isRTCTransportRouteEnabled(.webRTC) ? await notifications.resolveTap(tap) : nil
         guard !Task.isCancelled, viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == accessID,
               model.notifications === notifications, notifications.canReceive(tap) else { return false }
         if showCurrentCallIfActive() { return false }
-        guard let resolved, notifications.now() < resolved.expiresAt else {
+        guard model.isRTCTransportRouteEnabled(.webRTC), let resolved, notifications.now() < resolved.expiresAt else {
             usersPresentationID = UUID()
             return false
         }
         let reference = model.currentCallReference
         let start = model.requestCallStart(to: .user(resolved.userID), accountAccessID: accessID,
                                            allowSwitchingCall: false) { [weak self, weak model] in
-            guard let model, self?.viewModel === model, model.notifications === notifications else { return false }
+            guard let model, self?.viewModel === model, model.notifications === notifications,
+                  model.isRTCTransportRouteEnabled(.webRTC) else { return false }
             return notifications.now() < resolved.expiresAt && notifications.canRespond(to: resolved, tap: tap)
         }
         let started = await presentStartedCall(start, in: model)

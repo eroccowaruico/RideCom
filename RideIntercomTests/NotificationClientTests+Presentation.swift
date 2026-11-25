@@ -154,10 +154,57 @@ extension NotificationClientTests {
         #expect(harness.viewModel.groupErrorMessage == nil)
     }
 
-    @Test func expiredOrUnavailableNotificationOpensTheCurrentCallWithoutLookingUpTheSender() async throws {
+    @Test func notificationTapWithInternetOffOpensUsersWithoutLookingUpTheSender() async throws {
         let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
         fixture.store.notificationRegistrationEnabled = true
         let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
+        let model = harness.viewModel
+        model.setRTCTransportRoute(.webRTC, enabled: false)
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        owner.notificationBridge.bind(to: owner)
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        let before = NotificationHTTPStub.requests.count
+
+        #expect(owner.notificationBridge.presentationOptions(for: tap) == [.banner, .list, .sound])
+        #expect(!(await owner.notificationBridge.respond(to: tap,
+            actionIdentifier: UNNotificationDefaultActionIdentifier, categoryIdentifier: "RIDEINTERCOM_CALL_REQUEST")))
+        #expect(owner.usersPresentationID != nil && owner.callPresentationID == nil)
+        #expect(NotificationHTTPStub.requests.count == before)
+        #expect(harness.callSession.connectedGroup == nil && model.groupErrorMessage == nil)
+    }
+
+    @Test func turningInternetOffWhileResolvingATapDiscardsTheSender() async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
+        let model = harness.viewModel
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        let grant = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)
+        try NotificationHTTPStub.setJSONResponse(grant)
+        try #require(await fixture.notifications.setIncomingAllowed(true, contactID: fixture.user.id))
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        try NotificationHTTPStub.setJSONResponse(CallNotificationReply(
+            requestID: tap.requestID, expiresAt: fixture.now.addingTimeInterval(120).timeIntervalSince1970 * 1000,
+            status: .accepted, senderUserID: fixture.peer.userID))
+        let gate = ManualAsyncGate(); NotificationHTTPStub.delayGate = gate
+        let responding = Task { await owner.respondToCallNotification(tap) }
+        await gate.waitForEntry()
+        model.setRTCTransportRoute(.webRTC, enabled: false)
+        await gate.release()
+
+        #expect(!(await responding.value))
+        #expect(owner.usersPresentationID != nil && owner.callPresentationID == nil)
+        #expect(harness.callSession.connectedGroup == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func expiredOrUnavailableNotificationOpensTheCurrentCallWithoutLookingUpTheSender(
+        internetEnabled: Bool
+    ) async throws {
+        let fixture = try NotificationModelFixture(client: makeClient()); defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let harness = notificationHarness(fixture); defer { harness.viewModel.disconnect() }
+        harness.viewModel.setRTCTransportRoute(.webRTC, enabled: internetEnabled)
         let owner = AppCallOwner(account: harness.viewModel.accountSession, viewModel: harness.viewModel)
         owner.notificationBridge.bind(to: owner)
         #expect(harness.viewModel.createTalkGroup(name: "Current call", userIDs: [fixture.user.id]))
