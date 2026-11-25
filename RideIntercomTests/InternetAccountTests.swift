@@ -9,6 +9,27 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct InternetAccountTests {
+    func completeOrdinarySignIn(_ account: AppleAccountSession) throws -> (nonce: String, token: Data) {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        account.prepare(request)
+        let nonce = try #require(request.nonce)
+        let token = try fixtureIdentityToken()
+        try #require(account.completeSignIn(userID: "apple-user", state: request.state, identityToken: token))
+        return (nonce, token)
+    }
+
+    func completeSavedSignInWithoutProof(_ account: AppleAccountSession) throws {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        account.prepare(request)
+        try #require(account.completeSignIn(userID: "apple-user", state: request.state))
+    }
+
+    func fixtureIdentityToken() throws -> Data {
+        let expiresAt = Date().addingTimeInterval(300).timeIntervalSince1970
+        let claims = try JSONSerialization.data(withJSONObject: ["exp": expiresAt])
+        return Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)
+    }
+
     @Test func throttledPreparationDoesNotResendUntilRetryWindowEnds() async throws {
         let fixture = InternetAccountTestFixture()
         defer { fixture.remove() }
