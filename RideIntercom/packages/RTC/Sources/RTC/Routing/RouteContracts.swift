@@ -15,8 +15,10 @@ public enum RouteEvent: Equatable, Sendable {
     case receivedApplicationData(RouteKind, ReceivedApplicationData)
     case metricsChanged(RouteMetrics)
     case error(RouteKind, CallSessionError)
-    /// Prevent automatic retries for this route until the next prepare.
+    /// Stops retries until the blocking condition has been addressed.
     case connectionBlocked(RouteKind, ConnectionBlockReason)
+    /// The old attempt was cleaned up and a replacement credential is ready.
+    case deviceCredentialUpdated(RouteKind)
 }
 
 public struct RTCRouteSendResult: Sendable {
@@ -43,6 +45,10 @@ public protocol RTCCallRoute: AnyObject, Sendable {
     func stopConnection() async
     @discardableResult
     func sendApplicationData(_ message: ApplicationDataMessage) async -> RTCRouteSendResult
+}
+
+protocol DeviceCredentialRecoveringRoute: RTCCallRoute {
+    func requestCredentialRecovery() async
 }
 
 public extension RTCCallRoute {

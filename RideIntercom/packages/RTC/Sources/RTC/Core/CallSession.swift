@@ -30,6 +30,8 @@ public protocol CallSession: AnyObject {
 
     func prepare(_ request: CallStartRequest) async
     func startConnection() async
+    /// Reopens a credential-blocked Internet route when its provider has a replacement credential.
+    func retryInternetRouteAfterCredentialChange() async
     func stopConnection() async
     func startMedia() async
     func stopMedia() async
@@ -45,6 +47,8 @@ public protocol CallSession: AnyObject {
 }
 
 public extension CallSession {
+    func retryInternetRouteAfterCredentialChange() async {}
+
     func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch? { nil }
 
     func updateRuntimePackageReports(_ reports: [RTCRuntimePackageReport]) async {

@@ -18,9 +18,9 @@ public actor RouteManager: CallSession {
     private(set) var routeStates: [RouteKind: RouteConnectionState] = [:]
     private(set) var routeAvailabilities: [RouteKind: RouteAvailability] = [:]
     private(set) var routeMembers: [RouteKind: Set<PeerID>] = [:]
-    private(set) var started: Set<RouteKind> = []
-    private var blocked: Set<RouteKind> = []
-    private(set) var retries: [RouteKind: ConnectionRetry] = [:]
+    var started: Set<RouteKind> = []
+    private(set) var blocked: [RouteKind: ConnectionBlockReason] = [:]
+    var retries: [RouteKind: ConnectionRetry] = [:]
     private(set) var activeRoute: RouteKind?
     private(set) var availableRoutes: Set<RouteKind> = []
     private(set) var connectionState: CallConnectionState = .idle
@@ -94,9 +94,9 @@ public actor RouteManager: CallSession {
         await sendRuntimeStatus(reason: .connectionStarted)
         if generation == token { scheduleMaintenance() }
     }
-    private func start(_ kind: RouteKind) async {
+    func start(_ kind: RouteKind) async {
         guard configuration.enabledRoutes.contains(kind), let route = routes[kind], !started.contains(kind),
-            !blocked.contains(kind)
+            blocked[kind] == nil
         else { return }
         started.insert(kind); routeStates[kind] = .connecting
         await route.startConnection()
@@ -109,12 +109,13 @@ public actor RouteManager: CallSession {
         }
     }
     public func stopConnection() async {
-        await broadcast(.leave)
         generation = UUID()
         let token = generation
+        routeTasks.forEach { $0.cancel() }; routeTasks = []
+        await broadcast(.leave)
+        guard generation == token else { return }
         timer?.cancel(); timer = nil; maintenanceDeadline = nil; fallbackTask?.cancel(); fallbackTask = nil
         isConnectionStarted = false
-        routeTasks.forEach { $0.cancel() }; routeTasks = []
         resetCallTraffic()
         request = nil; relay = nil
         for route in routes.values {
@@ -136,7 +137,7 @@ public actor RouteManager: CallSession {
         routeMembers = [:]
         started = []
         retries = [:]
-        blocked = []
+        blocked = [:]
         availableRoutes = []
         activeRoute = nil
         isMediaStarted = false
@@ -195,7 +196,7 @@ public actor RouteManager: CallSession {
         // alone is insufficient: Local must report recent media receipt as well
         // as immediate acceptance on the flow that actually sends this frame.
         for kind in [RouteKind.multipeer, .webRTC] where started.contains(kind) && kind != excluding {
-            guard !blocked.contains(kind), let route = routes[kind] else { continue }
+            guard blocked[kind] == nil, let route = routes[kind] else { continue }
             if case .audio = body, kind == .multipeer, !path.isEmpty,
                routeMembers[kind, default: []].isSubset(of: path) { continue }
             if case .audio = body, kind == .webRTC,
@@ -244,9 +245,11 @@ public actor RouteManager: CallSession {
             live.contains(configuration.preferredRoute)
             ? configuration.preferredRoute : live.sorted { $0.rawValue < $1.rawValue }.first
         // A route still trying its first connection keeps the call in its initial wait.
-        let searching = started.subtracting(blocked).contains { routeStates[$0] == .connecting && retries[$0] == nil }
+        let searching = started.subtracting(blocked.keys).contains {
+            routeStates[$0] == .connecting && retries[$0] == nil
+        }
         let state: CallConnectionState =
-            live.isEmpty && configuration.enabledRoutes.isSubset(of: blocked)
+            live.isEmpty && configuration.enabledRoutes.isSubset(of: blocked.keys)
             ? .failed
             : !memberSnapshot.isEmpty
                 ? (isMediaStarted ? .mediaReady : .connected)
@@ -274,22 +277,34 @@ private extension RouteManager {
             routeAvailabilities[availability.route] = availability
             emit(.routeAvailabilityChanged([availability]))
         case .membersChanged(let kind, let members):
-            guard !blocked.contains(kind) else { return }
+            guard blocked[kind] == nil else { return }
             routeMembers[kind] = Set(members.filter(\.isConnected).map { $0.peer.id })
             await broadcast(.presence)
         case .receivedApplicationData(let kind, let data):
             await handleApplicationData(data, from: kind)
         case .metricsChanged(let metrics): emit(.metricsChanged(metrics))
+        case .connectionBlocked, .deviceCredentialUpdated, .error:
+            await handleConnectionFailure(event)
+        }
+    }
+
+    func handleConnectionFailure(_ event: RouteEvent) async {
+        switch event {
         case .connectionBlocked(let kind, let reason):
-            blocked.insert(kind); retries[kind] = nil
+            blocked[kind] = reason; retries[kind] = nil
             emit(.error(.connectionBlocked(kind, reason)))
             await handleStateChange(.failed, for: kind)
+        case .deviceCredentialUpdated(let kind):
+            guard blocked[kind] == .deviceCredentialRejected else { return }
+            blocked[kind] = nil; started.remove(kind)
+            await start(kind)
         case .error(_, let error): emit(.error(error))
+        default: break
         }
     }
 
     func handleStateChange(_ state: RouteConnectionState, for kind: RouteKind) async {
-        guard !blocked.contains(kind) || state == .failed else { return }
+        guard blocked[kind] == nil || state == .failed else { return }
         let previous = routeStates.updateValue(state, forKey: kind)
         if kind == .webRTC { relay?.internetReady = state == .mediaReady }
         if [.connected, .authenticated, .mediaReady].contains(state) {
@@ -300,7 +315,7 @@ private extension RouteManager {
         } else if state == .failed || state == .disconnected {
             availableRoutes.remove(kind); routeMembers[kind] = []
             // Several state events can report the same outage while a retry is already scheduled.
-            if started.contains(kind), !blocked.contains(kind), retries[kind]?.deadline.isFinite != true {
+            if started.contains(kind), blocked[kind] == nil, retries[kind]?.deadline.isFinite != true {
                 retries[kind] = ConnectionRetry(after: retries[kind],
                     at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
             }
@@ -309,7 +324,7 @@ private extension RouteManager {
     }
 
     func handleApplicationData(_ data: ReceivedApplicationData, from kind: RouteKind) async {
-        guard started.contains(kind), !blocked.contains(kind), routeMembers[kind, default: []].contains(data.peerID),
+        guard started.contains(kind), blocked[kind] == nil, routeMembers[kind, default: []].contains(data.peerID),
               data.message.namespace == GroupRelay.namespace,
             let result = relay?.receive(
                 data.message.payload, from: data.peerID, now: ProcessInfo.processInfo.systemUptime)
@@ -341,7 +356,7 @@ private extension RouteManager {
     }
     func scheduleMaintenance() {
         guard isConnectionStarted else { return }
-        if configuration.enabledRoutes.isSubset(of: blocked) {
+        if configuration.enabledRoutes.isSubset(of: blocked.keys) {
             timer?.cancel(); timer = nil; maintenanceDeadline = nil
             return
         }
@@ -381,20 +396,5 @@ private extension RouteManager {
               now - lastRuntimeStatus >= max(0.02, interval) else { return }
         lastRuntimeStatus = now
         await sendRuntimeStatus(reason: .periodic)
-    }
-}
-
-extension RouteManager {
-    func retryDueRoutes(at now: TimeInterval) async {
-        guard let request else { return }
-        let token = generation
-        for (kind, retry) in retries where now >= retry.deadline && retries[kind]?.deadline == retry.deadline {
-            retries[kind]?.beginAttempt()
-            started.remove(kind)
-            await routes[kind]?.prepare(request)
-            guard generation == token else { return }
-            await start(kind)
-            guard generation == token else { return }
-        }
     }
 }

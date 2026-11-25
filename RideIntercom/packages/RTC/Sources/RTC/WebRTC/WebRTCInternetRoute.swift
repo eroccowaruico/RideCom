@@ -26,6 +26,8 @@ public actor WebRTCInternetRoute: RTCCallRoute {
     private var connecting = false
     private var iceConnected = false
     private var generation = UUID()
+    private var rejectedAttempt: RejectedAttempt?
+    private var replacementConfiguration: CloudflareRealtimeConfiguration?
     private let sfuPeer = PeerDescriptor(id: .init(rawValue: "cloudflare-sfu"), displayName: "Cloudflare SFU")
 
     public init(
@@ -97,7 +99,7 @@ public actor WebRTCInternetRoute: RTCCallRoute {
             )
             return
         }
-        guard let cloudflareConfiguration = cloudflareConfigurationProvider(request) else {
+        guard let cloudflareConfiguration = replacementConfiguration ?? cloudflareConfigurationProvider(request) else {
             eventSource.yield(
                 .availabilityChanged(
                     RouteAvailability(
@@ -106,13 +108,14 @@ public actor WebRTCInternetRoute: RTCCallRoute {
             return
         }
         guard !connecting else { return }
+        replacementConfiguration = nil
         generation = UUID()
         let generation = generation
         connecting = true
         iceConnected = false
         await engine.prepareTransport()
         guard self.generation == generation else { return }
-        bindSignalingEvents()
+        bindSignalingEvents(configuration: cloudflareConfiguration)
         bindEngineEvents()
         eventSource.yield(.stateChanged(kind, .connecting))
         let connection = WebRTCSignalingConnectRequest(call: request, cloudflare: cloudflareConfiguration)
@@ -122,7 +125,10 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         }
     }
 
-    public func stopConnection() async { await stopConnection(finalState: .disconnected) }
+    public func stopConnection() async {
+        rejectedAttempt = nil; replacementConfiguration = nil
+        await stopConnection(finalState: .disconnected)
+    }
 
     private func stopConnection(finalState: RouteConnectionState) async {
         generation = UUID()
@@ -148,19 +154,44 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         // SFU fan-out does not report immediate per-subscriber delivery.
         return .init(transportAccepted: accepted)
     }
+}
 
-    private func bindSignalingEvents() {
+extension WebRTCInternetRoute: DeviceCredentialRecoveringRoute {
+    func requestCredentialRecovery() async {
+        guard let rejectedAttempt else { return }
+        await rejectedAttempt.cleanup.value
+        guard !Task.isCancelled, self.rejectedAttempt?.id == rejectedAttempt.id, let request,
+              let replacement = cloudflareConfigurationProvider(request),
+              replacement.workerURL == rejectedAttempt.configuration.workerURL,
+              !replacement.accessToken.isEmpty, replacement.accessToken != rejectedAttempt.configuration.accessToken
+        else { return }
+        self.rejectedAttempt = nil
+        replacementConfiguration = replacement
+        eventSource.yield(.deviceCredentialUpdated(kind))
+    }
+}
+
+extension WebRTCInternetRoute {
+    private struct RejectedAttempt {
+        let id: UUID
+        let configuration: CloudflareRealtimeConfiguration
+        let cleanup: Task<Void, Never>
+    }
+
+    private func bindSignalingEvents(configuration: CloudflareRealtimeConfiguration) {
         let generation = generation
         let events = signalingClient.events
         signalingTask = Task { [weak self] in
             for await event in events {
                 guard !Task.isCancelled else { return }
-                await self?.handleSignalingEvent(event, generation: generation)
+                await self?.handleSignalingEvent(event, configuration: configuration, generation: generation)
             }
         }
     }
 
-    private func handleSignalingEvent(_ event: WebRTCSignalingEvent, generation: UUID) async {
+    private func handleSignalingEvent(
+        _ event: WebRTCSignalingEvent, configuration: CloudflareRealtimeConfiguration, generation: UUID
+    ) async {
         guard self.generation == generation, connecting else { return }
         switch event {
         case .iceServers(let servers):
@@ -179,11 +210,24 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         case .receivedApplicationData(let data):
             forwardApplicationData(data)
         case .blocked(let reason):
-            eventSource.yield(.connectionBlocked(kind, reason))
-            await stopConnection(finalState: .failed)
+            await blockConnection(reason, configuration: configuration, generation: generation)
         case .failed(let message):
             await fail(message, generation: generation)
         }
+    }
+
+    private func blockConnection(
+        _ reason: ConnectionBlockReason, configuration: CloudflareRealtimeConfiguration, generation: UUID
+    ) async {
+        let cleanup = Task {
+            guard self.generation == generation else { return }
+            await stopConnection(finalState: .failed)
+        }
+        if reason == .deviceCredentialRejected {
+            rejectedAttempt = .init(id: generation, configuration: configuration, cleanup: cleanup)
+        }
+        eventSource.yield(.connectionBlocked(kind, reason))
+        await cleanup.value
     }
 
     private func configureIceServers(_ servers: [WebRTCIceServer], generation: UUID) async {

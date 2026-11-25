@@ -246,8 +246,9 @@ HTTP要求の総期限は25秒。応答データを受信している時間と�
 | Worker応答 | 通話APIのHTTP 401は端末資格の拒否として通知する。HTTP 409と32KiB以内のJSONの`code: account_in_use`が一致したときは、同じアカウントの既存通話を終了して再操作するよう案内する。サーバーの任意のerror本文は表示しない。ほかの応答は既存のHTTP失敗として扱う |
 | WebSocket接続 | 受信開始に失敗し、そのWebSocketの接続要求と同じURLの応答がHTTP 401なら、既存の端末資格の拒否として扱う。応答を取得できない失敗と、ほかの応答では、同じSFUセッションのままWebSocketの再接続を試みる |
 | Signaling | HTTPとWebSocketの401は同じ判定で扱う。`WebRTCSignalingEvent.blocked`で`ConnectionBlockReason.deviceCredentialRejected`を渡す。アカウントの同時通話による拒否は`manualRecovery`を渡す。この接続試行が所有するICE準備とセッションだけを回収する |
-| Route | `RouteEvent.connectionBlocked`を通知して当該媒体を停止する。RouteManagerは通知の時点でその経路を`failed`とし、利用可能な経路から外す。同じ理由を`CallSessionError.connectionBlocked`でAppへ渡す。その経路には送信せず、遅れて届く接続成立・参加者・受信データを使わない。次のprepareまで自動再試行を止める |
-| 他経路 | 利用できるLocal経路は維持する。全有効routeが手動復帰待ちなら全体をfailedとし、reconnectingを繰り返さない。presence・診断・受信整理の定期タイマーも停止し、次の明示prepare/startで再開する |
+| Route | `RouteEvent.connectionBlocked`を通知して当該媒体を停止する。RouteManagerは通知の時点でその経路を`failed`とし、利用可能な経路から外す。同じ理由を`CallSessionError.connectionBlocked`でAppへ渡す。その経路には送信せず、遅れて届く接続成立・参加者・受信データを使わない。拒否された資格では自動再試行を止める |
+| 資格を差し替えた後の再開 | Appが資格を保存し、通話中の資格の参照先を更新してから`CallSession.retryInternetRouteAfterCredentialChange()`を呼ぶ。RTCは資格拒否で停止した試行の後始末を待つ。同じWorkerで前と異なる資格が用意できた場合に、その資格でインターネット経路だけを再開する。通話の操作と参加者認証の状態を引き継ぐ。通話終了、同じ資格、別のWorker、競合による停止では再開しない |
+| 他経路 | 利用できるLocal経路は維持する。全経路が停止理由の解消を待つ間は、全体をfailedとする。presence・診断・受信整理の定期タイマーを停止し、使える経路の再開後に戻す |
 | 明示的な再操作 | 新しいprepareで抑止を解除する。既存通話の強制切断・他端末の追い出しは行わない。通信断した端末の予約回収はWorkerのleaseに従う |
 
 通話のHTTP応答と状態照会で、503と32 KiB以内のJSONの `code: call_service_paused` が一致した場合は、運用設定で通話サービスを停止していると判定する。診断には固定文言「インターネット通話は現在停止中です。」を渡す。端末資格の変更を求めず、通常の接続失敗と同じ自動再試行を使う。既存通話の更新では、再試行に必要な時間が期限内に残っていれば同じ通話を再試行する。ほかの503は従来のHTTP失敗として扱う。[Workerの停止条件](../server/Worker.md#継続と後始末)

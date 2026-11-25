@@ -125,6 +125,55 @@ func webRTCBlockReasonStopsMediaAndReachesTheRoute(reason: ConnectionBlockReason
     #expect(engine.acceptedAnswers.count == count)
 }
 
+@Test(arguments: [false, true])
+func replacingRejectedCredentialRestartsOnlyInternetInTheSameSession(localAvailable: Bool) async throws {
+    let initial = try makeCloudflareConfiguration()
+    let next = CloudflareRealtimeConfiguration(workerURL: initial.workerURL, accessToken: "fixture-replacement")
+    let source = Mutex(initial)
+    let signaling = FakeWebRTCSignalingClient()
+    let route = WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in source.withLock { $0 } },
+                                    signalingClient: signaling, engine: FakeWebRTCEngine())
+    let local = FakeRoute(kind: .multipeer)
+    let configuration = CallRouteConfiguration(enabledRoutes: localAvailable ? [.webRTC, .multipeer] : [.webRTC],
+        preferredRoute: .webRTC, selectionMode: localAvailable ? .automaticFallbackAndRestore : .singleRoute,
+        fallbackDelay: 0)
+    let manager = RouteManager(routes: [route, local], configuration: configuration)
+    let session: any CallSession = manager
+    await session.prepare(makeRequest(configuration: configuration))
+    let generation = await manager.generation
+    await session.startConnection()
+    await session.startMedia()
+    if localAvailable { local.yield(.stateChanged(.multipeer, .mediaReady)) }
+    for _ in 0..<100 where signaling.configurations.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(signaling.configurations == [initial])
+    signaling.yield(.blocked(.deviceCredentialRejected))
+    for _ in 0..<100 where await manager.blocked[.webRTC] == nil { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(await manager.blocked[.webRTC] == .deviceCredentialRejected)
+    await session.retryInternetRouteAfterCredentialChange()
+    #expect(signaling.configurations == [initial])
+    #expect(await manager.blocked[.webRTC] == .deviceCredentialRejected)
+    let other = try #require(URL(string: "https://other.test"))
+    source.withLock { $0 = .init(workerURL: other, accessToken: next.accessToken) }
+    await session.retryInternetRouteAfterCredentialChange()
+    #expect(signaling.configurations == [initial])
+    #expect(await manager.blocked[.webRTC] == .deviceCredentialRejected)
+    source.withLock { $0 = next }
+    await session.retryInternetRouteAfterCredentialChange()
+    await session.retryInternetRouteAfterCredentialChange()
+    for _ in 0..<100 where signaling.configurations.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(signaling.configurations == [initial, next])
+    #expect(await manager.blocked[.webRTC] == nil)
+    #expect(await manager.generation == generation)
+    #expect(await manager.isMediaStarted)
+    if localAvailable {
+        #expect(await manager.availableRoutes.contains(.multipeer))
+        #expect(local.prepareCount == 1 && local.startConnectionCount == 1)
+    }
+    await session.stopConnection()
+    await session.retryInternetRouteAfterCredentialChange()
+    #expect(signaling.configurations == [initial, next])
+}
+
 @Test func webRTCConnectionReadinessRequiresICEAndRejectsEventsAfterStop() async throws {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
     let route = WebRTCInternetRoute(
@@ -211,6 +260,8 @@ private final class FakeWebRTCSignalingClient: WebRTCSignalingClient, @unchecked
 
     private let eventSource = EventSource<WebRTCSignalingEvent>()
     private let onConnect: (@Sendable () async -> Void)?
+    private let observedConfigurations = Mutex<[CloudflareRealtimeConfiguration]>([])
+    var configurations: [CloudflareRealtimeConfiguration] { observedConfigurations.withLock { $0 } }
     private(set) var disconnectCount = 0
     private(set) var sentOffers: [(WebRTCSessionDescription, PeerID)] = []
     private(set) var sentApplicationData: [(ApplicationDataMessage, PeerID?)] = []
@@ -224,6 +275,7 @@ private final class FakeWebRTCSignalingClient: WebRTCSignalingClient, @unchecked
     }
 
     func connect(_ request: WebRTCSignalingConnectRequest) async {
+        observedConfigurations.withLock { $0.append(request.cloudflare) }
         await onConnect?()
         guard !Task.isCancelled else { return }
         eventSource.yield(.connected)
