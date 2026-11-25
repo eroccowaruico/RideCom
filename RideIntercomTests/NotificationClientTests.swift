@@ -131,6 +131,7 @@ struct NotificationClientTests {
         NotificationHTTPStub.requests = []; NotificationHTTPStub.status = 200
         NotificationHTTPStub.delayGate = nil; NotificationHTTPStub.echoCallStatus = nil
         NotificationHTTPStub.cancelledRequests.withLock { $0.removeAll() }
+        NotificationHTTPStub.cancelledDeviceMethods.withLock { $0.removeAll() }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NotificationHTTPStub.self]
         return InternetAccountClient(session: URLSession(configuration: configuration))
@@ -139,6 +140,7 @@ struct NotificationClientTests {
 
 final class NotificationHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated static let cancelledRequests = Mutex(Set<UUID>())
+    nonisolated static let cancelledDeviceMethods = Mutex([String]())
     private let stopped = Mutex(false)
     nonisolated(unsafe) static var requests: [URLRequest] = []
     nonisolated(unsafe) private static var responseBody = Data("{}".utf8)
@@ -204,6 +206,9 @@ final class NotificationHTTPStub: URLProtocol, @unchecked Sendable {
         stopped.withLock { $0 = true }
         if let id = request.url.flatMap({ UUID(uuidString: $0.lastPathComponent) }) {
             Self.cancelledRequests.withLock { _ = $0.insert(id) }
+        }
+        if request.url?.path == "/api/notifications/device", let method = request.httpMethod {
+            Self.cancelledDeviceMethods.withLock { $0.append(method) }
         }
     }
 }

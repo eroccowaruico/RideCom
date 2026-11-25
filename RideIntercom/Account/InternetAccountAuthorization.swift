@@ -151,6 +151,7 @@ nonisolated struct InternetAccountClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        try Task.checkCancellation()
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.url == request.url else { throw Failure.rejected }
         let bodyKind = try responseBody(for: response, method: method, path: path, acceptsMissing: acceptsMissing)

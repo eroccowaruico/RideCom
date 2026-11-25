@@ -4,29 +4,28 @@ import Observation
 /// Account-scoped notification consent and pending requests; never starts audio.
 @MainActor @Observable
 final class CallNotifications {
-    private(set) var receivesNotifications = false
-    private(set) var authorizationDenied = false
-    private(set) var isBusy = false
-    private(set) var message: String?
+    var receivesNotifications = false
+    var authorizationDenied = false
+    var isBusy = false
+    var message: String?
     private var permissions: [CallNotificationPermission] = []
-    @ObservationIgnored private let store: InternetConnectionSettingsStore
-    @ObservationIgnored private let memberID: String
+    @ObservationIgnored let store: InternetConnectionSettingsStore
+    @ObservationIgnored let memberID: String
     @ObservationIgnored let client: InternetAccountClient
-    @ObservationIgnored private let isCurrentUser: @MainActor () -> Bool
-    @ObservationIgnored private let permitsDeviceRegistration: @MainActor () -> Bool
+    @ObservationIgnored let isCurrentUser: @MainActor () -> Bool
+    @ObservationIgnored let permitsDeviceRegistration: @MainActor () -> Bool
     @ObservationIgnored let contacts: @MainActor () -> [SavedUser]
     @ObservationIgnored private let requestAuthorization: @MainActor () async throws -> Bool
-    @ObservationIgnored private let authorizationGranted: @MainActor () async -> Bool
-    @ObservationIgnored private let register: @MainActor () -> Void
-    @ObservationIgnored private let unregister: @MainActor () -> Void
+    @ObservationIgnored let authorizationGranted: @MainActor () async -> Bool
+    @ObservationIgnored let register: @MainActor () -> Void
+    @ObservationIgnored let unregister: @MainActor () -> Void
     @ObservationIgnored let now: @MainActor () -> Date
-    @ObservationIgnored private(set) var generation = 0
-    @ObservationIgnored private(set) var deviceDisableGeneration = 0
+    @ObservationIgnored var generation = 0
+    @ObservationIgnored var deviceDisableGeneration = 0
     @ObservationIgnored var tapLookupGeneration = 0
     @ObservationIgnored var tapLookups: [UUID: Task<CallNotificationReply, Error>] = [:]
-    @ObservationIgnored private var tokenGeneration = 0
-    @ObservationIgnored private var deviceOperation: Task<Void, Never>?
-    @ObservationIgnored private var deviceOperationID: UUID?
+    @ObservationIgnored var tokenGeneration = 0
+    @ObservationIgnored var deviceOperations: [(id: UUID, task: Task<Void, Never>)] = []
     @ObservationIgnored private var storageAvailable = true
 
     init(
@@ -59,7 +58,7 @@ final class CallNotifications {
     var isEnabled: Bool { store.notificationRegistrationEnabled }
     /// Turning notifications off in the OS left a server removal that has not finished yet.
     var removalPending: Bool { store.notificationRemovalPending }
-    private func serviceAccess() -> CallNotificationServiceAccess? {
+    func serviceAccess() -> CallNotificationServiceAccess? {
         guard isCurrentUser() else { return nil }
         return try? store.notificationAccess(memberID: memberID)
     }
@@ -182,104 +181,10 @@ final class CallNotifications {
         }
         await retryRevocations()
     }
-    private func reportAuthorizationDenied(_ context: CallNotificationServiceAccess, generation expected: Int) {
+    func reportAuthorizationDenied(_ context: CallNotificationServiceAccess, generation expected: Int) {
         if current(context, generation: expected), !store.notificationRemovalPending {
             message = "Notifications are off in system settings."
         }
-    }
-    /// Serialize only device PUT/DELETE. The latest local desire is checked at
-    /// execution time, so delayed cleanup cannot overtake a new registration.
-    private func performDeviceOperation(_ context: CallNotificationServiceAccess, generation expected: Int,
-                                        body: @escaping @MainActor () async -> Void) async {
-        let previous = deviceOperation, id = UUID()
-        let task = Task {
-            await previous?.value
-            guard current(context, generation: expected) else { return }
-            await body()
-        }
-        deviceOperation = task; deviceOperationID = id
-        await task.value
-        if deviceOperationID == id { deviceOperation = nil; deviceOperationID = nil }
-    }
-    private func removePendingDevice(_ context: CallNotificationServiceAccess, generation expected: Int) async {
-        await performDeviceOperation(context, generation: expected) {
-            guard !self.isEnabled, self.store.notificationRemovalPending else { return }
-            do {
-                try await self.client.removeNotificationDevice(origin: context.origin, token: context.accessToken)
-                guard self.current(context, generation: expected), !self.isEnabled else { return }
-                self.store.notificationRemovalPending = false; self.message = nil
-            } catch {
-                guard self.current(context, generation: expected), !self.isEnabled else { return }
-                self.message = "Notifications are disabled here. Server removal is pending; retry when online."
-            }
-        }
-    }
-    func receivedDeviceToken(_ token: Data, environment: String, topic: String) async {
-        guard permitsDeviceRegistration(), isEnabled, let context = serviceAccess() else { return }
-        tokenGeneration += 1
-        let expectedToken = tokenGeneration, expected = generation
-        await performDeviceOperation(context, generation: expected) {
-            guard self.permitsDeviceRegistration(), self.isEnabled,
-                  expectedToken == self.tokenGeneration else { return }
-            do {
-                try await self.client.registerNotificationDevice(
-                    origin: context.origin, token: context.accessToken, deviceToken: token,
-                    environment: environment, topic: topic)
-                guard self.current(context, generation: expected), expectedToken == self.tokenGeneration,
-                    self.isEnabled
-                else { return }
-                self.store.notificationRemovalPending = false
-                self.receivesNotifications = true; self.message = "Notifications are enabled on this device."
-            } catch {
-                guard self.current(context, generation: expected), expectedToken == self.tokenGeneration else { return }
-                self.receivesNotifications = false
-                self.message = "Notifications could not be registered. Please try again."
-            }
-        }
-    }
-    func registrationFailed() {
-        if isCurrentUser(), isEnabled {
-            receivesNotifications = false; message = "Notifications could not be registered. Please try again."
-        }
-    }
-    @discardableResult
-    func stop() -> Task<Void, Never>? {
-        let previous =
-            isEnabled || store.notificationRemovalPending ? try? store.notificationAccess(memberID: memberID) : nil
-        let operation = deviceOperation
-        generation += 1; tokenGeneration += 1; isBusy = false; receivesNotifications = false
-        deviceOperation = nil; deviceOperationID = nil
-        if let previous {
-            store.notificationRemovalPending = true
-            return Task {
-                await operation?.value
-                try? await client.removeNotificationDevice(origin: previous.origin, token: previous.accessToken)
-            }
-        }
-        return nil
-    }
-}
-
-extension CallNotifications {
-    private func registerIfAllowed() { if permitsDeviceRegistration() { register() } }
-    func retryDeviceRegistration() async {
-        guard permitsDeviceRegistration(), !receivesNotifications, let context = serviceAccess() else { return }
-        let expected = generation
-        guard await authorizationGranted(), current(context, generation: expected), permitsDeviceRegistration(),
-              !receivesNotifications else { return }
-        if isEnabled { register() } else { await enable() }
-    }
-    func disable() async {
-        guard isCurrentUser() else { return }
-        deviceDisableGeneration += 1
-        store.notificationRegistrationEnabled = false
-        store.notificationRemovalPending = true
-        receivesNotifications = false; tokenGeneration += 1; unregister()
-        guard let context = serviceAccess() else {
-            message = "Notifications are disabled here. Server removal is pending; retry when online."
-            return
-        }
-        await removePendingDevice(context, generation: generation)
     }
 }
 

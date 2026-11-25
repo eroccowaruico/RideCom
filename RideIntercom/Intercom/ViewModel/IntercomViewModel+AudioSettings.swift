@@ -225,6 +225,7 @@ extension IntercomViewModel {
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
         if !normalizedRoutes.contains(.webRTC) {
             notifications.cancelTapLookups()
+            notifications.cancelDeviceOperations()
             stopInvitationInternetReply()
         }
 
