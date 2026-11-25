@@ -649,6 +649,12 @@ RTCの回帰11件、Macの通話状態10件、Simulatorの診断表示8件が成
 
 実機試験の準備を再開するときは、まず相手側Macの試験用アカウントを照合する。そのアカウントで通常版のAdvancedから「Check Internet Service」を実行し、Workerが端末からの状態照会を受理することを確認する。試験用の招待を発行し、待機する送話側と計測・回収手段を揃えてから、iPhoneで必要な起動を判断する。[実機試験の準備状況](../実機確認待ち.md#最新の残件に対する準備状況)
 
+### 本番の成功ビルドと通話継続の修正を照合する
+
+2026-11-26。本番の配置を読み取り、6時52分56秒（JST）のバージョンが全トラフィックを受けていることを確認した。配置の3秒後に完了したmainの成功ビルドは `f0ee14c4`、70秒前に完了した成功ビルドは `c31ff5d8` だった。配置バージョンとビルドを直接結ぶ情報は応答になかった。両候補の `server` はGitのツリーが一致し、成立確認後24時間まで同じセッションを保つ修正 `c6525a04` を含む。定期監査でWorker回帰157件が通ったソースからサーバーの差分はない。[全体監査](../../development/history/バックログの優先順位と進捗の記録.md#2800コミットの全体監査を行う)・[継続期限の回帰試験](#相手待ちの後も成立の確認から24時間を確保する)
+
+手元の集約は `.validation/production-continuation-f0ee14c4/`。次の本番試験では、試験用アカウントで資格付きの状態照会、入室、相手認証、双方向の音声の順に確認する。実際のApple認証、成立後の資格更新、ロック中や経路断後の通話は未確認。[本番通話の残件](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)
+
 ## 専用SimulatorでAPNs Sandboxの端末トークンを受け取る
 
 2026-11-25。Appleシリコン搭載MacのiOS 27.2 Simulatorを試験専用に作成した。Xcodeの共有 `RideIntercom` スキームと通常のDebug構成でBuild 2670を生成した。生成時の権限情報で、Simulator用の `aps-environment` が `development` であることを照合した。[SimulatorのAPNs対応](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)
