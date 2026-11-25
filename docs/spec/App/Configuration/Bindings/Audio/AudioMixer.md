@@ -13,15 +13,15 @@
 | format | 48kHz mono。TX sinkは選択RTC format、RX sinkはSessionManagerのactualHardwareFormat | adapter 導出 |
 | `addPCMSource.maximumBufferedDuration` | TXは同期AudioFrameProcessorで再生queueを持たない。RXは`0.12`秒（再生開始までの待ちと単一frame長。出力時計の開始前に溜まった音声もこの幅を超えると再基準化する）、Audio Checkは`nil` | adapter固定 |
 | `addPCMSource.captureTimePlayoutDelay` | TXは待機なし。RXは描画済みブロックの終端から`0.002`秒を下限に`adaptivePlayout`を有効化、Audio Checkは`nil` | adapter固定 |
-| TX bus effect chain | `AudioMixerSnapshot.buses[id == "tx-bus"].effectChain`。SoundIsolation → DynamicsProcessor → PeakLimiter。VADGateはMixer前段 | adapter 導出 |
-| RX peer bus effect chain | `AudioMixerSnapshot.buses[id == "rx-peer-{peerID}"].effectChain`。SoundIsolationを接続し `remoteSoundIsolationEnabled` で実接続を切替（無効nodeはlatency補償の対象からも外す） | 画面設定から導出 |
-| RX master bus effect chain | `AudioMixerSnapshot.buses[id == "rx-master"].effectChain`。SoundIsolation。master faderの後に `rx-output` busをrouteしPeakLimiterを適用 | 画面設定 + adapter 固定 |
+| TX busのエフェクト | Appが `tx-bus` にSoundIsolation → DynamicsProcessor → PeakLimiterの順で登録する。SoundIsolationは対応機器で登録し、設定値で配線を切り替える。VADGateはMixerの前に置く | 固定の処理順と画面設定 |
+| RX peer busのエフェクト | 対応機器では `rx-peer-{peerID}` にSoundIsolationを登録し、`remoteSoundIsolationEnabled` で配線を切り替える。無効なノードは遅延補償の対象から外す | 画面設定から導出 |
+| RX master busのエフェクト | 対応機器では `rx-master` にSoundIsolationを登録する。master faderの後に `rx-output` busを接続し、PeakLimiterを登録する | 画面設定と固定の処理順 |
 | master bus volume | `isOutputMuted ? 0 : overallOutputVolume` | 画面設定から導出 |
 | peer source volume | `remoteOutputVolumes[peerID]`。未設定 peer は `1.0` | 画面設定から導出 |
 
 受信側は peer ごとに RX peer bus を作り、全 RX peer bus を receive master bus へ route して mix down する。相手が複数いる場合は peer bus も複数になり、master bus は mix 後の 1 本だけを表す。
 
-TX bus、RX peer bus、RX master bus の effect chain は AudioMixer package の `MixerBusSnapshot.effectChain` を正とする。App の `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMixEffectChainSnapshot` は `AudioMixerSnapshot` から表示用 stage metadata へ写すだけである。effect の default 値や stage 配列を持たない。
+AudioMixerは実際に登録された処理順と各エフェクトの状態を `MixerBusSnapshot.effectChain` で報告する。Appの `transmitEffectChainSnapshot`、`receivePeerEffectChainSnapshot(peerID:)`、`receiveMixEffectChainSnapshot` はその値から表示を組み立てる。処理順と設定値を表示用に定義し直さない。
 
 RX masterの表示用effect chainは、実snapshotの `rx-master.effectChain` と `rx-output.effectChain` を信号順に結合する。speaker-output sinkはrx-outputに置き、最終Limiterの後段に追加gainを置かない。
 

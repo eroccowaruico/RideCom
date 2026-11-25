@@ -224,7 +224,7 @@ AppliedのCallとInviteは、カードの見出しとStateの値で識別する�
 
 ## 診断と適用状態の区別
 
-実Mixerを毎回作り直して表示用の仮ノードを足す処理は使用しない。`AppAudioPipeline.snapshot` のbus、source、sink、routeをそのまま報告する。VADはMixer前段で実行するのでMixerのeffect chipには追加しない。上記stage IDは実ノードを配線した場合の表示契約であり、現在のSoundIsolation / DynamicsProcessor / PeakLimiter適用を示すものではない。
+表示には `AppAudioPipeline.snapshot` のbus、source、sink、routeを使う。エフェクトの段の識別子は画面の契約であり、各段の有無、処理順、実状態はMixerの報告を読む。VADは送信の独立した段に表示する。実際に音声が聞こえたかは出力側で確かめる。[Mixerを組み立てる条件](../Configuration/Bindings/Audio/AudioMixer.md#mixer-設定)
 
 ## 確認導線と実音声の区別
 
