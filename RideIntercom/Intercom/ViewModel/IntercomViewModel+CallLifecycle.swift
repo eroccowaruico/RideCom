@@ -288,6 +288,7 @@ extension IntercomViewModel {
         networkDiagnostics = nil
         lastRouteMetrics = nil
         publishRuntimePackageReports(force: true)
+        reconcileAutomaticInternetEnrollment()
     }
 
     func bindConnectionEvents() {

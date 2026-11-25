@@ -281,6 +281,7 @@ extension IntercomViewModel {
         contactInvitationSession = nil
         contactInvitationID = nil
         end?()
+        reconcileAutomaticInternetEnrollment()
     }
 
     private func contactID(_ token: GroupInviteToken) throws -> UUID {

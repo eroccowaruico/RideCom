@@ -91,6 +91,8 @@ final class InternetAccountTestKeychain: KeychainSecretStoring {
 
 final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
+    private let loadingLock = NSLock()
+    private var stopped = false
     nonisolated(unsafe) private static var recorded: [URLRequest] = []
     nonisolated(unsafe) private static var deviceID = ""
     nonisolated(unsafe) private static var identityChanges: [String: String] = [:]
@@ -100,10 +102,13 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var responsePath: String?
     nonisolated(unsafe) private static var responseCode: String?
     nonisolated(unsafe) private static var retryAfter: String?
+    nonisolated(unsafe) private static var enrollmentProof: [String: String]?
     static var requests: [URLRequest] { lock.withLock { recorded } }
+    static var submittedEnrollmentProof: [String: String]? { lock.withLock { enrollmentProof } }
     static func reset(deviceID: String) {
         lock.withLock {
             recorded = []
+            enrollmentProof = nil
             Self.deviceID = deviceID
             delayed = false
             locator = String(repeating: "d", count: 64)
@@ -142,6 +147,11 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             Self.recorded.append(request)
             return Self.deviceID
         }
+        if url.path == "/api/auth/apple/session",
+           var proof = Self.requestBody(request)["signInProof"] as? [String: String] {
+            proof["deviceID"] = device
+            Self.lock.withLock { Self.enrollmentProof = proof }
+        }
         let data = try responseData(url: url, device: device)
         let (status, retryAfter) = Self.lock.withLock {
             (
@@ -155,6 +165,7 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             )
         )
         let deliver: @Sendable () -> Void = { [self] in
+            guard loadingLock.withLock({ !stopped }) else { return }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
@@ -213,5 +224,5 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
         }
         return (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] ?? [:]
     }
-    override func stopLoading() {}
+    override func stopLoading() { loadingLock.withLock { stopped = true } }
 }

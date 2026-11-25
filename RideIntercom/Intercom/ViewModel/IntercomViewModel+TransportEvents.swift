@@ -181,6 +181,7 @@ extension IntercomViewModel {
         connectionState = .idle
         markMembers(.offline)
         publishRuntimePackageReports(force: true)
+        reconcileAutomaticInternetEnrollment()
     }
 
     private func handleAppData(peerID: String, message: ApplicationDataMessage) {

@@ -116,6 +116,7 @@ final class AppCallOwner: CallSurfaceActions {
         await account.refresh()
         synchronizeAccountModel()
         guard let model = viewModel, model.hasCurrentAccountAccess else { return }
+        model.reconcileAutomaticInternetEnrollment()
         async let purchases: Void = model.storeAccess.refresh()
         async let notifications: Void = model.startNotifications()
         _ = await (purchases, notifications)

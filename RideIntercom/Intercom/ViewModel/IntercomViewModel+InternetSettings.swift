@@ -37,6 +37,10 @@ extension IntercomViewModel {
         guard internetSettingsStore.permitsServiceAccess else {
             throw InternetConnectionSettingsStore.ValidationError.disabledDuringLocalTests
         }
+        guard automaticInternetEnrollment.task == nil else { throw InternetAccountClient.Failure.rejected }
+        if let proof = accountSession.enrollmentProof(for: accountAccessID) {
+            accountSession.discardEnrollmentProof(proof.id)
+        }
         return InternetAccountAuthorization(
             expectedUserID: accountUserID, deviceID: try internetSettingsStore.accountDeviceID(),
             memberID: localMemberIdentity.memberID,
@@ -53,6 +57,7 @@ extension IntercomViewModel {
             })
     }
     func endAccountAccess() {
+        automaticInternetEnrollment.task?.cancel()
         stopCallRelationshipBackup()
         stopDirectRestoreDeviceSync()
         notifications.stop()

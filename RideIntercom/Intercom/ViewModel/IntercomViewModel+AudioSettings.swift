@@ -229,6 +229,7 @@ extension IntercomViewModel {
 
         enabledRTCTransportRoutes = normalizedRoutes
         callSession.setEnabledRoutes(normalizedRoutes)
+        reconcileAutomaticInternetEnrollment()
         refreshNearbyGroupDelivery()
         if groupDeliveryIsForeground { resumeSavedInvitationReplies() }
         saveAppSettings()

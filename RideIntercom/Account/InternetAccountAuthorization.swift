@@ -42,6 +42,7 @@ nonisolated struct InternetAccountClient: Sendable {
     enum Failure: Error {
         case invalidAddress, rejected, forbidden, notFound, invalidResponse, deviceLimitReached, deletionPending,
             deletionReauthenticationRequired
+        case serviceUnavailable
         case groupInvitationAwaitingSender
         case rateLimited(retryAfter: Int)
     }
@@ -59,13 +60,15 @@ nonisolated struct InternetAccountClient: Sendable {
         else { throw Failure.invalidResponse }
         return value
     }
-    func exchange(origin: URL, challenge: InternetAccountChallenge, token: Data) async throws
+    func exchange(origin: URL, challenge: InternetAccountChallenge, token: Data,
+                  signInProof: InternetSignInProof.Signature? = nil) async throws
         -> InternetAccountCredential {
         guard let token = String(data: token, encoding: .utf8), !token.isEmpty, token.utf8.count <= 16384 else {
             throw Failure.invalidResponse
         }
-        let value: InternetAccountCredential = try await send(origin: origin, path: "api/auth/apple/session",
-            body: ["challengeID": challenge.challengeID, "identityToken": token])
+        let body = SessionRequest(challengeID: challenge.challengeID, identityToken: token, signInProof: signInProof)
+        let value: InternetAccountCredential = try await sendJSON(
+            origin: origin, path: "api/auth/apple/session", body: JSONEncoder().encode(body))
         // The bearer locator routes private server state; it is not the public user ID.
         let parts = value.accessToken.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard Self.hex(value.userID), value.deviceID == challenge.deviceID, value.expiresAt.isFinite,
@@ -111,6 +114,11 @@ nonisolated struct InternetAccountClient: Sendable {
         return result
     }
     private struct Empty: Decodable, Sendable {}
+    private struct SessionRequest: Encodable {
+        let challengeID: String
+        let identityToken: String
+        let signInProof: InternetSignInProof.Signature?
+    }
     private struct Rejection: Decodable {
         let code: String?
 
@@ -176,8 +184,14 @@ nonisolated struct InternetAccountClient: Sendable {
         case (409, "POST", "api/auth/apple/session"): return .enrollmentConflict
         case (409, "DELETE", _) where path.hasPrefix("api/notifications/group-invitations/"):
             throw Failure.groupInvitationAwaitingSender
-        default: throw Failure.rejected
+        default: throw rejection(status: response.statusCode, method: method, path: path)
         }
+    }
+
+    private func rejection(status: Int, method: String, path: String) -> Failure {
+        let enrollmentPaths = ["api/auth/apple/challenge", "api/auth/apple/session", "api/auth/identity"]
+        return (500...599).contains(status) && method == "POST" && enrollmentPaths.contains(path)
+            ? .serviceUnavailable : .rejected
     }
 
     private static func hex(_ value: String) -> Bool {

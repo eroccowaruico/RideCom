@@ -28,6 +28,8 @@ final class AppleAccountSession {
     private let credentialState: @MainActor (String) async throws -> AppleCredentialState
     private var cachedUserID: String?
     private var requestState: String?
+    @ObservationIgnored private var requestEnrollmentKey: P256.Signing.PrivateKey?
+    @ObservationIgnored private var internetSignInProof: (accessID: UUID, proof: InternetSignInProof)?
     private var generation = UUID()
     private var refreshTask: (generation: UUID, task: Task<Void, Never>)?
     private var needsCredentialRemoval = false
@@ -103,6 +105,7 @@ final class AppleAccountSession {
             if userID != saved {
                 generation = UUID()
                 accessID = UUID()
+                internetSignInProof = nil
                 if userID != nil { onAccessRevoked?() }
             }
             cachedUserID = saved
@@ -121,6 +124,8 @@ final class AppleAccountSession {
         userID = nil
         cachedUserID = nil
         requestState = nil
+        requestEnrollmentKey = nil
+        internetSignInProof = nil
         onAccessRevoked?()
     }
 
@@ -180,6 +185,9 @@ final class AppleAccountSession {
         generation = UUID()
         requestState = UUID().uuidString
         request.state = requestState
+        let key = P256.Signing.PrivateKey()
+        requestEnrollmentKey = key
+        request.nonce = InternetSignInProof.nonce(for: key)
         isSigningIn = true
         message = nil
     }
@@ -190,7 +198,8 @@ final class AppleAccountSession {
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
                 failSignIn(); return
             }
-            _ = completeSignIn(userID: credential.user, state: credential.state)
+            _ = completeSignIn(
+                userID: credential.user, state: credential.state, identityToken: credential.identityToken)
         case .failure(let error):
             let cancelled = (error as? ASAuthorizationError)?.code == .canceled
             failSignIn(cancelled: cancelled)
@@ -198,7 +207,7 @@ final class AppleAccountSession {
     }
 
     @discardableResult
-    func completeSignIn(userID: String, state: String?) -> Bool {
+    func completeSignIn(userID: String, state: String?, identityToken: Data? = nil) -> Bool {
         guard let defaults, !deletion.blocksSignIn, !storageUnavailable, let requestState, state == requestState,
             Self.validIdentifier(userID)
         else {
@@ -206,6 +215,8 @@ final class AppleAccountSession {
         }
         self.requestState = nil
         isSigningIn = false
+        let key = requestEnrollmentKey
+        requestEnrollmentKey = nil
         do {
             try keychain.saveSecret(userID, service: service, account: "current")
             defaults.set(false, forKey: Self.requiresSignInKey)
@@ -216,6 +227,10 @@ final class AppleAccountSession {
             generation = UUID()
             cachedUserID = userID
             self.userID = userID
+            internetSignInProof = nil
+            if let key, let identityToken, let proof = InternetSignInProof(identityToken: identityToken, key: key) {
+                internetSignInProof = (accessID, proof)
+            }
             message = nil
             return true
         } catch {
@@ -226,6 +241,7 @@ final class AppleAccountSession {
 
     private func failSignIn(cancelled: Bool = false) {
         requestState = nil
+        requestEnrollmentKey = nil
         isSigningIn = false
         message = cancelled ? nil : "Sign-in could not be completed. Try again."
     }
@@ -238,6 +254,8 @@ final class AppleAccountSession {
         accessID = UUID()
         generation = UUID()
         requestState = nil
+        requestEnrollmentKey = nil
+        internetSignInProof = nil
         userID = nil
         cachedUserID = nil
         isSigningIn = false
@@ -270,4 +288,20 @@ final class AppleAccountSession {
     private static func validIdentifier(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.count <= 1024 && !value.contains(where: { $0.isWhitespace || $0.isNewline })
     }
+}
+
+extension AppleAccountSession {
+    func enrollmentProof(for access: UUID) -> InternetSignInProof? {
+        guard let pending = internetSignInProof else { return nil }
+        guard pending.accessID == accessID, pending.proof.expiresAt > Date() else {
+            internetSignInProof = nil
+            return nil
+        }
+        return pending.accessID == access ? pending.proof : nil
+    }
+
+    func discardEnrollmentProof(_ id: UUID) {
+        if internetSignInProof?.proof.id == id { internetSignInProof = nil }
+    }
+
 }

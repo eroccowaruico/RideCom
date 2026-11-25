@@ -91,6 +91,7 @@ final class IntercomViewModel {
     var isCheckingInternet = false
     var internetCheckGeneration = UUID()
     let internetSettingsStore: InternetConnectionSettingsStore
+    @ObservationIgnored var automaticInternetEnrollment = AutomaticInternetEnrollment()
 
     var storedRecentCallDestination: CallDestination?
     var groups: [IntercomGroup]
@@ -265,6 +266,7 @@ final class IntercomViewModel {
 
     deinit {
         groupDeliveryPathMonitor?.cancel()
+        automaticInternetEnrollment.task?.cancel()
         #if os(iOS)
         if let audioEngineConfigurationObserver {
             NotificationCenter.default.removeObserver(audioEngineConfigurationObserver)
