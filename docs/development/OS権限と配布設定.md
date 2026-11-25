@@ -45,7 +45,8 @@ Apple DeveloperのCertificates, Identifiers & Profilesで、既存の登録を�
 | iOS entitlement | `RideIntercom/RideIntercom.entitlements`の`aps-environment`へ同じ変数を展開 |
 | macOS entitlement | `RideIntercom/RideIntercom-macOS.entitlements`の`com.apple.developer.aps-environment`へ同じ変数を展開。SDK条件でファイルを切り替える |
 | 登録先 | AppはInfoの`development`をserverの`sandbox`、`production`を`production`へ対応付ける |
-| 通常Archive | schemeのRelease／productionを使用。IPAを書き出す場合はその署名の実entitlementを確認する。内部テストへ直接送る場合はXcodeの配布署名と検証を使う。profileやexportによる再署名がInfoと違う環境に変わったartifactは配布しない |
+| 通常Archiveの作成 | schemeのReleaseを使い、Infoの値は `production`。Archive時の署名が開発用profileであれば、実entitlementは `development` になり得る。標準保存先への直接作成、実署名と同梱物の検証結果を記録する |
+| TestFlightと公開配布 | 配布署名を付けた段階で、実entitlementとInfoがともに `production` であることを確認する。IPAならPayload内のAppを調べ、内部テストへ直接送る場合はXcodeの配布署名と検証を使う。値が食い違う成果物は配布を保留する |
 | Releaseの開発署名試用 | development profileで試用する場合は、単一Build Settingを`development`へ明示上書きし、App Infoと署名を一緒に合わせる。公開Archiveと混同しない |
 
 APNsの実行に必要なserver設定は`NOTIFICATIONS_ENABLED`、`APNS_TOPIC`、`APNS_ENVIRONMENT`、`APNS_KEY_ID`、共通の`APPLE_TEAM_ID`。secretは`APNS_PRIVATE_KEY`と既存の`DEVICE_IDENTITY_SIGNING_KEY`である。topicはWidget/WatchではなくAppの`com.yowamushi-inc.RideIntercom.RideIntercom`とする。[通知server仕様](../spec/server/通知.md)に従い、topicは両環境へ上記の確定値を設定した。TestFlight Internal Onlyを含むTestFlightは本番Workerとproduction APNsを使う。開発署名で試す固定Previewはsandbox APNsを使う。環境別のWorker設定、通知用binding/migration、App側登録・取消が揃った後、明示された実サービス受入で確認する。通知の有効化で音声サービス・購入商品を同時に有効化しない。
@@ -78,8 +79,8 @@ TestFlightの内部・外部テストと公開配布では、書き出した成�
 
 ```sh
 codesign --verify --deep --strict /path/to/RideIntercom.app
-codesign -d --entitlements :- /path/to/RideIntercom.app
-codesign -d --entitlements :- /path/to/RideIntercom.app/PlugIns/RideIntercomWidgets.appex
+codesign -d --entitlements - /path/to/RideIntercom.app
+codesign -d --entitlements - /path/to/RideIntercom.app/PlugIns/RideIntercomWidgets.appex
 plutil -extract RideIntercomAPNsEnvironment raw /path/to/RideIntercom.app/Info.plist
 ```
 
