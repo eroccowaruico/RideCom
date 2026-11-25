@@ -38,6 +38,13 @@ export class SignalingRoom implements DurableObject {
     private usesConfiguredSFU(member: Member): boolean {
         return sfuConfigured(this.env) && member.sfuAppID === this.env.CLOUDFLARE_SFU_APP_ID
     }
+    private async rememberCallRenewal(request: Request, member: Member): Promise<void> {
+        const accountID = request.headers.get('X-User'), tokenHash = request.headers.get('X-Device-Token-Hash')
+        if (!accountID || !tokenHash || member.renewalDeadline === undefined || member.expiresAt <= Date.now()) return
+        const account = this.env.USER_ACCOUNT.get(this.env.USER_ACCOUNT.idFromString(accountID))
+        await account.rememberCallRenewal(member.owner.split(':')[1], tokenHash,
+            this.state.id.toString(), member.sessionId, member.renewalDeadline)
+    }
     async fetch(request: Request): Promise<Response> {
         return this.state.blockConcurrencyWhile(async () => {
             try {
@@ -186,13 +193,20 @@ export class SignalingRoom implements DurableObject {
             return new Response(null, { status: 101, webSocket: pair[0] })
         }
         if (action === 'renew' && request.method === 'POST') {
-            const r = await this.usage('reserve', { id: `${this.state.id}:${member.id}`, owner, userID })
+            const scoped = request.headers.get('X-Call-Renewal') === '1'
+            const expiresNoLaterThan = scoped ? member.renewalDeadline : undefined
+            if (scoped && (expiresNoLaterThan === undefined || expiresNoLaterThan <= Date.now())) {
+                return json({ error: 'Unauthorized' }, 401)
+            }
+            const r = await this.usage('reserve', { id: `${this.state.id}:${member.id}`, owner, userID, expiresNoLaterThan })
             if (!r.ok) return r
             member.expiresAt = await reservationExpiry(r)
             await this.state.storage.put(`member:${member.sessionId}`, member); await this.scheduleExpiry()
             const ice = await this.turn.get(member.id)
-            const iceServers = ice ? await this.turn.issue(member.id, owner, ice.leaseID, member.expiresAt) : undefined
-            return json({ ...this.lease(member), ...(iceServers ? { iceServers } : {}) })
+            const expiresAt = Math.min(member.expiresAt, expiresNoLaterThan ?? Infinity)
+            const iceServers = ice && (!scoped || ice.expiresAt <= expiresAt)
+                ? await this.turn.issue(member.id, owner, ice.leaseID, expiresAt) : undefined
+            return json({ ...this.lease({ ...member, expiresAt }), ...(iceServers ? { iceServers } : {}) })
         }
         if (action === 'publish' && request.method === 'POST') {
             if (!member.publishers) {
@@ -204,9 +218,11 @@ export class SignalingRoom implements DurableObject {
                     if (!channel) throw new Error('upstream')
                     return { id: channel.id, delivery: name === 'group-audio-v1' ? 'unreliable' : 'reliable' }
                 })
+                member.renewalDeadline = Date.now() + 86400000
                 await this.state.storage.put(`member:${member.sessionId}`, member)
                 await this.broadcastPeers()
             }
+            await this.rememberCallRenewal(request, member)
             return json({ channels: member.publishers.map(c => ({ ...c, isPublisher: true })) })
         }
         if (action === 'pull' && request.method === 'POST') {

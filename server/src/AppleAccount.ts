@@ -20,6 +20,15 @@ const digest = async (secret: string) => hex(new Uint8Array(await crypto.subtle.
 const verifyMacEnrollment = createAppAttestEnrollmentVerifier()
 interface Challenge { deviceID: string; nonce: string; issuedAt: number; expiresAt: number }
 interface NativeSignInProof { publicKey: string; signature: string }
+interface CallRenewal {
+    deviceID: string; tokenHash: string
+    roomID: string; sessionID: string; expiresAt: number
+}
+
+function matchesSecretHash(expected: string, actual: string): boolean {
+    return objectPattern.test(actual) && crypto.subtle.timingSafeEqual(
+        new TextEncoder().encode(expected), new TextEncoder().encode(actual))
+}
 
 function isNativeSignInProof(value: unknown): value is NativeSignInProof {
     return isRecord(value) && typeof value.publicKey === 'string' && value.publicKey.length === 87
@@ -371,6 +380,25 @@ export class UserAccount extends DurableObject<Env> {
         if (this.ctx.storage.kv.get(`room:${roomID}`) === publicUserID) this.ctx.storage.kv.delete(`room:${roomID}`)
     }
 
+    async rememberCallRenewal(deviceID: string, tokenHash: string, roomID: string,
+        sessionID: string, expiresAt: number): Promise<void> {
+        if (expiresAt <= Date.now() || !this.authenticate(deviceID, tokenHash)) return
+        const existing = this.ctx.storage.kv.get<CallRenewal>('call-renewal')
+        if (existing && existing.expiresAt >= expiresAt) return
+        this.ctx.storage.kv.put<CallRenewal>('call-renewal',
+            { deviceID, tokenHash, roomID, sessionID, expiresAt })
+        await this.scheduleExpiry()
+    }
+
+    authorizeCallRenewal(deviceID: string, tokenHash: string, roomID: string, sessionID: string): DeviceIdentity | null {
+        const renewal = this.ctx.storage.kv.get<CallRenewal>('call-renewal')
+        const userID = this.ctx.storage.kv.get<string>('userID')
+        if (!userID || renewal?.deviceID !== deviceID || renewal.expiresAt <= Date.now()
+            || renewal.roomID !== roomID || renewal.sessionID !== sessionID
+            || !matchesSecretHash(renewal.tokenHash, tokenHash)) return null
+        return { userID, deviceID, expiresAt: renewal.expiresAt }
+    }
+
     authenticate(deviceID: string, tokenHash: string): DeviceIdentity | null {
         const userID = this.ctx.storage.kv.get<string>('userID')
         const device = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)
@@ -450,7 +478,14 @@ export class UserAccount extends DurableObject<Env> {
 
     async revoke(deviceID: string, tokenHash: string): Promise<boolean> {
         const identity = this.authenticate(deviceID, tokenHash)
-        if (!identity) return false
+        const renewal = this.ctx.storage.kv.get<CallRenewal>('call-renewal')
+        const revokesRenewal = renewal?.deviceID === deviceID
+            && (identity !== null || (renewal.expiresAt > Date.now() && matchesSecretHash(renewal.tokenHash, tokenHash)))
+        if (revokesRenewal) this.ctx.storage.kv.delete('call-renewal')
+        if (!identity) {
+            if (revokesRenewal) await this.scheduleExpiry()
+            return revokesRenewal
+        }
         const previousNotification = this.notifications.device(deviceID)
         const attestation = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)?.attestation
         this.ctx.storage.kv.delete(`device:${deviceID}`)
@@ -518,6 +553,7 @@ export class UserAccount extends DurableObject<Env> {
             const rooms = [...this.ctx.storage.kv.list<string>({ prefix: 'room:' })].filter(([, owner]) => owner === userID).map(([key]) => key.slice('room:'.length))
             this.ctx.storage.transactionSync(() => {
                 this.ctx.storage.kv.delete('userID')
+                this.ctx.storage.kv.delete('call-renewal')
                 this.notifications.invalidateAll()
                 this.contactDeletions.clear()
                 this.directRestoreRelay.clear()
@@ -605,6 +641,8 @@ export class UserAccount extends DurableObject<Env> {
         if (preparation && preparation.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletionPreparation')
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         if (receipt && !receipt.appleToken && !receipt.rooms?.length && receipt.expiresAt <= Date.now()) this.ctx.storage.kv.delete('deletion')
+        const renewal = this.ctx.storage.kv.get<CallRenewal>('call-renewal')
+        if (renewal && renewal.expiresAt <= Date.now()) this.ctx.storage.kv.delete('call-renewal')
         for (const [key, device] of this.ctx.storage.kv.list<Device>({ prefix: 'device:' })) {
             if (device.expiresAt <= Date.now()) {
                 this.ctx.storage.kv.delete(key)
@@ -624,8 +662,10 @@ export class UserAccount extends DurableObject<Env> {
         const receipt = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         const preparation = this.ctx.storage.kv.get<DeletionPreparation>('deletionPreparation')
         const pending = !!receipt?.appleToken || !!receipt?.rooms?.length
+        const renewal = this.ctx.storage.kv.get<CallRenewal>('call-renewal')
         const deadlines = [...this.notifications.deadlines(), ...this.contactDeletions.deadlines(), ...this.ordinaryGroupReplies.deadlines(),
             ...this.directRestoreRelay.deadlines(), ...this.directRestoreDevices.deadlines(),
+            ...(renewal ? [renewal.expiresAt] : []),
             ...devices.map(device => Math.min(device.expiresAt, device.attestationChallenge?.expiresAt ?? Infinity,
                 device.attestation?.expiresAt ?? Infinity)), ...(preparation ? [preparation.expiresAt] : []),
             ...(receipt?.appleToken && receipt.retryAt !== undefined && (receipt.attempts ?? 0) <= retryDelays.length ? [receipt.retryAt] : []),
@@ -653,13 +693,18 @@ export async function notificationAuth(token: string, env: Env): Promise<Notific
     return identity ? { accountID: credential.accountID, userID: identity.userID, deviceID: identity.deviceID, tokenHash } : null
 }
 
-export async function authenticateDevice(token: string, env: Env): Promise<(DeviceIdentity & { accountID: string }) | null> {
+export async function authenticateDevice(token: string, env: Env, call?: { roomID: string; sessionID: string }) {
     const credential = deviceCredential(token, env)
     if (!credential) return null
-    const identity = await credential.account.authenticate(credential.deviceID, await digest(credential.secret))
+    const tokenHash = await digest(credential.secret)
+    const identity = await credential.account.authenticate(credential.deviceID, tokenHash)
     // Internal connection accounting survives public identity retirement, so a
     // still-live lease cannot be bypassed by deleting and registering again.
-    return identity ? { ...identity, accountID: credential.accountID } : null
+    if (identity) return { ...identity, accountID: credential.accountID, tokenHash, continuing: false }
+    if (!call) return null
+    const continuing = await credential.account.authorizeCallRenewal(
+        credential.deviceID, tokenHash, call.roomID, call.sessionID)
+    return continuing ? { ...continuing, accountID: credential.accountID, tokenHash, continuing: true } : null
 }
 
 export async function accountRequest(request: Request, env: Env): Promise<Response> {

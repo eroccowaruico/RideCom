@@ -90,6 +90,86 @@ test('unauthenticated and malformed provider.requests never contact the provider
     assert.equal(provider.requests.length, 0);
 });
 
+test('a published call renews only its own lease after the device credential expires', async () => {
+    const instance = await makeRuntime({}, { adjustableClock: true });
+    try {
+        const credential = await callTestCredential(instance);
+        await instance.advanceClock(30 * 86400000 - 60000);
+        const joined = await join('continues', room, instance, credential);
+        assert.equal(joined.status, 200);
+        const { sessionId } = await joined.json();
+        const base = `/api/rooms/${room}/sessions/${sessionId}`;
+        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 200);
+        assert.equal((await call(`${base}/publish`, {}, 'POST', instance, credential)).status, 200);
+
+        await instance.advanceClock(60000);
+        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 200);
+        assert.equal((await call(`${base}/publish`, {}, 'POST', instance, credential)).status, 401);
+        assert.equal((await join('new', room, instance, credential)).status, 401);
+        assert.equal((await call(`/api/rooms/${'b'.repeat(64)}/sessions/${sessionId}/renew`,
+            {}, 'POST', instance, credential)).status, 401);
+        assert.equal((await call(`/api/rooms/${room}/sessions/other/renew`,
+            {}, 'POST', instance, credential)).status, 401);
+        assert.equal((await call('/api/auth/session', undefined, 'GET', instance, credential)).status, 401);
+        assert.equal((await call(base, undefined, 'DELETE', instance, credential)).status, 200);
+        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 404);
+        assert.equal((await call('/api/auth/session', undefined, 'DELETE', instance, credential)).status, 200);
+        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 401);
+    } finally { await instance.dispose(); }
+});
+
+test('the original call lease crosses a device rotation without extending past 24 hours', async () => {
+    const instance = await makeRuntime(
+        {
+            LEASE_SECONDS: '3600', MONTHLY_PARTICIPANT_SECONDS: '100000', TURN_ENABLED: 'true',
+            CLOUDFLARE_TURN_KEY_ID: 'fixture-turn', CLOUDFLARE_TURN_API_TOKEN: 'test-turn-secret',
+        }, { adjustableClock: true });
+    try {
+        const credential = await callTestCredential(instance);
+        const iceLeaseID = 'rotation-ice';
+        assert.equal((await call(`/api/rooms/${room}/ice/rotation`,
+            { leaseID: iceLeaseID }, 'POST', instance, credential)).status, 200);
+        const joined = await call(`/api/rooms/${room}/join`,
+            { participantId: 'rotation', offer, iceLeaseID }, 'POST', instance, credential);
+        assert.equal(joined.status, 200);
+        const { sessionId } = await joined.json();
+        const base = `/api/rooms/${room}/sessions/${sessionId}`;
+        assert.equal((await call(`${base}/publish`, {}, 'POST', instance, credential)).status, 200);
+        const publishedBy = Date.now();
+        const [, accountID, deviceID, secret] = credential.split('.');
+        const accounts = await instance.getDurableObjectNamespace('USER_ACCOUNT');
+        const account = accounts.get(accounts.idFromString(accountID));
+        const replacement = createHash('sha256').update(`${secret}/rotated`).digest('hex');
+        const replacementHash = createHash('sha256').update(replacement).digest('hex');
+        assert.ok(await account.register(deviceID, replacementHash, Date.now()));
+        assert.equal((await call('/api/auth/session', undefined, 'GET', instance, credential)).status, 401);
+
+        let expiresAt;
+        let issuedNearDeadline = 0;
+        for (let halfHour = 1; halfHour < 48; halfHour++) {
+            await instance.advanceClock(1800000);
+            const requestsBeforeRenewal = provider.requests.length;
+            const renewed = await call(`${base}/renew`, {}, 'POST', instance, credential);
+            assert.equal(renewed.status, 200);
+            ({ expiresAt } = await renewed.json());
+            const remainingSeconds = Math.ceil((publishedBy + 86400000 - Date.now() - halfHour * 1800000) / 1000);
+            const issued = provider.requests.slice(requestsBeforeRenewal)
+                .filter(request => request.url.endsWith('/generate-ice-servers'));
+            assert.ok(issued.every(request => request.body.ttl <= remainingSeconds + 1));
+            if (halfHour >= 45) issuedNearDeadline += issued.length;
+        }
+        assert.ok(expiresAt <= publishedBy + 86400000);
+        assert.ok(issuedNearDeadline > 0);
+        const current = `ri1.${accountID}.${deviceID}.${replacement}`;
+        const status = await call('/api/status', undefined, 'GET', instance, current);
+        assert.equal(status.status, 200);
+        assert.ok((await status.json()).reservedParticipantSeconds <= 86401);
+        await instance.advanceClock(1800000);
+        assert.equal((await call(`${base}/renew`, {}, 'POST', instance, credential)).status, 401);
+        assert.equal((await call('/api/auth/session', undefined, 'DELETE', instance, credential)).status, 401);
+    } finally { await instance.dispose(); }
+});
+
 test('SFU publishing, authorized subscription, renewal and cleanup use the real contract', async () => {
     const other = await callTestCredential(runtime, 'rider-b');
     const remaining = await callTestCredential(runtime, 'rider-c');

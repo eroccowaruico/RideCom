@@ -35,9 +35,12 @@ export class UsageGuard {
         }
         // Only the Worker can supply userID, after verifying the device credential.
         const user = body.userID
-        if (typeof body.owner !== 'string' || (user != null && typeof user !== 'string')) {
+        const deadline = body.expiresNoLaterThan
+        if (typeof body.owner !== 'string' || (user != null && typeof user !== 'string')
+            || (deadline !== undefined && (typeof deadline !== 'number' || !Number.isFinite(deadline)))) {
             return json({ error: 'Invalid reservation' }, 400)
         }
+        if (typeof deadline === 'number' && deadline <= now) return json({ error: 'Lease expired' }, 410)
         if ((owners[body.id] && owners[body.id] !== body.owner) || (users[body.id] && users[body.id] !== user)
             || (user && Object.entries(users).some(([id, account]) => id !== body.id && account === user && usage.active[id] > now))) {
             return json({ code: 'account_in_use', error: 'This account already has an Internet call. End the existing call and try again.' }, 409)
@@ -54,11 +57,15 @@ export class UsageGuard {
         }
         if (!usage.active[body.id] && (Object.keys(usage.active).length >= limit(this.env.MAX_ACTIVE_SESSIONS, 32, 512)
             || starts >= 100)) return json({ error: 'Connection quota reached' }, 429)
-        if (usage.reservedParticipantSeconds + seconds > limit(this.env.MONTHLY_PARTICIPANT_SECONDS, 1000000, 100000000)) return json({ error: 'Monthly budget reached' }, 429)
+        const previousExpiry = Math.max(now, usage.active[body.id] ?? 0)
+        const expiresAt = Math.max(previousExpiry, Math.min(previousExpiry + seconds * 1000,
+            typeof deadline === 'number' ? deadline : Infinity))
+        const reservedSeconds = Math.ceil((expiresAt - previousExpiry) / 1000)
+        if (usage.reservedParticipantSeconds + reservedSeconds > limit(this.env.MONTHLY_PARTICIPANT_SECONDS, 1000000, 100000000)) return json({ error: 'Monthly budget reached' }, 429)
         if (!usage.active[body.id]) Object.defineProperty(usage.starts, body.owner, { value: starts + 1, enumerable: true, writable: true, configurable: true })
-        // Reserve the full lease before contacting SFU. Failure/retry never refunds this reservation.
-        usage.reservedParticipantSeconds += seconds
-        usage.active[body.id] = Math.max(now, usage.active[body.id] ?? 0) + seconds * 1000
+        // Reserve the extension before contacting SFU. Failure/retry never refunds this reservation.
+        usage.reservedParticipantSeconds += reservedSeconds
+        usage.active[body.id] = expiresAt
         if (user) users[body.id] = user
         owners[body.id] = body.owner
         this.state.storage.kv.put('usage', usage)

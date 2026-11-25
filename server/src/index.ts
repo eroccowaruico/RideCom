@@ -34,8 +34,16 @@ export default {
         if (!authorization.startsWith('Bearer ') || authorization.length > 512) return json({ error: 'Unauthorized' }, 401)
         const credential = authorization.slice(7)
         const match = url.pathname.match(/^\/api\/rooms\/([a-f0-9]{64})\/(ice\/[a-zA-Z0-9_-]{1,80}|join|sessions\/[^/]+(?:\/(?:pull|publish|renew|signal))?)$/)
+        const roomID = match && env.SIGNALING_ROOM.idFromName(match[1])
+        const sessionAction = match?.[2].match(/^sessions\/([^/]+)(\/renew)?$/)
+        const permitsCallRenewal = sessionAction && (
+            (request.method === 'POST' && sessionAction[2] === '/renew')
+            || (request.method === 'DELETE' && sessionAction[2] === undefined))
         let device: Awaited<ReturnType<typeof authenticateDevice>>
-        try { device = await authenticateDevice(credential, env) }
+        try {
+            const call = roomID && permitsCallRenewal ? { roomID: roomID.toString(), sessionID: sessionAction[1] } : undefined
+            device = await authenticateDevice(credential, env, call)
+        }
         catch { return json({ error: 'Account service unavailable' }, 503) }
         let owner: string | undefined
         if (device) owner = `${device.userID}:${device.deviceID}`
@@ -56,6 +64,12 @@ export default {
         const headers = new Headers(request.headers)
         headers.delete('Authorization'); headers.set('X-Owner', owner)
         headers.delete('X-User'); if (device) headers.set('X-User', device.accountID)
+        headers.delete('X-Device-Token-Hash')
+        if (device && !device.continuing && match?.[2].endsWith('/publish')) {
+            headers.set('X-Device-Token-Hash', device.tokenHash)
+        }
+        headers.delete('X-Call-Renewal')
+        if (device?.continuing) headers.set('X-Call-Renewal', '1')
         const isStatus = url.pathname === '/api/status' && request.method === 'GET'
         if (!isStatus && !match) return json({ error: 'Invalid route or room capability' }, 400)
         if (!cleanup) {
@@ -63,8 +77,8 @@ export default {
             if (limited) return limited
         }
         if (isStatus) return env.USAGE_GUARD.get(env.USAGE_GUARD.idFromName('global')).fetch(new Request('https://internal/status'))
-        if (!match) return json({ error: 'Invalid route or room capability' }, 400)
-        return env.SIGNALING_ROOM.get(env.SIGNALING_ROOM.idFromName(match[1])).fetch(new Request(request, { headers }))
+        if (!roomID) return json({ error: 'Invalid route or room capability' }, 400)
+        return env.SIGNALING_ROOM.get(roomID).fetch(new Request(request, { headers }))
     }
 }
 
