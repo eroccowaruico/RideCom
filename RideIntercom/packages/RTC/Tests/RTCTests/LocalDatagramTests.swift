@@ -33,9 +33,25 @@ private func activeConnection(
 }
 
 private func verifyBackoffAndRecovery(
-    sender: LocalDatagramTransport, receiverID: PeerID, recording: DatagramRecording, queue: DispatchQueue
+    sender: LocalDatagramTransport, receiverID: PeerID, receiverNonce: String,
+    recording: DatagramRecording, queue: DispatchQueue
 ) async throws {
     let current = try activeConnection(from: sender, to: receiverID, on: queue)
+    let betterPath = try #require(current.betterPathUpdateHandler)
+    try queue.sync {
+        betterPath(true)
+        let candidates = try #require(
+            Mirror(reflecting: sender).children.first { $0.label == "replacements" }?.value as? [String: NWConnection]
+        )
+        let candidate = try #require(candidates[sender.serviceName(for: receiverID)])
+        let failed = try #require(candidate.stateUpdateHandler)
+        failed(.failed(.posix(.ENETDOWN)))
+    }
+    #expect(try activeConnection(from: sender, to: receiverID, on: queue) === current)
+    #expect(sender.isReady(for: receiverID), "A failed candidate must not retire the current path")
+
+    // A new authenticated control session clears the candidate's backoff.
+    sender.connect(to: receiverID, nonce: receiverNonce)
     let failed = try #require(current.stateUpdateHandler)
     queue.sync { failed(.failed(.posix(.ENETDOWN))) }
     for _ in 0..<32 { #expect(sender.send(Data([254]), to: [receiverID]).accepted.isEmpty) }
@@ -252,7 +268,7 @@ private func verifyBonjourRestart(
     for _ in 0..<100 where recording.packets.count < 3 { try await Task.sleep(for: .milliseconds(5)) }
     #expect(recording.packets.map(\.payload) == [Data([0]), Data([1]), Data([2])])
     try await verifyBackoffAndRecovery(
-        sender: sender, receiverID: receiverID, recording: recording, queue: queue
+        sender: sender, receiverID: receiverID, receiverNonce: receiver.serviceNonce, recording: recording, queue: queue
     )
     sender.stop()
     queue.sync { lostPath(false) }

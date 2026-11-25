@@ -221,15 +221,30 @@ final class LocalDatagramTransport: @unchecked Sendable {
         return authenticator.make(digest: Data(SHA256.hash(data: data)))
     }
 
-    private func removeOutgoing(_ name: String) {
-        ready.remove(name); inFlight[name] = nil
-        if let connection = outgoing.removeValue(forKey: name) {
-            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
-        }
-        if let connection = replacements.removeValue(forKey: name) {
-            paths[ObjectIdentifier(connection)] = nil; connection.cancel()
-        }
+    private func removeOutgoing(_ name: String, keepingReplacement: Bool = false) {
+        ready.remove(name)
+        inFlight[name] = nil
+        closePath(outgoing.removeValue(forKey: name))
+        if !keepingReplacement { closePath(replacements.removeValue(forKey: name)) }
         retryAfter[name] = nil
+    }
+
+    private func closePath(_ connection: NWConnection?) {
+        guard let connection else { return }
+        paths[ObjectIdentifier(connection)] = nil
+        connection.cancel()
+    }
+
+    private func recordPathFailure(_ connection: NWConnection, name: String, keepingReplacement: Bool) {
+        let retry = ConnectionRetry(
+            after: retryAfter[name], at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery
+        )
+        if replacements[name] === connection {
+            closePath(replacements.removeValue(forKey: name))
+        } else {
+            removeOutgoing(name, keepingReplacement: keepingReplacement)
+        }
+        retryAfter[name] = retry
     }
 
     func stop() { synchronized { stopOnQueue() } }
@@ -272,16 +287,7 @@ extension LocalDatagramTransport {
             retryAfter[serviceName] = nil
             if outgoing[serviceName] === connection { ready.insert(serviceName) }
         case .failed, .cancelled:
-            paths[ObjectIdentifier(connection)] = nil
-            if replacements[serviceName] === connection {
-                replacements[serviceName] = nil
-            } else {
-                ready.remove(serviceName); inFlight[serviceName] = nil
-                outgoing[serviceName] = nil
-            }
-            connection.cancel()
-            retryAfter[serviceName] = ConnectionRetry(after: retryAfter[serviceName],
-                at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery)
+            recordPathFailure(connection, name: serviceName, keepingReplacement: true)
         default:
             if outgoing[serviceName] === connection { invalidateReceipt(connection, name: serviceName) }
         }
@@ -359,13 +365,7 @@ extension LocalDatagramTransport {
                   self.outgoing[name] === connection || self.replacements[name] === connection else { return }
             self.inFlight[name] = max(0, self.inFlight[name, default: 0] - bytes.count)
             if error != nil {
-                let retry = ConnectionRetry(
-                    after: self.retryAfter[name], at: ProcessInfo.processInfo.systemUptime, policy: .connectionRecovery
-                )
-                if self.replacements[name] === connection {
-                    self.replacements[name] = nil; self.paths[ObjectIdentifier(connection)] = nil; connection.cancel()
-                } else { self.removeOutgoing(name) }
-                self.retryAfter[name] = retry
+                self.recordPathFailure(connection, name: name, keepingReplacement: false)
                 self.onAvailabilityChange?()
             }
         })
@@ -378,7 +378,7 @@ extension LocalDatagramTransport {
         replacements[name] = nil
         let old = outgoing.updateValue(connection, forKey: name)
         inFlight[name] = nil
-        if let old { paths[ObjectIdentifier(old)] = nil; old.cancel() }
+        closePath(old)
         ready.insert(name)
     }
 
