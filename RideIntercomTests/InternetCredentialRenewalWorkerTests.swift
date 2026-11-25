@@ -5,7 +5,7 @@ import Testing
 @testable import RideIntercom
 
 extension GroupDeliveryWorkerTests {
-    enum CredentialRenewalTrigger: CaseIterable { case outgoingCall, restoredNetwork }
+    enum CredentialRenewalTrigger: CaseIterable { case outgoingCall, authenticatedPeer, restoredNetwork }
 
     @Test(.timeLimit(.minutes(1)), arguments: CredentialRenewalTrigger.allCases)
     func appRenewsTheCredentialForAnExistingWorkerCall(trigger: CredentialRenewalTrigger) async throws {
@@ -13,8 +13,7 @@ extension GroupDeliveryWorkerTests {
             let group = try #require(IntercomSeedData.recentGroups.first)
             let member = try #require(group.members.first)
             let otherMember = try #require(group.members.first { $0.id != member.id })
-            let origin = try #require(URL(string: "https://delivery.test"))
-            let caller = GroupDeliveryTestIdentity(member.id, fixedWorkerOrigin: origin)
+            let caller = GroupDeliveryTestIdentity(member.id, fixedWorkerOrigin: URL(string: "https://delivery.test"))
             let listener = GroupDeliveryTestIdentity(otherMember.id)
             let account = AccountFixture()
             defer { caller.remove(); listener.remove(); account.remove() }
@@ -36,17 +35,18 @@ extension GroupDeliveryWorkerTests {
             let peerSession = try await publishWorkerCall(client, peerID: otherMember.id, credential: receiver)
 
             let renewalBoundary = Date(timeIntervalSince1970: before.expiresAt - 48 * 3600)
-            callTime = renewalBoundary.addingTimeInterval(-1)
+            callTime = renewalBoundary.addingTimeInterval(trigger == .authenticatedPeer ? -1800 : -1)
             model.setRTCTransportRoutes([.webRTC])
-            model.groupDeliveryNetworkPathChanged(isAvailable: trigger == .outgoingCall)
+            model.groupDeliveryNetworkPathChanged(isAvailable: trigger != .restoredNetwork)
             #expect(model.automaticInternetEnrollment.task == nil)
             if trigger == .outgoingCall { callTime = renewalBoundary }
             try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
-            harness.callSession.authenticate([otherMember.id], route: .webRTC)
             let call = model.currentCallReference
             let deadline = try #require(model.callDisconnectDeadline)
             try #require(model.setCallMuted(true, for: call))
 
+            if trigger == .authenticatedPeer { callTime = renewalBoundary }
+            harness.callSession.authenticate([otherMember.id], route: .webRTC)
             if trigger == .restoredNetwork {
                 callTime = renewalBoundary
                 model.groupDeliveryNetworkPathChanged(isAvailable: true)
@@ -60,7 +60,7 @@ extension GroupDeliveryWorkerTests {
             #expect(harness.callSession.connectCallCount == 1 && harness.callSession.retriedInternetRouteCount == 0)
             try await verifyWorkerCall(client, session: session, peerID: otherMember.id, credential: credential)
             let _: WorkerCallReply = try await client.send(
-                origin: origin, path: peerSession, method: "DELETE", token: receiver.accessToken)
+                origin: receiver.workerURL, path: peerSession, method: "DELETE", token: receiver.accessToken)
         }
     }
 

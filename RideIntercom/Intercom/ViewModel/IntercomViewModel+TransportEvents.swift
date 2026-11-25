@@ -155,6 +155,7 @@ extension IntercomViewModel {
             groupErrorMessage = "An unexpected participant joined this individual call. The call was stopped."
             return
         }
+        let didAuthenticateFirstPeer = authenticatedPeerIDs.isEmpty && !authenticatedPeerIDSet.isEmpty
         let newlyAuthenticated = authenticatedPeerIDSet.subtracting(authenticatedPeerIDs)
         let mediaWasStarted = isCallMediaStarted
         authenticatedPeerIDs = Array(authenticatedPeerIDSet).sorted()
@@ -163,6 +164,7 @@ extension IntercomViewModel {
         connectionState = routeConnectionState(isConnected: !authenticatedPeerIDs.isEmpty)
         markConnectedMembers(peerIDs: connectedPeerIDs)
         startActiveCallAfterAuthenticatedPeer()
+        if didAuthenticateFirstPeer, hasInternetCredentials { reconcileInternetCredentialRenewal() }
         if mediaWasStarted && isCallMediaStarted {
             audioPipeline.prepareReceivePeers(newlyAuthenticated.sorted())
         }
