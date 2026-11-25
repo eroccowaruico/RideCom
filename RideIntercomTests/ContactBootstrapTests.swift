@@ -195,10 +195,12 @@ struct ContactBootstrapTests {
     #expect(user.displayName != "Riding Buddy", "The person's shared name is kept separately")
   }
 
-  @Test func reInvitingAnExistingContactReplacesThePairCallKeyOnBothDevices() throws {
+  @Test(arguments: [false, true])
+  func reInvitingAnExistingContactReplacesThePairCallKeyOnBothDevices(missingKey: Bool) throws {
     let callID = IntercomGroup.directCallID(memberIDs: ["contact-author", "contact-friend"])
     let author = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-author")
-    let friend = AppTestSupport.makeHarness(groups: [], localMemberID: "contact-friend")
+    let friendKeys = InMemoryGroupCredentialStore()
+    let friend = AppTestSupport.makeHarness(groups: [], credentialStore: friendKeys, localMemberID: "contact-friend")
     let authorViewModel = author.viewModel, friendViewModel = friend.viewModel
     let authorNotification = RecordingCallSession(), friendNotification = RecordingCallSession()
     authorViewModel.contactSessionFactory = { authorNotification }
@@ -215,6 +217,10 @@ struct ContactBootstrapTests {
 
     let oldKey = try #require(try authorViewModel.groupRepository.credential(for: callID))
     #expect(try friendViewModel.groupRepository.credential(for: callID) == oldKey)
+    let contact = try #require(friendViewModel.savedRemoteUsers.first)
+    if missingKey {
+      try verifyNoticeAfterLosingCallKey(friend, keys: friendKeys, callID: callID, contactID: contact.id)
+    }
 
     #expect(authorViewModel.setLocalDisplayName("Updated Author"))
     let secondURL = try #require(authorViewModel.makeContactInviteURL())
@@ -235,7 +241,13 @@ struct ContactBootstrapTests {
     #expect(try friendViewModel.groupRepository.credential(for: callID) == newKey)
     #expect(authorViewModel.groups.map(\.id) == [callID] && friendViewModel.groups.map(\.id) == [callID])
     #expect(authorViewModel.groups.first?.kind == .direct && friendViewModel.groups.first?.kind == .direct)
+    if missingKey {
+      #expect(friendViewModel.startCall(to: .user(contact.id), accountAccessID: friendViewModel.accountAccessID))
+      #expect(friend.callSession.connectedGroup?.id == callID)
+      #expect(friendViewModel.groupErrorMessage == nil)
+    }
   }
+
   private func deliverNearbyReply(
     friendTransport: RecordingCallSession?, authorTransport: RecordingCallSession, authorID: String, friendID: String
   ) throws {
@@ -254,4 +266,20 @@ struct ContactBootstrapTests {
     friendTransport.onEvent?(.receivedApplicationData(peerID: authorID, message: acknowledgement))
   }
 
+}
+
+private extension ContactBootstrapTests {
+  func verifyNoticeAfterLosingCallKey(
+    _ friend: AppTestSupport.Harness, keys: InMemoryGroupCredentialStore, callID: UUID, contactID: UUID
+  ) throws {
+    let model = friend.viewModel
+    let name = "Ski Friend"
+    #expect(model.renameSavedUser(contactID, displayName: name))
+    let reference = try #require(friend.groupStore.snapshot.groups.first { $0.id == callID }?.credentialReference)
+    try keys.delete(reference: reference)
+    model.reloadSavedGroups()
+    #expect(model.openDestination(.user(contactID)) == .opened)
+    #expect(model.groupErrorMessage == String(localized: "Ask \(name) to send you a new invitation."))
+    #expect(friend.callSession.connectedGroup == nil)
+  }
 }

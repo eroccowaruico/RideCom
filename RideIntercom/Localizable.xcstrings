@@ -746,6 +746,16 @@
         }
       }
     },
+    "Ask %@ to send you a new invitation." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@さんに新しい招待を送ってもらってください。"
+          }
+        }
+      }
+    },
     "Ask the sender for a new invitation." : {
       "localizations" : {
         "ja" : {

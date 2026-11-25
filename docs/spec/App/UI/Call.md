@@ -302,6 +302,7 @@ SoundIsolation対応環境では、Settingsに自分の送信側、Callに受信
 | 状態 | 表示・動作 |
 |---|---|
 | 鍵不足・保存失敗・不正招待・command過負荷 | Call入口の `groupErrorLabel`。AdvancedはCallの内容の先頭に不透明のカード（`AdvancedCallErrorCard`。接続先がないときはそのカードだけのScrollView）で置き、`Material`の帯にしない。理由と再招待/再試行を表示する。切断後にも表示し、新しい接続は利用者の操作で開始する |
+| 端末宛て個別通話の鍵がない | StandardとAdvancedで「{相手の呼び名}さんに新しい招待を送ってもらってください。」と表示する。新しい招待を受けた後は、同じ相手を選んで発信する |
 | 新規グループ作成・有効な選択/接続 | 以前のgroupエラーを解除。通話中に別groupの招待が失敗しても旧通話は維持 |
 
 情報は色だけに依存せずテキストとアイコンで伝え、通常エラーは文脈内に表示する。[Apple HIG Alerts](https://developer.apple.com/design/human-interface-guidelines/alerts)に従い、明示的に全groupを消すresetだけ確認を要求する。

@@ -26,7 +26,7 @@ extension IntercomViewModel {
             groupErrorMessage = "Could not read the group key. Try again."; return
         }
         guard let credential = storedCredential else {
-            groupErrorMessage = "Group key is missing. Open a valid invite or create a new group."
+            groupErrorMessage = missingCallCredentialNotice(for: selectedGroup)
             return
         }
         let startsNearby = enabledRTCTransportRoutes.contains(.multipeer)
@@ -58,6 +58,14 @@ extension IntercomViewModel {
             callTicker.start()
         }
         reconcileAutomaticInternetEnrollment()
+    }
+
+    private func missingCallCredentialNotice(for group: IntercomGroup) -> String {
+        if group.kind == .direct, group.accountPair == nil,
+           let peer = group.members.first(where: { $0.id != localMemberIdentity.memberID }) {
+            return String(localized: "Ask \(peer.resolvedDisplayName) to send you a new invitation.")
+        }
+        return "Group key is missing. Open a valid invite or create a new group."
     }
 
     func prepareInvitationsForCall(to group: IntercomGroup) {

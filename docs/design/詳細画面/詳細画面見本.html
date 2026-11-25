@@ -515,6 +515,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   <h2 id="call">通話・ユーザー・グループ（Advanced）</h2>
   <p class="note">Appleの本人確認が必要で回線を使える場合は、通話操作の次に標準の「Appleで続ける」を置く。確認後は同じ通話の接続を続ける。</p>
   <p class="note">登録が済むまで個人通話を作れないときは、Standardと同じ相手名と接続中の表示を使う。閉じると準備中の発信を取り消す。</p>
+  <p class="note">端末宛て個別通話で鍵が欠けているときは、通話画面のエラー欄に「マキさんに新しい招待を送ってもらってください。」のように、相手の呼び名を入れて表示する。<a href="../../spec/App/UI/Call.md#グループ資格の案内">表示条件</a></p>
   <p class="note">保存済みの資格を読み取れない場合は発信先を保ち、回線が使える間は「インターネット通話の設定を読み込めませんでした。」と表示する。読み直せたら案内を外して接続を続ける。端末資格が拒否されたときは「インターネット通話でこの端末を確認できませんでした。」と表示する。本人確認が必要なら、回線が使えるときに同じ通話で「Appleで続ける」を出す。再登録後に案内を外し、利用できる近距離通話は続ける。</p>
   <p class="note">AdvancedのタブはUsers（最初）・Groups・Diagnostics・Settings。Standardのグループタブの設定にかかわらず、AdvancedにはGroupsがある。Users・Groupsで相手やグループを選ぶと接続し、通話を開く。通話はiPhone・iPadのcompact幅ではシート、regular幅とMacでは右の列に表示する。Closeで通話を続けたまま一覧へ戻る。iPhone・iPadでは一覧の通話表示、Macではツールバーから開き直せる。通話を終える操作はCall statusのDisconnect。1対1でも、Callはグループの種類とID、自分を含む人数を表示する。<a href="../../spec/App/UI/Call.md#standardの通話ユーザーグループ">一覧と通話の仕様</a></p>
   <div class="gallery">
