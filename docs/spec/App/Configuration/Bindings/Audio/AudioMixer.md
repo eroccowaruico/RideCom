@@ -48,7 +48,7 @@ RX masterの表示用effect chainは、実snapshotの `rx-master.effectChain` �
 
 詳細な bus、format、routing の仕様は `docs/spec/packages/Audio/AudioMixer.md` を正とする。
 
-通話TXはAudioFrameProcessorの同期manual renderingで、native effectを通したPCMを10ms単位に符号化する。受信のrender通知は実Audio Unit quantumで受け、再生sinkは20msを上限に分割する。100ms tap待機、送信用player、2つ目の送信hardware clockは使わない。
+通話TXはAudioFrameProcessorの同期manual renderingを使う。native effectを通したPCMを10ms単位でCodecへ渡す。送信パケットの扱いは[音声処理仕様](../../../音声処理仕様.md#通話の再生予約)に従う。受信のrender通知は実Audio Unit quantumで受け、再生sinkは20msを上限に分割する。100ms tap待機、送信用player、2つ目の送信hardware clockは使わない。
 
 RXは相手ごとのcapture clockをplayer clockへ対応付ける。連続sampleは隙間・重複なく予約し、到着が遅れた場合だけ必要な分を遅らせる。既に出力済みの発話を切り詰めず、無音中に増えた待ちを短縮する。開始待機は2msで、揺れのない相手には待ちを追加しない。iPhone間のWi-Fiが相手のpacketを保持してまとめて届ける場合は、AudioMixerが学習した待ちを会話の間でも保つ。学習値は開始待機などを除いた予約枠の半分までとし、まとまって届く後続packetにも余裕を残す。無音を短縮するときも、通常のまとまりに含まれる間隔を保つ。適応再生の判定は[AudioMixerパッケージ仕様](../../../../packages/Audio/AudioMixer.md)を参照する。0.3秒へ広げた候補は、出力時計の開始前に溜まった最大0.3秒の待ちが通話中に残るため採用しない（2026-11-03の音声E2E）。時計の大きなジャンプや120msを超える停滞は再基準化する。
 
