@@ -9,6 +9,7 @@ import RTC
     @ObservationIgnored var client = InternetAccountClient()
     @ObservationIgnored var task: Task<Void, Never>?
     var waitingCall: CallAwaitingInternetEnrollment?
+    @ObservationIgnored var startedCall: CallAwaitingInternetEnrollment?
     @ObservationIgnored var retryAt: Date?
     @ObservationIgnored var retryDelay = 5
 }
@@ -20,6 +21,7 @@ struct CallAwaitingInternetEnrollment {
     let isStillAllowed: @MainActor () -> Bool
     var needsAppleConfirmation: Bool
     var accountRecipient: AccountPrincipal?
+    var replacesRejectedCredential = false
 }
 
 extension IntercomViewModel {
@@ -121,13 +123,36 @@ extension IntercomViewModel {
             && contactInvitationSession == nil
     }
 
+    var keepsCallDuringCredentialRecovery: Bool {
+        guard let call = automaticInternetEnrollment.startedCall, call.replacesRejectedCredential else { return false }
+        return isCurrentEnrollmentCall(call)
+    }
+
+    func handleInternetRouteBlock(_ reason: RTC.ConnectionBlockReason) {
+        internetTransportFailure = .blocked(reason)
+        guard reason == .deviceCredentialRejected, hasInternetCredentials, internetSettingsStore.permitsServiceAccess,
+              internetSettingsStore.fixedWorkerOrigin != nil else { return }
+        internetSettingsStore.rejectCurrentCredential()
+        internetCredentialState = .missing
+        internetCheckGeneration = UUID()
+        isCheckingInternet = false
+        internetCheckMessage = InternetTransportFailure.blocked(.deviceCredentialRejected).detail
+        callSession.updateInternetConfiguration(nil, preservingCall: true)
+        if var call = automaticInternetEnrollment.startedCall, isCurrentEnrollmentCall(call) {
+            call.replacesRejectedCredential = true
+            call.needsAppleConfirmation = !hasAutomaticInternetEnrollmentProof
+            automaticInternetEnrollment.startedCall = call
+            automaticInternetEnrollment.waitingCall = call
+        }
+        reconcileAutomaticInternetEnrollment()
+    }
+
     func reconcileAutomaticInternetEnrollment() {
         let proof = accountSession.enrollmentProof(for: accountAccessID)
         if needsInternetEnrollment, let pending = automaticInternetEnrollment.waitingCall,
            pending.needsAppleConfirmation != (proof == nil) {
             automaticInternetEnrollment.waitingCall?.needsAppleConfirmation = proof == nil
         }
-        if hasInternetCredentials, let proof { accountSession.discardEnrollmentProof(proof.id) }
         guard canEnrollInternetAutomatically else {
             automaticInternetEnrollment.task?.cancel()
             return
@@ -200,6 +225,12 @@ extension IntercomViewModel {
             callSession.updateInternetConfiguration(configuration)
             return
         }
+        if pending.replacesRejectedCredential {
+            internetTransportFailure = nil
+            callSession.updateInternetConfiguration(configuration, preservingCall: true)
+            callSession.retryInternetRouteAfterCredentialChange()
+            return
+        }
         if pending.startsNearby {
             callSession.updateInternetConfiguration(configuration, preservingCall: true)
         } else {
@@ -212,6 +243,10 @@ extension IntercomViewModel {
 
     private func failCallAwaitingInternetEnrollment() {
         guard let pending = automaticInternetEnrollment.waitingCall else { return }
+        if pending.replacesRejectedCredential {
+            groupErrorMessage = String(localized: "Could not prepare Internet calling for this device.")
+            return
+        }
         automaticInternetEnrollment.waitingCall = nil
         guard !pending.startsNearby else { return }
         disconnect()

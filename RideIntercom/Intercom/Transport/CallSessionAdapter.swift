@@ -83,7 +83,7 @@ final class RideIntercomCallSessionAdapter: CallSession {
         commandTask?.cancel()
     }
 
-    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration, preservingCall: Bool) {
+    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration?, preservingCall: Bool) {
         if preservingCall {
             internetConfiguration.supply(configuration)
         } else {
@@ -91,6 +91,8 @@ final class RideIntercomCallSessionAdapter: CallSession {
             if ownsRTCSession { rebuildOwnedRTCSession() }
         }
     }
+
+    func retryInternetRouteAfterCredentialChange() { enqueue(.retryInternetRoute) }
 
     func connect(group: IntercomGroup) {
         prepareConnection(group: group)
@@ -220,10 +222,8 @@ extension RideIntercomCallSessionAdapter {
         case .reports(let reports):
             appliedReports = reports
             await rtcSession.updateRuntimePackageReports(reports)
-        case .audioPolicy(let policy):
-            await rtcSession.updateAudioPolicy(policy)
-        case .application(let message), .stateMessage(_, let message):
-            await rtcSession.sendApplicationData(message)
+        case .audioPolicy, .retryInternetRoute, .application, .stateMessage:
+            await entry.command.applyToSession(rtcSession, belongsToCurrentCall: entry.generation == eventGeneration)
         case .configure(let change):
             await applyConfiguration(change, generation: entry.generation)
         }

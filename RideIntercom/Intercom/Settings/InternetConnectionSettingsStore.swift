@@ -11,6 +11,7 @@ final class InternetConnectionSettingsStore {
     let fixedWorkerOrigin: URL?
     private let defaults: UserDefaults
     private let deniedKey = "InternetAccount.requiresSignIn"
+    private let rejectedKey = "InternetAccount.credentialRejected"
     private let resetKey = "InternetAccount.requiresDataReset"
     var requiresAccountDataReset: Bool { defaults.bool(forKey: resetKey) }
     init(keychain: KeychainSecretStoring = SystemKeychainSecretStore(), namespace: String = "RideIntercom",
@@ -71,6 +72,11 @@ final class InternetConnectionSettingsStore {
         guard permitsServiceAccess else { throw ValidationError.disabledDuringLocalTests }
         guard !requiresAccountDataReset else { throw ValidationError.accountReplaced }
         var saved = try validated(url: url, token: token)
+        if defaults.bool(forKey: rejectedKey) {
+            let rejectedToken = try registration(account: "current")?.saved.accessToken
+                ?? developmentDefaults?["accessToken"]
+            guard rejectedToken != saved.accessToken else { throw ValidationError.missingToken }
+        }
         if let identity {
             guard let key = try storedDeviceSigningKey(), identity.issuer == IdentityEncoding.origin(saved.workerURL),
                 identity.deviceKey == IdentityEncoding.encode(key.publicKey.x963Representation)
@@ -99,9 +105,11 @@ final class InternetConnectionSettingsStore {
         guard let text = String(data: data, encoding: .utf8) else { throw KeychainSecretStoreError.invalidData }
         try keychain.saveSecret(text, service: service, account: "current")
         defaults.set(false, forKey: deniedKey)
+        defaults.removeObject(forKey: rejectedKey)
     }
     func load() throws -> RTC.CloudflareRealtimeConfiguration? {
-        guard permitsServiceAccess, !requiresAccountDataReset, !defaults.bool(forKey: deniedKey) else { return nil }
+        guard permitsServiceAccess, !requiresAccountDataReset, !defaults.bool(forKey: deniedKey),
+              !defaults.bool(forKey: rejectedKey) else { return nil }
         let saved: Saved
         if let stored = try registration(account: "current")?.saved {
             saved = try validated(url: stored.workerURL.absoluteString, token: stored.accessToken)
@@ -111,6 +119,10 @@ final class InternetConnectionSettingsStore {
             return nil
         }
         return .init(workerURL: saved.workerURL, accessToken: saved.accessToken)
+    }
+
+    func rejectCurrentCredential() {
+        defaults.set(true, forKey: rejectedKey)
     }
 
     func deviceSigningKey() throws -> P256.Signing.PrivateKey {
@@ -227,6 +239,9 @@ final class InternetConnectionSettingsStore {
         return stored.lowercased()
     }
 
+}
+
+extension InternetConnectionSettingsStore {
     /// Never use a development fallback, manufacture a device ID, or mistake an
     /// unreadable saved credential for a local-only account during deletion.
     func deletionAccess() throws -> AccountDeletion.ServiceAccess? {
@@ -238,6 +253,7 @@ final class InternetConnectionSettingsStore {
             saved = verified.saved
             requiresAppleVerification =
                 requiresAccountDataReset || verified.archived || defaults.bool(forKey: deniedKey)
+                || defaults.bool(forKey: rejectedKey)
         } else {
             // Preserve the existing rejection of unverified ri1 credentials. A
             // missing reset target must never turn into local-only deletion.
@@ -247,7 +263,7 @@ final class InternetConnectionSettingsStore {
                     ?? registration(account: "deletion-account")
             else { return nil }
             saved = unverified.saved
-            requiresAppleVerification = defaults.bool(forKey: deniedKey)
+            requiresAppleVerification = defaults.bool(forKey: deniedKey) || defaults.bool(forKey: rejectedKey)
         }
         let value = try validated(url: saved.workerURL.absoluteString, token: saved.accessToken)
         guard value.accessToken.hasPrefix("ri1.") else {

@@ -246,6 +246,9 @@ struct CommandSchedulingTests {
         await next.waitForOperation("stopConnection")
     }
 
+}
+
+extension CommandSchedulingTests {
     @Test func firstInternetConfigurationKeepsTheCurrentSessionAndItsMedia() async throws {
         let rtc = FakeRTCCallSession()
         var sources: [InternetRouteConfigurationSource] = []
@@ -269,5 +272,11 @@ struct CommandSchedulingTests {
         send(.init(sequenceNumber: 1, codec: .pcm16, payload: Data([0, 0])))
         await AppTestSupport.waitUntil { rtc.sentAudioSequences == [1] }
         #expect(rtc.sentAudioSequences == [1])
+        adapter.updateInternetConfiguration(nil, preservingCall: true)
+        #expect(source.current == nil)
+        adapter.updateInternetConfiguration(.init(workerURL: origin, accessToken: "updated"), preservingCall: true)
+        adapter.retryInternetRouteAfterCredentialChange()
+        await AppTestSupport.waitUntil { rtc.operations.contains("retryInternetRoute") }
+        #expect(rtc.operations == ["prepare", "startConnection", "startMedia", "retryInternetRoute"])
     }
 }

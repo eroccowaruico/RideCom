@@ -12,7 +12,7 @@ nonisolated final class InternetRouteConfigurationSource: Sendable {
 
     var current: RTC.CloudflareRealtimeConfiguration? { stored.withLock { $0 } }
 
-    func supply(_ configuration: RTC.CloudflareRealtimeConfiguration) {
+    func supply(_ configuration: RTC.CloudflareRealtimeConfiguration?) {
         stored.withLock { $0 = configuration }
     }
 }

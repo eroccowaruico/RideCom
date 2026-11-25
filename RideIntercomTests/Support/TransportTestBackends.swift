@@ -27,6 +27,7 @@ final class RecordingCallSession: RideIntercom.CallSession {
     private(set) var enabledRouteValues: [Set<RTC.RouteKind>] = []
     private(set) var runtimePackageReports: [[RTCRuntimePackageReport]] = []
     private(set) var suppliedInternetConfigurationCount = 0
+    private(set) var retriedInternetRouteCount = 0
     private nonisolated let audioPackets = Mutex<[RTC.RTCAudioPacket]>([])
     var sentAudioPackets: [RTC.RTCAudioPacket] { audioPackets.withLock { $0 } }
     func makeAudioPacketSink(
@@ -47,9 +48,11 @@ final class RecordingCallSession: RideIntercom.CallSession {
         onEvent?(.connected(peerIDs: peerIDs))
     }
 
-    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration, preservingCall: Bool) {
-        if preservingCall { suppliedInternetConfigurationCount += 1 }
+    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration?, preservingCall: Bool) {
+        if preservingCall && configuration != nil { suppliedInternetConfigurationCount += 1 }
     }
+
+    func retryInternetRouteAfterCredentialChange() { retriedInternetRouteCount += 1 }
 
     func startMedia() {
         startMediaCallCount += 1
@@ -175,6 +178,7 @@ final class FakeRTCCallSession: RTC.CallSession {
         record("prepare")
     }
     func startConnection() async { record("startConnection") }
+    func retryInternetRouteAfterCredentialChange() async { record("retryInternetRoute") }
     func stopConnection() async { record("stopConnection") }
     func startMedia() async {
         if let startMediaGate { await startMediaGate.wait() }

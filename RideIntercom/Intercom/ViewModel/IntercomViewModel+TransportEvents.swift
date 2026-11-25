@@ -55,7 +55,7 @@ extension IntercomViewModel {
             disconnect()
             groupErrorMessage = "Too many pending operations. The call stopped; connect again to retry."
         case .serviceBlocked(let reason):
-            internetTransportFailure = .blocked(reason)
+            handleInternetRouteBlock(reason)
         case .serviceError(let reason):
             internetTransportFailure = .retrying(reason)
         case .connected(let peerIDs):
@@ -118,6 +118,7 @@ extension IntercomViewModel {
         }
         if snapshot.availableRoutes.contains(.webRTC) {
             internetTransportFailure = nil
+            automaticInternetEnrollment.startedCall?.replacesRejectedCredential = false
         }
         if activeGroupID != nil {
             if newlyAvailable.contains(.webRTC) { requestInvitationInternetReply() }
@@ -171,6 +172,7 @@ extension IntercomViewModel {
 
     private func finishTransportConnection() {
         connectionGeneration = UUID()
+        automaticInternetEnrollment.startedCall = nil
         callSession.onEvent = nil
         callDisconnectDeadline = nil
         networkDiagnostics = nil
@@ -211,7 +213,7 @@ extension IntercomViewModel {
                 "isRecoverable": "\(willRetry)"
             ])
         )
-        guard willRetry else {
+        guard willRetry || keepsCallDuringCredentialRecovery else {
             finishTransportConnection()
             return
         }
@@ -221,7 +223,7 @@ extension IntercomViewModel {
         peerProfiles.removeAll()
         refreshCallMediaAdmission()
         localNetworkStatus = .unavailable
-        connectionState = .reconnectingOffline
+        connectionState = willRetry ? .reconnectingOffline : .internetConnecting
         markMembers(.connecting)
         publishRuntimePackageReports(force: true)
     }

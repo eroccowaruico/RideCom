@@ -12,7 +12,7 @@ struct CallConfigurationChange {
 enum CallCommand {
     case connect(RTC.CallStartRequest), startMedia(UUID), stopMedia, disconnect
     case configure(CallConfigurationChange)
-    case audioPolicy(RTC.RTCAudioPolicy)
+    case audioPolicy(RTC.RTCAudioPolicy), retryInternetRoute
     case localMute(Bool), outputMute(Bool), reports([RTCRuntimePackageReport])
     case application(RTC.ApplicationDataMessage)
     case stateMessage(String, RTC.ApplicationDataMessage)
@@ -32,6 +32,15 @@ enum CallCommand {
         switch self {
         case .application(let message), .stateMessage(_, let message): message.payload.count
         default: 0
+        }
+    }
+
+    func applyToSession(_ session: RTC.CallSession, belongsToCurrentCall: Bool) async {
+        switch self {
+        case .audioPolicy(let policy): await session.updateAudioPolicy(policy)
+        case .retryInternetRoute where belongsToCurrentCall: await session.retryInternetRouteAfterCredentialChange()
+        case .application(let message), .stateMessage(_, let message): await session.sendApplicationData(message)
+        default: break
         }
     }
 }

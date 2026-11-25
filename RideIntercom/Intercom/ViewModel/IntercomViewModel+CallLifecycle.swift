@@ -44,11 +44,11 @@ extension IntercomViewModel {
 
         connectionState = routeConnectionState(isConnected: !connectedPeerIDs.isEmpty)
         markMembers(connectedPeerIDs.isEmpty ? .connecting : .connected)
-        if waitsForEnrollment {
-            automaticInternetEnrollment.waitingCall = .init(
-                destination: destination, reference: currentCallReference, startsNearby: startsNearby,
-                isStillAllowed: isStillAllowed, needsAppleConfirmation: !hasProof)
-        }
+        let call = CallAwaitingInternetEnrollment(
+            destination: destination, reference: currentCallReference, startsNearby: startsNearby,
+            isStillAllowed: isStillAllowed, needsAppleConfirmation: !hasProof)
+        automaticInternetEnrollment.startedCall = call
+        if waitsForEnrollment { automaticInternetEnrollment.waitingCall = call }
         if startsNearby || !waitsForEnrollment {
             startPreparedCall(group: selectedGroup, credential: credential)
         } else {
@@ -280,6 +280,7 @@ extension IntercomViewModel {
 
     func disconnect() {
         automaticInternetEnrollment.waitingCall = nil
+        automaticInternetEnrollment.startedCall = nil
         callMicrophonePermissionRequest?.task.cancel()
         callMicrophonePermissionRequest = nil
         if contactInvitationSession?.canContinueDuringCall == false { stopContactInvitationSession() }

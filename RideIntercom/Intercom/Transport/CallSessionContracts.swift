@@ -124,7 +124,8 @@ protocol CallSession: AnyObject {
     ) -> @Sendable (RTC.RTCAudioPacket) -> Void
     func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch?
     var activeRouteDebugTypeName: String { get }
-    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration, preservingCall: Bool)
+    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration?, preservingCall: Bool)
+    func retryInternetRouteAfterCredentialChange()
 
     func connect(group: IntercomGroup)
     func startMedia()
@@ -143,6 +144,7 @@ extension CallSession {
     func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration) {
         updateInternetConfiguration(configuration, preservingCall: false)
     }
-    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration, preservingCall: Bool) {}
+    func updateInternetConfiguration(_ configuration: RTC.CloudflareRealtimeConfiguration?, preservingCall: Bool) {}
+    func retryInternetRouteAfterCredentialChange() {}
     func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch? { nil }
 }
