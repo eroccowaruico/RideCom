@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import RTC
 
@@ -46,6 +47,46 @@ import Testing
     #expect(engine.createdPeerIDs == [PeerID(rawValue: "cloudflare-sfu")])
     #expect(signaling.sentOffers.count == 1)
     await route.stopConnection()
+}
+
+@Test func webRTCStopCanRunWithoutWaitingForIcePreparation() async throws {
+    let (started, didStart) = AsyncStream<Void>.makeStream()
+    let (held, release) = AsyncStream<Void>.makeStream()
+    let (stopRequested, requestStop) = AsyncStream<Void>.makeStream()
+    let cancelled = Mutex(false)
+    let signaling = FakeWebRTCSignalingClient(onConnect: {
+        await withTaskCancellationHandler {
+            didStart.yield()
+            for await _ in held { break }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
+        }
+    })
+    let engine = FakeWebRTCEngine()
+    let route = WebRTCInternetRoute(
+        cloudflareConfiguration: try makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
+    let stopped = Mutex(false)
+    await route.prepare(makeRequest())
+    let commands = Task {
+        await route.startConnection()
+        for await _ in stopRequested { break }
+        await route.stopConnection()
+        stopped.withLock { $0 = true }
+    }
+    defer { release.finish(); requestStop.finish(); commands.cancel() }
+    for await _ in started { break }
+    requestStop.yield()
+    let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+    while !stopped.withLock({ $0 }), ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(stopped.withLock { $0 })
+    #expect(cancelled.withLock { $0 })
+    release.finish()
+    await commands.value
+    #expect(engine.createdPeerIDs.isEmpty)
+    #expect(engine.closeCount == 1)
+    #expect(signaling.disconnectCount == 1)
 }
 
 @Test func webRTCAccountConflictStopsMediaAndRequestsManualRecovery() async throws {
@@ -168,15 +209,22 @@ private final class FakeWebRTCSignalingClient: WebRTCSignalingClient, @unchecked
     var events: AsyncStream<WebRTCSignalingEvent> { eventSource.stream }
 
     private let eventSource = EventSource<WebRTCSignalingEvent>()
+    private let onConnect: (@Sendable () async -> Void)?
     private(set) var disconnectCount = 0
     private(set) var sentOffers: [(WebRTCSessionDescription, PeerID)] = []
     private(set) var sentApplicationData: [(ApplicationDataMessage, PeerID?)] = []
+
+    init(onConnect: (@Sendable () async -> Void)? = nil) {
+        self.onConnect = onConnect
+    }
 
     func yield(_ event: WebRTCSignalingEvent) {
         eventSource.yield(event)
     }
 
     func connect(_ request: WebRTCSignalingConnectRequest) async {
+        await onConnect?()
+        guard !Task.isCancelled else { return }
         eventSource.yield(.connected)
     }
 

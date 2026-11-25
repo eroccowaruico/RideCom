@@ -175,6 +175,28 @@ struct CloudflareClientTests {
                 == 1)
     }
 
+    @Test func cancelledConnectCannotReplaceAnActiveSession() async throws {
+        SFUHTTPStub.reset()
+        let client = makeClient(), request = try request()
+        await client.connect(request)
+        await client.sendOffer(.init(kind: .offer, sdp: "first"), to: .init(rawValue: "cloudflare-sfu"))
+
+        let (waiting, release) = AsyncStream<Void>.makeStream()
+        let cancelled = Task {
+            for await _ in waiting { break }
+            await client.connect(request)
+        }
+        cancelled.cancel()
+        release.finish()
+        await cancelled.value
+
+        let calls = SFUHTTPStub.requests
+        #expect(!calls.contains { $0.httpMethod == "DELETE" })
+        #expect(calls.filter { $0.httpMethod == "POST" && $0.url?.path.contains("/ice/") == true }.count == 1)
+        #expect(calls.filter { $0.url?.path.hasSuffix("/join") == true }.count == 1)
+        await client.disconnect()
+    }
+
     @Test func delayedOldDisconnectCannotClearTheNewConnection() async throws {
         SFUHTTPStub.reset(delayFirstDelete: true)
         let client = makeClient()

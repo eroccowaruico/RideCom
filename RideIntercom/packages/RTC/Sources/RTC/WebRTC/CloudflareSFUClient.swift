@@ -20,9 +20,10 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
 
     public init(session: URLSession = .shared) { self.session = session }
     public func connect(_ request: WebRTCSignalingConnectRequest) async {
+        guard !Task.isCancelled else { return }
         let operation = UUID()
         await disconnect(generation: operation)
-        guard generation == operation else { return }
+        guard generation == operation, !Task.isCancelled else { return }
         guard Self.valid(request.cloudflare), request.call.credential != nil else {
             source.yield(.failed("A secure Worker URL, device token and group invitation are required")); return
         }

@@ -18,6 +18,7 @@ public actor WebRTCInternetRoute: RTCCallRoute {
     private let cloudflareConfigurationProvider: @Sendable (CallStartRequest) -> CloudflareRealtimeConfiguration?
     private let signalingClient: WebRTCSignalingClient
     private let engine: NativeWebRTCEngine
+    private var connectionTask: Task<Void, Never>?
     private var signalingTask: Task<Void, Never>?
     private var engineTask: Task<Void, Never>?
     private var request: CallStartRequest?
@@ -57,6 +58,7 @@ public actor WebRTCInternetRoute: RTCCallRoute {
     }
 
     deinit {
+        connectionTask?.cancel()
         signalingTask?.cancel()
         engineTask?.cancel()
     }
@@ -113,7 +115,11 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         bindSignalingEvents()
         bindEngineEvents()
         eventSource.yield(.stateChanged(kind, .connecting))
-        await signalingClient.connect(WebRTCSignalingConnectRequest(call: request, cloudflare: cloudflareConfiguration))
+        let connection = WebRTCSignalingConnectRequest(call: request, cloudflare: cloudflareConfiguration)
+        connectionTask = Task { [signalingClient] in
+            guard !Task.isCancelled else { return }
+            await signalingClient.connect(connection)
+        }
     }
 
     public func stopConnection() async { await stopConnection(finalState: .disconnected) }
@@ -123,6 +129,7 @@ public actor WebRTCInternetRoute: RTCCallRoute {
         let generation = generation
         connecting = false
         iceConnected = false
+        connectionTask?.cancel(); connectionTask = nil
         signalingTask?.cancel(); signalingTask = nil
         engineTask?.cancel(); engineTask = nil
         remotePeers.removeAll()
