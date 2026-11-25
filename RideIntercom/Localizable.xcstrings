@@ -7073,6 +7073,16 @@
         }
       }
     },
+    "Verify your Apple account to use Internet calling." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インターネット通話を使うには、Appleで本人確認してください。"
+          }
+        }
+      }
+    },
     "Verify your account in Internet Connection before sharing a new individual call invitation." : {
       "extractionState" : "manual",
       "localizations" : {

@@ -513,6 +513,7 @@ figcaption b { color: var(--label); display: block; font-size: 13px; }
   </div>
 
   <h2 id="call">通話・ユーザー・グループ（Advanced）</h2>
+  <p class="note">Appleの本人確認が必要で回線を使える場合は、通話操作の次に標準の「Appleで続ける」を置く。確認後は同じ通話の接続を続ける。</p>
   <p class="note">端末資格が未設定なら Settings の Set Up Internet Calling を案内する。読み取れない場合はRideComを開き直すよう案内する。WebRTCだけを有効にしている場合はCallのエラー欄に表示して接続を始めない。近距離も有効な場合は近距離の通話を始め、OSがネットワーク経路を利用可能と報告している間は接続案内に表示する。通話APIが端末資格をHTTP 401で拒否した場合は、既存の接続案内で再設定を促す。同じ資格での自動再試行は止まり、利用可能な近距離経路は続く。</p>
   <p class="note">AdvancedのタブはUsers（最初）・Groups・Diagnostics・Settings。Standardのグループタブの設定にかかわらず、AdvancedにはGroupsがある。Users・Groupsで相手やグループを選ぶと接続し、通話を開く。通話はiPhone・iPadのcompact幅ではシート、regular幅とMacでは右の列に表示する。Closeで通話を続けたまま一覧へ戻る。iPhone・iPadでは一覧の通話表示、Macではツールバーから開き直せる。通話を終える操作はCall statusのDisconnect。1対1でも、Callはグループの種類とID、自分を含む人数を表示する。<a href="../../spec/App/UI/Call.md#standardの通話ユーザーグループ">一覧と通話の仕様</a></p>
   <div class="gallery">

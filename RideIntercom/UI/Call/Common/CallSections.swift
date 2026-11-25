@@ -1,3 +1,5 @@
+import AuthenticationServices
+import CallControl
 import SwiftUI
 
 struct CurrentCallSection: View {
@@ -46,6 +48,55 @@ struct CallStorageSection: View {
                 canReload: viewModel.activeGroupID == nil && viewModel.groupStorageIssue != .unsupportedVersion,
                 reloadRequiresDisconnect: viewModel.activeGroupID != nil,
                 reload: viewModel.reloadSavedGroups, reset: viewModel.resetSavedGroups)
+        }
+    }
+}
+
+struct CallAppleEnrollmentButton: View {
+    let viewModel: IntercomViewModel
+    var inList = false
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var confirmation: AppleEnrollmentConfirmation?
+
+    var body: some View {
+        if let call = viewModel.callForAppleEnrollmentConfirmation,
+           viewModel.networkPathIsAvailable == true || confirmation != nil {
+            if inList {
+                Section { action(for: call) }
+            } else {
+                action(for: call)
+            }
+        }
+    }
+
+    private func action(for call: CallReference) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.small) {
+            Text("Verify your Apple account to use Internet calling.")
+                .font(.footnote)
+            SignInWithAppleButton(.continue, onRequest: { request in
+                confirmation = viewModel.prepareCallEnrollmentConfirmation(request, for: call)
+            }, onCompletion: { result in
+                defer { confirmation = nil }
+                guard let confirmation else { return }
+                switch result {
+                case .success(let authorization):
+                    guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                        viewModel.reportCallEnrollmentConfirmationFailure(for: call)
+                        return
+                    }
+                    viewModel.completeCallEnrollmentConfirmation(
+                        confirmation, for: call, userID: credential.user,
+                        state: credential.state, identityToken: credential.identityToken)
+                case .failure(let error):
+                    if (error as? ASAuthorizationError)?.code != .canceled {
+                        viewModel.reportCallEnrollmentConfirmationFailure(for: call)
+                    }
+                }
+            })
+            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+            .frame(maxWidth: 360).frame(height: 50)
+            .disabled(confirmation != nil || viewModel.networkPathIsAvailable != true)
+            .accessibilityIdentifier("callAppleEnrollmentButton")
         }
     }
 }

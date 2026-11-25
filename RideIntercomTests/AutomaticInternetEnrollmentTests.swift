@@ -7,6 +7,95 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test(arguments: [false, true])
+    func savedLoginCanVerifyAndResumeTheSameCall(peerIsNearby: Bool) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        if peerIsNearby {
+            _ = try completeOrdinarySignIn(account.session)
+        } else {
+            try completeSavedSignInWithoutProof(account.session)
+        }
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
+        let model = harness.viewModel
+        if !peerIsNearby { model.setRTCTransportRoutes([.webRTC]) }
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        let destination = try #require(model.groups.first)
+        try #require(model.startCall(to: .group(destination.id), accountAccessID: model.accountAccessID))
+        if peerIsNearby {
+            let peer = try #require(destination.members.first { $0.id != model.localMemberIdentity.memberID })
+            harness.callSession.authenticate([peer.id])
+            let proof = try #require(account.session.enrollmentProof(for: model.accountAccessID))
+            account.session.discardEnrollmentProof(proof.id)
+            model.reconcileAutomaticInternetEnrollment()
+        }
+        let call = model.currentCallReference
+        #expect(model.setCallMuted(true, for: call))
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        #expect(model.prepareCallEnrollmentConfirmation(request, for: call) == nil)
+
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        #expect(model.callForAppleEnrollmentConfirmation == call)
+        #expect(AccountHTTPStub.requests.isEmpty)
+        let confirmation = try #require(model.prepareCallEnrollmentConfirmation(request, for: call))
+        let nonce = try #require(request.nonce)
+        let token = try fixtureIdentityToken()
+        let disconnects = harness.callSession.disconnectCallCount
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        model.completeCallEnrollmentConfirmation(
+            confirmation, for: call, userID: "apple-user", state: request.state, identityToken: token)
+        #expect(model.callForAppleEnrollmentConfirmation == nil)
+        #expect(AccountHTTPStub.requests.isEmpty)
+        #expect(harness.callSession.connectCallCount == (peerIsNearby ? 1 : 0))
+        #expect(model.accountAccessID == call.accountAccessID)
+        #expect(account.session.userID == "apple-user")
+
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let task = try #require(model.automaticInternetEnrollment.task)
+        await task.value
+        #expect(model.hasInternetCredentials && model.currentCallReference == call && model.isMuted)
+        #expect(harness.callSession.connectCallCount == 1)
+        #expect(harness.callSession.disconnectCallCount == disconnects)
+        #expect(harness.callSession.suppliedInternetConfigurationCount == (peerIsNearby ? 1 : 0))
+        try verifyEnrollmentSignature((nonce, token))
+        model.disconnect()
+    }
+
+    enum AppleConfirmationChange: CaseIterable { case endCall, internetOff, signOut, wrongAccount, wrongState }
+
+    @Test(arguments: AppleConfirmationChange.allCases)
+    func staleOrUnrelatedAppleConfirmationDoesNotRegister(change: AppleConfirmationChange) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        try completeSavedSignInWithoutProof(account.session)
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
+        let model = harness.viewModel
+        model.setRTCTransportRoutes([.webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let group = try #require(model.groups.first)
+        try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+        let call = model.currentCallReference
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        let confirmation = try #require(model.prepareCallEnrollmentConfirmation(request, for: call))
+        switch change {
+        case .endCall: #expect(model.endCall(call))
+        case .internetOff: model.setRTCTransportRoutes([.multipeer])
+        case .signOut: account.session.signOut()
+        case .wrongAccount, .wrongState: break
+        }
+        model.completeCallEnrollmentConfirmation(
+            confirmation, for: call, userID: change == .wrongAccount ? "another-user" : "apple-user",
+            state: change == .wrongState ? UUID().uuidString : request.state, identityToken: try fixtureIdentityToken())
+        #expect(model.automaticInternetEnrollment.task == nil)
+        #expect(AccountHTTPStub.requests.isEmpty)
+        #expect(harness.callSession.connectCallCount == 0)
+        #expect(account.session.enrollmentProof(for: call.accountAccessID) == nil)
+        #expect(account.session.userID == (change == .signOut ? nil : "apple-user"))
+        model.disconnect()
+    }
+
     @Test func ordinarySignInRegistersWhenInternetIsEnabledAndAvailable() async throws {
         let account = AccountFixture()
         let fixture = InternetAccountTestFixture()
@@ -206,11 +295,21 @@ extension InternetAccountTests {
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
         let nonce = try #require(request.nonce)
-        let expiresAt = Date().addingTimeInterval(300).timeIntervalSince1970
-        let claims = try JSONSerialization.data(withJSONObject: ["exp": expiresAt])
-        let token = Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)
+        let token = try fixtureIdentityToken()
         try #require(account.completeSignIn(userID: "apple-user", state: request.state, identityToken: token))
         return (nonce, token)
+    }
+
+    private func completeSavedSignInWithoutProof(_ account: AppleAccountSession) throws {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        account.prepare(request)
+        try #require(account.completeSignIn(userID: "apple-user", state: request.state))
+    }
+
+    private func fixtureIdentityToken() throws -> Data {
+        let expiresAt = Date().addingTimeInterval(300).timeIntervalSince1970
+        let claims = try JSONSerialization.data(withJSONObject: ["exp": expiresAt])
+        return Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)
     }
 
     private func verifyEnrollmentSignature(_ proof: (nonce: String, token: Data)) throws {

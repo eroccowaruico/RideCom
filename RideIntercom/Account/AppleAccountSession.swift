@@ -304,4 +304,13 @@ extension AppleAccountSession {
         if internetSignInProof?.proof.id == id { internetSignInProof = nil }
     }
 
+    func acceptEnrollmentConfirmation(
+        _ proof: InternetSignInProof, userID: String, access: UUID
+    ) -> Bool {
+        guard self.userID == userID, accessID == access, !storageUnavailable, !deletion.blocksSignIn,
+              !isSigningIn else { return false }
+        internetSignInProof = (access, proof)
+        return true
+    }
+
 }

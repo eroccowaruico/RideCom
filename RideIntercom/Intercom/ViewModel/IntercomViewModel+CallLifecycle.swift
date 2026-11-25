@@ -29,7 +29,8 @@ extension IntercomViewModel {
             return
         }
         let startsNearby = enabledRTCTransportRoutes.contains(.multipeer)
-        let waitsForEnrollment = hasAutomaticInternetEnrollmentProof
+        let hasProof = hasAutomaticInternetEnrollmentProof
+        let waitsForEnrollment = hasProof || (needsInternetEnrollment && source == .thisDevice)
         if !startsNearby, !waitsForEnrollment, let internetSetupNotice = internetCallSetupNotice {
             groupErrorMessage = internetSetupNotice
             return
@@ -46,7 +47,7 @@ extension IntercomViewModel {
         if waitsForEnrollment {
             automaticInternetEnrollment.waitingCall = .init(
                 destination: destination, reference: currentCallReference, startsNearby: startsNearby,
-                isStillAllowed: isStillAllowed)
+                isStillAllowed: isStillAllowed, needsAppleConfirmation: !hasProof)
         }
         if startsNearby || !waitsForEnrollment {
             startPreparedCall(group: selectedGroup, credential: credential)

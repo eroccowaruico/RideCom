@@ -1,7 +1,8 @@
+import AuthenticationServices
 import CryptoKit
 import Foundation
 
-/// A short-lived proof from the ordinary Apple sign-in, held only in memory.
+/// A short-lived proof from Apple authentication, held only in memory.
 nonisolated struct InternetSignInProof: Sendable {
     let id = UUID()
     let identityToken: Data
@@ -42,5 +43,24 @@ nonisolated struct InternetSignInProof: Sendable {
 
     private static func digest(_ bytes: Data) -> String {
         SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+struct AppleEnrollmentConfirmation {
+    private let userID: String
+    private let state = UUID().uuidString
+    private let key = P256.Signing.PrivateKey()
+
+    init(request: ASAuthorizationAppleIDRequest, userID: String) {
+        self.userID = userID
+        request.requestedScopes = []
+        request.user = userID
+        request.state = state
+        request.nonce = InternetSignInProof.nonce(for: key)
+    }
+
+    func proof(userID: String, state: String?, identityToken: Data?) -> InternetSignInProof? {
+        guard userID == self.userID, state == self.state, let identityToken else { return nil }
+        return InternetSignInProof(identityToken: identityToken, key: key)
     }
 }

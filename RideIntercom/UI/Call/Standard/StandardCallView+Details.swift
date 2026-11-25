@@ -17,6 +17,7 @@ extension StandardCallView {
                 }
             }
             if let notice = viewModel.audioRouteNotice { noticeSection(notice) }
+            CallAppleEnrollmentButton(viewModel: viewModel, inList: true)
             if let notice = viewModel.connectivityNotice { noticeSection(notice) }
             if let error = viewModel.audioErrorMessage, viewModel.audioPauseError == nil { noticeSection(error) }
         }

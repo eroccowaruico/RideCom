@@ -50,6 +50,7 @@ struct CallView: View {
             if let message = viewModel.groupErrorMessage { AdvancedCallErrorCard(message: message) }
             statusHeader
             controls
+                CallAppleEnrollmentButton(viewModel: viewModel)
                 if viewModel.selectedGroup?.kind == .direct {
                     // Deleting the person deletes this call, so there is no "removed user" state to show.
                     Text("Individual call")
