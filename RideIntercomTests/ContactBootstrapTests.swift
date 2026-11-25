@@ -60,6 +60,51 @@ struct ContactBootstrapTests {
     #expect(friend.callSession.startMediaCallCount == 0)
   }
 
+  @Test(arguments: [true, false])
+  func savedContactsCanStartInternetOnlyAfterNearbyRegistration(hasInternetCredential: Bool) async throws {
+    let authorID = "contact-author", friendID = "contact-friend"
+    let author = AppTestSupport.makeHarness(groups: [], hasInternetCallCredential: hasInternetCredential,
+                                            localMemberID: authorID, enforceCallAccess: false)
+    let friend = AppTestSupport.makeHarness(groups: [], hasInternetCallCredential: hasInternetCredential,
+                                            localMemberID: friendID, enforceCallAccess: false)
+    defer { author.viewModel.disconnect(); friend.viewModel.disconnect() }
+    let authorReply = RecordingCallSession(), friendReply = RecordingCallSession()
+    author.viewModel.contactSessionFactory = { authorReply }
+    friend.viewModel.contactSessionFactory = { friendReply }
+
+    try friend.viewModel.acceptContactInviteURL(try #require(author.viewModel.makeContactInviteURL()))
+    try deliverNearbyReply(friendTransport: friendReply, authorTransport: authorReply,
+                           authorID: authorID, friendID: friendID)
+    let callID = IntercomGroup.directCallID(memberIDs: [authorID, friendID])
+    let callKey = try #require(try author.viewModel.groupRepository.credential(for: callID))
+    try #require(try friend.viewModel.groupRepository.credential(for: callID) == callKey)
+
+    for (endpoint, remoteID) in [(author, friendID), (friend, authorID)] {
+      let model = endpoint.viewModel
+      try #require(model.enabledRTCTransportRoutes == [.multipeer, .webRTC])
+      model.setRTCTransportRoute(.multipeer, enabled: false)
+      model.reloadSavedGroups()
+      let savedContact = try #require(model.savedRemoteUsers.first { $0.memberIDs == [remoteID] })
+      #expect(model.openDestination(.user(savedContact.id)) == .opened)
+      #expect(model.selectedGroup?.id == callID)
+      #expect(endpoint.callSession.enabledRouteValues.last == [.webRTC])
+      if hasInternetCredential {
+        try #require(model.activeGroupID == callID)
+        #expect(endpoint.callSession.connectedGroup?.accessSecret == callKey.secret)
+        #expect(model.groupErrorMessage == nil)
+        #expect(endpoint.callSession.startMediaCallCount == 0)
+        endpoint.callSession.authenticate([remoteID], route: .webRTC)
+        await AppTestSupport.waitUntil { model.isCallMediaStarted }
+        #expect(model.authenticatedPeerIDs == [remoteID])
+        #expect(model.connectionState == .internetConnected && model.isCallMediaStarted)
+      } else {
+        #expect(model.activeGroupID == nil && endpoint.callSession.connectedGroup == nil)
+        let setup = String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+        #expect(model.groupErrorMessage == setup)
+      }
+    }
+  }
+
   @Test func provisionalNamesPairAColorWithACreatureAndAvoidNamesInUse() {
     var generator = SystemRandomNumberGenerator()
     #expect(ProvisionalName.all(japanese: true).count == 112)
@@ -112,13 +157,13 @@ struct ContactBootstrapTests {
     if expires {
       expire?()
       #expect(friendViewModel.contactInvitationID == nil && finishes == activeAttempt)
-      #expect(friendViewModel.contactInvitationRecord(id) == saved)
-      #expect(friendViewModel.savedRemoteUsers.count == 1)
+      #expect(friendViewModel.contactInvitationRecord(id) == saved && friendViewModel.savedRemoteUsers.count == 1)
       friendViewModel.resumeSuspendedContactInvitation()
       #expect(friendViewModel.contactInvitationID == id && friendTransports.count == activeAttempt + 1
         && starts == activeAttempt)
     }
-    try deliverBackgroundReply(friendTransport: friendTransports.last, authorTransport: authorTransport)
+    try deliverNearbyReply(friendTransport: friendTransports.last, authorTransport: authorTransport,
+                           authorID: "background-reply-author", friendID: "background-reply-friend")
     #expect(authorViewModel.savedRemoteUsers.map(\.memberIDs) == [["background-reply-friend"]])
     #expect(friendViewModel.savedRemoteUsers.map(\.memberIDs) == [["background-reply-author"]])
     #expect(friendViewModel.contactInvitationRecord(id)?.state == .delivered && finishes == activeAttempt)
@@ -191,22 +236,22 @@ struct ContactBootstrapTests {
     #expect(authorViewModel.groups.map(\.id) == [callID] && friendViewModel.groups.map(\.id) == [callID])
     #expect(authorViewModel.groups.first?.kind == .direct && friendViewModel.groups.first?.kind == .direct)
   }
-  private func deliverBackgroundReply(
-    friendTransport: RecordingCallSession?, authorTransport: RecordingCallSession
+  private func deliverNearbyReply(
+    friendTransport: RecordingCallSession?, authorTransport: RecordingCallSession, authorID: String, friendID: String
   ) throws {
     let friendTransport = try #require(friendTransport)
-    friendTransport.authenticate(["background-reply-author"])
+    friendTransport.authenticate([authorID])
     let receipt = try #require(
       friendTransport.sentApplicationDataMessages.last {
         $0.namespace == DirectInvitationReceipt.namespace
       })
-    authorTransport.authenticate(["background-reply-friend"])
-    authorTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-friend", message: receipt))
+    authorTransport.authenticate([friendID])
+    authorTransport.onEvent?(.receivedApplicationData(peerID: friendID, message: receipt))
     let acknowledgement = try #require(
       authorTransport.sentApplicationDataMessages.last {
         $0.namespace == DirectInvitationReceipt.namespace
       })
-    friendTransport.onEvent?(.receivedApplicationData(peerID: "background-reply-author", message: acknowledgement))
+    friendTransport.onEvent?(.receivedApplicationData(peerID: authorID, message: acknowledgement))
   }
 
 }
