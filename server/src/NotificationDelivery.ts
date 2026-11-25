@@ -1,3 +1,4 @@
+import { tracing } from 'cloudflare:workers'
 import { importPKCS8, SignJWT } from 'jose'
 import type { Env } from './types'
 import type { NotificationDevice } from './AccountNotifications'
@@ -25,6 +26,8 @@ export async function readyAPNSEnvironment(env: Env): Promise<NotificationDevice
     const environment = env.APNS_ENVIRONMENT
     if (env.NOTIFICATIONS_ENABLED !== 'true' || !env.APNS_TOPIC
         || (environment !== 'sandbox' && environment !== 'production')) return null
+    // An automatic fetch span can retain the APNs device token in the URL path.
+    if (environment === 'sandbox' && tracing.getActiveSpan()?.isTraced !== false) return null
     const provider = notificationProvider(env)
     if (!provider) return null
     try {

@@ -262,6 +262,8 @@ TestFlightで配布したAppは、本番Workerとproduction APNsを使う。固�
 
 固定PreviewのInternet通話とTURNには専用のSFUとTURNの資格を使う。通常のApple登録は別途、当該環境に必要な署名資格と端末証明を確認する。固定Previewの通常通知は無効として、再開時にsandbox APNsの鍵と端末への到達を確認する。[固定Previewの試用条件](../../development/Cloudflare試用手順.md#固定previewの外部資格と無効化を確認する)
 
+固定Previewの自動トレースでは外向きURLのパスも記録される。APNsのパスには端末トークンを渡すため、Sandboxは自動トレースが有効な実行で新規通知を止める。[通知の停止条件](通知.md#設定と未受入の範囲)
+
 次の表は設定の既定と有効化の条件を示す。
 
 | 設定 | 既定 | 意図 |

@@ -358,3 +358,11 @@ RTCの回帰11件、Macの通話状態10件、Simulatorの診断表示8件が成
 Appleアカウントを登録していない状態でアプリを起動し、XcodeのデバッガからUIKitの `registerForRemoteNotifications()` を呼んだ。成功と失敗のコールバックに停止位置を設け、成功側の `didRegisterForRemoteNotificationsWithDeviceToken` に到達した。観測は到達した処理の名前までとし、トークンの値を読み出していない。試験先のSimulatorは削除し、一覧から消えたことを確かめた。手元の証跡は `.validation/apns-sandbox-probe.ghvIEs/`、次回用Buildは2671。
 
 通常のサインイン後にアプリが登録を始める経路と、Workerへの通知先登録は今回の対象外。固定Previewで実際の呼び出しを試すには、Sandbox専用の宛先と送信元を用意し、APNsの受付、相手への到着、「接続」で開く通話、片付けまでを確認する。開発署名の実機とTestFlightの本番通知は個別に検証する。[通知の受入条件](../../backlog/未実装課題.md#サンドボックスと本番で呼び出し通知を届ける)
+
+## Sandboxの自動トレース中は通知送信を止める
+
+2026-11-25。Cloudflareが外向き `fetch` のURLパスを自動トレースに含めることと、APNsのURLパスに端末トークンが入ることを照合した。固定Previewの `redact_query_string` はクエリ文字列に限る。[Cloudflareの記録項目](https://developers.cloudflare.com/observability/traces/spans-and-attributes/)・[Appleの送信要求](https://developer.apple.com/documentation/UserNotifications/sending-notification-requests-to-apns)
+
+手元のWorkerで2件の合成アカウントを登録し、宛先と呼び出し許可を作った。同じ保存状態で自動トレースを有効にして再起動すると、修正前は代替APNsへ1回送った。修正後は通知先の登録と呼び出しがHTTP 503になり、代替APNsへの送信は0回、通知先の解除は成功した。Node.js 26で型検査とWorker試験147件が通過した。実APNsには送信していない。
+
+本番と固定Previewの監視設定は維持する。実配信を試す前に、送信URLのトークンをトレースへ記録しないSandboxの経路を用意する。

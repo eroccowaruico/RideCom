@@ -139,6 +139,35 @@ test('notifications stay unavailable without configuration and do not disable au
     } finally { await r.dispose(); }
 });
 
+test('Sandbox stops APNs delivery under automatic tracing and still allows device removal', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const storageDirectory = await mkdtemp(join(tmpdir(), 'ride-notification-traces-'));
+    let deliveryCount = 0;
+    const apns = () => { deliveryCount++; return Response.json({}); };
+    let r = await setup({}, apns, { storageDirectory });
+    try {
+        const sender = await login(r, 'trace-sender');
+        const receiver = await login(r, 'trace-receiver');
+        assert.equal((await register(r, receiver)).status, 200);
+        const { capability } = await grant(r, receiver, sender);
+
+        await r.dispose();
+        r = await setup({}, apns, { storageDirectory, trace: true });
+        const response = await send(r, sender, capability);
+        assert.equal(deliveryCount, 0, 'APNs must not receive a request while its URL could be traced');
+        assert.equal(response.status, 503);
+        assert.equal((await response.json()).code, 'notifications_unavailable');
+        assert.equal((await register(r, receiver)).status, 503);
+        assert.equal((await call(r, '/api/auth/session', undefined, receiver.accessToken, 'GET')).status, 200);
+        assert.equal((await call(r, '/api/notifications/device', undefined, receiver.accessToken, 'DELETE')).status, 200);
+    } finally {
+        await r.dispose();
+        await rm(storageDirectory, { recursive: true, force: true });
+    }
+});
+
 test('only a recipient capability authorizes a fixed alert; dedupe, read and cancel preserve ownership', async () => {
     const requests = [];
     const r = await setup({}, async request => { requests.push({ url: request.url, headers: Object.fromEntries(request.headers), body: await request.json() }); return Response.json({}); });
