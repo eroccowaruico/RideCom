@@ -341,8 +341,6 @@ private extension RouteManager {
         let excluded = forwardingExclusion(from: kind, body: result.body, sender: result.peer.id)
         await forward(bytes, body: result.body, excluding: excluded, path: result.path)
     }
-    /// Healthy packets leave in handle(). Wake only for an unresolved reorder
-    /// gap, presence expiry, retry, or explicitly enabled diagnostics.
     func scheduleMaintenance() {
         guard isConnectionStarted else { return }
         if configuration.enabledRoutes.isSubset(of: blocked) {
@@ -368,10 +366,9 @@ private extension RouteManager {
     }
 
     func tick(generation token: UUID, deadline: TimeInterval) async {
-        guard generation == token, maintenanceDeadline == deadline else { return }
+        guard generation == token, maintenanceDeadline == deadline, request != nil else { return }
         timer = nil; maintenanceDeadline = nil
         defer { if generation == token { scheduleMaintenance() } }
-        guard generation == token, let request else { return }
         let now = ProcessInfo.processInfo.systemUptime
         deliverAudio(now: now)
         if now - lastPresence >= 2 {
@@ -380,21 +377,24 @@ private extension RouteManager {
             guard generation == token else { return }
             updateMembers()
         }
-        for (kind, retry) in retries where now >= retry.deadline {
-            // The next attempt owns its connection timeout. Re-arming this
-            // timer here repeatedly destroys a still-connecting native route.
-            // A subsequent failure schedules the next backoff; success clears it.
+        await retryDueRoutes(at: now)
+        guard generation == token, runtimeStatusPolicy.isAutomaticBroadcastEnabled,
+              let interval = runtimeStatusPolicy.periodicInterval,
+              now - lastRuntimeStatus >= max(0.02, interval) else { return }
+        lastRuntimeStatus = now
+        await sendRuntimeStatus(reason: .periodic)
+    }
+
+    internal func retryDueRoutes(at now: TimeInterval) async {
+        guard let request else { return }
+        let token = generation
+        for (kind, retry) in retries where now >= retry.deadline && retries[kind]?.deadline == retry.deadline {
             retries[kind]?.beginAttempt()
             started.remove(kind)
             await routes[kind]?.prepare(request)
             guard generation == token else { return }
             await start(kind)
             guard generation == token else { return }
-        }
-        if runtimeStatusPolicy.isAutomaticBroadcastEnabled, let interval = runtimeStatusPolicy.periodicInterval,
-           now - lastRuntimeStatus >= max(0.02, interval) {
-            lastRuntimeStatus = now
-            await sendRuntimeStatus(reason: .periodic)
         }
     }
 }

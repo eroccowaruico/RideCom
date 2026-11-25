@@ -148,6 +148,63 @@ func routeRetryWaitsOnceAndLetsTheNextAttemptFinish(kind: RouteKind) async throw
     await manager.stopConnection()
 }
 
+private actor RecoveryDuringRetry {
+    private weak var manager: RouteManager?
+    private weak var local: FakeRoute?
+    private weak var internet: FakeRoute?
+
+    func attach(_ manager: RouteManager, local: FakeRoute, internet: FakeRoute) {
+        self.manager = manager
+        self.local = local
+        self.internet = internet
+    }
+
+    func recoverOtherRoute(whilePreparing kind: RouteKind) async {
+        guard let manager, let other = kind == .multipeer ? internet : local else { return }
+        other.yield(.stateChanged(other.kind, .connected))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while await manager.retries[other.kind] != nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await manager.retries[other.kind] == nil)
+    }
+}
+
+@Test func retryDoesNotRestartTheOtherRouteAfterItRecovers() async throws {
+    let recovery = RecoveryDuringRetry()
+    let local = FakeRoute(kind: .multipeer, onRetryPrepare: recovery.recoverOtherRoute)
+    let internet = FakeRoute(kind: .webRTC, onRetryPrepare: recovery.recoverOtherRoute)
+    let kinds: Set<RouteKind> = [.multipeer, .webRTC]
+    let configuration = CallRouteConfiguration(
+        enabledRoutes: kinds, preferredRoute: .multipeer, selectionMode: .automaticFallback, fallbackDelay: 0
+    )
+    let manager = RouteManager(routes: [local, internet], configuration: configuration)
+    await recovery.attach(manager, local: local, internet: internet)
+    await manager.prepare(makeRequest(configuration: configuration))
+    await manager.startConnection()
+    let fallbackDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+    while await manager.started != kinds, ContinuousClock.now < fallbackDeadline {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    try #require(await manager.started == kinds)
+    local.yield(.stateChanged(.multipeer, .failed))
+    internet.yield(.stateChanged(.webRTC, .failed))
+    let pendingDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+    while await manager.retries.count < 2, ContinuousClock.now < pendingDeadline {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    let retries = await manager.retries
+    try #require(Set(retries.keys) == kinds)
+    let retryDeadline = try #require(retries.values.map(\.deadline).max())
+    await manager.retryDueRoutes(at: retryDeadline)
+
+    #expect(local.prepareCount + internet.prepareCount == 3)
+    #expect(local.startConnectionCount + internet.startConnectionCount == 3)
+    let states = await manager.routeStates.values
+    #expect(states.filter { $0 == .connected }.count == 1)
+    await manager.stopConnection()
+}
+
 @Test func routeManagerReceivesAfterReconnectAndRejectsStoppedEvents() async throws {
     let route = FakeRoute(kind: .multipeer)
     let configuration = CallRouteConfiguration(
