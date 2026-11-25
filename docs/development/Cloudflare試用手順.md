@@ -176,27 +176,39 @@ npx wrangler preview secret put DEVICE_IDENTITY_SIGNING_KEY --name preview
 
 構成の変更時は、対象コミットを空の作業場所に展開して依存を復元し、Workerをビルドしてローカル試験を通す。管理側では、作成時に使う設定と固定Previewの実効設定を照合する。設定の有無、既存配置への再デプロイ、既存端末での通話は、それぞれその工程の結果として記録する。
 
-固定Previewでは自動トレースを100%で保持する。Sandboxへの送信は、試験専用バインディングが起動する送信側で実行する。固定Previewで実配信を試す場合は、Workers PaidでDynamic Workersを利用できることを先に確かめる。利用可能なら、試験中だけ `server/wrangler.toml` のPreviewに次のバインディングを加え、Previewの通常通知を有効にした設定を共有mainへ反映する。[Dynamic Workersの利用条件と費用](https://developers.cloudflare.com/dynamic-workers/pricing/)
-
-```toml
-[[previews.worker_loaders]]
-binding = "TEST_PREVIEW_SANDBOX_APNS_LOADER"
-```
-
-Sandboxの試験用アカウントだけを用意する。固定Previewを試験設定の共有mainから再作成し、最新配置の対象コミット、バインディング、通知フラグ、通知用の鍵を照合する。まず合成トークンで1件送信する。同じ要求についてAppleの応答と呼び出し元のトレースを確認し、内部URLと送信側のトレースにトークンがないことを確かめる。
-
-実トークンを登録してから、呼び出し1件の到着と「接続」を確かめる。終了後は試験用の通知先と端末登録を解除する。バインディングを外し、通知を無効にした設定を共有mainと固定Previewへ反映し、稼働配置と照合する。[通知の送信経路と停止条件](../spec/server/通知.md#設定と未受入の範囲)
-
 試験資格の登録でHTTP 403が出たら、Cloudflare管理APIでの設定更新と、試験端末からWorkerへの認証を区別する。実中継試験の準備は、共有mainで採用した試験方式が使う資格と、対象のPreviewに必要なSFU・TURNの設定を照合する。供給元に必要な設定がなければ先に補う。既存Previewに継承されていなければ、配置担当が共有mainから固定ブランチを作り直す。再作成後は最新配置を特定し、試験資格が通ることと実中継で両方向の音声が届くことを個別に判定する。
 
 通話の実環境試験では、今回の配置に対して[試験の準備から回収まで](#共有mainから固定previewと通話試験を用意する)を実行し、初期状態、両端の通話結果と回収結果を残す。
 
+### Sandbox送信専用Workerの配置と回収
+
+固定Previewでは自動トレースを100%で保持する。Sandbox送信は試験専用の非公開Workerへ分ける。CloudflareではPreviewのサービスバインディングが接続先Workerの通常配置を使う。接続先はSandbox専用の `ridecom-preview-sandbox-apns` とする。[Previewのバインディングの制約](https://developers.cloudflare.com/workers/previews/resources/#service-bindings)
+
+非公開Workerの作成と回収ができる権限を、試験前に確かめる。同名Workerがある場合は、用途と所有者を照合する。今回の試験専用であることが確認できる場合に限り使う。承認された配置では `server` で次のコマンドを実行する。送信側を先に配置し、公開URLと外部出力が無効であることを照合する。通知は固定Preview側の既存の鍵で署名する。
+
+```sh
+npm exec -- wrangler deploy --config wrangler.sandbox-apns.toml
+```
+
+試験中だけ `server/wrangler.toml` のPreviewに次のバインディングを加える。合成トークンだけの疎通試験では通常通知を無効に保つ。端末登録と通常の呼び出しを試す段階で、Previewの通常通知を有効にする変更を共有mainへ反映する。
+
+```toml
+[[previews.services]]
+binding = "TEST_PREVIEW_SANDBOX_APNS_SENDER"
+service = "ridecom-preview-sandbox-apns"
+entrypoint = "SandboxAPNSSender"
+```
+
+Sandboxの試験用アカウントだけを用意する。固定Previewを試験設定の共有mainから再作成し、最新配置の対象コミット、バインディング、通知フラグ、通知用の鍵を照合する。まず合成トークンで1件送信する。同じ要求についてAppleの応答と呼び出し元のトレースを確認し、内部URLと送信側のトレースにトークンがないことを確かめる。
+
+実トークンを登録してから、呼び出し1件の到着と「接続」を確かめる。終了後は試験用の通知先と端末登録を解除する。バインディングを外し、通知を無効にした設定を共有mainと固定Previewへ反映し、稼働配置と照合する。固定Previewから参照が消えた後、今回作成した送信専用Workerを回収する。[通知の送信経路と停止条件](../spec/server/通知.md#設定と未受入の範囲)
+
 ### Appleログインなしで固定PreviewからSandbox APNsまでを試す
 
-まず架空の試験用宛先を使い、Sandbox APNsまで要求が届くことを確認する。送信先のトークンがトレースに残らないことも照合する。固定Previewのトレースを100%に保つ。通常通知は無効のままとする。この試験にはWorker Loaderと既存Sandbox APNsの鍵を使う。実際に届くことを試す場合も、宛先は新しく用意した専用Simulatorだけとする。
+まず架空の試験用宛先を使い、Sandbox APNsまで要求が届くことを確認する。送信先のトークンがトレースに残らないことも照合する。固定Previewのトレースは100%に保ち、通常通知は無効のままとする。この試験はSandbox専用Workerへのサービスバインディングと既存のSandbox APNsの鍵を使う。端末到着を試す場合の宛先は、新しく用意した専用Simulatorだけとする。
 
-1. `node scripts/Cloudflare/prepare-preview-apns-probe.mjs` を実行し、出力された作業ディレクトリを `PROBE_DIR` に設定する。専用Simulatorで得た端末トークンを使う場合は、トークンを保存した試験用ファイルのパスを第1引数へ渡す。資格と宛先はその作業ディレクトリ内で扱う。
-2. 作業ディレクトリの `grant.toml` の1行を `[previews.vars]` に加える。Sandbox送信用のバインディングとともに共有mainへ反映してから、固定Previewを作り直す。新しい配置のコミット、試験設定、通常通知が無効であることを照合する。
+1. [Sandbox送信専用Workerの配置](#sandbox送信専用workerの配置と回収)を済ませる。`node scripts/Cloudflare/prepare-preview-apns-probe.mjs` を実行し、出力された作業ディレクトリを `PROBE_DIR` に設定する。専用Simulatorで得た端末トークンを使う場合は、その試験用ファイルのパスを第1引数へ渡す。資格と宛先はその作業ディレクトリ内で扱う。
+2. 作業ディレクトリの `grant.toml` の1行を `[previews.vars]` に加える。[Sandbox送信用のバインディング](#sandbox送信専用workerの配置と回収)とともに共有mainへ反映してから、固定Previewを作り直す。新しい配置のコミット、試験設定、通常通知が無効であることを照合する。
 3. 試験資格の発行から20分以内に、以下を1回実行する。応答ヘッダーの `X-RideCom-Probe-Trace-ID` で同じ実行のトレースを選び、試験用宛先が残っていないことを確認する。架空の宛先では、APNsの失敗応答と通知到着を区別する。
 
    ```sh
@@ -205,7 +217,7 @@ Sandboxの試験用アカウントだけを用意する。固定Previewを試験
      https://preview-ridecom.analog.workers.dev/api/test/sandbox-apns
    ```
 
-4. 試験設定とバインディングを取り下げた状態を共有mainと固定Previewへ反映する。稼働設定から両方が消え、同じ資格でHTTP 404になることを確認する。ローカルの資格と宛先のファイルも回収する。試験は期限で閉じ、使用済み状態も期限に回収する。通常の呼び出し通知と「接続」の受入は別に行う。
+4. 試験設定とバインディングを取り下げた状態を共有mainと固定Previewへ反映する。稼働設定から両方が消え、同じ資格でHTTP 404になることを確認する。[今回の送信専用Worker](#sandbox送信専用workerの配置と回収)と、ローカルの資格・宛先ファイルを回収する。試験は期限で閉じ、使用済み状態も期限に回収する。通常の呼び出し通知と「接続」の受入は別に行う。
 
 ### Appleログインなしで固定Previewの音声を測る
 

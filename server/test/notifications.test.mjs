@@ -173,11 +173,17 @@ test('a traced Preview delivers exactly once through the isolated Sandbox sender
     const r = await setup({}, async request => {
         destinations.push({ path: new URL(request.url).pathname, category: (await request.json()).aps.category });
         return Response.json({});
-    }, { trace: true, workerLoaders: { TEST_PREVIEW_SANDBOX_APNS_LOADER: {} } });
+    }, { trace: true, sandboxSender: 'untraced' });
     try {
         const sender = await login(r, 'sandbox-sender');
         const receiver = await login(r, 'sandbox-receiver');
         const token = 'ac'.repeat(96);
+        const publicSender = await r.getWorker('sandbox-apns-fixture');
+        const publicResponse = await publicSender.fetch('https://sandbox-apns.internal/', {
+            method: 'POST', body: JSON.stringify({ token, headers: {}, body: '{}' }),
+        });
+        assert.equal(publicResponse.status, 404);
+        assert.equal(destinations.length, 0);
         assert.equal((await register(r, receiver, token)).status, 200);
         const { capability } = await grant(r, receiver, sender);
         const requestID = randomUUID();
@@ -204,7 +210,7 @@ test('a short Preview probe sends once to the configured Sandbox destination wit
         received.push({ path: new URL(request.url).pathname, topic: request.headers.get('apns-topic') });
         return new Response(null, { status: 400 });
     };
-    const runtime = await setup(options, apns, { trace: true, workerLoaders: { TEST_PREVIEW_SANDBOX_APNS_LOADER: {} } });
+    const runtime = await setup(options, apns, { trace: true, sandboxSender: 'untraced' });
     const run = (r, { origin = 'https://preview-ridecom.analog.workers.dev',
         address = destination, credential = token, path = '/api/test/sandbox-apns' } = {}) =>
         r.dispatchFetch(origin + path, { method: 'POST', headers: { Authorization: `Bearer ${credential}` },
@@ -224,11 +230,23 @@ test('a short Preview probe sends once to the configured Sandbox destination wit
     } finally { await runtime.dispose(); }
 
     const expired = await setup(options, apns, { fixedNowMs: grant.expiresAt,
-        trace: true, workerLoaders: { TEST_PREVIEW_SANDBOX_APNS_LOADER: {} } });
+        trace: true, sandboxSender: 'untraced' });
     try {
         assert.equal((await run(expired)).status, 404);
         assert.equal(received.length, 1);
     } finally { await expired.dispose(); }
+});
+
+test('a traced Sandbox sender blocks delivery', async () => {
+    let deliveryCount = 0;
+    const r = await setup({}, () => { deliveryCount++; return Response.json({}); },
+        { trace: true, sandboxSender: 'traced' });
+    try {
+        const receiver = await login(r, 'sandbox-traced-receiver');
+        assert.equal((await register(r, receiver)).status, 503);
+        assert.equal(deliveryCount, 0);
+        assert.equal((await call(r, '/api/auth/session', undefined, receiver.accessToken, 'GET')).status, 200);
+    } finally { await r.dispose(); }
 });
 
 test('only a recipient capability authorizes a fixed alert; dedupe, read and cancel preserve ownership', async () => {
