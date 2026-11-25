@@ -456,3 +456,11 @@ Xcodeは `~/Library/Developer/Xcode/Archives/2026-11-26/` にArchiveを直接作
 Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxcode画面確認)。TestFlightへの送信は未試行。
 
 共有mainと固定previewの `8c0a5db5` から、記録と次回用Build 2804を読み戻した。採番、既存Archiveの取込み、カメラ参照の検査に関する回帰25件が通った。標準保存先への直接作成と署名検証の結果を受け入れ、Archive@2670を完了とする。
+
+## 通常換算2,680コミットの区切りでiOS Build 2822を標準保存先へ作る
+
+2026-11-26。通常換算2,680件に達した共有mainは、第一親2,905件目の `0b14775f`。同じコミットから標準の `RideIntercom` スキームと通常の署名設定でiPhone用のRelease Archiveを作った。
+
+Xcodeは標準の `~/Library/Developer/Xcode/Archives/2026-11-26/` に直接作成した。ファイル名は `RideIntercom 2026-11-26, 8.55.xcarchive`。AppとWidgetの1.0.0 (2822)と署名を照合した。AppとWebRTCの実行ファイルは各dSYMとUUIDが一致した。接続先は本番Worker。AppのInfoにあるAPNs環境は `production`、Archiveの署名上は `development` だった。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれない。カメラ参照の検査と、採番・取込み・カメラ参照の回帰25件が通った。次回用Buildは2823。
+
+Archive@2680は標準保存先への直接作成と署名検証をもって完了。Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxcode画面確認)。TestFlightへの送信は未試行。証跡は `.validation/archive-2680-standard.g6awae/` に保存した。
