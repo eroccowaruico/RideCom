@@ -404,3 +404,9 @@ Workerの型検査と149件の試験が成功した。準備コマンドが生�
 Miniflareで呼び出し元と送信側のトレースを個別に設定した。呼び出し元だけをトレースした場合、同じ通知要求を2回送っても代替APNsへの送信は1件だった。並行する疎通試験も送信は1件だった。送信側もトレースした場合は0件。送信専用Workerの既定の入口へ直接送ると404を返し、代替APNsへの送信は0件だった。
 
 両Workerのドライランと型検査、Workerの自動試験150件が通過した。運用中の固定Previewの設定は変更していない。専用Workerの実配置、実APNsの応答、Cloudflareのトレースへの残留、端末への到着は未確認。[専用Workerの配置と回収の手順](../../development/Cloudflare試用手順.md#appleログインなしで固定previewからsandbox-apnsまでを試す)
+
+### 専用Workerを作成できる権限を確かめる
+
+2026-11-25。依頼者の許可を得て、既存の無料契約でSandbox専用の非公開Workerを1つ作成しようとした。対象の同名Workerがないことを管理APIで照合してから、公開URL、ログ、トレースを無効にした新規作成を要求した。CloudflareはHTTP 403を返した。
+
+読み戻しでも専用Workerはなかった。ローカルのWranglerは未認証で、GitHub Actionsで使える配置資格も確認できなかった。固定Previewの試験設定の追加、試験用資格の生成、APNsへの要求は行っていない。再開には対象アカウントでWorkerの作成・削除に使えるCloudflare認証が必要。[配置と回収の手順](../../development/Cloudflare試用手順.md#sandbox送信専用workerの配置と回収)
