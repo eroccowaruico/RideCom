@@ -6,6 +6,18 @@ Watchは当面開発・検証用とする。通常のiOS ReleaseにはWatch App�
 
 再公開の判断には、iPhoneをロックした状態と、別のアプリを使うなどRideComを背景化した状態の両方で実機の記録を取る。各状態で公開するリモコンの全操作がiPhoneへ反映され、結果をWatchで確認できることを記録する。最低限、通話先の取得と選択、待受からの開始を含める。ミュートと解除、終了、状態の取得も必須とする。操作直後のiPhoneのロック、通信が切れた場合の失敗表示と復帰後の再操作も確かめる。Watch自身の端末ロック、手首を下げた暗転、アプリの背景化は区別して記録する。Watchのマイク・スピーカーを用いる音声は別の受入とする。
 
+## 録音確認だけを行う試験構成
+
+iPhone側の `WatchPhoneBridge` とWatch側の `WatchConnectivityClient` は、どちらも `SystemSurfaceScope.permitsCompanionAccess` を確認する。[通常版の保存先](システム表示と通話操作.md#検証構成の隔離)なら許可する。隔離保存先で許可するのは、次の条件をすべて満たす録音確認の試験に限る。
+
+| 条件 | 照合する値 |
+|---|---|
+| コンパイル条件 | `DEBUG` と `RIDEINTERCOM_VALIDATION` が両方有効 |
+| 保存先 | 生成Infoの `StorageNamespace` が `RideIntercom.Validation.` で始まる |
+| 起動時の設定 | `RIDEINTERCOM_LOCAL_TESTING` と `RIDEINTERCOM_RECORDING_CHECK` が両方 `1` |
+
+この試験経路を使うときは、Watchからの送信とiPhoneでの受信の両方で、状態取得（`refresh`）と録音の開始・停止・再生だけを許可する。Widget・Live Activity・OS通知には通常版の保存先の判定が適用される。[試験用の接続情報を使ったiPhoneでの録音と再生操作の記録](../../validation/history/Watch音声のApp接続とデバイス分離.md#状態通知を修正した後の制御完了とwatch作業の区切り)
+
 ## 確定した操作範囲
 
 Widgetとの違いは、Watchでは登録済みの通話先を選べることと、iPhone依存の音声入出力・押して話す操作を接続することである。2026-11-01の利用者指定を次の契約として固定する。実装済みの経路と実機受入の結果は下節で区別する。
