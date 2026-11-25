@@ -26,6 +26,7 @@ extension BackgroundCallLifecycleUITests {
         if pairedDiagnostics {
             continueAfterFailure = false
             app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launchEnvironment["RIDEINTERCOM_BACKGROUND_OBSERVATION"] = "1"
         }
         app.launch()
         #else
@@ -63,7 +64,7 @@ extension BackgroundCallLifecycleUITests {
         XCTAssertTrue(end.exists, "The trial call is no longer active")
         FileHandle.standardOutput.write(Data("RIDE_INSTALLED_GROUP_CALL_MUTED\n".utf8))
         #if targetEnvironment(simulator)
-        if pairedDiagnostics { verifyPairedReceiveDiagnostics(in: app) }
+        if pairedDiagnostics { try verifyPairedReceiveDiagnostics(in: app) }
         #endif
     }
 
@@ -94,37 +95,45 @@ extension BackgroundCallLifecycleUITests {
 
     #if targetEnvironment(simulator)
     @MainActor
-    func verifyPairedReceiveDiagnostics(in app: XCUIApplication) {
+    func verifyPairedReceiveDiagnostics(in app: XCUIApplication) throws {
         app.openDiagnosticsTab()
         let rxTab = app.segmentedControls["diagnosticsPagePicker"].buttons["RX"].firstMatch
         XCTAssertTrue(rxTab.exists)
         rxTab.tap()
         let rtc = app.descendants(matching: .any)["receive-pipeline-rtc-step"].firstMatch
         let decode = app.descendants(matching: .any)["receive-pipeline-codec-step"].firstMatch
+        let output = app.descendants(matching: .any)["receive-pipeline-output-step"].firstMatch
         XCTAssertTrue(decode.waitForExistence(timeout: 8))
         XCTAssertTrue(rtc.isHittable && decode.isHittable)
+        let scroll = app.descendants(matching: .any)["diagnosticsScrollView"].firstMatch
+        for _ in 0..<6 where !output.isHittable { scroll.swipeUp() }
+        XCTAssertTrue(output.isHittable)
         FileHandle.standardOutput.write(Data("AUDIO_E2E_DIAGNOSTICS_READY\n".utf8))
 
-        verifyReceiveStages(rtc: rtc, decode: decode, passing: true)
-        FileHandle.standardOutput.write(Data("AUDIO_E2E_DIAGNOSTICS_FIRST_AUDIO\n".utf8))
-        verifyReceiveStages(rtc: rtc, decode: decode, passing: false)
-        FileHandle.standardOutput.write(Data("AUDIO_E2E_DIAGNOSTICS_AUDIO_IDLE\n".utf8))
-        verifyReceiveStages(rtc: rtc, decode: decode, passing: true)
+        for (marker, passing) in [("FIRST_AUDIO", true), ("AUDIO_IDLE", false), ("RESUMED", true)] {
+            verifyReceiveStages(rtc: rtc, decode: decode, output: output, passing: passing)
+            let value = try XCTUnwrap(output.value as? String)
+            let observedAt = Date().timeIntervalSince1970
+            let line = "AUDIO_E2E_DIAGNOSTICS_\(marker) \(observedAt) \(value)\n"
+            FileHandle.standardOutput.write(Data(line.utf8))
+        }
         XCTAssertTrue(rxTab.isSelected)
-        FileHandle.standardOutput.write(Data("AUDIO_E2E_DIAGNOSTICS_RESUMED\n".utf8))
     }
 
     @MainActor
-    private func verifyReceiveStages(rtc: XCUIElement, decode: XCUIElement, passing: Bool) {
+    private func verifyReceiveStages(rtc: XCUIElement, decode: XCUIElement, output: XCUIElement, passing: Bool) {
         let state = passing ? "Passing," : "Waiting,"
         let receipt = passing ? "Audio received" : "Audio RX idle"
         let matchesRTC = NSPredicate(format: "value BEGINSWITH %@ AND value CONTAINS %@ AND value CONTAINS %@",
                                      state, receipt, "1 authenticated")
         let matchesDecode = NSPredicate(format: "value BEGINSWITH %@ AND value CONTAINS %@", state, "Last PCM")
+        let matchesOutput = NSPredicate(format: "value BEGINSWITH %@ AND value CONTAINS %@ AND value CONTAINS %@",
+            state, "Last audible PCM", "Last render")
         let expectations = [XCTNSPredicateExpectation(predicate: matchesRTC, object: rtc),
-                            XCTNSPredicateExpectation(predicate: matchesDecode, object: decode)]
+                            XCTNSPredicateExpectation(predicate: matchesDecode, object: decode),
+                            XCTNSPredicateExpectation(predicate: matchesOutput, object: output)]
         XCTAssertEqual(XCTWaiter.wait(for: expectations, timeout: 35), .completed,
-                       "RTC RX and Decode must both show \(state) in the same authenticated call")
+                       "RTC RX, Decode, and Output must all show \(state) in the same authenticated call")
     }
     #endif
 }

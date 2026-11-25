@@ -417,6 +417,8 @@ python3 scripts/diagnostics_audio_e2e.py
 
 既存の音声E2Eと同じSimulator環境で実行する。送話側はXcodeの共有スキーム `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork`、受話側は `RideIntercom` の `testStartInvitedTrialGroupMutedInAdvanced` を使う。ランナーは各Testの共有構成を読み、標準のビルド・結果保存先を使う。既存のAdvanced招待試験を単独で実行すると、通常の合成招待からマイクOFFまでを確認する。
 
-送話側は同じ合成発話を近距離通話へ送る。受話側は招待を受けてマイクOFFで待ち、診断のRXを開く。ランナーは、画面で最初の受信を確認した後に送話側をミュートし、画面で無音を確認した後にミュートを解除する。受話側はRXを開いたまま、RTC RXとDecodeの両方がPassing、Waiting、Passingの順に変わることを確認する。RTC RXは無音の間も認証済み1人の表示を維持する。Decodeは無音の間も最後のPCMの観測を表示する。
+送話側は同じ合成発話を近距離通話へ送る。受話側は招待を受けてマイクOFFで待ち、診断のRXを開く。ランナーは、画面で最初の受信を確認した後に送話側をミュートし、画面で無音を確認した後にミュートを解除する。受話側はRXを開いたまま、RTC RX、Decode、OutputがPassing、Waiting、Passingの順に変わることを確認する。RTC RXは無音の間も認証済み1人の表示を維持する。Decodeは無音の間も最後のPCMの観測を表示する。
 
-合図は `.validation/diagnostics-audio-*/results.tsv` に残す。招待は送話側の一時ファイルから受話側にだけ渡し、結果には含めない。使い終わった試験計画を回収し、音声機器の選択を復元する。送話側と受話側のSimulatorは毎回作成し、試験後に両方を停止・削除する。結果の範囲はSimulatorでの近距離受信、復号、画面の状態。実無線での通話や音声の実出力は[実環境受入](../validation/未確認事項.md#画面デザインの実環境受入)で照合する。
+Outputは最後の有声PCMと最後の描画の経過秒を読む。有声PCMの表示とSimulatorのネイティブ出力の計測を、画面を読んだ時刻の前後1.5秒から照合する。画面の更新と秒単位の切り捨てを考慮し、表示と計測の差は2秒以内とする。無音中に最後の有声PCMから2秒を超えても出力の描画が続き、再開後は有声PCMが増えることを確認する。同じ通話、プロセス、出力グラフのまま3点を観測する。
+
+合図は `.validation/diagnostics-audio-*/results.tsv`、Outputの表示と計測は同じフォルダの `native-output.json` に残す。招待は送話側の一時ファイルから受話側にだけ渡し、結果には含めない。使い終わった試験計画を回収し、音声機器の選択を復元する。送話側と受話側のSimulatorは毎回作成し、試験後に両方を停止・削除する。実機のスピーカーやBluetoothの音、実無線での通話は[実環境受入](../validation/未確認事項.md#画面デザインの実環境受入)で照合する。

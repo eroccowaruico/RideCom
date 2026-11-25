@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import plistlib
+import re
 import signal
 import subprocess
 import sys
@@ -50,6 +51,11 @@ RECEIVER_TEST = (
     'RideIntercomUITests/BackgroundCallLifecycleUITests/testStartInvitedTrialGroupMutedInAdvanced'
 )
 SENDER_TEST = 'RideIntercomAudioE2ETests/' + DUPLEX_TEST
+RECEIVER_OBSERVATION = 'background-call-advanced-open.json'
+OUTPUT_LINE = (
+    r'(?m)^AUDIO_E2E_DIAGNOSTICS_{phase} (\d+\.\d+) '
+    r'{state}, Last audible PCM · (\d+)s ago / Last render · (\d+)s ago\s*$'
+)
 
 
 def run(runner: Runner, name: str, args: list[str], timeout: int = 60) -> None:
@@ -139,6 +145,63 @@ def open_invitation(receiver: str, invitation: Path) -> None:
         raise RuntimeError('Could not open the synthetic invitation on the owned receiver')
 
 
+def matching_output(
+    observations: list[dict], displayed_at: float, audible_age: int, render_age: int, passing: bool
+) -> dict | None:
+    for row in reversed(observations):
+        if not row.get('outputCallback') or not row.get('usesNativeOutput') or not row.get('muted'):
+            continue
+        output = row.get('nativeOutput')
+        audible_at = row.get('lastNativeAudibleOutputAt')
+        if not isinstance(output, dict) or not isinstance(audible_at, (int, float)):
+            continue
+        if abs(row['recordedAt'] - displayed_at) > 1.5 or output['audibleDuration'] <= 0:
+            continue
+        measured_age = displayed_at - audible_at
+        if measured_age < 0 or render_age > 2 or abs(audible_age - measured_age) > 2:
+            continue
+        if passing and measured_age <= 2 and audible_age <= 2:
+            return row
+        if not passing and measured_age > 2 and audible_age >= 2:
+            return row
+    return None
+
+
+def observe_output(log: Path, records: Path, phase: str) -> tuple[dict, dict]:
+    passing = phase != 'AUDIO_IDLE'
+    state = 'Passing' if passing else 'Waiting'
+    match = re.search(OUTPUT_LINE.format(phase=phase, state=state), log.read_text(errors='replace'))
+    if match is None:
+        raise RuntimeError(f'{phase}: Output did not report audible PCM and render ages')
+    shown_at, audible, render = float(match[1]), int(match[2]), int(match[3])
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if records.is_file():
+            observed = matching_output(json.loads(records.read_text()), shown_at, audible, render, passing)
+            if observed is not None:
+                return observed, {'phase': phase, 'output': state, 'displayedAudibleAge': audible,
+                                  'displayedRenderAge': render,
+                                  'nativeAudibleAge': round(shown_at - observed['lastNativeAudibleOutputAt'], 3),
+                                  'nativeRenderCallbacks': observed['nativeOutput']['callbackCount'],
+                                  'nativeAudibleSeconds': round(observed['nativeOutput']['audibleDuration'], 3)}
+        time.sleep(0.1)
+    raise RuntimeError(f'{phase}: no matching native output observation')
+
+
+def verify_output_sequence(first: dict, idle: dict, resumed: dict) -> None:
+    for field in ('processInstance', 'connectionInstance', 'deadline'):
+        if not (first[field] == idle[field] == resumed[field]):
+            raise RuntimeError('The receiver changed call or restarted while observing Output')
+    outputs = [row['nativeOutput'] for row in (first, idle, resumed)]
+    if len({output['instance'] for output in outputs}) != 1:
+        raise RuntimeError('The native renderer restarted while observing Output')
+    if not outputs[0]['callbackCount'] < outputs[1]['callbackCount'] < outputs[2]['callbackCount']:
+        raise RuntimeError('The native renderer did not run through silence and resumed speech')
+    if not (resumed['lastNativeAudibleOutputAt'] > idle['lastNativeAudibleOutputAt']
+            and outputs[2]['audibleDuration'] > outputs[1]['audibleDuration']):
+        raise RuntimeError('Output returned to Passing without new native audible PCM')
+
+
 def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> None:
     identifier = str(uuid.uuid4())
     settings, source = build_audio_host(runner, 'ios', 'platform=iOS Simulator,id=' + sender, 'Debug')
@@ -158,13 +221,24 @@ def exercise(runner: Runner, receiver: str, sender: str, cleanup: ExitStack) -> 
     receiving = start_endpoint(runner, cleanup, 'receiver', receiver_plan, receiver, RECEIVER_TEST)
     log = runner.out / 'receiver.log'
     wait_for(log, 'RIDE_INSTALLED_INVITE_READY', sending, receiving)
+    receiver_container = subprocess.check_output(
+        ['xcrun', 'simctl', 'get_app_container', receiver, APP, 'data'], text=True, timeout=20).strip()
+    records = Path(receiver_container) / 'tmp' / RECEIVER_OBSERVATION
     open_invitation(receiver, control / 'receiver-invitation.url')
+    snapshots = []
+    evidence = []
     for state, action in [('READY', 'join'), ('FIRST_AUDIO', 'pause'), ('AUDIO_IDLE', 'resume'),
                           ('RESUMED', 'finish')]:
         started = time.monotonic()
         wait_for(log, 'AUDIO_E2E_DIAGNOSTICS_' + state, sending, receiving)
+        if state != 'READY':
+            observed, summary = observe_output(log, records, state)
+            snapshots.append(observed)
+            evidence.append(summary)
         runner.record('rx-' + state.lower().replace('_', '-'), [], 'passed', 0, started)
         (control / action).touch()
+    verify_output_sequence(*snapshots)
+    (runner.out / 'native-output.json').write_text(json.dumps(evidence, indent=2) + '\n')
     check_endpoint(runner, 'sender', sending, Path(settings['BUILD_DIR']), SENDER_TEST)
     check_endpoint(runner, 'receiver', receiving, receiver_build, RECEIVER_TEST)
 
