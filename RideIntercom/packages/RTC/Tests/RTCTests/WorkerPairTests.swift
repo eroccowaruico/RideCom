@@ -21,10 +21,10 @@ struct WorkerPairTests {
                         credential: .init(groupHash: groupHash, sharedSecret: Data(repeating: 1, count: 32))),
             cloudflare: configuration)
         await endpoint.join(request)
-        try await eventually { !endpoint.blockedMessages.isEmpty }
+        try await eventually { !endpoint.blockedReasons.isEmpty }
         #expect(endpoint.answers == 1)
         #expect(endpoint.failures.isEmpty)
-        #expect(endpoint.blockedMessages.count == 1)
+        #expect(endpoint.blockedReasons == [.deviceCredentialRejected])
         try await eventually(attempts: 40) {
             try await CloudflareRealtimeSignalingClient.checkService(configuration).activeSessions == 0
         }
@@ -52,7 +52,7 @@ struct WorkerPairTests {
         var rejected = request("alice")
         rejected.cloudflare.accessToken = "unregistered-device-credential"
         await alice.client.connect(rejected)
-        try await eventually { alice.blockedMessages.contains { $0.contains("Set Up Internet Calling") } }
+        try await eventually { alice.blockedReasons.contains(.deviceCredentialRejected) }
         #expect(alice.failures.isEmpty)
         await alice.join(request("alice")); await bob.join(request("bob"))
         try await eventually { alice.members == ["bob"] && bob.members == ["alice"] }
@@ -135,7 +135,7 @@ private final class PairEndpoint: @unchecked Sendable {
         return []
     }
     var failures: [String] { values.compactMap { if case .failed(let reason) = $0 { return reason }; return nil } }
-    var blockedMessages: [String] {
+    var blockedReasons: [ConnectionBlockReason] {
         values.compactMap { if case .blocked(let reason) = $0 { return reason }; return nil }
     }
     var messages: [String] {

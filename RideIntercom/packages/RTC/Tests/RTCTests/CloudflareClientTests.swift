@@ -16,7 +16,7 @@ struct CloudflareClientTests {
             cloudflare: .init(workerURL: try #require(URL(string: url)), accessToken: "device-token"))
     }
     @Test(arguments: ["ice", "join"], [401, 409])
-    func credentialRejectionOrAccountConflictRequiresManualRecovery(stage: String, status: Int) async throws {
+    func credentialRejectionAndAccountConflictHaveDifferentBlockReasons(stage: String, status: Int) async throws {
         SFUHTTPStub.reset(rejectedStage: stage, rejectedStatus: status)
         let client = makeClient()
         var events = client.events.makeAsyncIterator()
@@ -26,9 +26,15 @@ struct CloudflareClientTests {
             #expect(await events.next() == .connected)
             await client.sendOffer(.init(kind: .offer, sdp: "offer"), to: .init(rawValue: "cloudflare-sfu"))
         }
-        guard case .blocked(let message) = await events.next() else { Issue.record("Expected manual recovery"); return }
-        #expect(message.contains(status == 401 ? "Set Up Internet Calling" : "End the existing call"))
-        #expect(!message.contains("private-upstream-message"))
+        switch (status, await events.next()) {
+        case (401, .blocked(.deviceCredentialRejected)):
+            break
+        case (409, .blocked(.manualRecovery(let message))):
+            #expect(message.contains("End the existing call"))
+            #expect(!message.contains("private-upstream-message"))
+        default:
+            Issue.record("Expected the block reason for the response")
+        }
         let calls = SFUHTTPStub.requests
         #expect(calls.filter { $0.httpMethod == "POST" }.count == (stage == "ice" ? 1 : 2))
         #expect(calls.last?.httpMethod == "DELETE")

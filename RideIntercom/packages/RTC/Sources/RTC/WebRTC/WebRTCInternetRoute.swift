@@ -178,8 +178,8 @@ public actor WebRTCInternetRoute: RTCCallRoute {
             await acceptSignalingAnswer(answer, from: peerID, generation: generation)
         case .receivedApplicationData(let data):
             forwardApplicationData(data)
-        case .blocked(let message):
-            eventSource.yield(.connectionBlocked(kind, message))
+        case .blocked(let reason):
+            eventSource.yield(.connectionBlocked(kind, reason))
             await stopConnection(finalState: .failed)
         case .failed(let message):
             await fail(message, generation: generation)

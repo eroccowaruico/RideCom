@@ -5,17 +5,21 @@ import Testing
 
 @MainActor
 struct CommandSchedulingTests {
-    @Test func accountConflictRetainsManualRecoveryMeaningAcrossTheAppAdapter() async {
+    @Test(arguments: [false, true])
+    func internetBlockReasonsRemainDistinct(credentialRejected: Bool) async {
         let rtc = FakeRTCCallSession()
         let adapter = RideIntercomCallSessionAdapter(rtcSession: rtc)
         var received: [TransportEvent] = []
         adapter.onEvent = { received.append($0) }
         adapter.connect(group: IntercomSeedData.recentGroups[0])
         await rtc.waitForOperation("startConnection")
-        rtc.emit(.error(.connectionBlocked(.webRTC, "End the existing call")))
-        await AppTestSupport.waitUntil { received.contains(.serviceBlocked("End the existing call")) }
-        #expect(received.contains(.serviceBlocked("End the existing call")))
-        #expect(!received.contains(.serviceError("End the existing call")))
+        let reason: ConnectionBlockReason = credentialRejected
+            ? .deviceCredentialRejected : .manualRecovery("End the existing call")
+        let expected = TransportEvent.serviceBlocked(reason)
+        rtc.emit(.error(.connectionBlocked(.webRTC, reason)))
+        await AppTestSupport.waitUntil { received.contains(expected) }
+        #expect(received.contains(expected))
+        #expect(!received.contains { if case .serviceError = $0 { true } else { false } })
         adapter.disconnect()
     }
 

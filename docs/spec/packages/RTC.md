@@ -243,10 +243,10 @@ HTTP要求の総期限は25秒。応答データを受信している時間と�
 
 | 境界 | 契約 |
 |---|---|
-| Worker応答 | 通話APIのHTTP 401では、設定からインターネット通話を設定し直すよう案内する。HTTP 409と32KiB以内のJSONの`code: account_in_use`が一致したときは、同じアカウントの既存通話を終了して再操作するよう案内する。サーバーの任意のerror本文は表示しない。ほかの応答は既存のHTTP失敗として扱う |
+| Worker応答 | 通話APIのHTTP 401は端末資格の拒否として通知する。HTTP 409と32KiB以内のJSONの`code: account_in_use`が一致したときは、同じアカウントの既存通話を終了して再操作するよう案内する。サーバーの任意のerror本文は表示しない。ほかの応答は既存のHTTP失敗として扱う |
 | WebSocket接続 | 受信開始に失敗し、そのWebSocketの接続要求と同じURLの応答がHTTP 401なら、既存の端末資格の拒否として扱う。応答を取得できない失敗と、ほかの応答では、同じSFUセッションのままWebSocketの再接続を試みる |
-| Signaling | WorkerのHTTP応答とWebSocket接続のHTTP応答では、RTCの同じ判定で401を端末資格の拒否として扱う。`WebRTCSignalingEvent.blocked`で手動復帰を通知し、この接続試行が所有するICE/sessionだけを回収する |
-| Route | `RouteEvent.connectionBlocked`を通知して当該媒体を停止する。RouteManagerはbackendの終了を待たず、通知を受けた時点でその経路を `failed` とし、利用可能な経路から外す。共通の `CallSessionError.connectionBlocked` でAppに理由と手動復帰の必要性を渡す。その経路には送信せず、遅れて届く接続成立・参加者・受信データを使わない。次のprepareまで自動再試行を止める。特定serviceの文字列をAppやRouteManagerで判定しない |
+| Signaling | HTTPとWebSocketの401は同じ判定で扱う。`WebRTCSignalingEvent.blocked`で`ConnectionBlockReason.deviceCredentialRejected`を渡す。アカウントの同時通話による拒否は`manualRecovery`を渡す。この接続試行が所有するICE準備とセッションだけを回収する |
+| Route | `RouteEvent.connectionBlocked`を通知して当該媒体を停止する。RouteManagerは通知の時点でその経路を`failed`とし、利用可能な経路から外す。同じ理由を`CallSessionError.connectionBlocked`でAppへ渡す。その経路には送信せず、遅れて届く接続成立・参加者・受信データを使わない。次のprepareまで自動再試行を止める |
 | 他経路 | 利用できるLocal経路は維持する。全有効routeが手動復帰待ちなら全体をfailedとし、reconnectingを繰り返さない。presence・診断・受信整理の定期タイマーも停止し、次の明示prepare/startで再開する |
 | 明示的な再操作 | 新しいprepareで抑止を解除する。既存通話の強制切断・他端末の追い出しは行わない。通信断した端末の予約回収はWorkerのleaseに従う |
 

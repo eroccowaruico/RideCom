@@ -42,12 +42,18 @@ public struct CallMemberState: Codable, Equatable, Sendable {
     }
 }
 
+/// A route stopped and needs a new attempt after the cause is resolved.
+public enum ConnectionBlockReason: Equatable, Sendable {
+    case deviceCredentialRejected
+    case manualRecovery(String)
+}
+
 public enum CallSessionError: Error, Equatable, Sendable {
     case noEnabledRoute
     case routeUnavailable(RouteKind)
     case signalingUnavailable(RouteKind)
     case connectionFailed(RouteKind, String)
-    case connectionBlocked(RouteKind, String)
+    case connectionBlocked(RouteKind, ConnectionBlockReason)
     /// A peer reached the control channel but failed group authentication.
     case handshakeRejected(RouteKind)
     case unsupportedApplicationDataDelivery(RouteKind, ApplicationDataDelivery)

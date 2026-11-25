@@ -176,8 +176,10 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         guard self.generation == generation else { return }
         let message = (error as? Failure)?.description ?? "Cloudflare connection failed"
         switch (step, error) {
-        case (_, Failure.accountInUse), (_, Failure.deviceCredentialRejected):
-            source.yield(.blocked(message))
+        case (_, Failure.deviceCredentialRejected):
+            source.yield(.blocked(.deviceCredentialRejected))
+        case (_, Failure.accountInUse):
+            source.yield(.blocked(.manualRecovery(message)))
         case (_, Failure.servicePaused): source.yield(.failed(message))
         case (let step?, Failure.http(let code)): source.yield(.failed("\(step) · HTTP \(code)"))
         default: source.yield(.failed(step.map { "\($0) · \(message)" } ?? message))

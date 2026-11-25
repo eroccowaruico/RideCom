@@ -101,7 +101,7 @@ func blockedRouteWaitsForExplicitRestartAndPreservesOtherRoutes(localAvailable: 
     if localAvailable { local.yield(.stateChanged(.multipeer, .mediaReady)) }
     internet.yield(.stateChanged(.webRTC, .mediaReady))
     // Transport shutdown may still be in progress. The blocked event itself carries the terminal outcome.
-    internet.yield(.connectionBlocked(.webRTC, "End the existing call"))
+    internet.yield(.connectionBlocked(.webRTC, .deviceCredentialRejected))
     internet.yield(.stateChanged(.webRTC, .mediaReady))
     try await Task.sleep(for: .milliseconds(2300))
     #expect(internet.prepareCount == 1 && internet.startConnectionCount == 1)
@@ -109,7 +109,7 @@ func blockedRouteWaitsForExplicitRestartAndPreservesOtherRoutes(localAvailable: 
     await manager.sendApplicationData(.init(namespace: "test", payload: Data([1])))
     #expect(internet.sentApplicationData.count == internetSends)
     let values = await recorded.values
-    #expect(values.contains(.error(.connectionBlocked(.webRTC, "End the existing call"))))
+    #expect(values.contains(.error(.connectionBlocked(.webRTC, .deviceCredentialRejected))))
     #expect((await recorded.routeSnapshots).last?.availableRoutes.contains(.webRTC) == false)
     if localAvailable {
         #expect(local.startConnectionCount == 1)

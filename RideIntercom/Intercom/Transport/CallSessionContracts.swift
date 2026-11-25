@@ -111,7 +111,7 @@ enum TransportEvent: Equatable {
     case routeMetrics(RTC.RouteMetrics)
     case networkDiagnostics(RTCNetworkDiagnostics)
     case serviceError(String)
-    case serviceBlocked(String)
+    case serviceBlocked(RTC.ConnectionBlockReason)
     case commandQueueFailed
     case routesChanged(RTC.ActiveRouteSnapshot)
 }

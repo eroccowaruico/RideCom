@@ -83,16 +83,20 @@ struct CallLifecycleTests {
         testHarness.viewModel.disconnect()
     }
 
-    @Test func internetConflictKeepsLocalAudioAndExplainsManualRecovery() async {
+    @Test(arguments: [false, true])
+    func internetBlockingKeepsLocalAudioAndExplainsFailure(credentialRejected: Bool) async {
         let testHarness = AppTestSupport.makeHarness()
         testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
         testHarness.callSession.authenticate(["member-108"])
         await AppTestSupport.waitUntil { testHarness.viewModel.isAudioReady }
-            testHarness.viewModel.handleTransportEvent(
-                .serviceBlocked("End the existing Internet call, then reconnect here."))
+        let conflict = "End the existing Internet call, then reconnect here."
+        testHarness.viewModel.handleTransportEvent(
+            .serviceBlocked(credentialRejected ? .deviceCredentialRejected : .manualRecovery(conflict)))
         #expect(testHarness.viewModel.isAudioReady)
         #expect(testHarness.viewModel.audioErrorMessage == nil)
-        #expect(testHarness.viewModel.connectivityNotice?.contains("End the existing Internet call") == true)
+        let expected = credentialRejected
+            ? String(localized: "Internet calling could not verify this device.") : conflict
+        #expect(testHarness.viewModel.connectivityNotice == expected)
         #expect(testHarness.viewModel.connectivityNotice?.contains("automatically") == false)
         #expect(testHarness.viewModel.internetFailureDetail != nil)
         testHarness.viewModel.disconnect()
@@ -103,7 +107,8 @@ struct CallLifecycleTests {
         let testHarness = AppTestSupport.makeHarness(hasInternetCallCredential: true)
         testHarness.viewModel.enabledRTCTransportRoutes = [.webRTC]
         testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        testHarness.viewModel.handleTransportEvent(.serviceBlocked("End the existing Internet call, then try again."))
+        testHarness.viewModel.handleTransportEvent(
+            .serviceBlocked(.manualRecovery("End the existing Internet call, then try again.")))
         testHarness.viewModel.handleTransportEvent(.linkFailed(willRetry: false))
         #expect(testHarness.viewModel.connectionState == .idle)
         #expect(!testHarness.viewModel.canDisconnectCall)
@@ -118,7 +123,7 @@ struct CallLifecycleTests {
     @Test func blockedInternetDoesNotSuppressIndependentLocalRecovery() {
         let testHarness = AppTestSupport.makeHarness()
         testHarness.viewModel.selectGroup(IntercomSeedData.recentGroups[0])
-        testHarness.viewModel.handleTransportEvent(.serviceBlocked("Reconnect Internet manually."))
+        testHarness.viewModel.handleTransportEvent(.serviceBlocked(.manualRecovery("Reconnect Internet manually.")))
         testHarness.viewModel.handleTransportEvent(.linkFailed(willRetry: true))
         #expect(testHarness.viewModel.connectionState == .reconnectingOffline)
         #expect(testHarness.viewModel.internetFailureDetail != nil)

@@ -16,7 +16,7 @@ public enum RouteEvent: Equatable, Sendable {
     case metricsChanged(RouteMetrics)
     case error(RouteKind, CallSessionError)
     /// Prevent automatic retries for this route until the next prepare.
-    case connectionBlocked(RouteKind, String)
+    case connectionBlocked(RouteKind, ConnectionBlockReason)
 }
 
 public struct RTCRouteSendResult: Sendable {

@@ -1,7 +1,6 @@
 import Foundation
 
-/// Keeps usable links alive. Automatic routing adds a second path; it never
-/// disconnects one group of members merely because another path became ready.
+/// Keeps usable routes connected while adding new routes.
 public actor RouteManager: CallSession {
     nonisolated public var events: AsyncStream<CallSessionEvent> { eventSource.stream }
     private let eventSource = EventSource<CallSessionEvent>(
@@ -244,8 +243,7 @@ public actor RouteManager: CallSession {
         activeRoute =
             live.contains(configuration.preferredRoute)
             ? configuration.preferredRoute : live.sorted { $0.rawValue < $1.rawValue }.first
-        // A started route still on its first attempt (Local searching alone, say) is a normal wait,
-        // so another route's retry does not make the call reconnecting.
+        // A route still trying its first connection keeps the call in its initial wait.
         let searching = started.subtracting(blocked).contains { routeStates[$0] == .connecting && retries[$0] == nil }
         let state: CallConnectionState =
             live.isEmpty && configuration.enabledRoutes.isSubset(of: blocked)
@@ -282,9 +280,9 @@ private extension RouteManager {
         case .receivedApplicationData(let kind, let data):
             await handleApplicationData(data, from: kind)
         case .metricsChanged(let metrics): emit(.metricsChanged(metrics))
-        case .connectionBlocked(let kind, let message):
+        case .connectionBlocked(let kind, let reason):
             blocked.insert(kind); retries[kind] = nil
-            emit(.error(.connectionBlocked(kind, message)))
+            emit(.error(.connectionBlocked(kind, reason)))
             await handleStateChange(.failed, for: kind)
         case .error(_, let error): emit(.error(error))
         }
@@ -384,8 +382,10 @@ private extension RouteManager {
         lastRuntimeStatus = now
         await sendRuntimeStatus(reason: .periodic)
     }
+}
 
-    internal func retryDueRoutes(at now: TimeInterval) async {
+extension RouteManager {
+    func retryDueRoutes(at now: TimeInterval) async {
         guard let request else { return }
         let token = generation
         for (kind, retry) in retries where now >= retry.deadline && retries[kind]?.deadline == retry.deadline {

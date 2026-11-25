@@ -9,18 +9,20 @@ import SessionManager
 import VADGate
 
 enum InternetTransportFailure {
-    case blocked(String)
+    case blocked(RTC.ConnectionBlockReason)
     case retrying(String)
 
     var detail: String {
         switch self {
-        case .blocked(let reason), .retrying(let reason): reason
+        case .blocked(.manualRecovery(let reason)), .retrying(let reason): reason
+        case .blocked(.deviceCredentialRejected):
+            String(localized: "Internet calling could not verify this device.")
         }
     }
 
     var notice: String {
         switch self {
-        case .blocked(let reason): reason
+        case .blocked: detail
         case .retrying: "Internet is unavailable. Retrying automatically; reachable riders stay connected."
         }
     }

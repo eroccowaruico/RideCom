@@ -89,7 +89,8 @@ import Testing
     #expect(signaling.disconnectCount == 1)
 }
 
-@Test func webRTCAccountConflictStopsMediaAndRequestsManualRecovery() async throws {
+@Test(arguments: [ConnectionBlockReason.deviceCredentialRejected, .manualRecovery("End the existing call")])
+func webRTCBlockReasonStopsMediaAndReachesTheRoute(reason: ConnectionBlockReason) async throws {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
     let route = WebRTCInternetRoute(
         cloudflareConfiguration: try makeCloudflareConfiguration(), signalingClient: signaling, engine: engine)
@@ -97,12 +98,12 @@ import Testing
     let listener = Task { for await event in events { recorder.append(event) } }
     defer { listener.cancel() }
     await route.prepare(makeRequest()); await route.startConnection()
-    signaling.yield(.blocked("End the existing call"))
+    signaling.yield(.blocked(reason))
     let deadline = ContinuousClock.now.advanced(by: .seconds(2))
     while !recorder.values.contains(.stateChanged(.webRTC, .failed)), ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }
-    #expect(recorder.values.contains(.connectionBlocked(.webRTC, "End the existing call")))
+    #expect(recorder.values.contains(.connectionBlocked(.webRTC, reason)))
     #expect(recorder.values.contains(.stateChanged(.webRTC, .failed)))
     #expect(engine.closeCount > 0)
     #expect(signaling.disconnectCount > 0)

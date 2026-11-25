@@ -62,8 +62,8 @@ public enum WebRTCSignalingEvent: Equatable, Sendable {
     case answer(WebRTCSessionDescription, from: PeerID)
     case receivedApplicationData(ReceivedApplicationData)
     case failed(String)
-    /// Requires an explicit new connection attempt after the user resolves the cause.
-    case blocked(String)
+    /// The same attempt must not be retried until the cause has been resolved.
+    case blocked(ConnectionBlockReason)
 }
 
 public protocol WebRTCSignalingClient: AnyObject, Sendable {

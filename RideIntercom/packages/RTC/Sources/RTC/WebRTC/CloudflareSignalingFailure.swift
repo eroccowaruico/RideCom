@@ -19,8 +19,7 @@ extension CloudflareRealtimeSignalingClient {
                     + "If the other device lost its connection, wait for that call to expire."
             case .peerSnapshotChanged: "Cloudflare peer snapshot changed"
             case .servicePaused: String(localized: "Internet calling is paused.")
-            case .deviceCredentialRejected:
-                String(localized: "In Settings, choose Set Up Internet Calling, then try again.")
+            case .deviceCredentialRejected: "Device credential rejected"
             case .http(let code): "Cloudflare Worker rejected request (HTTP \(code))"
             }
         }

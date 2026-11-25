@@ -2949,7 +2949,7 @@
       }
     },
     "In Settings, choose Set Up Internet Calling, then try again." : {
-      "extractionState" : "manual",
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -3021,6 +3021,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "インターネット接続はサインアウト済みです。アカウントを削除するにはAppleで確認してください。サインアウトだけではアカウントは削除されません。"
+          }
+        }
+      }
+    },
+    "Internet calling could not verify this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インターネット通話でこの端末を確認できませんでした。"
           }
         }
       }
