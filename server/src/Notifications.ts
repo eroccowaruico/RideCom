@@ -74,7 +74,7 @@ async function prepareNotificationDelivery(env: Env, receiver: ReturnType<typeof
     const binding = await tokenIndex.current()
     if (binding?.registrationID !== device.registrationID || binding.userID !== recipientID) return null
     return async (providerToken: string, requestID: string, expiresAt: number, kind?: NotificationKind) => {
-        const result = await deliverNotification(device, providerToken, requestID, recipientID, expiresAt, kind)
+        const result = await deliverNotification(env, device, providerToken, requestID, recipientID, expiresAt, kind)
         if (result === 'invalid_token') {
             await receiver.notificationInvalidToken(recipientID, device.deviceID, device.registrationID)
             try { await tokenIndex.remove(binding.accountID, recipientID, device.registrationID) }

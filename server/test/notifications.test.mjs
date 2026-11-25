@@ -168,6 +168,29 @@ test('Sandbox stops APNs delivery under automatic tracing and still allows devic
     }
 });
 
+test('a traced Preview delivers exactly once through the isolated Sandbox sender', async () => {
+    const destinations = [];
+    const r = await setup({}, async request => {
+        destinations.push({ path: new URL(request.url).pathname, category: (await request.json()).aps.category });
+        return Response.json({});
+    }, { trace: true, workerLoaders: { TEST_PREVIEW_SANDBOX_APNS_LOADER: {} } });
+    try {
+        const sender = await login(r, 'sandbox-sender');
+        const receiver = await login(r, 'sandbox-receiver');
+        const token = 'ac'.repeat(96);
+        assert.equal((await register(r, receiver, token)).status, 200);
+        const { capability } = await grant(r, receiver, sender);
+        const requestID = randomUUID();
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const response = await send(r, sender, capability, requestID);
+            assert.equal(response.status, 200);
+            assert.equal((await response.json()).status, 'accepted');
+        }
+        assert.deepEqual(destinations, [{ path: `/3/device/${token}`, category: 'RIDEINTERCOM_CALL_REQUEST' }]);
+        assert.equal((await call(r, '/api/notifications/device', undefined, receiver.accessToken, 'DELETE')).status, 200);
+    } finally { await r.dispose(); }
+});
+
 test('only a recipient capability authorizes a fixed alert; dedupe, read and cancel preserve ownership', async () => {
     const requests = [];
     const r = await setup({}, async request => { requests.push({ url: request.url, headers: Object.fromEntries(request.headers), body: await request.json() }); return Response.json({}); });

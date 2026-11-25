@@ -48,7 +48,7 @@ async function registerCallTestDevice(runtime, subject, deviceName) {
 export const room = 'a'.repeat(64);
 export const offer = { type: 'offer', sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=sctp-port:5000\r\n' };
 export const provider = { requests: [], serial: 0, upstreamFails: false, upstreamGone: false };
-export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom, trace = false } = {}) {
+export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys = [], clockOffsetMs = 0, fixedNowMs, adjustableClock = false, enrollmentLimits = true, apiLimit = 600, appleAuthorization, apns, afterInboxSnapshot, onInvitationStore, attestationRoot, onAttestationVerified, trackReplyStorage, appAttestationIndex = true, rejectSignalForRoom, trace = false, workerLoaders } = {}) {
     const inboxSnapshotURL = 'https://fixture.test/group-inbox-snapshot';
     const invitationStoreURL = 'https://fixture.test/group-invitation-store';
     const attestationVerifiedURL = 'https://fixture.test/attestation-verified';
@@ -121,7 +121,7 @@ export async function makeRuntime(overrides = {}, { storageDirectory, appleKeys 
             export default ${testWorkerFetch};` },
         { type: 'ESModule', path: 'index.js', contents: clock + await readFile('dist/index.js', 'utf8') }
     ] } : clock ? { script: clock + await readFile('dist/index.js', 'utf8') } : { scriptPath: 'dist/index.js' };
-    const instance = new Miniflare({ durableObjectsPersist: storageDirectory, unsafeObservability: trace,
+    const instance = new Miniflare({ durableObjectsPersist: storageDirectory, unsafeObservability: trace, workerLoaders,
         ratelimits: { ...(enrollmentLimits ? {
             APPLE_ENROLLMENT_IP_LIMIT: { namespace_id: '1001', simple: { limit: 30, period: 60 } },
             APPLE_ENROLLMENT_GLOBAL_LIMIT: { namespace_id: '1002', simple: { limit: 300, period: 60 } }

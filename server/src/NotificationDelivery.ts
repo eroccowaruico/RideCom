@@ -1,7 +1,7 @@
-import { tracing } from 'cloudflare:workers'
 import { importPKCS8, SignJWT } from 'jose'
 import type { Env } from './types'
 import type { NotificationDevice } from './AccountNotifications'
+import { apnsTimeoutMs, requiresSandboxTransport, sandboxTransportReady, sendViaSandboxTransport } from './SandboxAPNSTransport'
 
 type NotificationProvider = {
     privateKey: string
@@ -27,7 +27,7 @@ export async function readyAPNSEnvironment(env: Env): Promise<NotificationDevice
     if (env.NOTIFICATIONS_ENABLED !== 'true' || !env.APNS_TOPIC
         || (environment !== 'sandbox' && environment !== 'production')) return null
     // An automatic fetch span can retain the APNs device token in the URL path.
-    if (environment === 'sandbox' && tracing.getActiveSpan()?.isTraced !== false) return null
+    if (requiresSandboxTransport(environment) && !await sandboxTransportReady(env)) return null
     const provider = notificationProvider(env)
     if (!provider) return null
     try {
@@ -56,27 +56,30 @@ export async function notificationProviderToken(env: Env): Promise<string> {
 
 export type NotificationDeliveryResult = 'accepted' | 'invalid_token' | 'retry_later' | 'rejected'
 export type NotificationKind = 'call' | 'groupInvitation'
-/** Native fetch is the production candidate; tests intercept it before any external I/O. */
-export async function deliverNotification(device: NotificationDevice, providerToken: string,
+/** Tests intercept APNs requests before any external I/O. */
+export async function deliverNotification(env: Env, device: NotificationDevice, providerToken: string,
                                         requestID: string, recipientID: string, expiresAt: number,
                                         kind: NotificationKind = 'call'): Promise<NotificationDeliveryResult> {
     const host = device.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
     try {
-        const response = await fetch(`https://${host}/3/device/${device.token}`, {
-            method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(8000),
-            headers: { authorization: `bearer ${providerToken}`, 'content-type': 'application/json',
-                'apns-topic': device.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
-                'apns-id': requestID, 'apns-collapse-id': requestID, 'apns-expiration': String(Math.floor(expiresAt / 1000)) },
-            body: JSON.stringify(kind === 'groupInvitation'
-                ? { aps: {
-                        alert: { 'title-loc-key': 'GROUP_INVITATION_TITLE', 'loc-key': 'GROUP_INVITATION_BODY' },
-                        category: 'RIDEINTERCOM_GROUP_INVITATION',
-                        'interruption-level': 'passive',
-                    },
-                    version: 1, kind, requestID, recipientID }
-                : { aps: { alert: { 'title-loc-key': 'CALL_REQUEST_TITLE', 'loc-key': 'CALL_REQUEST_BODY' }, sound: 'default', category: 'RIDEINTERCOM_CALL_REQUEST' },
-                    version: 1, requestID, recipientID })
-        })
+        const headers = { authorization: `bearer ${providerToken}`, 'content-type': 'application/json',
+            'apns-topic': device.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
+            'apns-id': requestID, 'apns-collapse-id': requestID, 'apns-expiration': String(Math.floor(expiresAt / 1000)) }
+        const body = JSON.stringify(kind === 'groupInvitation'
+            ? { aps: {
+                    alert: { 'title-loc-key': 'GROUP_INVITATION_TITLE', 'loc-key': 'GROUP_INVITATION_BODY' },
+                    category: 'RIDEINTERCOM_GROUP_INVITATION',
+                    'interruption-level': 'passive',
+                },
+                version: 1, kind, requestID, recipientID }
+            : { aps: { alert: { 'title-loc-key': 'CALL_REQUEST_TITLE', 'loc-key': 'CALL_REQUEST_BODY' }, sound: 'default', category: 'RIDEINTERCOM_CALL_REQUEST' },
+                version: 1, requestID, recipientID })
+        const response = requiresSandboxTransport(device.environment)
+            ? await sendViaSandboxTransport(env, device.token, headers, body)
+            : await fetch(`https://${host}/3/device/${device.token}`, {
+                method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(apnsTimeoutMs), headers, body,
+            })
+        if (!response) return 'retry_later'
         // No provider body, token or payload is logged or forwarded to callers.
         await response.body?.cancel()
         if (response.status === 200) return 'accepted'
