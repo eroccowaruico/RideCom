@@ -60,17 +60,6 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
     private var limiter: PeakLimiterEffect?
     private var decodeCounts = ReceiveDecodeCounts()
 
-    var snapshot: AudioMixerSnapshot {
-        lock.withLock { mixer?.snapshot() ?? .init(busIDs: [], buses: [], routes: [], outputBusID: nil) }
-    }
-    var isolationSnapshots: [String: VoiceIsolationRuntimeSnapshot] {
-        lock.withLock { Dictionary(uniqueKeysWithValues: effects.map { ($0.key.busID, $0.value.runtimeSnapshot) }) }
-    }
-    var limiterSnapshot: PeakLimiterRuntimeSnapshot? { lock.withLock { limiter?.runtimeSnapshot } }
-    var droppedRenderFrameCount: Int {
-        lock.withLock { (mixer?.busIDs ?? []).reduce(0) { $0 + (mixer?.bus($1)?.droppedCaptureFrameCount ?? 0) } }
-    }
-
     func rebuild(engine: AVAudioEngine, configuration: AppAudioPipelineConfiguration, peers: [String],
                  rendersToHardware: Bool, startsClock: Bool = true, onOutput: @escaping (PCMFrame) -> Void) throws {
         lock.lock(); defer { lock.unlock() }
@@ -272,6 +261,12 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         guard let mixer, let mixBus else { throw AppAudioPipelineError.notConfigured }
         let target = IsolationTarget.peer(peer)
         let bus = try mixer.createBus(target.busID)
+        defer {
+            if peerPlayback[peer]?.source == nil {
+                effects.removeValue(forKey: target)
+                try? mixer.removeBus(target.busID)
+            }
+        }
         try installIsolation(for: target, on: bus)
         if effects[target] != nil {
             try bus.prepareOutputTransition()
@@ -374,6 +369,17 @@ extension AppAudioReceiver {
 }
 
 extension AppAudioReceiver {
+    var snapshot: AudioMixerSnapshot {
+        lock.withLock { mixer?.snapshot() ?? .init(busIDs: [], buses: [], routes: [], outputBusID: nil) }
+    }
+    var isolationSnapshots: [String: VoiceIsolationRuntimeSnapshot] {
+        lock.withLock { Dictionary(uniqueKeysWithValues: effects.map { ($0.key.busID, $0.value.runtimeSnapshot) }) }
+    }
+    var limiterSnapshot: PeakLimiterRuntimeSnapshot? { lock.withLock { limiter?.runtimeSnapshot } }
+    var droppedRenderFrameCount: Int {
+        lock.withLock { (mixer?.busIDs ?? []).reduce(0) { $0 + (mixer?.bus($1)?.droppedCaptureFrameCount ?? 0) } }
+    }
+
     var decodeSnapshot: ReceiveDecodeCounts { lock.withLock { decodeCounts } }
     var decodeDiagnostics: ReceiveDecodeDiagnostics {
         lock.withLock {

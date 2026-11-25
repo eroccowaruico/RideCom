@@ -10,7 +10,52 @@ import Testing
 import VADGate
 @testable import RideIntercom
 
+private final class ReceiveRouteTestEngine: AVAudioEngine, @unchecked Sendable {
+    enum Failure: Error { case route }
+
+    private(set) var lastDestination: AVAudioNode?
+    var rejectedDestination: AVAudioNode?
+
+    override func connectNode(_ node1: AVAudioNode, to node2: AVAudioNode,
+                              fromBus bus1: AVAudioNodeBus, toBus bus2: AVAudioNodeBus,
+                              format: AVAudioFormat?) throws {
+        guard node2 !== rejectedDestination else { throw Failure.route }
+        try super.connectNode(node1, to: node2, fromBus: bus1, toBus: bus2, format: format)
+        lastDestination = node2
+    }
+}
+
 extension AppTests.RealtimeConversationTests {
+    @Test func failedPeerRouteReleasesProvisionalNodesAndCanRetry() throws {
+        let engine = ReceiveRouteTestEngine()
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 2400)
+        let receiver = AppAudioReceiver()
+        try receiver.rebuild(engine: engine, configuration: .init(receiveMaximumBufferedDuration: 0.12,
+            receivePlayoutDelay: 0.002), peers: ["existing"], rendersToHardware: false, startsClock: false,
+            onOutput: { _ in })
+        defer { receiver.stop() }
+        let before = receiver.snapshot
+        let attached = engine.attachedNodes
+        let isolationTargets = Set(receiver.isolationSnapshots.keys)
+        let frame = PCMFrame(sequenceNumber: 0, capturedAt: 0, samples: Array(repeating: 0.2, count: 960))
+        let packet = try AppTestSupport.receivedAudioPacket(peerID: "new-peer", frame: frame, codec: .pcm16)
+
+        // The last connection of the prepared peer feeds the shared receive mix.
+        engine.rejectedDestination = try #require(engine.lastDestination)
+        #expect(throws: ReceiveRouteTestEngine.Failure.route) { try receiver.receive(packet) }
+        #expect(receiver.snapshot.busIDs == before.busIDs)
+        #expect(receiver.snapshot.routes == before.routes)
+        #expect(engine.attachedNodes == attached)
+        #expect(Set(receiver.isolationSnapshots.keys) == isolationTargets)
+
+        engine.rejectedDestination = nil
+        #expect(try receiver.receive(packet).frameCount == frame.frameCount)
+        #expect(receiver.snapshot.busIDs.contains("rx-peer-new-peer"))
+        #expect(receiver.playoutDiagnostics(peer: "new-peer")?.bufferedDuration ?? 0 > 0)
+        #expect(receiver.playoutDiagnostics(peer: "existing") != nil)
+    }
+
     @Test(arguments: [256, 480, 960])
     func transmitIsolationSwitchDoesNotClickWithoutNetworkOrHardware(quantum: Int) throws {
         let transmitter = AppAudioTransmitter()
