@@ -61,8 +61,7 @@ extension AppCallOwner {
             callPresentationID = UUID()
         }
         if case .waitingForMicrophone = start, !started, !Task.isCancelled, viewModel === model,
-           model.hasCurrentAccountAccess, model.currentCallReference == reference,
-           model.notifications === notifications,
+           model.matchesCurrentCall(reference), model.notifications === notifications,
            notifications.now() >= resolved.expiresAt, notifications.canRespond(to: resolved, tap: tap) {
             usersPresentationID = UUID()
         }

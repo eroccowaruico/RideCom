@@ -69,6 +69,28 @@ import Testing
     }
 
     @Test(arguments: [false, true])
+    func permissionRequestCannotStartAfterItsCallContextEnds(signsOut: Bool) async throws {
+        let gate = ManualAsyncGate()
+        var requested = false
+        let harness = AppTestSupport.makeHarness(requestMicrophoneAccess: {
+            requested = true
+            await gate.wait()
+            return true
+        }, callMicrophonePermission: { .undetermined })
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let id = try #require(model.regularGroups.first?.id)
+        let start = model.requestCallStart(to: .group(id), accountAccessID: model.accountAccessID)
+        await AppTestSupport.waitUntil { requested }
+        #expect(requested)
+        if signsOut { model.accountSession.signOut() } else { model.disconnect() }
+        await gate.release()
+        #expect(await start.startedCall() == nil)
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(model.callToPresentAfterPermission == nil)
+    }
+
+    @Test(arguments: [false, true])
     func permissionCompletesBeforeActivationAndCapture(recording: Bool) async throws {
         let gate = ManualAsyncGate(); var requested = false
         let harness = AppTestSupport.makeHarness(enforceCallAccess: false, requestMicrophoneAccess: {

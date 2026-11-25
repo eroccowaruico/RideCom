@@ -151,7 +151,7 @@ extension IntercomViewModel {
             let authorized = Task.isCancelled ? false : await requestPermission()
             guard let self, self.callMicrophonePermissionRequest?.id == id else { return nil }
             self.callMicrophonePermissionRequest = nil
-            guard !Task.isCancelled, self.currentCallReference == reference, isStillAllowed(),
+            guard !Task.isCancelled, self.matchesCurrentCall(reference), isStillAllowed(),
                   self.validateCallStartAccount(reference.accountAccessID) else { return nil }
             guard authorized else {
                 self.showsCallMicrophonePermissionAlert = true

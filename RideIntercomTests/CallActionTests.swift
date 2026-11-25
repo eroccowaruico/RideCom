@@ -6,13 +6,28 @@ import Testing
 struct CallActionTests {
     enum ExternalEntry: String, CaseIterable, Sendable { case widget, shortcut, watch }
 
-    @Test func aStartResultOnlyPresentsTheCallItActuallyStarted() async throws {
-        let model = AppTestSupport.makeHarness().viewModel
+    @Test(arguments: [false, true])
+    func aStartResultOnlyPresentsTheCallItActuallyStarted(waitsForPermission: Bool) async throws {
+        let gate = ManualAsyncGate()
+        var permission: CallMicrophonePermission = waitsForPermission ? .undetermined : .granted
+        var requested = false
+        let model = AppTestSupport.makeHarness(requestMicrophoneAccess: {
+            requested = true
+            if waitsForPermission { await gate.wait() }
+            return true
+        }, callMicrophonePermission: { permission }).viewModel
         defer { model.disconnect() }
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)
         let group = try #require(model.regularGroups.first)
         let previous = model.requestCallStart(to: .group(group.id), accountAccessID: model.accountAccessID)
-        try #require(previous.startedImmediately)
+        if waitsForPermission {
+            await AppTestSupport.waitUntil { requested }
+            #expect(requested)
+            permission = .granted
+            await gate.release()
+        }
+        let originalReference = try #require(await previous.startedCall())
+        #expect(model.matchesCurrentCall(originalReference))
         model.disconnect()
         let current = model.requestCallStart(to: .group(group.id), accountAccessID: model.accountAccessID)
         try #require(current.startedImmediately)
