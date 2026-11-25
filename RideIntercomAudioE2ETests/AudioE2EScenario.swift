@@ -165,6 +165,7 @@ struct AudioE2ENetworkRun {
     let transport: String
     let startsFromSavedGroup: Bool
     let startsFromSavedContact: Bool
+    let delaysInternetRegistration: Bool
     let waitsForInternet: Bool
     let standaloneReceiver: Bool
     let standaloneDiagnostics: Bool
@@ -209,6 +210,7 @@ struct AudioE2ENetworkRun {
         transport = env["AUDIO_E2E_TRANSPORT"] ?? "local"
         startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
         startsFromSavedContact = env["AUDIO_E2E_SAVED_CONTACT_START"] == "1"
+        delaysInternetRegistration = env["AUDIO_E2E_REGISTRATION_RECOVERY"] == "1"
         waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
         standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         standaloneDiagnostics = env["AUDIO_E2E_STANDALONE_DIAGNOSTICS"] == "1"
@@ -238,8 +240,10 @@ struct AudioE2ENetworkRun {
             XCTAssertTrue(transport == "local" && !standaloneReceiver && !waitsForLateParticipant)
         }
         if startsFromSavedContact {
-            XCTAssertTrue(transport == "webrtc" && !standaloneReceiver && !waitsForLateParticipant)
+            XCTAssertTrue((transport == "webrtc" || delaysInternetRegistration)
+                && !standaloneReceiver && !waitsForLateParticipant)
         }
+        if delaysInternetRegistration { XCTAssertTrue(mixed && startsFromSavedContact && !startsBeforeInternet) }
         if waitsForInternet {
             XCTAssertTrue(startsFromSavedGroup && scenarios.count == 1 && initial.seconds <= 10)
         }

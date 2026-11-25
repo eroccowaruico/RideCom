@@ -1,5 +1,39 @@
 import Foundation
+import RTC
 import XCTest
+
+struct AudioE2EWorkerConnection {
+    let url: URL?
+    let fixture: AudioE2EWorker?
+    let room: String
+
+    func settingsOrigin() throws -> URL {
+        var origin = try XCTUnwrap(url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) })
+        XCTAssertEqual(origin.host, "127.0.0.1")
+        origin.scheme = "https"
+        return try XCTUnwrap(origin.url)
+    }
+}
+
+extension AudioE2ETests {
+    @MainActor
+    func startWorker(for options: AudioE2ENetworkRun) async throws -> AudioE2EWorkerConnection {
+        let room = RTCCredential.derived(groupID: options.groupID.uuidString, secret: options.groupSecret).groupHash
+        guard options.usesInternet || options.waitsForLateParticipant else {
+            return AudioE2EWorkerConnection(url: nil, fixture: nil, room: room)
+        }
+        let url = try XCTUnwrap(URL(string: try XCTUnwrap(options.workerURL)))
+        guard options.role == "a" else { return AudioE2EWorkerConnection(url: url, fixture: nil, room: room) }
+        let fixture = try AudioE2EWorker(
+            port: UInt16(try XCTUnwrap(url.port)), run: options.identifier, room: room,
+            checksInternetRecovery: options.checksInternetRecovery,
+            holdsInternetSignaling: options.startsBeforeInternet, leavesICEUnanswered: options.waitsForInternet
+        )
+        try await fixture.start()
+        addTeardownBlock { await fixture.stop() }
+        return AudioE2EWorkerConnection(url: url, fixture: fixture, room: room)
+    }
+}
 
 extension AudioE2EWorker {
     static func waitForPairStage(

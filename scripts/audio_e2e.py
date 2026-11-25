@@ -262,6 +262,8 @@ def main() -> int:
     parser.add_argument('--saved-group-start', action='store_true', help='Start Local audio from a saved group when Apple credential verification is unavailable')
     parser.add_argument('--saved-contact-start', action='store_true',
                         help='Turn off Local and start Internet audio from a saved contact on each endpoint')
+    parser.add_argument('--registration-recovery', action='store_true',
+                        help='Start a saved call on Local, then supply the Internet registration result during the call')
     parser.add_argument('--unanswered-internet', action='store_true', help='Keep both Internet connection requests pending during saved-group Local audio')
     parser.add_argument('--matrix', choices=['smoke', 'quick', 'full', 'identity', 'isolation'], default='quick')
     parser.add_argument('--scenario', metavar='ID', action='append', default=[],
@@ -304,6 +306,8 @@ def main() -> int:
         parser.error('--unanswered-internet requires --saved-group-start --matrix smoke and 6–10 seconds')
     if args.transport == 'mixed' and (args.configuration != 'Debug' or args.matrix != 'smoke' or standalone):
         parser.error('Use --transport mixed with Debug and --matrix smoke for the Local/WebRTC recovery test')
+    if args.registration_recovery and (args.transport != 'mixed' or not args.two_simulators or args.cleanup_only):
+        parser.error('--registration-recovery requires --transport mixed --matrix smoke --two-simulators')
     if args.speech_pair == 'conversation' and args.seconds < 20:
         parser.error('Conversation coverage requires --seconds 20 or longer')
     cases = [] if standalone or args.cleanup_only else scenarios(args.matrix, args.seconds)
@@ -351,6 +355,8 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
         measurement_ids = ()
     elif standalone:
         measurement_ids = standalone.measurement_ids
+    elif args.registration_recovery:
+        measurement_ids = ('local-before', 'internet-during', 'local-after')
     elif args.transport == 'mixed':
         measurement_ids = MIXED_AUDIO_MEASUREMENT_IDS
     elif recovery_wait:
@@ -497,8 +503,10 @@ def execute(args: argparse.Namespace, runner: Runner, resource_root: Path, cases
                 environment['AUDIO_E2E_ISOLATION_NOISE'] = '1'
             if args.saved_group_start:
                 environment['AUDIO_E2E_SAVED_GROUP_START'] = '1'
-            if args.saved_contact_start:
+            if args.saved_contact_start or args.registration_recovery:
                 environment['AUDIO_E2E_SAVED_CONTACT_START'] = '1'
+            if args.registration_recovery:
+                environment['AUDIO_E2E_REGISTRATION_RECOVERY'] = '1'
             if args.unanswered_internet:
                 environment['AUDIO_E2E_UNANSWERED_INTERNET'] = '1'
             if recovery_wait:

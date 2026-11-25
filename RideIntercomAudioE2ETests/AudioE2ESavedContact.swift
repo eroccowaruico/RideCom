@@ -25,8 +25,8 @@ enum AudioE2ESavedContact {
 
     static func start(for run: AudioE2ENetworkRun, in viewModel: IntercomViewModel) throws {
         XCTAssertEqual(viewModel.enabledRTCTransportRoutes, [.multipeer, .webRTC])
-        XCTAssertTrue(viewModel.hasInternetCredentials)
-        viewModel.setRTCTransportRoute(.multipeer, enabled: false)
+        XCTAssertEqual(viewModel.hasInternetCredentials, !run.delaysInternetRegistration)
+        if !run.delaysInternetRegistration { viewModel.setRTCTransportRoute(.multipeer, enabled: false) }
         let contact = try XCTUnwrap(viewModel.savedRemoteUsers.first { $0.memberIDs == [run.otherMemberID] })
         XCTAssertEqual(viewModel.existingDirectCall(for: contact.id)?.id, run.groupID)
         XCTAssertNil(viewModel.activeGroupID)

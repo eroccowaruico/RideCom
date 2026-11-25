@@ -32,6 +32,25 @@ python3 scripts/audio_e2e.py --transport webrtc --matrix smoke --saved-contact-s
 
 同じ条件をXcodeで選ぶ場合は、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を使う。後述の2台の設定を土台にする。両端に`AUDIO_E2E_TRANSPORT=webrtc`、`AUDIO_E2E_SAVED_CONTACT_START=1`、同じローカル中継URLを渡す。招待を受諾して保存する処理と、端末資格がない場合の案内は[アプリ試験の結果](../validation/history/Cloudflare検証.md#近距離をオフにして保存済みの相手を選び直す)を参照する。
 
+### 近距離で始めた通話に登録後のインターネット経路を加える
+
+```sh
+python3 scripts/audio_e2e.py --transport mixed --matrix smoke --registration-recovery \
+  --two-simulators --ephemeral --codec pcm16 --seconds 6
+```
+
+既定どおり両端で近距離とインターネットがオンになっている。端末資格のない状態で保存済みの相手を一度選ぶ。近距離の通話と受話が成立した後、登録成功の結果を代替して資格を保存する。通話の識別、切断期限、近距離の接続を保持した状態でWebRTCが加わることを確かめる。
+
+近距離の音声だけを一時的に止め、WebRTCで相手の音声が再生されることを両端で確かめる。近距離の制御通信は維持し、音声の遮断を解除した後に近距離でまた受話できることも確かめる。実Apple認証と本番の中継は、この試験では使わない。
+
+Xcodeでは `RideIntercomAudioE2E` の `testDuplexSpeechOverNetwork` を選ぶ。両端の試験設定は次のとおり。
+
+- `AUDIO_E2E_TRANSPORT=mixed`
+- `AUDIO_E2E_SAVED_CONTACT_START=1`
+- `AUDIO_E2E_REGISTRATION_RECOVERY=1`
+
+共有のローカル中継と試験シナリオは、通常の2台の準備に従う。
+
 ### 音声機器を使わずにWebRTCの発話を往復させる
 
 `RideIntercomAudioE2E` schemeで `AudioE2ETests/testWebRTCDuplexSpeechWithoutAudioHardware` を選び、iOS SimulatorまたはMacで実行する。CLIではテストを指定し、Macでは実行先を `platform=macOS,arch=arm64` にする。

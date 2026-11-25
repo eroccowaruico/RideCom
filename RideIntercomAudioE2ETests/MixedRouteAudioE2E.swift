@@ -9,14 +9,19 @@ import XCTest
 final class MixedRouteAudioE2E {
     private var localRoute: LocalCallRoute?
 
-    func makeSession(routes: Set<RouteKind>, internet: InternetRouteConfigurationSource) -> RTC.CallSession {
+    func makeSession(routes: Set<RouteKind>, internet: InternetRouteConfigurationSource,
+                     loopbackOrigin: URL?) -> RTC.CallSession {
         let config = CallRouteConfiguration(enabledRoutes: routes, preferredRoute: .multipeer)
         let local = LocalCallRoute()
         localRoute = local
         var transports: [RTCCallRoute] = [local]
         if routes.contains(.webRTC) {
-            transports.append(WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in internet.current },
-                                                 engine: makeAudioE2EWebRTCEngine()))
+            transports.append(WebRTCInternetRoute(cloudflareConfigurationProvider: { _ in
+                guard let configuration = internet.current else { return nil }
+                guard let loopbackOrigin else { return configuration }
+                return CloudflareRealtimeConfiguration(
+                    workerURL: loopbackOrigin, accessToken: configuration.accessToken)
+            }, engine: makeAudioE2EWebRTCEngine()))
         }
         return RouteManager(routes: transports, configuration: config)
     }
@@ -44,11 +49,16 @@ final class MixedRouteAudioE2E {
         let proxy = try MediaBlackhole(target: remotePort)
         defer { proxy.stop() }
         print("Mixed Route E2E: Local listener exchange completed")
-        let outboundBlockedAtStart = pair.endpoint.run.role == "a"
+        let registrationRecovery = pair.endpoint.run.delaysInternetRegistration
+        let outboundBlockedAtStart = pair.endpoint.run.role == "a" && !registrationRecovery
         proxy.setBlocked(outboundBlockedAtStart)
         media.connect(to: peer, nonce: remoteNonce, endpoint: .hostPort(host: .ipv4(.loopback), port: proxy.port))
         try await waitForMixedRoute("Local UDP path exists before application audio") { media.isReady(for: peer) }
         let observation = MixedRouteObservation(test: test, pair: pair, media: media, peer: peer, local: local)
+        if registrationRecovery {
+            try await observation.verifyInternetRegistration(control: localControl, proxy: proxy)
+            return
+        }
         if pair.endpoint.run.startsBeforeInternet {
             try await observation.verifyLocalBeforeInternet(control: localControl)
         }
@@ -88,6 +98,30 @@ private struct MixedRouteObservation {
     private var seconds: Double { pair.endpoint.run.initial.seconds }
     private var outboundBlockedAtStart: Bool { role == "a" }
     private var startsBeforeInternet: Bool { pair.endpoint.run.startsBeforeInternet }
+
+    func verifyInternetRegistration(control: LocalControlCounter, proxy: MediaBlackhole) async throws {
+        let call = viewModel.currentCallReference
+        let deadline = viewModel.callDisconnectDeadline
+        XCTAssertEqual(viewModel.enabledRTCTransportRoutes, [.multipeer, .webRTC])
+        XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
+        XCTAssertEqual(viewModel.automaticInternetEnrollment.waitingCall?.reference, call)
+        XCTAssertFalse(viewModel.hasInternetCredentials)
+        try await barrier.meet("mixed-before-registration")
+        try await measure("local-before", blocked: false, beginSpeech: true)
+
+        // Stand in for the successful account-service reply. Signaling below uses the real local WebRTC fixture.
+        let origin = try pair.endpoint.worker.settingsOrigin()
+        try viewModel.saveInternetConnection(url: origin.absoluteString, token: pair.endpoint.run.identifier)
+        XCTAssertTrue(viewModel.hasInternetCredentials)
+        XCTAssertEqual(viewModel.currentCallReference, call)
+        XCTAssertEqual(viewModel.callDisconnectDeadline, deadline)
+        try await waitForMixedRoute("Internet joins without replacing the Local path", timeout: .seconds(35)) {
+            viewModel.availableCallRoutes == [.multipeer, .webRTC] && media.isReady(for: peer)
+        }
+        try await verifyLocalMediaLossAndRecovery(control: control, proxy: proxy)
+        XCTAssertEqual(viewModel.currentCallReference, call)
+        XCTAssertEqual(viewModel.callDisconnectDeadline, deadline)
+    }
 
     func verifyLocalBeforeInternet(control localControl: LocalControlCounter) async throws {
         XCTAssertEqual(viewModel.availableCallRoutes, [.multipeer])
@@ -360,36 +394,5 @@ private struct MixedRouteSpeechMatch {
 private struct MixedRouteExpectation {
     let expectsRemoteSpeech: Bool
     let blocked: Bool
-}
-
-@MainActor
-private func waitForMixedRoute(
-    _ description: String, timeout: Duration = .seconds(12), condition: () -> Bool
-) async throws {
-    let deadline = ContinuousClock.now.advanced(by: timeout)
-    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-    _ = try XCTUnwrap(condition() ? true : nil, description)
-}
-
-/// Count control from the actual QUIC route independently of the rendezvous.
-@MainActor
-private final class LocalControlCounter {
-    private(set) var receivedCount = 0
-    private var task: Task<Void, Never>?
-
-    init(route: LocalCallRoute, peer: PeerID) {
-        let events = route.events
-        task = Task { [weak self] in
-            for await event in events {
-                guard let self else { return }
-                if case .receivedApplicationData(.multipeer, let data) = event,
-                   data.peerID == peer, data.message.delivery == .reliable {
-                    receivedCount += 1
-                }
-            }
-        }
-    }
-
-    func stop() { task?.cancel() }
 }
 #endif

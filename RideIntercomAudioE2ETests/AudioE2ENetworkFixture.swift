@@ -7,32 +7,6 @@ import SessionManager
 import XCTest
 @testable import RideIntercom
 
-struct AudioE2EWorkerConnection {
-    let url: URL?
-    let fixture: AudioE2EWorker?
-    let room: String
-}
-
-extension AudioE2ETests {
-    @MainActor
-    func startWorker(for options: AudioE2ENetworkRun) async throws -> AudioE2EWorkerConnection {
-        let room = RTCCredential.derived(groupID: options.groupID.uuidString, secret: options.groupSecret).groupHash
-        guard options.usesInternet || options.waitsForLateParticipant else {
-            return AudioE2EWorkerConnection(url: nil, fixture: nil, room: room)
-        }
-        let url = try XCTUnwrap(URL(string: try XCTUnwrap(options.workerURL)))
-        guard options.role == "a" else { return AudioE2EWorkerConnection(url: url, fixture: nil, room: room) }
-        let fixture = try AudioE2EWorker(
-            port: UInt16(try XCTUnwrap(url.port)), run: options.identifier, room: room,
-            checksInternetRecovery: options.checksInternetRecovery,
-            holdsInternetSignaling: options.startsBeforeInternet, leavesICEUnanswered: options.waitsForInternet
-        )
-        try await fixture.start()
-        addTeardownBlock { await fixture.stop() }
-        return AudioE2EWorkerConnection(url: url, fixture: fixture, room: room)
-    }
-}
-
 @MainActor
 struct AudioE2ERouteFixture {
     #if DEBUG
@@ -50,7 +24,7 @@ struct AudioE2ERouteFixture {
     }
 
     func makeSession(run: AudioE2ENetworkRun, worker: AudioE2EWorkerConnection) -> RideIntercomCallSessionAdapter? {
-        let internet = run.usesInternet ? worker.url.map {
+        let internet = run.usesInternet && !run.delaysInternetRegistration ? worker.url.map {
             CloudflareRealtimeConfiguration(workerURL: $0, accessToken: run.identifier)
         } : nil
         let memberID = run.memberID
@@ -62,7 +36,9 @@ struct AudioE2ERouteFixture {
                 sessionFactory: { policy, routes, configuration in
                     #if DEBUG
                     if let instrumentedRoutes {
-                        return instrumentedRoutes.makeSession(routes: routes, internet: configuration)
+                        return instrumentedRoutes.makeSession(
+                            routes: routes, internet: configuration,
+                            loopbackOrigin: run.delaysInternetRegistration ? worker.url : nil)
                     }
                     #endif
                     return RTC.CallSessionFactory.makeSession(.init(
@@ -150,13 +126,11 @@ struct AudioE2ECallStorage {
         } else {
             access = nil
         }
-        let internetSettings = InternetConnectionSettingsStore(keychain: keychain, namespace: namespace)
-        if run.usesInternet {
-            var origin = try XCTUnwrap(worker.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) })
-            XCTAssertEqual(origin.host, "127.0.0.1")
-            // Saved settings require HTTPS. The injected RTC adapter uses the local HTTP fixture.
-            origin.scheme = "https"
-            try internetSettings.save(url: XCTUnwrap(origin.url).absoluteString, token: run.identifier)
+        let fixedOrigin = run.delaysInternetRegistration ? try worker.settingsOrigin() : nil
+        let internetSettings = InternetConnectionSettingsStore(
+            keychain: keychain, namespace: namespace, fixedWorkerOrigin: fixedOrigin)
+        if run.usesInternet, !run.delaysInternetRegistration {
+            try internetSettings.save(url: worker.settingsOrigin().absoluteString, token: run.identifier)
         }
         let repository = GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials)
         if run.startsFromSavedContact {
@@ -215,7 +189,13 @@ struct AudioE2ECallStorage {
         )
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
-        XCTAssertTrue(account.completeSignIn(userID: "audio-e2e-" + role, state: request.state))
+        var token: Data?
+        if options.delaysInternetRegistration {
+            let expiresAt = Date().addingTimeInterval(600).timeIntervalSince1970
+            let claims = try JSONSerialization.data(withJSONObject: ["exp": expiresAt])
+            token = Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)
+        }
+        XCTAssertTrue(account.completeSignIn(userID: "audio-e2e-" + role, state: request.state, identityToken: token))
         let identity = UserDefaultsLocalMemberIdentityStore(defaults: defaults,
             makeID: { memberID }, defaultDisplayName: { "Audio E2E \(role)" })
         var startingAccount = account
@@ -308,7 +288,7 @@ struct AudioE2EEndpoint {
             print("Audio E2E: Restored saved group and established Local call after \(elapsed)")
         }
         if run.startsFromSavedContact {
-            XCTAssertEqual(viewModel.availableCallRoutes, [.webRTC])
+            XCTAssertEqual(viewModel.availableCallRoutes, [run.delaysInternetRegistration ? .multipeer : .webRTC])
             XCTAssertEqual(peerID, run.otherMemberID)
         }
         return peerID
