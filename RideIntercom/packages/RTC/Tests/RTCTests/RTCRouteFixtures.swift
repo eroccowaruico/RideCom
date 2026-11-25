@@ -2,6 +2,13 @@ import Foundation
 import Testing
 @testable import RTC
 
+final class RouteEventRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [RouteEvent] = []
+    var values: [RouteEvent] { lock.withLock { stored } }
+    func append(_ event: RouteEvent) { lock.withLock { stored.append(event) } }
+}
+
 func makeRequest(
     configuration: CallRouteConfiguration = CallRouteConfiguration(),
     credential: RTCCredential? = RTCCredential.derived(groupID: "test-group", secret: "secret"),

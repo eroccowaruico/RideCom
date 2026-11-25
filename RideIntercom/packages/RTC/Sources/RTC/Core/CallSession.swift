@@ -7,6 +7,8 @@ public struct CallStartRequest: Equatable, Sendable {
     public var credential: RTCCredential?
     public var configuration: CallRouteConfiguration
     public var audioPolicy: RTCAudioPolicy
+    /// The original deadline carried in memory when rebuilding a call's routes.
+    public var continuationDeadline: ContinuousClock.Instant?
 
     public init(
         sessionID: String,
@@ -33,6 +35,7 @@ public protocol CallSession: AnyObject {
     /// Reopens a credential-blocked Internet route when its provider has a replacement credential.
     func retryInternetRouteAfterCredentialChange() async
     func stopConnection() async
+    func stopConnection(preservingContinuationIn replacement: CallStartRequest?) async -> CallStartRequest?
     func startMedia() async
     func stopMedia() async
     func sendAudioPacket(_ packet: RTCAudioPacket) async
@@ -48,6 +51,11 @@ public protocol CallSession: AnyObject {
 
 public extension CallSession {
     func retryInternetRouteAfterCredentialChange() async {}
+
+    func stopConnection(preservingContinuationIn replacement: CallStartRequest?) async -> CallStartRequest? {
+        await stopConnection()
+        return replacement
+    }
 
     func lastOutboundAudioDispatch() async -> RTCOutboundAudioDispatch? { nil }
 

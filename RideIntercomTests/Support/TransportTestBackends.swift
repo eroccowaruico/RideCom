@@ -153,6 +153,13 @@ final class FakeRTCCallSession: RTC.CallSession {
     private var recordedOperations: [String] = []
     private var operationWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var recordedMutes: [Bool] = []
+    private var recordedRequests: [RTC.CallStartRequest] = []
+    var preparedRequests: [RTC.CallStartRequest] { lock.withLock { recordedRequests } }
+    private var recordedContinuationDeadline: ContinuousClock.Instant?
+    var continuationDeadline: ContinuousClock.Instant? {
+        get { lock.withLock { recordedContinuationDeadline } }
+        set { lock.withLock { recordedContinuationDeadline = newValue } }
+    }
     var operations: [String] { lock.withLock { recordedOperations } }
     var localMuteValues: [Bool] { lock.withLock { recordedMutes } }
     private func record(_ name: String) {
@@ -175,11 +182,22 @@ final class FakeRTCCallSession: RTC.CallSession {
     func prepare(_ request: RTC.CallStartRequest) async {
         if let prepareGate { await prepareGate.wait() }
         if prepareDelay != .zero { try? await Task.sleep(for: prepareDelay) }
+        lock.withLock { recordedRequests.append(request) }
+        continuationDeadline = request.continuationDeadline
         record("prepare")
     }
     func startConnection() async { record("startConnection") }
     func retryInternetRouteAfterCredentialChange() async { record("retryInternetRoute") }
-    func stopConnection() async { record("stopConnection") }
+    func stopConnection() async {
+        continuationDeadline = nil
+        record("stopConnection")
+    }
+    func stopConnection(preservingContinuationIn replacement: RTC.CallStartRequest?) async -> RTC.CallStartRequest? {
+        var replacement = replacement
+        if replacement != nil { replacement?.continuationDeadline = continuationDeadline }
+        await stopConnection()
+        return replacement
+    }
     func startMedia() async {
         if let startMediaGate { await startMediaGate.wait() }
         record("startMedia")

@@ -249,6 +249,36 @@ struct CommandSchedulingTests {
 }
 
 extension CommandSchedulingTests {
+    @Test func rebuildingRoutesKeepsTheDeadlineUntilTheUserStartsANewCall() async throws {
+        let first = FakeRTCCallSession(), second = FakeRTCCallSession(), third = FakeRTCCallSession()
+        let adapter = RideIntercomCallSessionAdapter(memberID: "member-001", sessionFactory: { _, routes, _ in
+            switch routes {
+            case [.webRTC]: second
+            case [.multipeer]: third
+            default: first
+            }
+        })
+        defer { adapter.disconnect() }
+        let group = IntercomSeedData.recentGroups[0]
+        adapter.connect(group: group)
+        await first.waitForOperation("startConnection")
+        let deadline = ContinuousClock.now.advanced(by: .seconds(7200))
+        first.continuationDeadline = deadline
+
+        adapter.setEnabledRoutes([.webRTC])
+        await second.waitForOperation("startConnection")
+        #expect(second.preparedRequests.last?.continuationDeadline == deadline)
+        adapter.setEnabledRoutes([.multipeer])
+        await third.waitForOperation("startConnection")
+        #expect(third.preparedRequests.last?.continuationDeadline == deadline)
+
+        adapter.disconnect()
+        adapter.connect(group: group)
+        await AppTestSupport.waitUntil { third.preparedRequests.count == 2 }
+        try #require(third.preparedRequests.count == 2)
+        #expect(third.preparedRequests.last?.continuationDeadline == nil)
+    }
+
     @Test func firstInternetConfigurationKeepsTheCurrentSessionAndItsMedia() async throws {
         let rtc = FakeRTCCallSession()
         var sources: [InternetRouteConfigurationSource] = []

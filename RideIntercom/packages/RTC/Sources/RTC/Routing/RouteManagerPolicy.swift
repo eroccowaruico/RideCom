@@ -1,6 +1,16 @@
 import Foundation
 
 extension RouteManager {
+    public func stopConnection(preservingContinuationIn replacement: CallStartRequest?) async -> CallStartRequest? {
+        var replacement = replacement
+        if let original = request, original.sessionID == replacement?.sessionID,
+           original.localPeer.id == replacement?.localPeer.id, original.credential == replacement?.credential {
+            replacement?.continuationDeadline = relay?.continuationDeadline
+        }
+        await stopConnection()
+        return replacement
+    }
+
     func startRemaining(generation token: UUID) async {
         guard generation == token, request != nil else { return }
         for kind in configuration.enabledRoutes.sorted(by: { $0.rawValue < $1.rawValue }) {

@@ -231,13 +231,13 @@ extension RideIntercomCallSessionAdapter {
 
     private func applyConfiguration(_ change: CallConfigurationChange, generation: UUID) async {
         hasPendingConfiguration = false
-        await rtcSession.stopConnection()
+        let request = await rtcSession.stopConnection(preservingContinuationIn: change.request)
         rtcSession = sessionFactory(change.audioPolicy, change.routes, change.internet)
         await rtcSession.setLocalMute(appliedLocalMute)
         await rtcSession.setOutputMute(appliedOutputMute)
         await rtcSession.updateRuntimePackageReports(appliedReports)
         // Subscribe after priming so initial reports stay off the idle Diagnostics page.
-        await openRTCConnection(change.request, generation: generation, startID: change.mediaStartID)
+        await openRTCConnection(request, generation: generation, startID: change.mediaStartID)
     }
 
     private func openRTCConnection(_ request: RTC.CallStartRequest?, generation: UUID, startID: UUID? = nil) async {

@@ -279,7 +279,13 @@ func replacingRejectedCredentialRestartsOnlyInternetInTheSameSession(localAvaila
     for _ in 0..<100 where signaling.continuationDeadline == nil { try await Task.sleep(for: .milliseconds(10)) }
     #expect(signaling.authenticatedInternetPeers == [peer.id])
     #expect(signaling.continuationDeadline == deadline)
-    await manager.stopConnection()
+    let replacement = try #require(await manager.stopConnection(preservingContinuationIn: call))
+    await manager.prepare(replacement)
+    #expect(await manager.relay?.continuationDeadline == deadline)
+    var unrelated = call
+    unrelated.sessionID = "another-call"
+    let unrelatedReplacement = try #require(await manager.stopConnection(preservingContinuationIn: unrelated))
+    #expect(unrelatedReplacement.continuationDeadline == nil)
     await manager.prepare(call)
     #expect(await manager.relay?.continuationDeadline == nil)
     await manager.stopConnection()
@@ -300,13 +306,6 @@ func replacingRejectedCredentialRestartsOnlyInternetInTheSameSession(localAvaila
     try? await Task.sleep(for: .milliseconds(50))
     #expect(engine.prepareCount >= 2)
     await route.stopConnection()
-}
-
-private final class RouteEventRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [RouteEvent] = []
-    var values: [RouteEvent] { lock.withLock { stored } }
-    func append(_ event: RouteEvent) { lock.withLock { stored.append(event) } }
 }
 
 private final class FakeWebRTCEngine: NativeWebRTCEngine, @unchecked Sendable {

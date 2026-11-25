@@ -76,7 +76,10 @@ struct GroupRelay: Sendable {
     private var sequence: UInt64 = 0
     private var audioSequence: UInt64 = 0
     private var peers: [PeerID: Member] = [:]
-    init(request: CallStartRequest) { self.request = request }
+    init(request: CallStartRequest) {
+        self.request = request
+        continuationDeadline = request.continuationDeadline
+    }
 
     mutating func updateAudioPolicy(_ policy: RTCAudioPolicy) {
         request.audioPolicy = policy
