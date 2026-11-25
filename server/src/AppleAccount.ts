@@ -19,7 +19,7 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStar
 const digest = async (secret: string) => hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))))
 const verifyMacEnrollment = createAppAttestEnrollmentVerifier()
 interface Challenge { deviceID: string; nonce: string; issuedAt: number; expiresAt: number }
-interface NativeSignInProof { publicKey: string; signature: string }
+interface NativeSignInProof { publicKey: string; signature: string; deviceKey?: string }
 interface CallRenewal {
     deviceID: string; tokenHash: string
     roomID: string; sessionID: string; expiresAt: number
@@ -33,6 +33,7 @@ function matchesSecretHash(expected: string, actual: string): boolean {
 function isNativeSignInProof(value: unknown): value is NativeSignInProof {
     return isRecord(value) && typeof value.publicKey === 'string' && value.publicKey.length === 87
         && typeof value.signature === 'string' && value.signature.length === 86
+        && (value.deviceKey === undefined || (typeof value.deviceKey === 'string' && value.deviceKey.length === 87))
 }
 
 async function nativeSignInNonce(attempt: Challenge, identityToken: string, proof: NativeSignInProof): Promise<string | null> {
@@ -40,8 +41,13 @@ async function nativeSignInNonce(attempt: Challenge, identityToken: string, proo
         const signature = base64url.decode(proof.signature)
         if (signature.length !== 64 || base64url.encode(signature) !== proof.signature) return null
         const key = await importP256VerificationKey(proof.publicKey)
-        const message = ['ridecom.apple-enrollment.v1', attempt.deviceID, attempt.nonce, await digest(identityToken)].join('\n')
-        if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, new TextEncoder().encode(message))) return null
+        const fields = ['ridecom.apple-enrollment.v1', attempt.deviceID, attempt.nonce, await digest(identityToken)]
+        if (proof.deviceKey !== undefined) {
+            await importP256VerificationKey(proof.deviceKey)
+            fields.push(proof.deviceKey)
+        }
+        const message = new TextEncoder().encode(fields.join('\n'))
+        if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, message)) return null
         return await digest(`ridecom.apple-sign-in-key.v1\n${proof.publicKey}`)
     } catch { return null }
 }
@@ -60,6 +66,7 @@ interface DeviceAttestation extends VerifiedAppAttestKey {
 }
 interface Device {
     tokenHash: string; expiresAt: number
+    identityKeyHash?: string
     attestationChallenge?: DeviceAttestationChallenge
     attestation?: DeviceAttestation
     notificationRevision?: number
@@ -343,7 +350,8 @@ export class UserAccount extends DurableObject<Env> {
     notificationGet(userID: string, requestID: string) { return this.notifications.get(userID, requestID) }
     notificationCancel(userID: string, requestID: string, senderID: string) { return this.notifications.cancel(userID, requestID, senderID) }
 
-    async register(deviceID: string, tokenHash: string, issuedAt: number): Promise<DeviceIdentity | 'stale-proof' | 'deletion-pending' | null> {
+    async register(deviceID: string, tokenHash: string, issuedAt: number,
+                   identityKeyHash?: string): Promise<DeviceIdentity | 'stale-proof' | 'deletion-pending' | null> {
         this.prune()
         const deletion = this.ctx.storage.kv.get<DeletionReceipt>('deletion')
         if (deletion?.appleToken || deletion?.rooms?.length || this.ctx.storage.kv.get('deletionPreparation')) return 'deletion-pending'
@@ -358,7 +366,7 @@ export class UserAccount extends DurableObject<Env> {
         if (!objectPattern.test(userID)) throw new Error('Invalid account identity')
         this.ctx.storage.transactionSync(() => {
             this.ctx.storage.kv.put('userID', userID)
-            this.ctx.storage.kv.put<Device>(`device:${deviceID}`, { tokenHash, expiresAt,
+            this.ctx.storage.kv.put<Device>(`device:${deviceID}`, { tokenHash, expiresAt, identityKeyHash,
                 attestation: previousDevice?.attestation })
             this.notifications.invalidateDevice(deviceID)
         })
@@ -399,11 +407,13 @@ export class UserAccount extends DurableObject<Env> {
         return { userID, deviceID, expiresAt: renewal.expiresAt }
     }
 
-    authenticate(deviceID: string, tokenHash: string): DeviceIdentity | null {
+    authenticate(deviceID: string, tokenHash: string, identityKeyHash?: string): DeviceIdentity | null {
         const userID = this.ctx.storage.kv.get<string>('userID')
         const device = this.ctx.storage.kv.get<Device>(`device:${deviceID}`)
         if (!userID || !objectPattern.test(userID) || !device || device.expiresAt <= Date.now() || !crypto.subtle.timingSafeEqual(
             new TextEncoder().encode(device.tokenHash), new TextEncoder().encode(tokenHash))) return null
+        if (identityKeyHash !== undefined && device.identityKeyHash !== undefined
+            && identityKeyHash !== device.identityKeyHash) return null
         return { userID, deviceID, expiresAt: device.expiresAt }
     }
 
@@ -725,9 +735,14 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
             const limited = await limitEnrollment(request, env)
             if (limited) return limited
             const sessionBinding = await digest(tokenHash)
-            const result = await certifyDevice({ ...identity, sessionBinding }, new URL(request.url).origin, await readJSON(request), env)
+            const body = await readJSON(request)
+            if (typeof body.deviceKey !== 'string' || body.deviceKey.length !== 87) throw new Error('body')
+            const identityKeyHash = await digest(body.deviceKey)
+            const current = async () => (await credential.account.authenticate(
+                credential.deviceID, tokenHash, identityKeyHash))?.userID === identity.userID
+            if (!await current()) return json({ error: 'Unauthorized' }, 401)
+            const result = await certifyDevice({ ...identity, sessionBinding }, new URL(request.url).origin, body, env)
             // Signing and route publication can suspend. Recheck the same session.
-            const current = async () => (await credential.account.authenticate(credential.deviceID, tokenHash))?.userID === identity.userID
             if (!await current()) return json({ error: 'Unauthorized' }, 401)
             await publicAccountIndex(env, identity.userID).bind({ accountID: credential.accountID,
                 userID: identity.userID, expiresAt: identity.expiresAt })
@@ -793,7 +808,8 @@ export async function accountRequest(request: Request, env: Env): Promise<Respon
         // raw subject as either a stored field or the Durable Object's name.
         const account = env.USER_ACCOUNT.getByName(await digest(`apple:${verified.subject}`))
         const secret = randomSecret()
-        const identity = await account.register(verified.deviceID, await digest(secret), verified.issuedAt)
+        const identityKeyHash = proof?.deviceKey === undefined ? undefined : await digest(proof.deviceKey)
+        const identity = await account.register(verified.deviceID, await digest(secret), verified.issuedAt, identityKeyHash)
         if (identity === 'deletion-pending') return json({ error: 'Account deletion is still pending', code: 'deletion_pending' }, 409)
         if (identity === 'stale-proof') return json({ error: 'Prepare Apple sign-in again' }, 401)
         if (!identity) return json({ error: 'Device registration limit reached', code: 'device_limit_reached' }, 409)
