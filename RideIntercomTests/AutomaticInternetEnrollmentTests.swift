@@ -277,7 +277,7 @@ extension InternetAccountTests {
         model.disconnect()
     }
 
-    private func makeAutomaticEnrollmentHarness(_ account: AppleAccountSession, fixture: InternetAccountTestFixture)
+    func makeAutomaticEnrollmentHarness(_ account: AppleAccountSession, fixture: InternetAccountTestFixture)
         throws -> AppTestSupport.Harness {
         let store = InternetConnectionSettingsStore(keychain: fixture.keychain, namespace: fixture.namespace,
                                                     fixedWorkerOrigin: URL(string: "https://account.test"))
@@ -291,7 +291,7 @@ extension InternetAccountTests {
         return harness
     }
 
-    private func completeOrdinarySignIn(_ account: AppleAccountSession) throws -> (nonce: String, token: Data) {
+    func completeOrdinarySignIn(_ account: AppleAccountSession) throws -> (nonce: String, token: Data) {
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
         let nonce = try #require(request.nonce)
@@ -300,13 +300,13 @@ extension InternetAccountTests {
         return (nonce, token)
     }
 
-    private func completeSavedSignInWithoutProof(_ account: AppleAccountSession) throws {
+    func completeSavedSignInWithoutProof(_ account: AppleAccountSession) throws {
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
         try #require(account.completeSignIn(userID: "apple-user", state: request.state))
     }
 
-    private func fixtureIdentityToken() throws -> Data {
+    func fixtureIdentityToken() throws -> Data {
         let expiresAt = Date().addingTimeInterval(300).timeIntervalSince1970
         let claims = try JSONSerialization.data(withJSONObject: ["exp": expiresAt])
         return Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)

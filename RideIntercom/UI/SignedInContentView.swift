@@ -49,14 +49,14 @@ struct SignedInContentView: View {
             set: { viewModel.showsCallMicrophonePermissionAlert = $0 }
         ))
         .inspector(isPresented: callPresentation(asSheet: false)) {
-            CallPanel(viewModel: viewModel, selectedTab: $selectedTab) { selectedTab = listTab }
+            CallPanel(viewModel: viewModel, selectedTab: $selectedTab, close: closeCallPresentation)
         }
         #if os(iOS)
         // On a compact width the call is a plain sheet. The inspector's own compact sheet with
         // the call's More menu in its toolbar crashed SwiftUI's glass rendering when the call was
         // reopened from the list (7 of 9 runs; 0 of 5 as a plain sheet, 2026-11-03).
         .sheet(isPresented: callPresentation(asSheet: true)) {
-            CallPanel(viewModel: viewModel, selectedTab: $selectedTab) { selectedTab = listTab }
+            CallPanel(viewModel: viewModel, selectedTab: $selectedTab, close: closeCallPresentation)
         }
         .tabViewBottomAccessory(isEnabled: showsAccessory) {
             CallAccessory(viewModel: viewModel, open: openLiveCall)
@@ -73,7 +73,12 @@ struct SignedInContentView: View {
             }
         }
         #endif
-        .onChange(of: selectedTab) { _, current in if current != .call { listTab = current } }
+        .onChange(of: selectedTab) { _, current in
+            if current != .call {
+                viewModel.cancelPendingAccountCallEnrollment()
+                listTab = current
+            }
+        }
         // Turning the tab off while it is shown returns to Users; calls and groups stay as they are.
         .onChange(of: viewModel.isGroupsTabVisible) { _, visible in
             guard !visible else { return }
@@ -123,8 +128,15 @@ struct SignedInContentView: View {
     }
 
     private var showsCall: Binding<Bool> {
-        Binding(get: { selectedTab == .call && viewModel.selectedGroup != nil },
-                set: { if !$0 && selectedTab == .call { selectedTab = listTab } })
+        Binding(get: {
+            selectedTab == .call && (viewModel.selectedGroup != nil
+                || viewModel.accountCallWaitingForEnrollment != nil || viewModel.groupErrorMessage != nil)
+        }, set: { if !$0 && selectedTab == .call { closeCallPresentation() } })
+    }
+
+    private func closeCallPresentation() {
+        viewModel.cancelPendingAccountCallEnrollment()
+        selectedTab = listTab
     }
 
     private func callPresentation(asSheet: Bool) -> Binding<Bool> {

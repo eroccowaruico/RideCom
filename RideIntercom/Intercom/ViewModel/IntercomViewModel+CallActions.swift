@@ -112,6 +112,7 @@ extension IntercomViewModel {
     ) -> CallStartOutcome {
         guard !Task.isCancelled, isStillAllowed() else { return .blocked }
         guard validateCallStartAccount(requestedAccess) else { return .failed }
+        cancelPendingAccountCallEnrollment()
         if source != .watchAudio, !isInCall(with: destination) {
             guard callMicrophonePermissionRequest == nil else { return .blocked }
             showsCallMicrophonePermissionAlert = false
@@ -234,6 +235,7 @@ extension IntercomViewModel {
 
     /// A start that cannot proceed still shows the destination, where the reason is explained.
     private func connectOrShow(_ destination: CallDestination) -> DestinationOpening {
+        if waitForAccountCallEnrollment(destination) { return .opened }
         switch requestCallStart(to: destination, accountAccessID: accountAccessID, presentsAfterPermission: true) {
         case .started: return .opened
         case .blocked, .waitingForMicrophone: return .blocked

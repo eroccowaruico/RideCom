@@ -20,7 +20,20 @@ struct CallPanel: View {
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.interfaceMode == .standard {
+                if let user = viewModel.accountCallWaitingForEnrollment {
+                    List {
+                        Section {
+                            Text(verbatim: user.resolvedDisplayName)
+                                .font(.headline)
+                            ProgressView("Connecting")
+                        }
+                        CallAppleEnrollmentButton(viewModel: viewModel, inList: true)
+                        CallErrorSection(viewModel: viewModel)
+                    }
+                    .frame(maxWidth: AppSize.singleColumnMaxWidth)
+                    .screenBackground(AppColorPalette.callScreenBackground)
+                    .accessibilityIdentifier("accountCallEnrollmentScreen")
+                } else if viewModel.interfaceMode == .standard {
                     StandardCallView(viewModel: viewModel, selectedTab: $selectedTab)
                 } else {
                     CallEntryView(viewModel: viewModel, selectedTab: $selectedTab)
@@ -35,12 +48,15 @@ struct CallPanel: View {
                     Button("Close", systemImage: "chevron.down", action: close)
                         .accessibilityIdentifier("closeCallButton")
                 }
-                // Always present, so the toolbar does not change shape between calls.
+                // Settings are available once the call destination has been resolved.
                 ToolbarItem(placement: .primaryAction) {
-                    if viewModel.interfaceMode == .standard {
-                        StandardCallSettingsButton(viewModel: viewModel, settings: $settings)
-                    } else {
-                        AdvancedCallMoreMenu(viewModel: viewModel, settings: $settings, addingMembers: $addingMembers)
+                    if viewModel.accountCallWaitingForEnrollment == nil {
+                        if viewModel.interfaceMode == .standard {
+                            StandardCallSettingsButton(viewModel: viewModel, settings: $settings)
+                        } else {
+                            AdvancedCallMoreMenu(
+                                viewModel: viewModel, settings: $settings, addingMembers: $addingMembers)
+                        }
                     }
                 }
             }

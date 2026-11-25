@@ -219,6 +219,7 @@ extension IntercomViewModel {
     func setRTCTransportRoutes(_ routes: Set<RTC.RouteKind>) {
         let normalizedRoutes = Self.normalizedRTCTransportRoutes(routes)
         guard normalizedRoutes != enabledRTCTransportRoutes else { return }
+        cancelPendingAccountCallEnrollment()
         stopContactInvitationSession()
         if !normalizedRoutes.contains(.multipeer) { stopOrdinaryGroupReplyExchanges() }
         if !normalizedRoutes.contains(.webRTC) { stopInvitationInternetReply() }

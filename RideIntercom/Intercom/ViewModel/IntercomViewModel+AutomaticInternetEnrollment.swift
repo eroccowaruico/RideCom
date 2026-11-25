@@ -19,6 +19,7 @@ struct CallAwaitingInternetEnrollment {
     let startsNearby: Bool
     let isStillAllowed: @MainActor () -> Bool
     var needsAppleConfirmation: Bool
+    var accountRecipient: AccountPrincipal?
 }
 
 extension IntercomViewModel {
@@ -34,11 +35,53 @@ extension IntercomViewModel {
     var callForAppleEnrollmentConfirmation: CallReference? {
         guard needsInternetEnrollment, canStartCalls, !accountSession.isSigningIn,
               let pending = automaticInternetEnrollment.waitingCall, pending.needsAppleConfirmation,
-              selectedGroup?.id == pending.reference.groupID, matchesCurrentCall(pending.reference),
-              pending.isStillAllowed(), isActiveCall(pending.destination),
-              let deadline = callDisconnectDeadline, callAccessNow() < deadline
+              isCurrentEnrollmentCall(pending)
         else { return nil }
         return pending.reference
+    }
+
+    var accountCallWaitingForEnrollment: SavedUser? {
+        guard let pending = automaticInternetEnrollment.waitingCall, pending.accountRecipient != nil,
+              isCurrentEnrollmentCall(pending) else { return nil }
+        return enrolledCallRecipient(pending)
+    }
+
+    func waitForAccountCallEnrollment(_ destination: CallDestination) -> Bool {
+        guard case .user(let id) = destination, !hasAnyActiveGroupConnection, callMicrophonePermissionRequest == nil,
+              canStartCalls, canEditSavedGroups,
+              localAccountPrincipal == nil, needsInternetEnrollment,
+              let origin = internetSettingsStore.fixedWorkerOrigin,
+              let user = savedRemoteUsers.first(where: { $0.id == id }),
+              let recipient = user.principal, recipient.issuer == IdentityEncoding.origin(origin)
+        else { return false }
+        if accountCallWaitingForEnrollment?.id == id { return true }
+        selectedGroup = nil
+        groupErrorMessage = nil
+        connectionGeneration = UUID()
+        callDisconnectDeadline = callAccessNow().addingTimeInterval(callDisconnectInterval.seconds)
+        automaticInternetEnrollment.waitingCall = .init(
+            destination: destination, reference: currentCallReference, startsNearby: false,
+            isStillAllowed: { true }, needsAppleConfirmation: !hasAutomaticInternetEnrollmentProof,
+            accountRecipient: recipient)
+        callTicker.start()
+        reconcileAutomaticInternetEnrollment()
+        return true
+    }
+
+    func cancelPendingAccountCallEnrollment() {
+        if automaticInternetEnrollment.waitingCall?.accountRecipient != nil { disconnect() }
+    }
+
+    private func enrolledCallRecipient(_ pending: CallAwaitingInternetEnrollment) -> SavedUser? {
+        guard case .user(let id) = pending.destination, let recipient = pending.accountRecipient else { return nil }
+        return savedRemoteUsers.first { $0.id == id && $0.principal == recipient }
+    }
+
+    private func isCurrentEnrollmentCall(_ pending: CallAwaitingInternetEnrollment) -> Bool {
+        guard matchesCurrentCall(pending.reference), pending.isStillAllowed(),
+              let deadline = callDisconnectDeadline, callAccessNow() < deadline else { return false }
+        if pending.accountRecipient != nil { return enrolledCallRecipient(pending) != nil }
+        return selectedGroup?.id == pending.reference.groupID && isActiveCall(pending.destination)
     }
 
     func prepareCallEnrollmentConfirmation(
@@ -133,6 +176,20 @@ extension IntercomViewModel {
             return
         }
         automaticInternetEnrollment.waitingCall = nil
+        if pending.accountRecipient != nil {
+            let mayConnect = canStartCalls && enabledRTCTransportRoutes.contains(.webRTC)
+                && isCurrentEnrollmentCall(pending)
+                && localAccountPrincipal?.issuer == pending.accountRecipient?.issuer
+            // The intent has no live session. End only its timer before starting the resolved call.
+            callDisconnectDeadline = nil
+            callTicker.stop()
+            callSession.updateInternetConfiguration(configuration)
+            if mayConnect {
+                _ = requestCallStart(to: pending.destination, accountAccessID: pending.reference.accountAccessID,
+                                     allowSwitchingCall: false, presentsAfterPermission: true)
+            }
+            return
+        }
         let expired = disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970)
         guard matchesCurrentCall(pending.reference), canStartCalls, enabledRTCTransportRoutes.contains(.webRTC),
               !expired, pending.isStillAllowed(), isActiveCall(pending.destination),
