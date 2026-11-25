@@ -19,6 +19,8 @@ Terraに範囲を限って委任するときや、Solに短く簡単な作業を
 
 作業の選択・計画・着手と追加依頼の優先判断、実装・検証・完了報告では[core-story-first](.agents/skills/core-story-first/SKILL.md)を必ず適用する。まず入口を読み、理由・判断・実装/E2E・完了判定の詳細は必要な節だけを読む。
 
+すべての作業で[品質と次の作業の独立評価](.agents/skills/quality-balance-review/SKILL.md)を適用する。各コミットの区切りで、別のエージェントの判定を受けてから次の作業に着手する。
+
 すべての作業で[責務分離スキル](.agents/skills/architecture-refinement/SKILL.md#常時適用)の入口を適用し、変更に関係する節だけを読む。
 
 すべての作業で[再実装のためのスキル](.agents/skills/rebuild-from-spec/SKILL.md)を適用し、用途・要求・仕様と検証結果を区切りごとに照合する。
