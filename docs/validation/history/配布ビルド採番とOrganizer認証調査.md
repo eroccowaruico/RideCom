@@ -436,3 +436,13 @@ Build 2086の元のWebRTC ZIPはBuild 2071・2074で公開修正を確認したZ
 Build 2263と2383の同梱WebRTCではカメラ参照を検出した。撮影を含まない公式C++ターゲットを採用した後、Build 2398の署名付きArchiveとIPAは検査を通過した。今後も実際に送る配布物を自動検査し、カメラ参照が残る場合や検査できない場合は送信を止める。[送信前のカメラ参照検査](../../development/OS権限と配布設定.md#iosのカメラ参照の送信前検査)
 
 別途報告された[インターネット通話の不具合](../../backlog/未実装課題.md#公開済みtestflightで使えないネット通話を復旧する)は復旧の課題で追う。
+
+## 通常換算2,630コミットの区切りでiOS Build 2671を標準保存先へ作る
+
+2026-11-25。通常換算2,630件に達した共有mainは第一親2,747件目の `98cc6dbc`。固定Previewの試験設定の回収後、共有main `a3c1b699` を用いた。標準の `RideIntercom` スキームと通常の署名設定でiPhone用のRelease Archiveを作った。
+
+Xcodeは標準の日付フォルダにArchiveを直接作成した。保存先は `~/Library/Developer/Xcode/Archives/2026-11-25/`。ファイル名は `RideIntercom 2026-11-25, 18.30.xcarchive`。
+
+AppとWidgetは1.0.0のBuild 2671で一致し、両方の署名を厳密に検証した。AppとWebRTCの実行ファイルはそれぞれのdSYMとUUIDが一致した。本番Workerへの接続先と、Archiveの通常通知権限が `development` であることを照合した。Watch App、CallKitとPushToTalkへの動的リンク、iCloud権限は含まれない。既存のカメラ参照検査は合格した。次回用Buildは2672。証拠は `.validation/archive-2630-standard.aOcAAi/` に保存した。
+
+Organizerの一覧表示は[確認待ち](../未確認事項.md#build-1540のxcode画面確認)。内部TestFlightへの送信は依頼者が扱うため未試行。本番通話や通知到達の試験はこのArchiveの検証に含めていない。
