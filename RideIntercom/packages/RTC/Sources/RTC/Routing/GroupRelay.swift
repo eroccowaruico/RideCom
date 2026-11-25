@@ -71,6 +71,7 @@ struct GroupRelay: Sendable {
     }
     private var request: CallStartRequest
     var internetReady = false
+    private(set) var continuationDeadline: ContinuousClock.Instant?
     private let epoch = UUID()
     private var sequence: UInt64 = 0
     private var audioSequence: UInt64 = 0
@@ -121,6 +122,7 @@ struct GroupRelay: Sendable {
             didRestart = true
         }
         if isPresence {
+            continuationDeadline = continuationDeadline ?? .now.advanced(by: .seconds(86400))
             member.lastActivity = now; member.presenceSequence = envelope.sequence; member.left = false
             member.peer = envelope.origin; member.internetReady = envelope.internetReady
         }

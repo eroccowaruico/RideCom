@@ -52,7 +52,9 @@ protocol DeviceCredentialRecoveringRoute: RTCCallRoute {
 }
 
 protocol AuthenticatedInternetPeerObserving: AnyObject, Sendable {
-    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) async
+    func observeAuthenticatedInternetPeer(
+        _ peer: PeerID, callID: String, continuationDeadline: ContinuousClock.Instant
+    ) async
 }
 
 public extension RTCCallRoute {

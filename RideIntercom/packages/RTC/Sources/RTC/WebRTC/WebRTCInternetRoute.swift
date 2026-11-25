@@ -157,10 +157,12 @@ public actor WebRTCInternetRoute: RTCCallRoute {
 }
 
 extension WebRTCInternetRoute: DeviceCredentialRecoveringRoute, AuthenticatedInternetPeerObserving {
-    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) async {
+    func observeAuthenticatedInternetPeer(
+        _ peer: PeerID, callID: String, continuationDeadline: ContinuousClock.Instant
+    ) async {
         guard !Task.isCancelled, connecting, request?.sessionID == callID, remotePeers[peer] != nil else { return }
         await (signalingClient as? AuthenticatedInternetPeerObserving)?.observeAuthenticatedInternetPeer(
-            peer, callID: callID)
+            peer, callID: callID, continuationDeadline: continuationDeadline)
     }
 
     func requestCredentialRecovery() async {

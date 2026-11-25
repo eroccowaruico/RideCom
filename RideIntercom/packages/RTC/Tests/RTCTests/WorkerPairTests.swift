@@ -92,20 +92,13 @@ struct WorkerPairTests {
             !expiring.channelIDs(from: "staying").isEmpty && !staying.channelIDs(from: "expiring").isEmpty
         }
         let subscribedChannels = expiring.channelIDs(from: "staying")
+        let nearbyDeadline = ContinuousClock.now.advanced(by: .seconds(3))
         // The fixed Worker clock has one second of ordinary authorization left.
         // Its next scheduled renewal would be in five minutes.
         let establishedAt = try await confirmEstablishment(
-            alice: staying, aliceCall: stayingRequest.call, bob: expiring, bobCall: expiringRequest.call)
-        let signal = try #require(env["RIDEINTERCOM_PAIR_CLOCK_SIGNAL"])
-        try Data().write(to: URL(fileURLWithPath: signal))
-        try await eventually {
-            do {
-                _ = try await CloudflareRealtimeSignalingClient.checkService(expiringRequest.cloudflare)
-                return false
-            } catch CloudflareRealtimeSignalingClient.Failure.deviceCredentialRejected {
-                return true
-            }
-        }
+            alice: staying, aliceCall: stayingRequest.call, bob: expiring, bobCall: expiringRequest.call,
+            continuationDeadline: nearbyDeadline)
+        try await expireTestCredential(expiringRequest.cloudflare)
         PairExpiryRequests.arm()
         await arriving.join(try request("arriving"))
         try await eventually {
@@ -116,8 +109,26 @@ struct WorkerPairTests {
         #expect(await expiring.client.establishedAt == establishedAt)
         #expect(expiring.channelIDs(from: "arriving").isEmpty)
         #expect(try await CloudflareRealtimeSignalingClient.checkService(stayingRequest.cloudflare).activeSessions == 3)
+        try await eventually { expiring.blockedReasons == [.deviceCredentialRejected] }
+        #expect(ContinuousClock.now >= nearbyDeadline)
+        try await eventually {
+            try await CloudflareRealtimeSignalingClient.checkService(stayingRequest.cloudflare).activeSessions == 2
+        }
         for endpoint in [expiring, staying, arriving] { await endpoint.client.disconnect() }
         #expect(try await CloudflareRealtimeSignalingClient.checkService(stayingRequest.cloudflare).activeSessions == 0)
+    }
+
+    private func expireTestCredential(_ configuration: CloudflareRealtimeConfiguration) async throws {
+        let signal = try #require(ProcessInfo.processInfo.environment["RIDEINTERCOM_PAIR_CLOCK_SIGNAL"])
+        try Data().write(to: URL(fileURLWithPath: signal))
+        try await eventually {
+            do {
+                _ = try await CloudflareRealtimeSignalingClient.checkService(configuration)
+                return false
+            } catch CloudflareRealtimeSignalingClient.Failure.deviceCredentialRejected {
+                return true
+            }
+        }
     }
 
     private func rejectedSignalRequest() throws -> WebRTCSignalingConnectRequest {
@@ -180,7 +191,8 @@ struct WorkerPairTests {
     }
 
     private func confirmEstablishment(
-        alice: PairEndpoint, aliceCall: CallStartRequest, bob: PairEndpoint, bobCall: CallStartRequest
+        alice: PairEndpoint, aliceCall: CallStartRequest, bob: PairEndpoint, bobCall: CallStartRequest,
+        continuationDeadline: ContinuousClock.Instant = .now.advanced(by: .seconds(86400))
     ) async throws -> Double {
         var aliceRelay = GroupRelay(request: aliceCall), bobRelay = GroupRelay(request: bobCall)
         let presence = try aliceRelay.make(.presence, now: 0)
@@ -192,7 +204,8 @@ struct WorkerPairTests {
         let confirmed = try #require(reception)
         #expect(confirmed.peer.displayName == aliceCall.localPeer.displayName)
         #expect(await bob.client.establishedAt == nil)
-        await bob.client.observeAuthenticatedInternetPeer(confirmed.peer.id, callID: bobCall.sessionID)
+        await bob.client.observeAuthenticatedInternetPeer(
+            confirmed.peer.id, callID: bobCall.sessionID, continuationDeadline: continuationDeadline)
         try await eventually { await bob.client.establishedAt != nil }
         return try #require(await bob.client.establishedAt)
     }

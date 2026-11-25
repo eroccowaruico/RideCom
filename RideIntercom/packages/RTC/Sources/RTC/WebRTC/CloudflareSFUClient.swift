@@ -18,6 +18,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
     private var needsEarlyRenewal = false
     private var currentLease: Lease?
     private var establishmentPeer: PeerID?
+    private var callContinuationDeadline: ContinuousClock.Instant?
     private(set) var establishedAt: Double?
     private var peers: [PeerDescriptor] = []
     private var localChannels: [WebRTCDataChannel] = []
@@ -63,7 +64,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         let oldID = sessionID, oldIceLeaseID = iceLeaseID
         let oldRequest = request.map { oldID == nil ? $0 : $0.replacingWorkerCredential(currentConfiguration()) }
         sessionID = nil; iceLeaseID = nil; request = nil; peers = []; currentLease = nil
-        establishmentPeer = nil; establishedAt = nil
+        establishmentPeer = nil; establishedAt = nil; callContinuationDeadline = nil
         localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
         if let oldRequest {
@@ -171,11 +172,12 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
                 return true
             } catch {
                 guard self.generation == generation, !Task.isCancelled else { return false }
-                if let remaining = lease.continuationRemaining, remaining <= 0 {
+                let continuation = lease.continuationRemaining(through: callContinuationDeadline)
+                if let continuation, continuation <= 0 {
                     await fail(Failure.deviceCredentialRejected, generation: generation)
                     return false
                 }
-                let remaining = lease.expiresAt / 1000 - Date().timeIntervalSince1970
+                let remaining = continuation ?? lease.expiresAt / 1000 - Date().timeIntervalSince1970
                 let retryable = switch error {
                 case Failure.servicePaused: true
                 case Failure.http(let code): (500..<600).contains(code)
@@ -189,22 +191,11 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         return false
     }
 
-    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) {
-        guard !Task.isCancelled, request?.call.sessionID == callID, sessionID != nil,
-              establishedAt == nil, currentLease?.continuationOnly != true,
-              peers.contains(where: { $0.id == peer })
-        else { return }
-        if let pending = establishmentPeer, peers.contains(where: { $0.id == pending }) { return }
-        establishmentPeer = peer
-        needsEarlyRenewal = true
-        renewalWait?.cancel()
-    }
-
     private func requestRenewal(
         _ request: WebRTCSignalingConnectRequest, id: String, generation: UUID
     ) async throws -> Lease? {
         guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
-        let remaining = currentLease?.continuationRemaining ?? .infinity
+        let remaining = currentLease?.continuationRemaining(through: callContinuationDeadline) ?? .infinity
         guard remaining > 0 else { throw Failure.deviceCredentialRejected }
         let peer = currentLease?.continuationOnly == true ? nil : establishmentPeer
         needsEarlyRenewal = false
@@ -213,12 +204,12 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
             path: "sessions/\(id)/renew", body: [:], totalTimeout: .seconds(min(25, remaining)),
             establishmentPeer: peer)
         guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
-        guard (currentLease?.continuationRemaining ?? .infinity) > 0 else {
+        guard (currentLease?.continuationRemaining(through: callContinuationDeadline) ?? .infinity) > 0 else {
             throw Failure.deviceCredentialRejected
         }
         let lease = try JSONDecoder().decode(Lease.self, from: data)
         guard lease.sessionId == id else { throw Failure.invalidResponse }
-        guard (lease.continuationRemaining ?? .infinity) > 0 else {
+        guard (lease.continuationRemaining(through: callContinuationDeadline) ?? .infinity) > 0 else {
             throw Failure.deviceCredentialRejected
         }
         return lease
@@ -233,10 +224,11 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         await previous?.value
         guard let lease = try? await requestRenewal(request, id: id, generation: generation),
               self.generation == generation, !Task.isCancelled,
-              let remaining = lease.continuationRemaining, remaining > 0 else { return nil }
+              let remaining = lease.continuationRemaining(through: callContinuationDeadline), remaining > 0
+        else { return nil }
         acceptRenewal(lease)
         startRenewing(request, generation: generation)
-        return lease.nextRenewalDelay
+        return lease.nextRenewalDelay(through: callContinuationDeadline)
     }
 
     private func acceptRenewal(_ lease: Lease) {
@@ -270,17 +262,18 @@ private extension CloudflareRealtimeSignalingClient {
     func startRenewing(_ request: WebRTCSignalingConnectRequest, generation: UUID) {
         renewalTask = Task { [weak self] in
             while !Task.isCancelled, let lease = await self?.currentLease {
-                await self?.waitForRenewal(seconds: lease.nextRenewalDelay, generation: generation)
+                await self?.waitForRenewal(lease, generation: generation)
                 guard !Task.isCancelled, await self?.renew(request, lease: lease, generation: generation) == true
                 else { return }
             }
         }
     }
 
-    func waitForRenewal(seconds: Double, generation: UUID) async {
+    func waitForRenewal(_ lease: Lease, generation: UUID) async {
         guard self.generation == generation, !Task.isCancelled, !needsEarlyRenewal else { return }
         // An authenticated peer can end the wait without interrupting a renewal already in flight.
-        let wait = Task { _ = try? await Task.sleep(for: .seconds(seconds)) }
+        let delay = lease.nextRenewalDelay(through: callContinuationDeadline)
+        let wait = Task { _ = try? await Task.sleep(for: .seconds(delay)) }
         renewalWait = wait
         await withTaskCancellationHandler {
             await wait.value
@@ -357,15 +350,6 @@ private extension CloudflareRealtimeSignalingClient {
             }
         }
     }
-    func receiveMessage(from socket: URLSessionWebSocketTask) async throws -> URLSessionWebSocketTask.Message {
-        do { return try await socket.receive() } catch {
-            guard let response = socket.response as? HTTPURLResponse, let url = socket.originalRequest?.url,
-                  response.url == url else { throw error }
-            let rejection = Failure(httpStatus: response.statusCode)
-            guard case .deviceCredentialRejected = rejection else { throw error }
-            throw rejection
-        }
-    }
     func socketUpgrade(_ request: WebRTCSignalingConnectRequest, id: String) throws -> URLRequest {
         let endpoint = try endpoint(request, path: "sessions/\(id)/signal")
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
@@ -381,6 +365,23 @@ private extension CloudflareRealtimeSignalingClient {
 }
 
 extension CloudflareRealtimeSignalingClient {
+    func observeAuthenticatedInternetPeer(
+        _ peer: PeerID, callID: String, continuationDeadline: ContinuousClock.Instant
+    ) {
+        guard !Task.isCancelled, request?.call.sessionID == callID, sessionID != nil,
+              peers.contains(where: { $0.id == peer })
+        else { return }
+        if callContinuationDeadline == nil {
+            callContinuationDeadline = continuationDeadline
+            if currentLease?.continuationOnly == true { renewalWait?.cancel() }
+        }
+        guard establishedAt == nil, currentLease?.continuationOnly != true else { return }
+        if let pending = establishmentPeer, peers.contains(where: { $0.id == pending }) { return }
+        establishmentPeer = peer
+        needsEarlyRenewal = true
+        renewalWait?.cancel()
+    }
+
     private func endpoint(_ request: WebRTCSignalingConnectRequest, path: String) throws -> URL {
         guard let credential = request.call.credential else { throw Failure.invalidConfiguration }
         return request.cloudflare.workerURL.appendingPathComponent("api/rooms/\(credential.groupHash)/\(path)")

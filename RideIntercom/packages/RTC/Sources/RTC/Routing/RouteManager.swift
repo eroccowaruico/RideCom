@@ -344,9 +344,10 @@ private extension RouteManager {
         case .presence, .leave: break
         }
         if kind == .webRTC, result.body == .presence, result.peer.id == data.peerID,
-           let callID = request?.sessionID, let route = routes[kind] as? AuthenticatedInternetPeerObserving {
+           let callID = request?.sessionID, let deadline = relay?.continuationDeadline,
+           let route = routes[kind] as? AuthenticatedInternetPeerObserving {
             let token = generation
-            await route.observeAuthenticatedInternetPeer(result.peer.id, callID: callID)
+            await route.observeAuthenticatedInternetPeer(result.peer.id, callID: callID, continuationDeadline: deadline)
             guard generation == token else { return }
         }
         guard let bytes = result.forward else { return }

@@ -244,6 +244,47 @@ func replacingRejectedCredentialRestartsOnlyInternetInTheSameSession(localAvaila
     task.cancel()
 }
 
+@Test func webRTCReceivesTheContinuationDeadlineOfTheEarlierNearbyCall() async throws {
+    let signaling = FakeWebRTCSignalingClient()
+    let internet = WebRTCInternetRoute(cloudflareConfiguration: try makeCloudflareConfiguration(),
+                                       signalingClient: signaling, engine: FakeWebRTCEngine())
+    let nearby = FakeRoute(kind: .multipeer)
+    let configuration = CallRouteConfiguration(enabledRoutes: [.multipeer, .webRTC], preferredRoute: .multipeer,
+                                               selectionMode: .automaticFallbackAndRestore, fallbackDelay: 0)
+    let manager = RouteManager(routes: [nearby, internet], configuration: configuration)
+    let call = makeRequest(configuration: configuration)
+    await manager.prepare(call)
+    await manager.startConnection()
+    var remoteCall = call
+    let peer = PeerDescriptor(id: .init(rawValue: "rider"), displayName: "Rider")
+    remoteCall.localPeer = peer
+    var remote = GroupRelay(request: remoteCall)
+    let earliestDeadline = ContinuousClock.now.advanced(by: .seconds(86400))
+    nearby.yield(.membersChanged(.multipeer, [.init(peer: peer, route: .multipeer, isConnected: true)]))
+    let nearbyPresence = try remote.make(.presence, now: 0)
+    nearby.yield(.receivedApplicationData(.multipeer, .init(
+        peerID: peer.id, message: .init(namespace: GroupRelay.namespace, payload: nearbyPresence))))
+    for _ in 0..<100 where await manager.relay?.continuationDeadline == nil {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    let deadline = try #require(await manager.relay?.continuationDeadline)
+    #expect(deadline >= earliestDeadline)
+    #expect(deadline <= ContinuousClock.now.advanced(by: .seconds(86400)))
+    for _ in 0..<100 where signaling.configurations.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(!signaling.configurations.isEmpty)
+    signaling.yield(.members([peer]))
+    let internetPresence = try remote.make(.presence, now: 1)
+    signaling.yield(.receivedApplicationData(.init(
+        peerID: peer.id, message: .init(namespace: GroupRelay.namespace, payload: internetPresence))))
+    for _ in 0..<100 where signaling.continuationDeadline == nil { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(signaling.authenticatedInternetPeers == [peer.id])
+    #expect(signaling.continuationDeadline == deadline)
+    await manager.stopConnection()
+    await manager.prepare(call)
+    #expect(await manager.relay?.continuationDeadline == nil)
+    await manager.stopConnection()
+}
+
 @Test func webRTCNegotiationFailureClosesSignalingAndAllowsRetry() async throws {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
     engine.rejectAnswer = true
@@ -307,10 +348,13 @@ private final class FakeWebRTCSignalingClient:
     private let onConnect: (@Sendable () async -> Void)?
     private let observedConfigurations = Mutex<[CloudflareRealtimeConfiguration]>([])
     var configurations: [CloudflareRealtimeConfiguration] { observedConfigurations.withLock { $0 } }
-    private let authenticatedPeers = Mutex<[PeerID]>([])
-    var authenticatedInternetPeers: [PeerID] { authenticatedPeers.withLock { $0 } }
-    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) {
-        authenticatedPeers.withLock { $0.append(peer) }
+    private let authenticatedPeers = Mutex<[(id: PeerID, deadline: ContinuousClock.Instant)]>([])
+    var authenticatedInternetPeers: [PeerID] { authenticatedPeers.withLock { $0.map(\.id) } }
+    var continuationDeadline: ContinuousClock.Instant? { authenticatedPeers.withLock { $0.first?.deadline } }
+    func observeAuthenticatedInternetPeer(
+        _ peer: PeerID, callID: String, continuationDeadline: ContinuousClock.Instant
+    ) {
+        authenticatedPeers.withLock { $0.append((peer, continuationDeadline)) }
     }
     private(set) var disconnectCount = 0
     private(set) var sentOffers: [(WebRTCSessionDescription, PeerID)] = []

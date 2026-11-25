@@ -11,10 +11,15 @@ extension CloudflareRealtimeSignalingClient {
         let continuationOnly: Bool?
         let establishedAt: Double?
 
-        var continuationRemaining: Double? {
-            continuationOnly == true ? expiresAt / 1000 - Date().timeIntervalSince1970 : nil
+        func continuationRemaining(through callDeadline: ContinuousClock.Instant?) -> Double? {
+            guard continuationOnly == true else { return nil }
+            let server = expiresAt / 1000 - Date().timeIntervalSince1970
+            guard let callDeadline else { return server }
+            return min(server, ContinuousClock.now.duration(to: callDeadline) / .seconds(1))
         }
-        var nextRenewalDelay: Double { min(max(1, renewAfterSeconds), max(0, continuationRemaining ?? .infinity)) }
+        func nextRenewalDelay(through callDeadline: ContinuousClock.Instant?) -> Double {
+            min(max(1, renewAfterSeconds), max(0, continuationRemaining(through: callDeadline) ?? .infinity))
+        }
     }
 
     /// Checks device authorization and quota configuration without creating SFU media.
@@ -29,6 +34,16 @@ extension CloudflareRealtimeSignalingClient {
     }
 
     private struct Rejection: Decodable { let code: String }
+
+    func receiveMessage(from socket: URLSessionWebSocketTask) async throws -> URLSessionWebSocketTask.Message {
+        do { return try await socket.receive() } catch {
+            guard let response = socket.response as? HTTPURLResponse, let url = socket.originalRequest?.url,
+                  response.url == url else { throw error }
+            let rejection = Failure(httpStatus: response.statusCode)
+            guard case .deviceCredentialRejected = rejection else { throw error }
+            throw rejection
+        }
+    }
 
     static func fetch(
         _ configuration: CloudflareRealtimeConfiguration, url: URL, method: String, body: Data?,
