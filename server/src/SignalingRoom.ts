@@ -38,14 +38,7 @@ export class SignalingRoom implements DurableObject {
     private usesConfiguredSFU(member: Member): boolean {
         return sfuConfigured(this.env) && member.sfuAppID === this.env.CLOUDFLARE_SFU_APP_ID
     }
-    private async rememberCallRenewal(request: Request, member: Member): Promise<boolean> {
-        const accountID = request.headers.get('X-User'), tokenHash = request.headers.get('X-Device-Token-Hash')
-        if (!accountID || !tokenHash || member.renewalDeadline === undefined || member.expiresAt <= Date.now()) return false
-        const account = this.env.USER_ACCOUNT.get(this.env.USER_ACCOUNT.idFromString(accountID))
-        return account.rememberCallRenewal(member.owner.split(':')[1], tokenHash,
-            this.state.id.toString(), member.sessionId, member.renewalDeadline)
-    }
-    private async confirmEstablishment(request: Request, member: Member, members: Member[]): Promise<number | undefined> {
+    private async confirmEstablishment(request: Request, member: Member, members: Member[]) {
         const accountID = request.headers.get('X-User'), tokenHash = request.headers.get('X-Device-Token-Hash')
         const peerIDs = request.headers.get('X-Established-Peer')?.split(',')
         if (!accountID || !tokenHash || !peerIDs || peerIDs.length > 7
@@ -61,7 +54,7 @@ export class SignalingRoom implements DurableObject {
         const now = Date.now()
         if (identity?.userID !== userID || member.expiresAt <= now || !matches.some(peer => peer.expiresAt > now)) return
         member.establishedAt ??= now
-        return member.establishedAt
+        return { account, deviceID, tokenHash, establishedAt: member.establishedAt }
     }
     async fetch(request: Request): Promise<Response> {
         return this.state.blockConcurrencyWhile(async () => {
@@ -218,13 +211,15 @@ export class SignalingRoom implements DurableObject {
             }
             const r = await this.usage('reserve', { id: `${this.state.id}:${member.id}`, owner, userID, expiresNoLaterThan })
             if (!r.ok) return r
-            const establishedAt = scoped ? undefined : await this.confirmEstablishment(request, member, members)
-            if (establishedAt !== undefined) member.renewalDeadline = establishedAt + 86400000
+            const confirmation = scoped ? undefined : await this.confirmEstablishment(request, member, members)
+            if (confirmation) member.renewalDeadline = confirmation.establishedAt + 86400000
             member.expiresAt = await reservationExpiry(r)
             await this.state.storage.put(`member:${member.sessionId}`, member); await this.scheduleExpiry()
             // Persist the room timestamp first, so retrying account registration cannot move it.
             // A failed account write must not invalidate an already renewed ordinary lease.
-            const confirmed = establishedAt !== undefined && await this.rememberCallRenewal(request, member).catch(() => false)
+            const recorded = confirmation && member.renewalDeadline !== undefined && member.expiresAt > Date.now()
+                && await confirmation.account.rememberCallRenewal(confirmation.deviceID, confirmation.tokenHash,
+                    this.state.id.toString(), member.sessionId, member.renewalDeadline).catch(() => false)
             const ice = await this.turn.get(member.id)
             const expiresAt = Math.min(member.expiresAt, expiresNoLaterThan ?? Infinity)
             const iceServers = ice && (!scoped || ice.expiresAt <= expiresAt)
@@ -232,7 +227,7 @@ export class SignalingRoom implements DurableObject {
             return json({
                 ...this.lease({ ...member, expiresAt }),
                 ...(scoped ? { continuationOnly: true } : {}),
-                ...(confirmed ? { establishedAt } : {}),
+                ...(recorded ? { establishedAt: confirmation.establishedAt } : {}),
                 ...(iceServers ? { iceServers } : {})
             })
         }
