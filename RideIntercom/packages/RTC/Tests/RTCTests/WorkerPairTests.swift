@@ -6,29 +6,79 @@ import Testing
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["RIDEINTERCOM_PAIR_URL"] != nil))
 struct WorkerPairTests {
     @Test(.timeLimit(.minutes(1))) func signaling401BlocksRecoveryAndReleasesTheJoinedSession() async throws {
-        let env = ProcessInfo.processInfo.environment
-        let address = try #require(env["RIDEINTERCOM_PAIR_URL"])
-        let url = try #require(URL(string: address))
-        let groupHash = try #require(env["RIDEINTERCOM_PAIR_REJECTED_SIGNAL_ROOM"])
-        let configuration = CloudflareRealtimeConfiguration(
-            workerURL: url, accessToken: try #require(env["RIDEINTERCOM_PAIR_TOKEN_A"]))
+        let request = try rejectedSignalRequest()
         let endpoint = PairEndpoint()
         let listener = endpoint.listen()
         defer { listener.cancel() }
-        let request = WebRTCSignalingConnectRequest(
-            call: .init(sessionID: "signal-rejection",
-                        localPeer: .init(id: .init(rawValue: "alice"), displayName: "Alice"),
-                        credential: .init(groupHash: groupHash, sharedSecret: Data(repeating: 1, count: 32))),
-            cloudflare: configuration)
         await endpoint.join(request)
         try await eventually { !endpoint.blockedReasons.isEmpty }
         #expect(endpoint.answers == 1)
         #expect(endpoint.failures.isEmpty)
         #expect(endpoint.blockedReasons == [.deviceCredentialRejected])
         try await eventually(attempts: 40) {
-            try await CloudflareRealtimeSignalingClient.checkService(configuration).activeSessions == 0
+            try await CloudflareRealtimeSignalingClient.checkService(request.cloudflare).activeSessions == 0
         }
         await endpoint.client.disconnect()
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func control401KeepsTheSessionWhenRenewalConfirmsContinuation(rejectsPull: Bool) async throws {
+        var request = try rejectedSignalRequest()
+        if rejectsPull {
+            request.call.credential = .derived(groupID: UUID().uuidString, secret: "synthetic-continuation")
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScopedRenewalResponse.self]
+        ScopedRenewalResponse.reset(rejectsPull: rejectsPull)
+        let endpoint = PairEndpoint(session: URLSession(configuration: configuration))
+        let listener = endpoint.listen()
+        defer { listener.cancel() }
+        await endpoint.join(request)
+        try await eventually { ScopedRenewalResponse.responseCount >= 2 }
+        if rejectsPull { try await eventually { ScopedRenewalResponse.pullCount >= 2 } }
+        #expect(endpoint.answers == 1)
+        #expect(endpoint.failures.isEmpty && endpoint.blockedReasons.isEmpty)
+        #expect(try await CloudflareRealtimeSignalingClient.checkService(request.cloudflare).activeSessions == 1)
+        await endpoint.client.disconnect()
+        try await eventually(attempts: 40) {
+            try await CloudflareRealtimeSignalingClient.checkService(request.cloudflare).activeSessions == 0
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func scopedContinuationStopsAtItsDeadline() async throws {
+        let request = try rejectedSignalRequest()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScopedRenewalResponse.self]
+        ScopedRenewalResponse.reset(rejectsPull: false, endsBeforeRenewalInterval: true)
+        let endpoint = PairEndpoint(session: URLSession(configuration: configuration))
+        let listener = endpoint.listen()
+        defer { listener.cancel() }
+        await endpoint.join(request)
+        try await eventually { ScopedRenewalResponse.responseCount == 1 }
+        let expiresAt = try #require(ScopedRenewalResponse.lastExpiry)
+        #expect(endpoint.blockedReasons.isEmpty)
+        #expect(try await CloudflareRealtimeSignalingClient.checkService(request.cloudflare).activeSessions == 1)
+        try await eventually { endpoint.blockedReasons == [.deviceCredentialRejected] }
+        #expect(Date().timeIntervalSince1970 + 0.05 >= expiresAt)
+        #expect(ScopedRenewalResponse.responseCount == 1)
+        try await eventually(attempts: 40) {
+            try await CloudflareRealtimeSignalingClient.checkService(request.cloudflare).activeSessions == 0
+        }
+        await endpoint.client.disconnect()
+    }
+
+    private func rejectedSignalRequest() throws -> WebRTCSignalingConnectRequest {
+        let env = ProcessInfo.processInfo.environment
+        let address = try #require(env["RIDEINTERCOM_PAIR_URL"])
+        let url = try #require(URL(string: address))
+        let groupHash = try #require(env["RIDEINTERCOM_PAIR_REJECTED_SIGNAL_ROOM"])
+        let configuration = CloudflareRealtimeConfiguration(
+            workerURL: url, accessToken: try #require(env["RIDEINTERCOM_PAIR_TOKEN_A"]))
+        return WebRTCSignalingConnectRequest(
+            call: .init(sessionID: "signal-rejection",
+                        localPeer: .init(id: .init(rawValue: "alice"), displayName: "Alice"),
+                        credential: .init(groupHash: groupHash, sharedSecret: Data(repeating: 1, count: 32))),
+            cloudflare: configuration)
     }
 
     @Test(.timeLimit(.minutes(1))) func authenticatedPairRenewsExchangesAndRejoins() async throws {
@@ -182,6 +232,65 @@ private final class StalePeerSnapshotResponse: URLProtocol, @unchecked Sendable 
         Self.state.withLock { $0 = .rejected }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(#"{"code":"peer_snapshot_changed"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class ScopedRenewalResponse: URLProtocol, @unchecked Sendable {
+    private struct State {
+        var rejectsPull = false
+        var endsBeforeRenewalInterval = false
+        var pullCount = 0
+        var responseCount = 0
+        var lastExpiry: Double?
+    }
+    private static let state = Mutex(State())
+    static var responseCount: Int { state.withLock { $0.responseCount } }
+    static var pullCount: Int { state.withLock { $0.pullCount } }
+    static var lastExpiry: Double? { state.withLock { $0.lastExpiry } }
+    static func reset(rejectsPull: Bool, endsBeforeRenewalInterval: Bool = false) {
+        state.withLock { $0 = State(rejectsPull: rejectsPull, endsBeforeRenewalInterval: endsBeforeRenewalInterval) }
+    }
+
+    override static func canInit(with request: URLRequest) -> Bool {
+        guard request.httpMethod == "POST" else { return false }
+        let action = request.url?.lastPathComponent
+        return action == "renew" || (action == "pull" && state.withLock { $0.rejectsPull })
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let rejectsPull = request.url?.lastPathComponent == "pull"
+        let endsBeforeRenewalInterval = Self.state.withLock { $0.endsBeforeRenewalInterval }
+        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: rejectsPull ? 401 : 200,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let expiresAt = Date().addingTimeInterval(endsBeforeRenewalInterval ? 2 : 4).timeIntervalSince1970
+        let body: [String: Any] = rejectsPull ? [:] : [
+            "sessionId": url.deletingLastPathComponent().lastPathComponent,
+            "expiresAt": expiresAt * 1000,
+            "renewAfterSeconds": endsBeforeRenewalInterval ? 30 : 1,
+            "continuationOnly": true
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        Self.state.withLock {
+            if rejectsPull {
+                $0.pullCount += 1
+            } else {
+                $0.responseCount += 1
+                $0.lastExpiry = expiresAt
+            }
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
 

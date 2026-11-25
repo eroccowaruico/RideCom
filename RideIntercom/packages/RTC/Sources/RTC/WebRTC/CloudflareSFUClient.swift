@@ -14,6 +14,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private var socket: URLSessionWebSocketTask?
     private var socketTask: Task<Void, Never>?
     private var renewalTask: Task<Void, Never>?
+    private var currentLease: Lease?
     private var peers: [PeerDescriptor] = []
     private var localChannels: [WebRTCDataChannel] = []
     private var publishing = false
@@ -56,7 +57,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         socketTask = nil; renewalTask = nil; socket?.cancel(with: .normalClosure, reason: nil); socket = nil
         let oldID = sessionID, oldIceLeaseID = iceLeaseID
         let oldRequest = request.map { oldID == nil ? $0 : $0.replacingWorkerCredential(currentConfiguration()) }
-        sessionID = nil; iceLeaseID = nil; request = nil; peers = []
+        sessionID = nil; iceLeaseID = nil; request = nil; peers = []; currentLease = nil
         localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
         if let oldRequest {
@@ -94,16 +95,19 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
             localChannels = lease.channels ?? []
             source.yield(.dataChannels(localChannels))
             source.yield(.answer(.init(kind: .answer, sdp: description.sdp), from: Self.sfuID))
-            renewalTask = Task { [weak self] in
-                var current = lease
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(max(1, current.renewAfterSeconds)))
-                    guard !Task.isCancelled, let self else { return }
-                    guard let next = await self.renew(request, lease: current, generation: generation) else { return }
-                    current = next
-                }
-            }
+            currentLease = lease
+            startRenewing(request, generation: generation)
         } catch { await fail(error, generation: generation, step: String(localized: "Call join")) }
+    }
+
+    private func startRenewing(_ request: WebRTCSignalingConnectRequest, generation: UUID) {
+        renewalTask = Task { [weak self] in
+            while !Task.isCancelled, let lease = await self?.currentLease {
+                try? await Task.sleep(for: .seconds(lease.nextRenewalDelay))
+                guard !Task.isCancelled, await self?.renew(request, lease: lease, generation: generation) == true
+                else { return }
+            }
+        }
     }
     public func startPublishing() async {
         guard !publishing, let request, let sessionID else { return }
@@ -153,38 +157,82 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         } catch Failure.peerSnapshotChanged {
             // Reopen signaling to fetch current peers without replacing the SFU session.
             throw Failure.peerSnapshotChanged
+        } catch Failure.deviceCredentialRejected {
+            throw Failure.deviceCredentialRejected
         } catch {
             await fail(error, generation: generation)
             return false
         }
     }
-    private func renew(_ request: WebRTCSignalingConnectRequest, lease: Lease, generation: UUID) async -> Lease? {
+    private func renew(_ request: WebRTCSignalingConnectRequest, lease: Lease, generation: UUID) async -> Bool {
         var delay = 1.0
         while self.generation == generation, !Task.isCancelled {
             do {
-                let data = try await http(
-                    request.replacingWorkerCredential(currentConfiguration()),
-                    path: "sessions/\(lease.sessionId)/renew", body: [:])
-                guard self.generation == generation else { return nil }
-                let next = try JSONDecoder().decode(Lease.self, from: data)
-                guard next.sessionId == lease.sessionId else { throw Failure.invalidResponse }
-                if let servers = next.iceServers { source.yield(.iceServers(servers)) }
-                return next
+                guard let next = try await requestRenewal(request, id: lease.sessionId, generation: generation),
+                      self.generation == generation, !Task.isCancelled else { return false }
+                acceptRenewal(next)
+                return true
             } catch {
-                guard self.generation == generation, !Task.isCancelled else { return nil }
+                guard self.generation == generation, !Task.isCancelled else { return false }
+                if let remaining = lease.continuationRemaining, remaining <= 0 {
+                    await fail(Failure.deviceCredentialRejected, generation: generation)
+                    return false
+                }
                 let remaining = lease.expiresAt / 1000 - Date().timeIntervalSince1970
                 let retryable = switch error {
                 case Failure.servicePaused: true
                 case Failure.http(let code): (500..<600).contains(code)
                 default: error is URLError
                 }
-                guard retryable, remaining > delay else { await fail(error, generation: generation); return nil }
+                guard retryable, remaining > delay else { await fail(error, generation: generation); return false }
                 try? await Task.sleep(for: .seconds(delay))
                 delay = min(10, delay * 2)
             }
         }
-        return nil
+        return false
     }
+
+    private func requestRenewal(
+        _ request: WebRTCSignalingConnectRequest, id: String, generation: UUID
+    ) async throws -> Lease? {
+        guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
+        let remaining = currentLease?.continuationRemaining ?? .infinity
+        guard remaining > 0 else { throw Failure.deviceCredentialRejected }
+        let data = try await http(
+            request.replacingWorkerCredential(currentConfiguration()),
+            path: "sessions/\(id)/renew", body: [:], totalTimeout: .seconds(min(25, remaining)))
+        guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
+        guard (currentLease?.continuationRemaining ?? .infinity) > 0 else {
+            throw Failure.deviceCredentialRejected
+        }
+        let lease = try JSONDecoder().decode(Lease.self, from: data)
+        guard lease.sessionId == id else { throw Failure.invalidResponse }
+        guard (lease.continuationRemaining ?? .infinity) > 0 else {
+            throw Failure.deviceCredentialRejected
+        }
+        return lease
+    }
+
+    private func continuationRetryDelay(
+        _ request: WebRTCSignalingConnectRequest, id: String, generation: UUID
+    ) async -> Double? {
+        guard self.generation == generation, !Task.isCancelled else { return nil }
+        let previous = renewalTask
+        previous?.cancel()
+        await previous?.value
+        guard let lease = try? await requestRenewal(request, id: id, generation: generation),
+              self.generation == generation, !Task.isCancelled,
+              let remaining = lease.continuationRemaining, remaining > 0 else { return nil }
+        acceptRenewal(lease)
+        startRenewing(request, generation: generation)
+        return lease.nextRenewalDelay
+    }
+
+    private func acceptRenewal(_ lease: Lease) {
+        currentLease = lease
+        if let servers = lease.iceServers { source.yield(.iceServers(servers)) }
+    }
+
     private func fail(_ error: Error, generation: UUID, step: String? = nil) async {
         guard self.generation == generation else { return }
         let message = (error as? Failure)?.description ?? "Cloudflare connection failed"
@@ -199,13 +247,17 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         }
         await disconnect()
     }
-    private struct Rejection: Decodable { let code: String }
     private struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
     private struct Description: Decodable { let type: String; let sdp: String }
     private struct Lease: Decodable {
         let sessionId: String; let expiresAt: Double; let renewAfterSeconds: Double
         let sessionDescription: Description?; let channels: [WebRTCDataChannel]?
         let iceServers: [WebRTCIceServer]?
+        let continuationOnly: Bool?
+        var continuationRemaining: Double? {
+            continuationOnly == true ? expiresAt / 1000 - Date().timeIntervalSince1970 : nil
+        }
+        var nextRenewalDelay: Double { min(max(1, renewAfterSeconds), max(0, continuationRemaining ?? .infinity)) }
     }
     private struct Pull: Decodable { let channels: [WebRTCDataChannel] }
     private struct WirePeer: Decodable { let id: String; let sessionId: String }
@@ -223,8 +275,14 @@ private extension CloudflareRealtimeSignalingClient {
                 do { try await self.receiveSocket(request, id: id, generation: generation); return } catch {
                     guard !Task.isCancelled else { return }
                     if case Failure.deviceCredentialRejected = error {
-                        await self.fail(error, generation: generation)
-                        return
+                        guard let delay = await self.continuationRetryDelay(request, id: id, generation: generation)
+                        else {
+                            if !Task.isCancelled { await self.fail(error, generation: generation) }
+                            return
+                        }
+                        // Only the Worker can confirm that the current media lease remains authorized.
+                        try? await Task.sleep(for: .seconds(delay))
+                        continue
                     }
                     // Signaling can reconnect without replacing SFU media. Lease renewal still bounds lifetime.
                     try? await Task.sleep(for: .seconds(retry)); retry = min(10, retry * 2)
@@ -295,101 +353,17 @@ private extension CloudflareRealtimeSignalingClient {
 }
 
 extension CloudflareRealtimeSignalingClient {
-    /// Checks device authorization and quota configuration without creating SFU media.
-    public static func checkService(
-        _ configuration: CloudflareRealtimeConfiguration, session: URLSession = .shared
-    ) async throws -> CloudflareServiceStatus {
-        guard configuration.isValid else { throw Failure.invalidConfiguration }
-        let data = try await fetch(
-            configuration, url: configuration.workerURL.appendingPathComponent("api/status"), method: "GET",
-            body: nil, session: session)
-        return try JSONDecoder().decode(CloudflareServiceStatus.self, from: data)
-    }
     private func endpoint(_ request: WebRTCSignalingConnectRequest, path: String) throws -> URL {
         guard let credential = request.call.credential else { throw Failure.invalidConfiguration }
         return request.cloudflare.workerURL.appendingPathComponent("api/rooms/\(credential.groupHash)/\(path)")
     }
     private func http(
-        _ connect: WebRTCSignalingConnectRequest, path: String, method: String = "POST", body: [String: Any]? = nil
+        _ connect: WebRTCSignalingConnectRequest, path: String, method: String = "POST",
+        body: [String: Any]? = nil, totalTimeout: Duration = .seconds(25)
     ) async throws -> Data {
         try await Self.fetch(
             connect.cloudflare, url: try endpoint(connect, path: path), method: method,
             body: try body.map { try JSONSerialization.data(withJSONObject: $0) }, session: session,
-            retryConnectionLoss: path.hasSuffix("/pull"))
-    }
-    static func fetch(
-        _ configuration: CloudflareRealtimeConfiguration, url: URL, method: String, body: Data?,
-        session: URLSession, retryConnectionLoss: Bool = false, totalTimeout: Duration = .seconds(25)
-    ) async throws -> Data {
-        var request = URLRequest(url: url); request.httpMethod = method
-        request.setValue("Bearer \(configuration.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-        let operation: @Sendable () async throws -> Data = { [request] in
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: totalTimeout)
-            return try await withThrowingTaskGroup(of: Data.self) { group in
-                group.addTask {
-                    try await fetchAttempts(
-                        request, session: session, deadline: deadline, retryConnectionLoss: retryConnectionLoss)
-                }
-                group.addTask {
-                    try await clock.sleep(until: deadline)
-                    throw URLError(.timedOut)
-                }
-                defer { group.cancelAll() }
-                guard let result = try await group.next() else { throw URLError(.cancelled) }
-                return result
-            }
-        }
-        // Session teardown still sends its one bounded request after the call task is cancelled.
-        if method == "DELETE" { return try await Task(operation: operation).value }
-        return try await operation()
-    }
-
-    private static func fetchAttempts(
-        _ initialRequest: URLRequest, session: URLSession, deadline: ContinuousClock.Instant,
-        retryConnectionLoss: Bool
-    ) async throws -> Data {
-        var request = initialRequest
-        var retries = 0
-        while true {
-            let remaining = ContinuousClock.now.duration(to: deadline)
-            guard remaining > .zero else { throw URLError(.timedOut) }
-            let components = remaining.components
-            request.timeoutInterval = Double(components.seconds) + Double(components.attoseconds) / 1e18
-            do {
-                let (data, response) = try await session.data(for: request, delegate: NoRedirects())
-                guard ContinuousClock.now < deadline else { throw URLError(.timedOut) }
-                guard let response = response as? HTTPURLResponse,
-                      response.url?.host == request.url?.host, response.url?.scheme == request.url?.scheme else {
-                    throw Failure.invalidResponse
-                }
-                if (200..<300).contains(response.statusCode) { return data }
-                let code = data.count <= 32768 ? (try? JSONDecoder().decode(Rejection.self, from: data))?.code : nil
-                switch (response.statusCode, code) {
-                case (409, "account_in_use"): throw Failure.accountInUse
-                case (403, "peer_snapshot_changed") where request.url?.path.hasSuffix("/pull") == true:
-                    throw Failure.peerSnapshotChanged
-                case (503, "call_service_paused"): throw Failure.servicePaused
-                default: throw Failure(httpStatus: response.statusCode)
-                }
-            } catch let error as URLError
-                where retryConnectionLoss && error.code == .networkConnectionLost && retries < 2 {
-                // Pull reconciles the requested subscriptions idempotently. A lost
-                // keep-alive connection must not destroy otherwise healthy media.
-                // Never repeat session creation, authorization failures or cancellation,
-                // and retain the original request's total deadline across retries.
-                retries += 1
-                try await Task.sleep(for: .milliseconds(retries * 100))
-            }
-        }
-    }
-}
-
-private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
+            retryConnectionLoss: path.hasSuffix("/pull"), totalTimeout: totalTimeout)
     }
 }
