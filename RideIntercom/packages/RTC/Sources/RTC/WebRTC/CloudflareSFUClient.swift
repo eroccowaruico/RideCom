@@ -1,7 +1,7 @@
 import Foundation
 
 /// The SFU secret never enters this client. All media mutations are authorized by the Worker.
-public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
+public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, AuthenticatedInternetPeerObserving {
     public nonisolated var events: AsyncStream<WebRTCSignalingEvent> { source.stream }
     private nonisolated let source = EventSource<WebRTCSignalingEvent>(
         overflowEvent: .failed("Control event queue overflow"))
@@ -15,6 +15,8 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
     private var socketTask: Task<Void, Never>?
     private var renewalTask: Task<Void, Never>?
     private var currentLease: Lease?
+    private var establishmentPeer: PeerID?
+    private(set) var establishedAt: Double?
     private var peers: [PeerDescriptor] = []
     private var localChannels: [WebRTCDataChannel] = []
     private var publishing = false
@@ -58,6 +60,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         let oldID = sessionID, oldIceLeaseID = iceLeaseID
         let oldRequest = request.map { oldID == nil ? $0 : $0.replacingWorkerCredential(currentConfiguration()) }
         sessionID = nil; iceLeaseID = nil; request = nil; peers = []; currentLease = nil
+        establishmentPeer = nil; establishedAt = nil
         localChannels = []; publishing = false
         // Clear owned state before suspending. An old DELETE must never clear a new call.
         if let oldRequest {
@@ -192,15 +195,25 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         return false
     }
 
+    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) {
+        guard !Task.isCancelled, request?.call.sessionID == callID, sessionID != nil,
+              establishedAt == nil, peers.contains(where: { $0.id == peer })
+        else { return }
+        if let pending = establishmentPeer, peers.contains(where: { $0.id == pending }) { return }
+        establishmentPeer = peer
+    }
+
     private func requestRenewal(
         _ request: WebRTCSignalingConnectRequest, id: String, generation: UUID
     ) async throws -> Lease? {
         guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
         let remaining = currentLease?.continuationRemaining ?? .infinity
         guard remaining > 0 else { throw Failure.deviceCredentialRejected }
+        let peer = currentLease?.continuationOnly == true ? nil : establishmentPeer
         let data = try await http(
             request.replacingWorkerCredential(currentConfiguration()),
-            path: "sessions/\(id)/renew", body: [:], totalTimeout: .seconds(min(25, remaining)))
+            path: "sessions/\(id)/renew", body: [:], totalTimeout: .seconds(min(25, remaining)),
+            establishmentPeer: peer)
         guard self.generation == generation, sessionID == id, !Task.isCancelled else { return nil }
         guard (currentLease?.continuationRemaining ?? .infinity) > 0 else {
             throw Failure.deviceCredentialRejected
@@ -230,6 +243,10 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
 
     private func acceptRenewal(_ lease: Lease) {
         currentLease = lease
+        if establishedAt == nil, let confirmed = lease.establishedAt {
+            establishedAt = confirmed
+            establishmentPeer = nil
+        }
         if let servers = lease.iceServers { source.yield(.iceServers(servers)) }
     }
 
@@ -247,26 +264,28 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient {
         }
         await disconnect()
     }
-    private struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
-    private struct Description: Decodable { let type: String; let sdp: String }
-    private struct Lease: Decodable {
+}
+
+private extension CloudflareRealtimeSignalingClient {
+    struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
+    struct Description: Decodable { let type: String; let sdp: String }
+    struct Lease: Decodable {
         let sessionId: String; let expiresAt: Double; let renewAfterSeconds: Double
         let sessionDescription: Description?; let channels: [WebRTCDataChannel]?
         let iceServers: [WebRTCIceServer]?
         let continuationOnly: Bool?
+        let establishedAt: Double?
         var continuationRemaining: Double? {
             continuationOnly == true ? expiresAt / 1000 - Date().timeIntervalSince1970 : nil
         }
         var nextRenewalDelay: Double { min(max(1, renewAfterSeconds), max(0, continuationRemaining ?? .infinity)) }
     }
-    private struct Pull: Decodable { let channels: [WebRTCDataChannel] }
-    private struct WirePeer: Decodable { let id: String; let sessionId: String }
-    private struct WireEvent: Decodable {
+    struct Pull: Decodable { let channels: [WebRTCDataChannel] }
+    struct WirePeer: Decodable { let id: String; let sessionId: String }
+    struct WireEvent: Decodable {
         let type: String; let peers: [WirePeer]?; let from: String?; let namespace: String?; let payload: String?
     }
-}
 
-private extension CloudflareRealtimeSignalingClient {
     func startSocket(_ request: WebRTCSignalingConnectRequest, id: String, generation: UUID) {
         socketTask = Task { [weak self] in
             var retry = 1
@@ -359,11 +378,12 @@ extension CloudflareRealtimeSignalingClient {
     }
     private func http(
         _ connect: WebRTCSignalingConnectRequest, path: String, method: String = "POST",
-        body: [String: Any]? = nil, totalTimeout: Duration = .seconds(25)
+        body: [String: Any]? = nil, totalTimeout: Duration = .seconds(25), establishmentPeer: PeerID? = nil
     ) async throws -> Data {
         try await Self.fetch(
             connect.cloudflare, url: try endpoint(connect, path: path), method: method,
             body: try body.map { try JSONSerialization.data(withJSONObject: $0) }, session: session,
-            retryConnectionLoss: path.hasSuffix("/pull"), totalTimeout: totalTimeout)
+            retryConnectionLoss: path.hasSuffix("/pull"), totalTimeout: totalTimeout,
+            establishmentPeer: establishmentPeer)
     }
 }

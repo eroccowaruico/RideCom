@@ -156,7 +156,13 @@ public actor WebRTCInternetRoute: RTCCallRoute {
     }
 }
 
-extension WebRTCInternetRoute: DeviceCredentialRecoveringRoute {
+extension WebRTCInternetRoute: DeviceCredentialRecoveringRoute, AuthenticatedInternetPeerObserving {
+    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) async {
+        guard !Task.isCancelled, connecting, request?.sessionID == callID, remotePeers[peer] != nil else { return }
+        await (signalingClient as? AuthenticatedInternetPeerObserving)?.observeAuthenticatedInternetPeer(
+            peer, callID: callID)
+    }
+
     func requestCredentialRecovery() async {
         guard let rejectedAttempt else { return }
         await rejectedAttempt.cleanup.value

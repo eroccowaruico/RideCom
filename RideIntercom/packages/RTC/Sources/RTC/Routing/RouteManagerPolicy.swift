@@ -1,6 +1,14 @@
 import Foundation
 
 extension RouteManager {
+    func startRemaining(generation token: UUID) async {
+        guard generation == token, request != nil else { return }
+        for kind in configuration.enabledRoutes.sorted(by: { $0.rawValue < $1.rawValue }) {
+            await start(kind)
+            guard generation == token else { return }
+        }
+    }
+
     public func sendAudioPacket(_ packet: RTCAudioPacket) async {
         guard isMediaStarted, !localMute, packet.payload.count <= 8192 else { return }
         if case .admittedMemberships(let admitted) = request?.audioPolicy.peerPolicy {

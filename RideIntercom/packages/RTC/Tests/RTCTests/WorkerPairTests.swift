@@ -157,28 +157,39 @@ struct WorkerPairTests {
         try await eventually { !alice.channelIDs(from: "bob").isEmpty && !bob.channelIDs(from: "alice").isEmpty }
         #expect(alice.answers == 1 && alice.failures.isEmpty)
         #expect(alice.peerNames == ["bob"] && bob.peerNames == ["alice"])
-        var aliceRelay = GroupRelay(request: request("alice").call)
-        var bobRelay = GroupRelay(request: request("bob").call)
-        let presence = try aliceRelay.make(.presence, now: 0)
-        #expect(presence.range(of: Data("PrivateName-alice".utf8)) == nil)
-        await alice.client.sendApplicationData(.init(namespace: GroupRelay.namespace, payload: presence), to: nil)
-        try await eventually { bob.groupPresence != nil }
-        let received = try #require(bob.groupPresence)
-        #expect(
-            bobRelay.receive(received, from: .init(rawValue: "alice"), now: 0)?.peer.displayName
-                == "PrivateName-alice")
+        let establishedAt = try await confirmEstablishment(
+            alice: alice, aliceCall: request("alice").call, bob: bob, bobCall: request("bob").call)
         let originalAnswers = alice.answers
         await alice.client.sendApplicationData(.init(namespace: "pair", payload: Data("a-to-b".utf8)), to: nil)
         await bob.client.sendApplicationData(.init(namespace: "pair", payload: Data("b-to-a".utf8)), to: nil)
         try await eventually { alice.messages.contains("b-to-a") && bob.messages.contains("a-to-b") }
         // Cross two lease boundaries without replacing the published SFU connection.
         try await Task.sleep(for: .seconds(6))
+        #expect(await bob.client.establishedAt == establishedAt)
         #expect(alice.answers == originalAnswers)
         #expect(alice.failures.isEmpty && bob.failures.isEmpty, "After renewal: A=\(alice.failures), B=\(bob.failures)")
         try await verifyRejoin(alice: alice, bob: bob, request: request("bob"))
         await alice.client.disconnect(); await bob.client.disconnect()
         aliceListener.cancel(); bobListener.cancel()
         #expect(alice.failures.isEmpty && bob.failures.isEmpty, "After rejoin: A=\(alice.failures), B=\(bob.failures)")
+    }
+
+    private func confirmEstablishment(
+        alice: PairEndpoint, aliceCall: CallStartRequest, bob: PairEndpoint, bobCall: CallStartRequest
+    ) async throws -> Double {
+        var aliceRelay = GroupRelay(request: aliceCall), bobRelay = GroupRelay(request: bobCall)
+        let presence = try aliceRelay.make(.presence, now: 0)
+        #expect(presence.range(of: Data(aliceCall.localPeer.displayName.utf8)) == nil)
+        await alice.client.sendApplicationData(.init(namespace: GroupRelay.namespace, payload: presence), to: nil)
+        try await eventually { bob.groupPresence != nil }
+        let received = try #require(bob.groupPresence)
+        let reception = bobRelay.receive(received, from: aliceCall.localPeer.id, now: 0)
+        let confirmed = try #require(reception)
+        #expect(confirmed.peer.displayName == aliceCall.localPeer.displayName)
+        #expect(await bob.client.establishedAt == nil)
+        await bob.client.observeAuthenticatedInternetPeer(confirmed.peer.id, callID: bobCall.sessionID)
+        try await eventually { await bob.client.establishedAt != nil }
+        return try #require(await bob.client.establishedAt)
     }
 
     private func verifyRejoin(

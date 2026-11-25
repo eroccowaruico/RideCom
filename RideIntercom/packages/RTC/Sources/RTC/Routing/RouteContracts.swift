@@ -51,6 +51,10 @@ protocol DeviceCredentialRecoveringRoute: RTCCallRoute {
     func requestCredentialRecovery() async
 }
 
+protocol AuthenticatedInternetPeerObserving: AnyObject, Sendable {
+    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) async
+}
+
 public extension RTCCallRoute {
     /// Routes without a metrics backend explicitly report unavailability.
     func networkDiagnostics() async -> RTCRouteNetworkDiagnostics { .init(route: kind) }

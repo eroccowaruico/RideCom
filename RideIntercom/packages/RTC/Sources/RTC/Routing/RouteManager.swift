@@ -101,13 +101,6 @@ public actor RouteManager: CallSession {
         started.insert(kind); routeStates[kind] = .connecting
         await route.startConnection()
     }
-    private func startRemaining(generation token: UUID) async {
-        guard generation == token, request != nil else { return }
-        for kind in configuration.enabledRoutes.sorted(by: { $0.rawValue < $1.rawValue }) {
-            await start(kind)
-            guard generation == token else { return }
-        }
-    }
     public func stopConnection() async {
         generation = UUID()
         let token = generation
@@ -349,6 +342,12 @@ private extension RouteManager {
         case .application(let message):
             emit(.receivedApplicationData(.init(peerID: result.peer.id, message: message)))
         case .presence, .leave: break
+        }
+        if kind == .webRTC, result.body == .presence, result.peer.id == data.peerID,
+           let callID = request?.sessionID, let route = routes[kind] as? AuthenticatedInternetPeerObserving {
+            let token = generation
+            await route.observeAuthenticatedInternetPeer(result.peer.id, callID: callID)
+            guard generation == token else { return }
         }
         guard let bytes = result.forward else { return }
         let excluded = forwardingExclusion(from: kind, body: result.body, sender: result.peer.id)

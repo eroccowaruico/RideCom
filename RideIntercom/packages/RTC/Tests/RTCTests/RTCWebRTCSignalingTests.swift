@@ -174,6 +174,50 @@ func replacingRejectedCredentialRestartsOnlyInternetInTheSameSession(localAvaila
     #expect(signaling.configurations == [initial, next])
 }
 
+@Test func onlyAuthenticatedDirectInternetPresenceIsReportedToTheSignalingClient() async throws {
+    let signaling = FakeWebRTCSignalingClient()
+    let route = WebRTCInternetRoute(cloudflareConfiguration: try makeCloudflareConfiguration(),
+                                    signalingClient: signaling, engine: FakeWebRTCEngine())
+    let configuration = CallRouteConfiguration(enabledRoutes: [.webRTC], preferredRoute: .webRTC,
+                                               selectionMode: .singleRoute)
+    let manager = RouteManager(routes: [route], configuration: configuration)
+    let request = makeRequest(configuration: configuration)
+    await manager.prepare(request)
+    await manager.startConnection()
+    for _ in 0..<100 where signaling.configurations.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(!signaling.configurations.isEmpty)
+    var remote = request
+    let peer = PeerDescriptor(id: .init(rawValue: "remote"), displayName: "Remote")
+    let forwarder = PeerDescriptor(id: .init(rawValue: "forwarder"), displayName: "Forwarder")
+    remote.localPeer = peer
+    signaling.yield(.members([peer, forwarder]))
+    let peerIDs = Set([peer.id, forwarder.id])
+    for _ in 0..<100 where await manager.routeMembers[.webRTC] != peerIDs {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(await manager.routeMembers[.webRTC] == peerIDs)
+    #expect(signaling.authenticatedInternetPeers.isEmpty)
+
+    var wrongGroup = remote
+    wrongGroup.credential = .derived(groupID: "other-group", secret: "different-key")
+    var forwardingRequest = request
+    forwardingRequest.localPeer = forwarder
+    var forwarding = GroupRelay(request: forwardingRequest)
+    var rejected = GroupRelay(request: wrongGroup), accepted = GroupRelay(request: remote)
+    let reception = forwarding.receive(try accepted.make(.presence, now: 0), from: peer.id, now: 0)
+    let forwarded = try #require(reception?.forward)
+    for (sender, presence) in [(peer.id, try rejected.make(.presence, now: 0)), (forwarder.id, forwarded),
+                               (peer.id, try accepted.make(.presence, now: 0))] {
+        signaling.yield(.receivedApplicationData(.init(
+            peerID: sender, message: .init(namespace: GroupRelay.namespace, payload: presence))))
+    }
+    for _ in 0..<100 where signaling.authenticatedInternetPeers.isEmpty {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(signaling.authenticatedInternetPeers == [peer.id])
+    await manager.stopConnection()
+}
+
 @Test func webRTCConnectionReadinessRequiresICEAndRejectsEventsAfterStop() async throws {
     let signaling = FakeWebRTCSignalingClient(), engine = FakeWebRTCEngine()
     let route = WebRTCInternetRoute(
@@ -255,13 +299,19 @@ private final class FakeWebRTCEngine: NativeWebRTCEngine, @unchecked Sendable {
     }
 }
 
-private final class FakeWebRTCSignalingClient: WebRTCSignalingClient, @unchecked Sendable {
+private final class FakeWebRTCSignalingClient:
+    WebRTCSignalingClient, AuthenticatedInternetPeerObserving, @unchecked Sendable {
     var events: AsyncStream<WebRTCSignalingEvent> { eventSource.stream }
 
     private let eventSource = EventSource<WebRTCSignalingEvent>()
     private let onConnect: (@Sendable () async -> Void)?
     private let observedConfigurations = Mutex<[CloudflareRealtimeConfiguration]>([])
     var configurations: [CloudflareRealtimeConfiguration] { observedConfigurations.withLock { $0 } }
+    private let authenticatedPeers = Mutex<[PeerID]>([])
+    var authenticatedInternetPeers: [PeerID] { authenticatedPeers.withLock { $0 } }
+    func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) {
+        authenticatedPeers.withLock { $0.append(peer) }
+    }
     private(set) var disconnectCount = 0
     private(set) var sentOffers: [(WebRTCSessionDescription, PeerID)] = []
     private(set) var sentApplicationData: [(ApplicationDataMessage, PeerID?)] = []
