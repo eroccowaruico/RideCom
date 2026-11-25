@@ -92,6 +92,10 @@ struct WorkerPairTests {
             !expiring.channelIDs(from: "staying").isEmpty && !staying.channelIDs(from: "expiring").isEmpty
         }
         let subscribedChannels = expiring.channelIDs(from: "staying")
+        // The fixed Worker clock has one second of ordinary authorization left.
+        // Its next scheduled renewal would be in five minutes.
+        let establishedAt = try await confirmEstablishment(
+            alice: staying, aliceCall: stayingRequest.call, bob: expiring, bobCall: expiringRequest.call)
         let signal = try #require(env["RIDEINTERCOM_PAIR_CLOCK_SIGNAL"])
         try Data().write(to: URL(fileURLWithPath: signal))
         try await eventually {
@@ -109,6 +113,7 @@ struct WorkerPairTests {
         }
         #expect(expiring.answers == 1 && expiring.failures.isEmpty && expiring.blockedReasons.isEmpty)
         #expect(expiring.channelIDs(from: "staying") == subscribedChannels)
+        #expect(await expiring.client.establishedAt == establishedAt)
         #expect(expiring.channelIDs(from: "arriving").isEmpty)
         #expect(try await CloudflareRealtimeSignalingClient.checkService(stayingRequest.cloudflare).activeSessions == 3)
         for endpoint in [expiring, staying, arriving] { await endpoint.client.disconnect() }

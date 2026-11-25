@@ -1,6 +1,22 @@
 import Foundation
 
 extension CloudflareRealtimeSignalingClient {
+    struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
+    struct Description: Decodable { let type: String; let sdp: String }
+    struct Pull: Decodable { let channels: [WebRTCDataChannel] }
+    struct Lease: Decodable {
+        let sessionId: String; let expiresAt: Double; let renewAfterSeconds: Double
+        let sessionDescription: Description?; let channels: [WebRTCDataChannel]?
+        let iceServers: [WebRTCIceServer]?
+        let continuationOnly: Bool?
+        let establishedAt: Double?
+
+        var continuationRemaining: Double? {
+            continuationOnly == true ? expiresAt / 1000 - Date().timeIntervalSince1970 : nil
+        }
+        var nextRenewalDelay: Double { min(max(1, renewAfterSeconds), max(0, continuationRemaining ?? .infinity)) }
+    }
+
     /// Checks device authorization and quota configuration without creating SFU media.
     public static func checkService(
         _ configuration: CloudflareRealtimeConfiguration, session: URLSession = .shared

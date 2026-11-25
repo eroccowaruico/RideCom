@@ -14,6 +14,8 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
     private var socket: URLSessionWebSocketTask?
     private var socketTask: Task<Void, Never>?
     private var renewalTask: Task<Void, Never>?
+    private var renewalWait: Task<Void, Never>?
+    private var needsEarlyRenewal = false
     private var currentLease: Lease?
     private var establishmentPeer: PeerID?
     private(set) var establishedAt: Double?
@@ -57,6 +59,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
     private func disconnect(generation: UUID) async {
         self.generation = generation; socketTask?.cancel(); renewalTask?.cancel()
         socketTask = nil; renewalTask = nil; socket?.cancel(with: .normalClosure, reason: nil); socket = nil
+        renewalWait = nil; needsEarlyRenewal = false
         let oldID = sessionID, oldIceLeaseID = iceLeaseID
         let oldRequest = request.map { oldID == nil ? $0 : $0.replacingWorkerCredential(currentConfiguration()) }
         sessionID = nil; iceLeaseID = nil; request = nil; peers = []; currentLease = nil
@@ -103,15 +106,6 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         } catch { await fail(error, generation: generation, step: String(localized: "Call join")) }
     }
 
-    private func startRenewing(_ request: WebRTCSignalingConnectRequest, generation: UUID) {
-        renewalTask = Task { [weak self] in
-            while !Task.isCancelled, let lease = await self?.currentLease {
-                try? await Task.sleep(for: .seconds(lease.nextRenewalDelay))
-                guard !Task.isCancelled, await self?.renew(request, lease: lease, generation: generation) == true
-                else { return }
-            }
-        }
-    }
     public func startPublishing() async {
         guard !publishing, let request, let sessionID else { return }
         publishing = true
@@ -197,10 +191,13 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
 
     func observeAuthenticatedInternetPeer(_ peer: PeerID, callID: String) {
         guard !Task.isCancelled, request?.call.sessionID == callID, sessionID != nil,
-              establishedAt == nil, peers.contains(where: { $0.id == peer })
+              establishedAt == nil, currentLease?.continuationOnly != true,
+              peers.contains(where: { $0.id == peer })
         else { return }
         if let pending = establishmentPeer, peers.contains(where: { $0.id == pending }) { return }
         establishmentPeer = peer
+        needsEarlyRenewal = true
+        renewalWait?.cancel()
     }
 
     private func requestRenewal(
@@ -210,6 +207,7 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         let remaining = currentLease?.continuationRemaining ?? .infinity
         guard remaining > 0 else { throw Failure.deviceCredentialRejected }
         let peer = currentLease?.continuationOnly == true ? nil : establishmentPeer
+        needsEarlyRenewal = false
         let data = try await http(
             request.replacingWorkerCredential(currentConfiguration()),
             path: "sessions/\(id)/renew", body: [:], totalTimeout: .seconds(min(25, remaining)),
@@ -246,7 +244,9 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
         if establishedAt == nil, let confirmed = lease.establishedAt {
             establishedAt = confirmed
             establishmentPeer = nil
+            needsEarlyRenewal = false
         }
+        if lease.continuationOnly == true { needsEarlyRenewal = false }
         if let servers = lease.iceServers { source.yield(.iceServers(servers)) }
     }
 
@@ -267,20 +267,29 @@ public actor CloudflareRealtimeSignalingClient: WebRTCSignalingClient, Authentic
 }
 
 private extension CloudflareRealtimeSignalingClient {
-    struct IceConfiguration: Decodable { let iceServers: [WebRTCIceServer] }
-    struct Description: Decodable { let type: String; let sdp: String }
-    struct Lease: Decodable {
-        let sessionId: String; let expiresAt: Double; let renewAfterSeconds: Double
-        let sessionDescription: Description?; let channels: [WebRTCDataChannel]?
-        let iceServers: [WebRTCIceServer]?
-        let continuationOnly: Bool?
-        let establishedAt: Double?
-        var continuationRemaining: Double? {
-            continuationOnly == true ? expiresAt / 1000 - Date().timeIntervalSince1970 : nil
+    func startRenewing(_ request: WebRTCSignalingConnectRequest, generation: UUID) {
+        renewalTask = Task { [weak self] in
+            while !Task.isCancelled, let lease = await self?.currentLease {
+                await self?.waitForRenewal(seconds: lease.nextRenewalDelay, generation: generation)
+                guard !Task.isCancelled, await self?.renew(request, lease: lease, generation: generation) == true
+                else { return }
+            }
         }
-        var nextRenewalDelay: Double { min(max(1, renewAfterSeconds), max(0, continuationRemaining ?? .infinity)) }
     }
-    struct Pull: Decodable { let channels: [WebRTCDataChannel] }
+
+    func waitForRenewal(seconds: Double, generation: UUID) async {
+        guard self.generation == generation, !Task.isCancelled, !needsEarlyRenewal else { return }
+        // An authenticated peer can end the wait without interrupting a renewal already in flight.
+        let wait = Task { _ = try? await Task.sleep(for: .seconds(seconds)) }
+        renewalWait = wait
+        await withTaskCancellationHandler {
+            await wait.value
+        } onCancel: {
+            wait.cancel()
+        }
+        if self.generation == generation { renewalWait = nil }
+    }
+
     struct WirePeer: Decodable { let id: String; let sessionId: String }
     struct WireEvent: Decodable {
         let type: String; let peers: [WirePeer]?; let from: String?; let namespace: String?; let payload: String?

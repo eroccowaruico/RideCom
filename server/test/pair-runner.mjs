@@ -47,7 +47,7 @@ try {
     const origin = (await runtime.ready).origin;
     const alice = await enroll('call-pair-first'), bob = await enroll('call-pair-second');
     assert.ok(alice.userID !== bob.userID, 'Internet calling requires a distinct account for each endpoint');
-    expiryRuntime = await makeRuntime({ LEASE_SECONDS: '4' }, { adjustableClock: true, fixedNowMs: Date.now() });
+    expiryRuntime = await makeRuntime({ LEASE_SECONDS: '600' }, { adjustableClock: true, fixedNowMs: Date.now() });
     const expiryOrigin = (await expiryRuntime.ready).origin;
     const expiring = await callTestCredential(expiryRuntime, 'expiring-pair-first');
     await expiryRuntime.advanceClock(30 * 86400000 - 1000);
