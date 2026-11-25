@@ -66,7 +66,7 @@ Voice Isolation Effect の画面設定は `SoundIsolation` effect の有効/無�
 |---|---|---|---|
 | `preferredFormat.sampleRate` | `48_000` | 希望値。実値はsnapshot | output stream actualHardwareFormat |
 | `preferredFormat.channelCount` | `1` | 固定 | output stream snapshot format |
-| `maximumBufferedDuration` | 通話 `0.2`秒、Audio Check `0.1`秒 | hardware出力で、新frameの再生開始までの待ち時間上限・単一frame長上限 | bufferedOutputDuration / playbackResetCount |
+| `maximumBufferedDuration` | 通話 `0.2`秒、Audio Check `0.1`秒 | [PCMの再生予約](../../../音声処理仕様.md#通話の再生予約)の開始待ちと単一frame長の上限 | bufferedOutputDuration / playbackResetCount |
 
 出力 renderer の `start()`、`schedule(_:)`、`stop()` は `AudioStreamOperationReport` と `AudioStreamRuntimeEvent` を Diagnostics に集約する。
 

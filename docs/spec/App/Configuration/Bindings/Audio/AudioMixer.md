@@ -10,7 +10,7 @@
 
 | package 設定 | App から渡す値 | 種別 |
 |---|---|---|
-| format | 48kHz mono。TX sinkは選択RTC format、RX sinkはSessionManagerのactualHardwareFormat | adapter 導出 |
+| format | TXの処理は48kHz monoで、sinkは選択したRTC形式。RXの処理は実出力と設定のうち低いsample rateで行い、sinkはSessionManagerのactualHardwareFormat。[受信の処理形式](../../../音声処理仕様.md#音声-lifecycle) | adapter 導出 |
 | `addPCMSource.maximumBufferedDuration` | TXは同期AudioFrameProcessorで再生queueを持たない。RXは`0.12`秒（再生開始までの待ちと単一frame長。出力時計の開始前に溜まった音声もこの幅を超えると再基準化する）、Audio Checkは`nil` | adapter固定 |
 | `addPCMSource.captureTimePlayoutDelay` | TXは待機なし。RXは描画済みブロックの終端から`0.002`秒を下限に`adaptivePlayout`を有効化、Audio Checkは`nil` | adapter固定 |
 | TX busのエフェクト | Appが `tx-bus` にSoundIsolation → DynamicsProcessor → PeakLimiterの順で登録する。SoundIsolationは対応機器で登録し、設定値で配線を切り替える。VADGateはMixerの前に置く | 固定の処理順と画面設定 |
@@ -52,6 +52,6 @@ RX masterの表示用effect chainは、実snapshotの `rx-master.effectChain` �
 
 RXは相手ごとのcapture clockをplayer clockへ対応付ける。連続sampleは隙間・重複なく予約し、到着が遅れた場合だけ必要な分を遅らせる。既に出力済みの発話を切り詰めず、無音中に増えた待ちを短縮する。開始待機は2msで、揺れのない相手には待ちを追加しない。iPhone間のWi-Fiが相手のpacketを保持してまとめて届ける場合は、AudioMixerが学習した待ちを会話の間でも保つ。学習値は開始待機などを除いた予約枠の半分までとし、まとまって届く後続packetにも余裕を残す。無音を短縮するときも、通常のまとまりに含まれる間隔を保つ。適応再生の判定は[AudioMixerパッケージ仕様](../../../../packages/Audio/AudioMixer.md)を参照する。0.3秒へ広げた候補は、出力時計の開始前に溜まった最大0.3秒の待ちが通話中に残るため採用しない（2026-11-03の音声E2E）。時計の大きなジャンプや120msを超える停滞は再基準化する。
 
-通話の最終hardware出力はSessionManagerの200ms上限を使用する。これは過負荷時の鮮度制限であり、固定の待機追加はない。無音frameも渡してcodecと再生の時計を維持する。各境界の上限は端末間遅延の保証ではない。
+PCMを出力backendへ渡す経路では、[再生予約の上限](../../../音声処理仕様.md#通話の再生予約)に従う。これは過負荷時の鮮度制限であり、固定の待機追加はない。無音frameも渡してcodecと再生の時計を維持する。各境界の上限は端末間遅延の保証ではない。
 
 Codec、bit rate、RTC PCM formatの変更では受信Mixerと相手decoderを保持し、送信encoderとsink target formatだけを更新する。effect有効状態を変えた場合は、packageが報告する処理遅延の間だけPCMStreamTransitionの2msフェード付き無音を入れ、古い音を貯めて後から流さない。通常の連続PCMは加工しない。

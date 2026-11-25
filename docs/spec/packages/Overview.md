@@ -63,7 +63,7 @@ RideComのAppは必要なpackageを接続し、使用するEffectorのAVAudioNod
 
 ## End-to-End Flow
 
-[RideComの信号の流れ](../アーキテクチャ.md#音声通信の所有境界)を参照する。通話で機器の出力engineを使える場合、Appは受信Mixerを直接つなぎ、出力時計を共有する。[通話の出力](../App/音声処理仕様.md#出力クロックの共有)の観測通知は音量や診断に使う。
+[RideComの信号の流れ](../アーキテクチャ.md#音声通信の所有境界)を参照する。[実機器へ直接描画する通話](../App/音声処理仕様.md#出力クロックの共有)は受信Mixerを出力へつなぎ、音量や診断に出力の観測を使う。PCMを受け取るbackendには、同じ通話の出力規則に従って音声を渡す。
 
 送信では機器のPCMをMixerで処理用の形式へ揃え、送信用sinkから符号化先の形式で取り出す。Codecの出力をAppが `RTCAudioPacket` に入れてRTCへ渡す。受信では `ReceivedAudioPacket` から取り出した音声を復号し、復号時のPCM形式でMixerのsourceへ渡す。バスとsinkの形式は[Mixerへ渡す設定](../App/Configuration/Bindings/Audio/AudioMixer.md#mixer-設定)に従う。
 
