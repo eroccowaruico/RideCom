@@ -86,6 +86,19 @@ async function prepareNotificationDelivery(env: Env, receiver: ReturnType<typeof
 const callReply = (call: NotificationCall) => ({ requestID: call.requestID, expiresAt: call.expiresAt, status: call.status })
 const notificationsUnavailable = () => json({ error: 'Notifications are unavailable', code: 'notifications_unavailable' }, 503)
 
+function deviceRevision(request: Request): number | null {
+    const value = request.headers.get('RideCom-Notification-Revision')
+    if (value === null) return null
+    const revision = Number(value)
+    if (!/^[1-9][0-9]{0,15}$/.test(value) || !Number.isSafeInteger(revision)) throw new Error('body')
+    return revision
+}
+
+function deviceMutationError(state: 'applied' | 'superseded' | 'unauthorized'): Response | null {
+    if (state === 'superseded') return json({ code: 'notification_device_superseded' }, 409)
+    return state === 'unauthorized' ? json({ error: 'Unauthorized' }, 401) : null
+}
+
 async function handleBackgroundGroupInvitation(request: Request, origin: string, env: Env, cancelling: boolean): Promise<Response> {
     if (!cancelling && !await readyNotificationEnvironment(env)) return notificationsUnavailable()
     const purpose = cancelling ? 'cancelBackgroundGroupInvitation' : 'submitBackgroundGroupInvitation'
@@ -192,9 +205,8 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         const owner = account(env, auth.accountID)
         // Revocation remains available even when delivery is disabled or misconfigured.
         if (path === '/api/notifications/device' && method === 'DELETE') {
-            const previous = await owner.notificationRemoveDevice(auth)
-            if (previous) await index(env, previous.tokenIndex).remove(auth.accountID, auth.userID, previous.registrationID)
-            return json({})
+            const state = await owner.notificationUpdateDevice(auth, deviceRevision(request), null)
+            return deviceMutationError(state) ?? json({})
         }
         const grantDelete = path.match(/^\/api\/notifications\/grants(?:\/([a-f0-9-]{36}))?$/i)
         if (grantDelete && method === 'DELETE') {
@@ -295,6 +307,7 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
         const notificationEnvironment = await readyNotificationEnvironment(env)
         if (!notificationEnvironment) return notificationsUnavailable()
         if (path === '/api/notifications/device' && method === 'PUT') {
+            const revision = deviceRevision(request)
             const body = await readJSON(request); fields(body, ['token', 'environment', 'topic'])
             if (typeof body.token !== 'string' || !/^(?:[a-f0-9]{2}){1,2048}$/i.test(body.token)
                 || body.environment !== notificationEnvironment || body.topic !== env.APNS_TOPIC) throw new Error('body')
@@ -303,18 +316,10 @@ export async function notificationRequest(request: Request, env: Env): Promise<R
             if (!await owner.notificationMutationBudget(auth)) return json({ error: 'Too many notification changes' }, 429)
             const registrationID = crypto.randomUUID()
             const tokenIndex = `token:${await notificationHash(`${body.environment}|${body.topic}|${body.token.toLowerCase()}`)}`
-            // Index first. A later ownership transfer invalidates this registration even if its response is delayed.
-            await index(env, tokenIndex).bind({ accountID: auth.accountID, userID: auth.userID, deviceID: auth.deviceID, registrationID, expiresAt: session.expiresAt })
             const device: NotificationDevice = { token: body.token.toLowerCase(), environment: notificationEnvironment, topic: body.topic,
                 registrationID, tokenIndex, deviceID: auth.deviceID, tokenHash: auth.tokenHash, expiresAt: session.expiresAt }
-            const registered = await owner.notificationRegister(auth, device)
-            if (!registered) {
-                await index(env, tokenIndex).remove(auth.accountID, auth.userID, registrationID)
-                return json({ error: 'Unauthorized' }, 401)
-            }
-            if (registered.previous && registered.previous.registrationID !== registrationID) {
-                await index(env, registered.previous.tokenIndex).remove(auth.accountID, auth.userID, registered.previous.registrationID)
-            }
+            const failure = deviceMutationError(await owner.notificationUpdateDevice(auth, revision, device))
+            if (failure) return failure
             await publishRoute(env, auth, session.expiresAt)
             if (!await owner.notificationAuthorized(auth)) return json({ error: 'Unauthorized' }, 401)
             return json({ registered: true })

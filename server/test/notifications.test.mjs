@@ -12,8 +12,9 @@ const options = { APPLE_AUTH_ENABLED: 'true', APPLE_CLIENT_ID: 'fixture-app',
     NOTIFICATIONS_ENABLED: 'true', DEVICE_IDENTITY_SIGNING_KEY: JSON.stringify(await exportJWK(signing.privateKey)),
     APNS_PRIVATE_KEY: await exportPKCS8(signing.privateKey), APNS_KEY_ID: 'fixturekey', APPLE_TEAM_ID: 'fixtureteam',
     APNS_TOPIC: 'fixture-app', APNS_ENVIRONMENT: 'sandbox' };
-const call = (r, path, body, token, method = 'POST') => r.dispatchFetch(`https://worker.test${path}`, {
-    method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+const call = (r, path, body, token, method = 'POST', headers = {}) => r.dispatchFetch(`https://worker.test${path}`, {
+    method, headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.77',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 async function login(r, subject, deviceID = randomUUID()) {
     const a = await (await call(r, '/api/auth/apple/challenge', { deviceID })).json();
@@ -31,6 +32,45 @@ const send = (r, user, capability, requestID = randomUUID()) => call(r, '/api/no
 async function setup(overrides = {}, apns = async () => Response.json({}), runtimeOptions = {}) {
     return makeRuntime({ ...options, ...overrides }, { appleKeys: [applePublic], apns, ...runtimeOptions });
 }
+
+test('late device mutations preserve the current address and its token index', async () => {
+    let deliveryCount = 0;
+    const r = await setup({}, () => { deliveryCount++; return Response.json({}); });
+    try {
+        const receiver = await login(r, 'device-order-receiver');
+        const sender = await login(r, 'device-order-sender');
+        const { capability } = await grant(r, receiver, sender);
+        const update = (method, revision) => call(r, '/api/notifications/device', method === 'PUT'
+            ? { token: 'db'.repeat(48), environment: 'sandbox', topic: 'fixture-app' } : undefined,
+        receiver.accessToken, method, revision === undefined ? {} : { 'RideCom-Notification-Revision': revision });
+
+        assert.equal((await update('DELETE', '2')).status, 200);
+        const delayedRegistration = await update('PUT', '1');
+        assert.equal(delayedRegistration.status, 409);
+        assert.equal((await delayedRegistration.json()).code, 'notification_device_superseded');
+        assert.equal((await (await send(r, sender, capability)).json()).status, 'no_destinations');
+
+        assert.equal((await update('PUT', '4')).status, 200);
+        assert.equal((await update('DELETE', '3')).status, 409);
+        assert.equal((await update('PUT', '4')).status, 409);
+        assert.equal((await update('DELETE', undefined)).status, 409);
+        assert.equal((await update('DELETE', '9007199254740992')).status, 400);
+        assert.equal((await (await send(r, sender, capability)).json()).status, 'accepted');
+        assert.equal(deliveryCount, 1);
+
+        const results = await Promise.all([update('PUT', '6'), update('DELETE', '7'), update('PUT', '5')]);
+        assert.equal(results[1].status, 200);
+        assert.ok(results.every(response => [200, 409].includes(response.status)));
+        assert.equal((await (await send(r, sender, capability)).json()).status, 'no_destinations');
+        assert.equal(deliveryCount, 1);
+
+        const renewed = await login(r, 'device-order-receiver', receiver.deviceID);
+        assert.equal(renewed.deviceID, receiver.deviceID);
+        assert.equal((await update('PUT', '8')).status, 401);
+        assert.equal((await call(r, '/api/notifications/device', undefined, renewed.accessToken, 'DELETE',
+            { 'RideCom-Notification-Revision': '1' })).status, 200);
+    } finally { await r.dispose(); }
+});
 
 test('contact deletion relay requires the pair slot and recipient device even after grants are revoked', async () => {
     let notifications = 0;

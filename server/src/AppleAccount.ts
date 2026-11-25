@@ -53,7 +53,9 @@ interface Device {
     tokenHash: string; expiresAt: number
     attestationChallenge?: DeviceAttestationChallenge
     attestation?: DeviceAttestation
+    notificationRevision?: number
 }
+type NotificationDeviceMutation = 'applied' | 'superseded' | 'unauthorized'
 interface AttestationSubmission { nonce: string; keyID: string; attestation: string }
 export interface DeviceIdentity { userID: string; deviceID: string; expiresAt: number }
 interface ReplyMailboxAdmission { deviceID: string; sessionBinding: string; expiresAt: number }
@@ -108,6 +110,7 @@ export class AppleAuthAttempt extends DurableObject<Env> {
 
 export class UserAccount extends DurableObject<Env> {
     private readonly notifications = new AccountNotifications(this.ctx.storage)
+    private readonly notificationDeviceMutations = new Map<string, Promise<NotificationDeviceMutation>>()
     private readonly contactDeletions = new AccountContactDeletions(this.ctx.storage)
     private readonly directRestoreRelay = new AccountDirectRestoreRelay(this.ctx.storage)
     private readonly directRestoreDevices = new AccountDirectRestoreDevices(this.ctx.storage)
@@ -269,8 +272,55 @@ export class UserAccount extends DurableObject<Env> {
     }
     groupInvitationCandidates(userID: string, requestID: string) { return this.notifications.invitationCandidates(userID, requestID) }
     notificationAuthorized(auth: NotificationAuth) { return this.notifications.authorized(auth) }
-    notificationRegister(auth: NotificationAuth, value: NotificationDevice) { return this.notifications.register(auth, value) }
-    notificationRemoveDevice(auth: NotificationAuth) { return this.notifications.removeDevice(auth) }
+    async notificationUpdateDevice(auth: NotificationAuth, revision: number | null, value: NotificationDevice | null) {
+        const previous = this.notificationDeviceMutations.get(auth.deviceID)
+        const mutation = (async () => {
+            await previous?.catch(() => undefined)
+            return this.applyNotificationDeviceMutation(auth, revision, value)
+        })()
+        this.notificationDeviceMutations.set(auth.deviceID, mutation)
+        try { return await mutation }
+        finally {
+            if (this.notificationDeviceMutations.get(auth.deviceID) === mutation) {
+                this.notificationDeviceMutations.delete(auth.deviceID)
+            }
+        }
+    }
+
+    private async applyNotificationDeviceMutation(
+        auth: NotificationAuth, revision: number | null, value: NotificationDevice | null
+    ): Promise<NotificationDeviceMutation> {
+        const storage = this.ctx.storage
+        const key = `device:${auth.deviceID}`
+        const credential = storage.kv.get<Device>(key)
+        if (!credential || !this.notifications.authorized(auth)) return 'unauthorized'
+        if (credential.notificationRevision !== undefined
+            && (revision === null || revision <= credential.notificationRevision)) return 'superseded'
+
+        if (value) {
+            // Keep ownership checks for APNs tokens shared across account changes.
+            await this.env.NOTIFICATION_INDEX.getByName(value.tokenIndex).bind({
+                accountID: auth.accountID, userID: auth.userID, deviceID: auth.deviceID,
+                registrationID: value.registrationID, expiresAt: value.expiresAt
+            })
+        }
+        const result = storage.transactionSync(() => {
+            const current = storage.kv.get<Device>(key)
+            if (!current || !this.notifications.authorized(auth)) return null
+            const previous = value
+                ? this.notifications.register(auth, value)?.previous
+                : this.notifications.removeDevice(auth)
+            if (previous === undefined) return null
+            if (revision !== null) storage.kv.put(key, { ...current, notificationRevision: revision })
+            return { previous }
+        })
+        if (!result) {
+            if (value) await this.removeNotificationIndex(value, auth.userID)
+            return 'unauthorized'
+        }
+        if (result.previous) await this.removeNotificationIndex(result.previous, auth.userID)
+        return 'applied'
+    }
     notificationActivateGrant(auth: NotificationAuth, hash: string) { return this.notifications.activateGrant(auth, hash) }
     notificationRevokeGrant(auth: NotificationAuth, hash?: string) { return this.notifications.revokeGrant(auth, hash) }
     notificationGrantActive(userID: string, hash: string) { return this.notifications.grantActive(userID, hash) }
