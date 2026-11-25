@@ -250,6 +250,8 @@ python3 scripts/audio_e2e.py --cleanup-only
 
 再生の基準位置を決めた予約では `playoutReservation.anchorLead` に待ち時間を決めた値が付く。単位と記録条件は[AudioMixerの再生予約の仕様](../spec/packages/Audio/AudioMixer.md#再生予約量の制御)に従う。定常区間の収録から予測描画までの時間を比べる際は、起動区間の予約のうち、その時間が定常区間へ続いた行を調べる。
 
+通常の双方向試験では、近距離とWebRTCの各設定で `packet-timing` に定常区間の `steadyRenderClock` を保存する。`startSample` は実出力WAVの先頭から数えた位置、`frameCount` はそのブロックの長さ、`hostTime` はブロック先頭の単調時計時刻である。時刻が増加し、ブロックがWAVを先頭から末尾まで覆うことを試験で確認する。復号音声があるときは `steadyFirstDecodedCaptureTime` を加える。復号WAVと実出力WAVの波形が一致した箇所では、そのブロックの時刻と `playoutReservation` から求めた予測描画時刻を照合できる。
+
 成功判定には両側で専用E2Eが実際に1件ずつ完了し、失敗・skipがないことを要求する。後片付け失敗も終了コードを非ゼロにする。実行結果・未確認範囲は[検証状況](../validation/README.md)へ記録する。
 
 ## 音声トラブルの比較記録

@@ -127,10 +127,9 @@ extension AudioE2ETests {
     private func attachNetworkTrace(
         _ window: NetworkAudioWindow, scenario: AudioE2EScenario, endpoint: AudioE2EEndpoint
     ) async throws {
-        let waitsForInternet = endpoint.run.waitsForInternet
-        if waitsForInternet { try window.verifyRenderClock() }
-        let scenarioID = scenario.id
-        let packetTrace = window.packetTrace(scenarioID: scenarioID, waitsForInternet: waitsForInternet)
+        if endpoint.run.waitsForInternet { try window.verifyLocalStartupClock() }
+        try window.verifySteadyRenderClock()
+        let packetTrace = window.packetTrace(scenarioID: scenario.id)
         let traceData = try await Task.detached { try JSONEncoder().encode(packetTrace) }.value
         let trace = XCTAttachment(data: traceData, uniformTypeIdentifier: "public.json")
         trace.name = "endpoint-\(endpoint.run.role)-\(scenario.id)-packet-timing"
