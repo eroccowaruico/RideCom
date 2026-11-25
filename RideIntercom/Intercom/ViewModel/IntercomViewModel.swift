@@ -106,6 +106,7 @@ final class IntercomViewModel {
     var isAudioReady = false
     var isCallMediaStarted = false
     var audioErrorMessage: String?
+    var showsCallMicrophonePermissionAlert = false
     var isAudioPausedForDeviceChange = false
     var audioRouteNotice: String?
     var internetTransportFailure: InternetTransportFailure?

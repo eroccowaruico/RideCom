@@ -1,8 +1,79 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import RideIntercom
 
 extension NotificationClientTests {
+    enum ChangeWhileAwaitingMicrophone: CaseIterable {
+        case none, deniesMicrophone, expires, ends, revokesGrant, replacesGrant
+        case disablesNotifications, reenablesNotifications
+    }
+
+    @Test(arguments: ChangeWhileAwaitingMicrophone.allCases)
+    func tapRechecksPermissionAndExpiryBeforeStartingCall(change: ChangeWhileAwaitingMicrophone) async throws {
+        let fixture = try NotificationModelFixture(client: makeClient())
+        defer { fixture.remove() }
+        fixture.store.notificationRegistrationEnabled = true
+        let grant = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)
+        try NotificationHTTPStub.setJSONResponse(grant)
+        try #require(await fixture.notifications.setIncomingAllowed(true, contactID: fixture.user.id))
+
+        let permission = ManualAsyncGate()
+        var askedForMicrophone = false
+        let harness = notificationHarness(fixture, requestMicrophoneAccess: {
+            askedForMicrophone = true
+            await permission.wait()
+            return change != .deniesMicrophone
+        })
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let owner = AppCallOwner(account: model.accountSession, viewModel: model)
+        owner.notificationBridge.bind(to: owner)
+        let tap = CallNotificationTap(requestID: UUID(), recipientID: fixture.local.userID)
+        let expiresAt = fixture.now.addingTimeInterval(120)
+        try NotificationHTTPStub.setJSONResponse(CallNotificationReply(
+            requestID: tap.requestID, expiresAt: expiresAt.timeIntervalSince1970 * 1000,
+            status: .accepted, senderUserID: fixture.peer.userID))
+
+        let answer = Task {
+            await owner.notificationBridge.respond(
+                to: tap, actionIdentifier: UNNotificationDefaultActionIdentifier, categoryIdentifier: "")
+        }
+        await AppTestSupport.waitUntil { askedForMicrophone }
+        #expect(askedForMicrophone)
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(owner.callPresentationID == nil)
+        switch change {
+        case .none, .deniesMicrophone: break
+        case .expires: fixture.now = expiresAt.addingTimeInterval(1)
+        case .ends:
+            fixture.now = expiresAt.addingTimeInterval(1)
+            model.disconnect()
+        case .revokesGrant, .replacesGrant:
+            try await changeIncomingGrant(fixture, reissue: change == .replacesGrant)
+        case .disablesNotifications, .reenablesNotifications:
+            NotificationHTTPStub.setRawResponse("{}")
+            await fixture.notifications.disable()
+            if change == .reenablesNotifications { await fixture.notifications.start() }
+        }
+        await permission.release()
+        #expect(await answer.value == (change == .none))
+        #expect((harness.callSession.connectedGroup != nil) == (change == .none))
+        #expect((owner.callPresentationID != nil) == (change == .none))
+        #expect((owner.usersPresentationID != nil) == (change == .expires))
+        #expect(model.showsCallMicrophonePermissionAlert == (change == .deniesMicrophone))
+    }
+
+    private func changeIncomingGrant(_ fixture: NotificationModelFixture, reissue: Bool) async throws {
+        NotificationHTTPStub.setRawResponse("{}")
+        #expect(await fixture.notifications.setIncomingAllowed(false, contactID: fixture.user.id))
+        if reissue {
+            let replacement = try testCallNotificationGrant(owner: fixture.local, allowedSender: fixture.peer)
+            try NotificationHTTPStub.setJSONResponse(replacement)
+            #expect(await fixture.notifications.setIncomingAllowed(true, contactID: fixture.user.id))
+        }
+    }
+
     @Test func deniedOrRetiredPermissionRequestsNeverRegisterAPNs() async throws {
         let fixture = try NotificationModelFixture(client: makeClient())
         fixture.permission = false

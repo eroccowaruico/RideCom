@@ -1,5 +1,13 @@
 import Foundation
 
+nonisolated struct ResolvedCallNotification: Sendable {
+    let userID: UUID
+    let expiresAt: Date
+    let grantID: UUID
+    let authorizationGeneration: Int
+    let deviceDisableGeneration: Int
+}
+
 extension CallNotifications {
     var canUseNotifications: Bool { access() != nil }
 
@@ -15,8 +23,12 @@ extension CallNotifications {
     }
 
     func allowsIncoming(from id: UUID) -> Bool {
-        guard let context = access(), let record = permission(id, context: context) else { return false }
-        return record.allowsIncoming && record.receiving != nil
+        guard let context = access() else { return false }
+        return receivingGrant(from: id, context: context) != nil
+    }
+    private func receivingGrant(from id: UUID, context: CallNotificationServiceAccess) -> CallNotificationGrant? {
+        guard let record = permission(id, context: context), record.allowsIncoming else { return nil }
+        return record.receiving
     }
     func canNotify(_ id: UUID) -> Bool {
         guard let context = access(), let record = permission(id, context: context) else { return false }
@@ -107,19 +119,29 @@ extension CallNotifications {
         guard isEnabled, let context = access(), context.principal.userID == tap.recipientID else { return nil }
         return context
     }
-    func resolveTap(_ tap: CallNotificationTap) async -> UUID? {
+    func canRespond(to resolved: ResolvedCallNotification, tap: CallNotificationTap) -> Bool {
+        guard generation == resolved.authorizationGeneration,
+              deviceDisableGeneration == resolved.deviceDisableGeneration,
+              let context = receivingAccess(for: tap) else { return false }
+        return receivingGrant(from: resolved.userID, context: context)?.grantID == resolved.grantID
+    }
+
+    func resolveTap(_ tap: CallNotificationTap) async -> ResolvedCallNotification? {
         guard let context = receivingAccess(for: tap) else { return nil }
-        let expected = generation
+        let expected = generation, expectedDevice = deviceDisableGeneration
         do {
             let reply = try await client.readCallNotification(
                 origin: context.origin, token: context.accessToken, recipientUserID: tap.recipientID,
                 requestID: tap.requestID)
-            guard isEnabled, current(context, generation: expected), reply.isLive(at: now()),
+            guard deviceDisableGeneration == expectedDevice, current(context, generation: expected),
+                receivingAccess(for: tap) == context, reply.isLive(at: now()),
                 let user = contacts().first(where: {
                     $0.principal?.userID == reply.senderUserID && $0.principal?.issuer == context.principal.issuer
                 }),
-                  allowsIncoming(from: user.id) else { return nil }
-            return user.id
+                let grant = receivingGrant(from: user.id, context: context) else { return nil }
+            return .init(
+                userID: user.id, expiresAt: Date(timeIntervalSince1970: reply.expiresAt / 1000),
+                grantID: grant.grantID, authorizationGeneration: expected, deviceDisableGeneration: expectedDevice)
         } catch { return nil }
     }
 }

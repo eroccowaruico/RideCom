@@ -20,6 +20,7 @@ final class CallNotifications {
     @ObservationIgnored private let unregister: @MainActor () -> Void
     @ObservationIgnored let now: @MainActor () -> Date
     @ObservationIgnored private(set) var generation = 0
+    @ObservationIgnored private(set) var deviceDisableGeneration = 0
     @ObservationIgnored private var tokenGeneration = 0
     @ObservationIgnored private var deviceOperation: Task<Void, Never>?
     @ObservationIgnored private var deviceOperationID: UUID?
@@ -182,17 +183,6 @@ final class CallNotifications {
             message = "Notifications are off in system settings."
         }
     }
-    func disable() async {
-        guard isCurrentUser() else { return }
-        store.notificationRegistrationEnabled = false
-        store.notificationRemovalPending = true
-        receivesNotifications = false; tokenGeneration += 1; unregister()
-        guard let context = serviceAccess() else {
-            message = "Notifications are disabled here. Server removal is pending; retry when online."
-            return
-        }
-        await removePendingDevice(context, generation: generation)
-    }
     /// Serialize only device PUT/DELETE. The latest local desire is checked at
     /// execution time, so delayed cleanup cannot overtake a new registration.
     private func performDeviceOperation(_ context: CallNotificationServiceAccess, generation expected: Int,
@@ -262,6 +252,21 @@ final class CallNotifications {
             }
         }
         return nil
+    }
+}
+
+extension CallNotifications {
+    func disable() async {
+        guard isCurrentUser() else { return }
+        deviceDisableGeneration += 1
+        store.notificationRegistrationEnabled = false
+        store.notificationRemovalPending = true
+        receivesNotifications = false; tokenGeneration += 1; unregister()
+        guard let context = serviceAccess() else {
+            message = "Notifications are disabled here. Server removal is pending; retry when online."
+            return
+        }
+        await removePendingDevice(context, generation: generation)
     }
 }
 

@@ -41,15 +41,29 @@ extension AppCallOwner {
         }
 
         if showCurrentCallIfActive() { return false }
-        let userID = await model.notifications.resolveTap(tap)
-        guard viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == accessID,
-              model.notifications.canReceive(tap) else { return false }
+        let notifications = model.notifications
+        let resolved = await notifications.resolveTap(tap)
+        guard !Task.isCancelled, viewModel === model, model.hasCurrentAccountAccess, model.accountAccessID == accessID,
+              model.notifications === notifications, notifications.canReceive(tap) else { return false }
         if showCurrentCallIfActive() { return false }
-        guard let userID else {
+        guard let resolved, notifications.now() < resolved.expiresAt else {
             usersPresentationID = UUID()
             return false
         }
-        let started = model.startCall(to: .user(userID), accountAccessID: accessID, allowSwitchingCall: false)
+        let reference = model.currentCallReference
+        let authorized = await model.requestMicrophoneAccess()
+        guard !Task.isCancelled, viewModel === model, model.hasCurrentAccountAccess,
+              model.currentCallReference == reference, model.notifications === notifications,
+              notifications.canRespond(to: resolved, tap: tap) else { return false }
+        guard notifications.now() < resolved.expiresAt else {
+            usersPresentationID = UUID()
+            return false
+        }
+        guard authorized else {
+            model.showsCallMicrophonePermissionAlert = true
+            return false
+        }
+        let started = model.startCall(to: .user(resolved.userID), accountAccessID: accessID, allowSwitchingCall: false)
         callPresentationID = UUID()
         return started
     }

@@ -44,6 +44,10 @@ struct SignedInContentView: View {
         }
         // A tab bar on iPhone, a sidebar on iPad and Mac (switchable on iPad).
         .tabViewStyle(.sidebarAdaptable)
+        .alert(Text(verbatim: IntercomViewModel.microphoneAccessRequiredMessage),
+               isPresented: $viewModel.showsCallMicrophonePermissionAlert) {
+            Button("Close", role: .cancel) {}
+        }
         .inspector(isPresented: callPresentation(asSheet: false)) {
             CallPanel(viewModel: viewModel, selectedTab: $selectedTab) { selectedTab = listTab }
         }

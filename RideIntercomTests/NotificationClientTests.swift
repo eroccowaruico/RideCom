@@ -109,11 +109,15 @@ struct NotificationClientTests {
                 origin: origin, token: token, capability: "opaque", requestID: UUID())
         }
     }
-    func notificationHarness(_ fixture: NotificationModelFixture) -> AppTestSupport.Harness {
+    func notificationHarness(
+        _ fixture: NotificationModelFixture,
+        requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { true }
+    ) -> AppTestSupport.Harness {
         let groups = InMemoryGroupStore(groups: [])
         groups.snapshot.users = fixture.users
         let harness = AppTestSupport.makeHarness(
-            groups: [], groupStore: groups, internetSettingsStore: fixture.store, localMemberID: "local")
+            groups: [], groupStore: groups, internetSettingsStore: fixture.store, localMemberID: "local",
+            callAccessNow: { fixture.now }, requestMicrophoneAccess: requestMicrophoneAccess)
         harness.viewModel.notifications = fixture.notifications
         return harness
     }

@@ -77,7 +77,7 @@ extension NotificationClientTests {
             requestID: requestID, expiresAt: fixture.now.addingTimeInterval(120).timeIntervalSince1970 * 1000,
             status: .accepted, senderUserID: fixture.peer.userID)
         try NotificationHTTPStub.setJSONResponse(reply)
-        #expect(await fixture.notifications.resolveTap(tap) == fixture.user.id)
+        #expect(await fixture.notifications.resolveTap(tap)?.userID == fixture.user.id)
         fixture.now = fixture.now.addingTimeInterval(120)
         #expect(await fixture.notifications.resolveTap(tap) == nil)
         fixture.current = false
