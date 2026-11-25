@@ -1,11 +1,90 @@
 import AuthenticationServices
 import CallControl
+import CryptoKit
 import Foundation
 import RTC
 import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    enum InternetCredentialRenewalOutcome: CaseIterable {
+        case updated, oldCertificateExpired, failedToSave, networkInterrupted
+    }
+
+    @Test(arguments: InternetCredentialRenewalOutcome.allCases)
+    func renewsSavedCredentialWithoutRestartingTheCall(outcome: InternetCredentialRenewalOutcome) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        try completeSavedSignInWithoutProof(account.session)
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture)
+        let model = harness.viewModel
+        let configuration = fixture.credential
+        let memberID = model.localMemberIdentity.memberID
+        let deviceKey = IdentityEncoding.encode(try fixture.signingKey.publicKey.x963Representation)
+        let now = floor(Date().timeIntervalSince1970)
+        let issuedAt = now - 28 * 86_400
+        let expiry = now + (outcome == .oldCertificateExpired ? -60 : 3600)
+        let issued = Date(timeIntervalSince1970: issuedAt)
+        let certificate = try testIdentityCertificate(
+            deviceID: fixture.deviceID, memberID: memberID, deviceKey: deviceKey, now: issued, changes: ["exp": expiry])
+        let identity = try certificate.verify(origin: #require(URL(string: "https://account.test")),
+                                              trustedIssuerKey: certificate.issuerKey, now: issued)
+        try model.saveInternetConnection(url: identity.issuer, token: configuration.accessToken, identity: identity)
+        AccountHTTPStub.setSessionExpiry(now + 29 * 86_400)
+        model.setRTCTransportRoutes([.webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        let group = try #require(model.groups.first)
+        try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+        let peer = try #require(group.members.first { $0.id != memberID })
+        harness.callSession.authenticate([peer.id], route: .webRTC)
+        let call = model.currentCallReference
+        let deadline = model.callDisconnectDeadline
+        let disconnects = harness.callSession.disconnectCallCount
+        #expect(model.setCallMuted(true, for: call))
+        #expect(AccountHTTPStub.requests.isEmpty)
+
+        if outcome == .failedToSave { fixture.keychain.failWriteAccount = "current" }
+        try await renewCredentialAfterNetworkReturns(model, interrupted: outcome == .networkInterrupted, expiry: expiry)
+
+        let requests = AccountHTTPStub.requests
+        let paths = ["session", "identity"]
+        let expectedPaths = outcome == .networkInterrupted ? paths + paths : paths
+        #expect(requests.map { $0.url?.lastPathComponent } == expectedPaths)
+        #expect(requests.first?.httpMethod == (outcome == .oldCertificateExpired ? "GET" : "POST"))
+        #expect(try model.internetSettingsStore.load()?.accessToken == configuration.accessToken)
+        let expectedExpiry = outcome == .failedToSave ? expiry : now + 29 * 86_400
+        #expect(try model.internetSettingsStore.loadIdentity(memberID: memberID)?.expiresAt == expectedExpiry)
+        #expect(model.currentCallReference == call && model.isMuted && model.callDisconnectDeadline == deadline)
+        #expect(model.authenticatedPeerIDs == [peer.id])
+        #expect(harness.callSession.connectCallCount == 1 && harness.callSession.disconnectCallCount == disconnects)
+        #expect(harness.callSession.retriedInternetRouteCount == 0)
+        model.disconnect()
+    }
+
+    private func renewCredentialAfterNetworkReturns(
+        _ model: IntercomViewModel, interrupted: Bool, expiry: TimeInterval
+    ) async throws {
+        if interrupted { AccountHTTPStub.holdResponse(at: "/api/auth/identity") }
+        defer { AccountHTTPStub.releaseResponse() }
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let renewal = try #require(model.automaticInternetEnrollment.task)
+        if interrupted {
+            await AppTestSupport.waitUntil { AccountHTTPStub.hasHeldResponse }
+            try #require(AccountHTTPStub.hasHeldResponse)
+            model.groupDeliveryNetworkPathChanged(isAvailable: false)
+            AccountHTTPStub.releaseResponse()
+            await renewal.value
+            let memberID = model.localMemberIdentity.memberID
+            #expect(try model.internetSettingsStore.loadIdentity(memberID: memberID)?.expiresAt == expiry)
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+            let resumed = try #require(model.automaticInternetEnrollment.task)
+            await resumed.value
+        } else {
+            await renewal.value
+        }
+    }
+
     enum IssuedCredentialOutcome: CaseIterable {
         case challengeInFlight, exchangeInFlight, certificateInFlight, signedOut
 

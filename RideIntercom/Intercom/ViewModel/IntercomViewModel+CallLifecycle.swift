@@ -57,7 +57,7 @@ extension IntercomViewModel {
             startAudioPipelineIfNeeded()
             callTicker.start()
         }
-        if waitsForEnrollment { reconcileAutomaticInternetEnrollment() }
+        reconcileAutomaticInternetEnrollment()
     }
 
     func prepareInvitationsForCall(to group: IntercomGroup) {

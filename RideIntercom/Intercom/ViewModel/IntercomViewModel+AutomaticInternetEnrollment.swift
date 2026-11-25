@@ -38,7 +38,7 @@ extension IntercomViewModel {
         internetCredentialState == .unreadable && canPrepareInternetCredential
     }
 
-    private var canPrepareInternetCredential: Bool {
+    var canPrepareInternetCredential: Bool {
         internetSettingsStore.permitsServiceAccess && internetSettingsStore.fixedWorkerOrigin != nil
             && enabledRTCTransportRoutes.contains(.webRTC)
     }
@@ -166,6 +166,10 @@ extension IntercomViewModel {
             automaticInternetEnrollment.waitsForExecutionOpportunity = false
             reloadUnreadableInternetCredentials()
         }
+        if hasInternetCredentials {
+            reconcileInternetCredentialRenewal()
+            return
+        }
         let proof = accountSession.enrollmentProof(for: accountAccessID)
         let needsAppleConfirmation = proof == nil && !automaticInternetEnrollment.isSubmittingProof
         if needsInternetEnrollment, let pending = automaticInternetEnrollment.waitingCall,
@@ -196,7 +200,9 @@ extension IntercomViewModel {
                 continue
             }
             do {
-                try await finishAutomaticInternetEnrollment(proof, at: origin)
+                try await withInternetEnrollmentTime {
+                    try await finishAutomaticInternetEnrollment(proof, at: origin)
+                }
                 accountSession.discardEnrollmentProof(proof.id)
                 return
             } catch is CancellationError {
@@ -287,7 +293,7 @@ extension IntercomViewModel {
         return accountSession.enrollmentProof(for: accountAccessID).map { $0.id == proof.id } ?? true
     }
 
-    private func finishAutomaticInternetEnrollment(_ proof: InternetSignInProof, at origin: URL) async throws {
+    func withInternetEnrollmentTime(_ run: () async throws -> Void) async throws {
         var endBackgroundTime: (@MainActor () -> Void)?
         endBackgroundTime = automaticInternetEnrollment.beginBackgroundTime { [weak self] in
             guard let end = endBackgroundTime else { return }
@@ -301,6 +307,10 @@ extension IntercomViewModel {
             endBackgroundTime = nil
             end?()
         }
+        try await run()
+    }
+
+    private func finishAutomaticInternetEnrollment(_ proof: InternetSignInProof, at origin: URL) async throws {
         let client = automaticInternetEnrollment.client
         let deviceID = try internetSettingsStore.accountDeviceID()
         let memberID = localMemberIdentity.memberID
@@ -327,7 +337,7 @@ extension IntercomViewModel {
         }
     }
 
-    private func enrollmentRetryDelay(for error: any Error) -> Int? {
+    func enrollmentRetryDelay(for error: any Error) -> Int? {
         switch error {
         case InternetAccountClient.Failure.rateLimited(let seconds): return seconds
         case InternetAccountClient.Failure.serviceUnavailable, is URLError:

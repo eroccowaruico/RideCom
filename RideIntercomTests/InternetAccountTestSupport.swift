@@ -51,10 +51,12 @@ final class InternetAccountTestFixture {
         origin: String = "https://account.test",
         memberID: String = "member-fixture"
     ) throws -> VerifiedDeviceIdentity {
+        let now = Date()
+        let expiresAt = floor(now.timeIntervalSince1970) + 30 * 86_400
         let certificate = try testIdentityCertificate(
             userID: userID, deviceID: deviceID,
             memberID: memberID, deviceKey: IdentityEncoding.encode(try signingKey.publicKey.x963Representation),
-            origin: origin)
+            origin: origin, now: now, changes: ["exp": expiresAt])
         return try certificate.verify(
             origin: #require(URL(string: origin)), trustedIssuerKey: certificate.issuerKey)
     }
@@ -98,6 +100,7 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var recorded: [URLRequest] = []
     nonisolated(unsafe) private static var deviceID = ""
     nonisolated(unsafe) private static var identityChanges: [String: String] = [:]
+    nonisolated(unsafe) private static var sessionExpiry: TimeInterval = 0
     nonisolated(unsafe) private static var locator = String(repeating: "d", count: 64)
     nonisolated(unsafe) private static var delayed = false
     nonisolated(unsafe) private static var heldPath: String?
@@ -123,7 +126,11 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             retryAfter = nil
             responseCode = nil
             identityChanges = [:]
+            sessionExpiry = floor(Date().timeIntervalSince1970) + 30 * 86_400
         }
+    }
+    static func setSessionExpiry(_ unixSeconds: TimeInterval) {
+        lock.withLock { sessionExpiry = unixSeconds }
     }
     static func respond(status: Int, path: String? = nil, retryAfter: String? = nil, code: String? = nil) {
         lock.withLock {
@@ -210,7 +217,8 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             ]
         } else if url.path.hasSuffix("/identity") {
             let input = Self.requestBody(request)
-            let changes = Self.lock.withLock { Self.identityChanges }
+            var changes: [String: Any] = Self.lock.withLock { Self.identityChanges }
+            changes["exp"] = Self.lock.withLock { Self.sessionExpiry }
             guard let origin = IdentityEncoding.origin(url) else { throw URLError(.badURL) }
             let proof = try testIdentityCertificate(
                 deviceID: device, memberID: input["memberID"] as? String ?? "missing",
@@ -222,7 +230,7 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
         } else {
             body = [
                 "userID": account, "deviceID": device,
-                "expiresAt": Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000,
+                "expiresAt": Self.lock.withLock { Self.sessionExpiry } * 1000,
                 "accessToken":
                     "ri1.\(Self.lock.withLock { Self.locator }).\(device).\(String(repeating: "c", count: 64))"
             ]

@@ -149,6 +149,10 @@ extension IntercomViewModel {
         } else {
             applyInternetConfigurationAfterEnrollment(configuration)
         }
+        synchronizeInternetServices()
+    }
+
+    func synchronizeInternetServices() {
         callRelationshipBackupSync?.request()
         requestDirectRestoreDeviceSync()
         callRelationshipSync.resumeDirectRestore?()

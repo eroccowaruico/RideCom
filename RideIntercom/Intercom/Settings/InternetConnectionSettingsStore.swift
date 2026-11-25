@@ -179,6 +179,13 @@ final class InternetConnectionSettingsStore {
         return try DeviceIdentitySigner(memberID: memberID, key: key, identity: try? loadIdentity(memberID: memberID))
     }
 
+    func credentialRenewalSigner(memberID: String) throws -> DeviceIdentitySigner? {
+        guard let saved = try registration(account: "current")?.saved, saved.identity != nil,
+              let binding = saved.binding, try loadPrincipal(memberID: memberID) == binding.principal
+        else { return nil }
+        return try invitationSigner(memberID: memberID, expectedPublicKey: binding.publicKey)
+    }
+
     /// A mutual contact already knows this key. Do not create a key or include a service certificate.
     func contactDeletionSigner(memberID: String) throws -> DeviceIdentitySigner? {
         guard let key = try storedDeviceSigningKey() else { return nil }

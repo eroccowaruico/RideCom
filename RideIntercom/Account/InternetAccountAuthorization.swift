@@ -94,6 +94,24 @@ nonisolated struct InternetAccountClient: Sendable {
             origin: configuration.workerURL, path: "api/auth/session", method: "DELETE",
             token: configuration.accessToken)
     }
+    func renewDeviceIdentity(
+        _ configuration: CloudflareRealtimeConfiguration, userID: String, deviceID: String, signer: DeviceIdentitySigner
+    ) async throws -> VerifiedDeviceIdentity? {
+        let previous = signer.identity
+        let canSign = previous.map { $0.expiresAt > Date().timeIntervalSince1970 } ?? false
+        let body = canSign ? try JSONEncoder().encode(signer.sign(Data(), purpose: .renewDeviceCredential)) : nil
+        let result: DeviceSession = try await sendJSON(
+            origin: configuration.workerURL, path: "api/auth/session", method: canSign ? "POST" : "GET",
+            body: body, token: configuration.accessToken)
+        try Task.checkCancellation()
+        guard result.userID == userID, result.deviceID == deviceID, result.expiresAt.isFinite,
+              result.expiresAt > Date().timeIntervalSince1970 * 1000 else { throw Failure.invalidResponse }
+        if let previous, floor(result.expiresAt / 1000) <= previous.expiresAt { return nil }
+        let credential = InternetAccountCredential(userID: userID, deviceID: deviceID,
+            expiresAt: result.expiresAt, accessToken: configuration.accessToken)
+        return try await certify(origin: configuration.workerURL, credential: credential,
+                                 memberID: signer.memberID, deviceKey: signer.publicKey)
+    }
     func deleteAccount(
         origin: URL, accessToken: String, proof: InternetAccountDeletionProof?, expectedUserID: String? = nil
     ) async throws -> InternetAccountDeletionResult {
@@ -114,6 +132,11 @@ nonisolated struct InternetAccountClient: Sendable {
         return result
     }
     private struct Empty: Decodable, Sendable {}
+    private struct DeviceSession: Decodable, Sendable {
+        let userID: String
+        let deviceID: String
+        let expiresAt: TimeInterval
+    }
     private struct SessionRequest: Encodable {
         let challengeID: String
         let identityToken: String
@@ -196,7 +219,9 @@ nonisolated struct InternetAccountClient: Sendable {
     private func rejection(status: Int, method: String, path: String) -> Failure {
         if status == 401, method == "POST", path == "api/auth/apple/session" { return .appleEnrollmentRejected }
         let enrollmentPaths = ["api/auth/apple/challenge", "api/auth/apple/session", "api/auth/identity"]
-        return (500...599).contains(status) && method == "POST" && enrollmentPaths.contains(path)
+        let canRetry = (method == "POST" && enrollmentPaths.contains(path))
+            || (path == "api/auth/session" && method != "DELETE")
+        return (500...599).contains(status) && canRetry
             ? .serviceUnavailable : .rejected
     }
 
