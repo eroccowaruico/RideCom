@@ -32,6 +32,17 @@ python3 scripts/audio_e2e.py --transport webrtc --matrix smoke --saved-contact-s
 
 同じ条件をXcodeで選ぶ場合は、`RideIntercomAudioE2E`の`testDuplexSpeechOverNetwork`を使う。後述の2台の設定を土台にする。両端に`AUDIO_E2E_TRANSPORT=webrtc`、`AUDIO_E2E_SAVED_CONTACT_START=1`、同じローカル中継URLを渡す。招待を受諾して保存する処理と、端末資格がない場合の案内は[アプリ試験の結果](../validation/history/Cloudflare検証.md#近距離をオフにして保存済みの相手を選び直す)を参照する。
 
+### 端末資格を拒否された通話で再登録して音声を戻す
+
+```sh
+python3 scripts/audio_e2e.py --transport webrtc --matrix smoke --credential-recovery \
+  --two-simulators --ephemeral --seconds 6
+```
+
+保存済みの相手を両端で一度だけ選ぶ。ループバックの中継は片側の端末資格で届いた最初のICE準備にHTTP 401を返す。その端末は合成の本人確認を使って資格と端末証明を再取得し、同じ発信のWebRTCを再開する。その端末のICE準備と入室には再発行した資格が必要になる。OSから回線を利用できると通知する箇所は試験から呼ぶ。交換と証明のHTTP応答は試験内で代替する。WebRTCの接続、発話の送受信、再生の測定は実際に行う。
+
+Xcodeからは既存の2台の設定に `AUDIO_E2E_CREDENTIAL_RECOVERY=1` を加える。資格の拒否と再登録がそれぞれ一度であること、発信とその切断期限が同一であること、資格の拒否が解消した後に再生まで届くことを確かめる。音声は既存の連続性と125 msの基準で判定する。[検証結果](../validation/history/Cloudflare検証.md#資格拒否後に同じ発信で双方向の音声を再生する)
+
 ### 近距離で始めた通話に登録後のインターネット経路を加える
 
 ```sh

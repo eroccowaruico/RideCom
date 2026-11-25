@@ -25,7 +25,7 @@ struct AudioE2ERouteFixture {
 
     func makeSession(run: AudioE2ENetworkRun, worker: AudioE2EWorkerConnection) -> RideIntercomCallSessionAdapter? {
         let internet = run.usesInternet && !run.delaysInternetRegistration ? worker.url.map {
-            CloudflareRealtimeConfiguration(workerURL: $0, accessToken: run.identifier)
+            CloudflareRealtimeConfiguration(workerURL: $0, accessToken: run.initialInternetToken)
         } : nil
         let memberID = run.memberID
         let callSession: RideIntercomCallSessionAdapter?
@@ -43,7 +43,12 @@ struct AudioE2ERouteFixture {
                     #endif
                     return RTC.CallSessionFactory.makeSession(.init(
                         routeConfiguration: .init(enabledRoutes: routes, preferredRoute: .webRTC), audioPolicy: policy,
-                        webRTC: .init(cloudflareConfigurationProvider: { _ in configuration.current },
+                        webRTC: .init(cloudflareConfigurationProvider: { _ in
+                            guard run.recoversRejectedCredential, let workerURL = worker.url,
+                                  let current = configuration.current else { return configuration.current }
+                            return CloudflareRealtimeConfiguration(
+                                workerURL: workerURL, accessToken: current.accessToken)
+                        },
                                       engineFactory: { makeAudioE2EWebRTCEngine() })))
                 })
         } else { callSession = nil }
@@ -126,17 +131,12 @@ struct AudioE2ECallStorage {
         } else {
             access = nil
         }
-        let fixedOrigin = run.delaysInternetRegistration ? try worker.settingsOrigin() : nil
-        let internetSettings = InternetConnectionSettingsStore(
-            keychain: keychain, namespace: namespace, fixedWorkerOrigin: fixedOrigin)
-        if run.usesInternet, !run.delaysInternetRegistration {
-            try internetSettings.save(url: worker.settingsOrigin().absoluteString, token: run.identifier)
-        }
+        let internetSettings = try prepareInternetSettings(run: run, worker: worker)
         let repository = GroupRepository(store: FileGroupStore(directory: directory), credentials: credentials)
         if run.startsFromSavedContact {
             try AudioE2ESavedContact.store(for: run, in: repository, keychain: keychain, namespace: namespace)
         }
-        return IntercomViewModel(
+        let model = IntercomViewModel(
             accountSession: startingAccount,
             enforceCallAccess: startsFromSavedGroup ? true : nil,
             callAccessEvaluation: access,
@@ -160,6 +160,25 @@ struct AudioE2ECallStorage {
             ),
             audioOutputRenderer: AudioOutputStreamRenderer(configuration: .intercom, backend: audio.output)
         )
+        AudioE2ECredentialRecovery.configure(model, run: run, origin: internetSettings.fixedWorkerOrigin)
+        return model
+    }
+
+    private func prepareInternetSettings(
+        run: AudioE2ENetworkRun, worker: AudioE2EWorkerConnection
+    ) throws -> InternetConnectionSettingsStore {
+        let fixedOrigin = run.delaysInternetRegistration || run.rejectsInitialCredential
+            ? try worker.settingsOrigin() : nil
+        let settings = InternetConnectionSettingsStore(
+            keychain: keychain, namespace: namespace, fixedWorkerOrigin: fixedOrigin)
+        if run.rejectsInitialCredential {
+            try keychain.saveSecret(run.identifier.lowercased(), service: namespace + ".InternetConnection",
+                                    account: "device-id")
+        }
+        if run.usesInternet, !run.delaysInternetRegistration {
+            try settings.save(url: worker.settingsOrigin().absoluteString, token: run.initialInternetToken)
+        }
+        return settings
     }
 
     private func makeSettings(for run: AudioE2ENetworkRun) throws -> UserDefaultsAppSettingsStore {
@@ -190,7 +209,7 @@ struct AudioE2ECallStorage {
         let request = ASAuthorizationAppleIDProvider().createRequest()
         account.prepare(request)
         var token: Data?
-        if options.delaysInternetRegistration {
+        if options.delaysInternetRegistration || options.rejectsInitialCredential {
             let expiresAt = Date().addingTimeInterval(600).timeIntervalSince1970
             let claims = try JSONSerialization.data(withJSONObject: ["exp": expiresAt])
             token = Data("fixture.\(IdentityEncoding.encode(claims)).fixture".utf8)
@@ -243,7 +262,7 @@ struct AudioE2EEndpoint {
         }
     }
 
-    func join(invitation: URL?) throws {
+    func join(invitation: URL?) async throws {
         let groupID = run.groupID
         if run.startsFromSavedContact {
             try AudioE2ESavedContact.start(for: run, in: viewModel)
@@ -256,6 +275,7 @@ struct AudioE2EEndpoint {
         } else {
             try viewModel.acceptInviteURL(XCTUnwrap(invitation))
         }
+        try await verifyCredentialRecovery()
     }
 
     func makeBarrier() throws -> AudioE2EBarrier {
@@ -320,7 +340,7 @@ extension AudioE2ETests {
         let viewModel = endpoint.viewModel
         try await endpoint.waitForFirstParticipantIfNeeded()
         let joiningStarted = ContinuousClock.now
-        try endpoint.join(invitation: invitation)
+        try await endpoint.join(invitation: invitation)
         let trace = NetworkAudioTrace(
             pipeline: viewModel.audioPipeline, decodedProbe: endpoint.audio.decodedProbe
         )

@@ -48,6 +48,7 @@ extension AudioE2ETests {
         // Preserve every failing quality condition and its recording. Connection
         // setup still throws on timeout, so a missing peer cannot count as a run.
         continueAfterFailure = true
+        let callReference = pair.endpoint.viewModel.currentCallReference
         var continuityFailures: [String] = []
         for scenario in pair.endpoint.run.scenarios {
             try await prepareNetworkScenario(scenario, pair: pair)
@@ -62,6 +63,9 @@ extension AudioE2ETests {
         XCTAssertTrue(
             continuityFailures.isEmpty, "Speech continuity failed: " + continuityFailures.joined(separator: "; ")
         )
+        if pair.endpoint.run.recoversRejectedCredential {
+            XCTAssertEqual(pair.endpoint.viewModel.currentCallReference, callReference)
+        }
     }
 
     @MainActor

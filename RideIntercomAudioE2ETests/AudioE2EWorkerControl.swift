@@ -27,7 +27,8 @@ extension AudioE2ETests {
         let fixture = try AudioE2EWorker(
             port: UInt16(try XCTUnwrap(url.port)), run: options.identifier, room: room,
             checksInternetRecovery: options.checksInternetRecovery,
-            holdsInternetSignaling: options.startsBeforeInternet, leavesICEUnanswered: options.waitsForInternet
+            holdsInternetSignaling: options.startsBeforeInternet, leavesICEUnanswered: options.waitsForInternet,
+            checksCredentialRecovery: options.recoversRejectedCredential
         )
         try await fixture.start()
         addTeardownBlock { await fixture.stop() }

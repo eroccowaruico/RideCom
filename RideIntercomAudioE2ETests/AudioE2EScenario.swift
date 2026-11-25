@@ -166,6 +166,7 @@ struct AudioE2ENetworkRun {
     let startsFromSavedGroup: Bool
     let startsFromSavedContact: Bool
     let delaysInternetRegistration: Bool
+    let recoversRejectedCredential: Bool
     let waitsForInternet: Bool
     let standaloneReceiver: Bool
     let standaloneDiagnostics: Bool
@@ -182,6 +183,10 @@ struct AudioE2ENetworkRun {
     let measuresIsolationNoise: Bool
 
     var mixed: Bool { transport == "mixed" }
+    var rejectsInitialCredential: Bool { recoversRejectedCredential && role == "a" }
+    var initialInternetToken: String {
+        rejectsInitialCredential ? AudioE2ECredentialRecovery.rejectedToken(run: identifier) : identifier
+    }
     var usesInternet: Bool { transport == "webrtc" || mixed || waitsForInternet }
     var recovery: Bool { checksInternetRecovery || checksLocalRecovery }
     var recordsStartupAudio: Bool { waitsForInternet || measuresIsolationNoise }
@@ -211,6 +216,7 @@ struct AudioE2ENetworkRun {
         startsFromSavedGroup = env["AUDIO_E2E_SAVED_GROUP_START"] == "1"
         startsFromSavedContact = env["AUDIO_E2E_SAVED_CONTACT_START"] == "1"
         delaysInternetRegistration = env["AUDIO_E2E_REGISTRATION_RECOVERY"] == "1"
+        recoversRejectedCredential = env["AUDIO_E2E_CREDENTIAL_RECOVERY"] == "1"
         waitsForInternet = env["AUDIO_E2E_UNANSWERED_INTERNET"] == "1"
         standaloneReceiver = env["AUDIO_E2E_STANDALONE_RECEIVER"] == "1"
         standaloneDiagnostics = env["AUDIO_E2E_STANDALONE_DIAGNOSTICS"] == "1"
@@ -244,6 +250,7 @@ struct AudioE2ENetworkRun {
                 && !standaloneReceiver && !waitsForLateParticipant)
         }
         if delaysInternetRegistration { XCTAssertTrue(mixed && startsFromSavedContact && !startsBeforeInternet) }
+        if recoversRejectedCredential { XCTAssertTrue(transport == "webrtc" && startsFromSavedContact) }
         if waitsForInternet {
             XCTAssertTrue(startsFromSavedGroup && scenarios.count == 1 && initial.seconds <= 10)
         }

@@ -27,6 +27,7 @@ actor AudioE2EWorker {
     private let allowedPeers: Set<String>
     private let iceServer: WebRTCIceServer
     private let checksInternetRecovery: Bool
+    private let checksCredentialRecovery: Bool
     private var participants: [String: Participant] = [:]
     private var sockets: [String: NWConnection] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -48,6 +49,7 @@ actor AudioE2EWorker {
 
     init(port: UInt16, run: String, room: String, checksInternetRecovery: Bool = false,
          holdsInternetSignaling: Bool = false, leavesICEUnanswered: Bool = false,
+         checksCredentialRecovery: Bool = false,
          iceServer: WebRTCIceServer = .init(urls: ["stun:127.0.0.1:9"])) throws {
         let parameters = NWParameters.tcp
         let localPort = try XCTUnwrap(NWEndpoint.Port(rawValue: port))
@@ -56,6 +58,7 @@ actor AudioE2EWorker {
         token = run; self.room = room
         allowedPeers = Set(["a", "b"].map { "e2e-\($0)-\(run.prefix(8))" })
         self.checksInternetRecovery = checksInternetRecovery
+        self.checksCredentialRecovery = checksCredentialRecovery
         self.holdsInternetSignaling = holdsInternetSignaling
         self.leavesICEUnanswered = leavesICEUnanswered
         self.iceServer = iceServer
@@ -162,11 +165,24 @@ actor AudioE2EWorker {
 
 private extension AudioE2EWorker {
     private func handle(_ request: Request, connection: NWConnection) async throws -> Bool {
-        guard request.headers["authorization"] == "Bearer \(token)",
-              request.path.hasPrefix("/api/rooms/\(room)/") else { throw Failure.invalidRequest }
+        guard request.path.hasPrefix("/api/rooms/\(room)/") else { throw Failure.invalidRequest }
         let path = String(request.path.dropFirst("/api/rooms/\(room)/".count))
         let parts = path.split(separator: "/").map(String.init)
         let operation = parts.first == "sessions" ? parts.dropFirst(2).first ?? "delete" : parts.first ?? ""
+        let authorization = request.headers["authorization"]
+        let replacement = "Bearer \(AudioE2ECredentialRecovery.replacementToken(run: token))"
+        if checksCredentialRecovery && isRecoveringSignaling(request, path: path) {
+            guard authorization == replacement else {
+                if authorization == "Bearer \(AudioE2ECredentialRecovery.rejectedToken(run: token))" {
+                    requests["credential-rejected", default: 0] += 1
+                }
+                try await Self.respond(connection, status: 401, body: ["error": "fixture credential rejected"])
+                return false
+            }
+            requests["replacement-" + operation, default: 0] += 1
+        }
+        guard authorization == "Bearer \(token)" || (checksCredentialRecovery && authorization == replacement)
+        else { throw Failure.invalidRequest }
         requests[operation, default: 0] += 1
         switch operation {
         case "test-waiting-participant":
@@ -181,6 +197,12 @@ private extension AudioE2EWorker {
             return try await handleSession(request, operation: operation, path: parts, connection: connection)
         }
         return false
+    }
+
+    private func isRecoveringSignaling(_ request: Request, path: String) -> Bool {
+        let recoveringPeer = "e2e-a-\(token.prefix(8))"
+        return request.method == "POST" && (path == "ice/" + recoveringPeer
+            || (path == "join" && request.body["participantId"] as? String == recoveringPeer))
     }
 
     private func handlePairStage(_ request: Request, connection: NWConnection) async throws {
