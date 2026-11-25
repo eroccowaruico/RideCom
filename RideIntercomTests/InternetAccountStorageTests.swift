@@ -7,6 +7,47 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test(arguments: [false, true])
+    func savedCredentialBecomesReadableWhileTheSameCallWaits(nearby: Bool) throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        try completeSavedSignInWithoutProof(account.session)
+        let origin = try #require(URL(string: "https://account.test"))
+        let store = InternetConnectionSettingsStore(keychain: fixture.keychain, namespace: fixture.namespace,
+                                                    fixedWorkerOrigin: origin)
+        try store.save(url: origin.absoluteString, token: fixture.credential.accessToken,
+                       identity: fixture.identity())
+        fixture.keychain.failRead = true
+        let group = try IntercomGroup(name: "Riders", members: [.init(id: "member-fixture", displayName: "You")],
+                                      accessSecret: "test-group-key")
+        let harness = AppTestSupport.makeHarness(accountSession: account.session, groups: [group],
+                                                 internetSettingsStore: store)
+        let model = harness.viewModel
+        model.setRTCTransportRoutes(nearby ? [.multipeer, .webRTC] : [.webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+        let call = model.currentCallReference
+        #expect(model.setCallMuted(true, for: call))
+        #expect(model.internetCredentialState == .unreadable && model.callForAppleEnrollmentConfirmation == nil)
+        #expect(harness.callSession.connectCallCount == (nearby ? 1 : 0))
+        let disconnections = harness.callSession.disconnectCallCount
+
+        fixture.keychain.failRead = false
+        if nearby {
+            model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        } else {
+            model.reconcileAutomaticInternetEnrollment(executionOpportunity: true)
+        }
+        #expect(model.hasInternetCredentials)
+        #expect(model.localAccountPrincipal?.userID == fixture.credential.userID)
+        #expect(model.isMuted && model.currentCallReference == call && model.connectivityNotice == nil)
+        #expect(harness.callSession.connectCallCount == 1 && harness.callSession.disconnectCallCount == disconnections)
+        #expect(harness.callSession.suppliedInternetConfigurationCount == (nearby ? 1 : 0))
+        #expect(model.automaticInternetEnrollment.task == nil)
+        model.disconnect()
+    }
+
     @Test func fixedWorkerRegistrationUsesOnlyItsOwnEnvironment() async throws {
         let fixture = InternetAccountTestFixture()
         defer { fixture.remove() }

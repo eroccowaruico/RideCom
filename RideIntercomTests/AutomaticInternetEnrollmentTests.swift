@@ -328,12 +328,15 @@ extension InternetAccountTests {
         model.disconnect()
     }
 
-    func makeAutomaticEnrollmentHarness(_ account: AppleAccountSession, fixture: InternetAccountTestFixture)
-        throws -> AppTestSupport.Harness {
+    func makeAutomaticEnrollmentHarness(
+        _ account: AppleAccountSession, fixture: InternetAccountTestFixture,
+        callAccessNow: @escaping @MainActor () -> Date = Date.init
+    ) throws -> AppTestSupport.Harness {
         let store = InternetConnectionSettingsStore(keychain: fixture.keychain, namespace: fixture.namespace,
                                                     fixedWorkerOrigin: URL(string: "https://account.test"))
         try fixture.saveDeviceID(fixture.deviceID)
-        let harness = AppTestSupport.makeHarness(accountSession: account, internetSettingsStore: store)
+        let harness = AppTestSupport.makeHarness(accountSession: account, internetSettingsStore: store,
+                                                 callAccessNow: callAccessNow)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AccountHTTPStub.self]
         AccountHTTPStub.reset(deviceID: fixture.deviceID)

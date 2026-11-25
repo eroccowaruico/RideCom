@@ -14,6 +14,7 @@ extension IntercomViewModel {
 
     /// Internal lifecycle after the destination and account have been resolved.
     func connectSelectedGroup(to destination: CallDestination, source: CallStartSource,
+                              disconnectDeadline: Date?,
                               isStillAllowed: @escaping @MainActor () -> Bool) {
         guard canStartCalls else {
             groupErrorMessage = groupStorageNotice ?? "Sign in with Apple to start a call."
@@ -30,7 +31,8 @@ extension IntercomViewModel {
         }
         let startsNearby = enabledRTCTransportRoutes.contains(.multipeer)
         let hasProof = hasAutomaticInternetEnrollmentProof
-        let waitsForEnrollment = hasProof || (needsInternetEnrollment && source == .thisDevice)
+        let waitsForEnrollment = hasProof || canWaitForSavedInternetCredential
+            || (needsInternetEnrollment && source == .thisDevice)
         if !startsNearby, !waitsForEnrollment, let internetSetupNotice = internetCallSetupNotice {
             groupErrorMessage = internetSetupNotice
             return
@@ -40,7 +42,7 @@ extension IntercomViewModel {
         internetTransportFailure = nil
         cancelAudioCheck()
 
-        switchActiveCallIfNeeded(to: selectedGroup.id, source: source)
+        switchActiveCallIfNeeded(to: selectedGroup.id, source: source, disconnectDeadline: disconnectDeadline)
 
         connectionState = routeConnectionState(isConnected: !connectedPeerIDs.isEmpty)
         markMembers(connectedPeerIDs.isEmpty ? .connecting : .connected)
@@ -86,7 +88,7 @@ extension IntercomViewModel {
         }
     }
 
-    private func switchActiveCallIfNeeded(to groupID: UUID, source: CallStartSource) {
+    private func switchActiveCallIfNeeded(to groupID: UUID, source: CallStartSource, disconnectDeadline: Date?) {
         if let activeGroupID,
            activeGroupID != groupID,
            hasAnyActiveGroupConnection {
@@ -102,7 +104,7 @@ extension IntercomViewModel {
             if changedInputRoute { applyEffectiveInputMute() }
             bindConnectionEvents()
             let interval = source == .thisDevice ? callDisconnectInterval : watchCallDisconnectInterval
-            callDisconnectDeadline = callAccessNow().addingTimeInterval(interval.seconds)
+            callDisconnectDeadline = disconnectDeadline ?? callAccessNow().addingTimeInterval(interval.seconds)
         }
     }
 

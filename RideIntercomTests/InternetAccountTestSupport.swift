@@ -48,11 +48,13 @@ final class InternetAccountTestFixture {
     }
     func identity(
         userID: String = String(repeating: "a", count: 64),
-        origin: String = "https://account.test"
+        origin: String = "https://account.test",
+        memberID: String = "member-fixture"
     ) throws -> VerifiedDeviceIdentity {
         let certificate = try testIdentityCertificate(
             userID: userID, deviceID: deviceID,
-            deviceKey: IdentityEncoding.encode(try signingKey.publicKey.x963Representation), origin: origin)
+            memberID: memberID, deviceKey: IdentityEncoding.encode(try signingKey.publicKey.x963Representation),
+            origin: origin)
         return try certificate.verify(
             origin: #require(URL(string: origin)), trustedIssuerKey: certificate.issuerKey)
     }

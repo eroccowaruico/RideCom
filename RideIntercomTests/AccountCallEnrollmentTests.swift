@@ -6,6 +6,47 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    @Test(arguments: [false, true])
+    func savedCredentialRecoveryRespectsTheOriginalAccountCallDeadline(expired: Bool) throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        try completeSavedSignInWithoutProof(account.session)
+        var now = Date()
+        let harness = try makeAutomaticEnrollmentHarness(account.session, fixture: fixture, callAccessNow: { now })
+        let model = harness.viewModel
+        try model.internetSettingsStore.save(
+            url: "https://account.test", token: fixture.credential.accessToken,
+            identity: fixture.identity(memberID: model.localMemberIdentity.memberID))
+        fixture.keychain.failRead = true
+        model.internetCredentialState = .unreadable
+        let recipient = accountCallEnrollmentUser("first", accountDigit: "b")
+        try model.groupRepository.update(model.groups, credential: nil, users: [recipient])
+        model.savedUsers = model.groupRepository.users
+        model.setRTCTransportRoutes([.webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+
+        #expect(model.openDestination(.user(recipient.id)) == .opened)
+        let deadline = try #require(model.callDisconnectDeadline)
+        #expect(model.accountCallWaitingForEnrollment?.id == recipient.id)
+        #expect(model.callForAppleEnrollmentConfirmation == nil)
+        #expect(harness.callSession.connectCallCount == 0)
+        fixture.keychain.failRead = false
+        now = expired ? deadline : deadline.addingTimeInterval(-1)
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+
+        #expect(model.hasInternetCredentials)
+        #expect(model.automaticInternetEnrollment.task == nil && AccountHTTPStub.requests.isEmpty)
+        #expect(model.accountCallWaitingForEnrollment == nil)
+        #expect(harness.callSession.connectCallCount == (expired ? 0 : 1))
+        #expect(model.callDisconnectDeadline == (expired ? nil : deadline))
+        if !expired {
+            let local = try #require(model.localAccountPrincipal)
+            #expect(harness.callSession.connectedGroup?.accountPair?.other(than: local) == recipient.principal)
+        }
+        model.disconnect()
+    }
+
     enum AccountCallEnrollmentResult: CaseIterable {
         case confirmed, automatic, closed, closedWhileRegistering, replaced, removed
     }

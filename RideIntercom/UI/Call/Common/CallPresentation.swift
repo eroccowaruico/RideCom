@@ -26,6 +26,7 @@ struct CallPanel: View {
                             Text(verbatim: user.resolvedDisplayName)
                                 .font(.headline)
                             ProgressView("Connecting")
+                            if let notice = viewModel.connectivityNotice { Text(verbatim: notice) }
                         }
                         CallAppleEnrollmentButton(viewModel: viewModel, inList: true)
                         CallErrorSection(viewModel: viewModel)

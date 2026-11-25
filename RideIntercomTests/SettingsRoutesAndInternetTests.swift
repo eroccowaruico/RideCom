@@ -355,7 +355,7 @@ extension AppTests.SettingsTests {
         model.openDestination(.group(group.id))
 
         #expect(model.groupErrorMessage == String(localized:
-            "Could not read saved Internet calling settings. Reopen RideCom and try again."))
+            "Could not read saved Internet calling settings."))
         #expect(harness.callSession.connectedGroup == nil)
         #expect(keychain.value == "unreadable-saved-credentials")
     }

@@ -30,8 +30,16 @@ struct CallAwaitingInternetEnrollment {
 
 extension IntercomViewModel {
     var needsInternetEnrollment: Bool {
-        internetCredentialState == .missing && internetSettingsStore.permitsServiceAccess
-            && internetSettingsStore.fixedWorkerOrigin != nil && enabledRTCTransportRoutes.contains(.webRTC)
+        internetCredentialState == .missing && canPrepareInternetCredential
+    }
+
+    var canWaitForSavedInternetCredential: Bool {
+        internetCredentialState == .unreadable && canPrepareInternetCredential
+    }
+
+    private var canPrepareInternetCredential: Bool {
+        internetSettingsStore.permitsServiceAccess && internetSettingsStore.fixedWorkerOrigin != nil
+            && enabledRTCTransportRoutes.contains(.webRTC)
     }
 
     var hasAutomaticInternetEnrollmentProof: Bool {
@@ -55,7 +63,7 @@ extension IntercomViewModel {
     func waitForAccountCallEnrollment(_ destination: CallDestination) -> Bool {
         guard case .user(let id) = destination, !hasAnyActiveGroupConnection, callMicrophonePermissionRequest == nil,
               canStartCalls, canEditSavedGroups,
-              localAccountPrincipal == nil, needsInternetEnrollment,
+              localAccountPrincipal == nil, needsInternetEnrollment || canWaitForSavedInternetCredential,
               let origin = internetSettingsStore.fixedWorkerOrigin,
               let user = savedRemoteUsers.first(where: { $0.id == id }),
               let recipient = user.principal, recipient.issuer == IdentityEncoding.origin(origin)
@@ -153,7 +161,10 @@ extension IntercomViewModel {
     }
 
     func reconcileAutomaticInternetEnrollment(executionOpportunity: Bool = false) {
-        if executionOpportunity { automaticInternetEnrollment.waitsForExecutionOpportunity = false }
+        if executionOpportunity {
+            automaticInternetEnrollment.waitsForExecutionOpportunity = false
+            reloadUnreadableInternetCredentials()
+        }
         let proof = accountSession.enrollmentProof(for: accountAccessID)
         if needsInternetEnrollment, let pending = automaticInternetEnrollment.waitingCall,
            pending.needsAppleConfirmation != (proof == nil) {
@@ -208,6 +219,7 @@ extension IntercomViewModel {
         }
         automaticInternetEnrollment.waitingCall = nil
         if pending.accountRecipient != nil {
+            let deadline = callDisconnectDeadline
             let mayConnect = canStartCalls && enabledRTCTransportRoutes.contains(.webRTC)
                 && isCurrentEnrollmentCall(pending)
                 && localAccountPrincipal?.issuer == pending.accountRecipient?.issuer
@@ -217,7 +229,8 @@ extension IntercomViewModel {
             callSession.updateInternetConfiguration(configuration)
             if mayConnect {
                 _ = requestCallStart(to: pending.destination, accountAccessID: pending.reference.accountAccessID,
-                                     allowSwitchingCall: false, presentsAfterPermission: true)
+                                     allowSwitchingCall: false, presentsAfterPermission: true,
+                                     disconnectDeadline: deadline, isStillAllowed: pending.isStillAllowed)
             }
             return
         }

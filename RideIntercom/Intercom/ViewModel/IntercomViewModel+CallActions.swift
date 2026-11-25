@@ -108,10 +108,15 @@ extension IntercomViewModel {
         to destination: CallDestination, accountAccessID requestedAccess: UUID,
         allowSwitchingCall: Bool = true, source: CallStartSource = .thisDevice,
         allowsMicrophonePrompt: Bool = true, presentsAfterPermission: Bool = false,
+        disconnectDeadline: Date? = nil,
         isStillAllowed: @escaping @MainActor () -> Bool = { true }
     ) -> CallStartOutcome {
         guard !Task.isCancelled, isStillAllowed() else { return .blocked }
         guard validateCallStartAccount(requestedAccess) else { return .failed }
+        let begin: @MainActor () -> CallReference? = { [weak self] in
+            self?.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source,
+                            disconnectDeadline: disconnectDeadline, isStillAllowed: isStillAllowed)
+        }
         cancelPendingAccountCallEnrollment()
         if source != .watchAudio, !isInCall(with: destination) {
             guard callMicrophonePermissionRequest == nil else { return .blocked }
@@ -123,14 +128,11 @@ extension IntercomViewModel {
                 return .blocked
             case .undetermined:
                 guard allowsMicrophonePrompt else { return .blocked }
-                return waitForCallMicrophonePermission(to: destination, allowSwitchingCall: allowSwitchingCall,
-                    source: source, presentsAfterPermission: presentsAfterPermission, isStillAllowed: isStillAllowed)
+                return waitForCallMicrophonePermission(presentsAfterPermission: presentsAfterPermission,
+                    isStillAllowed: isStillAllowed, begin: begin)
             }
         }
-        guard let call = beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source,
-                                   isStillAllowed: isStillAllowed) else {
-            return .failed
-        }
+        guard let call = begin() else { return .failed }
         return .started(call)
     }
 
@@ -144,8 +146,8 @@ extension IntercomViewModel {
     }
 
     private func waitForCallMicrophonePermission(
-        to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource,
-        presentsAfterPermission: Bool, isStillAllowed: @escaping @MainActor () -> Bool
+        presentsAfterPermission: Bool, isStillAllowed: @escaping @MainActor () -> Bool,
+        begin: @escaping @MainActor () -> CallReference?
     ) -> CallStartOutcome {
         let id = UUID(), reference = currentCallReference
         let requestPermission = requestMicrophoneAccess
@@ -159,8 +161,7 @@ extension IntercomViewModel {
                 self.showsCallMicrophonePermissionAlert = true
                 return nil
             }
-            let call = self.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source,
-                                      isStillAllowed: isStillAllowed)
+            let call = begin()
             if presentsAfterPermission, let call { self.callToPresentAfterPermission = call }
             return call
         }
@@ -170,8 +171,10 @@ extension IntercomViewModel {
 
     private func beginCall(
         to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource,
+        disconnectDeadline: Date?,
         isStillAllowed: @escaping @MainActor () -> Bool
     ) -> CallReference? {
+        if let disconnectDeadline, callAccessNow() >= disconnectDeadline { return nil }
         switch destination {
         case .group(let id):
             guard selectGroupForCall(id, allowSwitchingCall: allowSwitchingCall) else { return nil }
@@ -180,7 +183,8 @@ extension IntercomViewModel {
         }
         guard let selectedGroup else { return nil }
         if activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection { return currentCallReference }
-        connectSelectedGroup(to: destination, source: source, isStillAllowed: isStillAllowed)
+        connectSelectedGroup(to: destination, source: source,
+                             disconnectDeadline: disconnectDeadline, isStillAllowed: isStillAllowed)
         guard activeGroupID == selectedGroup.id, hasAnyActiveGroupConnection else { return nil }
         // Every new one-to-one connection notifies the person once, from a list, Widget, Watch or Siri.
         if automaticInternetEnrollment.waitingCall == nil, case .user(let id) = destination {

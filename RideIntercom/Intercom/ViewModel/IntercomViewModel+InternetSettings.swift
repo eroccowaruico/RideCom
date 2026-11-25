@@ -11,7 +11,8 @@ extension IntercomViewModel {
 
     var connectivityNotice: String? {
         if let internetTransportFailure { return internetTransportFailure.notice }
-        guard hasAnyActiveGroupConnection, automaticInternetEnrollment.waitingCall == nil,
+        guard hasAnyActiveGroupConnection || accountCallWaitingForEnrollment != nil,
+              automaticInternetEnrollment.waitingCall == nil || internetCredentialState == .unreadable,
               networkPathIsAvailable == true else { return nil }
         return internetCallSetupNotice
     }
@@ -24,7 +25,7 @@ extension IntercomViewModel {
         case .missing:
             return String(localized: "Could not prepare Internet calling for this device.")
         case .unreadable:
-            return String(localized: "Could not read saved Internet calling settings. Reopen RideCom and try again.")
+            return String(localized: "Could not read saved Internet calling settings.")
         case .configured:
             return nil
         }
@@ -114,13 +115,40 @@ extension IntercomViewModel {
         guard let configuration = try internetSettingsStore.load() else {
             throw InternetConnectionSettingsStore.ValidationError.missingToken
         }
+        stopContactInvitationSession()
+        useInternetConfiguration(configuration, restoringSavedCredential: false)
+    }
+
+    func reloadUnreadableInternetCredentials() {
+        guard canStartCalls, internetCredentialState == .unreadable else { return }
+        do {
+            let configuration = try internetSettingsStore.load()
+            localAccountPrincipal = try internetSettingsStore.loadPrincipal(memberID: localMemberIdentity.memberID)
+            guard let configuration else {
+                internetCredentialState = .missing
+                internetCheckMessage = "No Internet calling credential is saved."
+                return
+            }
+            useInternetConfiguration(configuration, restoringSavedCredential: true)
+        } catch {
+            // Leave both the read failure and the retained credential intact.
+        }
+    }
+
+    private func useInternetConfiguration(
+        _ configuration: CloudflareRealtimeConfiguration, restoringSavedCredential: Bool
+    ) {
         internetCheckGeneration = UUID()
         isCheckingInternet = false
-        stopContactInvitationSession()
         internetWorkerURL = configuration.workerURL.absoluteString
         internetCredentialState = .configured
-        internetCheckMessage = "Device token saved. Service not checked."
-        applyInternetConfigurationAfterEnrollment(configuration)
+        internetCheckMessage = restoringSavedCredential
+            ? "Device token configured. Service not checked." : "Device token saved. Service not checked."
+        if restoringSavedCredential && automaticInternetEnrollment.waitingCall == nil {
+            callSession.updateInternetConfiguration(configuration, preservingCall: hasAnyActiveGroupConnection)
+        } else {
+            applyInternetConfigurationAfterEnrollment(configuration)
+        }
         callRelationshipBackupSync?.request()
         requestDirectRestoreDeviceSync()
         callRelationshipSync.resumeDirectRestore?()
