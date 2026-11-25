@@ -219,6 +219,11 @@ final class AppAudioPipeline {
     }
 
     func processPlaybackFrame(_ frame: PCMFrame) throws { try receiver.play(frame) }
+    func prepareReceivePeers(_ peerIDs: [String]) {
+        // If preparation fails, scheduling the first received frame can retry.
+        for peerID in peerIDs { receiver.preparePeer(peerID) }
+    }
+
     func stopReceivePeer(_ peerID: String) throws { try receiver.removePeer(peerID) }
     nonisolated var receiveDecodeCounts: ReceiveDecodeCounts { receiver.decodeSnapshot }
     var receiveDecodeDiagnostics: ReceiveDecodeDiagnostics { receiver.decodeDiagnostics }

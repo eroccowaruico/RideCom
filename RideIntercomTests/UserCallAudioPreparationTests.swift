@@ -1,4 +1,5 @@
 import AudioCore
+import AudioMixer
 import Foundation
 import RTC
 import SessionManager
@@ -34,7 +35,10 @@ import Testing
     @Test(arguments: [RouteKind.multipeer, .webRTC])
     func mutedCallReceivesAfterWaitingAndRecoverableLoss(route: RouteKind) async throws {
         var now = Date()
-        let harness = AppTestSupport.makeHarness(enforceCallAccess: false, callAccessNow: { now })
+        var group = try #require(IntercomSeedData.recentGroups.first)
+        group.members = Array(group.members.prefix(1))
+        let harness = AppTestSupport.makeHarness(groups: [group], hasInternetCallCredential: true,
+                                                enforceCallAccess: false, callAccessNow: { now })
         let viewModel = harness.viewModel
         defer { viewModel.disconnect() }
         viewModel.setSoundIsolationEnabled(false)
@@ -49,24 +53,22 @@ import Testing
         let reference = viewModel.currentCallReference
         let inputStarts = harness.inputBackend.startCount, outputStarts = harness.outputBackend.startCount
         let peerID = "member-108"
-
-        func outputContains(_ sample: Float) -> Bool {
-            harness.outputBackend.scheduledFrames.contains { frame in
-                frame.samples.contains { abs($0 - sample) < 0.001 }
-            }
-        }
+        let peerBusID = "rx-peer-\(peerID)"
 
         now = now.addingTimeInterval(300)
         viewModel.handleCallTick(now: now.timeIntervalSince1970)
         #expect(harness.callSession.enabledRouteValues.last == [route])
         #expect(viewModel.isMuted && viewModel.lastReceivedAudioAt == nil)
         #expect(!viewModel.isCallMediaStarted && viewModel.callDisconnectDeadline == deadline)
+        #expect(!viewModel.audioPipeline.snapshot.busIDs.contains(peerBusID))
 
         harness.callSession.authenticate([peerID], route: route)
         await AppTestSupport.waitUntil { harness.callSession.startMediaCallCount == 1 }
+        #expect(viewModel.audioPipeline.snapshot.busIDs.contains(peerBusID))
+        #expect(viewModel.lastReceivedAudioAt == nil)
         try receivePeerAudio(0.2, sequence: 1, from: peerID, through: harness.callSession)
-        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(0.2) }
-        #expect(outputContains(0.2))
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(0.2, in: harness.outputBackend) }
+        #expect(outputContains(0.2, in: harness.outputBackend))
 
         viewModel.handleTransportEvent(.linkFailed(willRetry: true))
         #expect(viewModel.isAudioReady && !viewModel.isCallMediaStarted)
@@ -74,17 +76,24 @@ import Testing
         viewModel.handleCallTick(now: now.timeIntervalSince1970)
         harness.callSession.authenticate([peerID], route: route)
         await AppTestSupport.waitUntil { harness.callSession.startMediaCallCount == 2 }
+        #expect(viewModel.audioPipeline.snapshot.busIDs.contains(peerBusID))
         let capturedAt = ProcessInfo.processInfo.systemUptime
         for index in 0..<8 {
             harness.inputBackend.emit(.init(sequenceNumber: UInt64(index), format: .intercomPacketAudio,
                 capturedAt: capturedAt + Double(index) * 0.02, samples: Array(repeating: 0.2, count: 960)))
         }
         try receivePeerAudio(-0.3, sequence: 2, from: peerID, through: harness.callSession)
-        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(-0.3) }
-        #expect(outputContains(-0.3), "The recovered call must schedule the new peer audio")
+        await AppTestSupport.waitUntil(timeout: .seconds(5)) { outputContains(-0.3, in: harness.outputBackend) }
+        #expect(outputContains(-0.3, in: harness.outputBackend), "The recovered call must schedule the new peer audio")
         #expect(viewModel.isMuted && harness.callSession.sentAudioPackets.isEmpty)
         #expect(viewModel.callDisconnectDeadline == deadline && viewModel.currentCallReference == reference)
         #expect(harness.inputBackend.startCount == inputStarts && harness.outputBackend.startCount == outputStarts)
+    }
+
+    private func outputContains(_ sample: Float, in output: FakeOutputStreamBackend) -> Bool {
+        output.scheduledFrames.contains { frame in
+            frame.samples.contains { abs($0 - sample) < 0.001 }
+        }
     }
 
     private func receivePeerAudio(

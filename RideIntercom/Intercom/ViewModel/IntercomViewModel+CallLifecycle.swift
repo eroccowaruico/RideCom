@@ -199,6 +199,7 @@ extension IntercomViewModel {
             return
         }
         if !isCallMediaStarted {
+            audioPipeline.prepareReceivePeers(authenticatedPeerIDs)
             isCallMediaStarted = true
             callSession.startMedia()
         }

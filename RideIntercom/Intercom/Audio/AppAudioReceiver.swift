@@ -205,6 +205,7 @@ nonisolated final class AppAudioReceiver: @unchecked Sendable {
         return report.outputSampleCount > 0
     }
 
+    func preparePeer(_ peer: String) { lock.withLock { _ = try? source(for: peer) } }
     func removePeer(_ peer: String) throws {
         lock.lock(); defer { lock.unlock() }
         guard peerPlayback.removeValue(forKey: peer)?.source != nil else { return }
