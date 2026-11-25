@@ -143,6 +143,9 @@ test('the original call lease crosses a device rotation without extending past 2
         const replacementHash = createHash('sha256').update(replacement).digest('hex');
         assert.ok(await account.register(deviceID, replacementHash, Date.now()));
         assert.equal((await call('/api/auth/session', undefined, 'GET', instance, credential)).status, 401);
+        assert.equal((await join('before-device-save', room, instance, credential)).status, 401);
+        assert.equal((await call(`${base}/pull`, {}, 'POST', instance, credential)).status, 401);
+        assert.equal((await call(`${base}/signal`, {}, 'POST', instance, credential)).status, 401);
 
         let expiresAt;
         let issuedNearDeadline = 0;
