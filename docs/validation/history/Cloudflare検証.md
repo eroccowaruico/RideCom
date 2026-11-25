@@ -350,3 +350,11 @@ RTCの回帰11件、Macの通話状態10件、Simulatorの診断表示8件が成
 本番のカスタムドメインでヘルスはHTTP 200、端末資格なしの状態照会は401だった。管理APIで通話・Apple登録・TURN・呼び出し通知が有効で、通知の環境は本番APNsだった。通知の索引と宛先の識別子、APNs・端末証明・SFU・TURN用のシークレット名の登録を照合した。
 
 同じソースからXcodeの共有スキームでMac Release 1.0.0（Build 2646）を作った。標準出力にあるAppを署名記録から特定し、署名、通常の保存先、本番Workerの接続先、Apple認証の権限を確認した。証跡は `.validation/production-readiness-2646/`。Macのアプリ起動と認証は未実施。試験用アカウントの端末資格を確認できたら、通常版のAdvancedから「Check Internet Service」で状態照会し、入室、ICE、相手認証、双方向再生へ進む。APNsの受付と端末への通知到達は実際の呼び出しで確かめる。次回用Buildは2647。[本番通話と通知の着手順](../../backlog/README.md#着手順)
+
+## 専用SimulatorでAPNs Sandboxの端末トークンを受け取る
+
+2026-11-25。Appleシリコン搭載MacのiOS 27.2 Simulatorを試験専用に作成した。Xcodeの共有 `RideIntercom` スキームと通常のDebug構成でBuild 2670を生成した。生成時の権限情報で、Simulator用の `aps-environment` が `development` であることを照合した。[SimulatorのAPNs対応](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)
+
+Appleアカウントを登録していない状態でアプリを起動し、XcodeのデバッガからUIKitの `registerForRemoteNotifications()` を呼んだ。成功と失敗のコールバックに停止位置を設け、成功側の `didRegisterForRemoteNotificationsWithDeviceToken` に到達した。観測は到達した処理の名前までとし、トークンの値を読み出していない。試験先のSimulatorは削除し、一覧から消えたことを確かめた。手元の証跡は `.validation/apns-sandbox-probe.ghvIEs/`、次回用Buildは2671。
+
+通常のサインイン後にアプリが登録を始める経路と、Workerへの通知先登録は今回の対象外。固定Previewで実際の呼び出しを試すには、Sandbox専用の宛先と送信元を用意し、APNsの受付、相手への到着、「接続」で開く通話、片付けまでを確認する。開発署名の実機とTestFlightの本番通知は個別に検証する。[通知の受入条件](../../backlog/未実装課題.md#サンドボックスと本番で呼び出し通知を届ける)
