@@ -42,14 +42,20 @@ final class FakeRoute: RTCCallRoute, @unchecked Sendable {
 
     private let eventSource = EventSource<RouteEvent>()
     private let onRetryPrepare: (@Sendable (RouteKind) async -> Void)?
+    private let onStart: (@Sendable () async -> Void)?
     private(set) var prepareCount = 0
     private(set) var startConnectionCount = 0
     private(set) var sentApplicationData: [ApplicationDataMessage] = []
     var immediateRecipients: Set<PeerID> = []
 
-    init(kind: RouteKind, onRetryPrepare: (@Sendable (RouteKind) async -> Void)? = nil) {
+    init(
+        kind: RouteKind,
+        onRetryPrepare: (@Sendable (RouteKind) async -> Void)? = nil,
+        onStart: (@Sendable () async -> Void)? = nil
+    ) {
         self.kind = kind
         self.onRetryPrepare = onRetryPrepare
+        self.onStart = onStart
         self.capabilities = RouteCapabilities(
             supportsLocalDiscovery: kind == .multipeer,
             supportsOfflineOperation: kind == .multipeer,
@@ -69,6 +75,7 @@ final class FakeRoute: RTCCallRoute, @unchecked Sendable {
 
     func startConnection() async {
         startConnectionCount += 1
+        await onStart?()
     }
 
     func stopConnection() async {}

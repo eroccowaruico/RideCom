@@ -39,7 +39,7 @@ flowchart LR
 | 状況 | 振る舞い |
 |---|---|
 | `.singleRoute` | preferred routeだけを開始。ほかの経路を無断で有効化しない |
-| automatic設定 | preferredを開始し、fallbackDelay後に許可済みの残りの経路も開始する。一部Local接続が成功してもInternet開始を抑止しない |
+| automatic設定 | 通話開始時にpreferredの開始処理とfallbackDelayの計時を始める。期限が来たら、優先経路が準備中でも許可済みの残りの経路を開始する。先に接続できた経路は使い続ける。通話が終了すればその回の計時を取り消す |
 | 既存のautomatic 2値 | ともにグループ接続維持として扱う。1経路へ切り替えて他の接続を切る旧動作は廃止 |
 | Local専用A、両経路B、Internet専用C | A↔B↔Cで元の話者を保持して中継。AはCloudflare資格を持たなくてよい |
 | 中継候補が複数 | Local近隣でInternet媒体がreadyと通知された候補の最小PeerIDを選ぶ。話者の端末がInternetへ直接送信している音声は中継しない |

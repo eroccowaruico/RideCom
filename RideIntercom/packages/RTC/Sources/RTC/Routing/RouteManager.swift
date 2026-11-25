@@ -79,16 +79,16 @@ public actor RouteManager: CallSession {
         isConnectionStarted = true
         let token = generation
         emitState(.connecting)
-        await start(configuration.preferredRoute)
-        guard generation == token else { return }
         if configuration.selectionMode != .singleRoute {
-            let delay = max(0, configuration.fallbackDelay)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(max(0, configuration.fallbackDelay)))
             fallbackTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(delay))
+                try? await Task.sleep(until: deadline, clock: .continuous)
                 guard !Task.isCancelled else { return }
                 await self?.startRemaining(generation: token)
             }
         }
+        await start(configuration.preferredRoute)
+        guard generation == token else { return }
         lastPresence = ProcessInfo.processInfo.systemUptime
         lastRuntimeStatus = lastPresence
         await broadcast(.presence)

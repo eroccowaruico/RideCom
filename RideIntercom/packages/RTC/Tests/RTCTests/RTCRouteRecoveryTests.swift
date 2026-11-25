@@ -1,6 +1,37 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import RTC
+
+@Test(arguments: [RouteKind.multipeer, .webRTC])
+func fallbackStartsWhileThePreferredRouteIsStillStarting(preferredKind: RouteKind) async throws {
+    let alternateKind: RouteKind = preferredKind == .multipeer ? .webRTC : .multipeer
+    let (entered, reportEntered) = AsyncStream<Void>.makeStream()
+    let (release, resumePreferred) = AsyncStream<Void>.makeStream()
+    let preferred = FakeRoute(kind: preferredKind, onStart: {
+        reportEntered.yield()
+        for await _ in release { break }
+    })
+    let alternateStarted = Mutex(false)
+    let alternate = FakeRoute(kind: alternateKind, onStart: {
+        alternateStarted.withLock { $0 = true }
+    })
+    let configuration = CallRouteConfiguration(enabledRoutes: [preferredKind, alternateKind],
+        preferredRoute: preferredKind, selectionMode: .automaticFallback, fallbackDelay: 0)
+    let manager = RouteManager(routes: [preferred, alternate], configuration: configuration)
+    await manager.prepare(makeRequest(configuration: configuration))
+    let start = Task { await manager.startConnection() }
+    defer { resumePreferred.finish(); start.cancel() }
+    for await _ in entered { break }
+
+    for _ in 0..<100 where !alternateStarted.withLock({ $0 }) {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(alternateStarted.withLock { $0 })
+    resumePreferred.finish()
+    await start.value
+    await manager.stopConnection()
+}
 
 @Test func rejectedHandshakeIsForwardedAsItsOwnError() async throws {
     let local = FakeRoute(kind: .multipeer)
