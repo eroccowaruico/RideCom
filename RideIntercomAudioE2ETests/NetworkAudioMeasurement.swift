@@ -44,14 +44,14 @@ extension AudioE2ETests {
     }
 
     @MainActor
-    func measureNetworkScenarios(_ pair: AudioE2EPair, receiveTrace: NetworkAudioReception) async throws {
+    func measureNetworkScenarios(_ pair: AudioE2EPair, trace: NetworkAudioTrace) async throws {
         // Preserve every failing quality condition and its recording. Connection
         // setup still throws on timeout, so a missing peer cannot count as a run.
         continueAfterFailure = true
         var continuityFailures: [String] = []
         for scenario in pair.endpoint.run.scenarios {
             try await prepareNetworkScenario(scenario, pair: pair)
-            let failures = try await measureNetworkScenario(scenario, pair: pair, receiveTrace: receiveTrace)
+            let failures = try await measureNetworkScenario(scenario, pair: pair, trace: trace)
             continuityFailures.append(contentsOf: failures)
             try await pair.barrier.meet("measured-" + scenario.id)
         }
@@ -92,10 +92,10 @@ extension AudioE2ETests {
 
     @MainActor
     private func measureNetworkScenario(
-        _ scenario: AudioE2EScenario, pair: AudioE2EPair, receiveTrace: NetworkAudioReception
+        _ scenario: AudioE2EScenario, pair: AudioE2EPair, trace: NetworkAudioTrace
     ) async throws -> [String] {
         let endpoint = pair.endpoint
-        let window = try await captureNetworkAudio(scenario, endpoint: endpoint, receiveTrace: receiveTrace)
+        let window = try await captureNetworkAudio(scenario, endpoint: endpoint, trace: trace)
         try await attachNetworkTrace(window, scenario: scenario, endpoint: endpoint)
         let viewModel = endpoint.viewModel
         let counts = NetworkAudioCounts(
@@ -107,7 +107,7 @@ extension AudioE2ETests {
         XCTAssertEqual(window.rendered.invalid, 0)
         XCTAssertGreaterThan(window.rendered.samples.count, Int(window.rendered.rate * scenario.seconds * 0.8))
         let analysis = try await analyzeNetworkAudio(
-            scenario, window: window, audio: endpoint.audio, receiveTrace: receiveTrace
+            scenario, window: window, audio: endpoint.audio, trace: trace
         )
         var failures: [String] = []
         if let replies = analysis.replies, !replies.passed {
@@ -141,7 +141,7 @@ extension AudioE2ETests {
     @MainActor
     private func analyzeNetworkAudio(
         _ scenario: AudioE2EScenario, window: NetworkAudioWindow, audio: AudioE2ENativeAudio,
-        receiveTrace: NetworkAudioReception
+        trace: NetworkAudioTrace
     ) async throws -> NetworkAudioAnalysis {
         let rendered = window.rendered
         let remoteSamples = audio.remote.samples
@@ -166,7 +166,7 @@ extension AudioE2ETests {
             SpeechContinuity.measure(reference: remoteSamples, referenceRate: 48_000,
                 output: decodedRecording.samples, outputRate: decodedRecording.rate)
         }.value
-        XCTAssertEqual(receiveTrace.decodeFailures.withLock { $0 } - window.failuresBefore, 0)
+        XCTAssertEqual(trace.decodeFailures.withLock { $0 } - window.failuresBefore, 0)
         let peak = rendered.samples.reduce(Float(0)) { max($0, abs($1)) }
         let needsReplies = remoteFixture.hasPrefix("conversation") && !scenario.expectsSilence
         let replies = try await Task.detached {

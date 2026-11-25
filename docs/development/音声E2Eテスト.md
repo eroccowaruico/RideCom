@@ -76,7 +76,9 @@ python3 scripts/audio_e2e.py --transport local --matrix smoke --saved-group-star
 
 各端末で、復号・Mixer出力・native出力のWAVと`packet-timing`を成功時にも保存する。`received`の各`playoutReservation`が描画時計を取得した行を確認する。その行では、`renderAnchorHostTime + (startSample - renderAnchorSample) / sampleRate`が予約した先頭の予測描画時刻になる。復号WAVの対応位置をその前後のMixer・native出力の波形と照合する。録音は試験用発話を使い、判定値は従来どおり最終出力で求める。
 
-接続直後から定常区間の開始までを、`startupReceived`、`startup-decoded.wav`、`startup-speech.wav`に保存する。呼び出し直後に既存の受信処理を観測し、最初の予約と再調整を残す。復号WAVの先頭は`startupFirstDecodedCaptureTime`。native出力のWAVでは、`startupRenderClock`の各ブロックが`startSample`（WAV内の先頭）、`frameCount`、`hostTime`（その先頭の単調時計時刻）を対応付ける。照合したサンプルの時刻は、そのブロックの`hostTime`にブロック内の位置を秒に換算して加える。音声エンジン起動時などの時計の飛びはWAVの連続したサンプル位置に現れないため、ファイル全体を先頭の時刻で換算しない。
+接続直後から定常区間の開始までを、`startupTransmitted`、`startupReceived`、`startup-decoded.wav`、`startup-speech.wav`に保存する。通話開始直後に送信と受信の観測を始める。相手側の送信と自端末の受信は、収録時刻とパケットの長さで照合する。送信側の `host` は符号化済みパケットを送信キューへ渡す直前の時刻。受信側の `host` はAppの受信処理を始めた時刻。送信前と送信後の待ちをこの境界で分け、受信側の最初の予約と再調整を残す。定常区間は従来どおり `transmitted` と `received` に保存する。
+
+復号WAVの先頭は`startupFirstDecodedCaptureTime`。native出力のWAVでは、`startupRenderClock`の各ブロックが`startSample`（WAV内の先頭）、`frameCount`、`hostTime`（その先頭の単調時計時刻）を対応付ける。照合したサンプルの時刻は、そのブロックの`hostTime`にブロック内の位置を秒に換算して加える。音声エンジン起動時などの時計の飛びはWAVの連続したサンプル位置に現れないため、ファイル全体を先頭の時刻で換算しない。
 
 定常区間も`steadyFirstDecodedCaptureTime`、`steadyRenderClock`を同じ`packet-timing`に保持する。対応先は`decoded.wav`と`speech.wav`。native出力のサンプル数とブロック位置を一度に確定し、最初のブロックがsample 0から始まり、最後まで全サンプルにブロックの時刻があることを試験で確認する。定常区間の予約から描画までの差は、同じ発話を復号WAVと最終WAVで照合して求める。連続性と125msの判定は、従来の最終出力の判定を使う。
 

@@ -32,6 +32,7 @@ struct PacketTimingTrace: Encodable {
     var traceForScenario: String?
     let transmitted: [PacketTiming]
     let received: [PacketTiming]
+    var startupTransmitted: [PacketTiming]?
     var startupReceived: [PacketTiming]?
     var startupFirstDecodedCaptureTime: Double?
     var startupRenderClock: [RenderedAudioProbe.RenderClockBlock]?
@@ -79,7 +80,8 @@ final class PairedAudioTrace: Sendable {
     }
 }
 
-final class NetworkAudioReception: Sendable {
+final class NetworkAudioTrace: Sendable {
+    let transmittedTiming = Mutex<[PacketTiming]>([])
     let receivedTiming = Mutex<[PacketTiming]>([])
     let decodeFailures = Mutex(0)
     private let pipeline: AppAudioPipeline
@@ -90,10 +92,21 @@ final class NetworkAudioReception: Sendable {
         self.decodedProbe = decodedProbe
     }
 
-    func beginWindow(keepStartupTrace: Bool) -> [PacketTiming]? {
-        receivedTiming.withLock { records in
+    func beginWindow(keepStartupTrace: Bool) -> (transmitted: [PacketTiming]?, received: [PacketTiming]?) {
+        func takeStartupRecords(_ records: inout [PacketTiming]) -> [PacketTiming]? {
             defer { records.removeAll(keepingCapacity: true) }
             return keepStartupTrace ? records : nil
+        }
+        return (transmittedTiming.withLock { takeStartupRecords(&$0) },
+                receivedTiming.withLock { takeStartupRecords(&$0) })
+    }
+
+    func transmitObserver(
+        forwarding sink: (@Sendable (RTCAudioPacket) -> Void)?
+    ) -> @Sendable (RTCAudioPacket) -> Void {
+        { [self] packet in
+            transmittedTiming.withLock { $0.append(PacketTiming(packet)) }
+            sink?(packet)
         }
     }
 
@@ -113,7 +126,8 @@ struct NetworkAudioWindow {
     let startupDecoded: RenderedAudioProbe.Recording?
     let startupOutput: RenderedAudioProbe.TimedRecording?
     let startupFirstDecoded: Double?
-    let startupTrace: [PacketTiming]?
+    let startupSentTrace: [PacketTiming]?
+    let startupReceivedTrace: [PacketTiming]?
     let steadyOutput: RenderedAudioProbe.TimedRecording?
     let rendered: RenderedAudioProbe.Recording
     let firstCapture: Double?
@@ -131,7 +145,8 @@ struct NetworkAudioWindow {
         XCTAssertGreaterThan(
             nativeClockObservations.count, 20, "Collect native render clock positions for the Local packets"
         )
-        XCTAssertTrue(startupTrace?.contains { $0.playoutReservation != nil } == true,
+        XCTAssertFalse(startupSentTrace?.isEmpty ?? true, "Record sent packets before steady playback")
+        XCTAssertTrue(startupReceivedTrace?.contains { $0.playoutReservation != nil } == true,
                       "Collect Local reservations before the steady-state sample")
         XCTAssertNotNil(startupFirstDecoded)
         XCTAssertFalse(
@@ -150,7 +165,7 @@ struct NetworkAudioWindow {
     func packetTrace(scenarioID: String, waitsForInternet: Bool) -> PacketTimingTrace {
         PacketTimingTrace(
             traceForScenario: scenarioID, transmitted: sentTrace, received: receivedTrace,
-            startupReceived: startupTrace,
+            startupTransmitted: startupSentTrace, startupReceived: startupReceivedTrace,
             startupFirstDecodedCaptureTime: startupFirstDecoded, startupRenderClock: startupOutput?.blocks,
             steadyFirstDecodedCaptureTime: waitsForInternet ? steadyFirstDecoded : nil,
             steadyRenderClock: steadyOutput?.blocks, output: renderedTrace
@@ -161,7 +176,7 @@ struct NetworkAudioWindow {
 extension AudioE2ETests {
     @MainActor
     func captureNetworkAudio(
-        _ scenario: AudioE2EScenario, endpoint: AudioE2EEndpoint, receiveTrace: NetworkAudioReception
+        _ scenario: AudioE2EScenario, endpoint: AudioE2EEndpoint, trace: NetworkAudioTrace
     ) async throws -> NetworkAudioWindow {
         let viewModel = endpoint.viewModel
         let audio = endpoint.audio
@@ -174,8 +189,8 @@ extension AudioE2ETests {
         let originalOutput = viewModel.audioPipeline.onOutputFrame
         audio.mixedProbe.reset()
         audio.decodedProbe.reset()
-        let startupTrace = receiveTrace.beginWindow(keepStartupTrace: waitsForInternet)
-        let failuresBefore = receiveTrace.decodeFailures.withLock { $0 }
+        let startup = trace.beginWindow(keepStartupTrace: waitsForInternet)
+        let failuresBefore = trace.decodeFailures.withLock { $0 }
         var outputTiming: [[String: Double]] = []
         viewModel.audioPipeline.onOutputFrame = { frame in
             audio.mixedProbe.append(frame)
@@ -184,10 +199,12 @@ extension AudioE2ETests {
                 "queued": audio.output.bufferedOutputDuration ?? 0])
             originalOutput?(frame)
         }
-        let transmittedTiming = Mutex<[PacketTiming]>([])
-        viewModel.audioPipeline.onTransmitPacket = { packet in
-            transmittedTiming.withLock { $0.append(PacketTiming(packet)) }
-            originalTransmit?(packet)
+        if !waitsForInternet {
+            viewModel.audioPipeline.onTransmitPacket = trace.transmitObserver(forwarding: originalTransmit)
+        }
+        defer {
+            if !waitsForInternet { viewModel.audioPipeline.onTransmitPacket = originalTransmit }
+            viewModel.audioPipeline.onOutputFrame = originalOutput
         }
         let dropsBefore = endpoint.dropCounts()
         let before = NetworkAudioCounts(
@@ -200,15 +217,14 @@ extension AudioE2ETests {
         let firstCapture = audio.input.firstCaptureTime
         let firstOutput = steadyOutput?.firstHostTime ?? audio.probe.firstOutputTime
         let steadyFirstDecoded = audio.decodedProbe.firstOutputTime
-        viewModel.audioPipeline.onTransmitPacket = originalTransmit
-        viewModel.audioPipeline.onOutputFrame = originalOutput
         let drops = endpoint.dropCounts().map { ($0.key, $0.value - (dropsBefore[$0.key] ?? 0)) }
         return NetworkAudioWindow(
             startupDecoded: startupDecoded, startupOutput: startupOutput, startupFirstDecoded: startupFirstDecoded,
-            startupTrace: startupTrace, steadyOutput: steadyOutput, rendered: rendered, firstCapture: firstCapture,
+            startupSentTrace: startup.transmitted, startupReceivedTrace: startup.received,
+            steadyOutput: steadyOutput, rendered: rendered, firstCapture: firstCapture,
             firstOutput: firstOutput, steadyFirstDecoded: steadyFirstDecoded,
             dropped: Dictionary(uniqueKeysWithValues: drops),
-            sentTrace: transmittedTiming.withLock { $0 }, receivedTrace: receiveTrace.receivedTiming.withLock { $0 },
+            sentTrace: trace.transmittedTiming.withLock { $0 }, receivedTrace: trace.receivedTiming.withLock { $0 },
             renderedTrace: outputTiming, failuresBefore: failuresBefore, before: before
         )
     }

@@ -329,13 +329,18 @@ extension AudioE2ETests {
         try await endpoint.waitForFirstParticipantIfNeeded()
         let joiningStarted = ContinuousClock.now
         try endpoint.join(invitation: invitation)
-        let receiveTrace = NetworkAudioReception(
+        let trace = NetworkAudioTrace(
             pipeline: viewModel.audioPipeline, decodedProbe: endpoint.audio.decodedProbe
         )
+        let originalTransmit = viewModel.audioPipeline.onTransmitPacket
         if run.waitsForInternet {
-            // Starting the call binds its receiver synchronously. Install the
-            // observation before yielding for authentication and the first speech.
-            viewModel.callSession.processReceivedAudio = receiveTrace.process
+            // Joining binds the audio callbacks synchronously. Observe the
+            // first packets without changing the callbacks during playback.
+            viewModel.callSession.processReceivedAudio = trace.process
+            viewModel.audioPipeline.onTransmitPacket = trace.transmitObserver(forwarding: originalTransmit)
+        }
+        defer {
+            if run.waitsForInternet { viewModel.audioPipeline.onTransmitPacket = originalTransmit }
         }
         let waiting = AudioE2EWaitingCall(viewModel: viewModel)
         if run.mutedWait > 0, run.role == "a" {
@@ -369,8 +374,8 @@ extension AudioE2ETests {
             return
         }
         #endif
-        if !run.waitsForInternet { viewModel.callSession.processReceivedAudio = receiveTrace.process }
-        try await measureNetworkScenarios(pair, receiveTrace: receiveTrace)
+        if !run.waitsForInternet { viewModel.callSession.processReceivedAudio = trace.process }
+        try await measureNetworkScenarios(pair, trace: trace)
     }
 
     #if DEBUG
