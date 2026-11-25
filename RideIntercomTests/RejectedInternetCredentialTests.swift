@@ -6,6 +6,65 @@ import Testing
 @testable import RideIntercom
 
 extension InternetAccountTests {
+    enum IssuedCredentialOutcome: CaseIterable {
+        case challengeInFlight, exchangeInFlight, certificateInFlight, signedOut
+
+        var responsePath: String {
+            switch self {
+            case .challengeInFlight: "/api/auth/apple/challenge"
+            case .exchangeInFlight: "/api/auth/apple/session"
+            case .certificateInFlight, .signedOut: "/api/auth/identity"
+            }
+        }
+    }
+
+    @Test(arguments: IssuedCredentialOutcome.allCases)
+    func enrollmentRespectsTheAppleProofExpiryDuringRegistration(outcome: IssuedCredentialOutcome) async throws {
+        let account = AccountFixture()
+        let fixture = InternetAccountTestFixture()
+        defer { account.remove(); fixture.remove() }
+        var now = Date()
+        let session = AppleAccountSession(
+            keychain: account.keychain, defaults: account.defaults, namespace: account.name,
+            enrollmentNow: { now }, credentialState: { _ in .authorized })
+        _ = try completeOrdinarySignIn(session)
+        let harness = try makeAutomaticEnrollmentHarness(session, fixture: fixture)
+        let model = harness.viewModel
+        model.setRTCTransportRoutes([.webRTC])
+        model.groupDeliveryNetworkPathChanged(isAvailable: false)
+        let group = try #require(model.groups.first)
+        try #require(model.startCall(to: .group(group.id), accountAccessID: model.accountAccessID))
+        let proof = try #require(session.enrollmentProof(for: model.accountAccessID))
+        let call = model.currentCallReference
+        let deadline = try #require(model.callDisconnectDeadline)
+        #expect(model.setCallMuted(true, for: call))
+        AccountHTTPStub.holdResponse(at: outcome.responsePath)
+        defer { AccountHTTPStub.releaseResponse() }
+        model.groupDeliveryNetworkPathChanged(isAvailable: true)
+        let task = try #require(model.automaticInternetEnrollment.task)
+        await AppTestSupport.waitUntil { AccountHTTPStub.hasHeldResponse }
+        try #require(AccountHTTPStub.hasHeldResponse)
+        now = proof.expiresAt
+        model.reconcileAutomaticInternetEnrollment(executionOpportunity: true)
+        #expect(session.enrollmentProof(for: model.accountAccessID) == nil)
+        let needsConfirmation = outcome == .challengeInFlight
+        #expect(model.callForAppleEnrollmentConfirmation == (needsConfirmation ? call : nil))
+        if outcome == .signedOut { session.signOut() }
+        AccountHTTPStub.releaseResponse()
+        await task.value
+        if outcome == .signedOut {
+            #expect(!model.hasInternetCredentials && harness.callSession.connectCallCount == 0)
+            #expect(model.currentCallReference != call)
+            return
+        }
+        #expect(model.hasInternetCredentials == !needsConfirmation && model.currentCallReference == call)
+        #expect(model.isMuted && model.callDisconnectDeadline == deadline)
+        #expect(harness.callSession.connectCallCount == (needsConfirmation ? 0 : 1))
+        let paths = needsConfirmation ? ["challenge"] : ["challenge", "session", "identity"]
+        #expect(AccountHTTPStub.requests.map { $0.url?.lastPathComponent } == paths)
+        model.disconnect()
+    }
+
     @Test(arguments: [false, true])
     func rejectedAppleProofWaitsForConfirmationWithinTheSameCall(nearby: Bool) async throws {
         let account = AccountFixture()

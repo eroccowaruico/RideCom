@@ -25,6 +25,7 @@ final class AppleAccountSession {
     private let keychain: KeychainSecretStoring
     private let defaults: UserDefaults?
     private let service: String
+    private let enrollmentNow: @MainActor () -> Date
     private let credentialState: @MainActor (String) async throws -> AppleCredentialState
     private var cachedUserID: String?
     private var requestState: String?
@@ -38,6 +39,7 @@ final class AppleAccountSession {
     init(keychain: KeychainSecretStoring, defaults: UserDefaults?, namespace: String,
          applicationSupport: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
          launchInstructions: String? = nil,
+         enrollmentNow: @escaping @MainActor () -> Date = Date.init,
          credentialState: @escaping @MainActor (String) async throws -> AppleCredentialState) {
         deletion = AccountDeletion(keychain: keychain, namespace: namespace, applicationSupport: applicationSupport)
         self.launchInstructions = launchInstructions
@@ -45,10 +47,10 @@ final class AppleAccountSession {
         self.defaults = defaults
         service = namespace + ".AppleAccount"
         self.credentialState = credentialState
-        if launchInstructions == nil {
+        self.enrollmentNow = enrollmentNow
+        storageUnavailable = launchInstructions != nil
+        if !storageUnavailable {
             load()
-        } else {
-            storageUnavailable = true
         }
     }
 
@@ -293,7 +295,7 @@ final class AppleAccountSession {
 extension AppleAccountSession {
     func enrollmentProof(for access: UUID) -> InternetSignInProof? {
         guard let pending = internetSignInProof else { return nil }
-        guard pending.accessID == accessID, pending.proof.expiresAt > Date() else {
+        guard pending.accessID == accessID, pending.proof.expiresAt > enrollmentNow() else {
             internetSignInProof = nil
             return nil
         }

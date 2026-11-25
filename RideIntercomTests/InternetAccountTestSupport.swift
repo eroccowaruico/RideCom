@@ -100,6 +100,8 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var identityChanges: [String: String] = [:]
     nonisolated(unsafe) private static var locator = String(repeating: "d", count: 64)
     nonisolated(unsafe) private static var delayed = false
+    nonisolated(unsafe) private static var heldPath: String?
+    nonisolated(unsafe) private static var heldResponse: (@Sendable () -> Void)?
     nonisolated(unsafe) private static var responseStatus = 200
     nonisolated(unsafe) private static var responsePath: String?
     nonisolated(unsafe) private static var responseCode: String?
@@ -113,6 +115,8 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             enrollmentProof = nil
             Self.deviceID = deviceID
             delayed = false
+            heldPath = nil
+            heldResponse = nil
             locator = String(repeating: "d", count: 64)
             responseStatus = 200
             responsePath = nil
@@ -132,6 +136,17 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
     static func changeIdentity(_ changes: [String: String]) { lock.withLock { identityChanges = changes } }
     static func setLocator(_ value: String) { lock.withLock { locator = value } }
     static func delayExchange() { lock.withLock { delayed = true } }
+    static func holdResponse(at path: String) { lock.withLock { heldPath = path } }
+    static var hasHeldResponse: Bool { lock.withLock { heldResponse != nil } }
+    static func releaseResponse() {
+        let delivery = lock.withLock {
+            let delivery = heldResponse
+            heldResponse = nil
+            heldPath = nil
+            return delivery
+        }
+        delivery?()
+    }
     override static func canInit(with request: URLRequest) -> Bool { true }
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -172,6 +187,12 @@ final class AccountHTTPStub: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
         }
+        let isHeld = Self.lock.withLock {
+            guard url.path == Self.heldPath else { return false }
+            Self.heldResponse = deliver
+            return true
+        }
+        if isHeld { return }
         if url.path == "/api/auth/apple/session", Self.lock.withLock({ Self.delayed }) {
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.2, execute: deliver)
         } else {

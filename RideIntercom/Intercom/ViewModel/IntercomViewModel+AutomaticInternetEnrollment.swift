@@ -16,6 +16,7 @@ import RTC
     @ObservationIgnored var retryAt: Date?
     @ObservationIgnored var retryDelay = 5
     @ObservationIgnored var waitsForExecutionOpportunity = false
+    @ObservationIgnored var isSubmittingProof = false
 }
 
 struct CallAwaitingInternetEnrollment {
@@ -129,8 +130,8 @@ extension IntercomViewModel {
         groupErrorMessage = String(localized: "Could not prepare Internet calling for this device.")
     }
 
-    private var canEnrollInternetAutomatically: Bool {
-        canStartCalls && hasAutomaticInternetEnrollmentProof && networkPathIsAvailable == true
+    private var canContinueInternetEnrollment: Bool {
+        canStartCalls && needsInternetEnrollment && networkPathIsAvailable == true
             && !automaticInternetEnrollment.waitsForExecutionOpportunity
             && (!hasAnyActiveGroupConnection || automaticInternetEnrollment.waitingCall != nil)
             && contactInvitationSession == nil
@@ -166,11 +167,12 @@ extension IntercomViewModel {
             reloadUnreadableInternetCredentials()
         }
         let proof = accountSession.enrollmentProof(for: accountAccessID)
+        let needsAppleConfirmation = proof == nil && !automaticInternetEnrollment.isSubmittingProof
         if needsInternetEnrollment, let pending = automaticInternetEnrollment.waitingCall,
-           pending.needsAppleConfirmation != (proof == nil) {
-            automaticInternetEnrollment.waitingCall?.needsAppleConfirmation = proof == nil
+           pending.needsAppleConfirmation != needsAppleConfirmation {
+            automaticInternetEnrollment.waitingCall?.needsAppleConfirmation = needsAppleConfirmation
         }
-        guard canEnrollInternetAutomatically else {
+        guard canContinueInternetEnrollment, !needsAppleConfirmation else {
             automaticInternetEnrollment.task?.cancel()
             return
         }
@@ -276,8 +278,13 @@ extension IntercomViewModel {
     }
 
     private func canUseEnrollmentProof(_ proof: InternetSignInProof) -> Bool {
-        !Task.isCancelled && canEnrollInternetAutomatically
+        !Task.isCancelled && canContinueInternetEnrollment
             && accountSession.enrollmentProof(for: accountAccessID)?.id == proof.id
+    }
+
+    private func canUseIssuedEnrollmentCredential(_ proof: InternetSignInProof) -> Bool {
+        guard !Task.isCancelled, canContinueInternetEnrollment else { return false }
+        return accountSession.enrollmentProof(for: accountAccessID).map { $0.id == proof.id } ?? true
     }
 
     private func finishAutomaticInternetEnrollment(_ proof: InternetSignInProof, at origin: URL) async throws {
@@ -301,16 +308,18 @@ extension IntercomViewModel {
             try internetSettingsStore.deviceSigningKey().publicKey.x963Representation)
         let challenge = try await client.challenge(origin: origin, deviceID: deviceID)
         guard canUseEnrollmentProof(proof) else { throw CancellationError() }
+        automaticInternetEnrollment.isSubmittingProof = true
+        defer { automaticInternetEnrollment.isSubmittingProof = false }
         let credential = try await client.exchange(origin: origin, challenge: challenge, token: proof.identityToken,
                                                    signInProof: proof.sign(challenge))
         do {
-            guard canUseEnrollmentProof(proof) else { throw CancellationError() }
+            guard canUseIssuedEnrollmentCredential(proof) else { throw CancellationError() }
             let identity = try await client.certify(
                 origin: origin, credential: credential, memberID: memberID, deviceKey: deviceKey)
-            guard canUseEnrollmentProof(proof) else { throw CancellationError() }
+            guard canUseIssuedEnrollmentCredential(proof) else { throw CancellationError() }
             try saveInternetConnection(url: origin.absoluteString, token: credential.accessToken, identity: identity)
         } catch {
-            if !Task.isCancelled, canUseEnrollmentProof(proof), !internetSettingsStore.requiresAccountDataReset {
+            if canUseIssuedEnrollmentCredential(proof), !internetSettingsStore.requiresAccountDataReset {
                 try? await client.revoke(.init(workerURL: origin, accessToken: credential.accessToken))
             }
             throw error
