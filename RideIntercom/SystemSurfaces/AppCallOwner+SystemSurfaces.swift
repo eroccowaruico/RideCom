@@ -25,15 +25,16 @@ extension AppCallOwner {
         liveActivities.setPresentation(input.0, enabled: input.1, isForeground: input.2)
     }
     func performCallSurfaceAction(
-        _ action: CallSurfaceAction, reference: CallSurfaceReference? = nil, destinationID: String? = nil
-    ) throws {
+        _ action: CallSurfaceAction, reference: CallSurfaceReference? = nil, destinationID: String? = nil,
+        allowsMicrophonePrompt: Bool = true
+    ) async throws {
         switch action {
         case .calls:
             _ = try callModel()
         case .saved:
-            return try startSavedCall(id: destinationID)
+            return try await startSavedCall(id: destinationID, allowsMicrophonePrompt: allowsMicrophonePrompt)
         case .recent:
-            return try startRecentExternalCall()
+            return try await startRecentExternalCall()
         case .end:
             let model = try callModel()
             guard let reference, model.endCall(reference.callReference) else {
@@ -45,27 +46,34 @@ extension AppCallOwner {
     }
 
     func startSavedCall(
-        id: String?,
+        id: String?, allowsMicrophonePrompt: Bool = true,
         missingDestinationMessage: String =
             "This call destination is no longer available. Choose a saved user or group in RideCom."
-    ) throws {
+    ) async throws {
         let model = try callModel()
         let destination = id.flatMap { id in callTargets.first { $0.entity.id == id }?.destination }
-        try startExternalCall(to: destination, using: model, missingDestinationMessage: missingDestinationMessage)
+        try await startExternalCall(to: destination, using: model, allowsMicrophonePrompt: allowsMicrophonePrompt,
+                                    missingDestinationMessage: missingDestinationMessage)
     }
 
-    func startRecentExternalCall() throws {
+    func startRecentExternalCall() async throws {
         let model = try callModel()
-        try startExternalCall(to: model.recentCallDestination, using: model,
+        try await startExternalCall(to: model.recentCallDestination, using: model, allowsMicrophonePrompt: true,
             missingDestinationMessage: "No recent call is available. Choose a saved user or group in RideCom.")
     }
 
     private func startExternalCall(
-        to destination: CallDestination?, using model: IntercomViewModel, missingDestinationMessage: String
-    ) throws {
+        to destination: CallDestination?, using model: IntercomViewModel,
+        allowsMicrophonePrompt: Bool, missingDestinationMessage: String
+    ) async throws {
         guard let destination else { throw CallIntentError.unavailable(missingDestinationMessage) }
-        guard model.startCall(to: destination, accountAccessID: model.accountAccessID, allowSwitchingCall: false) else {
-            throw CallIntentError.unavailable(model.groupErrorMessage ?? "The call could not be started.")
+        try Task.checkCancellation()
+        let start = model.requestCallStart(to: destination, accountAccessID: model.accountAccessID,
+            allowSwitchingCall: false, allowsMicrophonePrompt: allowsMicrophonePrompt)
+        guard await start.didStart(), viewModel === model, model.hasCurrentAccountAccess else {
+            let message = model.callMicrophonePermission() == .granted
+                ? model.groupErrorMessage : IntercomViewModel.microphoneAccessRequiredMessage
+            throw CallIntentError.unavailable(message ?? "The call could not be started.")
         }
         callPresentationID = UUID()
     }

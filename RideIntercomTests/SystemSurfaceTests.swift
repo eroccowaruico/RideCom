@@ -120,7 +120,9 @@ struct SystemSurfaceTests {
         account.session.signOut()
         await AppTestSupport.waitUntil { driver.endCount == 2 }
         #expect(owner.currentLivePresentation == nil)
-        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.end, reference: reference) }
+        await #expect(throws: CallIntentError.self) {
+            try await owner.performCallSurfaceAction(.end, reference: reference)
+        }
         account.signIn()
         #expect(owner.currentLivePresentation == nil)
         #expect(driver.started.count == 1)

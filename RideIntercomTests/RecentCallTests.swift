@@ -46,7 +46,9 @@ struct RecentCallTests {
         #expect(viewModel.removeSavedUser(user.id))
         #expect(viewModel.recentCallDestination == nil && settings.load().recentCallDestination == nil)
         let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
-        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.recent, reference: nil) }
+        await #expect(throws: CallIntentError.self) {
+            try await owner.performCallSurfaceAction(.recent, reference: nil)
+        }
         #expect(viewModel.activeGroupID == nil && !viewModel.endCall(call))
     }
 
@@ -103,7 +105,7 @@ struct RecentCallTests {
         #expect(fresh.viewModel.interfaceMode == .advanced)
         fresh.viewModel.selectGroup(fresh.viewModel.groups[1], connectIfIdle: false)
         let owner = AppCallOwner(account: fresh.viewModel.accountSession, viewModel: fresh.viewModel)
-        try owner.performCallSurfaceAction(.recent, reference: nil)
+        try await owner.performCallSurfaceAction(.recent, reference: nil)
         #expect(fresh.viewModel.activeGroupID == group.id)
     }
 
@@ -137,7 +139,9 @@ struct RecentCallTests {
         let owner = AppCallOwner(account: fixture.session, viewModel: viewModel)
         fixture.session.signOut(); fixture.signIn()
         #expect(viewModel.recentCallDestination == nil && viewModel.recentCallTitle == nil)
-        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.recent, reference: nil) }
+        await #expect(throws: CallIntentError.self) {
+            try await owner.performCallSurfaceAction(.recent, reference: nil)
+        }
         #expect(viewModel.appSettingsStore.load().recentCallDestination == .group(first.id))
     }
 

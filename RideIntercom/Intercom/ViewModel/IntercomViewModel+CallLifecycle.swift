@@ -256,6 +256,8 @@ extension IntercomViewModel {
     }
 
     func disconnect() {
+        callMicrophonePermissionRequest?.task.cancel()
+        callMicrophonePermissionRequest = nil
         if contactInvitationSession?.canContinueDuringCall == false { stopContactInvitationSession() }
         stopWatchAudioLink()
         callDisconnectDeadline = nil

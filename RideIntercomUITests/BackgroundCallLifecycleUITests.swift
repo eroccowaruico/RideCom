@@ -142,6 +142,7 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
 
     @MainActor private func verifyExternalGroupInvitation(from opening: InvitationOpening) throws {
         let app = XCUIApplication(); defer { app.terminate() }
+        app.resetAuthorizationStatus(for: .microphone)
         app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
             "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -164,6 +165,7 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
             XCUIDevice.shared.system.open(invitation)
             confirmExternalApplicationOpen(timeout: 3)
         }
+        allowFirstMicrophonePermission()
         let end = app.buttons["standardEndCallButton"].firstMatch
         XCTAssertTrue(end.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts[name].firstMatch.exists)
@@ -267,6 +269,38 @@ final class BackgroundCallLifecycleUITests: XCTestCase {
         XCTAssertTrue(allow.exists); allow.tap()
     }
 
+}
+
+extension BackgroundCallLifecycleUITests {
+    @MainActor @objc func testDecliningFirstMicrophonePermissionKeepsTheSavedGroup() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.resetAuthorizationStatus(for: .microphone)
+        app.launchEnvironment = ["RIDEINTERCOM_LOCAL_TESTING": "1", "RIDEINTERCOM_ACCOUNT_FIXTURE": "signed-in",
+            "RIDEINTERCOM_INTERFACE_FIXTURE": "standard"]
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let groups = app.tabBars.buttons["Groups"]
+        XCTAssertTrue(groups.waitForExistence(timeout: 5))
+        groups.tap()
+        app.buttons["standardCreateGroupButton"].tap()
+        let name = try XCTUnwrap(app.textFields["savedUsersGroupNameField"].firstMatch.value as? String)
+        app.buttons["saveUserSelectionButton"].tap()
+
+        let prompt = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .alerts["kTCCServiceMicrophone-alert"].firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let denialLabels = ["許可しない", "Don’t Allow", "Don't Allow"]
+        let deny = prompt.buttons.matching(NSPredicate(format: "label IN %@", denialLabels)).firstMatch
+        XCTAssertTrue(deny.isHittable)
+        deny.tap()
+
+        let alert = app.alerts["Microphone access is required. Allow it in Settings."]
+        XCTAssertTrue(alert.waitForExistence(timeout: 8))
+        alert.buttons["Close"].tap()
+        XCTAssertTrue(app.staticTexts[name].firstMatch.isHittable)
+        XCTAssertFalse(app.buttons["standardEndCallButton"].exists)
+    }
 }
 
 #if targetEnvironment(simulator)

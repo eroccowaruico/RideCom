@@ -51,20 +51,23 @@ extension AppCallOwner {
             return false
         }
         let reference = model.currentCallReference
-        let authorized = await model.requestMicrophoneAccess()
-        guard !Task.isCancelled, viewModel === model, model.hasCurrentAccountAccess,
-              model.currentCallReference == reference, model.notifications === notifications,
-              notifications.canRespond(to: resolved, tap: tap) else { return false }
-        guard notifications.now() < resolved.expiresAt else {
+        let start = model.requestCallStart(to: .user(resolved.userID), accountAccessID: accessID,
+                                           allowSwitchingCall: false) { [weak self, weak model] in
+            guard let model, self?.viewModel === model, model.notifications === notifications else { return false }
+            return notifications.now() < resolved.expiresAt && notifications.canRespond(to: resolved, tap: tap)
+        }
+        let started = await start.didStart()
+        if started {
+            callPresentationID = UUID()
+        } else if case .failed = start {
+            callPresentationID = UUID()
+        }
+        if case .waitingForMicrophone = start, !started, !Task.isCancelled, viewModel === model,
+           model.hasCurrentAccountAccess, model.currentCallReference == reference,
+           model.notifications === notifications,
+           notifications.now() >= resolved.expiresAt, notifications.canRespond(to: resolved, tap: tap) {
             usersPresentationID = UUID()
-            return false
         }
-        guard authorized else {
-            model.showsCallMicrophonePermissionAlert = true
-            return false
-        }
-        let started = model.startCall(to: .user(resolved.userID), accountAccessID: accessID, allowSwitchingCall: false)
-        callPresentationID = UUID()
         return started
     }
 }

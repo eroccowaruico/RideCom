@@ -128,8 +128,9 @@ struct BackgroundWidgetTests {
         if failPreparation { throw Failure.unavailable }
     }
     func performCallSurfaceAction(
-        _ action: CallSurfaceAction, reference: CallSurfaceReference?, destinationID: String?
-    ) throws {
+        _ action: CallSurfaceAction, reference: CallSurfaceReference?, destinationID: String?,
+        allowsMicrophonePrompt: Bool
+    ) async throws {
         events.append(action.rawValue)
         if let reference { references.append(reference) }
         if action == .saved { self.destinationID = destinationID }

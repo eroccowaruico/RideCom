@@ -27,7 +27,7 @@ struct MenuBarCallView: View {
             }
             Button("End Call", role: .destructive) {
                 // A menu captured before a call switch cannot end the new call.
-                try? owner.performCallSurfaceAction(.end, reference: call.reference)
+                Task { try? await owner.performCallSurfaceAction(.end, reference: call.reference) }
             }
             .accessibilityIdentifier("menuBarEndCall")
         } else {
@@ -57,7 +57,7 @@ struct CallCommands: Commands {
             .keyboardShortcut("m", modifiers: [.command, .shift])
             .disabled(call?.canControlMicrophone != true)
             Button("End Call") {
-                if let call { try? owner.performCallSurfaceAction(.end, reference: call.reference) }
+                if let call { Task { try? await owner.performCallSurfaceAction(.end, reference: call.reference) } }
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(call == nil)

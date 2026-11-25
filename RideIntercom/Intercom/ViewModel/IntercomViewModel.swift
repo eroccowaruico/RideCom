@@ -4,6 +4,7 @@ import AVFAudio
 import AudioDevice
 import AudioCore
 import AudioMixer
+import CallControl
 import Codec
 import Foundation
 import Network
@@ -107,6 +108,8 @@ final class IntercomViewModel {
     var isCallMediaStarted = false
     var audioErrorMessage: String?
     var showsCallMicrophonePermissionAlert = false
+    var callToPresentAfterPermission: CallReference?
+    var callMicrophonePermissionRequest: (id: UUID, task: Task<Bool, Never>)?
     var isAudioPausedForDeviceChange = false
     var audioRouteNotice: String?
     var internetTransportFailure: InternetTransportFailure?
@@ -144,13 +147,7 @@ final class IntercomViewModel {
     var localAccountPrincipal: AccountPrincipal?
     var authenticatedPeerIDs: [String] = []
     var peerProfiles: [String: PeerProfileState] = [:] {
-        didSet {
-            let previousAdmission = admittedCallAccessMemberships(in: oldValue)
-            callAccessPeersChanged()
-            if previousAdmission != callAccessAdmittedMemberships {
-                callSession.setAudioPolicy(currentCallAudioPolicy())
-            }
-        }
+        didSet { callAccessPeerProfilesChanged(from: oldValue) }
     }
     var localNetworkStatus: LocalNetworkStatus = .idle
     var lastLocalNetworkPeerID: String?
@@ -167,6 +164,7 @@ final class IntercomViewModel {
     let callSession: CallSession
     let audioSessionManager: SessionManager.AudioSessionManager
     let requestMicrophoneAccess: @MainActor () async -> Bool
+    let callMicrophonePermission: @MainActor () -> CallMicrophonePermission
     let nativeAudioInputCapture: SessionManager.AudioInputStreamCapture
     let nativeAudioOutputRenderer: SessionManager.AudioOutputStreamRenderer
     #if os(iOS)
@@ -238,6 +236,7 @@ final class IntercomViewModel {
         self.callAccessNow = startup.callAccessNow
         self.invitationAuthority = startup.invitationAuthority
         self.requestMicrophoneAccess = startup.requestMicrophoneAccess
+        self.callMicrophonePermission = startup.callMicrophonePermission
         self.accountSession = startup.accountSession
         self.accountUserID = startup.accountUserID
         self.accountAccessID = startup.accountAccessID
@@ -287,6 +286,7 @@ extension IntercomViewModel {
         localMemberIdentityStore: LocalMemberIdentityStoring,
         invitationAuthority: DirectInvitationAuthority,
         requestMicrophoneAccess: @escaping @MainActor () async -> Bool,
+        callMicrophonePermission: @escaping @MainActor () -> CallMicrophonePermission = { .granted },
         audioSessionManager: SessionManager.AudioSessionManager? = nil,
         audioInputCapture: SessionManager.AudioInputStreamCapture? = nil,
         audioOutputRenderer: SessionManager.AudioOutputStreamRenderer? = nil,
@@ -307,6 +307,7 @@ extension IntercomViewModel {
             localMemberIdentityStore: localMemberIdentityStore,
             invitationAuthority: invitationAuthority,
             requestMicrophoneAccess: requestMicrophoneAccess,
+            callMicrophonePermission: callMicrophonePermission,
             audioSessionManager: audioSessionManager,
             audioInputCapture: audioInputCapture,
             audioOutputRenderer: audioOutputRenderer,

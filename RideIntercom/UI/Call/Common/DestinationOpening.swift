@@ -11,7 +11,6 @@ extension IntercomViewModel {
 
     /// Row taps share one rule: open the chosen call when idle, or the live one while connected.
     func open(_ destination: CallDestination, onOpen: () -> Void) {
-        openDestination(destination)
-        onOpen()
+        if openDestination(destination) != .blocked { onOpen() }
     }
 }

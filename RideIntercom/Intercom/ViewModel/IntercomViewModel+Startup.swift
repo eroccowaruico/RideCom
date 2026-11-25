@@ -33,6 +33,7 @@ extension IntercomViewModel {
         let callAccessNow: @MainActor () -> Date
         let callAccessEvaluation: (@MainActor (Date) -> StoreAccessEvaluation)?
         let requestMicrophoneAccess: @MainActor () async -> Bool
+        let callMicrophonePermission: @MainActor () -> CallMicrophonePermission
         let remoteTalkerTimeout: TimeInterval
 
         init(
@@ -47,6 +48,7 @@ extension IntercomViewModel {
             localMemberIdentityStore: LocalMemberIdentityStoring,
             invitationAuthority: DirectInvitationAuthority,
             requestMicrophoneAccess: @escaping @MainActor () async -> Bool,
+            callMicrophonePermission: @escaping @MainActor () -> CallMicrophonePermission,
             audioSessionManager: SessionManager.AudioSessionManager?,
             audioInputCapture: SessionManager.AudioInputStreamCapture?,
             audioOutputRenderer: SessionManager.AudioOutputStreamRenderer?,
@@ -97,6 +99,7 @@ extension IntercomViewModel {
             self.callAccessNow = callAccessNow
             self.callAccessEvaluation = callAccessEvaluation
             self.requestMicrophoneAccess = requestMicrophoneAccess
+            self.callMicrophonePermission = callMicrophonePermission
             self.remoteTalkerTimeout = remoteTalkerTimeout
         }
     }

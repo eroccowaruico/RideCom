@@ -58,6 +58,14 @@ extension IntercomViewModel {
             || CallAccessState.permitsResume(since: callAccessState.lastSponsoredStart, now: now)
     }
 
+    func callAccessPeerProfilesChanged(from previous: [String: PeerProfileState]) {
+        let previousAdmission = admittedCallAccessMemberships(in: previous)
+        callAccessPeersChanged()
+        if previousAdmission != callAccessAdmittedMemberships {
+            callSession.setAudioPolicy(currentCallAudioPolicy())
+        }
+    }
+
     func callAccessPeersChanged() {
         if !currentRepresentativeProfiles.values.contains(where: { $0.verified != nil && $0.membershipID != nil }) {
             callAccessState.endConversation()

@@ -3,6 +3,71 @@ import Testing
 @testable import RideIntercom
 
 @MainActor @Suite(.serialized) struct MicrophoneAuthorizationTests {
+    enum CallEntry: CaseIterable { case savedGroup, newGroup, invitation }
+
+    @Test(arguments: CallEntry.allCases, [false, true])
+    func callWaitsForMicrophonePermissionAndKeepsSavedGroups(entry: CallEntry, grantsPermission: Bool) async throws {
+        let gate = ManualAsyncGate()
+        var requested = false
+        let harness = AppTestSupport.makeHarness(enforceCallAccess: false, requestMicrophoneAccess: {
+            requested = true
+            await gate.wait()
+            return grantsPermission
+        }, callMicrophonePermission: { .undetermined })
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let previous = model.selectedGroup?.id
+        let groupID: UUID
+        switch entry {
+        case .newGroup:
+            groupID = UUID()
+            #expect(model.createTalkGroup(name: "Microphone test", id: groupID))
+        case .savedGroup:
+            groupID = try #require(model.groups.first?.id)
+            model.openDestination(.group(groupID))
+        case .invitation:
+            groupID = UUID()
+            let token = try GroupInviteToken.make(
+                authority: testInvitationAuthority(), signer: testIdentitySigner("inviter"),
+                credential: .init(groupID: groupID, secret: "test-key"),
+                groupName: "Invited group", inviterMemberID: "inviter")
+            try model.acceptInviteURL(GroupInviteTokenCodec.joinURL(for: token))
+        }
+        #expect(harness.groupStore.loadGroups().contains { $0.id == groupID })
+        await AppTestSupport.waitUntil { requested }
+        #expect(requested)
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(model.selectedGroup?.id == previous)
+        #expect(!harness.audioSessionBackend.activeValues.contains(true))
+
+        await gate.release()
+        await AppTestSupport.waitUntil { model.isAudioReady || model.showsCallMicrophonePermissionAlert }
+        #expect((harness.callSession.connectedGroup?.id == groupID) == grantsPermission)
+        #expect(model.showsCallMicrophonePermissionAlert != grantsPermission)
+        #expect((model.callToPresentAfterPermission == model.currentCallReference) == grantsPermission)
+        #expect(harness.groupStore.loadGroups().contains { $0.id == groupID })
+    }
+
+    @Test func deniedAndBackgroundUndeterminedDoNotAskOrConnect() throws {
+        var state = CallMicrophonePermission.denied
+        let harness = AppTestSupport.makeHarness(enforceCallAccess: false, requestMicrophoneAccess: {
+            Issue.record("The microphone request must not be presented.")
+            return false
+        }, callMicrophonePermission: { state })
+        let model = harness.viewModel
+        defer { model.disconnect() }
+        let groupID = try #require(model.groups.first?.id)
+        #expect(model.openDestination(.group(groupID)) == .blocked)
+        #expect(model.showsCallMicrophonePermissionAlert)
+        model.showsCallMicrophonePermissionAlert = false
+        state = .undetermined
+        let background = model.requestCallStart(
+            to: .group(groupID), accountAccessID: model.accountAccessID, allowsMicrophonePrompt: false)
+        guard case .blocked = background else { Issue.record("A background operation tried to start."); return }
+        #expect(harness.callSession.connectedGroup == nil)
+        #expect(!model.showsCallMicrophonePermissionAlert)
+    }
+
     @Test(arguments: [false, true])
     func permissionCompletesBeforeActivationAndCapture(recording: Bool) async throws {
         let gate = ManualAsyncGate(); var requested = false

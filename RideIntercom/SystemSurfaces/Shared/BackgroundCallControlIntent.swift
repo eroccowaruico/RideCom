@@ -36,14 +36,17 @@ struct BackgroundCallControlIntent: AppIntent {
         }
         try Task.checkCancellation()
         if action == .start {
-            try actions.performCallSurfaceAction(.saved, reference: nil, destinationID: selectedDestinationID)
+            try await actions.performCallSurfaceAction(
+                .saved, reference: nil, destinationID: selectedDestinationID, allowsMicrophonePrompt: false)
         } else {
             guard let reference = displayedReference.flatMap(CallSurfaceReference.init(encoded:)) else {
                 throw BackgroundCallSurfaceError.stale
             }
             switch action {
             case .start: break
-            case .end: try actions.performCallSurfaceAction(.end, reference: reference, destinationID: nil)
+            case .end:
+                try await actions.performCallSurfaceAction(
+                    .end, reference: reference, destinationID: nil, allowsMicrophonePrompt: false)
             case .mute, .unmute:
                 guard actions.setCallSurfaceMuted(action == .mute, reference: reference) else {
                     throw BackgroundCallSurfaceError.stale

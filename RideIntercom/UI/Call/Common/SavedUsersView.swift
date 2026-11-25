@@ -120,7 +120,7 @@ struct MemberSelection {
                 viewModel.createTalkGroup(name: groupName, userIDs: selected, id: newGroupID)
             }
         guard saved else { return .none }
-        return .some(selected.isEmpty ? nil : groupID ?? viewModel.selectedGroup?.id)
+        return .some(selected.isEmpty ? nil : groupID ?? newGroupID)
     }
 }
 

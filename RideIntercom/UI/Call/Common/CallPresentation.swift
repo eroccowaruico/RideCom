@@ -1,6 +1,14 @@
 import CallControl
 import SwiftUI
 
+extension View {
+    func callMicrophonePermissionAlert(isPresented: Binding<Bool>) -> some View {
+        alert(Text(verbatim: IntercomViewModel.microphoneAccessRequiredMessage), isPresented: isPresented) {
+            Button("Close", role: .cancel) {}
+        }
+    }
+}
+
 /// The call opens over the lists: a sheet on iPhone, a trailing column on iPad and Mac.
 struct CallPanel: View {
     @Bindable var viewModel: IntercomViewModel
@@ -38,6 +46,7 @@ struct CallPanel: View {
             }
         }
         .destinationSettingsSheet($settings, viewModel: viewModel)
+        .callMicrophonePermissionAlert(isPresented: $viewModel.showsCallMicrophonePermissionAlert)
         .sheet(item: $addingMembers) { group in SavedUsersView(viewModel: viewModel, groupID: group.id) }
         .inspectorColumnWidth(min: 320, ideal: 380, max: 420)
     }

@@ -21,6 +21,9 @@ struct ContentView: View {
             }
         }
         .onChange(of: owner.callPresentationID) { _, _ in selectedTab = .call }
+        .onChange(of: owner.viewModel?.callToPresentAfterPermission) { _, call in
+            if let call, owner.viewModel?.currentCallReference == call { selectedTab = .call }
+        }
         .onChange(of: owner.usersPresentationID) { _, _ in selectedTab = .users }
         .onChange(of: owner.groupsPresentationID) { _, _ in
             selectedTab = owner.viewModel?.isGroupsTabVisible == true ? .groups : .users
@@ -67,9 +70,11 @@ struct ContentView: View {
             _ = viewModel.previewContactInvitation(url)
             return
         }
-        selectedTab = .call
         // The common operation preserves the reason and recovery action for every entry point.
         try? viewModel.acceptInviteURL(url)
+        if !viewModel.showsCallMicrophonePermissionAlert, viewModel.callMicrophonePermissionRequest == nil {
+            selectedTab = .call
+        }
     }
 }
 

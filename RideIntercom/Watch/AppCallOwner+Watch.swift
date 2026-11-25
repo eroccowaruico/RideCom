@@ -66,8 +66,9 @@ extension AppCallOwner {
                 return reply(.missingDestination)
             }
             let source: CallStartSource = request.action == .startRemote(id) ? .watchRemote : .watchAudio
-            succeeded = viewModel.startCall(to: target.destination, accountAccessID: viewModel.accountAccessID,
-                                     allowSwitchingCall: false, source: source)
+            succeeded = viewModel.requestCallStart(
+                to: target.destination, accountAccessID: viewModel.accountAccessID, allowSwitchingCall: false,
+                source: source, allowsMicrophonePrompt: false).startedImmediately
         #if DEBUG
         case .startAudioCheck, .playAudioCheck, .stopAudioCheck:
             return await handleWatchAudioCheck(request.action, viewModel: viewModel, reply: reply)

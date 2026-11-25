@@ -7,13 +7,6 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct WidgetDestinationTests {
-  private func temporaryFile() throws -> URL {
-    let directory = FileManager.default.temporaryDirectory.appending(
-      path: "WidgetDestinations-\(UUID())", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory.appending(path: "destinations.json")
-  }
-
   @Test func snapshotQueryReadsOnlyValidCurrentProjectionAndRecoversAfterCorruption() async throws {
     let file = try temporaryFile()
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
@@ -82,7 +75,9 @@ struct WidgetDestinationTests {
     #expect(store.read().isEmpty)
     account.signIn()
     #expect(owner.callTargets.isEmpty)
-    #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.saved, destinationID: first.id) }
+    await #expect(throws: CallIntentError.self) {
+      try await owner.performCallSurfaceAction(.saved, destinationID: first.id)
+    }
   }
 
   @Test func selectedIntentRechecksOwnerRejectsOldOrDeletedTargetAndDoesNotSwitchCalls()
@@ -132,7 +127,7 @@ struct WidgetDestinationTests {
     let selected = try #require(store.read().first(where: { $0.kind == .user }))
     #expect(store.read().filter { $0.kind == .user }.count == 1)
     viewModel.disconnect()
-    try owner.performCallSurfaceAction(.saved, destinationID: selected.id)
+    try await owner.performCallSurfaceAction(.saved, destinationID: selected.id)
     let reference = try #require(owner.currentLivePresentation?.reference)
     await AppTestSupport.waitUntil { store.readSnapshot()?.currentCall?.reference == reference }
     #expect(store.readSnapshot()?.currentDestinationID == selected.id)
@@ -140,10 +135,12 @@ struct WidgetDestinationTests {
     await AppTestSupport.waitUntil { !store.read().contains(where: { $0.id == selected.id }) }
     #expect(store.readSnapshot()?.destinations.first { $0.id == selected.id } == nil)
     #expect(store.readSnapshot()?.currentDestinationID == nil)
-    #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.saved, destinationID: selected.id) }
+    await #expect(throws: CallIntentError.self) {
+      try await owner.performCallSurfaceAction(.saved, destinationID: selected.id)
+    }
     #expect(viewModel.activeGroupID == nil)
-    #expect(throws: (any Error).self) {
-      try owner.performCallSurfaceAction(.end, reference: reference)
+    await #expect(throws: (any Error).self) {
+      try await owner.performCallSurfaceAction(.end, reference: reference)
     }
   }
 
@@ -270,6 +267,15 @@ struct WidgetDestinationTests {
 
 }
 
+private extension WidgetDestinationTests {
+  func temporaryFile() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory.appending(
+      path: "WidgetDestinations-\(UUID())", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appending(path: "destinations.json")
+  }
+}
+
 extension WidgetDestinationTests {
   @Test func callProjectionCarriesCurrentReferenceAndExplicitMuteAndClearsAtSignOut() async throws {
     let file = try temporaryFile()
@@ -284,7 +290,7 @@ extension WidgetDestinationTests {
     let owner = AppCallOwner(
       account: account.session, viewModel: viewModel, widgetDestinationStore: store)
     let selected = try #require(owner.callTargets.first)
-    try owner.performCallSurfaceAction(.saved, destinationID: selected.entity.id)
+    try await owner.performCallSurfaceAction(.saved, destinationID: selected.entity.id)
     await AppTestSupport.waitUntil { store.readSnapshot()?.currentCall != nil }
     let call = try #require(store.readSnapshot()?.currentCall)
     #expect(call.reference == owner.currentLivePresentation?.reference)

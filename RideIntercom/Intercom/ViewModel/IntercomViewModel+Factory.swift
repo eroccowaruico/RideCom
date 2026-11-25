@@ -53,6 +53,7 @@ extension IntercomViewModel {
                 }
                 return granted
             },
+            callMicrophonePermission: systemCallMicrophonePermission,
             audioSessionManager: processAudioSessionManager
         )
         model.monitorGroupDeliveryPath()
@@ -72,6 +73,15 @@ extension IntercomViewModel {
         }
         groupDeliveryPathMonitor = monitor
         monitor.start(queue: .main)
+    }
+
+    private static func systemCallMicrophonePermission() -> CallMicrophonePermission {
+        switch AVAudioApplication.shared.recordPermission {
+        case .undetermined: .undetermined
+        case .denied: .denied
+        case .granted: .granted
+        @unknown default: .denied
+        }
     }
 
     static func makeDefaultAudioInputCapture(engine: AVAudioEngine) -> SessionManager.AudioInputStreamCapture {

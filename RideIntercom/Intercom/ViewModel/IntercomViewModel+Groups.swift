@@ -27,6 +27,16 @@ extension IntercomViewModel {
         if selectedGroup?.id == group.id {
             return
         }
+        if connectIfIdle, !hasAnyActiveGroupConnection {
+            let start = requestCallStart(to: .group(group.id), accountAccessID: accountAccessID,
+                                         presentsAfterPermission: true)
+            // A connection error still needs a selected destination for its recovery actions.
+            guard case .failed = start else { return }
+            let error = groupErrorMessage
+            selectGroup(group, connectIfIdle: false)
+            groupErrorMessage = error
+            return
+        }
 
         if activeGroupID == group.id {
             if let activeGroup = groups.first(where: { $0.id == group.id }) {
@@ -51,7 +61,6 @@ extension IntercomViewModel {
 
         selectedGroup = group.withMemberAuthenticationState(.open)
         inviteStatusMessage = nil
-        if connectIfIdle { connectLocal() }
     }
 
     func showGroupSelection() {

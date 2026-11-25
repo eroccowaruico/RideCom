@@ -24,7 +24,7 @@ extension NotificationClientTests {
             askedForMicrophone = true
             await permission.wait()
             return change != .deniesMicrophone
-        })
+        }, callMicrophonePermission: { .undetermined })
         let model = harness.viewModel
         defer { model.disconnect() }
         let owner = AppCallOwner(account: model.accountSession, viewModel: model)

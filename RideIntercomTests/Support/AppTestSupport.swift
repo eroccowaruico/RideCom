@@ -75,7 +75,8 @@ enum AppTestSupport {
         callAccessNow: @escaping @MainActor () -> Date = Date.init,
         outputEngine: AVAudioEngine? = nil,
         audioPipeline: AppAudioPipeline? = nil,
-        requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { true }
+        requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { true },
+        callMicrophonePermission: @escaping @MainActor () -> CallMicrophonePermission = { .granted }
     ) -> Harness {
         let groups = groups ?? IntercomSeedData.recentGroups
         let credentialStore = credentialStore ?? InMemoryGroupCredentialStore()
@@ -106,6 +107,7 @@ enum AppTestSupport {
             localMemberIdentityStore: identityStore,
             invitationAuthority: invitationAuthority ?? testInvitationAuthority(),
             requestMicrophoneAccess: requestMicrophoneAccess,
+            callMicrophonePermission: callMicrophonePermission,
             audioSessionManager: audioSessionManager ?? AudioSessionManager(backend: audioSessionBackend),
             audioInputCapture: AudioInputStreamCapture(
                 configuration: .intercom(voiceProcessing: IntercomViewModel.defaultVoiceProcessingConfiguration()),

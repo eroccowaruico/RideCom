@@ -13,7 +13,7 @@ struct StartSavedCallIntent: AppIntent {
     init(target: CallTargetEntity) { self.target = target }
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        try owner.startSavedCall(
+        try await owner.startSavedCall(
             id: target.id,
             missingDestinationMessage: "This saved call destination is no longer available. Choose it again in RideCom."
         )
@@ -28,7 +28,7 @@ struct StartRecentCallIntent: AppIntent {
     @AppDependency var owner: AppCallOwner
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        try owner.startRecentExternalCall()
+        try await owner.startRecentExternalCall()
         return .result(dialog: "Connection started. The other person must also join the call.")
     }
 }

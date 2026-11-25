@@ -53,7 +53,7 @@ struct MenuBarCallTests {
         #expect(viewModel.hasAnyActiveGroupConnection)
     }
 
-    @Test func capturedMenuActionsUseExplicitMuteAndCannotChangeAnotherCall() throws {
+    @Test func capturedMenuActionsUseExplicitMuteAndCannotChangeAnotherCall() async throws {
         let harness = AppTestSupport.makeHarness(), viewModel = harness.viewModel
         defer { viewModel.disconnect() }
         let owner = AppCallOwner(account: viewModel.accountSession, viewModel: viewModel)
@@ -67,14 +67,16 @@ struct MenuBarCallTests {
         #expect(first.reference != second.reference)
         #expect(!owner.setCallSurfaceMuted(false, reference: first.reference))
         #expect(viewModel.isMuted)
-        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.end, reference: first.reference) }
+        await #expect(throws: CallIntentError.self) {
+            try await owner.performCallSurfaceAction(.end, reference: first.reference)
+        }
         #expect(owner.currentLivePresentation?.reference == second.reference)
-        try owner.performCallSurfaceAction(.end, reference: second.reference)
+        try await owner.performCallSurfaceAction(.end, reference: second.reference)
         #expect(viewModel.activeGroupID == nil)
         #expect(owner.isMenuBarInserted)
     }
 
-    @Test func signOutRemovesMenuAndOldActionsCannotControlReplacementModel() throws {
+    @Test func signOutRemovesMenuAndOldActionsCannotControlReplacementModel() async throws {
         let account = AccountFixture(); defer { account.remove() }; account.signIn()
         let harness = AppTestSupport.makeHarness(accountSession: account.session), viewModel = harness.viewModel
         defer { viewModel.disconnect() }
@@ -92,7 +94,9 @@ struct MenuBarCallTests {
         #expect(owner.isMenuBarInserted)
         #expect(!owner.setCallSurfaceMuted(true, reference: old.reference))
         #expect(!next.isMuted)
-        #expect(throws: CallIntentError.self) { try owner.performCallSurfaceAction(.end, reference: old.reference) }
+        await #expect(throws: CallIntentError.self) {
+            try await owner.performCallSurfaceAction(.end, reference: old.reference)
+        }
         #expect(next.hasAnyActiveGroupConnection)
     }
 

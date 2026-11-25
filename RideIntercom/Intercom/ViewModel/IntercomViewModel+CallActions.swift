@@ -3,7 +3,7 @@ import Foundation
 
 /// Choosing from a list: `opened` started or reopened that call; `showsLiveCall` kept you where you are,
 /// because a connection is one place at a time and leaving it takes ending the call first.
-enum DestinationOpening: Equatable { case opened, showsLiveCall }
+enum DestinationOpening: Equatable { case opened, showsLiveCall, blocked }
 
 nonisolated enum CallDestination: Codable, Equatable, Sendable {
     case group(UUID)
@@ -14,6 +14,27 @@ enum CallStartSource {
     case thisDevice
     case watchRemote
     case watchAudio
+}
+
+enum CallMicrophonePermission { case undetermined, denied, granted }
+
+enum CallStartOutcome {
+    case started, failed, blocked
+    case waitingForMicrophone(Task<Bool, Never>)
+
+    var startedImmediately: Bool {
+        if case .started = self { return true }
+        return false
+    }
+
+    func didStart() async -> Bool {
+        guard case .waitingForMicrophone(let task) = self else { return startedImmediately }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
 }
 
 extension IntercomViewModel {
@@ -74,11 +95,69 @@ extension IntercomViewModel {
     @discardableResult
     func startCall(to destination: CallDestination, accountAccessID requestedAccess: UUID,
                    allowSwitchingCall: Bool = true, source: CallStartSource = .thisDevice) -> Bool {
+        requestCallStart(to: destination, accountAccessID: requestedAccess, allowSwitchingCall: allowSwitchingCall,
+                         source: source, presentsAfterPermission: true).startedImmediately
+    }
+
+    func requestCallStart(
+        to destination: CallDestination, accountAccessID requestedAccess: UUID,
+        allowSwitchingCall: Bool = true, source: CallStartSource = .thisDevice,
+        allowsMicrophonePrompt: Bool = true, presentsAfterPermission: Bool = false,
+        isStillAllowed: @escaping @MainActor () -> Bool = { true }
+    ) -> CallStartOutcome {
+        guard !Task.isCancelled, isStillAllowed() else { return .blocked }
+        guard validateCallStartAccount(requestedAccess) else { return .failed }
+        if source != .watchAudio, !isInCall(with: destination) {
+            guard callMicrophonePermissionRequest == nil else { return .blocked }
+            showsCallMicrophonePermissionAlert = false
+            switch callMicrophonePermission() {
+            case .granted: break
+            case .denied:
+                showsCallMicrophonePermissionAlert = allowsMicrophonePrompt
+                return .blocked
+            case .undetermined:
+                guard allowsMicrophonePrompt else { return .blocked }
+                return waitForCallMicrophonePermission(to: destination, allowSwitchingCall: allowSwitchingCall,
+                    source: source, presentsAfterPermission: presentsAfterPermission, isStillAllowed: isStillAllowed)
+            }
+        }
+        return beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source) ? .started : .failed
+    }
+
+    private func validateCallStartAccount(_ requestedAccess: UUID) -> Bool {
         guard !disconnectIfTimerExpired(now: callAccessNow().timeIntervalSince1970) else { return false }
         guard canStartCalls, requestedAccess == accountAccessID else {
             groupErrorMessage = groupStorageNotice ?? "This sign-in has ended. Open your current account to continue."
             return false
         }
+        return true
+    }
+
+    private func waitForCallMicrophonePermission(
+        to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource,
+        presentsAfterPermission: Bool, isStillAllowed: @escaping @MainActor () -> Bool
+    ) -> CallStartOutcome {
+        let id = UUID(), reference = currentCallReference
+        let requestPermission = requestMicrophoneAccess
+        let task = Task { [weak self] in
+            let authorized = Task.isCancelled ? false : await requestPermission()
+            guard let self, self.callMicrophonePermissionRequest?.id == id else { return false }
+            self.callMicrophonePermissionRequest = nil
+            guard !Task.isCancelled, self.currentCallReference == reference, isStillAllowed(),
+                  self.validateCallStartAccount(reference.accountAccessID) else { return false }
+            guard authorized else {
+                self.showsCallMicrophonePermissionAlert = true
+                return false
+            }
+            let started = self.beginCall(to: destination, allowSwitchingCall: allowSwitchingCall, source: source)
+            if started, presentsAfterPermission { self.callToPresentAfterPermission = self.currentCallReference }
+            return started
+        }
+        callMicrophonePermissionRequest = (id, task)
+        return .waitingForMicrophone(task)
+    }
+
+    private func beginCall(to destination: CallDestination, allowSwitchingCall: Bool, source: CallStartSource) -> Bool {
         switch destination {
         case .group(let id):
             guard selectGroupForCall(id, allowSwitchingCall: allowSwitchingCall) else { return false }
@@ -129,8 +208,7 @@ extension IntercomViewModel {
             showLiveCall()
             return .showsLiveCall
         }
-        connectOrShow(destination)
-        return .opened
+        return connectOrShow(destination)
     }
 
     /// Shows the call that is live now, without connecting or switching anything.
@@ -140,8 +218,12 @@ extension IntercomViewModel {
     }
 
     /// A start that cannot proceed still shows the destination, where the reason is explained.
-    private func connectOrShow(_ destination: CallDestination) {
-        guard !startCall(to: destination, accountAccessID: accountAccessID) else { return }
+    private func connectOrShow(_ destination: CallDestination) -> DestinationOpening {
+        switch requestCallStart(to: destination, accountAccessID: accountAccessID, presentsAfterPermission: true) {
+        case .started: return .opened
+        case .blocked, .waitingForMicrophone: return .blocked
+        case .failed: break
+        }
         let message = groupErrorMessage
         switch destination {
         case .group(let id):
@@ -149,6 +231,7 @@ extension IntercomViewModel {
         case .user(let id): selectUser(id, connectIfIdle: false)
         }
         if groupErrorMessage == nil { groupErrorMessage = message }
+        return .opened
     }
 
     func isActiveCall(_ destination: CallDestination) -> Bool {
